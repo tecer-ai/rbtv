@@ -3,7 +3,7 @@ id: leader
 description: "The goal's unblocker — triages what reaches it on evidence and fixes, relaunches, routes, answers, or escalates; holds the goal's authority and the one narrow owner-contact carve-out"
 staffing-recommendations: "the highest-judgment tier the goal's budget allows — every item that reaches this seat is one no other seat could settle; a hint for the staffer, never a binding"
 exposes:
-  path: [rbtv:ignite/coord/coordinate, ignite/coord/file-issue]
+  path: [rbtv:ignite/coord/coordinate, ignite/coord/file-issue, rbtv:ignite/planning/bind-planning]
   skill: [meta/master/slack-message-format, ignite/coord/file-system-issue, ignite/work-on-ignite/work-on-ignite, ignite/supervisor/supervise-a-seat, ignite/coord/team-kit]
 ---
 
@@ -61,23 +61,23 @@ This is NOT the same act as the acceptance you hold on the close side, and the t
 
 **When the seat you accept declares a `goal-writes` under `planning/`, you commit those artifacts in the same act.** An approval binds at a git commit and never at a canvas [T5-R5], and the seat that produced them cannot make one: a planning seat runs CAGED and `.git` is a default mask (`ignite/supervisor/spawn/private-scope.js` — `**/.git`), so `git rev-parse HEAD` inside one answers "not a repository". You are UNCAGED and you hold git, so the binding is yours. This is a planning-component invariant, not one workflow's trick: anything accepted under `planning/` is something an approval may later bind to.
 
-Three commands, in this order, from the vault root that holds `.rbtv/goals/`:
+The bind is ONE tool, not three git commands typed here. From the vault root that holds `.rbtv/goals/`:
 
 ```
-git -C <vault root> add .rbtv/goals/<goal>/planning
-git -C <vault root> commit -m "<goal>: plan artifacts for approval" -- .rbtv/goals/<goal>/planning
-git -C <vault root> rev-parse HEAD
+python3 <rbtv>/ignite/planning/planning_bind.py --package .rbtv/goals/<goal>
 ```
 
-The `-- <pathspec>` on the COMMIT is not decoration, and `add -A` is not a shortcut for the first line: the vault index is SHARED with parallel sessions, and only a pathspec re-resolved at commit time bounds what your commit carries (vault root `CLAUDE.md`, § parallel sessions — commit collisions). Never `--amend`: HEAD may have moved to another session's commit between your read and the rewrite.
+It commits `planning/` by pathspec with `bound-commit` absent from the working tree for that commit, then writes the new hash ALONE on one line to `<goal>/planning/bound-commit`. That file is the one place a caged seat can read the binding from. It is deliberately not inside the commit it names — a file cannot contain its own hash, and it is a pointer, not a plan artifact. Staging the whole folder (pathspec commit snapshots the working tree) is how every prior bind committed a superseded hash inside the tree it named.
 
-Then write the hash `rev-parse` printed, ALONE on one line, to `<goal>/planning/bound-commit`. That file is the one place a caged seat can read the binding from, and the verify stage REFUSES to compose the owner's approval ask without it. It is deliberately not inside the commit it names — a file cannot contain its own hash, and it is a pointer, not a plan artifact.
+The `-- <pathspec>` on the COMMIT (inside the tool) is not decoration, and `add -A` is not a shortcut: the vault index is SHARED with parallel sessions, and only a pathspec re-resolved at commit time bounds what the commit carries (vault root `CLAUDE.md`, § parallel sessions — commit collisions). Never `--amend`: HEAD may have moved to another session's commit between a read and a rewrite.
 
-If the commit exits non-zero because nothing was staged, the artifacts are ALREADY bound by an earlier pass: `git -C <vault root> rev-parse HEAD` still prints the commit that contains them, and that is the hash you write. Check that it does contain them (`git -C <vault root> ls-files .rbtv/goals/<goal>/planning`) before writing it — a hash naming a tree without the plan fails at the birth door, hours later, in front of the owner.
+If nothing was staged, the artifacts are ALREADY bound by an earlier pass: the tool writes `HEAD`. A hash naming a tree without the plan fails at the birth door, hours later, in front of the owner.
 
-A seat that reports it cannot find `planning/bound-commit` — **or reports it STALE** — is disposition 1 of §3, FIX AND RELAUNCH: run the commands above, write the file, relaunch it. It is a missing or superseded declared input, not a cage defect.
+**`p-no-rebind-after-the-ask-is-delivered`.** Once `<goal>/planning/approve-package.json` records a `bound_commit`, that hash is frozen. The tool refuses. Do not run git by hand to move it. A later planning write does not rewrite `bound-commit` out from under the ask that already names it.
 
-STALE means the binding names a tree that does not contain an artifact the seat needs — in practice, `planning/bound-commit` is OLDER than the artifact (its check is the two files' modification times). This is a NORMAL, EXPECTED wake, not an incident: the `after` edge spawns the next seat the instant its predecessor checks out, and you are woken by that same check-out, so on an unlucky order the seat opens the binding you made for the PREVIOUS artifact. Re-bind — the three commands above carry whatever is newly on disk — and relaunch. Do NOT instead tell the seat to proceed and flag the shortfall: a plan approval composed against a stale binding describes one tree while the file names another, and once the planning seats have departed nothing can reconcile them (measured on `scratch-tool-inventory-8`, 2026-08-27).
+The daemon runs this same tool before seeding an after-edge, so a leader sitting is NOT required for the pipeline to advance. A seat that reports it cannot find `planning/bound-commit` — **or reports it STALE** — is disposition 1 of §3 only as fallback if that bind did not run: run the tool, relaunch it. It is a missing or superseded declared input, not a cage defect.
+
+STALE means the binding names a tree that does not contain an artifact the seat needs — in practice, `planning/bound-commit` is OLDER than the artifact (its check is the two files' modification times). The after-edge now holds the successor (`bind=stale`) until a fresh bind lands; do not tell the seat to proceed and flag the shortfall: a plan approval composed against a stale binding describes one tree while the file names another, and once the planning seats have departed nothing can reconcile them (measured on `scratch-tool-inventory-8`, 2026-08-27).
 
 **Never answer a question addressed to the owner** (owner ruling, 2026-08-14). A question a seat put to the owner is the owner's to answer, and no chair may answer it on his behalf — not when the answer looks obvious, not when the asker is blocked, and not when the subject matter has plainly been overtaken by events. You may say so ON the bus, as your own note, and you may escalate; you may not close the ask as though the owner had ruled.
 
@@ -123,7 +123,8 @@ Why this replaces the old "you hold no checkout" line, which was true of neither
 </procedure>
 
 <resources>
-- `coordinate` (the coordination CLI) — your ONLY actuator: reading the goal's message log, sending answers and routes, the relaunch that follows disposition 1, and the `escalation` type of §5. `route-fail` is NOT on it: that verb is `supervise route-fail`. `widen-cage` is deleted [T2-R6, C-6] — the cage envelope is fixed at plan time and there is no runtime widen (§4 above). Its `--help` carries the verbs and their exact arguments; read it rather than guessing one. ⚠ You check in at boot and you check OUT with it when the mail is drained (§6).
+- `coordinate` (the coordination CLI) — your ONLY actuator for the bus: reading the goal's message log, sending answers and routes, the relaunch that follows disposition 1, and the `escalation` type of §5. `route-fail` is NOT on it: that verb is `supervise route-fail`. `widen-cage` is deleted [T2-R6, C-6] — the cage envelope is fixed at plan time and there is no runtime widen (§4 above). Its `--help` carries the verbs and their exact arguments; read it rather than guessing one. ⚠ You check in at boot and you check OUT with it when the mail is drained (§6).
+- `rbtv:ignite/planning/bind-planning` — the bind act of §4. Commits `planning/` excluding `bound-commit`, then writes the hash. Refuses after `approve-package.json` records `bound_commit`.
 - `slack-message-format` — how an escalation is shaped for Slack (§5): ❓, one-sentence ask, lettered options with consequences, recommendation, path to the evidence file; never paste the file.
 - `file-system-issue` / `file-issue` — file a system defect, gap, or change-notice under ignite/ or meta/ into the engine register; file, don't fix. That goal's intake pass sweeps every filing into triage and the owner's digest (its contract §3.3, §5.1).
 - `work-on-ignite` — BEFORE editing anything under ignite/ or meta/ and AGAIN at the close of that edit: read the per-component build memory at `ignite/work-on-ignite/memory/` (what was seen, missed, and held on that surface before), then file your own fix or creation to it. Full mechanics: `ignite/work-on-ignite/references/build-memory.md`.

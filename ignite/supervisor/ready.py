@@ -25,6 +25,11 @@ import coord
 import launch
 import lifecycle_exec
 
+_PLANNING_DIR = Path(__file__).resolve().parent.parent / "planning"
+if str(_PLANNING_DIR) not in sys.path:
+    sys.path.insert(0, str(_PLANNING_DIR))
+import planning_bind  # noqa: E402 — freshness of planning/bound-commit; writes nothing here
+
 # ---------- dag-10: the ready-SEAT arithmetic (`supervise ready-seats`) ----------
 #
 # The ruling this realizes (`d-advancement-on-checkout`): the whole workflow's seat rows are
@@ -861,9 +866,13 @@ def ready_seat_rows(args):
                predecessor checked out `done` — plus, for a GUARDED member, a recorded value
                matching its guard (7.383); an ALTERNATE (`a|b`) is satisfied when ANY ONE of its
                members is (D6). `after_member_state` is that whole arithmetic, in one place.
-               A row that also declares `gate-artifact`/`gate-required` is BLOCKED until that
-               file's first JSON key equals the required `key=value` — sitting `done` is not
-               work-succeeded. Undeclared rows are unchanged.
+                A row that also declares `gate-artifact`/`gate-required` is BLOCKED until that
+                file's first JSON key equals the required `key=value` — sitting `done` is not
+                work-succeeded. Undeclared rows are unchanged.
+                A successor whose `after` members are met is still BLOCKED when
+                `planning/bound-commit` exists and is older than another file under `planning/`
+                (`bind=stale`) — the after-edge must not compose against the tree the recorded
+                bind no longer names. Roots and packages with no bound-commit are unchanged.
        READY    every term above cleared
 
     ⚠ EVERY ROW ALSO CARRIES `seed` (D4) — the resolved absolute paths of the declared outputs of
@@ -1104,6 +1113,12 @@ def ready_seat_rows(args):
                 _gentry["seat"] = seat
                 unmet.append(f"gate={_gstate}")
                 unmet_after.append(_gentry)
+        if not unmet and preds:
+            _fr = planning_bind.freshness(pkg)
+            if _fr["applies"] and _fr["stale"]:
+                unmet.append(f"bind={_fr['state']}")
+                unmet_after.append({"seat": seat, "state": _fr["state"],
+                                    "path": "planning/bound-commit"})
         # ⚠ `disposition`/`source` ARE THE TERMINAL-DISPOSITION SIGNAL, AND THERE IS NO SECOND ONE.
         # W2 moved done-ness OUT of the execution record's `outcome` column (now the process
         # vocabulary `clean|crashed|killed`) and onto the seat's own check-out — which is this

@@ -36,7 +36,7 @@ The seat is not flagged `human-interactive`, deliberately: that flag gates conta
 
 ## The binding act — why an uncaged chair holds it
 
-An approval binds at a git commit and never at a canvas [T5-R5], and the seats that WRITE a plan cannot make one: they run caged, and `.git` is a default mask (`ignite/supervisor/spawn/private-scope.js`). `leader` is uncaged and holds git, so when it ACCEPTS a seat whose declared `goal-writes` lands under `planning/`, it commits those artifacts to the vault by pathspec and writes the hash to `<goal>/planning/bound-commit` — the one source a caged verify seat can read the binding from. The commands and the discipline are in `prompts/leader.md` §4. This is the only write this component makes outside the coordination log, the five ledgers and its own seat folder.
+An approval binds at a git commit and never at a canvas [T5-R5], and the seats that WRITE a plan cannot make one: they run caged, and `.git` is a default mask (`ignite/supervisor/spawn/private-scope.js`). `leader` is uncaged and holds git, so when it ACCEPTS a seat whose declared `goal-writes` lands under `planning/`, it runs `ignite/planning/planning_bind.py` — that tool commits the artifacts by pathspec WITHOUT `planning/bound-commit` inside the named tree, then writes the hash to `<goal>/planning/bound-commit`, the one source a caged verify seat can read the binding from. Once `planning/approve-package.json` records a `bound_commit`, the hash is frozen (`p-no-rebind-after-the-ask-is-delivered`). The daemon runs the same tool before an after-edge launch. The discipline is in `prompts/leader.md` §4. This is the only write this component makes outside the coordination log, the five ledgers and its own seat folder.
 
 ## Authoring provenance
 

@@ -174,6 +174,7 @@ function readCsv(file) {
 // `ready-seats`, `renewal-state` and `boot-prompt` are the daemon's surface and live on
 // `supervise`, which sits beside this file. `coord.py` refuses them by name.
 const SUPERVISE_PY = path.join(__dirname, 'supervise.py');
+const PLANNING_BIND_PY = path.join(__dirname, '..', 'planning', 'planning_bind.py');
 const COORD_TIMEOUT_MS = 60000;
 // Lane-watch cadence is ~10 s and a fire follows its queue row within one tick, so 60 s is
 // comfortably past "one full cadence" while the real thresholding is left to the alarm's
@@ -245,6 +246,31 @@ function summonedSeats(say) {
   }
   SUMMONED_CACHE = new Set(names);
   return SUMMONED_CACHE;
+}
+
+// Bind planning/ before the after-edge is offered. ready-seats is a pure read and will
+// BLOCKED bind=stale; this is the actor that launches, so it refreshes the pointer (unless
+// p-no-rebind-after-the-ask-is-delivered froze it). Injected kitRows skip it — those callers
+// already computed the frontier and must not mint a vault commit.
+function ensurePlanningBind(goalFolder, gitDir, logger) {
+  const planning = path.join(goalFolder, 'planning');
+  if (!fs.existsSync(planning)) return;
+  const args = [PLANNING_BIND_PY, '--package', goalFolder, '--json'];
+  if (gitDir) args.push('--git-dir', gitDir);
+  try {
+    execFileSync(requirePythonCmd(), args, {
+      encoding: 'utf8', timeout: COORD_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (err) {
+    if (logger) {
+      logger({
+        level: 'warn',
+        message: 'planning bind did not run this pass — after-edge stays blocked until a fresh bind',
+        goalFolder,
+        evidence: String(err.stderr || err.message || '').slice(0, 400),
+      });
+    }
+  }
 }
 
 function readySeats(goalFolder, { heartStore = null, goal = null, rows: taskRows = null } = {}) {
@@ -1048,7 +1074,11 @@ function seedGoal({
   }
   const rows = readTaskforce(goalFolder);
   const seats = rows.map((r) => r.seat);
-  // ⚠ COORD FIRST, AND BEFORE ANYTHING IS WRITTEN. A refused computation seeds NOTHING for this
+  // Bind BEFORE ready-seats so the after-edge is not offered against a dead tree. Frozen once
+  // approve-package.json names a hash. Injected kitRows skip it (those callers already hold a
+  // frontier and must not mint a vault commit). Store rows still wait on coord, below.
+  if (!kitRows) ensurePlanningBind(goalFolder, wsRoot, logger);
+  // ⚠ COORD FIRST, AND BEFORE ANY STORE ROW IS WRITTEN. A refused computation seeds NOTHING for this
   // goal this pass — not a partial enqueue, and not even the create-only job registration, which
   // would be store rows written off an answer nobody has. The next pass retries; missing any
   // number of passes costs latency and nothing else (§ Why the re-seed stays the driver).
