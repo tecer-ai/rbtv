@@ -1931,6 +1931,32 @@ def cmd_send(args):
             f"an override would reintroduce.",
             1)
 
+    # ── d-53 (owner ruling `d-53-redirect-to-leader`, 2026-08-31) · MAIL TO A SUMMONED-BUT-ASLEEP
+    # CHAIR REDIRECTS TO LEADER, not option (a) refuse-loudly and not option (c) accept-and-pile-up.
+    #
+    # `goal-master` — the one name in `SUMMONED_SEATS` — does not wake on mail BY DESIGN (D24):
+    # only the owner's own summon (a goal-channel message or `@rbtv` tag) starts it. Mail addressed
+    # to it while it holds no live pane therefore had NO DRAIN PATH at all — it piled up unread
+    # indefinitely, and that pile once ate the owner's OWN Slack asks (bus #33266/#33306,
+    # 2026-08-20). Redirected HERE, before the unknown-recipient and departed checks below, so
+    # every later gate — including those — sees the resolved `leader` and judges it on its own
+    # merits, the same ordering discipline `auto` uses above.
+    #
+    # ⚠ ONLY WHILE ASLEEP. A `goal-master` currently summoned (an active roster row with a live
+    # pane) is reached directly — redirecting a chair that IS awake would defeat the very summon
+    # that woke it.
+    #
+    # Accepted consequence, stated by the owner: `leader` now receives some mail that is not
+    # strictly its business — that is not a defect to design around.
+    if is_summoned_seat(args.to):
+        _sm_row = current_row(load_workers(base)[2], args.to)
+        _sm_awake = bool(_sm_row) and _sm_row.get("active") == "yes" and is_tmux_pane(_sm_row.get("pane"))
+        if not _sm_awake:
+            print(c(f"redirected: `{args.to}` is a SUMMONED chair asleep by design — mail is not "
+                    f"its wake term (D24), so it never drains what piles up there. Routed to "
+                    f"`leader` instead.", C_HINT))
+            args.to = "leader"
+
     # F5 — a typo'd recipient was accepted silently: the message landed under a name nobody
     # reads and the only signal was one "wake skipped" line the sender scrolled past.
     # Constraint 3: a register row that did not resolve is announced HERE, on the path that was
@@ -2530,6 +2556,19 @@ def cmd_send(args):
     # daemon being reachable.
     _g793_fail = gateway_send_leg(args, base, args.to, args.type, body)
     deliver_wakes(args, base, sender, args.to, n, args.type, origin)
+    # d-111 — DEPARTED-SEAT AUTO-COPY. The warning above only ever told the SENDER to resend to
+    # `leader` by hand; nothing acted on that advice, so a deliverable addressed to an empty chair
+    # could sit unread indefinitely. This copies the same body to `leader` in the same send, as a
+    # `note` (the original `--type` may be sender-restricted — e.g. `ask`/`escalation` — and a
+    # copy is not the sender re-asking). `leader` can never itself be in `departed`
+    # (`send_recipients` subtracts `STAFF_SEATS`), so this never re-copies a message already
+    # addressed to leader.
+    if args.to in departed:
+        fwd_body = (f"[auto-copied — #{n} was addressed to `{args.to}`, a DEPARTED seat, and "
+                    f"would otherwise sit unread]\n\n{body}")
+        fwd_n = append_message(base, sender, "leader", "note", fwd_body, origin=origin)
+        deliver_wakes(args, base, sender, "leader", fwd_n, "note", origin)
+        print(f"  auto-copied to leader as #{fwd_n} (departed-seat routing)")
     if _g793_fail:
         # Loud, and non-zero. The message IS locally logged, so this is not a `refuse` — but a
         # contracted leg failed, and 7.94's whole finding is that a failed call must never read
