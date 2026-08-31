@@ -2441,6 +2441,41 @@ def _selftest_checks(args, failures, names):
               "| to: leader | type: note" in _d111_new
               and "d111-probe: owner deliverable" in _d111_new
               and "auto-copied to leader as #" in _d111_combined)
+        # ---- d-53 (owner ruling `d-53-redirect-to-leader`, task 53): mail to `goal-master` — the
+        # one SUMMONED_SEATS chair — is REDIRECTED to `leader` while it holds no live pane (asleep
+        # by design, D24 — mail is never its wake term), and reaches it DIRECTLY once it is
+        # actually summoned (an active roster row with a live pane). `goal-master` has no roster
+        # row at this point in the fixture, so it starts asleep. ----
+        _d53_before = (base_dir(ns()) / "messages.md").read_text(encoding="utf-8")
+        _d53_out, _d53_err, _d53_code = harness_outcome(
+            cmd_send, ns(agent="alpha", to="goal-master", message="d53-probe: owner deliverable",
+                        type="note", supersedes=None, re_num=None, file=None))
+        _d53_combined = _d53_out + _d53_err
+        _d53_after = (base_dir(ns()) / "messages.md").read_text(encoding="utf-8")
+        _d53_new = _d53_after[len(_d53_before):]
+        check("d-53: mail to an ASLEEP `goal-master` (no live pane) is REDIRECTED to `leader`, "
+              "never left addressed to the sleeping chair (task 53)",
+              _d53_code is None and "redirected:" in _d53_combined and "`leader`" in _d53_combined
+              and "| to: leader | type: note" in _d53_new
+              and "d53-probe: owner deliverable" in _d53_new
+              and "| to: goal-master |" not in _d53_new)
+        # control: SUMMON it (active roster row + live pane) and confirm the redirect does NOT
+        # fire — redirecting an awake chair would defeat the very summon that woke it.
+        run(cmd_checkin, agent="goal-master", summary="summoned and awake", pane="%50")
+        _d53c_before = (base_dir(ns()) / "messages.md").read_text(encoding="utf-8")
+        _d53c_out, _d53c_err, _d53c_code = harness_outcome(
+            cmd_send, ns(agent="alpha", to="goal-master",
+                        message="d53-control: reaches the chair directly",
+                        type="note", supersedes=None, re_num=None, file=None))
+        _d53c_combined = _d53c_out + _d53c_err
+        _d53c_after = (base_dir(ns()) / "messages.md").read_text(encoding="utf-8")
+        _d53c_new = _d53c_after[len(_d53c_before):]
+        check("d-53 control: a SUMMONED and AWAKE `goal-master` (active roster row + live pane) "
+              "is reached DIRECTLY — the redirect fires only while asleep",
+              _d53c_code is None and "redirected:" not in _d53c_combined
+              and "| to: goal-master | type: note" in _d53c_new
+              and "d53-control: reaches the chair directly" in _d53c_new)
+        run(cmd_checkout, agent="goal-master", no_export=True)  # restore fixture: back to asleep
         # ---- fix round: a built-in auto-wake DEFAULT naming a seat this package does not have ----
         # (the body must not name the seat itself — the assertion below reads the whole log)
         out = sd("alpha", "beta", "a routine send in a package holding no such default seat")
