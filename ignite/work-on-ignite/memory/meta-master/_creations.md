@@ -1,1 +1,3 @@
 # meta-master — date · kind · title · symptom→cause · commit · others · ⚠ | newest last
+2026-08-28 · creation · the voice-note flow written into slack-message-format.md · clause 3 had no landing place: an owner-facing seat could read the whole Slack reference and learn nothing about the voice notes the owner sends → one ## section appended inside the <reference> fence, every command in the python3 <full path> form because CLI reach is a per-seat grant, not a cage property · NONE (uncommitted) · capabilities · ⚠
+2026-08-30 · creation · audio and Slack split into two injected skills · The split follows the MODULE boundary, because that boundary is already the real one: · ccae8263 · capabilities,team-kit,config · ⚠
