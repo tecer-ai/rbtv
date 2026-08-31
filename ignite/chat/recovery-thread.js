@@ -16,14 +16,18 @@
 //   swallowed, because an owner who typed `drop-lane` and saw nothing would reasonably type it
 //   again, exactly the silence this whole seat exists to end.
 //
-// ⚑ `retryWithChange` AND `dropLane` ARE NOT WIRED BY ANY CALLER TODAY (`digest-recovery-thread`'s
-//   own report). `retry-with-change` needs a LANE-scoped re-arm+relaunch gateway act (today's
-//   `pause-resume` resume is GOAL-scoped, `rearmScope`); `drop-lane` needs a "permanently abandon
-//   this lane" concept the counters/reconcile system does not have anywhere yet. Building either is
-//   its own design surface, not a parameter on an existing door — this module still dispatches to
-//   them so the shape is complete, and reports the missing-port failure honestly until they exist.
+// ⚑ `retryWithChange` IS NOT WIRED BY ANY CALLER TODAY (`digest-recovery-thread`'s own report).
+//   `retry-with-change` needs a LANE-scoped re-arm+relaunch gateway act (today's `pause-resume`
+//   resume is GOAL-scoped, `rearmScope`) — its own design surface, not a parameter on an existing
+//   door. This module still dispatches to it so the shape is complete, and reports the missing-
+//   port failure honestly until it exists.
 //   `pauseGoal` IS wired (`chat-bridge.js`): `pause-goal` reuses the EXISTING `pause-resume` intent
 //   directly, goal-scoped, exactly what that outcome asks for.
+//   `dropLane` IS wired (`dl-teardown-wire`, `d-recovery-drop-stops-live-work`): `chat-bridge.js`
+//   stops the lane's live work over the wire (existing `inspect` + `kill-session` intents), THEN
+//   marks it abandoned via the sixteenth intent, `drop-lane` (`ignite/state-store/heart/drop-
+//   lane.js`, calling `abandonSeat` from `dl-abandoned-outcome`). A refusal from either step still
+//   reaches this door's ordinary failure arm below — the message text changed, not the mechanism.
 
 function call(port, name, args) {
   if (typeof port !== 'function') return Promise.resolve({ ok: false, error: `no ${name} port is wired` });
@@ -80,10 +84,16 @@ function createRecoveryDispatch({
       case 'drop-lane': {
         const out = await call(dropLane, 'dropLane', { goalId, seat, askId, comments });
         if (!out.ok) {
-          await say({ channelId, goalId, askId, text: `drop-lane did not run: ${out.error}. The ask is settled; the lane was NOT dropped.` });
+          // `out.error` already names WHICH of the two steps failed and what that leaves true —
+          // the port (`chat-bridge.js`) composes that text, this door only relays it. The ask is
+          // settled either way (the recovery ladder does not re-offer a settled ask), so a failed
+          // drop is retryable only via a fresh `drop-lane` reply on a NEW ask, same as the other
+          // two outcomes.
+          await say({ channelId, goalId, askId, text: `drop-lane failed: ${out.error}` });
           log('warn', 'recovery drop-lane REFUSED', { goalId, seat, askId, error: out.error });
           return { action: 'drop-lane-failed', ok: false, outcome, error: out.error };
         }
+        await say({ channelId, goalId, askId, text: `${goalId}/${seat} dropped: live work stopped and the lane is permanently marked abandoned. This cannot be undone.` });
         log('info', 'recovery drop-lane fired', { goalId, seat, askId });
         return {
           action: 'drop-lane', ok: true, outcome, result: out,

@@ -544,6 +544,25 @@ function createAuthzPolicy({ resolvers = [tokenKindResolver, seatPrincipalResolv
     };
   }
 
+  // ⚑ NOT ASKED THROUGH `principalsOf`, verbatim `canPauseResume`'s own reason: the resolver chain
+  // feeds canRemoveQueueRow / canKillSession too, so teaching it a bridge principal would silently
+  // widen decisions this ruling never touched. This function tests `sender.kind` directly and
+  // mints no PRINCIPALS entry, so nothing else can ever inherit the grant.
+  function canDropLane({ sender }) {
+    const allowed = !!sender && sender.kind === 'bridge';
+    const seenAs = !sender ? 'no attested sender at all'
+      : (typeof sender.kind === 'string' && sender.kind
+        ? `a ${sender.kind} token`
+        : 'a sender carrying no attested kind');
+    return {
+      allowed,
+      principals: allowed ? ['bridge'] : [],
+      reason: allowed
+        ? 'authorized as: the chat bridge'
+        : `drop-lane requires the chat BRIDGE token; you are ${seenAs}`,
+    };
+  }
+
   function canSecretAdd({ sender }) {
     const SECRET_ADD_MASTERS = ['goal-master', 'channel-master', 'console-master'];
     const bareSeat = (sender && typeof sender.seat === 'string' && sender.seat.length > 0)
@@ -568,7 +587,9 @@ function createAuthzPolicy({ resolvers = [tokenKindResolver, seatPrincipalResolv
     };
   }
 
-  return { canRemoveQueueRow, canSnoozeWarning, canKillSession, canRegisterJob, canDeregisterJob, canRecordBusAnswer, canRecordOwnerAsk, canStartExecution, canPauseResume, canSecretAdd, principalsOf, PRINCIPALS };
+  return {
+    canRemoveQueueRow, canSnoozeWarning, canKillSession, canRegisterJob, canDeregisterJob, canRecordBusAnswer, canRecordOwnerAsk, canStartExecution, canPauseResume, canDropLane, canSecretAdd, principalsOf, PRINCIPALS,
+  };
 }
 
 module.exports = { createAuthzPolicy, tokenKindResolver, PRINCIPALS };

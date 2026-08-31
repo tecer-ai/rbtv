@@ -44,6 +44,11 @@ const { startExecution } = require('../../state-store/heart/start-execution');
 // The `pause-resume` act (owner direction 2026-08-28). Required for the same reason as its three
 // siblings above: a stateless call, not a manager holding processes.
 const { pauseResume } = require('../../state-store/heart/pause-resume');
+// The `drop-lane` act (owner rulings `d-recovery-drop-is-one-lane-permanent` /
+// `d-recovery-abandoned-is-an-ending` / `d-recovery-drop-stops-live-work`, 2026-08-31). Required
+// for the same reason as its four siblings above: a stateless call, not a manager holding
+// processes.
+const { dropLane } = require('../../state-store/heart/drop-lane');
 const { applySecretAdd } = require('./secret-add');
 // The ONE alarm emitter's own reader [T4-R10]. Required here for `readOpenConditions` and for
 // NOTHING else: the daemon's status read never composes an alarm, and the instance built below is
@@ -146,7 +151,7 @@ const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
   'kill-session', 'register-job', 'deregister-job', 'live-feed', 'send-message',
   'record-bus-answer', 'secret-add', 'record-owner-ask', 'start-execution',
-  'pause-resume',
+  'pause-resume', 'drop-lane',
 ]);
 
 // The goal/seat name shape, re-checked at the core independently of the gateway's copy
@@ -1784,6 +1789,54 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     };
   }
 
+  // `drop-lane` (owner rulings `d-recovery-drop-is-one-lane-permanent` / `d-recovery-abandoned-is-
+  // an-ending` / `d-recovery-drop-stops-live-work`, 2026-08-31): the SIXTEENTH intent. Marks ONE
+  // `(goal, seat)` lane's second terminal outcome (`dropLane` -> `abandonSeat`, `dl-abandoned-
+  // outcome`). MARKING ONLY — the caller (`chat-bridge.js`'s `dropLane` port) stops the lane's
+  // live work FIRST, over the wire, through the existing `inspect` + `kill-session` intents; this
+  // handler never touches a session or a queue row.
+  function handleDropLane(payload, sender) {
+    for (const key of Object.keys(payload)) {
+      if (!['goal', 'seat', 'ask_id'].includes(key)) {
+        throw new InternalApiError(VALIDATION_FAILED, `unknown payload field: ${key}`, { check: 'strict-schema', field: key });
+      }
+    }
+    if (typeof payload.goal !== 'string' || !BUS_NAME_RE.test(payload.goal)) {
+      throw new InternalApiError(VALIDATION_FAILED, 'drop-lane goal must be a bare name (no path separators, no "..", no control characters)', { check: 'name-shape', field: 'goal' });
+    }
+    if (typeof payload.seat !== 'string' || !BUS_NAME_RE.test(payload.seat)) {
+      throw new InternalApiError(VALIDATION_FAILED, 'drop-lane seat must be a bare name (no path separators, no "..", no control characters)', { check: 'name-shape', field: 'seat' });
+    }
+    if (payload.ask_id !== undefined && (typeof payload.ask_id !== 'string' || payload.ask_id.trim().length === 0)) {
+      throw new InternalApiError(VALIDATION_FAILED, 'drop-lane ask_id must be a non-empty string when present', { check: 'ask-id-shape', field: 'ask_id' });
+    }
+
+    // AUTHORIZATION, same shape as `pause-resume` (DEC-3: gateway origin is not trust).
+    const decision = authz.canDropLane({ sender });
+    if (!decision.allowed) {
+      throw new InternalApiError(UNAUTHORIZED_SENDER, decision.reason, { check: 'authorization' });
+    }
+    if (!workspaceRoot) {
+      throw new InternalApiError(INTERNAL, 'this daemon has no workspace root, so it can reach no goal folder', { check: 'workspace-root' });
+    }
+
+    const out = dropLane({
+      workspaceRoot, goal: payload.goal, seat: payload.seat, askId: payload.ask_id,
+    });
+    if (!out.found) {
+      // A refusal is journalled too, same reason `pause-resume`'s own refusal comment gives: a
+      // silent daemon side reads on inspection as "the verb never reached the daemon".
+      log('info', 'the owner\'s drop-lane was REFUSED — no live goal by that name', {
+        goal: payload.goal, seat: payload.seat, reason: out.reason, senderId: sender && sender.id,
+      });
+      throw new InternalApiError(NOT_FOUND, `no live goal named ${payload.goal} — ${out.detail}`, { check: 'live-goal-roster', goal: payload.goal });
+    }
+    log('info', 'a lane was permanently marked abandoned', {
+      goal: payload.goal, seat: payload.seat, idempotent: out.idempotent, senderId: sender && sender.id,
+    });
+    return { goal: out.goal, seat: out.seat, idempotent: out.idempotent === true };
+  }
+
   function handleSecretAdd(payload, sender) {
     for (const key of Object.keys(payload)) {
       if (!['name', 'from_file'].includes(key)) {
@@ -1977,6 +2030,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         case 'record-owner-ask': result = handleRecordOwnerAsk(env.payload, env.sender); break;
         case 'start-execution': result = handleStartExecution(env.payload, env.sender); break;
         case 'pause-resume': result = handlePauseResume(env.payload, env.sender); break;
+        case 'drop-lane': result = handleDropLane(env.payload, env.sender); break;
         case 'secret-add': result = handleSecretAdd(env.payload, env.sender); break;
       }
 

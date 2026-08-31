@@ -103,7 +103,7 @@ const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
   'kill-session', 'register-job', 'deregister-job', 'live-feed', 'send-message',
   'record-bus-answer', 'secret-add', 'record-owner-ask', 'start-execution',
-  'pause-resume',
+  'pause-resume', 'drop-lane',
 ]);
 
 // A goal id and a seat name, SHAPE ONLY. A deliberate SECOND copy of `bus-ferry.js#SAFE_NAME_RE`,
@@ -901,6 +901,43 @@ function parseSecretAdd(payload) {
   return { name: payload.name, from_file: payload.from_file };
 }
 
+// `drop-lane` (owner rulings `d-recovery-drop-is-one-lane-permanent`, `d-recovery-abandoned-is-
+// an-ending`, `d-recovery-drop-stops-live-work`, 2026-08-31) — the SIXTEENTH intent — SHAPE ONLY,
+// like every parse here. Marks ONE `(goal, seat)` lane abandoned, permanently, no undo.
+//
+// ⚑ A NEW INTENT, NOT A THIRD `pause-resume` VERB. That door's own header (above, ~line 827) keeps
+// its verb a CLOSED two-member enum on purpose — one grammar, one target resolution, one NACK for
+// a MECHANICAL, reversible pair. Dropping a lane is neither mechanical (it answers a specific
+// recovery ask, not a bare Slack command) nor reversible, so it gets its own name rather than
+// widening that enum, per `dispatch.js`'s own rule: new capability is added by name, never by
+// widening an existing intent's payload semantics.
+//
+// ⚑ WHAT THE GATEWAY CANNOT CHECK AND MUST NOT GROW A HANDLE TO TRY: whether the goal exists,
+// whether the seat is materialized in it, and whether the lane is already abandoned (a no-op, not
+// a refusal). All three are the core's complete re-validation (DEC-3) via `abandonSeat`'s own
+// idempotency.
+//
+// ⚑ `ask_id` IS OPTIONAL, evidence only (recorded on the abandonment row, never verified) — the
+// same shape `record-bus-answer`'s `corpus` and `pause-resume`'s `chat_user` already carry for
+// audit text nobody re-derives a decision from.
+function parseDropLane(payload) {
+  requireObject(payload);
+  rejectUnknownKeys(payload, new Set(['goal', 'seat', 'ask_id']), 'drop-lane');
+  for (const key of ['goal', 'seat']) {
+    if (typeof payload[key] !== 'string' || !BUS_NAME_RE.test(payload[key])) {
+      bad(`drop-lane ${key} must be a bare name — letters, digits, '.', '_' or '-', starting alphanumeric (no path separators, no "..", no control characters)`, key);
+    }
+  }
+  const out = { goal: payload.goal, seat: payload.seat };
+  if (payload.ask_id !== undefined) {
+    if (typeof payload.ask_id !== 'string' || payload.ask_id.trim().length === 0) {
+      bad('drop-lane ask_id must be a non-empty string when present', 'ask_id');
+    }
+    out.ask_id = payload.ask_id;
+  }
+  return out;
+}
+
 // Raw sender input -> a typed request payload, or a typed refusal. This is the
 // ONLY function in the daemon that interprets raw sender input.
 function parseRequest({ intent, payload }) {
@@ -923,6 +960,7 @@ function parseRequest({ intent, payload }) {
     case 'secret-add': return parseSecretAdd(payload);
     case 'start-execution': return parseStartExecution(payload);
     case 'pause-resume': return parsePauseResume(payload);
+    case 'drop-lane': return parseDropLane(payload);
   }
 }
 
