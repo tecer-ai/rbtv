@@ -130,7 +130,7 @@ def door_of(name):
 # 2026-08-19) — a daemon-only lane; no seat ever types it.
 # `renewal-state` is the engine's exit decision transporting `renewal_state`'s answer (LE-10,
 # 2026-08-19) — read-only, engine-consumed; no seat ever types it.
-HIDDEN_COMMANDS = ("lifecycle-exec", "surface-refusal", "renewal-state")
+HIDDEN_COMMANDS = ("lifecycle-exec", "surface-refusal", "renewal-state", "finish-on-completion")
 
 
 ADVICE_SEND = re.compile(
@@ -1251,6 +1251,19 @@ def build_parser(door=COORDINATION_DOOR):
     s.add_argument("--note", default="", help="free text appended to the finish event's body")
     add_identity_flags(s)
     s.set_defaults(func=cmd_finish_goal)
+
+    s = command(
+        "finish-on-completion",
+        "DAEMON FINISH-ON-COMPLETION — the same EVENT `finish-goal` writes (FINISH_MARKER), fired\n"
+        "when every last-milestone seat has posted a non-finish completion and no finish event\n"
+        "exists. Attributed to `ignite-daemon`, never silently `from: leader`. Mid-pipeline work\n"
+        "is refused. `finish-goal` stays the leader's verb; goal-master is still refused there.",
+        "example:\n"
+        "  coordinate --as ignite-daemon finish-on-completion\n"
+        "next: nothing. The goal is over; the watchers exit on their next pass")
+    s.add_argument("--note", default="", help="free text appended to the finish event's body")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_finish_on_completion)
 
     s = command(
         "advance-state",

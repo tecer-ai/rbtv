@@ -42,6 +42,7 @@ const {
 // has one of its own.
 const { deriveOwed } = require('./owed');
 const { finishEvent } = require('./owed-from-endings');
+const { finishOnCompletion } = require('./finish-on-completion');
 const { launchThroughDoor } = require('./launch-door');
 const { DOORS } = require('./doors');
 // ── THE PROVIDER-CLASSIFICATION HOOKUP [spec-recovery §3, T1-R13, C-10] ───────────────────────
@@ -792,6 +793,7 @@ function reconcileGoal({
   promptFn = undefined,
   recoverFn = undefined,
   live = undefined,
+  finishOnCompletionFn = undefined,
 }) {
   const heartStore = engine && engine.heartStore;
   const workspaceRoot = workspaceRootArg
@@ -827,6 +829,21 @@ function reconcileGoal({
     if (!dryRun && heartStore) setPassAt(heartStore, goal, at);
     if (say) say('info', 'reconcile: skipped — goal is finished', { goal });
     return { skipped: 'finished', goal };
+  }
+
+  if (goalFolder && !dryRun) {
+    const foc = typeof finishOnCompletionFn === 'function'
+      ? finishOnCompletionFn(goalFolder)
+      : finishOnCompletion(goalFolder);
+    if (foc && foc.fired) {
+      if (heartStore) setPassAt(heartStore, goal, at);
+      if (say) say('info', 'reconcile: finish-on-completion fired the finish EVENT', { goal });
+      return {
+        skipped: 'finished',
+        goal,
+        actions: [{ kind: 'finish-on-completion', detail: foc.detail || '' }],
+      };
+    }
   }
 
   const actions = [];

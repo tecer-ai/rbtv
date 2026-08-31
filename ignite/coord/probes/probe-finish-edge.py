@@ -171,6 +171,63 @@ def main():
                   "7.608's shape, and the answer must come from the room and nothing else",
                   detail3 == "" and lease3.get("live") is False and lease3.get("rooms") == [],
                   f"detail={detail3[:80]!r} live={lease3.get('live')!r}")
+
+            # ── F7 / F8 / F9 — finish-on-completion (task 168): EVENT source, no live leader ──
+            stall = td / "ws" / ".rbtv" / "goals" / f"zz-stall-{os.getpid()}"
+            (stall / "coordination").mkdir(parents=True)
+            (stall / "taskforce.csv").write_text(
+                "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
+                "tf-1,leader,,claude,claude-opus-5,medium,35,\n"
+                "tf-1,builder,,claude,claude-opus-5,high,35,m1\n"
+                "tf-1,auditor,builder,claude,claude-opus-5,high,35,m7\n",
+                encoding="utf-8")
+            coord.append_message(stall / "coordination", "auditor", "leader", "completion",
+                                 "M7 COMPLETE — verdict PASS. Product written. Work-already-done.")
+            check("F7a last-milestone completion with empty leader chair is NOT yet finished — "
+                  "the stall the 429-killed sitting left",
+                  coord.goal_finished(stall) is None
+                  and coord.last_milestone_complete(stall) is True)
+            env = {**os.environ, "COORD_AGENT": ""}
+            env.pop("COORD_AGENT", None)
+            r7 = subprocess.run(
+                [sys.executable, str(KIT / "coord.py"), "--package", str(stall),
+                 "--as", "ignite-daemon", "finish-on-completion"],
+                capture_output=True, text=True, timeout=30, env=env)
+            check("F7b finish-on-completion fires the EVENT without a live leader sitting",
+                  r7.returncode == 0 and coord.goal_finished(stall) is not None,
+                  (r7.stdout + r7.stderr)[:180])
+            stall_bus = (stall / "coordination" / "messages.md").read_text(encoding="utf-8")
+            check("F7c the EVENT is attributed to ignite-daemon, never silently from: leader",
+                  "| from: ignite-daemon |" in stall_bus
+                  and stall_bus.count(coord.FINISH_MARKER) == 1
+                  and "Work-already-done" in stall_bus)
+
+            mid = td / "ws" / ".rbtv" / "goals" / f"zz-mid-{os.getpid()}"
+            (mid / "coordination").mkdir(parents=True)
+            (mid / "taskforce.csv").write_text(
+                "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
+                "tf-1,leader,,claude,claude-opus-5,medium,35,\n"
+                "tf-1,builder,,claude,claude-opus-5,high,35,m1\n"
+                "tf-1,auditor,builder,claude,claude-opus-5,high,35,m7\n",
+                encoding="utf-8")
+            coord.append_message(mid / "coordination", "builder", "leader", "completion",
+                                 "M1 COMPLETE — mid-pipeline; auditor has not run")
+            r8 = subprocess.run(
+                [sys.executable, str(KIT / "coord.py"), "--package", str(mid),
+                 "--as", "ignite-daemon", "finish-on-completion"],
+                capture_output=True, text=True, timeout=30, env=env)
+            check("F8 mid-pipeline completion does NOT fire the finish edge",
+                  r8.returncode != 0 and coord.goal_finished(mid) is None
+                  and "last milestone is not complete" in (r8.stdout + r8.stderr),
+                  (r8.stdout + r8.stderr)[:180])
+
+            r9 = subprocess.run(
+                [sys.executable, str(KIT / "coord.py"), "--package", str(stall),
+                 "--as", "goal-master", "finish-goal"],
+                capture_output=True, text=True, timeout=30)
+            check("F9 finish-goal as goal-master on a staffed goal still refuses "
+                  "(role gate intact after the daemon door)",
+                  r9.returncode != 0 and "role gate" in (r9.stdout + r9.stderr))
         finally:
             subprocess.run(["tmux", "kill-server"], capture_output=True, timeout=20)
 

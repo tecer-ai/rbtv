@@ -898,6 +898,96 @@ def cmd_finish_goal(args):
         print(f"lifecycle marker: LEFT {_seat} — {_why}")
 
 
+def last_milestone_seats(pkg):
+    """Leaf taskforce seats that carry a milestone-id — the last milestone's chairs.
+
+    `after` names predecessors. A seat is last when no other row lists it as a predecessor.
+    Seats with an empty milestone-id (leader, summoned chairs) are not a milestone.
+    """
+    header, rows = read_csv_table(Path(pkg) / "taskforce.csv", [])
+    if not rows or "seat" not in header or "milestone-id" not in header:
+        return []
+    si = header.index("seat")
+    mi = header.index("milestone-id")
+    ai = header.index("after") if "after" in header else None
+    named = []
+    preds = set()
+    for r in rows:
+        pad_row(r, header)
+        seat = r[si].strip()
+        if not seat:
+            continue
+        if ai is not None:
+            for tok in r[ai].replace(";", ",").split(","):
+                t = tok.strip()
+                if t:
+                    preds.add(t)
+        if r[mi].strip():
+            named.append(seat)
+    return [s for s in named if s not in preds]
+
+
+def last_milestone_complete(pkg):
+    """True when every last-milestone seat has posted a non-finish `completion`.
+
+    A mid-pipeline completion (a predecessor, not a leaf) does not qualify. The finish
+    EVENT itself is not a last-milestone completion.
+    """
+    seats = last_milestone_seats(pkg)
+    if not seats:
+        return False
+    _, blocks = load_messages(Path(pkg) / "coordination")
+    done = set()
+    for b in blocks:
+        if b.get("type") != "completion":
+            continue
+        body = "\n".join(b.get("lines", [])[1:]).strip()
+        if body.startswith(FINISH_MARKER):
+            continue
+        sender = b.get("sender") or ""
+        if sender in seats:
+            done.add(sender)
+    return all(s in done for s in seats)
+
+
+def cmd_finish_on_completion(args):
+    caller = gate(args, "finish-on-completion")
+    pkg = package_dir(args)
+    env_agent = os.environ.get("COORD_AGENT", "").strip()
+    if env_agent and env_agent != DAEMON_IDENTITY:
+        refuse("role gate",
+               f"`finish-on-completion` is the ignite daemon's act and COORD_AGENT is "
+               f"`{env_agent}`. A seated identity must use `finish-goal` as `leader`.\n"
+               + ROLE_GATE_LAYER_NOTE, 2)
+    if caller != DAEMON_IDENTITY:
+        refuse("role gate",
+               f"`finish-on-completion` is the ignite daemon's act and you are "
+               f"{('`' + caller + '`') if caller else 'an unresolved identity'}. "
+               f"The human/leader verb remains `finish-goal` — this door exists so a last-milestone "
+               f"completion can fire the EVENT when the leader chair is empty, attributed to "
+               f"`{DAEMON_IDENTITY}`, never silently `from: leader`.\n"
+               + ROLE_GATE_LAYER_NOTE, 2)
+    if not last_milestone_complete(pkg):
+        refuse("state",
+               "last milestone is not complete — mid-pipeline work must not fire the finish edge. "
+               "A 429 (or empty chair) on a non-last sitting is not a finish.", 1)
+    ok, detail = fire_finish_edge(
+        pkg, DAEMON_IDENTITY,
+        getattr(args, "note", "") or
+        "finish-on-completion: last milestone complete; no live leader sitting required")
+    if not ok:
+        refuse("state", detail, 1)
+    print(detail)
+    print(c("watchers terminate on this event alone. Until it fired, an absent room was a CRASH "
+            "and the watcher relaunched it; from here it is a finished goal", C_HINT))
+    swept, survivors = lifecycle_exec.sweep_lifecycle(base_dir(args))
+    if swept:
+        print(f"lifecycle marker: swept {len(swept)} completed "
+              f"{'entry' if len(swept) == 1 else 'entries'} ({', '.join(swept)})")
+    for _seat, _why in survivors:
+        print(f"lifecycle marker: LEFT {_seat} — {_why}")
+
+
 def claude_projects_dir():
     """Evaluated at CALL time, not import time, so a test can point HOME at a sandbox and have the
     resolver follow it. A module constant computed from Path.home() at import silently ignores the
