@@ -146,7 +146,20 @@ def undelivered_line(base):
             f"  Read them all: {base / 'undelivered-flags.md'}")
 
 
-def stamp_checkout_ending(args, seat, kind, *, declared=None, diagnostic="", evidence=""):
+def posted_open_asks_for_seat(args, seat):
+    """Posted open asks this seat still owes an owner answer — empty if the store cannot be read.
+
+    Fail-open on an unreadable store: this is the park detector for `--renew` refusal and for
+    stamping `blocked-on-human`, not the D8 done-hold (that one fail-closes). A missing store must
+    not strand an ordinary context-refresh."""
+    try:
+        return list(ending_store.list_open_asks(package_dir(args), seat=seat, posted=1) or [])
+    except ending_store.EndingStoreError:
+        return []
+
+
+def stamp_checkout_ending(args, seat, kind, *, declared=None, diagnostic="", evidence="",
+                          park_on_owner=False):
     """Seat-declare / system rewrite for one checkout (spec §4.1 cell map).
 
     ⚠ THE DECLARED OUTPUTS ARE RESOLVED THROUGH `output_candidates`, THE PRESENCE CHECK'S OWN
@@ -175,6 +188,14 @@ def stamp_checkout_ending(args, seat, kind, *, declared=None, diagnostic="", evi
         return ending_store.stamp_seat_declare(
             pkg, seat, "done", declared_outputs=abs_decl, evidence=ev)
     if kind == "incomplete":
+        # A seat may not stamp incomplete disarmed (writers.js). Owner-wait is a fact the KIT
+        # witnessed (posted open asks), so the park is system-voice `blocked-on-human` — armed=0
+        # until `ask-answered`. Tasks 41+159: this is the one parked-wait ending; `--renew` is
+        # refused on the same fact, never delayed.
+        if park_on_owner:
+            return ending_store.stamp_system(
+                pkg, seat, "incomplete", diagnostic="blocked-on-human",
+                armed=0, named_event="ask-answered", evidence=ev)
         return ending_store.stamp_seat_declare(
             pkg, seat, "incomplete", diagnostic=diagnostic or "context full", evidence=ev)
     if kind == "outputs-missing":
@@ -1366,6 +1387,30 @@ def cmd_checkout(args):
             f"never checked in, or you already checked out.\n"
             f"See the roster: {coord_invocation(args)} workers",
             1)
+    # Tasks 41+159: parked wait is `--incomplete`, never `--renew`. A posted unanswered owner
+    # ask is the kit-witnessed wait; `--renew` would fork an immediate successor (no delay, no
+    # wake) and was the 70s busy-loop on system-health/plan-completeness-reviewer. Refuse HERE,
+    # before any write. Relay / ending-stamp waits have no table row — protocol + briefing
+    # mandate `--incomplete` for those; this door covers the owner-ask half mechanically.
+    if renew:
+        _park_asks = posted_open_asks_for_seat(args, me)
+        if _park_asks:
+            refuse(
+                "state",
+                f"'{me}' has {len(_park_asks)} posted ask(s) to the owner that nobody has "
+                f"answered, so this check-out will not `--renew`. `--renew` boots a successor "
+                f"NOW; a wait on the owner's answer is not a continuation of this seat — it is "
+                f"an unfinished ending. `--incomplete` and `--renew` stay opposite statements.\n"
+                + "".join(f"  UNANSWERED: {b['ask_id']} to the owner — "
+                            f"{truncate(str(b.get('evidence_pointer') or ''), 160)}\n"
+                          for b in _park_asks) +
+                f"Park the wait: {coord_invocation(args)} checkout --incomplete "
+                f"\"asked the owner in "
+                + ", ".join(str(b['ask_id']) for b in _park_asks)
+                + " and ended with no answer\"\n"
+                f"That stamps `blocked-on-human` (disarmed until `ask-answered`). Nothing was "
+                f"written and nothing was closed.",
+                1)
     # ---- 7.676 (+ D3): VERIFY BEFORE ASSERTING `done` -------------------------------------------
     #
     # THREE QUESTIONS AT ONE GATE, and every one of them asks whether this `done` is TRUE: did this
@@ -1672,6 +1717,7 @@ def cmd_checkout(args):
         checkout_kind = "done"
     checkout_diagnostic = ("context full" if renew
                            else (incomplete if incomplete else ""))
+    park_on_owner = bool(incomplete) and bool(posted_open_asks_for_seat(args, me))
     _checkout_landed = []
     if renew:
         if handoff is None:
@@ -1818,7 +1864,8 @@ def cmd_checkout(args):
             declared=_declared_paths + _missing_paths,
             diagnostic=checkout_diagnostic,
             evidence=((_missing_paths[0] if _missing_paths else None)
-                      or out or f"checkout:{me}"))
+                      or out or f"checkout:{me}"),
+            park_on_owner=park_on_owner)
         print(f"ending store: {me} {stamped.get('ending') if isinstance(stamped, dict) else checkout_kind}"
               f"{('/' + stamped['reason_class']) if isinstance(stamped, dict) and stamped.get('reason_class') else ''}")
         _checkout_landed.append(f"ending store: {checkout_kind}")
@@ -1936,11 +1983,18 @@ def cmd_checkout(args):
                         f"ending.",
                         C_HINT))
             else:
-                print(c(f"next: nothing on your side — this session ended INCOMPLETE and the run "
-                        f"records that you said so. Leader frees the pane "
-                        f"(`{coord_invocation(args)} close-seat {me}`) and picks the work up; no "
-                        f"successor of this seat is booted and NO DAG EDGE ADVANCED on this ending.",
-                        C_HINT))
+                if park_on_owner:
+                    print(c(f"next: nothing on your side — this session PARKED on the owner's "
+                            f"unanswered ask (`blocked-on-human`, disarmed until `ask-answered`). "
+                            f"No successor is booted. Do not stay up waiting and do not `--renew`. "
+                            f"The wake is the owner's reply in that thread (spec-state-store §2.8).",
+                            C_HINT))
+                else:
+                    print(c(f"next: nothing on your side — this session ended INCOMPLETE and the run "
+                            f"records that you said so. Leader frees the pane "
+                            f"(`{coord_invocation(args)} close-seat {me}`) and picks the work up; no "
+                            f"successor of this seat is booted and NO DAG EDGE ADVANCED on this ending.",
+                            C_HINT))
         else:
             print(c(f"next: nothing on your side — this session is DONE and leader frees the pane "
                     f"(`{coord_invocation(args)} close-seat {me}`). Renewing a seat is the SEAT's "

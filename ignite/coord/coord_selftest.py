@@ -9837,6 +9837,56 @@ def _selftest_checks(args, failures, names):
               and {r["seat"]: r["verdict"] for r in _w2_bb_rows} == {"a": "READY", "b": "BLOCKED"}
               and all(r["held-asks"] == [] for r in _w2_bb_rows))
 
+        # ---- tasks 41+159: parked wait is --incomplete, never --renew (one mechanism) ----
+        _pk_pkg = _rs_make(
+            "park41", [("waiter", ""), ("relay", "")],
+            at=seed_workspace(Path(td) / "park41-ws") / ".rbtv" / "goals" / "park41")
+        _d3_checkin(_pk_pkg, "waiter", "%241")
+        _d3_checkin(_pk_pkg, "relay", "%259")
+        ending_store.ending_store_op(
+            "insertAsk",
+            {"ask_id": "ask-park-41", "goal": ending_store.goal_id_of(_pk_pkg),
+             "seat": "waiter", "label": "work-content",
+             "evidence_pointer": "messages.md#1"},
+            start=_pk_pkg)
+        ending_store.ending_store_op("postAsk", {"ask_id": "ask-park-41"}, start=_pk_pkg)
+        _pk_forks_before = list(forked_renewals)
+        _pk_t0 = time.time()
+        _pk_ro, _pk_re, _pk_rc = harness_outcome(
+            cmd_checkout, _d3_ns(_pk_pkg, as_agent="waiter", renew=True,
+                                 handoff="renew again while the ask is unanswered"))
+        _pk_t1 = time.time()
+        check("park-wait 41: --renew with a posted unanswered owner ask is REFUSED, forks nothing, "
+              "and the refusal lands in well under a minute (no successor cycle)",
+              _pk_rc not in (None, 0) and "will not `--renew`" in (_pk_ro + _pk_re)
+              and forked_renewals == _pk_forks_before
+              and (_pk_t1 - _pk_t0) < 60)
+        _pk_io, _pk_ie, _pk_ic = harness_outcome(
+            cmd_checkout, _d3_ns(_pk_pkg, as_agent="waiter",
+                                 incomplete="asked the owner and ended with no answer"))
+        _pk_end = ending_store.get_current_ending(_pk_pkg, "waiter") or {}
+        check("park-wait 41: --incomplete on that ask parks blocked-on-human armed=0 "
+              "(wake=ask-answered), no fork",
+              _pk_ic is None and _pk_end.get("ending") == "incomplete"
+              and _pk_end.get("armed") is not None and int(_pk_end.get("armed")) == 0
+              and _pk_end.get("diagnostic") == "blocked-on-human"
+              and _pk_end.get("named_event") == "ask-answered"
+              and forked_renewals == _pk_forks_before)
+        ending_store.ending_store_op("reapAndRelaunch", {"ask_id": "ask-park-41"}, start=_pk_pkg)
+        _pk_wake = ending_store.get_current_ending(_pk_pkg, "waiter") or {}
+        check("park-wait 41: ask-answered re-arms once — at most one relaunch per wake",
+              _pk_wake.get("ending") == "incomplete" and int(_pk_wake.get("armed") or 0) == 1)
+        _pk_159o, _pk_159e, _pk_159c = harness_outcome(
+            cmd_checkout, _d3_ns(_pk_pkg, as_agent="relay",
+                                 incomplete="awaiting relay #3"))
+        _pk_159 = ending_store.get_current_ending(_pk_pkg, "relay") or {}
+        check("park-wait 159: paneless --incomplete awaiting a relay ends incomplete not "
+              "failed/crash, and does not fork a successor",
+              _pk_159c is None and _pk_159.get("ending") == "incomplete"
+              and not _pk_159.get("reason_class")
+              and int(_pk_159.get("armed") or 0) == 1
+              and forked_renewals == _pk_forks_before)
+
         # ---- D8: THE PARK GATES, ONE SET OF FIXTURES -------------------------------------------
         # `ask_parked_at_gate` reads the ferry's delivery gates (owner ruling 2026-08-11 — the
         # alternative, having the ferry record delivered/parked on the bus, was rejected against

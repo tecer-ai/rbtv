@@ -52,8 +52,8 @@ $COORD create-group <group> [member ...]        # creator + leader auto-included
 $COORD add-to-group <group> <member ...>        # leader only
 $COORD export-transcript <agent> [--label L]    # full pane scrollback -> workers/<agent>/transcripts/
 $COORD checkout                                 # on finish (done disposition) — exports your transcript first (--no-export skips)
-$COORD checkout --renew --handoff "<note>"      # renewal disposition — two-step, the CLI teaches it; the handoff REPLACES your memory.md (item 9). --handoff-file PATH for a note the shell would mangle
-$COORD checkout --incomplete "<reason>" [--route leader]  # unfinished ending — no edge advances; the closer mails the named staff chair (default and only value: leader)
+$COORD checkout --renew --handoff "<note>"      # renewal disposition — two-step, the CLI teaches it; the handoff REPLACES your memory.md (item 9). --handoff-file PATH for a note the shell would mangle. REFUSED while a posted ask of yours to the owner is unanswered (tasks 41+159)
+$COORD checkout --incomplete "<reason>" [--route leader]  # unfinished ending — no edge advances; the closer mails the named staff chair (default and only value: leader). ALSO the parked wait: owner ruling, relay, or ending stamp — never --renew and never stay up polling for those
 $COORD route-fail "<the fail>" --inline [--go]  # route a FAIL to the receiver your seat.md declares in `on-fail-relaunch:`; an UNDECLARED fail goes to leader. Bare = report only
 $COORD depart                                   # ephemeral seats: export + checkout + kill own pane
 $SUPERVISE close-seat <agent> [--renew] [--no-export]  # mechanical close — the daemon's or leader's remedy for a seat that cannot check itself out, or a dead pane. FAILURE PATH: a healthy seat renews itself (line above), never through this
@@ -193,8 +193,17 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
    CHECKOUT STANDS: the handoff is written and the roster flipped, only the relaunch did not
    happen, and the printed remedy is leader's `supervise close-seat <you> --renew` — run directly, no
    spawned agent in the path.
-   (`depart` = export + checkout + killing the seat's own pane, one command, no name — a seat
-   can only depart itself.) Leader checks out only after all workers have.
+    **Parked wait (tasks 41+159).** Waiting on an owner ruling, a relay answer, or another seat's
+    ending stamp is `--incomplete "<what you are waiting on>"`, never `--renew`, never staying up
+    to poll. `--renew` boots a successor immediately (no delay, no wake-on-event) — measured
+    2026-08-19 on `system-health`/`plan-completeness-reviewer` as four ~70s cycles. A paneless
+    daemon-lane sitting that stays up until X dies `failed`/`crash` and spends a relaunch-budget
+    attempt (`stools-canvas-audio-elevenlabs-close` reach-prover/key-steward;
+    `meet-transcript-summarizer-planning` leader `eb4e4a39`). `--renew` is REFUSED while a posted
+    ask of yours to the owner is unanswered; that `--incomplete` stamps `blocked-on-human`
+    (disarmed until `ask-answered`). `--incomplete` and `--renew` remain opposite statements.
+    (`depart` = export + checkout + killing the seat's own pane, one command, no name — a seat
+    can only depart itself.) Leader checks out only after all workers have.
 9. **Memory and the seat-folder write contract (persistent seats only).** This item is the ONE
    normative home of the seat-folder write contract — every other surface (run routers,
    `communication.md`, seat descriptors) CITES it and restates nothing. **Amended owner-ruled

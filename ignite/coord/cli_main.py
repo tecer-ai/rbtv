@@ -634,7 +634,12 @@ def build_parser(door=COORDINATION_DOOR):
         "declared output is missing, when a guard value you owe is unwritten, or when an ask of\n"
         "yours to the owner is unanswered — `done` advances the run, so it is not a word you may\n"
         "guess with. The last of those three is the one you cannot clear yourself: an answer is\n"
-        "the owner's to give, so this is the way out, not a wait.",
+        "the owner's to give, so this is the way out, not a wait.\n"
+        "\n"
+        "Parked wait (owner ruling, relay, ending stamp): `--incomplete`, never `--renew`, never\n"
+        "stay up polling. `--renew` is REFUSED while a posted ask of yours to the owner is\n"
+        "unanswered; that incomplete stamps `blocked-on-human` (wake = ask-answered). `--incomplete`\n"
+        "and `--renew` remain opposite statements (tasks 41+159).",
         "example:\n"
         "  coordinate checkout\n"
         "  coordinate checkout --renew\n"
@@ -649,7 +654,7 @@ def build_parser(door=COORDINATION_DOOR):
     s.add_argument("--handoff-file", dest="handoff_file", metavar="PATH", default=None,
                    help="the same note, read from a UTF-8 file instead of the command line — requires --renew, and never together with --handoff. Use it whenever the note has backticks, quotes or many lines, which a shell mangles before coord.py sees them")
     s.add_argument("--incomplete", metavar="REASON", default=None,
-                   help="end this session UNFINISHED and say so, quoted — your done-contract is unmet and no successor is booted. It records disposition `incomplete` instead of `done`, so NO DAG EDGE ADVANCES and leader is routed the row carrying your reason. Use it instead of a plain checkout whenever your briefing asked for something that does not exist; never together with --renew, which says the opposite (the seat CONTINUES)")
+                    help="end this session UNFINISHED and say so, quoted — your done-contract is unmet and no successor is booted. It records disposition `incomplete` instead of `done`, so NO DAG EDGE ADVANCES and leader is routed the row carrying your reason. Use it instead of a plain checkout whenever your briefing asked for something that does not exist; ALSO the parked wait on an owner ruling, a relay, or an ending stamp — never stay up, never --renew for those. A posted unanswered owner ask stamps blocked-on-human (disarmed until ask-answered). Never together with --renew, which says the opposite (the seat CONTINUES)")
     s.add_argument("--route", metavar="CHAIR", default=None, choices=list(STAFF_SEATS),
                    help="which STAFF CHAIR the session-closer mails this ending to. There is only "
                         "one: `leader`, the unblocker that holds this goal's authority. It is a "

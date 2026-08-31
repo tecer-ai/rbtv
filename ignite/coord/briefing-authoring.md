@@ -53,8 +53,13 @@ can actually run). Both are decided once, per run, and the briefings below only 
   Checkout consequence: a plain `checkout` computes it and REFUSES to record `done` while any
   declared token is absent or empty — it names each missing path, and nothing is written, nothing
   exported, the roster row still ACTIVE. The seat either produces them and re-runs `checkout`, or
-  ends honestly with `checkout --incomplete "<why they are unmet>"`. `--incomplete` and `--renew`
-  skip the check (neither asserts completion). Omitting the block is allowed and never refused:
+   ends honestly with `checkout --incomplete "<why they are unmet>"`. `--incomplete` and `--renew`
+   skip the check (neither asserts completion). **Parked wait (tasks 41+159):** a briefing that
+   waits on an owner ruling, a relay, or an ending stamp MUST end `--incomplete "<what is waited
+   on>"` — never `--renew` (immediate successor, no wake) and never "stay up until X" (paneless
+   sittings die `failed`/`crash`). `--renew` is refused while a posted owner-ask of that seat is
+   unanswered. `--incomplete` and `--renew` remain opposite statements.
+   Omitting the block is allowed and never refused:
   the seat's disposition record then reads `none-declared` and that `done` is unverified.
   ⚠ **A PROSE `## Outputs` section is LOUDLY ungradeable.** A section that names no backticked
   path token yields ZERO declared outputs; the check-out records `outputs-undeclarable: zero

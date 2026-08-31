@@ -10,6 +10,7 @@ import importlib.util
 import shutil
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -186,6 +187,80 @@ def main():
               and rec_i.get("who_stamped") == "seat")
         check("A2: incomplete closes the roster row",
               not active(mod, pkg2, "barren"))
+
+        # ---- tasks 41+159: parked wait is --incomplete, never --renew, never stay-up ----
+        forked = []
+        _fork_real = mod.lifecycle_exec.fork_lifecycle_renewal
+        mod.lifecycle_exec.fork_lifecycle_renewal = (
+            lambda _a, _b, _seat, _pane: forked.append((_seat, time.time())))
+        try:
+            pkg_loop = make_package(tmp / "renew-loop", {"looper": ""})
+            checkin(mod, pkg_loop, "looper", "%41a")
+            t0 = time.time()
+            out_r1, code_r1 = checkout(mod, pkg_loop, "looper",
+                                       renew=True, handoff="renew again while waiting")
+            t1 = time.time()
+            check("R41 red-shape: --renew --handoff with NO open ask forks immediately (no delay)",
+                  code_r1 == 0 and len(forked) == 1 and (t1 - t0) < 60)
+
+            pkg_park = make_package(tmp / "park-owner", {"waiter": ""})
+            checkin(mod, pkg_park, "waiter", "%41b")
+            mod.ending_store.ending_store_op(
+                "insertAsk",
+                {"ask_id": "ask-41", "goal": mod.ending_store.goal_id_of(pkg_park),
+                 "seat": "waiter", "label": "work-content",
+                 "evidence_pointer": "messages.md#1"},
+                start=pkg_park)
+            mod.ending_store.ending_store_op("postAsk", {"ask_id": "ask-41"}, start=pkg_park)
+            n_fork_before = len(forked)
+            out_ref, code_ref = checkout(mod, pkg_park, "waiter",
+                                         renew=True, handoff="renew again while the ask is unanswered")
+            check("R41: --renew with a posted unanswered owner ask is REFUSED and does not fork",
+                  code_ref != 0 and "will not `--renew`" in out_ref
+                  and "checkout --incomplete" in out_ref
+                  and len(forked) == n_fork_before
+                  and active(mod, pkg_park, "waiter"))
+
+            out_p, code_p = checkout(mod, pkg_park, "waiter",
+                                     incomplete="asked the owner in ask-41 and ended with no answer")
+            rec_p = ending_of(mod, pkg_park, "waiter")
+            check("R41: that --incomplete parks blocked-on-human armed=0 named_event=ask-answered",
+                  code_p == 0 and rec_p is not None
+                  and rec_p.get("ending") == "incomplete"
+                  and rec_p.get("armed") is not None and int(rec_p.get("armed")) == 0
+                  and rec_p.get("diagnostic") == "blocked-on-human"
+                  and rec_p.get("named_event") == "ask-answered"
+                  and rec_p.get("who_stamped") == "system"
+                  and len(forked) == n_fork_before)
+            mod.ending_store.ending_store_op(
+                "reapAndRelaunch", {"ask_id": "ask-41"}, start=pkg_park)
+            rec_wake = ending_of(mod, pkg_park, "waiter")
+            check("R41: ask-answered re-arms once (at most one relaunch per wake)",
+                  rec_wake is not None and rec_wake.get("ending") == "incomplete"
+                  and int(rec_wake.get("armed") or 0) == 1)
+
+            pkg_159 = make_package(tmp / "paneless-wait", {"relay": ""})
+            checkin(mod, pkg_159, "relay", "%159")
+            n_fork_159 = len(forked)
+            out_159, code_159 = checkout(mod, pkg_159, "relay",
+                                         incomplete="awaiting relay #3")
+            rec_159 = ending_of(mod, pkg_159, "relay")
+            check("R159: paneless --incomplete awaiting a relay ends incomplete, not failed/crash",
+                  code_159 == 0 and rec_159 is not None
+                  and rec_159.get("ending") == "incomplete"
+                  and not rec_159.get("reason_class")
+                  and int(rec_159.get("armed") or 0) == 1
+                  and rec_159.get("who_stamped") == "seat"
+                  and not active(mod, pkg_159, "relay")
+                  and len(forked) == n_fork_159)
+            proto = (KIT / "protocol.md").read_text(encoding="utf-8")
+            help_txt = (KIT / "cli_main.py").read_text(encoding="utf-8")
+            check("R159: protocol+CLI forbid stay-up / --renew for parked wait",
+                  "never stay up" in proto and "Parked wait" in proto
+                  and "Parked wait" in help_txt
+                  and "--incomplete" in proto and "--renew" in proto)
+        finally:
+            mod.lifecycle_exec.fork_lifecycle_renewal = _fork_real
 
         mdir = tmp / "mutant"
         mdir.mkdir()

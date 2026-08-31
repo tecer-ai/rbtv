@@ -81,7 +81,9 @@ ctx-refresh: 50            # optional; context-refresh threshold % for THIS seat
  Persistent seats end with a completion message then `checkout` — plain for the done disposition;
  `checkout --renew --handoff "<note>"` when the seat renews or context-refreshes instead (the CLI
  teaches the two-step; the handoff lands in the seat's `memory.md`; a `close: mechanical` seat is
- refused there — leader-side close-and-relaunch is its path; evidence at protocol item 8). It
+ refused there — leader-side close-and-relaunch is its path; evidence at protocol item 8). Waiting
+ on an owner ruling, a relay, or an ending stamp is `checkout --incomplete "<what you are waiting
+ on>"` — never `--renew`, never stay up (tasks 41+159). It
  exports the seat's transcript first (`--no-export` is the escape for a dead pane). Ephemeral seats end with plain
  `depart`, which exports, checks out and kills their own pane. Neither command takes a name —
  the seat's identity is resolved from its pane (protocol item 8).}
