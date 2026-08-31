@@ -329,9 +329,23 @@ async function main() {
   tmux(['kill-session', '-t', `=${G_DAEMON}`]);
   say(`room killed; sessions now ${JSON.stringify(sessionNames())}`);
 
-  await mutantArm('the daemon-lane guard is dropped (console and paused goals get rooms)',
+  // STALE CLAIM CORRECTED (found 2026-08-31, room-selfheal seat): this arm used to assert that
+  // dropping `if (lane !== DAEMON)` exposes BOTH console and paused goals. It no longer does —
+  // pause moved to its OWN earlier, independent `continue` (`laneIsPaused`, reading the
+  // goal-state row rather than the `execution-lane` word: "the file is no longer a pause
+  // surface"), so this mutation alone can only ever expose the CONSOLE-lane goal; a paused
+  // daemon-lane goal stays protected by the guard below regardless. The old combined assertion
+  // was therefore UNSATISFIABLE by this mutation and had been failing on HEAD independent of any
+  // change to this file (confirmed: `git diff HEAD -- ignite/supervisor/lane-watch.js` is empty
+  // for this seat's whole session). Split into two honest, independently-discriminating arms.
+  await mutantArm('the daemon-lane guard is dropped (console gets a room; paused stays protected '
+    + 'by its OWN separate gate)',
     [['if (lane !== DAEMON) {', 'if (false) {']],
-    (r) => r.opened.includes(G_CONSOLE) && r.opened.includes(G_PAUSED));
+    (r) => r.opened.includes(G_CONSOLE) && !r.opened.includes(G_PAUSED));
+
+  await mutantArm('the laneIsPaused guard is dropped (a store-paused daemon-lane goal gets a room)',
+    [["if (!goal.startsWith('_') && laneIsPaused(goalFolder, engine && engine.heartStore)) {", 'if (false) {']],
+    (r) => r.opened.includes(G_PAUSED));
 
   await mutantArm('the launchable-row guard is dropped (a room for a goal whose only seat is uncast)',
     [["if (!launchable.length) return { opened: false, reason: 'no-launchable-row' };", '']],
