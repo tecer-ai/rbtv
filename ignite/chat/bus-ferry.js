@@ -540,6 +540,33 @@ function formatMessage(row, { goalId, stamp, relPath, maxBodyChars = DEFAULT_MAX
   return ping + (body ? `${header}\n${body}` : header);
 }
 
+// ── THE ESCALATION MARKER IN AN OPEN ASK'S ONE-LINER (`d-escalation-surface` part 8) ───────────
+//
+// `open_asks` (`state-store/tables.sql`) carries no column that tells an escalation apart from any
+// other `label: 'recovery'` row — that label is a two-value DIGEST TAXONOMY
+// (`work-content`/`recovery`), shared by an escalation, an ordinary admitted `leader` message, and
+// a daemon-decided exhausted-lane ask (`recovery-poster.js`, `kind: 'recovery'`). `kind:
+// 'escalation'` IS computed, right here in this module (`isEscalation`, below), and reaches
+// `ask-thread.js#postAsk` — but only for the [T2-R14] DOOR; `state-store/heart/ask-record.js
+// #openAsk` never receives it and the row is never stamped with it. Adding a column is an
+// owner-gated schema change (out of this seat's custody) and is NOT made here — see the seat's own
+// report for the proposed one.
+//
+// THE ONE SIGNAL THAT DOES SURVIVE TO DISK: the ask's own header, composed by `formatMessage`
+// above (`agentLead` branch) as `... · ${row.type} · #...` — literally the word "escalation" for
+// an escalation row, since `postAsk`'s `body` is always `splitAskBody(formatMessage(row, {...,
+// agentLead: true, ...}))` (the row loop, below) and `splitAskBody` never touches the header line.
+// `state-store/heart/ask-record.js#listOpenAsks` reads that header back as `one_liner` (the ask
+// copy's first non-empty line) for the fleet-wide digest read this module's own gate re-uses.
+// This is the SAME weakest-available text-marker fallback `system-digest.js#sortAsksBlockingFirst`
+// already uses for its own missing structural field (`d-ask15-blocking-asks-first`), not a new
+// pattern — and it carries the same fragility: reword the `agentLead` header format and this marker
+// goes stale silently. Grep both together before editing either.
+const ESCALATION_ONE_LINER_MARK = ' · escalation · #';
+function isEscalationOneLiner(oneLiner) {
+  return typeof oneLiner === 'string' && oneLiner.includes(ESCALATION_ONE_LINER_MARK);
+}
+
 // ── THE FINISH EDGE'S ONE CHANNEL POST [T5-R16, spec-owner-io §1] ────────────────────────────
 //
 // A goal that finished told NOBODY. The finish edge fires (`coord.py records.py#cmd_finish_goal`),
@@ -814,6 +841,12 @@ function createBusFerry({
   // unwired `routeToAgentThread` does. The DM is the escalation/alarm surface and a completion is
   // neither, so an embedder that wires no channel leg gets a logged skip, never a wrong surface.
   postGoalChannel = null,
+  // ONE OPEN ESCALATION PER GOAL (`d-escalation-surface` part 8) — the FLEET-WIDE open-ask reader,
+  // `ask-store.js#listOpenAsks` (-> gateway `inspect asks` -> `open_asks`), injected by the bridge
+  // for the same reason `postAsk` is: this module holds no store handle and no gateway forwarder
+  // of its own. Unwired (probes, any embedder that wires nothing) the gate below is a no-op and an
+  // escalation is admitted exactly as it was before this seat — additive, never a second queue.
+  listOpenAsks = null,
 } = {}) {
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
@@ -1151,6 +1184,56 @@ function createBusFerry({
           // caller learns, and nothing is silently swallowed here. That refusal is DETERMINISTIC
           // and is disposed of on the FIRST pass — for an `escalation`, by the content-bearing
           // owner DM (W8-C). See § the terminal-refusal block below.
+          // ── ONE OPEN ESCALATION PER GOAL (`d-escalation-surface` part 8) ───────────────────────
+          //
+          // On 2026-08-31 one goal raised three blocking escalations in seventeen minutes, and the
+          // second withdrew a claim the first had made; three open threads at once would have let
+          // the owner rule on retracted evidence. This is the opposite force from the head-of-line
+          // JUMP above (only an escalation walks past a stuck row): a NEW escalation — never a
+          // reply `chatThread` routes into an ask ALREADY open, which mints nothing here — is HELD
+          // on the bus, unposted, while the goal already carries an open, posted escalation ask.
+          //
+          // ⚑ READ FRESH OFF `open_asks` EVERY TIME, NEVER FROM A LOCAL SET. Two ferry passes
+          // across a restart or a revive must agree on what is open, and in-memory queue state is
+          // exactly the failure class a sibling defect in this subsystem measured (two bridge
+          // lineages both answering one thread, `seed/slack-duplicate-replies.md` defect 1).
+          // `listOpenAsks` is the fleet-wide reader (`ask-store.js`, gateway `inspect asks`); this
+          // gate filters it to `goalId` and to `isEscalationOneLiner` — see that function's header
+          // for why a text marker and not a column.
+          //
+          // ⚑ THE THREE-WAY CASE: one open escalation, one stuck ordinary row, one NEW escalation.
+          // The new escalation clears the head-of-line test above (only an escalation jumps a
+          // stuck row) and reaches HERE, where it is held — `stuckAt` is set (or left as the
+          // ordinary row's own) exactly as an ordinary undelivered row would, so the cursor still
+          // does not advance past EITHER. No deadlock: the stuck ordinary row keeps retrying on its
+          // own independent attempts ladder, untouched by this gate, and the held escalation is
+          // re-read every pass — the moment the open escalation closes, the earliest held one (id
+          // order, this loop's own order) posts on the very next pass and becomes the new "open
+          // escalation" a later one is held against, so FIFO order falls out of the loop's own id
+          // order with no queue of its own to get out of sync.
+          //
+          // ⚑ NEVER THE ATTEMPTS/`maxAttempts` LADDER. A `continue` here skips the whole delivery
+          // try-block below, so a held escalation never accrues an attempt, never reaches the
+          // abandon-at-cap path, and is never force-delivered to the owner DM (W8-C) — that path is
+          // for TRANSPORT failures; this is a deliberate, working-as-designed queue, logged every
+          // pass so it is never mistaken for the silence this whole module exists to end.
+          if (isEscalation && !chatThread && listOpenAsks) {
+            const openAsks = await listOpenAsks();
+            const alreadyOpen = Array.isArray(openAsks) && openAsks.some(
+              (a) => a && String(a.goal) === String(goalId) && isEscalationOneLiner(a.one_liner),
+            );
+            if (alreadyOpen) {
+              log('info', 'bus ferry HELD a new escalation — this goal already has one open [d-escalation-surface part 8]',
+                { key, msgId: row.id, from: row.from });
+              // Forget the size so the NEXT pass re-reads this goal even if nothing new was
+              // appended — the same reason the ordinary retry ladder does it (below): without this
+              // the unchanged-size short-circuit at the top of this function would skip the goal
+              // forever once its own escalation closes with no other bus traffic to bump the file.
+              sizes.delete(key);
+              if (stuckAt === null) stuckAt = row.id;
+              continue;
+            }
+          }
           const arm = chatThread || isEscalation || isFinish ? null : fallbackArm(row.from);
           // Two ask LABELS reach the owner and only two [D-7-ruling]: the leader's traffic and any
           // escalation are `recovery`, everything else — including the deleted consultant's former
@@ -1467,4 +1550,5 @@ module.exports = {
   goalExecutionMode, seatIsHumanInteractive, seatDirIsHumanInteractive, isSafeName, INTERACTIVE_MODE, AUTONOMOUS_MODE,
   seatFallback, seatDirFallback, FALLBACK_ARMS, FALLBACK_PARK, FALLBACK_MARK,
   FINISH_MARKER, LEADER_CHAIR, isFinishRow, composeCompletionNotice,
+  ESCALATION_ONE_LINER_MARK, isEscalationOneLiner,
 };

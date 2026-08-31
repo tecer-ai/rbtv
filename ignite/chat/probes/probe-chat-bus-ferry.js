@@ -576,6 +576,207 @@ async function main() {
     a.bridge.stop();
   }
 
+  // W10 — ONE OPEN ESCALATION PER GOAL (`d-escalation-surface` part 8, seat `esc-one-at-a-time`).
+  //       On 2026-08-31 one goal raised three blocking escalations in seventeen minutes and the
+  //       second withdrew a claim the first had made; three open threads at once would have let
+  //       the owner rule on retracted evidence. A tiny stand-in for the daemon's `open_asks` table
+  //       — a plain array, read fresh by `listOpenAsks` on every call, exactly the shape
+  //       `ask-store.js#listOpenAsks` -> `state-store/heart/ask-record.js#listOpenAsks` returns
+  //       (`{ goal, one_liner }`, among other fields this gate does not read) — proves the gate
+  //       reads PERSISTED state on every pass rather than caching a bridge-local flag.
+  // A tiny stand-in for the daemon's `open_asks` table — a plain array, read fresh by
+  // `listOpenAsks` on every call, exactly the shape `ask-store.js#listOpenAsks` ->
+  // `state-store/heart/ask-record.js#listOpenAsks` returns (`{ goal, one_liner }`, among other
+  // fields this gate does not read) — proves the gate reads PERSISTED state on every pass rather
+  // than caching a bridge-local flag. `postAsk` mints THROUGH THIS TABLE, never through the fake
+  // Slack transport — exactly like the real `ask-thread.js#postAsk` leg, which never calls
+  // `transport.sendToOwner` on success (`res = { delivered: true, ts: asked.askId }` is set
+  // directly). `calls` is every invocation in arrival order, successful or not, which is what lets
+  // an assertion prove ORDER without `slack.posted` standing in for a leg it never rides.
+  function makeOpenAsksTable() {
+    const rows = []; // { goal, one_liner, state: 'open'|'closed', askId }
+    const calls = []; // { goalId, body, posted }
+    let failNext = 0; // opt-in: fail the next N postAsk calls (a transient mint failure)
+    return {
+      rows, calls,
+      failNextPosts(n = 1) { failNext = n; },
+      postAsk: async (args) => {
+        if (failNext > 0) {
+          failNext -= 1;
+          calls.push({ goalId: args.goalId, body: args.body, posted: false });
+          return { posted: false, reason: 'transient' };
+        }
+        const oneLiner = String(args.body || '').split('\n').find((l) => l.trim() !== '') || '';
+        const askId = `ask-${rows.length + 1}`;
+        rows.push({ goal: args.goalId, one_liner: oneLiner, state: 'open', askId });
+        calls.push({ goalId: args.goalId, body: args.body, posted: true, askId });
+        return { posted: true, askId, text: args.body };
+      },
+      listOpenAsks: async () => rows.filter((r) => r.state === 'open').map((r) => ({ goal: r.goal, one_liner: r.one_liner })),
+      close(askId) { const r = rows.find((x) => x.askId === askId); if (r) r.state = 'closed'; },
+      countOpen(goal) { return rows.filter((r) => r.goal === goal && r.state === 'open').length; },
+      minted() { return calls.filter((c) => c.posted); }, // successful mints, arrival order
+    };
+  }
+  {
+    // W10-RED — on the CURRENT (unwired) gate, three escalations from one goal all post as open
+    // threads simultaneously — `listOpenAsks` is simply not passed, the documented no-op default.
+    const root = mkroot();
+    const GOAL = 'goal-w10-red';
+    const { file } = seedGoal(root, GOAL, '2026-08-31a', { backlogRows: 1 });
+    const table = makeOpenAsksTable();
+    const a = makeBridge({ workspaceRoot: root, busFerryOptions: { postAsk: table.postAsk } }); // listOpenAsks NOT wired
+    await a.bridge.start();
+    await a.bridge.busFerry.tick(); // first sight
+    append(file, msgRow(2, 'leader', 'owner', 'escalation', 'I said (a) unblocks m1-m6, m8, m9'));
+    append(file, msgRow(3, 'leader', 'owner', 'escalation', 'Wrong about m2 — retracting the above'));
+    append(file, msgRow(4, 'leader', 'owner', 'escalation', 'a third, independent halt'));
+    await a.bridge.busFerry.tick();
+    check('W10-RED [DoD 1]: with the gate UNWIRED, three escalations from one goal ALL post as open '
+      + 'ask threads on the SAME pass — the pre-fix defect this seat exists to close',
+      table.minted().length === 3 && table.countOpen(GOAL) === 3,
+      { minted: table.minted().map((c) => c.body.split('\n')[0]), openAsksCount: table.countOpen(GOAL) });
+    a.bridge.stop();
+  }
+  {
+    // W10-GREEN — the SAME fixture, `listOpenAsks` WIRED: exactly one posts, the other two are
+    // HELD — not lost, not dropped, still on the bus, the cursor stopped before them.
+    const root = mkroot();
+    const GOAL = 'goal-w10-green';
+    const KEY = `${GOAL}/2026-08-31a`;
+    const { file } = seedGoal(root, GOAL, '2026-08-31a', { backlogRows: 1 });
+    const table = makeOpenAsksTable();
+    const logs = [];
+    const a = makeBridge({
+      workspaceRoot: root, logs,
+      busFerryOptions: { postAsk: table.postAsk, listOpenAsks: table.listOpenAsks },
+    });
+    await a.bridge.start();
+    await a.bridge.busFerry.tick(); // first sight, cursor -> 1
+    const cursorBefore = a.bridge.busFerry._cursors.get(KEY);
+    append(file, msgRow(2, 'leader', 'owner', 'escalation', 'I said (a) unblocks m1-m6, m8, m9'));
+    append(file, msgRow(3, 'leader', 'owner', 'escalation', 'Wrong about m2 — retracting the above'));
+    append(file, msgRow(4, 'leader', 'owner', 'escalation', 'a third, independent halt'));
+    await a.bridge.busFerry.tick();
+    check('W10-GREEN [DoD 2]: the SAME fixture with the gate WIRED mints EXACTLY ONE ask, and '
+      + 'the `open_asks` stand-in carries exactly ONE open row for this goal — held is proven by the '
+      + 'COUNT staying at one, never by an absence of an error',
+      table.minted().length === 1 && /#2/.test(table.minted()[0].body) && table.countOpen(GOAL) === 1,
+      { minted: table.minted().map((c) => c.body.split('\n')[0]), openAsksCount: table.countOpen(GOAL) });
+    check('W10-GREEN: the HELD rows are DISTINGUISHED from a drop by a log line naming each one, '
+      + 'once per held row per pass',
+      logs.filter((l) => /HELD a new escalation/.test(l.message)).length === 2,
+      { held: logs.filter((l) => /HELD a new escalation/.test(l.message)).map((l) => l.msgId) });
+    check('W10-GREEN [DoD 3]: the cursor did NOT advance past the held escalation — row #2 (the '
+      + 'one that DID post) advanced it to 2, but it stops there rather than sweeping over the '
+      + 'held #3 and #4',
+      cursorBefore === 1 && a.bridge.busFerry._cursors.get(KEY) === 2,
+      { cursorBefore, cursorAfter: a.bridge.busFerry._cursors.get(KEY) });
+
+    // W10-RESUME [DoD 4]: answer/close the open escalation; the SECOND posts on the next pass, and
+    // the THIRD is still held behind it.
+    table.close(table.rows[0].askId);
+    logs.length = 0;
+    await a.bridge.busFerry.tick();
+    check('W10-RESUME: once the open escalation is answered (closed in `open_asks`), the SECOND '
+      + 'escalation posts on the very next pass',
+      table.minted().length === 2 && /#3/.test(table.minted()[1].body) && table.countOpen(GOAL) === 1,
+      { minted: table.minted().map((c) => c.body.split('\n')[0]), openAsksCount: table.countOpen(GOAL) });
+    check('W10-RESUME: the THIRD escalation is STILL held — one open at a time, never two — and '
+      + 'the cursor advanced only over #3 (the one that just posted), stopping again before #4',
+      logs.filter((l) => /HELD a new escalation/.test(l.message)).length === 1
+      && a.bridge.busFerry._cursors.get(KEY) === 3,
+      { held: logs.filter((l) => /HELD a new escalation/.test(l.message)).length, cursor: a.bridge.busFerry._cursors.get(KEY) });
+
+    // Resolve the goal fully, for cleanliness of the fixture's own bookkeeping (not asserted).
+    table.close(table.rows[1].askId);
+    a.bridge.stop();
+  }
+  {
+    // W10-DISCRIMINATE [DoD 5] — a goal already holding an OPEN `work-content` ask (an ORDINARY
+    // owner-bound question, unrelated to any escalation) must NOT block a NEW escalation. The
+    // work-content row's `one_liner` carries no ` · escalation · #` marker — the same fact
+    // `isEscalationOneLiner` reads in production, off a real ask's real header — never a
+    // hand-typed flag standing in for it.
+    const root = mkroot();
+    const GOAL = 'goal-w10-disc';
+    const { file } = seedGoal(root, GOAL, '2026-08-31a', { backlogRows: 1 });
+    const table = makeOpenAsksTable();
+    // Seed one OPEN work-content ask directly into the stand-in table, as if a prior pass minted
+    // it — its one_liner is an ordinary `formatMessage` header for a `type: ask` row.
+    table.rows.push({ goal: GOAL, one_liner: `*🧵 leader* — ${GOAL} · ask · #1`, state: 'open', askId: 'ask-preexisting' });
+    const a = makeBridge({
+      workspaceRoot: root,
+      busFerryOptions: { postAsk: table.postAsk, listOpenAsks: table.listOpenAsks },
+    });
+    await a.bridge.start();
+    await a.bridge.busFerry.tick();
+    append(file, msgRow(2, 'leader', 'owner', 'escalation', 'a real halt, unrelated to the open work-content ask'));
+    await a.bridge.busFerry.tick();
+    check('W10-DISCRIMINATE [DoD 5]: a goal holding an OPEN `work-content`-shaped ask does NOT '
+      + 'block a NEW escalation — it mints on the FIRST pass',
+      table.minted().length === 1 && /#2/.test(table.minted()[0].body) && table.countOpen(GOAL) === 2,
+      { minted: table.minted().map((c) => c.body.split('\n')[0]), openAsksCount: table.countOpen(GOAL) });
+    a.bridge.stop();
+  }
+  {
+    // W10-JUMP-HOLD [DoD 6] — the three-way case: one OPEN escalation already on the goal, one
+    // STUCK ordinary row (still failing to post), and a NEW escalation arriving behind both. The
+    // new escalation clears the head-of-line jump (only an escalation walks past a stuck row) and
+    // reaches the hold gate, where it is held — never posted, never deadlocking the stuck row's
+    // own independent retry, and the cursor stays behind BOTH.
+    const root = mkroot();
+    const GOAL = 'goal-w10-jump';
+    const KEY = `${GOAL}/2026-08-31a`;
+    const { file } = seedGoal(root, GOAL, '2026-08-31a', { backlogRows: 1 });
+    const table = makeOpenAsksTable();
+    table.rows.push({ goal: GOAL, one_liner: `*🧵 leader* — ${GOAL} · escalation · #0`, state: 'open', askId: 'ask-already-open' });
+    const slack = makeFakeSlack();
+    const logs = [];
+    const a = makeBridge({
+      workspaceRoot: root, slack, logs,
+      busFerryOptions: { postAsk: table.postAsk, listOpenAsks: table.listOpenAsks, maxAttempts: 5 },
+    });
+    await a.bridge.start();
+    await a.bridge.busFerry.tick(); // first sight, cursor -> 1
+    const cursorBefore = a.bridge.busFerry._cursors.get(KEY);
+    append(file, msgRow(2, 'leader', 'owner', 'note', 'the poisoned ordinary row'));
+    append(file, msgRow(3, 'leader', 'owner', 'escalation', 'a new halt, arriving while one is already open'));
+    // row 2's mint fails (transient), and falls through to the DM leg, which also fails — genuinely
+    // stuck, undelivered by any leg, exactly the fixture the head-of-line jump was built against.
+    table.failNextPosts(1);
+    slack.failNextPosts(1);
+    await a.bridge.busFerry.tick();
+    check('W10-JUMP-HOLD [DoD 6]: NOTHING new delivered anywhere — the stuck ordinary row failed as '
+      + 'usual (its mint failed AND its DM fallback failed), and the new escalation was HELD (never '
+      + 'even attempted) rather than jumping past the already-open escalation',
+      table.minted().length === 0 && slack.posted.length === 0 && table.countOpen(GOAL) === 1,
+      { minted: table.minted().length, posted: slack.posted.length, openAsksCount: table.countOpen(GOAL) });
+    check('W10-JUMP-HOLD: the cursor stayed behind BOTH rows — no advance over the stuck row and '
+      + 'no advance over the held escalation',
+      a.bridge.busFerry._cursors.get(KEY) === cursorBefore && cursorBefore === 1,
+      { cursorBefore, cursorAfter: a.bridge.busFerry._cursors.get(KEY) });
+    check('W10-JUMP-HOLD: no deadlock — the held escalation is logged as HELD, not as a transport '
+      + 'failure, so it is never mistaken for the silence this module exists to end',
+      logs.some((l) => /HELD a new escalation/.test(l.message) && l.msgId === 3),
+      { logs: logs.filter((l) => /HELD|giving up|could not post/.test(l.message)).map((l) => l.message) });
+    // Now close the pre-existing open escalation — the FAILURE budget (`table.failNextPosts`) was
+    // one-shot and is already spent, so this next pass is the ordinary row's own ordinary retry
+    // (unrelated to this gate) succeeding at the SAME time the escalation gate clears. Both must
+    // land, in order, with nothing lost.
+    table.close('ask-already-open');
+    await a.bridge.busFerry.tick();
+    check('W10-JUMP-HOLD: once the open escalation closes, the NEXT pass mints BOTH the ordinary '
+      + 'row (its own retry, now succeeding) AND the escalation that was held behind it, in order '
+      + '— nothing lost',
+      table.minted().length === 2
+      && /the poisoned ordinary row/.test(table.minted()[0].body)
+      && /#3/.test(table.minted()[1].body)
+      && a.bridge.busFerry._cursors.get(KEY) === 3,
+      { minted: table.minted().map((c) => c.body.split('\n')[0]), cursor: a.bridge.busFerry._cursors.get(KEY) });
+    a.bridge.stop();
+  }
+
   // W9 — THE FINISH EDGE'S COMPLETION NOTICE [T5-R16, spec-owner-io §1]. Test 7 of the acceptance
   //      wave failed here for real: `seat-cage-tool-inventory` finished 2026-08-28 01:31Z, the
   //      finish edge fired, and NOTHING reached Slack — the row is `to: all` and this ferry
