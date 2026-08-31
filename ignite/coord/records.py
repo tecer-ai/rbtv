@@ -280,6 +280,20 @@ DISPOSITION_WRITER_LEADER = "leader"
 
 # ---- dag-08-retired ----
 #
+# ⚠⚠ CURRENT STATE (verified 2026-08-31, stale-wording-sweep): everything below this line
+# documents the `RECORD_DISPOSITION_WRITER` enum and the `awaiting-close.json`/dag-09 mechanism it
+# validated — BOTH ARE DELETED. `session_close`'s own docstring says "`disposition`/`writer` are
+# ignored — work endings go to the ending store only", and `awaiting-close.json` no longer exists
+# (spec-state-store §4.1 Row A). `exited` specifically is a KILLED WORD
+# (`state-store/vocabulary.js#KILLED_WORDS`), refused at the ending store's write boundary — it is
+# no longer writable by the kit or by anyone; the ending store spells the same fact `failed` with
+# a reason class (`crash`/`provider-error`). The live vocabulary is the ending store's own:
+# `who_stamped` is `ENDING_VOICE_SEAT`/`ENDING_VOICE_SYSTEM` (see `coord_selftest.py`), never this
+# file's six-value enum. `DISPOSITION_WRITER_SEAT`/`_KIT`/`_LEADER` above SURVIVE only as
+# identity-string constants passed to `append_message`'s `from=` — not as this enum's writer
+# bound. The paragraphs below are kept for the DESIGN HISTORY they carry (why each word existed,
+# the rulings behind it) — read them as archive, never as the current contract.
+#
 # ⚠⚠ THIS IS NOT `LIFECYCLE_DISPOSITIONS` (defined much further down, beside the executor), AND
 # THE TWO SHARE NO VALUE. Two enums live in this file and conflating them is the readiest way to
 # break it:

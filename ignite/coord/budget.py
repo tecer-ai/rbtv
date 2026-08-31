@@ -6,12 +6,17 @@
 Two inputs, both already owned by someone else:
 
     {run}/budget.json   the DECLARED cap + counting convention   (writer: master)
-    {run}/state.json    the LIVE census                          (writer: team-monitor)
+    {run}/state.json    the LIVE census                          (writer: team-monitor, DELETED)
 
 This module OBSERVES NOTHING ITSELF. It never reads tmux, /proc, or a harness
-file. team-monitor is the room's only raw-source sensor (settle ledger R24), and
-a second pane-reader would be a second sensor -- the exact failure that
-architecture exists to prevent. Everything here is arithmetic over the snapshot.
+file. team-monitor WAS the room's only raw-source sensor (settle ledger R24),
+and a second pane-reader would be a second sensor -- the exact failure that
+architecture exists to prevent. team-monitor is deleted [T4-R8, del-observers,
+2026-08-24] and has NO replacement writer, so `state.json` is now permanently
+absent for every room (`records.py#load_state_snapshot`) and every call here
+reads a missing snapshot and reports UNKNOWN by this module's own stale/missing
+rule below -- not a live census gone briefly stale. Everything here is
+arithmetic over the snapshot, when one exists.
 
 WHY IT EXISTS: run-2 spent a night at 1-2 executors against an "executor budget
 of 2" that appeared in no ruling surface. It was a past census, written into a
@@ -106,8 +111,9 @@ import time
 # seat descriptor is undeclared, never uncounted.
 AGENT_HARNESSES = {"claude", "codex", "opencode", "kimi", "gemini", "aider"}
 
-# A snapshot older than this is not evidence. team-monitor's cadence is seconds;
-# a minute of silence already means something is wrong with the sensor.
+# A snapshot older than this is not evidence. team-monitor's cadence USED TO BE seconds;
+# team-monitor is deleted [T4-R8, del-observers] and nothing replaced it, so every room's
+# snapshot is now permanently absent, not merely stale.
 STALE_AFTER_S = 120
 
 
@@ -371,7 +377,9 @@ def render(c):
     if c["stale"]:
         out.append(
             "  ** SNAPSHOT STALE (%s s, limit %s) -- THE SENSOR IS THE INCIDENT. "
-            "No headroom figure is offered; UNKNOWN is not zero. Restart team-monitor."
+            "No headroom figure is offered; UNKNOWN is not zero. team-monitor is deleted "
+            "[T4-R8, del-observers] and has no replacement -- this is now the permanent state, "
+            "not a restart-able outage."
             % (c["snapshot_age_s"], c["stale_after_s"])
         )
     if c["verdict"] == "BREACH":

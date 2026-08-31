@@ -167,7 +167,7 @@ function decide({ job, queueRow, resolveRoot, readLease = deriveLease }) {
       rooms,
       seats: lease.seats.map((s) => s.seat),
       reason: `goal ${job.goal_name} is executing: room(s) ${rooms.join(', ')} exist now`
-        + ` with ${lease.seats.length} ancestry-verified seat process(es)`,
+        + ` with ${lease.seats.length} verified occupant seat process(es)`,
     });
   }
 

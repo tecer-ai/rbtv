@@ -2544,10 +2544,12 @@ def cmd_launch(args):
     #     into a count here would weaken the one gate that is currently the real protection.
     #
     # ⚠ THE CENSUS IS CALLED EXACTLY ONCE PER INVOCATION, before the first pane opens, and its one
-    # reading bounds the WHOLE act. The reason is measurable, not stylistic: `state.json` is
-    # written by the `team-monitor` sensor, so panes THIS act opens do not appear in it until the
-    # sensor next runs. A mid-loop re-read would return the same `in_use`, hence the same
-    # `headroom`, and the act would spend the same headroom twice.
+    # reading bounds the WHOLE act. STALE REASON, CORRECTED (`d-capacity-registry-liveness`,
+    # 2026-08-31, see the ruling a few lines down): this paragraph originally justified the
+    # single-read by `state.json` lagging the deleted `team-monitor` sensor. That writer is gone
+    # and the live half is now assembled FRESH on every call (see below) — but "exactly once" still
+    # holds, for the surviving reason: a mid-loop re-read would count the panes THIS act itself is
+    # opening as already `in_use`, so the same `headroom` would be spent twice regardless of source.
     _cap_pkg = coord.package_dir(args, register=False)
     _cap_c = None
     _cap_err = ""
