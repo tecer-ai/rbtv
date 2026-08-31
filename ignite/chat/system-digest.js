@@ -67,6 +67,30 @@ function renderAge(sinceMs, nowMs) {
   return mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h`;
 }
 
+// A goal's Slack channel, permalinked from its `channel_id` alone — a condition carries no thread
+// timestamp, so this is deliberately a CHANNEL link, never a thread permalink (that would be
+// fabricated). `forward-path.js#slackThreadPermalink` is the thread-scoped sibling; not reused here
+// because it requires a `thread_ts` this row does not have.
+function slackChannelLink(channelId) {
+  return `https://slack.com/archives/${channelId}`;
+}
+
+// A goal-scoped condition (frozen-goal, today) leads with its goal, linked to that goal's channel —
+// the owner can tell WHERE without opening it. A machine-level condition (the watchdog family) has
+// no goal at all: it leads with its own `subject` instead, and keeps `evidence_pointer` inline since
+// there is no tap target to reach it through (`d-digest-ui` 5(b)).
+function renderConditionRow(cond, nowMs) {
+  const hasGoal = cond.goal_id != null && String(cond.goal_id) !== '';
+  const link = hasGoal && cond.channel_id ? slackChannelLink(cond.channel_id) : null;
+  const lead = link ? `<${link}|*${cond.goal_id}*>` : cond.subject;
+  return joinRow([
+    lead,
+    cond.condition,
+    renderAge(toMs(cond.first_emitted_at), nowMs),
+    link ? null : cond.evidence_pointer,
+  ]);
+}
+
 function toMs(value) {
   if (value == null) return NaN;
   if (value instanceof Date) return value.getTime();
@@ -129,12 +153,7 @@ function renderDigest({ at, asks, conditions, nowMs }) {
     lines.push('• none open');
   } else {
     for (const cond of conditions) {
-      lines.push(joinRow([
-        cond.condition,
-        cond.subject,
-        renderAge(toMs(cond.first_emitted_at), nowMs),
-        cond.link ? `<${cond.link}|open>` : cond.evidence_pointer,
-      ]));
+      lines.push(renderConditionRow(cond, nowMs));
     }
   }
 
@@ -160,8 +179,11 @@ function saveBaseline(statePath, snapshot, deliveredAt) {
 }
 
 // `readOpenAsks` → [{ id, seat, one_liner, opened_at, link?, evidence_pointer? }]
-// `readOpenConditions` → [{ signature, condition, subject, first_emitted_at, link?, evidence_pointer? }]
-//   — the alarm-signature registry's published READ interface. Absent → the default empty reader.
+// `readOpenConditions` → [{ signature, condition, subject, first_emitted_at, evidence_pointer,
+//   goal_id, channel_id }] — the alarm-signature registry's published READ interface
+//   (`observation/emitter.js#readOpenConditions`). `goal_id`/`channel_id` are `null` on a
+//   machine-level condition (the watchdog never supplies a goal) — never fabricated here.
+//   Absent reader → the default empty reader.
 // `post` → the outbox's `post` (kind is stamped here, never by the caller).
 function createSystemDigest({
   post,

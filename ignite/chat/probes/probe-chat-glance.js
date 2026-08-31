@@ -159,7 +159,8 @@ function ask(id, seat, oneLiner, openedAt, extra = {}) {
         condition: 'running, no live seat, no eligible launch, no open ask, not paused',
         subject: 'ignite-engine',
         first_emitted_at: spInstant('2026-08-24', 13),
-        link: 'https://slack.example/archives/Csys/p999',
+        goal_id: 'ignite-engine',
+        channel_id: 'Csys',
       }],
     });
     const res = await digest.check(spInstant('2026-08-24', 14));
@@ -183,9 +184,11 @@ function ask(id, seat, oneLiner, openedAt, extra = {}) {
       text.includes('• <https://slack.example/archives/Cgoal/p654|654321> · leader · drop lane or pause goal? · 40m'),
       { row: text.split('\n').find((l) => l.includes('654321')) });
 
-    check('§5 the open CONDITION row renders condition · subject · age · link',
-      text.includes('• running, no live seat, no eligible launch, no open ask, not paused · ignite-engine · 1h · <https://slack.example/archives/Csys/p999|open>'),
-      { row: text.split('\n').find((l) => l.startsWith('• running,')) });
+    // A goal-scoped condition now LEADS with its goal, linked to that goal's CHANNEL — not a
+    // thread permalink, since a condition carries no thread ts (owner ruling `d-digest-ui` 5(b)).
+    check('§5 a goal-scoped condition row is <channel-link|*goal*> · condition · age',
+      text.includes('• <https://slack.com/archives/Csys|*ignite-engine*> · running, no live seat, no eligible launch, no open ask, not paused · 1h'),
+      { row: text.split('\n').find((l) => l.includes('ignite-engine')) });
 
     check('§5 the post opens with the slot header',
       text.startsWith('*System digest · 14:00*'), { head: text.split('\n')[0], posted: res.posted });

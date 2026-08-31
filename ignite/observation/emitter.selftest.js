@@ -167,10 +167,16 @@ async function caseReadInterfaceMatchesDigest() {
   await emitter.emit(GOOD);
   const [cond] = emitter.readOpenConditions();
   // `chat/system-digest.js` documents exactly these keys on its `readOpenConditions`.
-  for (const key of ['signature', 'condition', 'subject', 'first_emitted_at', 'evidence_pointer']) {
+  for (const key of [
+    'signature', 'condition', 'subject', 'first_emitted_at', 'evidence_pointer', 'goal_id', 'channel_id',
+  ]) {
     assert.ok(cond[key] !== undefined, `the digest reads \`${key}\``);
   }
   assert.strictEqual(cond.subject, 'ignite-engine', 'the digest renders the bare subject id');
+  // GOOD carries no `goal_id` — a machine-level emission — so both pass through as `null` rather
+  // than fabricated from the alarm's own posting `channel_id` [d-digest-ui 5(b)].
+  assert.strictEqual(cond.goal_id, null, 'no goal_id supplied at emit time reads back as null, never invented');
+  assert.strictEqual(cond.channel_id, null, 'channel_id is withheld when the row carries no goal_id');
   emitter.clear(cond.signature);
   assert.strictEqual(emitter.readOpenConditions().length, 0, 'a cleared condition leaves the digest');
   assert.strictEqual(box.posts.length, 1, 'clearing is silent — no owner-facing post');

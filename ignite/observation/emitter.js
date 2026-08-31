@@ -230,6 +230,9 @@ function createAlarmEmitter({ storePath = null, post, systemChannelId = null, no
   // This exact shape is what `chat/system-digest.js` documents as `readOpenConditions` and
   // renders under "Open conditions". `subject` flattens to the bare id there because the digest row
   // already reads as a sentence; the full `{ type, id }` stays on the registry row for anyone else.
+  // `goal_id`/`channel_id` pass through as stored — `null` on a machine-level row (the watchdog never
+  // supplies them) rather than fabricated, so the digest can tell a goal-scoped condition from one
+  // that has no goal at all [d-digest-ui 5(b)].
   function readOpenConditions() {
     return rows
       .filter((r) => r.state === OPEN)
@@ -240,6 +243,8 @@ function createAlarmEmitter({ storePath = null, post, systemChannelId = null, no
         subject: r.subject.id,
         first_emitted_at: r.first_emitted_at,
         evidence_pointer: r.evidence_pointer,
+        goal_id: r.goal_id == null ? null : r.goal_id,
+        channel_id: r.goal_id == null ? null : r.channel_id,
       }));
   }
 

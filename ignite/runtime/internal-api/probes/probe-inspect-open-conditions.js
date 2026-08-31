@@ -123,8 +123,14 @@ async function main() {
   check('1g evidence_pointer crosses', typeof row.evidence_pointer === 'string' && row.evidence_pointer.endsWith('latest.json'),
     String(row.evidence_pointer));
   check('1h the published key set is exactly the digest contract',
-    JSON.stringify(Object.keys(row).sort()) === JSON.stringify(['condition', 'evidence_pointer', 'first_emitted_at', 'signature', 'subject']),
+    JSON.stringify(Object.keys(row).sort())
+      === JSON.stringify(['channel_id', 'condition', 'evidence_pointer', 'first_emitted_at', 'goal_id', 'signature', 'subject']),
     Object.keys(row).sort().join(','));
+  // The row this test writes carries no `goal_id` (a machine-level watchdog alarm) — both new
+  // fields must read back `null`, never fabricated from the row's own posting `channel_id`
+  // [d-digest-ui 5(b)].
+  check('1i goal_id/channel_id are null on a machine-level condition, not invented',
+    row.goal_id === null && row.channel_id === null, JSON.stringify({ goal_id: row.goal_id, channel_id: row.channel_id }));
 
   // 5. the daemon's OWN table is untouched by any of this.
   check('5a standing_warnings still answers, independently', Array.isArray(res.standing_warnings),
