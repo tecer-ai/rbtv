@@ -1044,12 +1044,10 @@ function createChatBridge({
       // anything could match it, and remembering that text would only invite a false drop later.
       noteForwarded(route, chatMsg.text);
       // The second argument is the idempotency identity (duplicate owner-facing replies fix,
-      // redesign-continue-1 `dup-idempotency`, criterion 4) — harmless today (`reply-leg.js`'s
-      // current `arm(chatThreadId)` ignores extra arguments) and forward-compatible for the day
-      // `arm()` accepts it and threads it into its own `deliver()` call, closing the cold leg's
-      // half of this guard. See this seat's report for why that half is not landed yet: a
-      // concurrent, unrelated, larger in-flight edit is sitting in `reply-leg.js` right now
-      // (`dup-revive-lineage`'s session-lineage fork fix) and this seat will not touch it.
+      // redesign-continue-1 `dup-idempotency`, criterion 4) — `reply-leg.js#arm` stores it on
+      // its own per-conversation state and threads it into its own `deliver()` call, so
+      // `chat-bridge.js#deliverToOwner` can refuse a second delivery for the SAME owner
+      // message on the cold leg too, exactly as it already does on the warm leg below.
       replyLeg.arm(chatMsg.chatThreadId, chatMsg._msgTs || null);
       // The read-receipt: ONE marker, stamped the moment the message is accepted for
       // processing and taken off when its answer lands (§ pending marker below). It
@@ -1098,19 +1096,14 @@ function createChatBridge({
   // onward). The fix is that `deliverToOwner` takes `inboundMsgId` as an explicit ARGUMENT from
   // whichever caller is doing the delivering, never a lookup this function performs itself.
   //
-  // ⚑ THE WARM LEG'S HALF IS WIRED; THE COLD LEG'S IS NOT, AND THAT IS A DISCLOSED GAP, NOT AN
-  // OVERSIGHT. The warm branch below passes the message it just fed. The cold leg's own delivery
-  // (`reply-leg.js`'s `deliver()` call) would need to pass whatever `arm()` was given for THIS
-  // cycle (`null` for a cycle nothing armed with an owner message — a wake/revive/internal
-  // re-dispatch — which would correctly leave those undefended rather than guessing wrong). That
-  // one-line threading (`arm(chatThreadId, inboundMsgId)` → store on `p` → pass it in the
-  // `deliver()` call) could not be landed in this change: `reply-leg.js` carries a large,
-  // unrelated, IN-FLIGHT uncommitted edit right now (`dup-revive-lineage`'s session-lineage-fork
-  // fix, criterion 2 of this same defect — explicitly this seat's own wall). Committing that file
-  // would publish the OTHER seat's unfinished, unreviewed work under this commit. `onChatMessage`
-  // below already calls `replyLeg.arm(chatMsg.chatThreadId, chatMsg._msgTs || null)` — harmless
-  // today (the current `arm(chatThreadId)` ignores the extra argument) and forward-compatible for
-  // whoever lands that threading next. See this seat's closing report for the exact diff.
+  // ⚑ BOTH LEGS ARE WIRED NOW. The warm branch below passes the message it just fed. The cold
+  // leg's own delivery (`reply-leg.js`'s `deliver()` call, inside its per-exec delivery block)
+  // passes whatever `arm()` was given for THIS cycle (`null` for a cycle nothing armed with an
+  // owner message — a wake/revive/internal re-dispatch — which correctly leaves those undefended
+  // rather than guessing wrong), and `reply-leg.js` clears its own `p.inboundMsgId` to `null` the
+  // moment that cycle's first delivery succeeds — see `arm()`'s and the delivery block's own
+  // comments there for why a later exec on the SAME cycle (a wake, a revive, a multi-page
+  // continuation) must not inherit a stale id and get wrongly refused.
   //
   // conversation → the inbound id that ALREADY produced a delivered owner-facing answer for it.
   // A second delivery carrying the SAME id is refused; a delivery carrying a DIFFERENT id (a

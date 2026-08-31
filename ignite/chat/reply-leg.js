@@ -392,18 +392,31 @@ function createReplyLeg({
   // enqueues a session-create job (new conversation) AND after a follow-up
   // send-message lands on a mapped chain (the chain re-dispatches → a new exec on
   // the same queue). Re-arming refreshes the spawn-wait window for the new turn.
-  function arm(chatThreadId) {
+  //
+  // `inboundMsgId` (duplicate owner-facing replies fix, redesign-continue-1
+  // `dup-idempotency`, criterion 4) — the identity of the OWNER message that armed this
+  // cycle. Stored on `p` and passed through to THIS cycle's own `deliver()` call below so
+  // `chat-bridge.js#deliverToOwner` can refuse a second delivery for the SAME still-open
+  // cycle. `null` for an arm the bridge mints with no owner message behind it
+  // (`routeBusRowToMaster`/`routeToAgentThread`'s internal wake/mint calls) — correctly
+  // unguarded rather than borrowing a stale id. Cleared to `null` the moment this cycle's
+  // first delivery succeeds (below) — a wake, a revive's corrective turn, or a multi-page
+  // continuation on the SAME `pending` entry with no fresh `arm()` is this leg's own
+  // internal continuation, never a second answer to the SAME owner message, and must not
+  // inherit a stale id that would refuse it.
+  function arm(chatThreadId, inboundMsgId = null) {
     const id = String(chatThreadId);
     recoverable.delete(id); // a new owner turn supersedes a stashed revive-no-spawn reap
     const entry = threadMap.get(id);
     const queueId = entry ? entry.queueId : null;
     let p = pending.get(id);
     if (!p) {
-      p = { queueId, armedAt: Date.now(), turnStartedAt: Date.now(), watching: new Map(), delivered: new Set(), statusErrors: 0, revives: 0, compacted: false, disarmedAt: null, slowNoticed: false };
+      p = { queueId, armedAt: Date.now(), turnStartedAt: Date.now(), watching: new Map(), delivered: new Set(), statusErrors: 0, revives: 0, compacted: false, disarmedAt: null, slowNoticed: false, inboundMsgId };
       pending.set(id, p);
     } else {
       p.armedAt = Date.now();
       p.disarmedAt = null; // a new owner turn revives a tombstoned conversation outright
+      p.inboundMsgId = inboundMsgId; // a new owner turn's identity, same reset as revives/compacted below
       // `armedAt` is a spawn-wait deadline and is reset by revives and deliveries; `turnStartedAt`
       // is the OWNER's clock and moves only here, on a real owner turn. The end-to-end latency the
       // owner actually experiences is measured from this one, never from armedAt.
@@ -743,7 +756,12 @@ function createReplyLeg({
                     rawFallback: read.rawFallback,
                   });
                 }
-                const d = await deliver({ chatThreadId: id, text, markAsk: false, answersOwnerAsk: verdict.ok === true }); // plain agent output (D105 note; ask-detection out of scope v1)
+                // `inboundMsgId: p.inboundMsgId` (duplicate owner-facing replies fix,
+                // redesign-continue-1 `dup-idempotency`, criterion 4) — see `arm()`'s header for
+                // why this travels per-cycle rather than via a side-channel map, and is cleared
+                // below on a successful delivery rather than after this call unconditionally (a
+                // REFUSED delivery must not burn a cycle that never actually got its answer out).
+                const d = await deliver({ chatThreadId: id, text, markAsk: false, answersOwnerAsk: verdict.ok === true, inboundMsgId: p.inboundMsgId }); // plain agent output (D105 note; ask-detection out of scope v1)
                 if (d && d.delivered === false) {
                   failure = `deliver-refused:${d.reason || d.error || 'unknown'}`;
                 } else {
@@ -753,6 +771,10 @@ function createReplyLeg({
                   p.revives = 0;          // the turn ended in a delivery; the next one starts fresh
                   p.compacted = false;
                   p.disarmedAt = null;    // a LATE reply arrived after all — the tombstone is lifted
+                  p.inboundMsgId = null;  // this cycle's owner message is ANSWERED — a later exec on
+                                          // this SAME pending entry with no fresh arm() (wake, revive,
+                                          // multi-page continuation) must not inherit this id and get
+                                          // refused as if it were re-answering the same message
                   p.slowNoticed = true;   // the turn is ANSWERED — spend the slow-notice budget so the
                                           // P3 rung can never tell the owner "still working" AFTER his
                                           // answer landed (owner-reported 2026-08-20 03:49Z, both goal

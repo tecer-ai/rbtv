@@ -24,23 +24,21 @@
 //       `askRecord.reapAsk` already trusts) — and its absence would silence a real answer behind
 //       an innocuous "still working" ping.
 //
-// ⚑ THE COLD LEG'S OWN WIRING IS A DISCLOSED GAP, NOT TESTED HERE. `deliverToOwner` takes
-// `inboundMsgId` as an explicit ARGUMENT (never a lookup it performs itself — a first cut that
-// tried a side-channel "currently pending" map reintroduced exactly the bug class
-// `reply-leg.js`'s own header warns about; see `chat-bridge.js`'s `answeredInbound` comment for
-// the full account). The warm branch (scenario a's premise) supplies it for real. The cold leg's
-// OWN `deliver()` call would need the SAME one-line threading through `reply-leg.js#arm`, which
-// could not land in this change (that file carries a large, unrelated, in-flight uncommitted edit
-// — `dup-revive-lineage`'s session-lineage-fork fix — and committing it would publish someone
-// else's unfinished work). Scenarios (a)/(c)'s "cold duplicate" calls drive `deliverToOwner`
-// DIRECTLY with the `inboundMsgId` a fixed `reply-leg.js` would supply, to prove the MECHANISM
-// this fix installs is correct and non-regressing (see `probe-chat-reply-leg.js`, run clean
-// against this change) — not to claim the wiring is complete end to end.
+// Scenarios (a)/(c)'s "cold duplicate" calls drive `deliverToOwner` DIRECTLY with the
+// `inboundMsgId` `reply-leg.js#arm`/`deliver()` supply for real (proving the MECHANISM at the
+// choke point, independent of how the text was derived). Scenario (d) drives the COLD LEG'S OWN
+// wiring end to end — a real `arm()` → ticker capture → status → logs → `deliver()` pass via
+// `replyLeg.tick()` — to prove `reply-leg.js` itself, not a stand-in for it, populates the guard.
 //
 // MUTATION EVIDENCE — verified 2026-08-31 against a clean pre-fix worktree (`git worktree add
 // <tmp> HEAD`): with the guard absent, scenario (a)'s second delivery is NOT refused — both texts
-// post, reproducing the duplicate. Restored (this file, against the fixed tree), (a) passes. See
-// the seat's closing report for the exact commands and quoted output.
+// post, reproducing the duplicate. Restored (this file, against the fixed tree), (a) passes.
+// Scenario (d)'s cold-leg wiring re-verified the same way the same day: reverting ONLY
+// `reply-leg.js`'s `inboundMsgId` threading (the `arm()` header + the `deliver()` call argument +
+// the post-delivery clear) reproduces exactly d2's duplicate — a direct call carrying the same id
+// the cold leg just answered with is NOT refused, because the cold leg's own `deliver()` never
+// told `deliverToOwner` what it was answering. Restored, d2 passes. See the seat's closing report
+// for the exact commands and quoted output.
 
 const path = require('node:path');
 const fs = require('node:fs');
@@ -106,6 +104,86 @@ function makeBridge({ liveReply = null } = {}) {
     replyLegOptions: { pollMs: 3600000 }, // the leg must never tick under us — this probe drives deliverToOwner directly
   });
   return { ...built, slack, forwarder };
+}
+
+// A scripted forwarder that ALSO answers the ticker/status/logs surface reply-leg's `tick()`
+// drives, so scenario (d) can run a REAL cold delivery end to end (never `warmedBridge`'s bare
+// `bindSessionExecId` shortcut, which the other scenarios use precisely because they never touch
+// the cold leg's own watch loop). Minimal, self-contained subset of `probe-chat-reply-leg.js`'s
+// own `scriptedForwarder` — only the shapes reply-leg's `_runOnce` actually reads.
+function makeTickingForwarder() {
+  const state = { forwarded: [], recentTicks: [], status: new Map(), logs: new Map(), nextJobId: 200 };
+  const forwarder = {
+    state,
+    async forward(intent, payload) {
+      state.forwarded.push({ intent, payload });
+      if (intent === 'live-feed') return { ok: true, result: { fed: false, reason: 'no-warm-session' } };
+      const jobId = state.nextJobId++;
+      state.lastJobId = jobId;
+      return { ok: true, result: { jobId } };
+    },
+    async inspect(target, extra = {}) {
+      if (target === 'ticker') return { ok: true, result: { recent_ticks: state.recentTicks, live_sessions: [] } };
+      if (target === 'status') {
+        const s = state.status.get(Number(extra.id));
+        if (!s) return { ok: false, error: { code: 'NOT_FOUND' } };
+        return { ok: true, result: { live: s.live, status: s.status, profile: s.profile || 'claude/claude-opus-5' } };
+      }
+      if (target === 'logs') {
+        const lines = state.logs.get(Number(extra.id)) || [];
+        const offset = Number.isInteger(extra.offset) ? extra.offset : 0;
+        const page = lines.slice(offset);
+        return { ok: true, result: { lines: page, nextOffset: lines.length, eof: true } };
+      }
+      if (target === 'queue') return { ok: true, result: { rows: [] } };
+      return { ok: false, error: { code: 'UNKNOWN_TARGET', message: target } };
+    },
+  };
+  return forwarder;
+}
+
+// `fenced()` is defined once, below (shared with the warm-reply scenarios) — reused here
+// unchanged: extraction only cares about the sentinel pair, not what precedes them.
+function resultLine(body) {
+  return JSON.stringify({ type: 'result', subtype: 'success', result: fenced(body), is_error: false });
+}
+
+function makeTickingBridge() {
+  const slack = makeFakeSlack();
+  const forwarder = makeTickingForwarder();
+  const config = {
+    gatewayAddr: '127.0.0.1:0',
+    bridgeToken: 'stub',
+    sessionJobId: 'chat-launch',
+    sendMessageJobId: 'send-message',
+    workdir: '/configured/master/workdir',
+    workspaceRoot: fs.mkdtempSync(path.join(os.tmpdir(), 'p7-2-dup-idem-cold-')),
+    allowlist: [USER],
+    slack: { apiBase: 'http://127.0.0.1:0', appToken: null, botToken: null },
+  };
+  const built = buildBridge(config, {
+    logger: () => {},
+    makeTransport: () => slack,
+    forwarderImpl: forwarder,
+    replyLegOptions: { pollMs: 3600000 }, // manual tick() only
+  });
+  return { ...built, slack, forwarder };
+}
+
+// Deliver ONE cold turn end to end: a REAL `onChatMessage` call (so `arm()` gets the REAL
+// `inboundMsgId` off the message it minted) mints the enqueue; its exec is then scripted onto
+// the ticker with terminal status + a conformant fenced log, and `replyLeg.tick()` drives the
+// capture→status→logs→deliver pass in one call (the ticker mutation happens before `tick()`
+// reads it, so one pass both captures and delivers — see `reply-leg.js#_runOnce`'s own ordering).
+async function deliverOneColdTurn(b, { rootTs, msgTs, answerText, chatMsgText, execId, chainThread = `exec-${execId}` }) {
+  const outcome = await b.bridge.onChatMessage(msg(msgTs, chatMsgText, rootTs));
+  const jobId = b.forwarder.state.lastJobId; // this call's own enqueue-job — the ONLY forward call it made (warm never attempts on an unmapped thread)
+  b.forwarder.state.recentTicks.push({ tick: execId, actions: [{ action: 'spawn', execId, queueId: jobId, thread: chainThread }] });
+  b.forwarder.state.status.set(execId, { live: false, status: 'done' });
+  b.forwarder.state.logs.set(execId, [resultLine(answerText)]);
+  await b.bridge.replyLeg.tick();
+  await sleep(20);
+  return { outcome, jobId };
 }
 
 function msg(msgTs, text, rootTs = '1.1') {
@@ -206,6 +284,59 @@ async function main() {
         secondReal && secondReal.delivered === false && secondReal.reason === 'already-answered-inbound', { secondReal });
       check('(c) exactly TWO posts reached Slack (the notice, then the one real answer)',
         b.slack.posted.length === 2, { posted: b.slack.posted.map((p) => p.text) });
+      b.bridge.stop();
+    }
+
+    // ── (d) THE COLD LEG'S OWN WIRING, END TO END — real arm()/deliver(), never a stand-in ─────
+    // `reply-leg.js#arm` now stores `inboundMsgId` on its per-conversation state and threads it
+    // into its own `deliver()` call (the ~3-line addition this scenario exists to prove landed).
+    // Nothing here calls `deliverToOwner` to SIMULATE the cold leg — `replyLeg.tick()` IS the
+    // cold leg, driven exactly as the daemon's own poll interval would.
+    {
+      const b = makeTickingBridge();
+      const conv = `${DM}:d.1`;
+
+      // d0 — the cold leg's real first delivery for a real owner message.
+      const { outcome } = await deliverOneColdTurn(b, {
+        rootTs: 'd.1', msgTs: 'd.1', chatMsgText: 'the cold-leg question', execId: 701, answerText: 'Cold-leg first answer',
+      });
+      check('(d0) premise: the message forwarded on the cold path (a brand-new conversation — warm never even attempts one)',
+        outcome && outcome.forwarded === true && outcome.leg !== 'live-session', { outcome });
+      check('(d0) the cold leg\'s OWN deliver() posted the real answer',
+        b.slack.posted.length === 1 && b.slack.posted[0].text === 'Cold-leg first answer', { posted: b.slack.posted.map((p) => p.text) });
+      // A follow-up's ticker row is captured by CHAIN THREAD, not queue-id (the queue-id is the
+      // conversation's first-turn id; `arm()` never updates `p.queueId` past its first non-null
+      // value — "the chain re-dispatches → a new exec on the SAME queue"). Bind it explicitly,
+      // the same convention `resolveChainThread`'s own fallback derives (`exec-<first exec_id>`).
+      b.threadMap.bindChainThread(conv, 'exec-701');
+
+      // d1 — a system notice on the SAME conversation the cold leg just answered on. Must post
+      // (notices always do) and must not disturb the guard either way — proven by d2 below still
+      // catching the duplicate.
+      const notice = await b.bridge.deliverToOwner({ chatThreadId: conv, text: 'still working on your next one…', markAsk: false });
+      check('(d1) a system notice on the cold-leg conversation posts normally and carries no answersOwnerAsk/inboundMsgId',
+        notice && notice.delivered !== false, { notice });
+
+      // d2 — THE PIVOT. A direct delivery attempt carrying the SAME id the cold leg's `deliver()`
+      // call just answered with. Refused ONLY IF `reply-leg.js#deliver()` actually told
+      // `deliverToOwner` what it was answering — i.e. only if the wiring landed.
+      const dup = await b.bridge.deliverToOwner({ chatThreadId: conv, text: 'A duplicate, differently-worded cold answer', answersOwnerAsk: true, inboundMsgId: 'd.1' });
+      check('(d2) a duplicate carrying the SAME inboundMsgId the cold leg just answered with is REFUSED — proves reply-leg.js#deliver() populated the guard for real',
+        dup && dup.delivered === false && dup.reason === 'already-answered-inbound', { dup });
+      check('(d2) exactly TWO posts reached Slack (the cold answer, then the notice) — the duplicate never landed',
+        b.slack.posted.length === 2, { posted: b.slack.posted.map((p) => p.text) });
+
+      // d3 — DISCRIMINATOR, same shape as (b): a SECOND, genuinely fresh owner message on the
+      // SAME conversation (a real follow-up, its own inboundMsgId) still gets its cold answer —
+      // the guard must not have latched the conversation shut after d0's delivery.
+      const { outcome: outcome2 } = await deliverOneColdTurn(b, {
+        rootTs: 'd.1', msgTs: 'd.4', chatMsgText: 'a genuine follow-up question', execId: 702, answerText: 'Cold-leg second answer', chainThread: 'exec-701',
+      });
+      check('(d3) premise: the follow-up forwarded on the cold path too',
+        outcome2 && outcome2.forwarded === true, { outcome2 });
+      check('(d3) a genuinely NEW owner message on the SAME conversation still gets answered — the guard did not latch the conversation shut',
+        b.slack.posted.length === 3 && b.slack.posted[2].text === 'Cold-leg second answer', { posted: b.slack.posted.map((p) => p.text) });
+
       b.bridge.stop();
     }
   } catch (err) {
