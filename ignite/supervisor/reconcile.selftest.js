@@ -1374,16 +1374,155 @@ say('── task 166 red arm: with `openRoomOnly` never called, a dead room with
   }
 }
 
+// ── dl-reconcile-honour · A LANE THE OWNER DROPPED IS NEVER RE-COUNTED OWED NOR RESURRECTED ─────
+//
+// `d-recovery-drop-is-one-lane-permanent`: `drop-lane` retires ONE `(goal, seat)` pair forever,
+// no undo. The `leader` chair is a lane like any other and CAN be the one dropped — measured
+// against the tree 2026-08-31: `leaderSeat()` only checked whether the `leader` ROW existed, never
+// whether it had been abandoned, so a dropped `leader` chair still read as a usable chair
+// everywhere downstream: `derived.classA`'s nonterm rows were woken AS it, and a dead room was
+// rebuilt UNDER it via `recoverRoom`. Both are the resurrection this ruling exists to prevent.
+function fixtureLeaderAbandoned() {
+  const goalFolder = fs.mkdtempSync(path.join(tmpRoot, 'abandon-leader-'));
+  writeSeat(goalFolder, 'leader', true);
+  writeSeat(goalFolder, 'worker-nonterm', true);
+  writeSeat(goalFolder, 'worker-incomplete', true);
+  writeTaskforce(goalFolder, ['leader', 'worker-nonterm', 'worker-incomplete']);
+  writeSessions(goalFolder, [
+    { 'session-id': 'wn1', seat: 'worker-nonterm', started: '2026-08-30 10:00',
+      ended: '2026-08-30 10:07', disposition: 'exited', 'disposition-writer': 'kit',
+      checkin: '2026-08-30 10:06' },
+    { 'session-id': 'wi1', seat: 'worker-incomplete', started: '2026-08-30 11:00',
+      ended: '2026-08-30 11:07', disposition: 'incomplete', 'disposition-writer': 'seat' },
+  ]);
+  writeMessages(goalFolder, []);
+  return goalFolder;
+}
+
+say('── dl-reconcile-honour: a dropped leader chair is never woken, never rebuilt-under, in ONE pass ──');
+{
+  const store = openStore();
+  try {
+    const goalFolder = fixtureLeaderAbandoned();
+    stampEndings(store, 'fx-leader-abandoned', [
+      ['worker-nonterm', 'exited'],
+      ['worker-incomplete', 'incomplete'],
+    ]);
+    bind(store.db).abandonSeat({
+      goal: 'fx-leader-abandoned', seat: 'leader',
+      anchor: 'owner: drop-lane, this chair is stuck for good', abandoned_by: 'owner',
+    });
+    const recoverCalls = [];
+    const tmuxCalls = [];
+    const pass = () => reconcileGoal({
+      goal: 'fx-leader-abandoned', goalFolder, engine: { heartStore: store },
+      say: () => {}, force: true, readyAnswer: readyEmpty,
+      live: new Set(), promptFn: () => 'fixture prompt', sendFn: () => ({ ok: true }),
+      recoverFn: (args) => { recoverCalls.push(args); return { ok: true }; },
+      runTmux: (argv) => { tmuxCalls.push(argv); return '%0 1'; },
+    });
+    const r = pass();
+
+    // 1 · the dropped chair is never returned as a usable leader.
+    assert.strictEqual(r.leader, null, `a dropped leader chair was returned as usable: ${JSON.stringify(r.leader)}`);
+    assert.ok(r.actions.some((a) => a.why === 'leader-abandoned'),
+      `no action named the abandonment: ${JSON.stringify(r.actions)}`);
+
+    // 2 · the nonterm row (needs the leader's judgment) is not woken AS the dropped chair.
+    const enqSeats = r.actions.filter((a) => a.kind === 'enqueue').map((a) => a.seat);
+    assert.ok(!enqSeats.includes('leader'),
+      `the dropped leader chair was enqueued/relaunched: ${JSON.stringify(r.actions)}`);
+
+    // 3 · the room is reopened room-only (task 166's own fallback), never rebuilt UNDER the
+    //     dropped chair — `recoverFn` (the seat-relaunch primitive) is never called at all.
+    assert.strictEqual(recoverCalls.length, 0,
+      `recoverFn (seat relaunch) was called against a dropped leader chair: ${JSON.stringify(recoverCalls)}`);
+    assert.ok(r.actions.some((a) => a.kind === 'room-reopened-no-leader'),
+      `the room was not safely reopened room-only: ${JSON.stringify(r.actions)}`);
+    assert.ok(!r.actions.some((a) => a.kind === 'room-rebuilt'),
+      `the room was rebuilt under the dropped leader: ${JSON.stringify(r.actions)}`);
+
+    // CONTROL — its non-abandoned sibling, in the SAME pass, is still owed and still relaunched.
+    // A change that stopped the pass doing anything would pass the three assertions above for
+    // free; this is what proves the pass still did real work.
+    assert.ok(enqSeats.includes('worker-incomplete'),
+      `CONTROL: the sibling incomplete row must still be enqueued in the same pass: ${JSON.stringify(r.actions)}`);
+
+    say(`ok  pass 1 — leader=${JSON.stringify(r.leader)}; dropped chair never enqueued/rebuilt-under; `
+      + 'room reopened room-only; sibling worker-incomplete still enqueued (control)');
+
+    // A LATER pass (force:true, so the cadence skip named below cannot silently make it a no-op)
+    // must not resurrect the dropped chair either — there is no undo, from a terminal or Slack.
+    const r2 = pass();
+    assert.notStrictEqual(r2.skipped, 'cadence',
+      `second pass returned skipped=cadence and proves nothing: ${JSON.stringify(r2)}`);
+    assert.strictEqual(r2.leader, null, `a LATER pass resurrected the dropped leader chair: ${JSON.stringify(r2.leader)}`);
+    assert.ok(!r2.actions.some((a) => a.kind === 'room-rebuilt'),
+      `a LATER pass rebuilt the room under the dropped chair: ${JSON.stringify(r2.actions)}`);
+    say(`ok  pass 2 (forced, not cadence-skipped) — leader still ${JSON.stringify(r2.leader)}, still not resurrected`);
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
+}
+
+say('── dl-reconcile-honour red arm: without the abandonment check, the dropped leader IS resurrected ──');
+{
+  const src = fs.readFileSync(path.join(__dirname, 'reconcile.js'), 'utf8');
+  const ANCHOR = '    if (abandonment) {';
+  assert.ok(src.includes(ANCHOR), 'dl-reconcile-honour mutation anchor missing from reconcile.js');
+  const Module = require('node:module');
+  const mut = new Module(path.join(__dirname, 'reconcile.js'), null);
+  mut.filename = path.join(__dirname, 'reconcile.js');
+  mut.paths = Module._nodeModulePaths(__dirname);
+  // Disables ONLY the abandonment branch this seat adds — the B16 row-presence check above it
+  // stays intact, isolating this arm to the new behaviour.
+  mut._compile(src.replace(ANCHOR, '    if (false) {'), mut.filename);
+  const store = openStore();
+  try {
+    const goalFolder = fixtureLeaderAbandoned();
+    stampEndings(store, 'fx-leader-abandoned-red', [
+      ['worker-nonterm', 'exited'],
+      ['worker-incomplete', 'incomplete'],
+    ]);
+    bind(store.db).abandonSeat({
+      goal: 'fx-leader-abandoned-red', seat: 'leader',
+      anchor: 'owner: drop-lane, this chair is stuck for good', abandoned_by: 'owner',
+    });
+    const recoverCalls = [];
+    const rr = mut.exports.reconcileGoal({
+      goal: 'fx-leader-abandoned-red', goalFolder, engine: { heartStore: store },
+      say: () => {}, force: true, readyAnswer: readyEmpty,
+      live: new Set(), promptFn: () => 'fixture prompt', sendFn: () => ({ ok: true }),
+      recoverFn: (args) => { recoverCalls.push(args); return { ok: true }; },
+      runTmux: () => '%0 1',
+    });
+    assert.strictEqual(rr.leader, 'leader',
+      `red arm did not reproduce the resurrection: ${JSON.stringify(rr.leader)}`);
+    assert.ok(recoverCalls.some((c) => c.seat === 'leader'),
+      `red arm did not resurrect the dropped chair via recoverRoom: ${JSON.stringify(recoverCalls)}`);
+    say(`ok  red: without the abandonment check the dropped leader chair IS resurrected `
+      + `(leader=${rr.leader}, recoverFn called with seat=leader)`);
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
+}
+
 say('── B16 red arm: with the old fallback restored, the WORKER is promoted to the chair ──');
 {
   const src = fs.readFileSync(path.join(__dirname, 'reconcile.js'), 'utf8');
-  const ANCHOR = '    if (seats.includes(LEADER_CHAIR)) return { seat: LEADER_CHAIR };';
+  // ANCHOR updated (dl-reconcile-honour, 2026-08-31): `leaderSeat` grew a leader-abandonment check
+  // between the row-presence test and its `{ seat: LEADER_CHAIR }` return, so the single-line
+  // early-return this used to splice onto no longer exists. Same mutation, same intent — restore
+  // the historic seats[0] fallback as the FIRST thing the no-leader-row branch does.
+  const ANCHOR = '    if (!seats.includes(LEADER_CHAIR)) {';
   assert.ok(src.includes(ANCHOR), 'B16 mutation anchor missing from reconcile.js');
   const Module = require('node:module');
   const mut = new Module(path.join(__dirname, 'reconcile.js'), null);
   mut.filename = path.join(__dirname, 'reconcile.js');
   mut.paths = Module._nodeModulePaths(__dirname);
-  mut._compile(src.replace(ANCHOR, `${ANCHOR}\n    if (seats[0]) return { seat: seats[0] };`), mut.filename);
+  mut._compile(src.replace(ANCHOR, `${ANCHOR}\n      if (seats[0]) return { seat: seats[0] };`), mut.filename);
   const store = openStore();
   try {
     const goalFolder = fixtureNoLeader();

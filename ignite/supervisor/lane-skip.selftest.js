@@ -120,6 +120,34 @@ test('an UNBUILT lane is skipped BY ITSELF — its sibling launches [C-9]', () =
   }
 });
 
+test('an ABANDONED lane (dropped via drop-lane) is skipped BY ITSELF, forever — its sibling launches [C-9, d-recovery-abandoned-is-an-ending]', () => {
+  const { goalFolder, store, seats } = fixture();
+  try {
+    const { bindEnding, goalNameOf } = require('./ending-reads');
+    const { abandonedSeats } = require('./owed-from-endings');
+    const api = bindEnding(store, goalFolder);
+    const goal = goalNameOf(goalFolder, 'g-lane-skip');
+    api.abandonSeat({
+      goal, seat: 'problem-lane', anchor: 'owner: drop-lane, this lane is stuck for good', abandoned_by: 'owner',
+    });
+    // The exact computation `lane-watch.js#runLaneWatch` performs before filling `laneSkips`.
+    const abandonedMap = abandonedSeats(api, goal, seats);
+    assert.deepStrictEqual([...abandonedMap.keys()], ['problem-lane']);
+
+    const laneSkips = new Map([...abandonedMap.keys()].map((s) => [s, 'abandoned']));
+    const out = pass(store, goalFolder, seats, laneSkips);
+
+    assert.deepStrictEqual(out.enqueued, ['sibling'],
+      `the sibling must launch while the dropped lane does not: ${JSON.stringify(out.enqueued)}`);
+    assert.deepStrictEqual(out.laneSkipped, { 'problem-lane': 'abandoned' });
+    const skipLog = out.logged.find((l) => l.seat === 'problem-lane' && l.because === 'abandoned');
+    assert.ok(skipLog, 'the dropped lane is still named at warn');
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
+});
+
 test('RED: with the skip set EMPTY the same fixture enqueues both — the arm discriminates', () => {
   const { goalFolder, store, seats } = fixture();
   try {
@@ -139,6 +167,8 @@ test('RED: the WHOLE-GOAL skip is gone from lane-watch — no `continue` survive
   assert.match(src, /const laneSkips = new Map\(\);/);
   assert.match(src, /for \(const seat of unbuilt\) laneSkips\.set\(seat, 'unbuilt-seat'\);/);
   assert.match(src, /for \(const seat of uncastOnly\) laneSkips\.set\(seat, 'uncast-seat'\);/);
+  // dl-reconcile-honour: a lane dropped via `drop-lane` is the same per-lane skip shape.
+  assert.match(src, /for \(const seat of abandonedOnly\) laneSkips\.set\(seat, 'abandoned'\);/);
   // And nothing between the uncast branch and the seed call cancels the goal on that list.
   // Sliced to the branch itself: the `console-run-live` skip further down IS a whole-goal skip and
   // is nothing to do with this list — a goal an operator is driving by hand is not seeded, ruled

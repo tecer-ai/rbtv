@@ -44,7 +44,9 @@ const {
 // has one of its own.
 const { deriveOwed } = require('./owed');
 const { finishEvent } = require('./owed-from-endings');
+const { bindEnding, goalNameOf } = require('./ending-reads');
 const { finishOnCompletion } = require('./finish-on-completion');
+const { lastLaneAbandoned, mintLastLaneAsk } = require('./last-lane-ask');
 const { launchThroughDoor } = require('./launch-door');
 const { DOORS } = require('./doors');
 // ── THE PROVIDER-CLASSIFICATION HOOKUP [spec-recovery §3, T1-R13, C-10] ───────────────────────
@@ -216,16 +218,37 @@ const LEADER_CHAIR = 'leader';
 
 // { seat: 'leader' } when the chair is genuinely staffed; { seat: null, why, detail } otherwise.
 // Never a substitute.
-function leaderSeat(goalFolder) {
+//
+// ⚠ `d-recovery-drop-is-one-lane-permanent`: the `leader` row is a lane like any other, and
+// `drop-lane` can retire it forever. Every consumer below already fails closed on `seat: null`
+// (no substitute leader, no room rebuilt under one) — checking abandonment HERE, at the one place
+// `leader` is resolved, means those consumers never learn a second reason to refuse. The
+// alternative (teaching `derived.owed`'s room-rebuild branch and the nonterm launch target to each
+// re-check abandonment) is the same fact taught twice at the two places `leader` is later used.
+function leaderSeat(goalFolder, { heartStore = null, goal = null } = {}) {
   try {
     const rows = readTaskforce(goalFolder);
     const seats = rows.map((r) => (r.seat || '').trim()).filter(Boolean);
-    if (seats.includes(LEADER_CHAIR)) return { seat: LEADER_CHAIR };
-    return {
-      seat: null,
-      why: 'no-leader-row',
-      detail: `this goal's taskforce.csv carries no \`${LEADER_CHAIR}\` row (rows: ${seats.join(', ') || 'none'})`,
-    };
+    if (!seats.includes(LEADER_CHAIR)) {
+      return {
+        seat: null,
+        why: 'no-leader-row',
+        detail: `this goal's taskforce.csv carries no \`${LEADER_CHAIR}\` row (rows: ${seats.join(', ') || 'none'})`,
+      };
+    }
+    const api = bindEnding(heartStore, goalFolder);
+    const abandonment = api && typeof api.getSeatAbandonment === 'function'
+      ? api.getSeatAbandonment({ goal: goalNameOf(goalFolder, goal), seat: LEADER_CHAIR })
+      : null;
+    if (abandonment) {
+      return {
+        seat: null,
+        why: 'leader-abandoned',
+        detail: `the \`${LEADER_CHAIR}\` chair was dropped via drop-lane (${abandonment.anchor}) and `
+          + 'can never be relaunched into — no undo (d-recovery-drop-is-one-lane-permanent)',
+      };
+    }
+    return { seat: LEADER_CHAIR };
   } catch (err) {
     return {
       seat: null,
@@ -947,7 +970,7 @@ function reconcileGoal({
   });
   // B16 — the chair, or NOTHING. `leader` is `null` on a goal with no staffed leader row, and
   // every consumer below refuses rather than substituting.
-  const leaderChair = leaderSeat(goalFolder);
+  const leaderChair = leaderSeat(goalFolder, { heartStore, goal });
   const leader = leaderChair.seat;
 
   if (!dryRun && heartStore) setPassAt(heartStore, goal, at);
@@ -1329,6 +1352,23 @@ function reconcileGoal({
           attempts: retry.attempts, exhausted: Boolean(retry.exhausted), ask: retry.ask,
         });
       }
+    }
+  } else if (lastLaneAbandoned(derived)) {
+    // `d-recovery-last-lane-asks` + `d-recovery-waiting-goal-freeze`: nothing is owed, and at
+    // least one seat here got there by being dropped (`drop-lane`), never by finishing. The system
+    // does not close this goal on its own and does not leave it silent either — it mints ONE
+    // close-or-keep ask for the goal's own channel (posting is a separate, later act — see
+    // `last-lane-ask.js`'s header). Idempotent per goal: a pass that finds the record already on
+    // disk mints nothing twice.
+    const minted = mintLastLaneAsk({
+      store: endingStore, workspaceRoot, goal, abandonedSeats: derived.abandonedSeats, at,
+    });
+    if (minted.minted) {
+      actions.push({ kind: 'last-lane-ask-minted', askId: minted.askId });
+      say('info', 'reconcile: this goal\'s last owed lane was dropped — a close-or-keep ask was '
+        + 'minted for the goal channel [d-recovery-last-lane-asks]', {
+        goal, askId: minted.askId, abandonedSeats: derived.abandonedSeats.map((a) => a.seat),
+      });
     }
   }
 

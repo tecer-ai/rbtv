@@ -55,7 +55,8 @@ const { seatFallback } = require('../chat/bus-ferry');
 // never disagree about which goals may be assigned to the daemon.
 const { uncastSeats } = require('./seeding');
 const { maybeReconcile, loadSessions } = require('./reconcile');
-const { finishEvent } = require('./owed-from-endings');
+const { finishEvent, abandonedSeats } = require('./owed-from-endings');
+const { bindEnding, goalNameOf } = require('./ending-reads');
 // THE ROOM: the one detached-session opener (shared with the boot cockpit) and the one room
 // predicate. Neither is re-implemented here — see `openGoalRoom` below.
 const { composeDetachedSession } = require('./spawn/tmux');
@@ -708,6 +709,31 @@ async function runLaneWatch({
           fix: `rbtv-bindings set <workflow.csv> <seat> <harness> <model> [effort], then rbtv goal materialize ${goal}`,
         });
       for (const seat of uncastOnly) laneSkips.set(seat, 'uncast-seat');
+    }
+
+    // ── AN ABANDONED LANE IS A PER-LANE SKIP, NEVER A RELAUNCH TARGET (`d-recovery-abandoned-is`
+    // `-an-ending`) ───────────────────────────────────────────────────────────────────────────
+    //
+    // `drop-lane` retires ONE `(goal, seat)` pair forever, recorded in the ONE ending store's
+    // `seat_abandonments` table. `classifyOwed`'s ledger half already excludes it from classA/
+    // classB/pending (`owed-from-endings.js`), so a watcher-cadence pass never re-counts it owed —
+    // but the graph half `seeding.js#launchOwed` asks for class R off `recordView`, which does not
+    // populate `view.abandoned`, so a seat coord still marks READY (stale — coord does not know
+    // about the drop) can still reach `classR` on that path. This list is the same C-9 per-lane
+    // backstop `unbuilt`/`uncast` already use above: naming the seat here means `launchOwed`'s own
+    // `laneSkips` check (seeding.js) refuses to enqueue it regardless of which half of the owed
+    // computer let it through, and `openGoalRoom` below never opens a goal's first room under it.
+    const abandonedMap = abandonedSeats(
+      bindEnding(engine && engine.heartStore, goalFolder), goalNameOf(goalFolder, goal),
+      unbuiltRows.map((r) => (r.seat || '').trim()).filter(Boolean),
+    );
+    const abandonedOnly = [...abandonedMap.keys()].filter((s) => !laneSkips.has(s));
+    if (abandonedOnly.length) {
+      skipped.push({ goal, reason: 'abandoned-seats', seats: abandonedOnly });
+      say('debug', 'lane watch: this goal carries seat(s) dropped via `drop-lane` — THOSE SEATS are '
+        + 'not seeded, permanently, and nothing was registered for them. Their siblings on this goal '
+        + 'seed normally [C-9].', { goal, seats: abandonedOnly });
+      for (const seat of abandonedOnly) laneSkips.set(seat, 'abandoned');
     }
 
     // ── PERSIST THE SKIP SET FOR A READ-ONLY CONSUMER (task-121 criterion 3) ─────────────────
