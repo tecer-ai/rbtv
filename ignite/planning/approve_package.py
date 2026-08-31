@@ -73,8 +73,15 @@ MANIFEST_SEAT_COLUMN = "Seat/workflow"
 # Read by `run_path_b`; optional because the birth has its own default for each.
 OPTIONAL_KEYS = (
     "roster", "contract", "contract_file", "workflow", "sheet", "catalog_root",
-    "git_dir", "envelope_stamp", "planning_pass_id",
+    "git_dir", "envelope_stamp", "planning_pass_id", "execution_mode",
 )
+
+# `goal_cli.py#EXECUTION_MODES`, re-spoken here for the same reason `GOAL_NAME_RE` above is: this
+# is a second reader of the field, and a value this writer accepts but `cmd_scaffold` refuses is a
+# birth that fails after the owner has already approved. Omitted, `run_scaffold` passes nothing and
+# `cmd_scaffold` falls back to its own `EXECUTION_MODE_DEFAULT` — this writer derives none, same as
+# `goal_cli.py`'s own scaffold verb declares of itself.
+EXECUTION_MODES = ("interactive", "autonomous")
 
 
 class ApprovePackageRefusal(Exception):
@@ -114,6 +121,14 @@ def build_package(*, execution_goal, bound_commit, lane, plan_artifacts, **optio
             "bad-plan-artifacts",
             "plan_artifacts is required — the birth resolves the approved plan at the bound commit "
             "through it",
+        )
+    execution_mode = optional.get("execution_mode")
+    if execution_mode is not None and str(execution_mode) not in EXECUTION_MODES:
+        raise ApprovePackageRefusal(
+            "bad-execution-mode",
+            f"{execution_mode!r} is not one of {EXECUTION_MODES} — `cmd_scaffold` refuses anything "
+            "else, and a value this writer accepts and the scaffold refuses is a birth that fails "
+            "after the owner has already approved",
         )
     for key in DAEMON_STAMPED:
         if optional.get(key) is not None:
@@ -284,6 +299,10 @@ def main(argv=None):
     ap.add_argument("--sheet", default=None, help="the casting sheet the uncast check reads")
     ap.add_argument("--catalog-root", default=None, help="the catalog root the mint reads")
     ap.add_argument("--git-dir", default=None, help="the repo the bound commit lives in (defaults to --plan-artifacts)")
+    ap.add_argument("--execution-mode", default=None, choices=list(EXECUTION_MODES),
+                    help="the plan's declared per-goal owner-contact policy, carried through to "
+                         "`scaffold --execution-mode`. Omit it to let the birth default to "
+                         "autonomous, same as an absent execution-mode file already reads as")
     ap.add_argument("--json", action="store_true", help="print the written package instead of a one-line report")
     args = ap.parse_args(argv)
 
@@ -300,6 +319,7 @@ def main(argv=None):
             sheet=args.sheet,
             catalog_root=args.catalog_root,
             git_dir=args.git_dir,
+            execution_mode=args.execution_mode,
         )
     except ApprovePackageRefusal as exc:
         print(json.dumps({"ok": False, "refusal": {"code": exc.code, "detail": exc.detail}}, indent=2))

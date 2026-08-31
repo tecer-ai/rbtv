@@ -129,6 +129,32 @@ function main() {
     && births[0].roster.join(',') === 'exec-builder,exec-judge' && births[0].workflow === 'plan-console',
     JSON.stringify((births[0] || {}).roster));
 
+  // ── M. THE PLAN'S DECLARED execution-mode CARRIES THROUGH (G-plan-drafter-0828-1848) ────────
+  // Before this fix `approve_package.py` had no field for it at all, so a plan declaring
+  // interactive was born autonomous regardless (`path_b.py#run_scaffold` had no `--execution-mode`
+  // in its argv either). This measures the writer's half of the carry: the declared value reaches
+  // the birth intact.
+  const mGoal = path.join(root, '.rbtv', 'goals', 'mode-goal');
+  fs.mkdirSync(mGoal, { recursive: true });
+  const wm = runWriter(['--goal-dir', mGoal, '--execution-goal', EXEC_GOAL, '--bound-commit', COMMIT,
+    '--lane', 'daemon', '--plan-artifacts', root, '--workflow', 'plan-console',
+    '--execution-mode', 'interactive']);
+  const mWritten = fs.existsSync(path.join(mGoal, APPROVE_PACKAGE))
+    ? JSON.parse(fs.readFileSync(path.join(mGoal, APPROVE_PACKAGE), 'utf8')) : {};
+  check('M1: --execution-mode interactive is WRITTEN into the package',
+    wm.code === 0 && mWritten.execution_mode === 'interactive', JSON.stringify(mWritten));
+  const rm = startExecution({ db }, {
+    workspaceRoot: root, goal: 'mode-goal', thread: THREAD, commit: COMMIT, runPathB: injectedRunPathB,
+  });
+  check('M2: and reaches the birth intact — the value the gate-2 owner-contact policy reads',
+    rm.started === true && births[births.length - 1].execution_mode === 'interactive',
+    JSON.stringify(births[births.length - 1] || null));
+  const refM = runWriter(['--goal-dir', mGoal, '--execution-goal', EXEC_GOAL, '--bound-commit', COMMIT,
+    '--lane', 'daemon', '--plan-artifacts', root, '--workflow', 'plan-console',
+    '--execution-mode', 'bogus-mode']);
+  check('M3: a value `cmd_scaffold` would refuse is refused HERE, at the writer, not at the birth'
+    + ' with the approval already spent', refM.code === 2, refM.stdout.trim());
+
   // ── R. THE WRITER REFUSES WHAT THE READER WOULD REFUSE ──────────────────────────────────────
   const other = path.join(root, '.rbtv', 'goals', 'other-goal');
   fs.mkdirSync(other, { recursive: true });

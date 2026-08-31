@@ -546,6 +546,13 @@ def run_scaffold(pkg, contract_file):
         # `lane: console` — a goal the daemon never picks up at all.
         "--materialize-follows",
     ]
+    # Carry the plan's declared per-goal owner-contact policy through, when it declared one.
+    # `cmd_scaffold` already honors `--execution-mode` correctly (it derives none itself); the
+    # birth defaulted to autonomous only because nothing on this path ever passed the flag —
+    # G-plan-drafter-0828-1848.
+    execution_mode = pkg.get("execution_mode")
+    if execution_mode:
+        argv.extend(["--execution-mode", str(execution_mode)])
     proc = _run(argv)
     if proc.returncode != 0:
         dest = Path(pkg["goals_root"]) / name

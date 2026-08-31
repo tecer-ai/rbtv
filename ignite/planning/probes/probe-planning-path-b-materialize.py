@@ -388,6 +388,38 @@ def main():
             f"ok={out9.get('ok')} content={content9}",
         )
 
+        # ── P12 · A DECLARED execution-mode REACHES THE MINTED GOAL (task 154,
+        # G-plan-drafter-0828-1848) ─────────────────────────────────────────────────────────
+        # No `scaffold=`/`mint=` stub here — this is the REAL `goal_cli.py` subprocess (same as
+        # P1), so it is the red-first reproduction: on unmodified HEAD this goal is minted with
+        # `execution-mode` = `autonomous` regardless of the package declaring `interactive`.
+        pkg12 = dict(pkg)
+        pkg12["execution_goal"] = "exec-interactive"
+        pkg12["execution_mode"] = "interactive"
+        out12, argv12 = path_b.run_path_b(pkg=pkg12, mint=lambda a: seen.setdefault("argv12", list(a)))
+        exec_dir12 = goals / "exec-interactive"
+        mode_file12 = exec_dir12 / "execution-mode"
+        check(
+            "P12",
+            bool(out12.get("ok")) and mode_file12.is_file()
+            and mode_file12.read_text(encoding="utf-8").strip() == "interactive",
+            f"ok={out12.get('ok')} execution-mode={mode_file12.read_text(encoding='utf-8').strip() if mode_file12.is_file() else '(absent)'}",
+        )
+
+        # P13 · the control arm — a package that DECLARES NOTHING still defaults autonomous, same
+        # as an absent file already reads as (this fix must not force a value onto a plan that
+        # never declared one).
+        pkg13 = dict(pkg)
+        pkg13["execution_goal"] = "exec-unspecified"
+        out13, _ = path_b.run_path_b(pkg=pkg13, mint=lambda a: seen.setdefault("argv13", list(a)))
+        mode_file13 = goals / "exec-unspecified" / "execution-mode"
+        check(
+            "P13",
+            bool(out13.get("ok")) and mode_file13.is_file()
+            and mode_file13.read_text(encoding="utf-8").strip() == "autonomous",
+            f"ok={out13.get('ok')} execution-mode={mode_file13.read_text(encoding='utf-8').strip() if mode_file13.is_file() else '(absent)'}",
+        )
+
         # ── P10-P11 · uncast_in_sheet MERGES defaults (task 160) ────────────────────────────
         # meet-transcript-summarizer-planning declared harness only in `defaults`; before the
         # fix uncast_in_sheet read the per-seat entry alone, so every seat came back "missing"
