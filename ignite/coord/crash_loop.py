@@ -70,15 +70,56 @@ def _load(path):
     return data if isinstance(data, dict) else {}
 
 
+def prune_stale(pkg, *, now=None, window_sec=WINDOW_SEC):
+    """Drop every alarm entry whose raising has aged out of ITS OWN detection window.
+
+    THE CLEARING RULE (chosen over "clear on the seat's next successful check-in"): an alarm
+    entry ages out once `now` is a full `window_sec` past its `raised_at`. The alarm's own
+    definition is already "N pre-checkin deaths inside window_sec" — once that much time has
+    passed with no new one counted, the pattern it reported is no longer live, whether or not the
+    seat has run again. A check-in-triggered clear would need a hook in `session_checkin`
+    (`ignite/coord/records.py`), which is outside this seat's granted files (custody: only
+    `crash_loop.py` + `supervisor_door.py` + `attest.py#close_session_seat`) and under `coord/`'s
+    own save/selftest discipline; the window-based rule is self-contained — this module owns both
+    the raise and the clear — and needs no cross-package hook.
+
+    Returns the list of seats cleared. Rewrites (or removes) the file only when something changed.
+    """
+    now = now or datetime.now()
+    path = alarm_path(pkg)
+    store = _load(path)
+    if not store:
+        return []
+    cleared = []
+    kept = {}
+    for seat, alarm in store.items():
+        raised = _parse_ended((alarm or {}).get("raised_at", ""))
+        window = (alarm or {}).get("window_sec", window_sec)
+        if raised is not None and now - raised >= timedelta(seconds=window):
+            cleared.append(seat)
+            continue
+        kept[seat] = alarm
+    if cleared:
+        if kept:
+            path.write_text(json.dumps(kept, indent=2) + "\n", encoding="utf-8")
+        else:
+            path.unlink(missing_ok=True)
+    return cleared
+
+
 def note_failed_death(pkg, seat, *, session="", result=None, now=None, window_sec=WINDOW_SEC):
     """Raise `seat-crash-loop` when this failed death is the second+ pre-checkin in the window.
 
     Returns the alarm dict when raised this call, the existing dict when already open,
     or None when the threshold is unmet / the ending is not failed.
+
+    Prunes stale entries FIRST, on every call — the disarming path, run from the same place
+    (`supervisor_door.death_stamp`) that already calls this on every session close, crash or clean.
     """
+    now = now or datetime.now()
+    prune_stale(pkg, now=now, window_sec=window_sec)
     if (result or {}).get("ending") != "failed":
         return None
-    now = now or datetime.now()
     deaths = precheckin_deaths(pkg, seat, now=now, window_sec=window_sec)
     if len(deaths) < THRESHOLD:
         return None
@@ -158,6 +199,30 @@ def selftest():
 
     skip = note_failed_death(pkg, "alpha", result={"ending": "done"}, now=now)
     check("a done ending is not a crash-loop", skip is None)
+    check("alarm still flags alpha before its window elapses",
+          "alpha" in _load(alarm_path(pkg)))
+
+    # ── clearing: entries age out with the SAME window that raised them (the chosen rule) ──────
+    before_clear = alarm_path(pkg).read_text(encoding="utf-8")
+    later = now + timedelta(seconds=WINDOW_SEC)
+    cleared = prune_stale(pkg, now=later)
+    after_clear_exists = alarm_path(pkg).exists()
+    check("prune_stale clears alpha's alarm once the window elapses",
+          cleared == ["alpha"] and '"seat": "alpha"' in before_clear and not after_clear_exists)
+
+    # the production hook: `note_failed_death` prunes FIRST on every call, including a clean
+    # (non-crash) close — so an operator sees a disarmed alarm on the seat's next session close
+    # of ANY kind once the window has passed, without a second death.
+    write_rows("s1,alpha,2026-08-31 15:50,\n"
+               "s2,alpha,2026-08-31 15:55,\n")
+    re_raised = note_failed_death(pkg, "alpha", session="s2",
+                                  result={"ending": "failed"}, now=now)
+    check("alpha re-trips the alarm after a prior clear",
+          isinstance(re_raised, dict) and re_raised.get("alarm") == ALARM_NAME)
+    much_later = now + timedelta(seconds=WINDOW_SEC * 2)
+    note_failed_death(pkg, "alpha", result={"ending": "done"}, now=much_later)
+    check("a later clean close, once the window has passed, disarms via the prune-first hook",
+          "alpha" not in _load(alarm_path(pkg)))
 
     other = tmp / "other"
     (other / "coordination").mkdir(parents=True)

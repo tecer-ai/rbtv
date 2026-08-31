@@ -178,6 +178,48 @@ def session_open_started(pkg, seat):
         return None
 
 
+def session_open_checked_in(pkg, seat):
+    """True when `seat`'s LAST OPEN session row carries a non-empty `checkin` cell.
+
+    Same file, same column `crash_loop.py#precheckin_deaths` counts to decide whether a death was
+    pre- or post-check-in — this closer has no session-id yet (it is the tmux-lane arm, keyed by
+    seat like `session_open_started`), so it reads the seat's open row the same way that helper
+    does, rather than workers.md's separate `checkin` cell."""
+    path = coord.sessions_csv(pkg)
+    if not path.exists():
+        return False
+    header, rows = coord.read_csv_table(path, coord.SESSIONS_COLS)
+    idx = {c: i for i, c in enumerate(header)}
+    if not {"seat", "ended", "checkin"} <= set(idx):
+        return False
+    found = None
+    for r in rows:
+        coord.pad_row(r, header)
+        if r[idx["seat"]].strip() == seat and not r[idx["ended"]].strip():
+            found = r
+    return bool(found and found[idx["checkin"]].strip())
+
+
+def session_checked_in_by_id(pkg, sid):
+    """True when sessions.csv's row named `sid` carries a non-empty `checkin` cell.
+
+    The daemon-lane twin of `session_open_checked_in`: this closer already holds the session-id
+    (the row key `daemon_close_blockers` insists on, adv C6), so it matches by id rather than
+    re-deriving the seat's "last open" row."""
+    path = coord.sessions_csv(pkg)
+    if not path.exists():
+        return False
+    header, rows = coord.read_csv_table(path, coord.SESSIONS_COLS)
+    idx = {c: i for i, c in enumerate(header)}
+    if not {"session-id", "checkin"} <= set(idx):
+        return False
+    for r in rows:
+        coord.pad_row(r, header)
+        if r[idx["session-id"]].strip() == sid:
+            return bool(r[idx["checkin"]].strip())
+    return False
+
+
 def attest_exit_seat(args, seat):
     """Perform the attestation for ONE seat. Returns the list of step strings performed.
 
@@ -186,8 +228,7 @@ def attest_exit_seat(args, seat):
     close the session row. A different order here would be a second definition of what a finished
     seat looks like."""
     base = coord.base_dir(args, register=False)
-    _, _, rows = coord.load_workers(base)
-    row = coord.current_row(rows, seat) or {}
+    pkg = coord.package_dir(args, register=False)
     steps = []
     out, err = coord.export_transcript(args, seat, "attest-exit")
     steps.append(f"transcript: {out}" if not err else f"transcript SKIPPED — {err}")
@@ -208,9 +249,14 @@ def attest_exit_seat(args, seat):
     # witness read (`spawn.js#crashEvidence`); §1.4 requires the pointer to name the observed
     # death, and this process can see neither fact. The exported transcript is the fallback, and
     # the seat name the last resort — the store refuses an empty pointer outright.
-    pkg = coord.package_dir(args, register=False)
+    #
+    # ⚠ `checked_in` READS sessions.csv, NEVER workers.md. `crash_loop.py#precheckin_deaths` counts
+    # sessions.csv's own `checkin` cell to decide whether a death was pre- or post-check-in; reading
+    # workers.md here (a different table, filled by a different writer) let the two disagree about
+    # the SAME row and print a wrong `after check-in` diagnostic (`death-stamp.js`'s `diagnostic`
+    # field). One source, read the same way `session_open_started` already reads it.
     _res, _step = supervisor_stamp(args, pkg, seat,
-                                   checked_in=bool(row.get("checkin")),
+                                   checked_in=session_open_checked_in(pkg, seat),
                                    fallback_evidence=out or f"attest-exit:{seat}")
     steps.append(_step)
     sid, cerr = coord.session_trace_safe(coord.session_close, args, seat)
@@ -389,8 +435,11 @@ def close_session_seat(args, sid, seat):
     steps.append(f"sessions.csv: {sid} ended" if not cerr
                  else f"sessions.csv: row NOT completed — {cerr}")
     row = coord.current_row(coord.load_workers(base)[2], seat) or {}
+    # `checked_in` reads sessions.csv BY SESSION-ID, the same file and cell
+    # `crash_loop.py#precheckin_deaths` counts — see `session_checked_in_by_id`. workers.md's own
+    # `checkin` cell is a different table with a different writer and is not read here.
     res, step = supervisor_stamp(args, pkg, seat, session=sid,
-                                 checked_in=bool(row.get("checkin")),
+                                 checked_in=session_checked_in_by_id(pkg, sid),
                                  fallback_evidence=f"session:{sid}")
     steps.append(step)
     # The ENDING IS WHATEVER THE SUPERVISOR SAYS IT IS — never a constant this closer chose. It used
