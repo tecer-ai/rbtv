@@ -1,3 +1,4 @@
 2026-08-28 · issue · The engine never held the ending store · Every production reconcile pass ran with NO ending store, and had since the field was introduced. → `supervisor/reconcile.js:794-796` resolves `const endingStore = (engine && engine.endingStore) || null;` · eb0e4828 · supervisor,state-store · ⚠
 2026-08-28 · issue · The recovery exit's ask reached no owner surface · A lane that reaches the attempt bound opens an ask the owner never sees. Measured 2026-08-28 → Two records, one surface, and the surface only knew about one of them. · c481e177 · supervisor,chat,gateway · ⚠
 2026-08-31 · issue · Paneless daemon-lane seats invisible to the lease · verifiedSeats required pane ancestry so tty-empty daemon rows counted 0 · 944782cc · supervisor · ⚠
+2026-08-31 · issue · Crash sweep raced ExecStopPost into failed · gone+no-marker stamped failed same tick (exit=null) → ExecStopPost races the sweep; never-spawned undistinguished · cb9034f8 · — · ⚠
