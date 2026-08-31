@@ -69,13 +69,18 @@ both inversions are the point:
      what the retired target did — while a rung on an INERT profile is ACCEPTED and stored as the
      word `inert`, which is owner ruling `d-effort-refuses-only-where-a-dial-exists` and the arm
      that reds if the 2026-08-12 refusal returns. That refusal ALSO popped the field, and
-     `open_binding` then refused the half-declared triple on this very seat, so the master's live
-     `claude-haiku` cast could not be made through this tool at all.
- 11. A RELATIVE `--inbox` IS WORKSPACE-RELATIVE, NEVER CWD-RELATIVE — the half of the 2026-08-12
-     misrooting this capability owns. Resolving a relative inbox at the caller's cwd `mkdir -p`'d a
-     stray `.rbtv/goals` under the requesting seat's own folder, which `goal_cli`'s root walk-up
-     then scaffolded a real goal into. Absolute paths pass through untouched. Proven at the
-     FUNCTION and through `main` on the real argv, with the pre-fix `Path(raw)` as the red control.
+      `open_binding` then refused the half-declared triple on this very seat, so the master's live
+      `claude-haiku` cast could not be made through this tool at all.
+     11. A RELATIVE `--inbox` IS WORKSPACE-RELATIVE, NEVER CWD-RELATIVE — the half of the 2026-08-12
+      misrooting this capability owns. Resolving a relative inbox at the caller's cwd `mkdir -p`'d a
+      stray `.rbtv/goals` under the requesting seat's own folder, which `goal_cli`'s root walk-up
+      then scaffolded a real goal into. Absolute paths pass through untouched. Proven at the
+      FUNCTION and through `main` on the real argv, with the pre-fix `Path(raw)` as the red control.
+     12. A FAILED RE-RENDER FAILS THE APPLY — MATERIALIZE pointed at a missing file (the live
+      coord/ path) and a stub that exits 1 both leave outcome FAILED in refused/, not ACCEPTED
+      in done/; a threaded failure posts an owner-facing note that names the re-render.
+     13. RECAST DOES NOT NEED THE SEAT TO FIRE REQUEST — `recast` writes the sheet and re-renders
+      with `--bindings` against an empty inbox (a seat that crashed before any tool call).
 """
 
 import contextlib
@@ -510,9 +515,9 @@ def main():
                   "an ACCEPTED outcome asks to be POSTED verbatim — nothing to act on")
             check(f"`{prev}` → `claude/claude-opus-5`" in body,
                   f"the body states the change as old → new (`{prev}` → `claude/claude-opus-5`)")
-            check("NEXT message" in body and "restarted" in body,
-                  "and tells the owner the switch lands on his next message with nothing restarted "
-                  "— the retired body promised a bridge restart that no longer happens")
+            check("seat.md" in body and "SHEET" in body and "restarted" in body,
+                  "and tells the owner the SHEET is written, launch still reads seat.md, nothing restarted "
+                  "— not that the sheet is already the live sitting")
             check(not any(l.startswith("|") or l.startswith("#") for l in body.split("\n")),
                   "the body is mrkdwn — no pipe tables, no markdown headings")
         check(bus.read_text(encoding="utf-8").endswith("\n"),
@@ -828,6 +833,64 @@ def main():
             print("  ok   the mutant handed over a cwd-relative inbox — check 11(b) discriminates")
         check(mod._anchor_inbox is real_anchor and mod.apply is real_apply,
               "...and the anchor and both callees are restored, so nothing below runs patched")
+
+    # ── 12 FAILED RE-RENDER FAILS THE APPLY ──────────────────────────────────────────────────
+    print("check 12 — a dead materializer fails the apply (not ACCEPTED over rc 2)")
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        goal, inbox, bus, sheet = fixture(tmp, LIVE_SHEET)
+        mod.MATERIALIZE = tmp / "no-such-materialize.py"
+        stage(inbox, {"harness": "claude", "model": "claude-opus-5", "effort": len(CLAUDE)})
+        out = mod.apply(inbox, sheet, LIVE_SEAT, profiles_path=LIVE_PROFILES)
+        refused = sorted((inbox / "refused").glob("*.outcome.json"))
+        done = sorted((inbox / "done").glob("*.outcome.json"))
+        rec = json.loads(refused[0].read_text()) if refused else {}
+        check(out["ok"] is False and (out.get("repass") or {}).get("rc") == 2,
+              f"missing MATERIALIZE → apply not ok, rc 2 (ok={out.get('ok')} rc={(out.get('repass') or {}).get('rc')})")
+        check(not done and len(refused) == 1 and rec.get("outcome") == "FAILED",
+              f"outcome FAILED in refused/, nothing ACCEPTED in done/ "
+              f"(done={len(done)} refused={len(refused)} outcome={rec.get('outcome')!r})")
+        check("re-render failed" in (rec.get("stated-refusal") or ""),
+              f"owner-readable record names the re-render failure ({(rec.get('stated-refusal') or '')[:120]})")
+
+    print("check 12b — a materializer that exists and exits 1 also fails the apply")
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        goal, inbox, bus, sheet = fixture(tmp, LIVE_SHEET)
+        stub = tmp / "fail-materialize.py"
+        stub.write_text("import sys; sys.exit(1)\n", encoding="utf-8")
+        mod.MATERIALIZE = stub
+        stage(inbox, {"harness": "claude", "model": "claude-opus-5", "effort": len(CLAUDE),
+                      "chat-thread": "C0PROBEFAIL:1754812999.000001"})
+        out = mod.apply(inbox, sheet, LIVE_SEAT, profiles_path=LIVE_PROFILES)
+        recs = sorted((inbox / "refused").glob("*.outcome.json"))
+        rec = json.loads(recs[0].read_text()) if recs else {}
+        rows = bus_rows(bus)
+        check(out["ok"] is False and rec.get("outcome") == "FAILED",
+              f"exit-1 stub → apply not ok, FAILED (ok={out.get('ok')} outcome={rec.get('outcome')!r})")
+        check(any("re-render FAILED" in r["body"] for r in rows),
+              f"owner-facing bus note names the failure ({[r['body'][:80] for r in rows]!r})")
+
+    # ── 13 RECAST WITHOUT THE SEAT FIRING REQUEST ────────────────────────────────────────────
+    print("check 13 — leader/owner recast does not need the seat to fire request")
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        goal, inbox, bus, sheet = fixture(tmp, LIVE_SHEET)
+        stub, rec, snap = stub_materialize(tmp, sheet)
+        mod.MATERIALIZE = stub
+        check(not any(inbox.glob("*.json")), "no request is staged — the seat never reached a tool call")
+        out = mod.recast("opencode", "xai/grok-4.6", package=goal, bindings=sheet, seat=LIVE_SEAT,
+                         profiles_path=LIVE_PROFILES, effort=2)
+        got = mod.read_value(sheet, LIVE_SEAT, LIVE_PROFILES)
+        argv = json.loads(rec.read_text(encoding="utf-8")) if rec.exists() else None
+        check(out["ok"] is True, f"recast reports ok ({out})")
+        check(got["harness"] == "opencode" and got["model"] == "xai/grok-4.6",
+              f"sheet carries the new cast without a request file (got {got['harness']}/{got['model']})")
+        check(argv is not None and "--bindings" in argv and "--refresh" in argv,
+              f"re-render ran with --bindings so the next launch reads the new seat.md "
+              f"({'<never ran>' if argv is None else ' '.join(argv[:6])})")
+        check(not any(inbox.glob("*.json")) and not (inbox / "done").exists(),
+              "recast does not go through the request inbox — self-fire request path untouched")
 
     if inoperative:
         print(f"probe-master-profile: INOPERATIVE — {inoperative}")

@@ -668,12 +668,13 @@ def open_binding(seat: str, b: dict, package: Path) -> bool:
     Only a STANDING-SEAT home can do this, and only by declaring none of the
     three. Two things make it sound exactly there and nowhere else: the triple
     normally exists to agree with the seat's `taskforce.csv` row, and a
-    standing-seat home HAS no registry for it to agree with; and the seat that
-    needs it says so in its own definition — the channel master's harness and
-    model are named by the chat bridge at spawn time
-    (`harnessOf(profile)` — the spawner never reads them from `seat.md`), so a
-    concrete value here is inert AND states the opposite of
-    `d-master-harness-agnostic` to the occupant reading the file.
+    standing-seat home HAS no registry for it to agree with; and a standing
+    seat that wants no cast on the descriptor omits all three so the renderer
+    does not write a triple launch would treat as identity. Launch reads
+    `seat.md` frontmatter only (`spawn.js#launchSpecForSeat` →
+    `catalog.js#specForSeatCast`); an uncast descriptor REFUSES (`E_UNCAST_SEAT`).
+    The channel master's triple is DECLARED (D2, 2026-08-11) — the chat bridge
+    does not name harness or model at spawn.
 
     ALL THREE OR NONE. A partial declaration is refused rather than half-honoured:
     a descriptor carrying a harness but no model reads as a binding that was

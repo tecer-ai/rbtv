@@ -127,13 +127,14 @@ ladder-reader collapse (below) was performed to end, one field over. The task's 
 profile's ladder at request time) is met and made stricter; the named function is not kept, and
 that divergence is deliberate.
 
-## The three verbs
+## The four verbs
 
 | Verb | What it does | Who runs it |
 |---|---|---|
-| `show [--json]` | the cast in force in BOTH vocabularies (harness/model/effort AND the profile name + rung it maps to), the sheet it came from, and **every castable profile with the rungs it admits** | anyone, including a caged seat |
-| `request <harness> <model> [--effort N] [--inbox D] [--chat-thread C:TS]` | validate the PAIR against the live castable set **and the rung against that pair's ladder** → stage `{"harness": …, "model": …, "effort": N}` (plus the thread id when given) → `ignite add-job`. `--inbox` DEFAULTS to this workspace's channel-master inbox and REFUSES any path not shaped `<goal>/settings-requests/<capability>` — `apply`'s fired argv drains one fixed inbox, so a request staged anywhere else is orphaned while the stage reports ok (measured 2026-08-17: a sitting guessed `coordination/`) | **the seat** |
-| `apply --inbox D --bindings F --seat S --catalog-root R --profiles P [--no-repass]` | drain, re-validate, write the **harness/model/effort triple**, record the outcome, **report into the requester's chat thread**, `--repass` the seat's descriptor LAST | **the daemon**, via `tools: master-profile` |
+| `show [--json]` | the **sheet's** staged cast in BOTH vocabularies (harness/model/effort AND the profile name + rung it maps to), and **every castable profile with the rungs it admits**. This is not the live sitting: launch reads `seat.md` frontmatter only | anyone, including a caged seat |
+| `request <harness> <model> [--effort N] [--inbox D] [--chat-thread C:TS]` | validate the PAIR against the live castable set **and the rung against that pair's ladder** → stage `{"harness": …, "model": …, "effort": N}` (plus the thread id when given) → `ignite add-job`. `--inbox` DEFAULTS to this workspace's channel-master inbox and REFUSES any path not shaped `<goal>/settings-requests/<capability>` — `apply`'s fired argv drains one fixed inbox, so a request staged anywhere else is orphaned while the stage reports ok (measured 2026-08-17: a sitting guessed `coordination/`) | **the seat** (self-fire; unchanged) |
+| `recast <harness> <model> [--effort N] [--package P] [--bindings F] [--seat S]` | write the named seat's triple and re-render its `seat.md` **without** that seat firing `request`. For a seat that crashed before any tool call | **leader or owner**, from a console |
+| `apply --inbox D --bindings F --seat S --catalog-root R --profiles P [--no-repass]` | drain, re-validate, write the **harness/model/effort triple**, record the outcome, **report into the requester's chat thread**, `--repass` the seat's descriptor LAST. A re-render rc≠0 FAILS the apply (outcome not ACCEPTED) | **the daemon**, via `tools: master-profile` |
 
 Exit 0 when everything drained was accepted (or the inbox was empty), 1 otherwise.
 
@@ -189,9 +190,10 @@ A casting sheet is not boot-read by anything:
 | `supervisor/launch-profiles/catalog.js#specForSeatCast` | maps the descriptor's `(harness, model)` to the profile name, and the seat's cast BEATS the caller's |
 | `supervisor/spawn/live-sessions.js` | re-resolves the cast on EVERY owner message and REAPS a warm session whose conversation now names a different profile (§ *REAP ON A PROFILE SWITCH*) |
 
-So the ordering is **write (atomic `os.replace` via `bindings._write`) → outcome record on disk →
-re-render last**, the switch takes effect on the owner's next word, and the thread that requested it
-is still there to read the report.
+So the ordering is **write the sheet (atomic `os.replace` via `bindings._write`) → report that the
+sheet is written → re-render `seat.md` last → settle**. Launch never reads the sheet; it reads
+`seat.md`. A re-render rc≠0 fails the apply (outcome not ACCEPTED) and the live sitting is unchanged.
+The thread that requested it is still there to read the report.
 
 The re-render is delegated to `planning/materialize-seats.py`, the ONE renderer of a `seat.md`
 (`PRIN-11`) — the same one goal creation runs. `--package` is DERIVED from `--inbox` (the inbox is

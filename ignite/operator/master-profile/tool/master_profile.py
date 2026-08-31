@@ -139,10 +139,11 @@ An ACCEPTED change is a settled fact nobody must act on and stays `post`; only t
 wakes anybody. The choice is made at the ONE call site in `apply` — the outcome verdict IS the
 signal, so no second flag decides it.
 
-⚠ THE REPORT PRECEDES THE RE-RENDER, so it cannot state its exit code — it states what is ABOUT to
-happen. That ordering was forced when the last act killed this process; it is kept because the
-report is still the courtesy and the change is still the job. The rc stays where it always was:
-the outcome record on disk, rewritten once the re-render returns.
+⚠ THE FIRST REPORT PRECEDES THE RE-RENDER, so it cannot state the re-render's exit code — it states
+that the SHEET is written and that launch still reads `seat.md` until the re-render finishes. A
+re-render rc≠0 then FAILS the apply (outcome not ACCEPTED) and posts a second, owner-facing
+failure. Swallowing that rc as data while recording ACCEPTED is how a dead materializer path
+looked like a landed switch.
 
 ⚠ A FAILED APPEND NEVER ABORTS THE APPLY. The switch is the job; the report is the courtesy. A
 report that cannot be written is recorded IN the outcome record (`chat-report.error`) and the fire
@@ -161,13 +162,14 @@ from pathlib import Path
 _IGNITE = Path(__file__).resolve().parents[3]
 DEFAULT_PROFILES = _IGNITE / "envelope" / "spawn-profiles.yaml"
 TEAM_KIT = _IGNITE / "coord"      # `coord.py` — the ONE allocator of bus message ids
-MATERIALIZE = TEAM_KIT / "materialize-seats.py"      # the ONE re-render, never a second renderer
+MATERIALIZE = _IGNITE / "planning" / "materialize-seats.py"  # the ONE re-render, never a second renderer
 # The workspace root is the folder that roots `.rbtv/` — <workspace>/3-resources/tools/rbtv/ignite
 _WORKSPACE = _IGNITE.parents[3]
 DEFAULT_SEAT = "channel-master"
 DEFAULT_BINDINGS = (_WORKSPACE / ".rbtv" / "config" / "modules" / "meta" / "master"
                     / "bindings" / f"{DEFAULT_SEAT}.json")
 DEFAULT_CATALOG_ROOT = _IGNITE.parent / "meta"
+DEFAULT_PACKAGE = _WORKSPACE / ".rbtv" / "goals" / f"_{DEFAULT_SEAT}"
 
 # ⚠ EVERY ONE OF THOSE IS A DEFAULT FOR A HUMAN AT A TERMINAL, AND THE FIRED ARGV NAMES ALL OF THEM
 # EXPLICITLY (`tools: master-profile:` in spawn-profiles.yaml). Same reason the sibling entries
@@ -368,10 +370,11 @@ def read_value(bindings=DEFAULT_BINDINGS, seat=DEFAULT_SEAT, profiles_path=DEFAU
                  f"in {profiles_path}, so the next spawn of this seat REFUSES "
                  f"(`catalog.js#E_UNMAPPED_BINDING`). Request a castable pair to repair it.")
     else:
-        where = (f"{bindings} — the `harness`/`model`/`effort` of seat `{seat}`, rendered into "
-                 f"{seat}'s `seat.md` by `materialize-seats.py --repass` and resolved at every "
-                 f"launch door by `supervisor/launch-profiles/catalog.js#specForSeatCast`. Read per launch, "
-                 f"never boot-cached: a change lands on the owner's next message.")
+        where = (f"{bindings} — the STAGED cast of seat `{seat}` on the binding sheet. "
+                 f"`show` reads this file, not the sitting. Launch reads `{seat}`'s `seat.md` "
+                 f"frontmatter only (`spawn.js#launchSpecForSeat` → `catalog.js#specForSeatCast`); "
+                 f"the sheet becomes live only after `apply` or `recast` re-renders that descriptor "
+                 f"with `--bindings`. Until then a sitting that reports this pair as itself is lying.")
     return {"pair": pair, "harness": harness, "model": model, "effort": effort,
             "rung": rung, "bindings": str(bindings), "seat": seat, "where": where}
 
@@ -461,7 +464,8 @@ def _report_body(record, repass):
         change = record.get("change") or {}
         after = change.get("after") or {}
         # NOT an rc — the report precedes the re-render by ruling, so it says what is about to happen.
-        line = ("re-rendering this seat's `seat.md` from the sheet now — the last act of this job"
+        line = ("re-rendering this seat's `seat.md` from the sheet now — launch reads `seat.md`, "
+                "not this sheet; they match only after that re-render returns 0"
                 if repass else
                 "SKIPPED (--no-repass) — the sheet is written but `seat.md` still carries the old "
                 "cast, which is what a launch actually reads")
@@ -477,11 +481,16 @@ def _report_body(record, repass):
             effort_line = (f"effort: rung {rung} = `{after.get('effort')}` on "
                            f"`{record['requested']}`'s ladder ({record.get('effort-ladder')})")
         was = record.get("before") or {}
-        return (f"*master cast changed* — `{was.get('pair')}` → `{record['requested']}`\n"
+        return (f"*master cast sheet written* — `{was.get('pair')}` → `{record['requested']}`\n"
                 f"{effort_line}\n"
                 f"apply: {line}\n"
-                f"scope: takes effect on your NEXT message — the live session is reaped when its "
-                f"seat resolves to a different launch spec, and nothing is restarted")
+                f"scope: the SHEET is written; the LIVE sitting is whatever `seat.md` frontmatter "
+                f"says until the re-render finishes. Nothing is restarted.")
+    if record["outcome"] == "FAILED":
+        return (f"*master cast re-render FAILED* — sheet may hold `{record.get('requested')}` but "
+                f"launch still reads `seat.md`\n"
+                f"why: {str(record.get('stated-refusal'))[:600]}\n"
+                f"apply: the descriptor was NOT re-rendered — live sitting unchanged")
     return (f"*master cast change REFUSED* — still `{(record.get('before') or {}).get('pair')}`\n"
             f"why: {str(record.get('stated-refusal'))[:600]}\n"
             f"apply: none — nothing changed")
@@ -598,6 +607,35 @@ def _repass(package, seat, catalog_root, bindings):
             "stdout": r.stdout.strip()[-800:], "stderr": r.stderr.strip()[-800:]}
 
 
+def recast(harness, model, package=DEFAULT_PACKAGE, bindings=DEFAULT_BINDINGS, seat=DEFAULT_SEAT,
+           catalog_root=DEFAULT_CATALOG_ROOT, profiles_path=DEFAULT_PROFILES, effort=None,
+           dry_run=False, repass=True):
+    """Leader/owner door: write the named seat's cast and re-render without that seat firing request.
+
+    `request` still stages into the seat's own inbox and is unchanged. This verb is for a seat
+    that crashed before any tool call — no process exists to fire `request`, so the sheet write
+    and `--bindings` re-render run here, and the next launch reads the new `seat.md` frontmatter.
+    """
+    row = validate(harness, model, profiles_path)
+    change = cast_seat(bindings, seat, row["harness"], row["model"], effort, profiles_path,
+                       dry_run=dry_run)
+    out = {"ok": True, "change": change, "seat": seat, "bindings": str(bindings),
+           "requested": row["spec"]}
+    if dry_run:
+        out["dry-run"] = True
+        return out
+    if not repass:
+        out["repass"] = {"skipped": "--no-repass"}
+        return out
+    out["repass"] = _repass(package, seat, catalog_root, bindings)
+    if out["repass"].get("rc") not in (0, None):
+        out["ok"] = False
+        out["note"] = (f"sheet written but descriptor re-render failed "
+                       f"(rc {out['repass']['rc']}): "
+                       f"{out['repass'].get('stderr') or out['repass'].get('stdout') or 'no output'}")
+    return out
+
+
 def apply(inbox, bindings=DEFAULT_BINDINGS, seat=DEFAULT_SEAT, catalog_root=DEFAULT_CATALOG_ROOT,
           profiles_path=DEFAULT_PROFILES, repass=True, dry_run=False):
     """Drain, write the cast, then re-render the descriptor — in that order, once per fire."""
@@ -610,7 +648,7 @@ def apply(inbox, bindings=DEFAULT_BINDINGS, seat=DEFAULT_SEAT, catalog_root=DEFA
                           f"NOTHING was drained; replace it with a real directory.")
 
     before = read_value(bindings, seat, profiles_path)
-    results, accepted = [], []
+    results, accepted, pending = [], [], []
     for src in sorted(p for p in inbox.iterdir() if p.name.endswith(".json")):
         record = {"request-file": str(src), "before": before}
         try:
@@ -654,7 +692,8 @@ def apply(inbox, bindings=DEFAULT_BINDINGS, seat=DEFAULT_SEAT, catalog_root=DEFA
             verdict = "REFUSED"
             record["stated-refusal"] = f"{type(exc).__name__}: {exc}"
         record["outcome"] = verdict
-        results.append(_settle(inbox, src, verdict, record, dry_run))
+        pending.append((src, record))
+        results.append(record)
 
     out = {"ok": all(r["outcome"] == "ACCEPTED" for r in results),
            "drained": len(results), "before": before, "results": results}
@@ -673,19 +712,33 @@ def apply(inbox, bindings=DEFAULT_BINDINGS, seat=DEFAULT_SEAT, catalog_root=DEFA
             r["chat-report"] = report_to_thread(inbox, r["chat-thread"],
                                                 _report_body(r, repass),
                                                 "wake" if r["outcome"] == "REFUSED" else "post")
-            if r.get("moved-to"):
-                _outcome(Path(r["moved-to"]), r)
 
     if accepted and not dry_run:
         out["after"] = read_value(bindings, seat, profiles_path)
         # The package is the goal the request was staged in — never a name typed into this argv.
         out["repass"] = (_repass(_goal_dir(inbox), seat, catalog_root, bindings) if repass
                          else {"skipped": "--no-repass"})
+        if repass and out["repass"].get("rc") not in (0, None):
+            why = (f"descriptor re-render failed (rc {out['repass']['rc']}): "
+                   f"{out['repass'].get('stderr') or out['repass'].get('stdout') or 'no output'}")
+            out["ok"] = False
+            for r in results:
+                if r["outcome"] != "ACCEPTED":
+                    continue
+                r["outcome"] = "FAILED"
+                r["stated-refusal"] = why
+                r["repass"] = out["repass"]
+                if r.get("chat-thread"):
+                    r["chat-report-repass"] = report_to_thread(
+                        inbox, r["chat-thread"], _report_body(r, False), "wake")
         for r in results:
-            if r["outcome"] == "ACCEPTED" and r.get("moved-to"):
+            if r["outcome"] == "ACCEPTED":
                 r["repass"] = out["repass"]
                 r["after"] = out["after"]
-                _outcome(Path(r["moved-to"]), r)
+
+    # Settle AFTER the re-render so a dead materializer cannot record ACCEPTED.
+    out["results"] = [_settle(inbox, src, record["outcome"], record, dry_run)
+                      for src, record in pending]
     return out
 
 
@@ -757,6 +810,23 @@ def main(argv=None):
     a.add_argument("--no-repass", action="store_true")
     a.add_argument("--dry-run", action="store_true")
 
+    c = sub.add_parser("recast", parents=[sheet_opt, prof_opt],
+                       help="[leader/owner] write a named seat's harness/model/effort and "
+                            "re-render without that seat firing request")
+    c.add_argument("harness", help="the harness this workspace launches (e.g. `claude`, `codex`, "
+                                   "`opencode`) — `show` prints every castable pair")
+    c.add_argument("model", help="the model literal the launch spec is FILED UNDER, verbatim")
+    c.add_argument("--effort", type=int, default=None,
+                   help="the reasoning RUNG for the NEW pair: an integer 1..N in that pair's "
+                        "own ladder, 1 = lowest reasoning. " + EFFORT_GUIDANCE)
+    c.add_argument("--package", default=str(DEFAULT_PACKAGE),
+                   help="the goal folder whose seat.md is re-rendered (default: this workspace's "
+                        f"_{DEFAULT_SEAT} standing-seat package)")
+    c.add_argument("--catalog-root", default=str(DEFAULT_CATALOG_ROOT),
+                   help="the component catalog the re-render reads the seat definition from")
+    c.add_argument("--no-repass", action="store_true")
+    c.add_argument("--dry-run", action="store_true")
+
     args = p.parse_args(argv)
     try:
         if args.verb == "show":
@@ -778,13 +848,19 @@ def main(argv=None):
                 for n in v["available"]:
                     print(f"  {n}: {v['effort-ladders'][n]}")
                 print(textwrap.fill(EFFORT_GUIDANCE, 96, subsequent_indent="  "))
-                print("takes effect on the NEXT message — nothing is boot-read and nothing is "
-                      "restarted, so requesting a change no longer ends your chat session")
+                print("this is the SHEET, not the live sitting — launch reads seat.md frontmatter; "
+                      "they match only after apply/recast re-renders. nothing is restarted.")
             return 0
         if args.verb == "request":
             out = request(_anchor_inbox(args.inbox), args.harness, args.model, args.ignite_bin, profiles_path=args.profiles,
                           dry_run=args.dry_run, chat_thread=args.chat_thread, effort=args.effort,
                           bindings=args.bindings, seat=args.seat)
+            print(json.dumps(out, indent=2))
+            return 0 if out["ok"] else 1
+        if args.verb == "recast":
+            out = recast(args.harness, args.model, package=args.package, bindings=args.bindings,
+                         seat=args.seat, catalog_root=args.catalog_root, profiles_path=args.profiles,
+                         effort=args.effort, dry_run=args.dry_run, repass=not args.no_repass)
             print(json.dumps(out, indent=2))
             return 0 if out["ok"] else 1
         out = apply(_anchor_inbox(args.inbox), args.bindings, args.seat, args.catalog_root,
