@@ -26,8 +26,15 @@
 //  1b. a taskforce whose ONLY seat is UNCAST (no launchable row) -> untouched
 //   5. IDEMPOTENCE           -> a second pass over arm 1 opens NO second room and says nothing
 //   6. NOT A FIRST SEEDING   -> a goal with `sessions.csv` rows and a dead room is NOT re-opened
-//      (that room was closed after seats ran — the owed/rebuild path's subject, and re-opening
-//      one the owner closed is exactly what this guard forbids)
+//      BY THIS LANE PASS. This guard cannot tell "the owner closed it" from "it crashed" — both
+//      look identical from tmux's side, and by the time this pass reaches the guard the goal is
+//      already confirmed daemon-assigned, not paused, and not finished, so a genuine owner-close
+//      would already have routed through pause/finish upstream. The actual crashed-dead case (a
+//      daemon-lane goal, still active, whose room died after seats ran) IS self-healed — task 166,
+//      `reconcile.js`'s `derived.owed && !leader` branch reopens the room (never a seat) once its
+//      own ledger-derived `owed` computation says work is outstanding; see
+//      `reconcile.selftest.js` B16 and the task-166 arms beside it. This guard's only job is to
+//      keep THIS opener from racing that one and duplicating the room.
 //
 // WHAT IS SUBSTITUTED, disclosed up front (`bars.md` 10):
 //   · No daemon PROCESS and no ENGINE run here. `runLaneWatch` is the REAL one, driven with a stub
@@ -243,7 +250,9 @@ async function main() {
   check('1b · a daemon-lane goal whose only seat is UNCAST (no launchable row) got no room',
     !rooms.includes(G_UNCAST));
   check('6 · a goal whose seats HAVE run (sessions.csv rows) and whose room is gone is NOT '
-    + 're-opened — that room is the owed/rebuild path\'s subject', !rooms.includes(G_RAN));
+    + 're-opened BY THIS LANE PASS — task 166\'s crashed-dead self-heal is `reconcile.js`\'s '
+    + 'owed-gated room-only reopen, a separate mechanism (reconcile.selftest.js, B16)',
+    !rooms.includes(G_RAN));
   check('exactly ONE room exists after the whole pass over six goals',
     rooms.length === 1, JSON.stringify(rooms));
 

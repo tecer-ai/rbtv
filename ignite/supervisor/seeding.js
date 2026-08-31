@@ -728,8 +728,24 @@ function seatIsFinished(rows) {
   return Boolean(rows) && rows.some((r) => r.status === 'done');
 }
 
+// TASK 165 · A `failed` `jobs_log` row minted before any process ever existed (`pid` never
+// resolved — the row went straight from `launching` to `failed`, e.g. `E_UNMAPPED_BINDING`'s
+// launch-spec refusal, a cage refusal, or a carrier failure) is a LAUNCH-DOOR REFUSAL, not a
+// seat that ran (`doors.js#refuseLaunch`: "a refused launch is not a dead seat"). Before this
+// exclusion such a row made `seatHasRun` — and so `seatState` — answer `live` FOREVER: `jobIdFor`
+// is fixed per (goal, seat) and never changes on relaunch, so a seat refused ONCE could never be
+// offered again through this pass. Measured 2026-08-23 on `goal-memory-management`: exec 31629
+// was spawn-REFUSED for its model pin (no `pid` ever assigned), then read `live` to every later
+// seeding pass — with no re-offer — until a human removed its queue row and edited the model by
+// hand (`decisions.md` 10:40Z). A row WITH a `pid` is a real process (it may since have crashed —
+// that is `reconcile.js`'s class A / D42 "crashed seat is re-run in ONE act", a slower and
+// leader-ruled path this fast graph pass must NOT race); only a row that never had one is excluded.
+function isRefusedBeforeSpawn(row) {
+  return row.status === 'failed' && row.pid == null;
+}
+
 function seatHasRun(rows) {
-  return Boolean(rows) && rows.length > 0;
+  return Boolean(rows) && rows.some((r) => !isRefusedBeforeSpawn(r));
 }
 
 // THE ELIGIBILITY PREDICATE, in ONE place. Both the enqueue pass and the read-only status verb

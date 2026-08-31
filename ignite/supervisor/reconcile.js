@@ -31,7 +31,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
+const { randomUUID } = require('node:crypto');
 const { requirePythonCmd } = require('../runtime/python-cmd');
+const { composeDetachedSession } = require('./spawn/tmux');
 const {
   readySeats, summonedSeats, readCsv, jobIdFor, uncastSeats, seatBootPrompt, readTaskforce, seatCast,
 } = require('./seeding');
@@ -298,6 +300,45 @@ function recoverRoom({ goal, goalFolder, seat, recoverFn }) {
     '--coord', COORD_PY,
   ], { encoding: 'utf8', timeout: 120000 });
   return { ok: r.status === 0, status: r.status, out: (r.stdout || '') + (r.stderr || '') };
+}
+
+const ROOM_SCOPE_PREFIX = 'rbtv-tmux-room-';
+
+function defaultRunTmux(argv) {
+  return execFileSync(argv[0], argv.slice(1), { encoding: 'utf8', timeout: 15000 }).trim();
+}
+
+// ── ROOM-ONLY REOPEN, NO SEAT (task 166) ─────────────────────────────────────────────────────
+//
+// `recoverRoom` above opens the room AND boots a recovery seat into it under a named chair —
+// that is the leader-chair path just below, unchanged. This one is for the sibling state: work
+// is owed (a class A/B row exists) but there is NO leader chair to hand a recovery seat to
+// (`leaderChair.why`), so the block used to log a `warn` and leave the room dead until a human
+// staffed `leader` — a fixture and a goal both reproduced this on HEAD 2026-08-31, dead
+// indefinitely. Opening the room here spends no relaunch grant and starts no seat; it only makes
+// `deriveLease().live` true again, which is the one thing `seeding.js`'s D9 gate (`goalNotLive`)
+// needs before the ORDINARY seed pass can dispatch whatever coord already answers READY. Who (if
+// anyone) gets relaunched into it is unchanged and untouched by this function — that is the
+// separate, still-open "let room recovery restart its seat" item (owner ruling D11).
+//
+// Same primitive as `lane-watch.js#openGoalRoom` (`spawn/tmux.js#composeDetachedSession`,
+// `systemd-run --user --scope --collect`-wrapped, no command after `-c`) — ONE opener, not a
+// second copy: a room this daemon creates must be byte-indistinguishable whichever cadence
+// opened it.
+function openRoomOnly({ goal, goalFolder, runTmux = defaultRunTmux }) {
+  const scopeUnit = `${ROOM_SCOPE_PREFIX}${randomUUID()}`;
+  let argv;
+  try {
+    argv = composeDetachedSession({ sessionName: goal, cwd: goalFolder, scopeUnit });
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+  try {
+    const pane = runTmux(argv);
+    return { ok: true, pane, scopeUnit };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 }
 
 // D33(a) · THE LEADER IS NEVER WOKEN BLIND. Until now class (a) produced ONE target — the
@@ -792,6 +833,9 @@ function reconcileGoal({
   readyAnswer: readyInjected = undefined,
   promptFn = undefined,
   recoverFn = undefined,
+  // Task 166's injection seam, `recoverFn`'s own pattern: a probe or selftest substitutes this so
+  // a fixture pass never touches the real tmux server. Production passes nothing.
+  runTmux = undefined,
   live = undefined,
   finishOnCompletionFn = undefined,
 }) {
@@ -1235,15 +1279,28 @@ function reconcileGoal({
   }
 
   if (derived.owed && !leader) {
-    // B16 — the room is rebuilt UNDER A SEAT (`recover-room.py --seat`), and the seat it used was
-    // the leader. With no chair there is no seat to rebuild under, and picking one is the
-    // substitution this fix removes.
+    // B16 — a SEAT is never rebuilt under an absent chair, and picking one is the substitution
+    // that fix removed. TASK 166: the ROOM is a separate question from who launches into it. With
+    // no leader chair there is still no seat to hand a recovery boot to, so none is attempted —
+    // but leaving the room dead means `seeding.js`'s D9 gate refuses EVERY seed pass, forever,
+    // until a human staffs `leader` AND recreates the room by hand. Reopening it here (empty, no
+    // command, `openRoomOnly`) costs nothing and lets the ordinary seed pass dispatch whatever
+    // coord already answers READY the very next cadence.
     const room = roomState(goal);
     if (!room.exists || room.empty) {
-      say('warn', 'reconcile: this goal\'s room is dead or empty and there is NO LEADER CHAIR to '
-        + 'rebuild it under — the room is NOT rebuilt. Staff the `leader` row and the next pass '
-        + 'rebuilds it.', { goal, why: leaderChair.why });
-      actions.push({ kind: 'room-refused', error: 'no-leader-chair', why: leaderChair.why });
+      const opened = openRoomOnly({ goal, goalFolder, ...(runTmux ? { runTmux } : {}) });
+      if (opened.ok) {
+        actions.push({ kind: 'room-reopened-no-leader', room: goal, pane: opened.pane });
+        say('info', 'reconcile: reopened this goal\'s dead room with no leader chair to relaunch a '
+          + 'seat into — no seat was booted here; the next seed pass dispatches whatever is READY',
+          { goal, why: leaderChair.why });
+      } else {
+        say('warn', 'reconcile: this goal\'s room is dead or empty, there is NO LEADER CHAIR to '
+          + 'rebuild it under, AND reopening it failed — the room is NOT rebuilt. Staff the '
+          + '`leader` row or fix the tmux failure and the next pass retries.',
+          { goal, why: leaderChair.why, error: opened.error });
+        actions.push({ kind: 'room-refused', error: opened.error || 'no-leader-chair', why: leaderChair.why });
+      }
     }
   } else if (derived.owed) {
     const room = roomState(goal);

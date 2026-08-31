@@ -1254,12 +1254,17 @@ say('── B16: a goal with NO `leader` row gets NO substitute leader ──');
     const goalFolder = fixtureNoLeader();
     stampEndings(store, 'fx-b16', [['distill-ignite-memory', 'exited']]);
     const warns = [];
+    // task 166: `derived.owed && !leader` with a dead room now reopens the room (no seat) instead
+    // of only logging a refusal — `runTmux` is a recorder so the pass never shells a REAL tmux
+    // command from this selftest, exactly like `recoverFn` already stands in for `recover-room.py`.
+    const tmuxCalls = [];
     const r = reconcileGoal({
       goal: 'fx-b16', goalFolder, engine: { heartStore: store },
       say: (level, message, extra) => warns.push({ level, message, extra }),
       force: true, readyAnswer: readyEmpty,
       live: new Set(), promptFn: () => 'fixture prompt',
       sendFn: () => ({ ok: true }), recoverFn: () => ({ ok: true }),
+      runTmux: (argv) => { tmuxCalls.push(argv); return '%0 1'; },
     });
 
     // 1 · no substitute is named ANYWHERE in the answer.
@@ -1279,7 +1284,75 @@ say('── B16: a goal with NO `leader` row gets NO substitute leader ──');
     // 4 · the pass RECORDS it, so a reader of the actions sees the state too.
     assert.ok(r.actions.some((a) => a.why === 'no-leader-row'), JSON.stringify(r.actions));
     assert.ok(r.actions.some((a) => a.kind === 'no-leader-chair'), JSON.stringify(r.actions));
-    say(`ok  leader=${JSON.stringify(r.leader)}; nothing enqueued as leader; ${loud.length} loud warn(s)`);
+
+    // 5 · task 166 — the ROOM question is separate from the leader-wake question above: this goal
+    //     HAS run seats before (a session row exists) and its room is dead, so the pass reopens it
+    //     (ONE `composeDetachedSession` argv, no window name, no command after `-c`) WITHOUT
+    //     calling `recoverFn` — no seat is relaunched here, only the room, so `E_GOAL_NOT_LIVE`
+    //     clears and the ordinary seed pass can dispatch whatever is READY next cadence.
+    assert.strictEqual(tmuxCalls.length, 1, `expected exactly one tmux argv: ${JSON.stringify(tmuxCalls)}`);
+    assert.ok(tmuxCalls[0].includes('systemd-run') && tmuxCalls[0].includes('new-session')
+      && tmuxCalls[0][tmuxCalls[0].indexOf('-s') + 1] === 'fx-b16' && !tmuxCalls[0].includes('-n'),
+      `unexpected tmux argv: ${JSON.stringify(tmuxCalls[0])}`);
+    assert.ok(r.actions.some((a) => a.kind === 'room-reopened-no-leader'), JSON.stringify(r.actions));
+
+    say(`ok  leader=${JSON.stringify(r.leader)}; nothing enqueued as leader; ${loud.length} loud warn(s); `
+      + `room reopened with no seat (${tmuxCalls.length} tmux call)`);
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
+}
+
+say('── task 166: the room-reopen-no-leader path never calls `recoverFn` (no seat is relaunched) ──');
+{
+  const store = openStore();
+  try {
+    const goalFolder = fixtureNoLeader();
+    stampEndings(store, 'fx-166-noseat', [['distill-ignite-memory', 'exited']]);
+    let recoverCalls = 0;
+    const r = reconcileGoal({
+      goal: 'fx-166-noseat', goalFolder, engine: { heartStore: store },
+      say: () => {}, force: true, readyAnswer: readyEmpty,
+      live: new Set(), promptFn: () => 'fixture prompt', sendFn: () => ({ ok: true }),
+      recoverFn: () => { recoverCalls += 1; return { ok: true }; },
+      runTmux: () => '%0 1',
+    });
+    assert.strictEqual(recoverCalls, 0,
+      `recoverFn (seat relaunch) was called with no leader chair present: ${recoverCalls}`);
+    assert.ok(r.actions.some((a) => a.kind === 'room-reopened-no-leader'), JSON.stringify(r.actions));
+    say('ok  room reopened, recoverFn (seat relaunch) never called — task 166 stays room-only');
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
+}
+
+say('── task 166 red arm: with `openRoomOnly` never called, a dead room with no leader stays dead ──');
+{
+  const src = fs.readFileSync(path.join(__dirname, 'reconcile.js'), 'utf8');
+  const ANCHOR = "const opened = openRoomOnly({ goal, goalFolder, ...(runTmux ? { runTmux } : {}) });";
+  assert.ok(src.includes(ANCHOR), 'task 166 mutation anchor missing from reconcile.js');
+  const Module = require('node:module');
+  const mut = new Module(path.join(__dirname, 'reconcile.js'), null);
+  mut.filename = path.join(__dirname, 'reconcile.js');
+  mut.paths = Module._nodeModulePaths(__dirname);
+  mut._compile(src.replace(ANCHOR, 'const opened = { ok: false, error: \'mutant-disabled\' };'), mut.filename);
+  const store = openStore();
+  try {
+    const goalFolder = fixtureNoLeader();
+    stampEndings(store, 'fx-166-red', [['distill-ignite-memory', 'exited']]);
+    const tmuxCalls = [];
+    const rr = mut.exports.reconcileGoal({
+      goal: 'fx-166-red', goalFolder, engine: { heartStore: store },
+      say: () => {}, force: true, readyAnswer: readyEmpty,
+      live: new Set(), promptFn: () => 'fixture prompt', sendFn: () => ({ ok: true }),
+      recoverFn: () => ({ ok: true }),
+      runTmux: (argv) => { tmuxCalls.push(argv); return '%0 1'; },
+    });
+    assert.strictEqual(tmuxCalls.length, 0, `red arm should never reach tmux: ${JSON.stringify(tmuxCalls)}`);
+    assert.ok(rr.actions.some((a) => a.kind === 'room-refused'), JSON.stringify(rr.actions));
+    say('ok  red: with the opener disabled the room stays dead (room-refused) — task 166 recurs');
   } finally {
     store.close();
     closeHeartStore();

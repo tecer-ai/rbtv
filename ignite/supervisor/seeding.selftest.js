@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { readySeats, seedGoal, VERDICT_DOOR } = require('./seeding');
+const { readySeats, seedGoal, VERDICT_DOOR, seatHasRun, seatState } = require('./seeding');
 const { readyFromEndings } = require('./ending-reads');
 const { openHeartStore } = require('../state-store/heart/heart-store');
 const { bind, openEndingStoreFor, closeEndingStores } = require('../state-store');
@@ -144,11 +144,77 @@ function caseRedIgnoringVerdict() {
   } catch (err) { fail('RED ignoring verdict', err); }
 }
 
+// ── TASK 165 · a spawn-refused row (no `pid` ever assigned) must not park seeding as `live` ──────
+//
+// Measured 2026-08-23 on `goal-memory-management`: exec 31629 was spawn-REFUSED for its model pin
+// before any process existed (`jobs_log.pid` never set), and `seatHasRun`'s OLD body — any row at
+// all — read that `failed` row as `live` FOREVER (`jobIdFor` is fixed per goal+seat, so the row
+// never ages out). With no re-offer the seat sat parked until a human removed its queue row by
+// hand (`decisions.md` 10:40Z). `seatState` is the ONE state predicate (`owed.js`'s graph half),
+// re-exported unchanged from here — this exercises the REAL function, not a stub.
+function caseSpawnRefusedRowIsNotParkedLive() {
+  try {
+    const row = { seat: 'alpha', after: '' };
+    const queued = new Set();
+    const readyMap = new Map([['alpha', []]]);
+    const opts = { ready: readyMap };
+
+    // 1 · AFTER FIX: a `failed` row with NO pid (refused before any process existed) does not
+    //     count as "has run" — the seat is offered `ready` again, never parked `live`.
+    const byJobRefused = new Map([['seat-g-alpha', [
+      { status: 'failed', pid: null, exec_id: 1 },
+    ]]]);
+    assertOk(seatHasRun(byJobRefused.get('seat-g-alpha')) === false,
+      'a pid-less failed row still counts as "has run"');
+    const stateAfterRefusal = seatState(row, byJobRefused, queued, { ...opts, goal: 'g' });
+    assertOk(stateAfterRefusal === 'ready',
+      `spawn-refused row still parks the seat: state=${stateAfterRefusal}`);
+
+    // 2 · DISCRIMINATING CONTROL: a `failed` row that DID carry a pid (a real process that later
+    //     crashed) still counts as "has run" — that seat stays `live` and is NOT re-offered here;
+    //     it is `reconcile.js`'s class A / D42 "crashed seat is re-run in ONE act", a leader-ruled
+    //     path this fast graph pass must not race.
+    const byJobCrashed = new Map([['seat-g-alpha', [
+      { status: 'failed', pid: 4242, exec_id: 2 },
+    ]]]);
+    assertOk(seatHasRun(byJobCrashed.get('seat-g-alpha')) === true,
+      'a genuinely-spawned (pid-bearing) failed row no longer counts as "has run"');
+    const stateAfterCrash = seatState(row, byJobCrashed, queued, { ...opts, goal: 'g' });
+    assertOk(stateAfterCrash === 'live',
+      `a genuinely crashed seat was re-offered instead of staying live: state=${stateAfterCrash}`);
+
+    // 3 · CONTROL: a genuinely LIVE row (still running) stays `live` — unaffected by this fix.
+    const byJobRunning = new Map([['seat-g-alpha', [
+      { status: 'running', pid: 4243, exec_id: 3 },
+    ]]]);
+    const stateRunning = seatState(row, byJobRunning, queued, { ...opts, goal: 'g' });
+    assertOk(stateRunning === 'live', `a running seat was not reported live: state=${stateRunning}`);
+
+    // 4 · RED (revert-the-fix) arm: with the OLD body restored (any row at all counts as "has
+    //     run"), the spawn-refused row from (1) DOES park the seat as `live` — proving this test
+    //     actually discriminates the fix rather than passing regardless.
+    const src = fs.readFileSync(path.join(__dirname, 'seeding.js'), 'utf8');
+    const ANCHOR = 'function seatHasRun(rows) {\n  return Boolean(rows) && rows.some((r) => !isRefusedBeforeSpawn(r));\n}';
+    assertOk(src.includes(ANCHOR), 'task 165 mutation anchor missing from seeding.js');
+    const Module = require('node:module');
+    const p = path.join(__dirname, 'seeding.js');
+    const mut = new Module(p, null);
+    mut.filename = p;
+    mut.paths = Module._nodeModulePaths(__dirname);
+    mut._compile(src.replace(ANCHOR, 'function seatHasRun(rows) {\n  return Boolean(rows) && rows.length > 0;\n}'), p);
+    const redState = mut.exports.seatState(row, byJobRefused, queued, { ...opts, goal: 'g' });
+    assertOk(redState === 'live', `RED arm did not reproduce the park: state=${redState}`);
+
+    pass('a spawn-refused row (no pid) is re-offered, a crashed/running seat stays live, RED arm reproduces the park');
+  } catch (err) { fail('spawn-refused row not parked live', err); }
+}
+
 caseDoorTable();
 caseReadySeatsHonoursKit();
 caseSeedGoalJournalsAndDoesNotEnqueue();
 caseReadyContradictedByDoneEnding();
 caseRedIgnoringVerdict();
+caseSpawnRefusedRowIsNotParkedLive();
 
 fs.rmSync(tmpRoot, { recursive: true, force: true });
 if (failed) {
