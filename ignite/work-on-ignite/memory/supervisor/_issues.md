@@ -17,3 +17,4 @@
 2026-08-31 · issue · Successor launched on sitting done, not gate verdict · after_member_state treated checkout done as work-succeeded → optional gate-artifact/gate-required columns, readiness reads the JSON · 48c86e40 · coord · ⚠
 2026-08-31 · issue · finished goals resurrected after finish edge · daemon never read FINISH_MARKER so a dead room with staff unread rebuilt and launched · 34d5b018 · — · ⚠
 2026-08-31 · issue · caged-filer-register-not-writable · planning seats lacked the skill bake and composeCageFor never bound cli-write-roots → register-not-writable from the cage · 98186c76 · coord,meta-planning · ⚠
+2026-08-31 · issue · Caged ~/.local did not survive the next sitting · HOME tmpfs dropped pip --user between sittings → bind seatDir/.user-local at ~/.local · 867b4d31 · — · ⚠
