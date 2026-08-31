@@ -14,7 +14,7 @@ const { SPECS } = require('../catalog');
 
 const { HARNESSES, RESUME_USAGE, SEAT_USAGE, baseArgv, fail, parseArgs, promptArgv, refuseIfDetached, resolveFolder, resolveModel, shortName } = require('./core');
 const { claudeSlug, emitHandle, procStart } = require('./handles');
-const { DEADLINE_MS, opencodeBind } = require('./monitor');
+const { DEADLINE_MS } = require('./monitor');
 const { detectProviderLimit, formatReason } = require('./provider-limit');
 const { opencodeCandidates, opencodeStore } = require('./sessions');
 
@@ -48,6 +48,20 @@ function launch({ harness, modelId, folder, effortWord, effortArgv, system, prom
   if (harness === 'claude' && !headed) {
     session = crypto.randomUUID();
     argv = [...argv, '--session-id', session];
+  }
+
+  // opencode has no session-id flag, but `--title` is recorded verbatim on the session row, so a
+  // per-launch unique title is the identity cast otherwise lacks (measured 2026-08-31: two runs
+  // 32ms apart under one project root each kept their own title, and a completed run was never
+  // retitled). Without it a run was identified by nearest time_created inside its project root —
+  // and opencode stores the RESOLVED PROJECT ROOT, not the launch cwd, so every concurrent seat
+  // under one repo matched the same window and the "recovered final message" tail could carry a
+  // SIBLING seat's report (measured 2026-08-31, ~20 concurrent seats: one seat's whole 76-line
+  // report was appended to another's).
+  let tag = null;
+  if (harness === 'opencode' && !headed) {
+    tag = `${path.basename(folder)} [cast:${crypto.randomBytes(4).toString('hex')}]`;
+    argv = [...argv, '--title', tag];
   }
 
   // ⚑ Uniform descriptor carriage (ignite's `d-uniform-descriptor-carriage`): claude gets a true
@@ -90,6 +104,7 @@ function launch({ harness, modelId, folder, effortWord, effortArgv, system, prom
     harness,
     model: shortName(harness, modelId),
     session,
+    tag,
     folder,
     transcript: session
       ? path.join(os.homedir(), '.claude', 'projects', claudeSlug(folder), `${session}.jsonl`)
@@ -100,7 +115,7 @@ function launch({ harness, modelId, folder, effortWord, effortArgv, system, prom
   if (harness === 'opencode' && !headed) {
     return runOpencodeChecked(argv, { cwd: folder, stdinText, t0,
       model: shortName(harness, modelId),
-      bind: () => opencodeBind({ folder, t0 }, new Set()) });
+      bind: () => opencodeTagged(folder, tag) });
   }
 
   const [cmd, ...args] = argv;
@@ -180,6 +195,15 @@ function opencodeFinalMessage(sessionId, t0) {
     process.stderr.write(`cast: opencode session store unreadable (${e.message})\n`);
     return null;
   }
+}
+
+// A launch binds to the session carrying its own title tag — an exact identity, never a guess.
+// null = cast cannot see its own session, so the caller reports no-report (or a provider limit)
+// rather than recovering whatever else is in the store: a missing report is recoverable, a
+// sibling's report read as this seat's is not.
+function opencodeTagged(folder, tag) {
+  const row = opencodeCandidates(folder).find((r) => r.title === tag);
+  return row ? row.id : null;
 }
 
 // resume `last` binds post-hoc: the folder session this turn actually touched (newest
@@ -308,7 +332,7 @@ function runResume(rawArgv) {
 }
 
 module.exports = {
-  launch, runOpencodeChecked, opencodeFinalMessage, opencodeTouched,
+  launch, runOpencodeChecked, opencodeFinalMessage, opencodeTagged, opencodeTouched,
   seatFrontmatter, SEAT_WRAPPER, SYSTEM_WRAPPER, runSeat,
   resumeArgv, runResume,
 };

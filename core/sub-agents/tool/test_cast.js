@@ -82,6 +82,12 @@ function dryRun(args) {
   const out = dryRun(['opencode', 'k3', '1', folder, '-p', 'hello']);
   assert.deepStrictEqual(out.argv.slice(0, 4), ['opencode', 'run', '-m', 'kimi-for-coding/k3']);
   assert.ok(out.argv.includes('--auto'), 'headless opencode must auto-approve permission asks');
+  // the title is cast's only handle on WHICH session is its own (the store is shared across seats)
+  const title = out.argv[out.argv.indexOf('--title') + 1];
+  assert.ok(/ \[cast:[0-9a-f]{8}\]$/.test(title ?? ''), `headless opencode must carry a unique title tag: ${title}`);
+  const other = dryRun(['opencode', 'k3', '1', folder, '-p', 'hello']);
+  assert.notStrictEqual(other.argv[other.argv.indexOf('--title') + 1], title,
+    'two launches must not share a title tag');
   assert.strictEqual(out.effort_word, 'low');
   const k27 = dryRun(['opencode', 'k2.7', '5', folder, '-p', 'hello']);
   assert.ok(!k27.argv.includes('--variant'), 'inert K2.7 must emit no --variant');
@@ -119,6 +125,7 @@ function dryRun(args) {
   assert.ok(!oc.argv.includes('run'), 'headed opencode must drop run');
   assert.ok(!oc.argv.includes('--auto'), 'headed opencode leaves permission asks to the human');
   assert.ok(!oc.argv.includes('--variant'), 'headed opencode TUI has no --variant');
+  assert.ok(!oc.argv.includes('--title'), 'headed opencode is a human session, not a bound one');
   assert.strictEqual(oc.effort_word, null);
   assert.deepStrictEqual(oc.argv.slice(-2), ['--prompt', 'hi']);
 }
@@ -988,19 +995,38 @@ function dryRun(args) {
 // opencode reconciliation (issue G-owner-console-0819-0010): a final message the CLI swallowed
 // from stdout is recovered from the session store; a run whose store holds NO final assistant
 // message must not read as success — no-report marker + non-zero exit.
+// The store is SHARED and opencode records the resolved project root, not the launch cwd, so a
+// concurrent sibling seat's session sits in the same candidate set (measured 2026-08-31: a whole
+// sibling report was appended as this run's). Every arm below therefore seeds a sibling holding a
+// distinct report, and asserts that text never reaches this run's stdout: cast binds by the title
+// tag it passed at launch, or it binds nothing at all.
 {
   const folder = mkFolder('oc-reconcile');
   const home = mkFolder('oc-reconcile-home');
   const xdg = path.join(home, 'xdg');
   const bin = mkFolder('oc-reconcile-bin');
-  const fakeOpencode = (script) => {
-    fs.writeFileSync(path.join(bin, 'opencode'), `#!/bin/sh\ncat >/dev/null\n${script}\n`);
+  const dbPath = path.join(xdg, 'opencode', 'opencode.db');
+  const SIBLING = 'SIBLING-REPORT: a concurrent seat spoke';
+
+  // the fake opencode stands in for the real one on the behaviour this binding rests on: the
+  // session row it creates carries the --title it was launched with.
+  const helper = path.join(bin, 'seed-session.js');
+  fs.writeFileSync(helper, `const { DatabaseSync } = require('node:sqlite');
+const argv = process.argv.slice(2);
+const title = argv[argv.indexOf('--title') + 1];
+const db = new DatabaseSync(${JSON.stringify(dbPath)});
+const now = Date.now();
+db.prepare('insert into session values (?,?,?,?,?,?)').run('ses_r', process.cwd(), null, title, now, now);
+db.close();
+`);
+  const fakeOpencode = (script, { createSession = true } = {}) => {
+    fs.writeFileSync(path.join(bin, 'opencode'),
+      `#!/bin/sh\ncat >/dev/null\n${createSession ? `node ${helper} "$@"\n` : ''}${script}\n`);
     fs.chmodSync(path.join(bin, 'opencode'), 0o755);
   };
   const env = { ...process.env, HOME: home, XDG_DATA_HOME: xdg,
     PATH: `${bin}:${path.dirname(process.execPath)}` };
 
-  const dbPath = path.join(xdg, 'opencode', 'opencode.db');
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const { DatabaseSync } = require('node:sqlite');
   // fixture rows are born just before the cast launch, inside its t0-2000 bind window
@@ -1014,17 +1040,24 @@ function dryRun(args) {
     db.exec('create table part (id text primary key, message_id text not null, session_id text not null,'
       + ' time_created integer not null, time_updated integer not null, data text not null)');
     const now = Date.now();
-    db.prepare('insert into session values (?,?,?,?,?,?)').run('ses_r', folder, null, 't', now, now);
-    if (withFinalText) {
-      db.prepare('insert into message values (?,?,?,?,?)').run('msg_1', 'ses_r', now, now,
+    const say = (id, sessionId, text) => {
+      db.prepare('insert into message values (?,?,?,?,?)').run(id, sessionId, now, now,
         JSON.stringify({ role: 'assistant' }));
-      db.prepare('insert into part values (?,?,?,?,?,?)').run('prt_1', 'msg_1', 'ses_r', now, now,
-        JSON.stringify({ type: 'text', text: withFinalText }));
-    }
+      db.prepare('insert into part values (?,?,?,?,?,?)').run(`prt_${id}`, id, sessionId, now, now,
+        JSON.stringify({ type: 'text', text }));
+    };
+    // the concurrent sibling: same project root, born inside the same window, already finished
+    db.prepare('insert into session values (?,?,?,?,?,?)').run('ses_sib', folder, null,
+      'a sibling seat [cast:deadbeef]', now, now);
+    say('msg_sib', 'ses_sib', SIBLING);
+    // this run's own messages; its SESSION row is written by the fake opencode, with cast's title
+    if (withFinalText) say('msg_1', 'ses_r', withFinalText);
     db.close();
   };
   const cast = () => spawnSync('node', [TOOL, 'opencode', 'glm-5.2', '1', folder, '-p', 'hi'],
     { encoding: 'utf8', env });
+  const noSibling = (res, arm) => assert.ok(!res.stdout.includes(SIBLING),
+    `${arm}: a sibling session's report must never be recovered as this run's: ${res.stdout}`);
 
   // swallowed: stdout ends mid-tool-trace, exit 0 — the store's final message must be appended
   fakeOpencode('echo "| tool call trace"\nexit 0');
@@ -1033,12 +1066,22 @@ function dryRun(args) {
   assert.strictEqual(res.status, 0, `recovered run must keep exit 0, got ${res.status}: ${res.stderr}`);
   assert.ok(res.stdout.includes('recovered final message'), `must mark the recovery: ${res.stdout}`);
   assert.ok(res.stdout.includes('FINAL-REPORT: work landed'), `must append the store's final message: ${res.stdout}`);
+  noSibling(res, 'swallowed');
 
   // no report anywhere: bound session, store holds no assistant text — marker + non-zero
   seedDb(null);
   res = cast();
   assert.notStrictEqual(res.status, 0, `report-less exit 0 must turn non-zero: ${res.stdout}`);
   assert.ok(res.stdout.includes('cast: no-report'), `must print the no-report marker: ${res.stdout}`);
+  noSibling(res, 'report-less');
+
+  // cast's own session never reached the store: no id of its own -> no-report, never a neighbour's
+  fakeOpencode('echo "| tool call trace"\nexit 0', { createSession: false });
+  seedDb('FINAL-REPORT: work landed');
+  res = cast();
+  assert.notStrictEqual(res.status, 0, `unbindable run must not read as success: ${res.stdout}`);
+  assert.ok(res.stdout.includes('cast: no-report'), `must print the no-report marker: ${res.stdout}`);
+  noSibling(res, 'unbindable');
 
   // control: final message reached stdout — passed through untouched, no marker of either kind
   fakeOpencode('echo "ALL DONE here"\nexit 0');
@@ -1048,6 +1091,7 @@ function dryRun(args) {
   assert.ok(res.stdout.includes('ALL DONE here'), `stdout must pass through: ${res.stdout}`);
   assert.ok(!res.stdout.includes('recovered final message'), `no recovery marker on a healthy run: ${res.stdout}`);
   assert.ok(!res.stdout.includes('cast: no-report'), `no no-report marker on a healthy run: ${res.stdout}`);
+  noSibling(res, 'healthy');
 
   fakeOpencode('echo "AI_APICallError: Usage limit reached for 5 hour. Your limit will reset at 2026-08-22 11:10:16"\nexit 1');
   seedDb(null);
@@ -1056,6 +1100,7 @@ function dryRun(args) {
   assert.ok(res.stdout.includes('provider-limit: glm-5.2 resets 2026-08-22 11:10:16'),
     `must name the limit instead of no-report: ${res.stdout}`);
   assert.ok(!res.stdout.includes('cast: no-report'), `limit must not print no-report: ${res.stdout}`);
+  noSibling(res, 'provider-limit');
 }
 
 {
