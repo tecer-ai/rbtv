@@ -130,6 +130,23 @@ function scriptedForwarder(state) {
     // like the gateway result shape, so threadMap records the REAL enqueue result.
     forward: async (intent, payload) => {
       state.forwarded.push({ intent, payload });
+      // (v) THE DAEMON'S REAL resume-vs-fork VERDICT, modeled — populated/read ONLY by arm v via
+      // `state.sessionRace`, so every other arm's `state.forwarded` assertions are untouched.
+      // `ticker.js#composeNewSenderMessages` watermarks a resume decision on the parent exec's
+      // `completion_msg_id`, which the crash sweep sets ATOMICALLY with the store's own STATUS
+      // going terminal (ticker.js "Task 7.7"). A corrective note enqueued while that status is
+      // still in-flight (`running`/`launching`/`stalled`) is exactly what races ahead of the
+      // watermark on the real system and gets read back as `chainReason:'no-new-messages'` — a
+      // FRESH session. Once status is terminal, the SAME note lands after the watermark and the
+      // daemon resumes the SAME session. This is that verdict, driven by the SAME status map the
+      // reply leg's own `inspect status` reads — never a separate truth reply-leg.js cannot see.
+      if (state.sessionRace && intent === 'enqueue-job' && payload && payload.args && payload.args.type === 'note'
+        && payload.args.thread === state.sessionRace.thread) {
+        const race = state.sessionRace;
+        const parentStatus = state.status.get(race.parentExecId);
+        const caughtUp = Boolean(parentStatus) && !['running', 'launching', 'stalled'].includes(parentStatus.status);
+        race.turns.push({ atTick: race.turns.length, storeCaughtUp: caughtUp, sessionId: caughtUp ? race.rootSession : `session-forked-${race.turns.length}` });
+      }
       return { ok: true, result: { jobId: state.nextJobId } };
     },
     inspect: async (target, extra = {}) => {
@@ -224,7 +241,7 @@ async function main() {
   try {
     mock = await startMockSlack();
 
-    const state = { recentTicks: [], liveSessions: [], status: new Map(), logs: new Map(), logPageMax: 500, failLogs: 0, nextJobId: 100, forwarded: [], queueRows: [], failQueueInspect: false };
+    const state = { recentTicks: [], liveSessions: [], status: new Map(), logs: new Map(), logPageMax: 500, failLogs: 0, nextJobId: 100, forwarded: [], queueRows: [], failQueueInspect: false, sessionRace: null };
     const config = resolveConfig({
       gatewayAddr: '127.0.0.1:1', bridgeToken: 'unused-here', sessionProfile: 'worker', allowlist: ['U-owner'],
       slackApiBase: mock.apiBase, slackAppToken: 'xapp-fake', slackBotToken: 'xoxb-fake',
@@ -801,6 +818,66 @@ async function main() {
     record('u4:a conversation whose row is STILL in the daemon queue does not disarm; once the row is gone the dead-air notice fires as before',
       heldWhileQueued && !pu4() && sent.length === sentBeforeU4 + 1 && lastText() === DEAD_AIR_NOTICE,
       { heldWhileQueued, stillPending: Boolean(pu4()), sentBeforeU4, sentNow: sent.length, text: lastText() });
+
+    // ══ (v) THE REVIVE-VS-CRASH-SWEEP RACE — the 2026-08-31 18:34:02Z session-lineage fork ══════
+    // `live` is a raw, real-time carrier check; the daemon's OWN crash sweep is what turns a dead
+    // carrier into a TERMINAL store status and, for an agent, ATOMICALLY records the turn's own
+    // completion message alongside it — the fact the daemon's resume decision watermarks against.
+    // A revive fired while `live===false` but `status` is still in-flight can write its corrective
+    // note BEFORE that watermark exists, reads back as "no new messages", and forks a FRESH
+    // session instead of resuming — measured 2026-08-31: `4711d5c1` forked into `1326693f`, both
+    // answering thread `exec-34364`, while the bridge's own `chainThread` never noticed the fork.
+    state.recentTicks = [];
+    const V_TS = '1700000000.001700';
+    const CHAT_V = `${CHANNEL}:${V_TS}`;
+    await mock.pushMessage({ type: 'message', user: 'U-owner', text: 'a reply that needs a revive', channel: CHANNEL, ts: V_TS, event_ts: V_TS, client_msg_id: 'reply-leg-m15' });
+    const pv = () => leg()._pending.get(CHAT_V);
+    await waitFor(() => Boolean(pv()));
+    const fwdBeforeV = state.forwarded.length;
+    state.recentTicks.push({ tick: 30, actions: [{ action: 'spawn', execId: 70, queueId: QUEUE }] });
+    // The live turn that produced the non-conformant reply — carrier dead, but the crash sweep has
+    // NOT run yet: `status` is still `running` even though `live` already reads false. WITHOUT the
+    // fix (verified by mutation — see this seat's report), reply-leg.js revives on THIS tick
+    // regardless of `status`, and the scripted daemon model above reads the still-in-flight status
+    // at that exact moment and returns a FORKED session id — reproducing the 2026-08-31 18:34:02Z
+    // fork (`4711d5c1` vs `1326693f`) byte-for-byte in shape. WITH the fix (below), this tick holds.
+    state.status.set(70, { live: false, status: 'running', profile: 'claude/claude-opus-5' });
+    state.logs.set(70, [bareResultLine('a reply missing its fence')]);
+    state.sessionRace = { parentExecId: 70, rootSession: 'session-4711d5c1', thread: 'exec-70', turns: [] };
+    await leg().tick();
+    const heldNoFork = state.sessionRace.turns.length === 0 && state.forwarded.length === fwdBeforeV
+      && Boolean(pv()) && pv().watching.has(70) && !pv().delivered.has(70);
+    // The crash sweep catches up — status leaves the in-flight set — and ONLY THEN does the leg revive.
+    state.status.set(70, { live: false, status: 'done', profile: 'claude/claude-opus-5' });
+    await leg().tick();
+    const chainThreadAfterFix = bridgeH.threadMap.get(CHAT_V) && bridgeH.threadMap.get(CHAT_V).chainThread;
+    record('v2:GREEN — held while in-flight, revived only once the store is terminal: exactly ONE session id, and the bridge\'s chainThread mapping agrees with the (now single-lineage) session registry',
+      heldNoFork
+      && state.sessionRace.turns.length === 1 && state.sessionRace.turns[0].storeCaughtUp === true
+      && state.sessionRace.turns[0].sessionId === state.sessionRace.rootSession
+      && chainThreadAfterFix === 'exec-70'
+      && new Set([state.sessionRace.rootSession, ...state.sessionRace.turns.map((t) => t.sessionId)]).size === 1,
+      { heldNoFork, turns: state.sessionRace.turns.slice(), rootSession: state.sessionRace.rootSession, chainThread: chainThreadAfterFix });
+
+    // ── (v3) THE MALFORMED TURN IS NOT RE-FED FOREVER, even resumed ─────────────────────────────
+    // The resumed revive (v2) still owes the SAME MAX_REVIVES bound (decision 7, arms q1/q2): a
+    // reply that STAYS non-conformant after being resumed must not loop forever — it is delivered
+    // best-effort at the bound, exactly like an unraced revive. The resumed corrective turn lands
+    // as exec 71 on the SAME (now resumed) session; feed it a reply that is STILL non-conformant.
+    state.recentTicks.push({ tick: 31, actions: [{ action: 'spawn', execId: 71, queueId: QUEUE }] });
+    state.status.set(71, { live: false, status: 'done', profile: 'claude/claude-opus-5' });
+    state.logs.set(71, [bareResultLine('still missing its fence')]);
+    const raceTurnsBeforeV3 = state.sessionRace.turns.length; // 1, from v2's resume — isolates THIS thread from any other conversation's own traffic sharing the same tick
+    await leg().tick(); // spends the SECOND (and last) revive — MAX_REVIVES is 2
+    state.recentTicks.push({ tick: 32, actions: [{ action: 'spawn', execId: 72, queueId: QUEUE }] });
+    state.status.set(72, { live: false, status: 'done', profile: 'claude/claude-opus-5' });
+    state.logs.set(72, [bareResultLine('still missing its fence, a third time')]);
+    await leg().tick(); // the bound: delivered best-effort, NO third revive
+    record('v3:a reply that stays non-conformant after being resumed is BOUNDED — the second revive fires once, the third turn is delivered best-effort, never an unbounded loop',
+      state.sessionRace.turns.length === raceTurnsBeforeV3 + 1 // exactly one more corrective note on THIS thread (the second revive)
+      && lastText() === `${UNFORMATTED_PREFIX}${toMrkdwn('still missing its fence, a third time')}`
+      && Boolean(pv()) && pv().revives === 0 && pv().delivered.has(72),
+      { correctivesAfterV3: state.sessionRace.turns.length - raceTurnsBeforeV3, text: lastText(), revives: pv() && pv().revives });
 
   } catch (err) {
     cap.log({ error: err.message, stack: err.stack });

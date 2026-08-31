@@ -147,6 +147,15 @@ const DEFAULT_MAX_LOG_PAGES = 50;             // cap the log paging loop (never 
 const DEFAULT_MAX_STATUS_ERRORS = 20;         // disarm after persistent status errors (step 6)
 const DEFAULT_MAX_DELIVER_ATTEMPTS = 20;      // per-exec fetch/delivery retry bound (step 6 — never unbounded)
 
+// The store's own IN-FLIGHT turn vocabulary (dispatch.js inspect status → jobs_log.status), read
+// here ONLY to detect "the daemon's crash sweep has not caught up with this dead carrier yet" —
+// never to distinguish an outcome, which always comes from the log. `live` (above, on the SAME
+// status response) is a raw, real-time carrier check; a dead carrier can be seen here before the
+// sweep — which is what actually stamps the turn's terminal status — has run even once. See the
+// revive gate in `_runOnce` for why the corrective redispatch must wait for `status` to leave
+// this set even after `live` has already gone false.
+const IN_FLIGHT_STATUSES = new Set(['running', 'launching', 'stalled']);
+
 // stream-json extraction (D110 step 4): the worker log is one JSON object per
 // line (`claude -p --output-format stream-json`); the answer is the LAST line of
 // shape `{ type:'result', result:'<text>', … }`. Non-JSON / non-result lines are
@@ -648,6 +657,26 @@ function createReplyLeg({
             } else {
               const verdict = checkReplyContract(read.text);
 
+              // ⚑ THE REVIVE MUST WAIT FOR THE STORE'S OWN COMPLETION (root cause of the
+              // 2026-08-31 18:34:02Z session-lineage fork — `4711d5c1` forked into `1326693f`,
+              // `chainReason:"no-new-messages"`). `live` above is a raw, real-time carrier check
+              // (dispatch.js inspect status → spawnManager.status) — decoupled from the daemon's
+              // own crash sweep, which is what turns a dead carrier into this turn's terminal
+              // STORE status and, for an agent, ATOMICALLY records its completion message
+              // alongside it (ticker.js "Task 7.7": status/completion_msg_id/ended_at land with
+              // the completion INSERT, one statement). The daemon's resume decision
+              // (ticker.js composeNewSenderMessages) watermarks "new" messages against THAT
+              // completion_msg_id. A revive fired the instant `live` goes false — before the
+              // sweep has run even once — writes its corrective note BEFORE that watermark
+              // exists, so the note can land with a LOWER msg_id than the completion the sweep
+              // records moments later; the resume decision then sees nothing newer than its own
+              // watermark and spawns a FRESH session instead of resuming the live one. `status`
+              // is the store's own word for "the sweep has landed" — the same wire field the
+              // STALL/RECOVERY checks above already read. Held ONLY for the revive: a conformant
+              // or best-effort/fallback delivery writes nothing the store's watermark can race
+              // against, so neither is ever delayed by this.
+              const storeCaughtUp = !IN_FLIGHT_STATUSES.has(statusRes.result.status);
+
               // NON-CONFORMANCE → ONE corrective turn on the SAME chain, then this exec is DONE
               // here. It is retired watching→delivered exactly as the give-up path retires one:
               // it has been handled, and a lingering recent_ticks spawn row must never re-capture
@@ -664,7 +693,7 @@ function createReplyLeg({
               // accusation that costs a duplicate session and a duplicate Slack message per
               // revive; it happened twice per conversation on 2026-08-12. An extraction failure is
               // the BRIDGE's problem: it is warned about above and delivered best-effort.
-              if (!verdict.ok && verdict.body !== null && !read.rawFallback && p.revives < maxRevives) {
+              if (!verdict.ok && verdict.body !== null && !read.rawFallback && p.revives < maxRevives && storeCaughtUp) {
                 const back = typeof redispatch === 'function'
                   ? await redispatch({ chatThreadId: id, text: buildFeedback(verdict.problems) })
                   : { forwarded: false, reason: 'no-redispatch-wired' };
@@ -687,48 +716,58 @@ function createReplyLeg({
                 });
               }
 
-              // DELIVERY. A CONFORMANT reply travels VERBATIM — that is the contract's whole
-              // point, and running it through the converter would reintroduce the parsing step
-              // the contract exists to remove. Everything else is best-effort (decision 7): the
-              // text we do have, through the mrkdwn safety net, behind a marker attributing the
-              // shape to the agent. The bare FALLBACK is reached only by a log with no text at
-              // all — never while any text exists.
-              const text = verdict.ok
-                ? verdict.body
-                : (verdict.body !== null
-                  ? bestEffortText(verdict.body)
-                  : FALLBACK_TEXT);
-              if (!verdict.ok) {
-                log('warn', 'reply leg delivering a NON-CONFORMANT reply', {
-                  chatThreadId: id, execId, revives: p.revives,
-                  problems: verdict.problems.map((x) => x.issue), hasText: verdict.body !== null,
-                  rawFallback: read.rawFallback,
+              if (!verdict.ok && verdict.body !== null && !read.rawFallback && p.revives < maxRevives && !storeCaughtUp) {
+                // The revive is warranted but the store has not caught up yet — retry next pass
+                // (bounded by the same fetch/delivery attempt cap below) rather than racing the
+                // corrective note ahead of the completion watermark it must land after.
+                failure = 'store-status-not-terminal';
+                log('warn', 'reply leg holding a corrective revive until the store status leaves the in-flight set', {
+                  chatThreadId: id, execId, status: statusRes.result.status,
                 });
-              }
-              const d = await deliver({ chatThreadId: id, text, markAsk: false, answersOwnerAsk: verdict.ok === true }); // plain agent output (D105 note; ask-detection out of scope v1)
-              if (d && d.delivered === false) {
-                failure = `deliver-refused:${d.reason || d.error || 'unknown'}`;
               } else {
-                p.watching.delete(execId);
-                p.delivered.add(execId);
-                p.armedAt = Date.now(); // healthy activity — reset the spawn-wait window
-                p.revives = 0;          // the turn ended in a delivery; the next one starts fresh
-                p.compacted = false;
-                p.disarmedAt = null;    // a LATE reply arrived after all — the tombstone is lifted
-                p.slowNoticed = true;   // the turn is ANSWERED — spend the slow-notice budget so the
-                                        // P3 rung can never tell the owner "still working" AFTER his
-                                        // answer landed (owner-reported 2026-08-20 03:49Z, both goal
-                                        // channels). arm() re-opens it on the next real owner turn.
-                // THE LATENCY LINE — one per delivered reply, end to end: the owner's message
-                // being armed → this post landing. Everything the bridge does between those two
-                // stamps (dispatch, run, revives, compaction, retries) is inside it, which is
-                // exactly what the owner feels. Over threshold it is raised to a WARNING.
-                const latencyS = p.turnStartedAt ? Math.round((Date.now() - p.turnStartedAt) / 100) / 10 : null;
-                const slow = latencyS !== null && latencyS > latencyWarnS;
-                log(slow ? 'warn' : 'info', slow
-                  ? 'reply leg delivered worker reply to owner — SLOW, over the latency threshold'
-                  : 'reply leg delivered worker reply to owner',
-                { chatThreadId: id, execId, chars: text.length, conformant: verdict.ok, latencyS, thresholdS: latencyWarnS });
+                // DELIVERY. A CONFORMANT reply travels VERBATIM — that is the contract's whole
+                // point, and running it through the converter would reintroduce the parsing step
+                // the contract exists to remove. Everything else is best-effort (decision 7): the
+                // text we do have, through the mrkdwn safety net, behind a marker attributing the
+                // shape to the agent. The bare FALLBACK is reached only by a log with no text at
+                // all — never while any text exists.
+                const text = verdict.ok
+                  ? verdict.body
+                  : (verdict.body !== null
+                    ? bestEffortText(verdict.body)
+                    : FALLBACK_TEXT);
+                if (!verdict.ok) {
+                  log('warn', 'reply leg delivering a NON-CONFORMANT reply', {
+                    chatThreadId: id, execId, revives: p.revives,
+                    problems: verdict.problems.map((x) => x.issue), hasText: verdict.body !== null,
+                    rawFallback: read.rawFallback,
+                  });
+                }
+                const d = await deliver({ chatThreadId: id, text, markAsk: false, answersOwnerAsk: verdict.ok === true }); // plain agent output (D105 note; ask-detection out of scope v1)
+                if (d && d.delivered === false) {
+                  failure = `deliver-refused:${d.reason || d.error || 'unknown'}`;
+                } else {
+                  p.watching.delete(execId);
+                  p.delivered.add(execId);
+                  p.armedAt = Date.now(); // healthy activity — reset the spawn-wait window
+                  p.revives = 0;          // the turn ended in a delivery; the next one starts fresh
+                  p.compacted = false;
+                  p.disarmedAt = null;    // a LATE reply arrived after all — the tombstone is lifted
+                  p.slowNoticed = true;   // the turn is ANSWERED — spend the slow-notice budget so the
+                                          // P3 rung can never tell the owner "still working" AFTER his
+                                          // answer landed (owner-reported 2026-08-20 03:49Z, both goal
+                                          // channels). arm() re-opens it on the next real owner turn.
+                  // THE LATENCY LINE — one per delivered reply, end to end: the owner's message
+                  // being armed → this post landing. Everything the bridge does between those two
+                  // stamps (dispatch, run, revives, compaction, retries) is inside it, which is
+                  // exactly what the owner feels. Over threshold it is raised to a WARNING.
+                  const latencyS = p.turnStartedAt ? Math.round((Date.now() - p.turnStartedAt) / 100) / 10 : null;
+                  const slow = latencyS !== null && latencyS > latencyWarnS;
+                  log(slow ? 'warn' : 'info', slow
+                    ? 'reply leg delivered worker reply to owner — SLOW, over the latency threshold'
+                    : 'reply leg delivered worker reply to owner',
+                  { chatThreadId: id, execId, chars: text.length, conformant: verdict.ok, latencyS, thresholdS: latencyWarnS });
+                }
               }
             }
           } catch (err) {
