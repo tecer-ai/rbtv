@@ -62,7 +62,10 @@ function consumeLaunch(raw) {
     namedRepos: (fill && fill.namedRepos) || [],
     projectFolder: (fill && fill.projectFolder) || null,
     credentialNames: (fill && fill.credentialNames) || [],
-    extraPaths: (fill && extraPathsOf(fill)) || [],
+    extraPaths: [
+      ...((fill && extraPathsOf(fill)) || []),
+      ...(Array.isArray(raw.extraPaths) ? raw.extraPaths : []),
+    ],
   };
   return fill ? compile(input) : compilePlanning(input);
 }

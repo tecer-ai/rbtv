@@ -203,6 +203,32 @@ function run() {
   assert.equal(repoGrant.ok, false, 'plan rw path inside the rbtv repo must still refuse');
   assert.equal(repoGrant.refuse.kind, 'conflict', 'rbtv repo rw grant refuses as a conflict, not silently');
   console.log('PASS rbtv-repo-still-refuses');
+
+  const extraMirror = path.join(workspace, '.rbtv', 'mirror', 'x');
+  const extraGrant = compile({
+    ...base,
+    extraPaths: [{ path: extraMirror, access: 'rw' }],
+  });
+  assert.equal(extraGrant.ok, true, `extraPaths rw under mirror refused: ${JSON.stringify(extraGrant.refuse)}`);
+  assert.equal(innermostAccess(extraGrant, extraMirror), 'rw', 'extraPaths rw under mirror compiles rw');
+  console.log('PASS extraPaths-rw-under-mirror');
+
+  const extraRepo = compile({
+    ...base,
+    extraPaths: [{ path: repoProduct, access: 'rw' }],
+  });
+  assert.equal(extraRepo.ok, false, 'extraPaths rw inside the rbtv repo must still refuse');
+  assert.equal(extraRepo.refuse.kind, 'conflict');
+  console.log('PASS extraPaths-rw-under-rbtv-repo-refuses');
+
+  const planningExtra = compilePlanning({
+    ...base,
+    extraPaths: [{ path: extraMirror, access: 'rw' }],
+  });
+  assert.equal(planningExtra.ok, true, `compilePlanning dropped seat extraPaths: ${JSON.stringify(planningExtra.refuse)}`);
+  assert.equal(innermostAccess(planningExtra, extraMirror), 'rw', 'compilePlanning keeps seat extraPaths');
+  assert.ok(!hasBind(planningExtra, repoA, 'rw'), 'compilePlanning still zeros namedRepos');
+  console.log('PASS compilePlanning-keeps-seat-extraPaths');
   console.log('PASS compiler');
 }
 

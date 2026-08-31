@@ -99,6 +99,26 @@ function run() {
   const planning = consumeLaunch({ ...base, fillIns: null });
   assert.equal(planning.ok, true, JSON.stringify(planning.refuse));
 
+  const grantDir = path.join(workspace, '.rbtv', 'mirror', 'x');
+  const withGrant = admitLaunch({
+    ...base,
+    fillIns: null,
+    extraPaths: [{ path: grantDir, access: 'rw' }],
+  });
+  assert.equal(withGrant.spawn, true, `seat extraPaths refused: ${JSON.stringify(withGrant.refuse)}`);
+  assert.ok(
+    (withGrant.binds || []).some((b) => b.access === 'rw' && path.resolve(b.path) === path.resolve(grantDir)),
+    'admitLaunch composes raw extraPaths as an rw bind when there is no envelope.json',
+  );
+  const repoWrite = admitLaunch({
+    ...base,
+    fillIns: null,
+    extraPaths: [{ path: path.join(rbtvRepo, 'ignite', 'envelope'), access: 'rw' }],
+  });
+  assert.equal(repoWrite.spawn, false, 'rbtv-repo extraPaths must refuse, not silently grant');
+  assert.equal(repoWrite.refuse.kind, 'conflict');
+  console.log('PASS seat-extraPaths-composed');
+
   // owner-flagged-birth-writes-no-envelope: a Path-B-born goal (marked by
   // `planning/bound-plan.json`, `path_b.py#BOUND_PLAN_NAME`) with no envelope.json warns loudly
   // once; any other goal shape (no such marker) falls back silently, exactly as before.

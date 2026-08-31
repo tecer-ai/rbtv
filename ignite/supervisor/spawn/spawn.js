@@ -28,7 +28,7 @@ const { resolvesInsideGoalsRoot } = require('../../state-store/heart/argv-templa
 // resolvers moved to a module both import — one resolver, no copy. Re-exported below unchanged, so
 // every existing consumer and probe keeps its import path.
 const {
-  seatDeclaresList, rwPathRefusal,
+  seatDeclaresList, rwPathRefusal, resolveRwPathGrants,
 } = require('./seat-grants');
 const {
   isStaffUncaged, admitLaunch, bindsToSpec, LaunchRefused,
@@ -1318,6 +1318,16 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
   }
   const localBin = resolveLocalBinGrant(seatPath);
   const exposedClis = resolveExposedCliGrants(seatPath, log);
+  let rwPathGrants;
+  try {
+    rwPathGrants = resolveRwPathGrants(seatPath, log);
+  } catch (err) {
+    if (err.code === 'E_LAUNCH_REFUSED') {
+      if (stamp) stamp(err.refuse);
+      throw err instanceof LaunchRefused ? err : new LaunchRefused(err.refuse);
+    }
+    throw err;
+  }
   const admitted = admitLaunch({
     workspaceRoot: seatPath.workspaceRoot,
     goalId: seatPath.goal,
@@ -1325,10 +1335,26 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
     // `{self}` — the ONE thing the plan-time compiler cannot know. Without this field the seats
     // tree stays wholly ro and the seat cannot write its own folder (`launch.js#ownSeatPunch`).
     seatDir: seatPath.seatDir,
+    extraPaths: rwPathGrants.map((g) => ({ path: g.rwPath, access: 'rw' })),
   });
   if (!admitted.spawn) {
     if (stamp) stamp(admitted.refuse);
     throw new LaunchRefused(admitted.refuse);
+  }
+  for (const g of rwPathGrants) {
+    let real;
+    try { real = fs.realpathSync(g.rwPath); } catch { real = g.rwPath; }
+    const bound = admitted.binds.some((b) => b.access === 'rw' && b.path === real);
+    if (!bound) {
+      const refuse = {
+        kind: 'unresolved',
+        path: real,
+        source: 'rw-paths',
+        reason: 'declared grant was not composed',
+      };
+      if (stamp) stamp(refuse);
+      throw new LaunchRefused(refuse);
+    }
   }
   if (exposedClis.length > 0) {
     // `family`/`origin` ride along exactly as they do into `bindsToSpec`: the carve question is

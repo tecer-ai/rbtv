@@ -3,13 +3,18 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { capture, fixtureRoot } = require('./lib');
 const { admitLaunch } = require('../../../envelope/launch');
 const { writeWallReport } = require('../../../envelope/wall-report');
 const { writeConfigShims, realStoreOnBinds } = require('../../../envelope/shims');
+const { parseSeatPath } = require('../../../runtime/seat-identity/seat-folder');
+const { buildBwrapArgv } = require('../bwrap');
 // Leg 10 drives the REAL exposed-CLI cover check out of the spawn door, not a copy of it: the
 // defect it pins lived in that branch, so a probe re-spelling the predicate would prove nothing.
-const { exposedCliConflict } = require('../spawn');
+// Legs 11–13 drive composeCageFor itself: seat.md `rw-paths:` must become a bind (or refuse
+// loudly), and rw+exposedCli on the same directory must still refuse.
+const { composeCageFor, exposedCliConflict } = require('../spawn');
 
 capture('probe-envelope-walls', async (lines) => {
   const root = fixtureRoot('env-walls-');
@@ -177,6 +182,87 @@ capture('probe-envelope-walls', async (lines) => {
     leg('10', 'a seat with an exposed CLI launches over the standard goal binds, and an exposed CLI landing ro inside an rw bind still refuses',
       admits === null && !!overRw && overRw.kind === 'conflict',
       `admits=${JSON.stringify(admits)} over-rw=${JSON.stringify(overRw && overRw.pair && overRw.pair.map((x) => `${x.access}:${x.source}:${x.path}`))}`);
+
+    const grantRel = path.join('.rbtv', 'mirror', 'x');
+    const grantAbs = path.join(workspace, grantRel);
+    const writerDir = path.join(goalDir, 'seats', 'writer');
+    fs.mkdirSync(writerDir, { recursive: true });
+    fs.writeFileSync(path.join(writerDir, 'seat.md'), [
+      '---',
+      'seat: writer',
+      'harness: bash',
+      'model: test-sleep',
+      'rw-paths:',
+      `  - ${grantRel}`,
+      '---',
+      '',
+    ].join('\n'));
+    const writerPath = parseSeatPath(writerDir);
+    let composed;
+    let composeErr = null;
+    try {
+      composed = composeCageFor({}, writerPath, writerDir, null, () => {});
+    } catch (err) {
+      composeErr = err;
+    }
+    const grantReal = fs.realpathSync(grantAbs);
+    const hasRwBind = Array.isArray(composed) && composed.some((a, i) => a === '--bind' && composed[i + 1] === grantReal);
+    const marker = path.join(grantAbs, 'WRITE-TEST');
+    let writeExit = null;
+    let writeStderr = '';
+    let onDisk = 'ABSENT';
+    if (Array.isArray(composed)) {
+      const argv = buildBwrapArgv({
+        argv: ['bash', '-c', `echo GRANTED > "${marker}" && echo WROTE`],
+        workdir: writerDir,
+        harness: null,
+        seatBinds: composed,
+      });
+      try {
+        execFileSync(argv[0], argv.slice(1), {
+          stdio: ['ignore', 'pipe', 'pipe'], timeout: 15000, encoding: 'utf8',
+        });
+        writeExit = 0;
+      } catch (err) {
+        writeExit = err.status === undefined ? -1 : err.status;
+        writeStderr = String(err.stderr || '').trim().slice(0, 240);
+      }
+      onDisk = fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8').trim() : 'ABSENT';
+    }
+    leg('11', 'composeCageFor grants seat.md rw-paths under the mirror family; a caged write lands',
+      !composeErr && hasRwBind && writeExit === 0 && onDisk === 'GRANTED',
+      `err=${composeErr && (composeErr.message || composeErr.code)} hasBind=${hasRwBind} exit=${writeExit} stderr=${writeStderr} onDisk=${onDisk}`);
+
+    const repoWrite = admitLaunch({
+      ...base,
+      extraPaths: [{ path: path.join(rbtvRepo, 'ignite', 'envelope'), access: 'rw' }],
+    });
+    leg('12', 'rw extraPath inside the rbtv source repo still refuses at compose (no rbtv-repo carve)',
+      repoWrite.spawn === false && repoWrite.refuse && repoWrite.refuse.kind === 'conflict',
+      `spawn=${repoWrite.spawn} refuse=${JSON.stringify(repoWrite.refuse)}`);
+
+    fs.writeFileSync(path.join(grantAbs, 'cli.sh'), '#!/bin/sh\necho ok\n', { mode: 0o755 });
+    fs.writeFileSync(path.join(writerDir, 'seat.md'), [
+      '---',
+      'seat: writer',
+      'harness: bash',
+      'model: test-sleep',
+      'rw-paths:',
+      `  - ${grantRel}`,
+      'exposed-clis:',
+      `  - demo-cli ${path.join(grantAbs, 'cli.sh')}`,
+      '---',
+      '',
+    ].join('\n'));
+    let clashErr = null;
+    try {
+      composeCageFor({}, writerPath, writerDir, null, () => {});
+    } catch (err) {
+      clashErr = err.refuse || { message: err.message, code: err.code };
+    }
+    leg('13', 'rw-paths and exposedCliCode on the SAME directory still refuse at compose (task 122)',
+      !!clashErr && clashErr.kind === 'conflict',
+      `refuse=${JSON.stringify(clashErr)}`);
   } finally {
     try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* best effort */ }
   }

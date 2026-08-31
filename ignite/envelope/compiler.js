@@ -291,7 +291,7 @@ function compilePlanning(raw) {
     namedRepos: [],
     projectFolder: null,
     credentialNames: [],
-    extraPaths: [],
+    extraPaths: raw.extraPaths || [],
   });
 }
 
