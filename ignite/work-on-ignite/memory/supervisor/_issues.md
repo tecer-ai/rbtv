@@ -19,3 +19,4 @@
 2026-08-31 · issue · caged-filer-register-not-writable · planning seats lacked the skill bake and composeCageFor never bound cli-write-roots → register-not-writable from the cage · 98186c76 · coord,meta-planning · ⚠
 2026-08-31 · issue · Caged ~/.local did not survive the next sitting · HOME tmpfs dropped pip --user between sittings → bind seatDir/.user-local at ~/.local · 867b4d31 · — · ⚠
 2026-08-31 · issue · Class B unread relaunch bypassed a live seat hold · classB never read holdMap (class A/E already did) → held chair still launched over unread mail · bb1e6350 · — · ⚠
+2026-08-31 · issue · last-milestone stall needs no live leader · last-milestone completion with empty leader chair left the EVENT unwritten → finish-on-completion fires FINISH_MARKER as ignite-daemon · fd2b4399 · coord · ⚠
