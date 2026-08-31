@@ -8131,6 +8131,30 @@ def _selftest_checks(args, failures, names):
               _rs1_dv == {"a": "DONE", "b": "READY"}
               and _rs1_rv == {"a": "DONE", "b": "BLOCKED"})
 
+        # ---- gate-artifact: sitting `done` is not work-succeeded (G-leader-0823-1443) ----
+        _rs_gate = _rs_make("gate-art", [("pred", ""), ("succ", "pred")],
+                            sessions=[("pred", "done")])
+        (_rs_gate / "planning" / "ev").mkdir(parents=True)
+        (_rs_gate / "planning" / "ev" / "pred.json").write_text(
+            '{"verdict": "FAIL"}\n', encoding="utf-8")
+        (_rs_gate / "taskforce.csv").write_text(
+            "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id,"
+            "gate-artifact,gate-required\n"
+            "tf-x,pred,\"\",claude,opus,medium,50,m1,,\n"
+            "tf-x,succ,\"pred\",claude,opus,medium,50,m1,"
+            "planning/ev/pred.json,verdict=PASS\n",
+            encoding="utf-8")
+        _rs_gate_fail, _ = _rs_v(_rs_gate)
+        (_rs_gate / "planning" / "ev" / "pred.json").write_text(
+            '{"verdict": "PASS"}\n', encoding="utf-8")
+        _rs_gate_pass, _ = _rs_v(_rs_gate)
+        check("dag-10 GATE: predecessor sitting ENDED `done` but declared gate artifact is not "
+              "`verdict=PASS` → successor BLOCKED; the same sitting with PASS → successor READY. "
+              "Control: undeclared columns keep today's disposition-only edge (RS-1).",
+              _rs_gate_fail == {"pred": "DONE", "succ": "BLOCKED"}
+              and _rs_gate_pass == {"pred": "DONE", "succ": "READY"}
+              and _rs1_dv == {"a": "DONE", "b": "READY"})
+
         # ---- D24: a minted goal-master is NOT READY (summoned, not seeded) ----
         check("D24: STAFF_SEATS is not widened — goal-master is summoned, not a staff chair",
               STAFF_SEATS == ("leader",)

@@ -347,12 +347,82 @@ ROW_OUTCOME_STOP_STATES = ("skipped-by-guard", "finished-unsatisfiable",
 # That is the fail-safe direction — a run with no join must not have all 149 of its seats refused.
 TASKFORCE_STORE_JOIN_COLUMN = "store-id"
 
+# Optional taskforce columns: a successor names an on-disk gate artifact plus the JSON
+# `key=value` it must carry (ignite-engine shape: path to evidence JSON, `verdict=PASS`).
+# ABSENT ON EVERY PACKAGE THAT HAS NOT ADDED THEM — same fail-safe as `store-id`: no
+# declaration means today's disposition-only edge. Not a 7.383 guard: that reads
+# `guard-values.csv`, this reads the declared file. Materialize's exact header is
+# unchanged; extra columns are legal on a fixture / hand-edited row.
+GATE_ARTIFACT_COLUMN = "gate-artifact"
+GATE_REQUIRED_COLUMN = "gate-required"
+
 # The row's title line: `- [ ] 7.224 Title #tag #tag`. The tag grammar is `sb_task.py`'s TAG_RE,
 # copied deliberately rather than imported — team-kit ships without the vault's task CLI on
 # sys.path, and a silent ImportError here would make every row read as untagged, which is exactly
 # the failure this term exists to end.
 STORE_ROW_LINE_RE = r"^- \[[ x]\] {rid}(?:\s|$)"
 STORE_TAG_RE = re.compile(r"(?:(?<=\s)|^)#([A-Za-z0-9_/-]+)")
+
+
+def taskforce_gates(pkg):
+    """{seat: (artifact, required)} from optional `gate-artifact`/`gate-required` cells.
+
+    `{}` when neither column exists. A row with either cell set is a declaration — an
+    incomplete one fails closed at the read, never silently."""
+    header, rows = coord.read_csv_table(pkg / "taskforce.csv", [])
+    if not rows or "seat" not in header:
+        return {}
+    if GATE_ARTIFACT_COLUMN not in header and GATE_REQUIRED_COLUMN not in header:
+        return {}
+    idx = {c: i for i, c in enumerate(header)}
+    out = {}
+    for r in rows:
+        coord.pad_row(r, header)
+        seat = r[idx["seat"]].strip()
+        if not seat:
+            continue
+        art = r[idx[GATE_ARTIFACT_COLUMN]].strip() if GATE_ARTIFACT_COLUMN in idx else ""
+        req = r[idx[GATE_REQUIRED_COLUMN]].strip() if GATE_REQUIRED_COLUMN in idx else ""
+        if art or req:
+            out[seat] = (art, req)
+    return out
+
+
+def gate_artifact_state(pkg, rel, required):
+    """(met, rendered, entry) for one declared gate. `entry` is None when met.
+
+    `required` is `key=value`. The file is JSON at `pkg/rel`. MET only when the object's
+    FIRST key equals `key` and `str(value)` equals `value` — the ignite-engine evidence
+    shape (`verdict=PASS`). Missing, unreadable, or mismatched → unmet. Never writes."""
+    if not rel or "=" not in (required or ""):
+        return False, "<gate undeclared>", {"seat": "", "state": "gate-undeclared",
+                                            "path": rel or "", "required": required or ""}
+    key, _, want = required.partition("=")
+    path = Path(pkg) / rel
+    try:
+        resolved = path.resolve()
+        root = Path(pkg).resolve()
+        if resolved != root and root not in resolved.parents:
+            return False, f"<gate {rel} outside package>", {
+                "seat": "", "state": "gate-outside", "path": rel, "required": required}
+        raw = resolved.read_text(encoding="utf-8")
+        obj = json.loads(raw)
+    except FileNotFoundError:
+        return False, f"<gate {rel} missing>", {
+            "seat": "", "state": "gate-missing", "path": rel, "required": required}
+    except (OSError, json.JSONDecodeError, ValueError):
+        return False, f"<gate {rel} unreadable>", {
+            "seat": "", "state": "gate-unreadable", "path": rel, "required": required}
+    if not isinstance(obj, dict) or not obj:
+        return False, f"<gate {rel} not an object>", {
+            "seat": "", "state": "gate-unreadable", "path": rel, "required": required}
+    first = next(iter(obj))
+    got = obj[first]
+    if first != key or str(got) != want:
+        return False, f"<gate {rel} {first}={got}>", {
+            "seat": "", "state": "gate-mismatch", "path": rel, "required": required,
+            "got": f"{first}={got}"}
+    return True, "gate-met", None
 
 
 def taskforce_store_ids(pkg):
@@ -787,11 +857,14 @@ def ready_seat_rows(args):
                so precedence decides only WHICH reason prints, and `UNDECLARED` names an
                unresolved DEFECT the leader must act on, which would be lost if a settled state
                printed over it. Ordering them the other way changes no seat's offerability.
-      BLOCKED  at least one `after` member is unsatisfied. A member is satisfied when its named
+       BLOCKED  at least one `after` member is unsatisfied. A member is satisfied when its named
                predecessor checked out `done` — plus, for a GUARDED member, a recorded value
                matching its guard (7.383); an ALTERNATE (`a|b`) is satisfied when ANY ONE of its
                members is (D6). `after_member_state` is that whole arithmetic, in one place.
-      READY    every term above cleared
+               A row that also declares `gate-artifact`/`gate-required` is BLOCKED until that
+               file's first JSON key equals the required `key=value` — sitting `done` is not
+               work-succeeded. Undeclared rows are unchanged.
+       READY    every term above cleared
 
     ⚠ EVERY ROW ALSO CARRIES `seed` (D4) — the resolved absolute paths of the declared outputs of
     the predecessors that satisfied its members, `[]` on a root. On a READY row that is the
@@ -925,6 +998,7 @@ def ready_seat_rows(args):
     # 7.383: hoisted ONCE, for the same reason `awaiting`, `undeclared` and `outcomes` are — N
     # guarded members must cost one read of the ruling file, not N.
     guards = load_guard_values(base)
+    gates = taskforce_gates(pkg)
     term = {}
     for seat in after:
         term[seat] = terminal_disposition(pkg, base, seat)
@@ -1023,6 +1097,13 @@ def ready_seat_rows(args):
                     if _path not in seed_seen:
                         seed_seen.add(_path)
                         seed.append(_path)
+        if not unmet and seat in gates:
+            _art, _req = gates[seat]
+            _gmet, _gstate, _gentry = gate_artifact_state(pkg, _art, _req)
+            if not _gmet:
+                _gentry["seat"] = seat
+                unmet.append(f"gate={_gstate}")
+                unmet_after.append(_gentry)
         # ⚠ `disposition`/`source` ARE THE TERMINAL-DISPOSITION SIGNAL, AND THERE IS NO SECOND ONE.
         # W2 moved done-ness OUT of the execution record's `outcome` column (now the process
         # vocabulary `clean|crashed|killed`) and onto the seat's own check-out — which is this
