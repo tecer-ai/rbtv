@@ -215,19 +215,27 @@ async function main() {
   });
   r = await inspect({ target: 'asks' });
   const merged = (r.body.result && r.body.result.rows) || [];
-  const gRow = merged.find((x) => x.id === grouped.ask_id);
+  const gRows = merged.filter((x) => x.id === grouped.ask_id);
+  const gRow = gRows[0];
   check('G1: the signature-grouped ask record is IN the listing — spec-recovery §5\'s exit at N is owner-VISIBLE or it is not that exit',
     Boolean(gRow), `ids=${merged.map((x) => x.id).join(',')}`);
-  check('G2: exactly ONE row for a TWO-lane ask — the grouping rule is "one ask per signature, never per lane"',
-    merged.filter((x) => x.id === grouped.ask_id).length === 1, `rows=${merged.length}`);
+  // ONE ROW PER LANE [owner ruling 2026-08-31, `d-digest-ui` 3a]: a two-lane ask is two rows naming
+  // two goals — collapsing them into one row hid every goal but the first (the defect this fix
+  // closes). Both rows share the ONE record's `ask_id`; there is only one record on disk and no
+  // per-lane answering path exists yet (`digest-recovery-thread` is held pending ask 14) — the
+  // `goal` field is what tells the rows apart.
+  check('G2: TWO rows for a TWO-lane ask, naming BOTH goals — "one ask per signature" grouped the FILE, never the render',
+    gRows.length === 2 && gRows.some((x) => x.goal === GOAL_B) && gRows.some((x) => x.goal === GOAL_A),
+    `rows=${gRows.map((x) => `${x.goal}:${x.seat}`).join(' | ')}`);
   check('G3: the row shape is the heart-store row\'s, key for key — the digest reads ONE list and cannot tell which record a row came from',
     Boolean(gRow) && ['id', 'goal', 'seat', 'label', 'one_liner', 'opened_at', 'evidence_pointer'].every((k) => gRow[k] !== undefined),
     JSON.stringify(gRow || {}));
-  check('G4: the one-liner is the record\'s OWN first line plus the lane count — never a sentence assembled from the goal and seat names',
-    Boolean(gRow) && gRow.one_liner === 'nonterm reached the attempt bound on this lane; the lane is stamped disarmed (+1 more lane)',
-    gRow && JSON.stringify(gRow.one_liner));
-  check('G5: `evidence_pointer` is the record file, and it EXISTS',
-    Boolean(gRow) && gRow.evidence_pointer === grouped.file && fs.existsSync(gRow.evidence_pointer),
+  check('G4: each row\'s one-liner is THAT LANE\'S own first line — never a sentence assembled from the goal and seat names, never another lane\'s words',
+    gRows.find((x) => x.goal === GOAL_B)?.one_liner === 'nonterm reached the attempt bound on this lane; the lane is stamped disarmed'
+      && gRows.find((x) => x.goal === GOAL_A)?.one_liner === 'nonterm reached the attempt bound on this lane; the lane is stamped disarmed',
+    JSON.stringify(gRows.map((x) => [x.goal, x.one_liner])));
+  check('G5: `evidence_pointer` is the record file for EVERY lane row, and it EXISTS',
+    gRows.length > 0 && gRows.every((x) => x.evidence_pointer === grouped.file) && fs.existsSync(grouped.file),
     gRow && gRow.evidence_pointer);
   check('G6: the thread-recorded owner asks are STILL there beside it — this is a merge, not a replacement',
     merged.some((x) => x.id === '1724500001.000100') && merged.some((x) => x.id === '1724500002.000200'),

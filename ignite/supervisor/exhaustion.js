@@ -149,22 +149,22 @@ function recordGroupedAsk({
 // removes it. That is stated rather than papered over: the digest posts on CHANGE, so a standing
 // record is rendered once and then rides the baseline.
 //
-// THE ONE-LINER IS THE RECORD'S OWN WORDS. The first lane's `refusal_text`, first line, truncated —
-// never a sentence assembled here from the goal and seat names, which would put words on the
-// owner's phone that nobody wrote [memory gateway/20260825-c-inspect-asks-the-read-half-of
-// ATTENTION 3]. The extra-lane count is appended because it is a FACT OF THE RECORD, and hiding it
-// would render a ten-lane ask as one lane's problem — the grouping this file exists for.
-function oneLinerOfRecord(record) {
-  const lanes = Array.isArray(record.lanes) ? record.lanes : [];
-  const text = String((lanes[0] && lanes[0].refusal_text) || '').split(/\r?\n/).find((l) => l.trim());
-  if (!text) return null;
-  const head = text.trim().slice(0, 120);
-  return lanes.length > 1 ? `${head} (+${lanes.length - 1} more lane${lanes.length > 2 ? 's' : ''})` : head;
+// THE ONE-LINER IS THE LANE'S OWN WORDS. Its `refusal_text`, first line, truncated — never a
+// sentence assembled here from the goal and seat names, which would put words on the owner's
+// phone that nobody wrote [memory gateway/20260825-c-inspect-asks-the-read-half-of ATTENTION 3].
+function oneLinerOfLane(lane) {
+  const text = String((lane && lane.refusal_text) || '').split(/\r?\n/).find((l) => l.trim());
+  return text ? text.trim().slice(0, 120) : null;
 }
 
 // The row shape is `state-store/heart/ask-record.js#listOpenAsks`'s, key for key, so the digest and
 // the CLI render one waiting set and neither needs to know which record a row came out of.
-// `goal`/`seat` are the FIRST lane's — the same lane `recordGroupedAsk` binds the store row to.
+//
+// ONE ROW PER LANE [owner ruling 2026-08-31, `d-digest-ui` 3a]. A signature-grouped ask covering N
+// lanes is N distinct pieces of stuck work in N different rooms — collapsing them into one row lost
+// every goal but the first. Every lane row carries the ONE record's real `ask_id` (there is only
+// one record, and no per-lane answering path exists to resolve today — `digest-recovery-thread` is
+// held pending owner ruling on ask 14); `goal` is what tells the rows apart on the owner's screen.
 function listOpenGroupedAsks(workspaceRoot) {
   if (!workspaceRoot) return [];
   let entries;
@@ -184,16 +184,18 @@ function listOpenGroupedAsks(workspaceRoot) {
       continue;             // an unreadable record costs its row, never the listing
     }
     if (!record || !record.ask_id) continue;
-    const first = (Array.isArray(record.lanes) && record.lanes[0]) || {};
-    rows.push({
-      id: record.ask_id,
-      goal: first.goal || null,
-      seat: first.seat || null,
-      label: record.label || 'recovery',
-      one_liner: oneLinerOfRecord(record),
-      opened_at: record.opened_at || null,
-      evidence_pointer: file,
-    });
+    const lanes = (Array.isArray(record.lanes) && record.lanes.length) ? record.lanes : [{}];
+    for (const lane of lanes) {
+      rows.push({
+        id: record.ask_id,
+        goal: lane.goal || null,
+        seat: lane.seat || null,
+        label: record.label || 'recovery',
+        one_liner: oneLinerOfLane(lane),
+        opened_at: record.opened_at || null,
+        evidence_pointer: file,
+      });
+    }
   }
   return rows;
 }
