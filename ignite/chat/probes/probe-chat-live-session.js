@@ -11,7 +11,11 @@
 //
 // ARMS
 //   1  eligibility           — the four refusals and the one admission, from config + disk alone
-//   2  warm turns, in order  — two feeds, the SECOND written MID-TURN, both answered, in order
+//   2  warm turns            — an overlapping feed (WRITTEN MID-TURN) is refused BUSY, immediately;
+//                              a SEQUENTIAL follow-up (fed after the first resolves) is answered,
+//                              same warm process, in order (duplicate owner-facing replies fix,
+//                              `slack-duplicate-replies.md` §4/§9-5 — see the busy check's own
+//                              comment in `supervisor/spawn/live-sessions.js`)
 //   3  accounting            — one sessions.csv row per live PROCESS; the transcript is teed
 //   4  reaper                — an idle session is closed and its child exits
 //   5  crash mid-turn        — the unit is killed under a live turn; the feed resolves
@@ -246,33 +250,44 @@ async function main() {
     // pass on a session that had forgotten everything.
     const p1 = mgr.feed({ conversationId: conv, workdir: w.seatDir, prompt: 'What is the name of the module I mentioned? Reply with only the module name.', sessionRef, start: true });
 
-    // ⚑ THE MID-TURN FEED — written while turn 1 is still running, which is the case the design
-    // flagged as unverified. The spike measured the CLI QUEUEING it (2026-08-10, claude 2.1.226);
-    // this arm is that measurement held as a standing assertion against the real module.
+    // ⚑ THE OVERLAPPING FEED — written while turn 1 is still running. A 2026-08-10 spike measured
+    // the CLI queueing one such message and answering it after the first, and this arm used to
+    // hold that as a standing assertion. Production fell through it 2026-08-31 (`slack-duplicate-
+    // replies.md` §4/§9-5): a message fed 14s into a 90s turn never got a matching `result` at
+    // all, and the waiter it left behind expired on its own turn-timeout minutes later,
+    // manufacturing a cold-path retry of an already-answered question. The manager no longer bets
+    // a waiter's fate on the CLI's undocumented behavior — it refuses the overlap outright.
     await sleep(2500);
     const midTurnState = mgr.list()[0];
-    const t2 = nowMs();
-    const p2 = mgr.feed({ conversationId: conv, workdir: w.seatDir, prompt: 'What is 12 minus 5? Reply with only the number.', sessionRef, start: true });
+    check('arm2: turn 1 is still in flight when the overlapping feed is tried (so the busy check is really exercised mid-turn)',
+      midTurnState && midTurnState.state === 'in-turn', { midTurnState });
+
+    const tBusy = nowMs();
+    const rBusy = await mgr.feed({ conversationId: conv, workdir: w.seatDir, prompt: 'What is 12 minus 5? Reply with only the number.', sessionRef, start: true });
+    const busyMs = nowMs() - tBusy;
+    check('arm2: the OVERLAPPING feed is refused BUSY rather than racing a second waiter against the CLI',
+      rBusy && rBusy.ok === false && rBusy.reason === 'busy-mid-turn', { got: rBusy });
+    check('arm2: the busy refusal is IMMEDIATE — the caller falls to the cold path in ms, never after a turn-timeout',
+      busyMs < 5000, { busyMs });
 
     const r1 = await p1;
-    const r2 = await p2;
-
     check('arm2: turn 1 was answered by the warm session', r1.ok === true, { reply: r1.reply, ms: r1.ms, reason: r1.reason });
-    check('arm2: turn 2 — WRITTEN MID-TURN — was also answered', r2.ok === true, { reply: r2.reply, ms: r2.ms, reason: r2.reason });
     check('arm2: the warm session CONTINUED the seeded cold chain (it knows the word from the turn before it existed)',
       r1.ok && /delta-parser/i.test(r1.reply || ''), { reply: r1.reply });
-    check('arm2: the answers arrived IN ORDER (the chain answer first, the mid-turn arithmetic second)',
-      r1.ok && r2.ok && /delta-parser/i.test(r1.reply || '') && /\b7\b/.test(r2.reply || ''),
-      { first: r1.reply, second: r2.reply });
-    check('arm2: the mid-turn feed found the session already in-turn (so it really was mid-turn, not after)',
-      midTurnState && midTurnState.state === 'in-turn', { midTurnState });
-    check('arm2: ONE process served BOTH turns (the warm path, not two cold spawns)',
-      r1.sessionId && r1.sessionId === r2.sessionId, { first: r1.sessionId, second: r2.sessionId });
-    // ⚠ turn2Ms IS NOT A WARM FIGURE. `ms` is stamped inside feed()'s executor, but turn 2 is fed
-    // mid-turn, so its result cannot arrive until turn 1's has: turn2Ms = (remaining turn 1) +
-    // (turn 2's own work). Measured once: turn1 3449, feedGap 2555, turn2 2584 — of which 894 was
-    // spent waiting out turn 1. Reading turn2Ms as warm-path latency reads ~35% queue wait.
-    cap.log({ step: 'warm turn latency', turn1Ms: r1.ms, turn2Ms: r2.ms, feedGapMs: t2 - t1, note: 'turn1 includes the live launch; turn2 CARRIES THE QUEUE WAIT for turn1 — not a warm figure' });
+
+    // ── THE SEQUENTIAL FOLLOW-UP — fed only after turn 1 resolved, so the session is idle again.
+    // The busy check bounds ONLY the overlapping window; it must not turn the warm path into a
+    // one-shot.
+    const t3 = nowMs();
+    const p3 = mgr.feed({ conversationId: conv, workdir: w.seatDir, prompt: 'What is 12 minus 5? Reply with only the number.', sessionRef, start: true });
+    const r3 = await p3;
+    check('arm2: a SEQUENTIAL follow-up (fed after turn 1 resolved) is answered normally', r3.ok === true, { reply: r3.reply, ms: r3.ms, reason: r3.reason });
+    check('arm2: the answers arrived IN ORDER (the chain answer, then the sequential arithmetic)',
+      r1.ok && r3.ok && /delta-parser/i.test(r1.reply || '') && /\b7\b/.test(r3.reply || ''),
+      { first: r1.reply, second: r3.reply });
+    check('arm2: ONE process served BOTH sequential turns (the warm path, not two cold spawns)',
+      r1.sessionId && r1.sessionId === r3.sessionId, { first: r1.sessionId, second: r3.sessionId });
+    cap.log({ step: 'warm turn latency', turn1Ms: r1.ms, turn3Ms: r3.ms, busyMs, feedGapMs: t3 - tBusy, note: 'turn1 includes the live launch; turn3 is SEQUENTIAL (fed after turn1 resolved) — a genuine warm-path figure' });
 
     // ── ARM 3 — accounting ────────────────────────────────────────────────────────────────────
     {

@@ -281,10 +281,15 @@ function createLiveSessions({
       startedAt: Date.now(),
       lastOwnerMsgAt: Date.now(),
       state: 'idle',
-      // The FIFO of un-answered fed turns. The CLI QUEUES a mid-turn message (spike, 2026-08-10:
-      // a message written 3.0s into a 15.8s turn was answered 3.3s after that turn ended, in
-      // order, with no error), so this is a RESPONDER queue, never a send queue: everything is
-      // written to stdin immediately and `result` events are matched to waiters in arrival order.
+      // Holds AT MOST ONE un-answered fed turn (`feed()`'s busy check below refuses a second
+      // write while this is non-empty). It used to be trusted as a FIFO of several — a 2026-08-10
+      // spike showed the CLI queueing one short mid-turn message and answering it after the first,
+      // in order — but production fell through that assumption: a 2026-08-31 owner turn fed 14s
+      // into a 90s turn (`slack-duplicate-replies.md` §4) never got its own `result` at all — the
+      // single completion that did arrive answered the FIRST waiter and the SECOND sat until its
+      // own turn-timeout fired, manufacturing a cold retry of an already-answered message. The
+      // spike measured one narrow case, not a CLI contract, so this module no longer bets a
+      // second waiter's fate on it — see the busy check in `feed()`.
       waiting: [],
       buf: '',
       turns: 0,
@@ -500,6 +505,24 @@ function createLiveSessions({
       sessions.delete(conversationId);
       close(s, 'profile-switched');
       s = null;
+    }
+
+    // ── BUSY CHECK — refuse an overlapping feed rather than gamble a second waiter on the CLI
+    // coalescing it (duplicate owner-facing replies fix, `slack-duplicate-replies.md` §4/§9-5).
+    // A session already holding an un-answered waiter is mid-turn; writing a second line into its
+    // stdin here bets that the CLI will produce a SECOND, separately-matchable `result` for it.
+    // Measured 2026-08-31: it does not always. The daemon fed two owner messages 14s apart into
+    // one warm session; ONE `result` arrived, resolved the FIRST waiter (FIFO `shift()` in
+    // `onStdout`), and the SECOND sat in `s.waiting` until its own 300s turn-timeout fired —
+    // `live session turn timed out — reaping and falling back to the cold path` at exactly
+    // `lastWrite + turnTimeoutMs`, 64s after the bridge's own shorter feed ceiling had already
+    // given up and sent the owner a stale, re-derived answer to a question already answered.
+    // Refusing here instead costs nothing the caller cannot already handle: EVERY feed refusal
+    // falls through to the cold path by design (`chat/live-sessions.js` header), so a `busy`
+    // refusal takes that same path immediately instead of after minutes of silence.
+    if (s && s.waiting.length > 0) {
+      log('info', 'live session busy — refusing the overlapping feed instead of racing a second waiter against the CLI', { conversationId, sessionId: s.sessionId, pendingWaiters: s.waiting.length });
+      return { ok: false, reason: 'busy-mid-turn' };
     }
 
     if (!s) {
