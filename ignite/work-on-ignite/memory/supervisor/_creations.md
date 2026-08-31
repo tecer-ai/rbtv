@@ -8,3 +8,4 @@
 2026-08-28 · creation · supervise hold — a leader HOLD the reconcile pass honours · A HOLD is now a ROW in the ONE workspace ending store, and the pass's owed computer reads it. · c29b2f43 · state-store,coord,meta-leader · ⚠
 2026-08-31 · creation · probe: task-69 stuck-mail self-feed proven stale · Investigated whether the seed's mechanism still exists before building anything (`read-first.md`'s · ab5dea93 · — · ⚠
 2026-08-31 · creation · live-turn-timeout.js: single-sourced daemon turn ceiling · two independent 240000/300000 literals across chat+supervisor could silently invert → one leaf module both sides import; chat derives feed ceiling = turn timeout + margin · 10ad7956 · chat · ⚠
+2026-08-31 · creation · seat_abandonments: a lane's second terminal outcome · `state-store/tables.sql` gets `seat_abandonments`, a SIBLING TABLE beside `seat_endings` — not a · f1b7a2928cf904bebe351a7a7970cad7cb70f23a · state-store · ⚠
