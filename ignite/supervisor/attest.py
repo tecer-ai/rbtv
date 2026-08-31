@@ -487,6 +487,15 @@ def close_session_seat(args, sid, seat):
 # on a narrow cage escalates to the leader as a message, same as any other blocker.
 #
 ROUTE_PAYLOAD_DIR = "route-payloads"
+# The owner's `retry-with-change` free text (`d-recovery-correction-lands-in-instructions`),
+# written by `ignite/supervisor/retry-correction.js#writeRetryCorrection` — a SEPARATE directory
+# from `ROUTE_PAYLOAD_DIR` so an owner correction and an unrelated routed FAIL, landing for the
+# same seat before its next boot, cannot silently overwrite one another (both channels below share
+# one path shape, `write_text` per seat). The path string is duplicated across the JS writer and
+# this Python reader because nothing shares constants across that language boundary — keep them in
+# sync by hand if either changes.
+CORRECTION_PAYLOAD_DIR = "correction-payloads"
+_PAYLOAD_DIRS = {"route": ROUTE_PAYLOAD_DIR, "correction": CORRECTION_PAYLOAD_DIR}
 
 
 def staff_route_target(args, base, flag, who="the check-out"):
@@ -636,13 +645,15 @@ def close_staff_mail_arm(args, base, pkg, seat, value, entry, sid):
 # relaunched sitting's opening.
 
 
-def route_payload_path(base, seat):
-    return Path(base) / ROUTE_PAYLOAD_DIR / f"{seat}.md"
+def route_payload_path(base, seat, kind="route"):
+    return Path(base) / _PAYLOAD_DIRS[kind] / f"{seat}.md"
 
 
-def write_route_payload(base, seat, text):
-    """Write the relaunched seat's payload. `(ok, why)` — never raises."""
-    p = route_payload_path(base, seat)
+def write_route_payload(base, seat, text, kind="route"):
+    """Write the relaunched seat's payload. `(ok, why)` — never raises. `kind` picks the channel
+    (`route-fail` vs `correction`, see `CORRECTION_PAYLOAD_DIR` above); default unchanged so every
+    existing caller keeps writing the routed-FAIL channel exactly as before."""
+    p = route_payload_path(base, seat, kind)
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(text, encoding="utf-8")
@@ -651,12 +662,12 @@ def write_route_payload(base, seat, text):
     return True, ""
 
 
-def read_route_payload(base, seat):
+def read_route_payload(base, seat, kind="route"):
     """The payload text for a seat's next sitting, or `''`. Never raises — a boot prompt that
     raises is a seat that never boots, and the payload is an ADDITION to the prompt, not the
-    prompt."""
+    prompt. `kind` as `write_route_payload` above."""
     try:
-        return route_payload_path(base, seat).read_text(encoding="utf-8").strip()
+        return route_payload_path(base, seat, kind).read_text(encoding="utf-8").strip()
     except OSError:
         return ""
 

@@ -877,6 +877,19 @@ def boot_prompt(w, args, daemon_lane=False):
     routed = ("\n\n⚠ THIS SITTING WAS ROUTED TO YOU — read this before your briefing's ordinary "
               "work; it is the reason you were relaunched and it is NOT in the inputs you ran on "
               f"last time:\n\n{payload}\n") if payload else ""
+    # `d-recovery-correction-lands-in-instructions` — the owner's free text after a Slack
+    # `retry-with-change` reply on THIS seat's stuck lane, written by
+    # `ignite/supervisor/retry-correction.js#writeRetryCorrection` to the `correction` payload
+    # channel (`attest.CORRECTION_PAYLOAD_DIR`) before the supervisor's next reconcile pass
+    # relaunches the seat. Folded in exactly like `routed` above (an ADDITION, never a
+    # substitution) but under its own explicit heading — a routed FAIL and an owner correction are
+    # different reasons for the same relaunch, and `d-recovery-correction-lands-in-instructions`
+    # itself required this be a MARKED section, not merged into the ordinary mission text.
+    correction = attest.read_route_payload(coord.base_dir(args, register=False), w["agent"], kind="correction")
+    corrected = ("\n\n⚠ OWNER CORRECTION — the owner replied `retry-with-change` on this seat's "
+                 "prior stuck sitting with this free text; read it before your briefing's "
+                 "ordinary work, it is NOT in the inputs you ran on last time:\n\n"
+                 f"{correction}\n") if correction else ""
     # D57/D75 — SCOPED BY AN EXPLICIT NAME CHECK, never a filter that happens to match today. This
     # composer serves EVERY seat's EVERY relaunch; only `goal-master` may ever carry an owner-ask
     # ferry record, so every other seat's boot prompt is provably byte-unchanged by this addition.
@@ -890,6 +903,7 @@ def boot_prompt(w, args, daemon_lane=False):
         f"Never read any other agent's briefing or folder in {wdir}/. "
         f"Message 'leader' on any conflict, inconsistency, or decision you cannot settle alone."
         f"{routed}"
+        f"{corrected}"
         f"{ask_block}"
     )
 
