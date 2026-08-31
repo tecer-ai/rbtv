@@ -196,15 +196,30 @@ function boundRows(goalFolder, rows, store, goal) {
   }
 }
 
-// D35 · one chair, three messages, and the check-in stamp moved around them.
-function fixtureMail({ checkin, started = '2026-08-19 10:00', row = true }) {
+// D35 · one chair, three messages, and the READ CURSOR (`workers.md`'s `lastread` cell) moved
+// across them. This fixture used to drive the sessions.csv `checkin` timestamp instead — the
+// contract `owed-from-endings.js`'s "THE CHAIR'S READ CURSOR" block (lines 9-45) documents as
+// SUPERSEDED by fa89fa75: check-in and `coordinate read` land seconds apart in the same sitting,
+// so a minute-stamp comparison filed mail READ FOREVER whether or not it was ever shown. The
+// numeric cursor (`coordinate read`'s `persist_cursor`, compared to a message's own `num`) is the
+// one fact that says so now — same contract `owed-from-endings.selftest.js` (5) and the RED arm
+// immediately below this one both hold (reverting to a timestamp compare reproduces "238 on meet").
+function fixtureMail({ lastread, row = true }) {
   const goalFolder = fs.mkdtempSync(path.join(tmpRoot, 'mail-'));
   writeSeat(goalFolder, 'leader', true);
   writeTaskforce(goalFolder, ['leader']);
   writeSessions(goalFolder, row ? [
-    { 'session-id': 'ld1', seat: 'leader', started, ended: '2026-08-19 10:30',
-      disposition: 'done', 'disposition-writer': 'seat', checkin },
+    { 'session-id': 'ld1', seat: 'leader', started: '2026-08-19 10:00', ended: '2026-08-19 10:30',
+      disposition: 'done', 'disposition-writer': 'seat' },
   ] : []);
+  if (row) {
+    const dir = path.join(goalFolder, 'coordination');
+    fs.mkdirSync(dir, { recursive: true });
+    const header = '| agent | active | pane | summary | checkin | checkout | lastread |\n'
+      + '|---|---|---|---|---|---|---|\n';
+    const body = `| leader | yes | | | 2026-08-19 10:00 | | ${lastread == null ? '' : lastread} |`;
+    fs.writeFileSync(path.join(dir, 'workers.md'), header + body + '\n');
+  }
   writeMessages(goalFolder, [
     { num: 1, sender: 'worker', to: 'leader', type: 'note', ts: '2026-08-19 11:00' },
     { num: 2, sender: 'worker', to: 'leader', type: 'note', ts: '2026-08-19 12:00' },
@@ -803,14 +818,14 @@ say('── RED arm: put the volatile field back INTO the counter key ──');
   say(`ok  RED: a volatile counter key is refused at the choke point - ${threw.message.slice(0, 60)}…`);
 }
 
-// ── D35 · unread mail is what was RECORDED AFTER the chair's last check-in ────────────────────
-say('── D35: unread is a timestamp comparison, not a message number ──');
+// ── D35 · unread mail is what the chair's READ CURSOR has not reached ─────────────────────────
+say('── D35: unread is a cursor comparison (workers.md lastread), not a checkin timestamp ──');
 {
   const cases = [
-    ['checkin between #2 and #3', { checkin: '2026-08-19 12:30' }, 1],
-    ['checkin after #3', { checkin: '2026-08-19 13:30' }, 0],
-    ['no checkin, started after #1', { checkin: '', started: '2026-08-19 11:30' }, 2],
-    ['no row at all', { checkin: '', row: false }, 3],
+    ['cursor at #2', { lastread: 2 }, 1],
+    ['cursor at #3', { lastread: 3 }, 0],
+    ['cursor at #1', { lastread: 1 }, 2],
+    ['no row at all', { row: false }, 3],
   ];
   for (const [label, opts, want] of cases) {
     const d = owedFromLedgers(fixtureMail(opts), {
