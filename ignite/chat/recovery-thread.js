@@ -16,11 +16,11 @@
 //   swallowed, because an owner who typed `drop-lane` and saw nothing would reasonably type it
 //   again, exactly the silence this whole seat exists to end.
 //
-// ⚑ `retryWithChange` IS NOT WIRED BY ANY CALLER TODAY (`digest-recovery-thread`'s own report).
-//   `retry-with-change` needs a LANE-scoped re-arm+relaunch gateway act (today's `pause-resume`
-//   resume is GOAL-scoped, `rearmScope`) — its own design surface, not a parameter on an existing
-//   door. This module still dispatches to it so the shape is complete, and reports the missing-
-//   port failure honestly until it exists.
+// ⚑ `retryWithChange` IS wired (`rr-port-wire`, `d-recovery-retry-scope` +
+//   `d-recovery-correction-lands-in-instructions`): `chat-bridge.js` writes the owner's free text
+//   to the seat's next-boot correction payload FIRST (`writeRetryCorrection`), then re-arms the ONE
+//   named lane via the widened `pause-resume` intent (`verb: 'resume'` + `seat`, `rr-lane-rearm`).
+//   That act UNBLOCKS the lane; the actual relaunch is the supervisor's own next reconcile pass.
 //   `pauseGoal` IS wired (`chat-bridge.js`): `pause-goal` reuses the EXISTING `pause-resume` intent
 //   directly, goal-scoped, exactly what that outcome asks for.
 //   `dropLane` IS wired (`dl-teardown-wire`, `d-recovery-drop-stops-live-work`): `chat-bridge.js`
@@ -70,7 +70,11 @@ function createRecoveryDispatch({
           goalId, seat, askId, comments,
         });
         if (!out.ok) {
-          await say({ channelId, goalId, askId, text: `retry-with-change did not run: ${out.error}. The ask is settled; the lane was NOT re-armed.` });
+          // `out.error` already names WHICH half refused (the correction write or the re-arm) —
+          // the port (`chat-bridge.js`) composes that text, this door only relays it, same pattern
+          // `dropLane`'s refusal arm uses. The ask is settled either way; a failed retry is
+          // retryable only via a fresh `retry-with-change` reply on a NEW ask.
+          await say({ channelId, goalId, askId, text: `retry-with-change failed: ${out.error}` });
           log('warn', 'recovery retry-with-change REFUSED', { goalId, seat, askId, error: out.error });
           return {
             action: 'retry-with-change-failed', ok: false, outcome, error: out.error,

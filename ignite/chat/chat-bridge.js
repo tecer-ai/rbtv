@@ -26,6 +26,7 @@ const { createRecoveryDispatch } = require('./recovery-thread');
 const { createExecutionStart } = require('./start-execution');
 const { createPauseResume } = require('./pause-resume');
 const { createOutbox, outboxStorePath } = require('./outbox');
+const { writeRetryCorrection } = require('../supervisor/retry-correction');
 
 const STATE_VERSION = 1;
 
@@ -251,15 +252,37 @@ function createChatBridge({
   // ── THE RECOVERY DISPATCH (`recovery-thread.js`, `d-ask14-recovery-thread-shape`) ───────────
   // `pause-goal` reuses the SAME `pause-resume` intent `mechanicalDoor` sends, directly — the
   // outcome already names the verb and the goal, so there is nothing to parse a second time.
-  // `retry-with-change` has no daemon-side capability to call yet (recovery-thread.js's header
-  // states why); left unwired, it reports the honest wiring gap in-thread. `drop-lane` IS wired
-  // (`dl-teardown-wire`, `d-recovery-drop-stops-live-work`): see `dropLane` below.
+  // `retry-with-change` IS wired (`rr-port-wire`, `d-recovery-retry-scope` +
+  // `d-recovery-correction-lands-in-instructions`): see `retryWithChange` below. `drop-lane` IS
+  // wired (`dl-teardown-wire`, `d-recovery-drop-stops-live-work`): see `dropLane` below.
   const recoveryDispatch = createRecoveryDispatch({
     // `chat_user` is OMITTED, deliberately: `handlePauseResume` validates it as a Slack member id
     // shape (`U0123ABC`) when present, kept for the evidence text only — a recovery outcome has no
     // such id to report (the reply's sender is checked by `askDoor.release` already, upstream).
     pauseGoal: ({ goalId }) => forwarder.forward('pause-resume', { verb: 'pause', goal: String(goalId) })
       .then((res) => (res.ok ? { ok: true, result: res.result } : { ok: false, error: (res.error && res.error.code) || 'unknown' })),
+    // ── `retryWithChange` — WRITE THE CORRECTION, THEN RE-ARM, IN THAT ORDER ──────────────────
+    // The lane-scoped re-arm (`rr-lane-rearm`'s widened `pause-resume` intent, `verb: 'resume'`
+    // with `seat`) UNBLOCKS the lane but does not relaunch it — the actual relaunch is the
+    // supervisor's own NEXT reconcile pass (`reconcile.js#counterDisarmed` → `launchSitting`).
+    // The owner's free text must already be on disk, where the relaunched seat's boot prompt
+    // reads it (`writeRetryCorrection` → `launch.py#boot_prompt`), BEFORE that pass can fire — so
+    // the write happens FIRST and the re-arm SECOND. `d-recovery-correction-lands-in-instructions`
+    // + `rr-lane-rearm`'s report, both verbatim on this ordering. A correction write failure
+    // refuses the whole call rather than re-arming anyway: re-arming without the correction
+    // landing would silently ship the owner's `retry-with-change` as a plain retry, which is the
+    // half-built feature this port exists to avoid.
+    retryWithChange: ({ goalId, seat, comments }) => {
+      const workspaceRoot = (config && config.workspaceRoot) || null;
+      if (!workspaceRoot) return Promise.resolve({ ok: false, error: 'no-workspace-root-configured' });
+      const goalFolder = path.join(workspaceRoot, '.rbtv', 'goals', String(goalId));
+      const corr = writeRetryCorrection({ goalFolder, seat: String(seat), comments });
+      if (!corr.ok) {
+        return Promise.resolve({ ok: false, error: `owner correction was not saved, lane NOT re-armed: ${corr.error}` });
+      }
+      return forwarder.forward('pause-resume', { verb: 'resume', goal: String(goalId), seat: String(seat) })
+        .then((res) => (res.ok ? { ok: true, result: res.result } : { ok: false, error: (res.error && res.error.code) || 'unknown' }));
+    },
     // ── `dropLane` — TWO WIRE CALLS IN ORDER, `d-recovery-drop-stops-live-work` VERBATIM ────────
     // (1) stop anything still LIVE for the (goalId, seat) lane, THEN (2) mark it abandoned. Never
     // the other order, and never mark when the stop itself failed — a lane still running must

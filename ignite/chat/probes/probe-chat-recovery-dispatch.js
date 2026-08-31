@@ -1,18 +1,25 @@
 'use strict';
 
-// probe-chat-recovery-dispatch — the `drop-lane` recovery reply: TWO wire calls, in order, that
-// must not half-complete (`d-recovery-drop-stops-live-work`, `dl-teardown-wire`).
+// probe-chat-recovery-dispatch — two wired recovery replies proven against the same fake daemon:
+// `drop-lane`'s TWO wire calls, in order, that must not half-complete
+// (`d-recovery-drop-stops-live-work`, `dl-teardown-wire`), and `retry-with-change`'s
+// write-then-re-arm order (`d-recovery-correction-lands-in-instructions` + `d-recovery-retry-
+// scope`, `rr-port-wire`).
 //
 // NO SLACK AND NO DAEMON, same shape as `probe-chat-approval.js`: the transport and the gateway
-// forwarder are fakes, and every wire call the `dropLane` port makes is RECORDED, in order — that
-// order is the point. A probe that only asserted "the lane got dropped" would pass on a bridge
-// that marked a still-running lane abandoned, which is exactly the resurrection the whole `dl-*`
-// cluster exists to make impossible.
+// forwarder are fakes, and every wire call the `dropLane`/`retryWithChange` ports make is
+// RECORDED, in order — that order is the point. A probe that only asserted "the lane got dropped"
+// (or "the lane got re-armed") would pass on a bridge that marked a still-running lane abandoned,
+// or that re-armed a lane before the owner's correction ever reached disk — exactly the failures
+// the `dl-*` cluster and `rr-port-wire` respectively exist to make impossible.
 //
-// The fake forwarder answers three intents `dropLane` actually uses (`inspect` target `ticker`,
-// `kill-session`, `drop-lane`) plus `pause-resume` for the CONTROL arm (`pause-goal`, wired
-// separately and long before this seat) — none of them re-implemented, all of them scripted by the
-// scenario the block sets before replying.
+// The fake forwarder answers the intents `dropLane` and `retryWithChange` actually use (`inspect`
+// target `ticker`, `kill-session`, `drop-lane`, `pause-resume` for both the GOAL-scoped `pause-
+// goal` CONTROL arm and the LANE-scoped `verb:'resume'`+`seat` re-arm) — none of them
+// re-implemented, all of them scripted by the scenario the block sets before replying.
+// `retryWithChange` does NOT call the gateway for the correction half — `writeRetryCorrection`
+// (`ignite/supervisor/retry-correction.js`) is a direct in-process filesystem write, so its arms
+// below check the real tmpdir the harness roots `workspaceRoot` at, not a fake-forwarder call.
 
 const path = require('node:path');
 const fs = require('node:fs');
@@ -56,12 +63,13 @@ function harness() {
   // The scenario the CURRENT reply is scripted against — mutated between replies in the same
   // harness (the retry arm needs exactly that: fail once, flip the knob, succeed the second time).
   const scenario = {
-    liveSessions: [], killOk: true, markOk: true, markIdempotent: false,
+    liveSessions: [], killOk: true, markOk: true, markIdempotent: false, resumeOk: true,
   };
   const calls = [];
   const forwarder = {
     async forward(intent, payload) {
-      calls.push({ intent, payload });
+      const call = { intent, payload };
+      calls.push(call);
       if (intent === 'inspect' && payload.target === 'ticker') {
         return { ok: true, result: { live_sessions: scenario.liveSessions } };
       }
@@ -76,6 +84,17 @@ function harness() {
           : { ok: false, error: { code: 'mark-refused' } };
       }
       if (intent === 'pause-resume') {
+        // A LANE-SCOPED resume (`verb:'resume'` + `seat`, `rr-lane-rearm`'s widened intent) is what
+        // `retryWithChange` sends. Recorded on the call itself, at the exact moment the wire call
+        // fires, whether the owner's correction payload is ALREADY on disk — that is the ordering
+        // `rr-port-wire`'s port exists to guarantee (write the correction, THEN re-arm), and the
+        // only place it can be proven is inside the fake that stands in for the daemon.
+        if (payload.verb === 'resume' && payload.seat) {
+          const correctionPath = path.join(root, '.rbtv', 'goals', String(payload.goal), 'coordination', 'correction-payloads', `${payload.seat}.md`);
+          call.correctionOnDiskAtCallTime = fs.existsSync(correctionPath);
+          if (!scenario.resumeOk) return { ok: false, error: { code: 'lane-refused' } };
+          return { ok: true, result: { verb: payload.verb, goal: payload.goal, seat: payload.seat, applied: true, actions: [{ row: 'lane', change: 'blocked→armed', goal: payload.goal, seat: payload.seat }], refusals: [] } };
+        }
         return { ok: true, result: { verb: payload.verb, goal: payload.goal, applied: true, actions: [{ row: 'goal', change: 'running→paused', goal: payload.goal }], refusals: [] } };
       }
       // `record-owner-ask` (open + reap) — the ask-store's own open/close ledger, same shape
@@ -229,6 +248,63 @@ const LIVE_WORKDIR = `/x/.rbtv/goals/${GOAL}/seats/${SEAT}`;
     const posted = h.posted[h.posted.length - 1];
     check('F3: the posted confirmation is the pause text, not a drop confirmation',
       posted && /paused\.$/.test(posted.text) && !/dropped/.test(posted.text), { text: posted && posted.text });
+    h.bridge.stop();
+  }
+
+  // ── G. RETRY-WITH-CHANGE: the correction lands on disk BEFORE the lane is re-armed ───────────
+  {
+    const h = harness();
+    await h.bridge.start();
+    const { channelId, askId } = await openRecoveryAsk(h);
+    const out = await h.reply(channelId, askId, 'retry-with-change bump the timeout to 30s');
+    const intents = h.calls.map((c) => c.intent).filter((i) => i !== 'record-owner-ask');
+    check('G1: retry-with-change fires ONLY pause-resume — never inspect, kill-session or drop-lane',
+      JSON.stringify(intents) === JSON.stringify(['pause-resume']), { intents });
+    const resumeCall = h.calls.find((c) => c.intent === 'pause-resume');
+    check('G2: pause-resume is called with verb:resume and this exact (goal, seat), nothing else',
+      resumeCall && resumeCall.payload.verb === 'resume' && resumeCall.payload.goal === GOAL
+        && resumeCall.payload.seat === SEAT
+        && JSON.stringify(Object.keys(resumeCall.payload).sort()) === JSON.stringify(['goal', 'seat', 'verb']),
+      { payload: resumeCall && resumeCall.payload });
+    check('G3: the correction file was ALREADY on disk the moment the re-arm wire call fired — write, then arm',
+      resumeCall && resumeCall.correctionOnDiskAtCallTime === true, { resumeCall });
+    const correctionPath = path.join(h.root, '.rbtv', 'goals', GOAL, 'coordination', 'correction-payloads', `${SEAT}.md`);
+    const correctionText = fs.existsSync(correctionPath) ? fs.readFileSync(correctionPath, 'utf8') : null;
+    check("G4: the owner's comments land in the seat's correction payload, verbatim",
+      correctionText != null && correctionText.includes('bump the timeout to 30s'), { correctionText });
+    check('G5: the dispatch reports success',
+      out.dispatched.ok === true && out.dispatched.action === 'retry-with-change', { dispatched: out.dispatched });
+    h.bridge.stop();
+  }
+
+  // ── H. RETRY-WITH-CHANGE REFUSED: the re-arm act refuses — a truthful in-thread failure line,
+  //      never silent and never the retired "did not run" wording ─────────────────────────────
+  {
+    const h = harness();
+    await h.bridge.start();
+    h.scenario.resumeOk = false;
+    const { channelId, askId } = await openRecoveryAsk(h);
+    const out = await h.reply(channelId, askId, 'retry-with-change try again please');
+    check('H1: dispatch returns ok:false on a re-arm refusal',
+      out.dispatched.ok === false && out.dispatched.action === 'retry-with-change-failed', { dispatched: out.dispatched });
+    const posted = h.posted[h.posted.length - 1];
+    check('H2: the thread gets a truthful failure line naming the error, and NEVER the retired "did not run" wording',
+      posted && /^retry-with-change failed:/.test(posted.text) && !/did not run/.test(posted.text),
+      { text: posted && posted.text });
+    h.bridge.stop();
+  }
+
+  // ── I. RETRY-WITH-CHANGE, EMPTY COMMENTS: the correction write is a clean no-op, the re-arm still fires ──
+  {
+    const h = harness();
+    await h.bridge.start();
+    const { channelId, askId } = await openRecoveryAsk(h);
+    const out = await h.reply(channelId, askId, 'retry-with-change');
+    const correctionPath = path.join(h.root, '.rbtv', 'goals', GOAL, 'coordination', 'correction-payloads', `${SEAT}.md`);
+    check('I1: no free text after the token writes NO correction file at all',
+      !fs.existsSync(correctionPath), { correctionPath });
+    check('I2: the lane is still re-armed — an empty correction is not a reason to refuse',
+      out.dispatched.ok === true && out.dispatched.action === 'retry-with-change', { dispatched: out.dispatched });
     h.bridge.stop();
   }
 
