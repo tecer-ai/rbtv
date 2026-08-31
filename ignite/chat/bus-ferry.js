@@ -652,11 +652,15 @@ function seatDirGoalWrites(seatDir) {
 // LINE 3 — the deliverables, GOAL-RELATIVE and ON DISK.
 //
 // ⚑ RESOLVED AGAINST THE GOAL DIR, one candidate, because that is the only base a `goal-writes`
-// entry ever has: `spawn/seat-grants.js#resolveGoalWriteGrants` does `path.resolve(goalDir, entry)`
-// and refuses anything absolute or escaping. A second candidate here would invent a grammar.
+// entry ever has: the declaration is goal-relative and an absolute or escaping entry is not one.
+// A second candidate here would invent a grammar. (Its former resolver,
+// `spawn.js#resolveGoalWriteGrants`, was DELETED 2026-08-31 with the rest of the uncalled per-seat
+// grant model — template family 1 binds the whole goal folder rw under D3, so there is nothing
+// left for the key to grant. The grammar it enforced is stated above and is unchanged.)
 //
-// ⚑ AND ONLY A NON-EMPTY FILE IS NAMED. D21 CREATES every declared output EMPTY at spawn so the
-// cage bind has a source, so mere existence proves a seat was launched, not that it delivered.
+// ⚑ AND ONLY A NON-EMPTY FILE IS NAMED. Nothing creates a declared output at spawn any more — the
+// D21 create-if-absent half went with that resolver — so an EMPTY file here is a seat that opened
+// its product and wrote nothing, not a seat the daemon touched.
 // A zero-byte path listed as a deliverable is exactly the invented number this line must not
 // carry; a seat that wrote nothing simply contributes nothing to the line.
 function declaredOutputs(goalDir) {
