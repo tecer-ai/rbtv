@@ -7,8 +7,13 @@
 
 const { API_USAGE } = require('./api');
 const { RESUME_USAGE, SEAT_USAGE, SESSIONS_USAGE, USAGE, modelTable } = require('./core');
-const { MONITOR_USAGE } = require('./monitor-load');
+const { loadOptional } = require('./optional');
 const { ROUTE_FORMS, ROUTE_USAGE } = require('./route');
+
+const { module: monitorMod } = loadOptional('monitor');
+const MONITOR_USAGE = monitorMod
+  ? monitorMod.MONITOR_USAGE
+  : 'cast monitor — unavailable: lib/monitor.js failed to load (run `cast monitor` for the error)';
 
 
 function printHelp() {

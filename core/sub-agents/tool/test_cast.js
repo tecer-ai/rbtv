@@ -60,6 +60,55 @@ function dryRun(args) {
   for (const node of edges.keys()) walk(node, []);
 }
 
+// --- lazy-load seam: an optional lib/ module is allowed to fail without taking `cast` down ----
+// `cast-resilience` (commit eaa62dbd) made a broken lib/monitor.js non-fatal one file at a time.
+// The very next module added to lib/ (provider-limit.js, commit e73d41de) went through no seam
+// at all and still killed `cast seat` outright on a broken top-level (filed #d/must, reproduced
+// and reverted by the orchestrator). The seam is now ONE module, lib/optional.js, whose
+// OPTIONAL_MODULES list is what BOTH production code and this test read. This test enumerates
+// lib/ on disk at runtime and cross-checks it against that SAME list — a hardcoded copy of the
+// list here is the exact miss that produced the entry, since a module never added to
+// OPTIONAL_MODULES would silently get no coverage from a test that only knew its own list.
+{
+  const libDir = path.join(__dirname, 'lib');
+  const { OPTIONAL_MODULES } = require(path.join(libDir, 'optional.js'));
+  const filesOnDisk = fs.readdirSync(libDir).filter((f) => f.endsWith('.js'))
+    .map((f) => f.replace(/\.js$/, ''));
+  assert.ok(OPTIONAL_MODULES.length >= 2, `expected at least monitor + provider-limit, got: ${OPTIONAL_MODULES}`);
+  for (const name of OPTIONAL_MODULES) {
+    assert.ok(filesOnDisk.includes(name), `optional.js names ${name}.js, not found under lib/`);
+  }
+
+  const seatFolder = mkFolder('lazy-seam-fault');
+  fs.writeFileSync(path.join(seatFolder, 'seat.md'),
+    '---\nharness: claude\nmodel: claude-sonnet-5\neffort: high\n---\n# seat descriptor\nact as Z.');
+
+  for (const name of OPTIONAL_MODULES) {
+    const target = path.join(libDir, `${name}.js`);
+    const original = fs.readFileSync(target, 'utf8');
+    // an undefined top-level name — the exact fault class observed in both monitor.js and
+    // provider-limit.js: Node evicts a module that throws mid-load from its cache, so every
+    // caller re-throws unless routed through the seam.
+    fs.writeFileSync(target, `${original}\nconst __INJECTED_FAULT__ = __UNDEFINED_SYMBOL__;\n`);
+    try {
+      const seat = spawnSync('node', [TOOL, 'seat', seatFolder, '--dry-run'], { encoding: 'utf8' });
+      assert.strictEqual(seat.status, 0,
+        `cast seat --dry-run must survive a broken lib/${name}.js, got exit ${seat.status}: ${seat.stderr}`);
+      assert.ok(seat.stderr.includes(`lib/${name}.js failed to load`),
+        `cast seat must name the failed module lib/${name}.js in its degradation notice, got: ${seat.stderr}`);
+
+      // cast monitor genuinely needs lib/monitor.js (and, transitively, provider-limit.js) — it
+      // must still fail loudly by name rather than silently no-op.
+      const mon = spawnSync('node', [TOOL, 'monitor', '--json'], { encoding: 'utf8' });
+      assert.notStrictEqual(mon.status, 0, `cast monitor must fail loudly on a broken lib/${name}.js`);
+      assert.ok(mon.stderr.includes('lib/monitor.js failed to load'),
+        `cast monitor must name lib/monitor.js in its refusal, got: ${mon.stderr}`);
+    } finally {
+      fs.writeFileSync(target, original);
+    }
+  }
+}
+
 // claude + sonnet effort 5 -> top rung "max"
 {
   const folder = mkFolder('claude-sonnet');

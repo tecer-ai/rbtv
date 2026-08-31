@@ -14,9 +14,12 @@ const { SPECS } = require('../catalog');
 
 const { HARNESSES, RESUME_USAGE, SEAT_USAGE, baseArgv, fail, parseArgs, promptArgv, refuseIfDetached, resolveFolder, resolveModel, shortName } = require('./core');
 const { claudeSlug, emitHandle, procStart } = require('./handles');
-const { DEADLINE_MS } = require('./monitor-load');
-const { detectProviderLimit, formatReason } = require('./provider-limit');
+const { loadOptional } = require('./optional');
 const { opencodeCandidates, opencodeStore } = require('./sessions');
+
+const { module: monitorMod } = loadOptional('monitor');
+const DEADLINE_MS = monitorMod ? monitorMod.DEADLINE_MS : 4 * 60 * 60 * 1000;
+const { module: providerLimitMod } = loadOptional('provider-limit');
 
 function exitDeadline() {
   process.stderr.write(`cast: deadline — job exceeded ${Math.round(DEADLINE_MS / 1000)}s wall clock\n`);
@@ -150,9 +153,10 @@ function runOpencodeChecked(argv, { cwd, stdinText, t0, bind, model }) {
     const sessionId = bind();
     const final = sessionId ? opencodeFinalMessage(sessionId, t0) : null;
     if (final === null) {
-      const hit = detectProviderLimit({ harness: 'opencode', model, t0, text: captured });
+      const hit = providerLimitMod
+        && providerLimitMod.detectProviderLimit({ harness: 'opencode', model, t0, text: captured });
       if (hit) {
-        process.stdout.write(`${formatReason(hit)}\n`);
+        process.stdout.write(`${providerLimitMod.formatReason(hit)}\n`);
         process.exit(code || 1);
       }
       process.stdout.write('cast: no-report — the opencode session store holds no final assistant'
