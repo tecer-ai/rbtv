@@ -237,13 +237,26 @@ MILESTONES_NAME = "milestones.csv"
 
 # ---- dag-05 registry constants ----
 
-# The registry's ONE header — run-2's live shape, verified 2026-07-28 (dag-05
-# task file). Read from the file and preserved on write; NEVER extended here.
-# In particular no `status` column: run-state is DERIVED from the check-out
-# record + declared outputs (KG `taskforce-descriptor`; workflow.md
-# DAG-authoring Rule 14) — a status column is a second ledger and is refused.
+# The registry's BASE header — run-2's live shape, verified 2026-07-28 (dag-05
+# task file). Read from the file and preserved on write. In particular no
+# `status` column: run-state is DERIVED from the check-out record + declared
+# outputs (KG `taskforce-descriptor`; workflow.md DAG-authoring Rule 14) — a
+# status column is a second ledger and is refused.
 TASKFORCE_HEADER = ("taskforce-id", "seat", "after", "harness", "model",
                     "effort", "ctx-refresh", "milestone-id")
+
+# The two OPTIONAL trailing columns `ignite/supervisor/ready.py` reads
+# (`taskforce_gates`, commit 48c86e40) — a successor's predecessor-gate
+# declaration: a path to the predecessor's evidence artifact, plus the
+# `key=value` condition it must carry. ABSENT on every package that has not
+# added them (same fail-safe the reader documents). A registry header is
+# accepted when it is TASKFORCE_HEADER followed by a subset of these two, IN
+# THIS ORDER — never a second exact match against the base 8, or no goal
+# could ever populate the gate the reader already ships (d-successor-gate-
+# writer, this task).
+GATE_ARTIFACT_COLUMN = "gate-artifact"
+GATE_REQUIRED_COLUMN = "gate-required"
+TASKFORCE_GATE_COLUMNS = (GATE_ARTIFACT_COLUMN, GATE_REQUIRED_COLUMN)
 
 # ---- dag-06 create-package constants ----
 
@@ -367,7 +380,7 @@ ALLOWED_BINDING_KEYS = frozenset((
     "after", "cwd-mode", "description", "agent_type", "harness", "model",
     "effort", "mode", "ctx-refresh", "window", "senders", "close",
     "auto-wake", "ephemeral", "broadcast", "component", "relays",
-    "addressable", "pass-folder",
+    "addressable", "pass-folder", "gate-artifact", "gate-required",
 ))
 
 # ---- the SEAT CAGE declaration (owner-ruled 2026-08-10) ----
@@ -3069,7 +3082,8 @@ def derive_addressable_register(package: Path) -> bytes | None:
     return (ADDRESSABLE_HEADER + "\n" + "\n".join(rows) + "\n").encode()
 
 
-def plan_package_creation(package: Path, args) -> list[dict]:
+def plan_package_creation(package: Path, args,
+                          gate_cols: tuple[str, ...] = ()) -> list[dict]:
     """dag-06 — plan the package creation/completion WITHOUT writing
     (d-bootstrap-mechanics-ruled (b)): at the opening of a brand-new goal the
     working surfaces do not exist, so the MASTER's bootstrap materialize must
@@ -3080,7 +3094,11 @@ def plan_package_creation(package: Path, args) -> list[dict]:
       seats/          coord.py workers_dir + package discovery
       coordination/   coord.py's state home (its files land on demand)
       taskforce.csv   header-only, the run-2 live header — the registry the
-                      launch gate's check_bindings reads
+                      launch gate's check_bindings reads. `gate_cols`
+                      appends the optional gate-artifact/gate-required
+                      columns when the CALLER'S bindings declare either for
+                      any seat (GATE-3) — never otherwise, so a goal that
+                      never uses the successor-gate stays byte-identical
       state.csv       header-only, the ruled run-3 state-cursor header
                       (r-stage0-state-cursor-interim-convention (a)/(b))
       CLAUDE.md       CALLER-SUPPLIED (--claude-md)     \\  d-run3-seeds-
@@ -3191,7 +3209,8 @@ def plan_package_creation(package: Path, args) -> list[dict]:
         if not (package / TASKFORCE_NAME).is_file():
             plan.append({"surface": TASKFORCE_NAME,
                          "path": str(package / TASKFORCE_NAME),
-                         "data": (",".join(TASKFORCE_HEADER) + "\n").encode()})
+                         "data": (",".join(TASKFORCE_HEADER + gate_cols)
+                                 + "\n").encode()})
         if not (package / STATE_CSV_NAME).is_file():
             plan.append({"surface": STATE_CSV_NAME,
                          "path": str(package / STATE_CSV_NAME),
@@ -4707,8 +4726,12 @@ def render_taskforce_rows(plan: dict) -> None:
         # dag-06: the registry does not exist yet — every validation below
         # runs against the header-only content create_run_package writes in
         # this same act (append_taskforce_rows re-reads and compares, so a
-        # divergence between plan and disk still refuses loudly).
-        text = ",".join(TASKFORCE_HEADER) + "\n"
+        # divergence between plan and disk still refuses loudly). Read the
+        # PLANNED bytes back out of the creation entry itself — the single
+        # source of truth for what gets written (GATE-3: it may carry the
+        # widened gate-column header) — never reconstruct them a second way.
+        text = next(c["data"] for c in plan["creation"]
+                   if c["surface"] == TASKFORCE_NAME).decode("utf-8")
     elif not tf_path.is_file():
         raise Refuse(
             "registry-absent",
@@ -4755,15 +4778,28 @@ def render_taskforce_rows(plan: dict) -> None:
             "status column is a second ledger, refused rather than propagated",
             str(tf_path),
         )
-    if header != list(TASKFORCE_HEADER):
+    # VALIDATION 3b — the base 8 columns are still an exact PREFIX (their order
+    # and presence are load-bearing for every positional reader), but the
+    # header may carry a trailing subset of the optional gate columns
+    # `ready.py#taskforce_gates` reads (GATE-3, this task). This is a
+    # column-SET match on the trailing part, never a second byte-exact match
+    # against the full 8 — that is what let the reader ship while the writer
+    # could never feed it (loose-ends.md entry 8, measured 2026-08-31).
+    gate_trailing = header[len(TASKFORCE_HEADER):]
+    valid_trailing = gate_trailing in ([], [GATE_ARTIFACT_COLUMN],
+                                        [GATE_REQUIRED_COLUMN],
+                                        list(TASKFORCE_GATE_COLUMNS))
+    if header[:len(TASKFORCE_HEADER)] != list(TASKFORCE_HEADER) or not valid_trailing:
         raise Refuse(
             "registry-header-drift",
-            f"{TASKFORCE_NAME} header is {header_line!r}, not the run-2 live "
-            "shape '" + ",".join(TASKFORCE_HEADER) + "' — the written header "
-            "must equal the read header exactly, so a drifted header refuses "
-            "rather than being silently rewritten or extended",
+            f"{TASKFORCE_NAME} header is {header_line!r} — must be the run-2 "
+            "live shape '" + ",".join(TASKFORCE_HEADER) + "', optionally "
+            "followed by 'gate-artifact' and/or 'gate-required' in that "
+            "order; a drifted header refuses rather than being silently "
+            "rewritten or extended",
             str(tf_path),
         )
+    header_gate_cols = [c for c in TASKFORCE_GATE_COLUMNS if c in gate_trailing]
 
     existing_rows: list[dict] = []
     raw_by_seat: dict[str, str] = {}
@@ -5002,10 +5038,32 @@ def render_taskforce_rows(plan: dict) -> None:
     matched: list[str] = []
     for seat in ordered:
         b = _descriptor_binding(plan, seat)
+        seat_binding = plan["bindings"][seat]
+        # GATE-3: this seat's cells for whatever gate columns the HEADER
+        # carries — never the other way around (the header, not the seat,
+        # decides the row's width). A seat that declares a gate column the
+        # header lacks is refused below rather than silently dropped.
+        gate_values = [str(seat_binding.get(col, "") or "").strip()
+                      for col in header_gate_cols]
+        undeclared = [col for col in TASKFORCE_GATE_COLUMNS
+                     if col not in header_gate_cols
+                     and str(seat_binding.get(col, "") or "").strip()]
+        if undeclared:
+            raise Refuse(
+                "gate-column-absent",
+                f"seat '{seat}' bindings declare " + ", ".join(undeclared)
+                + f" but {TASKFORCE_NAME}'s header carries no such "
+                "column(s) — an existing registry's header can never be "
+                "widened after creation (append_taskforce_rows leaves "
+                "existing bytes, header included, unchanged by design); "
+                "declare the gate in the bindings used to CREATE this "
+                "goal package, or drop it",
+                str(tf_path),
+            )
         line = _render_csv_line([
             tf_id, seat, after_cells[seat], b["harness"], b["model"],
             b["effort"], b["ctx-refresh"], plan["milestone_id"],
-        ])
+        ] + gate_values)
         held = raw_by_seat.get(seat)
         if held is not None:
             # Reachable only under --force-partial: check_collisions refused
@@ -5703,7 +5761,27 @@ def run(args) -> dict:
             )
         creation = []
     else:
-        creation = plan_package_creation(package, args)  # dag-06 (plans, no write)
+        # GATE-3: peek the caller's bindings file (if any) for a gate
+        # declaration on ANY seat, BEFORE the seat set is even resolved —
+        # dag-06's package creation runs ahead of bindings load below, and a
+        # freshly created taskforce.csv's header can never be widened later
+        # (append_taskforce_rows's existing bytes, header included, pass
+        # through unchanged by design). A malformed bindings file is not
+        # refused here — the authoritative load below raises that refusal.
+        gate_cols_at_creation: tuple[str, ...] = ()
+        if args.bindings:
+            try:
+                _peek = load_bindings(Path(args.bindings))
+            except Refuse:
+                _peek = {"seats": {}}
+            gate_cols_at_creation = tuple(
+                c for c in TASKFORCE_GATE_COLUMNS
+                if any(str((e or {}).get(c, "") or "").strip()
+                       for e in _peek["seats"].values()
+                       if isinstance(e, dict))
+            )
+        creation = plan_package_creation(  # dag-06 (plans, no write)
+            package, args, gate_cols_at_creation)
     if repass and creation:
         raise Refuse(
             "repass-incomplete-package",
@@ -8032,7 +8110,7 @@ def run_dag06_acceptance(check, env: dict) -> None:
              for a in create_argv("alpha", fx["b_alpha"])])
         orig_plan = globals()["plan_package_creation"]
 
-        def _stub(package, args):
+        def _stub(package, args, gate_cols=()):
             raise Refuse("package-absent",
                          "create step disabled (CP-1 control)", str(package))
 
