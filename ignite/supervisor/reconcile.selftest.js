@@ -387,7 +387,7 @@ say('── D33(a): the incomplete seat is enqueued BY NAME; the leader once, wi
     // (the ruling/HOLD verb) was deleted [T2-R12, T1-R9] — the payload must say so, not name it
     // as a live instrument.
       for (const needle of ['checker', 'failed', 'runner',
-      'No runtime ruling instrument exists', '[T2-R12, T1-R9]',
+      'the verb that used to record a ruling or a HOLD', '[T2-R12, T1-R9]',
       'launch --only <seat> --declare-only', 'CLEARING IS NOT A RELAUNCH',
       'launch --only <seat> --rerun', 'A CRASHED SEAT IS RE-RUN IN ONE ACT']) {
       assert.ok(payload.includes(needle), `leader payload never names ${needle}: ${payload}`);
