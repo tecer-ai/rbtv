@@ -1639,7 +1639,7 @@ def open_escalations(blocks):
     ordinary trial verdict. Requiring it on both would hide every leader escalation — which is the
     row this view exists for."""
     superseded = {b["supersedes"] for b in blocks if b["supersedes"] is not None}
-    answered = {b["re"] for b in blocks if b["re"] is not None}
+    answered = _settled_nums(blocks)
     rows = [b for b in blocks
             if (b["type"] == "escalation"
                 or (b["type"] == "verdict" and ESCALATION_MARKER in "\n".join(b["lines"][1:])))
@@ -1647,7 +1647,38 @@ def open_escalations(blocks):
     return rows
 
 
-def open_asks(blocks, sender=None, to=None):
+def _reply_settles(reply, target):
+    """Does `reply` (an answer/verdict carrying `re: <target's num>`) actually settle `target`?
+
+    G-92/G-134: the old test was "any block anywhere carries `re: <n>`" with NO CHECK on who sent
+    it, so a reply meant for one row — or a peer instead of the addressed party — silently retired
+    an unrelated halt. Measured live: stools escalations #237, #248 and #270, each addressed to
+    `owner`, were all closed by `goal-master`, a PEER worker, never by the owner. A reply only
+    settles the row it names when it comes from the party the row was ADDRESSED TO (the ordinary
+    ask/answer shape: the owner answering its own escalation, a seat answering a question aimed at
+    it) or from the row's OWN sender (the escalator/asker recording on the bus that it is settled
+    — W8 arm 5, `leader` transcribing "the owner ruled" onto its own escalation) — never a third
+    seat wearing neither hat."""
+    return reply["sender"] in (target["to"], target["sender"])
+
+
+def _settled_nums(blocks):
+    """Numbers of `ask`/`escalation` rows genuinely settled by a `re:` reply — ONE predicate,
+    shared by `open_escalations` and `open_asks` (G-134 criterion 2: reuse it, don't grow a
+    second opinion). `--re` is write-gated to `--type answer`/`verdict` (`cmd_send`), so the type
+    filter here only documents that invariant rather than widening it."""
+    by_num = {b["num"]: b for b in blocks}
+    settled = set()
+    for b in blocks:
+        if b["re"] is None or b["type"] not in ("answer", "verdict"):
+            continue
+        target = by_num.get(b["re"])
+        if target is None or _reply_settles(b, target):
+            settled.add(b["re"])
+    return settled
+
+
+def open_asks(blocks, sender=None, to=None, base=None):
     """Asks nobody has settled: type ask, not superseded, and no answer/verdict carrying `re:`
     its number (T4/F11 — before the link existed, an unanswered ask was invisible without
     re-reading the whole log).
@@ -1657,14 +1688,27 @@ def open_asks(blocks, sender=None, to=None):
     seat have an unanswered ask TO THE OWNER" — so the view a seat reads before it leaves and the
     gate that stops it leaving cannot disagree about what is open. `sender` goes through
     `is_own_send`, never a name compare, for G-94's reason: a foreign seat wearing this seat's role
-    name must not hold it here any more than it may fill its inbox there."""
+    name must not hold it here any more than it may fill its inbox there.
+
+    `base`, when given, drops an ask whose SENDER seat has since finished or exited (G-92/G-134
+    criterion 3): nothing here ever expired on the asking seat's own lifecycle, so an ask nagged
+    `pending` forever after the seat that raised it was gone — #165/#473 stayed open long after
+    their seats did. "Finished" reads the roster's own `active` column (the same column `status`
+    and `workers` already read), never a second liveness test. A sender with NO roster row at all
+    is kept — absence of a row means a foreign, cross-package sender (ADDRESSABLE NON-MEMBERS,
+    top of file), not a seat that finished; only a row that says `active: no` is evidence of
+    that."""
     superseded = {b["supersedes"] for b in blocks if b["supersedes"] is not None}
-    settled = {b["re"] for b in blocks
-               if b["re"] is not None and b["type"] in ("answer", "verdict")}
-    return [b for b in blocks
+    settled = _settled_nums(blocks)
+    rows = [b for b in blocks
             if b["type"] == "ask" and b["num"] not in superseded and b["num"] not in settled
             and (sender is None or is_own_send(b, sender))
             and (to is None or b["to"] == to)]
+    if base is not None:
+        _, _, roster = load_workers(base)
+        rows = [b for b in rows
+                if (row := current_row(roster, b["sender"])) is None or row["active"] == "yes"]
+    return rows
 
 
 def age_of(ts):
@@ -2957,7 +3001,7 @@ def cmd_pending(args):
     coord = coord_invocation(args)
     _, blocks = load_messages(base)
     gmap = group_map(base)
-    opens = open_asks(blocks)
+    opens = open_asks(blocks, base=base)
     # G-94: `pending` derives open asks over the FULL log, so a foreign seat sharing my role name
     # put its own asks in "your asks nobody has answered" and hid its asks TO me. Same one
     # predicate as read and the wake half — a view that answers "is this mine" differently from
@@ -2966,6 +3010,13 @@ def cmd_pending(args):
              and (b["to"] == me or (b["to"] in gmap and me in gmap[b["to"]]))]
     broadcast = [b for b in opens if not is_own_send(b, me) and b["to"] == "all"]
     from_me = [b for b in opens if is_own_send(b, me)]
+    # G-leader-0823-0238 (task 92/134 sibling gap): none of the four sections above can render an
+    # ask addressed to `owner` BY ANOTHER SEAT unless the reading seat happens to be `owner` itself
+    # or the ask was broadcast to `all` — a peer's `to: owner` ask matched neither `to_me` nor
+    # `broadcast`, so it was invisible to `pending` no matter who ran it (stools ask #251,
+    # `audio-live-prober` -> owner, invisible while `pending` printed zero). A halt that cannot be
+    # shown is as bad as one silently cleared, so this section renders regardless of who is asking.
+    to_owner = [b for b in opens if b["to"] == OWNER_TOKEN and b not in to_me]
 
     def section(title, items, hint, colour="ask"):
         print(f"{c(title, C_LABEL)} ({len(items)})")
@@ -2985,6 +3036,8 @@ def cmd_pending(args):
             "these wait on the OWNER. Nothing here times out and nothing auto-proceeds; "
             "settle one with an answer carrying --re <#>",
             colour="escalation")
+    section("open asks to the owner", to_owner,
+            "these wait on the OWNER too — settle one with an answer carrying --re <#>")
     section("asks waiting on you", to_me,
             f"answer one: {coord} send <sender> \"<answer>\" --type answer --inline --re <#>")
     section("open asks to everyone", broadcast, "answer only what is yours to answer")
