@@ -8361,6 +8361,33 @@ def _selftest_checks(args, failures, names):
               "b" in known_recipients(_rs4_ns, _rs4 / "coordination")
               and "ghost" not in known_recipients(_rs4_ns, _rs4 / "coordination"))
 
+        # ---- RS-4b (task-121 criterion 3): the daemon's lane-skip report is ADDITIVE to RS-4,
+        # never a second vote on it. `ready.py#daemon_lane_skips` reads a file `lane-watch.js`
+        # writes (`coordination/lane-skips.json`) and attaches its note as `row["daemon-skip"]`
+        # — RS-4's verdict, stub and census assertions above must survive UNCHANGED with the file
+        # present, and the note must carry the literal token an operator/script greps for.
+        (_rs4 / "coordination" / "lane-skips.json").write_text(
+            '{"written_at": "2026-08-31T00:00:00Z", "skips": {"b": "unbuilt-seat"}}',
+            encoding="utf-8")
+        _rs4b_v, _ = _rs_v(_rs4)
+        _rs4b_rows = {r["seat"]: r for r in ready.ready_seat_rows(argparse.Namespace(
+            package=str(_rs4), base=None, workers_dir=None, as_agent=None, force=False))}
+        check("dag-10 RS-4b: a persisted daemon lane-skip note is ADDITIVE — the row it names "
+              "still reads READY exactly as RS-4 ruled (the folder mask is still not the "
+              "census), and carries `daemon-skip` naming `blocked-by-uninstalled-milestone` "
+              "beside it; the seat the daemon did NOT skip carries no note at all",
+              _rs4b_v == {"a": "DONE", "b": "READY"}
+              and _rs4b_rows["b"]["daemon-skip"] is not None
+              and "blocked-by-uninstalled-milestone" in _rs4b_rows["b"]["daemon-skip"]
+              and _rs4b_rows["a"]["daemon-skip"] is None)
+        check("dag-10 RS-4b (absence): a package with no lane-skips.json ever written — every "
+              "fixture above this row — carries `daemon-skip: None` on every seat, never a "
+              "KeyError and never a stale note",
+              all(r.get("daemon-skip") is None
+                  for r in ready.ready_seat_rows(argparse.Namespace(
+                      package=str(_rs1_done), base=None, workers_dir=None,
+                      as_agent=None, force=False))))
+
         # ---- RS-5: a skew is REPORTED, never resolved — and it holds ITS OWN SEAT, not the goal
         # ⚠ `c` IS THE ROW THIS EXISTS FOR (Q2a, owner-ruled 2026-08-18). A THIRD seat, a root
         # depending on nothing, in the SAME package as the skew: it must read READY and the command
