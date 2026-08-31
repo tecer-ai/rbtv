@@ -113,18 +113,28 @@ whose seat declared it in `exposed-clis` — the sandbox materializes a `~/.rbtv
 SYMLINK from that declaration. From an undeclared caged seat, and from EVERY uncaged chair
 including the console, it exits 127: `~/.rbtv-bin` is built inside a sandbox and does not exist on
 the real filesystem. Uncaged means unmasked, NOT better-equipped. **So DEFAULT to the full path
-form** — `3-resources/tools/stools/stools.py`, relative to the workspace root. It is the one form
-correct in both vantages.
+form** — `meta/planning/capabilities/stools-wrapper/tool/stools_wrapper.py`, relative to the rbtv
+module root (`3-resources/tools/rbtv/`). It is the one form correct in both vantages, and it is
+the WRAPPER, not `stools.py` itself — never call `3-resources/tools/stools/stools.py` directly;
+that skips the send-identity gate below.
 
-**Every `stools` verb needs `--workspace`.**
+**Every `stools` verb needs `--workspace`. Default to `--workspace ignite` (the bot) — every
+example in this reference uses it.** `--workspace ignite-owner` sends as Henrique himself (the
+owner's own Slack user token) and is REFUSED by the wrapper on every write verb (`send`,
+`upload`, `react`, `canvas`) unless this sitting's `read-first` / `decisions.md` names a live
+as-owner grant (owner ruling `d-slack-identity-a`, 2026-08-31 — e.g. this plan's own
+`d-test-as-owner-via-stools`). Reads (`read`, `search`, `download`) on `ignite-owner` stay
+available without a grant — `search:read` has no bot-token equivalent. A refused write exits 2
+naming `as-owner-write-refused` and makes no Slack API call; `--dry-run` still previews
+regardless of grant.
 
 ### Inbound — get the file onto disk
 
 Address the message by permalink, or by channel + ts:
 
 ```
-python3 3-resources/tools/stools/stools.py download --workspace <ws> --permalink "<url>" --output /tmp/slack
-python3 3-resources/tools/stools/stools.py download --workspace <ws> --channel "#canal" --ts <ts> --output /tmp/slack
+python3 meta/planning/capabilities/stools-wrapper/tool/stools_wrapper.py download --workspace ignite --permalink "<url>" --output /tmp/slack
+python3 meta/planning/capabilities/stools-wrapper/tool/stools_wrapper.py download --workspace ignite --channel "#canal" --ts <ts> --output /tmp/slack
 ```
 
 `--output` is the DIRECTORY the files land in. `--hours N` pulls a whole channel window instead of
@@ -133,7 +143,7 @@ one message; `--dry-run` lists what would be fetched without fetching it.
 ### Outbound — post a file back
 
 ```
-python3 3-resources/tools/stools/stools.py upload --workspace <ws> --channel "#canal" --file /tmp/answer.mp3 --thread-ts <ts> --message "..."
+python3 meta/planning/capabilities/stools-wrapper/tool/stools_wrapper.py upload --workspace ignite --channel "#canal" --file /tmp/answer.mp3 --thread-ts <ts> --message "..."
 ```
 
 Upload is a WRITE — `--dry-run` prints the full preview first. `--message-file PATH` carries a
