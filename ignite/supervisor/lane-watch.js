@@ -710,6 +710,38 @@ async function runLaneWatch({
       for (const seat of uncastOnly) laneSkips.set(seat, 'uncast-seat');
     }
 
+    // ── PERSIST THE SKIP SET FOR A READ-ONLY CONSUMER (task-121 criterion 3) ─────────────────
+    //
+    // `laneSkips` above is IN-PROCESS ONLY — nothing durable ever recorded it, so a chair running
+    // `supervise ready-seats` (a separate, on-demand, Python CLI) had no way to see that THIS
+    // pass declined to launch a seat, without host journal access: `ready_seat_rows` reported such
+    // a seat plain READY, matching every OTHER root seat, with nothing distinguishing it.
+    //
+    // ⚠ THIS DOES NOT CHANGE WHAT LAUNCHES. `laneSkips` is untouched and stays the one
+    // decision-maker; this block only PERSISTS the same decision so `ready.py#daemon_lane_skips`
+    // can surface it as an ADDITIVE note beside the verdict, never as the verdict itself — dag-10
+    // RS-4 (coord_selftest.py) rules, deliberately and on purpose, that a registered-but-unbuilt
+    // seat reads READY there, is a valid `launch --only` stub, and stays census-addressable; that
+    // invariant is NOT reopened by this report existing alongside it.
+    //
+    // Written EVERY PASS, including EMPTY — a seat built or cast since the last cadence must stop
+    // reporting blocked here too, not just stop being skipped. Fail-soft: a write failure is named
+    // at `debug` (not `warn` — the launch decision above already ran and is correct either way)
+    // and never takes the tick down, matching every other write in this pass.
+    try {
+      const skipsOut = {};
+      for (const [seat, reason] of laneSkips) skipsOut[seat] = reason;
+      const skipDir = path.join(goalFolder, 'coordination');
+      fs.mkdirSync(skipDir, { recursive: true });
+      const skipPath = path.join(skipDir, 'lane-skips.json');
+      const tmp = `${skipPath}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify({ written_at: new Date().toISOString(), skips: skipsOut }, null, 2));
+      fs.renameSync(tmp, skipPath);
+    } catch (err) {
+      say('debug', 'lane watch: could not persist the lane-skip report for ready-seats — the '
+        + 'launch decision above is unaffected', { goal, error: err.message });
+    }
+
     if (consoleRunIsLive(goalFolder)) {
       skipped.push({ goal, reason: 'console-run-live' });
       say('info', 'lane watch: a console run is LIVE on this goal — not seeding against it', { goal });

@@ -801,6 +801,51 @@ def mark_dead_rows(rows):
     return dead
 
 
+# ── DAEMON LANE-SKIP REPORT (task-121 criterion 3, ADDITIVE — never a verdict term) ─────────────
+#
+# `supervisor/lane-watch.js#runLaneWatch` decides, on its own 10s cadence, which registered seats
+# it will NOT launch this pass (a taskforce row with no `seats/<seat>/` folder, or one with no
+# harness/model cast) and skips exactly those lanes without cancelling their siblings [C-9]. That
+# decision used to live in process memory only — a chair running `supervise ready-seats`, a
+# separate on-demand Python CLI, had no way to see it without host journal access, because this
+# file's own `built` census answers off `taskforce.csv` ∪ `sessions.csv` membership alone and
+# never checks folder presence (dag-10 RS-4, `coord_selftest.py`, RULED: "the folder mask is not
+# the census" — a registered-but-unbuilt seat is READY here, a valid `launch --only` stub, and
+# stays census-addressable, ON PURPOSE, and none of that is reopened by this report).
+#
+# So this is a REPORT, not a second census: `lane-watch.js` now persists its own `laneSkips` map
+# to `<pkg>/coordination/lane-skips.json` every pass (including empty, so a seat that gets built
+# or cast clears here too) and this function only SURFACES that file's content, translated to
+# prose, as an ADDITIVE field on the row. It never participates in `verdict`, `built`, `dead` or
+# any other term — a consumer that ignores it reads exactly the row it read before this existed.
+DAEMON_LANE_SKIP_NOTE = {
+    "unbuilt-seat": "blocked-by-uninstalled-milestone: this taskforce row is registered but its "
+                     "seats/<seat>/ folder was never materialized — the daemon's lane-watch pass "
+                     "will not launch it until the row is built (ignite/planning/unbuilt-seats.js)",
+    "uncast-seat": "blocked-by-uncast-seat: this taskforce row carries no harness/model binding — "
+                    "the daemon's lane-watch pass will not launch it until `rbtv-bindings set` "
+                    "casts it",
+}
+
+
+def daemon_lane_skips(pkg):
+    """{seat: human-readable note}, sourced ENTIRELY from `lane-watch.js`'s own last-written
+    report — never re-derived here. `{}` on any absence, corruption, or pre-C-9 daemon (the file
+    simply does not exist yet): this is informational, so a package `ready-seats` is asked to read
+    off-daemon (a scratch fixture, a console-only goal, a stale snapshot) must answer cleanly with
+    no note, never raise. FAIL-SOFT, same rule as every other read `ready_seat_rows` hoists."""
+    try:
+        raw = json.loads((Path(pkg) / "coordination" / "lane-skips.json").read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    skips = raw.get("skips") if isinstance(raw, dict) else None
+    if not isinstance(skips, dict):
+        return {}
+    return {seat: DAEMON_LANE_SKIP_NOTE.get(reason, f"daemon-lane-skip: {reason}")
+            for seat, reason in skips.items()
+            if isinstance(seat, str) and isinstance(reason, str)}
+
+
 def ready_seat_rows(args):
     """[{seat, verdict, reason, ...}] for every `taskforce.csv` row, in file order.
 
@@ -889,6 +934,11 @@ def ready_seat_rows(args):
     base = coord.base_dir(args, register=False)
     after = taskforce_after(pkg)
     _, _, roster = coord.load_workers(base)
+    # task-121 criterion 3: the daemon's OWN report of what it is declining to launch this
+    # cadence, hoisted ONCE for the same reason every other per-run read below is — N seats must
+    # cost one read of the file, not N. `{}` on any absence (no daemon has ever run against this
+    # package, or it predates C-9's report). Read-only, additive, never a verdict term.
+    daemon_skips = daemon_lane_skips(pkg)
     # `register=False`, for the same reason `package_dir`/`base_dir` above carry it: this command's
     # docstring says it writes nothing, and `workers_dir`'s default resolution (re-)registers the
     # run tag — a WRITE, in `~/.config/rbtv/coordinate-runs.json`. Resolved ONCE into a local: the
@@ -1142,6 +1192,12 @@ def ready_seat_rows(args):
                "held-asks": held.get(seat, []),
                "skew": list(skew) if skew else None, "active": active,
                "built": seat in built,
+               # task-121 criterion 3: `None` on every row the daemon is NOT declining, present on
+               # EVERY row for the same rule as `undeclared-session`/`row-outcome` above — a key
+               # that appears only when it fires cannot be read as a term. ⚠ NOT A TERM OF THE
+               # VERDICT — `verdict` above is computed with no read of this field, so `dag-10 RS-4`
+               # is untouched: this row can carry a `daemon-skip` note and still read READY.
+               "daemon-skip": daemon_skips.get(seat),
                # 7.237: present on EVERY row (None when the ending was declared), never only on
                # the rows that trip. A key that appears only when it fires cannot be rendered as
                # a term of the predicate, and `--explain` must show the value that DECIDED a
@@ -1750,6 +1806,10 @@ def cmd_ready_seats(args):
         print(f"  its `after` can still become satisfied                -> {not rec.get('dead')}"
               + ("   ⚠ DEAD — this seat can NEVER run and is NOT pending work. See the reason"
                  if rec.get("dead") else ""))
+        # task-121 criterion 3: NOT a term (nothing above read it) — the daemon's own report of
+        # what it is declining to LAUNCH this seat for, independent of the verdict just printed.
+        if rec.get("daemon-skip"):
+            print(f"  ⚠ daemon lane-watch: {rec['daemon-skip']}")
         print(f"  {coord.c('reason:', coord.C_LABEL)} {rec['reason']}")
         return
     if getattr(args, "json", False):
@@ -1758,6 +1818,11 @@ def cmd_ready_seats(args):
         width = max([len(r["seat"]) for r in rows] or [4])
         for r in rows:
             print(f"{r['verdict']:<8}  {r['seat']:<{width}}  {r['reason']}")
+            # task-121 criterion 3: additive, printed BELOW the verdict line it never changes — a
+            # chair with no host journal access still sees why the daemon will not launch this
+            # seat even though it reads READY (dag-10 RS-4 is unaffected by this line existing).
+            if r.get("daemon-skip"):
+                print(f"{'':<8}  {'':<{width}}  ⚠ daemon lane-watch: {r['daemon-skip']}")
         counts = {}
         for r in rows:
             counts[r["verdict"]] = counts.get(r["verdict"], 0) + 1
