@@ -1,1 +1,3 @@
 # meta-planning — date · kind · title · symptom→cause · commit · others · ⚠ | newest last
+2026-08-31 · issue · uncaged audio bare-name: PATH gap and echo-tail grading · Task 169 (redesign-continue-1 seed): on `stools-canvas-audio-elevenlabs-close` M5, a relay script → Two independent facts compound into this trap: · 899694e7 · meta-leader · ⚠
+2026-08-31 · issue · delta-anchors: seat-id records, no hardcode, eol-safe · `delta-anchors` (`meta/planning/capabilities/delta-anchors/tool/delta_anchors.py`) is the tool an → `run_apply` derived the record's round number from the delta filename (`round-(\d+)` on the · 9cc6b1e4 · — · ⚠
