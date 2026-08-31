@@ -915,6 +915,16 @@ function resolveLocalBinGrant(seatPath) {
   return fs.existsSync(localBin) ? [{ localBin }] : [];
 }
 
+function userLocalPersistDir(seatPath) {
+  return path.join(seatPath.seatDir, '.user-local');
+}
+
+function ensureUserLocalPersist(seatPath) {
+  const dir = userLocalPersistDir(seatPath);
+  fs.mkdirSync(path.join(dir, 'bin'), { recursive: true });
+  return dir;
+}
+
 // The ONE PATH policy for a spawned seat, caged or uncaged. Prepend the granted dirs, then DEDUPE
 // preserving first-seen order: the daemon's own PATH may already carry ~/.local/bin (or repeat
 // entries from a shell that sourced a profile twice), and a session should not inherit that noise
@@ -1482,6 +1492,12 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
   }
   if (rbtvBinUsed) pathDirs.push(rbtvBin);
   if (localBin.length > 0) pathDirs.push(localBin[0].localBin);
+  const home = require('node:os').homedir();
+  const persistDir = ensureUserLocalPersist(seatPath);
+  const userLocalDest = path.join(home, '.local');
+  flags.push('--bind', persistDir, userLocalDest);
+  const persistBin = path.join(userLocalDest, 'bin');
+  if (!pathDirs.includes(persistBin)) pathDirs.unshift(persistBin);
   if (pathDirs.length > 0) flags.push('--setenv', 'PATH', composeSeatPath(pathDirs));
   return flags;
 }
