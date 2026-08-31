@@ -15,6 +15,7 @@ import os
 import subprocess
 from pathlib import Path
 
+import crash_loop
 from ending_store import EndingStoreError, ending_store_db, goal_id_of
 
 SUPERVISOR_CLI = Path(__file__).resolve().parent.parent / "supervisor" / "cli.js"
@@ -77,7 +78,9 @@ def death_stamp(pkg, seat, *, session="", pid=None, start_time=None, exit_code=N
     # the pointer from the two facts only the witness held (the exit status and the log path).
     if evidence:
         payload["evidencePointer"] = str(evidence)
-    return supervisor_op("stampDeath", payload, start=pkg, registry=registry)
+    result = supervisor_op("stampDeath", payload, start=pkg, registry=registry)
+    crash_loop.observe_failed_death(pkg, seat, session=session, result=result)
+    return result
 
 
 # ── THE DOOR LIST, READ RATHER THAN RE-SPELLED [T4-R7, spec-supervisor §3] ────────────────────
