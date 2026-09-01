@@ -18,6 +18,6 @@ names, client names, or instance palettes.
 |-----------|-----------|
 | `storytelling/` | Narrative and audience strategy: locks the story before anything visual is built (`narrative-lock`), plans how the locked narrative becomes visuals (`visual-strategist`), and researches the audience/content briefs both consume. |
 | `design/` | Visual-system extraction and style checking: pulls design tokens, subtle references, and reconstructable prompts from source material, captures exemplar screenshots, and runs deterministic + model-reviewed style checks (`visual-check`) against the brand pack. |
-| `document/` | Deliverable production: the HTML standards library, HTML review, deck production (HTML deck + PDF), document conversion, email voice, and the `meeting-prep` and `presentation` workflows that chain the other two components into finished output. |
+| `document/` | Deliverable production: the HTML standards library, HTML review, deck production (HTML deck + PDF), document conversion, deterministic document presentation (`posh`), email voice, and the `meeting-prep` and `presentation` workflows that chain the other two components into finished output. |
 
 </module>

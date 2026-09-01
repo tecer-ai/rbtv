@@ -1,7 +1,8 @@
 # Columns are the seven of `concepts/exposure-manifest.md` § file schema, in its order — routed,
 # not invented; `#`-led lines are dropped before the header is read.
 #
-# Eight LOCKED rows (owner ruling 20, decisions.md #20 / OQ4). No row for: library siblings, legal
+# Eight LOCKED rows (owner ruling 20, decisions.md #20 / OQ4), plus the two posh rows
+# (owner-directed addition, 2026-09-01 console session). No row for: library siblings, legal
 # styles, meeting-type data, email-voice-pt-br, converter engine docs, summaries (referenced via
 # office/meeting-summarizer, never owned here), Google Slides (future), ai-anti-patterns
 # (storytelling's row). No `rule` rows. Third-party (md-to-pdf, Chromium) get no rows —
@@ -14,5 +15,7 @@ deck-production,capability,skill,,capabilities/deck-production/deck-production.m
 converter,capability,skill,,capabilities/converter/converter.md,Converts documents between formats (e.g. markdown to DOCX).,
 converter-cli,tool,path,,capabilities/converter/tool/md-to-docx.py,,
 email-voice,capability,skill,,capabilities/email-voice/email-voice.md,"Applies the brand pack's email voice variant to a drafted email. Invocable directly, not only inside document workflows.",
+posh,capability,skill,,capabilities/posh/posh.md,"Renders a structured vault document as a polished static HTML page via a deterministic template-filling CLI. First document type: a /plan seat-plan folder as a status dashboard.",
+posh-cli,tool,path,,capabilities/posh/tool/posh.py,,
 meeting-prep,workflow,skill,,workflows/meeting-prep/workflow.md,Chains storytelling and document capabilities into a meeting-prep cheat sheet.,
 presentation,workflow,skill,,workflows/presentation/workflow.md,"Run the presentation workflow: brief → narrative lock → blueprint → HTML deck + PDF",

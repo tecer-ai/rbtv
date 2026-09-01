@@ -1,5 +1,5 @@
 ---
-description: "The document component — deliverable production: the HTML standards library, HTML review, deck production, document conversion, email voice, and the meeting-prep and presentation workflows that chain storytelling and design into finished output."
+description: "The document component — deliverable production: the HTML standards library, HTML review, deck production, document conversion, deterministic document presentation (posh), email voice, and the meeting-prep and presentation workflows that chain storytelling and design into finished output."
 ---
 
 # document
@@ -21,6 +21,7 @@ builds its own.
 | `capabilities/deck-production/deck-production.md` | Produces the HTML deck + matching PDF (1280×720, matching `@page` print settings). |
 | `capabilities/converter/converter.md` | Document conversion (e.g. markdown → DOCX). First-party CLI at `capabilities/converter/tool/md-to-docx.py`. |
 | `capabilities/email-voice/email-voice.md` | Applies the brand pack's email voice variant. Invocable directly, not only inside document workflows. |
+| `capabilities/posh/posh.md` | Deterministic document presentation: machine-fills an HTML template from a structured source (v1: a /plan seat-plan folder as a status dashboard). First-party CLI at `capabilities/posh/tool/posh.py`. |
 | `workflows/meeting-prep/workflow.md` | Chains storytelling + document capabilities into a meeting-prep cheat sheet. |
 | `workflows/presentation/workflow.md` | Chains storytelling + design + document capabilities into a finished deck + PDF. Interactive execution mode (owner gates). |
 

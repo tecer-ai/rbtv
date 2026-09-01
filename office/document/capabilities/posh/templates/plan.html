@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}} — plan</title>
+<style>
+:root{
+  --bg:#f6f5f2; --surface:#ffffff; --ink:#1d1d1f; --muted:#6b6b70; --line:#e4e2dd;
+  --accent:#3b5bdb; --done:#2f9e44; --done-bg:#ebfbee; --wip:#e8890c; --wip-bg:#fff4e6;
+  --pending:#868e96; --pending-bg:#f1f3f5; --blocked:#e03131; --blocked-bg:#fff5f5;
+  --touch:#b8860b; --touch-bg:#fff9db; --code-bg:#f1f0ec;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#161618; --surface:#1f1f23; --ink:#ececf0; --muted:#9a9aa2; --line:#33333a;
+    --accent:#748ffc; --done:#69db7c; --done-bg:#12291a; --wip:#ffc078; --wip-bg:#33240f;
+    --pending:#8b8b93; --pending-bg:#26262b; --blocked:#ff8787; --blocked-bg:#331313;
+    --touch:#e6c229; --touch-bg:#2e2a10; --code-bg:#26262b;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+main,header.hero,section.legend,footer{max-width:1080px;margin:0 auto;padding:0 24px}
+a{color:var(--accent)}
+code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.92em}
+code{background:var(--code-bg);padding:1px 5px;border-radius:4px}
+pre{background:var(--code-bg);padding:12px 14px;border-radius:8px;overflow-x:auto}
+pre code{background:none;padding:0}
+table{border-collapse:collapse;width:100%;margin:10px 0}
+th,td{border:1px solid var(--line);padding:6px 10px;text-align:left;vertical-align:top}
+th{background:var(--pending-bg)}
+.table-wrap{overflow-x:auto}
+.hero{padding-top:40px}
+.kicker{text-transform:uppercase;letter-spacing:.12em;font-size:12px;color:var(--muted);margin:0 0 4px}
+.hero h1{margin:0 0 6px;font-size:32px;letter-spacing:-.01em}
+.hero .meta{color:var(--muted);margin:0 0 18px;font-size:13px}
+.stats{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 16px;min-width:96px}
+.tile .n{font-size:24px;font-weight:650;line-height:1.15}
+.tile .l{font-size:12px;color:var(--muted)}
+.tile.t-done .n{color:var(--done)} .tile.t-wip .n{color:var(--wip)}
+.tile.t-blocked .n{color:var(--blocked)} .tile.t-pending .n{color:var(--pending)}
+.progress{display:flex;height:10px;border-radius:6px;overflow:hidden;background:var(--pending-bg);
+  border:1px solid var(--line);margin-bottom:8px}
+.progress span{display:block;height:100%}
+.p-done{background:var(--done)} .p-wip{background:var(--wip)} .p-blocked{background:var(--blocked)}
+.legend{color:var(--muted);font-size:13px;margin:6px auto 0}
+.legend p{margin:6px 0}
+.badge{display:inline-block;border-radius:20px;padding:1px 10px;font-size:12px;font-weight:600;white-space:nowrap}
+.b-done{color:var(--done);background:var(--done-bg)} .b-wip{color:var(--wip);background:var(--wip-bg)}
+.b-pending{color:var(--pending);background:var(--pending-bg)} .b-blocked{color:var(--blocked);background:var(--blocked-bg)}
+.b-touch{color:var(--touch);background:var(--touch-bg)}
+h2{margin:38px 0 6px;font-size:22px}
+h3{margin:20px 0 10px;font-size:16px}
+.hint{color:var(--muted);font-size:13px;margin:0 0 14px}
+.warnbox{background:var(--touch-bg);border:1px solid var(--touch);border-radius:10px;
+  padding:10px 16px;margin:16px 0;font-size:13px}
+.wave{margin-bottom:22px}
+.wave>h3{color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.08em;font-size:12.5px;
+  border-bottom:1px solid var(--line);padding-bottom:6px}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.card.s-blocked{border-color:var(--blocked)}
+.card.s-wip{border-color:var(--wip)}
+.card .head{display:flex;justify-content:space-between;gap:10px;align-items:baseline;margin-bottom:6px}
+.card .name{font-weight:650;font-size:15.5px;word-break:break-word}
+.card .desc{margin:4px 0 8px;font-size:14px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0}
+.chip{font-size:12px;color:var(--muted);background:var(--pending-bg);border-radius:6px;padding:1px 8px}
+.evidence{font-size:13px;color:var(--muted);border-left:3px solid var(--line);padding-left:10px;margin:8px 0 4px}
+details{margin-top:8px}
+details>summary{cursor:pointer;color:var(--accent);font-size:13px;user-select:none}
+details .body{border-top:1px solid var(--line);margin-top:8px;padding-top:8px;font-size:14px}
+section.doc{background:var(--surface);border:1px solid var(--line);border-radius:12px;
+  padding:4px 18px 10px;margin:14px 0}
+section.doc>details>summary{font-size:15px;font-weight:600;color:var(--ink);padding:10px 0}
+section.doc .sub{color:var(--muted);font-weight:400;font-size:13px;margin-left:8px}
+footer{color:var(--muted);font-size:12.5px;padding:30px 24px 40px}
+</style>
+</head>
+<body>
+<header class="hero">
+  <p class="kicker">Seat plan</p>
+  <h1>{{TITLE}}</h1>
+  <p class="meta">Source: <code>{{SOURCE}}</code> · Generated {{GENERATED_AT}} · A static snapshot — re-run the generator to refresh it.</p>
+  <div class="stats">
+    <div class="tile"><div class="n">{{PCT_DONE}}%</div><div class="l">complete</div></div>
+    <div class="tile"><div class="n">{{TOTAL}}</div><div class="l">seats</div></div>
+    <div class="tile t-done"><div class="n">{{N_DONE}}</div><div class="l">done</div></div>
+    <div class="tile t-wip"><div class="n">{{N_WIP}}</div><div class="l">in progress</div></div>
+    <div class="tile t-pending"><div class="n">{{N_PENDING}}</div><div class="l">pending</div></div>
+    <div class="tile t-blocked"><div class="n">{{N_BLOCKED}}</div><div class="l">blocked</div></div>
+  </div>
+  <div class="progress">{{PROGRESS_SEGMENTS}}</div>
+</header>
+<section class="legend">
+  <p>A <strong>seat plan</strong> is a set of self-contained work units ("seats"), each run by its own agent.
+  Seats are grouped below into <strong>waves</strong>: a seat's wave is set by its dependencies — everything in
+  wave 1 can start immediately; a seat in a later wave waits for the earlier seats it names. Statuses:
+  <span class="badge b-pending">pending</span> not started ·
+  <span class="badge b-wip">wip</span> work in progress ·
+  <span class="badge b-done">done</span> finished and verified ·
+  <span class="badge b-blocked">blocked</span> stopped, reason on the card ·
+  <span class="badge b-touch">⚠ owner touchpoint</span> needs a human decision or input.</p>
+</section>
+{{WARNINGS}}
+<main>
+  <section id="waves">
+    <h2>Seats by wave</h2>
+    <p class="hint">Each card is one unit of work. "after" chips name the seats it waits for; expand a card to read its full instructions.</p>
+    {{WAVES}}
+  </section>
+  {{CHECKPOINTS}}
+  {{EXTRA_SECTIONS}}
+</main>
+<footer>Rendered by posh (the plan-presentation generator) from the plan folder's files. The markdown files remain the source of truth.</footer>
+
+<!-- posh:wave -->
+<div class="wave">
+  <h3>{{WAVE_LABEL}}</h3>
+  <div class="cards">
+{{CARDS}}
+  </div>
+</div>
+<!-- /posh:wave -->
+
+<!-- posh:seat-card -->
+<div class="card s-{{STATUS}}">
+  <div class="head">
+    <span class="name">{{NAME}}</span>
+    <span class="badge b-{{STATUS}}">{{STATUS_LABEL}}</span>
+  </div>
+  {{TOUCH_BADGE}}
+  <p class="desc">{{DESC}}</p>
+  <div class="chips">{{CHIPS}}</div>
+  {{EVIDENCE}}
+  {{BODY_DETAILS}}
+</div>
+<!-- /posh:seat-card -->
+
+<!-- posh:doc-section -->
+<section class="doc">
+  <details{{OPEN}}>
+    <summary>{{DOC_TITLE}}<span class="sub">{{DOC_SUB}}</span></summary>
+    <div class="body">{{DOC_BODY}}</div>
+  </details>
+</section>
+<!-- /posh:doc-section -->
+
+<!-- posh:checkpoints -->
+<section id="checkpoints">
+  <h2>Owner checkpoints</h2>
+  <p class="hint">Hold gates: when a checkpoint's opening seats are all done, the listed seats pause until the owner verifies the work and answers PASS.</p>
+  <div class="table-wrap">{{CHECKPOINT_TABLE}}</div>
+</section>
+<!-- /posh:checkpoints -->
+
+<!-- posh:warnings -->
+<section class="legend"><div class="warnbox"><strong>Generator notes:</strong> {{WARNING_ITEMS}}</div></section>
+<!-- /posh:warnings -->
+</body>
+</html>

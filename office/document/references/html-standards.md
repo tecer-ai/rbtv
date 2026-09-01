@@ -10,9 +10,9 @@ This file is the router for the HTML standards family. It states which siblings 
 Two production models exist. Do not flatten them.
 
 - **Agent-authored HTML** — the agent writes the HTML itself. V1 page-types: Review, Presentation.
-- **Schema + deterministic builder** — the agent writes markdown page-source to a schema; a builder renders it. The agent never writes HTML, CSS, or JS. V1 page-type: Learning.
+- **Schema + deterministic builder** — the agent writes markdown page-source to a schema; a builder renders it. The agent never writes HTML, CSS, or JS. V1 page-types: Learning, and the posh document pages (v1: the seat-plan dashboard — builder and profile live with `capabilities/posh/posh.md`).
 
-V1 page-types are exactly those three. Website, Dashboards, and UI/UX are named futures — no profile ships for them.
+V1 page-types are exactly those four. Website, Dashboards, and UI/UX are named futures — no profile ships for them.
 
 ## Load contract
 
