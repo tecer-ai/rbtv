@@ -897,6 +897,18 @@ say('── paused goal is not reconciled ──');
     say('ok  paused console → skipped:paused, queue empty, skip log fired');
 
     fs.writeFileSync(path.join(goalFolder, 'execution-lane'), 'daemon\n');
+    // `execution-lane` carries the LANE word only (daemon/console) — it stopped being a pause
+    // surface once the goal-state row became the ONE pause record (pause-resume.js). The row above
+    // migrated the legacy `paused ` file-prefix into a permanent `stored:'paused'` row, so clearing
+    // the file alone never unpauses; the real resume path flips the row (mirrors applyResume's ROW
+    // 4 in `state-store/heart/pause-resume.js`).
+    {
+      const { bindEnding, goalNameOf } = require('./ending-reads');
+      bindEnding(store, goalFolder).writeGoalWord({
+        goal: goalNameOf(goalFolder), stored: 'running', who_stamped: 'owner',
+        evidence_pointer: 'selftest:control-unpause',
+      });
+    }
     const unpaused = reconcileGoal({
       goal: 'fx-pause', goalFolder, engine: { heartStore: store },
       say: () => {}, force: true, readyAnswer: readyEmpty,
