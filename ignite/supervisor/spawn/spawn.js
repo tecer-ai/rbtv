@@ -42,7 +42,7 @@ const { stampLaunchRefused } = require('../../envelope/stamp');
 // per-seat: `goalBrokers` below tracks at most one live broker per `goalDir` for this process's
 // whole lifetime, reused across every seat of that goal, exactly like the module already reuses
 // one `heartStore` across every seat it spawns.
-const { startBroker } = require('../../envelope/credential-broker');
+const { startBroker, socketPath: brokerSocketPath } = require('../../envelope/credential-broker');
 const { gtoolsTokenMinter } = require('../../envelope/gtools-token-minter');
 const { superviseSpawn } = require('../doors');
 const {
@@ -1326,6 +1326,15 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
   for (const r of mask.refusedPierces) log('warn', `private-scope pierce REFUSED: ${r.reason}`, { seat: seatPath.seat, opening: r.opening });
   if (gatewayAddr && seatDeclares(seatPath.seatDir, 'gateway-env')) {
     flags.push('--setenv', 'IGNITE_GATEWAY_ADDR', gatewayAddr);
+  }
+  // `d-gtools-broker-bridge` — advertise the goal's credential-broker socket to any seat whose
+  // manifest declared a `gtools-account` credential (the SAME `admitted.accountCredentials` gate
+  // `ensureGoalBroker` above already used to decide whether a broker exists for this goal at
+  // all). No opt-in declaration needed, unlike `gateway-env`: the credential declaration IS the
+  // authorization, exactly like `injectDeclaredEnv` below needs no separate flag either. A seat
+  // with no declared account never sees this var and never sees any behaviour change.
+  if (admitted.accountCredentials && admitted.accountCredentials.length > 0) {
+    flags.push('--setenv', 'IGNITE_CREDENTIAL_BROKER_SOCK', brokerSocketPath(seatPath.goalDir));
   }
   const injected = injectDeclaredEnv(admitted.credentialNames, loadCentralStore(seatPath.workspaceRoot));
   for (const name of Object.keys(injected)) flags.push('--setenv', name, injected[name]);
