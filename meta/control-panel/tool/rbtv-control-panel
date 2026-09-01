@@ -1,0 +1,569 @@
+#!/usr/bin/env python3
+"""rbtv control-panel — build the control panel's data from the scaffolding on disk.
+
+    rbtv control-panel update [--out DIR] [--json]   scan, then write panel.html + panel-data.js
+    rbtv control-panel status [--json]               where the data is, how old, what it holds
+    rbtv control-panel selftest                      fixture + red arm; exit 0/1
+
+The panel is a page over the SCAFFOLDING: every seat and every workflow carried by the
+shipped rbtv tree and by this install's mirror, with the mirror's path-shadowing resolved
+(d-mirror-path-shadowing). It reads nothing from `.rbtv/goals/` — run history is not
+scaffolding.
+
+Output is INSTALL STATE, so it never lands in the shipped tree: `update` writes
+`<runtime>/control-panel/` (default `.rbtv/control-panel/`), page and data as siblings so
+the page loads over `file://` with no server.
+
+Exit codes: 0 success · 1 refusal · 2 usage error.
+"""
+
+import argparse
+import csv
+import json
+import os
+import re
+import sys
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+SHIPPED_ROOT = Path(__file__).resolve().parents[3]  # …/rbtv
+PAGE_SRC = Path(__file__).resolve().parent / "panel.html"
+SKIP_DIRS = {".git", "node_modules", "__pycache__", ".pytest_cache", "4-archives"}
+
+
+# ─── refusals ────────────────────────────────────────────────────────────────
+
+class Refusal(Exception):
+    pass
+
+
+# ─── file parsing ────────────────────────────────────────────────────────────
+
+def read_text(path):
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def split_frontmatter(text):
+    """Return (frontmatter dict, body). Flat YAML only — the shape these files use."""
+    if not text.startswith("---"):
+        return {}, text
+    end = text.find("\n---", 3)
+    if end == -1:
+        return {}, text
+    raw, body = text[3:end], text[end + 4:]
+    fm, key = {}, None
+    for line in raw.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        m = re.match(r"^(\s*)([A-Za-z0-9_-]+):\s*(.*)$", line)
+        if not m:
+            continue
+        indent, k, v = m.group(1), m.group(2), m.group(3).strip()
+        if indent and key:
+            if not isinstance(fm.get(key), dict):
+                fm[key] = {}
+            fm[key][k] = parse_scalar(v)
+        else:
+            key = k
+            fm[key] = {} if v == "" else parse_scalar(v)
+    return fm, body.lstrip("\n")
+
+
+def parse_scalar(v):
+    v = v.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+        return v[1:-1]
+    if v.startswith("[") and v.endswith("]"):
+        inner = v[1:-1].strip()
+        return [p.strip().strip("\"'") for p in inner.split(",") if p.strip()] if inner else []
+    return v
+
+
+def sections(body):
+    """Pull the <name>…</name> blocks these prompt/task files are written in."""
+    out = {}
+    for m in re.finditer(r"<([a-z][a-z0-9-]*)(\s[^>]*)?>\n?(.*?)\n?</\1>", body, re.S):
+        out[m.group(1)] = m.group(3).strip()
+    return out
+
+
+def bullets(text):
+    """Top-level `- ` bullets, each joined with its continuation lines."""
+    if not text:
+        return []
+    out = []
+    for line in text.splitlines():
+        if re.match(r"^\s*[-*]\s+", line):
+            out.append(re.sub(r"^\s*[-*]\s+", "", line).strip())
+        elif out and line.strip():
+            out[-1] += " " + line.strip()
+    return out
+
+
+def steps(text):
+    """Numbered procedure steps (`1.`, `4b.`), each with its continuation lines."""
+    if not text:
+        return []
+    out = []
+    for line in text.splitlines():
+        m = re.match(r"^\s*(\d+[a-z]?)\.\s+(.*)$", line)
+        if m and not line.startswith(" "):
+            out.append({"n": m.group(1), "text": m.group(2).strip()})
+        elif out and line.strip():
+            out[-1]["text"] += " " + line.strip()
+    return out
+
+
+# ─── scanning ────────────────────────────────────────────────────────────────
+
+def components(root):
+    """Component folders: any `<module>/<component>/` under root. Depth exactly 2."""
+    found = []
+    if not root or not root.is_dir():
+        return found
+    for module in sorted(p for p in root.iterdir() if p.is_dir() and p.name not in SKIP_DIRS):
+        if module.name.startswith("."):
+            continue
+        for comp in sorted(p for p in module.iterdir() if p.is_dir() and p.name not in SKIP_DIRS):
+            if comp.name.startswith("."):
+                continue
+            found.append((f"{module.name}/{comp.name}", comp))
+    return found
+
+
+def read_catalog(path):
+    text = read_text(path)
+    if text is None:
+        return None, ["catalog unreadable"]
+    rows = list(csv.DictReader(l for l in text.splitlines() if not l.startswith("#")))
+    return rows, []
+
+
+def scan_root(root, origin, acc, shadowed=frozenset()):
+    """Collect seats and workflows from one scaffolding root into acc, tagged with origin.
+
+    `shadowed` holds paths (relative to this root) a mirror file supersedes. Supersession is
+    per-file and WHOLE-FILE (`concepts/mirror.md` § path shadowing, `d-mirror-path-shadowing`):
+    a shadowed file is not read at all, so rows it carries that the mirror does not repeat are
+    gone — never merged in behind the mirror's back.
+    """
+    for comp_id, comp in components(root):
+        catalog = comp / "seats.csv"
+        if rel(catalog, root) in shadowed:
+            acc["shadowed"].append(rel(catalog, root))
+        elif catalog.is_file():
+            rows, errs = read_catalog(catalog)
+            for e in errs:
+                acc["health"].append({"level": "error", "where": comp_id, "what": e})
+            for row in rows or []:
+                seat = build_seat(row, comp, comp_id, origin, root, acc)
+                if seat:
+                    acc["seats"].append(seat)
+        wf_dir = comp / "workflows"
+        if wf_dir.is_dir():
+            for wf in sorted(p for p in wf_dir.iterdir() if p.is_dir()):
+                if rel(wf / f"{wf.name}.csv", root) in shadowed:
+                    acc["shadowed"].append(rel(wf / f"{wf.name}.csv", root))
+                    continue
+                acc["workflows"].append(build_workflow(wf, comp_id, origin, root, acc))
+
+
+def rel(path, root):
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return str(path)
+
+
+def build_seat(row, comp, comp_id, origin, root, acc):
+    seat_id = (row.get("seat-id") or "").strip()
+    if not seat_id:
+        return None
+    module, component = comp_id.split("/", 1)
+    seat = {
+        "id": seat_id,
+        "module": module,
+        "component": component,
+        "componentId": comp_id,
+        "origin": origin,
+        "catalogPath": rel(comp / "seats.csv", root),
+        "catalog": {k: (v or "").strip() for k, v in row.items() if k},
+        "executor": (row.get("executor") or "").strip(),
+        "task": (row.get("task") or "").strip(),
+        "description": (row.get("description") or "").strip(),
+        "goalWrites": (row.get("goal-writes") or "").strip(),
+        "cageGrants": [g for g in (row.get("cage-grants") or "").split() if g],
+        "rwPaths": [p.strip() for p in (row.get("rw-paths") or "").split(",") if p.strip()],
+        "staffingHints": (row.get("staffing-hints") or "").strip(),
+        "onFailRelaunch": (row.get("on-fail-relaunch") or "").strip(),
+        "prompt": None,
+        "taskFile": None,
+        "workflows": [],
+        "health": [],
+    }
+    seat["prompt"] = load_prompt(comp / "prompts" / f"{seat['executor']}.md", seat, root)
+    seat["taskFile"] = load_task(comp / "tasks" / f"{seat['task']}.md", seat, root)
+    for h in seat["health"]:
+        acc["health"].append({"level": h["level"], "where": seat_id, "what": h["what"]})
+    return seat
+
+
+def load_prompt(path, seat, root):
+    if not seat["executor"]:
+        seat["health"].append({"level": "warn", "what": "catalog row names no executor"})
+        return None
+    if not path.is_file():
+        seat["health"].append({"level": "error", "what": f"prompt file missing: {rel(path, root)}"})
+        return None
+    fm, body = split_frontmatter(read_text(path) or "")
+    sec = sections(body)
+    role = bullets(sec.get("role", ""))
+    exposes = fm.get("exposes") if isinstance(fm.get("exposes"), dict) else {}
+    return {
+        "path": rel(path, root),
+        "id": fm.get("id", ""),
+        "description": fm.get("description", ""),
+        "staffingRecommendations": fm.get("staffing-recommendations", ""),
+        "humanInteractive": str(fm.get("human-interactive", "")).lower() in ("yes", "true"),
+        "fallback": fm.get("fallback", ""),
+        "exposes": {k: (v if isinstance(v, list) else [v]) for k, v in exposes.items() if v},
+        "role": role,
+        "agentType": role_field(role, "agent type"),
+        "persona": role_field(role, "persona"),
+        "scope": role_field(role, "scope"),
+        "procedure": steps(sec.get("procedure", "")),
+        "resources": bullets(sec.get("resources", "")),
+        "ioSpec": sec.get("io-spec", ""),
+        "permissions": bullets(sec.get("permissions", "")),
+        "restrictions": bullets(sec.get("restrictions", "")),
+        "constraints": bullets(sec.get("constraints", "")),
+    }
+
+
+def role_field(role_bullets, label):
+    for b in role_bullets:
+        m = re.match(r"^\*{0,2}" + re.escape(label) + r"\*{0,2}\s*[—–-]\s*(.*)$", b, re.I)
+        if m:
+            return m.group(1).strip()
+    return ""
+
+
+def load_task(path, seat, root):
+    if not seat["task"]:
+        seat["health"].append({"level": "warn", "what": "catalog row names no task"})
+        return None
+    if not path.is_file():
+        seat["health"].append({"level": "error", "what": f"task file missing: {rel(path, root)}"})
+        return None
+    fm, body = split_frontmatter(read_text(path) or "")
+    sec = sections(body)
+    return {
+        "path": rel(path, root),
+        "id": fm.get("id", ""),
+        "description": fm.get("description", ""),
+        "taskGoal": sec.get("task-goal", ""),
+        "scope": bullets(sec.get("scope", "")),
+        "doneContract": bullets(sec.get("done-contract", "")),
+    }
+
+
+def build_workflow(wf_dir, comp_id, origin, root, acc):
+    module, component = comp_id.split("/", 1)
+    name = wf_dir.name
+    manifest = wf_dir / f"{name}.csv"
+    wf = {
+        "name": name,
+        "module": module,
+        "component": component,
+        "componentId": comp_id,
+        "origin": origin,
+        "manifestPath": rel(manifest, root),
+        "doc": None,
+        "rows": [],
+        "health": [],
+    }
+    doc = wf_dir / "workflow.md"
+    if doc.is_file():
+        fm, body = split_frontmatter(read_text(doc) or "")
+        wf["doc"] = {"path": rel(doc, root),
+                     "description": fm.get("description", ""),
+                     "text": body.strip()}
+    if not manifest.is_file():
+        wf["health"].append({"level": "error", "what": f"no manifest at {rel(manifest, root)}"})
+        acc["health"].append({"level": "error", "where": f"{comp_id}/{name}",
+                              "what": "workflow folder carries no manifest CSV"})
+        return wf
+    text = read_text(manifest) or ""
+    for row in csv.DictReader(l for l in text.splitlines() if not l.startswith("#")):
+        key = next((k for k in row if k and k.strip().lower().startswith("seat")), None)
+        seat_id = (row.get(key) or "").strip() if key else ""
+        if not seat_id:
+            continue
+        after = [a.strip() for a in re.split(r"[,\s]+", (row.get("after") or "").strip()) if a.strip()]
+        wf["rows"].append({
+            "seat": seat_id,
+            "after": after,
+            "io": (row.get("i/o") or "").strip(),
+            "modality": (row.get("Modality") or row.get("modality") or "").strip(),
+        })
+    return wf
+
+
+# ─── assembly ────────────────────────────────────────────────────────────────
+
+def shadow_map(shipped_root, mirror_root):
+    """Mirror files whose path from the mirror root equals a shipped file's path supersede it.
+    Content files only — CODE IS NEVER SHADOWED (d-mirror-path-shadowing)."""
+    if not (mirror_root and mirror_root.is_dir() and shipped_root.is_dir()):
+        return {}
+    out = {}
+    for dirpath, dirnames, filenames in os.walk(mirror_root):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
+        for fn in filenames:
+            if not (fn.endswith(".md") or fn.endswith(".csv")):
+                continue
+            r = str(Path(dirpath, fn).relative_to(mirror_root))
+            if (shipped_root / r).is_file():
+                out[r] = True
+    return out
+
+
+def assemble(shipped_root, mirror_root):
+    acc = {"seats": [], "workflows": [], "health": [], "shadowed": []}
+
+    # Shadowing is decided BEFORE reading, never reconciled after: a shipped file the mirror
+    # supersedes is not read, so rows the mirror does not repeat are gone with it.
+    shadows = shadow_map(shipped_root, mirror_root)
+    scan_root(shipped_root, "shipped", acc, shadowed=shadows)
+    scan_root(mirror_root, "mirror", acc)
+
+    for seat in acc["seats"]:
+        # Truthful by construction: the mirror row rides a catalog that supersedes a shipped
+        # catalog of the same path. It never claims to override a seat row that never existed.
+        seat["overrides"] = (seat["catalogPath"] if seat["origin"] == "mirror"
+                             and seat["catalogPath"] in shadows else None)
+
+    by_id = {}
+    for seat in acc["seats"]:
+        prior = by_id.get(seat["id"])
+        if prior:
+            acc["health"].append({
+                "level": "warn", "where": seat["id"],
+                "what": f"duplicate seat-id: {prior['catalogPath']} and {seat['catalogPath']}"})
+        by_id[seat["id"]] = seat
+
+    # wire seats to the workflows whose manifest names them
+    seat_index = {s["id"]: s for s in acc["seats"]}
+    for wf in acc["workflows"]:
+        for row in wf["rows"]:
+            s = seat_index.get(row["seat"])
+            if s is None:
+                wf["health"].append({"level": "error",
+                                     "what": f"manifest names `{row['seat']}`, absent from every catalog"})
+                acc["health"].append({"level": "error", "where": f"{wf['componentId']}/{wf['name']}",
+                                      "what": f"manifest seat `{row['seat']}` is in no catalog"})
+                continue
+            s["workflows"].append({"name": wf["name"], "component": wf["componentId"],
+                                   "after": row["after"], "modality": row["modality"],
+                                   "io": row["io"]})
+    for s in acc["seats"]:
+        if not s["workflows"]:
+            s["offManifest"] = True
+
+    acc["seats"].sort(key=lambda s: (s["module"], s["component"], s["id"]))
+    acc["workflows"].sort(key=lambda w: (w["module"], w["component"], w["name"]))
+    acc["generatedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    acc["roots"] = {"shipped": str(shipped_root),
+                    "mirror": str(mirror_root) if mirror_root else None}
+    acc["counts"] = {
+        "seats": len(acc["seats"]),
+        "workflows": len(acc["workflows"]),
+        "shipped": sum(1 for s in acc["seats"] if s["origin"] == "shipped"),
+        "mirror": sum(1 for s in acc["seats"] if s["origin"] == "mirror"),
+        "errors": sum(1 for h in acc["health"] if h["level"] == "error"),
+        "warnings": sum(1 for h in acc["health"] if h["level"] == "warn"),
+        "shadowed": len(acc["shadowed"]),
+    }
+    return acc
+
+
+# ─── runtime root ────────────────────────────────────────────────────────────
+
+def runtime_root(override):
+    if override:
+        p = Path(override).expanduser().resolve()
+        if not p.is_dir():
+            raise Refusal(f"--runtime-root is not a directory: {p}")
+        return p
+    here = Path.cwd().resolve()
+    for cand in [here, *here.parents]:
+        if (cand / ".rbtv").is_dir():
+            return cand / ".rbtv"
+    raise Refusal("no `.rbtv/` found walking up from the working directory — "
+                  "run from inside an rbtv install, or pass --runtime-root")
+
+
+def write_atomic(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.chmod(tmp, 0o644)  # mkstemp gives 0600; these are files the owner opens in a browser
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+# ─── verbs ───────────────────────────────────────────────────────────────────
+
+def cmd_update(args):
+    rt = runtime_root(args.runtime_root)
+    out = Path(args.out).expanduser().resolve() if args.out else rt / "control-panel"
+    mirror = rt / "mirror"
+    if not PAGE_SRC.is_file():
+        raise Refusal(f"the shipped page is missing: {PAGE_SRC}")
+    data = assemble(SHIPPED_ROOT, mirror if mirror.is_dir() else None)
+    write_atomic(out / "panel-data.js",
+                 "window.PANEL_DATA = " + json.dumps(data, indent=1, ensure_ascii=False) + ";\n")
+    write_atomic(out / "panel.html", PAGE_SRC.read_text(encoding="utf-8"))
+    result = {"out": str(out), "page": str(out / "panel.html"), **data["counts"],
+              "generatedAt": data["generatedAt"]}
+    if args.json:
+        print(json.dumps(result, indent=1))
+    else:
+        c = data["counts"]
+        print(f"{c['seats']} seats ({c['shipped']} shipped, {c['mirror']} mirror) · "
+              f"{c['workflows']} workflows · {c['errors']} errors, {c['warnings']} warnings")
+        for h in data["health"]:
+            print(f"  [{h['level']}] {h['where']}: {h['what']}")
+        print(f"open: {out / 'panel.html'}")
+    return 0
+
+
+def cmd_status(args):
+    rt = runtime_root(args.runtime_root)
+    out = Path(args.out).expanduser().resolve() if args.out else rt / "control-panel"
+    page, data = out / "panel.html", out / "panel-data.js"
+    info = {"out": str(out), "page_present": page.is_file(), "data_present": data.is_file(),
+            "generatedAt": None, "counts": None}
+    if data.is_file():
+        m = re.search(r'"generatedAt":\s*"([^"]+)"', read_text(data) or "")
+        info["generatedAt"] = m.group(1) if m else None
+        m = re.search(r'"counts":\s*(\{.*?\})', read_text(data) or "", re.S)
+        if m:
+            try:
+                info["counts"] = json.loads(m.group(1))
+            except json.JSONDecodeError:
+                pass
+    if args.json:
+        print(json.dumps(info, indent=1))
+    elif not info["data_present"]:
+        print(f"no data at {out} — run `rbtv control-panel update`")
+    else:
+        print(f"{out}\n  built {info['generatedAt']}\n  {info['counts']}")
+    return 0
+
+
+def cmd_selftest(args):
+    import io
+    fails = []
+
+    def check(name, cond):
+        (print if cond else fails.append)(f"{'ok  ' if cond else 'FAIL'} {name}")
+        if not cond:
+            print(f"FAIL {name}")
+
+    fm, body = split_frontmatter('---\nid: x\ndescription: "a: b"\nexposes:\n  skill: [a, b]\n---\n<role>\n- **persona** — p\n</role>\n')
+    check("frontmatter: quoted colon survives", fm.get("description") == "a: b")
+    check("frontmatter: nested list", fm.get("exposes", {}).get("skill") == ["a", "b"])
+    check("sections: role extracted", "role" in sections(body))
+    check("role field", role_field(bullets(sections(body)["role"]), "persona") == "p")
+    check("steps", steps("1. one\n   more\n2. two") == [{"n": "1", "text": "one more"},
+                                                        {"n": "2", "text": "two"}])
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td) / "ship"
+        comp = root / "mod" / "comp"
+        (comp / "prompts").mkdir(parents=True)
+        (comp / "tasks").mkdir(parents=True)
+        (comp / "seats.csv").write_text("seat-id,executor,task,description\ns1,ex,tk,d\ns2,gone,tk,d\n")
+        (comp / "prompts" / "ex.md").write_text("---\nid: ex\n---\n<role>\n- **agent type** — planner\n</role>\n")
+        (comp / "tasks" / "tk.md").write_text("---\nid: tk\n---\n<task-goal>\ng\n</task-goal>\n")
+        wf = comp / "workflows" / "w"
+        wf.mkdir(parents=True)
+        (wf / "w.csv").write_text("Seat/workflow,after,i/o,Modality\ns1,,io,agentic\nghost,s1,io,agentic\n")
+        (comp / "workflows" / "manifestless").mkdir()  # the mirror's transcript-summarizer shape
+        data = assemble(root, None)
+        check("scan: both catalog rows became seats", data["counts"]["seats"] == 2)
+        check("scan: workflow wired to its seat",
+              any(s["id"] == "s1" and s["workflows"] for s in data["seats"]))
+        # RED ARM — a missing prompt file and a manifest seat in no catalog must both be reported
+        check("red arm: missing prompt file flagged",
+              any("prompt file missing" in h["what"] for h in data["health"]))
+        check("red arm: phantom manifest seat flagged",
+              any("in no catalog" in h["what"] for h in data["health"]))
+        check("red arm: manifest-less workflow folder flagged",
+              any("carries no manifest" in h["what"] for h in data["health"]))
+
+        # Shadowing is WHOLE-FILE: the mirror catalog sits at the same relative path, repeats
+        # s1, drops s2 entirely, and adds s3. All three consequences are asserted, and s3
+        # sitting AFTER the superseding row is what makes a skip-an-element bug observable.
+        mirror = Path(td) / "mirror"
+        mcomp = mirror / "mod" / "comp"
+        (mcomp / "prompts").mkdir(parents=True)
+        (mcomp / "tasks").mkdir(parents=True)
+        (mcomp / "seats.csv").write_text(
+            "seat-id,executor,task,description\ns1,ex,tk,MINE\ns3,ex,tk,NEW\n")
+        (mcomp / "prompts" / "ex.md").write_text("---\nid: ex\n---\n")
+        (mcomp / "tasks" / "tk.md").write_text("---\nid: tk\n---\n")
+        data = assemble(root, mirror)
+        ids = [s["id"] for s in data["seats"]]
+        s1 = next(s for s in data["seats"] if s["id"] == "s1")
+        check("shadowing: mirror row supersedes the shipped one", s1["description"] == "MINE")
+        check("shadowing: the suppressed file is named", s1["overrides"] == "mod/comp/seats.csv")
+        check("shadowing: no duplicate seat-id survives", ids.count("s1") == 1)
+        check("shadowing: WHOLE file — the shipped row the mirror drops is gone",
+              "s2" not in ids)
+        check("shadowing: a row after the superseding one is not skipped", "s3" in ids)
+        check("shadowing: the shadowed file is reported", "mod/comp/seats.csv" in data["shadowed"])
+        check("shadowing: no false duplicate warning",
+              not any("duplicate" in h["what"] for h in data["health"]))
+
+    print(f"\n{'PASS' if not fails else 'FAIL — ' + str(len(fails)) + ' check(s)'}")
+    return 0 if not fails else 1
+
+
+# ─── entry ───────────────────────────────────────────────────────────────────
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="rbtv control-panel", description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest="verb", metavar="<verb>")
+
+    up = sub.add_parser("update", help="scan the scaffolding, write the page and its data")
+    st = sub.add_parser("status", help="where the data is and how old it is")
+    sub.add_parser("selftest", help="fixture + red arm; exit 0/1")
+    for s in (up, st):
+        s.add_argument("--out", help="output directory (default <runtime>/control-panel)")
+        s.add_argument("--runtime-root", help="path to the `.rbtv/` runtime root")
+        s.add_argument("--json", action="store_true", help="machine-readable result")
+
+    args = p.parse_args(argv)
+    if not args.verb:
+        p.print_help()
+        return 2
+    try:
+        return {"update": cmd_update, "status": cmd_status, "selftest": cmd_selftest}[args.verb](args)
+    except Refusal as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

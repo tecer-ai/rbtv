@@ -1,0 +1,896 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>rbtv control panel</title>
+<!--
+  The rbtv control panel. Shipped and committed; it carries NO data.
+  `rbtv control-panel update` writes panel-data.js beside this file and the page renders it.
+  Every field below is read from window.PANEL_DATA — nothing here is authored for the view.
+  Visual system copied from the v3 mockup (1-projects/build-ignite/control-panel-mockup/).
+-->
+<style>
+:root{
+  --bg:#f6f7f9; --surface:#fff; --hair:#e4e7ec; --ink:#101828; --ink2:#475467; --dim:#98a2b3;
+  --accent:#3056d3; --accent-wash:#eef2ff; --good:#12805c; --good-wash:#e7f6f0;
+  --warn:#b54708; --warn-wash:#fef6ee; --bad:#b42318; --bad-wash:#fef3f2;
+  --violet:#6941c6; --violet-wash:#f4f0ff; --aqua:#0e7490; --aqua-wash:#ecfeff;
+  --side-w:320px; --band-h:49px; --radius:8px;
+  font-synthesis-weight:none;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+button{font:inherit;color:inherit}
+a{color:var(--accent)}
+.shell{display:grid;grid-template-columns:var(--side-w) 1fr;grid-template-rows:auto 1fr;height:100vh}
+/* topbar */
+.top{grid-column:1/-1;height:52px;display:flex;align-items:center;gap:12px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--hair);position:relative;z-index:30}
+.brand{font-weight:600;letter-spacing:-.01em}
+.vtag{font-size:11px;color:var(--dim);border:1px solid var(--hair);border-radius:999px;padding:1px 8px}
+.spacer{flex:1}
+.pill{font-size:12px;color:var(--ink2);background:var(--bg);border:1px solid var(--hair);border-radius:999px;padding:3px 10px}
+/* health */
+.hchip{font-size:12px;border-radius:999px;padding:3px 11px;border:1px solid transparent;cursor:pointer;background:var(--good-wash);color:var(--good);border-color:#bfe6d6}
+.hchip.bad{background:var(--bad-wash);color:var(--bad);border-color:#f7cfcb}
+.hchip.warn{background:var(--warn-wash);color:var(--warn);border-color:#fbdcb8}
+.hpop{position:absolute;right:16px;top:46px;z-index:40;width:min(620px,92vw);background:var(--surface);border:1px solid var(--hair);border-radius:8px;box-shadow:0 12px 32px rgba(16,24,40,.14);text-align:left}
+.hpop-h{padding:9px 12px;border-bottom:1px solid var(--hair);font-size:12px;font-weight:600}
+.hrow{display:flex;gap:10px;padding:8px 12px;border-bottom:1px solid #f6f7f9;align-items:baseline}
+.hlev{font-size:10px;text-transform:uppercase;letter-spacing:.06em;flex:none;width:46px}
+.hlev.error{color:var(--bad)}.hlev.warn{color:var(--warn)}
+.hwhere{font-size:11.5px;color:var(--ink2);overflow-wrap:anywhere;flex:none;max-width:44%}
+.hwhat{font-size:12px;flex:1;min-width:0;overflow-wrap:anywhere}
+.hpop-f{padding:8px 12px;font-size:11px;color:var(--dim)}
+/* sidebar */
+.side{background:var(--surface);border-right:1px solid var(--hair);display:flex;flex-direction:column;overflow:hidden}
+.side-head{height:var(--band-h);display:flex;flex-direction:column;justify-content:center;padding:0 14px;border-bottom:1px solid var(--hair)}
+.side-head b{font-size:13px}
+.side-head span{font-size:11px;color:var(--dim)}
+.side-tools{padding:10px 12px;border-bottom:1px solid var(--hair);display:flex;flex-direction:column;gap:8px}
+.search{width:100%;border:1px solid var(--hair);border-radius:999px;padding:5px 10px;font:inherit;font-size:13px;background:var(--bg)}
+.fpills{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.fkind{font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim);padding:0 2px}
+.fpill{border:1px solid var(--hair);background:var(--surface);border-radius:999px;padding:3px 10px;font-size:12px;color:var(--ink2);cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fpill.on{background:var(--accent-wash);border-color:#c7d2fe;color:var(--accent)}
+.side-body{flex:1;overflow:auto;padding:6px 0}
+.srow{display:flex;gap:9px;align-items:flex-start;width:100%;text-align:left;background:none;border:0;border-left:2px solid transparent;padding:8px 12px;cursor:pointer}
+.srow:hover{background:var(--bg)}
+.srow.on{background:var(--accent-wash);border-left-color:var(--accent)}
+.glyph{width:26px;height:26px;border-radius:6px;display:grid;place-items:center;font-size:11px;font-weight:600;color:#fff;flex:none}
+.srow-t{min-width:0;flex:1;height:26px;display:flex;flex-direction:column;justify-content:space-between}
+.srow-n{font-size:13px;font-weight:500;line-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}
+.srow-s{font-size:10.5px;color:var(--dim);line-height:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.reddot{width:7px;height:7px;border-radius:999px;background:var(--bad);flex:none}
+.side-foot{border-top:1px solid var(--hair);padding:9px 12px;font-size:11px;color:var(--dim)}
+/* content */
+.content{overflow:hidden;display:flex;flex-direction:column}
+.tabs{height:var(--band-h);display:flex;align-items:stretch;gap:2px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--hair)}
+.tab{background:none;border:0;border-bottom:2px solid transparent;padding:0 12px;font-size:13px;color:var(--ink2);cursor:pointer;display:flex;align-items:center;gap:6px}
+.tab.active{color:var(--ink);border-bottom-color:var(--accent);font-weight:500}
+.tab .count{font-size:11px;color:var(--dim);background:var(--bg);border-radius:999px;padding:0 6px}
+.body{flex:1;overflow:auto;padding:18px 20px 60px}
+/* identity band */
+.band{display:flex;gap:14px;align-items:flex-start;background:var(--surface);border:1px solid var(--hair);border-radius:var(--radius) var(--radius) 0 0;padding:14px 16px}
+.band .glyph{width:44px;height:44px;font-size:15px;border-radius:9px}
+.bid{min-width:0;flex:1;height:44px;display:flex;flex-direction:column;justify-content:space-between}
+.bname{display:flex;align-items:center;gap:9px;min-width:0;flex-wrap:wrap}
+h1{font-size:22px;margin:0;letter-spacing:-.02em;line-height:24px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip{font-size:11px;border-radius:999px;padding:2px 9px;border:1px solid transparent;white-space:nowrap}
+.c-type{background:var(--violet-wash);color:var(--violet);border-color:#e4d9ff}
+.c-home{background:var(--bg);color:var(--ink2);border-color:var(--hair)}
+.c-ship{background:var(--bg);color:var(--ink2);border-color:var(--hair)}
+.c-mirror{background:var(--aqua-wash);color:var(--aqua);border-color:#bae6ef}
+.c-over{background:var(--bad-wash);color:var(--bad);border-color:#f7cfcb;font-weight:600}
+.bsub{color:var(--ink2);font-size:13px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.traits{display:flex;gap:11px;align-items:center;height:44px;padding-right:16px}
+.trait{color:var(--violet);cursor:help;opacity:.85}
+.trait.hi{color:var(--aqua)}
+.trait.fb{color:var(--warn)}
+.trait:hover{opacity:1}
+.trait svg{width:17px;height:17px;display:block}
+.bacts{display:flex;gap:7px;align-items:flex-start}
+/* the sources popover — one home for every path */
+.pop{position:absolute;right:0;top:30px;z-index:20;width:min(560px,80vw);background:var(--surface);border:1px solid var(--hair);border-radius:8px;box-shadow:0 12px 32px rgba(16,24,40,.14);text-align:left}
+.pop-h{padding:9px 12px;border-bottom:1px solid var(--hair);font-size:12px;font-weight:600}
+.pop-r{display:flex;align-items:center;gap:9px;padding:6px 12px;border-bottom:1px solid #f6f7f9}
+.pop-k{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);width:62px;flex:none}
+.pop-p{font-size:11.5px;flex:1;min-width:0;overflow-wrap:anywhere;color:var(--ink2)}
+.pop-f{padding:8px 12px;font-size:11px;color:var(--dim)}
+.btn{border:1px solid var(--hair);background:var(--surface);border-radius:6px;padding:4px 10px;font-size:12.5px;cursor:pointer}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn.sm{padding:1px 7px;font-size:11.5px}
+/* facts strip under the band */
+.strip{display:flex;gap:0;background:var(--surface);border:1px solid var(--hair);border-top:0;border-radius:0 0 var(--radius) var(--radius);margin:0 0 16px;overflow:hidden;flex-wrap:wrap}
+.cell{padding:8px 14px;border-right:1px solid var(--hair);display:flex;flex-direction:column;gap:1px;min-width:0}
+.cell:last-child{border-right:0}
+.clab{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
+.cval{font-size:13px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.cval.dim{color:var(--dim)}
+/* the loud blocks: a missing file, a suppressed file */
+.alarm{background:var(--bad-wash);border:1px solid #f7cfcb;border-left:4px solid var(--bad);border-radius:var(--radius);padding:11px 14px;margin:0 0 16px;font-size:13px;color:#7a1a12}
+.alarm b{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--bad);margin-bottom:3px}
+.alarm .mono{overflow-wrap:anywhere}
+.alarm+.alarm{margin-top:-8px}
+/* grid */
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}
+@media (max-width:1240px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--hair);border-radius:var(--radius);overflow:hidden}
+.phead{display:flex;align-items:baseline;gap:9px;padding:11px 16px;border-bottom:1px solid var(--hair);flex-wrap:wrap}
+.ptitle{font-size:13px;font-weight:600;letter-spacing:.02em;text-transform:uppercase}
+.psub{font-size:11.5px;color:var(--dim)}
+.fileband{display:flex;align-items:center;gap:8px;padding:7px 16px;background:var(--bg);border-bottom:1px solid var(--hair);border-top:1px solid var(--hair);font-size:11.5px;color:var(--ink2)}
+.fileband .k{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);flex:none}
+.fileband .p{overflow-wrap:anywhere}
+.fileband.gone{background:var(--bad-wash);color:var(--bad)}
+.sec{padding:14px 16px;border-top:1px solid #f1f3f6}
+.slab{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--dim);margin-bottom:6px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.stext{font-size:13.5px;line-height:1.62;color:var(--ink);overflow-wrap:anywhere}
+.stext p{margin:0 0 9px}
+.stext p:last-child{margin-bottom:0}
+.stext ul{margin:0;padding-left:18px}
+.stext li{margin-bottom:5px}
+.stext code{background:var(--bg);border:1px solid var(--hair);border-radius:4px;padding:0 4px;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace}
+.raw{white-space:pre-wrap;font-size:12.5px;line-height:1.55}
+.steps{display:flex;flex-direction:column;gap:9px}
+.step{display:flex;gap:10px}
+.snum{flex:none;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:var(--accent-wash);color:var(--accent);font-size:11px;font-weight:600;display:grid;place-items:center;margin-top:2px}
+.clamp{position:relative;max-height:250px;overflow:hidden}
+.clamp:after{content:"";position:absolute;left:0;right:0;bottom:0;height:56px;background:linear-gradient(to bottom,rgba(255,255,255,0),#fff)}
+.more{margin-top:7px;background:none;border:0;color:var(--accent);font-size:12px;cursor:pointer;padding:0}
+.edge{border-left:2px solid var(--hair);padding-left:11px}
+.e-may{border-left-color:#93b4f7}.e-never{border-left-color:#f2a09a}.e-within{border-left-color:#f0c48a}
+.e-ok{border-left-color:#7fc9ae}
+/* catalog row */
+.crow{display:grid;grid-template-columns:150px minmax(0,1fr);gap:5px 12px;font-size:12.5px}
+.crow .k{color:var(--dim);font-size:11px;overflow-wrap:anywhere}
+.crow .v{overflow-wrap:anywhere}
+.crow .v.empty{color:var(--dim)}
+/* rail */
+.rail{display:flex;flex-direction:column;gap:12px;position:sticky;top:0;min-width:0}
+@media (max-width:1240px){.rail{position:static}}
+.card{background:var(--surface);border:1px solid var(--hair);border-radius:var(--radius)}
+.card.loud{border-color:#f7cfcb}
+.chead{padding:9px 13px;border-bottom:1px solid var(--hair);font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px}
+.chead .info{color:var(--dim);cursor:help;font-weight:400}
+.cbody{padding:11px 13px;font-size:12.5px;display:flex;flex-direction:column;gap:8px;overflow-wrap:anywhere;min-width:0}
+.kv{display:flex;gap:8px;align-items:baseline}
+.kv .k{color:var(--dim);font-size:11px;min-width:76px;flex:none}
+.kv .v{font-size:12.5px;min-width:0;overflow-wrap:anywhere}
+.hint{color:var(--ink2);font-size:12px;background:var(--bg);border:1px dashed var(--hair);border-radius:6px;padding:8px 9px;line-height:1.5}
+.hint b{font-weight:600}
+.empty{color:var(--dim);font-size:12px;line-height:1.5}
+.tagline{margin-top:16px;font-size:11.5px;color:var(--dim);line-height:1.6;max-width:100ch}
+.taglist{display:flex;flex-wrap:wrap;gap:5px}
+.tagchip{font-size:11px;border:1px solid var(--hair);background:var(--bg);border-radius:999px;padding:1px 8px;color:var(--ink2)}
+.exp-grp{display:flex;flex-direction:column;gap:3px}
+.exp-grp+.exp-grp{border-top:1px solid #f1f3f6;padding-top:8px}
+.exp-h{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--dim);display:flex;align-items:center;gap:6px;cursor:help;margin-bottom:2px}
+.exp-row{display:flex;align-items:baseline;gap:7px}
+.exp-id{font-size:11.5px;min-width:0;overflow-wrap:anywhere}
+.wfm{border-top:1px solid #f1f3f6;padding-top:8px}
+.wfm:first-child{border-top:0;padding-top:0}
+.wfm .n{font-size:12.5px;font-weight:600}
+.wfm .d{font-size:11px;color:var(--dim);margin-top:2px;line-height:1.45}
+/* ---------- the workflow step list ---------- */
+.wsteps{display:flex;flex-direction:column}
+.wstep{display:flex;gap:11px;padding:11px 16px;border-top:1px solid #f1f3f6}
+.wstep:first-child{border-top:0}
+.wstep-n{flex:none;width:22px;height:22px;border-radius:999px;background:var(--accent-wash);color:var(--accent);font-size:11px;font-weight:600;display:grid;place-items:center;margin-top:1px}
+.wstep-b{min-width:0;flex:1}
+.wstep-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.wstep-h .nm{font-size:13px;font-weight:600}
+.m-int{background:var(--aqua-wash);color:var(--aqua);border-color:#bae6ef}
+.m-ag{background:var(--bg);color:var(--ink2);border-color:var(--hair)}
+.wio{margin-top:5px;font-size:12.5px;line-height:1.55;display:grid;grid-template-columns:34px minmax(0,1fr);gap:2px 8px}
+.wio .k{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);padding-top:3px}
+.wio .v{overflow-wrap:anywhere}
+.wafter{margin-top:4px;font-size:11px;color:var(--dim)}
+/* ---------- the drawn diagram ----------
+   Everything here is derived from the manifest's ONE structural column, `after`:
+   a row with an empty after is layer 0; every other row lands one below the deepest
+   row its after names. Rows at the same layer are drawn side by side — nothing among
+   them waits on another. An arrow means WAITS FOR; its label is the upstream row's
+   own `out`, never a claim that the row below consumes it. */
+.gph{position:relative;--col:min(560px,100%)}
+.layer,.conn{width:var(--col);margin-left:auto;margin-right:auto}
+.layer{display:grid;gap:14px;align-items:start;justify-items:center}
+.wseat{position:relative;display:flex;align-items:center;justify-content:center;width:300px;max-width:100%;background:var(--surface);border:1px solid #d3d8e0;border-radius:8px;padding:10px 30px;cursor:pointer;font:inherit;color:inherit;box-shadow:0 1px 1.5px rgba(16,24,40,.05)}
+.wseat:hover{border-color:#93aef5}
+.wseat.on{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-wash)}
+.nid{font-size:12.5px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
+.wseat .trait{position:absolute;right:9px;top:50%;transform:translateY(-50%);height:15px}
+.wseat .trait svg{width:15px;height:15px}
+.pband{border:1px solid var(--hair);border-radius:var(--radius);background:#fbfcfe;padding:9px;width:100%;max-width:640px}
+.pbh{padding:0 3px 8px}
+.pbh b{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2)}
+.pbh span{display:block;font-size:11px;color:var(--dim);margin-top:2px;line-height:1.4}
+.pbrow{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:var(--surface);border:1px solid var(--hair);border-radius:6px;padding:7px 9px;cursor:pointer;font:inherit;color:inherit;flex-wrap:wrap}
+.pbrow+.pbrow{margin-top:6px}
+.pbrow:hover{border-color:#93aef5}
+.pbrow.on{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-wash)}
+.pbrow .nid{font-size:12px;flex:none;max-width:47%;text-align:left}
+.pbo{font-size:11.5px;color:var(--ink2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.conn{position:relative;height:46px;width:100%}
+.conn:before{content:"";position:absolute;left:50%;margin-left:-1px;top:0;bottom:7px;width:2px;background:#c8cfda}
+.conn:after{content:"";position:absolute;left:50%;margin-left:-5px;bottom:0;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid #c8cfda}
+.eout{z-index:1;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:var(--surface);padding:2px 10px;border:1px solid #dfe3ea;border-radius:999px;font-size:11.5px;color:var(--ink);max-width:min(420px,92%);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help}
+.ejoin{z-index:1;position:absolute;left:50%;top:76%;transform:translate(-50%,-50%);background:var(--surface);padding:1px 8px;border:1px solid var(--hair);border-radius:999px;font-size:10.5px;color:var(--dim);max-width:min(420px,92%);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help}
+.conn.tall{height:64px}
+.conn.tall .eout{top:34%}
+.conn.entry{height:52px}
+.conn.entry:before{top:14px}
+.conn.entry .eout{top:60%}
+.conn.exit{height:40px}
+.entry-lab{position:absolute;left:50%;top:-2px;transform:translateX(-50%);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);background:var(--surface);padding:0 8px;cursor:help}
+.gnote{font-size:11.5px;color:var(--dim);line-height:1.5;padding:14px 0 0}
+@media (max-width:1400px){.grid.wide{grid-template-columns:minmax(0,1fr)}.grid.wide .rail{position:static}}
+/* no-data state */
+.nodata{min-height:100vh;display:grid;place-items:center;padding:24px}
+.nodata .card{max-width:520px;padding:26px 28px;text-align:center}
+.nodata h2{font-size:17px;margin:0 0 8px}
+.nodata p{color:var(--ink2);font-size:13px;margin:0 0 14px;line-height:1.6}
+.nodata .cmd{display:inline-block;background:var(--bg);border:1px solid var(--hair);border-radius:6px;padding:7px 12px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+.nodata .foot{margin-top:16px;font-size:11.5px;color:var(--dim);line-height:1.6}
+</style>
+</head>
+<body>
+<div class="shell" id="shell" hidden>
+  <div class="top">
+    <span class="brand">rbtv control panel</span>
+    <span class="vtag" id="stamp"></span>
+    <span class="spacer"></span>
+    <button class="hchip" id="hchip"></button>
+    <span class="pill" id="rootpill" title="the two trees this page is derived from"></span>
+    <div id="hpop"></div>
+  </div>
+  <div class="side">
+    <div class="side-head" id="sidehead"></div>
+    <div class="side-tools">
+      <input class="search" id="q" placeholder="&#9906; search" />
+      <div class="fpills" id="pills"></div>
+    </div>
+    <div class="side-body" id="list"></div>
+    <div class="side-foot" id="foot"></div>
+  </div>
+  <div class="content">
+    <div class="tabs" id="tabs"></div>
+    <div class="body" id="main"></div>
+  </div>
+</div>
+<div class="nodata" id="nodata" hidden>
+  <div class="card">
+    <h2>No data yet</h2>
+    <p>This page is a projection of the scaffolding on disk. It carries no data of its own, and the
+       scan that produces the data has not run here yet.</p>
+    <div class="cmd">rbtv control-panel update</div>
+    <div class="foot">That writes <span class="mono">panel-data.js</span> beside this file; reload the page afterwards.</div>
+  </div>
+</div>
+
+<script src="panel-data.js"></script>
+<script>
+/* ============================= the data ============================= */
+const D = window.PANEL_DATA;
+if (!D) { document.getElementById("nodata").hidden = false; }
+else { document.getElementById("shell").hidden = false; boot(); }
+
+function boot() {
+
+const SEATS = D.seats || [];
+const WFS = D.workflows || [];
+const HEALTH = D.health || [];
+
+const state = {
+  tab: "seats",
+  seat: SEATS.length ? SEATS[0].id : null,
+  wf: WFS.length ? WFS[0].name : null,
+  q: "", filter: null,          /* filter = {kind, value} — one narrowing selection at a time */
+  open: {},                     /* which clamped sections are expanded */
+  files: false, hpop: false, sel: null,
+};
+
+/* ============================= helpers ============================= */
+const esc = s => String(s === null || s === undefined ? "" : s)
+  .replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[c]));
+/* the only markdown the real files carry inside a field: **bold** and `code` */
+const md = s => esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/`([^`]+)`/g, "<code>$1</code>");
+const has = a => Array.isArray(a) && a.length > 0;
+const seatById = id => SEATS.find(s => s.id === id);
+const wfByName = n => WFS.find(w => w.name === n);
+
+/* a glyph is derived, never authored: a stable hue per id and its first letters */
+const HUES = ["#3056d3","#6941c6","#0e7490","#b54708","#12805c","#b42318","#7a5af8","#0f766e","#9a3412","#155e75"];
+function hueOf(id) {
+  let h = 0; for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return HUES[h % HUES.length];
+}
+function initialsOf(id) {
+  const parts = String(id).split(/[-_/]/).filter(Boolean);
+  return ((parts[0] || "?")[0] + ((parts[1] || parts[0] || "?")[0] || "")).toUpperCase();
+}
+
+/* ============================= icons ============================= */
+const svg = b => `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${b}</svg>`;
+const TYPE_ICON = {
+  planner: svg(`<circle cx="3" cy="8" r="1.7" fill="currentColor" stroke="none"/>
+    <path d="M4.9 8h1.8c.9 0 1.6-.7 1.6-1.6V5.5c0-.9.7-1.6 1.6-1.6h1.4"/>
+    <path d="M4.9 8h1.8c.9 0 1.6.7 1.6 1.6v1c0 .9.7 1.6 1.6 1.6h1.4"/>
+    <circle cx="13" cy="3.9" r="1.6" fill="currentColor" stroke="none"/>
+    <circle cx="13" cy="12.1" r="1.6" fill="currentColor" stroke="none"/>`),
+  verifier: svg(`<path d="M8 1.7 13.3 3.5v4.1c0 3.1-2.1 5.5-5.3 6.7-3.2-1.2-5.3-3.6-5.3-6.7V3.5L8 1.7Z"/>
+    <path d="m5.7 7.9 1.6 1.7 3.1-3.3"/>`),
+  worker: svg(`<path d="M8 1.9 13.7 5v6L8 14.1 2.3 11V5L8 1.9Z"/><path d="m2.3 5 5.7 3.1L13.7 5"/><path d="M8 8.1v6"/>`),
+  master: svg(`<circle cx="8" cy="8" r="2.5"/><path d="M8 2.2v3.3M8 10.5v3.3M2.2 8h3.3M10.5 8h3.3"/>
+    <circle cx="8" cy="1.9" r="1.1" fill="currentColor" stroke="none"/><circle cx="8" cy="14.1" r="1.1" fill="currentColor" stroke="none"/>
+    <circle cx="1.9" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="14.1" cy="8" r="1.1" fill="currentColor" stroke="none"/>`),
+};
+TYPE_ICON.checker = TYPE_ICON.verifier;
+TYPE_ICON.judge = TYPE_ICON.verifier;
+TYPE_ICON.staff = TYPE_ICON.planner;
+TYPE_ICON.leader = TYPE_ICON.master;
+const HI_ICON = svg(`<path d="M2.4 3.4h11.2c.6 0 1 .5 1 1v5.9c0 .6-.4 1-1 1H7.3l-3.1 2.3v-2.3H2.4c-.6 0-1-.4-1-1V4.4c0-.5.4-1 1-1Z"/>
+  <path d="M6.7 6.1a1.4 1.4 0 1 1 1.8 1.4c-.4.2-.6.4-.6.8"/><circle cx="7.9" cy="9.7" r=".8" fill="currentColor" stroke="none"/>`);
+const FB_ICON = svg(`<rect x="11.4" y="2.4" width="2.2" height="11.2" rx="1.1" fill="currentColor" stroke="none"/>
+  <path d="M2 5.2h6.6M2 8h6.6M2 10.8h6.6"/>`);
+const TYPE_TIP = {
+  planner: "Planner — it decides the shape of the work: what the goal means, how it splits, who is needed. It produces plans, never products.",
+  verifier: "Verifier — a gate the work passes through. It judges finished work against its contract and can only pass or fail it; it never repairs or re-plans.",
+  worker: "Worker — it does one bounded piece of the work and produces the artifact itself.",
+  master: "Master — the standing coordinator that routes requests and holds the run open.",
+};
+const typeKey = s => String((s.prompt && s.prompt.agentType) || "").toLowerCase().replace(/[^a-z].*$/, "");
+
+/* ============================= sections ============================= */
+/* long fields clamp to a fixed height with a "show all" disclosure — the same
+   mechanic on every kind, so a rich seat and a thin one read the same way */
+const CLAMP = { procedure: 1, doneContract: 1, constraints: 1, ioSpec: 1, resources: 1, taskScope: 1, restrictions: 1 };
+function sec(key, label, html, cls, note) {
+  const clampable = CLAMP[key], open = state.open[key];
+  return `<div class="sec">
+    <div class="slab">${label}${note ? `<span style="text-transform:none;letter-spacing:0;color:var(--dim)">${note}</span>` : ""}</div>
+    <div class="stext ${cls || ""} ${clampable && !open ? "clamp" : ""}">${html}</div>
+    ${clampable ? `<button class="more" onclick="state.open['${key}']=!state.open['${key}'];render()">${open ? "show less" : "show all"}</button>` : ""}
+  </div>`;
+}
+const para = t => `<p>${md(t)}</p>`;
+const list = a => `<ul>${a.map(x => `<li>${md(x)}</li>`).join("")}</ul>`;
+const raw = t => `<div class="raw">${md(t)}</div>`;
+const steps = a => `<div class="steps">${a.map((x, i) =>
+  `<div class="step"><span class="snum">${esc(x && x.n !== undefined && x.n !== "" ? x.n : i + 1)}</span><span>${md(x && x.text !== undefined ? x.text : x)}</span></div>`).join("")}</div>`;
+const cell = (lab, val, tip, dim) =>
+  `<div class="cell" title="${esc(tip || "")}"><span class="clab">${lab}</span><span class="cval ${dim ? "dim" : ""}">${val}</span></div>`;
+const kv = (k, v, tip) => `<div class="kv" title="${esc(tip || "")}"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+const chips = a => `<div class="taglist">${a.map(x => `<span class="tagchip mono">${esc(x)}</span>`).join("")}</div>`;
+
+/* ============================= origin ============================= */
+/* Three cases, and the third must be impossible to miss: a mirror row that
+   SUPPRESSES a shipped file of the same id names the file it suppressed. */
+function originChip(s) {
+  if (s.origin === "mirror" && s.overrides)
+    return `<span class="chip c-over" title="This mirror row suppresses the shipped file at ${esc(s.overrides)} — the shipped definition is NOT what runs.">mirror overrides shipped</span>`;
+  if (s.origin === "mirror")
+    return `<span class="chip c-mirror" title="Defined in the mirror tree (${esc(D.roots && D.roots.mirror)}) — this component ships from nowhere else.">mirror</span>`;
+  return `<span class="chip c-ship" title="Defined in the shipped tree (${esc(D.roots && D.roots.shipped)}).">shipped</span>`;
+}
+function originCard(s) {
+  return `<div class="card ${s.overrides ? "loud" : ""}">
+    <div class="chead">Origin <span class="info" title="Which of the two trees this definition was read from, and — for a mirror row of an id that also ships — which shipped file it suppresses.">&#9432;</span></div>
+    <div class="cbody">
+      ${kv("tree", originChip(s))}
+      ${kv("catalog", `<span class="mono">${esc(s.catalogPath)}</span>`, "the seats.csv row this seat is cataloged in")}
+      ${s.overrides
+        ? `<div class="hint" style="border-color:#f7cfcb;background:var(--bad-wash);color:#7a1a12"><b>Supersession</b> — this row suppresses the shipped file <span class="mono">${esc(s.overrides)}</span>. That file is on disk and is NOT what runs.</div>`
+        : `<div class="empty">Nothing suppressed — no file of another tree is shadowed by this one.</div>`}
+    </div>
+  </div>`;
+}
+
+/* ============================= seat view ============================= */
+function filesPopover(s) {
+  const rows = [["catalog", s.catalogPath, "the seats.csv row: executor, task, description and the seat's declarations"]];
+  if (s.prompt) rows.push(["prompt", s.prompt.path, "the seat's instructions — persona, procedure, boundaries"]);
+  if (s.taskFile) rows.push(["task", s.taskFile.path, "the seat's assignment — task goal, scope, done contract"]);
+  (s.workflows || []).forEach(w => {
+    const full = WFS.find(x => x.name === w.name);
+    if (full) rows.push(["manifest", full.manifestPath, `the ${w.name} manifest row: what it waits on, its i/o, its modality`]);
+  });
+  if (s.overrides) rows.push(["suppressed", s.overrides, "the shipped file this mirror row overrides — present on disk, never loaded"]);
+  return popHTML(rows);
+}
+function popHTML(rows) {
+  return `<div class="pop" onclick="event.stopPropagation()">
+    <div class="pop-h">Where every field on this page comes from</div>
+    ${rows.map(([k, p, why]) => `<div class="pop-r" title="${esc(why)}">
+      <span class="pop-k">${k}</span><span class="mono pop-p">${esc(p)}</span>
+    </div>`).join("")}
+    <div class="pop-f">Paths are relative to the tree they were read from. The page is a projection of these files — it holds no state of its own.</div>
+  </div>`;
+}
+
+function seatAlarms(s) {
+  let h = (s.health || []).map(e => `<div class="alarm"><b>${esc(e.level)}</b>${md(e.what)}</div>`).join("");
+  if (s.overrides) h += `<div class="alarm"><b>mirror overrides shipped</b>This seat is defined in the mirror and SUPPRESSES the shipped file
+    <span class="mono">${esc(s.overrides)}</span>. The shipped definition is on disk and is not what runs.</div>`;
+  return h;
+}
+
+function catalogPanel(s) {
+  const c = s.catalog || {};
+  const keys = Object.keys(c);
+  return `<div class="fileband" title="${esc(s.catalogPath)}">
+      <span class="k">catalog row</span><span class="p mono">${esc(s.catalogPath)}</span></div>
+    ${sec("catalogRow", "The row, column by column",
+      keys.length
+        ? `<div class="crow">${keys.map(k => `<span class="k mono">${esc(k)}</span>
+             <span class="v ${c[k] ? "" : "empty"}">${c[k] ? md(c[k]) : "&mdash; empty"}</span>`).join("")}</div>`
+        : `<span class="empty">This catalog carries no columns for the seat.</span>`,
+      "", `${keys.length} columns &middot; catalogs differ between components, so the columns are shown as they are`)}`;
+}
+
+function promptSections(s) {
+  const p = s.prompt;
+  if (!p) return `<div class="fileband gone"><span class="k">prompt file</span><span class="p">missing &mdash; the catalog names an executor whose prompt file is not on disk</span></div>`;
+  const out = [`<div class="fileband" title="${esc(p.path)}"><span class="k">prompt file</span><span class="p mono">${esc(p.path)}</span></div>`];
+  if (p.description) out.push(sec("pdesc", "What the prompt says it is", para(p.description)));
+  if (p.persona) out.push(sec("persona", "Persona", para(p.persona)));
+  if (p.scope) out.push(sec("scope", "Scope", para(p.scope)));
+  if (p.agentType) out.push(sec("agentType", "Agent type", para(p.agentType)));
+  if (p.staffingRecommendations) out.push(sec("staffing", "Staffing recommendation", para(p.staffingRecommendations), "edge"));
+  if (has(p.role) && !p.persona && !p.scope) out.push(sec("role", "Role", list(p.role)));
+  if (has(p.procedure)) out.push(sec("procedure", "Procedure", steps(p.procedure), "", `${p.procedure.length} steps`));
+  if (has(p.resources)) out.push(sec("resources", "Resources", list(p.resources), "", "what it may reach"));
+  if (p.ioSpec) out.push(sec("ioSpec", "Input / outcome / output", raw(p.ioSpec), "", "verbatim from the prompt file"));
+  if (has(p.permissions)) out.push(sec("permissions", "Permissions &mdash; may", list(p.permissions), "edge e-may"));
+  if (has(p.restrictions)) out.push(sec("restrictions", "Restrictions &mdash; never", list(p.restrictions), "edge e-never"));
+  if (has(p.constraints)) out.push(sec("constraints", "Constraints &mdash; within", list(p.constraints), "edge e-within"));
+  if (out.length === 1) out.push(sec("pthin", "Parsed contract",
+    `<span class="empty">The prompt file is on disk but carries none of the parsed sections &mdash; only its frontmatter.</span>`));
+  return out.join("");
+}
+
+function taskSections(s) {
+  const t = s.taskFile;
+  if (!t) return `<div class="fileband gone"><span class="k">task file</span><span class="p">missing &mdash; the catalog names a task whose file is not on disk</span></div>`;
+  const out = [`<div class="fileband" title="${esc(t.path)}"><span class="k">task file</span><span class="p mono">${esc(t.path)}</span></div>`];
+  if (t.description) out.push(sec("tdesc", "What the task says it is", para(t.description)));
+  if (t.taskGoal) out.push(sec("taskGoal", "Task goal", para(t.taskGoal)));
+  if (has(t.scope)) out.push(sec("taskScope", "Task scope", list(t.scope)));
+  if (has(t.doneContract)) out.push(sec("doneContract", "Done contract", list(t.doneContract), "edge e-ok",
+    `${t.doneContract.length} clauses &mdash; all must hold`));
+  if (out.length === 1) out.push(sec("tthin", "Parsed contract",
+    `<span class="empty">The task file is on disk but carries none of the parsed sections.</span>`));
+  return out.join("");
+}
+
+const EXP_META = {
+  path: ["CLIs &mdash; on PATH", "exposure method `path` — a real executable the seat calls; its cage binds the path in the seat descriptor"],
+  skill: ["Skills &mdash; loaded", "exposure method `skill` — a file the seat LOADS by name and applies; it is read, never executed"],
+  "sub-agent": ["Sub-agents &mdash; dispatchable", "exposure method `sub-agent` — a cataloged prompt this seat may fan out in-process; the dispatch dies with the step"],
+};
+function railExposes(s) {
+  const ex = (s.prompt && s.prompt.exposes) || {};
+  const groups = Object.keys(EXP_META).filter(k => has(ex[k])).map(k => `<div class="exp-grp">
+      <div class="exp-h" title="${esc(EXP_META[k][1])}">${EXP_META[k][0]}</div>
+      ${ex[k].map(id => `<div class="exp-row"><span class="mono exp-id">${esc(id)}</span></div>`).join("")}
+    </div>`).join("");
+  return `<div class="card">
+    <div class="chead">Exposes <span class="info" title="What this seat may reach, from its prompt frontmatter's exposes: block — grouped by the method that carries it, since a CLI it runs and a skill it loads are not the same kind of reach.">&#9432;</span></div>
+    <div class="cbody">${groups || `<div class="empty">Nothing exposed &mdash; this definition names no <span class="mono">exposes:</span> block, so its cage grants it no CLI, skill or sub-agent.</div>`}</div>
+  </div>`;
+}
+function railDeclarations(s) {
+  const p = s.prompt || {};
+  return `<div class="card">
+    <div class="chead">Declarations <span class="info" title="What the catalog row declares about the seat: the ONE goal file it owns, the cage grants it needs, the paths it opens read-write, and what happens when it fails.">&#9432;</span></div>
+    <div class="cbody">
+      ${kv("goal-writes", s.goalWrites ? `<span class="mono">${esc(s.goalWrites)}</span>` : `<span class="empty">&mdash; none; it hands its work on without owning a goal file</span>`,
+        "the ONE output this seat owns in the goal folder")}
+      ${has(s.cageGrants) ? `<div><div class="exp-h" title="the named grants the seat's cage must carry">Cage grants</div>${chips(s.cageGrants)}</div>`
+        : kv("cage grants", `<span class="empty">&mdash; none declared</span>`)}
+      ${has(s.rwPaths) ? `<div><div class="exp-h" title="paths the cage opens read-write for this seat">Read-write paths</div>${chips(s.rwPaths)}</div>`
+        : kv("rw-paths", `<span class="empty">&mdash; none declared</span>`)}
+      ${s.onFailRelaunch ? kv("on fail", esc(s.onFailRelaunch), "the relaunch declaration in the catalog row") : ""}
+      ${s.staffingHints ? `<div class="hint"><b>Catalog staffing hint</b> &mdash; ${md(s.staffingHints)}</div>` : ""}
+      ${p.staffingRecommendations ? `<div class="hint"><b>Prompt staffing hint</b> &mdash; ${md(p.staffingRecommendations)}</div>` : ""}
+    </div>
+  </div>`;
+}
+function railWorkflows(s) {
+  const ws = s.workflows || [];
+  return `<div class="card">
+    <div class="chead">Workflow membership <span class="info" title="The manifest rows that name this seat. A seat in no manifest is not a workflow step: it is dispatched on demand — a pool seat shopped in, a sub-agent fanned out in-process, or a standing seat with no DAG position.">&#9432;</span></div>
+    <div class="cbody">
+      ${ws.length ? ws.map(w => `<div class="wfm">
+          <div class="n">${esc(w.name)}
+            <span class="chip ${w.modality === "interactive" ? "m-int" : "m-ag"}" style="margin-left:5px">${esc(w.modality || "—")}</span></div>
+          <div class="d">after: ${has(w.after) ? `<span class="mono">${esc(w.after.join(", "))}</span>` : "nothing &mdash; it opens the workflow"}</div>
+          <div class="d">${esc(w.io || "")}</div>
+          <button class="btn sm" style="margin-top:6px" onclick="state.tab='workflows';state.wf='${esc(w.name)}';state.sel='${esc(s.id)}';state.q='';render()">open the workflow &rarr;</button>
+        </div>`).join("")
+      : `<div class="empty">${s.offManifest ? "In no workflow manifest &mdash; this seat holds no DAG position. It is dispatched on demand rather than reached as a step." : "No manifest row."}</div>`}
+    </div>
+  </div>`;
+}
+
+function seatView() {
+  const s = seatById(state.seat);
+  if (!s) return `<div class="empty">No seat selected.</div>`;
+  const p = s.prompt || {};
+  const tk = typeKey(s);
+  return `
+  <div class="band">
+    <div class="glyph" style="background:${hueOf(s.id)}">${esc(initialsOf(s.id))}</div>
+    <div class="bid">
+      <div class="bname">
+        <h1>${esc(s.id)}</h1>
+        <span class="chip c-home mono" title="module / component — where this seat's files live">${esc(s.componentId)}</span>
+        ${originChip(s)}
+        ${s.offManifest ? `<span class="chip c-type" title="This seat holds no row in any workflow manifest — it is dispatched on demand rather than reached as a step.">off-manifest</span>` : ""}
+      </div>
+      <div class="bsub" title="${esc(s.description)}">${esc(s.description)}</div>
+    </div>
+    <div class="traits">
+      ${TYPE_ICON[tk] ? `<span class="trait" title="${esc(TYPE_TIP[tk] || p.agentType)}">${TYPE_ICON[tk]}</span>` : ""}
+      ${p.humanInteractive ? `<span class="trait hi" title="Human-interactive — this seat may put a question to the owner while it runs, and waits for the answer.">${HI_ICON}</span>` : ""}
+      ${p.fallback ? `<span class="trait fb" title="fallback: ${esc(p.fallback)} — what it does when it cannot proceed.">${FB_ICON}</span>` : ""}
+    </div>
+    <div class="bacts">
+      <span style="position:relative">
+        <button class="btn" onclick="event.stopPropagation();state.files=!state.files;render()" title="Every file this page is read from">&#10216;&#10217; files</button>
+        ${state.files ? filesPopover(s) : ""}
+      </span>
+    </div>
+  </div>
+  <div class="strip">
+    ${cell("Executor", `<span class="mono">${esc(s.executor)}</span>`, "the prompt file behind the seat")}
+    ${cell("Task", `<span class="mono">${esc(s.task)}</span>`, "the task file behind the seat")}
+    ${cell("Goal-writes", s.goalWrites ? `<span class="mono">${esc(s.goalWrites)}</span>` : "none", "the ONE output this seat owns in the goal folder", !s.goalWrites)}
+    ${cell("Workflows", has(s.workflows) ? s.workflows.map(w => esc(w.name)).join(" &middot; ") : "none &mdash; off-manifest",
+      "the manifests that carry a row for this seat", !has(s.workflows))}
+    ${cell("Origin", esc(s.origin) + (s.overrides ? " &mdash; overrides shipped" : ""), "which tree this definition was read from")}
+  </div>
+  ${seatAlarms(s)}
+  <div class="grid">
+    <div class="panel">
+      <div class="phead">
+        <span class="ptitle">The seat</span>
+        <span class="psub">one catalog row + one prompt file + one task file &mdash; this is everything the occupant is handed</span>
+      </div>
+      ${catalogPanel(s)}
+      ${promptSections(s)}
+      ${taskSections(s)}
+    </div>
+    <div class="rail">${originCard(s)}${railDeclarations(s)}${railExposes(s)}${railWorkflows(s)}</div>
+  </div>
+  <div class="tagline">A seat is a catalog row plus a prompt file plus a task file. Every field above is read from those three &mdash; no field on this page is authored for the view. A missing prompt or task is shown as missing, never filled in.</div>`;
+}
+
+/* ====================== workflows: layering from `after` ======================
+   The manifest carries exactly ONE structural column — `after`. A row with an empty
+   after is layer 0; every other row lands one layer below the deepest row its after
+   names. Rows at the same layer are drawn side by side: nothing among them waits on
+   another. Nothing here is hand-placed, and nothing v3 drew from hand-authored
+   fields (phases, alternate lanes, loops) is drawn, because the manifest has none. */
+function layerize(rows) {
+  const by = {}; rows.forEach(r => { by[r.seat] = r; });
+  const seen = {}, busy = {};
+  const depth = id => {
+    if (seen[id] !== undefined) return seen[id];
+    if (busy[id]) return 0;                       /* a cycle never hangs the page */
+    busy[id] = 1;
+    const deps = (by[id].after || []).filter(d => by[d] && d !== id);
+    const d = deps.length ? 1 + Math.max(...deps.map(depth)) : 0;
+    busy[id] = 0;
+    return (seen[id] = d);
+  };
+  const out = [];
+  rows.forEach(r => { const d = depth(r.seat); (out[d] = out[d] || []).push(r); });
+  return out.filter(Boolean);
+}
+/* an io cell reads "in: … ; out: …" — split it so an arrow can carry the upstream out */
+function io2(r) {
+  const m = /^\s*in:\s*([\s\S]*?);\s*out:\s*([\s\S]*)$/i.exec(r.io || "");
+  return m ? { in: m[1].trim(), out: m[2].trim() } : { in: r.io || "", out: r.io || "" };
+}
+const shortIO = s => {
+  const t = String(s).replace(/\s*\([^)]*\)/g, "").trim();
+  return t.length > 78 ? t.slice(0, 77) + "…" : t;
+};
+
+function wseat(r) {
+  const on = state.sel === r.seat;
+  return `<button class="wseat ${on ? "on" : ""}" title="${esc(r.seat)} &mdash; ${esc(r.io || "")}"
+      onclick="event.stopPropagation();state.sel=${on ? "null" : `'${esc(r.seat)}'`};render()">
+    <span class="nid mono">${esc(r.seat)}</span>
+    ${r.modality === "interactive" ? `<span class="trait hi" title="Modality: interactive — this seat may put a question to the owner while it runs, and waits for the answer.">${HI_ICON}</span>` : ""}
+  </button>`;
+}
+function pbrow(r) {
+  const on = state.sel === r.seat;
+  return `<button class="pbrow ${on ? "on" : ""}" title="${esc(r.io || "")}"
+      onclick="event.stopPropagation();state.sel=${on ? "null" : `'${esc(r.seat)}'`};render()">
+    <span class="nid mono">${esc(r.seat)}</span>
+    <span class="pbo">${esc(shortIO(io2(r).out))}</span>
+    ${r.modality === "interactive" ? `<span class="trait hi" title="Modality: interactive">${HI_ICON}</span>` : ""}
+  </button>`;
+}
+function pband(rows) {
+  return `<div class="pband">
+    <div class="pbh"><b>${rows.length} seats &middot; in parallel</b>
+      <span title="these rows land at the same depth in the after column: none of them waits on another, so the manifest can start them together">nothing here waits on another</span></div>
+    ${rows.map(pbrow).join("")}
+  </div>`;
+}
+function connFor(layer, prev) {
+  let out = "", tip = "";
+  if (prev.length === 1) { out = shortIO(io2(prev[0]).out); tip = `out of ${prev[0].seat} — verbatim: ${io2(prev[0]).out}`; }
+  else { out = `${prev.length} outputs`; tip = prev.map(p => `${p.seat} → ${io2(p).out}`).join("  ·  "); }
+  let join = "";
+  if (layer.length === 1) {
+    const deps = (layer[0].after || []).filter(Boolean);
+    if (deps.length > 1) join = `<span class="ejoin mono" title="after: ${esc(deps.join(", "))}">waits on all ${deps.length}</span>`;
+  }
+  return `<div class="conn ${join ? "tall" : ""}">
+    <span class="eout" title="${esc(tip)}">${esc(out)}</span>${join}</div>`;
+}
+function graph(w) {
+  if (!has(w.rows)) return "";
+  const L = layerize(w.rows);
+  let h = `<div class="conn entry">
+    <span class="entry-lab" title="the first row's input — what the workflow is handed from outside">in</span>
+    <span class="eout" title="${esc(io2(L[0][0]).in)}">${esc(shortIO(io2(L[0][0]).in))}</span></div>`;
+  L.forEach((lay, i) => {
+    if (i > 0) h += connFor(lay, L[i - 1]);
+    h += `<div class="layer">${lay.length > 1 ? pband(lay) : wseat(lay[0])}</div>`;
+  });
+  const last = L[L.length - 1];
+  if (last.length === 1) h += `<div class="conn exit"><span class="eout" title="${esc(io2(last[0]).out)}">${esc(shortIO(io2(last[0]).out))}</span></div>`;
+  return `<div class="gph">${h}</div>
+    <div class="gnote">Depth and parallelism above are derived from the manifest's <span class="mono">after</span> column and nothing else &mdash; the file carries no other structure, so nothing here is positioned by hand. An arrow means <b>waits for</b>; the label on it is the upstream row's own output, never a claim that the row below consumes it.</div>`;
+}
+
+function stepList(w) {
+  const L = layerize(w.rows), order = [];
+  L.forEach((lay, i) => lay.forEach(r => order.push([r, i])));
+  return `<div class="wsteps">${order.map(([r, layer], i) => {
+    const io = io2(r);
+    return `<div class="wstep">
+      <span class="wstep-n" title="step ${i + 1} &mdash; layer ${layer + 1} of ${L.length}">${i + 1}</span>
+      <div class="wstep-b">
+        <div class="wstep-h">
+          <span class="nm mono">${esc(r.seat)}</span>
+          <span class="chip ${r.modality === "interactive" ? "m-int" : "m-ag"}"
+            title="${r.modality === "interactive" ? "interactive — this seat may reach the owner while it runs, and waits for the answer" : "agentic — it self-resolves and never opens an owner channel"}">${esc(r.modality || "—")}</span>
+          ${seatById(r.seat) ? `<button class="btn sm" onclick="state.tab='seats';state.seat='${esc(r.seat)}';state.q='';state.filter=null;state.open={};render()">open the seat &rarr;</button>`
+            : `<span class="chip c-over" title="The manifest names this seat but the component catalog has no row for it.">not in the catalog</span>`}
+        </div>
+        <div class="wio">
+          <span class="k">takes</span><span class="v">${md(io.in)}</span>
+          <span class="k">makes</span><span class="v">${md(io.out)}</span>
+        </div>
+        <div class="wafter">${has(r.after) ? `waits for <span class="mono">${esc(r.after.join(", "))}</span>` : "waits for nothing &mdash; it opens the workflow"}</div>
+      </div>
+    </div>`;
+  }).join("")}</div>`;
+}
+
+function wfRailRow(w) {
+  const r = (w.rows || []).find(x => x.seat === state.sel);
+  if (!r) return "";
+  const io = io2(r), loaded = seatById(r.seat);
+  return `<div class="card">
+    <div class="chead">The manifest row
+      <span class="info" title="The row verbatim, from the manifest CSV. The diagram shortens each field; this is the unedited text.">&#9432;</span>
+      <button class="btn sm" style="margin-left:auto" onclick="event.stopPropagation();state.sel=null;render()" title="close">&#10005;</button></div>
+    <div class="cbody">
+      ${kv("seat", `<span class="mono">${esc(r.seat)}</span>`)}
+      ${kv("after", has(r.after) ? `<span class="mono">${esc(r.after.join(", "))}</span>` : `<span class="empty">&mdash; nothing; this row opens the workflow</span>`,
+        "the only structural field the manifest carries")}
+      ${kv("modality", esc(r.modality || "—"), r.modality === "interactive"
+        ? "interactive — this seat may reach the owner while it runs"
+        : "agentic — it self-resolves and never opens an owner channel")}
+      <div class="kv" style="flex-direction:column;gap:2px"><span class="k">in</span><span class="v">${esc(io.in)}</span></div>
+      <div class="kv" style="flex-direction:column;gap:2px"><span class="k">out</span><span class="v">${esc(io.out)}</span></div>
+      ${loaded ? `<button class="btn" onclick="event.stopPropagation();state.tab='seats';state.seat='${esc(r.seat)}';state.sel=null;state.q='';state.filter=null;render()">open the seat &rarr;</button>`
+        : `<div class="empty">No catalog row for this seat id &mdash; the manifest names it, the component's <span class="mono">seats.csv</span> does not.</div>`}
+    </div>
+  </div>`;
+}
+function wfRailAbout(w) {
+  const L = has(w.rows) ? layerize(w.rows) : [];
+  const inter = (w.rows || []).filter(r => r.modality === "interactive").length;
+  return `<div class="card">
+    <div class="chead">The workflow <span class="info" title="Facts about the manifest as a whole. Depth and the widest step are derived from the after column; the manifest stores neither.">&#9432;</span></div>
+    <div class="cbody">
+      ${kv("component", `<span class="mono">${esc(w.componentId)}</span>`)}
+      ${kv("origin", originChipW(w))}
+      ${kv("seats", has(w.rows) ? w.rows.length : `<span class="empty">0</span>`, "rows in the manifest — one row is one seat of this workflow")}
+      ${kv("depth", L.length ? `${L.length} steps` : `<span class="empty">&mdash;</span>`, "derived: the longest chain of after edges")}
+      ${kv("widest", L.length ? `${Math.max(...L.map(x => x.length))} at once` : `<span class="empty">&mdash;</span>`, "the most rows landing at the same depth — they can run in parallel")}
+      ${kv("interactive", inter ? `${inter} of ${w.rows.length}` : `<span class="empty">none</span>`, "rows whose modality lets the seat reach the owner while it runs")}
+    </div>
+  </div>`;
+}
+function originChipW(w) {
+  return w.origin === "mirror"
+    ? `<span class="chip c-mirror" title="Defined in the mirror tree.">mirror</span>`
+    : `<span class="chip c-ship" title="Defined in the shipped tree.">shipped</span>`;
+}
+function wfView() {
+  const w = wfByName(state.wf);
+  if (!w) return `<div class="empty">No workflow selected.</div>`;
+  const doc = w.doc;
+  const alarms = (w.health || []).map(e => `<div class="alarm"><b>${esc(e.level)}</b>${md(e.what)}</div>`).join("");
+  return `
+  <div class="band">
+    <div class="glyph" style="background:${hueOf(w.name)}">${esc(initialsOf(w.name))}</div>
+    <div class="bid">
+      <div class="bname">
+        <h1>${esc(w.name)}</h1>
+        <span class="chip c-home mono" title="module / component — where this workflow's files live">${esc(w.componentId)}</span>
+        ${originChipW(w)}
+        <span class="chip c-type" title="This page is the workflow's SCAFFOLDING — the definition every run of it is made from. No run, no state, no history: those live in a goal folder, and a goal is not a workflow.">definition</span>
+      </div>
+      <div class="bsub" title="${esc((doc && doc.description) || w.manifestPath)}">${esc((doc && doc.description) || w.manifestPath)}</div>
+    </div>
+    <div class="bacts">
+      <span style="position:relative">
+        <button class="btn" onclick="event.stopPropagation();state.files=!state.files;render()" title="Every file this page is read from">&#10216;&#10217; files</button>
+        ${state.files ? popHTML([
+          ["manifest", w.manifestPath, "the DAG: one row per seat — after, i/o, modality"],
+          ["workflow", (doc && doc.path) || "— none on disk", "the prose beside it: what the workflow is for and how it runs"],
+        ]) : ""}
+      </span>
+    </div>
+  </div>
+  <div class="strip">
+    ${cell("Manifest", `<span class="mono">${esc(w.manifestPath)}</span>`, "the CSV this whole page is derived from")}
+    ${cell("Seats", has(w.rows) ? w.rows.length : "0", "rows in the manifest", !has(w.rows))}
+    ${cell("Doc", doc ? `<span class="mono">${esc(doc.path)}</span>` : "none", "the workflow.md beside the manifest", !doc)}
+  </div>
+  ${alarms}
+  <div class="grid wide">
+    <div class="panel">
+      <div class="phead">
+        <span class="ptitle">The manifest</span>
+        <span class="psub">one row per seat &mdash; what it waits for, what it takes in and produces, and whether it may reach the owner</span>
+      </div>
+      <div class="fileband" title="${esc(w.manifestPath)}"><span class="k">manifest</span><span class="p mono">${esc(w.manifestPath)}</span></div>
+      ${has(w.rows) ? `${stepList(w)}<div class="sec">${graph(w)}</div>`
+        : `<div class="sec"><div class="empty">No steps to draw &mdash; the manifest that would carry them is the health error above.</div></div>`}
+    </div>
+    <div class="rail">${state.sel ? wfRailRow(w) : ""}${wfRailAbout(w)}</div>
+  </div>
+  ${doc && doc.text ? `<div class="panel" style="margin-top:16px">
+      <div class="phead"><span class="ptitle">The workflow doc</span>
+        <span class="psub">the prose beside the manifest, verbatim</span></div>
+      <div class="fileband" title="${esc(doc.path)}"><span class="k">doc</span><span class="p mono">${esc(doc.path)}</span></div>
+      ${sec("wfdoc", "workflow.md", raw(doc.text))}
+    </div>` : `<div class="tagline">No <span class="mono">workflow.md</span> beside this manifest &mdash; the CSV is the only statement of what it does.</div>`}`;
+}
+
+/* ============================= shell ============================= */
+/* One tab registry. A new tab is one row here plus its view function —
+   the sidebar, the search box and the filter row are driven from it. */
+const TABS = [
+  { id: "seats", label: "Seats", count: () => SEATS.length, view: seatView,
+    head: ["Seats", "every seat definition on the two trees"], ph: "⌕ seat, executor, task" },
+  { id: "workflows", label: "Workflows", count: () => WFS.length, view: wfView,
+    head: ["Workflows", "the manifests — scaffolding, never a run"], ph: "⌕ workflow" },
+];
+const tabById = id => TABS.find(t => t.id === id) || TABS[0];
+
+document.addEventListener("click", () => {
+  if (state.files || state.hpop || state.sel) { state.files = false; state.hpop = false; state.sel = null; render(); }
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && (state.files || state.hpop || state.sel)) { state.files = false; state.hpop = false; state.sel = null; render(); }
+});
+document.getElementById("q").oninput = function () { state.q = this.value; render(); };
+document.getElementById("hchip").onclick = function (e) { e.stopPropagation(); state.hpop = !state.hpop; render(); };
+
+/* the ONE filter row: module, component and workflow pills side by side, each
+   group labelled by its kind. Selecting a pill narrows the seat list. */
+function filterGroups() {
+  const uniq = a => [...new Set(a)].sort();
+  return [
+    ["module", uniq(SEATS.map(s => s.module))],
+    ["component", uniq(SEATS.map(s => s.componentId))],
+    ["workflow", uniq(SEATS.flatMap(s => (s.workflows || []).map(w => w.name)))],
+  ].filter(g => g[1].length > 1 || g[0] === "workflow");
+}
+const matchesFilter = s => {
+  const f = state.filter;
+  if (!f) return true;
+  if (f.kind === "module") return s.module === f.value;
+  if (f.kind === "component") return s.componentId === f.value;
+  return (s.workflows || []).some(w => w.name === f.value);
+};
+function filteredSeats() {
+  const q = state.q.trim().toLowerCase();
+  return SEATS.filter(s => matchesFilter(s) &&
+    (!q || [s.id, s.executor, s.task, s.module, s.component, s.description].join(" ").toLowerCase().includes(q)));
+}
+function filteredWfs() {
+  const q = state.q.trim().toLowerCase();
+  return WFS.filter(w => !q || [w.name, w.module, w.component, (w.doc && w.doc.description) || ""].join(" ").toLowerCase().includes(q));
+}
+
+function healthChip() {
+  const c = D.counts || {}, e = c.errors || 0, wn = c.warnings || 0;
+  const b = document.getElementById("hchip");
+  b.className = "hchip" + (e ? " bad" : wn ? " warn" : "");
+  b.textContent = e || wn ? `${e} error${e === 1 ? "" : "s"}, ${wn} warning${wn === 1 ? "" : "s"}` : "no errors, no warnings";
+  b.title = e || wn ? "Open the health list — every defect this scan found" : "The scan found nothing wrong on either tree";
+  document.getElementById("hpop").innerHTML = state.hpop ? `<div class="hpop" onclick="event.stopPropagation()">
+    <div class="hpop-h">Health &mdash; what the scan found</div>
+    ${HEALTH.length ? HEALTH.map(h => `<div class="hrow">
+        <span class="hlev ${esc(h.level)}">${esc(h.level)}</span>
+        <span class="hwhere mono">${esc(h.where)}</span>
+        <span class="hwhat">${md(h.what)}</span>
+      </div>`).join("") : `<div class="hrow"><span class="hwhat empty">Nothing to report &mdash; every catalog row resolved to a prompt and a task, and every workflow folder carried a manifest.</span></div>`}
+    <div class="hpop-f">Generated ${esc(D.generatedAt)}. A seat's own defects are also shown in red on the seat itself.</div>
+  </div>` : "";
+}
+
+function render() {
+  const tab = tabById(state.tab);
+  document.getElementById("stamp").textContent = "generated " + (D.generatedAt || "—");
+  document.getElementById("rootpill").textContent =
+    `${(D.counts || {}).shipped || 0} shipped · ${(D.counts || {}).mirror || 0} mirror`;
+  document.getElementById("rootpill").title =
+    `shipped: ${(D.roots || {}).shipped || "—"}\nmirror: ${(D.roots || {}).mirror || "—"}`;
+  healthChip();
+
+  document.getElementById("tabs").innerHTML = TABS.map(t =>
+    `<button class="tab ${state.tab === t.id ? "active" : ""}"
+       onclick="state.tab='${t.id}';state.q='';state.sel=null;state.files=false;state.open={};render()">${t.label}<span class="count">${t.count()}</span></button>`).join("");
+  document.getElementById("sidehead").innerHTML = `<b>${esc(tab.head[0])}</b><span>${esc(tab.head[1])}</span>`;
+  const qi = document.getElementById("q");
+  qi.placeholder = tab.ph; if (qi.value !== state.q) qi.value = state.q;
+
+  if (state.tab === "workflows") {
+    document.getElementById("pills").innerHTML = "";
+    const rows = filteredWfs();
+    document.getElementById("list").innerHTML = rows.map(w => `
+      <button class="srow ${state.wf === w.name ? "on" : ""}" onclick="state.wf='${esc(w.name)}';state.sel=null;state.files=false;state.open={};render()">
+        <span class="glyph" style="background:${hueOf(w.name)}">${esc(initialsOf(w.name))}</span>
+        <span class="srow-t">
+          <span class="srow-n">${esc(w.name)}${has(w.health) ? `<span class="reddot" title="${esc(w.health.map(h => h.what).join(" · "))}"></span>` : ""}</span>
+          <span class="srow-s mono">${esc(w.componentId)} &middot; ${has(w.rows) ? w.rows.length : 0} seats</span>
+        </span>
+      </button>`).join("") || `<div class="empty" style="padding:14px">No workflow matches.</div>`;
+    document.getElementById("foot").innerHTML = `${rows.length} of ${WFS.length} workflows`;
+  } else {
+    document.getElementById("pills").innerHTML = filterGroups().map(([kind, vals]) =>
+      `<span class="fkind">${kind}</span>` + vals.map(v =>
+        `<button class="fpill ${state.filter && state.filter.kind === kind && state.filter.value === v ? "on" : ""}"
+           title="narrow the list to ${kind} ${esc(v)}"
+           onclick="state.filter=(state.filter&&state.filter.kind==='${kind}'&&state.filter.value==='${esc(v)}')?null:{kind:'${kind}',value:'${esc(v)}'};render()">${esc(v)}</button>`).join("")).join("");
+    const rows = filteredSeats();
+    document.getElementById("list").innerHTML = rows.map(s => `
+      <button class="srow ${state.seat === s.id ? "on" : ""}" onclick="state.seat='${esc(s.id)}';state.open={};state.files=false;state.sel=null;render()">
+        <span class="glyph" style="background:${hueOf(s.id)}">${esc(initialsOf(s.id))}</span>
+        <span class="srow-t">
+          <span class="srow-n">${esc(s.id)}
+            ${has(s.health) ? `<span class="reddot" title="${esc(s.health.map(h => h.what).join(" · "))}"></span>` : ""}</span>
+          <span class="srow-s mono" title="module / component">${esc(s.componentId)}</span>
+        </span>
+        <span class="chip ${s.origin === "mirror" ? (s.overrides ? "c-over" : "c-mirror") : "c-ship"}" style="align-self:center"
+          title="${s.overrides ? "mirror overrides shipped" : s.origin}">${s.origin === "mirror" ? (s.overrides ? "over" : "mir") : "shp"}</span>
+      </button>`).join("") || `<div class="empty" style="padding:14px">No seat matches.</div>`;
+    document.getElementById("foot").innerHTML =
+      `${rows.length} of ${SEATS.length} seats${state.filter ? ` &middot; ${esc(state.filter.kind)} <span class="mono">${esc(state.filter.value)}</span>` : ""}`;
+  }
+  document.getElementById("main").innerHTML = tab.view();
+}
+
+window.state = state; window.render = render;
+render();
+
+}
+</script>
+</body>
+</html>

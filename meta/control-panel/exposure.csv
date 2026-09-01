@@ -1,0 +1,13 @@
+# Columns are the seven of `concepts/exposure-manifest.md` § file schema, in its order.
+# `#`-led lines are dropped before the header is read.
+#
+# ONE row: this component's MANDATORY TOOL INVENTORY row (first-party CLI,
+# `d-tool-inventory-exposure-rows`). `rbtv-cli` and `description` are EMPTY, as
+# `exposure-canon` requires of a method=path row — the tool self-documents via `-h`, and the
+# `rbtv control-panel` verb is routed by `meta/rbtv-cli/tool/lib/verbs.js`, never by this cell.
+# The write-root carries the `!` danger marker: a write grant is typed by an author, never inferred.
+#
+# NO skill row, by owner ruling 2026-09-01: the command self-documents and the page reads
+# itself; a skill would be a third place saying the same thing.
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+rbtv-control-panel,tool,path,,tool/rbtv-control-panel,,!ws:.rbtv/control-panel

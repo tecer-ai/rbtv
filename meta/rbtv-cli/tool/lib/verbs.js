@@ -32,6 +32,9 @@ const TEAMBUILD = path.join(
 const EMBED_SEARCH = path.join(
   RBTV_ROOT, 'meta', 'embed-search', 'tool', 'rbtv-embed-search',
 );
+const CONTROL_PANEL = path.join(
+  RBTV_ROOT, 'meta', 'control-panel', 'tool', 'rbtv-control-panel',
+);
 // The installer lives in the `meta` module (owner ruling, 2026-08-22): `meta/` hosts
 // what operates on the rbtv SYSTEM itself rather than on a user goal's content, and
 // installing rbtv into a workspace is exactly that — `core/` was the wrong home and
@@ -92,6 +95,7 @@ const GOAL_VERBS = ['scaffold', 'reindex', 'lint', 'materialize', 'lane', 'pause
 // enumerator, so the route no longer points at nothing.
 const TEAMBUILD_VERBS = ['agents', 'units', 'seats', 'tasks', 'workflows', 'search', 'selftest'];
 const EMBED_SEARCH_VERBS = ['index', 'query', 'status', 'selftest'];
+const CONTROL_PANEL_VERBS = ['update', 'status', 'selftest'];
 
 // The installer's own verb set. `harness` and `artifact` own the two WORKSPACE
 // SETTINGS (which AI tools to write files for, and which root guidance file the
@@ -175,6 +179,13 @@ const ROUTES = [
     verbs: EMBED_SEARCH_VERBS,
     summary: 'index a folder and rank markdown sections — semantic (Voyage) → keyword → grep; index lives outside the tree',
   },
+  {
+    prefix: ['control-panel'],
+    target: CONTROL_PANEL,
+    exec: 'direct',
+    verbs: CONTROL_PANEL_VERBS,
+    summary: 'build the control panel — one page over the scaffolding (seats, workflows) from shipped rbtv + the mirror; output lives outside the tree',
+  },
 ];
 
 // The tokens that, at position 1, belong to the verb namespace rather than the
@@ -210,6 +221,8 @@ module.exports = {
   TEAMBUILD_VERBS,
   EMBED_SEARCH,
   EMBED_SEARCH_VERBS,
+  CONTROL_PANEL,
+  CONTROL_PANEL_VERBS,
   INSTALLER,
   INSTALL_VERBS,
   verbNamespaceTokens,
