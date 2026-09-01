@@ -96,7 +96,20 @@ async function run(lines) {
     if (ctx.store.dump().queue.length !== 2) throw new Error('C2/C3: a deferred row was consumed');
 
     // ── C4: the drain — unpause, both rows fire by themselves on the next tick ──
+    // Pause truth is the goal-state ROW (660e6cf2), not the lane-file prefix. C2's leftover
+    // `paused ` prefix was ported into that row; writing `daemon\n` alone does not resume.
     fs.writeFileSync(laneFile, 'daemon\n');
+    {
+      const { bind, openEndingStoreFor } = require('../../../state-store');
+      const recDir = path.join(ctx.workRoot, '.rbtv', 'modules', 'ignite');
+      fs.mkdirSync(recDir, { recursive: true });
+      const rec = path.join(recDir, 'server.json');
+      if (!fs.existsSync(rec)) fs.writeFileSync(rec, '{}\n');
+      bind(openEndingStoreFor(ctx.workRoot)).writeGoalWord({
+        goal: 'probe-goal', stored: 'running', who_stamped: 'owner',
+        evidence_pointer: 'probe-goal-paused-gate C4 resume',
+      });
+    }
     r = await ctx.ticker.tick(new Date());
     lines.push(`C4 tick ${r.tick}: ${JSON.stringify(r.actions.filter((a) => a.phase === 'dispatch'))}`);
     if (goalPausedActions(r).length !== 0) throw new Error('C4: unpaused goal still gated');

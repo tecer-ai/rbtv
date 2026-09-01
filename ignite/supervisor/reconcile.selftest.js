@@ -838,18 +838,19 @@ say('── D35: unread is a cursor comparison (workers.md lastread), not a chec
   say('ok  D35: 1 / 0 / 2 / 3 — and an empty class (b) when the chair has read its mail');
 }
 
-say('── RED arm: restore the numeric mail cursor ──');
+say('── RED arm: restore the checkin/tsAfter unread filter ──');
 {
   const rec = require('./reconcile');
   const src = fs.readFileSync(path.join(__dirname, 'owed-from-endings.js'), 'utf8');
-  const ANCHOR = '&& (!since || tsAfter(m.ts, since)));';
+  const ANCHOR = "const cursor = readCursor(goalFolder, chair);\n    const unread = messages.filter((m) => m.to === chair && m.sender !== chair\n      && m.sender !== SYSTEM_MAIL_SENDER\n      && (cursor === null || m.num > cursor));";
   assert.ok(src.includes(ANCHOR), 'class (b) unread anchor missing');
+  const REVERTED = "const since = checkinOf(last.get(chair));\n    const unread = messages.filter((m) => m.to === chair && m.sender !== chair\n      && m.sender !== SYSTEM_MAIL_SENDER\n      && (!since || tsAfter(m.ts, since)));";
   const Module = require('node:module');
   const mut = new Module(path.join(__dirname, 'owed-from-endings.js'), null);
   mut.filename = path.join(__dirname, 'owed-from-endings.js');
   mut.paths = Module._nodeModulePaths(__dirname);
-  mut._compile(src.replace(ANCHOR, '&& m.num > (Number(since) || 0));'), mut.filename);
-  const d = mut.exports.classifyOwed(fixtureMail({ checkin: '2026-08-19 13:30' }), {
+  mut._compile(src.replace(ANCHOR, REVERTED), mut.filename);
+  const d = mut.exports.classifyOwed(fixtureMail({ lastread: 2 }), {
     readyAnswer: readyEmpty, live: new Set(), queued: new Set(),
     loadSessions: rec.loadSessions,
     loadMessages: rec.loadMessages,
@@ -862,7 +863,7 @@ say('── RED arm: restore the numeric mail cursor ──');
   });
   assert.strictEqual(d.classB.length, 1, JSON.stringify(d.classB));
   assert.strictEqual(d.classB[0].unreadCount, 3, JSON.stringify(d.classB));
-  say('ok  red: Number(checkin) → NaN → cursor 0 → all 3 messages "unread" forever (238 on meet)');
+  say('ok  red: checkin/tsAfter counts all 3 even when lastread=2 (cursor would count 1)');
 }
 
 say('── the dead class-(c) column is gone from the module ──');

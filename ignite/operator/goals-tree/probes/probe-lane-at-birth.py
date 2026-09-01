@@ -140,10 +140,20 @@ def main():
               f"exit={rc} {(so + se).strip()[:200]}")
         check("B. …and nothing was created", not (root / "bad-profile-goal").exists())
 
-        # ── C. the daemon lane, written and READ BACK BY THE DAEMON'S OWN READER ────────────────
-        rc, so, se = scaffold("daemon-goal", "--lane", "daemon")
+        # ── C. the daemon lane. Bare `--lane daemon` is REFUSED (4ed8acc8,
+        # `daemon-lane-unmaterialized`): scaffold writes no taskforce.csv. The creation route
+        # declares `--materialize-follows` and that is the path that actually writes the marker.
+        rc, so, se = scaffold("daemon-bare", "--lane", "daemon")
+        check("C. --lane daemon without --materialize-follows is refused daemon-lane-unmaterialized",
+              rc != 0 and "daemon-lane-unmaterialized" in (so + se),
+              f"exit={rc} {(so + se).strip()[:200]}")
+        check("C. …and NO goal folder was left behind",
+              not (root / "daemon-bare").exists(),
+              str(sorted(p.name for p in (root / "daemon-bare").iterdir())
+                  if (root / "daemon-bare").is_dir() else "absent"))
+        rc, so, se = scaffold("daemon-goal", "--lane", "daemon", "--materialize-follows")
         dg = root / "daemon-goal"
-        check("C. --lane daemon creates the goal", rc == 0 and dg.is_dir(),
+        check("C. --lane daemon --materialize-follows creates the goal", rc == 0 and dg.is_dir(),
               f"exit={rc} {(so + se).strip()[:200]}")
         check("C. …and the marker reads exactly 'daemon\\n' — ONE WORD, no second token",
               marker(dg) == "daemon\n", repr(marker(dg)))

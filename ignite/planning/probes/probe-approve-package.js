@@ -42,6 +42,7 @@ function check(name, pass, detail) {
 const GOAL = 'plan-goal';
 const SEAT = 'plan-verifier';
 const THREAD = '1724508123.123456';
+const THREAD_MODE = '1724508123.654321';
 const COMMIT = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
 const EXEC_GOAL = 'born-exec-goal';
 
@@ -74,10 +75,13 @@ function main() {
   store.insertAsk({ ask_id: THREAD, goal: GOAL, seat: SEAT, label: 'work-content', evidence_pointer: `/tmp/${THREAD}.txt` });
   store.postAsk({ ask_id: THREAD, posted_at: '2026-08-25 10:00' });
   store.reapAndRelaunch({ ask_id: THREAD, authorized_reply_at: '2026-08-25 10:05' });
+  store.insertAsk({ ask_id: THREAD_MODE, goal: 'mode-goal', seat: SEAT, label: 'work-content', evidence_pointer: `/tmp/${THREAD_MODE}.txt` });
+  store.postAsk({ ask_id: THREAD_MODE, posted_at: '2026-08-25 10:00' });
+  store.reapAndRelaunch({ ask_id: THREAD_MODE, authorized_reply_at: '2026-08-25 10:05' });
 
   const births = [];
   const injectedRunPathB = (pkg) => { births.push(pkg); return { ok: true }; };
-  const start = () => startExecution({ db }, {
+  const start = () => startExecution({
     workspaceRoot: root, goal: GOAL, thread: THREAD, commit: COMMIT, runPathB: injectedRunPathB,
   });
 
@@ -143,8 +147,8 @@ function main() {
     ? JSON.parse(fs.readFileSync(path.join(mGoal, APPROVE_PACKAGE), 'utf8')) : {};
   check('M1: --execution-mode interactive is WRITTEN into the package',
     wm.code === 0 && mWritten.execution_mode === 'interactive', JSON.stringify(mWritten));
-  const rm = startExecution({ db }, {
-    workspaceRoot: root, goal: 'mode-goal', thread: THREAD, commit: COMMIT, runPathB: injectedRunPathB,
+  const rm = startExecution({
+    workspaceRoot: root, goal: 'mode-goal', thread: THREAD_MODE, commit: COMMIT, runPathB: injectedRunPathB,
   });
   check('M2: and reaches the birth intact — the value the gate-2 owner-contact policy reads',
     rm.started === true && births[births.length - 1].execution_mode === 'interactive',
