@@ -5,13 +5,15 @@
 // gets by asking, over a socket that lives inside the goal's own already-RW scratch tree, so
 // reaching it needs no new bind vocabulary and no manifest-visible grant.
 //
-// ⚠ NOT WIRED INTO THE LIVE LAUNCH PATH YET. `admitLaunch` (`envelope/launch.js`) stays fully
-// synchronous — this module's `startBroker` is async (socket bind is inherently a libuv-async
-// operation), and forcing that into `admitLaunch`'s contract would ripple into every caller
-// (`spawn.js`, every selftest that calls `admitLaunch` synchronously) for a change bigger than
-// this sitting's walls allow. `startBroker`/`stopBroker` are the integration point a follow-up
-// change to `spawn.js` calls after `admitLaunch` succeeds — see the seat's report for the exact
-// spot. Proven end-to-end here via `probes/probe-credential-broker.js` instead.
+// WIRED INTO THE LIVE LAUNCH PATH (`d-hold5-wire-the-broker`) at `supervisor/spawn/spawn.js`'s
+// `ensureGoalBroker`/`brokerReadyFor` — `admitLaunch` (`envelope/launch.js`) itself stays fully
+// synchronous (this module's `startBroker` is async; forcing that into `admitLaunch`'s contract
+// would have rippled into every caller, including every selftest calling `admitLaunch`
+// synchronously). `spawn.js` starts the broker at the same point it reads `admitLaunch`'s
+// `accountCredentials`, and awaits readiness right before the seat actually execs, so the two
+// stay decoupled without a race. Proven end-to-end via `probes/probe-credential-broker.js`
+// (the broker's own protocol) and `probes/probe-credential-broker-lifecycle.js` (the spawn.js
+// wiring: start-at-launch, reuse-across-seats, stop-at-goal-end).
 
 const fs = require('node:fs');
 const net = require('node:net');

@@ -38,6 +38,12 @@ const {
 const { authorizedCarve } = require('../../envelope/compiler');
 const { loadCentralStore, injectDeclaredEnv } = require('../../envelope/credentials');
 const { stampLaunchRefused } = require('../../envelope/stamp');
+// The token broker (`d-ask17-credential-token-broker`, `d-hold5-wire-the-broker`) — PER-GOAL, not
+// per-seat: `goalBrokers` below tracks at most one live broker per `goalDir` for this process's
+// whole lifetime, reused across every seat of that goal, exactly like the module already reuses
+// one `heartStore` across every seat it spawns.
+const { startBroker } = require('../../envelope/credential-broker');
+const { gtoolsTokenMinter } = require('../../envelope/gtools-token-minter');
 const { superviseSpawn } = require('../doors');
 const {
   generateSessionId,
@@ -1089,6 +1095,66 @@ function resolveSeatGrants(seatPath) {
 // `log` is threaded in for ONE reason: the `rw-paths` grant class refuses per entry rather than
 // per spawn, and a refusal nobody can hear is a silent narrowing of a seat's declared walls. It
 // defaults to a no-op so a caller with no logger still composes.
+// ── THE TOKEN BROKER'S LIFECYCLE (`d-hold5-wire-the-broker`) — matches the GOAL'S, not a seat's ──
+//
+// `goalDir` -> `{ promise, accounts }`. One entry per goal for as long as this process runs (the
+// daemon holds ONE `spawn.js` module instance for its whole lifetime — a fresh instance per
+// process is exactly right: each deploy-script/probe process that requires this module gets its
+// own isolated registry, and the live daemon's registry lives exactly as long as the daemon does).
+// A goal with no `gtools-account` credentials declared never gets an entry — `ensureGoalBroker`
+// is a no-op for it, so a goal that never asked for the broker pays nothing for it.
+const goalBrokers = new Map();
+
+// Called from `composeCageFor`, once admission has already confirmed (`admitLaunch`) which
+// accounts THIS goal declared. Idempotent per goal: a second seat of the same goal reuses the
+// first seat's in-flight or already-listening broker rather than starting a second one — the
+// broker's own socket bind (`fs.unlinkSync` + `server.listen`) is not itself safe to race, and
+// two independent callers each deciding to start one for the same goal is exactly that race.
+// `minterOverride` — the SAME injection point `startBroker` itself already takes, threaded
+// through here so a probe can register a fixture minter FOR THIS GOAL through the one shared
+// registry (`goalBrokers`), rather than calling `startBroker` a second, uncoordinated way that
+// this function cannot see and would otherwise clobber (measured: `probe-credential-broker.js`'s
+// own hand-called `startBroker`, once this wiring landed, raced this function's real-minter start
+// and lost its socket). Production callers (the two launch doors, via `composeCageFor`) never
+// pass one and get the real `gtoolsTokenMinter`.
+function ensureGoalBroker(goalDir, workspaceRoot, accounts, minterOverride) {
+  if (!accounts || accounts.length === 0) return null;
+  let entry = goalBrokers.get(goalDir);
+  if (entry) return entry.promise;
+  const minter = minterOverride || gtoolsTokenMinter(path.join(workspaceRoot, '3-resources', 'tools', 'gtools'));
+  entry = { accounts };
+  entry.promise = startBroker({ goalDir, accounts, minter })
+    .then((broker) => { entry.broker = broker; return broker; })
+    .catch((err) => { goalBrokers.delete(goalDir); throw err; });
+  goalBrokers.set(goalDir, entry);
+  return entry.promise;
+}
+
+// The launch sequence's own read of `ensureGoalBroker`'s promise, awaited right before a caged
+// seat actually execs (see the two `composeCageFor` call sites) — so the socket is guaranteed
+// listening before the seat's own tool code could possibly reach for it, never a race against
+// however long bwrap/systemd-run/tmux take to actually start the child.
+function brokerReadyFor(goalDir) {
+  const entry = goalBrokers.get(goalDir);
+  return entry ? entry.promise : null;
+}
+
+// The goal-end half. NOT CALLED FROM ANYWHERE YET — same honesty this module's own
+// `credential-broker.js` header already carries for its unwired half: the code that DETECTS a
+// goal has ended (`ignite/supervisor/reconcile.js` / `ignite/coord/`) is outside this seat's
+// custody row, so this is the integration point for whoever owns that detection to call, not a
+// wired hook. Exported on `createSpawnManager`'s return value as `endGoalBroker` below.
+async function stopGoalBroker(goalDir) {
+  const entry = goalBrokers.get(goalDir);
+  if (!entry) return;
+  goalBrokers.delete(goalDir);
+  let broker = entry.broker;
+  if (!broker) {
+    try { broker = await entry.promise; } catch { return; }
+  }
+  await broker.stop();
+}
+
 function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr = null, log = () => {}, stamp = null) {
   // ── B1 / OQ-21(b+) — THE UNCAGED STAFF BRANCH EMITS THE ENVIRONMENT TOO ───────────────────
   //
@@ -1171,6 +1237,18 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
     if (stamp) stamp(admitted.refuse);
     throw new LaunchRefused(admitted.refuse);
   }
+  // Kicks off (never awaits) the goal's broker — see `ensureGoalBroker` above. Firing here, at
+  // the exact point `admitLaunch` already runs, means every caller of `composeCageFor` gets this
+  // for free with no signature change: the function still returns the same flags array/`{uncaged}`
+  // it always did, so nothing downstream (the two `spawn.js` launch doors, every probe, every
+  // deploy script) needs to change how it reads this return value. `spawn()`/`spawnSeat()` await
+  // readiness themselves, right before the seat actually execs (`brokerReadyFor`).
+  // A silent, SEPARATE handler — never the one `brokerReadyFor` hands the launch doors below —
+  // guards only against an unhandled-rejection crash on a broker whose readiness nobody ends up
+  // awaiting (a caller of `composeCageFor` that never reaches `brokerReadyFor`, e.g. a probe that
+  // composes a cage without spawning a real seat through it).
+  const brokerPromise = ensureGoalBroker(seatPath.goalDir, seatPath.workspaceRoot, admitted.accountCredentials);
+  if (brokerPromise) brokerPromise.catch(() => {});
   for (const g of rwPathGrants) {
     let real;
     try { real = fs.realpathSync(g.rwPath); } catch { real = g.rwPath; }
@@ -1616,6 +1694,18 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
         refuse,
       });
     });
+    // Awaited HERE, before the seat actually execs, so the broker's socket is guaranteed
+    // listening the moment the caged process could reach for it — never a race against however
+    // long bwrap/systemd-run take to start. A start failure does not refuse the launch (the same
+    // "stay synchronous, stay narrow" reasoning `credential-broker.js`'s header already states for
+    // `admitLaunch` itself): the seat still runs, and its own mint call fails loud on connect,
+    // exactly the failure shape §10b designs for — never a launch blocked by broker infra.
+    const brokerWait = brokerReadyFor(dispatchSeat.goalDir);
+    if (brokerWait) {
+      try { await brokerWait; } catch (err) {
+        log('warn', 'credential broker failed to start for this goal — seat launches without one; its own mint calls will fail loud', { goal: dispatchSeat.goal, error: err.message });
+      }
+    }
     const wrappedArgv = (seatCage && seatCage.uncaged)
       ? argv
       : buildBwrapArgv({ argv, workdir: resolvedWorkdir, editablePaths, harness: harnessOf(profile), maskPaths, seatBinds: seatCage });
@@ -1975,6 +2065,15 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
       });
     });
 
+    // Same broker-readiness wait as the headless door above (`dispatchSeat` there, `seatPath`
+    // here) — one await, right before the seat actually starts, never a launch-blocking failure.
+    const seatBrokerWait = brokerReadyFor(seatPath.goalDir);
+    if (seatBrokerWait) {
+      try { await seatBrokerWait; } catch (err) {
+        log('warn', 'credential broker failed to start for this goal — seat launches without one; its own mint calls will fail loud', { goal: seatPath.goal, error: err.message });
+      }
+    }
+
     // Composition FIRST — and this ordering is the fail-closed guarantee, not a style choice.
     // composeSeatSpawn runs buildBwrapArgv before it builds any tmux argv, so on a box without
     // bwrap this throws E_FS_SANDBOX_UNAVAILABLE and NO PANE IS EVER CREATED: the seat is not
@@ -2331,6 +2430,9 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     kill,
     list,
     orphanRescan,
+    // The broker's goal-end half (`d-hold5-wire-the-broker`) — for whoever detects a goal has
+    // ended to call. Not called from anywhere in THIS process; see `stopGoalBroker`'s own comment.
+    endGoalBroker: stopGoalBroker,
   };
 }
 
@@ -2352,6 +2454,12 @@ module.exports = {
   resolveSandbox,
   ensureLogPath,
   appendRowEnsuringHeader,
+  // Exported for `envelope/probes/probe-credential-broker.js` (the broker-lifecycle legs): a
+  // probe proving `composeCageFor` itself starts/reuses/awaits the goal's broker must drive these
+  // same functions `composeCageFor` and the two launch doors call, not a re-typed copy of them.
+  ensureGoalBroker,
+  brokerReadyFor,
+  stopGoalBroker,
   // `resolvePidStarttime` joins the same delete-copies list: `live-sessions.js#recordSitting`
   // needs the identical two-step identity resolution the at-dispatch record performs, and a
   // second spelling of it there is how pid-less rows were born.
