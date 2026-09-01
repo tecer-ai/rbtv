@@ -196,7 +196,11 @@ function createAskThreads({
     //   `kind: 'recovery'` — spec-recovery §5's system-decided case: an exhausted LANE the daemon
     //     itself is reporting (`recovery-poster.js`), never a seat's own traffic, so the same
     //     seat-courtesy question does not apply. Unrelated to the `label` value of the same name.
-    if (kind !== 'escalation' && kind !== 'recovery' && !seatIsInteractive(goalId, seatName)) {
+    //   `kind: 'goal-disposition'` — the close-or-keep ask `supervisor/last-lane-ask.js` mints,
+    //     `d-recovery-last-lane-asks`'s own system-decided case: the daemon reporting a goal whose
+    //     last owed lane was dropped, never a seat's own traffic — the exact same reasoning
+    //     `kind: 'recovery'` states immediately above, for a different exit.
+    if (kind !== 'escalation' && kind !== 'recovery' && kind !== 'goal-disposition' && !seatIsInteractive(goalId, seatName)) {
       log('warn', 'owner-ask REFUSED — this seat is not designated to reach the owner [T2-R14]', { goalId, seat: seatName });
       return { posted: false, reason: 'seat-not-interact' };
     }

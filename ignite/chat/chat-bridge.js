@@ -23,6 +23,7 @@ const { createAskThreads } = require('./ask-thread');
 const { createAskRecord } = require('./ask-store');
 const { createApprovalDispatch } = require('./approval-thread');
 const { createRecoveryDispatch } = require('./recovery-thread');
+const { createDispositionDispatch } = require('./disposition-thread');
 const { createExecutionStart } = require('./start-execution');
 const { createPauseResume } = require('./pause-resume');
 const { createOutbox, outboxStorePath } = require('./outbox');
@@ -299,6 +300,20 @@ function createChatBridge({
     logger,
   });
 
+  // ── THE DISPOSITION DISPATCH (`disposition-thread.js`, `d-recovery-last-lane-asks`) ──────────
+  // `keep` needs no port (see `disposition-thread.js`'s header). `close` has no daemon-side act
+  // today — `state-store/vocabulary.js#GOAL_WORDS` carries no "closed, not a success" terminal
+  // word, and inventing one is a state-store vocabulary decision outside this door's scope. Left
+  // UNWIRED (`null`) on purpose: the dispatch reports that honestly into the thread rather than
+  // fabricating a success, exactly `dropLane`/`retryWithChange`'s own shape before their seats
+  // built them.
+  const dispositionDispatch = createDispositionDispatch({
+    closeGoal: null,
+    postBack: ({ channelId, goalId, askId, text }) =>
+      postSlack({ kind: 'nack', channel: channelId, threadTs: askId, text, goal_id: goalId, ask_id: askId }),
+    logger,
+  });
+
   // THE RELEASE, called from the inbound path below and nowhere else.
   async function releaseAskFor(entry, chatMsg) {
     const channelGoal = goalChannels ? goalChannels.goalForChannel(chatMsg._channel) : null;
@@ -323,8 +338,9 @@ function createChatBridge({
       // second relaunch signal on a seat nobody re-asked — [T3-R22]'s failure, on every ask.
       reap: entry.released !== true && !(isApproval && entry.paused === true),
       // Narrows the grammar to the recovery ladder in a recovery thread [`d-ask14-recovery-thread-
-      // shape`] — `null` for every other kind leaves the ask/approval/mechanical grammar unchanged.
-      kind: entry.kind === 'recovery' ? 'recovery' : null,
+      // shape`], or to the close/keep ladder in a disposition thread [`d-recovery-last-lane-asks`]
+      // — `null` for every other kind leaves the ask/approval/mechanical grammar unchanged.
+      kind: (entry.kind === 'recovery' || entry.kind === 'goal-disposition') ? entry.kind : null,
     });
 
     // ✅ THE LANDED-ANSWER ACK (G-second-brain-43-0828-2119, owner-ordered 2026-08-30).
@@ -421,6 +437,19 @@ function createChatBridge({
       markReleased(`${chatMsg._channel}:${chatMsg._threadTs}`, entry, out.outcome);
       saveState();
       return { ...out, dispatched, recovery: true };
+    }
+
+    // A GENUINE DISPOSITION THREAD dispatches its own outcome the same way, once — the release
+    // above already reaped the ask (the owner-visible half is done regardless of whether `close`'s
+    // own daemon-side effect is wired yet; see `disposition-thread.js`'s header).
+    if (entry.kind === 'goal-disposition' && out && out.released === true && out.outcome) {
+      dispatched = await dispositionDispatch.dispatch({
+        entry: { goalId: entry.goalId, channelId: chatMsg._channel, askId: entry.askId },
+        parsed: { outcome: out.outcome, comments: out.comments },
+      });
+      markReleased(`${chatMsg._channel}:${chatMsg._threadTs}`, entry, out.outcome);
+      saveState();
+      return { ...out, dispatched, disposition: true };
     }
 
     // The entry is MARKED released on an ACTUAL release, never dropped. Every other outcome —

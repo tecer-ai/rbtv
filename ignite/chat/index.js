@@ -16,6 +16,7 @@ const { createGoalChannelMap } = require('./goal-channel-map');
 const { createChatBridge } = require('./chat-bridge');
 const { createGlance } = require('./glance');
 const { createRecoveryPoster } = require('./recovery-poster');
+const { createDispositionPoster } = require('./disposition-poster');
 
 function log_noGoalChannels(logger) {
   if (logger) logger({ level: 'warn', message: 'transport exposes no channel admin surface — goal↔channel mapping disabled; channel traffic will be unroutable' });
@@ -121,8 +122,18 @@ function buildBridge(config, {
     logger,
   });
 
+  // ── THE DISPOSITION POSTER (`disposition-poster.js`, `d-recovery-last-lane-asks`) ─────────────
+  // Same wiring reason as `recoveryPoster` immediately above: composed entirely of parts the
+  // bridge already owns, reachable from no inbound message — a close-or-keep ask becomes postable
+  // when a reconcile pass mints one, never when the owner types something.
+  const dispositionPoster = createDispositionPoster({
+    forwarder,
+    postOwnerAsk: bridge.postOwnerAsk,
+    logger,
+  });
+
   return {
-    bridge, forwarder, allowlist, threadMap, transport, goalChannels, glance, recoveryPoster,
+    bridge, forwarder, allowlist, threadMap, transport, goalChannels, glance, recoveryPoster, dispositionPoster,
   };
 }
 
@@ -137,7 +148,7 @@ async function main() {
     process.exit(1);
   }
 
-  const { bridge, glance, recoveryPoster } = buildBridge(config);
+  const { bridge, glance, recoveryPoster, dispositionPoster } = buildBridge(config);
   await bridge.start();
 
   // The §5 slot driver. It is started only in `main()` — a probe or a test that builds a bridge
@@ -145,11 +156,13 @@ async function main() {
   if (glance) glance.start();
   // Same discipline: started only here, never as a side effect of construction.
   if (recoveryPoster) recoveryPoster.start();
+  if (dispositionPoster) dispositionPoster.start();
 
   const shutdown = (sig) => {
     jsonLog({ level: 'info', message: `received ${sig}, stopping chat bridge` });
     try { if (glance) glance.stop(); } catch {}
     try { if (recoveryPoster) recoveryPoster.stop(); } catch {}
+    try { if (dispositionPoster) dispositionPoster.stop(); } catch {}
     try { bridge.stop(); } catch {}
     process.exit(0);
   };

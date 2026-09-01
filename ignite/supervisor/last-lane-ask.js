@@ -28,9 +28,11 @@
 // reaches "last lane abandoned" at most once, and a stable id means a later pass that finds the
 // record already on disk mints nothing twice — the same read-before-write `recordGroupedAsk` uses.
 
+const fs = require('node:fs');
+const path = require('node:path');
 const crypto = require('node:crypto');
 const {
-  askRecordPath, readAskRecord, writeAskRecord,
+  askRecordPath, readAskRecord, writeAskRecord, asksDir,
 } = require('./exhaustion');
 
 const DISPOSITION_OPTIONS = Object.freeze(['close', 'keep']);
@@ -105,11 +107,74 @@ function mintLastLaneAsk({
   };
 }
 
+// -- THE POSTING SIDE — read-side for `chat/disposition-poster.js`, write-side for the gateway's
+// `record-owner-ask` handler. Neither touches minting: they read/stamp the SAME record
+// `mintLastLaneAsk` already wrote, exactly the split `exhaustion.js#listUnpostedLanes` /
+// `#markLanePosted` draw for the recovery ladder's own grouped ask — this is the disposition
+// record's own shape (one row per GOAL, no `.lanes` array, body already fully composed at mint
+// time), so it needs its own pair rather than a call into `exhaustion.js`'s lane-shaped readers.
+
+// Every disposition record not yet posted as its own Slack thread. `chat/disposition-poster.js`'s
+// only read (through `inspect disposition-asks`, never this file directly — the bridge is a
+// separate process). Once posted, `markDispositionPosted` stamps `posted_ask_id` and this stops
+// returning it.
+function listUnpostedDispositions(workspaceRoot) {
+  if (!workspaceRoot) return [];
+  let entries;
+  try {
+    entries = fs.readdirSync(asksDir(workspaceRoot), { withFileTypes: true });
+  } catch {
+    return [];             // no directory is the ordinary state: no goal has reached this yet
+  }
+  const out = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+    const file = path.join(asksDir(workspaceRoot), entry.name);
+    let record;
+    try {
+      record = JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch {
+      continue;             // an unreadable record costs its own row, never the listing
+    }
+    if (!record || record.kind !== DISPOSITION_KIND || !record.goal || record.posted_ask_id) continue;
+    out.push({
+      record_ask_id: record.ask_id,
+      goal: record.goal,
+      abandoned_seats: Array.isArray(record.abandoned_seats) ? record.abandoned_seats : [],
+      body: record.body || composeBody({
+        goal: record.goal,
+        abandonedSeats: (Array.isArray(record.abandoned_seats) ? record.abandoned_seats : []).map((s) => ({ seat: s })),
+      }),
+      opened_at: record.opened_at || null,
+    });
+  }
+  return out;
+}
+
+// Stamps the goal's disposition record POSTED, in place, once its thread exists. Called server-side
+// (daemon process, which already holds this file) right after a `record-owner-ask` open for
+// `label: 'recovery'` succeeds — never from `chat/`, which may not reach this file directly
+// [`probes/probe-chat-boundary.js`]. Idempotent by construction: a record that already carries
+// `posted_ask_id` is left alone, so a retried call after a crash costs nothing.
+function markDispositionPosted(workspaceRoot, { goal }, { askId, at } = {}) {
+  if (!askId) throw new Error('markDispositionPosted requires askId — the thread this ask was posted to');
+  const record = readAskRecord(workspaceRoot, askIdForGoal(goal));
+  if (!record || record.kind !== DISPOSITION_KIND || record.posted_ask_id) {
+    return { marked: false, reason: 'not-found-or-already-posted' };
+  }
+  record.posted_ask_id = String(askId);
+  record.posted_at = at || new Date().toISOString();
+  const file = writeAskRecord(workspaceRoot, record);
+  return { marked: true, ask_id: record.ask_id, file };
+}
+
 module.exports = {
   askIdForGoal,
   lastLaneAbandoned,
   composeBody,
   mintLastLaneAsk,
+  listUnpostedDispositions,
+  markDispositionPosted,
   DISPOSITION_OPTIONS,
   DISPOSITION_LABEL,
   DISPOSITION_KIND,

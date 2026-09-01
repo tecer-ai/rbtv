@@ -152,7 +152,7 @@ const MESSAGE_TYPES = new Set(['completion', 'ask', 'answer', 'verdict', 'note',
 // caller is exactly what this intent exists for. Fixed-view like `jobs`/`queue`: no id, no page.
 // ⚑ `recovery-lanes` ADDED (`d-ask14-recovery-thread-shape`): the UNPOSTED half of the recovery
 // exit's file-based lanes, for `chat/recovery-poster.js` — same ce-5/D3 reason, no store change.
-const INSPECT_TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker', 'messages', 'executions', 'asks', 'recovery-lanes']);
+const INSPECT_TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker', 'messages', 'executions', 'asks', 'recovery-lanes', 'disposition-asks']);
 
 // A deliberate SECOND copy of the schema's closed jobs_log.status enum (schema.sql:65-66),
 // exactly like SESSION_MODES / TRIGGER_KINDS / ACTION_TYPES above: the gateway holds no store or
