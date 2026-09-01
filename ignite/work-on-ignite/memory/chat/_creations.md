@@ -10,3 +10,4 @@
 2026-09-01 · change · digest becomes a plain waiting-on-you list (R-A2) · `renderAskRow` (`ignite/chat/system-digest.js`) now renders `• <link|goal name> — <subject or, · 4802a888 · bridges,state-store · ⚠
 2026-09-01 · creation · recovery + close-or-keep asks fill the ruled template · Both composers produce the SAME contract shape — `{subject, body, options, more}` — that · 45fa2c44 · supervisor · ⚠
 2026-09-01 · change · owner-ask reserved shape, letter->arm mapping, R-A1 fallback · `ask-thread.js#openingLine`/`composeThreadOpener` render `<MARKER_ASK> NEEDS YOUR ANSWER — · 9488ebaa · state-store · ⚠
+2026-09-01 · change · owner-ask letters resolve from the persisted row · `release()` still accepts the `options` param, but it is no longer authoritative -- it is now a · 548f1663 · state-store · ⚠
