@@ -214,6 +214,21 @@ function oneLinerOf(evidencePointer) {
   return first.length > ONE_LINER_MAX ? `${first.slice(0, ONE_LINER_MAX - 1)}…` : first;
 }
 
+// A row's `options_json` (`d-owner-ask-shape` R-A5) parsed back to the array `release()` needs to
+// resolve a letter, or `null` when there is no table — never `[]` for "unparseable", because a
+// caller must be able to tell "this ask has no table" from "the stored JSON is corrupt" if it ever
+// needs to (`ask-options-from-row`: this is the ONE place that deserializes `options_json`; nothing
+// re-parses it a second time downstream).
+function optionsOf(row) {
+  if (!row || !row.options_json) return null;
+  try {
+    const parsed = JSON.parse(row.options_json);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 // `kind`/`subject` (`d-owner-ask-shape`, digest-sentence's own field: `system-digest.js#renderAskRow`
 // reads `ask.subject`, falling back to `one_liner` on an empty string). `listAllOpenAsks`
 // (`state-store/predicates.js`, outside this file's custody) selects an EXPLICIT column list that
@@ -221,6 +236,15 @@ function oneLinerOf(evidencePointer) {
 // (`writers.js`, `SELECT *`) already returns them once `open_asks` is migrated. Open-ask counts are
 // small (this is the 2-hourly digest's own read, never a hot path), so the extra query per row costs
 // nothing worth a second predicates.js entry point for.
+//
+// `options` (`ask-options-from-row`, `d-ask-options-from-row`) rides the SAME per-row `getAsk` call
+// that already fetches `kind`/`subject` — no new query. This is the read `ask-thread.js#release()`
+// resolves a lettered reply against: `open_asks.options_json` is the persisted, durable copy of the
+// same table `chat-bridge.js` used to keep ONLY in its own process-local `askThreads` Map, and this
+// function is already wired end-to-end to the bridge (`chat/ask-store.js#listOpenAsks` forwards
+// `inspect asks` and returns the daemon's rows verbatim, no field allowlist on this read path,
+// unlike `record-owner-ask`'s write-side allowlists) — so widening this row needs no companion
+// change in `ask-store.js`/`dispatch.js` to reach the bridge.
 function listOpenAsks(workspaceRoot) {
   const api = bind(openEndingStoreFor(workspaceRoot));
   return api.listAllOpenAsks({}).map((row) => {
@@ -232,6 +256,7 @@ function listOpenAsks(workspaceRoot) {
       label: row.label,
       kind: full.kind || '',
       subject: full.subject || '',
+      options: optionsOf(full),
       one_liner: oneLinerOf(row.evidence_pointer),
       opened_at: row.posted_at,
       evidence_pointer: row.evidence_pointer,

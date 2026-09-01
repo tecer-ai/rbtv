@@ -36,7 +36,7 @@ const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ask-release-'));
 fs.mkdirSync(path.join(workspaceRoot, '.rbtv', 'goals', GOAL, 'coordination'), { recursive: true });
 
 // ── The fakes ────────────────────────────────────────────────────────────────────────────────
-function harness({ interactive = true, tsSeq = ['1724508123.123456'] } = {}) {
+function harness({ interactive = true, tsSeq = ['1724508123.123456'], listOpenAsks = null } = {}) {
   const posts = [];
   const updates = [];
   const opens = [];
@@ -57,6 +57,11 @@ function harness({ interactive = true, tsSeq = ['1724508123.123456'] } = {}) {
     async openAsk(a) { opens.push(a); return { recorded: true, ask_id: a.chatThreadId, already: false }; },
     async reapAsk(a) { reaps.push(a); return { recorded: true, ask_id: a.chatThreadId, state: 'closed', relaunch: { queued: true } }; },
   };
+  // `ask-options-from-row`: injected ONLY by the fixtures that need it (the durable-row cases) —
+  // its absence here is deliberate, it is what proves the existing in-process-cache cases above
+  // are UNCHANGED by this seat's fix (no `listOpenAsks` on the fake -> `resolveOptionsTable` falls
+  // back to the `options` param exactly as `release()` always did).
+  if (typeof listOpenAsks === 'function') askRecord.listOpenAsks = listOpenAsks;
   const threads = createAskThreads({
     outbox,
     askRecord,
@@ -408,6 +413,67 @@ check('§3 note line is UNCHANGED by this redesign — still `{marker} {display_
       ordinaryLetter.released === true && ordinaryLetter.outcome === 'd' && ordinaryLetter.family === 'lettered'
       && h8.reaps.length === 1,
       { released: ordinaryLetter.released, outcome: ordinaryLetter.outcome, reaps: h8.reaps.length });
+
+    // ── `ask-options-from-row`: THE RESTART / OUT-OF-BAND-REPOST CASE ────────────────────────────
+    //
+    // The row this ask actually persisted (`open_asks.options_json`, `ask-fields-carry` 6bfdcf84)
+    // carries a real table, but the caller passes NO in-memory `options` at all — exactly what a
+    // bridge restart, or a repost written by an out-of-band tool the way `asks-repost` did, leaves
+    // behind: an `askThreads` Map entry (or none at all) with nothing in `.options`. Before this
+    // seat's fix, `release()` had no other place to look and always nacked here; RED-FIRST proof:
+    // this exact fixture (all 3 checks below), copied onto the pre-fix tree at commit `1810a174` in
+    // a scratch worktree (`git worktree add /tmp/ask-options-from-row-red 1810a174`) and run there,
+    // failed all 3 exactly as predicted (2 nacked where they should have released, 1 released where
+    // it should have nacked); the SAME fixture against the fixed tree below is green.
+    const RESTART_OPTIONS = [
+      { letter: 'a', arm: 'retry-with-change', text: 'restart it once more' },
+      { letter: 'b', arm: 'drop-lane', text: "drop this seat's work" },
+    ];
+    const h9 = harness({
+      listOpenAsks: async () => [
+        { id: ASK_ID, goal: GOAL, seat: SEAT, kind: 'recovery', options: RESTART_OPTIONS },
+      ],
+    });
+    const restarted = await h9.threads.release({
+      goalId: GOAL, channelId: CHANNEL, seatName: SEAT, askId: ASK_ID, threadTs: ASK_ID,
+      senderId: OWNER, text: 'a and the fix is landed', kind: 'recovery',
+      // `options` deliberately OMITTED — the in-process cache this ask's Map entry would have held
+      // is empty, the restart/repost case this fixture exists to prove.
+    });
+    check("`ask-options-from-row`: a bare letter resolves from the PERSISTED row's table when the caller's in-memory copy is empty — the durable `open_asks.options_json` row is read via `askRecord.listOpenAsks`, never only the process-local cache",
+      restarted.released === true && restarted.outcome === 'retry-with-change' && restarted.family === 'recovery'
+      && restarted.comments === 'and the fix is landed' && h9.reaps.length === 1,
+      { released: restarted.released, outcome: restarted.outcome, reaps: h9.reaps.length });
+
+    // The durable row is AUTHORITATIVE, not merely a second fallback: an outside letter against the
+    // PERSISTED table nacks naming THAT row's own real letters, even with no in-memory table at all.
+    const h10 = harness({
+      listOpenAsks: async () => [
+        { id: ASK_ID, goal: GOAL, seat: SEAT, kind: 'recovery', options: RESTART_OPTIONS },
+      ],
+    });
+    const restartedOutside = await h10.threads.release({
+      goalId: GOAL, channelId: CHANNEL, seatName: SEAT, askId: ASK_ID, threadTs: ASK_ID,
+      senderId: OWNER, text: 'd', kind: 'recovery',
+    });
+    check("`ask-options-from-row`: a letter outside the PERSISTED row's table nacks naming that row's own real letters, with no in-memory table involved at all",
+      restartedOutside.released === false && restartedOutside.reason === 'unparsed' && h10.reaps.length === 0
+      && /a\) restart it once more/.test(restartedOutside.nack) && /b\) drop this seat's work/.test(restartedOutside.nack),
+      { nack: restartedOutside.nack, reaps: h10.reaps.length });
+
+    // A row that IS found but carries no table (`options: null`, e.g. an ordinary-shaped row) still
+    // NACKS — the durable answer wins even when it is "no table", it is never silently patched over
+    // by a stale in-memory value that happened to be non-empty.
+    const h11 = harness({
+      listOpenAsks: async () => [{ id: ASK_ID, goal: GOAL, seat: SEAT, kind: 'recovery', options: null }],
+    });
+    const rowNoTable = await h11.threads.release({
+      goalId: GOAL, channelId: CHANNEL, seatName: SEAT, askId: ASK_ID, threadTs: ASK_ID,
+      senderId: OWNER, text: 'a', kind: 'recovery', options: RESTART_OPTIONS,
+    });
+    check("`ask-options-from-row`: the durable row is authoritative even over a NON-EMPTY in-memory cache — a found row with `options: null` nacks, it is not overridden by the caller's stale `options` param",
+      rowNoTable.released === false && rowNoTable.reason === 'unparsed' && h11.reaps.length === 0,
+      { reason: rowNoTable.reason, reaps: h11.reaps.length });
   }
 
   {

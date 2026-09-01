@@ -280,6 +280,37 @@ function createAskThreads({
     return { posted: true, threadTs: opened.threadTs, openingLine: opened.openingLine, text: opened.text, recorded: null };
   }
 
+  // `ask-options-from-row`: THE LETTER TABLE, READ FROM ITS DURABLE ROW, NEVER FROM MEMORY ALONE.
+  //
+  // Root cause this closes: `release()` used to take its letter->arm table ONLY from the caller's
+  // `options` param — `chat-bridge.js`'s in-process `askThreads` Map entry, filled ONLY at
+  // `postAsk` time. The SAME table is already persisted per-row as `open_asks.options_json`
+  // (`ask-fields-carry`, written by `state-store/heart/ask-record.js#openAsk`) and already surfaced
+  // by that module's `listOpenAsks` (extended here to carry `options` too, at zero extra cost —
+  // it already fetches the full row for `kind`/`subject`). Any ask whose in-process entry never
+  // got an `options` value — a bridge restart, or a row minted/updated out-of-band the way
+  // `asks-repost` did — nacked a bare letter forever even though its durable table was right there.
+  //
+  // The durable row is AUTHORITATIVE the moment it can be read at all: a row found with no table
+  // (`options: null`) NACKS exactly as "no table" always has — it is never overridden by a stale
+  // memory value once the real answer is known. The `options` PARAM is now a PURE CACHE, spent
+  // ONLY when `askRecord.listOpenAsks` is not wired to answer at all (not yet a function) or the
+  // row cannot be found — so today's in-process posting path keeps working unchanged the moment a
+  // caller injects an `askRecord` without `listOpenAsks`, while the durable path is what a restart
+  // or an out-of-band repost now actually reaches.
+  async function resolveOptionsTable(askId, cachedOptions) {
+    if (askRecord && typeof askRecord.listOpenAsks === 'function') {
+      try {
+        const rows = await askRecord.listOpenAsks();
+        const row = Array.isArray(rows) ? rows.find((r) => r && String(r.id) === String(askId)) : null;
+        if (row) return Array.isArray(row.options) ? row.options : [];
+      } catch (err) {
+        log('warn', 'letter table NOT read from the persisted row — listOpenAsks threw, falling back to the in-process cache', { askId, error: err.message });
+      }
+    }
+    return Array.isArray(cachedOptions) ? cachedOptions : [];
+  }
+
   // R-A5's own NACK: "a wrong letter is nacked with THAT ask's real letters" — never the generic
   // ask/recovery/disposition NACK, which names a vocabulary that may not even be this ask's own.
   function nackForLetters(options) {
@@ -333,9 +364,11 @@ function createAskThreads({
     // against ITS OWN closed vocabulary [D-2-ruling] and never against the approval/lettered one —
     // a parameter on this door, not a second one [`d-ask14-recovery-thread-shape`].
     kind = null,
-    // `d-owner-ask-shape` R-A5: THIS ask's own letter→arm table (`chat-bridge.js`'s in-memory
-    // `askThreads` entry, never a DB round trip — `inv-reply-grammar`'s own warning against a global
-    // letter budget is exactly why this is per-call, not looked up by a second store handle here).
+    // `d-owner-ask-shape` R-A5, root-caused and demoted by `ask-options-from-row`: THIS ask's own
+    // letter→arm table. No longer the authoritative source — see `resolveOptionsTable` above —
+    // this is now read ONLY as a fallback cache when the durable row cannot be reached
+    // (`inv-reply-grammar`'s own warning against a global letter budget is still why any table here
+    // is per-ask, never a shared one).
     options = null,
   } = {}) {
     // 1a. THE EXACT THREAD. Not "a thread on this seat", not "the newest", not "the oldest".
@@ -383,7 +416,7 @@ function createAskThreads({
       // disposition dispatch (`chat-bridge.js#releaseAskFor`'s `entry.kind` branches) has no `case`
       // for at all (root cause, `inv-reply-grammar`) — unlike approval's dispatch, which does.
       if (letterHit) {
-        const table = Array.isArray(options) ? options : [];
+        const table = await resolveOptionsTable(askId, options);
         const opt = table.find((o) => o && String(o.letter).toLowerCase() === letterHit.outcome);
         const armText = opt && opt.arm
           ? `${opt.arm}${letterHit.comments ? ` ${letterHit.comments}` : ''}`
