@@ -10954,33 +10954,82 @@ def _selftest_checks(args, failures, names):
               and len(_c3_defer_lines(_c3_n2)) == 1)
         _c3_registry()   # reset — N1 below is untouched and needs the same clean slate its
                           # original fixture assumed
-        # ============ N1 — LEFT RED, DELIBERATELY, ON THE OWNER'S OWN TERMS ========================
+        # ============ N1, REIMPLEMENTED: THE ONE-SHOT PROCESS SWEEP ================================
         #
-        # `d-ask10-build-the-replacement` barred rewriting 7.555/N1/N2 to assert their own absence
-        # (option (a), declined) — but N1's premise genuinely does not survive the registry: the old
-        # sensor found "a live agent process with NO descriptor ANYWHERE" by walking a raw OS pane
-        # list independent of any launch record. A registry row cannot represent that state BY
-        # CONSTRUCTION — `record_spawn`/`superviseSpawn` require a `(goal, seat)` pair to write a row
-        # at all [T4-R7], so a process nothing ever launched through a named door has no row to find,
-        # supervised or not. Closing this gap without a second observation source would mean
-        # restoring a pane sensor, which the owner has ruled out twice (`ignite/work-on-ignite/
-        # memory/supervisor/20260828-i-pane-census-deferred-every-dae.md`, and this plan's own
-        # walls). So: left AS IS below, still driven by the retired `_c3_state(...)` fixture, still
-        # RED — a truthful two-of-three with a named gap, not a silent regression. What would close
-        # it, if ever wanted: a process-tree sweep AT THE GATE (not a persisted sensor — a one-shot
-        # `ps` read at the moment of a launch decision, never written to disk) cross-checked against
-        # every goal's registry, reporting (never flagging, per `budget.py`'s own rule) any AGENT
-        # HARNESS process holding no row anywhere. That is new scope, ungranted here, and named as a
-        # loose end rather than built.
-        _c3_state(seats=[{"seat": None, "agent_type": None, "agent_type_source": "no-seat",
-                          "harness": "claude", "liveness": "live", "cwd": str(Path(td))}])
-        _c3_n1, _c3_n1_code = _c3_run(only="cap1,cap2")
-        check("7.278 N1 (a reading worth SAYING that is not worth DEGRADING on): an unaccounted "
-              "pane sits INSIDE `in_use`, so it makes the cap reading CONSERVATIVE — it "
-              "under-admits and never over-admits. It is reported and the cap still binds; "
-              "degrading on it would be degrading because the reading was SAFE",
-              _c3_n1_code == 0 and "unaccounted pane(s) are INSIDE in_use" in _c3_n1
-              and "CAP NOT CONSULTED" not in _c3_n1)
+        # `d-ask10-build-the-replacement` barred rewriting 7.555/N1/N2 to assert their own absence,
+        # and N1's premise genuinely did not survive the registry: a row cannot represent an
+        # identity nobody ever wrote BY CONSTRUCTION — `record_spawn`/`superviseSpawn` require a
+        # `(goal, seat)` pair to write one at all [T4-R7], so a process nothing ever launched
+        # through a named door has no row to find, supervised or not. THIS WAS THE QUOTED INLINE
+        # NOTE THIS BLOCK SUPERSEDES: "left AS IS below, still driven by the retired `_c3_state(...)`
+        # fixture, still RED... What would close it, if ever wanted: a process-tree sweep AT THE
+        # GATE... That is new scope, ungranted here, and named as a loose end rather than built."
+        # `d-n1-oneshot-sweep` grants exactly that scope: `process.unaccounted_panes` (`launch.py`'s
+        # capacity block, right before `census()` is called) takes ONE `ps` snapshot and ONE round
+        # of `tmux` queries, classifies, and returns — nothing it reads outlives the function call,
+        # so it is not the standing sensor two rulings bar (T4-R8's team-monitor deletion;
+        # `d-ask9-keep-the-three-protections`). The fixture below therefore no longer drives
+        # `_c3_state` (that snapshot path is retired along with team-monitor) — it stubs the sweep's
+        # own two real sources instead, exactly like every other process-truth check in this suite
+        # (see the G-11 checkin block's `process.pane_harness_pids` stub, above).
+        global pane_cwd   # a name this function never touched before N1 — `live_panes`/
+                          # `tmux_pane_pid` are already `global`-declared earlier in this function
+        _c3_n1_real = (live_panes, tmux_pane_pid, pane_cwd, process.ps_snapshot)
+        _c3_n1_rogue_pid = 424242
+        _c3_n1_caller_pid = 555555
+        def _c3_n1_stub(rogue=True, caller=False):
+            live = (set(["%rogue"]) if rogue else set()) | (set(["%caller"]) if caller else set())
+            pids = {"%rogue": _c3_n1_rogue_pid, "%caller": _c3_n1_caller_pid}
+            cwds = {"%rogue": "/tmp/nowhere-a-seat-ever-declared",
+                    "%caller": "/tmp/also-nowhere-a-seat-declared"}
+            argvs = [(pids["%rogue"], 1, "claude --dangerously-skip-permissions")]
+            if caller:
+                argvs.append((pids["%caller"], 1, "codex exec"))
+            globals()["live_panes"] = lambda: set(live)
+            globals()["tmux_pane_pid"] = lambda pane: pids.get(pane, 0)
+            globals()["pane_cwd"] = lambda pane: cwds.get(pane, "")
+            process.ps_snapshot = lambda: list(argvs)
+        # `detect_pane` is stubbed suite-wide (line ~684) to read `calling_pane["v"]`, never real
+        # tmux or `$TMUX_PANE` — this suite never touches real tmux at all. So the calling pane
+        # this block simulates is set THERE, not in the environment.
+        _c3_n1_prior_calling_pane = calling_pane["v"]
+        def _c3_n1_set_caller_pane(name):
+            calling_pane["v"] = name or ""
+        try:
+            # ---- THE POSITIVE: a rogue pane no door ever opened lands INSIDE in_use -------------
+            _c3_n1_stub(rogue=True)
+            _c3_n1_set_caller_pane(None)
+            _c3_n1, _c3_n1_code = _c3_run(only="cap1,cap2")
+            check("7.278 N1, REIMPLEMENTED AGAINST THE ONE-SHOT SWEEP: a live harness pane with NO "
+                  "registry row and NO seat.md anywhere is found fresh, AT THE GATE, by "
+                  "`process.unaccounted_panes` and lands INSIDE `in_use`, making the cap reading "
+                  "CONSERVATIVE — it under-admits and never over-admits. Reported, the cap still "
+                  "binds; degrading on it would be degrading because the reading was SAFE",
+                  _c3_n1_code == 0 and "unaccounted pane(s) are INSIDE in_use" in _c3_n1
+                  and "CAP NOT CONSULTED" not in _c3_n1)
+            # ---- THE CONTROL: zero rogue panes sweeps zero extra — the act of looking counts nothing
+            _c3_n1_stub(rogue=False)
+            _c3_n1_clean, _c3_n1_clean_code = _c3_run(only="cap1,cap2")
+            check("7.278 N1's CONTROL: with NO rogue pane live, the sweep reports NOTHING extra — "
+                  "cap1/cap2 admit on the ordinary two-slot cap with no unaccounted note at all. "
+                  "Proves the sweep does not manufacture a phantom pane out of its own act of "
+                  "looking (a `ps`/`tmux` scan matching ITS OWN invocation is exactly this failure)",
+                  _c3_n1_clean_code == 0 and "[dry-run] cap1" in _c3_n1_clean
+                  and "[dry-run] cap2" in _c3_n1_clean
+                  and "unaccounted pane(s)" not in _c3_n1_clean)
+            # ---- THE SELF-MATCH TRAP: the CALLING pane is a live "harness" too, and must be excluded
+            _c3_n1_stub(rogue=True, caller=True)
+            _c3_n1_set_caller_pane("%caller")
+            _c3_n1_self, _c3_n1_self_code = _c3_run(only="cap1,cap2")
+            check("7.278 N1's SELF-MATCH TRAP: the pane asking the capacity question "
+                  "(`coord.detect_pane()`'s own answer, a live harness by this test's own "
+                  "construction) is excluded from the sweep — only the genuinely OTHER rogue pane "
+                  "is counted. Without the exclusion this row would report 2 unaccounted panes, "
+                  "sweeping in the very session that asked",
+                  _c3_n1_self_code == 0 and "1 unaccounted pane(s)" in _c3_n1_self)
+        finally:
+            calling_pane["v"] = _c3_n1_prior_calling_pane
+            live_panes, tmux_pane_pid, pane_cwd, process.ps_snapshot = _c3_n1_real
         _c3_registry()
         _c3_budget(cap=None)
         _c3_d2, _c3_d2_code = _c3_run(only="cap1,cap2,cap3")

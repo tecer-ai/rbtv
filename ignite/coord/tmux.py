@@ -311,6 +311,19 @@ def pane_title(pane):
     return r.stdout.strip()
 
 
+def pane_cwd(pane):
+    """This pane's current working directory, tmux's own answer. '' when tmux is unavailable or
+    the pane is gone. `d-n1-oneshot-sweep`: the one field the capacity gate's process sweep needs
+    that `pane_harness_pids` never resolves — WHERE the harness is running, not just THAT it is."""
+    if not is_tmux_pane(pane):
+        return ""   # F1: a session-id token is not a tmux target
+    r = subprocess.run(["tmux", "display-message", "-p", "-t", pane, "-F", "#{pane_current_path}"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return ""
+    return r.stdout.strip()
+
+
 def at_approval_gate(pane):
     """True when this pane's TITLE says its harness is parked on an interactive approval prompt.
 

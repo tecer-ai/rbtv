@@ -2674,6 +2674,28 @@ def cmd_launch(args):
                     "liveness": "live",
                     "cwd": str(_cap_pkg.parent / _fr["goal"] / "seats" / _fr["seat"]),
                 })
+        # ---- N1 (7.278): the ONE-SHOT PROCESS SWEEP — a pane nobody wrote a registry row for ---
+        # `d-n1-oneshot-sweep`: the registry is keyed by `(goal, seat)` from the moment a row is
+        # WRITTEN [T4-R7] — a process nothing ever launched through a named door has no row to
+        # find, by construction, no matter how the registry is queried (`registry-spawn-record`'s
+        # own memory entry names this as the permanent, structural half of the gap). Closing it
+        # needs a SECOND observation source, and the only one two owner rulings leave standing
+        # (T4-R8's team-monitor deletion; `d-ask9-keep-the-three-protections`) is a sweep taken AT
+        # THIS DECISION and thrown away — never a schedule, never a file, never a daemon. So this
+        # reads `ps` and `tmux` through `process.unaccounted_panes` exactly ONCE, right here, and
+        # every byte it read is gone the moment this function returns — see that function's own
+        # docstring for why the pre-filter there (not a raw dump into `_cap_seats`) is what keeps a
+        # declared seat's own pane from being counted twice.
+        for _cap_rogue in process.unaccounted_panes(exclude_pane=coord.detect_pane()):
+            _cap_seats.append({
+                "seat": None,
+                "pane": _cap_rogue["pane"],
+                "agent_type": "unclassified",
+                "agent_type_source": "no-seat",
+                "harness": _cap_rogue["harness"],
+                "liveness": "live",
+                "cwd": _cap_rogue["cwd"],
+            })
         try:
             _cap_c = coord.budget_mod.census(_cap_b or {},
                                               {"captured_at": time.time(), "seats": _cap_seats})
