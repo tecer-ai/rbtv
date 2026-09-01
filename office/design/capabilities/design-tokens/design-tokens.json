@@ -1,0 +1,150 @@
+{
+  "$schema": "design-tokens-schema",
+  "metadata": {
+    "title": "Design Tokens: {website-name}",
+    "source": "{url}",
+    "date": "{current-date}",
+    "pagesAnalyzed": [],
+    "extractionMethod": "dom+screenshot"
+  },
+  "colors": {
+    "primary": "",
+    "secondary": "",
+    "neutral": {
+      "100": "",
+      "200": "",
+      "300": "",
+      "400": "",
+      "500": "",
+      "600": "",
+      "700": "",
+      "800": "",
+      "900": ""
+    },
+    "accent": "",
+    "background": {
+      "primary": "",
+      "secondary": ""
+    }
+  },
+  "typography": {
+    "fontFamily": {
+      "primary": "",
+      "secondary": "",
+      "monospace": ""
+    },
+    "fontFace": [
+      {
+        "family": "",
+        "src": "",
+        "weight": "",
+        "style": "",
+        "display": ""
+      }
+    ],
+    "fontSize": {
+      "h1": "",
+      "h2": "",
+      "h3": "",
+      "h4": "",
+      "h5": "",
+      "h6": "",
+      "body": "",
+      "small": "",
+      "caption": ""
+    },
+    "fontWeight": {
+      "regular": "",
+      "medium": "",
+      "semibold": "",
+      "bold": ""
+    },
+    "lineHeight": {
+      "tight": "",
+      "normal": "",
+      "relaxed": ""
+    },
+    "letterSpacing": {
+      "tight": "",
+      "normal": "",
+      "wide": "",
+      "wider": ""
+    }
+  },
+  "spacing": {
+    "base": "",
+    "xs": "",
+    "sm": "",
+    "md": "",
+    "lg": "",
+    "xl": "",
+    "2xl": ""
+  },
+  "layout": {
+    "maxWidth": "",
+    "columns": null,
+    "gap": "",
+    "containerPadding": "",
+    "breakpoints": {
+      "sm": "",
+      "md": "",
+      "lg": "",
+      "xl": "",
+      "2xl": ""
+    }
+  },
+  "visual": {
+    "borderRadius": {
+      "none": "",
+      "sm": "",
+      "md": "",
+      "lg": "",
+      "full": ""
+    },
+    "shadow": {
+      "sm": "",
+      "md": "",
+      "lg": ""
+    },
+    "opacity": {
+      "muted": "",
+      "disabled": "",
+      "overlay": ""
+    },
+    "zIndex": {
+      "base": "",
+      "dropdown": "",
+      "sticky": "",
+      "modal": "",
+      "tooltip": ""
+    }
+  },
+  "transition": {
+    "duration": {
+      "fast": "",
+      "normal": "",
+      "slow": ""
+    },
+    "easing": {
+      "default": "",
+      "in": "",
+      "out": "",
+      "inOut": ""
+    },
+    "animation": {}
+  },
+  "cssVariables": {},
+  "alphaScale": {
+    "white": {
+      "10": "",
+      "20": "",
+      "50": ""
+    },
+    "black": {
+      "10": "",
+      "20": "",
+      "50": ""
+    },
+    "brand": {}
+  }
+}

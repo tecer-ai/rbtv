@@ -1,0 +1,29 @@
+{
+  "name": "@rbtv/office-design",
+  "private": true,
+  "description": "Dependency manifest for the design component. ONE package manager (npm) per the one-platform-per-component rule; npm resolves nothing of its own here today. Python bits (Playwright, Pillow) are HOST SYSTEM elements in rbtv.system — npm cannot express them. Playwright drives Chromium for screenshot-capture and vision-to-json reference work; Pillow does image handling for screenshot-capture. Declaration only; never published, never installed in place.",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {},
+  "rbtv": {
+    "manager": "npm",
+    "check": {
+      "python3": "python3 --version",
+      "playwright": "python3 -c \"import playwright\"",
+      "chromium": "python3 -m playwright install --dry-run chromium",
+      "Pillow": "python3 -c \"import PIL\""
+    },
+    "install": {
+      "python3": "sudo apt-get install -y python3",
+      "playwright": "pip3 install --user --break-system-packages playwright",
+      "chromium": "python3 -m playwright install chromium",
+      "Pillow": "pip3 install --user --break-system-packages Pillow"
+    },
+    "system": {
+      "python3": "sudo apt-get install -y python3",
+      "playwright": "pip3 install --user --break-system-packages playwright",
+      "Pillow": "pip3 install --user --break-system-packages Pillow"
+    }
+  }
+}

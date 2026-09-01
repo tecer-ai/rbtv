@@ -1,0 +1,20 @@
+# Columns are the seven of `concepts/exposure-manifest.md` § file schema, in its order — routed,
+# not invented; `#`-led lines are dropped before the header is read.
+#
+# Ten LOCKED rows (owner ruling 20). `visual-check-cli` entry-point is ruled by the scaffold seat:
+# ONE CLI at `capabilities/visual-check/tool/visual-check.py` (the design spec left this open as
+# `tool/…`). Third-party CLIs (Playwright, Pillow) get NO rows — package.json is their declaration.
+# `write-roots` is empty on every row: these tools write only where the caller points them
+# (`--out` / `--refs`), same posture as `web/capture` — the trailing comma on every row IS the
+# column, never a typo. No `rule` rows. No row for the designer persona (tier 3).
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+design-tokens,capability,skill,,capabilities/design-tokens/design-tokens.md,Extracts colour/type/spacing tokens from source material into the brand pack's token set.,
+subtle-refs,capability,skill,,capabilities/subtle-refs/subtle-refs.md,"Extracts subtle, non-obvious visual references from source material — the ones a literal read misses.",
+subtle-refs-cli,tool,path,,capabilities/subtle-refs/tool/extract.py,,
+vision-to-json,capability,skill,,capabilities/vision-to-json/vision-to-json.md,"Turns a reference image into a reconstructable generation prompt, as JSON.",
+screenshot-capture,capability,skill,,capabilities/screenshot-capture/screenshot-capture.md,Captures exemplar screenshots for the brand pack's exemplars/ set.,
+screenshot-capture-cli,tool,path,,capabilities/screenshot-capture/tool/capture.py,,
+visual-check,capability,skill,,capabilities/visual-check/visual-check.md,"Deterministic + model-reviewed style checking of produced HTML against the brand pack. Any HTML-producing agent reaches this directly, not only through html-review or presentation verification.",
+visual-check-cli,tool,path,,capabilities/visual-check/tool/visual-check.py,,
+visual-ban-list,reference,skill,,references/visual-ban-list.md,Banned visual patterns checklist.,
+visual-flaw-checklist,reference,skill,,references/visual-flaw-checklist.md,Visual-flaw review checklist.,

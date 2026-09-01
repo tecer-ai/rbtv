@@ -1,0 +1,4 @@
+Seat/workflow,after,i/o,Modality
+mpre-classify,,"in: meeting basics from the user (topic, other party, why a cheat sheet) plus the workspace for the one context sweep; out: planning/meeting-class.md — first line MEETING-CLASS, then type slug, topic, other party, why, approved context files, type-data path",interactive
+mpre-discover,mpre-classify,"in: planning/meeting-class.md plus the loaded type-data file and any approved context files; out: planning/meeting-discovery.md — first line MEETING-DISCOVERY, then objectives, relationship context, strategy, logistics, type-specific notes, research, remaining gaps",interactive
+mpre-generate,mpre-discover,"in: planning/meeting-class.md + planning/meeting-discovery.md + the type-data output skeleton; out: planning/cheatsheet.md — first line CHEATSHEET, the print-ready type-adapted cheat sheet, also landed at the caller-supplied path as YYYY-MM-DD-{topic}-cheatsheet.md",interactive

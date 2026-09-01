@@ -1,0 +1,176 @@
+---
+description: Read at the moment the email language is Portuguese — the pt-BR tonal overlay on email-voice. Not the default, not the capability.
+---
+
+# email-voice-pt-br — Portuguese language overlay
+
+This file is a Portuguese (pt-BR) language overlay on the `email-voice` capability. Load it ONLY when the email language is Portuguese. It is NOT the default. It is NOT the capability. Universal stance, vocabulary, structure, commitment, and compaction live in the capability; this file carries only the register choices and before/after pairs that do not survive translation.
+
+## Cumprimentos e fechamentos
+
+- **Abertura:** nomes diretos + saudação informal-profissional. "[Recipient-1] e [Recipient-2], boa tarde." Não "Prezados senhores."
+- **Fechamento:** "Abraço," seguido de linha em branco e nome próprio. "Atenciosamente" é formal demais para a maioria dos contextos B2B brasileiros tech/inovação.
+
+## Pessoa verbal
+
+- **Default:** "vocês" (segunda pessoa do plural, registro próximo). NÃO usar "o senhor / a senhora" exceto em contexto de hierarquia muito acentuada (juiz, autoridade pública).
+- **"a gente" e "nós" são intercambiáveis** dentro do mesmo email — escolher pela cadência da frase. "A gente vai precisar..." e "Nós vamos precisar..." podem coexistir.
+- **Subjuntivo para propostas e hedges.** "Poderíamos ajudar", "ficaria à disposição". Indica abertura à negociação sem perder propósito.
+
+## Vocabulário e convenções
+
+- **Termos em inglês integrados ao biz brasileiro mantêm-se.** "POC", "fallback", "ponto focal", "(cced)", "lock-in", "follow-up", "kick-off", "matching", "dashboard". Traduzir essas palavras estrangeiriza o tom em vez de aproximá-lo.
+- **POC é feminino:** "a POC", "a POC operacional". Nunca "o POC".
+- **Siglas com tradução pt-BR completa, não em inglês.** "Contas a receber" (não "AR"), "contas a pagar" (não "AP"), "fluxo de caixa" (não "cashflow"). NUNCA usar "AR" ou "AP" em email a destinatário brasileiro — soa como jargão internalizado da equipe técnica. Exceção: termos consagrados em inglês sem equivalente natural ("API", "tool-call"). "Baseline" também sai — usar "linha de base", "calibração", ou reformular a frase sem o termo. ("Calibragem" NÃO existe em pt-BR — usar "calibração".)
+- **Datas em formato brasileiro.** "15/5", "30/6", "2026-04-29". Não "May 15", não "5/15".
+- **Verbos do cotidiano sobre corporatês.** "Deixo abaixo" beats "submeto à apreciação". "Avançar" beats "endereçar". "Conversar" beats "manter diálogo". "Topa marcar?" beats "Seria possível agendarmos?".
+- **Limite do informal — registro profissional-informal NÃO é registro casual.** Em email, evitar gírias e contrações de fala oral. Substituições obrigatórias:
+
+| Casual demais (oral) | Substituir por |
+|---|---|
+| "chute" / "chuta um número" | "estimativa" / "estimando" / reformular sem o termo |
+| "rolou" / "rolar" | "aconteceu" / "ocorreu" / "terminou" (conforme contexto) |
+| "pra" (qualquer ocorrência em email) | "para" SEMPRE. Nenhuma exceção. Em fala viva existe; em email escrito, não. |
+| "tá" / "tô" / "né" | nunca em email |
+| "bater um papo" | "conversar" |
+| "dar uma olhada" | aceitável (já é registro profissional-informal consolidado) |
+
+## Conectores e pontuação
+
+- **Em-dash existe, mas raramente.** Parênteses são o default para asides, atribuições e meta-explicações curtas. Em-dash apenas quando há ruptura real de tom, lista curta dentro de uma frase, ou ênfase forte.
+- **Dois-pontos para introduzir listas e parâmetros.** "Parâmetros:", "Segurança:", "Fluxo proposto:". Cria expectativa imediata da estrutura que vem.
+- **Travessão (—) e parênteses não competem.** Parênteses para informação lateral neutra; travessão para inflexão de pensamento.
+
+## Calibração de relação
+
+O registro pt-BR varia com a temperatura da relação. Imperativo direto e fórmulas curtas pressupõem confiança aquecida — usados cedo demais, soam invasivos.
+
+| Estágio | Default | Exemplos permitidos |
+|---|---|---|
+| Primeiro email direto a essa pessoa | Subjuntivo permissivo / condicional | "podem nos enviar", "se puderem sugerir uma janela", "valeria receber" |
+| Segundo email em diante (após resposta calorosa) | Subjuntivo + imperativo direto coexistem | "manda quando puder", "sugere janela", "topa avançar?" |
+| Relação consolidada (multi-thread, intimidade explícita) | Imperativo direto é o default | "Sugiram qualquer janela — nos adaptamos", "Topa marcar?" |
+
+Pessoas distintas dentro da mesma empresa têm relações distintas. Quatro reuniões com o ponto focal estratégico NÃO autorizam imperativo direto com o ponto focal operacional que entra na thread como destinatário pela primeira vez. Calibrar por pessoa, nunca por empresa.
+
+**Espelhamento permitido.** Se o destinatário usa imperativo direto com você primeiro, você pode espelhar — a relação aceitou esse registro do lado dele.
+
+### Exemplo de má calibração
+
+Contexto: primeiro email direto a um destinatário operacional, após ele responder a um email anterior endereçado ao ponto focal estratégico (com quem havia relação consolidada).
+
+**Antes (imperativo direto, mal calibrado):**
+> Material: quando puder, manda as empresas modelo. (...) Sugere janela nas próximas duas semanas — nos adaptamos.
+
+**Depois (subjuntivo permissivo, calibrado):**
+> Material: quando puderem, podem nos enviar as empresas modelo. (...) Se puderem sugerir uma janela nas próximas duas semanas, a gente se adapta.
+
+Mesma intenção, calibrada à temperatura real da relação com aquela pessoa.
+
+## Padrões de compromisso pt-BR
+
+- **"Sem custo" / "sem lock-in"** — frases curtas e diretas. Evitar "isenção de cobrança" ou "ausência de cláusula de exclusividade".
+- **"Topa marcar?" / "Topa avançar?"** — convite informal-mas-profissional, comum em B2B brasileiro tech. Use quando há um ponto focal claro a quem dirigir.
+- **"Nos adaptamos a vocês"** beats "Nos colocamos à disposição da agenda de vocês". Mais curto, mais propositivo, menos servil.
+- **"Sugiram qualquer janela"** (imperativo direto) beats "Se puderem sugerir uma janela" (subjuntivo cerimonioso) — quando a relação já permite.
+
+## Exemplos antes/depois
+
+Ilustram princípios — não copiar literalmente.
+
+### 1 — Abertura (auto-flagelação cortada)
+
+**Antes:**
+> Boa tarde. Saímos da reunião de 16/04 com uma constatação: passamos boa parte do tempo apresentando o que [a empresa] pode fazer de modo geral, e tempo de menos no que vocês de fato precisam resolver. Esse email é uma correção de rota.
+
+**Depois:**
+> [Recipient-1] e [Recipient-2], boa tarde.
+>
+> Na reunião de 16/04 entendemos que a dor mais latente onde poderíamos ajudar é a conciliação de contas a receber via Pix/TED.
+
+**Cortes:** auto-flagelação, meta-narrativa ("correção de rota"), restateamento implícito do que o destinatário disse. **Adições:** nomes diretos, agência ("entendemos"), foco direto na dor.
+
+### 2 — Item de fluxo (sub-bullets dobrados em prosa)
+
+**Antes:**
+> 4. A analista revisa no dashboard, aprova ou ajusta.
+>   - No início imaginamos que vocês vão querer revisar a maioria/totalidade, até ganhar confiança no nosso sistema
+>   - Tendo confiança, o analista pode revisar somente as com indicação de menor confiança pelo sistema
+
+**Depois:**
+> 4. O analista revisa conciliações no dashboard e aprova ou ajusta. No início imaginamos revisão total até vocês ganharem confiança no sistema; depois, só as de menor confiança indicada.
+
+**Princípio:** sub-bullet só sobrevive quando carrega informação substantiva (decisão aberta, opção real). Quando o sub-bullet só esclarece, vira prosa em uma frase.
+
+### 3 — Parâmetros (tabela markdown → bullets)
+
+**Antes:**
+> | Item | Compromisso |
+> |------|-------------|
+> | **Duração** | 6 semanas, com início previsto na próxima semana |
+> | **Custo** | Zero. Integralmente custeado por nós |
+
+**Depois:**
+> Parâmetros da POC:
+> - Duração: cerca de 6 semanas, com início até 15/5 e POC operacional até 30/6.
+> - Custo para o cliente: zero. POC integralmente custeada por nós.
+
+**Cortes:** tabela markdown (quebra no cliente de email) → bullets simples. Negrito markdown → label-com-dois-pontos. Datas vagas ("próxima semana") → datas concretas.
+
+### 4 — Próximo passo (prescrição da reunião + cerimônia cortadas)
+
+**Antes:**
+> Para garantir que a POC fique operacional até o final de maio, precisamos avançar com uma reunião de fechamento de escopo na próxima semana. Saímos dessa reunião com o escopo da POC fechado em uma página: dados, métrica, prazo, papéis. Algumas decisões precisam ser co-construídas com vocês, não impostas por nós. Sugiram qualquer janela nas próximas duas semanas — nos encaixamos.
+
+**Depois:**
+> Para garantir que a POC fique operacional até 30/6, precisamos avançar na definição de escopo nas próximas duas a três semanas — algumas decisões estratégicas (regras implícitas dos analistas, identificação do pagador, forma de devolução) precisam ser co-construídas antes do início. Sugiram qualquer janela nas próximas duas semanas e nos adaptamos a vocês.
+
+**Cortes:** prescrição do resultado da reunião ("saímos com X em uma página") soa salesy. Frase "não impostas por nós" é preachy. **Trocas:** "nos encaixamos" → "nos adaptamos a vocês"; em-dash compactando cláusula subordinada.
+
+### 5 — Bloco técnico (antecipar a pergunta óbvia)
+
+**Antes:**
+> Os dados são replicados para o nosso ambiente (bucket por cliente, hashed, isolado, não exposto à internet).
+
+**Depois:**
+> Os dados ficam em armazenamento privado (bucket por cliente, hashed, isolado, sem endpoint público), acessíveis apenas via dashboard autenticado.
+
+**Princípio:** "não exposto à internet" gera "como acessam então?" na cabeça do leitor técnico. "Sem endpoint público + acessíveis via dashboard autenticado" responde à pergunta antes que apareça.
+
+### 6 — Oferta sem auto-justificação
+
+**Antes:**
+> [Recipient-2], isso é o resumo. O [Colleague] (no CC) está à disposição para uma call dedicada de segurança — esse formato vai render muito mais que qualquer documento que a gente escreva sozinho. Topa marcar?
+
+**Depois:**
+> O [Colleague] (cced) está à disposição para uma call dedicada de segurança.
+
+**Cortes:** justificar por que a call é melhor que doc chama atenção para a ausência do doc. A oferta da call se sustenta pelo que é. **Nota:** "Topa marcar?" foi cortado aqui porque o destinatário direto ([Recipient-2]) saiu do CC; quando há ponto focal claro, "Topa marcar?" funciona bem como CTA.
+
+## Perguntas operacionais
+
+Quando a pergunta envolve um conceito técnico ou pede categorização do trabalho do destinatário, ancorar em exemplos concretos do mundo dele — não pedir abstrações nem ranqueamentos teóricos.
+
+| Antes (abstrato) | Depois (ancorado) |
+|---|---|
+| "Quando você classifica, em que pistas se apoia? Ranqueie por frequência: (a) memória; (b) descrição; (c) valor; (d) NF/boleto." | "Quando você classifica um lançamento no [RecipientERP] hoje, como você decide a categoria? Por exemplo: por CNPJ (mesmo CNPJ sempre cai na mesma categoria); por descrição do extrato; por cruzamento com NF/boleto; por valor; ou por uma combinação?" |
+| "Estime o % de CNPJs determinísticos. Dois números — fornecedores e clientes." | "De todos os CNPJs distintos que você classifica, qual a fração que SEMPRE cai na mesma categoria vs. a que varia dependendo do lançamento? Ou seja, fornecedor A sempre é categoria B, ou fornecedor A pode ser B ou C dependendo de características do lançamento?" |
+
+**Princípios:**
+
+- Cada conceito técnico ganha um "ou seja" ou "por exemplo" inline com instâncias do trabalho real.
+- Em-dash NÃO pode deixar uma frase pendurada. "Dois números — fornecedores e clientes." é fragmento, não frase. Reescrever como sentença completa OU usar lista numerada.
+- "Ranquear por frequência" é pedido abstrato — substituir por enumeração de hipóteses ("por X; por Y; ou combinação?") que o destinatário escolhe entre.
+- Pergunta de gerência ("quem aprova?") já é direta; não precisa de exemplos.
+
+## Técnica de cortes iterativos — lente pt-BR
+
+Mesma técnica da capability (2–3 compaction passes). Foco específico do registro pt-BR:
+
+| Pass | Foco pt-BR específico |
+|---|---|
+| 1 — Estrutura | Cortar seções "O que entendemos / O que ouvimos de vocês". Sub-bullets viram prosa em uma frase. Tabelas markdown viram bullets. |
+| 2 — Redundância | Comentários "tendo escutado de vocês" — o artefato (fallback, exit clause, escopo focado) é a prova da escuta. Headers `## Comentários sobre...` viram labels diretos ou somem. |
+| 3 — Cerimônia | "Esse formato vai render mais que..." — corte. "Não imposto por nós" — corte. "Se puderem" → "Sugiram". CTAs sem alvo claro viram afirmações factuais. "Nos encaixamos" → "nos adaptamos a vocês". |
+
+Resultado típico: redução de 35–45% em palavras sem perda de ação ou tom.

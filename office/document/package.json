@@ -1,0 +1,33 @@
+{
+  "name": "@rbtv/office-document",
+  "private": true,
+  "description": "Dependency manifest for the document component. ONE package manager (npm): md-to-pdf is the only element npm resolves, and it is this component's PDF engine (also pulls Puppeteer/Chromium for md and HTML-print rendering — deck PDF print reuses this same path; no second Chromium is declared next to design's Playwright). Python bits (python-docx, pyyaml — the DOCX engine) are HOST SYSTEM elements in rbtv.system. Declaration only; never published, never installed in place.",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "md-to-pdf": ">=5"
+  },
+  "rbtv": {
+    "manager": "npm",
+    "check": {
+      "node": "node -v",
+      "md-to-pdf": "command -v md-to-pdf",
+      "python3": "python3 --version",
+      "python-docx": "python3 -c \"import docx\"",
+      "pyyaml": "python3 -c \"import yaml\""
+    },
+    "install": {
+      "node": "curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash - && sudo apt-get install -y nodejs",
+      "md-to-pdf": "npm install --global --prefix \"${RBTV_BIN_ROOT:-$HOME/.local}\" md-to-pdf",
+      "python3": "sudo apt-get install -y python3",
+      "python-docx": "pip3 install --user --break-system-packages python-docx",
+      "pyyaml": "pip3 install --user --break-system-packages pyyaml"
+    },
+    "system": {
+      "python3": "sudo apt-get install -y python3",
+      "python-docx": "pip3 install --user --break-system-packages python-docx",
+      "pyyaml": "pip3 install --user --break-system-packages pyyaml"
+    }
+  }
+}

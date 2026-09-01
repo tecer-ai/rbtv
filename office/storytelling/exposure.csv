@@ -1,0 +1,16 @@
+# Columns are the seven of `concepts/exposure-manifest.md` § file schema, in its order — routed,
+# not invented; `#`-led lines are dropped before the header is read.
+#
+# Four LOCKED rows (owner ruling 20, capture open question 2): narrative-lock, visual-strategist
+# (tier-1 capabilities), ai-anti-patterns, tone-extraction (tier-2 references). `research-brief`
+# and the strategist persona are tier 3 — embedded, no row, by design; absence is sanctioned, never
+# a gap to fill.
+#
+# No first-party CLI in this component in V1. No `rule` rows. `write-roots` stays empty on every
+# row: none of these parts is a `method=path` tool row, so the column is legal-but-unused here —
+# the trailing comma on every row IS the column, never a typo.
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+narrative-lock,capability,skill,,capabilities/narrative-lock/narrative-lock.md,"Locks audience, message, and structure before any visual work starts on a deck, document, or site. Reach for it BEFORE any visual-strategy or drafting step.",
+visual-strategist,capability,skill,,capabilities/visual-strategist/visual-strategist.md,"Turns a locked narrative into a visual-communication plan — grouping the locked content into slides, pages, or screens.",
+ai-anti-patterns,reference,skill,,references/ai-anti-patterns.md,Tells-of-AI-writing checklist. Load before drafting or reviewing narrative copy so it does not read as machine-written.,
+tone-extraction,reference,skill,,references/tone-extraction.md,Writing-voice extraction framework — derive a voice profile from source writing samples.,
