@@ -115,20 +115,30 @@ const ASK_ID_THREAD_TS_RE = /^\d+\.\d+$/;
 // Resolves the Slack link for ONE ask row, or `null` — never a fabricated one. Every failure
 // path (no resolver wired, the goal has no channel yet, the resolver threw) degrades to no link;
 // none of them may throw out of here, because a missing link must never cost the digest slot.
-async function linkForAsk(ask, resolveGoalChannel, log) {
+//
+// ⚠ R-A1's CHANNEL-LESS FALLBACK: a goal with no Slack channel gets its recovery/keep-or-close ask
+// posted straight into the SYSTEM channel (`owner-ask-redesign.md` §5.2(d)) — the thread this
+// thread-ts id names lives THERE, not on a goal channel that does not exist. So once the goal
+// resolver comes back with nothing (no goal at all, or a goal genuinely without a channel),
+// `systemChannelId` is tried before giving up — that is "a channel-less system-channel ask links
+// its own thread" (`digest-sentence` DoD 2), not a guess: the poster's own fallback target is the
+// only other place this id's thread could be.
+async function linkForAsk(ask, resolveGoalChannel, systemChannelId, log) {
   const id = String(ask && ask.id != null ? ask.id : '');
   if (ASK_ID_CHANNEL_RE.test(id)) return `https://slack.com/archives/${id}`;
   if (!ASK_ID_THREAD_TS_RE.test(id)) return null; // recovery-* ids and anything unrecognized
-  if (typeof resolveGoalChannel !== 'function' || !ask.goal) return null;
   let channelId = null;
-  try {
-    channelId = await resolveGoalChannel(String(ask.goal));
-  } catch (err) {
-    log('warn', 'ask link NOT attached — the goal→channel resolver threw; the row still renders, with no link',
-      { goal: ask.goal, askId: id, error: err.message });
-    return null;
+  if (typeof resolveGoalChannel === 'function' && ask.goal) {
+    try {
+      channelId = await resolveGoalChannel(String(ask.goal));
+    } catch (err) {
+      log('warn', 'ask link NOT attached — the goal→channel resolver threw; the row still renders, with no link',
+        { goal: ask.goal, askId: id, error: err.message });
+      return null;
+    }
   }
-  return channelId ? slackThreadPermalink(channelId, id) : null;
+  const targetChannel = channelId || systemChannelId || null;
+  return targetChannel ? slackThreadPermalink(targetChannel, id) : null;
 }
 
 // `deps` are the already-constructed parts of a running bridge:
@@ -224,7 +234,7 @@ function createGlance({
     // Attach each row's Slack link BEFORE the digest renders it — `system-digest.js` only
     // renders `ask.link` when it is already set; it does not resolve one (`d-digest-ui`).
     slotAsks = await Promise.all(asks.map(async (a) => ({
-      ...a, link: await linkForAsk(a, resolveGoalChannel, log),
+      ...a, link: await linkForAsk(a, resolveGoalChannel, systemChannelId, log),
     })));
     return digest.check(at);
   }

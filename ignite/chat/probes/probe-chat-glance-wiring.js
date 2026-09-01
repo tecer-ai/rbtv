@@ -262,7 +262,7 @@ function ask(id, seat, oneLiner, openedAt, extra = {}) {
     answer = [];
     r = await glance.checkSlot();
     check('an EMPTY set is a real answer and still posts — "nothing is waiting" is a change the owner may read',
-      r.posted === true && slack.posts.length === 2 && /none open/.test(slack.posts[1].text),
+      r.posted === true && slack.posts.length === 2 && slack.posts[1].text.includes('Nothing is waiting on you.'),
       { text: slack.posts[1] && slack.posts[1].text });
   }
 
@@ -310,15 +310,17 @@ function ask(id, seat, oneLiner, openedAt, extra = {}) {
       { said });
   }
 
-  // ── 6. THE ASK LINK (`d-digest-ui`): THREE ID SHAPES, PLUS THE UNKNOWN CASE ─────────────────
+  // ── 6. THE ASK LINK (`d-digest-ui`, extended by R-A1's channel-less fallback): FOUR ID SHAPES ──
   //
-  // `open_asks` on the live workspace carries three shapes today (verified against
+  // `open_asks` on the live workspace carries three id shapes (verified against
   // `.rbtv/runtime/ignite/heart.db` 2026-08-31) and each needs a DIFFERENT link — the four real
   // ids below are taken straight off that table, not invented:
   //   · `1788115731.908659` — a thread ts (goal `meet-transcript-summarizer-planning`)
   //   · `C0BTB7C7WF5`        — a Slack CHANNEL id (goal-master posts to the channel, no thread)
   //   · `recovery-8f31b609a83b` — a minted recovery id, `posted = 0`, never reached Slack
   //   · anything else (a garbage id) — matches none of the three shapes
+  // Plus the fourth case R-A1 adds: a thread-ts id whose goal has NO channel — `digest-sentence`'s
+  // `linkForAsk` change links its OWN thread, in the system channel, rather than giving up.
   {
     const slack = mockSlack();
     const at = spInstant('2026-08-31', 8);
@@ -327,6 +329,7 @@ function ask(id, seat, oneLiner, openedAt, extra = {}) {
       ask('C0BTB7C7WF5', 'goal-master', 'approve the close?', spInstant('2026-08-31', 7, 55), { goal: 'demo-goal-2' }),
       ask('recovery-8f31b609a83b', 'leader', 'resume after the crash?', spInstant('2026-08-31', 7, 40), { goal: 'demo-goal' }),
       ask('not-a-real-ask-id', 'writer', 'garbage id, no shape matches', spInstant('2026-08-31', 7, 0), { goal: 'demo-goal' }),
+      ask('1788115731.777777', 'leader', 'the leader seat keeps failing to start', spInstant('2026-08-31', 6, 30), { goal: 'channel-less-goal' }),
     ];
     const glance = createGlance({
       outbox: createOutbox({ storePath: path.join(root, 'ob-6.json'), send: (a) => slack.transport.sendToOwner(a) }),
@@ -339,21 +342,26 @@ function ask(id, seat, oneLiner, openedAt, extra = {}) {
     });
 
     const r = await glance.checkSlot();
-    check('the slot posted with all four ask rows resolved', r.posted === true && slack.posts.length === 1, { result: r });
+    check('the slot posted with all five ask rows resolved', r.posted === true && slack.posts.length === 1, { result: r });
     const text = slack.posts[0].text;
     const rowLines = text.split('\n').filter((l) => l.startsWith('•'));
-    check('a THREAD-TS id links the resolved goal channel + the ts with its dot stripped',
-      rowLines[0] === '• <https://slack.com/archives/C0BTB7C7WF5/p1788115731908659|*demo-goal*> · plan-verifier · which lane owns the retry? · 10m · 908659',
+    check('a THREAD-TS id links the resolved goal channel + the ts with its dot stripped, goal name as the link text',
+      rowLines[0] === '• <https://slack.com/archives/C0BTB7C7WF5/p1788115731908659|demo-goal> — which lane owns the retry? · waiting 10m',
       { row: rowLines[0] });
     check('a CHANNEL-shaped id links the channel directly — never a fabricated thread permalink',
-      rowLines[1] === '• <https://slack.com/archives/C0BTB7C7WF5|*demo-goal-2*> · goal-master · approve the close? · 5m · 7C7WF5',
+      rowLines[1] === '• <https://slack.com/archives/C0BTB7C7WF5|demo-goal-2> — approve the close? · waiting 5m',
       { row: rowLines[1] });
-    check('a `recovery-` id (posted=0, never reached Slack) gets NO link — the row falls back to its evidence pointer',
-      rowLines[2] === `• *demo-goal* · leader · resume after the crash? · 20m · /tmp/recovery-8f31b609a83b.txt · 09a83b`,
+    check('a `recovery-` id (posted=0, never reached Slack) gets NO link — the row falls back to the goal name, plain',
+      rowLines[2] === '• demo-goal — resume after the crash? · waiting 20m',
       { row: rowLines[2] });
     check('an id matching NONE of the three shapes gets NO link either — never a guessed one',
-      rowLines[3] === `• *demo-goal* · writer · garbage id, no shape matches · 1h · /tmp/not-a-real-ask-id.txt · ask-id`,
+      rowLines[3] === '• demo-goal — garbage id, no shape matches · waiting 1h',
       { row: rowLines[3] });
+    check('R-A1 a thread-ts id whose goal resolves to NO channel links its OWN thread, in the system channel',
+      rowLines[4] === '• <https://slack.com/archives/Csystem/p1788115731777777|channel-less-goal> — the leader seat keeps failing to start · waiting 1h',
+      { row: rowLines[4] });
+    check('no row carries a seat token, LANE label, or trailing ref id',
+      !text.includes('plan-verifier') && !text.includes('goal-master') && !/\bLANE:/.test(text) && !/\bref \d/.test(text), {});
   }
 
   // ── 7. RESOLUTION FAILURE DEGRADES — the row renders with NO link, the slot never throws ───
@@ -381,8 +389,11 @@ function ask(id, seat, oneLiner, openedAt, extra = {}) {
     check('a resolver that THROWS never escapes the slot — the digest still posts',
       threw === false && r.posted === true && slack.posts.length === 1, { threw, result: r });
     const rowLine = slack.posts[0].text.split('\n').find((l) => l.startsWith('•'));
-    check('the row renders with NO link when resolution fails — degrade, never a dead link',
-      rowLine === '• *unmapped-goal* · writer · ship the draft? · 1h · /tmp/1788200000.000001.txt · 000001',
+    // A throw is an OPERATIONAL failure, not evidence the ask lives in the system channel — it
+    // must NOT fall back to `systemChannelId` (that fallback is only for a resolver that cleanly
+    // answers "no channel"), so this row still gets no link at all.
+    check('the row renders with NO link when resolution fails — degrade, never a dead OR a guessed link',
+      rowLine === '• unmapped-goal — ship the draft? · waiting 1h',
       { row: rowLine });
   }
 
