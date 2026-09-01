@@ -276,7 +276,20 @@ function classifyOwed(goalFolder, {
   const summonedSet = summoned || new Set();
   const gid = goalNameOf(goalFolder, goal);
   const api = bindEnding(heartStore, goalFolder);
-  const seats = [...last.keys()];
+  // ── THE INVISIBLE-ENDING GAP (owner-ordered fix, 2026-09-01) ─────────────────────────────────
+  // `last.keys()` alone used to BE the whole candidate universe: a seat whose ending was stamped
+  // directly, with no `sessions.csv` row ever written for it, was never a candidate here — not
+  // excluded, never asked about (nothing in the daemon's own launch path produces that state; only
+  // an external/admin tool stamping an ending directly, or a hand-built fixture, can — proven by
+  // `rr-live-proof`). Widening to the FULL taskforce set was rejected: a healthy goal is full of
+  // seats that have simply not launched yet, and the classA loop below has no way to tell those
+  // apart from a real candidate without a session row. The narrow fix instead asks the ending store
+  // which seat names it holds a row for, and adds only the ones `last` is missing — a seat with no
+  // ending row is unaffected either way, because `classifyEnding` (below) already returns null for
+  // it, so this can only ever ADD a candidate that already has real, stamped work to classify.
+  const endingOnly = (endings ? [...endings.keys()] : (api && typeof api.listSeatsWithEndings === 'function'
+    ? api.listSeatsWithEndings({ goal: gid }) : [])).filter((seat) => !last.has(seat));
+  const seats = [...last.keys(), ...endingOnly];
   const endingMap = endings || endingsForSeats(api, gid, seats);
   const holdMap = heldSeats(api, gid, seats);
   const abandonedMap = abandonedSeats(api, gid, seats);
@@ -311,14 +324,20 @@ function classifyOwed(goalFolder, {
   }
 
   const classA = [];
-  for (const [seat, sessionRow] of last) {
+  for (const seat of seats) {
     if (dead.has(seat)) continue;
     if (summonedSet.has(seat)) continue;
     if (holdMap.has(seat)) continue;
     if (abandonedMap.has(seat)) continue;
-    const ended = (sessionRow.ended || '').trim();
+    const sessionRow = last.get(seat) || null;
+    const endingRow = endingMap.get(seat);
+    // A seat `last` never saw (an ending-only candidate, see above) has no launch that could
+    // still be running — nothing to wait out — so its ending row's own stamp stands in for
+    // `ended`. A LAUNCHED seat keeps using its session's own `ended` cell, unchanged: a live or
+    // never-ended sitting stays silent exactly as before this fix.
+    const ended = sessionRow ? (sessionRow.ended || '').trim() : (endingRow ? endingRow.stamped_at : '');
     if (!ended) continue;
-    const classified = classifyEnding(endingMap.get(seat));
+    const classified = classifyEnding(endingRow);
     if (!classified) continue;
     classA.push({
       seat,
@@ -369,7 +388,7 @@ function classifyOwed(goalFolder, {
     classA,
     classB,
     classE,
-    seats: [...last.keys()],
+    seats,
     live: [...liveSet],
     queued: [...queuedSet],
     owed: classA.length > 0 || classB.length > 0,

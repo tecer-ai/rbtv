@@ -633,6 +633,75 @@ function caseAbandonedSeatExcludedFromClassR() {
   } catch (err) { fail('abandoned seat excluded from class R (seatState)', err); }
 }
 
+// ── THE INVISIBLE-ENDING GAP (owner-ordered fix, 2026-09-01, `rr-live-proof`) ────────────────────
+//
+// `classifyOwed`'s candidate universe used to be `sessions.csv`'s seats alone (`lastBySeat`'s
+// keys) — a seat whose ending was stamped directly, with NO `sessions.csv` row ever written for
+// it, was never even a candidate: not excluded, never asked about. Measured live on
+// `.rbtv/goals/test-retry-proof/`: `worker-a` carries a real `incomplete/armed:1` ending row and
+// zero session rows, and never once appeared across six real reconcile passes.
+//
+// THIS ARM PROVES BOTH HALVES OF THE FIX IN ONE PASS, so neither can silently regress the other:
+//   · `worker-invisible` — an ending row, zero session rows — now IS a class-A candidate.
+//   · `worker-launched` — the CONTROL, an ordinary launched-and-ended seat with the same ending —
+//     is unaffected, proving the widening did not change how a normal candidate is read.
+//   · The candidate set (`d.seats`) is asserted to hold EXACTLY these two names — a healthy goal's
+//     seats that never launched and were never stamped (the population this fix must never touch,
+//     because nothing here ever writes them an ending row) do not silently ride along.
+function caseInvisibleEndingSeatBecomesClassA() {
+  const workspaceRoot = fs.mkdtempSync(path.join(tmpRoot, 'invisible-ending-ws-'));
+  const db = openEndingStoreFor(workspaceRoot);
+  const api = bindStore(db);
+  try {
+    const goal = 'invisible-ending-goal';
+    const goalFolder = path.join(workspaceRoot, '.rbtv', 'goals', goal);
+    fs.mkdirSync(goalFolder, { recursive: true });
+    writeSessions(goalFolder, [
+      {
+        'session-id': 's1', seat: 'worker-launched', started: '2026-09-01T00:00:00Z',
+        ended: '2026-09-01T00:05:00Z', checkin: '2026-09-01 00:00',
+      },
+    ]);
+    api.stampSystem({
+      goal, seat: 'worker-launched', ending: 'failed', reason_class: 'crash', evidence_pointer: '/tmp/launched',
+    });
+    // `worker-invisible` gets an ending row and NOTHING in sessions.csv — the exact shape
+    // `rr-live-proof` measured on `worker-a`. `worker-never-run` gets neither: the ordinary,
+    // healthy not-yet-launched seat, proven absent by never writing it anything at all.
+    api.stampSystem({
+      goal, seat: 'worker-invisible', ending: 'failed', reason_class: 'crash', evidence_pointer: '/tmp/invisible',
+    });
+
+    const {
+      loadSessions, loadMessages, lastBySeat, liveSeatsFromLedgers, checkinOf, tsAfter,
+    } = require('./reconcile');
+    const d = withWorkspaceRoot(workspaceRoot, () => require('./owed-from-endings').classifyOwed(goalFolder, {
+      readyAnswer: readyEmpty,
+      live: new Set(),
+      queued: new Set(),
+      goal,
+      loadSessions,
+      loadMessages,
+      lastBySeat,
+      liveSeatsFromLedgers,
+      checkinOf,
+      tsAfter,
+      STAFF_CHAIRS: [],
+      SYSTEM_MAIL_SENDER: 'ignite-daemon',
+    }));
+
+    assert.ok(d.classA.find((x) => x.seat === 'worker-invisible'),
+      `a seat with an ending-store row but ZERO sessions.csv rows must appear in classA, got ${JSON.stringify(d.classA)}`);
+    assert.ok(d.classA.find((x) => x.seat === 'worker-launched'),
+      `CONTROL: an ordinary launched seat with the same failed ending must still appear in classA, got ${JSON.stringify(d.classA)}`);
+    assert.strictEqual(d.classA.length, 2,
+      `exactly the two stamped seats must be class A, got ${JSON.stringify(d.classA)}`);
+    assert.deepStrictEqual([...d.seats].sort(), ['worker-invisible', 'worker-launched'],
+      `the candidate universe must be exactly the two seats with real evidence (a session or an ending row) — no seat neither launched nor stamped may ride along, got ${JSON.stringify(d.seats)}`);
+    pass('a seat whose ending was stamped directly, with zero sessions.csv rows, is no longer invisible to class A — an ordinary never-launched, never-stamped seat is still untouched');
+  } catch (err) { fail('invisible-ending seat becomes a class A candidate', err); } finally { closeEndingStores(); }
+}
+
 function caseFinishMarkerPin() {
   try {
     const recordsPy = fs.readFileSync(path.join(__dirname, '..', 'coord', 'records.py'), 'utf8');
@@ -655,6 +724,7 @@ caseRedFirstRowReturn();
 caseAbandonedSeatExcludedFromClassAAndClassB();
 caseAbandonedSeatExcludedFromPending();
 caseAbandonedSeatExcludedFromClassR();
+caseInvisibleEndingSeatBecomesClassA();
 
 try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* tmp */ }
 

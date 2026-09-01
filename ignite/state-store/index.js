@@ -32,6 +32,7 @@ function bind(db) {
     seatWaitingOnOwner: (fields) => predicates.seatWaitingOnOwner(db, fields),
     seatHeld: (fields) => predicates.seatHeld(db, fields),
     listSeatHolds: (fields) => predicates.listSeatHolds(db, fields),
+    listSeatsWithEndings: (fields) => predicates.listSeatsWithEndings(db, fields),
     listOpenAsks: (fields) => predicates.listOpenAsks(db, fields),
     listAllOpenAsks: (fields) => predicates.listAllOpenAsks(db, fields || {}),
     goalWaitingOnOwner: (fields) => predicates.goalWaitingOnOwner(db, fields),

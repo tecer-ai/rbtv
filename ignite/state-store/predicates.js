@@ -104,6 +104,18 @@ function listSeatHolds(db, { goal }) {
   return out;
 }
 
+// Every seat name this goal has EVER stamped an ending row for — the complement of
+// `getCurrentEnding`, which needs a seat name to look one row up. `owed-from-endings.js#classifyOwed`
+// used to build its whole candidate universe from `sessions.csv` alone (`lastBySeat`'s keys), so a
+// seat whose ending was stamped with no launch ever recorded for it (nothing in the daemon's own
+// launch path does this — only an external/admin tool stamping an ending directly, or a hand-built
+// fixture, can) was never a candidate: not excluded, never asked about. This is that missing
+// question, asked at its one authoritative source.
+function listSeatsWithEndings(db, { goal }) {
+  return db.prepare('SELECT seat FROM seat_endings WHERE goal = ? ORDER BY seat').all(goal)
+    .map((r) => r.seat);
+}
+
 function countOpenAsks(db, goal) {
   const row = db.prepare(
     `SELECT count(*) AS n FROM open_asks
@@ -153,6 +165,7 @@ module.exports = {
   seatWaitingOnOwner,
   seatHeld,
   listSeatHolds,
+  listSeatsWithEndings,
   listOpenAsks,
   listAllOpenAsks,
   goalWaitingOnOwner,
