@@ -3,7 +3,7 @@
 kind: issue
 component: supervisor
 date: 2026-09-01
-commit: 513d7d39
+commit: 513d7d39,dabdeb68
 deployed: no
 pin: ignite/supervisor/reconcile.selftest.js
 components: state-store
@@ -50,37 +50,65 @@ verbatim in `pause-resume.js`; bending the assertion to accept `skipped:'paused'
 a real fixture bug behind a weakened check, which the mission explicitly ruled out.
 
 ## Consequences
-The suite now runs past L907, through the leader-abandonment arms (~1382), and further — it
-aborts later, at L1030, on a SEPARATE pre-existing bug: `reconcile.js` has two
-`counters.peekCounter(` call sites (`announceDisarm` at :543 and the real brake `counterDisarmed`
-at :671); the "red arm: mutation of the disarm brake" selftest anchor does a plain (non-global)
-`String.replace(ANCHOR, ...)`, which only ever touches the FIRST textual occurrence — landing the
-mutation inside `announceDisarm` (inert for this arm's purpose) while the real brake
-(`counterDisarmed`) stays unmutated and keeps braking correctly, so the arm's own "the mutant
-proves nothing" check fires. Confirmed pre-existing and untouched by this fix (`git diff` on
-`reconcile.js` is empty). NOT fixed here — different cause, out of this seat's scope; surfaced for
-a follow-up seat.
+UPDATE 2026-09-01 (commit `dabdeb68`, same day): a resume on this exact task found the L907 fix
+alone was not sufficient — the suite still died further down, and the leader-abandonment arms
+(`dl-reconcile-honour`) had NOT actually executed in the run this entry originally claimed they
+had (unverified inference, corrected by a judge re-run). Three MORE stale mutation anchors, all the
+same shape as L907 (a refactor moved or reshaped the code an anchor targeted; the anchor kept
+matching syntactically-but-wrongly, or stopped matching, so the arm ran a no-op mutation or aborted
+its own guard), were found and fixed in the same follow-up commit:
+
+- **L1030, "mutation of the disarm brake":** `counters.peekCounter(` appears TWICE in `reconcile.js`
+  (`announceDisarm` at :543, inert for this arm; the real brake `counterDisarmed` at :671). The old
+  anchor was a bare non-unique substring; a non-global `.replace()` silently mutated the wrong
+  (first) occurrence, so the "mutant" kept braking and the arm's own "proves nothing" guard fired.
+  Fixed by anchoring on `counterDisarmed`'s own unique `if (!config) return false;` guard line.
+- **"D24: an unreadable coord degrades to the OLD behaviour":** mutated `reconcile.js`'s OWN
+  `COORD_PY` constant, but `summonedSeats` (and the `COORD_PY` it actually reads) lives in
+  `seeding.js` — `reconcile.js` only re-exports the import and carries an unrelated same-named
+  constant of its own (a `--coord` subprocess arg, used only at reconcile.js:323). The mutation was
+  completely inert: the real function kept reading the live `coord.py` and returned a non-empty set.
+  Fixed by mutating `seeding.js` directly and calling ITS `summonedSeats`; `owedFromLedgers` never
+  touches `COORD_PY` so the already-imported real one is reused unmutated.
+- **Two RED arms ("stop honouring the hold", class A and class B):** both anchors paired the
+  `holdMap.has(...)` exclusion with the line immediately following it. `dl-reconcile-honour`
+  (2026-08-31, commit `4196440e`) inserted an `abandonedMap.has(...)` check BETWEEN the hold check
+  and that line in BOTH the class-A and class-B loops of `owed-from-endings.js`, so neither anchor
+  matched and neither arm ran. The class-B case is the IDENTICAL drift `probe-suite-green` already
+  fixed once in `supervisor/probes/probe-hold-classb.js` on 2026-09-01 (commit `4d4aae4d`) — this
+  selftest's own copy of the same anchor was missed by that fix. Both re-anchored on the
+  abandonedMap-sandwiched text, mutating out only the `holdMap` line.
+
+Each fixed anchor also gained a `src.split(ANCHOR).length - 1 === 1` uniqueness assertion so a
+future refactor that makes an anchor ambiguous again fails loudly instead of silently mutating the
+wrong spot. `reconcile.js` and `owed-from-endings.js` PRODUCT code are unchanged throughout — every
+fix across both commits is confined to the selftest's own mutation anchors.
 
 ## Verification
-`node ignite/supervisor/reconcile.selftest.js` — runs past L907 (both the control-unpause arm and
-the "one pause record" arm now `ok`), through leader-abandonment (~1382), aborting at L1030 on the
-unrelated pre-existing bug above (exit 1, was ALSO exit 1 before this fix but at L907 instead).
+`node ignite/supervisor/reconcile.selftest.js` → **exit 0, 53 `ok` checks, `reconcile.selftest OK`**
+— confirmed on TWO consecutive runs (determinism check). Includes explicit `ok` lines for the
+leader-abandonment arms: `dl-reconcile-honour: a dropped leader chair is never woken, never
+rebuilt-under, in ONE pass` (both the control pass and the forced second pass) and its RED arm
+(`without the abandonment check, the dropped leader chair IS resurrected`).
 `node ignite/deploy/probe-suite.js --only probe-reconcile` → `PASS exit=0`,
-`SUITE-COMPLETE verdict=GREEN exit=0` (probe-reconcile gates only on `finish-gate.selftest.js`'s
-exit status per `20260831-c-reconcile-lane-watch-honour-a` ATTENTION-3, unaffected either way).
-NOT DEPLOYED at filing (commit 513d7d39).
+`SUITE-COMPLETE verdict=GREEN exit=0`. NOT DEPLOYED at filing (commits `513d7d39`, `dabdeb68`).
 
 ## ATTENTION
-1. `reconcile.selftest.js` STILL DOES NOT RUN CLEAN END-TO-END. A future seat fixing the L1030
-   disarm-brake mutation-anchor collision should expect the file to run further still and may
-   surface a THIRD unrelated break — check with a fresh run, don't assume L1030 is the last one.
-2. THE L1030 BUG IS A DUPLICATE-ANCHOR COLLISION, NOT A LOGIC BUG. `counterDisarmed` (the real
-   brake) is correct and unmutated; the fix belongs in the SELFTEST's anchor-selection (disambiguate
-   the two `counters.peekCounter(` sites, e.g. anchor on the enclosing function name or use the
-   `if (!config) return false;` guard already unique to `counterDisarmed`), not in `reconcile.js`.
+1. `reconcile.selftest.js` NOW RUNS CLEAN END-TO-END (exit 0) — the "still does not run clean"
+   warning this entry originally carried is RESOLVED as of `dabdeb68`. Do not re-open on stale
+   information; re-run before assuming otherwise.
+2. FOUR STALE MUTATION ANCHORS IN ONE FILE, ALL FROM THE SAME REFACTOR WINDOW. Any selftest or
+   probe anchor written against `owed-from-endings.js` or `reconcile.js` predating
+   `dl-reconcile-honour` (4196440e, 2026-08-31) or the counter/coord refactors is suspect — grep for
+   OTHER copies of `holdMap.has(...)`-adjacent or `counters.peekCounter(`-adjacent anchors across
+   `supervisor/probes/` and `supervisor/*.selftest.js` before assuming this sweep was exhaustive.
 3. A LEGACY `paused ` FILE-PREFIX MIGRATION IS ONE-WAY AND PERMANENT. Any fixture (or production
    caller) that still writes `execution-lane`'s legacy prefix to simulate pause must resume through
    the store (`writeGoalWord`/`applyResume`), never by editing the file back — the file write is
    inert once a store row exists.
-- reconcile.selftest.js still aborts later at L1030 on an UNRELATED pre-existing bug (duplicate peekCounter anchor) — not fixed here.
+4. DO NOT TRUST "runs past line N" AS PROOF A LATER ARM EXECUTED without quoting that arm's OWN
+   `ok` line. This entry originally claimed the leader-abandonment arms ran based on line-number
+   proximity alone; they had not (a judge re-run caught it) — the suite was dying at L1030 BEFORE
+   reaching them, in the same run that produced the (correct, but incomplete) L907 fix.
+- reconcile.selftest.js now runs clean end-to-end (exit 0, 53 ok) as of dabdeb68 — the file's other stale mutation anchors (disarm brake, D24 coord, class-A/B hold) are fixed too.
 - a legacy execution-lane paused-prefix migration into the store row is one-way; a fixture/caller must resume via writeGoalWord, never by editing the file back.
