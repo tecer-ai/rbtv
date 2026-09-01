@@ -6,3 +6,4 @@
 2026-08-31 · change · owner-DM escalation legs retired, system-channel alarm · Both DM legs are deleted and unified into ONE mechanism, `postUnreachableChannelAlarm`, firing to · b9c014f3 · — · ⚠
 2026-08-31 · creation · drop-lane port: stop live work, then abandon · The port is TWO wire calls in order, composed entirely from ports/intents this seat did not · 8c1023afeaa45474f85a0f3a09a25ecc266e61ed · gateway,runtime,state-store · ⚠
 2026-08-31 · change · retryWithChange — write correction, then re-arm the lane · `retryWithChange` is a direct in-process function, not a second gateway call layered on top of · a1f26096 · supervisor,gateway · ⚠
+2026-09-01 · creation · close-or-keep ask: post it, wire close/keep reply · Mirrors `chat/recovery-poster.js`'s already-proven shape for a DIFFERENT reason than reuse alone: · 756e29d5 · supervisor,gateway,runtime,ignite-cli · ⚠
