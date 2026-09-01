@@ -1576,8 +1576,11 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     if (payload.act !== 'open' && payload.act !== 'reap') {
       throw new InternalApiError(VALIDATION_FAILED, "record-owner-ask act must be 'open' or 'reap'", { check: 'strict-schema', field: 'act' });
     }
+    // `kind`/`subject`/`options` (`d-owner-ask-shape`, R-A3/R-A5) are OPEN-only, exactly like
+    // `corpus`/`label` above them — the gateway's `parseRecordOwnerAsk` carries the same closed
+    // set; this is the core's independent DEC-3 re-validation, not the only check.
     const allowed = payload.act === 'open'
-      ? ['act', 'goal', 'seat', 'thread', 'corpus', 'label']
+      ? ['act', 'goal', 'seat', 'thread', 'corpus', 'label', 'kind', 'subject', 'options']
       : ['act', 'goal', 'seat', 'thread'];
     for (const key of Object.keys(payload)) {
       if (!allowed.includes(key)) {
@@ -1594,6 +1597,15 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     }
     if (payload.label !== undefined && payload.label !== 'work-content' && payload.label !== 'recovery') {
       throw new InternalApiError(VALIDATION_FAILED, "record-owner-ask label must be 'work-content' or 'recovery'", { check: 'label-shape', field: 'label' });
+    }
+    if (payload.kind !== undefined && typeof payload.kind !== 'string') {
+      throw new InternalApiError(VALIDATION_FAILED, 'record-owner-ask kind must be a string', { check: 'kind-shape', field: 'kind' });
+    }
+    if (payload.subject !== undefined && typeof payload.subject !== 'string') {
+      throw new InternalApiError(VALIDATION_FAILED, 'record-owner-ask subject must be a string', { check: 'subject-shape', field: 'subject' });
+    }
+    if (payload.options !== undefined && payload.options !== null && !Array.isArray(payload.options)) {
+      throw new InternalApiError(VALIDATION_FAILED, 'record-owner-ask options must be an array or null', { check: 'options-shape', field: 'options' });
     }
 
     const decision = authz.canRecordOwnerAsk({ sender });
@@ -1612,6 +1624,9 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       thread: payload.thread,
       corpus: payload.corpus,
       label: payload.label || 'work-content',
+      kind: payload.kind,
+      subject: payload.subject,
+      options: payload.options,
     });
     if (!out.recorded) {
       // A REFUSAL AS DATA, not a throw — `handleRecordBusAnswer`'s reason, unchanged: the owner's

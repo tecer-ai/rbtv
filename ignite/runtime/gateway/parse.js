@@ -743,8 +743,10 @@ function parseRecordOwnerAsk(payload) {
   if (payload.act !== 'open' && payload.act !== 'reap') {
     bad("record-owner-ask act must be 'open' or 'reap'", 'act');
   }
+  // `kind`/`subject`/`options` (`d-owner-ask-shape`, R-A3/R-A5) are OPEN-only, exactly like
+  // `corpus`/`label` above them — resolution is not a place to restate the question's shape.
   const allowed = payload.act === 'open'
-    ? new Set(['act', 'goal', 'seat', 'thread', 'corpus', 'label'])
+    ? new Set(['act', 'goal', 'seat', 'thread', 'corpus', 'label', 'kind', 'subject', 'options'])
     : new Set(['act', 'goal', 'seat', 'thread']);
   rejectUnknownKeys(payload, allowed, `record-owner-ask ${payload.act}`);
   for (const key of ['goal', 'seat', 'thread']) {
@@ -764,7 +766,16 @@ function parseRecordOwnerAsk(payload) {
   if (payload.label !== undefined && payload.label !== 'work-content' && payload.label !== 'recovery') {
     bad("record-owner-ask label must be 'work-content' or 'recovery' [D-7-ruling]", 'label');
   }
-  return {
+  if (payload.kind !== undefined && typeof payload.kind !== 'string') {
+    bad('record-owner-ask kind must be a string', 'kind');
+  }
+  if (payload.subject !== undefined && typeof payload.subject !== 'string') {
+    bad('record-owner-ask subject must be a string', 'subject');
+  }
+  if (payload.options !== undefined && payload.options !== null && !Array.isArray(payload.options)) {
+    bad('record-owner-ask options must be an array or null', 'options');
+  }
+  const out = {
     act: 'open',
     goal: payload.goal,
     seat: payload.seat,
@@ -772,6 +783,10 @@ function parseRecordOwnerAsk(payload) {
     corpus: payload.corpus,
     label: payload.label || 'work-content',
   };
+  if (payload.kind !== undefined) out.kind = payload.kind;
+  if (payload.subject !== undefined) out.subject = payload.subject;
+  if (payload.options !== undefined) out.options = payload.options;
+  return out;
 }
 
 // `start-execution` (owner ruling 2026-08-24, option (b),
