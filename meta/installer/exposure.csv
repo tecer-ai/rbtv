@@ -9,4 +9,4 @@
 # ROUTES routes to the tool — it now does, so the prefix is `rbtv install`.
 # Columns are the seven of concepts/exposure-manifest.md, in its order.
 part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
-install,tool,path,rbtv install,install.py,,
+install,tool,path,,install.py,,

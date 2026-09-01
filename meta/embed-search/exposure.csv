@@ -2,10 +2,11 @@
 # not invented; `#`-led lines are dropped before the header is read.
 #
 # `rbtv-embed-search` is this component's MANDATORY TOOL INVENTORY row (first-party CLI,
-# `d-tool-inventory-exposure-rows`); the `rbtv-cli` cell carries `rbtv embed-search` because
-# `meta/rbtv-cli/tool/lib/verbs.js` ROUTES routes to this tool; `description` empty by ruling on
-# a `tool` row — the tool self-documents via `-h`.
+# `d-tool-inventory-exposure-rows`). `rbtv-cli` and `description` are BOTH empty, as
+# `exposure-canon` requires of a method=path row — the tool self-documents via `-h`. The
+# `rbtv embed-search` verb is routed by `meta/rbtv-cli/tool/lib/verbs.js` and by nothing in
+# this file; the cell used to carry that string and FAILED the check (fixed 2026-09-01).
 # Row relocated here 2026-08-23 from the retired module-root `core/exposure.csv` when the owner
 # ruled the rbtv CLIs into `meta/` (each command a component).
 part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
-rbtv-embed-search,tool,path,rbtv embed-search,tool/rbtv-embed-search,,
+rbtv-embed-search,tool,path,,tool/rbtv-embed-search,,
