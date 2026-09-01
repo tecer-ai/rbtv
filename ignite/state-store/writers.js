@@ -323,11 +323,21 @@ function insertAsk(db, fields) {
     throw new EndingStoreError(E_BAD_ENDING, `unknown ask label: ${fields.label}`);
   }
   requireEvidence(fields.evidence_pointer);
+  // `kind`/`subject`/`options_json` (`d-owner-ask-shape`, `open_asks`' three additive columns,
+  // `state-store/open.js#migrateOpenAsksShape`) — OPTIONAL, default '' exactly like a pre-existing
+  // row after migration, so a caller that does not supply them (every caller today — see
+  // `ask-record.js#openAsk`'s own header) writes the same row it always did.
   db.prepare(
     `INSERT INTO open_asks (
-      ask_id, goal, seat, label, state, posted, posted_at, authorized_reply_at, evidence_pointer
-    ) VALUES (?,?,?,?, 'open', 0, NULL, NULL, ?)`,
-  ).run(fields.ask_id, fields.goal, fields.seat, fields.label, String(fields.evidence_pointer));
+      ask_id, goal, seat, label, state, posted, posted_at, authorized_reply_at, evidence_pointer,
+      kind, subject, options_json
+    ) VALUES (?,?,?,?, 'open', 0, NULL, NULL, ?, ?, ?, ?)`,
+  ).run(
+    fields.ask_id, fields.goal, fields.seat, fields.label, String(fields.evidence_pointer),
+    fields.kind ? String(fields.kind) : '',
+    fields.subject ? String(fields.subject) : '',
+    fields.options_json ? String(fields.options_json) : '',
+  );
   return getAsk(db, fields.ask_id);
 }
 

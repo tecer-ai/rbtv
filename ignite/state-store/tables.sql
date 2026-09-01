@@ -69,6 +69,15 @@ CREATE TABLE IF NOT EXISTS goal_states (
   CHECK (stored != 'closed' OR who_stamped = 'owner')
 );
 
+-- `kind`/`subject`/`options_json` (`d-owner-ask-shape`, 2026-09-01, `redesign-continue-1`) — the
+-- ask's kind (`recovery`/`goal-disposition`/…), the composer's plain-sentence subject (R-A3's
+-- reserved first line), and its lettered options table (R-A5, JSON, `[{letter,arm,text,…}]`). ADDED
+-- via plain `ALTER TABLE … ADD COLUMN` (`state-store/open.js#migrateOpenAsksShape`) — no CHECK on
+-- any of the three, so (unlike `goal_states.stored` gaining `closed`) the rename-rebuild dance
+-- `migrateGoalStatesClosed` needed does not apply here: SQLite adds a plain column in place. All
+-- three default to '' — the empty value a pre-existing row reads as, and what every caller writes
+-- today (the crossing that would fill them on a live post is outside this file's custody; see
+-- `state-store/heart/ask-record.js#openAsk`'s own header).
 CREATE TABLE IF NOT EXISTS open_asks (
   ask_id TEXT PRIMARY KEY,
   goal TEXT NOT NULL,
@@ -78,7 +87,10 @@ CREATE TABLE IF NOT EXISTS open_asks (
   posted INTEGER NOT NULL CHECK (posted IN (0,1)),
   posted_at TEXT,
   authorized_reply_at TEXT,
-  evidence_pointer TEXT NOT NULL CHECK (evidence_pointer != '')
+  evidence_pointer TEXT NOT NULL CHECK (evidence_pointer != ''),
+  kind TEXT NOT NULL DEFAULT '',
+  subject TEXT NOT NULL DEFAULT '',
+  options_json TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_open_asks_goal_state ON open_asks(goal, state);
 CREATE INDEX IF NOT EXISTS idx_open_asks_seat ON open_asks(goal, seat);

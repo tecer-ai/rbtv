@@ -71,6 +71,22 @@ function migrateGoalStatesClosed(db) {
   db.exec('DROP TABLE goal_states_pre_closed;');
 }
 
+// ── `open_asks` GAINS `kind`/`subject`/`options_json` (`d-owner-ask-shape`, 2026-09-01) ──────────
+//
+// Same trap `migrateGoalStatesClosed` documents, different shape of fix: `TABLES_SQL`'s widened
+// `open_asks` above is `CREATE TABLE IF NOT EXISTS` — a no-op on a table that already exists, so an
+// existing `heart.db` needs an explicit patch or the three columns simply never appear on it. Unlike
+// `goal_states.stored` (a CHECK widened, forcing the rename-rebuild dance because SQLite cannot
+// `ALTER` a CHECK), none of these three columns carry a CHECK — a plain `ALTER TABLE … ADD COLUMN`
+// is the whole fix, detected via `PRAGMA table_info` rather than parsing `CREATE TABLE` SQL text
+// (there is no CHECK clause here to pattern-match against).
+function migrateOpenAsksShape(db) {
+  const cols = db.prepare('PRAGMA table_info(open_asks)').all().map((c) => c.name);
+  if (!cols.includes('kind')) db.exec("ALTER TABLE open_asks ADD COLUMN kind TEXT NOT NULL DEFAULT '';");
+  if (!cols.includes('subject')) db.exec("ALTER TABLE open_asks ADD COLUMN subject TEXT NOT NULL DEFAULT '';");
+  if (!cols.includes('options_json')) db.exec("ALTER TABLE open_asks ADD COLUMN options_json TEXT NOT NULL DEFAULT '';");
+}
+
 // One handle per FILE per process. Two goals in one workspace are one store, and re-deriving a
 // handle per read would pay a file open on every seat of every pass.
 const handles = new Map();
@@ -88,6 +104,7 @@ function openEndingStore(dbPath) {
     db.exec('BEGIN IMMEDIATE;');
     try {
       migrateGoalStatesClosed(db);
+      migrateOpenAsksShape(db);
       db.exec('COMMIT;');
     } catch (migErr) {
       try { db.exec('ROLLBACK;'); } catch { /* the throw above is what matters */ }
@@ -113,5 +130,5 @@ function openEndingStoreFor(workspaceRoot) {
 }
 
 module.exports = {
-  openEndingStore, openEndingStoreFor, closeEndingStores, migrateGoalStatesClosed,
+  openEndingStore, openEndingStoreFor, closeEndingStores, migrateGoalStatesClosed, migrateOpenAsksShape,
 };

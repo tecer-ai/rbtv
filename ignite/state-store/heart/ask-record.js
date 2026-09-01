@@ -107,7 +107,16 @@ function refuseReason({ workspaceRoot, goal, seat, thread, label, act }) {
 // ask only after its forward landed (`forward-path.js` gates on `outcome.forwarded === true`). §2.1
 // reads `posted`, so a row left at 0 would be an ask NOBODY IS WAITING ON — the exact silent state
 // this record exists to prevent.
-function openAsk({ workspaceRoot, goal, seat, thread, corpus, label = 'work-content' }) {
+// `kind`/`subject`/`options` are `d-owner-ask-shape`'s three fields (R-A3/R-A5, `open_asks` gains
+// `kind`/`subject`/`options_json` — idempotent migration, `state-store/open.js#migrateOpenAsksShape`).
+// All three are OPTIONAL here and default to '': the crossing that would actually FILL them on a
+// live post — `chat/ask-store.js`'s gateway sender and `runtime/internal-api/dispatch.js`'s
+// `record-owner-ask` payload allowlist — is outside this file, so today every caller still lands
+// here with none of the three (same as a pre-existing row after the migration). This function is
+// ready the moment that crossing is built; it does not wait for it.
+function openAsk({
+  workspaceRoot, goal, seat, thread, corpus, label = 'work-content', kind = '', subject = '', options = null,
+}) {
   const refusal = refuseReason({ workspaceRoot, goal, seat, thread, label, act: 'open' });
   if (refusal) return { recorded: false, ...refusal };
   const copy = askCopyPath(workspaceRoot, goal, thread);
@@ -131,6 +140,9 @@ function openAsk({ workspaceRoot, goal, seat, thread, corpus, label = 'work-cont
       seat: String(seat),
       label,
       evidence_pointer: copy,
+      kind: kind ? String(kind) : '',
+      subject: subject ? String(subject) : '',
+      options_json: Array.isArray(options) ? JSON.stringify(options) : '',
     });
     const posted = api.postAsk({ ask_id: String(thread), posted_at: coordTimestamp() });
     return { recorded: true, ask_id: posted.ask_id, state: posted.state, already: false };
@@ -202,17 +214,29 @@ function oneLinerOf(evidencePointer) {
   return first.length > ONE_LINER_MAX ? `${first.slice(0, ONE_LINER_MAX - 1)}…` : first;
 }
 
+// `kind`/`subject` (`d-owner-ask-shape`, digest-sentence's own field: `system-digest.js#renderAskRow`
+// reads `ask.subject`, falling back to `one_liner` on an empty string). `listAllOpenAsks`
+// (`state-store/predicates.js`, outside this file's custody) selects an EXPLICIT column list that
+// predates these two columns, so they are fetched here via a second read per row — `getAsk`
+// (`writers.js`, `SELECT *`) already returns them once `open_asks` is migrated. Open-ask counts are
+// small (this is the 2-hourly digest's own read, never a hot path), so the extra query per row costs
+// nothing worth a second predicates.js entry point for.
 function listOpenAsks(workspaceRoot) {
   const api = bind(openEndingStoreFor(workspaceRoot));
-  return api.listAllOpenAsks({}).map((row) => ({
-    id: row.ask_id,
-    goal: row.goal,
-    seat: row.seat,
-    label: row.label,
-    one_liner: oneLinerOf(row.evidence_pointer),
-    opened_at: row.posted_at,
-    evidence_pointer: row.evidence_pointer,
-  }));
+  return api.listAllOpenAsks({}).map((row) => {
+    const full = api.getAsk(row.ask_id) || {};
+    return {
+      id: row.ask_id,
+      goal: row.goal,
+      seat: row.seat,
+      label: row.label,
+      kind: full.kind || '',
+      subject: full.subject || '',
+      one_liner: oneLinerOf(row.evidence_pointer),
+      opened_at: row.posted_at,
+      evidence_pointer: row.evidence_pointer,
+    };
+  });
 }
 
 function recordOwnerAsk(payload) {

@@ -165,12 +165,41 @@ function createChatBridge({
   // hold: the goal→channel resolution (`resolveChannel`, never `channelForGoal` — see
   // routeToAgentThread's header for why a map miss is not proof of absence) and the bookkeeping
   // that makes the owner's reply findable again.
-  async function postOwnerAsk({ goalId, seatName, label = 'work-content', body, marker = 'ask', kind = 'ordinary', commitId = null }) {
+  async function postOwnerAsk({
+    goalId, seatName, label = 'work-content', body, marker = 'ask', kind = 'ordinary', commitId = null,
+    // `d-owner-ask-shape` interface contract — the composer's subject sentence, its lettered
+    // options table (`[{letter, arm, text, recommended, why}]`), and its "More:" pointer. Passed
+    // straight to `askDoor.postAsk` for RENDERING; `options` is ALSO kept on this bridge's own
+    // `askThreads` entry below, because `release()`'s letter→arm mapping runs in THIS process and
+    // must never round-trip the gateway for it (`inv-reply-grammar`'s warning against a global
+    // letter budget — the table has to be per-ask, and this map already is).
+    subject = null, options = null, more = null,
+  } = {}) {
     const resolved = await goalChannelFor(goalId);
-    const channel = resolved.channelId;
+    let channel = resolved.channelId;
+    let effectiveSubject = subject;
+    // ── R-A1 CHANNEL-LESS FALLBACK (`d-owner-ask-shape`) ────────────────────────────────────────
+    // `recovery`/`goal-disposition` asks are DAEMON-DECIDED (`ask-thread.js#postAsk`'s own comment
+    // on why these two kinds bypass [T2-R14]) — never a seat's own traffic the owner might not want
+    // to hear from. A goal with no Slack channel used to leave `recovery-poster.js`/`disposition-
+    // poster.js` logging a `warn` and retrying forever, with the owner told NOTHING
+    // (`inv-ask-paths` Held-but-dropped #1). Escalation's OWN alarm mechanism
+    // (`postUnreachableChannelAlarm`, further down this file) is UNCHANGED — this fallback is
+    // scoped to exactly the two kinds R-A1 names, never escalation/ordinary/approval.
+    if (!channel && (kind === 'recovery' || kind === 'goal-disposition')) {
+      const systemChannelId = (config && config.systemChannelId) || null;
+      if (systemChannelId) {
+        channel = systemChannelId;
+        const base = subject ? String(subject).trim() : `${seatName} needs your answer`;
+        effectiveSubject = `${goalId}: ${base}`;
+        log('warn', 'owner ask has no goal channel — posted to the system channel instead [R-A1]', { goalId, seat: seatName, kind });
+      }
+    }
     if (!channel) return { posted: false, reason: resolved.reason };
     const fn = marker === 'note' ? askDoor.postNote : askDoor.postAsk;
-    const out = await fn({ goalId, channelId: channel, seatName, label, body, kind });
+    const out = await fn({
+      goalId, channelId: channel, seatName, label, body, kind, subject: effectiveSubject, options, more,
+    });
     if (!out || out.posted !== true) return out || { posted: false, reason: 'post-failed' };
     const threadTs = out.askId || out.threadTs;
     const key = `${channel}:${threadTs}`;
@@ -183,6 +212,7 @@ function createChatBridge({
       askThreads.set(key, {
         goalId: String(goalId), seat: String(seatName), askId: String(threadTs), label,
         kind: String(kind), commitId: commitId == null ? null : String(commitId), paused: false,
+        options: Array.isArray(options) ? options : null,
       });
     }
     replyAddr.set(key, { channel, threadTs });
@@ -346,6 +376,10 @@ function createChatBridge({
       // shape`], or to the close/keep ladder in a disposition thread [`d-recovery-last-lane-asks`]
       // — `null` for every other kind leaves the ask/approval/mechanical grammar unchanged.
       kind: (entry.kind === 'recovery' || entry.kind === 'goal-disposition') ? entry.kind : null,
+      // `d-owner-ask-shape` R-A5: THIS ask's own letter table, carried on the bridge's own
+      // in-memory entry since it was posted — `askDoor.release` resolves a lettered reply through
+      // it before the SAME parser the typed verb takes.
+      options: entry.options || null,
     });
 
     // ✅ THE LANDED-ANSWER ACK (G-second-brain-43-0828-2119, owner-ordered 2026-08-30).
@@ -1498,6 +1532,11 @@ function createChatBridge({
           released: v.released === true,
           releasedAt: typeof v.releasedAt === 'number' ? v.releasedAt : null,
           outcome: v.outcome == null ? null : String(v.outcome),
+          // `d-owner-ask-shape` R-A5: without this, a bridge restart between posting a lettered
+          // recovery/disposition ask and the owner's reply would drop the letter table and every
+          // reply would nack "no lettered options" — the exact silent loss `released`'s own comment
+          // above warns against, on a different field.
+          options: Array.isArray(v.options) ? v.options : null,
         });
       }
     }
