@@ -221,12 +221,20 @@ function readAllGroupedRecords(workspaceRoot) {
 // (it has no thread yet, so `linkForAsk` gives it no link, honestly — [D19]'s recovery lister never
 // promises a link before Slack has minted one); a POSTED lane is skipped here entirely — its row
 // now comes from `listOpenAsks` (the real `open_asks` row), with a real thread id and a real link.
+//
+// A LANE-LESS RECORD IS POSTED AT THE RECORD, NOT A LANE [fixed 2026-09-01, ghost-row digest
+// bug]. `record.lanes` is absent by design on a `goal-disposition` record (`last-lane-ask.js#
+// mintLastLaneAsk` never writes one) — the `[{}]` fallback below still renders it as ONE row while
+// unposted. But once posted, `last-lane-ask.js#markDispositionPosted` stamps `posted_ask_id` on
+// the RECORD itself, never on the synthesized `{}`, so a lane-only check never saw it and the
+// closed disposition kept re-emitting forever. Both fields are checked for the same reason: a
+// recovery record's own lanes carry the stamp, a disposition record's own top level does.
 function listOpenGroupedAsks(workspaceRoot) {
   const rows = [];
   for (const { file, record } of readAllGroupedRecords(workspaceRoot)) {
     const lanes = (Array.isArray(record.lanes) && record.lanes.length) ? record.lanes : [{}];
     for (const lane of lanes) {
-      if (lane.posted_ask_id) continue;   // this lane's row lives in `open_asks` now
+      if (record.posted_ask_id || lane.posted_ask_id) continue;   // this lane/record's row lives in `open_asks` now
       rows.push({
         id: record.ask_id,
         goal: lane.goal || null,
