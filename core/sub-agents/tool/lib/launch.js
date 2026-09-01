@@ -15,6 +15,7 @@ const { SPECS } = require('../catalog');
 const { HARNESSES, RESUME_USAGE, SEAT_USAGE, baseArgv, fail, parseArgs, promptArgv, refuseIfDetached, resolveFolder, resolveModel, shortName } = require('./core');
 const { claudeSlug, emitHandle, procStart } = require('./handles');
 const { loadOptional } = require('./optional');
+const { spawnable } = require('./win-exec');
 const { opencodeCandidates, opencodeStore } = require('./sessions');
 
 const { module: monitorMod } = loadOptional('monitor');
@@ -27,7 +28,9 @@ function exitDeadline() {
 }
 
 function spawnWithDeadline(cmd, args, opts, failLabel) {
-  const res = spawnSync(cmd, args, { ...opts, timeout: DEADLINE_MS, killSignal: 'SIGTERM' });
+  const win = spawnable(cmd, args);
+  const res = spawnSync(win.cmd, win.args,
+    { ...opts, ...win.opts, timeout: DEADLINE_MS, killSignal: 'SIGTERM' });
   if (res.error && res.error.code === 'ETIMEDOUT') exitDeadline();
   if (res.error) fail(`${failLabel}: ${res.error.message}`);
   process.exit(res.status === null ? 1 : res.status);
@@ -136,9 +139,11 @@ function launch({ harness, modelId, folder, effortWord, effortArgv, system, prom
 function runOpencodeChecked(argv, { cwd, stdinText, t0, bind, model }) {
   const { spawn } = require('child_process');
   const [cmd, ...args] = argv;
-  const child = spawn(cmd, args, {
+  const win = spawnable(cmd, args);
+  const child = spawn(win.cmd, win.args, {
     cwd,
     stdio: [stdinText === null ? 'inherit' : 'pipe', 'pipe', 'inherit'],
+    ...win.opts,
   });
   child.on('error', (e) => fail(`launch failed: ${e.message}`));
   if (stdinText !== null) child.stdin.end(stdinText);

@@ -1318,4 +1318,63 @@ db.close();
   assert.strictEqual(overridden.status, 0, `--detached --dry-run must pass, got ${overridden.status}: ${overridden.stderr}`);
 }
 
+// --- win32 launch branch: an npm .cmd shim is startable, and a .exe is left alone -----------
+// Windows cannot start `codex.cmd`/`opencode.cmd` from a bare name (CVE-2024-27980 makes Node
+// refuse), while `claude.exe` starts fine — which is why claude was the only harness that worked
+// there. lib/win-exec.js takes platform and env as arguments precisely so this arm runs on POSIX.
+// PATHEXT is given lowercase here because a real Windows filesystem matches case-insensitively
+// and this one does not; the resolver's logic is what is under test, not the OS's casing.
+{
+  const { spawnable, resolveWindowsExecutable } = require(path.join(__dirname, 'lib', 'win-exec.js'));
+  const bin = mkFolder('winbin');
+  // npm writes THREE files per global bin: the batch shim, a PowerShell shim, and an
+  // extensionless POSIX sh script. Windows can run only the first.
+  for (const f of ['codex', 'codex.cmd', 'codex.ps1', 'opencode', 'opencode.cmd', 'claude.exe']) {
+    fs.writeFileSync(path.join(bin, f), '');
+  }
+  const env = { PATH: bin, PATHEXT: '.com;.exe;.bat;.cmd', comspec: 'cmd.exe' };
+
+  // The extensionless sibling is a Unix shell script — picking it is the failure this guards.
+  assert.strictEqual(resolveWindowsExecutable('codex', env), path.join(bin, 'codex.cmd'),
+    'must resolve the batch shim, never the extensionless POSIX script');
+  assert.strictEqual(resolveWindowsExecutable('claude', env), path.join(bin, 'claude.exe'));
+  assert.strictEqual(resolveWindowsExecutable('absent', env), null);
+
+  // POSIX is untouched: same command, same args, no added options.
+  const posix = spawnable('codex', ['exec', 'a b'], 'linux', env);
+  assert.deepStrictEqual(posix, { cmd: 'codex', args: ['exec', 'a b'], opts: {} });
+
+  // A .exe keeps today's direct-spawn path — the harness that already works is not disturbed.
+  const exe = spawnable('claude', ['-p', 'hello world'], 'win32', env);
+  assert.deepStrictEqual(exe, { cmd: 'claude', args: ['-p', 'hello world'], opts: {} });
+
+  // An unresolvable name is passed through so Node's own ENOENT names the missing program,
+  // rather than a confusing failure from inside cmd.exe.
+  const missing = spawnable('absent', ['x'], 'win32', env);
+  assert.deepStrictEqual(missing, { cmd: 'absent', args: ['x'], opts: {} });
+
+  // A .cmd shim goes through the command interpreter, argv still a real array.
+  const shim = spawnable('opencode', ['run', '--title', 'seat [cast:a1b2c3d4]', '--auto'], 'win32', env);
+  assert.strictEqual(shim.cmd, 'cmd.exe');
+  assert.deepStrictEqual(shim.args.slice(0, 3), ['/d', '/s', '/c']);
+  assert.strictEqual(shim.args.length, 4);
+  assert.strictEqual(shim.opts.windowsVerbatimArguments, true);
+  assert.ok(shim.args[3].includes(path.join(bin, 'opencode.cmd')), 'must invoke the resolved shim');
+
+  // THE regression guard. opencode's --title is the only session identity cast has, and losing it
+  // is the 2026-08-31 bug where one seat's report was appended to another seat's output. Under
+  // `shell:true` this title splits at its space into two arguments. Here the space and brackets
+  // are caret-escaped INSIDE the quotes, so cmd.exe delivers it as ONE token. The expected string
+  // is derived by hand from cross-spawn's documented rules, not read back from the code.
+  assert.ok(shim.args[3].includes('^"seat^ ^[cast:a1b2c3d4^]^"'),
+    `--title must survive as one cmd.exe token, got: ${shim.args[3]}`);
+
+  // Nothing a prompt or a folder name carries may reach cmd.exe as syntax.
+  const hostile = spawnable('codex', ['exec', "it's $(id) & `id` | x"], 'win32', env);
+  for (const ch of ['&', '|', '`', '(', ')']) {
+    assert.ok(!new RegExp(`(^|[^^])\\${ch}`).test(hostile.args[3].slice(1, -1)),
+      `unescaped ${ch} reached the command line: ${hostile.args[3]}`);
+  }
+}
+
 console.log('all cast tests passed');

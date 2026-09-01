@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { SPECS, ROWS } = require('../catalog');
+const { spawnable } = require('./win-exec');
 
 // CLI model names are short: the provider prefix and the `claude-` prefix are dropped
 // (`zai-coding-plan/glm-5.2` -> `glm-5.2`, `claude-opus-5` -> `opus-5`). SPECS stays keyed by
@@ -164,7 +165,8 @@ function suggest(input, candidates) {
 function runDoctor(args) {
   const json = args.includes('--json');
   const run = (sub) => {
-    const res = spawnSync('acct', [sub, ...(json ? ['--json'] : [])], { encoding: 'utf8' });
+    const win = spawnable('acct', [sub, ...(json ? ['--json'] : [])]);
+    const res = spawnSync(win.cmd, win.args, { ...win.opts, encoding: 'utf8' });
     if (res.error) fail('doctor needs `acct` on PATH — it owns the harness/provider inventory');
     if (res.status !== 0) fail(`acct ${sub} failed:\n${(res.stderr || res.stdout).trim()}`);
     return res.stdout;
