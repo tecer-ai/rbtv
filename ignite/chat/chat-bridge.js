@@ -30,27 +30,6 @@ const { writeRetryCorrection } = require('../supervisor/retry-correction');
 
 const STATE_VERSION = 1;
 
-// ── `dropLane`'s STOP HALF — find the lane's live turn, if any ───────────────────────────────────
-// Mirrors `state-store/heart/heart-store.js#enqueueHomeOf`'s own `workdir` path pattern — a SECOND
-// COPY because the bridge may not require heart-store at all (`chat/probes/probe-chat-boundary.js`
-// walls it off from every store handle and sibling module), never a second DEFINITION of the
-// shape: a seat is always spawned at exactly this path, and this reads the literal string, nothing
-// more. `inspect`'s `ticker` target is an EXISTING, unmodified intent (`dispatch.js#handleInspect
-// TicKer`) — this seat adds no gateway surface for the stop half, only for the mark (`drop-lane`).
-const LANE_WORKDIR_RE = /\/\.rbtv\/goals\/([^/]+)\/seats\/([^/]+)$/;
-
-async function findLiveExecIdForLane(forwarder, goalId, seat) {
-  const res = await forwarder.forward('inspect', { target: 'ticker' });
-  if (!res.ok) throw new Error((res.error && res.error.code) || 'inspect refused');
-  const sessions = (res.result && res.result.live_sessions) || [];
-  const hit = sessions.find((s) => {
-    const workdir = typeof s.workdir === 'string' ? s.workdir.replace(/\/+$/, '') : '';
-    const m = workdir.match(LANE_WORKDIR_RE);
-    return m && m[1] === String(goalId) && m[2] === String(seat);
-  });
-  return hit ? hit.exec_id : null;
-}
-
 function createChatBridge({
   config, forwarder, transport, allowlist, threadMap, goalChannels = null, logger = null,
   replyLegOptions = {}, busFerryOptions = {},
@@ -283,44 +262,35 @@ function createChatBridge({
       return forwarder.forward('pause-resume', { verb: 'resume', goal: String(goalId), seat: String(seat) })
         .then((res) => (res.ok ? { ok: true, result: res.result } : { ok: false, error: (res.error && res.error.code) || 'unknown' }));
     },
-    // ── `dropLane` — TWO WIRE CALLS IN ORDER, `d-recovery-drop-stops-live-work` VERBATIM ────────
+    // ── `dropLane` — ONE WIRE CALL, `d-recovery-drop-stops-live-work` VERBATIM ────────────────
     // (1) stop anything still LIVE for the (goalId, seat) lane, THEN (2) mark it abandoned. Never
     // the other order, and never mark when the stop itself failed — a lane still running must
     // never read as permanently abandoned (the ruling's own rejected alternative).
     //
-    // Step 1 reuses two intents this seat does NOT modify: `inspect` (target `ticker`) to find the
-    // lane's live turn, `kill-session` (`spawn.js#kill` -> `closeSeatSessionRow` ->
-    // `supervise.py attest-exit --force-dead`, doors.js:68's own chokepoint) to stop it. Nothing
-    // live is a clean no-op straight to step 2 — including a lane a PRIOR drop attempt already
-    // stopped, which is exactly what makes a retry after a step-2 failure able to finish.
+    // ⚠⚠ REVISED 2026-09-01 (`dl-live-proof` live-fire finding). This used to compose the two
+    // steps CLIENT-SIDE as two wire calls (`inspect` then `kill-session`) — the live daemon proved
+    // that wrong: `kill-session`'s authorization (`authz.js#canKillSession`) admits ONLY
+    // `sender.kind === 'owner'` or a `creator-seat` match, and the bridge authenticates as
+    // `kind: 'bridge'` — which can satisfy NEITHER, for ANY session, ever (confirmed live:
+    // `UNAUTHORIZED_SENDER` on a genuinely running seat, and confirmed at the code level in a
+    // scratch worktree: `gateway/parse.js#parseKillSession` rejects any field beyond `id` outright,
+    // and `canKillSession` never reads a payload field regardless of what it contains). Both steps
+    // now run IN-PROCESS, inside the `drop-lane` intent itself, behind the ONE gate that DOES admit
+    // the bridge (`canDropLane`, bridge-only, minted for exactly this intent) — see
+    // `ignite/state-store/heart/drop-lane.js`'s header for the full evidence trail. This is ONE
+    // forwarder call now, not a client-side two-step composition; the ORDER and the "never mark on
+    // a failed stop" contract are unchanged, just enforced server-side.
     //
-    // Step 2 is the SIXTEENTH intent, `drop-lane` (`ignite/state-store/heart/drop-lane.js`),
-    // added by this seat because `abandonSeat` (`dl-abandoned-outcome`) had no wire path — it
-    // calls `abandonSeat` and nothing else, so this is the ONE marking path, never a second one.
-    // It is idempotent (an already-abandoned lane succeeds as a no-op), which is what makes a
-    // retry after a step-2 failure — or a drop on an already-dropped lane — a success, not a
-    // second ruling.
+    // It is idempotent (an already-abandoned lane succeeds as a no-op, and a lane with nothing live
+    // is a clean no-op straight to the mark), which is what makes a retry after a failure — or a
+    // drop on an already-dropped lane — a success, not a second ruling.
     dropLane: async ({ goalId, seat }) => {
-      let execId;
-      try {
-        execId = await findLiveExecIdForLane(forwarder, goalId, seat);
-      } catch (err) {
-        return { ok: false, error: `could not check the lane for live work: ${err.message}` };
-      }
-      if (execId != null) {
-        const stopped = await forwarder.forward('kill-session', { id: execId });
-        if (!stopped.ok) {
-          // STOP FAILED: nothing may be marked. The lane's live work is UNCHANGED and the lane is
-          // NOT abandoned — never both true (ruling, verbatim).
-          return { ok: false, error: `live work was NOT stopped, so the lane was NOT dropped: ${(stopped.error && stopped.error.code) || 'kill-session refused'}` };
-        }
-      }
       const marked = await forwarder.forward('drop-lane', { goal: String(goalId), seat: String(seat) });
       if (!marked.ok) {
-        // HALF-COMPLETION: the stop already ran (or nothing was live) and the mark refused. Say
-        // so precisely — the lane's live work is stopped, but it is NOT marked abandoned and the
-        // next reconcile pass MAY relaunch it. No success text is posted for this arm.
-        return { ok: false, error: `live work was stopped but the lane was NOT marked abandoned — it may be relaunched: ${(marked.error && marked.error.code) || 'drop-lane refused'}` };
+        // The daemon-side act function distinguishes "stop failed" (nothing marked, live work
+        // unchanged) from "no such live goal" via its own error text — relayed here verbatim,
+        // never re-worded, so the thread says exactly what the daemon determined happened.
+        return { ok: false, error: `${(marked.error && marked.error.code) || 'drop-lane refused'}: ${(marked.error && marked.error.message) || 'no detail'}` };
       }
       return { ok: true, result: marked.result };
     },

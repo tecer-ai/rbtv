@@ -1,25 +1,36 @@
 'use strict';
 
 // probe-chat-recovery-dispatch — two wired recovery replies proven against the same fake daemon:
-// `drop-lane`'s TWO wire calls, in order, that must not half-complete
-// (`d-recovery-drop-stops-live-work`, `dl-teardown-wire`), and `retry-with-change`'s
-// write-then-re-arm order (`d-recovery-correction-lands-in-instructions` + `d-recovery-retry-
-// scope`, `rr-port-wire`).
+// `dropLane`'s relay of the SIXTEENTH intent's outcome (`d-recovery-drop-stops-live-work`,
+// `dl-teardown-wire`), and `retry-with-change`'s write-then-re-arm order
+// (`d-recovery-correction-lands-in-instructions` + `d-recovery-retry-scope`, `rr-port-wire`).
+//
+// ⚠⚠ REVISED 2026-09-01 (`dl-live-proof` live-fire finding). `dropLane` used to compose its two
+// ruled steps CLIENT-SIDE, as two wire calls (`inspect` then `kill-session`) THIS PROBE asserted an
+// exact order over — the live daemon proved that composition could never succeed
+// (`kill-session`'s authorization admits no bridge-kind sender, ever; see `ignite/state-store/
+// heart/drop-lane.js`'s header for the full evidence trail). Both steps now run IN-PROCESS inside
+// the daemon's `drop-lane` intent handler, so the ORDER/half-completion/retry/idempotency
+// guarantees this probe used to prove AT THE BRIDGE are now proven server-side, in
+// `ignite/runtime/internal-api/probes/probe-drop-lane.js` (real `authz.js`, scriptable
+// `heartStore`/`spawnManager` stubs that record call order). This probe's remaining job is
+// narrower and still real: does the bridge relay the daemon's `drop-lane` outcome — success,
+// failure text, idempotent success — into the thread faithfully, with exactly one wire call and no
+// client-side re-derivation of anything the daemon already decided.
 //
 // NO SLACK AND NO DAEMON, same shape as `probe-chat-approval.js`: the transport and the gateway
 // forwarder are fakes, and every wire call the `dropLane`/`retryWithChange` ports make is
-// RECORDED, in order — that order is the point. A probe that only asserted "the lane got dropped"
-// (or "the lane got re-armed") would pass on a bridge that marked a still-running lane abandoned,
-// or that re-armed a lane before the owner's correction ever reached disk — exactly the failures
-// the `dl-*` cluster and `rr-port-wire` respectively exist to make impossible.
+// RECORDED — a probe that only asserted "the lane got re-armed" would pass on a bridge that
+// re-armed a lane before the owner's correction ever reached disk, exactly the failure
+// `rr-port-wire` exists to make impossible.
 //
-// The fake forwarder answers the intents `dropLane` and `retryWithChange` actually use (`inspect`
-// target `ticker`, `kill-session`, `drop-lane`, `pause-resume` for both the GOAL-scoped `pause-
-// goal` CONTROL arm and the LANE-scoped `verb:'resume'`+`seat` re-arm) — none of them
-// re-implemented, all of them scripted by the scenario the block sets before replying.
-// `retryWithChange` does NOT call the gateway for the correction half — `writeRetryCorrection`
-// (`ignite/supervisor/retry-correction.js`) is a direct in-process filesystem write, so its arms
-// below check the real tmpdir the harness roots `workspaceRoot` at, not a fake-forwarder call.
+// The fake forwarder answers the intents `dropLane` and `retryWithChange` actually use (`drop-
+// lane`, `pause-resume` for both the GOAL-scoped `pause-goal` CONTROL arm and the LANE-scoped
+// `verb:'resume'`+`seat` re-arm) — none of them re-implemented, all of them scripted by the
+// scenario the block sets before replying. `retryWithChange` does NOT call the gateway for the
+// correction half — `writeRetryCorrection` (`ignite/supervisor/retry-correction.js`) is a direct
+// in-process filesystem write, so its arms below check the real tmpdir the harness roots
+// `workspaceRoot` at, not a fake-forwarder call.
 
 const path = require('node:path');
 const fs = require('node:fs');
@@ -61,27 +72,19 @@ function harness() {
   };
 
   // The scenario the CURRENT reply is scripted against — mutated between replies in the same
-  // harness (the retry arm needs exactly that: fail once, flip the knob, succeed the second time).
+  // harness.
   const scenario = {
-    liveSessions: [], killOk: true, markOk: true, markIdempotent: false, resumeOk: true,
+    dropOk: true, dropIdempotent: false, dropStopped: true, resumeOk: true,
   };
   const calls = [];
   const forwarder = {
     async forward(intent, payload) {
       const call = { intent, payload };
       calls.push(call);
-      if (intent === 'inspect' && payload.target === 'ticker') {
-        return { ok: true, result: { live_sessions: scenario.liveSessions } };
-      }
-      if (intent === 'kill-session') {
-        return scenario.killOk
-          ? { ok: true, result: { execId: payload.id, killed: true } }
-          : { ok: false, error: { code: 'kill-refused' } };
-      }
       if (intent === 'drop-lane') {
-        return scenario.markOk
-          ? { ok: true, result: { goal: payload.goal, seat: payload.seat, idempotent: scenario.markIdempotent === true } }
-          : { ok: false, error: { code: 'mark-refused' } };
+        return scenario.dropOk
+          ? { ok: true, result: { goal: payload.goal, seat: payload.seat, idempotent: scenario.dropIdempotent === true, stopped: scenario.dropStopped === true } }
+          : { ok: false, error: { code: 'INTERNAL', message: scenario.dropError || 'live work was NOT stopped, so the lane was NOT dropped: carrier refused signal' } };
       }
       if (intent === 'pause-resume') {
         // A LANE-SCOPED resume (`verb:'resume'` + `seat`, `rr-lane-rearm`'s widened intent) is what
@@ -135,98 +138,68 @@ async function openRecoveryAsk(h) {
   return { channelId: reg.channelId, askId: ask.askId };
 }
 
-const LIVE_WORKDIR = `/x/.rbtv/goals/${GOAL}/seats/${SEAT}`;
-
 (async () => {
-  // ── A. LIVE lane: stop runs, THEN the mark runs, in that order ─────────────────────────────
+  // ── A. FULL SUCCESS: ONE forwarder call, exact payload, success text posted ─────────────────
   {
     const h = harness();
     await h.bridge.start();
-    h.scenario.liveSessions = [{ exec_id: 77, workdir: LIVE_WORKDIR }];
     const { channelId, askId } = await openRecoveryAsk(h);
     const out = await h.reply(channelId, askId, 'drop lane');
     // `record-owner-ask` (open + reap) is the ask-store's own bookkeeping around EVERY reply,
-    // approval or recovery alike — irrelevant to the ORDER this arm proves, so it is filtered out
+    // approval or recovery alike — irrelevant to what this arm proves, so it is filtered out
     // rather than asserted on a second time.
     const intents = h.calls.map((c) => c.intent).filter((i) => i !== 'record-owner-ask');
-    check('A1: a LIVE lane is stopped THEN marked — inspect, kill-session, drop-lane, in that exact order',
-      JSON.stringify(intents) === JSON.stringify(['inspect', 'kill-session', 'drop-lane']),
-      { intents });
-    const killCall = h.calls.find((c) => c.intent === 'kill-session');
+    check('A1: drop-lane fires EXACTLY ONE forwarder call — the whole two-step act now runs server-side',
+      JSON.stringify(intents) === JSON.stringify(['drop-lane']), { intents });
     const dropCall = h.calls.find((c) => c.intent === 'drop-lane');
-    check('A2: kill-session targets the exec_id the ticker inspection found for this (goal, seat)',
-      killCall && killCall.payload.id === 77, { payload: killCall && killCall.payload });
-    check('A3: the dispatch reports success and the drop-lane intent carries the goal + seat, no more',
-      out.dispatched.ok === true && out.dispatched.action === 'drop-lane'
-      && dropCall && JSON.stringify(Object.keys(dropCall.payload).sort()) === JSON.stringify(['goal', 'seat']),
-      { dispatched: out.dispatched, payload: dropCall && dropCall.payload });
+    check('A2: the payload carries the goal + seat, no more — no client-side re-derivation of anything',
+      dropCall && JSON.stringify(Object.keys(dropCall.payload).sort()) === JSON.stringify(['goal', 'seat'])
+      && dropCall.payload.goal === GOAL && dropCall.payload.seat === SEAT,
+      { payload: dropCall && dropCall.payload });
+    check('A3: the dispatch reports success',
+      out.dispatched.ok === true && out.dispatched.action === 'drop-lane', { dispatched: out.dispatched });
+    const posted = h.posted[h.posted.length - 1];
+    check('A4: the success confirmation is posted, naming both effects',
+      posted && /dropped: live work stopped and the lane is permanently marked abandoned/.test(posted.text),
+      { text: posted && posted.text });
     h.bridge.stop();
   }
 
-  // ── B. NOTHING live: clean success, no error, and NO kill-session call at all ───────────────
+  // ── B. IDEMPOTENT SUCCESS: the daemon reports idempotent:true — the bridge still relays ok:true,
+  //      the SAME success text, never a special-cased "already dropped" branch client-side ───────
   {
     const h = harness();
     await h.bridge.start();
-    h.scenario.liveSessions = [];
+    h.scenario.dropIdempotent = true;
+    h.scenario.dropStopped = false; // an already-abandoned lane has nothing left to stop
     const { channelId, askId } = await openRecoveryAsk(h);
     const out = await h.reply(channelId, askId, 'drop lane');
-    // `record-owner-ask` (open + reap) is the ask-store's own bookkeeping around EVERY reply,
-    // approval or recovery alike — irrelevant to the ORDER this arm proves, so it is filtered out
-    // rather than asserted on a second time.
-    const intents = h.calls.map((c) => c.intent).filter((i) => i !== 'record-owner-ask');
-    check('B1: nothing live is a clean no-op straight to the mark — inspect, drop-lane, no kill-session',
-      JSON.stringify(intents) === JSON.stringify(['inspect', 'drop-lane']) && out.dispatched.ok === true,
-      { intents, dispatched: out.dispatched });
+    check('B1: an idempotent daemon response is still relayed as ok:true, not re-derived or special-cased',
+      out.dispatched.ok === true && out.dispatched.action === 'drop-lane', { dispatched: out.dispatched });
     h.bridge.stop();
   }
 
-  // ── C. HALF-COMPLETION: stop succeeds (nothing live), mark FAILS ────────────────────────────
-  let halfCompletionHarness = null;
+  // ── C. FAILURE RELAY: the daemon refuses — the bridge relays the exact code+message, no
+  //      re-wording, and NEVER the retired "did not run" text ────────────────────────────────────
   {
     const h = harness();
     await h.bridge.start();
-    h.scenario.liveSessions = [];
-    h.scenario.markOk = false;
+    h.scenario.dropOk = false;
+    h.scenario.dropError = 'live work was NOT stopped, so the lane was NOT dropped: carrier refused signal';
     const { channelId, askId } = await openRecoveryAsk(h);
     const out = await h.reply(channelId, askId, 'drop lane');
-    check('C1: dispatch returns ok:false on a mark failure',
+    check('C1: dispatch returns ok:false on a daemon-side refusal',
       out.dispatched.ok === false && out.dispatched.action === 'drop-lane-failed', { dispatched: out.dispatched });
-    check('C2: the error names the lane as NOT marked and possibly relaunched, never silent',
-      /NOT marked abandoned/.test(out.dispatched.error) && /may be relaunched/.test(out.dispatched.error),
+    check('C2: the error carries the daemon\'s exact code and message, unmodified',
+      out.dispatched.error === 'INTERNAL: live work was NOT stopped, so the lane was NOT dropped: carrier refused signal',
       { error: out.dispatched.error });
     const posted = h.posted[h.posted.length - 1];
-    check('C3: the thread text says the same — NOT marked, may be relaunched — and NEVER "did not run"',
-      posted && /NOT marked abandoned/.test(posted.text) && /may be relaunched/.test(posted.text) && !/did not run/.test(posted.text),
+    check('C3: the thread gets that same text, and NEVER "did not run"',
+      posted && posted.text === `drop-lane failed: ${out.dispatched.error}` && !/did not run/.test(posted.text),
       { text: posted && posted.text });
     check('C4: NO success text is posted for this arm — the only post is the failure line',
-      h.posted.filter((p) => /^drop lane failed|dropped: live work stopped/.test(p.text)).length === 0
-      || !h.posted.some((p) => /dropped: live work stopped/.test(p.text)),
+      !h.posted.some((p) => /dropped: live work stopped/.test(p.text)),
       { posted: h.posted.map((p) => p.text) });
-    halfCompletionHarness = h;
-  }
-
-  // ── D. RETRY: the SAME lane, a fresh ask, drop-lane now completes the mark ──────────────────
-  {
-    const h = halfCompletionHarness;
-    h.scenario.markOk = true; // the daemon-side condition that refused the mark is now gone
-    const { channelId, askId } = await openRecoveryAsk(h);
-    const out = await h.reply(channelId, askId, 'drop lane');
-    check('D1: retrying the drop after a mark failure completes the mark — ok:true this time',
-      out.dispatched.ok === true && out.dispatched.action === 'drop-lane', { dispatched: out.dispatched });
-    h.bridge.stop();
-  }
-
-  // ── E. IDEMPOTENCY: dropping an ALREADY-ABANDONED lane succeeds as a no-op ──────────────────
-  {
-    const h = harness();
-    await h.bridge.start();
-    h.scenario.liveSessions = []; // a prior drop already stopped it
-    h.scenario.markOk = true;
-    h.scenario.markIdempotent = true; // the daemon's abandonSeat reports "already abandoned"
-    const { channelId, askId } = await openRecoveryAsk(h);
-    const out = await h.reply(channelId, askId, 'drop lane');
-    check('E1: an already-abandoned lane succeeds as a no-op, not an error',
-      out.dispatched.ok === true && out.dispatched.action === 'drop-lane', { dispatched: out.dispatched });
     h.bridge.stop();
   }
 
@@ -234,14 +207,13 @@ const LIVE_WORKDIR = `/x/.rbtv/goals/${GOAL}/seats/${SEAT}`;
   {
     const h = harness();
     await h.bridge.start();
-    h.scenario.liveSessions = [{ exec_id: 5, workdir: LIVE_WORKDIR }]; // even with a live lane present
     const { channelId, askId } = await openRecoveryAsk(h);
     const out = await h.reply(channelId, askId, 'pause goal');
     // `record-owner-ask` (open + reap) is the ask-store's own bookkeeping around EVERY reply,
     // approval or recovery alike — irrelevant to the ORDER this arm proves, so it is filtered out
     // rather than asserted on a second time.
     const intents = h.calls.map((c) => c.intent).filter((i) => i !== 'record-owner-ask');
-    check('F1: `pause-goal` fires ONLY `pause-resume` — never `inspect`, `kill-session` or `drop-lane`',
+    check('F1: `pause-goal` fires ONLY `pause-resume` — never `drop-lane`',
       JSON.stringify(intents) === JSON.stringify(['pause-resume']), { intents });
     check('F2: `pause-goal` still succeeds and pauses, proving the new path is not firing on everything',
       out.dispatched.ok === true && out.dispatched.action === 'pause-goal', { dispatched: out.dispatched });

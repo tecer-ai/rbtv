@@ -1790,12 +1790,22 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
   }
 
   // `drop-lane` (owner rulings `d-recovery-drop-is-one-lane-permanent` / `d-recovery-abandoned-is-
-  // an-ending` / `d-recovery-drop-stops-live-work`, 2026-08-31): the SIXTEENTH intent. Marks ONE
-  // `(goal, seat)` lane's second terminal outcome (`dropLane` -> `abandonSeat`, `dl-abandoned-
-  // outcome`). MARKING ONLY — the caller (`chat-bridge.js`'s `dropLane` port) stops the lane's
-  // live work FIRST, over the wire, through the existing `inspect` + `kill-session` intents; this
-  // handler never touches a session or a queue row.
-  function handleDropLane(payload, sender) {
+  // an-ending` / `d-recovery-drop-stops-live-work`, 2026-08-31): the SIXTEENTH intent. Does BOTH
+  // ruled steps behind this ONE authorization gate — stops the lane's live turn (`heartStore` +
+  // `spawnManager`, the SAME two handles `handleKillSession` above already holds), THEN marks the
+  // lane's second terminal outcome (`dropLane` -> `abandonSeat`, `dl-abandoned-outcome`).
+  //
+  // ⚠⚠ REVISED 2026-09-01 (`dl-live-proof` live-fire finding): this used to mark ONLY, on the
+  // premise that `chat-bridge.js`'s `dropLane` port could stop the turn itself first, over the
+  // wire, via the existing `kill-session` intent. The live daemon proved that premise false —
+  // `kill-session`'s authorization (`canKillSession`, owner/creator-seat only) can NEVER admit the
+  // bridge's own `kind: 'bridge'` sender, for ANY session, so that call always refused
+  // `UNAUTHORIZED_SENDER` and the lane's live work was never actually stopped. The stop now runs
+  // IN-PROCESS here, inside the ALREADY-authorized `drop-lane` intent (`canDropLane`, bridge-only)
+  // — see `state-store/heart/drop-lane.js`'s own header for the full evidence trail (two
+  // independent code-level RED-FIRST checks: `parseKillSession` rejects an extra field outright,
+  // and `canKillSession` never reads any payload field regardless).
+  async function handleDropLane(payload, sender) {
     for (const key of Object.keys(payload)) {
       if (!['goal', 'seat', 'ask_id'].includes(key)) {
         throw new InternalApiError(VALIDATION_FAILED, `unknown payload field: ${key}`, { check: 'strict-schema', field: key });
@@ -1820,8 +1830,8 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       throw new InternalApiError(INTERNAL, 'this daemon has no workspace root, so it can reach no goal folder', { check: 'workspace-root' });
     }
 
-    const out = dropLane({
-      workspaceRoot, goal: payload.goal, seat: payload.seat, askId: payload.ask_id,
+    const out = await dropLane({
+      workspaceRoot, goal: payload.goal, seat: payload.seat, askId: payload.ask_id, heartStore, spawnManager,
     });
     if (!out.found) {
       // A refusal is journalled too, same reason `pause-resume`'s own refusal comment gives: a
@@ -1831,10 +1841,30 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       });
       throw new InternalApiError(NOT_FOUND, `no live goal named ${payload.goal} — ${out.detail}`, { check: 'live-goal-roster', goal: payload.goal });
     }
+    // STOP FAILED — the lane WAS found and a live turn WAS there, but killing it threw. Marking
+    // must NEVER be attempted on this arm (`d-recovery-drop-stops-live-work`'s "never both true"),
+    // and `dropLane()` (the act function) already refused to attempt it. Reported as INTERNAL,
+    // never NOT_FOUND — this is an operational fault, not a naming refusal.
+    if (out.stopFailed) {
+      log('warn', 'drop-lane: live work was NOT stopped — the lane was NOT marked abandoned', {
+        goal: payload.goal, seat: payload.seat, error: out.stopError, senderId: sender && sender.id,
+      });
+      throw new InternalApiError(INTERNAL, `live work was NOT stopped, so the lane was NOT dropped: ${out.stopError}`, { check: 'stop-failed', goal: payload.goal, seat: payload.seat });
+    }
+    // MARK FAILED — the opposite half-completion arm: the stop already ran (or nothing was live),
+    // then the store write itself failed. The owner-facing text must say the OPPOSITE of the
+    // stop-failed arm above: live work IS stopped, the lane is NOT marked, and it may be
+    // relaunched by the next reconcile pass.
+    if (out.markFailed) {
+      log('warn', 'drop-lane: live work was stopped but the lane was NOT marked abandoned', {
+        goal: payload.goal, seat: payload.seat, error: out.markError, senderId: sender && sender.id,
+      });
+      throw new InternalApiError(INTERNAL, `live work was stopped but the lane was NOT marked abandoned — it may be relaunched: ${out.markError}`, { check: 'mark-failed', goal: payload.goal, seat: payload.seat });
+    }
     log('info', 'a lane was permanently marked abandoned', {
-      goal: payload.goal, seat: payload.seat, idempotent: out.idempotent, senderId: sender && sender.id,
+      goal: payload.goal, seat: payload.seat, idempotent: out.idempotent, stoppedExecId: out.stoppedExecId, senderId: sender && sender.id,
     });
-    return { goal: out.goal, seat: out.seat, idempotent: out.idempotent === true };
+    return { goal: out.goal, seat: out.seat, idempotent: out.idempotent === true, stopped: out.stoppedExecId != null };
   }
 
   function handleSecretAdd(payload, sender) {
@@ -2030,7 +2060,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         case 'record-owner-ask': result = handleRecordOwnerAsk(env.payload, env.sender); break;
         case 'start-execution': result = handleStartExecution(env.payload, env.sender); break;
         case 'pause-resume': result = handlePauseResume(env.payload, env.sender); break;
-        case 'drop-lane': result = handleDropLane(env.payload, env.sender); break;
+        case 'drop-lane': result = await handleDropLane(env.payload, env.sender); break;
         case 'secret-add': result = handleSecretAdd(env.payload, env.sender); break;
       }
 

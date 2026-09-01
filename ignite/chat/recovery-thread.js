@@ -23,11 +23,13 @@
 //   That act UNBLOCKS the lane; the actual relaunch is the supervisor's own next reconcile pass.
 //   `pauseGoal` IS wired (`chat-bridge.js`): `pause-goal` reuses the EXISTING `pause-resume` intent
 //   directly, goal-scoped, exactly what that outcome asks for.
-//   `dropLane` IS wired (`dl-teardown-wire`, `d-recovery-drop-stops-live-work`): `chat-bridge.js`
-//   stops the lane's live work over the wire (existing `inspect` + `kill-session` intents), THEN
-//   marks it abandoned via the sixteenth intent, `drop-lane` (`ignite/state-store/heart/drop-
-//   lane.js`, calling `abandonSeat` from `dl-abandoned-outcome`). A refusal from either step still
-//   reaches this door's ordinary failure arm below — the message text changed, not the mechanism.
+//   `dropLane` IS wired (`dl-teardown-wire`, `d-recovery-drop-stops-live-work`): ONE forwarder call
+//   to the sixteenth intent, `drop-lane` (`ignite/state-store/heart/drop-lane.js`), which stops the
+//   lane's live turn AND marks it abandoned (`abandonSeat`, `dl-abandoned-outcome`) in that order,
+//   IN-PROCESS, behind its own bridge-only authorization. (Revised 2026-09-01: the stop originally
+//   ran client-side via `inspect`+`kill-session`, which the live daemon proved could never succeed
+//   — `kill-session`'s authorization admits no bridge-kind sender; see `drop-lane.js`'s header.) A
+//   refusal from either half still reaches this door's ordinary failure arm below.
 
 function call(port, name, args) {
   if (typeof port !== 'function') return Promise.resolve({ ok: false, error: `no ${name} port is wired` });
