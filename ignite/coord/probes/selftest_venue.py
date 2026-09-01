@@ -20,8 +20,10 @@ import sys
 import time
 from pathlib import Path
 
-# The selftest costs ~106 s; the runner kills at 180 s. Bounded here so an overrun is OUR verdict
-# (a FAIL with a reason) rather than the runner's opaque TIMEOUT row.
+# Measured 2026-09-01: `python3 coord.py selftest` completes in 215 s with 24 named failures
+# (not a hang). The suite runner kills at 180 s. Budget stays 165 so an overrun is OUR named
+# FAIL rather than the runner's opaque TIMEOUT — raising this past 180 would hide the overrun
+# as TIMEOUT, and raising it to 215 would add ~100 s of hourly wall for a still-red selftest.
 BUDGET_S = 165
 
 
