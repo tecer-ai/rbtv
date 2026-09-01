@@ -1,2 +1,3 @@
 # meta-installer — date · kind · title · symptom→cause · commit · others · ⚠ | newest last
 2026-08-24 · issue · PATH links unusable on Windows: no symlink, no shebang · On the Windows desktop (`C:\Users\henri\Documents\second-brain`), 2026-08-24, `install.py add` → Two independent POSIX assumptions in `meta/installer/lib/pathlinks.py`. (1) `link_one()` called · 419f5e22 · cli · ⚠
+2026-09-01 · issue · exposure-canon: two tool rows filled the rbtv-cli cell · `component-lint --component meta/embed-search` and `--component meta/installer` each → The manifest cell was being used to record a fact it does not carry. The `rbtv <verb>` · 24ec7187 · meta-planning · ⚠
