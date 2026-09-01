@@ -1,0 +1,1 @@
+2026-09-01 · creation · listSeatsWithEndings — the missing side of getCurrentEnding · A plain `SELECT seat FROM seat_endings WHERE goal = ? ORDER BY seat` in `ignite/state-store/predicates.js`, matching the shape of the sibling list query `listSeatHolds` right above it. · 3a2e28e6 · supervisor · ⚠
