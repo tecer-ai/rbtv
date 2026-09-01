@@ -197,11 +197,11 @@ out('', '── ARM 3 · RED — remove `holdMap.has(chair)` from class B: the b
 {
   const owedFile = path.join(SUP, 'owed-from-endings.js');
   const src = fs.readFileSync(owedFile, 'utf8');
-  const ANCHOR = '    if (holdMap.has(chair)) continue;\n    if (liveSet.has(chair) || queuedSet.has(chair)) continue;';
+  const ANCHOR = '    if (holdMap.has(chair)) continue;\n    if (abandonedMap.has(chair)) continue;\n    if (liveSet.has(chair) || queuedSet.has(chair)) continue;';
   const anchored = src.includes(ANCHOR);
   let mutantLaunches = null;
   if (anchored) {
-    const mutated = src.replace(ANCHOR, '    if (liveSet.has(chair) || queuedSet.has(chair)) continue;');
+    const mutated = src.replace(ANCHOR, '    if (abandonedMap.has(chair)) continue;\n    if (liveSet.has(chair) || queuedSet.has(chair)) continue;');
     const Module = require('node:module');
     const owedMut = new Module(owedFile, null);
     owedMut.filename = owedFile;

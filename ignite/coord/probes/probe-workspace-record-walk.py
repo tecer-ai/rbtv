@@ -271,7 +271,7 @@ try:
     # that is the copy's and not the mutation's. `__pycache__` is dropped — a stale `.pyc` serves
     # the previous source's verdict.
     kit_copy = ROOT / "kit" / "ignite"
-    for part in ("coord", "supervisor", "state-store"):
+    for part in ("coord", "supervisor", "state-store", "planning"):
         shutil.copytree(IGNITE / part, kit_copy / part,
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "node_modules"))
     (kit_copy / "coord" / "ending_store.py").write_text(mutated, encoding="utf-8")

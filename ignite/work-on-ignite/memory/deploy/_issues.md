@@ -1,2 +1,3 @@
 # deploy — date · kind · title · symptom→cause · commit · others · ⚠ | newest last
 2026-08-27 · issue · link-tools TOOLS list omitted three operator doors · The role-action-program's CP-2 inventory matrix (2026-08-26, seat `inventory-cli-reachability`) → `ignite/deploy/link-tools.py` links exactly the names hardcoded in its module-level `TOOLS` dict · 8aa5bff6 · operator,coord · ⚠
+2026-09-01 · issue · scheduled probe suite standing reds triaged · 21 standing reds mixed retired-probe contracts with product gaps → QUARANTINE class + three probe retargets · 4d4aae4d · planning,operator,runtime,supervisor,coord,chat · ⚠
