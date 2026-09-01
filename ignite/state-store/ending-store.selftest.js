@@ -122,6 +122,56 @@ function caseWaitAbsentNeverPosted() {
   } finally { closeApi(heart); }
 }
 
+function caseSupersedeAskDoesNotArm() {
+  const { heart, api } = openApi();
+  try {
+    // A seat whose CURRENT ending is disarmed-until-`ask-answered` — the exact shape
+    // `armAskAnswered` would flip. `reapAndRelaunch` on this fixture WOULD arm it; the whole
+    // point of `supersedeAsk` is that it must not.
+    api.stampSystem({
+      goal: 'g', seat: 's', ending: 'incomplete', diagnostic: 'blocked-on-human',
+      evidence_pointer: 'thread-1',
+    });
+    api.insertAsk({
+      ask_id: 'T.6', goal: 'g', seat: 's', label: 'recovery', evidence_pointer: 'permalink',
+    });
+    api.postAsk({ ask_id: 'T.6' });
+    const closed = api.supersedeAsk({ ask_id: 'T.6', note: 'never-posted fixture' });
+    if (closed.ask.state !== 'closed') throw new Error('supersede did not close');
+    if (!closed.ask.subject.startsWith('superseded:')) throw new Error('subject not stamped');
+    const ending = api.getCurrentEnding({ goal: 'g', seat: 's' });
+    if (Number(ending.armed) !== 0 || ending.named_event !== 'ask-answered') {
+      throw new Error(`supersede armed the seat: ${JSON.stringify(ending)}`);
+    }
+    const again = api.supersedeAsk({ ask_id: 'T.6', note: 'retry' });
+    if (!again.idempotent) throw new Error('second supersede must be idempotent');
+    pass('supersedeAsk closes without arming, idempotent');
+  } finally { closeApi(heart); }
+}
+
+function caseSetAskShape() {
+  const { heart, api } = openApi();
+  try {
+    api.insertAsk({
+      ask_id: 'T.7', goal: 'g', seat: 's', label: 'recovery', evidence_pointer: 'permalink',
+    });
+    api.postAsk({ ask_id: 'T.7' });
+    const before = api.getAsk('T.7');
+    if (before.kind !== '' || before.subject !== '') throw new Error('fixture should start empty');
+    const options = JSON.stringify([{ letter: 'a', arm: 'retry-with-change', text: 'x' }]);
+    const shaped = api.setAskShape({
+      ask_id: 'T.7', kind: 'recovery', subject: 'the s seat needs your answer', options_json: options,
+    });
+    if (shaped.kind !== 'recovery' || shaped.subject !== 'the s seat needs your answer' || shaped.options_json !== options) {
+      throw new Error(`shape not applied: ${JSON.stringify(shaped)}`);
+    }
+    if (shaped.state !== 'open' || shaped.evidence_pointer !== 'permalink') {
+      throw new Error('setAskShape must not touch state/evidence_pointer');
+    }
+    pass('setAskShape writes kind/subject/options onto an existing open row');
+  } finally { closeApi(heart); }
+}
+
 function caseGoalRunningWithAsk() {
   const { heart, api } = openApi();
   try {
@@ -314,6 +364,8 @@ const cases = [
   caseWaitFromAsk,
   caseWaitAbsentReaped,
   caseWaitAbsentNeverPosted,
+  caseSupersedeAskDoesNotArm,
+  caseSetAskShape,
   caseGoalRunningWithAsk,
   caseGoalWaitNothingAdvances,
   caseFailedCrash,

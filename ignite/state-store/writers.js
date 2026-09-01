@@ -389,6 +389,52 @@ function reapAndRelaunch(db, { ask_id, authorized_reply_at }) {
   });
 }
 
+// ── SUPERSEDE — close a row WITHOUT arming the seat's relaunch ─────────────────────────────────
+//
+// `reapAndRelaunch` always calls `armAskAnswered`: it is the door for an ANSWERED ask, and arming
+// the seat is the whole point of answering one. A row this daemon minted but nobody will ever
+// answer (never posted, or posted on a throwaway/superseded fixture goal) needs the opposite
+// door — closed for bookkeeping, with NO side effect on the seat it names, because that seat may
+// be a preserved fixture (`test-retry-proof`) that must stay inert, or may not even exist. Same
+// idempotency shape as `reapAndRelaunch`: a second call on an already-closed row is a no-op.
+function supersedeAsk(db, { ask_id, note, superseded_at }) {
+  const row = getAsk(db, ask_id);
+  if (!row) throw new EndingStoreError(E_ASK_NOT_FOUND, `no ask ${ask_id}`);
+  if (row.state === 'closed') return { ask: row, idempotent: true };
+  const at = superseded_at || nowIso();
+  // `subject` is the free column for this: `evidence_pointer`'s CHECK forbids clearing it (and its
+  // meaning — the on-disk ask copy — must survive for an auditor), and a closed row is never read
+  // by the digest or `listOpenAsks` (both select on `state`), so overwriting `subject` costs the
+  // owner nothing here.
+  db.prepare(
+    "UPDATE open_asks SET state = 'closed', subject = ? WHERE ask_id = ?",
+  ).run(`superseded: ${String(note || '')} (${at})`, ask_id);
+  return { ask: getAsk(db, ask_id), idempotent: false };
+}
+
+// ── SET ASK SHAPE — write kind/subject/options onto an ALREADY-OPEN row ────────────────────────
+//
+// `insertAsk` writes these three columns only at INSERT time (a brand-new row). A row minted
+// before `d-owner-ask-shape` existed — or one whose composer's `record-owner-ask` call dropped
+// them (the gap `ask-shape`'s own report names) — has no other door to gain them after the fact.
+// Never touches `state`/`posted`/`evidence_pointer`: this is the shape redesign's three columns
+// and nothing else on the row.
+function setAskShape(db, {
+  ask_id, kind, subject, options_json,
+}) {
+  const row = getAsk(db, ask_id);
+  if (!row) throw new EndingStoreError(E_ASK_NOT_FOUND, `no ask ${ask_id}`);
+  db.prepare(
+    'UPDATE open_asks SET kind = ?, subject = ?, options_json = ? WHERE ask_id = ?',
+  ).run(
+    kind == null ? row.kind : String(kind),
+    subject == null ? row.subject : String(subject),
+    options_json == null ? row.options_json : String(options_json),
+    ask_id,
+  );
+  return getAsk(db, ask_id);
+}
+
 function incrementRecoveryRelaunch(db, { goal, seat }) {
   const current = getCurrentEnding(db, { goal, seat });
   if (!current) {
@@ -553,6 +599,8 @@ module.exports = {
   insertAsk,
   postAsk,
   reapAndRelaunch,
+  supersedeAsk,
+  setAskShape,
   incrementRecoveryRelaunch,
   setLeaderAttemptUsed,
   fireNamedEvent,

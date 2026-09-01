@@ -18,6 +18,8 @@ function bind(db) {
     insertAsk: (fields) => writers.insertAsk(db, fields),
     postAsk: (fields) => writers.postAsk(db, fields),
     reapAndRelaunch: (fields) => writers.reapAndRelaunch(db, fields),
+    supersedeAsk: (fields) => writers.supersedeAsk(db, fields),
+    setAskShape: (fields) => writers.setAskShape(db, fields),
     incrementRecoveryRelaunch: (fields) => writers.incrementRecoveryRelaunch(db, fields),
     setLeaderAttemptUsed: (fields) => writers.setLeaderAttemptUsed(db, fields),
     fireNamedEvent: (fields) => writers.fireNamedEvent(db, fields),
