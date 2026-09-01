@@ -1155,6 +1155,32 @@ async function stopGoalBroker(goalDir) {
   await broker.stop();
 }
 
+// `d-gtools-config-bridge` (escalation #9, remedy 2 — extends `d-gtools-broker-bridge` above):
+// `config.yaml` itself is an enumerated private-scope deny entry (T2-R11/D19), so every caged
+// gtools SERVICE command died in `load_config()` before it ever reached the broker. Rather than
+// pierce the mask (the exact mechanism `20260824-c-delete-credential-pierce-role` deleted for
+// this ruling), a copy is materialized into the goal's own scratch tree — the SAME already-RW
+// `scratch-temp` family the broker socket above lives in, so this needs no new bind vocabulary.
+// Re-copied on every call (one per caged seat launch that declares a `gtools-account`
+// credential, same cadence `ensureGoalBroker`/the socket `--setenv` below run at) so a
+// `config.yaml` edit on disk reaches the NEXT seat launch of the goal, never permanently stale.
+// A missing source is NOT a launch refusal: this is an add-on for a workspace that HAS a gtools
+// install (the real vault always does), not a new hard requirement on every credentialed launch
+// — a fixture/workspace with no `config.yaml` on disk just gets no copy and no env var, same as
+// it got before this bridge existed. Returns null in that case; the caller then leaves
+// IGNITE_GTOOLS_CONFIG unset, which is the correct behaviour for "nothing to bridge".
+function materializeGtoolsConfig(goalDir, workspaceRoot, log = () => {}) {
+  const src = path.join(workspaceRoot, '3-resources', 'tools', 'gtools', 'config.yaml');
+  if (!fs.existsSync(src)) {
+    log('warn', 'gtools config.yaml not found on disk — IGNITE_GTOOLS_CONFIG not advertised', { src });
+    return null;
+  }
+  const dest = path.join(goalDir, 'scratch', 'gtools-config.yaml');
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.copyFileSync(src, dest);
+  return dest;
+}
+
 function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr = null, log = () => {}, stamp = null) {
   // ── B1 / OQ-21(b+) — THE UNCAGED STAFF BRANCH EMITS THE ENVIRONMENT TOO ───────────────────
   //
@@ -1335,6 +1361,8 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
   // with no declared account never sees this var and never sees any behaviour change.
   if (admitted.accountCredentials && admitted.accountCredentials.length > 0) {
     flags.push('--setenv', 'IGNITE_CREDENTIAL_BROKER_SOCK', brokerSocketPath(seatPath.goalDir));
+    const gtoolsConfig = materializeGtoolsConfig(seatPath.goalDir, seatPath.workspaceRoot, log);
+    if (gtoolsConfig) flags.push('--setenv', 'IGNITE_GTOOLS_CONFIG', gtoolsConfig);
   }
   const injected = injectDeclaredEnv(admitted.credentialNames, loadCentralStore(seatPath.workspaceRoot));
   for (const name of Object.keys(injected)) flags.push('--setenv', name, injected[name]);
