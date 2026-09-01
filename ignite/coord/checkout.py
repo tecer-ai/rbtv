@@ -546,6 +546,22 @@ def cmd_checkin(args):
             pane = SID_PANE_PREFIX + _open_sid
     if is_tmux_pane(pane):
         set_pane_title(pane, args.agent)
+        # ── SUPERVISOR REGISTRY — write moment (ii) [d-ask10-build-the-replacement,
+        # spec-supervisor §1] ────────────────────────────────────────────────────────────────
+        # The flip `unsupervised` -> `supervised` for a console-lane seat's OWN row —
+        # `launch.py#launch_seat` wrote it at spawn with THIS SAME pane's pid
+        # (`tmux_pane_pid`), and re-deriving it here (rather than trusting a value carried in)
+        # re-affirms the identity `record_spawn` already established instead of minting a
+        # second one. A seat this file never launched (a truly bare console session, or a
+        # sitting spawn.js already wrote SUPERVISED) still lands here safely: `recordCheckIn`
+        # inserts a fresh row when none exists, and re-affirming an already-supervised one is a
+        # no-op merge. Loud and never fatal — the same posture the spawn-time write takes.
+        try:
+            supervisor_door.record_checkin(package_dir(args), args.agent, tmux_pane_pid(pane))
+        except Exception as _reg_exc:                                     # noqa: BLE001 — deliberate
+            print(f"warning: supervisor registry check-in FAILED — the capacity gate may still "
+                  f"read you as unsupervised — {type(_reg_exc).__name__}: {_reg_exc}",
+                  file=sys.stderr)
     elif pane:
         print(f"paneless check-in: no tmux pane, registered against open session {pane} — wakes "
               f"cannot reach you, so run `read` at your own checkpoints.", file=sys.stderr)

@@ -90,6 +90,22 @@ def goal_liveness_strict(pkg):
     return answer if isinstance(answer, dict) else {}
 
 
+def all_liveness():
+    """[{goal, seat, supervised, alive}] for EVERY registry row, across every goal — never a dict
+    keyed by seat, because two goals can declare a same-named seat and a dict would silently drop
+    one [d-ask10-build-the-replacement]. The one consumer is a capacity gate's cross-goal disclosure
+    (N2): "a live seat resolving to a DIFFERENT goal" is now `goal != this run's` rather than a raw
+    cwd walk, because a registry row is keyed by (goal, seat) from the moment it is written and
+    never by filesystem path. Swallows exactly like `goal_liveness`; a caller needing to tell
+    "probe failed" from "empty registry" apart should reach for `goal_liveness_strict`'s cousin
+    instead, same as every other consumer of the swallowing form."""
+    try:
+        answer = _probe(["--all"])
+    except (LivenessError, ValueError, OSError):
+        return []
+    return answer if isinstance(answer, list) else []
+
+
 def liveness_word(alive):
     """The ONE rendering of the three-valued answer, so seven consumers cannot spell it eight ways.
 
@@ -123,4 +139,4 @@ def occupied(pkg, seat, pane_hint=False):
 
 
 __all__ = ["LivenessError", "goal_of", "sitting_alive", "goal_liveness", "goal_liveness_strict",
-           "liveness_word", "occupied", "PROBE_JS"]
+           "all_liveness", "liveness_word", "occupied", "PROBE_JS"]

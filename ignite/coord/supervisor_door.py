@@ -103,6 +103,39 @@ def door_is_wrapped(door):
     return proc.returncode == 0 and proc.stdout.strip() == "1"
 
 
+def record_spawn(pkg, seat, pid, *, start_time=None, launch_token=None, supervision="unsupervised",
+                 registry=None):
+    """Registry write moment (i) for a launch door THIS FILE (Python) opens the pane for —
+    `launch.py#launch_seat`'s tmux pane, spawned by `cmd_launch`'s console lane straight through
+    `tmux.py`, never through `supervisor/spawn.js`'s carrier. `supervisor/doors.js#markUnsupervised`
+    is the JS twin of this call for the carrier lane; this is the same write moment reached from the
+    console lane's own chokepoint, so `console-uncaged` [spec-supervisor §3] gets a row AT SPAWN
+    instead of never (nothing python-side called `registerCheckIn`'s door either, until
+    `record_checkin` below). `supervision` defaults `unsupervised`: a console-lane pane is never a
+    daemon-wrapped door, so the flag starts where `doors.js`'s own table would put it and flips only
+    on check-in, same as the JS path."""
+    payload = {"goal": goal_id_of(pkg), "seat": seat, "pid": int(pid), "supervision": supervision}
+    if start_time:
+        payload["start_time"] = str(start_time)
+    if launch_token:
+        payload["launch_token"] = str(launch_token)
+    return supervisor_op("recordSpawn", payload, start=pkg, registry=registry)
+
+
+def record_checkin(pkg, seat, pid, *, start_time=None, launch_token=None, registry=None):
+    """Registry write moment (ii): flip `unsupervised` -> `supervised`, or insert if `record_spawn`
+    never ran for this sitting (a genuinely bare console session `cmd_checkin`'s F1 paneless branch
+    already tolerates). `pid` MUST be the same identity `record_spawn` recorded — the pane's own pid
+    (`tmux_pane_pid`), not the `checkin` subcommand's transient one — so the flip re-affirms a row
+    rather than minting a second identity for one sitting."""
+    payload = {"goal": goal_id_of(pkg), "seat": seat, "pid": int(pid)}
+    if start_time:
+        payload["start_time"] = str(start_time)
+    if launch_token:
+        payload["launch_token"] = str(launch_token)
+    return supervisor_op("recordCheckIn", payload, start=pkg, registry=registry)
+
+
 def awaiting_reap(pkg, registry=None):
     """The reap debt: every registry row whose sitting ALREADY carries an ending.
 
@@ -124,5 +157,5 @@ def confirm_and_reap(pkg, seat, *, pid=None, start_time=None, registry=None):
 
 
 __all__ = ["SupervisorError", "EndingStoreError", "supervisor_op", "registry_override",
-           "death_stamp", "door_is_wrapped",
+           "death_stamp", "door_is_wrapped", "record_spawn", "record_checkin",
            "awaiting_reap", "confirm_and_reap", "SUPERVISOR_CLI"]
