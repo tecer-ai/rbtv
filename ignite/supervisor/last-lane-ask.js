@@ -50,22 +50,13 @@ function lastLaneAbandoned(derived) {
   return Array.isArray(derived.abandonedSeats) && derived.abandonedSeats.length > 0;
 }
 
-function composeBody({ goal, abandonedSeats }) {
-  const names = abandonedSeats.map((a) => a.seat).join(', ');
-  return [
-    `*GOAL*: ${goal}`,
-    `Every lane still owed work on this goal was dropped (drop-lane): ${names}.`,
-    '',
-    'Reply with one word: close · keep',
-    'close — mark this goal closed, and NOT as a success.',
-    'keep — leave this goal open. Nothing more is owed and nothing launches on its own.',
-    'Comments after the first word.',
-  ].join('\n');
-}
-
 // Mints the disk record + the `open_asks` row, idempotent per goal. Never posts to Slack — see
 // the header. `store` is the ending store bound API (`state-store#bind`'s return, the same handle
-// `announceDisarm` passes to `recordGroupedAsk`).
+// `announceDisarm` passes to `recordGroupedAsk`). The body text is NOT composed here — mirroring
+// `exhaustion.js#recordGroupedAsk`'s own split (a lane record carries raw fields, `chat/
+// recovery-poster.js` composes at POST time), `chat/disposition-poster.js#composeDispositionBody`
+// composes fresh from these raw fields, so there is exactly one place that decides what the owner
+// reads, not a mint-time string frozen ahead of the ruled template [`redesign-continue-1`, DoD 4].
 function mintLastLaneAsk({
   store, workspaceRoot, goal, abandonedSeats, at,
 } = {}) {
@@ -87,9 +78,13 @@ function mintLastLaneAsk({
     label: DISPOSITION_LABEL,
     goal,
     options: [...DISPOSITION_OPTIONS],
-    abandoned_seats: abandonedSeats.map((a) => a.seat),
+    // The full rows, not just names — `abandoned_by` is what the composer's recommendation rule
+    // reads (DoD 4: recommend `keep` unless every lane was dropped BY THE OWNER) and `anchor` is
+    // the closest thing to "how it ended" this data has.
+    abandoned_seats: abandonedSeats.map((a) => ({
+      seat: a.seat, anchor: a.anchor || null, abandoned_by: a.abandoned_by || null, abandoned_at: a.abandoned_at || null,
+    })),
     opened_at: stamp,
-    body: composeBody({ goal, abandonedSeats }),
   };
   const file = writeAskRecord(workspaceRoot, record);
   let row = store && typeof store.getAsk === 'function' ? store.getAsk(askId) : null;
@@ -141,10 +136,6 @@ function listUnpostedDispositions(workspaceRoot) {
       record_ask_id: record.ask_id,
       goal: record.goal,
       abandoned_seats: Array.isArray(record.abandoned_seats) ? record.abandoned_seats : [],
-      body: record.body || composeBody({
-        goal: record.goal,
-        abandonedSeats: (Array.isArray(record.abandoned_seats) ? record.abandoned_seats : []).map((s) => ({ seat: s })),
-      }),
       opened_at: record.opened_at || null,
     });
   }
@@ -171,7 +162,6 @@ function markDispositionPosted(workspaceRoot, { goal }, { askId, at } = {}) {
 module.exports = {
   askIdForGoal,
   lastLaneAbandoned,
-  composeBody,
   mintLastLaneAsk,
   listUnpostedDispositions,
   markDispositionPosted,

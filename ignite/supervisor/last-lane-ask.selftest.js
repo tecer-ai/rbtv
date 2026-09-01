@@ -115,7 +115,10 @@ function caseLastLaneAbandonedMintsAsk() {
     ));
     assert.strictEqual(record.kind, 'goal-disposition');
     assert.deepStrictEqual(record.options, [...DISPOSITION_OPTIONS]);
-    assert.deepStrictEqual(record.abandoned_seats, ['worker-dropped']);
+    assert.strictEqual(record.abandoned_seats.length, 1);
+    assert.strictEqual(record.abandoned_seats[0].seat, 'worker-dropped');
+    assert.strictEqual(record.abandoned_seats[0].anchor, 'owner: drop-lane, this lane is stuck for good');
+    assert.strictEqual(record.abandoned_seats[0].abandoned_by, 'owner');
 
     const row = api.getAsk(askId);
     assert.ok(row, 'the open_asks row must exist');

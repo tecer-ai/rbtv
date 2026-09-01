@@ -772,6 +772,51 @@ say('── class A: same seat, same word, DIFFERENT `ended` → the count still
   }
 }
 
+// `recovery-story` seat, `redesign-continue-1` DoD 2: RED-FIRST proof of the ordering
+// `inv-refusal-source`'s open question 1 left unconfirmed — a seat that stamped its OWN ending
+// (`who_stamped: 'seat'`, via `stampSeatDeclare`, exactly what a real `incomplete` checkout does)
+// BEFORE exhaustion fires must have that diagnostic land on the ask's lane, never the deleted
+// `${reason} retried N times…` fallback `countRetry` used to synthesize. `boundRows`/`stampEndings`
+// already stamps `diagnostic: 'context full'` + `evidence_pointer: 'selftest:<seat>'` for exactly
+// this case — reused here, not re-derived.
+say("── DoD 2 red-first: the exhaustion ask quotes the seat's OWN diagnostic, never the deleted fallback ──");
+{
+  const {
+    readAskRecord, askIdFor, signatureOf,
+  } = require('./exhaustion');
+  const store = openStore();
+  const fx = counterFixture('last-words');
+  const ending = bind(store.db);
+  const N = fx.recovery.attempt_counter_n;
+  try {
+    const goalFolder = fixtureBound();
+    for (let i = 0; i < N; i += 1) {
+      boundRows(goalFolder, [['worker-a', 'incomplete']], store, 'fx-lastwords');
+      reconcileGoal({
+        goal: 'fx-lastwords', goalFolder, engine: { heartStore: store, endingStore: ending },
+        say: () => {}, force: true, readyAnswer: readyEmpty,
+        live: new Set(), promptFn: () => 'BOOT', recoverFn: () => ({ ok: true }),
+        ...fx,
+      });
+    }
+    const signature = signatureOf({ driver: counters.DRIVERS.RECONCILE_CLASS_A, reasonClass: 'incomplete' });
+    const record = readAskRecord(fx.workspaceRoot, askIdFor(signature));
+    assert.ok(record, `no ask record minted for signature ${signature}`);
+    const lane = (record.lanes || []).find((l) => l.goal === 'fx-lastwords' && l.seat === 'worker-a');
+    assert.ok(lane, `no lane for fx-lastwords/worker-a: ${JSON.stringify(record)}`);
+    assert.strictEqual(lane.last_words, 'context full',
+      `the ask must carry the SEAT'S OWN diagnostic (stamped BEFORE this pass's exhaustion re-stamp), not a synthesized fallback: ${JSON.stringify(lane)}`);
+    assert.strictEqual(lane.evidence_pointer, 'selftest:worker-a',
+      "the seat's own transcript pointer must ride to the lane too");
+    assert.ok(!/retried \d+ times with the same refusal class/.test(String(lane.last_words)),
+      'the deleted `${reason} retried N times…` fallback must never appear again');
+    say(`ok  getCurrentEnding still returns the seat's own row at countRetry time — the ask quotes "${lane.last_words}", never the fallback`);
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
+}
+
 say('── RED arm: put the volatile field back INTO the counter key ──');
 {
   // The pre-D40 defect, aimed at the counter instead of the signature: the reason class carries
