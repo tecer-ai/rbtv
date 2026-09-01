@@ -883,7 +883,7 @@ function reconcileGoal({
   // Honour `rbtv goal pause`. ONE reader: lane-watch.laneIsPaused (the goal-state
   // row; leftover `paused ` prefix is consumed there). Lazy-require — lane-watch
   // requires this module at top level; a cycle at load would leave the reader undefined.
-  const { laneIsPaused } = require('./lane-watch');
+  const { laneIsPaused, laneIsClosed } = require('./lane-watch');
   if (goalFolder && laneIsPaused(goalFolder, heartStore)) {
     if (!dryRun && heartStore) setPassAt(heartStore, goal, at);
     if (say) say('info', 'reconcile: skipped — goal is paused', { goal });
@@ -896,6 +896,15 @@ function reconcileGoal({
     if (!dryRun && heartStore) setPassAt(heartStore, goal, at);
     if (say) say('info', 'reconcile: skipped — goal is finished', { goal });
     return { skipped: 'finished', goal };
+  }
+
+  // Honour the owner's close-or-keep `close` reply (`d-goal-closed-word`). ONE reader:
+  // lane-watch.laneIsClosed (the goal-state row) — same shape as pause, TERMINAL like finished:
+  // a closed goal is never rebuilt and no chair launches for it again.
+  if (goalFolder && laneIsClosed(goalFolder, heartStore)) {
+    if (!dryRun && heartStore) setPassAt(heartStore, goal, at);
+    if (say) say('info', 'reconcile: skipped — goal is closed', { goal });
+    return { skipped: 'closed', goal };
   }
 
   if (goalFolder && !dryRun) {

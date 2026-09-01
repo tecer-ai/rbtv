@@ -17,17 +17,14 @@
 //   is owed and nothing launches on its own, so the owner-visible half is already done the moment
 //   the reply parsed. This dispatch only posts the confirmation.
 //
-// ⚑ `close` HAS NO daemon-side act TODAY, and NOT because nobody wired it — `state-store/
-//   vocabulary.js#GOAL_WORDS` is a closed three-word enum (`running`/`paused`/`finished`), and
-//   `finished` is the ONLY terminal word, always read as ordinary success (`isGoalFinished`,
-//   every downstream reader of goal state). Stamping it here would make a goal the owner explicitly
-//   gave up on read as done — the exact outcome `d-recovery-last-lane-asks` forbids ("a goal given
-//   up on must never read as done"). A fourth terminal word (or equivalent) is a state-store
-//   vocabulary decision with its own blast radius across every reader of goal state; it is not this
-//   seat's to invent. `closeGoal` is therefore left UNWIRED (`null`, the same shape `dropLane`/
-//   `retryWithChange` carried before their own seats built them) and this door reports that
-//   honestly into the thread — never a silent success, per this ruling's own words: "under no shape
-//   does a timeout, a default, or silence close the goal."
+// ⚑ `close` IS WIRED (`d-goal-closed-word`, `goal-closed-word` seat, 2026-09-01) — `state-store/
+//   vocabulary.js#GOAL_WORDS` gained a fourth, terminal word `closed`, distinct from `finished` in
+//   every downstream reader (`isGoalFinished`, reconcile.js, lane-watch.js): a goal the owner gave
+//   up on stamps `closed`, never `finished`, so it never reads as done — `d-recovery-last-lane-
+//   asks`'s own words, honoured rather than routed around. `closeGoal` is an INJECTED PORT, same
+//   shape `dropLane`/`retryWithChange` use: the bridge cannot write `goal_states` itself
+//   (`chat/probes/probe-chat-boundary.js`), so `chat-bridge.js` wires it to the `close-goal` gateway
+//   intent (`state-store/heart/close-goal.js`), never a call in-process here.
 
 function call(port, name, args) {
   if (typeof port !== 'function') return Promise.resolve({ ok: false, error: `no ${name} port is wired` });

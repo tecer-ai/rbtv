@@ -301,14 +301,19 @@ function createChatBridge({
   });
 
   // ── THE DISPOSITION DISPATCH (`disposition-thread.js`, `d-recovery-last-lane-asks`) ──────────
-  // `keep` needs no port (see `disposition-thread.js`'s header). `close` has no daemon-side act
-  // today — `state-store/vocabulary.js#GOAL_WORDS` carries no "closed, not a success" terminal
-  // word, and inventing one is a state-store vocabulary decision outside this door's scope. Left
-  // UNWIRED (`null`) on purpose: the dispatch reports that honestly into the thread rather than
-  // fabricating a success, exactly `dropLane`/`retryWithChange`'s own shape before their seats
-  // built them.
+  // `keep` needs no port (see `disposition-thread.js`'s header). `close` is wired to the
+  // seventeenth intent (`d-goal-closed-word`, `goal-closed-word` seat) — ONE forwarder call, the
+  // SAME shape `dropLane`/`retryWithChange` use: the bridge cannot write `goal_states` itself
+  // (`chat/probes/probe-chat-boundary.js`), so the store write happens daemon-side, behind the
+  // gateway's `close-goal` intent (`state-store/heart/close-goal.js`).
   const dispositionDispatch = createDispositionDispatch({
-    closeGoal: null,
+    closeGoal: async ({ goalId, askId }) => {
+      const out = await forwarder.forward('close-goal', { goal: String(goalId), ask_id: askId != null ? String(askId) : undefined });
+      if (!out.ok) {
+        return { ok: false, error: `${(out.error && out.error.code) || 'close-goal refused'}: ${(out.error && out.error.message) || 'no detail'}` };
+      }
+      return { ok: true, result: out.result };
+    },
     postBack: ({ channelId, goalId, askId, text }) =>
       postSlack({ kind: 'nack', channel: channelId, threadTs: askId, text, goal_id: goalId, ask_id: askId }),
     logger,

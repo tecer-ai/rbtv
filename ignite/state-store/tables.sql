@@ -51,14 +51,22 @@ CREATE TABLE IF NOT EXISTS seat_endings_log (
 );
 CREATE INDEX IF NOT EXISTS idx_seat_endings_log_goal_seat ON seat_endings_log(goal, seat);
 
+-- `closed` (d-goal-closed-word, 2026-09-01, `redesign-continue-1`) — a FOURTH terminal word,
+-- owner-stamped like `paused`, for a goal the owner gave up on via the close-or-keep ask
+-- (`d-recovery-last-lane-asks`). Widening this CHECK in source is a no-op on an EXISTING
+-- `heart.db` — `open.js` runs this file as `CREATE TABLE IF NOT EXISTS`, so a live workspace's
+-- CHECK constraint stays exactly what it was created with. `state-store/open.js#migrateGoalStatesClosed`
+-- is the non-destructive rebuild that brings an existing store forward (rename-out, create-fresh
+-- with this exact shape, copy rows, drop the old table — SQLite cannot ALTER a CHECK).
 CREATE TABLE IF NOT EXISTS goal_states (
   goal TEXT PRIMARY KEY,
-  stored TEXT NOT NULL CHECK (stored IN ('running','paused','finished')),
+  stored TEXT NOT NULL CHECK (stored IN ('running','paused','finished','closed')),
   who_stamped TEXT NOT NULL CHECK (who_stamped IN ('owner','system')),
   evidence_pointer TEXT NOT NULL CHECK (evidence_pointer != ''),
   stamped_at TEXT NOT NULL,
   CHECK (stored != 'paused' OR who_stamped = 'owner'),
-  CHECK (stored != 'finished' OR who_stamped = 'system')
+  CHECK (stored != 'finished' OR who_stamped = 'system'),
+  CHECK (stored != 'closed' OR who_stamped = 'owner')
 );
 
 CREATE TABLE IF NOT EXISTS open_asks (

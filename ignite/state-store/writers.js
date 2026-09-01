@@ -297,6 +297,9 @@ function writeGoalWord(db, fields) {
   if (fields.stored === 'finished' && fields.who_stamped !== 'system') {
     throw new EndingStoreError(E_WRITER_REFUSED, 'finished is system-stamped');
   }
+  if (fields.stored === 'closed' && fields.who_stamped !== 'owner') {
+    throw new EndingStoreError(E_WRITER_REFUSED, 'closed is owner-hand');
+  }
   if (fields.who_stamped !== 'owner' && fields.who_stamped !== 'system') {
     throw new EndingStoreError(E_BAD_ENDING, `unknown who_stamped: ${fields.who_stamped}`);
   }

@@ -99,11 +99,17 @@ const { GatewayError, SHAPE_INVALID, UNKNOWN_INTENT } = require('./errors');
 // therefore an owner act. The convergence the 2026-08-24 deferral was waiting for did NOT arrive —
 // what arrived was the evidence that waiting cost the owner the verb entirely (`chat/index.js:119`
 // builds the bridge with no ports at all, so the door applied nothing and answered nothing).
+// ⚑ `close-goal` ADDED by owner ruling `d-goal-closed-word` (2026-09-01, `redesign-continue-1`):
+// the SEVENTEENTH intent — the owner's `close` reply to the close-or-keep ask (`d-recovery-last-
+// lane-asks`) reaching the ending store's fourth terminal word. A NEW intent, not a `pause-resume`
+// verb: that door's own reason above (closed two-member enum, one mechanical reversible pair)
+// applies here too — closing is neither mechanical (it answers a specific disposition ask, not a
+// bare Slack command) nor reversible.
 const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
   'kill-session', 'register-job', 'deregister-job', 'live-feed', 'send-message',
   'record-bus-answer', 'secret-add', 'record-owner-ask', 'start-execution',
-  'pause-resume', 'drop-lane',
+  'pause-resume', 'drop-lane', 'close-goal',
 ]);
 
 // A goal id and a seat name, SHAPE ONLY. A deliberate SECOND copy of `bus-ferry.js#SAFE_NAME_RE`,
@@ -938,6 +944,25 @@ function parseDropLane(payload) {
   return out;
 }
 
+// `close-goal` (`d-goal-closed-word`, 2026-09-01) — the SEVENTEENTH intent — SHAPE ONLY, like every
+// parse here. Stamps ONE goal `closed`, permanently, no undo. `ask_id` is OPTIONAL, evidence only,
+// same shape `drop-lane`'s carries.
+function parseCloseGoal(payload) {
+  requireObject(payload);
+  rejectUnknownKeys(payload, new Set(['goal', 'ask_id']), 'close-goal');
+  if (typeof payload.goal !== 'string' || !BUS_NAME_RE.test(payload.goal)) {
+    bad('close-goal goal must be a bare name — letters, digits, \'.\', \'_\' or \'-\', starting alphanumeric (no path separators, no "..", no control characters)', 'goal');
+  }
+  const out = { goal: payload.goal };
+  if (payload.ask_id !== undefined) {
+    if (typeof payload.ask_id !== 'string' || payload.ask_id.trim().length === 0) {
+      bad('close-goal ask_id must be a non-empty string when present', 'ask_id');
+    }
+    out.ask_id = payload.ask_id;
+  }
+  return out;
+}
+
 // Raw sender input -> a typed request payload, or a typed refusal. This is the
 // ONLY function in the daemon that interprets raw sender input.
 function parseRequest({ intent, payload }) {
@@ -961,6 +986,7 @@ function parseRequest({ intent, payload }) {
     case 'start-execution': return parseStartExecution(payload);
     case 'pause-resume': return parsePauseResume(payload);
     case 'drop-lane': return parseDropLane(payload);
+    case 'close-goal': return parseCloseGoal(payload);
   }
 }
 
