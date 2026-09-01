@@ -10890,9 +10890,13 @@ def _selftest_checks(args, failures, names):
               "that has not checked in yet (G-2335's exact shape: a live, pre-check-in seat). It "
               "occupies one of the run's two cap slots through the ORDINARY `counted` path — no "
               "correction, no cross_goal detour — so of the two FRESH candidates `cap2`/`cap3` "
-              "only ONE proceeds. ⚠ THE RED ARM: revert `launch_seat`'s `record_spawn` call (or "
-              "the registry write it performs) and `cap1` is simply ABSENT from the registry — "
-              "`in_use` reads 0 and BOTH `cap2` AND `cap3` admit. This row goes red on that alone",
+              "only ONE proceeds. ⚠ THE RED ARM THIS ROW ITSELF DISCRIMINATES: were the "
+              "declared-seat synthesis to gate `liveness` on `supervised` as well as `alive` (the "
+              "bug this fixture exists to catch — treating a not-yet-checked-in row as though it "
+              "were absent), `cap1` would read `dead`, spend no slot, and BOTH `cap2` AND `cap3` "
+              "would admit. The SEPARATE claim that `launch_seat` really writes this row at spawn, "
+              "in production, is proven by `record_spawn`/`record_checkin`'s own probe (this "
+              "fixture writes the registry directly and never calls `launch_seat`)",
               _c3_d5_code == 0
               and (("[dry-run] cap2" in _c3_d5) != ("[dry-run] cap3" in _c3_d5))
               and "CAP NOT CONSULTED" not in _c3_d5
