@@ -15,3 +15,5 @@
 2026-09-01 · creation · Registry records at spawn, not check-in (7.555/N2) · The actual "console-uncaged" chokepoint for a tmux-lane launch is not a bare human-run `claude` · 8a156a0a · coord · ⚠
 2026-09-01 · creation · N1: one-shot process sweep at the capacity gate · A registry row only exists once something writes one, so it can never answer "is there a live harness pane nobody declared at all." · 35d3fe9e · coord · ⚠
 2026-09-01 · creation · gtools config.yaml bridged to caged seats via env var · Same shape as the broker socket it sits beside, not a new mechanism: `admitted.accountCredentials` · 16ce9a7e · envelope · ⚠
+2026-09-02 · creation · dedicated probe for class-B hold suppression · `probe-hold-classb.js` is self-contained: it drives the real `classifyOwed` function directly against · 4f0d80335c574974d7ce953db45b80d68a9f65fd · — · ⚠
+2026-09-02 · creation · ready-seats reports which seats daemon skips launching · Deliberately ADDITIVE, never a verdict change: `dag-10 RS-4` (`coord_selftest.py`) rules on purpose · f6c5a80829bdd83c2cca5506e95a1a4ddc64b99b · coord · ⚠
