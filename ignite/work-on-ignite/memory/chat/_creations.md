@@ -11,3 +11,5 @@
 2026-09-01 · creation · recovery + close-or-keep asks fill the ruled template · Both composers produce the SAME contract shape — `{subject, body, options, more}` — that · 45fa2c44 · supervisor · ⚠
 2026-09-01 · change · owner-ask reserved shape, letter->arm mapping, R-A1 fallback · `ask-thread.js#openingLine`/`composeThreadOpener` render `<MARKER_ASK> NEEDS YOUR ANSWER — · 9488ebaa · state-store · ⚠
 2026-09-01 · change · owner-ask letters resolve from the persisted row · `release()` still accepts the `options` param, but it is no longer authoritative -- it is now a · 548f1663 · state-store · ⚠
+2026-09-02 · creation · end-to-end escalation replay probe (door to wake) · `ignite/chat/probes/probe-esc-replay.js`: drives the REAL modules (`createChatBridge`, · 9ea4244e562e4ffb3192fea69893627b6f2181fa · — · ⚠
+2026-09-02 · creation · digest open-ask rows get a real Slack link · `glance.js#checkSlot` now resolves and attaches `ask.link` BEFORE the digest renders, rather than · f96d14e6d5599f3cf370bfe8e94e05c009d884de · — · ⚠
