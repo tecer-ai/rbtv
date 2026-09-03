@@ -297,6 +297,9 @@ function writeGoalWord(db, fields) {
   if (fields.stored === 'finished' && fields.who_stamped !== 'system') {
     throw new EndingStoreError(E_WRITER_REFUSED, 'finished is system-stamped');
   }
+  if (fields.stored === 'closed' && fields.who_stamped !== 'owner') {
+    throw new EndingStoreError(E_WRITER_REFUSED, 'closed is owner-hand');
+  }
   if (fields.who_stamped !== 'owner' && fields.who_stamped !== 'system') {
     throw new EndingStoreError(E_BAD_ENDING, `unknown who_stamped: ${fields.who_stamped}`);
   }
@@ -320,11 +323,21 @@ function insertAsk(db, fields) {
     throw new EndingStoreError(E_BAD_ENDING, `unknown ask label: ${fields.label}`);
   }
   requireEvidence(fields.evidence_pointer);
+  // `kind`/`subject`/`options_json` (`d-owner-ask-shape`, `open_asks`' three additive columns,
+  // `state-store/open.js#migrateOpenAsksShape`) — OPTIONAL, default '' exactly like a pre-existing
+  // row after migration, so a caller that does not supply them (every caller today — see
+  // `ask-record.js#openAsk`'s own header) writes the same row it always did.
   db.prepare(
     `INSERT INTO open_asks (
-      ask_id, goal, seat, label, state, posted, posted_at, authorized_reply_at, evidence_pointer
-    ) VALUES (?,?,?,?, 'open', 0, NULL, NULL, ?)`,
-  ).run(fields.ask_id, fields.goal, fields.seat, fields.label, String(fields.evidence_pointer));
+      ask_id, goal, seat, label, state, posted, posted_at, authorized_reply_at, evidence_pointer,
+      kind, subject, options_json
+    ) VALUES (?,?,?,?, 'open', 0, NULL, NULL, ?, ?, ?, ?)`,
+  ).run(
+    fields.ask_id, fields.goal, fields.seat, fields.label, String(fields.evidence_pointer),
+    fields.kind ? String(fields.kind) : '',
+    fields.subject ? String(fields.subject) : '',
+    fields.options_json ? String(fields.options_json) : '',
+  );
   return getAsk(db, fields.ask_id);
 }
 
@@ -374,6 +387,52 @@ function reapAndRelaunch(db, { ask_id, authorized_reply_at }) {
       relaunch: { goal: row.goal, seat: row.seat, ask_id: row.ask_id },
     };
   });
+}
+
+// ── SUPERSEDE — close a row WITHOUT arming the seat's relaunch ─────────────────────────────────
+//
+// `reapAndRelaunch` always calls `armAskAnswered`: it is the door for an ANSWERED ask, and arming
+// the seat is the whole point of answering one. A row this daemon minted but nobody will ever
+// answer (never posted, or posted on a throwaway/superseded fixture goal) needs the opposite
+// door — closed for bookkeeping, with NO side effect on the seat it names, because that seat may
+// be a preserved fixture (`test-retry-proof`) that must stay inert, or may not even exist. Same
+// idempotency shape as `reapAndRelaunch`: a second call on an already-closed row is a no-op.
+function supersedeAsk(db, { ask_id, note, superseded_at }) {
+  const row = getAsk(db, ask_id);
+  if (!row) throw new EndingStoreError(E_ASK_NOT_FOUND, `no ask ${ask_id}`);
+  if (row.state === 'closed') return { ask: row, idempotent: true };
+  const at = superseded_at || nowIso();
+  // `subject` is the free column for this: `evidence_pointer`'s CHECK forbids clearing it (and its
+  // meaning — the on-disk ask copy — must survive for an auditor), and a closed row is never read
+  // by the digest or `listOpenAsks` (both select on `state`), so overwriting `subject` costs the
+  // owner nothing here.
+  db.prepare(
+    "UPDATE open_asks SET state = 'closed', subject = ? WHERE ask_id = ?",
+  ).run(`superseded: ${String(note || '')} (${at})`, ask_id);
+  return { ask: getAsk(db, ask_id), idempotent: false };
+}
+
+// ── SET ASK SHAPE — write kind/subject/options onto an ALREADY-OPEN row ────────────────────────
+//
+// `insertAsk` writes these three columns only at INSERT time (a brand-new row). A row minted
+// before `d-owner-ask-shape` existed — or one whose composer's `record-owner-ask` call dropped
+// them (the gap `ask-shape`'s own report names) — has no other door to gain them after the fact.
+// Never touches `state`/`posted`/`evidence_pointer`: this is the shape redesign's three columns
+// and nothing else on the row.
+function setAskShape(db, {
+  ask_id, kind, subject, options_json,
+}) {
+  const row = getAsk(db, ask_id);
+  if (!row) throw new EndingStoreError(E_ASK_NOT_FOUND, `no ask ${ask_id}`);
+  db.prepare(
+    'UPDATE open_asks SET kind = ?, subject = ?, options_json = ? WHERE ask_id = ?',
+  ).run(
+    kind == null ? row.kind : String(kind),
+    subject == null ? row.subject : String(subject),
+    options_json == null ? row.options_json : String(options_json),
+    ask_id,
+  );
+  return getAsk(db, ask_id);
 }
 
 function incrementRecoveryRelaunch(db, { goal, seat }) {
@@ -540,6 +599,8 @@ module.exports = {
   insertAsk,
   postAsk,
   reapAndRelaunch,
+  supersedeAsk,
+  setAskShape,
   incrementRecoveryRelaunch,
   setLeaderAttemptUsed,
   fireNamedEvent,

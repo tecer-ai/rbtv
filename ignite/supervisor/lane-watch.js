@@ -152,6 +152,22 @@ function laneIsPaused(goalFolder, heartStore) {
   return false;
 }
 
+// IS THE GOAL CLOSED (`d-goal-closed-word`, `redesign-continue-1`) — the owner's `close` reply to
+// the close-or-keep ask (`d-recovery-last-lane-asks`). Same shape as `laneIsPaused`'s row read,
+// minus the legacy-prefix migration: `closed` has no legacy surface, so ONE record answers it, the
+// goal-state row (`stored === 'closed'`). TERMINAL, unlike paused — there is no resume path.
+function laneIsClosed(goalFolder, heartStore) {
+  try {
+    const { bindEnding, goalNameOf } = require('./ending-reads');
+    const api = bindEnding(heartStore, goalFolder);
+    if (!api || typeof api.getGoalState !== 'function') return false;
+    const row = api.getGoalState(goalNameOf(goalFolder));
+    return Boolean(row && row.stored === 'closed');
+  } catch {
+    return false;
+  }
+}
+
 function legacyPausePrefix(goalFolder) {
   let raw;
   try { raw = fs.readFileSync(path.join(goalFolder, LANE_FILE), 'utf8'); } catch { return null; }
@@ -525,6 +541,15 @@ async function runLaneWatch({
     if (!goal.startsWith('_') && finishEvent(goalFolder)) {
       maybeReconcile({ goal, goalFolder, engine, say });
       skipped.push({ goal, reason: 'finished' });
+      continue;
+    }
+
+    // D1 watcher, `closed` sibling: honour the owner's close-or-keep `close` reply via the ONE
+    // reader (the goal-state row) — same shape as the `paused` continue above, TERMINAL rather
+    // than resumable.
+    if (!goal.startsWith('_') && laneIsClosed(goalFolder, engine && engine.heartStore)) {
+      maybeReconcile({ goal, goalFolder, engine, say });
+      skipped.push({ goal, reason: 'closed' });
       continue;
     }
 
@@ -907,7 +932,7 @@ async function runLaneWatch({
 }
 
 module.exports = {
-  LANE_FILE, DAEMON, CONSOLE, readLane, laneIsPaused, consoleRunIsLive, runLaneWatch, failedOn,
+  LANE_FILE, DAEMON, CONSOLE, readLane, laneIsPaused, laneIsClosed, consoleRunIsLive, runLaneWatch, failedOn,
   openGoalRoom,
   frozenFactsFor,
   ensureGoalChannelOnce, channelEnsured,

@@ -66,14 +66,48 @@ function displaySuffix(threadTs) {
   return String(threadTs == null ? '' : threadTs).replace(/\./g, '').slice(-6);
 }
 
-// §3: EXACTLY ONE lead line, then the ask body. The separator is a middle dot with single spaces —
-// the owner reads this on a phone and the three fields must stay one glance apart.
-function openingLine({ marker, threadTs, seatName, label }) {
-  return `${marker} ${displaySuffix(threadTs)} · ${seatName} · ${label}`;
+// §3 (`d-owner-ask-shape`): EXACTLY ONE reserved lead line, machine-readable to nobody. A NOTE
+// keeps its old id-bearing shape (💭 is not this redesign's problem — R-A3 names ❓ only); an ASK's
+// lead line is `❓ NEEDS YOUR ANSWER — <subject>`, the one line every ask kind shares whether or not
+// its composer has adopted the rest of the template yet (escalation/approval pass no `subject`, so
+// the fallback below fires) — the id MOVES OFF this line entirely, onto the LAST line of the body
+// (`ref <suffix>`, composed in `composeThreadOpener`), so a phone screen shows the QUESTION first.
+function openingLine({
+  marker, threadTs, seatName, label, subject = null,
+}) {
+  if (marker === MARKER_NOTE) {
+    return `${marker} ${displaySuffix(threadTs)} · ${seatName} · ${label}`;
+  }
+  const line = subject ? String(subject).trim() : `${seatName} needs your answer`;
+  return `${marker} NEEDS YOUR ANSWER — ${line}`;
 }
 
-function composeThreadOpener({ marker, threadTs, seatName, label, body }) {
-  return `${openingLine({ marker, threadTs, seatName, label })}\n\n${String(body || '').trim()}`;
+// The lettered options block (R-A5): `a) <text>`, the recommended one carrying its own reason.
+// Absent/empty `options` renders nothing — "no letter table" is today's behaviour, not an error.
+function optionsLines(options) {
+  if (!Array.isArray(options) || !options.length) return [];
+  return options.map((o) => {
+    const rec = o && o.recommended ? ` ← recommended: ${o.why || ''}` : '';
+    return `${o && o.letter}) ${o && o.text}${rec}`;
+  });
+}
+
+// §3 body (`d-owner-ask-shape` R-A4): reserved line, body, lettered options, a pointer, the id —
+// every line consecutive, no blank line separating them (the owner reads this on a phone). A NOTE
+// keeps the old two-part shape (line, blank, body) unchanged — this redesign never touched 💭.
+function composeThreadOpener({
+  marker, threadTs, seatName, label, body, subject = null, options = null, more = null,
+}) {
+  const line = openingLine({
+    marker, threadTs, seatName, label, subject,
+  });
+  if (marker === MARKER_NOTE) {
+    return `${line}\n\n${String(body || '').trim()}`;
+  }
+  const rows = [line, String(body || '').trim(), ...optionsLines(options)];
+  if (more) rows.push(`More: ${more}`);
+  rows.push(`ref ${displaySuffix(threadTs)}`);
+  return rows.join('\n');
 }
 
 // The owner's reply, kept where the RELAUNCHED SEAT can read it (§2.4.5). The daemon writes the ask
@@ -124,7 +158,9 @@ function createAskThreads({
 
   // The shared body of `postAsk` and `postNote`: open a NEW thread, learn the id it minted, stamp
   // the §3 line onto it. Returns the id or the reason there is none.
-  async function openThread({ marker, channelId, goalId, seatName, label, body }) {
+  async function openThread({
+    marker, channelId, goalId, seatName, label, body, subject = null, options = null, more = null,
+  }) {
     const { top, reply } = splitPostedBody(body);
     const posted = await outbox.post({
       kind: marker === MARKER_ASK ? 'ask' : 'notification',
@@ -141,8 +177,12 @@ function createAskThreads({
       return { posted: false, reason: (posted && posted.error) || 'not-acked' };
     }
     const threadTs = String(posted.ts);
-    const line = openingLine({ marker, threadTs, seatName, label });
-    const full = composeThreadOpener({ marker, threadTs, seatName, label, body: top });
+    const line = openingLine({
+      marker, threadTs, seatName, label, subject,
+    });
+    const full = composeThreadOpener({
+      marker, threadTs, seatName, label, body: top, subject, options, more,
+    });
     try {
       await updateMessage({ channel: channelId, ts: threadTs, text: full });
     } catch (err) {
@@ -174,7 +214,16 @@ function createAskThreads({
   }
 
   // POST AN ASK — the ❓ door. Mints the record; this is the only function that does.
-  async function postAsk({ goalId, channelId, seatName, label = 'work-content', body, kind = 'ordinary' }) {
+  async function postAsk({
+    goalId, channelId, seatName, label = 'work-content', body, kind = 'ordinary',
+    // `d-owner-ask-shape` (R-A4/R-A5/§5.2b): the composer's subject sentence, its lettered options
+    // table, and its "More:" pointer. All three are OPTIONAL — a caller that passes none of them
+    // (escalation, ordinary, approval: "not reshaped in this cluster") still posts correctly, with
+    // `openingLine`'s own fallback subject and no letter lines. Never renamed: the orchestrator's
+    // interface contract fixes these three field names across the three sibling seats building this
+    // design in parallel.
+    subject = null, options = null, more = null,
+  }) {
     if (!LABELS.includes(label)) {
       log('warn', 'ask REFUSED — label is not one of the two [D-7-ruling]', { goalId, seat: seatName, label });
       return { posted: false, reason: 'bad-label' };
@@ -196,14 +245,25 @@ function createAskThreads({
     //   `kind: 'recovery'` — spec-recovery §5's system-decided case: an exhausted LANE the daemon
     //     itself is reporting (`recovery-poster.js`), never a seat's own traffic, so the same
     //     seat-courtesy question does not apply. Unrelated to the `label` value of the same name.
-    if (kind !== 'escalation' && kind !== 'recovery' && !seatIsInteractive(goalId, seatName)) {
+    //   `kind: 'goal-disposition'` — the close-or-keep ask `supervisor/last-lane-ask.js` mints,
+    //     `d-recovery-last-lane-asks`'s own system-decided case: the daemon reporting a goal whose
+    //     last owed lane was dropped, never a seat's own traffic — the exact same reasoning
+    //     `kind: 'recovery'` states immediately above, for a different exit.
+    if (kind !== 'escalation' && kind !== 'recovery' && kind !== 'goal-disposition' && !seatIsInteractive(goalId, seatName)) {
       log('warn', 'owner-ask REFUSED — this seat is not designated to reach the owner [T2-R14]', { goalId, seat: seatName });
       return { posted: false, reason: 'seat-not-interact' };
     }
-    const opened = await openThread({ marker: MARKER_ASK, channelId, goalId, seatName, label, body });
+    const opened = await openThread({
+      marker: MARKER_ASK, channelId, goalId, seatName, label, body, subject, options, more,
+    });
     if (!opened.posted) return opened;
+    // ⚠ `kind`/`subject`/`options` are FORWARDED here for `state-store/heart/ask-record.js#openAsk`
+    // to persist — but the crossing in between (`ignite/chat/ask-store.js`'s gateway sender, and
+    // `runtime/internal-api/dispatch.js#handleRecordOwnerAsk`'s strict payload allowlist) is OUTSIDE
+    // this module's custody and today drops all three silently (a destructured JS param nothing
+    // reads). Reported, not patched around: see this seat's report for the two-file gap.
     const recorded = await askRecord.openAsk({
-      goalId, seat: seatName, chatThreadId: opened.threadTs, text: body, label,
+      goalId, seat: seatName, chatThreadId: opened.threadTs, text: body, label, kind, subject, options,
     });
     log('info', 'owner ask posted in a NEW thread', {
       goalId, seat: seatName, askId: opened.threadTs, label, kind, recorded: recorded.recorded === true,
@@ -218,6 +278,47 @@ function createAskThreads({
     if (!opened.posted) return opened;
     log('info', 'owner note posted in a new thread — NO ask record minted [§2.1]', { goalId, seat: seatName, threadTs: opened.threadTs });
     return { posted: true, threadTs: opened.threadTs, openingLine: opened.openingLine, text: opened.text, recorded: null };
+  }
+
+  // `ask-options-from-row`: THE LETTER TABLE, READ FROM ITS DURABLE ROW, NEVER FROM MEMORY ALONE.
+  //
+  // Root cause this closes: `release()` used to take its letter->arm table ONLY from the caller's
+  // `options` param — `chat-bridge.js`'s in-process `askThreads` Map entry, filled ONLY at
+  // `postAsk` time. The SAME table is already persisted per-row as `open_asks.options_json`
+  // (`ask-fields-carry`, written by `state-store/heart/ask-record.js#openAsk`) and already surfaced
+  // by that module's `listOpenAsks` (extended here to carry `options` too, at zero extra cost —
+  // it already fetches the full row for `kind`/`subject`). Any ask whose in-process entry never
+  // got an `options` value — a bridge restart, or a row minted/updated out-of-band the way
+  // `asks-repost` did — nacked a bare letter forever even though its durable table was right there.
+  //
+  // The durable row is AUTHORITATIVE the moment it can be read at all: a row found with no table
+  // (`options: null`) NACKS exactly as "no table" always has — it is never overridden by a stale
+  // memory value once the real answer is known. The `options` PARAM is now a PURE CACHE, spent
+  // ONLY when `askRecord.listOpenAsks` is not wired to answer at all (not yet a function) or the
+  // row cannot be found — so today's in-process posting path keeps working unchanged the moment a
+  // caller injects an `askRecord` without `listOpenAsks`, while the durable path is what a restart
+  // or an out-of-band repost now actually reaches.
+  async function resolveOptionsTable(askId, cachedOptions) {
+    if (askRecord && typeof askRecord.listOpenAsks === 'function') {
+      try {
+        const rows = await askRecord.listOpenAsks();
+        const row = Array.isArray(rows) ? rows.find((r) => r && String(r.id) === String(askId)) : null;
+        if (row) return Array.isArray(row.options) ? row.options : [];
+      } catch (err) {
+        log('warn', 'letter table NOT read from the persisted row — listOpenAsks threw, falling back to the in-process cache', { askId, error: err.message });
+      }
+    }
+    return Array.isArray(cachedOptions) ? cachedOptions : [];
+  }
+
+  // R-A5's own NACK: "a wrong letter is nacked with THAT ask's real letters" — never the generic
+  // ask/recovery/disposition NACK, which names a vocabulary that may not even be this ask's own.
+  function nackForLetters(options) {
+    if (!Array.isArray(options) || !options.length) {
+      return "couldn't parse that reply as a letter — this ask has no lettered options. Reply with the word this thread's question named. Reply again.";
+    }
+    const list = options.map((o) => `${o.letter}) ${o.text}`).join(' · ');
+    return `couldn't match that letter to this ask. Reply with one of: ${list}. Reply again.`;
   }
 
   async function nack({ channelId, goalId, askId, text }) {
@@ -263,6 +364,12 @@ function createAskThreads({
     // against ITS OWN closed vocabulary [D-2-ruling] and never against the approval/lettered one —
     // a parameter on this door, not a second one [`d-ask14-recovery-thread-shape`].
     kind = null,
+    // `d-owner-ask-shape` R-A5, root-caused and demoted by `ask-options-from-row`: THIS ask's own
+    // letter→arm table. No longer the authoritative source — see `resolveOptionsTable` above —
+    // this is now read ONLY as a fallback cache when the durable row cannot be reached
+    // (`inv-reply-grammar`'s own warning against a global letter budget is still why any table here
+    // is per-ask, never a shared one).
+    options = null,
   } = {}) {
     // 1a. THE EXACT THREAD. Not "a thread on this seat", not "the newest", not "the oldest".
     if (askId == null || threadTs == null || String(threadTs) !== String(askId)) {
@@ -280,7 +387,45 @@ function createAskThreads({
     }
     // 3. PARSE. One grammar for approval and ordinary threads (`reply-grammar.js`, §4); `kind`
     // narrows it to the recovery ladder for a recovery thread — see the `kind` param above.
-    const parsed = parseReply(text, { channelGoal, liveGoals, kind });
+    let parsed = parseReply(text, { channelGoal, liveGoals, kind });
+
+    // ── R-A5: THE LETTER, RESOLVED AGAINST THIS ASK'S OWN TABLE, NEVER INSIDE THE PARSER ────────
+    //
+    // SCOPED TO `recovery`/`goal-disposition` ONLY — the two kinds this design actually attaches an
+    // options table to (§5.2c; escalation/ordinary/approval are "not reshaped in this cluster",
+    // `owner-ask-redesign.md` §5.5's own closing note). An ordinary/approval thread's bare letter is
+    // UNCHANGED: `kind: null` already parses it (`family: 'lettered'`) and its own dispatch decides
+    // what a letter with no assigned meaning does — an approval thread under `reject-and-pause`
+    // [T3-R22] explicitly reports "not one of my three exit keys" for exactly this shape
+    // (`approval-thread.js`), which a blanket NACK here would have silently pre-empted. `reply-
+    // grammar.js` is UNCHANGED either way [`d-owner-ask-shape`, one parser]: a recovery/goal-
+    // disposition thread's kind gate returns before it ever tries a letter (`parseReply`'s own
+    // `kind === 'recovery'`/`'goal-disposition'` branches, closed to their three/two words only), so
+    // a letter is probed here, with the gate LIFTED (`kind: null`), never taught to the grammar.
+    if (kind === 'recovery' || kind === 'goal-disposition') {
+      let letterHit = (parsed.ok && parsed.family === 'lettered') ? parsed : null;
+      if (!letterHit && !parsed.ok) {
+        const probe = parseReply(text, { channelGoal, liveGoals, kind: null });
+        if (probe.ok && probe.family === 'lettered') letterHit = probe;
+      }
+      // A resolved letter is RE-ENTERED through the SAME `parseReply(arm + comment, {kind})` path
+      // the typed verb takes — the mapping sits upstream of the parser, and everything downstream
+      // of this point (mechanical check, reap, dispatch) sees the identical shape a typed verb
+      // would have produced. An UNRESOLVED letter — no table on this ask, or a letter outside it —
+      // NACKS with THIS ask's own real letters, rather than reaping on an outcome that recovery/
+      // disposition dispatch (`chat-bridge.js#releaseAskFor`'s `entry.kind` branches) has no `case`
+      // for at all (root cause, `inv-reply-grammar`) — unlike approval's dispatch, which does.
+      if (letterHit) {
+        const table = await resolveOptionsTable(askId, options);
+        const opt = table.find((o) => o && String(o.letter).toLowerCase() === letterHit.outcome);
+        const armText = opt && opt.arm
+          ? `${opt.arm}${letterHit.comments ? ` ${letterHit.comments}` : ''}`
+          : null;
+        const resolved = armText ? parseReply(armText, { channelGoal, liveGoals, kind }) : null;
+        parsed = (resolved && resolved.ok) ? resolved : { ok: false, nack: nackForLetters(table), nackKind: 'lettered' };
+      }
+    }
+
     if (!parsed.ok) {
       const posted = await nack({ channelId, goalId, askId, text: parsed.nack });
       log('info', 'unrecognized first token — NACK posted in-thread, the ask stays OPEN [§2.4.3]', {

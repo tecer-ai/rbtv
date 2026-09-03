@@ -1,1 +1,3 @@
 2026-08-31 · creation · gtools-account credential shape + token broker · Two failure moments, designed separately (full record: `1-projects/build-ignite/build/ · 14fe57d0 · planning · ⚠
+2026-09-01 · creation · wire the credential broker into the live launch path · The broker is PER-GOAL, not per-seat, but `spawn.js` has no existing "goal ended" hook — its · e233584b · supervisor,chat,planning · ⚠
+2026-09-01 · creation · gtools-broker-bridge: broker socket + venv-python minter fix · Two structurally separate fixes, same chain. (1) `composeCageFor` had no existing mechanism to · 8d353105 · supervisor · ⚠

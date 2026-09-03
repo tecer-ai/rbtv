@@ -772,6 +772,51 @@ say('── class A: same seat, same word, DIFFERENT `ended` → the count still
   }
 }
 
+// `recovery-story` seat, `redesign-continue-1` DoD 2: RED-FIRST proof of the ordering
+// `inv-refusal-source`'s open question 1 left unconfirmed — a seat that stamped its OWN ending
+// (`who_stamped: 'seat'`, via `stampSeatDeclare`, exactly what a real `incomplete` checkout does)
+// BEFORE exhaustion fires must have that diagnostic land on the ask's lane, never the deleted
+// `${reason} retried N times…` fallback `countRetry` used to synthesize. `boundRows`/`stampEndings`
+// already stamps `diagnostic: 'context full'` + `evidence_pointer: 'selftest:<seat>'` for exactly
+// this case — reused here, not re-derived.
+say("── DoD 2 red-first: the exhaustion ask quotes the seat's OWN diagnostic, never the deleted fallback ──");
+{
+  const {
+    readAskRecord, askIdFor, signatureOf,
+  } = require('./exhaustion');
+  const store = openStore();
+  const fx = counterFixture('last-words');
+  const ending = bind(store.db);
+  const N = fx.recovery.attempt_counter_n;
+  try {
+    const goalFolder = fixtureBound();
+    for (let i = 0; i < N; i += 1) {
+      boundRows(goalFolder, [['worker-a', 'incomplete']], store, 'fx-lastwords');
+      reconcileGoal({
+        goal: 'fx-lastwords', goalFolder, engine: { heartStore: store, endingStore: ending },
+        say: () => {}, force: true, readyAnswer: readyEmpty,
+        live: new Set(), promptFn: () => 'BOOT', recoverFn: () => ({ ok: true }),
+        ...fx,
+      });
+    }
+    const signature = signatureOf({ driver: counters.DRIVERS.RECONCILE_CLASS_A, reasonClass: 'incomplete' });
+    const record = readAskRecord(fx.workspaceRoot, askIdFor(signature));
+    assert.ok(record, `no ask record minted for signature ${signature}`);
+    const lane = (record.lanes || []).find((l) => l.goal === 'fx-lastwords' && l.seat === 'worker-a');
+    assert.ok(lane, `no lane for fx-lastwords/worker-a: ${JSON.stringify(record)}`);
+    assert.strictEqual(lane.last_words, 'context full',
+      `the ask must carry the SEAT'S OWN diagnostic (stamped BEFORE this pass's exhaustion re-stamp), not a synthesized fallback: ${JSON.stringify(lane)}`);
+    assert.strictEqual(lane.evidence_pointer, 'selftest:worker-a',
+      "the seat's own transcript pointer must ride to the lane too");
+    assert.ok(!/retried \d+ times with the same refusal class/.test(String(lane.last_words)),
+      'the deleted `${reason} retried N times…` fallback must never appear again');
+    say(`ok  getCurrentEnding still returns the seat's own row at countRetry time — the ask quotes "${lane.last_words}", never the fallback`);
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
+}
+
 say('── RED arm: put the volatile field back INTO the counter key ──');
 {
   // The pre-D40 defect, aimed at the counter instead of the signature: the reason class carries
@@ -897,6 +942,18 @@ say('── paused goal is not reconciled ──');
     say('ok  paused console → skipped:paused, queue empty, skip log fired');
 
     fs.writeFileSync(path.join(goalFolder, 'execution-lane'), 'daemon\n');
+    // `execution-lane` carries the LANE word only (daemon/console) — it stopped being a pause
+    // surface once the goal-state row became the ONE pause record (pause-resume.js). The row above
+    // migrated the legacy `paused ` file-prefix into a permanent `stored:'paused'` row, so clearing
+    // the file alone never unpauses; the real resume path flips the row (mirrors applyResume's ROW
+    // 4 in `state-store/heart/pause-resume.js`).
+    {
+      const { bindEnding, goalNameOf } = require('./ending-reads');
+      bindEnding(store, goalFolder).writeGoalWord({
+        goal: goalNameOf(goalFolder), stored: 'running', who_stamped: 'owner',
+        evidence_pointer: 'selftest:control-unpause',
+      });
+    }
     const unpaused = reconcileGoal({
       goal: 'fx-pause', goalFolder, engine: { heartStore: store },
       say: () => {}, force: true, readyAnswer: readyEmpty,
@@ -985,14 +1042,22 @@ say('── cadence skip ──');
 say('── red arm: mutation of the disarm brake ──');
 {
   const src = fs.readFileSync(path.join(__dirname, 'reconcile.js'), 'utf8');
-  const ANCHOR = '  const row = counters.peekCounter(';
+  // `counters.peekCounter(` appears TWICE in this file — once in `announceDisarm` (inert for this
+  // arm) and once in `counterDisarmed`, the actual brake. Anchor on `counterDisarmed`'s own unique
+  // `if (!config) return false;` guard line so the mutation lands in the right function; a bare
+  // `counters.peekCounter(` anchor silently mutates the wrong (first) occurrence via the non-global
+  // `.replace()` below and the "mutant" keeps braking, proving nothing (found 2026-09-01).
+  const ANCHOR = '  if (!config) return false;\n  const row = counters.peekCounter(';
   assert.ok(src.includes(ANCHOR), 'the disarm brake anchor is missing');
+  assert.strictEqual(src.split(ANCHOR).length - 1, 1,
+    'the disarm brake anchor is no longer unique — the mutation would land ambiguously');
   const Module = require('node:module');
   const mut = new Module(path.join(__dirname, 'reconcile.js'), null);
   mut.filename = path.join(__dirname, 'reconcile.js');
   mut.paths = Module._nodeModulePaths(__dirname);
   // MUTANT: the brake never reports a disarmed lane, so the mechanical relaunch runs forever -
-  // which is the exact live defect the counter replaced.
+  // which is the exact live defect the counter replaced. Flips `!config` to `config`: since every
+  // real caller passes a truthy config, `counterDisarmed` now returns false unconditionally.
   mut._compile(src.replace(ANCHOR, '  if (config) return false;\n  const row = counters.peekCounter('), mut.filename);
   const store = openStore();
   const fx = counterFixture('red-brake');
@@ -1112,12 +1177,21 @@ say('── D24: a full pass enqueues the leader and never the summoned chair �
 
 say('── D24: an unreadable coord degrades to the OLD behaviour, not a silent hole ──');
 {
-  const src = fs.readFileSync(path.join(__dirname, 'reconcile.js'), 'utf8');
+  // `summonedSeats` (and the `COORD_PY` it actually reads) live in `seeding.js` — `reconcile.js`
+  // only re-exports the import and carries an UNRELATED same-named `COORD_PY` of its own (a
+  // `--coord` subprocess arg, unrelated to this function). Mutating `reconcile.js`'s copy left the
+  // real function's coord.py path untouched, so `summonedSeats` kept reading the live file and
+  // returned `["goal-master"]` instead of the empty degrade set (found 2026-09-01) — mutate the
+  // FILE the function is actually defined in.
+  const seedingPath = path.join(__dirname, 'seeding.js');
+  const src = fs.readFileSync(seedingPath, 'utf8');
   const ANCHOR = "const COORD_PY = path.join(__dirname, '..', 'coord', 'coord.py');";
   assert.ok(src.includes(ANCHOR), 'COORD_PY anchor missing');
+  assert.strictEqual(src.split(ANCHOR).length - 1, 1,
+    'the COORD_PY anchor is no longer unique — the mutation would land ambiguously');
   const Module = require('node:module');
-  const mut = new Module(path.join(__dirname, 'reconcile.js'), null);
-  mut.filename = path.join(__dirname, 'reconcile.js');
+  const mut = new Module(seedingPath, null);
+  mut.filename = seedingPath;
   mut.paths = Module._nodeModulePaths(__dirname);
   mut._compile(src.replace(ANCHOR, "const COORD_PY = '/nonexistent/coord.py';"), mut.filename);
   const warns = [];
@@ -1125,7 +1199,9 @@ say('── D24: an unreadable coord degrades to the OLD behaviour, not a silent
   assert.strictEqual(set.size, 0, JSON.stringify([...set]));
   assert.ok(warns.some((w) => w.startsWith('warn:')), JSON.stringify(warns));
   const goalFolder = fixtureSummoned();
-  const d = mut.exports.owedFromLedgers(goalFolder, {
+  // The real (unmutated) `owedFromLedgers` — imported at the top of this file from `./reconcile` —
+  // takes `summoned` as an injected Set and never touches COORD_PY itself, so it needs no mutant.
+  const d = owedFromLedgers(goalFolder, {
     readyAnswer: readyEmpty, live: new Set(), queued: new Set(), summoned: set,
     endings: endingsMap([['goal-master', 'incomplete'], ['leader', 'incomplete']]),
   });
@@ -1916,11 +1992,19 @@ say('── RED arm: stop honouring the hold (the pre-2026-08-28 classifier) ─
   const Module = require('node:module');
   const owedFile = require.resolve('./owed-from-endings');
   const src = fs.readFileSync(owedFile, 'utf8');
-  // The class-A loop's exclusion, anchored with the two lines that follow it so the identical line
-  // in the class-E loop above cannot be the one that gets mutated.
-  const ANCHOR = "    if (holdMap.has(seat)) continue;\n    const ended = (sessionRow.ended || '').trim();";
+  // The class-A loop's exclusion, anchored with the summonedSet/abandonedMap checks that sandwich
+  // it so the identical `holdMap.has(seat)` line in the class-E loop above cannot be the one that
+  // gets mutated. The old anchor paired it with the `ended` computation that immediately followed
+  // it — since stale: `dl-reconcile-honour` (2026-08-31) inserted the `abandonedMap` check between
+  // them, and a later fix turned `ended` into a ternary, so the two-line anchor no longer matched
+  // anything and this arm never ran (found 2026-09-01).
+  const ANCHOR = '    if (summonedSet.has(seat)) continue;\n    if (holdMap.has(seat)) continue;\n'
+    + '    if (abandonedMap.has(seat)) continue;';
   assert.ok(src.includes(ANCHOR), 'the hold exclusion is missing - the red arm has no anchor');
-  const mutated = src.replace(ANCHOR, "    const ended = (sessionRow.ended || '').trim();");
+  assert.strictEqual(src.split(ANCHOR).length - 1, 1,
+    'the hold exclusion anchor is no longer unique - the mutation would land ambiguously');
+  const mutated = src.replace(ANCHOR,
+    '    if (summonedSet.has(seat)) continue;\n    if (abandonedMap.has(seat)) continue;');
   assert.notStrictEqual(mutated, src);
 
   const owedSaved = require.cache[owedFile];
@@ -1971,9 +2055,18 @@ say('── RED arm: stop honouring the hold in class B (the 2026-08-30 bypass) 
   const Module = require('node:module');
   const owedFile = require.resolve('./owed-from-endings');
   const src = fs.readFileSync(owedFile, 'utf8');
-  const ANCHOR = "    if (holdMap.has(chair)) continue;\n    if (liveSet.has(chair) || queuedSet.has(chair)) continue;";
+  // `dl-reconcile-honour` (2026-08-31) inserted `abandonedMap.has(chair)` between the hold check
+  // and the live/queued check — the two-line anchor stopped matching and this arm never ran
+  // (found 2026-09-01; the identical anchor drift was already fixed once in
+  // `supervisor/probes/probe-hold-classb.js` by probe-suite-green on 2026-09-01 — same class, this
+  // file's own copy was missed).
+  const ANCHOR = '    if (holdMap.has(chair)) continue;\n    if (abandonedMap.has(chair)) continue;\n'
+    + '    if (liveSet.has(chair) || queuedSet.has(chair)) continue;';
   assert.ok(src.includes(ANCHOR), 'the class-B hold exclusion is missing - the red arm has no anchor');
-  const mutated = src.replace(ANCHOR, "    if (liveSet.has(chair) || queuedSet.has(chair)) continue;");
+  assert.strictEqual(src.split(ANCHOR).length - 1, 1,
+    'the class-B hold exclusion anchor is no longer unique - the mutation would land ambiguously');
+  const mutated = src.replace(ANCHOR,
+    '    if (abandonedMap.has(chair)) continue;\n    if (liveSet.has(chair) || queuedSet.has(chair)) continue;');
   assert.notStrictEqual(mutated, src);
 
   const owedSaved = require.cache[owedFile];

@@ -12,6 +12,8 @@ const OPS = new Set([
   'insertAsk',
   'postAsk',
   'reapAndRelaunch',
+  'supersedeAsk',
+  'setAskShape',
   'incrementRecoveryRelaunch',
   'setLeaderAttemptUsed',
   'fireNamedEvent',

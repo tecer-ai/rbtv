@@ -15,10 +15,12 @@ const { promisify } = require('node:util');
 const execFileAsync = promisify(execFile);
 const { admitLaunch } = require('../launch');
 const { compile } = require('../compiler');
-const { startBroker, socketPath } = require('../credential-broker');
+const { socketPath } = require('../credential-broker');
 const { parseSeatPath } = require('../../runtime/seat-identity/seat-folder');
 const { buildBwrapArgv } = require('../../supervisor/spawn/bwrap');
-const { composeCageFor } = require('../../supervisor/spawn/spawn');
+const {
+  composeCageFor, ensureGoalBroker, stopGoalBroker,
+} = require('../../supervisor/spawn/spawn');
 
 const FIXTURE_TMP = '/var/tmp';
 const outPath = path.join(__dirname, 'probe-credential-broker.out');
@@ -168,13 +170,17 @@ async function main() {
   );
 
   const FIXTURE_TOKEN = 'fixture-short-lived-token-not-a-real-secret';
-  const broker = await startBroker({
-    goalDir: fx.goalDir,
-    accounts: admitted.accountCredentials || [],
-    minter: async (account) => (account === 'fixture-acct'
+  // Registered through the SAME shared registry `composeCageFor` reads below (`ensureGoalBroker`,
+  // `d-hold5-wire-the-broker`'s spawn.js wiring) — never a bare `startBroker` call the registry
+  // cannot see: `composeCageFor`'s own launch sequence starts a broker for any admitted
+  // `gtools-account` goal, and a second, uncoordinated `startBroker` for the SAME goalDir would
+  // race it for the socket and lose (measured while landing that wiring). Passing a fixture
+  // minter here still proves the broker's own protocol in isolation from the real minter
+  // pipeline — `probe-credential-broker-lifecycle.js` covers the real pipeline end to end.
+  await ensureGoalBroker(fx.goalDir, fx.workspace, admitted.accountCredentials || [], async (account) => (
+    account === 'fixture-acct'
       ? { ok: true, accessToken: FIXTURE_TOKEN, expiresAt: '2099-01-01T00:00:00Z' }
-      : { ok: false, reason: 'fixture minter knows only fixture-acct' }),
-  });
+      : { ok: false, reason: 'fixture minter knows only fixture-acct' }));
 
   let composed;
   let composeErr;
@@ -234,7 +240,7 @@ async function main() {
     JSON.stringify(compileResult),
   );
 
-  await broker.stop();
+  await stopGoalBroker(fx.goalDir);
   try { fs.rmSync(fx.root, { recursive: true, force: true }); } catch { /* best effort */ }
   const failed = checks.filter((p) => !p).length;
   out(failed === 0 ? 'ALL LEGS PASS' : `FAILED ${failed}/${checks.length}`);

@@ -1175,6 +1175,28 @@ def launch_seat(w, args, target, prompt=None, pane=None, resume=None, strict_liv
         if not pane:
             return "", err
     coord.set_pane_title(pane, w["agent"])
+    # ── SUPERVISOR REGISTRY — write moment (i), THE CONSOLE-LANE CHOKEPOINT [d-ask10-build-the-
+    # replacement] ─────────────────────────────────────────────────────────────────────────────
+    #
+    # `doors.js`'s `console-uncaged` row calls this "nobody witnesses this birth" and marks the row
+    # only at check-in — true for a human typing `claude` in a bare terminal, false for THIS launch:
+    # `cmd_launch`'s console lane opens the pane itself, right above, and the pane's own pid is
+    # resolvable the instant it exists. Registering here — before `coord.wake` sends the harness
+    # command, before `wait_harness_up` confirms it, before the `sessions.csv` row a few lines below
+    # — closes the WINDOW `7.555`/G-2335 named: a live, not-yet-checked-in seat going uncounted by
+    # the capacity gate because nothing durable knew it existed. `supervision` starts `unsupervised`
+    # (this door is not one of `doors.js`'s WRAPPED six) and `record_checkin`
+    # (`checkout.py#cmd_checkin`) flips it once the seat announces itself — the state field the
+    # registry needed, not a second sensor: `kill(pid,0)` already answers `alive` for either flag.
+    # Loud and never fatal, the same posture `spawn.js`'s own write-moment-(i) call takes: a
+    # bookkeeping throw here must not cost a live pane.
+    try:
+        coord.supervisor_door.record_spawn(coord.package_dir(args), w["agent"],
+                                           coord.tmux_pane_pid(pane))
+    except Exception as _reg_exc:                                          # noqa: BLE001 — deliberate
+        print(coord.c(f"WARNING {w['agent']}: supervisor registry write FAILED — this sitting "
+                f"cannot be re-adopted after a restart and the capacity gate will not see it until "
+                f"check-in — {type(_reg_exc).__name__}: {_reg_exc}", coord.C_DEAD), file=sys.stderr)
     # 7.31: TRANSCRIPT CAPTURE IS ARMED HERE — in the step that composes the pane command, at pane
     # BIRTH, before the harness is woken — and never at close: tmux scrollback dies with the tmux
     # server, so a close-time capture returns nothing exactly when the substrate-level backup
@@ -2601,7 +2623,9 @@ def cmd_launch(args):
         _cap_err = f"registry probe raised {_cap_exc.__class__.__name__}: {_cap_exc}"
     else:
         _cap_seats = []
+        _cap_declared_names = set()
         for _w in discover_workers(coord.workers_dir(args, register=False)):
+            _cap_declared_names.add(_w["agent"])
             _cap_row_alive = (_cap_live.get(_w["agent"]) or {}).get("alive")
             _cap_seats.append({
                 "seat": _w["agent"],
@@ -2610,12 +2634,67 @@ def cmd_launch(args):
                 "agent_type_source": "descriptor",
                 "harness": _w["harness"],
                 # `alive is True` ONLY — `False` (registry says gone) and `None` (no row: never
-                # launched, or console-uncaged and not yet checked in) both read as not-live here.
-                # This is deliberately conservative in the direction that matches "never launched"
-                # being the overwhelming common case among DECLARED seats: `discover_workers`
+                # launched) both read as not-live here. `d-ask10-build-the-replacement`:
+                # `launch_seat` now writes the registry row AT SPAWN (write moment i), before the
+                # harness wakes and before check-in, so a console-lane seat this run just opened
+                # reads `True` here within the wall-clock gap between `record_spawn` returning and
+                # this probe running — not `None` for the whole pre-check-in window `7.555`/G-2335
+                # named. This is deliberately conservative in the direction that matches "never
+                # launched" being the overwhelming common case among DECLARED seats: `discover_workers`
                 # returns every seat.md in the plan, most of which are not running right now.
                 "liveness": "live" if _cap_row_alive is True else "dead",
                 "cwd": _w["cwd"],
+            })
+        # ---- N2 (7.278): CROSS-GOAL DISCLOSURE, fed through the SAME `no-seat` rule 3 `census()` ---
+        # already runs — never a second predicate. `d-ask10-build-the-replacement`: the old sensor
+        # found a cross-goal pane by walking a PANE's raw cwd against every goal's `seats/`; the
+        # registry needs no such walk, because every row is written keyed by `(goal, seat)` already
+        # [T4-R7]. So the question becomes direct — is one of THIS goal's own declared seat NAMES
+        # also alive under a DIFFERENT goal right now (the collision the old sensor discovered by
+        # accident) — and `coord.liveness.all_liveness()` (never `goal_liveness`, which is scoped to
+        # THIS goal and would never see the other row at all) answers it. Each match is fed as a
+        # `no-seat` row whose `cwd` names the OTHER goal's seat folder, so `resolve_descriptor`
+        # resolves it to that goal's real `seat.md` and `census()`'s existing rule 3 files it
+        # `cross_goal` — the same bucket the D5 correction below already knows to split by path
+        # prefix into in-run vs out, with ZERO new arithmetic.
+        for _fr in coord.liveness.all_liveness():
+            if (_fr.get("alive") is True and _fr.get("goal") and _fr["goal"] != _cap_pkg.name
+                    and _fr.get("seat") in _cap_declared_names):
+                _cap_seats.append({
+                    "seat": None,
+                    "pane": None,
+                    "agent_type": "unclassified",
+                    "agent_type_source": "no-seat",
+                    # The registry's own schema carries no harness field [T4-R7] (`makeRecord`:
+                    # goal/seat/pid/start_time/launch_token/supervision/last_progress_at, nothing
+                    # else) — a placeholder inside `budget.py#AGENT_HARNESSES` is what rule 3 needs
+                    # to classify the row as an agent pane at all; WHICH member is immaterial, since
+                    # `census()` never reports the harness name back out for a cross_goal row.
+                    "harness": "claude",
+                    "liveness": "live",
+                    "cwd": str(_cap_pkg.parent / _fr["goal"] / "seats" / _fr["seat"]),
+                })
+        # ---- N1 (7.278): the ONE-SHOT PROCESS SWEEP — a pane nobody wrote a registry row for ---
+        # `d-n1-oneshot-sweep`: the registry is keyed by `(goal, seat)` from the moment a row is
+        # WRITTEN [T4-R7] — a process nothing ever launched through a named door has no row to
+        # find, by construction, no matter how the registry is queried (`registry-spawn-record`'s
+        # own memory entry names this as the permanent, structural half of the gap). Closing it
+        # needs a SECOND observation source, and the only one two owner rulings leave standing
+        # (T4-R8's team-monitor deletion; `d-ask9-keep-the-three-protections`) is a sweep taken AT
+        # THIS DECISION and thrown away — never a schedule, never a file, never a daemon. So this
+        # reads `ps` and `tmux` through `process.unaccounted_panes` exactly ONCE, right here, and
+        # every byte it read is gone the moment this function returns — see that function's own
+        # docstring for why the pre-filter there (not a raw dump into `_cap_seats`) is what keeps a
+        # declared seat's own pane from being counted twice.
+        for _cap_rogue in process.unaccounted_panes(exclude_pane=coord.detect_pane()):
+            _cap_seats.append({
+                "seat": None,
+                "pane": _cap_rogue["pane"],
+                "agent_type": "unclassified",
+                "agent_type_source": "no-seat",
+                "harness": _cap_rogue["harness"],
+                "liveness": "live",
+                "cwd": _cap_rogue["cwd"],
             })
         try:
             _cap_c = coord.budget_mod.census(_cap_b or {},

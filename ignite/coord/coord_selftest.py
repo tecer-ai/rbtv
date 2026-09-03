@@ -10568,10 +10568,14 @@ def _selftest_checks(args, failures, names):
                 + (f"agent_type: {_c3_t}\n" if _c3_t else "")
                 + "---\nbrief\n", encoding="utf-8")
         # An OUTSIDE-the-run seat folder, for N2's `cross_goal` half. It is deliberately NOT under
-        # the fixture package, so D5's path predicate must NOT match it.
-        _c3_out = Path(td) / "c3-other-goal" / "seats" / "elsewhere"
+        # the fixture package. `d-ask10-build-the-replacement`: the registry-fed N2 (`launch.py`'s
+        # `_cap_declared_names` scan over `coord.liveness.all_liveness()`) matches by SEAT NAME
+        # COLLISION across goals, never by raw path, so this folder is named `cap3` — one of THIS
+        # package's own declared seats — deliberately, not `elsewhere`: a foreign name that does
+        # NOT collide would never reach the predicate at all.
+        _c3_out = Path(td) / "c3-other-goal" / "seats" / "cap3"
         _c3_out.mkdir(parents=True)
-        (_c3_out / "seat.md").write_text("---\nagent: elsewhere\n---\nbrief\n", encoding="utf-8")
+        (_c3_out / "seat.md").write_text("---\nagent: cap3\n---\nbrief\n", encoding="utf-8")
 
         # ---- `d-capacity-registry-liveness` (2026-08-31): the FIXTURE'S OWN registry -------------
         #
@@ -10584,20 +10588,35 @@ def _selftest_checks(args, failures, names):
         _c3reg = _c3l / "registry.jsonl"
         _c3reg.write_text("", encoding="utf-8")
 
-        def _c3_registry(alive=(), broken=False):
-            """`alive`: seat names to mark alive in the fixture registry (all others read as
-            not-live — this IS the fixture's census, there is no snapshot to go stale). `broken`:
-            point `SUPERVISOR_REGISTRY` at a DIRECTORY instead of a file, so `registry.js`'s
-            `fs.readFileSync` throws EISDIR (uncaught — only ENOENT is special-cased) and the probe
-            process exits non-zero — the fixture's ONLY way to reproduce "the registry probe itself
-            failed" (D1 under the new model), as distinct from "the registry answered zero seats"."""
+        def _c3_registry(alive=(), unsupervised=(), foreign=(), dead=(), broken=False):
+            """`alive`: seat names to mark alive+SUPERVISED in the fixture registry (all others
+            read as not-live — this IS the fixture's census, there is no snapshot to go stale).
+            `unsupervised`: seat names to mark alive but UNSUPERVISED — `d-ask10-build-the-
+            replacement`'s "spawned, not yet checked in" shape (`launch.py#launch_seat`'s own
+            write-moment-(i) row, before `checkout.py#cmd_checkin` flips it). `foreign`:
+            `(goal, seat)` pairs written ALIVE under a DIFFERENT goal, for N2's cross-goal name
+            collision — invisible to `goal_liveness` (scoped to `_c3l.name`), found only by
+            `all_liveness()`. `dead`: seat names written PRESENT but with a pid no real process on
+            this box holds (`isAliveProcess`'s own `kill(pid,0)` reads it dead regardless of
+            `supervision`) — a stale row a crash left behind. `broken`: point `SUPERVISOR_REGISTRY`
+            at a DIRECTORY instead of a file, so `registry.js`'s `fs.readFileSync` throws EISDIR
+            (uncaught — only ENOENT is special-cased) and the probe process exits non-zero — the
+            fixture's ONLY way to reproduce "the registry probe itself failed" (D1 under the new
+            model), as distinct from "the registry answered zero seats"."""
             if broken:
                 _c3reg_dir = _c3l / "registry-is-a-dir"
                 _c3reg_dir.mkdir(exist_ok=True)
                 return str(_c3reg_dir)
-            rows = [{"goal": _c3l.name, "seat": s, "pid": os.getpid(), "start_time": "",
-                     "supervision": "supervised", "launch_token": "",
-                     "last_progress_at": "2026-08-31T00:00:00Z"} for s in alive]
+            def _c3_row(goal, seat, pid, supervision):
+                return {"goal": goal, "seat": seat, "pid": pid, "start_time": "",
+                        "supervision": supervision, "launch_token": "",
+                        "last_progress_at": "2026-08-31T00:00:00Z"}
+            rows = [_c3_row(_c3l.name, s, os.getpid(), "supervised") for s in alive]
+            rows += [_c3_row(_c3l.name, s, os.getpid(), "unsupervised") for s in unsupervised]
+            rows += [_c3_row(g, s, os.getpid(), "supervised") for g, s in foreign]
+            # 99999999 exceeds any real Linux pid_max, so `kill(pid, 0)` always raises ESRCH —
+            # deterministically "dead" with no process to spawn and reap.
+            rows += [_c3_row(_c3l.name, s, 99999999, "unsupervised") for s in dead]
             _c3reg.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
             return str(_c3reg)
 
@@ -10847,110 +10866,170 @@ def _selftest_checks(args, failures, names):
               in _c3_d4
               and "census verdict UNKNOWN" not in _c3_d4
               and "census reports stale=true" not in _c3_d4)
-        _c3_registry()   # reset — the untouched 7.555/N1/N2 block below must see a CLEAN registry,
-                          # not `capg` left alive, or their own `complete=false`/count assertions
-                          # would be contaminated by this row's leftover fixture state
-        _c3_state(seats=[{"seat": None, "agent_type": None, "agent_type_source": "no-seat",
-                          "harness": "claude", "liveness": "live",
-                          "cwd": str(_c3l / "seats" / "cap1")}])
-        _c3_d5, _c3_d5_code = _c3_run(only="cap1,cap2,cap3")
-        check("7.555 D5 IS A CORRECTION, NOT A DEGRADE — THE TERM STILL ON THE **ROW**, NEVER ON "
-              "THE CLASS: a `cross_goal` pane whose own `descriptor` resolves INSIDE this run's "
-              "`seats/` is one of OUR seats, harness live and not yet checked in, so it is COUNTED "
-              "and `headroom` is reduced by it — the cap BINDS on the full-capacity branch instead "
-              "of the whole room dropping to CAP NOT CONSULTED. ⚠ THE PRE-7.555 BEHAVIOUR IS THE "
-              "RED ARM AND IT IS ASSERTED AS ABSENT: this same fixture DEGRADED, and `cap3` — "
-              "which the healthy control defers — was ADMITTED, so reverting the subtraction at "
-              "the `headroom` site makes this row RED on `cap3` alone. `census()` cannot make this "
-              "split at its own home (two mappings, never the run root); the already-emitted path "
-              "field is what separates a legitimate other-goal pane from a same-run one, and N2 "
-              "below is the other edge proving the term did not widen to the CLASS",
-              _c3_d5_code == 0
-              and "[dry-run] cap1" in _c3_d5
-              and "[dry-run] cap2" not in _c3_d5 and "[dry-run] cap3" not in _c3_d5
-              and "CAP NOT CONSULTED" not in _c3_d5
-              and "cross_goal row(s) resolve inside this run's own seats/" not in _c3_d5
-              and "cross_goal pane(s) resolve INSIDE this run's own seats/" in _c3_d5
-              # ⚠ N2 IS ASSERTED ABSENT HERE, and it is the only thing pinning N2's COUNT SOURCE.
-              # Before 7.555 N2 read `len(_cap_cross)` — EVERY cross_goal row — and was suppressed
-              # whenever an in-run row existed; it now reads `_cap_cross_out` alone. The N2 row
-              # below cannot detect a revert to the old source, because its fixture has no in-run
-              # row and the two lists are IDENTICAL there. This fixture is the other half: it has
-              # ONLY an in-run row, so the old source would print N2 with k=1 and this goes RED.
-              and "cross_goal pane(s) resolve OUTSIDE this run" not in _c3_d5
-              and "headroom is reduced by 1" in _c3_d5
-              and len(_c3_defer_lines(_c3_d5)) == 2)
-        # ---- 7.555's DISCRIMINATING TWIN: the TRANSIENT regime is PRESERVED, not fixed away -----
+        _c3_registry()   # reset — the block below must see a CLEAN registry, not `capg` left
+                          # alive, or its own count assertions would be contaminated by leftovers
+        # ============ `d-ask10-build-the-replacement` (2026-09-01): 7.555/N2 REIMPLEMENTED =========
         #
-        # The SAME pane in the SAME seat folder, differing in ONE thing: it has CHECKED IN, so the
-        # sensor resolved a seat name and `agent_type_source` reads `descriptor` rather than
-        # `no-seat`. That pane never enters `budget.py`'s rule 3 at all — it is `counted`, inside
-        # `in_use`, and the correction above is a NO-OP on it (`_cap_in_run_n` is 0). This row is
-        # here because the failure mode of 7.555 is OVER-correcting: a term that turned a transient
-        # unchecked-in state into a permanent refusal would still pass the row above and would
-        # break every ordinary launch. Task 7.552's certified review MEASURED this transient
-        # (D5 clears at check-in plus one sensor cadence, and the act reaches the full-capacity
-        # branch); this row is that measurement, pinned in the suite instead of in an evidence file.
-        _c3_state(seats=[{"seat": "cap1", "agent_type": "worker",
-                          "agent_type_source": "descriptor", "harness": "claude",
-                          "liveness": "live", "cwd": str(_c3l / "seats" / "cap1")}])
-        _c3_ci, _c3_ci_code = _c3_run(only="cap1,cap2,cap3")
-        check("7.555 THE TRANSIENT REGIME IS PRESERVED: a seat that HAS checked in classifies "
-              "`counted` off its own descriptor, sits INSIDE `in_use`, and the act reaches the "
-              "FULL-CAPACITY branch on the census's own headroom — the correction above never "
-              "fires for it and NO in-run note is printed. Same seat folder and same live harness "
-              "as the row above; the only difference is `agent_type_source`, which is exactly what "
-              "a check-in changes. ⚠ WITHOUT THIS ROW 7.555 WOULD BE SATISFIED BY A TERM THAT "
-              "COUNTED EVERY PANE RESOLVING INSIDE `seats/` TWICE — once as a census row and again "
-              "as a launch candidate — which reads as a working cap on the fixture above and "
-              "halves the room's real capacity on every ordinary launch",
+        # `coord-capacity` (task 101, commit a6b946cc) migrated the census onto the registry and
+        # LEFT these red — their `_c3_state(...)` fixtures wrote a pane the new code never reads,
+        # because the mechanism they protected (a pane resolving to a seat only once IT checks in)
+        # cannot occur once identity is known at spawn. Per the owner ruling, the replacement is
+        # built rather than the loss accepted: `launch.py#launch_seat` and
+        # `checkout.py#cmd_checkin` now write the registry at spawn and check-in respectively
+        # (`supervisor_door.record_spawn` / `record_checkin`), so a console-lane seat's `(goal,
+        # seat)` identity is NEVER ambiguous the way a raw pane's cwd was. The two rewritten rows
+        # below prove the CONSEQUENCE: 7.555/D5's old CORRECTION (subtract an uncounted cross_goal
+        # row from headroom) is no longer needed, because an alive-but-unsupervised registry row is
+        # already `counted` through the ORDINARY path, the same as any other alive seat — closing
+        # G-2335 more directly than the mechanism it replaces. N2's old raw-cwd walk becomes a
+        # direct `(goal, seat)` comparison, because a registry row already carries both.
+        _c3_registry(unsupervised=["cap1"])
+        _c3_d5, _c3_d5_code = _c3_run(only="cap2,cap3")
+        check("7.555 D5, REIMPLEMENTED AGAINST THE REGISTRY: `cap1` is ALIVE in the registry but "
+              "UNSUPERVISED — `launch_seat`'s own write-moment-(i) shape for a console-lane launch "
+              "that has not checked in yet (G-2335's exact shape: a live, pre-check-in seat). It "
+              "occupies one of the run's two cap slots through the ORDINARY `counted` path — no "
+              "correction, no cross_goal detour — so of the two FRESH candidates `cap2`/`cap3` "
+              "only ONE proceeds. ⚠ THE RED ARM THIS ROW ITSELF DISCRIMINATES: were the "
+              "declared-seat synthesis to gate `liveness` on `supervised` as well as `alive` (the "
+              "bug this fixture exists to catch — treating a not-yet-checked-in row as though it "
+              "were absent), `cap1` would read `dead`, spend no slot, and BOTH `cap2` AND `cap3` "
+              "would admit. The SEPARATE claim that `launch_seat` really writes this row at spawn, "
+              "in production, is proven by `record_spawn`/`record_checkin`'s own probe (this "
+              "fixture writes the registry directly and never calls `launch_seat`)",
+              _c3_d5_code == 0
+              and (("[dry-run] cap2" in _c3_d5) != ("[dry-run] cap3" in _c3_d5))
+              and "CAP NOT CONSULTED" not in _c3_d5
+              and "cross_goal pane(s) resolve INSIDE this run's own seats/" not in _c3_d5
+              and len(_c3_defer_lines(_c3_d5)) == 1)
+        # ---- 7.555's DISCRIMINATING TWIN: supervision is ORTHOGONAL to counting, not a second gate
+        #
+        # The identical fixture, differing in ONE thing: `cap1` is now SUPERVISED (checked in).
+        # Counting was never keyed on the flag — only on `alive` — so the admission pattern must be
+        # BYTE-IDENTICAL to the row above. This is what a term that (wrongly) counted an
+        # unsupervised row MORE conservatively than a supervised one, or vice versa, would fail:
+        # the two fixtures would then admit a different candidate, or a different count of them.
+        _c3_registry(alive=["cap1"])
+        _c3_ci, _c3_ci_code = _c3_run(only="cap2,cap3")
+        check("7.555 THE TRANSIENT REGIME'S OTHER HALF: a CHECKED-IN `cap1` (`supervision: "
+              "supervised`) counts IDENTICALLY to the pre-check-in row above — same one-of-two "
+              "admission, same deferral count — because `d-ask10`'s replacement makes pre- and "
+              "post-check-in read the SAME way rather than re-deriving a correction that must fire "
+              "on one and not the other",
               _c3_ci_code == 0
-              and "[dry-run] cap1" in _c3_ci
-              and "[dry-run] cap3" not in _c3_ci
+              and (("[dry-run] cap2" in _c3_ci) != ("[dry-run] cap3" in _c3_ci))
               and "CAP NOT CONSULTED" not in _c3_ci
-              and "resolve INSIDE this run's own seats/" not in _c3_ci
-              # TWO deferrals, not one: the checked-in pane is INSIDE `in_use`, so headroom is 1
-              # and `cap2` waits beside `cap3`. That is the cap binding on a seat that really is
-              # occupying the room — the correct reading, and the arithmetic differs from the row
-              # above (which reduces the SAME cap by an uncounted row) precisely because the two
-              # arrive at it through different terms.
-              and len(_c3_defer_lines(_c3_ci)) == 2)
-        _c3_state(seats=[{"seat": None, "agent_type": None, "agent_type_source": "no-seat",
-                          "harness": "claude", "liveness": "dead",
-                          "cwd": str(_c3l / "seats" / "cap1")}])
+              and len(_c3_defer_lines(_c3_ci)) == 1)
+        # ---- THE OTHER HALF, KEPT: a PRESENT but DEAD row spends nothing, supervision notwithstanding
+        _c3_registry(dead=["cap1"])
         _c3_dead, _c3_dead_code = _c3_run(only="cap1,cap2,cap3")
-        check("7.555 THE OTHER HALF OF THE GAP, KEPT: a DEAD harness in the same seat folder "
-              "spends NOTHING. `census()` files it `free` at its own `if not live` before rule 3 "
-              "is ever reached, so it is not an in-run row, the correction does not fire, and the "
-              "cap binds on the unreduced headroom (`cap1`/`cap2` proceed, `cap3` waits). This is "
-              "the asymmetry that made the gap invisible for so long — a dead pane always cleared "
-              "itself and only a LIVE, SILENT one pinned the room — and a correction keyed on the "
-              "seat folder rather than on liveness would charge the room for a corpse",
+        check("7.555 A STALE ROW (present, unsupervised, but `kill(pid,0)` fails — a crash nobody "
+              "reaped) does NOT block its own seat's fresh launch: `cap1` admits as a NEW "
+              "candidate exactly like the empty-registry control, `cap2` beside it, and `cap3` "
+              "takes the ordinary headroom-exhausted deferral. `isAliveProcess`'s pid check is what "
+              "decides `alive`, never the mere presence of a row",
               _c3_dead_code == 0
               and "[dry-run] cap1" in _c3_dead and "[dry-run] cap2" in _c3_dead
               and "[dry-run] cap3" not in _c3_dead
-              and "resolve INSIDE this run's own seats/" not in _c3_dead
               and len(_c3_defer_lines(_c3_dead)) == 1)
-        _c3_state(seats=[{"seat": None, "agent_type": None, "agent_type_source": "no-seat",
-                          "harness": "claude", "liveness": "live", "cwd": str(_c3_out)}])
+        # ---- N2, REIMPLEMENTED: a NAME COLLISION across goals, found by identity, never by path ---
+        _c3_registry(foreign=[("c3-other-goal", "cap3")])
         _c3_n2, _c3_n2_code = _c3_run(only="cap1,cap2,cap3")
-        check("7.278 N2 (the OTHER edge of D5, and it is a DISCLOSURE, not a degrade): a "
-              "`cross_goal` pane resolving OUTSIDE this run is ruled not to count against this "
-              "run's cap — so it is SAID and the cap limb still BINDS (`cap3` stays deferred). "
-              "Without this row D5 would be satisfied by a predicate that degraded on every "
-              "`cross_goal` row, which is the class-level answer D5 exists to avoid",
-              _c3_n2_code == 0 and "[dry-run] cap3" not in _c3_n2
+        check("7.278 N2, REIMPLEMENTED AGAINST THE REGISTRY: a live seat sharing THIS run's seat "
+              "NAME `cap3` but registered under a DIFFERENT goal (`c3-other-goal`) is DISCLOSED, "
+              "never counted — `cap1`/`cap2` still admit on the ordinary two-slot cap and `cap3` "
+              "(THIS run's own, unlaunched) takes the ordinary headroom-exhausted deferral, not a "
+              "correction. `d-ask10`: the old cwd-walk collision is now a direct `(goal, seat)` "
+              "comparison (`all_liveness()` crossed with this run's own declared seat names), "
+              "because a registry row is keyed by identity from the moment it is written, never by "
+              "filesystem path. ⚠ THE RED ARM: were the foreign row mis-routed into the D5 "
+              "in-run correction instead of N2's disclosure, headroom would drop by 1 and `cap2` "
+              "would ALSO defer — this row goes red on `cap2` alone",
+              _c3_n2_code == 0
+              and "[dry-run] cap1" in _c3_n2 and "[dry-run] cap2" in _c3_n2
+              and "[dry-run] cap3" not in _c3_n2
               and "cross_goal pane(s) resolve OUTSIDE this run" in _c3_n2
-              and "CAP NOT CONSULTED" not in _c3_n2)
-        _c3_state(seats=[{"seat": None, "agent_type": None, "agent_type_source": "no-seat",
-                          "harness": "claude", "liveness": "live", "cwd": str(Path(td))}])
-        _c3_n1, _c3_n1_code = _c3_run(only="cap1,cap2")
-        check("7.278 N1 (a reading worth SAYING that is not worth DEGRADING on): an unaccounted "
-              "pane sits INSIDE `in_use`, so it makes the cap reading CONSERVATIVE — it "
-              "under-admits and never over-admits. It is reported and the cap still binds; "
-              "degrading on it would be degrading because the reading was SAFE",
-              _c3_n1_code == 0 and "unaccounted pane(s) are INSIDE in_use" in _c3_n1
-              and "CAP NOT CONSULTED" not in _c3_n1)
+              and "cross_goal pane(s) resolve INSIDE this run's own seats/" not in _c3_n2
+              and "CAP NOT CONSULTED" not in _c3_n2
+              and len(_c3_defer_lines(_c3_n2)) == 1)
+        _c3_registry()   # reset — N1 below is untouched and needs the same clean slate its
+                          # original fixture assumed
+        # ============ N1, REIMPLEMENTED: THE ONE-SHOT PROCESS SWEEP ================================
+        #
+        # `d-ask10-build-the-replacement` barred rewriting 7.555/N1/N2 to assert their own absence,
+        # and N1's premise genuinely did not survive the registry: a row cannot represent an
+        # identity nobody ever wrote BY CONSTRUCTION — `record_spawn`/`superviseSpawn` require a
+        # `(goal, seat)` pair to write one at all [T4-R7], so a process nothing ever launched
+        # through a named door has no row to find, supervised or not. THIS WAS THE QUOTED INLINE
+        # NOTE THIS BLOCK SUPERSEDES: "left AS IS below, still driven by the retired `_c3_state(...)`
+        # fixture, still RED... What would close it, if ever wanted: a process-tree sweep AT THE
+        # GATE... That is new scope, ungranted here, and named as a loose end rather than built."
+        # `d-n1-oneshot-sweep` grants exactly that scope: `process.unaccounted_panes` (`launch.py`'s
+        # capacity block, right before `census()` is called) takes ONE `ps` snapshot and ONE round
+        # of `tmux` queries, classifies, and returns — nothing it reads outlives the function call,
+        # so it is not the standing sensor two rulings bar (T4-R8's team-monitor deletion;
+        # `d-ask9-keep-the-three-protections`). The fixture below therefore no longer drives
+        # `_c3_state` (that snapshot path is retired along with team-monitor) — it stubs the sweep's
+        # own two real sources instead, exactly like every other process-truth check in this suite
+        # (see the G-11 checkin block's `process.pane_harness_pids` stub, above).
+        global pane_cwd   # a name this function never touched before N1 — `live_panes`/
+                          # `tmux_pane_pid` are already `global`-declared earlier in this function
+        _c3_n1_real = (live_panes, tmux_pane_pid, pane_cwd, process.ps_snapshot)
+        _c3_n1_rogue_pid = 424242
+        _c3_n1_caller_pid = 555555
+        def _c3_n1_stub(rogue=True, caller=False):
+            live = (set(["%rogue"]) if rogue else set()) | (set(["%caller"]) if caller else set())
+            pids = {"%rogue": _c3_n1_rogue_pid, "%caller": _c3_n1_caller_pid}
+            cwds = {"%rogue": "/tmp/nowhere-a-seat-ever-declared",
+                    "%caller": "/tmp/also-nowhere-a-seat-declared"}
+            argvs = [(pids["%rogue"], 1, "claude --dangerously-skip-permissions")]
+            if caller:
+                argvs.append((pids["%caller"], 1, "codex exec"))
+            globals()["live_panes"] = lambda: set(live)
+            globals()["tmux_pane_pid"] = lambda pane: pids.get(pane, 0)
+            globals()["pane_cwd"] = lambda pane: cwds.get(pane, "")
+            process.ps_snapshot = lambda: list(argvs)
+        # `detect_pane` is stubbed suite-wide (line ~684) to read `calling_pane["v"]`, never real
+        # tmux or `$TMUX_PANE` — this suite never touches real tmux at all. So the calling pane
+        # this block simulates is set THERE, not in the environment.
+        _c3_n1_prior_calling_pane = calling_pane["v"]
+        def _c3_n1_set_caller_pane(name):
+            calling_pane["v"] = name or ""
+        try:
+            # ---- THE POSITIVE: a rogue pane no door ever opened lands INSIDE in_use -------------
+            _c3_n1_stub(rogue=True)
+            _c3_n1_set_caller_pane(None)
+            _c3_n1, _c3_n1_code = _c3_run(only="cap1,cap2")
+            check("7.278 N1, REIMPLEMENTED AGAINST THE ONE-SHOT SWEEP: a live harness pane with NO "
+                  "registry row and NO seat.md anywhere is found fresh, AT THE GATE, by "
+                  "`process.unaccounted_panes` and lands INSIDE `in_use`, making the cap reading "
+                  "CONSERVATIVE — it under-admits and never over-admits. Reported, the cap still "
+                  "binds; degrading on it would be degrading because the reading was SAFE",
+                  _c3_n1_code == 0 and "unaccounted pane(s) are INSIDE in_use" in _c3_n1
+                  and "CAP NOT CONSULTED" not in _c3_n1)
+            # ---- THE CONTROL: zero rogue panes sweeps zero extra — the act of looking counts nothing
+            _c3_n1_stub(rogue=False)
+            _c3_n1_clean, _c3_n1_clean_code = _c3_run(only="cap1,cap2")
+            check("7.278 N1's CONTROL: with NO rogue pane live, the sweep reports NOTHING extra — "
+                  "cap1/cap2 admit on the ordinary two-slot cap with no unaccounted note at all. "
+                  "Proves the sweep does not manufacture a phantom pane out of its own act of "
+                  "looking (a `ps`/`tmux` scan matching ITS OWN invocation is exactly this failure)",
+                  _c3_n1_clean_code == 0 and "[dry-run] cap1" in _c3_n1_clean
+                  and "[dry-run] cap2" in _c3_n1_clean
+                  and "unaccounted pane(s)" not in _c3_n1_clean)
+            # ---- THE SELF-MATCH TRAP: the CALLING pane is a live "harness" too, and must be excluded
+            _c3_n1_stub(rogue=True, caller=True)
+            _c3_n1_set_caller_pane("%caller")
+            _c3_n1_self, _c3_n1_self_code = _c3_run(only="cap1,cap2")
+            check("7.278 N1's SELF-MATCH TRAP: the pane asking the capacity question "
+                  "(`coord.detect_pane()`'s own answer, a live harness by this test's own "
+                  "construction) is excluded from the sweep — only the genuinely OTHER rogue pane "
+                  "is counted. Without the exclusion this row would report 2 unaccounted panes, "
+                  "sweeping in the very session that asked",
+                  _c3_n1_self_code == 0 and "1 unaccounted pane(s)" in _c3_n1_self)
+        finally:
+            calling_pane["v"] = _c3_n1_prior_calling_pane
+            live_panes, tmux_pane_pid, pane_cwd, process.ps_snapshot = _c3_n1_real
         _c3_registry()
         _c3_budget(cap=None)
         _c3_d2, _c3_d2_code = _c3_run(only="cap1,cap2,cap3")

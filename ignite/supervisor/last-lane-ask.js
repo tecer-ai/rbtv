@@ -28,9 +28,11 @@
 // reaches "last lane abandoned" at most once, and a stable id means a later pass that finds the
 // record already on disk mints nothing twice — the same read-before-write `recordGroupedAsk` uses.
 
+const fs = require('node:fs');
+const path = require('node:path');
 const crypto = require('node:crypto');
 const {
-  askRecordPath, readAskRecord, writeAskRecord,
+  askRecordPath, readAskRecord, writeAskRecord, asksDir,
 } = require('./exhaustion');
 
 const DISPOSITION_OPTIONS = Object.freeze(['close', 'keep']);
@@ -48,22 +50,13 @@ function lastLaneAbandoned(derived) {
   return Array.isArray(derived.abandonedSeats) && derived.abandonedSeats.length > 0;
 }
 
-function composeBody({ goal, abandonedSeats }) {
-  const names = abandonedSeats.map((a) => a.seat).join(', ');
-  return [
-    `*GOAL*: ${goal}`,
-    `Every lane still owed work on this goal was dropped (drop-lane): ${names}.`,
-    '',
-    'Reply with one word: close · keep',
-    'close — mark this goal closed, and NOT as a success.',
-    'keep — leave this goal open. Nothing more is owed and nothing launches on its own.',
-    'Comments after the first word.',
-  ].join('\n');
-}
-
 // Mints the disk record + the `open_asks` row, idempotent per goal. Never posts to Slack — see
 // the header. `store` is the ending store bound API (`state-store#bind`'s return, the same handle
-// `announceDisarm` passes to `recordGroupedAsk`).
+// `announceDisarm` passes to `recordGroupedAsk`). The body text is NOT composed here — mirroring
+// `exhaustion.js#recordGroupedAsk`'s own split (a lane record carries raw fields, `chat/
+// recovery-poster.js` composes at POST time), `chat/disposition-poster.js#composeDispositionBody`
+// composes fresh from these raw fields, so there is exactly one place that decides what the owner
+// reads, not a mint-time string frozen ahead of the ruled template [`redesign-continue-1`, DoD 4].
 function mintLastLaneAsk({
   store, workspaceRoot, goal, abandonedSeats, at,
 } = {}) {
@@ -85,9 +78,13 @@ function mintLastLaneAsk({
     label: DISPOSITION_LABEL,
     goal,
     options: [...DISPOSITION_OPTIONS],
-    abandoned_seats: abandonedSeats.map((a) => a.seat),
+    // The full rows, not just names — `abandoned_by` is what the composer's recommendation rule
+    // reads (DoD 4: recommend `keep` unless every lane was dropped BY THE OWNER) and `anchor` is
+    // the closest thing to "how it ended" this data has.
+    abandoned_seats: abandonedSeats.map((a) => ({
+      seat: a.seat, anchor: a.anchor || null, abandoned_by: a.abandoned_by || null, abandoned_at: a.abandoned_at || null,
+    })),
     opened_at: stamp,
-    body: composeBody({ goal, abandonedSeats }),
   };
   const file = writeAskRecord(workspaceRoot, record);
   let row = store && typeof store.getAsk === 'function' ? store.getAsk(askId) : null;
@@ -105,11 +102,69 @@ function mintLastLaneAsk({
   };
 }
 
+// -- THE POSTING SIDE — read-side for `chat/disposition-poster.js`, write-side for the gateway's
+// `record-owner-ask` handler. Neither touches minting: they read/stamp the SAME record
+// `mintLastLaneAsk` already wrote, exactly the split `exhaustion.js#listUnpostedLanes` /
+// `#markLanePosted` draw for the recovery ladder's own grouped ask — this is the disposition
+// record's own shape (one row per GOAL, no `.lanes` array, body already fully composed at mint
+// time), so it needs its own pair rather than a call into `exhaustion.js`'s lane-shaped readers.
+
+// Every disposition record not yet posted as its own Slack thread. `chat/disposition-poster.js`'s
+// only read (through `inspect disposition-asks`, never this file directly — the bridge is a
+// separate process). Once posted, `markDispositionPosted` stamps `posted_ask_id` and this stops
+// returning it.
+function listUnpostedDispositions(workspaceRoot) {
+  if (!workspaceRoot) return [];
+  let entries;
+  try {
+    entries = fs.readdirSync(asksDir(workspaceRoot), { withFileTypes: true });
+  } catch {
+    return [];             // no directory is the ordinary state: no goal has reached this yet
+  }
+  const out = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+    const file = path.join(asksDir(workspaceRoot), entry.name);
+    let record;
+    try {
+      record = JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch {
+      continue;             // an unreadable record costs its own row, never the listing
+    }
+    if (!record || record.kind !== DISPOSITION_KIND || !record.goal || record.posted_ask_id) continue;
+    out.push({
+      record_ask_id: record.ask_id,
+      goal: record.goal,
+      abandoned_seats: Array.isArray(record.abandoned_seats) ? record.abandoned_seats : [],
+      opened_at: record.opened_at || null,
+    });
+  }
+  return out;
+}
+
+// Stamps the goal's disposition record POSTED, in place, once its thread exists. Called server-side
+// (daemon process, which already holds this file) right after a `record-owner-ask` open for
+// `label: 'recovery'` succeeds — never from `chat/`, which may not reach this file directly
+// [`probes/probe-chat-boundary.js`]. Idempotent by construction: a record that already carries
+// `posted_ask_id` is left alone, so a retried call after a crash costs nothing.
+function markDispositionPosted(workspaceRoot, { goal }, { askId, at } = {}) {
+  if (!askId) throw new Error('markDispositionPosted requires askId — the thread this ask was posted to');
+  const record = readAskRecord(workspaceRoot, askIdForGoal(goal));
+  if (!record || record.kind !== DISPOSITION_KIND || record.posted_ask_id) {
+    return { marked: false, reason: 'not-found-or-already-posted' };
+  }
+  record.posted_ask_id = String(askId);
+  record.posted_at = at || new Date().toISOString();
+  const file = writeAskRecord(workspaceRoot, record);
+  return { marked: true, ask_id: record.ask_id, file };
+}
+
 module.exports = {
   askIdForGoal,
   lastLaneAbandoned,
-  composeBody,
   mintLastLaneAsk,
+  listUnpostedDispositions,
+  markDispositionPosted,
   DISPOSITION_OPTIONS,
   DISPOSITION_LABEL,
   DISPOSITION_KIND,

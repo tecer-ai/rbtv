@@ -901,6 +901,14 @@ function createBusFerry({
   // cursor passes them, so the set is bounded by the head-of-line stall it exists for.
   const jumped = new Set();
 
+  // `<goalId>` -> number of `credential-broker.log` lines already scanned (`d-broker-midrun-alert`,
+  // design §10b). Deliberately NOT persisted, exactly like `sizes`/`bornWatched` above: a restart
+  // re-scans a goal's WHOLE log and re-fires an alarm for a failure it fired on before a restart —
+  // an occasional duplicate alarm about a real, still-relevant fact costs far less than a silent
+  // credential failure, and the durable half (the goal's own audit-file record) never depends on
+  // this counter at all.
+  const credLogLinesSeen = new Map();
+
   let dmChannel = null;
   let enabled = false;
   let timer = null;
@@ -1023,6 +1031,50 @@ function createBusFerry({
     } catch (err) {
       log('error', 'bus ferry could not raise the unreachable-channel alarm on the system channel', { key, msgId, goalId, seat, error: err.message });
       return false;
+    }
+  }
+
+  // ── THE CREDENTIAL BROKER'S MID-RUN FAILURE ALARM (`d-broker-midrun-alert`, design §10b) ──────
+  //
+  // `envelope/credential-broker.js#appendLog` already writes an explicit, durable, goal-scoped
+  // audit line for EVERY mint attempt (`ok: true|false`) — that is the design's "never silently
+  // swallowed" half, and it stands on its own regardless of this function (§10b's own words: "the
+  // per-goal audit-file record stays as the durable half"). What was missing is the SECOND half:
+  // a failed mint reaching a human. This scans the SAME log the broker already writes and raises
+  // the SAME system-channel alarm `postUnreachableChannelAlarm` above already raises for the
+  // OTHER daemon-level fault this ferry knows about — reusing `postOwner`'s `kind: 'alarm'`
+  // vocabulary rather than inventing a second alarm shape, per the ruling's own instruction.
+  //
+  // ⚑ FIRES AT MOST ONCE PER LOG LINE, same shape as the cursor/size pattern the message ferry
+  // above already uses: `credLogLinesSeen` tracks how many lines of THIS goal's log this process
+  // has already scanned, so a later pass never re-alarms on an attempt it already reported.
+  async function scanCredentialBrokerLog(goalId) {
+    const file = path.join(workspaceRoot, '.rbtv', 'goals', goalId, 'scratch', 'credential-broker.log');
+    let text;
+    try { text = fs.readFileSync(file, 'utf8'); } catch { return; } // no broker ever ran for this goal — the common case
+    const lines = text.split('\n').filter(Boolean);
+    const seen = credLogLinesSeen.get(goalId) || 0;
+    if (lines.length <= seen) return;
+    const fresh = lines.slice(seen);
+    credLogLinesSeen.set(goalId, lines.length);
+    for (const line of fresh) {
+      let row;
+      try { row = JSON.parse(line); } catch { continue; } // a torn/partial append; the next pass re-reads a complete line
+      if (row.op !== 'mint' || row.ok !== false) continue; // a successful mint raises no alarm — only a failure does
+      if (!systemChannelId) {
+        log('warn', 'bus ferry could not raise the credential-broker mid-run alarm — no system channel wired', { goalId, account: row.account, reason: row.reason });
+        continue;
+      }
+      try {
+        await postOwner({
+          kind: 'alarm',
+          channel: systemChannelId, threadTs: null,
+          text: `:rotating_light: goal *${goalId}* had a credential mint FAIL mid-run for account *${row.account}*: ${row.reason || 'no reason given'}. The durable record is in that goal's own scratch/credential-broker.log.`,
+          goal_id: goalId,
+        });
+      } catch (err) {
+        log('error', 'bus ferry could not raise the credential-broker mid-run alarm on the system channel', { goalId, account: row.account, error: err.message });
+      }
     }
   }
 
@@ -1477,6 +1529,14 @@ function createBusFerry({
           // it, whatever is delivered after.
           if (stuckAt === null) stuckAt = row.id;
         }
+      }
+      // A separate pass over the SAME `buses` enumeration, deliberately not interleaved with the
+      // messages.md loop above: that loop's early `continue`s (no log yet, unchanged size) are
+      // messages.md-specific control flow, and folding this in would make it skip goals that have
+      // no bus traffic but DO have a live credential broker — a scratch/credential-broker.log
+      // with no coordination/messages.md activity yet is an ordinary state, not an edge case.
+      for (const { goalId } of buses) {
+        await scanCredentialBrokerLog(goalId);
       }
     } finally {
       ticking = false;

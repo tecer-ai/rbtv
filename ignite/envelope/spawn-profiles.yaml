@@ -1011,6 +1011,8 @@ tools:
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/coord/file-issue.py
       - memory
       - commit
+      - --repo
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv
       - --json
 
   restart-daemon:

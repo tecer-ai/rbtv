@@ -586,8 +586,14 @@ function announceDisarm({
 // One same-reason retry, and the exhaustion exit when it reaches N. Returns what the pass records:
 // `attempts`, whether this retry EXHAUSTED the counter, and whether the driver must not fire at
 // all because a previous pass already exhausted it (`disarmed`).
+// `lastWords`/`evidencePointer` are the SEAT'S OWN diagnostic and transcript pointer — the
+// caller's job (both call sites below), read off the seat's CURRENT `seat_endings` row BEFORE this
+// function's `exhaust()` call re-stamps it. NEVER synthesized here: the fallback string this
+// function used to build in their place (`${reason} retried N times…`, born on this line, the exact
+// text the owner quoted as unreadable) is deleted, not patched — a lane with nothing seat-authored
+// to quote renders as having said nothing, which is the true state of an `unread` or `room` lane.
 function countRetry({
-  store, workspaceRoot, goal, seat, reason, refusalText, config, say, at, countersFile, items,
+  store, workspaceRoot, goal, seat, reason, lastWords, evidencePointer, outcome, config, say, at, countersFile, items,
 }) {
   if (!config) return { counted: false, why: 'recovery-config-error' };
   const driver = driverFor(reason);
@@ -630,7 +636,11 @@ function countRetry({
     seat,
     driver,
     reasonClass: reason,
-    refusalText: refusalText || `${reason} retried ${counted.attempts} times with the same refusal class`,
+    lastWords,
+    seatEvidencePointer: evidencePointer,
+    firstAt: counted.row && counted.row.first_at,
+    lastAt: counted.row && counted.row.last_at,
+    outcome,
     attempts: counted.attempts,
     at,
   });
@@ -883,7 +893,7 @@ function reconcileGoal({
   // Honour `rbtv goal pause`. ONE reader: lane-watch.laneIsPaused (the goal-state
   // row; leftover `paused ` prefix is consumed there). Lazy-require — lane-watch
   // requires this module at top level; a cycle at load would leave the reader undefined.
-  const { laneIsPaused } = require('./lane-watch');
+  const { laneIsPaused, laneIsClosed } = require('./lane-watch');
   if (goalFolder && laneIsPaused(goalFolder, heartStore)) {
     if (!dryRun && heartStore) setPassAt(heartStore, goal, at);
     if (say) say('info', 'reconcile: skipped — goal is paused', { goal });
@@ -896,6 +906,15 @@ function reconcileGoal({
     if (!dryRun && heartStore) setPassAt(heartStore, goal, at);
     if (say) say('info', 'reconcile: skipped — goal is finished', { goal });
     return { skipped: 'finished', goal };
+  }
+
+  // Honour the owner's close-or-keep `close` reply (`d-goal-closed-word`). ONE reader:
+  // lane-watch.laneIsClosed (the goal-state row) — same shape as pause, TERMINAL like finished:
+  // a closed goal is never rebuilt and no chair launches for it again.
+  if (goalFolder && laneIsClosed(goalFolder, heartStore)) {
+    if (!dryRun && heartStore) setPassAt(heartStore, goal, at);
+    if (say) say('info', 'reconcile: skipped — goal is closed', { goal });
+    return { skipped: 'closed', goal };
   }
 
   if (goalFolder && !dryRun) {
@@ -1277,13 +1296,33 @@ function reconcileGoal({
       && action.kind !== 'leader-handoff-not-woken'
       && action.kind !== 'budget-exhausted-no-handoff'
       && !action.noStrike) {
+      // THE SEAT'S OWN WORDS, READ BEFORE THE EXHAUSTION RE-STAMP [`inv-refusal-source` open
+      // question 1, DoD 2]. Only `incomplete` is a lane whose CURRENT `seat_endings` row is about
+      // THIS retry — that is the seat's own prior checkout declaring itself unfinished, which is
+      // why `deriveOwed` classified it here at all. `nonterm`/`unread` carry no such row (a leader
+      // wake for OTHER seats' rows, or unread mail nobody spoke about) and `getCurrentEnding` is
+      // not called for them — `owner-ask-redesign.md` §5.2(b) renders that case as "Its last words:
+      // (none…)".
+      // `launchSitting` (just above, this same pass) writes to no ending — the row read here is
+      // still the seat's own, not a stamp this very pass made moments ago.
+      let lastWords = null;
+      let evidencePointer = null;
+      if (t.reason === 'incomplete' && endingStore && typeof endingStore.getCurrentEnding === 'function') {
+        const current = endingStore.getCurrentEnding({ goal, seat: t.seat });
+        if (current && current.who_stamped === 'seat') {
+          lastWords = current.diagnostic || null;
+          evidencePointer = current.evidence_pointer || null;
+        }
+      }
       const retry = countRetry({
         store: endingStore,
         workspaceRoot,
         goal,
         seat: t.seat,
         reason: t.reason,
-        refusalText: action.error ? `${t.reason}: ${action.error}` : null,
+        lastWords,
+        evidencePointer,
+        outcome: action.kind,
         config: recoveryConfig,
         countersFile,
         items: t.owedItems,
@@ -1339,7 +1378,9 @@ function reconcileGoal({
           goal,
           seat: recSeat,
           reason: 'room',
-          refusalText: `room: ${rec.out || rec.status}`,
+          // Not a seat's own words (there is no seat here to speak) — the room rebuild's own
+          // failure text, the only description of this failure anywhere the owner sees it.
+          lastWords: `room rebuild failed: ${rec.out || rec.status}`,
           config: recoveryConfig,
           countersFile,
           // No owed-item marker: the subject IS the room and a failed rebuild retried is a retry

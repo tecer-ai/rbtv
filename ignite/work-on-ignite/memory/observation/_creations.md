@@ -1,0 +1,1 @@
+2026-09-02 · creation · readOpenConditions carries goal_id/channel_id · Widen `readOpenConditions`'s returned row shape to include `goal_id`/`channel_id`, reading `null` · 829a7b43227e7ad1c247ae01681b8c24308763f7 · chat,runtime · ⚠

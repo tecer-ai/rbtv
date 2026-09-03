@@ -134,13 +134,59 @@ function ask(id, seat, oneLiner, openedAt, extra = {}) {
       linerChange.posted === true && outbox.query({ kind: 'digest' }).length === 4,
       { records: outbox.query({ kind: 'digest' }).length });
 
+    // GOAL-NAME CHANGE ONLY (`digest-sentence` DoD 3's standing-trap proof, extended to `goal`):
+    // the id and text stay put, only `goal` changes — must NOT post.
+    asks = [ask('1724508123.123456', 'draft-seat', 'which binder — vault path or repo path?', spInstant('2026-08-24', 7),
+      { goal: 'demo-goal' })];
+    const goalChange = await digest.check(spInstant('2026-08-24', 22));
+    check('R-A2 a goal-NAME-only change (id and text unchanged) does NOT re-post — goal is not in the snapshot',
+      goalChange.posted === false && goalChange.reason === 'unchanged'
+      && outbox.query({ kind: 'digest' }).length === 4,
+      { reason: goalChange.reason, records: outbox.query({ kind: 'digest' }).length });
+
+    // LINK CHANGE ONLY: same proof for `link`.
+    asks = [ask('1724508123.123456', 'draft-seat', 'which binder — vault path or repo path?', spInstant('2026-08-24', 7),
+      { goal: 'demo-goal', link: 'https://slack.example/archives/Cgoal/pNEW' })];
+    const linkChange = await digest.check(spInstant('2026-08-25', 0));
+    check('R-A2 a link-only change (id and text unchanged) does NOT re-post — link is not in the snapshot',
+      linkChange.posted === false && linkChange.reason === 'unchanged'
+      && outbox.query({ kind: 'digest' }).length === 4,
+      { reason: linkChange.reason, records: outbox.query({ kind: 'digest' }).length });
+
+    // `digest-sentence` DoD 3 — the deploy-time claim: a pre-existing ask carries `subject: ''`
+    // (the interface contract's own fallback), so switching the snapshot's text input from
+    // `one_liner` to `subject || one_liner` does not move the baseline for it BY ITSELF. The one
+    // re-post happens only when a composer later gives that SAME open ask a real, different
+    // subject (e.g. `asks-repost`'s in-thread rewrite of an already-open recovery ask) — simulated
+    // here as the same id/one_liner acquiring a `subject` for the first time.
+    asks = [ask('1724508123.123456', 'draft-seat', 'which binder — vault path or repo path?', spInstant('2026-08-24', 7),
+      { goal: 'demo-goal', link: 'https://slack.example/archives/Cgoal/pNEW', subject: '' })];
+    const stillEmptySubject = await digest.check(spInstant('2026-08-25', 6));
+    check('R-A2 an EXPLICIT empty-string subject on an otherwise-unchanged ask still does NOT re-post',
+      stillEmptySubject.posted === false && stillEmptySubject.reason === 'unchanged'
+      && outbox.query({ kind: 'digest' }).length === 4,
+      { reason: stillEmptySubject.reason, records: outbox.query({ kind: 'digest' }).length });
+
+    asks = [ask('1724508123.123456', 'draft-seat', 'which binder — vault path or repo path?', spInstant('2026-08-24', 7),
+      { goal: 'demo-goal', link: 'https://slack.example/archives/Cgoal/pNEW', subject: 'which folder should the vault docs live in?' })];
+    const subjectAppears = await digest.check(spInstant('2026-08-25', 8));
+    check('R-A2 the SAME ask acquiring a real subject (asks-repost updating an already-open ask) posts EXACTLY ONE re-post',
+      subjectAppears.posted === true && outbox.query({ kind: 'digest' }).length === 5,
+      { records: outbox.query({ kind: 'digest' }).length });
+
+    const afterSubjectStable = await digest.check(spInstant('2026-08-25', 10));
+    check('R-A2 and NONE after — the same subject at the next slot posts nothing',
+      afterSubjectStable.posted === false && afterSubjectStable.reason === 'unchanged'
+      && outbox.query({ kind: 'digest' }).length === 5,
+      { reason: afterSubjectStable.reason, records: outbox.query({ kind: 'digest' }).length });
+
     check('§5 every digest post goes through the outbox with kind=digest into the SYSTEM channel only',
       outbox.query({ kind: 'digest' }).every((r) => r.channel_id === SYS && r.thread_ts === null && r.goal_id === null)
       && outbox.query({}).length === outbox.query({ kind: 'digest' }).length,
       { kinds: [...new Set(outbox.query({}).map((r) => r.kind))] });
   }
 
-  // ── §5 order and rendering ────────────────────────────────────────────────
+  // ── R-A2 / `digest-sentence`: the "waiting on you" list, order and rendering ─────────────────
   {
     const slack = mockSlack();
     const outbox = createOutbox({ storePath: path.join(dir, 'outbox-b.json'), send: slack.send });
@@ -149,10 +195,13 @@ function ask(id, seat, oneLiner, openedAt, extra = {}) {
       systemChannelId: SYS,
       statePath: path.join(dir, 'digest-b.json'),
       readOpenAsks: () => [
+        // No `subject` — a pre-existing row (interface contract: empty string) falls back to
+        // `one_liner`. Also no `goal` — falls back to the id suffix as the lead/link text.
         ask('1724508123.123456', 'draft-seat', 'which binder for the vault path?', spInstant('2026-08-24', 11),
           { link: 'https://slack.example/archives/Cgoal/p123', evidence_pointer: '.rbtv/goals/demo/plan.md' }),
+        // A real `subject` and `goal` — the goal name is the link text, the subject is the sentence.
         ask('1724509999.654321', 'leader', 'drop lane or pause goal?', spInstant('2026-08-24', 13, 20),
-          { link: 'https://slack.example/archives/Cgoal/p654' }),
+          { link: 'https://slack.example/archives/Cgoal/p654', goal: 'demo-goal', subject: 'the leader seat keeps failing to start' }),
       ],
       readOpenConditions: () => [{
         signature: 'frozen:ignite-engine',
@@ -165,33 +214,51 @@ function ask(id, seat, oneLiner, openedAt, extra = {}) {
     });
     const res = await digest.check(spInstant('2026-08-24', 14));
     const text = slack.posts[0].text;
-    const iAsks = text.indexOf('❓ open asks');
+    const iAsks = text.indexOf('Waiting on you (2):');
     const iCond = text.indexOf('Open conditions');
-    // The trailing `Links` section (absolute VPS paths, unclickable on a phone) was DELETED
-    // (owner ruling `d-digest-ui`) — a link-less row now keeps its own `evidence_pointer` inline
-    // instead. Order is asks → conditions, and the literal string `Links` never appears.
-    check('§5 field ORDER is asks → conditions, and the Links section is gone',
-      iAsks > 0 && iCond > iAsks && !text.includes('Links'), { iAsks, iCond });
+    // The trailing `Links` section (absolute VPS paths, unclickable on a phone) was already gone
+    // (owner ruling `d-digest-ui`); order is header → asks → conditions.
+    check('§5 field ORDER is the plain-language header → asks → conditions, and the Links section stays gone',
+      iAsks > 0 && iCond > iAsks && !text.includes('Links') && !text.includes('❓ open asks'), { iAsks, iCond });
 
-    // The goal now LEADS the row and IS the tap target when a link exists (owner ruling
-    // `d-digest-ui`); these fixture asks carry no `goal`, so the row falls back to the id in the
-    // lead position and the id is not repeated at the end.
-    check('§5 a goal-less ask row is <link|display_suffix> · seat · one-liner · age',
-      text.includes('• <https://slack.example/archives/Cgoal/p123|123456> · draft-seat · which binder for the vault path? · 3h'),
+    check('R-A2 a goal-less, subject-less ask row is <link|id-suffix> — one_liner · waiting Xh, no LANE/seat/ref',
+      text.includes('• <https://slack.example/archives/Cgoal/p123|123456> — which binder for the vault path? · waiting 3h'),
       { row: text.split('\n').find((l) => l.includes('123456')) });
 
-    check('§5 an ask under an hour old renders whole minutes (the spec example\'s `40m`)',
-      text.includes('• <https://slack.example/archives/Cgoal/p654|654321> · leader · drop lane or pause goal? · 40m'),
-      { row: text.split('\n').find((l) => l.includes('654321')) });
+    check('R-A2 a goal+subject ask row is <link|goal name> — subject · waiting Xm, and renders whole minutes',
+      text.includes('• <https://slack.example/archives/Cgoal/p654|demo-goal> — the leader seat keeps failing to start · waiting 40m'),
+      { row: text.split('\n').find((l) => l.includes('demo-goal')) });
+
+    check('R-A2 no row carries the seat token, a bare LANE label, or a trailing `ref` id',
+      !text.includes('draft-seat') && !text.includes('leader ·') && !/\bLANE:/.test(text) && !/\bref \d/.test(text), {});
 
     // A goal-scoped condition now LEADS with its goal, linked to that goal's CHANNEL — not a
     // thread permalink, since a condition carries no thread ts (owner ruling `d-digest-ui` 5(b)).
-    check('§5 a goal-scoped condition row is <channel-link|*goal*> · condition · age',
+    // `digest-condition-goal`'s shape — out of `digest-sentence` custody, only proven unchanged.
+    check('§5 a goal-scoped condition row is <channel-link|*goal*> · condition · age — digest-condition-goal shape unchanged',
       text.includes('• <https://slack.com/archives/Csys|*ignite-engine*> · running, no live seat, no eligible launch, no open ask, not paused · 1h'),
       { row: text.split('\n').find((l) => l.includes('ignite-engine')) });
 
     check('§5 the post opens with the slot header',
       text.startsWith('*System digest · 14:00*'), { head: text.split('\n')[0], posted: res.posted });
+  }
+
+  // ── R-A2 the plain-language empty state ───────────────────────────────────
+  {
+    const slack = mockSlack();
+    const outbox = createOutbox({ storePath: path.join(dir, 'outbox-empty.json'), send: slack.send });
+    const digest = createSystemDigest({
+      post: outbox.post,
+      systemChannelId: SYS,
+      statePath: path.join(dir, 'digest-empty.json'),
+      readOpenAsks: () => [],
+      readOpenConditions: () => [],
+    });
+    const res = await digest.check(spInstant('2026-08-24', 6));
+    const text = slack.posts[0].text;
+    check('R-A2 zero open asks renders the plain sentence, not a header + "none open" row',
+      res.posted === true && text.includes('Nothing is waiting on you.') && !text.includes('Waiting on you ('),
+      { text });
   }
 
   // ── `d-ask15-blocking-asks-first` — blocking asks sort to the top ─────────
@@ -236,16 +303,16 @@ function ask(id, seat, oneLiner, openedAt, extra = {}) {
       sorted.map((a) => a.id).join(',') === 'z-later-id,a-earlier-id,9-info-first,1-info-second',
       { order: sorted.map((a) => a.id) });
 
-    // The row SHAPE (`digest-row-shape`, commit `d76eecd0`) is untouched by the sort: goal-lead /
-    // id-tail / evidence_pointer-inline still render exactly as `§5 order and rendering` proves —
-    // this only checks the sort does not smuggle in a shape change on a row that also has a link.
+    // The R-A2 row shape is untouched by the sort itself: link-as-tap-target still renders exactly
+    // as the "order and rendering" block above proves — this only checks the sort does not smuggle
+    // in a shape change on a row that also has a link.
     const shaped = [
       ask('1724508123.123456', 'draft-seat', '*🧵 draft-seat* — · ⏸ WAITING ON YOU', spInstant('2026-08-28', 17),
         { link: 'https://slack.example/archives/Cgoal/p123', evidence_pointer: '.rbtv/goals/demo/plan.md' }),
     ];
     const shapedText = renderDigest({ at, asks: shaped, conditions: [], nowMs: at.getTime() });
-    check('§5/ask15 the sorted row keeps digest-row-shape\'s link-as-tap-target / id-at-tail shape',
-      shapedText.includes('• <https://slack.example/archives/Cgoal/p123|123456> ·'),
+    check('§5/ask15 the sorted row keeps R-A2\'s link-as-tap-target shape',
+      shapedText.includes('• <https://slack.example/archives/Cgoal/p123|123456> —'),
       { row: shapedText.split('\n').find((l) => l.includes('123456')) });
   }
 

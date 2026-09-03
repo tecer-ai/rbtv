@@ -338,6 +338,61 @@ def harness_idents(snapshot, root_pid):
     return [i for i in (process_identity(p) for p in harness_pids(snapshot, root_pid)) if i]
 
 
+def harness_name(snapshot, pid):
+    """The harness basename a matched pid is running, read off its own argv. Falls back to
+    'claude' only if the pid has vanished between the snapshot and this read — the caller already
+    knows SOME harness matched; this just names which one for the report line."""
+    argv = next((a for p, _, a in snapshot if p == pid), "")
+    tokens = argv.split()
+    return os.path.basename(tokens[0]) if tokens else "claude"
+
+
+def unaccounted_panes(exclude_pane=None, resolver=None):
+    """[{"pane", "harness", "cwd"}] for every LIVE tmux pane, right now, that a live harness
+    process occupies and whose cwd resolves to NO seat.md anywhere — N1's predicate
+    (`d-n1-oneshot-sweep`), read fresh at the capacity gate's own decision moment.
+
+    ONE-SHOT, BY CONSTRUCTION: one `ps_snapshot()`, one round of `tmux` queries, one classification
+    pass, then the return — nothing here is written to disk, cached, or scheduled, and no state
+    from this call reaches the next one. Restoring a standing pane sensor is barred twice over
+    (T4-R8's team-monitor deletion; `d-ask9-keep-the-three-protections`); this closes N1's gap
+    WITHOUT one by never outliving the function call that made it.
+
+    `exclude_pane` MUST be the CALLING pane (`coord.detect_pane()`) — the session asking the
+    capacity question is routinely a live harness pane whose own cwd resolves to nothing (the plan
+    folder, the vault root: `budget.py`'s own documented ambiguity, "an owner session and a leak
+    are OBSERVATIONALLY IDENTICAL"), and excluding it also removes this very call's OWN `ps`/`tmux`
+    subprocesses for free — they are descendants of the excluded pane's root, never of any other
+    live pane. Pre-filtering here (rather than handing every harness pane to `census()` and letting
+    it sort unaccounted from cross_goal) is what keeps a DECLARED seat's own pane from being
+    counted twice: a declared seat's cwd always resolves (it IS a seat folder), so it never reaches
+    this function's return at all — `census()` remains the one place that owns the classification,
+    this only owns not asking it about panes that would obviously answer "accounted".
+    """
+    resolver = resolver or coord.budget_mod.resolve_descriptor
+    panes = coord.live_panes()
+    if exclude_pane:
+        panes = panes - {exclude_pane}
+    if not panes:
+        return []
+    snap = ps_snapshot()
+    if not snap:
+        return []
+    found = []
+    for pane in panes:
+        pid = coord.tmux_pane_pid(pane)
+        if not pid:
+            continue
+        hpids = harness_pids(snap, pid)
+        if not hpids:
+            continue
+        cwd = coord.pane_cwd(pane)
+        if resolver(cwd):
+            continue  # a descriptor exists somewhere — this pane is accounted, N1 is not about it
+        found.append({"pane": pane, "harness": harness_name(snap, hpids[0]), "cwd": cwd})
+    return found
+
+
 def signal_pid(pid, sig):
     """Send `sig` to ONE pid. (ok, err). Isolated as a module-level function for exactly one
     reason: the self-test rebinds it. A suite that really signalled processes would be a suite

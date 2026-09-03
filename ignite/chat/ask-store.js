@@ -94,14 +94,30 @@ function createAskRecord({ forwarder, logger = null }) {
   // Called only after the forward landed (`forward-path.js` gates on `outcome.forwarded === true`),
   // which is what lets the daemon mark the row `posted` at insert — §2.1 reads that flag, and a row
   // left unposted is an ask nobody is waiting on.
-  async function openAsk({ goalId, seat, chatThreadId, text, label = ASK_LABEL_DEFAULT }) {
+  async function openAsk({
+    goalId, seat, chatThreadId, text, label = ASK_LABEL_DEFAULT, kind, subject, options,
+  }) {
     const thread = chatThreadId != null ? String(chatThreadId) : '';
     if (!thread) {
       log('warn', 'owner-ask NOT recorded — no thread id, and the thread IS the ask id [T5-R7]', { goalId, seat });
       return { recorded: false, reason: 'no-thread' };
     }
+    const payload = { act: 'open', goal: String(goalId), seat: String(seat), thread, corpus: String(text || ''), label };
+    // `kind`/`subject`/`options` (`d-owner-ask-shape`) are OPTIONAL — a composer that passes none
+    // keeps the payload identical to before this change, so escalation/ordinary/approval callers
+    // are unaffected. `options` rides the wire as an array; `ask-record.js#openAsk` is what
+    // serializes it to `options_json`, so this file must not invent a second serialization.
+    // ⚠ `ask-thread.js#postAsk`'s own "not passed" sentinel is `null`, not `undefined`
+    // (`subject = null, options = null` defaults) — a caller-agnostic `!= null` (loose, catches
+    // both) is required here, or `String(null)` leaks the literal string `"null"` onto the wire
+    // and into `open_asks.subject`, which is truthy and defeats `system-digest.js#renderAskRow`'s
+    // empty-subject fallback for every escalation/ordinary/approval ask (measured: this exact bug,
+    // caught by `probe-esc-replay.js` J6, mid-build).
+    if (kind != null) payload.kind = String(kind);
+    if (subject != null) payload.subject = String(subject);
+    if (options != null) payload.options = options;
     const out = await send(
-      { act: 'open', goal: String(goalId), seat: String(seat), thread, corpus: String(text || ''), label },
+      payload,
       'owner-ask NOT recorded — a seat waiting on this question will not read as waiting',
       { goalId, seat, thread });
     if (out.recorded && !out.already) {

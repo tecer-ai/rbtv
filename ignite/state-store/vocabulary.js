@@ -1,7 +1,11 @@
 'use strict';
 
 const ENDINGS = Object.freeze(['done', 'incomplete', 'failed']);
-const GOAL_WORDS = Object.freeze(['running', 'paused', 'finished']);
+// `closed` (d-goal-closed-word, 2026-09-01) — a FOURTH terminal word, owner-stamped like `paused`,
+// for a goal the owner gave up on via the close-or-keep ask. Never conflate with `finished`: every
+// reader of `finished` treats it as ordinary success, and `d-recovery-last-lane-asks` forbids a
+// given-up goal ever reading that way.
+const GOAL_WORDS = Object.freeze(['running', 'paused', 'finished', 'closed']);
 const REASON_CLASSES = Object.freeze([
   'provider-error',
   'configuration-error',

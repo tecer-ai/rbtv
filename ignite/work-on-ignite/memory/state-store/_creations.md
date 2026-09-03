@@ -1,1 +1,2 @@
 2026-09-01 · creation · listSeatsWithEndings — the missing side of getCurrentEnding · A plain `SELECT seat FROM seat_endings WHERE goal = ? ORDER BY seat` in `ignite/state-store/predicates.js`, matching the shape of the sibling list query `listSeatHolds` right above it. · 3a2e28e6 · supervisor · ⚠
+2026-09-01 · creation · closed — a fourth terminal goal word, close-goal intent · `GOAL_WORDS` gains a fourth, TERMINAL word `closed`, owner-stamped exactly like `paused` · 96acd304 · chat,runtime,supervisor · ⚠

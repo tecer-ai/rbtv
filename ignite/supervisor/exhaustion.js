@@ -94,14 +94,32 @@ function writeAskRecord(workspaceRoot, record) {
 // signature is seen; every later lane with that signature lands in the existing record's `lanes`
 // array. `store.insertAsk` binds one seat (spec-owner-io: a daemon-posted ask binds to the lane's
 // seat) - that is the FIRST lane, and the record carries the rest.
+// `lastWords` is the SEAT'S OWN diagnostic (`seat_endings.diagnostic`, read by `countRetry`'s call
+// sites BEFORE the exhaustion re-stamp overwrites it) — the text R-A4/`inv-refusal-source` name as
+// what the owner actually needs. `refusalText` is the OLDER, system-authored fallback
+// (`announceDisarm`'s own description, `relaunch-budget.js`'s leader-report escalation) that two
+// callers outside this seat's custody still pass; both land in the SAME field because they answer
+// the same question — "what does this ask say happened" — from whichever source actually has an
+// answer. `lastWords` wins when both are given (it is always the truer, seat-authored source).
 function recordGroupedAsk({
-  store, workspaceRoot, goal, seat, driver, reasonClass, refusalText, attempts, at,
+  store, workspaceRoot, goal, seat, driver, reasonClass, refusalText, lastWords, evidencePointer,
+  firstAt, lastAt, outcome, attempts, at,
 }) {
   const signature = signatureOf({ driver, reasonClass });
   const askId = askIdFor(signature);
   const stamp = at || new Date().toISOString();
   const lane = {
-    goal, seat, driver, reason_class: reasonClass, refusal_text: refusalText || '', attempts: attempts || null, at: stamp,
+    goal,
+    seat,
+    driver,
+    reason_class: reasonClass,
+    last_words: lastWords || refusalText || null,
+    evidence_pointer: evidencePointer || null,
+    first_at: firstAt || null,
+    last_at: lastAt || null,
+    outcome: outcome || null,
+    attempts: attempts || null,
+    at: stamp,
   };
   const existing = readAskRecord(workspaceRoot, askId);
   const record = existing || {
@@ -149,11 +167,11 @@ function recordGroupedAsk({
 // removes it. That is stated rather than papered over: the digest posts on CHANGE, so a standing
 // record is rendered once and then rides the baseline.
 //
-// THE ONE-LINER IS THE LANE'S OWN WORDS. Its `refusal_text`, first line, truncated — never a
+// THE ONE-LINER IS THE LANE'S OWN WORDS. Its `last_words`, first line, truncated — never a
 // sentence assembled here from the goal and seat names, which would put words on the owner's
 // phone that nobody wrote [memory gateway/20260825-c-inspect-asks-the-read-half-of ATTENTION 3].
 function oneLinerOfLane(lane) {
-  const text = String((lane && lane.refusal_text) || '').split(/\r?\n/).find((l) => l.trim());
+  const text = String((lane && lane.last_words) || '').split(/\r?\n/).find((l) => l.trim());
   return text ? text.trim().slice(0, 120) : null;
 }
 
@@ -203,12 +221,20 @@ function readAllGroupedRecords(workspaceRoot) {
 // (it has no thread yet, so `linkForAsk` gives it no link, honestly — [D19]'s recovery lister never
 // promises a link before Slack has minted one); a POSTED lane is skipped here entirely — its row
 // now comes from `listOpenAsks` (the real `open_asks` row), with a real thread id and a real link.
+//
+// A LANE-LESS RECORD IS POSTED AT THE RECORD, NOT A LANE [fixed 2026-09-01, ghost-row digest
+// bug]. `record.lanes` is absent by design on a `goal-disposition` record (`last-lane-ask.js#
+// mintLastLaneAsk` never writes one) — the `[{}]` fallback below still renders it as ONE row while
+// unposted. But once posted, `last-lane-ask.js#markDispositionPosted` stamps `posted_ask_id` on
+// the RECORD itself, never on the synthesized `{}`, so a lane-only check never saw it and the
+// closed disposition kept re-emitting forever. Both fields are checked for the same reason: a
+// recovery record's own lanes carry the stamp, a disposition record's own top level does.
 function listOpenGroupedAsks(workspaceRoot) {
   const rows = [];
   for (const { file, record } of readAllGroupedRecords(workspaceRoot)) {
     const lanes = (Array.isArray(record.lanes) && record.lanes.length) ? record.lanes : [{}];
     for (const lane of lanes) {
-      if (lane.posted_ask_id) continue;   // this lane's row lives in `open_asks` now
+      if (record.posted_ask_id || lane.posted_ask_id) continue;   // this lane/record's row lives in `open_asks` now
       rows.push({
         id: record.ask_id,
         goal: lane.goal || null,
@@ -223,10 +249,23 @@ function listOpenGroupedAsks(workspaceRoot) {
   return rows;
 }
 
-// THE POSTER'S OWN READ — full lane detail (driver, reason class, refusal text, the ruled options
-// ladder), for composing the thread's opening body. A DIFFERENT row shape from `listOpenGroupedAsks`
-// on purpose: that one is frozen to the digest's contract; this one is `chat/recovery-poster.js`'s
-// only, and mixing the two would make an unrelated digest change ripple into what gets posted.
+// Slack cannot link a VPS file [R-A4 point 5, `owner-ask-redesign.md` §5.2(b)]: the transcript
+// `evidence_pointer` a seat's own ending carries is an ABSOLUTE path
+// (`lifecycle_exec.py#ending_transcript`), so the composer's `more:` line needs it relative to the
+// workspace instead. A pointer that is not absolute (the `<kind>:<seat>` fallback token a checkout
+// stamps when no transcript export landed) names nothing to link, so it is dropped rather than
+// rendered as a broken relative path.
+function vaultRelativePointer(pointer, workspaceRoot) {
+  if (!pointer || !workspaceRoot || !path.isAbsolute(pointer)) return null;
+  const rel = path.relative(workspaceRoot, pointer);
+  return rel && !rel.startsWith('..') ? rel : null;
+}
+
+// THE POSTER'S OWN READ — full lane detail (driver, reason class, the seat's own last words, the
+// ruled options ladder), for composing the thread's opening body. A DIFFERENT row shape from
+// `listOpenGroupedAsks` on purpose: that one is frozen to the digest's contract; this one is
+// `chat/recovery-poster.js`'s only, and mixing the two would make an unrelated digest change
+// ripple into what gets posted.
 function listUnpostedLanes(workspaceRoot) {
   const out = [];
   for (const { record } of readAllGroupedRecords(workspaceRoot)) {
@@ -241,7 +280,11 @@ function listUnpostedLanes(workspaceRoot) {
         seat: lane.seat,
         driver: lane.driver || null,
         reason_class: lane.reason_class || null,
-        refusal_text: lane.refusal_text || '',
+        last_words: lane.last_words || '',
+        evidence_pointer: vaultRelativePointer(lane.evidence_pointer, workspaceRoot),
+        first_at: lane.first_at || null,
+        last_at: lane.last_at || null,
+        outcome: lane.outcome || null,
         attempts: lane.attempts == null ? null : lane.attempts,
         at: lane.at || null,
       });
@@ -276,11 +319,29 @@ function markLanePosted(workspaceRoot, { goal, seat }, { askId, at } = {}) {
 //
 // Called by a driver whose `countAttempt` came back `exhausted`. Stamps, records, and returns both
 // - a caller that wants to log the exit has everything without re-reading the store.
+// `evidencePointer` is the SYSTEM stamp's own pointer (`seat_endings.evidence_pointer`, defaults to
+// the ask record's own file) — kept as-is. `seatEvidencePointer`/`lastWords`/`firstAt`/`lastAt`/
+// `outcome` are the SEAT's own words and the counter's own span, new [DoD 2], and ride straight
+// through to the lane record without touching the system stamp at all.
 function exhaust({
-  store, workspaceRoot, goal, seat, driver, reasonClass, refusalText, attempts, at, evidencePointer,
+  store, workspaceRoot, goal, seat, driver, reasonClass, refusalText, lastWords, seatEvidencePointer,
+  firstAt, lastAt, outcome, attempts, at, evidencePointer,
 }) {
   const ask = recordGroupedAsk({
-    store, workspaceRoot, goal, seat, driver, reasonClass, refusalText, attempts, at,
+    store,
+    workspaceRoot,
+    goal,
+    seat,
+    driver,
+    reasonClass,
+    refusalText,
+    lastWords,
+    evidencePointer: seatEvidencePointer,
+    firstAt,
+    lastAt,
+    outcome,
+    attempts,
+    at,
   });
   const ending = store.stampSystem({
     goal,

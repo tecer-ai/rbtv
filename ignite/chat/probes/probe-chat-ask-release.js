@@ -36,7 +36,7 @@ const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ask-release-'));
 fs.mkdirSync(path.join(workspaceRoot, '.rbtv', 'goals', GOAL, 'coordination'), { recursive: true });
 
 // ── The fakes ────────────────────────────────────────────────────────────────────────────────
-function harness({ interactive = true, tsSeq = ['1724508123.123456'] } = {}) {
+function harness({ interactive = true, tsSeq = ['1724508123.123456'], listOpenAsks = null } = {}) {
   const posts = [];
   const updates = [];
   const opens = [];
@@ -57,6 +57,11 @@ function harness({ interactive = true, tsSeq = ['1724508123.123456'] } = {}) {
     async openAsk(a) { opens.push(a); return { recorded: true, ask_id: a.chatThreadId, already: false }; },
     async reapAsk(a) { reaps.push(a); return { recorded: true, ask_id: a.chatThreadId, state: 'closed', relaunch: { queued: true } }; },
   };
+  // `ask-options-from-row`: injected ONLY by the fixtures that need it (the durable-row cases) —
+  // its absence here is deliberate, it is what proves the existing in-process-cache cases above
+  // are UNCHANGED by this seat's fix (no `listOpenAsks` on the fake -> `resolveOptionsTable` falls
+  // back to the `options` param exactly as `release()` always did).
+  if (typeof listOpenAsks === 'function') askRecord.listOpenAsks = listOpenAsks;
   const threads = createAskThreads({
     outbox,
     askRecord,
@@ -75,11 +80,19 @@ check('§2.1 display_suffix is the last 6 chars of thread_ts with the dot stripp
   displaySuffix('1724508123.123456') === '123456' && displaySuffix('1724508123.000042') === '000042',
   { sample: displaySuffix('1724508123.123456') });
 
-const line = openingLine({ marker: MARKER_ASK, threadTs: '1724508123.123456', seatName: SEAT, label: 'work-content' });
-check('§3 rendered ❓ line is exactly `{marker} {display_suffix} · {seat_name} · {label}`',
-  line === '❓ 123456 · draft-seat · work-content', { line });
+// `d-owner-ask-shape` R-A3: the id moves OFF the reserved lead line entirely — `openingLine` no
+// longer takes `threadTs` into account for a ❓ line at all, only for the (unchanged) 💭 one.
+const line = openingLine({
+  marker: MARKER_ASK, threadTs: '1724508123.123456', seatName: SEAT, label: 'work-content', subject: 'the leader seat keeps failing to start',
+});
+check('§3 [`d-owner-ask-shape`] rendered ❓ line is exactly `NEEDS YOUR ANSWER — {subject}`, no id and no seat/label',
+  line === '❓ NEEDS YOUR ANSWER — the leader seat keeps failing to start', { line });
 
-check('§3 note line is the same shape with the 💭 marker and never both markers',
+check('§3 [`d-owner-ask-shape`] an absent subject falls back to `{seat} needs your answer`',
+  openingLine({ marker: MARKER_ASK, threadTs: '1724508123.123456', seatName: SEAT, label: 'work-content' })
+    === '❓ NEEDS YOUR ANSWER — draft-seat needs your answer', {});
+
+check('§3 note line is UNCHANGED by this redesign — still `{marker} {display_suffix} · {seat_name} · {label}`, and never both markers',
   openingLine({ marker: MARKER_NOTE, threadTs: '1724508123.123456', seatName: 'leader', label: 'recovery' })
     === '💭 123456 · leader · recovery'
   && !line.includes(MARKER_NOTE), {});
@@ -93,11 +106,12 @@ check('§3 note line is the same shape with the 💭 marker and never both marke
       r.posted === true && h.posts.length === 1 && h.posts[0].thread_ts === null
       && h.posts[0].kind === 'ask' && r.askId === '1724508123.123456',
       { askId: r.askId, kind: h.posts[0].kind });
-    check('the posted message carries the §3 lead line, then the body',
+    check('the posted message carries the §3 lead line (fallback subject, no options table), the body, then `ref <suffix>` as the LAST line',
       h.updates.length === 1
-      && h.updates[0].text.split('\n')[0] === '❓ 123456 · draft-seat · work-content'
-      && h.updates[0].text.includes('Which binder'),
-      { first: h.updates[0].text.split('\n')[0] });
+      && h.updates[0].text.split('\n')[0] === '❓ NEEDS YOUR ANSWER — draft-seat needs your answer'
+      && h.updates[0].text.includes('Which binder')
+      && h.updates[0].text.trim().split('\n').pop() === 'ref 123456',
+      { first: h.updates[0].text.split('\n')[0], last: h.updates[0].text.trim().split('\n').pop() });
     check('❓ mints exactly ONE ask record, keyed by the thread, carrying its label',
       h.opens.length === 1 && h.opens[0].chatThreadId === '1724508123.123456'
       && h.opens[0].seat === SEAT && h.opens[0].label === 'work-content',
@@ -227,7 +241,8 @@ check('§3 note line is the same shape with the 💭 marker and never both marke
     check('a re-ask mints a FRESH thread with its own id and its own record, free of any budget [§2.4.5, C-11]',
       a.askId !== b.askId && h.opens.length === 2
       && h.posts.every((p) => p.thread_ts === null)
-      && h.updates[1].text.startsWith('❓ 222222 · draft-seat · work-content'),
+      && h.updates[1].text.startsWith('❓ NEEDS YOUR ANSWER — draft-seat needs your answer')
+      && h.updates[1].text.trim().split('\n').pop() === 'ref 222222',
       { first: a.askId, second: b.askId });
   }
 
@@ -288,7 +303,7 @@ check('§3 note line is the same shape with the 💭 marker and never both marke
       threadTs: ASK_ID, senderId: OWNER, text: 'b) rewrite to the project folder\nand keep the draft',
     });
     const dest = replyCopyPath(workspaceRoot, GOAL, ASK_ID);
-    check('§2.4.4 the RIGHT thread + an AUTHORIZED sender + a recognized token RELEASES: reap fires EXACTLY once',
+    check('§2.4.4 the RIGHT thread + an AUTHORIZED sender + a recognized token RELEASES: reap fires EXACTLY once — an ordinary ask (`kind: null`) is OUTSIDE `d-owner-ask-shape`\'s letter table (§5.5\'s scope limit), so a bare letter is UNCHANGED by this redesign',
       r.released === true && r.outcome === 'b' && h.reaps.length === 1
       && h.reaps[0].chatThreadId === ASK_ID && h.reaps[0].seat === SEAT
       && r.reaped.relaunch && r.reaped.relaunch.queued === true,
@@ -299,6 +314,166 @@ check('§3 note line is the same shape with the 💭 marker and never both marke
       { path: dest });
     check('the release posts NOTHING — no NACK and no receipt (§2.4.4 flips state, the closing message is the seat\'s)',
       h.posts.length === 0, { posts: h.posts.length });
+  }
+
+  // ── R-A5: THE LETTER → ARM MAPPING (`d-owner-ask-shape`) ──────────────────────────────────────
+  //
+  // Root cause #2 (`inv-reply-grammar`): a bare letter used to parse and REAP any ask — including a
+  // recovery/goal-disposition thread's own kind-gated grammar, which never tries a letter at all —
+  // with the raw letter as a meaningless `outcome` nothing downstream understood. These arms prove
+  // the fix: a letter is resolved against THIS ask's own options table into the SAME arm tokens the
+  // typed verb produces (never a second parser), and an unresolved letter NACKS instead of reaping.
+  {
+    const h = harness();
+    const RECOVERY_OPTIONS = [
+      { letter: 'a', arm: 'retry-with-change', text: 'restart it once more' },
+      { letter: 'b', arm: 'drop-lane', text: "drop this seat's work" },
+      { letter: 'c', arm: 'pause-goal', text: 'pause the whole goal', recommended: true, why: 'reason' },
+    ];
+    const a = await h.threads.release({
+      goalId: GOAL, channelId: CHANNEL, seatName: SEAT, askId: ASK_ID, threadTs: ASK_ID,
+      senderId: OWNER, text: 'a please use --skip-tests', kind: 'recovery', options: RECOVERY_OPTIONS,
+    });
+    check("R-A5 letter `a` on a recovery ask resolves to the SAME arm token `retry with change` (`reply-grammar.js`) produces, and the owner's comment after the letter carries through (`rr-correction-carry`)",
+      a.released === true && a.outcome === 'retry-with-change' && a.family === 'recovery'
+      && a.comments === 'please use --skip-tests',
+      { outcome: a.outcome, family: a.family, comments: a.comments });
+
+    const h2 = harness();
+    const b = await h2.threads.release({
+      goalId: GOAL, channelId: CHANNEL, seatName: SEAT, askId: ASK_ID, threadTs: ASK_ID,
+      senderId: OWNER, text: 'b)', kind: 'recovery', options: RECOVERY_OPTIONS,
+    });
+    check('R-A5 letter `b` on a recovery ask resolves to `drop-lane`',
+      b.released === true && b.outcome === 'drop-lane' && b.family === 'recovery', { outcome: b.outcome });
+
+    const h3 = harness();
+    const c = await h3.threads.release({
+      goalId: GOAL, channelId: CHANNEL, seatName: SEAT, askId: ASK_ID, threadTs: ASK_ID,
+      senderId: OWNER, text: 'c', kind: 'recovery', options: RECOVERY_OPTIONS,
+    });
+    check('R-A5 letter `c` on a recovery ask resolves to `pause-goal`',
+      c.released === true && c.outcome === 'pause-goal' && c.family === 'recovery', { outcome: c.outcome });
+
+    const DISPOSITION_OPTIONS = [
+      { letter: 'a', arm: 'keep', text: 'keep it open' },
+      { letter: 'b', arm: 'close', text: 'close it' },
+    ];
+    const h4 = harness();
+    const keep = await h4.threads.release({
+      goalId: GOAL, channelId: CHANNEL, seatName: SEAT, askId: ASK_ID, threadTs: ASK_ID,
+      senderId: OWNER, text: 'a', kind: 'goal-disposition', options: DISPOSITION_OPTIONS,
+    });
+    const h5 = harness();
+    const close = await h5.threads.release({
+      goalId: GOAL, channelId: CHANNEL, seatName: SEAT, askId: ASK_ID, threadTs: ASK_ID,
+      senderId: OWNER, text: 'b', kind: 'goal-disposition', options: DISPOSITION_OPTIONS,
+    });
+    check('R-A5 `keep`/`close` on a goal-disposition ask are reachable BY LETTER, resolving to the same two tokens the typed word produces',
+      keep.released === true && keep.outcome === 'keep' && keep.family === 'disposition'
+      && close.released === true && close.outcome === 'close' && close.family === 'disposition',
+      { keep: keep.outcome, close: close.outcome });
+
+    // A letter on an ask with NO table (recovery/disposition kind-gated grammar never tries a
+    // letter, and no `options` were supplied) NACKS — never reaps on a meaningless outcome.
+    const h6 = harness();
+    const noTable = await h6.threads.release({
+      goalId: GOAL, channelId: CHANNEL, seatName: SEAT, askId: ASK_ID, threadTs: ASK_ID,
+      senderId: OWNER, text: 'a', kind: 'recovery',
+    });
+    check('R-A5 a letter on an ask with NO options table NACKS — the ask stays open, nothing reaped',
+      noTable.released === false && noTable.reason === 'unparsed' && noTable.nacked === true
+      && h6.reaps.length === 0,
+      { reason: noTable.reason, reaps: h6.reaps.length, nack: noTable.nack });
+
+    // A letter OUTSIDE this ask's own table NACKS with THIS ask's real letters, not the generic
+    // recovery-ladder NACK — the owner is told what actually answers THIS question.
+    const h7 = harness();
+    const outside = await h7.threads.release({
+      goalId: GOAL, channelId: CHANNEL, seatName: SEAT, askId: ASK_ID, threadTs: ASK_ID,
+      senderId: OWNER, text: 'd', kind: 'recovery', options: RECOVERY_OPTIONS,
+    });
+    check("R-A5 a syntactically-valid letter (a–g) OUTSIDE this ask's table nacks naming THIS ask's own real letters",
+      outside.released === false && outside.reason === 'unparsed' && h7.reaps.length === 0
+      && /a\) restart it once more/.test(outside.nack) && /b\) drop this seat's work/.test(outside.nack)
+      && /c\) pause the whole goal/.test(outside.nack),
+      { nack: outside.nack, reaps: h7.reaps.length });
+
+    // Scope-limit regression guard: an ORDINARY ask (`kind: null`, no `options` table —
+    // escalation/approval/ordinary are "not reshaped in this cluster", §5.5's own closing note) is
+    // UNCHANGED by this letter→arm mapping — its bare letter still parses and reaps exactly as it
+    // did before (proved at scale in §2.4.4 above); the mapping engages ONLY for `kind: 'recovery'`/
+    // `'goal-disposition'`, the two kinds that actually carry a table.
+    const h8 = harness();
+    const ordinaryLetter = await h8.threads.release({
+      goalId: GOAL, channelId: CHANNEL, seatName: SEAT, askId: ASK_ID, threadTs: ASK_ID,
+      senderId: OWNER, text: 'd) some other letter',
+    });
+    check('R-A5 scope limit: a bare letter on an ORDINARY ask (`kind: null`) is untouched by this redesign — it still parses and would reap, never nacked for lack of a table that this kind never gets',
+      ordinaryLetter.released === true && ordinaryLetter.outcome === 'd' && ordinaryLetter.family === 'lettered'
+      && h8.reaps.length === 1,
+      { released: ordinaryLetter.released, outcome: ordinaryLetter.outcome, reaps: h8.reaps.length });
+
+    // ── `ask-options-from-row`: THE RESTART / OUT-OF-BAND-REPOST CASE ────────────────────────────
+    //
+    // The row this ask actually persisted (`open_asks.options_json`, `ask-fields-carry` 6bfdcf84)
+    // carries a real table, but the caller passes NO in-memory `options` at all — exactly what a
+    // bridge restart, or a repost written by an out-of-band tool the way `asks-repost` did, leaves
+    // behind: an `askThreads` Map entry (or none at all) with nothing in `.options`. Before this
+    // seat's fix, `release()` had no other place to look and always nacked here; RED-FIRST proof:
+    // this exact fixture (all 3 checks below), copied onto the pre-fix tree at commit `1810a174` in
+    // a scratch worktree (`git worktree add /tmp/ask-options-from-row-red 1810a174`) and run there,
+    // failed all 3 exactly as predicted (2 nacked where they should have released, 1 released where
+    // it should have nacked); the SAME fixture against the fixed tree below is green.
+    const RESTART_OPTIONS = [
+      { letter: 'a', arm: 'retry-with-change', text: 'restart it once more' },
+      { letter: 'b', arm: 'drop-lane', text: "drop this seat's work" },
+    ];
+    const h9 = harness({
+      listOpenAsks: async () => [
+        { id: ASK_ID, goal: GOAL, seat: SEAT, kind: 'recovery', options: RESTART_OPTIONS },
+      ],
+    });
+    const restarted = await h9.threads.release({
+      goalId: GOAL, channelId: CHANNEL, seatName: SEAT, askId: ASK_ID, threadTs: ASK_ID,
+      senderId: OWNER, text: 'a and the fix is landed', kind: 'recovery',
+      // `options` deliberately OMITTED — the in-process cache this ask's Map entry would have held
+      // is empty, the restart/repost case this fixture exists to prove.
+    });
+    check("`ask-options-from-row`: a bare letter resolves from the PERSISTED row's table when the caller's in-memory copy is empty — the durable `open_asks.options_json` row is read via `askRecord.listOpenAsks`, never only the process-local cache",
+      restarted.released === true && restarted.outcome === 'retry-with-change' && restarted.family === 'recovery'
+      && restarted.comments === 'and the fix is landed' && h9.reaps.length === 1,
+      { released: restarted.released, outcome: restarted.outcome, reaps: h9.reaps.length });
+
+    // The durable row is AUTHORITATIVE, not merely a second fallback: an outside letter against the
+    // PERSISTED table nacks naming THAT row's own real letters, even with no in-memory table at all.
+    const h10 = harness({
+      listOpenAsks: async () => [
+        { id: ASK_ID, goal: GOAL, seat: SEAT, kind: 'recovery', options: RESTART_OPTIONS },
+      ],
+    });
+    const restartedOutside = await h10.threads.release({
+      goalId: GOAL, channelId: CHANNEL, seatName: SEAT, askId: ASK_ID, threadTs: ASK_ID,
+      senderId: OWNER, text: 'd', kind: 'recovery',
+    });
+    check("`ask-options-from-row`: a letter outside the PERSISTED row's table nacks naming that row's own real letters, with no in-memory table involved at all",
+      restartedOutside.released === false && restartedOutside.reason === 'unparsed' && h10.reaps.length === 0
+      && /a\) restart it once more/.test(restartedOutside.nack) && /b\) drop this seat's work/.test(restartedOutside.nack),
+      { nack: restartedOutside.nack, reaps: h10.reaps.length });
+
+    // A row that IS found but carries no table (`options: null`, e.g. an ordinary-shaped row) still
+    // NACKS — the durable answer wins even when it is "no table", it is never silently patched over
+    // by a stale in-memory value that happened to be non-empty.
+    const h11 = harness({
+      listOpenAsks: async () => [{ id: ASK_ID, goal: GOAL, seat: SEAT, kind: 'recovery', options: null }],
+    });
+    const rowNoTable = await h11.threads.release({
+      goalId: GOAL, channelId: CHANNEL, seatName: SEAT, askId: ASK_ID, threadTs: ASK_ID,
+      senderId: OWNER, text: 'a', kind: 'recovery', options: RESTART_OPTIONS,
+    });
+    check("`ask-options-from-row`: the durable row is authoritative even over a NON-EMPTY in-memory cache — a found row with `options: null` nacks, it is not overridden by the caller's stale `options` param",
+      rowNoTable.released === false && rowNoTable.reason === 'unparsed' && h11.reaps.length === 0,
+      { reason: rowNoTable.reason, reaps: h11.reaps.length });
   }
 
   {
@@ -434,10 +609,11 @@ check('§3 note line is the same shape with the 💭 marker and never both marke
     await bridge.busFerry.tick();
     const askPost = posted[before];
     const askId = askPost && askPost.ts;
-    check('E1 [DoD 4]: a work-content owner-bound bus row is posted as a REAL ❓ ASK THREAD in the goal channel — NEW thread, §3 lead line, and NOT parked',
+    check('E1 [DoD 4]: a work-content owner-bound bus row is posted as a REAL ❓ ASK THREAD in the goal channel — NEW thread, §3 lead line (fallback subject, this composer is not reshaped in this cluster), and NOT parked',
       posted.length === before + 1 && askPost.channel === reg.channelId && askPost.threadTs === null
-      && askPost.text.startsWith(`${MARKER_ASK} ${displaySuffix(askId)} · ${E_SEAT} · work-content`)
+      && askPost.text.startsWith(`${MARKER_ASK} NEEDS YOUR ANSWER — ${E_SEAT} needs your answer`)
       && /which folder should the draft land in\?/.test(askPost.text)
+      && askPost.text.trim().split('\n').pop() === `ref ${displaySuffix(askId)}`
       && bridge.busFerry._cursors.get(`${E_GOAL}/2026-08-24a`) === 2,
       { head: askPost && askPost.text.split('\n')[0], threadTs: askPost && askPost.threadTs, cursor: bridge.busFerry._cursors.get(`${E_GOAL}/2026-08-24a`) });
     check('E1: the bridge MINTED the ask record through the `record-owner-ask` intent — exactly one open, no reap',
@@ -531,7 +707,8 @@ check('§3 note line is the same shape with the 💭 marker and never both marke
     await settleReactions();
     check('E6 [C-11]: the re-ask opens a FRESH thread with its own id and its own record',
       second.threadTs === null && second.ts !== askId
-      && second.text.startsWith(`${MARKER_ASK} ${displaySuffix(second.ts)} · ${E_SEAT} · work-content`),
+      && second.text.startsWith(`${MARKER_ASK} NEEDS YOUR ANSWER — ${E_SEAT} needs your answer`)
+      && second.text.trim().split('\n').pop() === `ref ${displaySuffix(second.ts)}`,
       { secondHead: second.text.split('\n')[0] });
     check('E6a [G-second-brain-43-0828-2119]: a SECOND authorized reply in the RELEASED thread is still handled at the ask door — `leg: ask-release`, refused as already-answered, and NOTHING was reaped a second time',
       again.leg === 'ask-release' && again.alreadyAnswered === true && again.released === false
@@ -669,6 +846,85 @@ check('§3 note line is the same shape with the 💭 marker and never both marke
       });
 
     rebuilt.bridge.stop();
+  }
+
+  // ── R-A1: THE CHANNEL-LESS FALLBACK (`d-owner-ask-shape`, `chat-bridge.js#postOwnerAsk`) ──────
+  //
+  // A recovery/goal-disposition ask for a goal with NO Slack channel used to log a `warn` and
+  // retry forever — the owner was told NOTHING (`inv-ask-paths` Held-but-dropped #1). It now posts
+  // the SAME shaped ask straight into `#system-channel`, the goal name prefixed to the subject so
+  // the owner can tell whose ask it is without a channel to place it in.
+  {
+    const fRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ask-release-fallback-'));
+    const F_GOAL = 'no-channel-goal';
+    const posted = [];
+    let nextTs = 9000;
+    const chans = [];
+    let nextChan = 1;
+    const slack = {
+      async authTest() { return { ok: true, userId: BOT }; },
+      async openDm(userId) { return { ok: true, channel: DM, userId }; },
+      async createChannel({ name }) { const ch = { id: `CF${String(nextChan++).padStart(4, '0')}`, name }; chans.push(ch); return { ok: true, channel: ch }; },
+      async listChannels() { return { ok: true, channels: chans, nextCursor: null }; },
+      async archiveChannel() { return { ok: true }; },
+      async sendToOwner({ channel, threadTs, text }) {
+        const ts = `${nextTs}.${String(nextTs++).padStart(6, '0')}`;
+        posted.push({ channel, threadTs: threadTs ?? null, text, ts });
+        return { delivered: true, ts };
+      },
+      async updateMessage(u) { const t = posted.find((q) => q.ts === u.ts); if (t) t.text = u.text; return { updated: true }; },
+      async react() { return { reacted: true }; },
+      async unreact() { return { reacted: true }; },
+      async start() { return { connected: true }; },
+      stop() {},
+    };
+    const forwarder = {
+      async forward(intent, payload) { return { ok: true, result: { recorded: true, ask_id: payload.thread || null, state: 'open' } }; },
+      async inspect() { return { ok: true, result: { live_sessions: [], recent_ticks: [] } }; },
+    };
+    const built = buildBridge({
+      gatewayAddr: '127.0.0.1:0', bridgeToken: 'stub', sessionJobId: 'chat-launch', sendMessageJobId: 'send-message',
+      workdir: null, workspaceRoot: fRoot, channelPrefix: 'test-', stateFile: path.join(fRoot, 'state.json'),
+      busFerry: false, allowlist: [OWNER],
+      // R-A1's own target — the daemon-wide alarm/system channel, injected exactly as
+      // `chat/index.js:103` wires it from `config.systemChannelId`.
+      systemChannelId: 'C-SYSTEM',
+      slack: { apiBase: 'http://127.0.0.1:0', appToken: null, botToken: null },
+    }, {
+      logger: () => {}, makeTransport: () => slack, forwarderImpl: forwarder,
+      replyLegOptions: { pollMs: 3600000 }, busFerryOptions: { pollMs: 3600000 },
+    });
+    await built.bridge.start();
+    // F_GOAL is deliberately NEVER `registerGoal`'d — `resolveChannel` answers null, same as a
+    // genuinely channel-less goal.
+    const out = await built.bridge.postOwnerAsk({
+      goalId: F_GOAL, seatName: 'leader', label: 'recovery', kind: 'recovery',
+      body: 'What happened: the leader keeps failing.\nQuestion: what should I do?',
+      subject: 'the leader seat keeps failing to start',
+    });
+    const landed = posted.find((p) => p.ts === out.askId);
+    check('R-A1 a recovery ask for a CHANNEL-LESS goal posts into the system channel instead of {posted:false}+retry-forever',
+      out.posted === true && !!landed && landed.channel === 'C-SYSTEM',
+      { posted: out.posted, channel: landed && landed.channel });
+    check('R-A1 the subject carries the GOAL NAME prefix (`<goal>: <subject>`) so the owner can tell whose ask it is with no channel to place it in',
+      !!landed && landed.text.startsWith(`${MARKER_ASK} NEEDS YOUR ANSWER — ${F_GOAL}: the leader seat keeps failing to start`),
+      { head: landed && landed.text.split('\n')[0] });
+    check('R-A1 the SAME shaped ask — body + `ref <suffix>` — not a stripped-down alarm',
+      !!landed && landed.text.includes('What happened:')
+      && landed.text.trim().split('\n').pop() === `ref ${displaySuffix(out.askId)}`,
+      { text: landed && landed.text });
+
+    // An ORDINARY ask (not recovery/goal-disposition) on the SAME channel-less goal is UNCHANGED —
+    // R-A1 is scoped to the two daemon-decided kinds, never a seat's own traffic.
+    const beforeOrdinary = posted.length;
+    const ordinaryOut = await built.bridge.postOwnerAsk({
+      goalId: F_GOAL, seatName: 'leader', label: 'work-content', kind: 'ordinary', body: 'anything',
+    });
+    check('R-A1 scope limit: an ORDINARY ask on the same channel-less goal still gets {posted:false} — the fallback never widens past recovery/goal-disposition',
+      ordinaryOut.posted === false && posted.length === beforeOrdinary,
+      { posted: ordinaryOut.posted, newPosts: posted.length - beforeOrdinary });
+
+    built.bridge.stop();
   }
 
   const pass = checks.every((c) => c.pass);

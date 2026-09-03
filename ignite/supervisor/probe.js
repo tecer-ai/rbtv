@@ -56,7 +56,21 @@ function probeGoal(goal, pathOverride) {
   return out;
 }
 
-module.exports = { probeSitting, probeGoal };
+// Every row, across every GOAL, answered alive the same way `probeGoal` answers one goal's — for
+// the one consumer that must tell two goals' SAME-NAMED seats apart (`launch.py`'s N2 cross-goal
+// disclosure [d-ask10-build-the-replacement]): `probeGoal`'s `{seat: ...}` shape is keyed on the
+// seat name ALONE and a same-named seat in a second goal would silently overwrite the first row.
+// Returns a LIST, never a dict, for exactly that reason.
+function probeAll(pathOverride) {
+  return rowsFor('', pathOverride).map((row) => ({
+    goal: row.goal || '',
+    seat: row.seat,
+    supervised: row.supervision === SUPERVISED,
+    alive: isRowAlive(row),
+  }));
+}
+
+module.exports = { probeSitting, probeGoal, probeAll };
 
 // The JSON door for team-kit's python (`coord/liveness.py`). Deliberately this file's own main
 // rather than a second op on `supervisor/cli.js`: that CLI opens the ENDING STORE for the ops that
@@ -71,8 +85,12 @@ if (require.main === module) {
   const file = flag('registry') || process.env.SUPERVISOR_REGISTRY || null;
   const goal = flag('goal') || '';
   const seat = flag('seat');
+  const all = argv.includes('--all');
   try {
-    const answer = seat ? probeSitting({ goal, seat }, file) : probeGoal(goal, file);
+    // `--all` wins over `--seat`/`--goal`: it is the one flag with no per-goal reading to fall
+    // back to, so treating it as an ordinary modifier would silently ignore it on any call that
+    // also carried a goal.
+    const answer = all ? probeAll(file) : (seat ? probeSitting({ goal, seat }, file) : probeGoal(goal, file));
     process.stdout.write(`${JSON.stringify(answer)}\n`);
   } catch (err) {
     process.stderr.write(`${err.message}\n`);

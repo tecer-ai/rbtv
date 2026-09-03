@@ -93,20 +93,65 @@ def _names(value, *, field):
 
 
 def _credential_names(value):
-    names = _names(value, field="credentialNames")
-    if names is None:
+    """`credentialNames` entries are a bare env-var-name string (unchanged) OR the typed account
+    shape `{"type": "gtools-account", "account": "<name>"}` (`d-credential-account-shape`,
+    `d-ask17-credential-token-broker`, `d-hold5-wire-the-broker`) — a gtools OAuth account the
+    admission-time broker check (`envelope/credentials.js#isAccountCredentialEntry`,
+    `#resolveAccountCredentials`) resolves against `gtools/credentials/<account>/`, never `.env`.
+    Kept in lockstep with that reader — the ONE other place this shape is interpreted — rather
+    than a second, independently-evolving schema.
+    """
+    if value is None:
         return None
-    seen = set()
-    for name in names:
-        if not CREDENTIAL_NAME_RE.match(name):
-            raise PlanEnvelopeRefusal(
-                "bad-credential-name",
-                f"{name!r} is not an env-var name ([A-Za-z_][A-Za-z0-9_]*)",
-            )
-        if name in seen:
-            raise PlanEnvelopeRefusal("bad-credential-name", f"{name} is duplicated")
-        seen.add(name)
-    return names
+    if not isinstance(value, (list, tuple)):
+        raise PlanEnvelopeRefusal(
+            "bad-fillins",
+            f"credentialNames must be a JSON array, not {type(value).__name__}",
+        )
+    out = []
+    seen_names = set()
+    seen_accounts = set()
+    for item in value:
+        if isinstance(item, str):
+            if not item.strip():
+                raise PlanEnvelopeRefusal(
+                    "bad-fillins",
+                    f"credentialNames entries must be non-empty strings, got {item!r}",
+                )
+            if not CREDENTIAL_NAME_RE.match(item):
+                raise PlanEnvelopeRefusal(
+                    "bad-credential-name",
+                    f"{item!r} is not an env-var name ([A-Za-z_][A-Za-z0-9_]*)",
+                )
+            if item in seen_names:
+                raise PlanEnvelopeRefusal("bad-credential-name", f"{item} is duplicated")
+            seen_names.add(item)
+            out.append(item)
+            continue
+        if isinstance(item, dict) and item.get("type") == "gtools-account":
+            account = item.get("account")
+            if not isinstance(account, str) or not account.strip():
+                raise PlanEnvelopeRefusal(
+                    "bad-credential-name",
+                    f"gtools-account entry needs a non-empty account, got {item!r}",
+                )
+            unknown = [k for k in item if k not in ("type", "account")]
+            if unknown:
+                raise PlanEnvelopeRefusal(
+                    "bad-fillins",
+                    f"credentialNames gtools-account entry has unknown keys {unknown}",
+                )
+            if account in seen_accounts:
+                raise PlanEnvelopeRefusal("bad-credential-name", f"gtools-account:{account} is duplicated")
+            seen_accounts.add(account)
+            out.append({"type": "gtools-account", "account": account})
+            continue
+        raise PlanEnvelopeRefusal(
+            "bad-fillins",
+            "credentialNames entries must be a non-empty string or "
+            f"{{'type':'gtools-account','account':<name>}}, got {item!r}",
+        )
+    return out
 
 
 def _extra_paths(value):

@@ -10,6 +10,11 @@ const NACK_MECHANICAL = "couldn't parse pause/resume. Use `pause {goal}` or `res
 // mislead the owner about what this thread will accept.
 const NACK_RECOVERY = "couldn't parse that reply. First word must be one of: retry-with-change, drop-lane, pause-goal. Comments go after that word. Reply again.";
 
+// The close-or-keep ladder's own NACK [`d-recovery-last-lane-asks`] — same reason `NACK_RECOVERY`
+// exists: a disposition thread's reply is ALWAYS exactly one of the two ruled options, and the
+// ask/approval/recovery NACKs above name vocabularies that do not apply here.
+const NACK_DISPOSITION = "couldn't parse that reply. First word must be one of: close, keep. Comments go after that word. Reply again.";
+
 // Verbatim [T1-R8, D-2-ruling] — the SAME three words `supervisor/exhaustion.js#ASK_OPTIONS` opens
 // the ask with. `chat/` may not `require()` that module [`probes/probe-chat-boundary.js`], so this
 // is a second, hand-kept copy of the same closed vocabulary — the same shape `approval-thread.js`'s
@@ -18,6 +23,15 @@ const RECOVERY_TOKENS = [
   { outcome: 'retry-with-change', pattern: 'retry with change' },
   { outcome: 'drop-lane', pattern: 'drop lane' },
   { outcome: 'pause-goal', pattern: 'pause goal' },
+].sort((a, b) => b.pattern.length - a.pattern.length);
+
+// Verbatim [`d-recovery-last-lane-asks`] — the SAME two words `supervisor/last-lane-ask.js#
+// DISPOSITION_OPTIONS` opens the ask with. `chat/` may not `require()` that module
+// [`probes/probe-chat-boundary.js`], so this is a second, hand-kept copy of the same closed
+// vocabulary — the same shape `RECOVERY_TOKENS` above already carries, for the same reason.
+const DISPOSITION_TOKENS = [
+  { outcome: 'close', pattern: 'close' },
+  { outcome: 'keep', pattern: 'keep' },
 ].sort((a, b) => b.pattern.length - a.pattern.length);
 
 const FINDINGS_OUTCOMES = new Set(['reject-and-retry', 'retry with:']);
@@ -43,6 +57,10 @@ function nackMechanical() {
 
 function nackRecovery() {
   return { ok: false, nack: NACK_RECOVERY, nackKind: 'recovery' };
+}
+
+function nackDisposition() {
+  return { ok: false, nack: NACK_DISPOSITION, nackKind: 'disposition' };
 }
 
 function skipWs(line, i) {
@@ -134,12 +152,20 @@ function parseMechanical(verb, firstLine, end, following, opts) {
   };
 }
 
+// The NACK for a text this early a guard cannot even reach a token on — same three-way fork the
+// kind-gated branches below make once they DO reach one.
+function nackForKind(kind) {
+  if (kind === 'recovery') return nackRecovery();
+  if (kind === 'goal-disposition') return nackDisposition();
+  return nackAsk();
+}
+
 function parseReply(text, opts = {}) {
-  if (typeof text !== 'string') return opts.kind === 'recovery' ? nackRecovery() : nackAsk();
+  if (typeof text !== 'string') return nackForKind(opts.kind);
   const lines = text.split(/\r?\n/);
   let idx = 0;
   while (idx < lines.length && lines[idx].trim() === '') idx += 1;
-  if (idx >= lines.length) return opts.kind === 'recovery' ? nackRecovery() : nackAsk();
+  if (idx >= lines.length) return nackForKind(opts.kind);
   const first = lines[idx];
   const following = lines.slice(idx + 1);
 
@@ -158,6 +184,22 @@ function parseReply(text, opts = {}) {
       };
     }
     return nackRecovery();
+  }
+
+  // A DISPOSITION THREAD PARSES ONLY close/keep, NEVER THE OTHERS [`d-recovery-last-lane-asks`] —
+  // same isolation reason `kind: 'recovery'` states immediately above, for its own ladder. `close`
+  // would otherwise collide with `APPROVAL_TOKENS`' own `close` outcome below; routing by `kind`
+  // (never by the token) is what keeps the two apart.
+  if (opts.kind === 'goal-disposition') {
+    for (const tok of DISPOSITION_TOKENS) {
+      const end = matchPattern(first, tok.pattern);
+      if (end == null) continue;
+      const comments = commentsOf(first, end, following);
+      return {
+        ok: true, outcome: tok.outcome, comments, family: 'disposition', findings: null, goal: null,
+      };
+    }
+    return nackDisposition();
   }
 
   let best = null;
@@ -202,5 +244,5 @@ function parseReply(text, opts = {}) {
 }
 
 module.exports = {
-  parseReply, NACK_ASK, NACK_MECHANICAL, NACK_RECOVERY,
+  parseReply, NACK_ASK, NACK_MECHANICAL, NACK_RECOVERY, NACK_DISPOSITION,
 };

@@ -2,3 +2,5 @@
 2026-08-26 · creation · The leader's ruling acts: accept, instruct, send --record · Three verbs' worth of behaviour in ONE new split module, `coord/ruling.py`, registered in · d7841291 · supervisor,meta-leader · ⚠
 2026-08-31 · creation · Seat crash-loop alarm on repeated pre-checkin deaths · ≥2 pre-checkin deaths in 3600s raise one seat-crash-loop JSON+stderr · abb899e8 · supervisor · ⚠
 2026-08-31 · creation · Overlapping-sittings probe pins the retired SKEW class · A probe, and no code change — the two fixes already exist and both are load-bearing elsewhere, so · a4de64d8 · supervisor,state-store · ⚠
+2026-09-02 · creation · pin daemon-skip surface for RS-4b (RS-4 unamended) · No new mechanism — the daemon-skip surface itself was already built and shipped in `f6c5a808`; this · 57706361f02c9e13a0d79121d8b0b0f34db46197 · supervisor · ⚠
+2026-09-02 · creation · memory commit gains --component pathspec scoping · `--component` (repeatable) narrows the `git status`/`add`/`commit` pathspec from the whole memory · da218a765d227534c8f330729908fd4c11db6d04 · work-on-ignite · ⚠

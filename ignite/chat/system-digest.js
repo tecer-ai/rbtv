@@ -104,26 +104,23 @@ function joinRow(fields) {
   return `• ${fields.filter((f) => f != null && String(f) !== '').join(' · ')}`;
 }
 
-// The goal leads so the owner can tell which goal an ask belongs to without opening it, and it IS
-// the tap target when `ask.link` is set (`<link|*goal*>`) — no separate "open" cell. `ask.goal` is
-// absent on no row today (`ask-record.js#listOpenAsks` / `exhaustion.js#listOpenGroupedAsks` both
-// carry it), but a row is never left anonymous: with no goal, the id fills the lead position
-// instead. The id otherwise renders once more, at the row's end, as the doc-quiet identifier the
-// owner never needs but the daemon still keys work on. A link-less row keeps its own
-// `evidence_pointer` inline (after age) since there is no tap target to reach it through.
+// R-A2 (`digest-sentence`): one plain sentence per open ask, the goal name itself as the tap
+// target — no LANE, no seat token, no `ref` id in the visible line. The goal leads so the owner
+// can tell whose ask this is without opening it; `ask.goal` is absent on no row today
+// (`ask-record.js#listOpenAsks` / `exhaustion.js#listOpenGroupedAsks` both carry it), but a row is
+// never left anonymous: with no goal, the thread-id suffix fills the lead position instead — the
+// one unavoidable fallback, never rendered when a goal name is available. `subject` is the
+// composer-authored plain sentence (`ask-shape`'s new field on the `listOpenAsks` row); its
+// absence (empty string on a pre-existing row, per the interface contract) falls back to
+// `one_liner`, the machine text this row used to be built from entirely.
 function renderAskRow(ask, nowMs) {
   const hasGoal = ask.goal != null && String(ask.goal) !== '';
   const idSuffix = displaySuffix(ask.id);
-  const leadText = hasGoal ? `*${ask.goal}*` : idSuffix;
+  const leadText = hasGoal ? String(ask.goal) : idSuffix;
   const lead = ask.link ? `<${ask.link}|${leadText}>` : leadText;
-  return joinRow([
-    lead,
-    ask.seat,
-    ask.one_liner,
-    renderAge(toMs(ask.opened_at), nowMs),
-    ask.link ? null : ask.evidence_pointer,
-    hasGoal ? idSuffix : null,
-  ]);
+  const sentence = ask.subject || ask.one_liner || '';
+  const age = renderAge(toMs(ask.opened_at), nowMs);
+  return `• ${lead} — ${sentence}${age ? ` · waiting ${age}` : ''}`;
 }
 
 // `d-ask15-blocking-asks-first`: a seat that stopped and is WAITING on the owner must read above a
@@ -163,10 +160,16 @@ function sortAsksBlockingFirst(asks) {
 
 // §5's snapshot, and ONLY §5's snapshot. Sorted so a reader returning the same set in a different
 // order is not mistaken for a change.
+//
+// ⚠ `digest-sentence`: the text input is `subject || one_liner`, matching what the row now
+// renders (`renderAskRow`) — a pre-existing ask carries `subject: ''` (the interface contract's
+// own fallback), so its snapshot text is unchanged until a composer gives it a real subject. Link,
+// age and goal name stay OUT of the snapshot on purpose (the standing trap this module's header
+// comment states): none of those three may retrigger a post on their own.
 function snapshotOf(asks, conditions) {
   return JSON.stringify({
     asks: asks
-      .map((a) => [String(a.id), String(a.one_liner == null ? '' : a.one_liner)])
+      .map((a) => [String(a.id), String((a.subject || a.one_liner) == null ? '' : (a.subject || a.one_liner))])
       .sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0)),
     conditions: conditions.map((c) => String(c.signature)).sort(),
   });
@@ -175,10 +178,11 @@ function snapshotOf(asks, conditions) {
 function renderDigest({ at, asks, conditions, nowMs }) {
   const lines = [`*System digest · ${slotLabel(at)}*`];
 
-  lines.push('', '❓ open asks');
+  lines.push('');
   if (asks.length === 0) {
-    lines.push('• none open');
+    lines.push('Nothing is waiting on you.');
   } else {
+    lines.push(`Waiting on you (${asks.length}):`);
     for (const ask of sortAsksBlockingFirst(asks)) {
       lines.push(renderAskRow(ask, nowMs));
     }

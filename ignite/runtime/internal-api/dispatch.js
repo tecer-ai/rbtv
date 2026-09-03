@@ -38,6 +38,10 @@ const { recordBusAnswer } = require('../../chat/bus-answer');
 // as `recordBusAnswer` above: a stateless call, not a manager holding processes.
 const { recordOwnerAsk, listOpenAsks } = require('../../state-store/heart/ask-record');
 const { listOpenGroupedAsks, listUnpostedLanes, markLanePosted } = require('../../supervisor/exhaustion');
+// The close-or-keep ask's own posting bookkeeping (`d-recovery-last-lane-asks`) — the disposition
+// record's shape (one row per GOAL) differs from the recovery ladder's grouped-by-signature lanes,
+// so it keeps its own reader/marker pair rather than overloading `exhaustion.js`'s lane-shaped ones.
+const { listUnpostedDispositions, markDispositionPosted } = require('../../supervisor/last-lane-ask');
 // The `start-execution` act (owner ruling 2026-08-24, option (b)). Required for the same reason as
 // its two siblings above: a stateless call, not a manager holding processes.
 const { startExecution } = require('../../state-store/heart/start-execution');
@@ -49,6 +53,9 @@ const { pauseResume } = require('../../state-store/heart/pause-resume');
 // for the same reason as its four siblings above: a stateless call, not a manager holding
 // processes.
 const { dropLane } = require('../../state-store/heart/drop-lane');
+// The `close-goal` act (owner ruling `d-goal-closed-word`, 2026-09-01). Required for the same
+// reason as its five siblings above: a stateless call, not a manager holding processes.
+const { closeGoal } = require('../../state-store/heart/close-goal');
 const { applySecretAdd } = require('./secret-add');
 // The ONE alarm emitter's own reader [T4-R10]. Required here for `readOpenConditions` and for
 // NOTHING else: the daemon's status read never composes an alarm, and the instance built below is
@@ -147,11 +154,15 @@ const ENVELOPE_VERSION = 1;
 // thirteenth and fourteenth: the bridge validates nothing it cannot see, this handler validates and
 // authorizes, and `state-store/heart/pause-resume.js` performs the act. The ENVELOPE VERSION IS
 // UNCHANGED and no existing intent's payload semantics move.
+// `close-goal` is the SEVENTEENTH intent (owner ruling `d-goal-closed-word`, 2026-09-01): the
+// owner's `close` reply to the close-or-keep ask, reaching the ending store's fourth terminal word.
+// Same division as `pause-resume`/`drop-lane`: the bridge validates nothing it cannot see, this
+// handler validates and authorizes, `state-store/heart/close-goal.js` performs the act.
 const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
   'kill-session', 'register-job', 'deregister-job', 'live-feed', 'send-message',
   'record-bus-answer', 'secret-add', 'record-owner-ask', 'start-execution',
-  'pause-resume', 'drop-lane',
+  'pause-resume', 'drop-lane', 'close-goal',
 ]);
 
 // The goal/seat name shape, re-checked at the core independently of the gateway's copy
@@ -205,7 +216,10 @@ const REQUIRED_ENVELOPE_KEYS = ['v', 'id', 'ts', 'sender', 'intent', 'payload'];
 // find what still needs a thread. Same ce-5/D3 reason as `asks`: a read-only query extends
 // `inspect`, never mints a sixteenth intent. The bridge holds no store and no sibling reach into
 // `supervisor/`, so this is the ONLY way it can learn a lane exists.
-const INSPECT_TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker', 'messages', 'executions', 'asks', 'recovery-lanes']);
+// ⚑ `disposition-asks` ADDED (`d-recovery-last-lane-asks`, `disposition-post` seat) — the SAME
+// shape as `recovery-lanes`, for the close-or-keep ask `supervisor/last-lane-ask.js` mints: the
+// UNPOSTED half, for `chat/disposition-poster.js` to find what still needs a thread.
+const INSPECT_TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker', 'messages', 'executions', 'asks', 'recovery-lanes', 'disposition-asks']);
 // The closed jobs_log.status enum (schema.sql:65-66), re-validated at the core independently of
 // gateway origin — the defense-in-depth posture probe-snooze already proves for `minutes`. Task
 // 7.46 SPLITS this enum into session-level and turn-level states; probe-inspect-executions.js
@@ -1014,6 +1028,13 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     if (target === 'recovery-lanes') {
       return { target, rows: listUnpostedLanes(workspaceRoot) };
     }
+    // disposition-asks: every close-or-keep ask (`supervisor/last-lane-ask.js`) not yet posted as
+    // its own Slack thread — `chat/disposition-poster.js`'s only read. Same shape as
+    // `recovery-lanes` immediately above; a different reader because the record shape differs
+    // (one row per GOAL, not grouped-by-signature lanes).
+    if (target === 'disposition-asks') {
+      return { target, rows: listUnpostedDispositions(workspaceRoot) };
+    }
     if (target === 'daemon') return handleInspectDaemon();
     if (target === 'ticker') return handleInspectTicker();
 
@@ -1555,8 +1576,11 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     if (payload.act !== 'open' && payload.act !== 'reap') {
       throw new InternalApiError(VALIDATION_FAILED, "record-owner-ask act must be 'open' or 'reap'", { check: 'strict-schema', field: 'act' });
     }
+    // `kind`/`subject`/`options` (`d-owner-ask-shape`, R-A3/R-A5) are OPEN-only, exactly like
+    // `corpus`/`label` above them — the gateway's `parseRecordOwnerAsk` carries the same closed
+    // set; this is the core's independent DEC-3 re-validation, not the only check.
     const allowed = payload.act === 'open'
-      ? ['act', 'goal', 'seat', 'thread', 'corpus', 'label']
+      ? ['act', 'goal', 'seat', 'thread', 'corpus', 'label', 'kind', 'subject', 'options']
       : ['act', 'goal', 'seat', 'thread'];
     for (const key of Object.keys(payload)) {
       if (!allowed.includes(key)) {
@@ -1573,6 +1597,15 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     }
     if (payload.label !== undefined && payload.label !== 'work-content' && payload.label !== 'recovery') {
       throw new InternalApiError(VALIDATION_FAILED, "record-owner-ask label must be 'work-content' or 'recovery'", { check: 'label-shape', field: 'label' });
+    }
+    if (payload.kind !== undefined && typeof payload.kind !== 'string') {
+      throw new InternalApiError(VALIDATION_FAILED, 'record-owner-ask kind must be a string', { check: 'kind-shape', field: 'kind' });
+    }
+    if (payload.subject !== undefined && typeof payload.subject !== 'string') {
+      throw new InternalApiError(VALIDATION_FAILED, 'record-owner-ask subject must be a string', { check: 'subject-shape', field: 'subject' });
+    }
+    if (payload.options !== undefined && payload.options !== null && !Array.isArray(payload.options)) {
+      throw new InternalApiError(VALIDATION_FAILED, 'record-owner-ask options must be an array or null', { check: 'options-shape', field: 'options' });
     }
 
     const decision = authz.canRecordOwnerAsk({ sender });
@@ -1591,6 +1624,9 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       thread: payload.thread,
       corpus: payload.corpus,
       label: payload.label || 'work-content',
+      kind: payload.kind,
+      subject: payload.subject,
+      options: payload.options,
     });
     if (!out.recorded) {
       // A REFUSAL AS DATA, not a throw — `handleRecordBusAnswer`'s reason, unchanged: the owner's
@@ -1619,6 +1655,17 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       } catch (err) {
         log('warn', 'recovery lane posted but its file record could not be stamped — it may render twice in the digest', {
           goal: payload.goal, seat: payload.seat, askId: out.ask_id, error: err.message,
+        });
+      }
+      // A NEWLY-POSTED close-or-keep ask stamps its OWN record the same way — harmless no-op for
+      // an ordinary recovery lane (no disposition record exists for that goal, so this returns
+      // `{marked:false}` and stamps nothing; `markLanePosted` above is the mirror-image no-op for a
+      // disposition record, which never carries a `.lanes` array).
+      try {
+        markDispositionPosted(workspaceRoot, { goal: payload.goal }, { askId: out.ask_id });
+      } catch (err) {
+        log('warn', 'disposition ask posted but its file record could not be stamped — it may render twice in the digest', {
+          goal: payload.goal, askId: out.ask_id, error: err.message,
         });
       }
     }
@@ -1867,6 +1914,57 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     return { goal: out.goal, seat: out.seat, idempotent: out.idempotent === true, stopped: out.stoppedExecId != null };
   }
 
+  // `close-goal` (owner ruling `d-goal-closed-word`, 2026-09-01): the SEVENTEENTH intent. Stamps
+  // ONE goal `closed` — terminal, owner-decided, never read as success (`d-recovery-last-lane-
+  // asks`). No live work to stop (unlike `drop-lane`, this is a goal-level word, not a lane): the
+  // handler validates, authorizes, and hands off to `closeGoal` alone.
+  async function handleCloseGoal(payload, sender) {
+    for (const key of Object.keys(payload)) {
+      if (!['goal', 'ask_id'].includes(key)) {
+        throw new InternalApiError(VALIDATION_FAILED, `unknown payload field: ${key}`, { check: 'strict-schema', field: key });
+      }
+    }
+    if (typeof payload.goal !== 'string' || !BUS_NAME_RE.test(payload.goal)) {
+      throw new InternalApiError(VALIDATION_FAILED, 'close-goal goal must be a bare name (no path separators, no "..", no control characters)', { check: 'name-shape', field: 'goal' });
+    }
+    if (payload.ask_id !== undefined && (typeof payload.ask_id !== 'string' || payload.ask_id.trim().length === 0)) {
+      throw new InternalApiError(VALIDATION_FAILED, 'close-goal ask_id must be a non-empty string when present', { check: 'ask-id-shape', field: 'ask_id' });
+    }
+
+    // AUTHORIZATION, same shape as `pause-resume`/`drop-lane` (DEC-3: gateway origin is not trust).
+    const decision = authz.canCloseGoal({ sender });
+    if (!decision.allowed) {
+      throw new InternalApiError(UNAUTHORIZED_SENDER, decision.reason, { check: 'authorization' });
+    }
+    if (!workspaceRoot) {
+      throw new InternalApiError(INTERNAL, 'this daemon has no workspace root, so it can reach no goal folder', { check: 'workspace-root' });
+    }
+
+    const out = await closeGoal({ workspaceRoot, goal: payload.goal, askId: payload.ask_id });
+    if (!out.found) {
+      log('info', 'the owner\'s close-goal was REFUSED — no live goal by that name', {
+        goal: payload.goal, reason: out.reason, senderId: sender && sender.id,
+      });
+      throw new InternalApiError(NOT_FOUND, `no live goal named ${payload.goal} — ${out.detail}`, { check: 'live-goal-roster', goal: payload.goal });
+    }
+    if (out.refused) {
+      log('info', 'close-goal: refused — the goal is already finished', {
+        goal: payload.goal, reason: out.reason, senderId: sender && sender.id,
+      });
+      throw new InternalApiError(VALIDATION_FAILED, out.detail, { check: 'already-finished', goal: payload.goal });
+    }
+    if (out.markFailed) {
+      log('warn', 'close-goal: the store write failed — the goal was NOT closed', {
+        goal: payload.goal, error: out.markError, senderId: sender && sender.id,
+      });
+      throw new InternalApiError(INTERNAL, `the goal was NOT closed: ${out.markError}`, { check: 'mark-failed', goal: payload.goal });
+    }
+    log('info', 'a goal was stamped closed — given up on, not a success', {
+      goal: payload.goal, idempotent: out.idempotent, senderId: sender && sender.id,
+    });
+    return { goal: out.goal, idempotent: out.idempotent === true, state: out.state };
+  }
+
   function handleSecretAdd(payload, sender) {
     for (const key of Object.keys(payload)) {
       if (!['name', 'from_file'].includes(key)) {
@@ -2061,6 +2159,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         case 'start-execution': result = handleStartExecution(env.payload, env.sender); break;
         case 'pause-resume': result = handlePauseResume(env.payload, env.sender); break;
         case 'drop-lane': result = await handleDropLane(env.payload, env.sender); break;
+        case 'close-goal': result = await handleCloseGoal(env.payload, env.sender); break;
         case 'secret-add': result = handleSecretAdd(env.payload, env.sender); break;
       }
 
