@@ -12,7 +12,7 @@
 // the same flags against the same CSV always yield the same verdict.
 //
 // Two inputs, deliberately split by who edits them:
-//   models.csv   the ROUTING axes (level, scores, cost, web, image) — owner-editable data.
+//   models.csv   the ROUTING axes (level, scores, cost, image) — owner-editable data.
 //   catalog.js   the LAUNCH mechanics (harness-native id, effort ladder, auth) — code.
 // Route JOINS them on harness+model. A CSV row with no catalog twin is EXCLUDED with a loud stderr
 // warning: route must never answer with something cast cannot launch.
@@ -24,7 +24,7 @@ const { ROWS } = require('../catalog');
 
 const { fail } = require('./core');
 
-const ROUTE_USAGE = 'cast route --access open|bounded --type code|text --class planner|broad|bounded|mechanical [--optimize price|quality] [--caps web[,image]] [--explain]';
+const ROUTE_USAGE = 'cast route --access open|bounded --type code|text --class planner|broad|bounded|mechanical [--optimize price|quality] [--caps image] [--explain]';
 // The forms that ask nothing as flags. Kept OUT of ROUTE_USAGE so the top-level `cast -h` stays
 // one line per verb; the route help page and every refusal print all of them.
 const ROUTE_FORMS = ['cast route --caps image          # short-circuit, no other flags',
@@ -50,7 +50,7 @@ const CSV_LOCAL = path.join(__dirname, '..', '..', '..', '..', 'ignite', 'superv
 // an override nobody can find is an override nobody has.
 const CSV_OVERRIDE_REL = path.join('.rbtv', 'config', 'modules', 'core', 'sub-agents', CSV_NAME);
 
-const COLUMNS = ['mode', 'harness', 'model', 'efforts', 'image', 'web', 'level',
+const COLUMNS = ['mode', 'harness', 'model', 'efforts', 'image', 'level',
   'reasoning', 'coding', 'cost', 'use', 'quality-override', 'price-override'];
 
 // Level vocabulary: SOTA > L1 > L2 > L3, plus L4 — the image tier, which NO class admits, so an
@@ -77,7 +77,7 @@ const OPTIMIZE = ['price', 'quality'];
 // levels remain the only thing standing between a job and the cheapest model on the roster.
 // Consequence to keep in view: `price-override` fires in the default, `quality-override` does not.
 const DEFAULT_OPTIMIZE = 'default';
-const CAPS = ['web', 'image'];
+const CAPS = ['image'];
 
 // The `use` column (owner ruling 2026-08-22) — WHO may see a row:
 //   route  the normal state; the row competes for `cast route` verdicts. A BLANK cell reads as
@@ -228,7 +228,6 @@ function joinCatalog(csvRows, warnings) {
       mode: spec.mode,
       level: c.level,
       image: c.image === 'Y',
-      web: c.web === 'Y',
       efforts: num(c.efforts),
       reasoning: num(c.reasoning),
       coding: num(c.coding),
@@ -340,7 +339,7 @@ function verdictFor(ranked, effort, isFloor) {
   };
 }
 
-// The pipeline, in the spec's order: availability -> image short-circuit -> access -> caps ->
+// The pipeline, in the spec's order: availability -> image short-circuit -> access ->
 // class levels -> optimize -> effort. Every filter records why each row left.
 function selectRoute(req, joined, root, cfg, trace) {
   if (!joined.length) {
@@ -389,14 +388,6 @@ function selectRoute(req, joined, root, cfg, trace) {
     rows = rows.filter((r) => {
       if (r.mode !== 'api') return true;
       drop(trace, 'access', r, 'access=open needs a worker that can roam a disk; an api worker cannot');
-      return false;
-    });
-  }
-
-  if (req.caps.has('web')) {
-    rows = rows.filter((r) => {
-      if (r.web) return true;
-      drop(trace, 'caps', r, 'caps=web but models.csv says web=N');
       return false;
     });
   }
@@ -491,7 +482,7 @@ function validateRequest(req) {
     else if (!allowed.includes(value)) errors.push(`${flag} must be one of ${allowed.join(' | ')}, got '${value}'`);
   };
   for (const c of req.caps) {
-    if (!CAPS.includes(c)) errors.push(`--caps must be one of ${CAPS.join(' | ')} (comma-separated), got '${c}'`);
+    if (!CAPS.includes(c)) errors.push(`--caps must be one of ${CAPS.join(' | ')}, got '${c}'`);
   }
   if (req.caps.has('image')) {
     // Short-circuit: the other flags are optional here, but a value typed WRONG is still an error.

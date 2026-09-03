@@ -21,12 +21,12 @@ const CONFIG = loadRecoveryConfig({ file: path.join(__dirname, 'recovery.default
 // A two-row fixture table: the lane's own pin plus exactly TWO eligible alternates, so "one pass"
 // is countable and a second pass is visible as a third reroute that must never happen.
 const FIXTURE_TABLE = [
-  'mode,harness,model,efforts,image,web,level,reasoning,coding,cost,use,quality-override,price-override',
-  'cli,opencode,pinned-model,3,N,N,L1,6,6,6,route,N,N',
-  'cli,claude,alt-one,5,N,Y,L1,6,6,25,route,N,N',
-  'cli,codex,alt-two,5,N,Y,L2,4,4,20,route,N,N',
-  'cli,opencode,panel-only,3,N,N,L2,4,4,15,panel,N,N',
-  'api,anthropic,not-launchable,3,N,N,L1,6,6,6,route,N,N',
+  'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override',
+  'cli,opencode,pinned-model,3,N,L1,6,6,6,route,N,N',
+  'cli,claude,alt-one,5,N,L1,6,6,25,route,N,N',
+  'cli,codex,alt-two,5,N,L2,4,4,20,route,N,N',
+  'cli,opencode,panel-only,3,N,L2,4,4,15,panel,N,N',
+  'api,anthropic,not-launchable,3,N,L1,6,6,6,route,N,N',
   '',
 ].join('\n');
 

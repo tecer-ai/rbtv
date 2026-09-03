@@ -18,7 +18,7 @@ tool/cast.js seat [launch-folder] [-p TEXT | -f FILE] [--headed] [--dry-run]
 tool/cast.js resume <harness> <session-id|last> [launch-folder] (-p TEXT | -f FILE) [--dry-run]
 tool/cast.js sessions [harness] [launch-folder] [--json] [-n N]
 tool/cast.js api <model> <effort 1-5> (-p TEXT | -f FILE) --output-folder DIR [--image] [--target-file PATH] [--timeout N] [--grounded] [--extra-params JSON] [--dry-run]
-tool/cast.js route --access open|bounded --type code|text --class planner|broad|bounded|mechanical --optimize price|quality [--caps web[,image]] [--explain]
+tool/cast.js route --access open|bounded --type code|text --class planner|broad|bounded|mechanical --optimize price|quality [--caps image] [--explain]
 tool/cast.js route --caps image
 tool/cast.js route --batch <seats.json | -> [--explain]
 tool/cast.js route --catalog [--json]
@@ -189,7 +189,7 @@ clause, footprint/window gating and evidence ranking.
 
 ```
 cast route --access open|bounded --type code|text \
-           --class planner|broad|bounded|mechanical [--optimize price|quality] [--caps web[,image]] [--explain]
+           --class planner|broad|bounded|mechanical [--optimize price|quality] [--caps image] [--explain]
 cast route --caps image        # short-circuit — no other flag needed
 cast route --batch seats.json  # a whole team in one call; `--batch -` reads stdin
 cast route --catalog [--json]  # the roster, asks nothing
@@ -206,7 +206,7 @@ default is `--optimize` (owner ruling 2026-08-22): omitted, it is **price**, for
 | `--type` | Code, or prose/analysis? | Picks the tie-break axis (`coding` vs `reasoning`). **Planning is TEXT**, even for a coding job. |
 | `--class` | How bounded is the work? | Picks BOTH the eligible levels and the effort (table below). |
 | `--optimize` | Cheapest that qualifies, or best that qualifies? (optional) | The selection rule among survivors. Omitted → price, identical to passing `--optimize price`. |
-| `--caps` | A specific capability? (comma-separated, optional) | `web` drops every `web=N` row. `image` SHORT-CIRCUITS to the L4 image row and skips every other question. |
+| `--caps` | A specific capability? (optional) | `image` SHORT-CIRCUITS to the L4 image row and skips every other question. |
 
 | `--class` | Eligible levels | Effort (code / text) |
 |---|---|---|
@@ -288,7 +288,7 @@ on `harness`+`model`, and a CSV row with no `catalog.js` twin is excluded with a
 warning: route must never name something cast cannot launch.
 
 Columns: `mode` (cli|api) · `harness` · `model` · `efforts` (max N, 0 = inert) · `image` (Y/N) ·
-`web` (Y/N) · `level` (SOTA|L1|L2|L3|L4) · `reasoning` (1-7) · `coding` (1-7) · `cost` ($ per M
+`level` (SOTA|L1|L2|L3|L4) · `reasoning` (1-7) · `coding` (1-7) · `cost` ($ per M
 output tokens, **public API list price** — comparable and stable, never the personal
 subscription-effective cost) · `use` (route|panel|off) · `quality-override` (Y/N) ·
 `price-override` (Y/N).
@@ -385,7 +385,7 @@ every stdout surface is byte-identical across the split (163-invocation corpus, 
 |---|---|
 | `tool/cast.js` | the CLI front door — argv dispatch and the bare launch path, nothing else |
 | `tool/catalog.js` | LAUNCH mechanics only — harness-native id, effort ladder, auth (see Spec source) |
-| `ignite/supervisor/models.csv` | the SHARED ROUTING TABLE — level, scores, cost, web, image. Owner-editable; overridable per vault. Moved out of `tool/` 2026-08-25 [spec-recovery §3]: the ignite daemon's provider-lane reroute reads the same rows |
+| `ignite/supervisor/models.csv` | the SHARED ROUTING TABLE — level, scores, cost, image. Owner-editable; overridable per vault. Moved out of `tool/` 2026-08-25 [spec-recovery §3]: the ignite daemon's provider-lane reroute reads the same rows |
 | `tool/lib/core.js` | shared primitives: argv parsing, model/effort/folder resolution, the model table, `doctor`, `list` |
 | `tool/lib/handles.js` | the launch-handle registry — the one observable a watcher uses to find a run again |
 | `tool/lib/launch.js` | spawn, `cast seat`, `cast resume` |

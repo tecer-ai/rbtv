@@ -43,25 +43,25 @@ const ENV = {
 // by the validation arm, which passes __dirname explicitly.
 //
 // The table is built so each arm has ONE right answer and no tie, and so every axis has a
-// discriminating pair: web Y vs N, cli vs api, a blank cost, an image row, and one row (k3, on a
+// discriminating pair: cli vs api, a blank cost, an image row, and one row (k3, on a
 // kimi credential ENV does not fake) that must drop at availability.
 const FIXTURE = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-route-fixture-'));
 fs.writeFileSync(path.join(FIXTURE, 'rbtv.json'), '{"rbtv_version":"test"}\n');
 const FIXTURE_CSV = path.join(FIXTURE, '.rbtv', 'config', 'modules', 'core', 'sub-agents', 'models.csv');
 fs.mkdirSync(path.dirname(FIXTURE_CSV), { recursive: true });
 fs.writeFileSync(FIXTURE_CSV, [
-  'mode,harness,model,efforts,image,web,level,reasoning,coding,cost,use,quality-override,price-override',
-  'cli,claude,fable-5,5,N,Y,SOTA,7,7,50,route,N,N',
-  'cli,claude,opus-5,5,N,Y,L1,6,6,25,route,N,N',
-  'cli,codex,gpt-5.6-sol,5,N,Y,L1,5,5,20,route,N,N',
-  'cli,claude,sonnet-5,5,N,Y,L2,5,5,10,route,N,N',
-  'cli,codex,gpt-5.6-terra,5,N,N,L2,4,4,5,route,N,N',
-  'cli,opencode,k3,3,N,N,L2,5,5,15,route,N,N',
-  'cli,codex,gpt-5.6-luna,5,N,Y,L3,3,2,1.2,route,N,N',
-  'cli,opencode,deepseek-v4-pro,4,N,N,L3,3,3,3.96,route,N,N',
-  'cli,claude,haiku-4-5,0,N,Y,L3,3,3,,route,N,N',
-  'api,api,gemini-3.5-flash,0,N,Y,L3,3,3,9,route,N,N',
-  'cli,opencode,gemini-3.1-pro-preview,3,Y,N,L4,0,0,,route,N,N',
+  'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override',
+  'cli,claude,fable-5,5,N,SOTA,7,7,50,route,N,N',
+  'cli,claude,opus-5,5,N,L1,6,6,25,route,N,N',
+  'cli,codex,gpt-5.6-sol,5,N,L1,5,5,20,route,N,N',
+  'cli,claude,sonnet-5,5,N,L2,5,5,10,route,N,N',
+  'cli,codex,gpt-5.6-terra,5,N,L2,4,4,5,route,N,N',
+  'cli,opencode,k3,3,N,L2,5,5,15,route,N,N',
+  'cli,codex,gpt-5.6-luna,5,N,L3,3,2,1.2,route,N,N',
+  'cli,opencode,deepseek-v4-pro,4,N,L3,3,3,3.96,route,N,N',
+  'cli,claude,haiku-4-5,0,N,L3,3,3,,route,N,N',
+  'api,api,gemini-3.5-flash,0,N,L3,3,3,9,route,N,N',
+  'cli,opencode,gemini-3.1-pro-preview,3,Y,L4,0,0,,route,N,N',
   '',
 ].join('\n'));
 
@@ -194,16 +194,6 @@ const dropped = (v, stage) => (v.explain || [])
   assert.strictEqual(pair(open), 'claude/sonnet-5/cli', 'access=open must exclude every api row');
 }
 
-// --- --caps web drops every web=N row ----------------------------------------------------------
-{
-  const v = route(['--access', 'open', '--type', 'text', '--class', 'bounded', '--optimize', 'quality', '--caps', 'web', '--explain']);
-  assert.strictEqual(pair(v), 'claude/opus-5/cli');
-  const webDrops = dropped(v, 'caps');
-  assert.ok(webDrops.includes('codex/gpt-5.6-terra'), `web=N rows must drop at caps: ${JSON.stringify(webDrops)}`);
-  assert.ok(webDrops.includes('opencode/deepseek-v4-pro'), JSON.stringify(webDrops));
-  assert.ok(!webDrops.includes('claude/sonnet-5'), 'a web=Y row must NOT drop at caps');
-}
-
 // --- the verdict carries two backups ----------------------------------------------------------
 // class=bounded optimizing price ranks every L1+L2 row by cost; the head is the verdict, the next
 // two ride along as alternates in that same order, with no duplicate of the head.
@@ -220,7 +210,7 @@ const dropped = (v, stage) => (v.explain || [])
 
 // --- --caps image short-circuits everything -----------------------------------------------------
 // No other flag is needed, and no other question is asked: the image row is L4 (a level no class
-// admits) and web=N, yet it is what comes back. Effort is the nominal 1.
+// admits), yet it is what comes back. Effort is the nominal 1.
 {
   const v = route(['--caps', 'image']);
   assert.strictEqual(v._status, 0, `the image short-circuit must answer: ${JSON.stringify(v)}`);
@@ -235,8 +225,8 @@ const dropped = (v, stage) => (v.explain || [])
   const noImageCsv = path.join(noImage, '.rbtv', 'config', 'modules', 'core', 'sub-agents', 'models.csv');
   fs.mkdirSync(path.dirname(noImageCsv), { recursive: true });
   fs.writeFileSync(noImageCsv, [
-    'mode,harness,model,efforts,image,web,level,reasoning,coding,cost,use,quality-override,price-override',
-    'cli,claude,opus-5,5,N,Y,L1,6,6,25,route,N,N', ''].join('\n'));
+    'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override',
+    'cli,claude,opus-5,5,N,L1,6,6,25,route,N,N', ''].join('\n'));
   const none = route(['--caps', 'image'], noImage);
   assert.strictEqual(none.error, 'zero_candidates', JSON.stringify(none));
   assert.ok(/image=Y/.test(none.details), none.details);
@@ -268,16 +258,16 @@ const dropped = (v, stage) => (v.explain || [])
   const overrideDir = path.join(vault, '.rbtv', 'config', 'modules', 'core', 'sub-agents');
   fs.mkdirSync(overrideDir, { recursive: true });
   const overrideFile = path.join(overrideDir, 'models.csv');
-  // Two rows only, priced, and web is what separates them — so a wrong answer here cannot be the
+  // Two rows only, priced, and cost is what separates them — so a wrong answer here cannot be the
   // shipped CSV leaking through.
   fs.writeFileSync(overrideFile, [
-    'mode,harness,model,efforts,image,web,level,reasoning,coding,cost,use,quality-override,price-override',
-    'cli,claude,sonnet-5,5,N,N,L2,6,5,3,route,N,N',
-    'cli,claude,haiku-4-5,0,N,Y,L2,3,2,9,route,N,N',
+    'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override',
+    'cli,claude,sonnet-5,5,N,L2,6,5,3,route,N,N',
+    'cli,claude,haiku-4-5,0,N,L2,3,2,9,route,N,N',
     // A SHORT row on purpose: the three columns added 2026-08-22 are absent, which is what a CSV
     // written before them looks like. Missing cells must read as use=route with neither override.
-    'cli,claude,opus-5,5,N,N,L2,7,6,',
-    'cli,opencode,not-a-real-model,3,N,Y,L2,6,6,1,route,N,N',
+    'cli,claude,opus-5,5,N,L2,7,6,',
+    'cli,opencode,not-a-real-model,3,N,L2,6,6,1,route,N,N',
     '',
   ].join('\n'));
 
@@ -291,9 +281,6 @@ const dropped = (v, stage) => (v.explain || [])
     `blank-cost rows must drop AT THE OPTIMIZE STAGE with a reason: ${JSON.stringify(dropped(cheap, 'optimize'))}`);
   const best = route(['--access', 'bounded', '--type', 'text', '--class', 'mechanical', '--optimize', 'quality'], vault);
   assert.strictEqual(pair(best), 'claude/opus-5/cli', 'a blank-cost row is still eligible for quality');
-
-  const web = route(['--access', 'bounded', '--type', 'text', '--class', 'mechanical', '--optimize', 'price', '--caps', 'web'], vault);
-  assert.strictEqual(pair(web), 'claude/haiku-4-5/cli', 'caps=web drops the cheaper web=N row');
 
   // and the shipped CSV is genuinely IGNORED while the override exists
   const roster = spawnSync('node', [TOOL, 'route', '--catalog'], { encoding: 'utf8', env: ENV, cwd: vault });
@@ -314,15 +301,15 @@ const dropped = (v, stage) => (v.explain || [])
   const dir = path.join(vault, '.rbtv', 'config', 'modules', 'core', 'sub-agents');
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, 'models.csv');
-  const HEAD = 'mode,harness,model,efforts,image,web,level,reasoning,coding,cost,use,quality-override,price-override';
+  const HEAD = 'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override';
   // level/score/cost chosen so every ranking below has ONE right answer and no tie:
   //   L1: sol  cost 20 (score 5) · opus cost 25 (score 6)   -> price picks sol, quality picks opus
   //   L2: terra cost 5 (score 4) · sonnet cost 10 (score 5) -> price picks terra, quality picks sonnet
   const BASE = {
-    'opus-5': 'cli,claude,opus-5,5,N,Y,L1,6,6,25',
-    'gpt-5.6-sol': 'cli,codex,gpt-5.6-sol,5,N,Y,L1,5,5,20',
-    'sonnet-5': 'cli,claude,sonnet-5,5,N,Y,L2,5,5,10',
-    'gpt-5.6-terra': 'cli,codex,gpt-5.6-terra,5,N,Y,L2,4,4,5',
+    'opus-5': 'cli,claude,opus-5,5,N,L1,6,6,25',
+    'gpt-5.6-sol': 'cli,codex,gpt-5.6-sol,5,N,L1,5,5,20',
+    'sonnet-5': 'cli,claude,sonnet-5,5,N,L2,5,5,10',
+    'gpt-5.6-terra': 'cli,codex,gpt-5.6-terra,5,N,L2,4,4,5',
   };
   // tweak: {model: [use, quality-override, price-override]}; anything unnamed stays route,N,N.
   const write = (tweak = {}) => {
@@ -400,8 +387,8 @@ const dropped = (v, stage) => (v.explain || [])
 
   // 10. a header missing the three columns is REFUSED, not silently read as blanks: the columns
   //     carry routing decisions, so a stale override CSV must be fixed, never half-obeyed.
-  fs.writeFileSync(file, ['mode,harness,model,efforts,image,web,level,reasoning,coding,cost',
-    'cli,claude,opus-5,5,N,Y,L1,6,6,25', ''].join('\n'));
+  fs.writeFileSync(file, ['mode,harness,model,efforts,image,level,reasoning,coding,cost',
+    'cli,claude,opus-5,5,N,L1,6,6,25', ''].join('\n'));
   const stale = at(['--access', 'bounded', '--type', 'text', '--class', 'broad']);
   assert.strictEqual(stale.error, 'no_models');
   assert.ok(/header is /.test(stale.details), stale.details);
@@ -432,7 +419,7 @@ function routeBatchStdin(text, extraFlags = []) {
   return { ...JSON.parse(res.stdout), _status: res.status, _stderr: res.stderr };
 }
 
-const PLANNER_SEAT = { name: 'planner', access: 'open', type: 'text', class: 'planner', optimize: 'quality', caps: ['web'] };
+const PLANNER_SEAT = { name: 'planner', access: 'open', type: 'text', class: 'planner', optimize: 'quality' };
 const FIXER_SEAT = { name: 'fixer', access: 'bounded', type: 'code', class: 'mechanical', optimize: 'price' };
 
 // --- batch happy path: multi-seat, input order, exit 0 ------------------------------------------
@@ -448,7 +435,7 @@ const FIXER_SEAT = { name: 'fixer', access: 'bounded', type: 'code', class: 'mec
 // --- batch of one == the flag form, field for field ----------------------------------------------
 // The batch must not fork the selector: same answers in, same verdict fields out.
 {
-  const flag = route(['--access', 'open', '--type', 'text', '--class', 'planner', '--optimize', 'quality', '--caps', 'web']);
+  const flag = route(['--access', 'open', '--type', 'text', '--class', 'planner', '--optimize', 'quality']);
   const batch = routeBatch([PLANNER_SEAT]);
   assert.strictEqual(batch._status, 0);
   for (const f of ['verdict', 'harness', 'model', 'mode', 'effort', 'effort_is_floor', 'alternates']) {
@@ -511,7 +498,7 @@ const FIXER_SEAT = { name: 'fixer', access: 'bounded', type: 'code', class: 'mec
 {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cast-route-batch-')), 'seats.json');
   fs.writeFileSync(file, JSON.stringify([FIXER_SEAT]));
-  for (const flags of [['--access', 'open'], ['--caps', 'web'], ['--catalog']]) {
+  for (const flags of [['--access', 'open'], ['--caps', 'image'], ['--catalog']]) {
     const res = spawnSync('node', [TOOL, 'route', '--batch', file, ...flags], { encoding: 'utf8', env: ENV, cwd: __dirname });
     assert.strictEqual(res.status, 2, `batch + ${flags[0]} must be refused: ${res.stdout}`);
     assert.ok(/--batch takes the whole interview as JSON/.test(res.stderr),
@@ -550,7 +537,7 @@ const FIXER_SEAT = { name: 'fixer', access: 'bounded', type: 'code', class: 'mec
 
   const LEVELS = ['SOTA', 'L1', 'L2', 'L3', 'L4'];
   // Every axis a multi-level twin must agree on — the CSV columns minus `level` itself.
-  const AXES = ['mode', 'harness', 'model', 'efforts', 'image', 'web', 'reasoning', 'coding',
+  const AXES = ['mode', 'harness', 'model', 'efforts', 'image', 'reasoning', 'coding',
     'cost', 'use', 'quality-override', 'price-override'];
   const YN = ['Y', 'N'];
   const seen = new Map();
@@ -563,7 +550,6 @@ const FIXER_SEAT = { name: 'fixer', access: 'bounded', type: 'code', class: 'mec
     assert.ok(['cli', 'api'].includes(r.mode), `${at}: mode '${r.mode}'`);
     assert.ok(LEVELS.includes(r.level), `${at}: level '${r.level}' is not one of ${LEVELS.join('|')}`);
     assert.ok(YN.includes(r.image), `${at}: image '${r.image}'`);
-    assert.ok(YN.includes(r.web), `${at}: web '${r.web}'`);
     assert.ok(['', 'route', 'panel', 'off'].includes(r.use), `${at}: use '${r.use}' (blank | route | panel | off)`);
     for (const col of ['quality-override', 'price-override']) {
       assert.ok(['', ...YN].includes(r[col]), `${at}: ${col} is '${r[col]}' (blank | Y | N)`);
