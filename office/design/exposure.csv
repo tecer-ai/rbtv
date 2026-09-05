@@ -1,7 +1,7 @@
 # Columns are the seven of `concepts/exposure-manifest.md` § file schema, in its order — routed,
 # not invented; `#`-led lines are dropped before the header is read.
 #
-# Ten LOCKED rows (owner ruling 20). `visual-check-cli` entry-point is ruled by the scaffold seat:
+# Ten rows LOCKED by owner ruling 20; the `design-system` row added 2026-09-01 by owner direction. `visual-check-cli` entry-point is ruled by the scaffold seat:
 # ONE CLI at `capabilities/visual-check/tool/visual-check.py` (the design spec left this open as
 # `tool/…`). Third-party CLIs (Playwright, Pillow) get NO rows — package.json is their declaration.
 # `write-roots` is empty on every row: these tools write only where the caller points them
@@ -18,3 +18,4 @@ visual-check,capability,skill,,capabilities/visual-check/visual-check.md,"Determ
 visual-check-cli,tool,path,,capabilities/visual-check/tool/visual-check.py,,
 visual-ban-list,reference,skill,,references/visual-ban-list.md,Banned visual patterns checklist.,
 visual-flaw-checklist,reference,skill,,references/visual-flaw-checklist.md,Visual-flaw review checklist.,
+design-system,capability,skill,,capabilities/design-system/design-system.md,"Creates and governs a project design system — principles, tokens, component recipes, patterns, views, governance, changelog — via a relentless owner interview, adversarial panel review, and an owner decision batch. Extraction stays with design-tokens; HTML verification stays with visual-check.",
