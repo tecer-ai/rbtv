@@ -13,7 +13,7 @@ const { spawnSync } = require('child_process');
 const { SPECS } = require('../catalog');
 
 const { HARNESSES, RESUME_USAGE, SEAT_USAGE, baseArgv, fail, parseArgs, promptArgv, refuseIfDetached, resolveFolder, resolveModel, shortName } = require('./core');
-const { claudeSlug, emitHandle, procStart } = require('./handles');
+const { claudeSlug, emitHandle, procStart, stdoutPath } = require('./handles');
 const { loadOptional } = require('./optional');
 const { spawnable } = require('./win-exec');
 const { opencodeCandidates, opencodeStore } = require('./sessions');
@@ -107,6 +107,7 @@ function launch({ harness, modelId, folder, effortWord, effortArgv, system, prom
   emitHandle({
     pid: process.pid,
     start: procStart(process.pid),
+    out: stdoutPath(),
     harness,
     model: shortName(harness, modelId),
     session,
@@ -331,6 +332,7 @@ function runResume(rawArgv) {
   emitHandle({
     pid: process.pid,
     start: procStart(process.pid),
+    out: stdoutPath(),
     harness,
     model: 'resume',
     session: id === 'last' ? null : id,

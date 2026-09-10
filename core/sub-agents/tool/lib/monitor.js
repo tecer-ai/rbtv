@@ -9,9 +9,10 @@ const fs = require('fs');
 const path = require('path');
 
 const { fail } = require('./core');
-const { HANDLES_FILE, procStart } = require('./handles');
+const { HANDLES_FILE, procStart, procStarts } = require('./handles');
 const { detectProviderLimit, formatReason } = require('./provider-limit');
 const { codexSessions, opencodeCandidates, opencodeStore } = require('./sessions');
+const { winTreeSample } = require('./win-proc');
 
 // Reports jobs that are ALIVE BUT FROZEN. The one-shot roster never reports completion (that
 // rides the caller's own tracked background launch). --watch also notices a departure: a job
@@ -48,16 +49,15 @@ const MONITOR_USAGE = 'cast monitor [--watch] [--stall SECONDS] [--grace SECONDS
 function liveJobs(prefix) {
   let text;
   try { text = fs.readFileSync(HANDLES_FILE, 'utf8'); } catch { return []; }
-  const out = [];
+  const rows = [];
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
-    let h;
-    try { h = JSON.parse(line); } catch { continue; }
-    if (h.start == null || procStart(h.pid) !== h.start) continue;
-    if (prefix && !String(h.folder).startsWith(prefix)) continue;
-    out.push(h);
+    try { rows.push(JSON.parse(line)); } catch { /* torn line */ }
   }
-  return out;
+  // One pin lookup for the whole registry (on Windows each lookup is a process spawn).
+  const starts = procStarts(rows.filter((h) => h.start != null).map((h) => h.pid));
+  return rows.filter((h) => h.start != null && starts.get(h.pid) === h.start
+    && !(prefix && !String(h.folder).startsWith(prefix)));
 }
 
 const mtimeOf = (f) => { try { return fs.statSync(f).mtimeMs; } catch { return null; } };
@@ -79,6 +79,7 @@ const DEADLINE_MS = Number(process.env.CAST_DEADLINE_MS) > 0
   ? Number(process.env.CAST_DEADLINE_MS)
   : DEFAULT_DEADLINE_S * 1000;
 const OUT_BANNER_BYTES = 2048; // below this, stdout is a launch banner, not work
+const WIN_FIRST_DELTA_MS = 1200; // > win-proc TABLE_TTL_MS, so the second sample is a fresh read
 
 function readProcStat(pid) {
   try {
@@ -119,17 +120,22 @@ function descendantPids(pid) {
 
 // The job's stdout capture, found via fd 1 — no handle-schema change. Both 2026-08-19 false
 // positives had their decisive evidence (11KB / 26KB of real output) sitting on fd 1.
-function captureFile(pid) {
+// `out` is recorded at launch on every platform (handles.js stdoutPath); the /proc read stays
+// as the fallback for rows minted before it existed.
+function captureFile(h) {
+  if (h.out) {
+    try { return fs.statSync(h.out).isFile() ? h.out : null; } catch { return null; }
+  }
   try {
-    const target = fs.readlinkSync(`/proc/${pid}/fd/1`);
+    const target = fs.readlinkSync(`/proc/${h.pid}/fd/1`);
     if (!target.startsWith('/')) return null; // pipe:[…], socket:[…]
     const st = fs.statSync(target);
     return st.isFile() ? target : null;
   } catch { return null; }
 }
 
-function captureSize(pid) {
-  const f = captureFile(pid);
+function captureSize(h) {
+  const f = captureFile(h);
   if (!f) return null;
   try { return fs.statSync(f).size; } catch { return null; }
 }
@@ -140,6 +146,7 @@ function cpuFloor(h, pollMs) {
 }
 
 function treeSample(h) {
+  if (process.platform === 'win32') return { ...winTreeSample(h.pid), capSize: captureSize(h) };
   const pids = [h.pid, ...descendantPids(h.pid)];
   const members = new Set();
   let cpu = 0;
@@ -154,7 +161,7 @@ function treeSample(h) {
     const i = readProcIo(p);
     if (i !== null) io += i;
   }
-  return { cpu, io, members, running, desc: pids.length - 1, capSize: captureSize(h.pid) };
+  return { cpu, io, members, running, desc: pids.length - 1, capSize: captureSize(h) };
 }
 
 function jobMemo(cache, h) {
@@ -167,12 +174,30 @@ function jobMemo(cache, h) {
 
 // Evidence of life this poll. First sample has no deltas: live descendants or a running root
 // count once; every later poll needs a floored delta, so a busy-spin can't ride a stale snapshot.
+// Windows exposes no run state, so a childless first sample has no instant life to read. Before a
+// poll classifies, take a baseline for every job not yet sampled and wait ONCE (not once per job:
+// every baseline comes off the same cached table read, and one delay covers them all) — the first
+// witness call then judges a short delta, and the one-shot roster sees a busy root the way Linux
+// sees state R. No-op off Windows and when every job already carries a sample.
+function primeWitness(jobs, cache) {
+  if (process.platform !== 'win32') return;
+  const fresh = jobs.filter((h) => !jobMemo(cache, h).prev);
+  if (!fresh.length) return;
+  for (const h of fresh) {
+    const memo = jobMemo(cache, h);
+    memo.prev = treeSample(h);
+    memo.primedMs = WIN_FIRST_DELTA_MS;
+  }
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, WIN_FIRST_DELTA_MS);
+}
+
 function witness(h, now, memo, pollMs = FLOOR_POLL_MS) {
   const s = treeSample(h);
   const prev = memo.prev;
   let dCpu = 0;
   let dIo = 0;
   let evidence;
+  if (memo.primedMs) { pollMs = memo.primedMs; memo.primedMs = 0; }
   if (!prev) {
     evidence = s.desc > 0 || s.running;
   } else {
@@ -287,7 +312,7 @@ function classify(h, now, stallMs, graceMs, pollMs, cache, deadlineMs = DEADLINE
   // session id (resolved by progressAt above) so a hit there can only ever be attributed to this
   // job, never a sibling on the same model (see provider-limit.js).
   const limit = detectProviderLimit({
-    harness: h.harness, model: h.model, t0: h.t0, capturePath: captureFile(h.pid),
+    harness: h.harness, model: h.model, t0: h.t0, capturePath: captureFile(h),
     sessionId: h.harness === 'opencode' ? cache.get(`bind:${h.pid}:${h.start}`) : undefined,
   });
   const base = { witness: w, evAge, limit };
@@ -318,6 +343,7 @@ const evidenceSuffix = (w) => `desc=${w.sample.desc} cpu+${w.dCpu} io+${w.dIo}`
   + ` out=${w.sample.capSize === null ? '-' : w.sample.capSize}`;
 
 function monitorRows(jobs, now, stallMs, graceMs, pollMs, cache, deadlineMs = DEADLINE_MS) {
+  primeWitness(jobs, cache);
   return jobs.map((h) => {
     const { state, age, witness: w, limit } = classify(h, now, stallMs, graceMs, pollMs, cache, deadlineMs);
     const row = {
@@ -384,6 +410,7 @@ async function runWatch(prefix, stallMs, graceMs, pollMs, deadlineMs = DEADLINE_
   const seen = new Map();
   for (;;) {
     const jobs = liveJobs(prefix);
+    primeWitness(jobs, cache);
     const now = Date.now();
     const live = new Set();
     const events = [];
@@ -473,7 +500,7 @@ module.exports = {
   MONITOR_USAGE, liveJobs, mtimeOf, CPU_FLOOR_TICKS, FLOOR_POLL_MS,
   DEFAULT_DEADLINE_S, DEADLINE_MS, OUT_BANNER_BYTES, readProcStat, readProcIo,
   descendantPids, captureFile, captureSize, cpuFloor, treeSample, jobMemo,
-  witness, claudeProgress, claimedBinds, codexRollout,
+  primeWitness, witness, claudeProgress, claimedBinds, codexRollout,
   opencodeBind, opencodeUpdated, opencodeProgress, progressAt,
   classify, secs, tailShort, evidenceSuffix,
   monitorRows, runRoster, runWatch, runMonitor,

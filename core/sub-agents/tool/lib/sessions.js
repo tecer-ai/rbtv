@@ -123,8 +123,13 @@ function opencodeStore() {
     'opencode', 'opencode.db');
 }
 
+// opencode writes the directory with forward slashes even on Windows; the handle folder carries
+// the OS separator. Compare on one form or no Windows launch ever binds (measured 2026-09-09).
+const fwd = (p) => String(p).replace(/\\/g, '/');
 function opencodeDirMatch(folder, directory) {
-  return folder === directory || folder.startsWith(directory + path.sep);
+  const f = fwd(folder);
+  const d = fwd(directory);
+  return f === d || f.startsWith(d + '/');
 }
 
 function opencodeCandidates(folder) {

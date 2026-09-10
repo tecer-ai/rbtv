@@ -23,6 +23,61 @@ function dryRun(args) {
   return JSON.parse(res.stdout);
 }
 
+// --- portable process fixtures: the suite runs on Linux AND Windows (2026-09-09) ---------------
+const IS_WIN = process.platform === 'win32';
+const { procStart } = require('./lib/handles');
+
+// A home the tool under test will actually use: os.homedir() reads HOME on POSIX and USERPROFILE
+// on Windows. Setting only HOME left every Windows run reading the REAL registry and stores.
+const homeEnv = (home) => ({ HOME: home, USERPROFILE: home });
+// Watch budgets are tuned to Linux poll speed; a Windows poll pays a ~0.7s process-table read
+// plus the first-sample delta, so its budgets get twice the time — the assertions are about
+// behaviour, never speed.
+const T = (ms) => (IS_WIN ? ms * 2 : ms);
+const pathEnv = (...dirs) => [...dirs, path.dirname(process.execPath)].join(path.delimiter);
+
+// A detached, ORPHANED node process running `script`, started by an intermediate node that exits
+// at once — so the process is nobody's child here and a kill really clears it from the process
+// table (a killed CHILD of a suite blocked in spawnSync lingers as a zombie on Linux, and the
+// liveness pin would rightly still see it). `outFile` puts a file on its fd 1 — the stdout
+// capture the witness channel reads on Linux.
+function orphan(script, outFile = null) {
+  const launcher = `const fs = require('fs');
+const out = process.argv[2] ? fs.openSync(process.argv[2], 'a') : 'ignore';
+const c = require('child_process').spawn(process.execPath, ['-e', process.argv[1]],
+  { detached: true, stdio: ['ignore', out, 'ignore'] });
+c.unref();
+console.log(c.pid);`;
+  const args = [launcher, script];
+  if (outFile) args.push(outFile);
+  const out = spawnSync(process.execPath, ['-e', ...args], { encoding: 'utf8' });
+  const pid = Number(out.stdout.trim());
+  assert.ok(pid > 0, `orphan launcher failed: ${out.stderr}`);
+  let start = null;
+  for (let i = 0; i < 20 && start === null; i++) {
+    start = procStart(pid);
+    if (start === null) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+  }
+  assert.ok(start !== null, `orphan ${pid} never appeared in the process table`);
+  return { pid, start, kill: () => { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } } };
+}
+const spawnSleeper = () => orphan('setTimeout(() => {}, 300000)');
+// Runs `script` in a detached node after `ms` — the suite is blocked in spawnSync meanwhile.
+function later(ms, script) {
+  const p = require('child_process').spawn(process.execPath,
+    ['-e', `setTimeout(() => { ${script} }, ${ms})`], { detached: true, stdio: 'ignore' });
+  p.unref();
+}
+// A fake harness binary on PATH: `name.js` plus the wrapper this platform starts for `name`.
+function installFake(bin, name, js) {
+  fs.writeFileSync(path.join(bin, `${name}.js`), js);
+  fs.writeFileSync(path.join(bin, `${name}.cmd`), `@node "%~dp0${name}.js" %*\r\n`);
+  // absolute path, no dirname: the fixtures' PATH carries only the bin and node
+  fs.writeFileSync(path.join(bin, name), `#!/bin/sh\nexec node "${path.join(bin, `${name}.js`)}" "$@"\n`);
+  fs.chmodSync(path.join(bin, name), 0o755);
+}
+const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
+
 // --- module graph: every lib/ module loads, and the require graph stays acyclic ---------------
 // The 2026-08-20 split turned one 2052-line file into cast.js + lib/*.js. A require cycle or a
 // typo'd path is invisible to every other arm here (they only ever reach cast.js through the
@@ -474,7 +529,7 @@ function dryRun(args) {
 
   // PATH holds node only, so the opencode shell-out fails fast to an empty list
   const res = spawnSync('node', [TOOL, 'sessions', folder, '--json'], {
-    encoding: 'utf8', env: { ...process.env, HOME: home, PATH: path.dirname(process.execPath) },
+    encoding: 'utf8', env: { ...process.env, ...homeEnv(home), PATH: pathEnv() },
   });
   assert.strictEqual(res.status, 0, `sessions must exit 0, stderr: ${res.stderr}`);
   const rows = JSON.parse(res.stdout);
@@ -486,7 +541,7 @@ function dryRun(args) {
 
   // single-harness form filters to that store
   const onlyCodex = spawnSync('node', [TOOL, 'sessions', 'codex', folder, '--json'], {
-    encoding: 'utf8', env: { ...process.env, HOME: home },
+    encoding: 'utf8', env: { ...process.env, ...homeEnv(home) },
   });
   assert.deepStrictEqual(JSON.parse(onlyCodex.stdout).map((r) => r.id), ['cx-1']);
 
@@ -501,7 +556,7 @@ function dryRun(args) {
   const home = mkFolder('handle-home');
   // a launch that fails to spawn still emits the handle first (emitted before the spawn)
   const res = spawnSync('node', [TOOL, 'claude', 'haiku-4-5', '1', folder, '-p', 'hi'], {
-    encoding: 'utf8', env: { ...process.env, HOME: home, PATH: path.dirname(process.execPath) },
+    encoding: 'utf8', env: { ...process.env, ...homeEnv(home), PATH: pathEnv() },
   });
   const line = res.stderr.split('\n').find((l) => l.startsWith('cast: handle '));
   assert.ok(line, `no handle line on stderr: ${res.stderr}`);
@@ -510,6 +565,20 @@ function dryRun(args) {
   assert.strictEqual(h.model, 'haiku-4-5');
   assert.strictEqual(h.folder, folder);
   assert.ok(Number.isInteger(h.pid) && Number.isInteger(h.start) && h.start > 0, `pid/start not pinned: ${line}`);
+  assert.strictEqual(h.out, null, `stdout on a pipe must record no capture path: ${line}`);
+  // stdout redirected to a file: the handle records that file as the job's capture (`out`)
+  const capture = path.join(folder, 'capture.txt');
+  const fd = fs.openSync(capture, 'w');
+  const redirected = spawnSync('node', [TOOL, 'claude', 'haiku-4-5', '1', folder, '-p', 'hi'], {
+    encoding: 'utf8', stdio: ['pipe', fd, 'pipe'],
+    env: { ...process.env, ...homeEnv(mkFolder('handle-home-redirect')), PATH: pathEnv() },
+  });
+  fs.closeSync(fd);
+  const redLine = redirected.stderr.split('\n').find((l) => l.startsWith('cast: handle '));
+  assert.ok(redLine, `no handle line on stderr: ${redirected.stderr}`);
+  const redHandle = JSON.parse(redLine.slice('cast: handle '.length));
+  assert.ok(redHandle.out && fs.realpathSync(redHandle.out) === fs.realpathSync(capture),
+    `handle must record the stdout capture file: ${redLine}`);
   assert.ok(/^[0-9a-f-]{36}$/.test(h.session), `claude session must be a minted uuid: ${h.session}`);
   assert.strictEqual(h.transcript,
     path.join(home, '.claude', 'projects', folder.replace(/[^a-zA-Z0-9]/g, '-'), `${h.session}.jsonl`));
@@ -522,7 +591,7 @@ function dryRun(args) {
 
   // the minted id rides argv; dry-run emits neither handle line nor registry row
   const dry = spawnSync('node', [TOOL, 'claude', 'haiku-4-5', '1', folder, '-p', 'hi', '--dry-run'], {
-    encoding: 'utf8', env: { ...process.env, HOME: mkFolder('handle-dry-home') },
+    encoding: 'utf8', env: { ...process.env, ...homeEnv(mkFolder('handle-dry-home')) },
   });
   assert.ok(!dry.stderr.includes('cast: handle'), `dry-run must emit no handle: ${dry.stderr}`);
   assert.ok(JSON.parse(dry.stdout).argv.includes('--session-id'), 'claude launch must mint --session-id');
@@ -546,7 +615,7 @@ function dryRun(args) {
 
   const res = spawnSync('node', [TOOL, 'sessions', folder, '--json'], {
     encoding: 'utf8',
-    env: { ...process.env, HOME: home, XDG_DATA_HOME: path.join(home, 'no-such-data') },
+    env: { ...process.env, ...homeEnv(home), XDG_DATA_HOME: path.join(home, 'no-such-data') },
   });
   assert.strictEqual(res.status, 0, `sessions must exit 0, stderr: ${res.stderr}`);
   const ids = JSON.parse(res.stdout).map((r) => r.id).sort();
@@ -559,7 +628,7 @@ function dryRun(args) {
   const folder = mkFolder('monitor');
   const home = mkFolder('monitor-home');
   const enc = folder.replace(/[^a-zA-Z0-9]/g, '-');
-  const env = { ...process.env, HOME: home, XDG_DATA_HOME: path.join(home, 'no-such-data') };
+  const env = { ...process.env, ...homeEnv(home), XDG_DATA_HOME: path.join(home, 'no-such-data') };
   const monitor = (args, extra) => spawnSync('node', [TOOL, 'monitor', ...args],
     { encoding: 'utf8', env, ...extra });
 
@@ -570,11 +639,9 @@ function dryRun(args) {
   assert.strictEqual(noReg.stdout, '', 'watch must be silent with nothing to report');
 
   // a live process we own, with a stale transcript -> STALLED
-  const sleeper = require('child_process').spawn('sleep', ['300'], { detached: true, stdio: 'ignore' });
-  sleeper.unref();
+  const sleeper = spawnSleeper();
   try {
-    const start = Number(fs.readFileSync(`/proc/${sleeper.pid}/stat`, 'utf8')
-      .split(') ').pop().split(' ')[19]);
+    const { start } = sleeper;
     const session = '11111111-2222-3333-4444-555555555555';
     const transcript = path.join(home, '.claude', 'projects', enc, `${session}.jsonl`);
     fs.mkdirSync(path.dirname(transcript), { recursive: true });
@@ -630,12 +697,12 @@ function dryRun(args) {
       `unexpected no-signal line: ${noSig.stdout}`);
     // ...but not before --grace elapses
     fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'), `${row({ t0: Date.now() })}\n`);
-    const young = monitor(['--watch', '--grace', '600', '--poll', '1'], { timeout: 2500 });
+    const young = monitor(['--watch', '--grace', '600', '--poll', '1'], { timeout: T(2500) });
     assert.strictEqual(young.stdout, '', `within grace must stay silent: ${young.stdout}`);
     // it must have been STILL POLLING when the timeout killed it — not exited quietly
     assert.strictEqual(young.signal, 'SIGTERM', `watch must keep polling within grace, got exit ${young.status}`);
   } finally {
-    process.kill(sleeper.pid, 'SIGKILL'); // our own child, spawned above
+    sleeper.kill();
   }
 
   // usage errors
@@ -653,20 +720,14 @@ function dryRun(args) {
   const folder = mkFolder('monitor-busy');
   const home = mkFolder('monitor-busy-home');
   const enc = folder.replace(/[^a-zA-Z0-9]/g, '-');
-  const env = { ...process.env, HOME: home, XDG_DATA_HOME: path.join(home, 'no-such-data') };
+  const env = { ...process.env, ...homeEnv(home), XDG_DATA_HOME: path.join(home, 'no-such-data') };
   const monitor = (args, extra) => spawnSync('node', [TOOL, 'monitor', ...args],
     { encoding: 'utf8', env, ...extra });
 
   const scratch = path.join(folder, 'suite-output.txt');
-  const outFd = fs.openSync(scratch, 'w');
-  const busy = require('child_process').spawn('bash',
-    ['-c', 'while :; do echo working; done'],
-    { detached: true, stdio: ['ignore', outFd, 'ignore'] });
-  busy.unref();
-  fs.closeSync(outFd);
+  const busy = orphan("const fs = require('fs'); for (;;) fs.writeSync(1, 'working\\n');", scratch);
   try {
-    const start = Number(fs.readFileSync(`/proc/${busy.pid}/stat`, 'utf8')
-      .split(') ').pop().split(' ')[19]);
+    const { start } = busy;
     const session = '99999999-8888-7777-6666-555555555555';
     const transcript = path.join(home, '.claude', 'projects', enc, `${session}.jsonl`);
     fs.mkdirSync(path.dirname(transcript), { recursive: true });
@@ -685,11 +746,11 @@ function dryRun(args) {
     assert.strictEqual(rows[0].state, 'SUSPECT', `live subtree must hold SUSPECT: ${JSON.stringify(rows)}`);
 
     // --watch must keep polling (killed by our timeout), never exit 3 on the working subtree
-    const watch = monitor(['--watch', '--stall', '2', '--poll', '1'], { timeout: 6000 });
+    const watch = monitor(['--watch', '--stall', '2', '--poll', '1'], { timeout: T(6000) });
     assert.strictEqual(watch.stdout, '', `busy subtree must not fire an event: ${watch.stdout}`);
     assert.strictEqual(watch.signal, 'SIGTERM', `watch must still be polling, got exit ${watch.status}`);
   } finally {
-    try { process.kill(-busy.pid, 'SIGKILL'); } catch { process.kill(busy.pid, 'SIGKILL'); }
+    busy.kill();
   }
 }
 
@@ -703,7 +764,7 @@ function dryRun(args) {
   fs.mkdirSync(seatB, { recursive: true });
   const home = mkFolder('oc-monitor-home');
   const xdg = path.join(home, 'xdg');
-  const env = { ...process.env, HOME: home, XDG_DATA_HOME: xdg };
+  const env = { ...process.env, ...homeEnv(home), XDG_DATA_HOME: xdg };
   const monitor = (args, extra) => spawnSync('node', [TOOL, 'monitor', ...args],
     { encoding: 'utf8', env, ...extra });
 
@@ -730,13 +791,6 @@ function dryRun(args) {
     db.close();
   };
 
-  const spawnSleeper = () => {
-    const s = require('child_process').spawn('sleep', ['300'], { detached: true, stdio: 'ignore' });
-    s.unref();
-    const start = Number(fs.readFileSync(`/proc/${s.pid}/stat`, 'utf8')
-      .split(') ').pop().split(' ')[19]);
-    return { pid: s.pid, start, kill: () => process.kill(s.pid, 'SIGKILL') };
-  };
   const a = spawnSleeper();
   const b = spawnSleeper();
   const c = spawnSleeper();
@@ -822,21 +876,9 @@ function dryRun(args) {
 {
   const folder = mkFolder('monitor-ended');
   const home = mkFolder('monitor-ended-home');
-  const env = { ...process.env, HOME: home, XDG_DATA_HOME: path.join(home, 'no-such-data') };
+  const env = { ...process.env, ...homeEnv(home), XDG_DATA_HOME: path.join(home, 'no-such-data') };
   const monitor = (args, extra) => spawnSync('node', [TOOL, 'monitor', ...args],
     { encoding: 'utf8', env, ...extra });
-  // Orphan the sleeper (setsid + background) so a kill REALLY clears /proc. A killed CHILD of this
-  // suite lingers as a zombie — we are blocked in spawnSync and cannot reap it — and the liveness
-  // guard would rightly still see it. Departure MUST be a real death: dropping the registry row
-  // instead is the false positive the guard exists to suppress (a pruned row is not a dead job).
-  const spawnSleeper = () => {
-    const out = require('child_process').execFileSync('setsid',
-      ['bash', '-c', 'sleep 300 </dev/null >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' });
-    const pid = Number(out.trim());
-    const start = Number(fs.readFileSync(`/proc/${pid}/stat`, 'utf8')
-      .split(') ').pop().split(' ')[19]);
-    return { pid, start, kill: () => { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } } };
-  };
   const sleeper = spawnSleeper();
   try {
     const start = sleeper.start;
@@ -848,11 +890,9 @@ function dryRun(args) {
     })}\n`);
     // A REAL death: the registry row stays put and liveJobs drops it because /proc no longer
     // carries that pid+starttime. This is what ENDED must key on.
-    const drop = require('child_process').spawn('bash',
-      ['-c', `sleep 2; kill -9 ${sleeper.pid}`], { detached: true, stdio: 'ignore' });
-    drop.unref();
+    later(2000, `process.kill(${sleeper.pid}, 'SIGKILL');`);
     const watch = monitor(['--watch', '--poll', '1', '--grace', '600', '--stall', '600'],
-      { timeout: 8000 });
+      { timeout: T(8000) });
     assert.strictEqual(watch.status, 4, `ENDED must exit 4, got ${watch.status}: ${watch.stdout}`);
     assert.ok(watch.stdout.startsWith(`ENDED ${sleeper.pid} claude ${folder} alive=`),
       `unexpected ENDED line: ${watch.stdout}`);
@@ -868,21 +908,9 @@ function dryRun(args) {
 {
   const folder = mkFolder('monitor-ended-once');
   const home = mkFolder('monitor-ended-once-home');
-  const env = { ...process.env, HOME: home, XDG_DATA_HOME: path.join(home, 'no-such-data') };
+  const env = { ...process.env, ...homeEnv(home), XDG_DATA_HOME: path.join(home, 'no-such-data') };
   const monitor = (args, extra) => spawnSync('node', [TOOL, 'monitor', ...args],
     { encoding: 'utf8', env, ...extra });
-  // Orphan the sleeper (setsid + background) so a kill REALLY clears /proc. A killed CHILD of this
-  // suite lingers as a zombie — we are blocked in spawnSync and cannot reap it — and the liveness
-  // guard would rightly still see it. Departure MUST be a real death: dropping the registry row
-  // instead is the false positive the guard exists to suppress (a pruned row is not a dead job).
-  const spawnSleeper = () => {
-    const out = require('child_process').execFileSync('setsid',
-      ['bash', '-c', 'sleep 300 </dev/null >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' });
-    const pid = Number(out.trim());
-    const start = Number(fs.readFileSync(`/proc/${pid}/stat`, 'utf8')
-      .split(') ').pop().split(' ')[19]);
-    return { pid, start, kill: () => { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } } };
-  };
   const a = spawnSleeper();
   const b = spawnSleeper();
   try {
@@ -893,11 +921,9 @@ function dryRun(args) {
     const handles = path.join(home, '.cast', 'handles.jsonl');
     fs.mkdirSync(path.dirname(handles), { recursive: true });
     fs.writeFileSync(handles, `${handle(a)}\n${handle(b)}\n`);
-    const drop = require('child_process').spawn('bash',
-      ['-c', `sleep 2; kill -9 ${a.pid}`], { detached: true, stdio: 'ignore' });
-    drop.unref();
+    later(2000, `process.kill(${a.pid}, 'SIGKILL');`);
     const watch = monitor(['--watch', '--poll', '1', '--grace', '600', '--stall', '600'],
-      { timeout: 5500 });
+      { timeout: T(5500) });
     assert.strictEqual(watch.signal, 'SIGTERM',
       `watch must keep polling after one ENDED, got exit ${watch.status}: ${watch.stdout}`);
     const ended = watch.stdout.split('\n').filter((l) => l.startsWith('ENDED '));
@@ -919,14 +945,10 @@ function dryRun(args) {
 {
   const folder = mkFolder('monitor-row-pruned');
   const home = mkFolder('monitor-row-pruned-home');
-  const env = { ...process.env, HOME: home, XDG_DATA_HOME: path.join(home, 'no-such-data') };
+  const env = { ...process.env, ...homeEnv(home), XDG_DATA_HOME: path.join(home, 'no-such-data') };
   const monitor = (args, extra) => spawnSync('node', [TOOL, 'monitor', ...args],
     { encoding: 'utf8', env, ...extra });
-  const out = require('child_process').execFileSync('setsid',
-    ['bash', '-c', 'sleep 300 </dev/null >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' });
-  const pid = Number(out.trim());
-  const start = Number(fs.readFileSync(`/proc/${pid}/stat`, 'utf8')
-    .split(') ').pop().split(' ')[19]);
+  const { pid, start } = spawnSleeper();
   try {
     const handles = path.join(home, '.cast', 'handles.jsonl');
     fs.mkdirSync(path.dirname(handles), { recursive: true });
@@ -935,12 +957,10 @@ function dryRun(args) {
       folder, transcript: null, t0: Date.now(),
     })}\n`);
     // blank the registry while the process stays ALIVE — a prune, not a death
-    const prune = require('child_process').spawn('bash',
-      ['-c', `sleep 2; : > '${handles}'`], { detached: true, stdio: 'ignore' });
-    prune.unref();
+    later(2000, `require('fs').writeFileSync(${JSON.stringify(handles)}, '');`);
     const watch = monitor(['--watch', '--poll', '1', '--grace', '600', '--stall', '600'],
-      { timeout: 8000 });
-    assert.ok(fs.existsSync(`/proc/${pid}`),
+      { timeout: T(8000) });
+    assert.ok(procStart(pid) !== null,
       'fixture broken: the planted process must still be alive for this arm to mean anything');
     assert.ok(!watch.stdout.includes('ENDED '),
       `a pruned row must NEVER be reported as ENDED while the process lives: ${watch.stdout}`);
@@ -954,75 +974,75 @@ function dryRun(args) {
   const folder = mkFolder('monitor-ended-w5');
   const home = mkFolder('monitor-ended-w5-home');
   const enc = folder.replace(/[^a-zA-Z0-9]/g, '-');
-  const env = { ...process.env, HOME: home, XDG_DATA_HOME: path.join(home, 'no-such-data') };
+  const env = { ...process.env, ...homeEnv(home), XDG_DATA_HOME: path.join(home, 'no-such-data') };
   const monitor = (args, extra) => spawnSync('node', [TOOL, 'monitor', ...args],
     { encoding: 'utf8', env, ...extra });
-  // Orphan the sleeper (setsid + background) so a kill REALLY clears /proc. A killed CHILD of this
-  // suite lingers as a zombie — we are blocked in spawnSync and cannot reap it — and the liveness
-  // guard would rightly still see it. Departure MUST be a real death: dropping the registry row
-  // instead is the false positive the guard exists to suppress (a pruned row is not a dead job).
-  const spawnSleeper = () => {
-    const out = require('child_process').execFileSync('setsid',
-      ['bash', '-c', 'sleep 300 </dev/null >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' });
-    const pid = Number(out.trim());
-    const start = Number(fs.readFileSync(`/proc/${pid}/stat`, 'utf8')
-      .split(') ').pop().split(' ')[19]);
-    return { pid, start, kill: () => { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } } };
-  };
-  const frozen = spawnSleeper();
-  const dying = spawnSleeper();
-  try {
-    const session = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  const handles = path.join(home, '.cast', 'handles.jsonl');
+  fs.mkdirSync(path.dirname(handles), { recursive: true });
+  // The arm needs the freeze and the death to land in ONE poll. A poll reads the pins first and
+  // the transcript later; on Windows the pin read is a ~0.7s process-table query, so a mutation
+  // landing inside it splits the two across polls — a fixture race, not a monitor defect. Two
+  // measures: (1) on Windows the death comes FIRST and the transcript ages a table-read later,
+  // so a poll that sees the aged transcript has already seen the death (the reverse split, death
+  // seen with the transcript still fresh, is left a ~0.1s window); (2) re-arm and retry, each
+  // attempt on its OWN session + transcript so a late mutation from the previous attempt cannot
+  // touch it, and with the mutation shifted half a second so it meets a different phase of the
+  // poll cadence. The assertions are on the last attempt.
+  let watch;
+  let frozen;
+  let dying;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const session = `aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeee${attempt}`;
     const transcript = path.join(home, '.claude', 'projects', enc, `${session}.jsonl`);
     fs.mkdirSync(path.dirname(transcript), { recursive: true });
-    fs.writeFileSync(transcript, '{}\n');
-    const handle = (job, over) => JSON.stringify({
-      pid: job.pid, start: job.start, harness: 'claude', model: 'haiku-4-5', session: null,
-      folder, transcript: null, t0: Date.now(), ...over,
-    });
-    const handles = path.join(home, '.cast', 'handles.jsonl');
-    fs.mkdirSync(path.dirname(handles), { recursive: true });
-    fs.writeFileSync(handles,
-      `${handle(frozen, { session, transcript })}\n${handle(dying, {})}\n`);
-    const mutate = require('child_process').spawn('bash',
-      ['-c', `sleep 2.5; touch -d '1 hour ago' '${transcript}'; kill -9 ${dying.pid}`],
-      { detached: true, stdio: 'ignore' });
-    mutate.unref();
-    const watch = monitor(['--watch', '--poll', '1', '--stall', '60', '--grace', '600'],
-      { timeout: 8000 });
-    assert.strictEqual(watch.status, 3,
-      `freeze+ENDED must exit 3, got ${watch.status}: ${watch.stdout}`);
-    assert.ok(watch.stdout.includes(`STALL ${frozen.pid} `),
-      `must print STALL: ${watch.stdout}`);
-    assert.ok(watch.stdout.includes(`ENDED ${dying.pid} claude ${folder} alive=`),
-      `must print ENDED: ${watch.stdout}`);
-  } finally {
-    frozen.kill();
-    dying.kill();
+    frozen = spawnSleeper();
+    dying = spawnSleeper();
+    try {
+      fs.writeFileSync(transcript, '{}\n');
+      const handle = (job, over) => JSON.stringify({
+        pid: job.pid, start: job.start, harness: 'claude', model: 'haiku-4-5', session: null,
+        folder, transcript: null, t0: Date.now(), ...over,
+      });
+      fs.writeFileSync(handles,
+        `${handle(frozen, { session, transcript })}\n${handle(dying, {})}\n`);
+      later(2500 + attempt * 500, `process.kill(${dying.pid}, 'SIGKILL');`
+        + ` setTimeout(() => { const t = Date.now() / 1000 - 3600;`
+        + ` require('fs').utimesSync(${JSON.stringify(transcript)}, t, t); }, ${IS_WIN ? 900 : 0});`);
+      watch = monitor(['--watch', '--poll', '1', '--stall', '60', '--grace', '600'],
+        { timeout: T(8000) });
+    } finally {
+      frozen.kill();
+      dying.kill();
+    }
+    if (watch.stdout.includes('STALL ') && watch.stdout.includes('ENDED ')) break;
   }
+  assert.strictEqual(watch.status, 3,
+    `freeze+ENDED must exit 3, got ${watch.status}: ${watch.stdout}`);
+  assert.ok(watch.stdout.includes(`STALL ${frozen.pid} `),
+    `must print STALL: ${watch.stdout}`);
+  assert.ok(watch.stdout.includes(`ENDED ${dying.pid} claude ${folder} alive=`),
+    `must print ENDED: ${watch.stdout}`);
 }
 
+// The capture is found two ways: a row minted before `out` existed is resolved through
+// /proc/<pid>/fd/1 (Linux only), a current row carries `out`. Linux exercises the fallback here,
+// Windows the recorded path; the launch-handle arm above proves `out` is recorded at launch.
 {
   const folder = mkFolder('monitor-limit');
   const home = mkFolder('monitor-limit-home');
-  const env = { ...process.env, HOME: home, XDG_DATA_HOME: path.join(home, 'no-such-data') };
+  const env = { ...process.env, ...homeEnv(home), XDG_DATA_HOME: path.join(home, 'no-such-data') };
   const monitor = (args, extra) => spawnSync('node', [TOOL, 'monitor', ...args],
     { encoding: 'utf8', env, ...extra });
   const outFile = path.join(folder, 'stdout.txt');
   fs.writeFileSync(outFile,
     'AI_APICallError: Usage limit reached for 5 hour. Your limit will reset at 2026-08-22 11:10:16\n');
-  const fd = fs.openSync(outFile, 'a');
-  const sleeper = require('child_process').spawn('sleep', ['60'],
-    { detached: true, stdio: ['ignore', fd, 'ignore'] });
-  sleeper.unref();
-  fs.closeSync(fd);
+  const sleeper = orphan('setTimeout(() => {}, 60000)', outFile);
   try {
-    const start = Number(fs.readFileSync(`/proc/${sleeper.pid}/stat`, 'utf8')
-      .split(') ').pop().split(' ')[19]);
+    const { start } = sleeper;
     fs.mkdirSync(path.join(home, '.cast'), { recursive: true });
     fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'), `${JSON.stringify({
       pid: sleeper.pid, start, harness: 'opencode', model: 'glm-5.2', session: null,
-      folder, transcript: null, t0: Date.now() - 120_000,
+      folder, transcript: null, t0: Date.now() - 120_000, ...(IS_WIN ? { out: outFile } : {}),
     })}\n`);
     const rows = JSON.parse(monitor(['--json']).stdout);
     assert.strictEqual(rows.length, 1, `limit fixture must be on the roster: ${JSON.stringify(rows)}`);
@@ -1035,21 +1055,19 @@ function dryRun(args) {
       `named reason: ${watch.stdout}`);
     assert.ok(watch.stdout.includes('ADVISORY, not authority'), `advisory: ${watch.stdout}`);
   } finally {
-    try { process.kill(sleeper.pid, 'SIGKILL'); } catch { /* gone */ }
+    sleeper.kill();
   }
 }
 
 {
   const folder = mkFolder('monitor-deadline');
   const home = mkFolder('monitor-deadline-home');
-  const env = { ...process.env, HOME: home, XDG_DATA_HOME: path.join(home, 'no-such-data') };
+  const env = { ...process.env, ...homeEnv(home), XDG_DATA_HOME: path.join(home, 'no-such-data') };
   const monitor = (args, extra) => spawnSync('node', [TOOL, 'monitor', ...args],
     { encoding: 'utf8', env, ...extra });
-  const sleeper = require('child_process').spawn('sleep', ['60'], { detached: true, stdio: 'ignore' });
-  sleeper.unref();
+  const sleeper = spawnSleeper();
   try {
-    const start = Number(fs.readFileSync(`/proc/${sleeper.pid}/stat`, 'utf8')
-      .split(') ').pop().split(' ')[19]);
+    const { start } = sleeper;
     fs.mkdirSync(path.join(home, '.cast'), { recursive: true });
     fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'), `${JSON.stringify({
       pid: sleeper.pid, start, harness: 'claude', model: 'haiku-4-5', session: null,
@@ -1063,7 +1081,7 @@ function dryRun(args) {
       `deadline line: ${watch.stdout}`);
     assert.ok(watch.stdout.includes('ADVISORY, not authority'), `advisory: ${watch.stdout}`);
   } finally {
-    try { process.kill(sleeper.pid, 'SIGKILL'); } catch { /* gone */ }
+    sleeper.kill();
   }
 }
 
@@ -1094,13 +1112,15 @@ const now = Date.now();
 db.prepare('insert into session values (?,?,?,?,?,?)').run('ses_r', process.cwd(), null, title, now, now);
 db.close();
 `);
-  const fakeOpencode = (script, { createSession = true } = {}) => {
-    fs.writeFileSync(path.join(bin, 'opencode'),
-      `#!/bin/sh\ncat >/dev/null\n${createSession ? `node ${helper} "$@"\n` : ''}${script}\n`);
-    fs.chmodSync(path.join(bin, 'opencode'), 0o755);
-  };
-  const env = { ...process.env, HOME: home, XDG_DATA_HOME: xdg,
-    PATH: `${bin}:${path.dirname(process.execPath)}` };
+  // (lines, exitCode): what the fake prints, then how it exits — after draining stdin like the
+  // real binary and (unless told otherwise) seeding its own tagged session row.
+  const fakeOpencode = (lines, exitCode, { createSession = true } = {}) => installFake(bin, 'opencode',
+    drainStdin
+    + (createSession ? `require(${JSON.stringify(helper)});\n` : '')
+    + lines.map((l) => `console.log(${JSON.stringify(l)});\n`).join('')
+    + `process.exit(${exitCode});\n`);
+  const env = { ...process.env, ...homeEnv(home), XDG_DATA_HOME: xdg,
+    PATH: pathEnv(bin) };
 
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const { DatabaseSync } = require('node:sqlite');
@@ -1135,7 +1155,7 @@ db.close();
     `${arm}: a sibling session's report must never be recovered as this run's: ${res.stdout}`);
 
   // swallowed: stdout ends mid-tool-trace, exit 0 — the store's final message must be appended
-  fakeOpencode('echo "| tool call trace"\nexit 0');
+  fakeOpencode(['| tool call trace'], 0);
   seedDb('FINAL-REPORT: work landed');
   let res = cast();
   assert.strictEqual(res.status, 0, `recovered run must keep exit 0, got ${res.status}: ${res.stderr}`);
@@ -1151,7 +1171,7 @@ db.close();
   noSibling(res, 'report-less');
 
   // cast's own session never reached the store: no id of its own -> no-report, never a neighbour's
-  fakeOpencode('echo "| tool call trace"\nexit 0', { createSession: false });
+  fakeOpencode(['| tool call trace'], 0, { createSession: false });
   seedDb('FINAL-REPORT: work landed');
   res = cast();
   assert.notStrictEqual(res.status, 0, `unbindable run must not read as success: ${res.stdout}`);
@@ -1159,7 +1179,7 @@ db.close();
   noSibling(res, 'unbindable');
 
   // control: final message reached stdout — passed through untouched, no marker of either kind
-  fakeOpencode('echo "ALL DONE here"\nexit 0');
+  fakeOpencode(['ALL DONE here'], 0);
   seedDb('ALL DONE here');
   res = cast();
   assert.strictEqual(res.status, 0, `healthy run must exit 0: ${res.stderr}`);
@@ -1168,7 +1188,7 @@ db.close();
   assert.ok(!res.stdout.includes('cast: no-report'), `no no-report marker on a healthy run: ${res.stdout}`);
   noSibling(res, 'healthy');
 
-  fakeOpencode('echo "AI_APICallError: Usage limit reached for 5 hour. Your limit will reset at 2026-08-22 11:10:16"\nexit 1');
+  fakeOpencode(['AI_APICallError: Usage limit reached for 5 hour. Your limit will reset at 2026-08-22 11:10:16'], 1);
   seedDb(null);
   res = cast();
   assert.notStrictEqual(res.status, 0, `limit run must be non-zero: ${res.stdout}`);
@@ -1183,10 +1203,9 @@ db.close();
   const home = mkFolder('oc-deadline-home');
   const xdg = path.join(home, 'xdg');
   const bin = mkFolder('oc-deadline-bin');
-  fs.writeFileSync(path.join(bin, 'opencode'), '#!/bin/sh\ncat >/dev/null\nsleep 5\nexit 0\n');
-  fs.chmodSync(path.join(bin, 'opencode'), 0o755);
-  const env = { ...process.env, HOME: home, XDG_DATA_HOME: xdg,
-    PATH: `${bin}:${path.dirname(process.execPath)}`, CAST_DEADLINE_MS: '400' };
+  installFake(bin, 'opencode', `${drainStdin}setTimeout(() => process.exit(0), 5000);\n`);
+  const env = { ...process.env, ...homeEnv(home), XDG_DATA_HOME: xdg,
+    PATH: pathEnv(bin), CAST_DEADLINE_MS: '400' };
   const res = spawnSync('node', [TOOL, 'opencode', 'glm-5.2', '1', folder, '-p', 'hi'],
     { encoding: 'utf8', env, timeout: 8000 });
   assert.notStrictEqual(res.status, 0, `deadline must be non-zero: ${res.stderr}`);
@@ -1220,8 +1239,10 @@ db.close();
 
   const savedXdg = process.env.XDG_DATA_HOME;
   const savedHome = process.env.HOME;
+  const savedProfile = process.env.USERPROFILE;
   process.env.XDG_DATA_HOME = xdg;
   process.env.HOME = home;
+  process.env.USERPROFILE = home;
   const libDir = path.join(__dirname, 'lib');
   const sessionsPath = path.join(libDir, 'sessions.js');
   const monitorPath = path.join(libDir, 'monitor.js');
@@ -1235,6 +1256,7 @@ db.close();
   } finally {
     process.env.XDG_DATA_HOME = savedXdg;
     process.env.HOME = savedHome;
+    if (savedProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = savedProfile;
     delete require.cache[require.resolve(sessionsPath)];
     delete require.cache[require.resolve(monitorPath)];
   }
@@ -1253,14 +1275,6 @@ db.close();
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   fs.mkdirSync(path.dirname(logPath), { recursive: true });
 
-  const spawnSleeper = () => {
-    const out = require('child_process').execFileSync('setsid',
-      ['bash', '-c', 'sleep 300 </dev/null >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' });
-    const pid = Number(out.trim());
-    const start = Number(fs.readFileSync(`/proc/${pid}/stat`, 'utf8')
-      .split(') ').pop().split(' ')[19]);
-    return { pid, start, kill: () => { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } } };
-  };
   const jobA = spawnSleeper();
   const jobB = spawnSleeper();
   try {
@@ -1289,7 +1303,7 @@ db.close();
     fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'),
       `${handle(jobA, tagA)}\n${handle(jobB, tagB)}\n`);
 
-    const env = { ...process.env, HOME: home, XDG_DATA_HOME: xdg };
+    const env = { ...process.env, ...homeEnv(home), XDG_DATA_HOME: xdg };
     const rows = JSON.parse(spawnSync('node', [TOOL, 'monitor', '--json'], { encoding: 'utf8', env }).stdout);
     const rowA = rows.find((r) => r.pid === jobA.pid);
     const rowB = rows.find((r) => r.pid === jobB.pid);
@@ -1306,7 +1320,8 @@ db.close();
 // setsid makes cast a session leader -> refused before anything spawns. The rest of this suite
 // doubles as the false-positive control: every other arm runs cast as a live child of this
 // node process and none of them trips the gate.
-{
+if (IS_WIN) console.log('skip: setsid detached-launch gate (session leader) is Linux-only');
+else {
   const setsidLaunch = (extra = []) => require('child_process').spawnSync('setsid',
     ['node', path.join(__dirname, 'cast.js'), 'claude', 'sonnet-5', '1', os.tmpdir(), ...extra, '-p', 'never runs'],
     { encoding: 'utf8' });

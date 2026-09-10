@@ -9,6 +9,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+const { winProcStarts, winStdoutPath } = require('./win-proc');
+
 
 const HANDLES_FILE = path.join(os.homedir(), '.cast', 'handles.jsonl');
 const HANDLE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -19,10 +21,35 @@ const claudeSlug = (folder) => folder.replace(/[^a-zA-Z0-9]/g, '-');
 // Field 22 of /proc/<pid>/stat (starttime, in clock ticks) — pins the pid against reuse. Fields
 // 1 and 2 are pid and the parenthesized comm, so the tail after ') ' starts at field 3.
 function procStart(pid) {
+  if (process.platform === 'win32') return winProcStarts([pid]).get(Number(pid)) ?? null;
   try {
     const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
     return Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]);
   } catch { return null; }
+}
+
+// Same pin for many pids at once — Map pid → start (absent = not alive). The registry reader
+// calls this once per poll. Windows has no /proc: the pin there is the process creation time
+// read off one process-table query (lib/win-proc.js). Without that branch every registry row
+// was written with start:null and liveJobs() dropped all of them, so `cast monitor` reported an
+// empty roster while five seats were alive (observed 2026-09-09).
+function procStarts(pids) {
+  if (process.platform === 'win32') return winProcStarts(pids);
+  return new Map(pids.map((p) => [p, procStart(p)]).filter(([, s]) => s !== null));
+}
+
+// The file this process's stdout is redirected to, or null (console, pipe, socket). Recorded on
+// the handle as `out` so the monitor's witness channel and the provider-limit detector can read
+// the job's stdout capture on any platform; rows without it fall back to /proc/<pid>/fd/1.
+function stdoutPath() {
+  let p = null;
+  if (process.platform === 'win32') {
+    p = winStdoutPath();
+  } else {
+    try { p = fs.readlinkSync('/proc/self/fd/1'); } catch { return null; }
+    if (!p.startsWith('/')) return null; // pipe:[…], socket:[…]
+  }
+  try { return p && fs.statSync(p).isFile() ? p : null; } catch { return null; }
 }
 
 // One stderr line the caller can parse, plus a registry row for post-hoc lookup. Emitted BEFORE
@@ -48,6 +75,6 @@ function emitHandle(handle) {
 // the harnesses that carry no system prompt, or null for a bare launch.
 
 module.exports = {
-  HANDLES_FILE, HANDLE_TTL_MS, claudeSlug, procStart,
+  HANDLES_FILE, HANDLE_TTL_MS, claudeSlug, procStart, procStarts, stdoutPath,
   emitHandle,
 };
