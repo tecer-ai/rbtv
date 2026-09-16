@@ -366,3 +366,188 @@ def test_image_run_without_an_image_says_so_instead_of_claiming_done(monkeypatch
 def test_image_and_grounded_together_are_refused(monkeypatch, tmp_path):
     code, _ = _run_gemini(monkeypatch, tmp_path, grounded=True, content="x", image=True)
     assert code == 1, "the two return surfaces are incompatible — the runner refuses, never guesses"
+
+
+# ---------------------------------------------------------------------------
+# Input images (added 2026-09-15): --image --input-image sends existing image
+# files IN alongside the prompt. Message.content becomes the provider-neutral
+# part-list form (clients/base.py); only gemini.py knows the Google wire shape.
+# ---------------------------------------------------------------------------
+def test_input_image_payload_translates_to_inline_data(monkeypatch):
+    import base64 as _b64
+    post = CapturePost(_gemini_data(["ok"]))
+    monkeypatch.setattr("clients.gemini.requests.post", post)
+    png_b64 = _b64.b64encode(b"png-bytes").decode()
+    make_client().chat(
+        [Message(role="user", content=[
+            {"type": "text", "text": "restyle this logo"},
+            {"type": "image", "mime_type": "image/png", "data": png_b64},
+        ])],
+        RequestOptions(model="gemini-image", extra_params={"image": True}),
+    )
+    body = post.bodies[0]
+    parts = body["contents"][0]["parts"]
+    assert parts[0] == {"text": "restyle this logo"}
+    assert parts[1] == {"inlineData": {"mimeType": "image/png", "data": png_b64}}
+
+
+def test_input_image_payload_with_several_images_keeps_order(monkeypatch):
+    import base64 as _b64
+    post = CapturePost(_gemini_data(["ok"]))
+    monkeypatch.setattr("clients.gemini.requests.post", post)
+    a_b64 = _b64.b64encode(b"aaa").decode()
+    b_b64 = _b64.b64encode(b"bbb").decode()
+    make_client().chat(
+        [Message(role="user", content=[
+            {"type": "text", "text": "combine these"},
+            {"type": "image", "mime_type": "image/png", "data": a_b64},
+            {"type": "image", "mime_type": "image/jpeg", "data": b_b64},
+        ])],
+        RequestOptions(model="gemini-image", extra_params={"image": True}),
+    )
+    parts = post.bodies[0]["contents"][0]["parts"]
+    assert parts == [
+        {"text": "combine these"},
+        {"inlineData": {"mimeType": "image/png", "data": a_b64}},
+        {"inlineData": {"mimeType": "image/jpeg", "data": b_b64}},
+    ]
+
+
+def test_string_content_still_builds_a_single_text_part(monkeypatch):
+    # No --input-image: Message.content is a plain string exactly as before, and the
+    # translation is unchanged — zero behaviour change on the existing path.
+    post = CapturePost(_gemini_data(["ok"]))
+    monkeypatch.setattr("clients.gemini.requests.post", post)
+    make_client().chat(
+        [Message(role="user", content="a red bicycle")],
+        RequestOptions(model="gemini-image", extra_params={"image": True}),
+    )
+    assert post.bodies[0]["contents"][0]["parts"] == [{"text": "a red bicycle"}]
+
+
+def test_unknown_part_type_raises_value_error(monkeypatch):
+    post = CapturePost(_gemini_data(["ok"]))
+    monkeypatch.setattr("clients.gemini.requests.post", post)
+    with pytest.raises(ValueError, match="unknown message part type"):
+        make_client().chat(
+            [Message(role="user", content=[{"type": "video", "data": "x"}])],
+            RequestOptions(model="gemini-image"),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Runner-level: --input-image wiring (run.py)
+# ---------------------------------------------------------------------------
+def test_input_image_without_image_flag_is_refused(monkeypatch, tmp_path):
+    prompt = tmp_path / "p.md"
+    prompt.write_text("edit this", encoding="utf-8")
+    img = tmp_path / "ref.png"
+    img.write_bytes(b"PNGDATA")
+    out = tmp_path / "out"
+
+    monkeypatch.setattr(run, "_resolve_key", lambda provider, api_dir: "fake-key")
+    argv = [
+        "run.py",
+        "--provider", "gemini",
+        "--model", "gemini-image",
+        "--prompt-file", str(prompt),
+        "--output-folder", str(out),
+        "--input-image", str(img),
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(SystemExit) as exc:
+        run.main()
+    assert exc.value.code == 1
+
+
+def test_input_image_bad_extension_is_refused(monkeypatch, tmp_path):
+    prompt = tmp_path / "p.md"
+    prompt.write_text("edit this", encoding="utf-8")
+    bad = tmp_path / "ref.bmp"
+    bad.write_bytes(b"BMPDATA")
+    out = tmp_path / "out"
+
+    fake_mod = types.ModuleType("clients.gemini")
+    fake_mod.TheClient = FakeGemini
+    monkeypatch.setattr(run.importlib, "import_module", lambda name: fake_mod)
+    monkeypatch.setattr(run, "_resolve_key", lambda provider, api_dir: "fake-key")
+    argv = [
+        "run.py",
+        "--provider", "gemini",
+        "--model", "gemini-image",
+        "--prompt-file", str(prompt),
+        "--output-folder", str(out),
+        "--image",
+        "--input-image", str(bad),
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(SystemExit) as exc:
+        run.main()
+    assert exc.value.code == 1
+
+
+def test_input_image_missing_file_is_refused(monkeypatch, tmp_path):
+    prompt = tmp_path / "p.md"
+    prompt.write_text("edit this", encoding="utf-8")
+    missing = tmp_path / "does-not-exist.png"
+    out = tmp_path / "out"
+
+    fake_mod = types.ModuleType("clients.gemini")
+    fake_mod.TheClient = FakeGemini
+    monkeypatch.setattr(run.importlib, "import_module", lambda name: fake_mod)
+    monkeypatch.setattr(run, "_resolve_key", lambda provider, api_dir: "fake-key")
+    argv = [
+        "run.py",
+        "--provider", "gemini",
+        "--model", "gemini-image",
+        "--prompt-file", str(prompt),
+        "--output-folder", str(out),
+        "--image",
+        "--input-image", str(missing),
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(SystemExit) as exc:
+        run.main()
+    assert exc.value.code == 1
+
+
+def test_input_image_run_builds_list_form_message(monkeypatch, tmp_path):
+    from clients.base import Artifact
+    prompt = tmp_path / "p.md"
+    prompt.write_text("restyle this logo", encoding="utf-8")
+    img = tmp_path / "logo.png"
+    img.write_bytes(b"\x89PNGfake")
+    out = tmp_path / "out"
+
+    FakeGemini._content = ""
+    FakeGemini._finish = "stop"
+    FakeGemini._artifacts = [Artifact(filename="image-1.png", content=b"OUT", content_type="image/png")]
+    FakeGemini.received = []
+
+    fake_mod = types.ModuleType("clients.gemini")
+    fake_mod.TheClient = FakeGemini
+    monkeypatch.setattr(run.importlib, "import_module", lambda name: fake_mod)
+    monkeypatch.setattr(run, "_resolve_key", lambda provider, api_dir: "fake-key")
+    argv = [
+        "run.py",
+        "--provider", "gemini",
+        "--model", "gemini-image",
+        "--prompt-file", str(prompt),
+        "--output-folder", str(out),
+        "--image",
+        "--input-image", str(img),
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(SystemExit) as exc:
+        run.main()
+    assert exc.value.code == 0
+
+    user_msgs = [m for m in FakeGemini.received if m.role == "user"]
+    assert len(user_msgs) == 1
+    content = user_msgs[0].content
+    assert isinstance(content, list)
+    assert content[0] == {"type": "text", "text": "restyle this logo"}
+    assert content[1]["type"] == "image"
+    assert content[1]["mime_type"] == "image/png"
+    import base64 as _b64
+    assert _b64.b64decode(content[1]["data"]) == b"\x89PNGfake"

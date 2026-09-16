@@ -6,6 +6,7 @@ model-emitted envelope files into --output-folder, and writes return.json.
 """
 
 import argparse
+import base64
 import importlib
 import json
 import os
@@ -171,6 +172,44 @@ def write_artifacts(
         )
 
 
+# Extensions Gemini's inline-image input actually accepts. Refusing anything outside this set
+# beats guessing a mime type from bytes — a wrong guess is a silent bad request at the provider,
+# a refusal here is a clear one at the CLI.
+_INPUT_IMAGE_MIME = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
+
+
+def _build_input_image_parts(paths: List[str]) -> List[Dict[str, Any]]:
+    """Read each --input-image path and return it as a provider-neutral image part.
+
+    Provider-neutral so run.py stays provider-agnostic (its stated design) — only
+    clients/gemini.py knows how to translate {"type": "image", ...} onto Google's wire shape.
+    """
+    parts: List[Dict[str, Any]] = []
+    for raw in paths:
+        path = pathlib.Path(raw)
+        mime = _INPUT_IMAGE_MIME.get(path.suffix.lower())
+        if mime is None:
+            print(
+                f"ERROR: --input-image '{raw}' has an unsupported extension "
+                f"'{path.suffix}' — accepted: {', '.join(sorted(_INPUT_IMAGE_MIME))}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        try:
+            data = path.read_bytes()
+        except OSError as exc:
+            print(f"ERROR: cannot read --input-image '{raw}': {exc}", file=sys.stderr)
+            sys.exit(1)
+        parts.append({"type": "image", "mime_type": mime, "data": base64.b64encode(data).decode("ascii")})
+    return parts
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Shared runner for model API calls")
     parser.add_argument("--provider", required=True, help="Provider name (e.g. gemini)")
@@ -184,6 +223,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Enable web/search grounding via extra_params['grounding']=True (gemini.py reads this). Generic — never provider-specific.")
     parser.add_argument("--image", action="store_true",
         help="Image generation: the prompt goes in, image FILES come out into --output-folder. Requests no JSON envelope and parses none — the model's inline image parts are the deliverable.")
+    parser.add_argument("--input-image", action="append", default=None,
+        help="Path to an existing image file to send INTO the model alongside the prompt (repeatable, order preserved). Requires --image. Extension must be png/jpg/jpeg/webp/gif.")
     parser.add_argument("--extra-params", type=str, default=None,
         help="A JSON object merged into RequestOptions.extra_params (advanced pass-through).")
     return parser
@@ -221,6 +262,12 @@ def main() -> None:
     image = bool(extra_params.get("image"))
     if image and grounded:
         print("ERROR: --image and --grounded are mutually exclusive", file=sys.stderr)
+        sys.exit(1)
+
+    # An input image with no --image is a no-op nobody asked for: with no image call there is no
+    # request to put it into. Refuse loudly rather than silently dropping it.
+    if args.input_image and not image:
+        print("ERROR: --input-image requires --image", file=sys.stderr)
         sys.exit(1)
 
     # --- dynamic client resolution ---
@@ -299,7 +346,14 @@ def main() -> None:
                 'Do not wrap the JSON in markdown fences.'
             ),
         )
-    user_msg = Message(role="user", content=prompt_text)
+    # An input image turns the user message into the provider-neutral part-list form (see
+    # clients/base.py Message.content) instead of a plain string — the ONLY behaviour change vs.
+    # today's plain-string path, and only when --input-image was actually passed.
+    if args.input_image:
+        user_content: Any = [{"type": "text", "text": prompt_text}, *_build_input_image_parts(args.input_image)]
+    else:
+        user_content = prompt_text
+    user_msg = Message(role="user", content=user_content)
     messages = [user_msg] if system_msg is None else [system_msg, user_msg]
 
     # --- call provider ---

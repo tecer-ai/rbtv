@@ -133,14 +133,15 @@ const ROWS = [
   // its opencode cli rows above, Manus is gone entirely.
   { harness: 'api', model: 'gemini-3.5-flash', mode: 'api', id: 'gemini-3.5-flash', rungs: [],
     auth: GOOGLE_API_AUTH, depths: ['off', 'on'] },
-  // The Google image-generation worker. ⚠ `model`/`id` are BLANK ON PURPOSE — the owner has not
-  // picked the model id yet, and the blank matches models.csv so the route join still finds it.
-  // Consequence while blank: `cast route --caps image` returns this row with an empty model, and
-  // `cast api` cannot address it. Filling the id in BOTH files makes it usable; nothing else here
-  // has to change. It is not marked available:false — availability stays the honest GEMINI_API_KEY
-  // presence test, so the failure a caller sees is the real one.
-  { harness: 'api', model: '', mode: 'api', id: '', rungs: [],
-    auth: GOOGLE_API_AUTH, depths: [] },
+  // The Google image-generation worker — Nano Banana 2, filled in 2026-09-15 by owner direction
+  // (it was blank from the route redesign until then). `id` is the model name Google answers to on
+  // generateContent; the `-preview` twin and the Pro/Lite siblings are deliberately NOT listed —
+  // one image row keeps the `--caps image` short-circuit deterministic. Its models.csv twin
+  // (image=Y, level L4, use=route) is what makes `cast route --caps image` return it; both files
+  // carry the SAME model string or the join drops the row. No `depths`: an image model has no
+  // thinking dial, so `cast api` skips the effort merge entirely.
+  { harness: 'api', model: 'gemini-3.1-flash-image', mode: 'api', id: 'gemini-3.1-flash-image',
+    rungs: [], auth: GOOGLE_API_AUTH, depths: [] },
 ];
 
 // The launch table cast.js spawns from: `mode: cli` rows, in catalog order, keyed the way the

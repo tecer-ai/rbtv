@@ -13,6 +13,7 @@ cli,claude,sonnet-5,5,N,L3,3,3,10,route,N,Y
 cli,codex,gpt-5.6-terra,5,N,L3,3,3,12,panel,N,N
 cli,claude,fable-5,5,N,SOTA,7,7,50,route,N,N
 api,api,gemini-3.5-flash,0,N,L3,3,3,9,route,N,N
+api,api,gemini-3.1-flash-image,0,Y,L4,,,,route,N,N
 cli,codex,gpt-5.5,4,N,L4,0,0,999,off,N,N
 cli,opencode,k2.7,1,N,L4,0,0,999,off,N,N
 cli,opencode,k2.7-highspeed,1,N,L4,0,0,999,off,N,N

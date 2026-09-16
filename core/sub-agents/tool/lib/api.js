@@ -14,7 +14,7 @@ const { ROWS } = require('../catalog');
 
 const { fail } = require('./core');
 
-const API_USAGE = 'cast api <model> <effort 1-5> (-p TEXT | -f FILE) --output-folder DIR [--image] [--target-file PATH] [--timeout N] [--grounded] [--extra-params JSON] [--dry-run]';
+const API_USAGE = 'cast api <model> <effort 1-5> (-p TEXT | -f FILE) --output-folder DIR [--image [--input-image PATH ...]] [--target-file PATH] [--timeout N] [--grounded] [--extra-params JSON] [--dry-run]';
 const API_RUNNER = path.join(__dirname, '..', 'api', 'run.py');
 
 function apiRows() {
@@ -37,6 +37,7 @@ function parseApiArgs(rawArgv) {
   let targetFile = null;
   let timeout = null;
   let extraParamsRaw = null;
+  const inputImages = [];
   const positional = [];
   for (let i = 0; i < rawArgv.length; i++) {
     const a = rawArgv[i];
@@ -47,6 +48,10 @@ function parseApiArgs(rawArgv) {
       grounded = true;
     } else if (a === '--image') {
       image = true;
+    } else if (a === '--input-image') {
+      const val = rawArgv[++i];
+      if (val === undefined) fail('refused: --input-image requires an argument');
+      inputImages.push(val);
     } else if (a === '--prompt-file' || a === '-f' || a === '-p') {
       if (promptSource) fail('refused: -p and -f/--prompt-file are mutually exclusive — pass exactly one');
       promptSource = a;
@@ -77,7 +82,7 @@ function parseApiArgs(rawArgv) {
     }
   }
   return { dryRun, grounded, image, promptFile, promptText, outputFolder, targetFile,
-    timeout, extraParamsRaw, positional };
+    timeout, extraParamsRaw, inputImages, positional };
 }
 
 // The runner is file-in, so `-p TEXT` is materialized into the output folder next to the run's own
@@ -116,6 +121,7 @@ function runApi(rawArgv) {
   }
   if (!parsed.outputFolder) fail(`refused: --output-folder DIR is required\nusage: ${API_USAGE}`);
   if (parsed.image && parsed.grounded) fail('refused: --image and --grounded are mutually exclusive');
+  if (parsed.inputImages.length && !parsed.image) fail('refused: --input-image requires --image — it has no effect without image mode');
 
   const row = apiRows().find((r) => r.model === model || r.id === model);
   if (!row) {
@@ -166,6 +172,7 @@ function runApi(rawArgv) {
   if (parsed.timeout != null) argv.push('--timeout', String(parsed.timeout));
   if (parsed.grounded) argv.push('--grounded');
   if (parsed.image) argv.push('--image');
+  for (const imgPath of parsed.inputImages) argv.push('--input-image', imgPath);
   if (Object.keys(extra).length) argv.push('--extra-params', JSON.stringify(extra));
 
   if (parsed.dryRun) {

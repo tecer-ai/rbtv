@@ -17,7 +17,7 @@ tool/cast.js <harness> <model> <effort 1-5> [launch-folder] (-p TEXT | -f FILE) 
 tool/cast.js seat [launch-folder] [-p TEXT | -f FILE] [--headed] [--dry-run]
 tool/cast.js resume <harness> <session-id|last> [launch-folder] (-p TEXT | -f FILE) [--dry-run]
 tool/cast.js sessions [harness] [launch-folder] [--json] [-n N]
-tool/cast.js api <model> <effort 1-5> (-p TEXT | -f FILE) --output-folder DIR [--image] [--target-file PATH] [--timeout N] [--grounded] [--extra-params JSON] [--dry-run]
+tool/cast.js api <model> <effort 1-5> (-p TEXT | -f FILE) --output-folder DIR [--image [--input-image PATH ...]] [--target-file PATH] [--timeout N] [--grounded] [--extra-params JSON] [--dry-run]
 tool/cast.js route --access open|bounded --type code|text --class planner|broad|bounded|mechanical --optimize price|quality [--caps image] [--explain]
 tool/cast.js route --caps image
 tool/cast.js route --batch <seats.json | -> [--explain]
@@ -348,7 +348,7 @@ DeepSeek api rows and their runner clients were deleted — DeepSeek survives th
 CLI rows. Rows are addressed by short name, never by provider.
 
 ```
-cast api <model> <effort 1-5> (-p TEXT | -f FILE) --output-folder DIR [--image] [--target-file PATH] [--timeout N] [--grounded] [--extra-params JSON] [--dry-run]
+cast api <model> <effort 1-5> (-p TEXT | -f FILE) --output-folder DIR [--image [--input-image PATH ...]] [--target-file PATH] [--timeout N] [--grounded] [--extra-params JSON] [--dry-run]
 ```
 
 `-p TEXT` and `-f FILE` (alias `--prompt-file`) are mutually exclusive; `-p` writes the prompt to
@@ -362,6 +362,18 @@ provider's reasoning knob where one exists (gemini `thinkingBudget`, 1 = off). A
 ARE the return, written as `image-1.png`, `image-2.jpg`, … A run that comes back with no inline
 image data is `DONE_WITH_NOTES`, never a clean `DONE`. `--image` and `--grounded` are refused
 together: they are two incompatible return surfaces.
+
+**`--input-image PATH`** (repeatable) sends an EXISTING image file IN alongside the prompt —
+"edit this picture", "restyle this logo", "use this as reference" — instead of only text-to-image.
+Requires `--image`; refused without it. Each path must exist and be readable, and its extension
+must be one of `png`/`jpg`/`jpeg`/`webp`/`gif` — anything else is refused rather than guessed at.
+The runner (`run.py`) reads each file, base64-encodes it, and builds the user message as a
+provider-neutral part list (`clients/base.py Message.content`, already typed to allow it): a text
+part carrying the prompt, then one image part per `--input-image`, in the order given. Only
+`clients/gemini.py` translates that list onto Google's wire shape (`inlineData` with `mimeType` +
+`data`) — `run.py` itself stays provider-agnostic. With no `--input-image`, the message stays a
+plain string exactly as before — zero behaviour change on the existing text-to-image and text-only
+paths. An unrecognised part type in the neutral list raises rather than being silently dropped.
 
 ⚠ **The image row ships with a BLANK model id** — the owner has not picked the model yet. While it
 is blank, `cast route --caps image` returns a verdict with an empty `model` and `cast api` refuses

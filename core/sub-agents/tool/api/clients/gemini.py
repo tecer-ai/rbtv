@@ -24,6 +24,26 @@ _DEFAULT_MAX_OUTPUT_TOKENS = 8192
 _GROUNDED_MAX_OUTPUT_TOKENS = 16384
 
 
+# Message.content is provider-neutral (see clients/base.py): a plain string, or a list of
+# {"type": "text"|"image", ...} parts built by run.py's --input-image handling. This is the
+# ONLY place that knows Google's wire shape for either — text stays {"text": ...}, an image part
+# becomes inlineData. An unrecognised part type raises rather than being silently dropped, so a
+# caller typo never turns into a request that quietly ignores an image.
+def _build_parts(content: Any) -> List[Dict[str, Any]]:
+    if isinstance(content, str):
+        return [{"text": content}]
+    parts: List[Dict[str, Any]] = []
+    for part in content:
+        part_type = part.get("type")
+        if part_type == "text":
+            parts.append({"text": part["text"]})
+        elif part_type == "image":
+            parts.append({"inlineData": {"mimeType": part["mime_type"], "data": part["data"]}})
+        else:
+            raise ValueError(f"Gemini: unknown message part type {part_type!r}")
+    return parts
+
+
 class GeminiClient(ProviderClient):
     structured_output: bool = True
 
@@ -62,7 +82,7 @@ class GeminiClient(ProviderClient):
                 system_texts.append(message.content)
             else:
                 role = "model" if message.role == "assistant" else "user"
-                contents.append({"role": role, "parts": [{"text": message.content}]})
+                contents.append({"role": role, "parts": _build_parts(message.content)})
 
         payload: Dict[str, Any] = {"contents": contents}
 
