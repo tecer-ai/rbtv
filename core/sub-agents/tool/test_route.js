@@ -52,6 +52,7 @@ fs.mkdirSync(path.dirname(FIXTURE_CSV), { recursive: true });
 fs.writeFileSync(FIXTURE_CSV, [
   'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override',
   'cli,claude,fable-5,5,N,SOTA,7,7,50,route,N,N',
+  'cli,codex,gpt-6-astra,5,N,SOTA,7,7,50,route,Y,Y',
   'cli,claude,opus-5,5,N,L1,6,6,25,route,N,N',
   'cli,codex,gpt-5.6-sol,5,N,L1,5,5,20,route,N,N',
   'cli,claude,sonnet-5,5,N,L2,5,5,10,route,N,N',
@@ -169,7 +170,7 @@ const dropped = (v, stage) => (v.explain || [])
 // --- planner floors the effort -----------------------------------------------------------------
 {
   const v = route(['--access', 'open', '--type', 'text', '--class', 'planner', '--optimize', 'quality']);
-  assert.strictEqual(pair(v), 'claude/fable-5/cli');
+  assert.strictEqual(pair(v), 'codex/gpt-6-astra/cli');
   assert.strictEqual(v.effort, 3);
   assert.strictEqual(v.effort_is_floor, true, 'planner effort is a FLOOR the caller raises');
 
@@ -428,7 +429,7 @@ const FIXER_SEAT = { name: 'fixer', access: 'bounded', type: 'code', class: 'mec
   assert.strictEqual(v._status, 0, `every seat routed, so exit 0: ${JSON.stringify(v)}`);
   assert.strictEqual(v.verdict, 'route-batch');
   assert.deepStrictEqual(v.seats.map((s) => s.name), ['planner', 'fixer'], 'seats must come back in INPUT order');
-  assert.strictEqual(pair(v.seats[0]), 'claude/fable-5/cli');
+  assert.strictEqual(pair(v.seats[0]), 'codex/gpt-6-astra/cli');
   assert.strictEqual(pair(v.seats[1]), 'codex/gpt-5.6-luna/cli');
 }
 

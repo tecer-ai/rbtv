@@ -180,6 +180,15 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.strictEqual(out.effort_word, 'xhigh');
 }
 
+// codex astra is launchable and uses the five-rung ladder.
+{
+  const folder = mkFolder('codex-astra');
+  const out = dryRun(['codex', 'gpt-6-astra', '5', folder, '-p', 'hello']);
+  assert.ok(out.argv.includes('gpt-6-astra'));
+  assert.ok(out.argv.includes('model_reasoning_effort=max'));
+  assert.strictEqual(out.effort_word, 'max');
+}
+
 // kimi now rides opencode: k3 effort 1 -> its lowest rung, K2.7 carries no dial at all
 {
   const folder = mkFolder('kimi');

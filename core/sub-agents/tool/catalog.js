@@ -85,6 +85,7 @@ const ROWS = [
   { harness: 'claude', model: 'haiku-4-5', mode: 'cli', id: 'claude-haiku-4-5', rungs: [], auth: CLI_LOGIN },
 
   // --- codex, cli ------------------------------------------------------------------------------
+  { harness: 'codex', model: 'gpt-6-astra', mode: 'cli', id: 'gpt-6-astra', rungs: CLAUDE_LADDER, auth: CLI_LOGIN },
   { harness: 'codex', model: 'gpt-5.6-sol', mode: 'cli', id: 'gpt-5.6-sol', rungs: CLAUDE_LADDER, auth: CLI_LOGIN },
   { harness: 'codex', model: 'gpt-5.6-terra', mode: 'cli', id: 'gpt-5.6-terra', rungs: CLAUDE_LADDER, auth: CLI_LOGIN },
   { harness: 'codex', model: 'gpt-5.6-luna', mode: 'cli', id: 'gpt-5.6-luna', rungs: CLAUDE_LADDER, auth: CLI_LOGIN },
