@@ -25,7 +25,10 @@ A clarifying question is a STOPPAGE waiting for input. A batched table is a SING
 
 ## Step 1 — Read Transcript(s) & Load Glossary
 
-1. Read every referenced transcript/document file completely. If no file was provided, STOP and ask the user for the path.
+1. Resolve the source, then read it completely:
+   - A file path was given: read it.
+   - A meeting, email, or event was referenced instead (a pasted notes email, a subject like `Notes: "X" <date>`, a meeting name): fetch it yourself with the workspace's mail and file tools (see the tool routing in the workspace CLAUDE.md). Open the email, follow its links to the full notes and transcript documents, and download them. An email digest is NEVER the source when a transcript it links to exists. Record the email's ID for Step 6.5.
+   - STOP and ask the user ONLY when nothing can be located.
 2. Load the glossary declared in the operating scope's CLAUDE.md (under `## Name Glossary` heading). If no glossary is declared, skip silently.
 3. Track glossary corrections (matched name → canonical form) for write-back in Step 5.5. Do not modify the file yet.
 4. If 2+ files were provided, execute Step 1.5 before continuing.
@@ -163,9 +166,14 @@ If a glossary was loaded in Step 1 and the prompt included Phase 1 validation:
 
 Skip this step in autonomous mode.
 
+## Step 6.5 — Clear the Source Email
+
+Skip this step when the source was a local file. When it came from an email, take it out of the inbox in the same run, using the workspace's label convention (workspace CLAUDE.md, memory, or the output folder's README). If no convention is written down, check which label past emails from the same sender were filed under and reuse it. NEVER remove an email from the inbox without a label. Re-read the message and confirm the inbox label is gone.
+
 ## Step 7 — Confirm
 
 Report to user:
+- Source email: `{id} -> {label}`, or "local file"
 - Transcript final location (after any rename/move)
 - Whether transcript was edited in place with confirmed corrections (and how many)
 - Summary location
