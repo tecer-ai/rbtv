@@ -56,15 +56,16 @@ const COLUMNS = ['mode', 'harness', 'model', 'efforts', 'image', 'level',
 // Level vocabulary: SOTA > L1 > L2 > L3, plus L4 — the image tier, which NO class admits, so an
 // L4 row is reachable only through the `--caps image` short-circuit. Each class below lists its
 // eligible levels BEST FIRST; that order is what `--optimize quality` ranks on.
-// The class table (spec §4). `levels` is BOTH the eligibility filter and the ceiling `--optimize
-// quality` may reach: a bounded executor optimizing quality picks the best L1, never SOTA — only planner
-// reaches SOTA. Effort is a fixed cast-normalized 1-5 number, mapped onto the picked row's own
+// The class table (spec §4). `levels` is the eligibility filter: each class sees exactly one
+// level, so `--optimize` only reorders rows of that level. Effort is a fixed cast-normalized 1-5 number, mapped onto the picked row's own
 // rungs at launch (inert ladders accept N and emit no argv).
 const CLASSES = {
-  planner: { levels: ['SOTA', 'L1'], effort: { code: 3, text: 3 }, floor: true },
+  // One level per class (owner ruling 2026-09-24; promoteOverrides relies on it): with two levels eligible, price ranking let a
+  // lower level's cheaper row take the job (Grok on planning, L1 rows on bounded work).
+  planner: { levels: ['SOTA'], effort: { code: 3, text: 3 }, floor: true },
   broad: { levels: ['L1'], effort: { code: 2, text: 3 } },
-  bounded: { levels: ['L1', 'L2'], effort: { code: 2, text: 2 } },
-  mechanical: { levels: ['L2', 'L3'], effort: { code: 1, text: 1 } },
+  bounded: { levels: ['L2'], effort: { code: 2, text: 2 } },
+  mechanical: { levels: ['L3'], effort: { code: 1, text: 1 } },
 };
 
 const ACCESS = ['open', 'bounded'];
@@ -94,11 +95,9 @@ const USE_VALUES = ['route', 'panel', 'off'];
 const USE_DEFAULT = 'route';
 
 // The two override columns (same ruling). `Y` means: inside ITS OWN LEVEL, this row wins the named
-// ranking whatever the numbers say. It NEVER crosses a level — an L2 row with quality-override=Y
-// still loses to every eligible L1 row — and it never bypasses a filter: availability, --caps,
-// --access and the class levels all run first, so an override can only reorder survivors. On the
-// tiered default the override that fires is the one matching how that band is ranked:
-// price-override in the SOTA/L1 band, quality-override in the L2/L3 band.
+// ranking whatever the numbers say. It never bypasses a filter: availability, --caps, --access and
+// the class level all run first, so an override can only reorder survivors. A model listed at two
+// levels carries its overrides per line, so it can win one level and not the other.
 const OVERRIDE = { quality: 'quality_override', price: 'price_override' };
 
 // The vault root = the nearest ancestor carrying rbtv.json, from cwd first (a workspace may sit
@@ -273,26 +272,14 @@ function byKey(rows, keyFn) {
 // different trace label, so the reader of an --explain can still see the flag was omitted.
 // Returns the FULL ranked list, best first: the caller takes the head as the verdict and the next
 // two as backups.
-// An override moves rows WITHIN their own level and nowhere else: the flagged rows of a level are
-// lifted to that level's first position in the already-ranked list, keeping their relative order.
-// Every other row keeps its place, so a ranking with no flagged row is byte-identical to before —
-// the column is inert until the owner sets it. Implemented as a post-sort lift rather than a sort
-// key because "ahead of my own level only" is not a total order: with price ranking, levels are
-// interleaved by cost, and folding the rule into the comparator would regroup rows the owner never
-// flagged.
+// An override lifts the flagged rows to the head of the ranking, keeping their relative order;
+// every other row keeps its place, so a ranking with no flagged row is unchanged. That is "wins
+// its own level" because every class sees exactly ONE level (CLASSES) — a class admitting two
+// levels again would need this lift scoped per level.
 function promoteOverrides(ranked, flag, trace, optimize) {
   const flagged = ranked.filter((r) => r[flag]);
   if (!flagged.length) return ranked;
-  let out = ranked.slice();
-  for (const level of [...new Set(flagged.map((r) => r.level))]) {
-    const promoted = out.filter((r) => r.level === level && r[flag]);
-    const rest = out.filter((r) => !(r.level === level && r[flag]));
-    // Insert where that level starts among the rows left; a level whose every row was promoted
-    // keeps the block's old position.
-    let at = rest.findIndex((r) => r.level === level);
-    if (at === -1) at = Math.min(out.indexOf(promoted[0]), rest.length);
-    out = [...rest.slice(0, at), ...promoted, ...rest.slice(at)];
-  }
+  const out = [...flagged, ...ranked.filter((r) => !r[flag])];
   trace.push({ stage: 'optimize', action: 'override', optimize, column: flag.replace('_', '-'),
     promoted: flagged.map(label), order: out.map(label) });
   return out;

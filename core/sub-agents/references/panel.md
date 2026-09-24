@@ -28,8 +28,8 @@ panel-specific.
 ## Interview — tiered
 
 - **Always**: propose ONE composition to the user and get a confirm/adjust —
-  the diversity axis (perspectives | models | both), the panelists (each one's angle and
-  model), and whether a rebuttal round is on the table. One short round, then go.
+  the diversity axis (perspectives | models | both), the panelists (each one's angle; on the
+  model axis the models are fixed by the class — Routing below), and whether a rebuttal round is on the table. One short round, then go.
 - **Generative panels** (the panel produces solutions, designs, or drafts — not reviews):
   FIRST interview the user until the problem and their desired functioning are pinned.
   Every panelist inherits the problem statement; a vague one wastes the whole panel.
@@ -45,16 +45,27 @@ panel-specific.
   - **Model** — same brief, different models (ideally different providers).
   - **Both** — the strongest form when the subject warrants the spend.
 
-## Routing — the model-diversity exception
+## Routing — the panel's seats are fixed by the class (owner ruling 2026-09-24)
 
 One `cast route` call for the task sets the CLASS and EFFORT for the whole panel. When model
-diversity is a chosen axis, the top-verdict-only rule is deliberately relaxed — diversity is
-the point here: run `cast route --catalog --json` and spread the seats across LAUNCHABLE
-models within the tiers that class allows, preferring distinct providers over same-provider
-variants. Eligible rows are the ones whose `use` column reads `route` or `panel` — a `panel`
-row is in the roster FOR this, a model the owner wants heard in a panel but never named as a
-single verdict. A `use: off` row is out: routing and panels both ignore it. The class boundary still holds (no reaching above the class's tiers), and the route
-verdict's effort applies to every panelist.
+diversity is a chosen axis, the top-verdict-only rule is deliberately relaxed, and the seats are
+NOT chosen: the panel ALWAYS seats every model at the class's level PLUS every model at the level
+directly below it. Read them from `cast route --catalog --json`.
+
+| Class (its level) | Panel levels |
+|---|---|
+| planner (SOTA) | SOTA + L1 |
+| broad (L1) | L1 + L2 |
+| bounded (L2) | L2 + L3 |
+| mechanical (L3) | L3 only — L4 is the image tier, never a panel seat |
+
+- Eligible rows: `use` reads `route` or `panel` — a `panel` row is in the roster FOR this, a
+  model the owner wants heard in a panel but never named as a single verdict. A `use: off` row
+  is out: routing and panels both ignore it.
+- A model listed at both panel levels takes ONE seat.
+- A row that cannot run the job drops, and the drop is named in the synthesis: `--access open`
+  drops api rows, and a row whose credential does not resolve cannot launch.
+- Never above the class's own level. The route verdict's effort applies to every panelist.
 
 ## Synthesis
 

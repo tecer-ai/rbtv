@@ -81,13 +81,16 @@ const ROWS = [
   // --- claude, cli -----------------------------------------------------------------------------
   { harness: 'claude', model: 'fable-5', mode: 'cli', id: 'claude-fable-5', rungs: CLAUDE_LADDER, auth: CLI_LOGIN },
   { harness: 'claude', model: 'opus-5', mode: 'cli', id: 'claude-opus-5', rungs: CLAUDE_LADDER, auth: CLI_LOGIN },
+  { harness: 'claude', model: 'opus-5-5', mode: 'cli', id: 'claude-opus-5-5', rungs: CLAUDE_LADDER, auth: CLI_LOGIN },
   { harness: 'claude', model: 'sonnet-5', mode: 'cli', id: 'claude-sonnet-5', rungs: CLAUDE_LADDER, auth: CLI_LOGIN },
   { harness: 'claude', model: 'haiku-4-5', mode: 'cli', id: 'claude-haiku-4-5', rungs: [], auth: CLI_LOGIN },
 
   // --- codex, cli ------------------------------------------------------------------------------
   { harness: 'codex', model: 'gpt-6-astra', mode: 'cli', id: 'gpt-6-astra', rungs: CLAUDE_LADDER, auth: CLI_LOGIN },
+  { harness: 'codex', model: 'gpt-6-sol', mode: 'cli', id: 'gpt-6-sol', rungs: CLAUDE_LADDER, auth: CLI_LOGIN },
   { harness: 'codex', model: 'gpt-5.6-sol', mode: 'cli', id: 'gpt-5.6-sol', rungs: CLAUDE_LADDER, auth: CLI_LOGIN },
   { harness: 'codex', model: 'gpt-5.6-terra', mode: 'cli', id: 'gpt-5.6-terra', rungs: CLAUDE_LADDER, auth: CLI_LOGIN },
+  { harness: 'codex', model: 'gpt-6-luna', mode: 'cli', id: 'gpt-6-luna', rungs: CLAUDE_LADDER, auth: CLI_LOGIN },
   { harness: 'codex', model: 'gpt-5.6-luna', mode: 'cli', id: 'gpt-5.6-luna', rungs: CLAUDE_LADDER, auth: CLI_LOGIN },
   { harness: 'codex', model: 'gpt-5.5', mode: 'cli', id: 'gpt-5.5',
     rungs: ['low', 'medium', 'high', 'xhigh'], auth: CLI_LOGIN },
@@ -119,6 +122,8 @@ const ROWS = [
   { harness: 'opencode', model: 'gemini-flash-latest', mode: 'cli', id: 'google/gemini-flash-latest',
     rungs: ['low', 'high'], auth: GOOGLE_OC_AUTH },
   { harness: 'opencode', model: 'grok-4.6', mode: 'cli', id: 'xai/grok-4.6',
+    rungs: ['low', 'medium', 'high'], auth: XAI_OC_AUTH },
+  { harness: 'opencode', model: 'grok-4.7', mode: 'cli', id: 'xai/grok-4.7',
     rungs: ['low', 'medium', 'high'], auth: XAI_OC_AUTH },
   { harness: 'opencode', model: 'grok-4.6-fast', mode: 'cli', id: 'xai/grok-4.6-fast',
     rungs: ['low', 'medium', 'high'], auth: XAI_OC_AUTH },

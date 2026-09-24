@@ -418,12 +418,14 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.ok(!/^usage: cast seat/.test(res.stdout), `"-h" as prompt text must not print usage: ${res.stdout}`);
 }
 
-// -h: exit 0, <=50 lines (one screen; raised from 40 for resume/sessions, from 44 for monitor, from 47 for route), mentions every SPECS model id
+// -h: exit 0, <=54 lines (one screen; raised from 40 for resume/sessions, from 44 for monitor, from 47 for route,
+// from 50 while opus-5, grok-4.6, gpt-5.6-sol and gpt-5.6-luna stay launchable beside their successors —
+// drop back to 50 when they are retired)
 {
   const res = spawnSync('node', [TOOL, '-h'], { encoding: 'utf8' });
   assert.strictEqual(res.status, 0, 'cast -h must exit 0');
   const lines = res.stdout.split('\n').filter((l) => l.length > 0);
-  assert.ok(lines.length <= 50, `help must be <=50 lines, got ${lines.length}`);
+  assert.ok(lines.length <= 54, `help must be <=54 lines, got ${lines.length}`);
   // enumerate models from the tool's own inventory, never by re-parsing its source
   const inv = JSON.parse(spawnSync('node', [TOOL, 'list', '--json'], { encoding: 'utf8' }).stdout);
   const shorts = Object.values(inv).flatMap((models) => Object.keys(models));

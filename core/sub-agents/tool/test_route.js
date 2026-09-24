@@ -94,7 +94,7 @@ const dropped = (v, stage) => (v.explain || [])
 }
 
 // --- price-optimized mechanical code -----------------------------------------------------------
-// Levels L2+L3; the cheapest priced row across them is luna at 1.2. Effort 1, and effort_is_floor
+// Level L3; the cheapest priced row there is luna at 1.2. Effort 1, and effort_is_floor
 // false — only planner floors.
 {
   const v = route(['--access', 'bounded', '--type', 'code', '--class', 'mechanical', '--optimize', 'price']);
@@ -134,21 +134,23 @@ const dropped = (v, stage) => (v.explain || [])
   // The trace still says which one the caller asked for — an --explain reader can tell an omitted
   // flag from an explicit one, even though the ranking is the same.
   const mech = route(['--access', 'bounded', '--type', 'text', '--class', 'mechanical', '--explain']);
-  assert.strictEqual(pair(mech), 'codex/gpt-5.6-luna/cli', 'mechanical default = the cheapest L2/L3 row');
+  assert.strictEqual(pair(mech), 'codex/gpt-5.6-luna/cli', 'mechanical default = the cheapest L3 row');
   const rank = mech.explain.find((e) => e.stage === 'optimize' && e.action === 'rank');
   assert.strictEqual(rank.optimize, 'default');
   assert.ok(/price, for every class/.test(rank.rule || ''), JSON.stringify(rank));
   // A blank cost is excluded from the default exactly as it is from an explicit price pick.
   assert.ok(dropped(mech, 'optimize').includes('claude/haiku-4-5'), JSON.stringify(dropped(mech, 'optimize')));
 
-  // THE BEHAVIOUR THAT CHANGED, pinned so it cannot drift back silently: in a class spanning two
-  // levels, the default now takes the cheaper LOWER-level row. Under the retired tiered rule the
-  // whole SOTA/L1 band ranked first, so bounded could never answer with an L2.
+  // ONE LEVEL PER CLASS (owner ruling 2026-09-24), pinned so it cannot drift back silently: when a
+  // class spanned two levels, the price default handed it to the cheaper level's row (planning went
+  // to an L1 model). Now the other levels drop at the class stage and never enter the ranking.
+  const planner = route(['--access', 'open', '--type', 'text', '--class', 'planner', '--explain']);
+  assert.strictEqual(pair(planner), 'codex/gpt-6-astra/cli', 'planner default stays at SOTA');
   const bounded = route(['--access', 'bounded', '--type', 'code', '--class', 'bounded', '--explain']);
-  assert.strictEqual(pair(bounded), 'codex/gpt-5.6-terra/cli', 'bounded default = cheapest of L1+L2, level no longer breaks the tie');
-  const order = bounded.explain.find((e) => e.stage === 'optimize' && e.action === 'rank').order;
-  assert.ok(order.indexOf('codex/gpt-5.6-terra') < order.indexOf('codex/gpt-5.6-sol'),
-    `a cheap L2 now outranks every L1 under the default: ${JSON.stringify(order)}`);
+  assert.strictEqual(pair(bounded), 'codex/gpt-5.6-terra/cli', 'bounded default = cheapest L2');
+  for (const v of [planner, bounded]) {
+    assert.ok(dropped(v, 'class').includes('codex/gpt-5.6-sol'), `the cheaper L1 row must drop at the class stage: ${JSON.stringify(dropped(v, 'class'))}`);
+  }
 
   // Batch: an omitted optimize on a seat takes the same default as the flag form.
   const b = routeBatch([{ name: 'm', access: 'bounded', type: 'code', class: 'mechanical' }]);
@@ -157,11 +159,12 @@ const dropped = (v, stage) => (v.explain || [])
 }
 
 // --- max quality NEVER leaves the class's own levels --------------------------------------------
-// class=bounded is L1+L2. fable-5 is SOTA and available, and it must NOT be picked: a bounded
-// executor at max quality gets the best L1 (opus-5), never SOTA. Only planner reaches SOTA.
+// class=bounded is L2 only. fable-5 (SOTA) and opus-5 (L1) are available and score higher, and
+// neither may be picked: a bounded executor at max quality gets the best L2 (sonnet-5).
 {
   const v = route(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'quality', '--explain']);
-  assert.strictEqual(pair(v), 'claude/opus-5/cli');
+  assert.strictEqual(pair(v), 'claude/sonnet-5/cli');
+  assert.ok(dropped(v, 'class').includes('claude/opus-5'), JSON.stringify(dropped(v, 'class')));
   assert.strictEqual(v.effort, 2);
   assert.ok(dropped(v, 'class').includes('claude/fable-5'),
     `fable-5 (SOTA) must be dropped at the class filter: ${JSON.stringify(dropped(v, 'class'))}`);
@@ -192,14 +195,14 @@ const dropped = (v, stage) => (v.explain || [])
   const open = route(['--access', 'open', '--type', 'text', '--class', 'mechanical', '--optimize', 'quality', '--explain']);
   assert.ok(dropped(open, 'access').includes('api/gemini-3.5-flash'),
     `the api row must be dropped at the access stage: ${JSON.stringify(dropped(open, 'access'))}`);
-  assert.strictEqual(pair(open), 'claude/sonnet-5/cli', 'access=open must exclude every api row');
+  assert.strictEqual(pair(open), 'codex/gpt-5.6-luna/cli', 'access=open must exclude every api row');
 }
 
 // --- the verdict carries two backups ----------------------------------------------------------
-// class=bounded optimizing price ranks every L1+L2 row by cost; the head is the verdict, the next
-// two ride along as alternates in that same order, with no duplicate of the head.
+// class=mechanical optimizing price ranks every priced L3 row by cost; the head is the verdict, the
+// next two ride along as alternates in that same order, with no duplicate of the head.
 {
-  const v = route(['--access', 'bounded', '--type', 'code', '--class', 'bounded', '--optimize', 'price', '--explain']);
+  const v = route(['--access', 'bounded', '--type', 'code', '--class', 'mechanical', '--optimize', 'price', '--explain']);
   const order = (v.explain.find((e) => e.stage === 'optimize' && e.action === 'rank') || {}).order;
   assert.ok(Array.isArray(order) && order.length > 2, `expected a ranking deeper than 1: ${JSON.stringify(order)}`);
   assert.strictEqual(v.alternates.length, 2, JSON.stringify(v.alternates));
@@ -234,7 +237,7 @@ const dropped = (v, stage) => (v.explain || [])
 }
 
 // --- price vs quality pull the bounded class apart ---------------------------------------------
-// class=bounded is L1+L2: the cheapest row is terra (L2, 5), the best is opus-5 (L1, reasoning 6).
+// class=bounded is L2: the cheapest row is terra (cost 5), the best is sonnet-5 (reasoning 5).
 // One class, two optimizers, two different answers.
 {
   const cheap = route(['--access', 'bounded', '--type', 'code', '--class', 'bounded', '--optimize', 'price']);
@@ -242,7 +245,7 @@ const dropped = (v, stage) => (v.explain || [])
   assert.strictEqual(cheap.effort, 2, 'bounded is effort 2 on code');
 
   const best = route(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'quality']);
-  assert.strictEqual(pair(best), 'claude/opus-5/cli');
+  assert.strictEqual(pair(best), 'claude/sonnet-5/cli');
   assert.strictEqual(best.effort, 2, 'bounded is effort 2 on text');
   const broadCode = route(['--access', 'bounded', '--type', 'code', '--class', 'broad', '--optimize', 'price']);
   assert.strictEqual(broadCode.effort, 2, 'broad is effort 2 on code');
@@ -272,7 +275,7 @@ const dropped = (v, stage) => (v.explain || [])
     '',
   ].join('\n'));
 
-  const cheap = route(['--access', 'bounded', '--type', 'text', '--class', 'mechanical', '--optimize', 'price', '--explain'], vault);
+  const cheap = route(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'price', '--explain'], vault);
   assert.strictEqual(pair(cheap), 'claude/sonnet-5/cli', 'the override IS the catalog — cost 3 beats cost 9');
   assert.ok(/no catalog\.js row for opencode\/not-a-real-model/.test(cheap._stderr),
     `an unjoinable CSV row must warn LOUDLY on stderr: ${cheap._stderr}`);
@@ -280,7 +283,7 @@ const dropped = (v, stage) => (v.explain || [])
   // quality, where opus-5's reasoning 7 beats every priced row.
   assert.ok(dropped(cheap, 'optimize').includes('claude/opus-5'),
     `blank-cost rows must drop AT THE OPTIMIZE STAGE with a reason: ${JSON.stringify(dropped(cheap, 'optimize'))}`);
-  const best = route(['--access', 'bounded', '--type', 'text', '--class', 'mechanical', '--optimize', 'quality'], vault);
+  const best = route(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'quality'], vault);
   assert.strictEqual(pair(best), 'claude/opus-5/cli', 'a blank-cost row is still eligible for quality');
 
   // and the shipped CSV is genuinely IGNORED while the override exists
@@ -327,7 +330,7 @@ const dropped = (v, stage) => (v.explain || [])
   // 1. the columns are INERT until set: the plain ranking is the pre-2026-08-22 one.
   write();
   assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'price'])), 'codex/gpt-5.6-terra/cli');
-  assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'quality'])), 'claude/opus-5/cli');
+  assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'quality'])), 'claude/sonnet-5/cli');
 
   // 2. price-override wins its OWN level: sonnet (10) jumps ahead of terra (5) inside L2, so the
   //    cheapest-first ranking now heads with sonnet.
@@ -336,14 +339,10 @@ const dropped = (v, stage) => (v.explain || [])
   assert.strictEqual(pair(priced), 'claude/sonnet-5/cli', 'price-override must beat a cheaper row of its own level');
   assert.ok(ranking(priced).indexOf('claude/sonnet-5') < ranking(priced).indexOf('codex/gpt-5.6-terra'), JSON.stringify(ranking(priced)));
 
-  // 3. and it NEVER crosses a level: the same override on an L2 row cannot outrank L1 under
-  //    quality, where levels are ranked first. It only takes the head of its own level's block.
-  write({ 'sonnet-5': ['route', 'Y', 'N'] });
+  // 3. quality-override wins its level against a higher score: terra (4) jumps sonnet (5).
+  write({ 'gpt-5.6-terra': ['route', 'Y', 'N'] });
   const q = at(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'quality', '--explain']);
-  assert.strictEqual(pair(q), 'claude/opus-5/cli', 'an L2 quality-override must still lose to every eligible L1');
-  const qOrder = ranking(q);
-  assert.deepStrictEqual(qOrder.slice(0, 2), ['claude/opus-5', 'codex/gpt-5.6-sol'], JSON.stringify(qOrder));
-  assert.ok(qOrder.indexOf('claude/sonnet-5') < qOrder.indexOf('codex/gpt-5.6-terra'), JSON.stringify(qOrder));
+  assert.deepStrictEqual(ranking(q), ['codex/gpt-5.6-terra', 'claude/sonnet-5'], JSON.stringify(ranking(q)));
 
   // 4. each override fires only in the ranking it names — the quality one is silent under --optimize price.
   assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'price'])), 'codex/gpt-5.6-terra/cli');
@@ -354,14 +353,15 @@ const dropped = (v, stage) => (v.explain || [])
   assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'broad'])), 'codex/gpt-5.6-sol/cli', 'default = cheapest L1');
   write({ 'opus-5': ['route', 'N', 'Y'] });
   assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'broad'])), 'claude/opus-5/cli', 'price-override fires in the default');
-  write({ 'gpt-5.6-terra': ['route', 'N', 'Y'] });
-  assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'mechanical'])), 'codex/gpt-5.6-terra/cli', 'price-override fires in the default at the low levels too');
+  write({ 'sonnet-5': ['route', 'N', 'Y'] });
+  assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'bounded'])), 'claude/sonnet-5/cli', 'price-override fires in the default at the low levels too');
 
   // 6. quality-override, by the same rule, fires in NEITHER — the default no longer ranks anything
   //    on quality, so it takes an explicit --optimize quality to make one bite.
   write({ 'sonnet-5': ['route', 'Y', 'N'] });
-  assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'mechanical'])), 'codex/gpt-5.6-terra/cli', 'quality-override must NOT fire in the default');
-  assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'mechanical', '--optimize', 'quality'])), 'claude/sonnet-5/cli', 'the same flag DOES bite under --optimize quality');
+  assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'bounded'])), 'codex/gpt-5.6-terra/cli', 'quality-override must NOT fire in the default');
+  write({ 'gpt-5.6-terra': ['route', 'Y', 'N'] });
+  assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'quality'])), 'codex/gpt-5.6-terra/cli', 'the flag DOES bite under --optimize quality');
 
   // 7. use=panel — no verdict may name it, and it drops at its own stage with its own reason...
   write({ 'opus-5': ['panel', 'N', 'N'] });
@@ -537,9 +537,9 @@ const FIXER_SEAT = { name: 'fixer', access: 'bounded', type: 'code', class: 'mec
   assert.ok(rows.length > 3, `the shipped table is suspiciously short: ${rows.length} rows`);
 
   const LEVELS = ['SOTA', 'L1', 'L2', 'L3', 'L4'];
-  // Every axis a multi-level twin must agree on — the CSV columns minus `level` itself.
-  const AXES = ['mode', 'harness', 'model', 'efforts', 'image', 'reasoning', 'coding',
-    'cost', 'use', 'quality-override', 'price-override'];
+  // Every axis a multi-level twin must agree on — the CSV columns minus `level` and the two
+  // override columns, which are per level by definition (sonnet-5 wins L3 on both, L2 on neither).
+  const AXES = ['mode', 'harness', 'model', 'efforts', 'image', 'reasoning', 'coding', 'cost', 'use'];
   const YN = ['Y', 'N'];
   const seen = new Map();
   for (const r of rows) {
@@ -583,7 +583,7 @@ const FIXER_SEAT = { name: 'fixer', access: 'bounded', type: 'code', class: 'mec
 
   // Every class must still have somewhere to go. Structural, not a verdict: a table where every
   // L2 row went `panel` would answer every bounded job with an L1 model and nothing would say so.
-  const CLASS_LEVELS = { planner: ['SOTA', 'L1'], broad: ['L1'], bounded: ['L1', 'L2'], mechanical: ['L2', 'L3'] };
+  const CLASS_LEVELS = { planner: ['SOTA'], broad: ['L1'], bounded: ['L2'], mechanical: ['L3'] };
   const routable = rows.filter((r) => r.use === '' || r.use === 'route');
   for (const [cls, levels] of Object.entries(CLASS_LEVELS)) {
     assert.ok(routable.some((r) => levels.includes(r.level)),

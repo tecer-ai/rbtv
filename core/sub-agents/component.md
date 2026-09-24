@@ -204,20 +204,22 @@ default is `--optimize` (owner ruling 2026-08-22): omitted, it is **price**, for
 |---|---|---|
 | `--access` | Must the agent navigate and DISCOVER files on disk? | `open` drops every api row — an API worker has no disk. `bounded` (known files only, or no disk at all) keeps them. |
 | `--type` | Code, or prose/analysis? | Picks the tie-break axis (`coding` vs `reasoning`). **Planning is TEXT**, even for a coding job. |
-| `--class` | How bounded is the work? | Picks BOTH the eligible levels and the effort (table below). |
+| `--class` | How bounded is the work? | Picks BOTH the ONE eligible level and the effort (table below). |
 | `--optimize` | Cheapest that qualifies, or best that qualifies? (optional) | The selection rule among survivors. Omitted → price, identical to passing `--optimize price`. |
 | `--caps` | A specific capability? (optional) | `image` SHORT-CIRCUITS to the L4 image row and skips every other question. |
 
 | `--class` | Eligible levels | Effort (code / text) |
 |---|---|---|
-| `planner` | SOTA + L1 | 3 / 3 — a **FLOOR** (`effort_is_floor: true`); the CALLING AGENT raises it for criticality, complexity or blast radius. Route does not decide that. |
+| `planner` | SOTA | 3 / 3 — a **FLOOR** (`effort_is_floor: true`); the CALLING AGENT raises it for criticality, complexity or blast radius. Route does not decide that. |
 | `broad` | L1 | 2 / 3 |
-| `bounded` | L1 + L2 | 2 / 2 |
-| `mechanical` | L2 + L3 | 1 / 1 |
+| `bounded` | L2 | 2 / 2 |
+| `mechanical` | L3 | 1 / 1 |
 
-A class never unlocks a level it blocks: `--class bounded --optimize quality` picks the best L1, never
-SOTA. Only `planner` reaches SOTA. L1 membership IS the trust bar — planning is no longer
-Claude-scoped, so curate the L1 rows accordingly. haiku is normally routable as L3.
+**One level per class (owner ruling 2026-09-24).** Each class sees exactly one level, so
+`--optimize` only reorders rows of that level: a bounded job never reaches an L1 model and only
+`planner` reaches SOTA. While `planner` and `bounded` spanned two levels, the price default handed
+them the cheaper level's row (planning went to an L1 model). A model the owner wants in two classes
+gets one line per level, and its override columns are set per line. haiku is normally routable as L3.
 
 **Price, a total order.** `price`: lowest `cost` → higher score → alphabetical harness, then model.
 `quality`: highest level within the class's own levels → higher score → lower cost → alphabetical.
@@ -225,11 +227,9 @@ Claude-scoped, so curate the L1 rows accordingly. haiku is normally routable as 
 `price` ranking above in every respect — same order, same blank-cost exclusion, same tie-breaks —
 carrying its own `"optimize":"default"` trace label so an `--explain` reader can still tell an
 omitted flag from an explicit one. This REPLACED the two-band rule of 2026-08-21 (SOTA/L1 on price,
-L2/L3 on quality), which is gone: one rule the owner can hold in their head beat two bands. What
-changed in practice: a class spanning two levels now takes the cheaper row wherever it sits, so
-`bounded` (L1+L2) can answer with an L2 — under the retired rule the whole SOTA/L1 band ranked
-first and it never could. The class's levels are now the ONLY thing standing between a job and the
-cheapest model on the roster, which is what makes level curation load-bearing.
+L2/L3 on quality), which is gone: one rule the owner can hold in their head beat two bands. The
+class's level is the ONLY thing standing between a job and the cheapest model on the roster, which
+is what makes level curation load-bearing.
 
 **Blank cells** (the owner fills them over time): a blank `cost` sits OUT of every price-ranked
 pick — `--optimize price` AND the default — and stays eligible for `quality` — unknown is not cheap; a blank `level` excludes the row entirely; a
@@ -299,7 +299,7 @@ change WHO competes and WHO wins without touching a score:
 | Column | Values | What it does |
 |---|---|---|
 | `use` | `route` (blank reads as this) | the normal state — the row competes for verdicts. |
-| | `panel` | no verdict may name it, but it stays in `cast route --catalog`, the roster a panel spreads its seats across (`references/panel.md`). For a model worth a second opinion and never worth being the single answer. |
+| | `panel` | no verdict may name it, but it stays in `cast route --catalog`, the roster a panel takes its seats from — every model at the class's level and the level below (`references/panel.md`). For a model worth a second opinion and never worth being the single answer. |
 | | `off` | routing ignores it entirely. Still launchable by hand (`cast <harness> <model> <n>`) and still listed by `--catalog` with its `use` value — taken out of routing, never hidden. |
 | `quality-override` | `Y` | inside ITS OWN LEVEL, this row wins a `--optimize quality` ranking whatever the scores say. |
 | `price-override` | `Y` | inside ITS OWN LEVEL, this row wins an `--optimize price` ranking whatever the costs say. |
