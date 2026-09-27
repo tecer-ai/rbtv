@@ -40,7 +40,7 @@ const { buildBwrapArgv } = require('../bwrap');
 
 const IGNITE_ROOT = path.resolve(__dirname, '..', '..', '..');
 const PROFILES = path.join(IGNITE_ROOT, 'envelope', 'spawn-profiles.yaml');
-const FLOW = path.join(IGNITE_ROOT, 'coord', 'worktree-flow.py');
+const FLOW = path.join(IGNITE_ROOT, 'team-kit', 'worktree-flow.py');
 
 const GOAL = 'probegoal';
 const MINE = 'mine';

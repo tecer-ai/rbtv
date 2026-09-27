@@ -155,7 +155,7 @@ invocation through the symlink resolves the kit dir, not ~/.local/bin.
 from __future__ import annotations
 
 import os as _os, sys as _sys, pathlib as _pl  # task 7.630: solo-run tmux isolation, FIRST
-_sys.path.insert(0, str(next(p for p in _pl.Path(__file__).resolve().parents if (p / "coord" / "self_isolate.py").is_file()) / "coord"))
+_sys.path.insert(0, str(next(p for p in _pl.Path(__file__).resolve().parents if (p / "team-kit" / "self_isolate.py").is_file()) / "team-kit"))
 from self_isolate import self_isolate_tmux as _self_isolate_tmux; _self_isolate_tmux()
 # The derived-tree write refusal (spec-component-map §4). Imported from the
 # module that DEFINES it — `coord/records.py`, already on sys.path from the line
@@ -2181,7 +2181,7 @@ def _coord_validate_seat():
     exists to prevent."""
     # The kit is `ignite/coord/` since the component-first move — a SIBLING component
     # of this one, no longer this file's own directory.
-    kit_dir = Path(__file__).resolve().parent.parent / "coord"
+    kit_dir = Path(__file__).resolve().parent.parent / "team-kit"
     if str(kit_dir) not in sys.path:
         sys.path.insert(0, str(kit_dir))
     try:
@@ -2202,7 +2202,7 @@ def _coord_iospec_outputs():
     refuses at its own ending. NEVER re-implement the grammar here."""
     # The kit is `ignite/coord/` since the component-first move — a SIBLING component
     # of this one, no longer this file's own directory.
-    kit_dir = Path(__file__).resolve().parent.parent / "coord"
+    kit_dir = Path(__file__).resolve().parent.parent / "team-kit"
     if str(kit_dir) not in sys.path:
         sys.path.insert(0, str(kit_dir))
     try:
@@ -2225,7 +2225,7 @@ def _coord_iospec_grammar():
     NEVER re-implement them."""
     # The kit is `ignite/coord/` since the component-first move — a SIBLING component
     # of this one, no longer this file's own directory.
-    kit_dir = Path(__file__).resolve().parent.parent / "coord"
+    kit_dir = Path(__file__).resolve().parent.parent / "team-kit"
     if str(kit_dir) not in sys.path:
         sys.path.insert(0, str(kit_dir))
     try:
@@ -4411,7 +4411,7 @@ def resolve_seat_exposes(plan: dict, seats_cat: dict) -> None:
                 # tree instead of the referencing component's own tree —
                 # `rbtv:<component>/<part>` at whatever depth the repo puts
                 # the manifest (`rbtv:ignite/coordinate` today, module root;
-                # `rbtv:ignite/coord/coordinate` after the CMP-5 move,
+                # `rbtv:ignite/team-kit/coordinate` after the CMP-5 move,
                 # same line). Unprefixed references are untouched.
                 ref_dir, pid = _ref_target(
                     comp_dir, ref, f"seat '{seat}' exposes '{ref}' ({method})")
@@ -6958,7 +6958,7 @@ def run_dag04_acceptance(check, env: dict) -> None:
 
         # The kit is `ignite/coord/` since the component-first move — a SIBLING
         # component of this one, no longer this file's own directory.
-        kit_dir = Path(__file__).resolve().parent.parent / "coord"
+        kit_dir = Path(__file__).resolve().parent.parent / "team-kit"
         if str(kit_dir) not in sys.path:
             sys.path.insert(0, str(kit_dir))
         # Selftest-only import: SC-2's stated control IS discover_workers;
@@ -7558,7 +7558,7 @@ def run_dag05_acceptance(check, env: dict) -> None:
 
     # coord.py is `ignite/coord/`'s since the component-first move — a SIBLING
     # component of this one, no longer this file's own directory.
-    coord_py = Path(__file__).resolve().parent.parent / "coord" / "coord.py"
+    coord_py = Path(__file__).resolve().parent.parent / "team-kit" / "coord.py"
     coord_md5 = hashlib.md5(coord_py.read_bytes()).hexdigest()
     print(f"  info SC-1: coord.py under test — md5 {coord_md5}")
 
@@ -8019,7 +8019,7 @@ def run_dag06_acceptance(check, env: dict) -> None:
 
     # coord.py is `ignite/coord/`'s since the component-first move — a SIBLING
     # component of this one, no longer this file's own directory.
-    coord_py = Path(__file__).resolve().parent.parent / "coord" / "coord.py"
+    coord_py = Path(__file__).resolve().parent.parent / "team-kit" / "coord.py"
     coord_md5 = hashlib.md5(coord_py.read_bytes()).hexdigest()
     print(f"  info CP-6: coord.py under test — md5 {coord_md5}")
 

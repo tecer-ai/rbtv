@@ -94,7 +94,7 @@ OPENCODE_BIN = os.environ.get("COORD_OPENCODE_BIN", "opencode")
 # Bound into `identity_prefix()`, the one env-prefix door every harness command passes through
 # (`harness_command` AND `resume_command` both build from it) — never `TMUX_TMPDIR`, which binds
 # a process to one tmux SERVER and is untouched by this (coord.py:5502).
-AGENT_TMPDIR = "/home/henri/.cache/agent-tmp"
+AGENT_TMPDIR = os.environ.get("RBTV_AGENT_TMPDIR") or os.path.expanduser("~/.cache/agent-tmp")
 DEFAULT_EFFORT = "high"
 HARNESSES = ("claude", "codex", "opencode")
 HARNESS_PROCS = HARNESSES

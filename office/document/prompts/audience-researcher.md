@@ -3,7 +3,7 @@ id: audience-researcher
 description: "Execute the audience-intel briefs and return findings keyed to each brief's own return keys — briefs only, no interview dump and no design context"
 staffing-recommendations: "capable mid-tier model at medium effort with web reach — a hint for the staffer, never a binding; the work is bounded execution of self-contained briefs"
 exposes:
-  path: [rbtv:ignite/coord/coordinate]
+  path: [rbtv:ignite/team-kit/coordinate]
 ---
 
 <role>

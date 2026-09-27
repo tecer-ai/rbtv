@@ -4,7 +4,7 @@ const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 const { requirePythonCmd } = require('../runtime/python-cmd');
 
-const COORD_PY = path.join(__dirname, '..', 'coord', 'coord.py');
+const COORD_PY = path.join(__dirname, '..', 'team-kit', 'coord.py');
 
 function finishOnCompletion(goalFolder, { spawn = spawnSync } = {}) {
   if (!goalFolder) return { fired: false, skipped: 'no-folder' };

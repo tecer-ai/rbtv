@@ -42,7 +42,7 @@ HERE = Path(__file__).resolve().parent
 # HERE = <root>/ignite/coord/probes -> parents[2] is the rbtv repo root. `RBTV_PROBE_TREE` is
 # the RED-FIRST knob (see the docstring): it re-points TARGET at another tree's source.
 ROOT = Path(os.environ.get("RBTV_PROBE_TREE") or HERE.parents[2])
-TARGET = ROOT / "ignite" / "coord" / "nudge.py"
+TARGET = ROOT / "ignite" / "team-kit" / "nudge.py"
 OUT = HERE / "probe-nudge-degrade.out"
 
 lines, failures, inoperative = [], [], []

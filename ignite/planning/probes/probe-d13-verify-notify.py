@@ -40,7 +40,7 @@ def _load_coord():
     namespace (`SPLIT_MODULES`), so a bare `import messages` meets a name defined in a sibling.
     The CLI's own entry point is therefore the only honest door to the real reader, and loading it
     is what makes this probe measure production code rather than a copy of it."""
-    spec = importlib.util.spec_from_file_location("coord_for_probe", IGNITE / "coord" / "coord.py")
+    spec = importlib.util.spec_from_file_location("coord_for_probe", IGNITE / "team-kit" / "coord.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -134,7 +134,7 @@ def main():
         # `escalation` only from the leader or from a seat that HAS a route. Both halves are
         # measured — the guard is still in the source, and the expression it evaluates is False
         # for this seat.
-        guard = (IGNITE / "coord" / "messages.py").read_text(encoding="utf-8")
+        guard = (IGNITE / "team-kit" / "messages.py").read_text(encoding="utf-8")
         guard_present = re.search(
             r'args\.type == "escalation" and sender != "leader" and not on_fail_relaunch_route',
             guard) is not None

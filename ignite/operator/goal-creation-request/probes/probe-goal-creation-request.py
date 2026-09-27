@@ -30,7 +30,7 @@ Nothing here reads or writes a live goals package. Every mutant lives under `tem
 """
 
 import os as _os, sys as _sys, pathlib as _pl  # task 7.630: solo-run tmux isolation, FIRST
-_sys.path.insert(0, str(next(p for p in _pl.Path(__file__).resolve().parents if (p / "coord" / "self_isolate.py").is_file()) / "coord"))
+_sys.path.insert(0, str(next(p for p in _pl.Path(__file__).resolve().parents if (p / "team-kit" / "self_isolate.py").is_file()) / "team-kit"))
 from self_isolate import self_isolate_tmux as _self_isolate_tmux; _self_isolate_tmux()
 
 import ast
@@ -46,7 +46,7 @@ from pathlib import Path
 CAP = Path(__file__).resolve().parents[1]
 HANDLER = CAP / "tool" / "goal_creation_request.py"
 # A file known to carry the very constructs check 3 scans for — the positive control's subject.
-CONTROL_SUBJECT = CAP.parents[1] / "coord" / "coord.py"
+CONTROL_SUBJECT = CAP.parents[1] / "team-kit" / "coord.py"
 
 # Seat-materialization / harness-launch constructs that are NOT the ruled name. `scaffold-seats`
 # itself is deliberately absent from this alternation: the check asks what the call site reaches

@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-COORD = HERE.parent.parent / "coord"
+COORD = HERE.parent.parent / "team-kit"
 OUT = HERE / "probe-failed-upstream-gate.out"
 FIX_ANCHOR = "if not unmet and seat in gates:"
 

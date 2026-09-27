@@ -204,7 +204,7 @@ const ENQUEUE_UNFIRED_GRACE_MS = 60 * 1000;
 // tuple, or a read that fails, yields the EMPTY set — every seat seeds exactly as it did before
 // this guard, and the miss is logged. Cached for the process: coord.py cannot change under a
 // running daemon without a deploy, and a deploy restarts it.
-const COORD_PY = path.join(__dirname, '..', 'coord', 'coord.py');
+const COORD_PY = path.join(__dirname, '..', 'team-kit', 'coord.py');
 const SUMMONED_PY = [
   'import importlib.util, json, sys',
   'spec = importlib.util.spec_from_file_location("coord_summoned", sys.argv[1])',

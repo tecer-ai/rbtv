@@ -6,7 +6,7 @@ human-interactive: yes
 fallback: default-and-disclose
 exposes:
   skill: [master/slack-message-format, workflow-authoring-checklist, ignite/coord/file-system-issue]
-  path: [rbtv:ignite/coord/coordinate, ignite/coord/file-issue]
+  path: [rbtv:ignite/team-kit/coordinate, ignite/coord/file-issue]
   sub-agent: [researcher, diagnoser]
 ---
 
@@ -35,7 +35,7 @@ exposes:
 <resources>
 - `master/slack-message-format` skill — Slack mrkdwn, phone-first shape, ❓ vs 💭. Apply to every owner message; never paste a file into chat.
 - `workflow-authoring-checklist` skill — the six declarations. Use it as the seat-trial lens at step 2; a failed declaration is blocking.
-- `rbtv:ignite/coord/coordinate` — send owner asks to the reserved `owner` token and check out. Not a second Slack client.
+- `rbtv:ignite/team-kit/coordinate` — send owner asks to the reserved `owner` token and check out. Not a second Slack client.
 - `researcher` sub-agent — sourced facts with provenance. Fan out only to ground a finding. Judgment stays yours.
 - `diagnoser` sub-agent — local/codebase cause. Fan out only to ground a finding about how something actually behaves.
 - `file-system-issue` — file an ignite/ or meta/ defect into the engine register; file, don't dump it on this goal's issues.md.

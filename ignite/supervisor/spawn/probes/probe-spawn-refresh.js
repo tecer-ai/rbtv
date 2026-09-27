@@ -31,7 +31,7 @@ const { setup, teardown, capture } = require('./lib');
 const { requirePythonCmd } = require('../../../runtime/python-cmd');
 const { refreshSeatDescriptor, catalogRootForSeat } = require('../spawn');
 
-const COORD_KIT = path.join(__dirname, '..', '..', '..', 'coord');
+const COORD_KIT = path.join(__dirname, '..', '..', '..', 'team-kit');
 const MATERIALIZE_PY = path.join(__dirname, '..', '..', '..', 'planning', 'materialize-seats.py');
 
 const md5 = (p) => crypto.createHash('md5').update(fs.readFileSync(p)).digest('hex');

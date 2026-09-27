@@ -6,7 +6,7 @@ human-interactive: yes
 fallback: default-and-disclose
 exposes:
   skill: [master/slack-message-format, workflow-authoring-checklist, ignite/coord/file-system-issue]
-  path: [rbtv:ignite/coord/coordinate, capability-cards, ignite/coord/file-issue, rbtv:ignite/planning/plan-envelope]
+  path: [rbtv:ignite/team-kit/coordinate, capability-cards, ignite/coord/file-issue, rbtv:ignite/planning/plan-envelope]
   sub-agent: [researcher, diagnoser]
 ---
 
@@ -41,7 +41,7 @@ exposes:
 <resources>
 - `master/slack-message-format` skill — Slack mrkdwn, phone-first shape, ❓ vs 💭. Apply to every owner message; never paste a file into chat.
 - `workflow-authoring-checklist` skill — the six declarations every produced execution seat must carry. Read it before naming a seat; a seat that fails any declaration is not drafted.
-- `rbtv:ignite/coord/coordinate` — send owner asks to the reserved `owner` token and check out. Not a second Slack client.
+- `rbtv:ignite/team-kit/coordinate` — send owner asks to the reserved `owner` token and check out. Not a second Slack client.
 - `capability-cards` — shop existing capabilities before inventing a tool. Reach for it at step 2; it returns cards, not a grant.
 - `plan-envelope` — writes `planning/envelope.json`, the PLAN-side fill-ins the bound commit carries. Run it at step 5b with `--plan-artifacts planning --credential-name <name>` once per name in the credential-name manifest; skip it when the manifest names none.
 - `researcher` sub-agent — sourced facts with provenance. Fan out when a grant or resource claim is unread. Judgment stays yours.

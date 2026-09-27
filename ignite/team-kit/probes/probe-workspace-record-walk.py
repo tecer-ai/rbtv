@@ -271,10 +271,10 @@ try:
     # that is the copy's and not the mutation's. `__pycache__` is dropped — a stale `.pyc` serves
     # the previous source's verdict.
     kit_copy = ROOT / "kit" / "ignite"
-    for part in ("coord", "supervisor", "state-store", "planning"):
+    for part in ("team-kit", "supervisor", "state-store", "planning"):
         shutil.copytree(IGNITE / part, kit_copy / part,
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "node_modules"))
-    (kit_copy / "coord" / "ending_store.py").write_text(mutated, encoding="utf-8")
+    (kit_copy / "team-kit" / "ending_store.py").write_text(mutated, encoding="utf-8")
     ws6, repo6, pkg6 = make_fixture(ROOT / "g")
     rc6, text6 = supervise_instruct(kit_copy / "supervisor" / "supervise.py", pkg6)
     mut_landed = repo6 / INSTRUCTIONS_REL / f"{pkg6.name}--worker-a.json"

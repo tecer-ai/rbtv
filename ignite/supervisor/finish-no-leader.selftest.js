@@ -12,7 +12,7 @@ const { seedRecoveryConfig, loadRecoveryConfig } = require('./recovery-config');
 const { requirePythonCmd } = require('../runtime/python-cmd');
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'finish-no-leader-selftest-'));
-const COORD_PY = path.join(__dirname, '..', 'coord', 'coord.py');
+const COORD_PY = path.join(__dirname, '..', 'team-kit', 'coord.py');
 const lines = [];
 function say(s) { lines.push(s); console.log(s); }
 

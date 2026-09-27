@@ -7,7 +7,7 @@ three consequence arms on a scratch package, plus the mutation that restores
 the literal demand.
 """
 import os as _os, sys as _sys, pathlib as _pl
-_sys.path.insert(0, str(next(p for p in _pl.Path(__file__).resolve().parents if (p / "coord" / "self_isolate.py").is_file()) / "coord"))
+_sys.path.insert(0, str(next(p for p in _pl.Path(__file__).resolve().parents if (p / "team-kit" / "self_isolate.py").is_file()) / "team-kit"))
 from self_isolate import self_isolate_tmux as _self_isolate_tmux; _self_isolate_tmux()
 
 import argparse

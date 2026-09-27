@@ -342,7 +342,7 @@ async function main() {
   // QUOTE_MINIMAL), loaded by path in a subprocess — never a hand-written fixture line.
   say('L0 — the taskforce reader, pinned to the REAL Python writer');
   const seeding = require('../seeding');
-  const TEAM_KIT = path.join(IGNITE_SRC, 'coord');
+  const TEAM_KIT = path.join(IGNITE_SRC, 'team-kit');
   // The materializer landed in `planning/` with the component-first move; the kit stayed `coord/`.
   const MATERIALIZE_PY = path.join(IGNITE_SRC, 'planning', 'materialize-seats.py');
   function pythonJson(body) {

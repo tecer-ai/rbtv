@@ -3,7 +3,7 @@ id: decision-researcher
 description: "Walk the deciding research spine — themes, options, segments, implications, insights, connections — as brief-sized sequential chunks in one seat, never as a parallel corpus scrape"
 staffing-recommendations: "frontier model at high effort with web reach — a hint for the staffer, never a binding; each stage reasons from the stage before it, so the chain is only as good as its weakest hand-off"
 exposes:
-  path: [rbtv:ignite/coord/coordinate]
+  path: [rbtv:ignite/team-kit/coordinate]
 ---
 
 <role>

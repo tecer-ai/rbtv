@@ -6,7 +6,7 @@ exposes:
   skill:
     - storytelling/visual-strategist
   path:
-    - rbtv:ignite/coord/coordinate
+    - rbtv:ignite/team-kit/coordinate
 ---
 
 <role>
@@ -31,7 +31,7 @@ exposes:
 <resources>
 
 - `storytelling/visual-strategist` — the capability that defines this stage: its hard precondition, its six-section output contract, its hard stop. Load it FIRST and follow it; it, not this prompt, owns what each section must hold. Caveat: it forbids palette, type, grid, motif and chart style outright.
-- `rbtv:ignite/coord/coordinate` — beyond plain checkout, its `rule-guard` verb publishes the `visual_refs` value the extraction edge reads; `--source` is mandatory and the seat named must be you. Caveat: a plain checkout is refused while that guard is unwritten, so write it first.
+- `rbtv:ignite/team-kit/coordinate` — beyond plain checkout, its `rule-guard` verb publishes the `visual_refs` value the extraction edge reads; `--source` is mandatory and the seat named must be you. Caveat: a plain checkout is refused while that guard is unwritten, so write it first.
 
 </resources>
 

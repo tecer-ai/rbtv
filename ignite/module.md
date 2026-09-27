@@ -42,7 +42,7 @@ Two entry-point docs route the rest, and neither is restated here (`PRIN-11`):
 [`working-in-a-goal.md`](working-in-a-goal.md) for a seat working inside a goal. The deploy and
 install models live in [`deploy/component.md`](deploy/component.md), the state layout and this
 module's vocabulary in [`state-store/component.md`](state-store/component.md), the coordination
-kit's protocol in [`coord/protocol.md`](coord/protocol.md).
+kit's protocol in [`team-kit/protocol.md`](team-kit/protocol.md).
 
 ## Components
 
@@ -55,7 +55,8 @@ kit's protocol in [`coord/protocol.md`](coord/protocol.md).
 | `chat/` | The Slack bridge: reply leg, ask and approval threads, durable outbox, bus ferry, system digest and the chat session config |
 | `operator/` | The operator surfaces the CLI delegates to: goals tree, bindings, daemon and ticker verbs, master profile, goal-creation request, attached `rbtv run` |
 | `ignite-cli/` | The `rbtv ignite` front door — verb dispatch and the gateway client seam, no daemon behavior of its own |
-| `coord/` | The coordination kit: the `coordinate` CLI and its split modules, addressing, declared outputs, tmux viewports, messages, the checkout write API, the injection ladder and the kit's shipped skills |
+| `team-kit/` | The coordination kit: the `coordinate` CLI and its split modules, addressing, declared outputs, tmux viewports, messages, the checkout write API, the mirror driver and the `team-kit` skill |
+| `coord/` | Residual 0.1 only: `file-issue` and the injection ladder, left for deletion with the rest of 0.1 |
 | `teambuild/` | The staffing-discovery browse (`rbtv teambuild`) over the component databases — binds nothing |
 | `supervisor/` | The one liveness surface: the persisted sitting registry, spawn, boot re-adopt, the owed-work computer and the shared launch-spec resolver |
 | `state-store/` | The one ending store: seat endings, goal words, open asks and the derived wait / launchability predicates |

@@ -76,7 +76,7 @@ const workspace = path.join(tmp, 'workspace');
 const dataRoot = path.join(tmp, 'data');
 fs.mkdirSync(dataRoot, { recursive: true });
 const PYTHON = requirePythonCmd();
-const COORD_PY = path.join(IGNITE_SRC, 'coord', 'coord.py');
+const COORD_PY = path.join(IGNITE_SRC, 'team-kit', 'coord.py');
 // ⚠ `ready-seats` IS NOT ON THIS DOOR. The front door split by audience on 2026-08-25:
 // `coordinate` keeps the seat-facing verbs (`checkin` / `checkout` below) and the readiness
 // arithmetic went to `supervise`. Driving it through `coord.py` gets a refusal, and this

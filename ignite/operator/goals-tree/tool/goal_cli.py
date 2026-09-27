@@ -279,7 +279,7 @@ where things are and where to write. What this goal IS lives in `goal.md`.
 ## Read next — protocol, from SOURCE
 
 The coordination protocol — messaging, identity, lifecycle mechanics — is
-`ignite/coord/protocol.md` in the rbtv repo (its path is `rbtv_path` in the workspace's
+`ignite/team-kit/protocol.md` in the rbtv repo (its path is `rbtv_path` in the workspace's
 `rbtv.json`). Read it from the kit's source. This router carries no protocol.
 
 ## Write-if-something files
@@ -2161,7 +2161,7 @@ def coord_source_path() -> Path:
     Resolved relative to THIS file, never to a caller's cwd: the same anchor
     `materialize-seats.py` uses to reach this module from the other direction.
     """
-    return Path(__file__).resolve().parents[3] / "coord" / "coord.py"
+    return Path(__file__).resolve().parents[3] / "team-kit" / "coord.py"
 
 
 def read_live_classes(coord_path: Path) -> tuple[set | None, set | None, str | None]:
