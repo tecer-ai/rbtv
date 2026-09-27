@@ -228,8 +228,8 @@ function makeGoal(name, { executionMode = 'interactive', humanInteractive = ['al
   fs.mkdirSync(path.join(dir, 'coordination'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'taskforce.csv'), [
     'taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id',
-    'tf-fg,alpha,,claude,claude-opus-5,medium,50,m1',
-    'tf-fg,bravo,alpha,claude,claude-opus-5,medium,50,m1',
+    'tf-fg,alpha,,claude,claude-opus-5-5,medium,50,m1',
+    'tf-fg,bravo,alpha,claude,claude-opus-5-5,medium,50,m1',
     '',
   ].join('\n'));
   for (const s of ['alpha', 'bravo']) {
@@ -259,7 +259,7 @@ function makeWaveGoal(name, seats) {
   const rows = ['taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id'];
   for (const s of seats) {
     fs.mkdirSync(path.join(dir, 'seats', s), { recursive: true });
-    rows.push(`tf-wave,${s},,claude,claude-opus-5,medium,50,m1`);
+    rows.push(`tf-wave,${s},,claude,claude-opus-5-5,medium,50,m1`);
     fs.writeFileSync(path.join(dir, 'seats', s, 'seat.md'),
       `---\nseat: ${s}\nharness: bash\nmodel: probe-fg\nhuman-interactive: yes\nfallback: block-and-queue\n---\n\nbody\n`);
   }
@@ -961,7 +961,7 @@ print('END=' + ','.join('%s:%s' % (s, ending_of(pkg, s)) for s in ('alpha', 'bra
 
   // Arm 1b — opencode headed:false: on-ladder word accepted, --variant absent.
   fs.writeFileSync(path.join(effGoal, 'seats', 'alpha', 'seat.md'),
-    '---\nseat: alpha\nharness: opencode\nmodel: xai/grok-4.6\neffort: high\n---\n\nbody\n');
+    '---\nseat: alpha\nharness: opencode\nmodel: xai/grok-4.7\neffort: high\n---\n\nbody\n');
   const ocEvents = [];
   let ocArgv = null;
   attached.runForegroundSeat({

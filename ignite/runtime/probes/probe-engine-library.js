@@ -126,9 +126,9 @@ makeGoalFolder(goalFolder);
 // structure: alpha and bravo have none (wave 1), charlie follows alpha (wave 2).
 fs.writeFileSync(path.join(goalFolder, 'taskforce.csv'), [
   'taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id',
-  'tf-probe,alpha,,claude,claude-opus-5,medium,50,m1',
-  'tf-probe,bravo,,claude,claude-opus-5,medium,50,m1',
-  'tf-probe,charlie,alpha,claude,claude-opus-5,medium,50,m1',
+  'tf-probe,alpha,,claude,claude-opus-5-5,medium,50,m1',
+  'tf-probe,bravo,,claude,claude-opus-5-5,medium,50,m1',
+  'tf-probe,charlie,alpha,claude,claude-opus-5-5,medium,50,m1',
   '',
 ].join('\n'));
 

@@ -160,7 +160,7 @@ function scriptedForwarder(state) {
         // dispatch.js) and is what selects the harness normalization — the reply leg reads it
         // from the response it already makes, so no inspect surface is widened. Defaulted here
         // to the claude profile because every pre-contract leg below scripts a stream-json log.
-        return { ok: true, result: { target: 'status', id: Number(extra.id), live: s.live, status: s.status, profile: s.profile || 'claude/claude-opus-5' } };
+        return { ok: true, result: { target: 'status', id: Number(extra.id), live: s.live, status: s.status, profile: s.profile || 'claude/claude-opus-5-5' } };
       }
       if (target === 'queue') {
         if (state.failQueueInspect) return { ok: false, error: { code: 'TRANSPORT', message: 'scripted queue read failure' } };
@@ -512,7 +512,7 @@ async function main() {
     // `---` rule (toMrkdwn drops the line) and a 3-blank-line run (toMrkdwn collapses it). If any
     // conversion pass survived on the conformant path, the delivered text could not be byte-equal.
     const VERBATIM = '*lead line*\n\n---\n\n\n_tail line_';
-    state.status.set(43, { live: false, status: 'done', profile: 'claude/claude-opus-5' });
+    state.status.set(43, { live: false, status: 'done', profile: 'claude/claude-opus-5-5' });
     state.logs.set(43, [resultLine(VERBATIM)]);
     state.recentTicks.push({ tick: 13, actions: [{ action: 'spawn', execId: 43, queueId: QUEUE }] });
     await leg().tick();
@@ -526,7 +526,7 @@ async function main() {
     // rides the forward path's own follow-up leg (`corrective: true`), so it is a `note` on the
     // conversation's chain thread and never an `answer`.
     const fwdBeforeP = state.forwarded.length;
-    state.status.set(44, { live: false, status: 'done', profile: 'claude/claude-opus-5' });
+    state.status.set(44, { live: false, status: 'done', profile: 'claude/claude-opus-5-5' });
     state.logs.set(44, [resultLine('# Heading\n**bold**')]);
     state.recentTicks.push({ tick: 14, actions: [{ action: 'spawn', execId: 44, queueId: QUEUE }] });
     await leg().tick();
@@ -549,7 +549,7 @@ async function main() {
     // this leg spends the second, and the THIRD non-conformant turn is delivered best-effort
     // rather than revived a third time.
     const fwdBeforeQ = state.forwarded.length;
-    state.status.set(45, { live: false, status: 'done', profile: 'claude/claude-opus-5' });
+    state.status.set(45, { live: false, status: 'done', profile: 'claude/claude-opus-5-5' });
     state.logs.set(45, [bareResultLine('no fence at all here')]);
     state.recentTicks.push({ tick: 15, actions: [{ action: 'spawn', execId: 45, queueId: QUEUE }] });
     await leg().tick();
@@ -561,7 +561,7 @@ async function main() {
 
     const fwdBeforeQ3 = state.forwarded.length;
     const BEST = 'still no fence, and **markdown** to boot';
-    state.status.set(46, { live: false, status: 'done', profile: 'claude/claude-opus-5' });
+    state.status.set(46, { live: false, status: 'done', profile: 'claude/claude-opus-5-5' });
     state.logs.set(46, [bareResultLine(BEST)]);
     state.recentTicks.push({ tick: 16, actions: [{ action: 'spawn', execId: 46, queueId: QUEUE }] });
     await leg().tick();
@@ -577,7 +577,7 @@ async function main() {
     // Best-effort never swallows the honest empty case: a textless log still delivers the fixed
     // fallback, and is never revived (there is nothing to correct).
     const fwdBeforeQ4 = state.forwarded.length;
-    state.status.set(47, { live: false, status: 'done', profile: 'claude/claude-opus-5' });
+    state.status.set(47, { live: false, status: 'done', profile: 'claude/claude-opus-5-5' });
     state.logs.set(47, [JSON.stringify({ type: 'system', subtype: 'init' })]);
     state.recentTicks.push({ tick: 17, actions: [{ action: 'spawn', execId: 47, queueId: QUEUE }] });
     await leg().tick();
@@ -591,7 +591,7 @@ async function main() {
     // the never-delivered disarm rung can no longer match once `delivered` is non-empty. This leg
     // replays it: a non-conformant turn spends a revive (q2 reset the budget), then the spawn-wait
     // window blows with nothing spawned. The conversation must DISARM and the owner must be told.
-    state.status.set(48, { live: false, status: 'done', profile: 'claude/claude-opus-5' });
+    state.status.set(48, { live: false, status: 'done', profile: 'claude/claude-opus-5-5' });
     state.logs.set(48, [bareResultLine('one more fenceless answer')]);
     state.recentTicks.push({ tick: 18, actions: [{ action: 'spawn', execId: 48, queueId: QUEUE }] });
     await leg().tick();
@@ -624,7 +624,7 @@ async function main() {
     // — past the tombstone grace — so the entry was reaped and the answer had nowhere to land.
     // Dead-air stays posted; the real answer follows into the same thread.
     state.recentTicks = [{ tick: 99, actions: [{ action: 'spawn', execId: 49, queueId: 458, thread: 'exec-26' }] }];
-    state.status.set(49, { live: false, status: 'done', profile: 'claude/claude-opus-5' });
+    state.status.set(49, { live: false, status: 'done', profile: 'claude/claude-opus-5-5' });
     state.logs.set(49, [resultLine('the late corrective answer')]);
     await leg().tick();
     record('r4:a late spawn after a revive-no-spawn reap is re-armed and delivered into the same thread',
@@ -649,7 +649,7 @@ async function main() {
     const armedS = await waitFor(() => Boolean(pend()));
     const sentBeforeS = sent.length;
     state.recentTicks.push({ tick: 19, actions: [{ action: 'spawn', execId: 50, queueId: QUEUE, compact: true }] });
-    state.status.set(50, { live: true, status: 'running', profile: 'claude/claude-opus-5' });
+    state.status.set(50, { live: true, status: 'running', profile: 'claude/claude-opus-5-5' });
     await leg().tick();
     record('s1:a compact:true spawn on the conversation is CAPTURED and flagged (it used to be skipped entirely)',
       armedS && Boolean(pend()) && pend().watching.has(50) && pend().watching.get(50).compact === true,
@@ -657,7 +657,7 @@ async function main() {
 
     // Its output is the chain's MEMORY, never a reply — so even a perfectly conformant fenced body
     // in a compaction log must not reach Slack.
-    state.status.set(50, { live: false, status: 'failed', profile: 'claude/claude-opus-5' });
+    state.status.set(50, { live: false, status: 'failed', profile: 'claude/claude-opus-5-5' });
     state.logs.set(50, [resultLine('a compaction summary that must never reach the owner')]);
     await leg().tick();
     record('s2:the compaction turn is retired WITHOUT delivering — even a conformant fenced body stays out of Slack',
@@ -701,7 +701,7 @@ async function main() {
     await waitFor(() => Boolean(pend()));
     pend().turnStartedAt = nowMs() - 40000; // 40 s end-to-end, past the 30 s default threshold
     state.recentTicks.push({ tick: 20, actions: [{ action: 'spawn', execId: 51, queueId: QUEUE }] });
-    state.status.set(51, { live: false, status: 'failed', profile: 'claude/claude-opus-5' });
+    state.status.set(51, { live: false, status: 'failed', profile: 'claude/claude-opus-5-5' });
     state.logs.set(51, [resultLine('the slow answer')]);
     await leg().tick();
     const slowLine = bridgeLines().pop();
@@ -714,7 +714,7 @@ async function main() {
     await mock.pushMessage({ type: 'message', user: 'U-owner', text: 'a fast one', channel: CHANNEL, thread_ts: ROOT_TS, ts: '1700000000.001200', event_ts: '1700000000.001200', client_msg_id: 'reply-leg-m12' });
     await waitFor(() => Boolean(pend()));
     state.recentTicks.push({ tick: 21, actions: [{ action: 'spawn', execId: 52, queueId: QUEUE }] });
-    state.status.set(52, { live: false, status: 'failed', profile: 'claude/claude-opus-5' });
+    state.status.set(52, { live: false, status: 'failed', profile: 'claude/claude-opus-5-5' });
     state.logs.set(52, [resultLine('the fast answer')]);
     await leg().tick();
     const fastLine = bridgeLines().pop();
@@ -746,7 +746,7 @@ async function main() {
     await waitFor(() => Boolean(pend()));
     const sentBeforeU1 = sent.length;
     state.recentTicks.push({ tick: 22, actions: [{ action: 'spawn', execId: 60, queueId: QUEUE }] });
-    state.status.set(60, { live: true, status: 'stalled', profile: 'claude/claude-opus-5' });
+    state.status.set(60, { live: true, status: 'stalled', profile: 'claude/claude-opus-5-5' });
     await leg().tick();
     const afterFirstStall = sent.length;
     await leg().tick();   // STILL stalled — the notice is one-shot, not one-per-pass
@@ -763,7 +763,7 @@ async function main() {
     // fragment as "the reply", which is worse than saying nothing.
     const sentBeforeU2 = sent.length;
     const armedAtBeforeU2 = pend().armedAt;
-    state.status.set(60, { live: false, status: 'killed', profile: 'claude/claude-opus-5' });
+    state.status.set(60, { live: false, status: 'killed', profile: 'claude/claude-opus-5-5' });
     state.logs.set(60, [resultLine('a half-written hang that must never be delivered')]);
     await leg().tick();
     await leg().tick();   // one-shot here too: the exec is retired, nothing re-posts
@@ -841,14 +841,14 @@ async function main() {
     // regardless of `status`, and the scripted daemon model above reads the still-in-flight status
     // at that exact moment and returns a FORKED session id — reproducing the 2026-08-31 18:34:02Z
     // fork (`4711d5c1` vs `1326693f`) byte-for-byte in shape. WITH the fix (below), this tick holds.
-    state.status.set(70, { live: false, status: 'running', profile: 'claude/claude-opus-5' });
+    state.status.set(70, { live: false, status: 'running', profile: 'claude/claude-opus-5-5' });
     state.logs.set(70, [bareResultLine('a reply missing its fence')]);
     state.sessionRace = { parentExecId: 70, rootSession: 'session-4711d5c1', thread: 'exec-70', turns: [] };
     await leg().tick();
     const heldNoFork = state.sessionRace.turns.length === 0 && state.forwarded.length === fwdBeforeV
       && Boolean(pv()) && pv().watching.has(70) && !pv().delivered.has(70);
     // The crash sweep catches up — status leaves the in-flight set — and ONLY THEN does the leg revive.
-    state.status.set(70, { live: false, status: 'done', profile: 'claude/claude-opus-5' });
+    state.status.set(70, { live: false, status: 'done', profile: 'claude/claude-opus-5-5' });
     await leg().tick();
     const chainThreadAfterFix = bridgeH.threadMap.get(CHAT_V) && bridgeH.threadMap.get(CHAT_V).chainThread;
     record('v2:GREEN — held while in-flight, revived only once the store is terminal: exactly ONE session id, and the bridge\'s chainThread mapping agrees with the (now single-lineage) session registry',
@@ -865,12 +865,12 @@ async function main() {
     // best-effort at the bound, exactly like an unraced revive. The resumed corrective turn lands
     // as exec 71 on the SAME (now resumed) session; feed it a reply that is STILL non-conformant.
     state.recentTicks.push({ tick: 31, actions: [{ action: 'spawn', execId: 71, queueId: QUEUE }] });
-    state.status.set(71, { live: false, status: 'done', profile: 'claude/claude-opus-5' });
+    state.status.set(71, { live: false, status: 'done', profile: 'claude/claude-opus-5-5' });
     state.logs.set(71, [bareResultLine('still missing its fence')]);
     const raceTurnsBeforeV3 = state.sessionRace.turns.length; // 1, from v2's resume — isolates THIS thread from any other conversation's own traffic sharing the same tick
     await leg().tick(); // spends the SECOND (and last) revive — MAX_REVIVES is 2
     state.recentTicks.push({ tick: 32, actions: [{ action: 'spawn', execId: 72, queueId: QUEUE }] });
-    state.status.set(72, { live: false, status: 'done', profile: 'claude/claude-opus-5' });
+    state.status.set(72, { live: false, status: 'done', profile: 'claude/claude-opus-5-5' });
     state.logs.set(72, [bareResultLine('still missing its fence, a third time')]);
     await leg().tick(); // the bound: delivered best-effort, NO third revive
     record('v3:a reply that stays non-conformant after being resumed is BOUNDED — the second revive fires once, the third turn is delivered best-effort, never an unbounded loop',

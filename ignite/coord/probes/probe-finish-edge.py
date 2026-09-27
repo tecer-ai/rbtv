@@ -177,9 +177,9 @@ def main():
             (stall / "coordination").mkdir(parents=True)
             (stall / "taskforce.csv").write_text(
                 "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
-                "tf-1,leader,,claude,claude-opus-5,medium,35,\n"
-                "tf-1,builder,,claude,claude-opus-5,high,35,m1\n"
-                "tf-1,auditor,builder,claude,claude-opus-5,high,35,m7\n",
+                "tf-1,leader,,claude,claude-opus-5-5,medium,35,\n"
+                "tf-1,builder,,claude,claude-opus-5-5,high,35,m1\n"
+                "tf-1,auditor,builder,claude,claude-opus-5-5,high,35,m7\n",
                 encoding="utf-8")
             coord.append_message(stall / "coordination", "auditor", "leader", "completion",
                                  "M7 COMPLETE — verdict PASS. Product written. Work-already-done.")
@@ -206,9 +206,9 @@ def main():
             (mid / "coordination").mkdir(parents=True)
             (mid / "taskforce.csv").write_text(
                 "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
-                "tf-1,leader,,claude,claude-opus-5,medium,35,\n"
-                "tf-1,builder,,claude,claude-opus-5,high,35,m1\n"
-                "tf-1,auditor,builder,claude,claude-opus-5,high,35,m7\n",
+                "tf-1,leader,,claude,claude-opus-5-5,medium,35,\n"
+                "tf-1,builder,,claude,claude-opus-5-5,high,35,m1\n"
+                "tf-1,auditor,builder,claude,claude-opus-5-5,high,35,m7\n",
                 encoding="utf-8")
             coord.append_message(mid / "coordination", "builder", "leader", "completion",
                                  "M1 COMPLETE — mid-pipeline; auditor has not run")

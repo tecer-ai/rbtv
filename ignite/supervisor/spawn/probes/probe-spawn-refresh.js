@@ -92,7 +92,7 @@ capture('probe-spawn-refresh', async (lines) => {
     const before = md5(sheet);
     if (fs.readFileSync(sheet, 'utf8').includes(MARK)) throw new Error('fixture is vacuous: the mark was already on the sheet');
 
-    // The launch WILL fail — this fixture seat is cast `claude/claude-opus-5` and the probe's
+    // The launch WILL fail — this fixture seat is cast `claude/claude-opus-5-5` and the probe's
     // launch-spec table carries only the `bash` fixture specs. That is exactly the point: the
     // throw comes from `launchSpecForSeat`, THE FIRST READER OF seat.md, so a sheet that carries
     // the mark afterwards can only have been re-rendered BEFORE that reader ran.

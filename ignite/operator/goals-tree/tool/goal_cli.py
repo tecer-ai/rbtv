@@ -4399,7 +4399,7 @@ def cmd_selftest(args) -> int:
         # itself carries taskforce.csv / milestones.csv / seats/.
         (gd / "taskforce.csv").write_text(
             "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
-            "tf-1,w-demo,,claude,claude-opus-5,medium,50,m1\n", encoding="utf-8")
+            "tf-1,w-demo,,claude,claude-opus-5-5,medium,50,m1\n", encoding="utf-8")
         write_csv(gd / "milestones.csv", ["milestone-id", "name", "status"],
                   [{"milestone-id": "m1", "name": "prove it", "status": "pending"}])
 
@@ -4417,7 +4417,7 @@ def cmd_selftest(args) -> int:
         text = seat_md.read_text(encoding="utf-8")
         sfm, sbody = split_frontmatter(text, seat_md)
         check("frontmatter carries the binding",
-              sfm.get("harness") == "claude" and sfm.get("model") == "claude-opus-5"
+              sfm.get("harness") == "claude" and sfm.get("model") == "claude-opus-5-5"
               and sfm.get("effort") == "medium" and str(sfm.get("ctx-refresh")) == "50",
               json.dumps(sfm))
         check("assembled ref is FROZEN (lockfile)",
@@ -4498,8 +4498,8 @@ def cmd_selftest(args) -> int:
         print("lint catches a cycle")
         (gd / "taskforce.csv").write_text(
             "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
-            "tf-1,a,b,claude,claude-opus-5,medium,50,m1\n"
-            "tf-1,b,a,claude,claude-opus-5,medium,50,m1\n", encoding="utf-8")
+            "tf-1,a,b,claude,claude-opus-5-5,medium,50,m1\n"
+            "tf-1,b,a,claude,claude-opus-5-5,medium,50,m1\n", encoding="utf-8")
         f5 = lint_goal(root, "demo-goal")
         check("lint rejects a cyclic after-graph",
               any(i["check"] == "after graph acyclic" for i in f5.items))
@@ -4521,8 +4521,8 @@ def cmd_selftest(args) -> int:
             "p-demo,prompt-demo,task-demo,the predecessor seat\n", encoding="utf-8")
         tf = gd / "taskforce.csv"
         HEAD_ROW = "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
-        BODY = ("tf-1,p-demo,,claude,claude-opus-5,medium,50,m1\n"
-                "tf-1,w-demo,{cell},claude,claude-opus-5,medium,50,m1\n")
+        BODY = ("tf-1,p-demo,,claude,claude-opus-5-5,medium,50,m1\n"
+                "tf-1,w-demo,{cell},claude,claude-opus-5-5,medium,50,m1\n")
         for label, cell, rule in (
             ("`p-demo[verdict]` (no =value)", "p-demo[verdict]", RULE_GUARD_GRAMMAR),
             ("`p-demo|` (empty limb)", "p-demo|", RULE_ALTERNATE_GRAMMAR),
@@ -5014,10 +5014,10 @@ def cmd_selftest(args) -> int:
         pg = root / "pool-goal"
         (pg / "taskforce.csv").write_text(
             "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
-            "tf-1,ps,,claude,claude-opus-5,medium,50,m1\n", encoding="utf-8")
+            "tf-1,ps,,claude,claude-opus-5-5,medium,50,m1\n", encoding="utf-8")
         (pg / "seats" / "ps").mkdir(parents=True, exist_ok=True)
         (pg / "seats" / "ps" / "seat.md").write_text(
-            "---\nseat: ps\nharness: claude\nmodel: claude-opus-5\n---\n" + asm.split("---\n", 2)[2],
+            "---\nseat: ps\nharness: claude\nmodel: claude-opus-5-5\n---\n" + asm.split("---\n", 2)[2],
             encoding="utf-8")
         pool_lint = lint_goal(root, "pool-goal").items
         check("a POOL-assembled seat passes `permissions well-formed` (body fallback)",
@@ -5031,7 +5031,7 @@ def cmd_selftest(args) -> int:
         # <permissions> section must STILL be caught. Without this the arm above would pass
         # if the check were simply deleted.
         (pg / "seats" / "ps" / "seat.md").write_text(
-            "---\nseat: ps\nharness: claude\nmodel: claude-opus-5\n---\n\n"
+            "---\nseat: ps\nharness: claude\nmodel: claude-opus-5-5\n---\n\n"
             "<role>\nno permissions anywhere\n</role>\n", encoding="utf-8")
         check("red control: a seat with no permissions ANYWHERE is still caught",
               any(i["check"] == "permissions well-formed"
@@ -5269,7 +5269,7 @@ def cmd_selftest(args) -> int:
 
         def _tf(*rows):
             return "\n".join([render_csv_line(TF_HEAD)]
-                             + [render_csv_line(["tf-1", s, a, "claude", "claude-opus-5",
+                             + [render_csv_line(["tf-1", s, a, "claude", "claude-opus-5-5",
                                                  "medium", "50", "m1"]) for s, a in rows]) + "\n"
 
         base_text = _tf(("a", ""), ("b", "a"), ("c", "a,b"), ("d", "a[gate=b]"), ("new", "a"))
@@ -5339,7 +5339,7 @@ def cmd_selftest(args) -> int:
         (live / "taskforce.csv").write_text(base_text, encoding="utf-8", newline="")
         sheet = tmp / "bindings.json"
         sheet.write_text(json.dumps({"defaults": {"harness": "claude"},
-                                     "seats": {"new": {"model": "claude-opus-5"}}}),
+                                     "seats": {"new": {"model": "claude-opus-5-5"}}}),
                          encoding="utf-8")
 
         def _add(**kw):

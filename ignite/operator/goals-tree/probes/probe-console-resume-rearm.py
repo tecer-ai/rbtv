@@ -93,7 +93,7 @@ def make_workspace(tmp, name="ws", registered=True):
         encoding="utf-8")
     (goals / GOAL / "taskforce.csv").write_text(
         "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
-        f"tf-1,{SEAT},,claude,claude-opus-5,high,,m1\n", encoding="utf-8")
+        f"tf-1,{SEAT},,claude,claude-opus-5-5,high,,m1\n", encoding="utf-8")
     (goals / GOAL / "execution-lane").write_text("paused daemon\n", encoding="utf-8")
     return ws, goals
 

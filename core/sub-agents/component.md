@@ -30,7 +30,7 @@ tool/cast.js -h | --help
 | Arg | Meaning |
 |---|---|
 | `harness` | `claude` \| `codex` \| `opencode` |
-| `model` | that harness's model, SHORT name — the provider prefix and the `claude-` prefix are dropped: `opus-5` (not `claude-opus-5`), `glm-5.2` (not `zai-coding-plan/glm-5.2`). The two K2.7 kimi models are the exception: their ids (`kimi-for-coding`, `kimi-for-coding-highspeed`) name no generation, so they carry the display short names `k2.7`, `k2.7-highspeed` (`k3` and `k3-256k` derive normally). See `cast -h` or `cast list` for the current inventory; a long id is refused with the short one suggested |
+| `model` | that harness's model, SHORT name — the provider prefix and the `claude-` prefix are dropped: `opus-5-5` (not `claude-opus-5-5`), `glm-5.2` (not `zai-coding-plan/glm-5.2`). The two K2.7 kimi models are the exception: their ids (`kimi-for-coding`, `kimi-for-coding-highspeed`) name no generation, so they carry the display short names `k2.7`, `k2.7-highspeed` (`k3` and `k3-256k` derive normally). See `cast -h` or `cast list` for the current inventory; a long id is refused with the short one suggested |
 | `effort` | integer 1-5, the universal dial |
 | `launch-folder` | working directory for the agent, resolved relative to the caller's CWD; MUST already exist |
 | `-p TEXT` | literal prompt text |
@@ -168,7 +168,7 @@ because `spawn-profiles.yaml` had gone stale on each:
 |---|---|
 | opencode (kimi) | the four `kimi-for-coding` models, which moved here when the standalone `kimi` CLI went away (2026-08-14); the yaml still lists them under a `kimi` harness |
 | codex | the whole GPT-5.6 family (`sol`, `terra`, `luna`); and `gpt-5.5` gains `xhigh` — the yaml's 3-rung ladder could not reach the model's top |
-| opencode | `glm-5.2-highspeed`, `glm-4.7`, `gemini-3.7-flash` (which replaced `gemini-3.6-flash` on 2026-08-22), `grok-4.6`, `grok-4.6-fast` |
+| opencode | `glm-5.2-highspeed`, `glm-4.7`, `gemini-3.7-flash` (which replaced `gemini-3.6-flash` on 2026-08-22), `grok-4.7`, `grok-4.6-fast` |
 
 The seven opencode ladders `spawn-profiles.yaml` does carry were re-measured and all match — no
 drift there. **`spawn-profiles.yaml` itself is NOT updated by this capability** — the daemon's own

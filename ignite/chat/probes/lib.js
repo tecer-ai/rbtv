@@ -160,7 +160,7 @@ function seedRunningExecution(store, { enqueuedBy = 'bridge-probe' } = {}) {
     // `jobs_log.profile` is the RESOLVED launch-spec key since 7.787 — `<harness>/<model>` — and
     // it is written from the spawn, never from a request. The fixture writes one because
     // `reply-leg.js#normalizeLog` reads its first `/` segment to pick a harness arm.
-    profile: 'claude/claude-opus-5',
+    profile: 'claude/claude-opus-5-5',
     workdir: null,
   });
   store.updateExecutionStatus(exec.exec_id, { status: 'running' });

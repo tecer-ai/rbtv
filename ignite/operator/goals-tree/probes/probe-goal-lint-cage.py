@@ -68,7 +68,7 @@ description: fixture goal-master, shaped like a real materialized one — `relay
 cwd: {cwd}/seats/goal-master/
 agent_type: master
 harness: claude
-model: claude-opus-5
+model: claude-opus-5-5
 effort: medium
 mode: interactive
 auto-wake: 'yes'
@@ -92,7 +92,7 @@ description: fixture worker — the OTHER seat, invisible from inside goal-maste
 cwd: {cwd}/seats/worker-a/
 agent_type: worker
 harness: claude
-model: claude-opus-5
+model: claude-opus-5-5
 effort: medium
 mode: headless
 ---
@@ -117,8 +117,8 @@ def build_fixture(td: Path):
     goal = root / "live-goal"
     goal.joinpath("taskforce.csv").write_text(
         "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
-        "tf-1,goal-master,,claude,claude-opus-5,medium,50,m1\n"
-        "tf-1,worker-a,goal-master,claude,claude-opus-5,medium,50,m1\n",
+        "tf-1,goal-master,,claude,claude-opus-5-5,medium,50,m1\n"
+        "tf-1,worker-a,goal-master,claude,claude-opus-5-5,medium,50,m1\n",
         encoding="utf-8", newline="")
     seats = goal / "seats"
     (seats / "goal-master").mkdir(parents=True)

@@ -168,7 +168,7 @@ async function main() {
         args: JSON.stringify({ prompt: 'hi', workdir: w.seatDir }),
         enqueuedBy: daemon.bridgeSenderId, sessionMode: 'headless',
         firedTick: 1, firedAt: new Date(), sessionId: 'sess-holder-c', pid: 999997,
-        profile: 'claude/claude-opus-5', workdir: w.seatDir,
+        profile: 'claude/claude-opus-5-5', workdir: w.seatDir,
       });
       const CHAN = 'C-SUM-C';
       threadMap.create(CHAN, { queueId: 3 });

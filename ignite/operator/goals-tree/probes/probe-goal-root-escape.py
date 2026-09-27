@@ -150,7 +150,7 @@ def build_tree(td: Path) -> tuple[Path, Path, Path]:
     (run_dir / "planning" / "pass-1").mkdir(parents=True)
     (run_dir / "taskforce.csv").write_text(
         "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
-        "tf-1,w-demo,,claude,claude-opus-5,medium,50,m1\n", encoding="utf-8", newline="\n")
+        "tf-1,w-demo,,claude,claude-opus-5-5,medium,50,m1\n", encoding="utf-8", newline="\n")
     (run_dir / "milestones.csv").write_text(
         "milestone-id,name,status\nm1,prove it,pending\n", encoding="utf-8", newline="\n")
 

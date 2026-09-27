@@ -1243,9 +1243,9 @@ def _selftest_checks(args, failures, names):
               "would refuse that call site and empty the catalog the authoring tool offers. A "
               "caller who omits the key gets NO effort validation rather than a refusal",
               launch.validate_seat({"agent": "claude-opus", "harness": "claude",
-                             "model": "claude-opus-5"}) == ""
+                             "model": "claude-opus-5-5"}) == ""
               and launch.validate_seat({"agent": "claude-opus", "harness": "claude",
-                                 "model": "claude-opus-5", "effort": ""}) != "")
+                                 "model": "claude-opus-5-5", "effort": ""}) != "")
 
         # ---- v2: boot prompt mentions memory only for persistent folder seats ----
         # ⚠ KEYED ON THE INSTRUCTION, NOT ON THE BARE FILENAME (retightened by 7.96). Both rows
@@ -12739,9 +12739,9 @@ def _selftest_checks(args, failures, names):
         (_fg_root / "coordination").mkdir(parents=True)
         (_fg_root / "taskforce.csv").write_text(
             "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
-            "tf-1,plan-verifier,plan-reviewer,claude,claude-opus-5,high,35,\n"
-            "tf-1,leader,,claude,claude-opus-5,medium,35,\n"
-            "tf-1,goal-master,,claude,claude-opus-5,medium,,\n", encoding="utf-8")
+            "tf-1,plan-verifier,plan-reviewer,claude,claude-opus-5-5,high,35,\n"
+            "tf-1,leader,,claude,claude-opus-5-5,medium,35,\n"
+            "tf-1,goal-master,,claude,claude-opus-5-5,medium,,\n", encoding="utf-8")
         _fg_gm, _fg_gm_code = refuse(cmd_finish_goal, package=str(_fg_root),
                                      as_agent="goal-master", note="")
         check("s3-03 (7a) THE SUMMONED CHAIR IS REFUSED: `finish-goal` as `goal-master` on a goal "

@@ -551,7 +551,7 @@ function resolveEffort(profile, rung, label, mode) {
 // Under `profiles:` the pair a row RAN was DERIVED from its argv, so key and reality could not
 // disagree — the key was arbitrary and meant nothing. Under `launch-specs:` the KEY is the
 // authority every lookup goes through, which opens exactly one new failure: a spec filed under
-// `claude/claude-opus-5` whose argv says `--model claude-haiku-4-5`. That is the silent-wrong-model
+// `claude/claude-opus-5-5` whose argv says `--model claude-haiku-4-5`. That is the silent-wrong-model
 // launch this whole line of work exists to kill, so the old derivation law survives HERE, as a
 // LOAD-TIME GUARD rather than a lookup. Refused at boot, where a human is reading output.
 //

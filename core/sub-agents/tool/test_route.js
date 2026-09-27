@@ -53,12 +53,12 @@ fs.writeFileSync(FIXTURE_CSV, [
   'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override',
   'cli,claude,fable-5,5,N,SOTA,7,7,50,route,N,N',
   'cli,codex,gpt-6-astra,5,N,SOTA,7,7,50,route,Y,Y',
-  'cli,claude,opus-5,5,N,L1,6,6,25,route,N,N',
-  'cli,codex,gpt-5.6-sol,5,N,L1,5,5,20,route,N,N',
+  'cli,claude,opus-5-5,5,N,L1,6,6,25,route,N,N',
+  'cli,codex,gpt-6-sol,5,N,L1,5,5,20,route,N,N',
   'cli,claude,sonnet-5,5,N,L2,5,5,10,route,N,N',
   'cli,codex,gpt-5.6-terra,5,N,L2,4,4,5,route,N,N',
   'cli,opencode,k3,3,N,L2,5,5,15,route,N,N',
-  'cli,codex,gpt-5.6-luna,5,N,L3,3,2,1.2,route,N,N',
+  'cli,codex,gpt-6-luna,5,N,L3,3,2,1.2,route,N,N',
   'cli,opencode,deepseek-v4-pro,4,N,L3,3,3,3.96,route,N,N',
   'cli,claude,haiku-4-5,0,N,L3,3,3,,route,N,N',
   'api,api,gemini-3.5-flash,0,N,L3,3,3,9,route,N,N',
@@ -100,7 +100,7 @@ const dropped = (v, stage) => (v.explain || [])
   const v = route(['--access', 'bounded', '--type', 'code', '--class', 'mechanical', '--optimize', 'price']);
   assert.strictEqual(v._status, 0, `expected a verdict: ${JSON.stringify(v)}`);
   assert.strictEqual(v.verdict, 'route');
-  assert.strictEqual(pair(v), 'codex/gpt-5.6-luna/cli');
+  assert.strictEqual(pair(v), 'codex/gpt-6-luna/cli');
   assert.strictEqual(v.effort, 1);
   assert.strictEqual(v.effort_is_floor, false);
 }
@@ -134,7 +134,7 @@ const dropped = (v, stage) => (v.explain || [])
   // The trace still says which one the caller asked for — an --explain reader can tell an omitted
   // flag from an explicit one, even though the ranking is the same.
   const mech = route(['--access', 'bounded', '--type', 'text', '--class', 'mechanical', '--explain']);
-  assert.strictEqual(pair(mech), 'codex/gpt-5.6-luna/cli', 'mechanical default = the cheapest L3 row');
+  assert.strictEqual(pair(mech), 'codex/gpt-6-luna/cli', 'mechanical default = the cheapest L3 row');
   const rank = mech.explain.find((e) => e.stage === 'optimize' && e.action === 'rank');
   assert.strictEqual(rank.optimize, 'default');
   assert.ok(/price, for every class/.test(rank.rule || ''), JSON.stringify(rank));
@@ -149,22 +149,22 @@ const dropped = (v, stage) => (v.explain || [])
   const bounded = route(['--access', 'bounded', '--type', 'code', '--class', 'bounded', '--explain']);
   assert.strictEqual(pair(bounded), 'codex/gpt-5.6-terra/cli', 'bounded default = cheapest L2');
   for (const v of [planner, bounded]) {
-    assert.ok(dropped(v, 'class').includes('codex/gpt-5.6-sol'), `the cheaper L1 row must drop at the class stage: ${JSON.stringify(dropped(v, 'class'))}`);
+    assert.ok(dropped(v, 'class').includes('codex/gpt-6-sol'), `the cheaper L1 row must drop at the class stage: ${JSON.stringify(dropped(v, 'class'))}`);
   }
 
   // Batch: an omitted optimize on a seat takes the same default as the flag form.
   const b = routeBatch([{ name: 'm', access: 'bounded', type: 'code', class: 'mechanical' }]);
   assert.strictEqual(b._status, 0, JSON.stringify(b));
-  assert.strictEqual(`${b.seats[0].harness}/${b.seats[0].model}`, 'codex/gpt-5.6-luna');
+  assert.strictEqual(`${b.seats[0].harness}/${b.seats[0].model}`, 'codex/gpt-6-luna');
 }
 
 // --- max quality NEVER leaves the class's own levels --------------------------------------------
-// class=bounded is L2 only. fable-5 (SOTA) and opus-5 (L1) are available and score higher, and
+// class=bounded is L2 only. fable-5 (SOTA) and opus-5-5 (L1) are available and score higher, and
 // neither may be picked: a bounded executor at max quality gets the best L2 (sonnet-5).
 {
   const v = route(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'quality', '--explain']);
   assert.strictEqual(pair(v), 'claude/sonnet-5/cli');
-  assert.ok(dropped(v, 'class').includes('claude/opus-5'), JSON.stringify(dropped(v, 'class')));
+  assert.ok(dropped(v, 'class').includes('claude/opus-5-5'), JSON.stringify(dropped(v, 'class')));
   assert.strictEqual(v.effort, 2);
   assert.ok(dropped(v, 'class').includes('claude/fable-5'),
     `fable-5 (SOTA) must be dropped at the class filter: ${JSON.stringify(dropped(v, 'class'))}`);
@@ -195,7 +195,7 @@ const dropped = (v, stage) => (v.explain || [])
   const open = route(['--access', 'open', '--type', 'text', '--class', 'mechanical', '--optimize', 'quality', '--explain']);
   assert.ok(dropped(open, 'access').includes('api/gemini-3.5-flash'),
     `the api row must be dropped at the access stage: ${JSON.stringify(dropped(open, 'access'))}`);
-  assert.strictEqual(pair(open), 'codex/gpt-5.6-luna/cli', 'access=open must exclude every api row');
+  assert.strictEqual(pair(open), 'codex/gpt-6-luna/cli', 'access=open must exclude every api row');
 }
 
 // --- the verdict carries two backups ----------------------------------------------------------
@@ -230,7 +230,7 @@ const dropped = (v, stage) => (v.explain || [])
   fs.mkdirSync(path.dirname(noImageCsv), { recursive: true });
   fs.writeFileSync(noImageCsv, [
     'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override',
-    'cli,claude,opus-5,5,N,L1,6,6,25,route,N,N', ''].join('\n'));
+    'cli,claude,opus-5-5,5,N,L1,6,6,25,route,N,N', ''].join('\n'));
   const none = route(['--caps', 'image'], noImage);
   assert.strictEqual(none.error, 'zero_candidates', JSON.stringify(none));
   assert.ok(/image=Y/.test(none.details), none.details);
@@ -270,7 +270,7 @@ const dropped = (v, stage) => (v.explain || [])
     'cli,claude,haiku-4-5,0,N,L2,3,2,9,route,N,N',
     // A SHORT row on purpose: the three columns added 2026-08-22 are absent, which is what a CSV
     // written before them looks like. Missing cells must read as use=route with neither override.
-    'cli,claude,opus-5,5,N,L2,7,6,',
+    'cli,claude,opus-5-5,5,N,L2,7,6,',
     'cli,opencode,not-a-real-model,3,N,L2,6,6,1,route,N,N',
     '',
   ].join('\n'));
@@ -280,11 +280,11 @@ const dropped = (v, stage) => (v.explain || [])
   assert.ok(/no catalog\.js row for opencode\/not-a-real-model/.test(cheap._stderr),
     `an unjoinable CSV row must warn LOUDLY on stderr: ${cheap._stderr}`);
   // A blank cost sits OUT of every price pick — unknown is not cheap. It stays eligible for
-  // quality, where opus-5's reasoning 7 beats every priced row.
-  assert.ok(dropped(cheap, 'optimize').includes('claude/opus-5'),
+  // quality, where opus-5-5's reasoning 7 beats every priced row.
+  assert.ok(dropped(cheap, 'optimize').includes('claude/opus-5-5'),
     `blank-cost rows must drop AT THE OPTIMIZE STAGE with a reason: ${JSON.stringify(dropped(cheap, 'optimize'))}`);
   const best = route(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'quality'], vault);
-  assert.strictEqual(pair(best), 'claude/opus-5/cli', 'a blank-cost row is still eligible for quality');
+  assert.strictEqual(pair(best), 'claude/opus-5-5/cli', 'a blank-cost row is still eligible for quality');
 
   // and the shipped CSV is genuinely IGNORED while the override exists
   const roster = spawnSync('node', [TOOL, 'route', '--catalog'], { encoding: 'utf8', env: ENV, cwd: vault });
@@ -310,8 +310,8 @@ const dropped = (v, stage) => (v.explain || [])
   //   L1: sol  cost 20 (score 5) · opus cost 25 (score 6)   -> price picks sol, quality picks opus
   //   L2: terra cost 5 (score 4) · sonnet cost 10 (score 5) -> price picks terra, quality picks sonnet
   const BASE = {
-    'opus-5': 'cli,claude,opus-5,5,N,L1,6,6,25',
-    'gpt-5.6-sol': 'cli,codex,gpt-5.6-sol,5,N,L1,5,5,20',
+    'opus-5-5': 'cli,claude,opus-5-5,5,N,L1,6,6,25',
+    'gpt-6-sol': 'cli,codex,gpt-6-sol,5,N,L1,5,5,20',
     'sonnet-5': 'cli,claude,sonnet-5,5,N,L2,5,5,10',
     'gpt-5.6-terra': 'cli,codex,gpt-5.6-terra,5,N,L2,4,4,5',
   };
@@ -350,9 +350,9 @@ const dropped = (v, stage) => (v.explain || [])
   // 5. the default is a price ranking (owner ruling 2026-08-22), so price-override is the one
   //    that fires there — for every class, at every level.
   write();
-  assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'broad'])), 'codex/gpt-5.6-sol/cli', 'default = cheapest L1');
-  write({ 'opus-5': ['route', 'N', 'Y'] });
-  assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'broad'])), 'claude/opus-5/cli', 'price-override fires in the default');
+  assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'broad'])), 'codex/gpt-6-sol/cli', 'default = cheapest L1');
+  write({ 'opus-5-5': ['route', 'N', 'Y'] });
+  assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'broad'])), 'claude/opus-5-5/cli', 'price-override fires in the default');
   write({ 'sonnet-5': ['route', 'N', 'Y'] });
   assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'bounded'])), 'claude/sonnet-5/cli', 'price-override fires in the default at the low levels too');
 
@@ -364,32 +364,32 @@ const dropped = (v, stage) => (v.explain || [])
   assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'quality'])), 'codex/gpt-5.6-terra/cli', 'the flag DOES bite under --optimize quality');
 
   // 7. use=panel — no verdict may name it, and it drops at its own stage with its own reason...
-  write({ 'opus-5': ['panel', 'N', 'N'] });
+  write({ 'opus-5-5': ['panel', 'N', 'N'] });
   const panel = at(['--access', 'bounded', '--type', 'text', '--class', 'broad', '--optimize', 'quality', '--explain']);
-  assert.strictEqual(pair(panel), 'codex/gpt-5.6-sol/cli', 'a use=panel row must never be a verdict');
-  assert.ok(dropped(panel, 'use').includes('claude/opus-5'), JSON.stringify(dropped(panel, 'use')));
+  assert.strictEqual(pair(panel), 'codex/gpt-6-sol/cli', 'a use=panel row must never be a verdict');
+  assert.ok(dropped(panel, 'use').includes('claude/opus-5-5'), JSON.stringify(dropped(panel, 'use')));
   //    ...but it stays in the roster, which is the surface a panel spreads its seats across.
   const roster = spawnSync('node', [TOOL, 'route', '--catalog', '--json'], { encoding: 'utf8', env: ENV, cwd: vault });
   const rows = JSON.parse(roster.stdout).rows;
-  assert.strictEqual(rows.find((r) => r.model === 'opus-5').use, 'panel', 'the roster must SHOW a panel row with its use value');
+  assert.strictEqual(rows.find((r) => r.model === 'opus-5-5').use, 'panel', 'the roster must SHOW a panel row with its use value');
 
   // 8. use=off — same invisibility to routing; with both L1 rows gone, class broad has nothing left.
-  write({ 'opus-5': ['panel', 'N', 'N'], 'gpt-5.6-sol': ['off', 'N', 'N'] });
+  write({ 'opus-5-5': ['panel', 'N', 'N'], 'gpt-6-sol': ['off', 'N', 'N'] });
   const none = at(['--access', 'bounded', '--type', 'text', '--class', 'broad', '--optimize', 'quality']);
   assert.strictEqual(none.error, 'zero_candidates', JSON.stringify(none));
   assert.strictEqual(none._status, 1);
 
   // 9. an unrecognised use value is never guessed: loud warning, row out of routing.
-  write({ 'opus-5': ['maybe', 'N', 'N'] });
+  write({ 'opus-5-5': ['maybe', 'N', 'N'] });
   const bad = at(['--access', 'bounded', '--type', 'text', '--class', 'broad', '--optimize', 'quality', '--explain']);
-  assert.strictEqual(pair(bad), 'codex/gpt-5.6-sol/cli');
+  assert.strictEqual(pair(bad), 'codex/gpt-6-sol/cli');
   assert.ok(/use='maybe'/.test(bad._stderr), `an unrecognised use must warn on stderr: ${bad._stderr}`);
-  assert.ok(dropped(bad, 'use').includes('claude/opus-5'), JSON.stringify(dropped(bad, 'use')));
+  assert.ok(dropped(bad, 'use').includes('claude/opus-5-5'), JSON.stringify(dropped(bad, 'use')));
 
   // 10. a header missing the three columns is REFUSED, not silently read as blanks: the columns
   //     carry routing decisions, so a stale override CSV must be fixed, never half-obeyed.
   fs.writeFileSync(file, ['mode,harness,model,efforts,image,level,reasoning,coding,cost',
-    'cli,claude,opus-5,5,N,L1,6,6,25', ''].join('\n'));
+    'cli,claude,opus-5-5,5,N,L1,6,6,25', ''].join('\n'));
   const stale = at(['--access', 'bounded', '--type', 'text', '--class', 'broad']);
   assert.strictEqual(stale.error, 'no_models');
   assert.ok(/header is /.test(stale.details), stale.details);
@@ -430,7 +430,7 @@ const FIXER_SEAT = { name: 'fixer', access: 'bounded', type: 'code', class: 'mec
   assert.strictEqual(v.verdict, 'route-batch');
   assert.deepStrictEqual(v.seats.map((s) => s.name), ['planner', 'fixer'], 'seats must come back in INPUT order');
   assert.strictEqual(pair(v.seats[0]), 'codex/gpt-6-astra/cli');
-  assert.strictEqual(pair(v.seats[1]), 'codex/gpt-5.6-luna/cli');
+  assert.strictEqual(pair(v.seats[1]), 'codex/gpt-6-luna/cli');
 }
 
 // --- batch of one == the flag form, field for field ----------------------------------------------
@@ -455,7 +455,7 @@ const FIXER_SEAT = { name: 'fixer', access: 'bounded', type: 'code', class: 'mec
 
 // --- an unknown key is a refusal, not a silent ignore ---------------------------------------------
 {
-  const v = routeBatch([{ ...FIXER_SEAT, model: 'opus-5' }]);
+  const v = routeBatch([{ ...FIXER_SEAT, model: 'opus-5-5' }]);
   assert.strictEqual(v._status, 1);
   assert.strictEqual(v.seats[0].error, 'malformed_request');
   assert.ok(/unknown key 'model'/.test(v.seats[0].details[0]), JSON.stringify(v.seats[0].details));

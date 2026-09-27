@@ -127,7 +127,7 @@ function makeTickingForwarder() {
       if (target === 'status') {
         const s = state.status.get(Number(extra.id));
         if (!s) return { ok: false, error: { code: 'NOT_FOUND' } };
-        return { ok: true, result: { live: s.live, status: s.status, profile: s.profile || 'claude/claude-opus-5' } };
+        return { ok: true, result: { live: s.live, status: s.status, profile: s.profile || 'claude/claude-opus-5-5' } };
       }
       if (target === 'logs') {
         const lines = state.logs.get(Number(extra.id)) || [];

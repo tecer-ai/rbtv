@@ -8,7 +8,7 @@ legitimate verdict — "I have read this and it cannot be ruled until X happens"
 nothing else, and the pass reads rows, never mail. So every HOLD sitting looked exactly like a
 sitting that did nothing: it was counted as a burned recovery attempt, the lane disarmed at N=3,
 and the next code-deploy re-arm bought three more. Nine identical HOLD verdicts on
-`goal-memory-management`, 2026-08-28, nine paid opus-5 sittings, none of them honoured.
+`goal-memory-management`, 2026-08-28, nine paid opus-5-5 sittings, none of them honoured.
 
 WHAT THIS MEASURES — the DOOR only. That the verb refuses what it must refuse, writes what it
 says it writes, and is idempotent. What the daemon then DOES with the row is

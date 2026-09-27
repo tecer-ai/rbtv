@@ -197,7 +197,7 @@ const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
 
 // LOG → THE TEXT THE AGENT WROTE, per harness. The harness is the LAUNCH-SPEC KEY's first
 // segment: `jobs_log.profile` records the key of the spec that actually launched — `harness/model`
-// (`claude/claude-opus-5`, `codex/gpt-5.5`, `opencode/zai-coding-plan/glm-5.2`) — written by
+// (`claude/claude-opus-5-5`, `codex/gpt-5.5`, `opencode/zai-coding-plan/glm-5.2`) — written by
 // `spawn.js` from the RESOLVED value, never from a request.
 //
 // ⚠ THE SEPARATOR IS `/` SINCE 7.787 AND THE OLD SPLIT WAS FRAGILE. This read `split('-')[0]` off

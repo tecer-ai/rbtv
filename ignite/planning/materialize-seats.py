@@ -6346,7 +6346,7 @@ def build_fixture(tmp: Path) -> dict:
 
     taskforce = (
         "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
-        "tf-1,chief,,claude,claude-opus-5,high,,m1\n"
+        "tf-1,chief,,claude,claude-opus-5-5,high,,m1\n"
     )
     milestones = "milestone-id,name,status\nm1,prove the fixture,pending\n"
     pkg = tmp / "goals" / "demo-goal"
@@ -6369,7 +6369,7 @@ def build_fixture(tmp: Path) -> dict:
     pkg_status.joinpath(TASKFORCE_NAME).write_text(
         "taskforce-id,seat,after,harness,model,effort,ctx-refresh,"
         "milestone-id,status\n"
-        "tf-1,chief,,claude,claude-opus-5,high,,m1,queued\n", encoding="utf-8")
+        "tf-1,chief,,claude,claude-opus-5-5,high,,m1,queued\n", encoding="utf-8")
     # The UNCOMPLETED goal folder (what `rbtv-goal scaffold` leaves): the
     # creation/completion arms' target. 7.607 E2b — this used to be an ABSENT
     # runs/run-7 compartment; a goal folder is never created by this command,
@@ -6384,7 +6384,7 @@ def build_fixture(tmp: Path) -> dict:
     pkg_spine.joinpath(TASKFORCE_NAME).write_text(
         "taskforce-id,seat,after,harness,model,effort,ctx-refresh,"
         "milestone-id\n"
-        "tf-1,chief,,claude,claude-opus-5,high,,m3\n", encoding="utf-8")
+        "tf-1,chief,,claude,claude-opus-5-5,high,,m3\n", encoding="utf-8")
     pkg_spine.joinpath(MILESTONES_NAME).write_text(
         "milestone-id,name,status\n"
         + "".join(f"m{i},milestone {i},pending\n" for i in range(3, 8)),
@@ -6583,7 +6583,7 @@ def build_fixture(tmp: Path) -> dict:
     bdir = tmp / "bindings"
     bdir.mkdir()
     seat_binding = {
-        "harness": "claude", "model": "claude-opus-5", "effort": "high",
+        "harness": "claude", "model": "claude-opus-5-5", "effort": "high",
         "ctx-refresh": 50, "agent_type": "staff",
         "description": "a fixture seat",
     }
@@ -7503,7 +7503,7 @@ def run_dag04_acceptance(check, env: dict) -> None:
         (run1 / TASKFORCE_NAME).write_text(
             "taskforce-id,seat,after,harness,model,effort,ctx-refresh,"
             "milestone-id\n"
-            "tf-a,chief,,claude,claude-opus-5,high,50,\n", encoding="utf-8")
+            "tf-a,chief,,claude,claude-opus-5-5,high,50,\n", encoding="utf-8")
         cp = _invoke(["--package", str(run1), "--workflow", "demo-flow",
                       "--catalog-root", fx["catalog"], "--bindings",
                       fx["b_both"], "--root", "--json"], env)
@@ -7651,7 +7651,7 @@ def run_dag05_acceptance(check, env: dict) -> None:
         check("SC-1: supervise launch --dry-run --only alpha resolves "
               "a harness command (root seat, before its own check-out)",
               cpl.returncode == 0
-              and "claude --model claude-opus-5" in cpl.stdout
+              and "claude --model claude-opus-5-5" in cpl.stdout
               and "REFUSED" not in cpl.stdout,
               (cpl.stdout + cpl.stderr).strip()[:200])
         # SC-1 control (unmet-predecessor half): while the predecessor has NOT
@@ -7692,13 +7692,13 @@ def run_dag05_acceptance(check, env: dict) -> None:
         check("SC-1: supervise launch --dry-run --only beta resolves "
               "a harness command (dependent seat, predecessor done)",
               cpl.returncode == 0
-              and "claude --model claude-opus-5" in cpl.stdout
+              and "claude --model claude-opus-5-5" in cpl.stdout
               and "REFUSED" not in cpl.stdout,
               (cpl.stdout + cpl.stderr).strip()[:200])
         # SC-1 control (check_bindings half): a row that DISAGREES with the
         # descriptor refuses the same dry-run.
         text = tf.read_text(encoding="utf-8")
-        mutated = text.replace("beta,alpha,claude,claude-opus-5",
+        mutated = text.replace("beta,alpha,claude,claude-opus-5-5",
                                "beta,alpha,claude,claude-opus-4")
         check("SC-1 control setup: the beta row mutation actually lands",
               mutated != text)
@@ -7880,7 +7880,7 @@ def run_dag05_acceptance(check, env: dict) -> None:
             "milestone-id,name,status\nm1,prove,pending\n", encoding="utf-8")
         seed_text = ("taskforce-id,seat,after,harness,model,effort,"
                      "ctx-refresh,milestone-id\n"
-                     "tf-1,chief,,claude,claude-opus-5,high,,m1\n")
+                     "tf-1,chief,,claude,claude-opus-5-5,high,,m1\n")
         (run1 / TASKFORCE_NAME).write_text(seed_text, encoding="utf-8")
         argv = ["--package", str(run1), "--workflow", "demo-flow",
                 "--catalog-root", fx["catalog"], "--bindings", fx["b_both"],
@@ -7978,7 +7978,7 @@ def run_dag05_acceptance(check, env: dict) -> None:
         # SC-20 rows-half red arm: an existing row that DIVERGES from what
         # this run would write refuses (partial-row-mismatch), file untouched.
         amd.write_text(orig_alpha, encoding="utf-8")
-        drifted = seed_text + "tf-1,alpha,,claude,claude-opus-5,low,50,m1\n"
+        drifted = seed_text + "tf-1,alpha,,claude,claude-opus-5-5,low,50,m1\n"
         (run1 / TASKFORCE_NAME).write_text(drifted, encoding="utf-8")
         cp = _invoke([*argv, "--force-partial", "--json"], env)
         check("SC-20 rows-half control: a divergent existing row REFUSES "
@@ -8201,7 +8201,7 @@ def run_dag06_acceptance(check, env: dict) -> None:
         check("CP-6: supervise launch --dry-run --only alpha resolves a "
               "harness command against the freshly created package",
               cpl.returncode == 0
-              and "claude --model claude-opus-5" in cpl.stdout
+              and "claude --model claude-opus-5-5" in cpl.stdout
               and "REFUSED" not in cpl.stdout,
               (cpl.stdout + cpl.stderr).strip()[:200])
         # CP-6 green (real-launch form): with budget.json present the floor
@@ -8387,7 +8387,7 @@ def run_dag06_acceptance(check, env: dict) -> None:
         (pkg7 / "coordination").mkdir()
         (pkg7 / TASKFORCE_NAME).write_text(
             ",".join(TASKFORCE_HEADER) + "\n"
-            ",chief,,claude,claude-opus-5,high,,\n", encoding="utf-8")
+            ",chief,,claude,claude-opus-5-5,high,,\n", encoding="utf-8")
         cp = _invoke(["--package", str(pkg7), "--seat", "alpha",
                       "--catalog-root", fx["catalog"], "--root",
                       "--bindings", fx["b_alpha"], "--json"], env)
@@ -8399,7 +8399,7 @@ def run_dag06_acceptance(check, env: dict) -> None:
         # tf-id file-wins arm: an id read from rows beats the derivation.
         (pkg7 / TASKFORCE_NAME).write_text(
             ",".join(TASKFORCE_HEADER) + "\n"
-            "tf-1,chief,,claude,claude-opus-5,high,,\n", encoding="utf-8")
+            "tf-1,chief,,claude,claude-opus-5-5,high,,\n", encoding="utf-8")
         cp = _invoke(["--package", str(pkg7), "--seat", "alpha",
                       "--catalog-root", fx["catalog"], "--root",
                       "--bindings", fx["b_alpha"], "--json"], env)
@@ -8759,7 +8759,7 @@ def _pf_fixture(root: Path) -> dict:
     bdir = root / "bindings"
     bdir.mkdir()
     base = {"agent_type": "worker", "harness": "claude",
-            "model": "claude-opus-5", "effort": "high", "mode": "interactive"}
+            "model": "claude-opus-5-5", "effort": "high", "mode": "interactive"}
     paths = {}
     for name, pf_value in (("ms", "planning/m1-first-milestone/"),
                            ("br", "planning/briefing-a-briefing/"),
@@ -8848,7 +8848,7 @@ def _staff_fixture(root: Path) -> dict:
     sheets = ws / ".rbtv/config/modules/meta/staff-comp/bindings"
     sheets.mkdir(parents=True)
     base = {"agent_type": "worker", "harness": "claude",
-            "model": "claude-opus-5", "effort": "high", "mode": "interactive"}
+            "model": "claude-opus-5-5", "effort": "high", "mode": "interactive"}
     leader_sheet = sheets / "leader.json"
     leader_sheet.write_text(json.dumps(
         {"defaults": {"cwd-mode": "seat-folder"},
@@ -9015,7 +9015,7 @@ def run_staff_mint_acceptance(check) -> None:
         (fx3["pkg"] / TASKFORCE_NAME).write_text(
             ",".join(TASKFORCE_HEADER) + "\n"
             + "".join(_render_csv_line(
-                [tf, seat, "", "claude", "claude-opus-5", "high", "", ""]) + "\n"
+                [tf, seat, "", "claude", "claude-opus-5-5", "high", "", ""]) + "\n"
                 for tf, seat in rows2), encoding="utf-8")
 
         res = _staff_run(fx3, "leader", bindings=str(fx3["leader_sheet"]))
@@ -9064,7 +9064,7 @@ def run_staff_mint_acceptance(check) -> None:
         tf_path4 = fx4["pkg"] / TASKFORCE_NAME
         # A SECOND taskforce joins the registry, which is what arms the gate.
         tf_path4.write_text(tf_path4.read_text(encoding="utf-8") + _render_csv_line(
-            ["tf-2", "x9", "", "claude", "claude-opus-5", "high", "", ""]) + "\n",
+            ["tf-2", "x9", "", "claude", "claude-opus-5-5", "high", "", ""]) + "\n",
             encoding="utf-8")
         before4 = tf_path4.read_text(encoding="utf-8")
         shutil.rmtree(fx4["pkg"] / "seats" / "w1", ignore_errors=True)
@@ -9875,7 +9875,7 @@ def run_selftest() -> int:
             (g / "coordination").mkdir(parents=True)
             (g / TASKFORCE_NAME).write_text(
                 "taskforce-id,seat,after,harness,model,effort,ctx-refresh,"
-                "milestone-id\ntf-1,chief,,claude,claude-opus-5,high,35,\n",
+                "milestone-id\ntf-1,chief,,claude,claude-opus-5-5,high,35,\n",
                 encoding="utf-8")
             cur = g.joinpath(*GOAL_LOCAL_SOURCE)
             (cur / "seats").mkdir(parents=True)
@@ -9915,7 +9915,7 @@ def run_selftest() -> int:
             # The lane's OWN bindings sheet — the goal's seats are not in the
             # component's, and `check_bindings_cover` refuses an extra key, so
             # a shared sheet could never serve both lanes.
-            gb = {"harness": "claude", "model": "claude-opus-5",
+            gb = {"harness": "claude", "model": "claude-opus-5-5",
                   "effort": "high", "ctx-refresh": 50, "agent_type": "staff",
                   "description": "a goal-authored fixture seat"}
             (g / "bindings.json").write_text(json.dumps({

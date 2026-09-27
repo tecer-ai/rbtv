@@ -205,7 +205,7 @@ function verbHelpPages() {
       '              other questions are asked. `cast route --caps image` on its own is valid.',
       '',
       'VERDICT',
-      '  {"verdict":"route","harness":"claude","model":"opus-5","mode":"cli","effort":3,',
+      '  {"verdict":"route","harness":"claude","model":"opus-5-5","mode":"cli","effort":3,',
       '   "effort_is_floor":true,"alternates":[{"harness":...},{...}]}',
       '  mode is cli (launch it with `cast <harness> <model> <effort>`) or api (`cast api`).',
       '  The top-level worker IS the choice — launch it. `alternates` is the next two of the same',

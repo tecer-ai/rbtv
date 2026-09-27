@@ -18,7 +18,7 @@
 // ends (that tool answers "what can this workspace cast?", this module answered "which profile IS
 // that cast?"). Now the YAML states the pair directly, so both sides READ it and neither derives
 // it. `bindingOf` survives for ONE job: proving at config LOAD that a spec's argv agrees with the
-// key it is filed under (`profiles.js#validateSpecKey`), so `claude/claude-opus-5` can never carry
+// key it is filed under (`profiles.js#validateSpecKey`), so `claude/claude-opus-5-5` can never carry
 // an argv that runs haiku. That check is the old law kept as a GUARD, which is the only place it
 // still earns its keep.
 //

@@ -746,7 +746,7 @@ def read_casts(casts_json):
     if not p.is_file():
         raise Refusal(f"{p} is not a file — `set-many` takes a JSON document of casts, one entry "
                       f"per seat: {{\"plan-binder\": {{\"harness\": \"claude\", \"model\": "
-                      f"\"claude-opus-5\", \"effort\": 4}}, …}}")
+                      f"\"claude-opus-5-5\", \"effort\": 4}}, …}}")
     try:
         doc = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:

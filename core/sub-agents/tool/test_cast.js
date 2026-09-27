@@ -272,9 +272,9 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
 {
   const folder = mkFolder('seat-claude');
   fs.writeFileSync(path.join(folder, 'seat.md'),
-    '---\nseat: x\nharness: claude\nmodel: claude-opus-5\neffort: xhigh\n---\n# seat descriptor\nact as X.');
+    '---\nseat: x\nharness: claude\nmodel: claude-opus-5-5\neffort: xhigh\n---\n# seat descriptor\nact as X.');
   const out = dryRun(['seat', folder, '-p', 'wake up']);
-  assert.ok(out.argv[0] === 'claude' && out.argv.includes('claude-opus-5'));
+  assert.ok(out.argv[0] === 'claude' && out.argv.includes('claude-opus-5-5'));
   assert.deepStrictEqual(out.argv.slice(out.argv.indexOf('--effort'), out.argv.indexOf('--effort') + 2), ['--effort', 'xhigh']);
   const idx = out.argv.indexOf('--append-system-prompt-file');
   assert.strictEqual(out.argv[idx + 1], path.join(folder, 'seat.md'));
@@ -299,7 +299,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
 {
   const folder = mkFolder('seat-alias-refused');
   fs.writeFileSync(path.join(folder, 'seat.md'),
-    '---\nharness: opencode\nmodel: grok-4.6\neffort: high\n---\n# seat descriptor\nact as Z.');
+    '---\nharness: opencode\nmodel: grok-4.7\neffort: high\n---\n# seat descriptor\nact as Z.');
   const res = spawnSync('node', [TOOL, 'seat', folder, '--dry-run'], { encoding: 'utf8' });
   assert.strictEqual(res.status, 2, 'seat mode must refuse a short-alias model');
   assert.ok(/pin VERBATIM/.test(res.stderr), `expected pin-verbatim refusal, got: ${res.stderr}`);
@@ -307,15 +307,15 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   // the pin itself still launches
   const pinned = mkFolder('seat-pin-ok');
   fs.writeFileSync(path.join(pinned, 'seat.md'),
-    '---\nharness: opencode\nmodel: xai/grok-4.6\neffort: high\n---\n# seat descriptor\nact as Z.');
+    '---\nharness: opencode\nmodel: xai/grok-4.7\neffort: high\n---\n# seat descriptor\nact as Z.');
   const out = dryRun(['seat', pinned, '-p', 'wake up']);
-  assert.ok(out.argv.includes('xai/grok-4.6'), `expected the pin on argv, got: ${out.argv}`);
+  assert.ok(out.argv.includes('xai/grok-4.7'), `expected the pin on argv, got: ${out.argv}`);
 }
 
 // cast seat without -p/-f: allowed, a default wake message stands in; -s/-S refused
 {
   const folder = mkFolder('seat-no-prompt');
-  fs.writeFileSync(path.join(folder, 'seat.md'), '---\nharness: claude\nmodel: claude-opus-5\neffort: high\n---\nbody');
+  fs.writeFileSync(path.join(folder, 'seat.md'), '---\nharness: claude\nmodel: claude-opus-5-5\neffort: high\n---\nbody');
   const out = dryRun(['seat', folder]);
   assert.ok(out.stdin_preview.includes('act per your seat descriptor'), `unexpected default wake: ${out.stdin_preview}`);
 
@@ -335,7 +335,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.strictEqual(res.status, 2, 'missing seat.md must exit 2');
 
   const bad = mkFolder('seat-bad-rung');
-  fs.writeFileSync(path.join(bad, 'seat.md'), '---\nharness: claude\nmodel: claude-opus-5\neffort: turbo\n---\nbody');
+  fs.writeFileSync(path.join(bad, 'seat.md'), '---\nharness: claude\nmodel: claude-opus-5-5\neffort: turbo\n---\nbody');
   res = spawnSync('node', [TOOL, 'seat', bad, '-p', 'hi', '--dry-run']);
   assert.strictEqual(res.status, 2, 'unknown effort rung must exit 2');
 }
@@ -418,14 +418,12 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.ok(!/^usage: cast seat/.test(res.stdout), `"-h" as prompt text must not print usage: ${res.stdout}`);
 }
 
-// -h: exit 0, <=54 lines (one screen; raised from 40 for resume/sessions, from 44 for monitor, from 47 for route,
-// from 50 while opus-5, grok-4.6, gpt-5.6-sol and gpt-5.6-luna stay launchable beside their successors —
-// drop back to 50 when they are retired)
+// -h: exit 0, <=50 lines (one screen; raised from 40 for resume/sessions, from 44 for monitor, from 47 for route)
 {
   const res = spawnSync('node', [TOOL, '-h'], { encoding: 'utf8' });
   assert.strictEqual(res.status, 0, 'cast -h must exit 0');
   const lines = res.stdout.split('\n').filter((l) => l.length > 0);
-  assert.ok(lines.length <= 54, `help must be <=54 lines, got ${lines.length}`);
+  assert.ok(lines.length <= 50, `help must be <=50 lines, got ${lines.length}`);
   // enumerate models from the tool's own inventory, never by re-parsing its source
   const inv = JSON.parse(spawnSync('node', [TOOL, 'list', '--json'], { encoding: 'utf8' }).stdout);
   const shorts = Object.values(inv).flatMap((models) => Object.keys(models));
@@ -433,7 +431,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   for (const short of shorts) {
     assert.ok(res.stdout.includes(` ${short} `), `help text missing model: ${short}`);
   }
-  for (const id of ['claude-opus-5', 'zai-coding-plan/glm-5.2', 'kimi-for-coding/k3']) {
+  for (const id of ['claude-opus-5-5', 'zai-coding-plan/glm-5.2', 'kimi-for-coding/k3']) {
     assert.ok(!res.stdout.includes(id), `help text must print short names only, found long id: ${id}`);
   }
   // every model row names what each effort number resolves to, clamping included
