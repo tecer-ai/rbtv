@@ -65,8 +65,8 @@ def run(argv, routes, key="test-key"):
     stub, real = Stub(routes), audio.requests
     audio.requests = stub
     out, err, code = io.StringIO(), io.StringIO(), 0
-    keyfile = audio.KEY_FILE
-    audio.KEY_FILE = Path(tempfile.gettempdir()) / "no-such-key-file"
+    envfile = audio.ENV_FILE
+    audio.ENV_FILE = Path(tempfile.gettempdir()) / "no-such-env-file"
     import os
     previous = os.environ.get(audio.KEY_ENV)
     os.environ[audio.KEY_ENV] = key
@@ -76,7 +76,7 @@ def run(argv, routes, key="test-key"):
     except SystemExit as exc:
         code = exc.code or 0
     finally:
-        audio.requests, audio.KEY_FILE = real, keyfile
+        audio.requests, audio.ENV_FILE = real, envfile
         if previous is None:
             os.environ.pop(audio.KEY_ENV, None)
         else:

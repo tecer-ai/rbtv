@@ -8,7 +8,6 @@ const crypto = require('crypto');
 const provider = require(path.join(__dirname, '..', '..', '..', '..', 'ignite', 'teambuild', 'tool', 'lib', 'provider'));
 
 const KEY_VAR = 'VOYAGE_API_KEY';
-const VAULT_ENV = path.join('.user', 'config', 'env', '.env');
 const SKIP_DIRS = new Set(['.git', 'node_modules', '4-archives']);
 const NORMALIZER = 'v1-section';
 
@@ -110,15 +109,9 @@ function sourceEnvFile(file) {
 
 function findVaultEnv(starts) {
   for (const start of starts) {
-    if (!start) continue;
-    let dir = path.resolve(start);
-    for (;;) {
-      const file = path.join(dir, VAULT_ENV);
-      if (fs.existsSync(file)) return file;
-      const up = path.dirname(dir);
-      if (up === dir) break;
-      dir = up;
-    }
+    if (!start || !provider.workspaceRoot(start)) continue;
+    const file = provider.keyFilePath(start);
+    if (fs.existsSync(file)) return file;
   }
   return null;
 }

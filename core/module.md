@@ -14,8 +14,8 @@ the rbtv system itself) and `ignite/` (the daemon).
 `.rbtv/mirror/core/`; the owner ruled the module into the repo, all together. In the same sitting
 the module's former repo-side content left: the rbtv CLIs (`rbtv-cli`, `teambuild`, `embed-search`)
 moved to `meta/` (each command a component), and the commit skill collapsed into `coding/` as one
-reference. The ElevenLabs key moved OUT of the repo tree to the workspace key store
-(`.user/config/env/elevenlabs.key`) — a secret never sits where a repo push can carry it.
+reference. The ElevenLabs key moved OUT of the repo tree — today it is `ELEVENLABS_API_KEY` in the
+workspace env file (`env_file` in `rbtv.json`) — a secret never sits where a repo push can carry it.
 
 ## Components
 

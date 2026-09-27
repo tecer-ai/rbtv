@@ -23,21 +23,22 @@ ROOT = Path(__file__).resolve().parent
 CONFIG = ROOT / "config.json"
 
 
-def _key_file():
-    # The workspace key store: <workspace>/.user/config/env/elevenlabs.key, the
-    # workspace found by walking up to the directory holding `.rbtv/`. Owner ruling
-    # 2026-08-23 (supersedes `d-elevenlabs-key-location-2026-08-18` for this
-    # workspace): the component now lives inside the rbtv REPO tree, and a secret
-    # must never sit where a repo push can carry it — so the key moved out to the
-    # workspace's own key store. None when no workspace root is found (the env
-    # var is then the only source).
+def _env_file():
+    # The workspace env file: the `env_file` field of the workspace's rbtv.json —
+    # the one recorded address of the machine-local key store (owner ruling
+    # 2026-09-27: every key lives in one gitignored .env). The workspace is the
+    # directory holding rbtv.json, found by walking up. None when no workspace
+    # root is found (the env var is then the only source).
     for p in ROOT.parents:
-        if (p / ".rbtv").is_dir():
-            return p / ".user" / "config" / "env" / "elevenlabs.key"
+        config = p / "rbtv.json"
+        if config.is_file():
+            env_file = json.loads(config.read_text(encoding="utf-8")).get(
+                "env_file", ".rbtv/config/env/.env")
+            return p / env_file
     return None
 
 
-KEY_FILE = _key_file()
+ENV_FILE = _env_file()
 KEY_ENV = "ELEVENLABS_API_KEY"
 
 # The ONE home of a language value in this file (goal.md clause 11). Every other
@@ -99,25 +100,27 @@ def emit(**payload):
 # ────────────────────────────────────────────────────────────── key and config
 
 def api_key():
-    """The workspace key store FIRST (`_key_file` above — outside the repo tree,
-    owner ruling 2026-08-23); the env var when it holds nothing.
-    `ELEVENLABS_API_KEY` stays accepted as the override — inside a cage the key
-    store is masked, so the env var is a caged seat's route.
+    """The workspace env file FIRST (`_env_file` above), its `ELEVENLABS_API_KEY`
+    line; the process environment when the file holds none. `ELEVENLABS_API_KEY`
+    in the environment stays accepted — a seat that cannot read the env file is
+    handed the key that way.
 
     Returns (key, source). Refuses naming BOTH places when neither has one."""
-    if KEY_FILE and KEY_FILE.is_file():
-        key = KEY_FILE.read_text(encoding="utf-8").strip()
-        if key:
-            return key, "key-file"
+    if ENV_FILE and ENV_FILE.is_file():
+        for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+            m = re.match(r"\s*(?:export\s+)?" + KEY_ENV + r"\s*=\s*(.*)$", line)
+            if m:
+                key = m.group(1).strip().strip("'\"")
+                if key:
+                    return key, "env-file"
     key = os.environ.get(KEY_ENV, "").strip()
     if key:
         return key, "env"
     die("no ElevenLabs API key",
-        f"{KEY_FILE} holds no key and {KEY_ENV} is unset or empty — "
+        f"{ENV_FILE} has no {KEY_ENV} line and {KEY_ENV} is unset or empty — "
         "every verb of this CLI calls the ElevenLabs API",
-        f"put the key in {KEY_FILE} (one line, the key itself, no trailing "
-        f"newline needed), or export {KEY_ENV}; see {ROOT / 'README.md'} "
-        "section 'The key'")
+        f"add a line {KEY_ENV}=<key> to {ENV_FILE}, or export {KEY_ENV}; "
+        f"see {ROOT / 'README.md'} section 'The key'")
 
 
 def config_read():
@@ -180,7 +183,7 @@ def call(method, url, key, **kw):
         die(f"ElevenLabs refused the request (HTTP {response.status_code})",
             api_error(response),
             "401 means the key is invalid or revoked — check the key in "
-            f"{KEY_FILE}; 4xx otherwise means the request was; 5xx means retry",
+            f"{ENV_FILE}; 4xx otherwise means the request was; 5xx means retry",
             code=EXIT_FAILED)
     return response
 
@@ -395,7 +398,7 @@ def first_voice(key):
 def build_parser():
     parser = argparse.ArgumentParser(
         prog=Path(__file__).name, description=__doc__.splitlines()[0],
-        epilog=f"key: {KEY_FILE} first, ${KEY_ENV} when it holds nothing.\n"
+        epilog=f"key: {KEY_ENV} in {ENV_FILE} first, ${KEY_ENV} when it holds none.\n"
                f"language: the '{LANGUAGE_KEY}' key of {CONFIG.name} "
                f"(default '{DEFAULT_LANGUAGE}') — the language verb changes it "
                "for both other verbs.\nevery verb prints one JSON object on "

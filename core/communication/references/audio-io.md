@@ -42,7 +42,7 @@ convenience, never the documented recipe. Every path below is relative to the wo
 | What | Where |
 |---|---|
 | the CLI | `3-resources/tools/rbtv/core/communication/capabilities/audio/audio.py` |
-| the ElevenLabs key | `.user/config/env/elevenlabs.key` — one line, the key itself |
+| the ElevenLabs key | `ELEVENLABS_API_KEY` in the workspace env file (`env_file` in `rbtv.json`) |
 | the language, for both directions | `3-resources/tools/rbtv/core/communication/capabilities/audio/config.json` |
 
 Every verb prints ONE JSON object on stdout; refusals print `what / why / fix` on stderr and exit
@@ -103,10 +103,8 @@ behaviour, not a broken install.
   retrying against a wall known to stand. Only this capability needs the key; a channel tool that
   merely moves the file is unaffected, so a caged seat can still fetch the note and still post the
   answer.
-- **What would change it:** a caged seat reads the key only if its own descriptor SPELLS
-  `.user/config/env/elevenlabs.key` — the exact path, never a parent of it, because a merely
-  broader grant does not pierce the mask — or if it is handed `ELEVENLABS_API_KEY`. Either takes
-  effect at that seat's NEXT launch, never inside a live session.
+- **What would change it:** a caged seat is handed `ELEVENLABS_API_KEY` in its environment;
+  that takes effect at the seat's NEXT launch, never inside a live session.
 
 Flags are documented by the CLI itself — `<path> --help`, and `<path> <verb> --help` — and in
 `3-resources/tools/rbtv/core/communication/capabilities/audio/README.md`. This reference does not
