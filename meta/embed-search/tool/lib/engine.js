@@ -94,19 +94,6 @@ function splitSections(rel, text) {
   return parts;
 }
 
-function sourceEnvFile(file) {
-  const names = [];
-  for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
-    const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
-    if (!m) continue;
-    names.push(m[1]);
-    if (process.env[m[1]] === undefined) {
-      process.env[m[1]] = m[2].trim().replace(/^(["'])(.*)\1$/, '$2');
-    }
-  }
-  return names;
-}
-
 function findVaultEnv(starts) {
   for (const start of starts) {
     if (!start || !provider.workspaceRoot(start)) continue;
@@ -121,7 +108,7 @@ function resolveKey(starts) {
   if (present) return { available: true, origin: 'os-env', file: null };
   const file = findVaultEnv(starts);
   if (!file) return { available: false, origin: 'absent', file: null };
-  sourceEnvFile(file);
+  provider.sourceEnvFile(file);
   if (process.env[KEY_VAR]) return { available: true, origin: 'env-file', file };
   return { available: false, origin: 'env-file-no-key', file };
 }

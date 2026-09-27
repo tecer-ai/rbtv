@@ -251,4 +251,4 @@ function voyage(start) {
   };
 }
 
-module.exports = { KEY_VAR, ERRORS, voyage, preamble, renderPreamble, keyFilePath, workspaceRoot };
+module.exports = { KEY_VAR, ERRORS, sourceEnvFile, voyage, preamble, renderPreamble, keyFilePath, workspaceRoot };
