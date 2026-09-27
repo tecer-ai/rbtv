@@ -14,6 +14,7 @@ const { SYSTEM_WRAPPER, launch, runResume, runSeat } = require('./lib/launch');
 const { loadOptional } = require('./lib/optional');
 const { runRoute } = require('./lib/route');
 const { runSessions } = require('./lib/sessions');
+const { runTurn } = require('./lib/turn');
 
 function main(rawArgv) {
   if (rawArgv.length === 0) fail(`usage: ${USAGE}\nrun cast -h for full help`);
@@ -34,6 +35,7 @@ function main(rawArgv) {
   if (rawArgv[0] === 'seat') return runSeat(rawArgv.slice(1));
   if (rawArgv[0] === 'resume') return runResume(rawArgv.slice(1));
   if (rawArgv[0] === 'sessions') return runSessions(rawArgv.slice(1));
+  if (rawArgv[0] === 'turn') return runTurn(rawArgv.slice(1));
   if (rawArgv[0] === 'monitor') {
     const { module: monitor, error } = loadOptional('monitor');
     if (error) {
@@ -66,4 +68,3 @@ function main(rawArgv) {
 }
 
 main(process.argv.slice(2));
-

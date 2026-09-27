@@ -405,7 +405,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
 
 // per-verb --help: exit 0, prints that verb's usage; a prompt that is literally "-h" is not help
 {
-  for (const verb of ['route', 'monitor', 'sessions', 'doctor', 'list', 'seat', 'resume', 'api']) {
+  for (const verb of ['route', 'monitor', 'sessions', 'doctor', 'list', 'seat', 'resume', 'api', 'turn']) {
     for (const flag of ['-h', '--help']) {
       const res = spawnSync('node', [TOOL, verb, flag], { encoding: 'utf8' });
       assert.strictEqual(res.status, 0, `cast ${verb} ${flag} must exit 0: ${res.stderr}`);
