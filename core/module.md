@@ -22,7 +22,7 @@ workspace env file (`env_file` in `rbtv.json`) — a secret never sits where a r
 | Component | What it is |
 |-----------|-----------|
 | `behaviour/` | Always-on behaviour rules — how an agent thinks and decides: `kiss` (simplicity before work starts), `root-cause` (fix at the cause), `challenging` (pre-agreement gate, position stability), `problem-framing` (read requests as questions). |
-| `communication/` | How agents talk to the owner: the `concise-chat`, `plain-language`, `non-technical-user` rules, the `audio-aware` skill, and the `audio` capability (ElevenLabs transcribe/tts CLI). |
+| `communication/` | How agents talk to the owner: the `concise-chat`, `plain-language`, `non-technical-user` rules, the `audio-aware` skill, the `slack-message-format` skill (the shape of what is written into a Slack thread), and the `audio` capability (ElevenLabs transcribe/tts CLI). |
 | `coding/` | The code an agent leaves behind: the `coding` skill (four hygiene disciplines), the `commit` skill + its deterministic `tool/commit.py`, and the `improve-codebase-architecture` scan. |
 | `functions/` | Cross-cutting function skills — `brainstorm`, `interview`, `investignosis`, `handoff`, `triage`. |
 | `providers/` | The seam between the workspace and whoever supplies its compute — the `acct` capability (parked provider logins). |
