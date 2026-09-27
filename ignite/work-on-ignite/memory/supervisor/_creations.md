@@ -18,3 +18,4 @@
 2026-09-02 · creation · dedicated probe for class-B hold suppression · `probe-hold-classb.js` is self-contained: it drives the real `classifyOwed` function directly against · 4f0d80335c574974d7ce953db45b80d68a9f65fd · — · ⚠
 2026-09-02 · creation · ready-seats reports which seats daemon skips launching · Deliberately ADDITIVE, never a verdict change: `dag-10 RS-4` (`coord_selftest.py`) rules on purpose · f6c5a80829bdd83c2cca5506e95a1a4ddc64b99b · coord · ⚠
 2026-09-24 · change · Owner re-tiering of models.csv; one level per route class · Per-level quality/price picks; classes planner=SOTA broad=L1 bounded=L2 mechanical=L3; superseded rows use=off · 734866d3 · launch-profiles · ⚠
+2026-09-27 · change · Retire opus-5, grok-4.6, gpt-5.6-sol, gpt-5.6-luna · Catalog and models.csv rows removed; every live pin moved to its successor; historical records untouched · 035e39a6 · launch-profiles · ⚠
