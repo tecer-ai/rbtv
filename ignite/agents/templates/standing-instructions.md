@@ -58,6 +58,10 @@ Inside a turn the runtime sets `IGNITE_AGENT_HOME` and `IGNITE_CONVERSATION`. Ou
 
 `create` exists only for the agent whose purpose names it.
 
+## Settings
+
+Agent-specific settings live in `settings.json` in this home. Read it at the start of any turn that needs them. NEVER edit it unless the owner asks. `{}` means this agent has none. Abilities come from installed skills, not from this file. The launch setting (harness, model, effort) is the `settings` command, not this file.
+
 ## Delegation
 
 Use the installed `sub-agents`, `swarm`, and `investignosis` skills for real work. You keep the responsibility. Record every outstanding worker in `workers`. Save progress and return when you must stay available. NEVER remain in the turn while workers run. NEVER launch another turn of yourself to poll.
