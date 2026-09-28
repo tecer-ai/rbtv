@@ -46,7 +46,6 @@ function classify(event, config) {
     thread,
     event,
     ownerUserId,
-    mentionsBot: Boolean(event.mentionsBot),
     routed: false,
   };
   if (event.channelType === 'im') {
@@ -55,7 +54,6 @@ function classify(event, config) {
   }
   const agent = config.routes?.[channel];
   if (!agent) return { ignored: 'unconfigured' };
-  if (!thread && !event.mentionsBot) return { ignored: 'unmentioned' };
   return { ...base, agent, routed: true };
 }
 
@@ -120,7 +118,6 @@ async function handleEvent(event, ctx) {
       rootTs: route.rootTs,
     });
     if (existing?.activated) return saveOwner(store, route);
-    if (!route.mentionsBot) return { ignored: 'inactive' };
     return activateThread(store, ctx.slack, route);
   }
   return saveOwner(store, route);

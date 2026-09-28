@@ -139,14 +139,14 @@ test('channel-toplevel-mention', async () => {
   }
 });
 
-test('channel-thread-first-mention', async () => {
+test('channel-thread-unknown', async () => {
   const earlier = event({
     channel: 'CCHAN', channelType: 'channel', ts: '4.100000', threadTs: '4.100000',
     text: 'before', user: OWNER,
   });
   const trigger = event({
     channel: 'CCHAN', channelType: 'channel', ts: '4.200000', threadTs: '4.100000',
-    text: '<@UBOT> late', mentionsBot: true,
+    text: 'late', mentionsBot: false,
   });
   const h = harness([earlier, trigger]);
   try {
@@ -157,7 +157,7 @@ test('channel-thread-first-mention', async () => {
     const store = h.stores.get('probe');
     assert.equal(store.getConversation(result.key).activated, true);
     const rows = store.listHistory(result.key);
-    assert.deepEqual(rows.map((row) => row.text), ['before', '<@UBOT> late']);
+    assert.deepEqual(rows.map((row) => row.text), ['before', 'late']);
     assert.equal(rows[0].ts, '4.100000');
     assert.equal(rows[0].role, 'owner');
     assert.equal(queueCount(store), 1);
@@ -197,11 +197,51 @@ test('channel-activated-thread-no-mention', async () => {
 test('channel-unmentioned-toplevel', async () => {
   const h = harness();
   try {
-    h.ctx.openStore = () => { throw new Error('store opened'); };
     const result = await handleEvent(event({
-      channel: 'CCHAN', channelType: 'channel', ts: '6.100000', text: 'noise', mentionsBot: false,
+      channel: 'CCHAN', channelType: 'channel', ts: '6.100000', text: '', files: [FILE], mentionsBot: false,
     }), h.ctx);
-    assert.deepEqual(result, { ignored: 'unmentioned' });
+    assert.equal(result.queued, true);
+    assert.equal(result.agent, 'probe');
+    assert.equal(result.key, 'T1:CCHAN:6.100000');
+    const store = h.stores.get('probe');
+    assert.equal(store.getConversation(result.key).activated, true);
+    const rows = store.listHistory(result.key);
+    assert.equal(rows.length, 1);
+    assert.deepEqual(rows[0].files, [FILE]);
+    assert.equal(queueCount(store), 1);
+    assert.equal(h.historyCalls.length, 0);
+  } finally {
+    h.close();
+  }
+});
+
+test('mention-changes-nothing', async () => {
+  const h = harness();
+  try {
+    const plain = await handleEvent(event({
+      channel: 'CCHAN', channelType: 'channel', ts: '11.100000', text: 'plain', mentionsBot: false,
+    }), h.ctx);
+    const mentioned = await handleEvent(event({
+      channel: 'CCHAN', channelType: 'channel', ts: '11.200000', text: '<@UBOT> go', mentionsBot: true,
+    }), h.ctx);
+    assert.equal(plain.queued, true);
+    assert.equal(mentioned.queued, true);
+    assert.equal(plain.agent, 'probe');
+    assert.equal(mentioned.agent, 'probe');
+    assert.equal(plain.key, 'T1:CCHAN:11.100000');
+    assert.equal(mentioned.key, 'T1:CCHAN:11.200000');
+    assert.equal(h.historyCalls.length, 0);
+    const store = h.stores.get('probe');
+    store.upsertConversation({
+      key: 'T1:CCHAN:11.300000', agent: 'probe', workspace: TEAM, channel: 'CCHAN',
+      rootTs: '11.300000', activated: true,
+    });
+    const follow = await handleEvent(event({
+      channel: 'CCHAN', channelType: 'channel', ts: '11.400000', threadTs: '11.300000',
+      text: '<@UBOT> again', mentionsBot: true,
+    }), h.ctx);
+    assert.equal(follow.queued, true);
+    assert.equal(follow.key, 'T1:CCHAN:11.300000');
     assert.equal(h.historyCalls.length, 0);
   } finally {
     h.close();
