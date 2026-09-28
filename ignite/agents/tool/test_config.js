@@ -37,7 +37,7 @@ function writeConfig(dir, patch = {}) {
     tools: { cast: 'cast', stools: 'stools', audio: 'audio' },
     defaultLaunch: { harness: 'claude', model: 'm', effort: 'high' },
     dmAgent: 'master',
-    routes: { C1: 'gaming' },
+    routes: { C1: 'sample' },
   };
   const body = { ...base, ...patch };
   const folder = path.join(dir, '.rbtv', 'agents');
@@ -50,7 +50,7 @@ test('loads a valid workspace config from the runtime path', (dir) => {
   writeConfig(dir);
   const config = loadConfig(dir);
   assert.equal(config.dmAgent, 'master');
-  assert.equal(config.routes.C1, 'gaming');
+  assert.equal(config.routes.C1, 'sample');
   assert.equal(config.slack.appTokenSource, 'SLACK_APP_TOKEN');
 });
 
@@ -58,7 +58,7 @@ test('agentHome resolves under the given workspace', (dir) => {
   const config = writeConfig(dir);
   const loaded = loadConfig(dir);
   assert.equal(agentHome(loaded, 'master'), path.join(config.workspace, '.rbtv', 'agents', 'master'));
-  assert.equal(storePath(loaded, 'gaming'), path.join(dir, '.rbtv', 'agents', 'gaming', 'state.sqlite'));
+  assert.equal(storePath(loaded, 'sample'), path.join(dir, '.rbtv', 'agents', 'sample', 'state.sqlite'));
 });
 
 test('missing file throws', (dir) => {

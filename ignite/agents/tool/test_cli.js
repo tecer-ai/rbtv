@@ -279,8 +279,8 @@ test('retry clears only the named hold', () => {
 
 test('post association', () => {
   const workspace = tempHome();
-  const home = writeConfig(workspace, 'gaming', { C9: 'gaming' });
-  const dmHome = writeConfig(workspace, 'master', { C9: 'gaming' });
+  const home = writeConfig(workspace, 'sample', { C9: 'sample' });
+  const dmHome = writeConfig(workspace, 'master', { C9: 'sample' });
   const routed = run(['post', '--text', 'board result', '--file', path.join(workspace, 'bot.json')], {
     env: { IGNITE_AGENT_HOME: home },
   });
@@ -295,7 +295,7 @@ test('post association', () => {
     assert.equal(pending[0].payload.files.length, 1);
     const conv = store.getConversation(pending[0].conversation_key);
     assert.equal(conv.activated, true);
-    assert.equal(conv.agent, 'gaming');
+    assert.equal(conv.agent, 'sample');
     assert.equal(conv.channel, 'C9');
   } finally {
     store.close();
