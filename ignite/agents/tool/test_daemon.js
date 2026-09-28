@@ -373,6 +373,110 @@ test('harness-ready', async () => {
   }
 });
 
+function setRoutes(dir, routes) {
+  const file = path.join(dir, '.rbtv', 'agents', 'ignite.json');
+  const body = JSON.parse(fs.readFileSync(file, 'utf8'));
+  body.routes = routes;
+  fs.writeFileSync(file, JSON.stringify(body));
+}
+
+function mention(channel, text = 'hello') {
+  return {
+    team: 'T1',
+    channel,
+    channelType: 'channel',
+    ts: `${channel}.1`,
+    threadTs: `${channel}.1`,
+    user: 'UOWNER',
+    text,
+    files: [],
+    isBotOrSelf: false,
+    mentionsBot: true,
+  };
+}
+
+function started(dir) {
+  const prev = process.env.PATH;
+  process.env.PATH = `${harnessBin(dir, ['claude'])}${path.delimiter}${prev || ''}`;
+  const socket = fakeSocket();
+  return start({
+    workspace: dir,
+    slack: fakeSlack(),
+    socket,
+    signals: false,
+    tickMs: 60_000,
+    sweepMs: 60_000,
+    drainMs: 60_000,
+  }).then((runtime) => ({
+    runtime,
+    socket,
+    restore() {
+      process.env.PATH = prev;
+      runtime.stop('test');
+    },
+  }));
+}
+
+test('route-after-start', async () => {
+  const { dir } = workspace();
+  const box = await started(dir);
+  try {
+    const home = path.join(dir, '.rbtv', 'agents', 'probe');
+    fs.mkdirSync(home, { recursive: true });
+    fs.writeFileSync(path.join(home, 'launch.json'), JSON.stringify({
+      harness: 'claude', model: 'sonnet-5', effort: 'low',
+    }));
+    setRoutes(dir, { CNEW: 'probe' });
+    const saved = await box.socket.inject(mention('CNEW'));
+    assert.equal(saved.queued, true);
+    assert.equal(saved.agent, 'probe');
+  } finally {
+    box.restore();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('ignored-logged', async () => {
+  const { dir } = workspace();
+  const box = await started(dir);
+  const lines = [];
+  const write = process.stdout.write;
+  process.stdout.write = (chunk, ...rest) => {
+    lines.push(String(chunk));
+    return write.call(process.stdout, chunk, ...rest);
+  };
+  try {
+    const saved = await box.socket.inject(mention('CABSENT', 'SECRET_TEXT'));
+    assert.equal(saved.ignored, 'unconfigured');
+    const hit = lines.filter((line) => line.includes('"event":"ignored"') && line.includes('unconfigured'));
+    assert.equal(hit.length, 1);
+    assert.equal(hit[0].includes('SECRET_TEXT'), false);
+    assert.match(hit[0], /CABSENT/);
+  } finally {
+    process.stdout.write = write;
+    box.restore();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('half-written-config', async () => {
+  const { dir } = workspace();
+  setRoutes(dir, { COLD: 'master' });
+  const box = await started(dir);
+  try {
+    fs.writeFileSync(path.join(dir, '.rbtv', 'agents', 'ignite.json'), '{');
+    const saved = await box.socket.inject(mention('COLD'));
+    assert.equal(saved.queued, true);
+    assert.equal(saved.agent, 'master');
+    const again = await box.socket.inject({ ...mention('COLD'), ts: 'COLD.2', threadTs: 'COLD.2' });
+    assert.equal(again.queued, true);
+    assert.equal(again.agent, 'master');
+  } finally {
+    box.restore();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 async function runAll() {
   for (const [name, fn] of pending) {
     try {
