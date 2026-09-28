@@ -8,6 +8,7 @@
 // Skill installs are part keys only (`module/component#part`), never --write-path.
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
@@ -43,7 +44,11 @@ create --workspace <path> --slug <slug> --purpose-file <file>
   Skills: template defaults plus --skill, each as module/component#part,
   installed with --artifact none and no path links.
   Schedule: only when --schedule-json has an explicit cadence and timezone.
-  --dry-run validates and prints the plan. It writes nothing.
+  --dry-run validates and prints the plan, including the instruction diff. It writes nothing.
+  Re-running the same slug rewrites CLAUDE.md and AGENTS.md from the current
+  standing-instructions template when that text differs, and keeps the Purpose
+  section already in the home. --purpose-file is required only when that
+  section is not there yet.
 
   --schedule-json object, exactly one of cron, every, at:
     { "cron": "<5-field>", "tz": "<IANA zone>", "note": "<check>", "report": "always|when-useful" }
@@ -214,20 +219,90 @@ function routeFor(config, slug) {
   return Object.entries(config.routes).filter(([, agent]) => agent === slug);
 }
 
+const PURPOSE_MARK = '\n## Purpose\n';
+
+function standingNow() {
+  return fs.readFileSync(path.join(__dirname, '../templates', 'standing-instructions.md'), 'utf8').trim();
+}
+
 function renderBody(purpose, references, skills) {
-  const standing = fs.readFileSync(path.join(__dirname, '../templates', 'standing-instructions.md'), 'utf8').trim();
   const refs = references.length ? references.map((item) => `- ${item}`).join('\n') : 'None.';
   const listed = skills.map((id) => `- ${id}`).join('\n');
-  return `${standing}\n\n## Purpose\n\n${purpose.trim()}\n\n## Reference paths\n\n${refs}\n\n## Skills\n\n${listed}\n`;
+  return `${standingNow()}\n\n## Purpose\n\n${purpose.trim()}\n\n## Reference paths\n\n${refs}\n\n## Skills\n\n${listed}\n`;
+}
+
+function agentTail(text) {
+  const at = text.indexOf(PURPOSE_MARK);
+  if (at < 0) return null;
+  const tail = text.slice(at + 1);
+  return tail.endsWith('\n') ? tail : `${tail}\n`;
+}
+
+function readInstruction(home, name) {
+  const file = path.join(home, name);
+  if (!fs.existsSync(file)) return null;
+  return fs.readFileSync(file, 'utf8');
+}
+
+function instructionPlan(home, freshBody) {
+  const current = {
+    'CLAUDE.md': readInstruction(home, 'CLAUDE.md'),
+    'AGENTS.md': readInstruction(home, 'AGENTS.md'),
+  };
+  const tails = {};
+  for (const name of Object.keys(current)) {
+    if (current[name] == null) continue;
+    tails[name] = agentTail(current[name]);
+    if (!tails[name]) fail(`${name} has no Purpose section; refusing to overwrite per-agent text`);
+  }
+  const present = Object.values(tails);
+  if (present.length === 2 && present[0] !== present[1]) {
+    fail('CLAUDE.md and AGENTS.md Purpose sections differ; refusing to pick one');
+  }
+  if (!present.length) return { body: freshBody, current };
+  return { body: `${standingNow()}\n\n${present[0]}`, current };
+}
+
+function unified(name, before, after) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-instr-'));
+  try {
+    const left = path.join(dir, 'current');
+    const right = path.join(dir, 'next');
+    fs.writeFileSync(left, before);
+    fs.writeFileSync(right, after);
+    const res = spawnSync('diff', ['-u', '--label', name, '--label', `${name} (template)`, left, right], { encoding: 'utf8' });
+    if (res.status === 0) return '';
+    if (res.status === 1) return res.stdout.endsWith('\n') ? res.stdout : `${res.stdout}\n`;
+    fail(`diff failed: ${(res.stderr || res.error?.message || 'unknown').trim()}`);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function instructionReport(plan) {
+  const claude = plan.current['CLAUDE.md'];
+  const agents = plan.current['AGENTS.md'];
+  if (claude === plan.body && agents === plan.body) return 'instructions: unchanged\n';
+  const lines = [];
+  if (claude !== plan.body) lines.push(unified('CLAUDE.md', claude ?? '', plan.body));
+  else lines.push('CLAUDE.md: unchanged\n');
+  if (agents !== plan.body) {
+    if ((agents ?? '') === (claude ?? '')) lines.push('AGENTS.md: same change as CLAUDE.md\n');
+    else lines.push(unified('AGENTS.md', agents ?? '', plan.body));
+  } else lines.push('AGENTS.md: unchanged\n');
+  return lines.join('');
 }
 
 function writeInstructions(home, body) {
   const claude = path.join(home, 'CLAUDE.md');
   const agents = path.join(home, 'AGENTS.md');
-  if (!fs.existsSync(claude) || !fs.existsSync(agents)) {
-    fs.writeFileSync(claude, body);
-    fs.writeFileSync(agents, body);
-  }
+  const same = fs.existsSync(claude) && fs.existsSync(agents)
+    && fs.readFileSync(claude, 'utf8') === body
+    && fs.readFileSync(agents, 'utf8') === body;
+  if (same) return false;
+  fs.writeFileSync(claude, body);
+  fs.writeFileSync(agents, body);
+  return true;
 }
 
 function writeBoard(home, schedule) {
@@ -317,16 +392,19 @@ function validateCreate(opts, flags, deps) {
   if (!opts.slug) fail('--slug required');
   if (!SLUG.test(opts.slug)) fail('slug must match [a-z0-9][a-z0-9-]{0,63}');
   const config = loadConfig(workspace);
-  agentHome(config, opts.slug);
   if (opts.dm && opts['channel-name']) fail('pass either --channel-name or --dm, not both');
   if (!opts.dm && !opts['channel-name']) fail('--channel-name or --dm required');
   if (opts['channel-name'] && !CHANNEL.test(opts['channel-name'])) {
     fail('channel name must be lowercase letters, numbers, hyphens, or underscores, at most 80 characters');
   }
-  if (!opts['purpose-file']) fail('--purpose-file required');
-  if (!fs.existsSync(opts['purpose-file'])) fail(`purpose file not found: ${opts['purpose-file']}`);
-  const purpose = fs.readFileSync(opts['purpose-file'], 'utf8');
-  if (!purpose.trim()) fail('purpose file is empty');
+  const home = agentHome(config, opts.slug);
+  const kept = ['CLAUDE.md', 'AGENTS.md'].map((name) => readInstruction(home, name)).find((text) => text && agentTail(text));
+  let purpose = '';
+  if (opts['purpose-file']) {
+    if (!fs.existsSync(opts['purpose-file'])) fail(`purpose file not found: ${opts['purpose-file']}`);
+    purpose = fs.readFileSync(opts['purpose-file'], 'utf8');
+    if (!purpose.trim()) fail('purpose file is empty');
+  } else if (!kept) fail('--purpose-file required');
   const references = opts.reference.map((item) => {
     const abs = path.resolve(item);
     if (!fs.existsSync(abs)) fail(`reference path not found: ${item}`);
@@ -337,7 +415,6 @@ function validateCreate(opts, flags, deps) {
   const launch = launchFrom(config, opts, deps);
   const now = deps.now ? deps.now() : Date.now();
   const schedule = opts['schedule-json'] ? scheduleFrom(opts['schedule-json'], now) : null;
-  const home = agentHome(config, opts.slug);
   const routes = routeFor(config, opts.slug);
   if (routes.length > 1) fail(`agent ${opts.slug} has more than one channel route`);
   const setup = fs.existsSync(home) ? readSetup(home) : null;
@@ -441,13 +518,15 @@ async function createAgent(opts, flags, deps) {
     references: ctx.references,
     schedule: ctx.schedule,
   };
+  const fresh = ctx.purpose ? renderBody(ctx.purpose, ctx.references, ctx.skills) : null;
+  const instr = instructionPlan(ctx.home, fresh);
   if (opts.dryRun) {
-    emit(deps, flags, { dryRun: true, ...plan, writes: 'none' }, planText(plan));
+    emit(deps, flags, { dryRun: true, ...plan, writes: 'none', instructions: instructionReport(instr) }, planText(plan) + instructionReport(instr));
     return 0;
   }
   fs.mkdirSync(ctx.home, { recursive: true });
   fs.mkdirSync(path.join(ctx.home, 'conversations'), { recursive: true });
-  writeInstructions(ctx.home, renderBody(ctx.purpose, ctx.references, ctx.skills));
+  writeInstructions(ctx.home, instr.body);
   if (!fs.existsSync(path.join(ctx.home, 'board.md'))) writeBoard(ctx.home, null);
   const store = new Store(path.join(ctx.home, 'state.sqlite'));
   try {

@@ -216,6 +216,81 @@ function baseArgs(dir, slug, extra = []) {
     assert.match(removed.out, /moved:/);
   });
 
+  function stale(home) {
+    for (const name of ['CLAUDE.md', 'AGENTS.md']) {
+      const file = path.join(home, name);
+      const text = fs.readFileSync(file, 'utf8');
+      const at = text.indexOf('\n## Purpose\n');
+      assert.ok(at > 0, name);
+      fs.writeFileSync(file, `# Standing instructions\n\nSTALE STANDING\n${text.slice(at)}\n`);
+    }
+  }
+
+  await test('stale pair refreshed', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const slack = fakeSlack();
+    const created = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe']), { slack });
+    assert.equal(created.code, 0, created.out + created.err);
+    const home = path.join(dir, '.rbtv', 'agents', 'probe');
+    stale(home);
+    const kept = fs.readFileSync(path.join(home, 'CLAUDE.md'), 'utf8').split('\n## Purpose\n')[1];
+    const again = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe']), { slack });
+    assert.equal(again.code, 0, again.out + again.err);
+    const claude = fs.readFileSync(path.join(home, 'CLAUDE.md'), 'utf8');
+    const agents = fs.readFileSync(path.join(home, 'AGENTS.md'), 'utf8');
+    assert.equal(claude, agents);
+    assert.match(claude, /A turn is one shot/);
+    assert.equal(claude.includes('STALE STANDING'), false);
+    assert.match(claude, /Answer briefly/);
+    assert.equal(claude.split('\n## Purpose\n')[1], kept.endsWith('\n') ? kept : `${kept}\n`);
+  });
+
+  await test('identical pair untouched', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const slack = fakeSlack();
+    const created = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe']), { slack });
+    assert.equal(created.code, 0, created.out + created.err);
+    const home = path.join(dir, '.rbtv', 'agents', 'probe');
+    const file = path.join(home, 'CLAUDE.md');
+    const twin = path.join(home, 'AGENTS.md');
+    const before = fs.readFileSync(file, 'utf8');
+    const mtime = fs.statSync(file).mtimeMs;
+    const twinMtime = fs.statSync(twin).mtimeMs;
+    const again = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe']), { slack });
+    assert.equal(again.code, 0, again.out + again.err);
+    assert.equal(fs.readFileSync(file, 'utf8'), before);
+    assert.equal(fs.readFileSync(twin, 'utf8'), before);
+    assert.equal(fs.statSync(file).mtimeMs, mtime);
+    assert.equal(fs.statSync(twin).mtimeMs, twinMtime);
+  });
+
+  await test('dry-run writes nothing', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const slack = fakeSlack();
+    const created = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe']), { slack });
+    assert.equal(created.code, 0, created.out + created.err);
+    const home = path.join(dir, '.rbtv', 'agents', 'probe');
+    stale(home);
+    const before = {
+      claude: fs.readFileSync(path.join(home, 'CLAUDE.md'), 'utf8'),
+      agents: fs.readFileSync(path.join(home, 'AGENTS.md'), 'utf8'),
+      tree: tree(dir),
+    };
+    const calls = slack.calls.length;
+    const result = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe', '--dry-run']), { slack });
+    assert.equal(result.code, 0, result.out + result.err);
+    assert.match(result.out, /writes: none/);
+    assert.match(result.out, /STALE STANDING/);
+    assert.match(result.out, /A turn is one shot/);
+    assert.equal(fs.readFileSync(path.join(home, 'CLAUDE.md'), 'utf8'), before.claude);
+    assert.equal(fs.readFileSync(path.join(home, 'AGENTS.md'), 'utf8'), before.agents);
+    assert.deepEqual(tree(dir), before.tree);
+    assert.equal(slack.calls.length, calls);
+  });
+
   if (failures.length) {
     console.log(`FAILED ${failures.length}`);
     process.exit(1);
