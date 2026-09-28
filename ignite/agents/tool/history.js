@@ -2,7 +2,8 @@
 
 // API
 // DEFAULT_HISTORY_WINDOW — recent messages included in every turn prompt
-// historyPath(home, key) → <home>/conversations/<key>/history.md
+// historyPath(home, key) → conversations/<safe>/history.md under home.
+//   safe replaces : * ? " < > | \\ in the key with '-'. A raw-key folder is renamed on first access.
 // listAll(store, key) — store history for one conversation, oldest first
 // writeHistory(home, store, key) — regenerate that conversation's history.md from the store
 
@@ -11,9 +12,22 @@ const path = require('node:path');
 
 const DEFAULT_HISTORY_WINDOW = 20;
 const FULL_HISTORY_LIMIT = 100_000;
+const FORBIDDEN = /[:*?"<>|\\]/g;
+
+function conversationDir(key) {
+  return String(key).replace(FORBIDDEN, '-');
+}
 
 function historyPath(home, key) {
-  return path.join(home, 'conversations', key, 'history.md');
+  const name = conversationDir(key);
+  const dir = path.join(home, 'conversations', name);
+  if (name !== key && !fs.existsSync(dir)) {
+    const legacy = path.join(home, 'conversations', key);
+    let legacyExists = false;
+    try { legacyExists = fs.existsSync(legacy); } catch { legacyExists = false; }
+    if (legacyExists) fs.renameSync(legacy, dir);
+  }
+  return path.join(dir, 'history.md');
 }
 
 function listAll(store, key) {

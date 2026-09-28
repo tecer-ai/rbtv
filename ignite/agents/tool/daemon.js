@@ -237,7 +237,7 @@ async function startLocked(opts, workspace, held) {
     return store;
   }
 
-  const config = loadConfig(workspace);
+  let config = loadConfig(workspace);
   const fake = process.env.IGNITE_DAEMON_FAKE === '1' && !opts.slack;
   let slack = opts.slack || null;
   const audio = opts.audio || (fake ? null : new Audio({ script: config.tools.audio }));
@@ -297,10 +297,31 @@ async function startLocked(opts, workspace, held) {
     if (!stopping) pump(slug).catch((error) => log({ event: 'turn-error', slug, message: error.message }));
   }
 
-  const onEvent = (event) => handleEvent(event, ctx).then((result) => {
-    if (result?.agent) kick(result.agent);
-    return result;
-  });
+  function refreshConfig() {
+    try {
+      const next = loadConfig(workspace);
+      config = next;
+      ctx.config = next;
+    } catch (error) {
+      log({ event: 'config', message: error.message });
+    }
+  }
+
+  const onEvent = (event) => {
+    refreshConfig();
+    return handleEvent(event, ctx).then((result) => {
+      if (result?.ignored) {
+        log({
+          event: 'ignored',
+          reason: result.ignored,
+          channel: event?.channel || null,
+          channelType: event?.channelType || null,
+        });
+      }
+      if (result?.agent) kick(result.agent);
+      return result;
+    });
+  };
 
   async function tick() {
     if (stopping) return;
