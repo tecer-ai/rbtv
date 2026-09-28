@@ -1,0 +1,14 @@
+{
+  "meeting-key": "mtg-m6-e",
+  "source-set": [
+    {
+      "account": "stranger@fixture.invalid",
+      "source": "meet",
+      "drive-ref": "drv:file/FIXTURE-e-meet",
+      "title": "Aula gravada - introducao a estatistica bayesiana",
+      "start-time": "2026-04-02T19:00:00-03:00",
+      "participants": ["EXAMPLE-Professor", "EXAMPLE-Aluno"]
+    }
+  ],
+  "disposition": "new"
+}

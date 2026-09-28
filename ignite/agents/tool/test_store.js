@@ -172,6 +172,28 @@ test('2d one pending scheduled wake per agent', (store) => {
   });
 });
 
+test('owner input queued during a running continuation is claimed after completed', (store) => {
+  conv(store);
+  store.enqueue({ id: 'q1', conversationKey: 'T1:C1:1.1', availableAt: 1_000 });
+  const first = store.claimNext(1_000);
+  const work = finish(store, first, 'continue');
+  const running = store.claimNext();
+  assert.equal(running.kind, 'continue');
+  assert.equal(running.work_id, work.id);
+  const queued = store.enqueue({ id: 'q-during', conversationKey: 'T1:C1:1.1' });
+  assert.equal(queued.workId, work.id);
+  assert.equal(store.claimNext(), null);
+  finish(store, running, 'completed');
+  assert.equal(store.getWork(work.id).state, 'completed');
+  const next = store.claimNext();
+  assert.equal(next.id, 'q-during');
+  assert.equal(next.kind, 'owner');
+  assert.notEqual(next.work_id, work.id);
+  assert.equal(store.getWork(work.id).state, 'completed');
+  assert.equal(store.getWork(next.work_id).state, 'open');
+  assert.equal(store.getWork(next.work_id).predecessor_id, work.id);
+});
+
 test('2e owner input claimed before continuation', (store) => {
   conv(store);
   store.enqueue({ id: 'q1', conversationKey: 'T1:C1:1.1', availableAt: 1_000 });

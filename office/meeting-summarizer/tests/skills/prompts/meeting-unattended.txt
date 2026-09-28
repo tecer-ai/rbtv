@@ -1,0 +1,10 @@
+Read and execute /home/henri/ht-wkdir/second-brain/.rbtv/mirror/office/meeting-summarizer/workflows/summarization/workflow.md
+
+Operating scope: the CLAUDE.md in the current working directory. Its `## Name Glossary` section
+declares the glossary this run must load, and its `## File Routing` block the destination.
+
+Transcript: ./meeting/2026-09-15-onboarding.md
+Meeting entity: EXAMPLE-corp. Destination folder: ./destination/EXAMPLE-corp/meetings/client/
+Leave the transcript where it is — do not move or rename it.
+
+Execute in **unattended mode**.

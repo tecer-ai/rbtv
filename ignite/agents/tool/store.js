@@ -18,7 +18,7 @@
 // enqueue({ id, conversationKey, payload, message, workId, availableAt }) — owner input only; reopens completed|stopped as a new work id; never unholds
 // wake({ workId, conversationKey, note }) — worker completion; false on completed|stopped|held|waiting_owner
 // enqueueScheduleWake({ id, conversationKey, scheduleId, payload, workId }) — ≤1 pending per agent; never reopens or unholds
-// claimNext(now) — pending owner input before automatic continuation; null while a run is active or the agent is held
+// claimNext(now) — owner input before continuation; a pending owner row on completed|stopped work is reopened, then claimed
 // getActiveRun() — running row even if the process is dead; liveRun() — the row only when /proc/<pid>/stat field 22 equals pidStart (string compare)
 // procStart(pid) — /proc/<pid>/stat field 22, or null if the process is gone
 // attachProcess(runId, { pid, pidStart, setting }) — freezes the launch snapshot for this run
@@ -442,13 +442,25 @@ class Store {
       if (this.getActiveRun() || this.agentHold()) return null;
       const row = this.db.prepare(`SELECT q.* FROM queue q LEFT JOIN work w ON w.id=q.work_id
         WHERE q.state='pending' AND q.available_at<=?
-        AND (q.work_id IS NULL OR (
-          w.state NOT IN ('held', 'completed', 'stopped')
-          AND NOT (w.state='waiting_owner' AND q.kind!='owner')
-          AND NOT (w.state='waiting_workers' AND q.kind NOT IN ('wake', 'owner'))
-        ))
+        AND (
+          q.work_id IS NULL
+          OR (q.kind='owner' AND w.state IN ('completed', 'stopped'))
+          OR (
+            w.state NOT IN ('held', 'completed', 'stopped')
+            AND NOT (w.state='waiting_owner' AND q.kind!='owner')
+            AND NOT (w.state='waiting_workers' AND q.kind NOT IN ('wake', 'owner'))
+          )
+        )
         ORDER BY q.priority, q.available_at, q.created_at, q.id LIMIT 1`).get(now);
       if (!row) return null;
+      if (row.kind === 'owner' && row.work_id) {
+        const work = this.getWork(row.work_id);
+        if (work && TERMINAL.has(work.state)) {
+          const successor = this._reopen(work);
+          this.db.prepare('UPDATE queue SET work_id=? WHERE id=?').run(successor.id, row.id);
+          row.work_id = successor.id;
+        }
+      }
       const runId = randomUUID();
       const nonce = randomUUID();
       this.db.prepare("UPDATE queue SET state='running', attempts=attempts+1 WHERE id=?").run(row.id);

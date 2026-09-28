@@ -1,0 +1,78 @@
+{
+  "_this-fixture": [
+    "A Drive listing as the live sweep would see it. Every account, folder, name and",
+    "participant is invented and EXAMPLE-prefixed: the milestone's grep over this tree",
+    "for an owner value is the only check that can falsify 'nothing owner-specific is",
+    "hardcoded', and a fixture carrying a real value would defeat it.",
+    "",
+    "EXAMPLE-old-1 is the floor case. Its modifiedTime falls INSIDE the poll window on",
+    "purpose - so the window cannot be what excludes it - while its filename and its",
+    "createdTime put the meeting before 2026-08-13. It carries a readable 'record', so a",
+    "cycle that read it would succeed: the arm measures a refusal, not an impossibility."
+  ],
+  "account-emails": {
+    "EXAMPLE-home": "owner@EXAMPLE-home.test",
+    "EXAMPLE-work": "owner@EXAMPLE-work.test"
+  },
+  "accounts": {
+    "EXAMPLE-home": {
+      "folders": {
+        "drv:folder/EXAMPLE-p-tree": [
+          {
+            "id": "drv:file/EXAMPLE-old-1",
+            "name": "2026-08-12 09-00 EXAMPLE pre-floor chat - Transcript.md",
+            "createdTime": "2026-08-12T09:40:00-03:00",
+            "modifiedTime": "2026-08-20T08:00:00-03:00",
+            "record": {
+              "title": "EXAMPLE pre-floor chat",
+              "start-time": "2026-08-12T09:00:00-03:00",
+              "participants": ["Ana EXAMPLE", "Bruno EXAMPLE"]
+            }
+          },
+          {
+            "id": "drv:file/EXAMPLE-p-1",
+            "name": "2026-08-20 09-00 EXAMPLE one-to-one - Transcript.md",
+            "createdTime": "2026-08-20T09:30:00-03:00",
+            "modifiedTime": "2026-08-20T09:35:00-03:00",
+            "record": {
+              "title": "EXAMPLE one-to-one",
+              "start-time": "2026-08-20T09:00:00-03:00",
+              "participants": ["Ana EXAMPLE", "Cris EXAMPLE"]
+            }
+          }
+        ]
+      }
+    },
+    "EXAMPLE-work": {
+      "folders": {
+        "drv:folder/EXAMPLE-w-tree": [
+          {
+            "id": "drv:file/EXAMPLE-w-meet-1",
+            "name": "2026-08-20 10-00 Weekly EXAMPLE sync - Transcript.md",
+            "createdTime": "2026-08-20T10:40:00-03:00",
+            "modifiedTime": "2026-08-20T10:41:00-03:00",
+            "record": {
+              "title": "Weekly EXAMPLE sync",
+              "start-time": "2026-08-20T10:00:00-03:00",
+              "participants": ["Ana EXAMPLE", "Bruno EXAMPLE", "Dora EXAMPLE"],
+              "metadata-handle": { "kind": "conference-record", "ref": "conf:EXAMPLE-w-1" }
+            }
+          }
+        ],
+        "drv:folder/EXAMPLE-w-tq": [
+          {
+            "id": "drv:file/EXAMPLE-w-tq-1",
+            "name": "2026-08-20 10-05 Weekly EXAMPLE sync.md",
+            "createdTime": "2026-08-20T10:50:00-03:00",
+            "modifiedTime": "2026-08-20T10:51:00-03:00",
+            "record": {
+              "title": "Weekly EXAMPLE sync",
+              "start-time": "2026-08-20T10:05:00-03:00",
+              "participants": ["Ana EXAMPLE", "Bruno EXAMPLE", "Dora EXAMPLE"]
+            }
+          }
+        ]
+      }
+    }
+  }
+}

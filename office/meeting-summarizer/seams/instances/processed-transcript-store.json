@@ -1,0 +1,12 @@
+{
+  "container": { "format": "jsonl", "location": "stores/processed-transcripts" },
+  "record": {
+    "transcript-ref": "drv:file/EXAMPLE-meet-1a2b3c",
+    "account": "tecer",
+    "source": "meet",
+    "meeting-key": "mtg-4f2a9c1e",
+    "processed-at": "2026-08-14T10:31:00-03:00",
+    "summary": { "repo": "EXAMPLE-corp", "path": "clients/EXAMPLE-client/meetings/2026-08-14-weekly-resumo.md" },
+    "coverage": ["meet", "tactiq"]
+  }
+}

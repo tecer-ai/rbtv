@@ -1,0 +1,18 @@
+{
+  "format": {
+    "syntax": "markdown",
+    "section-heading-level": 2,
+    "table-columns": 3,
+    "variant-separator": ", "
+  },
+  "sections": [
+    {
+      "heading": "Pessoas",
+      "column-headers": ["Nome correto", "Variações comuns na transcrição", "Contexto"],
+      "entries": [
+        { "correct-name": "Kenu", "variants": ["Quenu", "Keno"], "context": "Sócio da Tecer" },
+        { "correct-name": "Estevinho", "variants": [], "context": "Cuida das contas da fazenda" }
+      ]
+    }
+  ]
+}

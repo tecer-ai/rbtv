@@ -1,0 +1,9 @@
+Read and execute /home/henri/ht-wkdir/second-brain/.rbtv/mirror/office/meeting-summarizer/workflows/summarization/workflow.md
+
+Operating scope: the CLAUDE.md in the current working directory.
+Transcript: ./meeting/2026-09-15-onboarding.md
+
+NEGATIVE CONTROL for the m4 gate-string probe. Invoke the INTERACTIVE path exactly as a person
+would with no instructions beyond the transcript: no mode trigger, no pre-supplied answers, no
+approvals. Follow the workflow's own interactive rules wherever they say to present something and
+wait. Do not assume my answers.

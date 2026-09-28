@@ -1,0 +1,12 @@
+Read and execute /home/henri/ht-wkdir/second-brain/.user/workflows/therapy-summarizer/therapy-summarizer.md
+
+Operating scope: the CLAUDE.md in the current working directory.
+
+The owner has answered a term that was left in doubt when this session was summarized earlier.
+
+Summary already written: ./destination/EXAMPLE-wellbeing/2026/encontros/2026-09-15-terapia-resumo.md
+Transcript: ./therapy/2026-09-15-terapia.md
+Term in doubt: flamborg
+Owner's answer: it is EXAMPLE-Flambo — the budgeting app he tracks the month in.
+
+Execute in **amendment mode**.

@@ -1,0 +1,4 @@
+{
+  "container": { "format": "json", "location": "stores/poll-watermark" },
+  "record": { "last-successful-poll": "2026-08-14T10:10:00-03:00" }
+}

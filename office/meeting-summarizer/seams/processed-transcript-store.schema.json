@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "processed-transcript-store",
+  "description": "The durable processed-transcript store: its container (where and in what format records persist) and its record shape — one record per processed transcript, which is what makes idempotence checkable (goal.md clause 13). Also the single definition site of the container contract the other file-backed stores reuse.",
+  "type": "object",
+  "properties": {
+    "container": {
+      "$ref": "#/$defs/container",
+      "properties": {
+        "format": { "const": "jsonl" },
+        "location": { "const": "stores/processed-transcripts" }
+      }
+    },
+    "record": { "$ref": "#/$defs/record" }
+  },
+  "required": ["container", "record"],
+  "additionalProperties": false,
+  "$defs": {
+    "container": {
+      "type": "object",
+      "description": "shared container contract for the file-backed stores: a format plus a location config key — never a literal path. jsonl means one record per line, appended.",
+      "properties": {
+        "format": { "enum": ["json", "jsonl"] },
+        "location": { "$ref": "destination-repo-set.schema.json#/$defs/config-key" }
+      },
+      "required": ["format", "location"],
+      "additionalProperties": false
+    },
+    "record": {
+      "type": "object",
+      "properties": {
+        "transcript-ref": {
+          "$ref": "transcript-record.schema.json#/$defs/drive-ref",
+          "description": "the processed transcript's durable identity"
+        },
+        "account": { "$ref": "transcript-record.schema.json#/$defs/account" },
+        "source": { "$ref": "transcript-record.schema.json#/$defs/source" },
+        "meeting-key": { "$ref": "meeting-key-and-source-set.schema.json#/$defs/meeting-key" },
+        "processed-at": { "type": "string", "format": "date-time" },
+        "summary": { "$ref": "destination-repo-set.schema.json#/$defs/repo-file-ref" },
+        "coverage": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "transcript-record.schema.json#/$defs/source" },
+          "description": "the sources the summary incorporated when this record was written; a one-source value is what the second-source upgrade (clause 13) looks for"
+        }
+      },
+      "required": ["transcript-ref", "account", "source", "meeting-key", "processed-at", "summary", "coverage"],
+      "additionalProperties": false
+    }
+  }
+}

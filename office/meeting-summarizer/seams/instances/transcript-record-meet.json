@@ -1,0 +1,9 @@
+{
+  "account": "tecer",
+  "source": "meet",
+  "drive-ref": "drv:file/EXAMPLE-meet-1a2b3c",
+  "title": "Tecer <> Inni — weekly",
+  "start-time": "2026-08-14T10:02:00-03:00",
+  "participants": ["Henrique", "Kenu", "Leo"],
+  "metadata-handle": { "kind": "conference-record", "ref": "conf:EXAMPLE-9x8y" }
+}

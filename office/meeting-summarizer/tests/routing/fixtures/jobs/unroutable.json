@@ -1,0 +1,13 @@
+{
+  "meeting-key": "mtg-fixture-u1",
+  "source-set": [
+    {
+      "account": "stranger@fixture.invalid",
+      "source": "meet",
+      "drive-ref": "drv:file/FIXTURE-u-meet",
+      "title": "Reuniao sem dono",
+      "start-time": "2026-04-01T11:00:00-03:00",
+      "participants": ["Henrique", "Alguem Desconhecido"]
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+Read and execute /home/henri/ht-wkdir/second-brain/.rbtv/mirror/office/meeting-summarizer/workflows/summarization/workflow.md
+
+Operating scope: the CLAUDE.md in the current working directory.
+
+The owner has answered a term that was left in doubt when this meeting was summarized earlier.
+
+Summary already written: ./destination/EXAMPLE-corp/meetings/client/2026-09-15-onboarding-review-resumo.md
+Transcript: ./meeting/2026-09-15-onboarding.md
+Term in doubt: glorbfax
+Owner's answer: it is EXAMPLE-Glyphfax — the invoice parser component of EXAMPLE-Ledgerly.
+
+Execute in **amendment mode**.

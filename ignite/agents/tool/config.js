@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const TOP_KEYS = ['workspace', 'slack', 'tools', 'defaultLaunch', 'dmAgent', 'routes'];
-const SLACK_KEYS = ['team', 'botUserId', 'ownerUserId', 'botTokenFile', 'appTokenSource', 'ownerTokenFile'];
+const SLACK_KEYS = ['team', 'botUserId', 'ownerUserId', 'botTokenFile', 'appTokenSource', 'ownerTokenFile', 'stoolsWorkspace'];
 const TOOL_KEYS = ['cast', 'stools', 'audio'];
 const LAUNCH_KEYS = ['harness', 'model', 'effort', 'voice'];
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -46,6 +46,14 @@ function reqSlug(value, label) {
   return value;
 }
 
+function reqWorkspaceName(value) {
+  if (typeof value !== 'string' || !value.trim()) throw new Error('slack.stoolsWorkspace required');
+  if (value.includes('/') || value.includes('\\') || path.isAbsolute(value)) {
+    throw new Error('slack.stoolsWorkspace must be a stools workspace name, not a path');
+  }
+  return value;
+}
+
 function reqTokenSource(value) {
   if (typeof value !== 'string' || !value.trim()) throw new Error('slack.appTokenSource required');
   if (value.includes('/') || value.startsWith('.')) {
@@ -78,6 +86,7 @@ function loadConfig(workspace) {
   reqAbs(raw.slack, 'botTokenFile', 'slack.botTokenFile');
   reqAbs(raw.slack, 'ownerTokenFile', 'slack.ownerTokenFile');
   reqTokenSource(raw.slack.appTokenSource);
+  reqWorkspaceName(raw.slack.stoolsWorkspace);
   rejectUnknown(raw.tools, TOOL_KEYS, 'tools');
   for (const key of TOOL_KEYS) reqString(raw.tools, key, `tools.${key}`);
   rejectUnknown(raw.defaultLaunch, LAUNCH_KEYS, 'defaultLaunch');

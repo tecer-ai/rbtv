@@ -1,0 +1,15 @@
+Read and execute /home/henri/ht-wkdir/second-brain/.rbtv/goals/transcript-summarizer-build/seats/skill-unattender/scratchpad/baseline/therapy-summarizer.verbatim.md
+
+That file is the therapy summarizer exactly as it stood BEFORE the unattended mode was added.
+
+Operating scope: the CLAUDE.md in the current working directory. Its `## Name Glossary` section
+declares the glossary this run must load.
+
+Transcript: ./therapy/2026-09-15-terapia.md
+Output path: ./destination/EXAMPLE-wellbeing/2026/encontros/2026-09-15-terapia-resumo.md
+
+Execute the INTERACTIVE mode. I am the user. Present the Phase 1 validation tables as the
+interactive mode requires, and treat this message as my confirmation of every one of them: all
+glossary-resolved names are correct, all suggested corrections are approved, and any term the
+glossary does not carry should be left as transcribed. Then continue through post-validation and
+Phase 2 without asking me anything further.

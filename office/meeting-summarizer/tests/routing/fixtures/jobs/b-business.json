@@ -1,0 +1,13 @@
+{
+  "meeting-key": "mtg-fixture-b1",
+  "source-set": [
+    {
+      "account": "work-b@fixture.invalid",
+      "source": "meet",
+      "drive-ref": "drv:file/FIXTURE-b-meet",
+      "title": "Beta - review trimestral",
+      "start-time": "2026-05-20T14:00:00-03:00",
+      "participants": ["Henrique", "Bruna Ferreira"]
+    }
+  ]
+}

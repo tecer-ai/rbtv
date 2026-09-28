@@ -1,0 +1,27 @@
+{
+  "verified-at": "2026-08-13T18:00:00-03:00",
+  "accounts": {
+    "pessoal": {
+      "preconditions": {
+        "legacy-meet-recordings-folder": { "verdict": "live" },
+        "google-meet-tree": { "verdict": "live" },
+        "tactiq-autosave-folder": { "verdict": "dead", "detail": "auto-save folder absent in Drive" },
+        "meet-transcription-config": { "verdict": "live", "detail": "auto-start on" },
+        "tactiq-naming-discriminator": { "verdict": "live", "detail": "saved names carry date and time per occurrence" }
+      }
+    },
+    "tecer": {
+      "preconditions": {
+        "legacy-meet-recordings-folder": { "verdict": "dead", "detail": "folder never created on this account" },
+        "google-meet-tree": { "verdict": "live" },
+        "tactiq-autosave-folder": { "verdict": "live", "detail": "saves into account tecer" },
+        "meet-transcription-config": { "verdict": "live" },
+        "tactiq-naming-discriminator": { "verdict": "live" }
+      }
+    }
+  },
+  "dead-sources": [
+    { "account": "pessoal", "layout": "tactiq-autosave", "why": "auto-save folder absent in Drive" },
+    { "account": "tecer", "layout": "legacy-meet-recordings", "why": "folder never created on this account" }
+  ]
+}

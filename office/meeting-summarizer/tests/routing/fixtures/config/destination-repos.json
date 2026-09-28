@@ -1,0 +1,9 @@
+{
+  "config-key": "destination-repos",
+  "repos": [
+    { "name": "alpha-works", "remote": "https://git.invalid/fixture/alpha-works.git" },
+    { "name": "beta-labs", "remote": "https://git.invalid/fixture/beta-labs.git" },
+    { "name": "gamma-corp", "remote": "https://git.invalid/fixture/gamma-corp.git" },
+    { "name": "wellbeing-vault", "remote": "https://git.invalid/fixture/wellbeing-vault.git" }
+  ]
+}

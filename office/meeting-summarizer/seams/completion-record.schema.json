@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "completion-record",
+  "description": "The record that stops an answered meeting being re-noted: written by answer application (m6) once an answer is fully applied; replaying the same answer is then a no-op.",
+  "type": "object",
+  "properties": {
+    "meeting-key": { "$ref": "meeting-key-and-source-set.schema.json#/$defs/meeting-key" },
+    "answered-kind": { "$ref": "owner-answer.schema.json#/$defs/answer-kind" },
+    "completed-at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["meeting-key", "answered-kind", "completed-at"],
+  "additionalProperties": false
+}

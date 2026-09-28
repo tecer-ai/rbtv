@@ -1,0 +1,13 @@
+{
+  "meeting-key": "mtg-v-morning",
+  "source-set": [
+    {
+      "account": "own@fixture.invalid",
+      "source": "meet",
+      "drive-ref": "drv:file/FIXTURE-v-morning-meet",
+      "title": "Encontro da manha",
+      "start-time": "2026-03-11T09:15:00-03:00",
+      "participants": ["Henrique", "Dora Marques"]
+    }
+  ]
+}

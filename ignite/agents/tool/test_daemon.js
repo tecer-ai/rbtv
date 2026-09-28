@@ -49,6 +49,7 @@ function workspace() {
       botTokenFile: path.join(dir, 'bot.json'),
       appTokenSource: 'SLACK_APP_TOKEN',
       ownerTokenFile: path.join(dir, 'owner.json'),
+      stoolsWorkspace: 'ignite',
     },
     tools: { cast: 'cast', stools: 'stools', audio: 'audio' },
     defaultLaunch: { harness: 'claude', model: 'm', effort: 'low' },
@@ -147,7 +148,7 @@ function harnessBin(dir, names) {
   return bin;
 }
 
-function spawnDaemon(dir, pathEnv = harnessBin(dir, ['claude'])) {
+function spawnDaemon(dir, pathEnv = harnessBin(dir, ['claude', 'ignite-agent'])) {
   const child = spawn(process.execPath, [daemonPath, '--workspace', dir], {
     env: { ...process.env, IGNITE_DAEMON_FAKE: '1', PATH: pathEnv },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -182,7 +183,7 @@ test('dm-delivered-once', async () => {
   const slack = fakeSlack();
   const socket = fakeSocket();
   const prevPath = process.env.PATH;
-  process.env.PATH = `${harnessBin(dir, ['claude'])}${path.delimiter}${prevPath || ''}`;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prevPath || ''}`;
   let runtime;
   try {
   runtime = await start({
@@ -240,7 +241,7 @@ test('due-schedule-one-wake', async () => {
   });
   store.close();
   const prevPath = process.env.PATH;
-  process.env.PATH = `${harnessBin(dir, ['claude'])}${path.delimiter}${prevPath || ''}`;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prevPath || ''}`;
   let runtime;
   try {
   runtime = await start({
@@ -299,16 +300,15 @@ test('sigterm-clean', async () => {
   }
 });
 
-test('unit-path-filled', () => {
+function fillUnit(pathValue, linkBin) {
   const deploy = fs.readFileSync(path.join(__dirname, 'deploy.sh'), 'utf8');
-  const marker = 'const [src, dst, deploy, workspace, envFile, pathValue]';
+  const marker = 'const [src, dst, deploy, workspace, envFile, pathValue, linkBin]';
   const at = deploy.indexOf(marker);
   assert.ok(at > 0);
   const open = deploy.lastIndexOf("node -e '", at);
   const close = deploy.indexOf("' \"$unit_src\"", at);
   const program = deploy.slice(open + "node -e '".length, close);
-  const dst = path.join(os.tmpdir(), `ignite-unit-${process.pid}.service`);
-  const pathValue = '/usr/bin:/opt/harness-bin';
+  const dst = path.join(os.tmpdir(), `ignite-unit-${process.pid}-${Date.now()}.service`);
   const result = spawnSync(process.execPath, [
     '-e', program,
     path.join(__dirname, '..', 'units', 'rbtv-ignite-agents.service'),
@@ -317,13 +317,26 @@ test('unit-path-filled', () => {
     '/opt/workspace',
     '/opt/env/.env',
     pathValue,
+    linkBin,
   ], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   const filled = fs.readFileSync(dst, 'utf8');
   fs.rmSync(dst, { force: true });
+  return filled;
+}
+
+test('unit-path-filled', () => {
+  const filled = fillUnit('/usr/bin:/opt/harness-bin', '/opt/harness-bin');
   assert.match(filled, /^Environment=PATH=\/usr\/bin:\/opt\/harness-bin$/m);
   assert.equal(filled.includes('@PATH@'), false);
   assert.equal(/@[A-Z_]+@/.test(filled), false);
+});
+
+test('unit-path-has-link-bin', () => {
+  const linkBin = '/opt/rbtv-bin';
+  const filled = fillUnit('/usr/bin', linkBin);
+  assert.match(filled, /^Environment=PATH=\/opt\/rbtv-bin:\/usr\/bin$/m);
+  assert.equal(filled.includes('@PATH@'), false);
 });
 
 test('harness-missing', async () => {
@@ -360,9 +373,56 @@ test('harness-missing', async () => {
   }
 });
 
+test('stools-workspace-missing', async () => {
+  const { dir } = workspace();
+  const cfgPath = path.join(dir, '.rbtv', 'agents', 'ignite.json');
+  const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+  delete cfg.slack.stoolsWorkspace;
+  fs.writeFileSync(cfgPath, JSON.stringify(cfg));
+  const child = spawn(process.execPath, [daemonPath, '--workspace', dir], {
+    env: { ...process.env, IGNITE_DAEMON_FAKE: '1' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8').on('data', (chunk) => { stdout += chunk; });
+  child.stderr.setEncoding('utf8').on('data', (chunk) => { stderr += chunk; });
+  try {
+    const code = await new Promise((resolve) => child.once('exit', resolve));
+    assert.notEqual(code, 0);
+    assert.match(stderr, /stoolsWorkspace required/);
+    assert.equal(stdout.includes('"event":"ready"'), false);
+  } finally {
+    if (child.exitCode == null) child.kill('SIGKILL');
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('ignite-agent-missing', async () => {
+  const { dir } = workspace();
+  const bin = harnessBin(dir, ['claude']);
+  const child = spawn(process.execPath, [daemonPath, '--workspace', dir], {
+    env: { ...process.env, IGNITE_DAEMON_FAKE: '1', PATH: bin },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  child.stdout.setEncoding('utf8').on('data', (chunk) => { stdout += chunk; });
+  child.stderr.resume();
+  try {
+    const code = await new Promise((resolve) => child.once('exit', resolve));
+    assert.notEqual(code, 0);
+    assert.match(stdout, /"event":"error"/);
+    assert.match(stdout, /ignite-agent not on PATH/);
+    assert.equal(stdout.includes('"event":"ready"'), false);
+  } finally {
+    if (child.exitCode == null) child.kill('SIGKILL');
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('harness-ready', async () => {
   const { dir } = workspace();
-  const holder = spawnDaemon(dir, harnessBin(dir, ['claude']));
+  const holder = spawnDaemon(dir, harnessBin(dir, ['claude', 'ignite-agent']));
   try {
     await waitFor(() => holder.stdout().includes('"event":"ready"') && holder.child.exitCode == null);
     assert.equal(holder.stdout().includes('"event":"error"'), false);
@@ -397,7 +457,7 @@ function mention(channel, text = 'hello') {
 
 function started(dir) {
   const prev = process.env.PATH;
-  process.env.PATH = `${harnessBin(dir, ['claude'])}${path.delimiter}${prev || ''}`;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prev || ''}`;
   const socket = fakeSocket();
   return start({
     workspace: dir,

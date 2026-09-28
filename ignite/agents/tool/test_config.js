@@ -32,6 +32,7 @@ function writeConfig(dir, patch = {}) {
       botTokenFile: path.join(dir, 'bot.json'),
       appTokenSource: 'SLACK_APP_TOKEN',
       ownerTokenFile: path.join(dir, 'owner.json'),
+      stoolsWorkspace: 'ignite',
     },
     tools: { cast: 'cast', stools: 'stools', audio: 'audio' },
     defaultLaunch: { harness: 'claude', model: 'm', effort: 'high' },
@@ -106,6 +107,16 @@ test('unknown field and bad route slug throw', (dir) => {
   again.routes = { C1: 'Not A Slug' };
   fs.writeFileSync(path.join(dir, '.rbtv', 'agents', 'ignite.json'), JSON.stringify(again));
   assert.throws(() => loadConfig(dir), /slug/);
+});
+
+test('stoolsWorkspace required and not a path', (dir) => {
+  const body = writeConfig(dir);
+  delete body.slack.stoolsWorkspace;
+  fs.writeFileSync(path.join(dir, '.rbtv', 'agents', 'ignite.json'), JSON.stringify(body));
+  assert.throws(() => loadConfig(dir), /stoolsWorkspace required/);
+  body.slack.stoolsWorkspace = path.join(dir, 'vault');
+  fs.writeFileSync(path.join(dir, '.rbtv', 'agents', 'ignite.json'), JSON.stringify(body));
+  assert.throws(() => loadConfig(dir), /not a path/);
 });
 
 test('empty routes object is valid', (dir) => {

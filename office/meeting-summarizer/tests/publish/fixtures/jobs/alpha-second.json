@@ -1,0 +1,13 @@
+{
+  "meeting-key": "mtg-g-evening",
+  "source-set": [
+    {
+      "account": "work-a@fixture.invalid",
+      "source": "meet",
+      "drive-ref": "drv:file/FIXTURE-g-evening-meet",
+      "title": "Alpha sync — tarde",
+      "start-time": "2026-03-11T16:30:00-03:00",
+      "participants": ["Henrique", "Kenu"]
+    }
+  ]
+}

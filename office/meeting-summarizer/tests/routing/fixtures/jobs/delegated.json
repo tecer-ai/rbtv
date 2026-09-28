@@ -1,0 +1,13 @@
+{
+  "meeting-key": "mtg-fixture-g1",
+  "source-set": [
+    {
+      "account": "work-c@fixture.invalid",
+      "source": "meet",
+      "drive-ref": "drv:file/FIXTURE-g-meet",
+      "title": "Gamma - alinhamento",
+      "start-time": "2026-06-02T09:30:00-03:00",
+      "participants": ["Henrique", "Caio Nunes"]
+    }
+  ]
+}

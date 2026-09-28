@@ -2,7 +2,7 @@
 description: Use when creating a working primary agent — home, instructions, Slack channel, route, skills, and an optional schedule — by running ignite-agent create. Ask only for choices still missing, in one grouped question.
 exposes-cli:
   - ignite-agent
-inputs: the owner's request for a new primary agent, plus whatever of purpose, slug, channel name or DM, extra skills, reference paths, launch setting, and schedule they have already named
+inputs: the owner's request for a new primary agent, plus whatever of purpose, slug, channel name or DM, extra skills, reference paths, launch setting, schedule, and agent-specific settings they have already named
 outcome: a primary agent exists and the owner has been told its channel link, or the owner has been told exactly which setup step is incomplete — never a checklist of steps the caller can run
 outputs: the ignite-agent create result (channel link and self-check) reported to the owner
 ---
@@ -18,7 +18,8 @@ Collect purpose, slug, channel name or DM, extra skills, reference paths, launch
 - Purpose MUST be the owner's words, written to a file you pass as `--purpose-file`. NEVER invent a purpose.
 - Slug MUST match `[a-z0-9][a-z0-9-]{0,63}`. Derive it from the purpose when that derivation is one legal slug. Include it in the question only when the derivation is ambiguous.
 - Channel: pass `--channel-name` or `--dm`. NEVER invent a channel name. Include the choice in the question when the owner has not made it.
-- Skills: the command installs its template default set. Pass `--skill module/component#part` ONLY for an extra the purpose needs and the owner named. NEVER invent a skill id.
+- Skills: the command installs its template default set. Pass `--skill module/component#part` ONLY for an extra the purpose needs and the owner named. NEVER invent a skill id. A reusable ability MUST be an rbtv skill installed with `--skill`. NEVER put a value that belongs to this one agent inside a skill.
+- Settings: values specific to this one agent MUST go in the home's `settings.json`, passed as `--settings-file`. Omit the flag and the command writes `{}`. A re-run keeps an existing `settings.json` unless you pass `--settings-file` again. NEVER invent a setting the owner did not name.
 - Reference paths: pass `--reference` ONLY for a path the owner named that exists. NEVER invent a path.
 - Launch: omit `--harness`, `--model`, and `--effort` to use the workspace default. If the owner named a different setting, pass all three. NEVER pass a number as the stored effort; the command stores the rung word. NEVER substitute a model the owner did not name.
 - Schedule: pass `--schedule-json` ONLY when the owner asked for a schedule AND named both a cadence and a timezone. NEVER invent either. Omit the flag when they did not ask. The file MUST match the shape in `ignite-agent create --help`.

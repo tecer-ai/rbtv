@@ -1,0 +1,20 @@
+Read and execute /home/henri/ht-wkdir/second-brain/.rbtv/goals/transcript-summarizer-build/seats/skill-unattender/scratchpad/baseline/meeting-workflow.verbatim.md
+
+That file is the meeting summarizer workflow exactly as it stood BEFORE the unattended mode was
+added. Where it names prompt files under `{rbtv_path}/office/workflows/summarization/`, read them
+from /home/henri/ht-wkdir/second-brain/.rbtv/mirror/office/meeting-summarizer/workflows/summarization/ instead.
+
+Operating scope: the CLAUDE.md in the current working directory. Its `## Name Glossary` section
+declares the glossary this run must load, and its `## File Routing` block the destination.
+
+Transcript: ./meeting/2026-09-15-onboarding.md
+Meeting entity: EXAMPLE-corp. Destination folder: ./destination/EXAMPLE-corp/meetings/client/
+Leave the transcript where it is — do not move or rename it.
+
+Execute the INTERACTIVE path. I am the user. Present Step 3's classification block and Step 4's
+location proposal and the Step 5 Phase 1 validation tables as the workflow requires, and treat
+this message as my answer to all of them: the classification you determine is correct, the
+location above is approved, every glossary-resolved name is correct, every suggested correction is
+approved, and any term the glossary does not carry should be left as transcribed. Approve every
+row of any propagation table the destination CLAUDE.md asks for. Then continue to Step 7 without
+asking me anything further.

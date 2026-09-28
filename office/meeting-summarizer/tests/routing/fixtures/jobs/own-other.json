@@ -1,0 +1,13 @@
+{
+  "meeting-key": "mtg-fixture-o1",
+  "source-set": [
+    {
+      "account": "own@fixture.invalid",
+      "source": "meet",
+      "drive-ref": "drv:file/FIXTURE-o-meet",
+      "title": "Conversa com amigo",
+      "start-time": "2026-03-13T20:00:00-03:00",
+      "participants": ["Henrique", "Romeu"]
+    }
+  ]
+}

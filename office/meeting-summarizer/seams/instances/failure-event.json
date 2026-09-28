@@ -1,0 +1,7 @@
+{
+  "kind": "failure-event",
+  "cause": "Drive auth refused for account tecer (token revoked)",
+  "scope": "account",
+  "account": "tecer",
+  "at": "2026-08-14T11:10:04-03:00"
+}

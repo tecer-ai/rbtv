@@ -1,0 +1,13 @@
+{
+  "meeting-key": "mtg-v-evening",
+  "source-set": [
+    {
+      "account": "own@fixture.invalid",
+      "source": "meet",
+      "drive-ref": "drv:file/FIXTURE-v-evening-meet",
+      "title": "Encontro da tarde",
+      "start-time": "2026-03-11T17:40:00-03:00",
+      "participants": ["Henrique", "Dora Marques"]
+    }
+  ]
+}

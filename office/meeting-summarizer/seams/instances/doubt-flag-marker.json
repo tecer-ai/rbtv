@@ -1,0 +1,11 @@
+{
+  "summary": { "repo": "EXAMPLE-corp", "path": "clients/EXAMPLE-client/meetings/2026-08-14-weekly-resumo.md" },
+  "marker-syntax": "{{doubt|term=<term>|guess=<best-guess>}}",
+  "doubts": [
+    {
+      "term": "Quenu",
+      "guess": "Kenu",
+      "excerpt": "Presentes: Henrique, {{doubt|term=Quenu|guess=Kenu}} e Leo."
+    }
+  ]
+}

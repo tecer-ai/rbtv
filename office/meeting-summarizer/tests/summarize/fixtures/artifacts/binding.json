@@ -1,0 +1,53 @@
+{
+  "_this-file": [
+    "The artifact binding table: one drive-ref -> where its bytes are and what the source called",
+    "it. This is the FIXTURE side of the artifact-content reader protocol; live, the same table is",
+    "answered by Drive. 'auxiliary' names, per meeting key, the artifacts that are input but never",
+    "a trigger (goal.md clause 19)."
+  ],
+  "artifacts": {
+    "drv:file/FIXTURE-a-meet": {
+      "location": "FIXTURES/artifacts/case-a-meet.md",
+      "name": "EXAMPLE-Alpha <> EXAMPLE-Orla - revisao trimestral - Transcricao",
+      "media-type": "text/markdown"
+    },
+    "drv:file/FIXTURE-a-tactiq": {
+      "location": "FIXTURES/artifacts/case-a-tactiq.md",
+      "name": "EXAMPLE-Alpha <> EXAMPLE-Orla - revisao trimestral - Tactiq",
+      "media-type": "text/markdown"
+    },
+    "drv:file/FIXTURE-a-gemini": {
+      "location": "FIXTURES/artifacts/case-a-gemini.md",
+      "name": "EXAMPLE-Alpha <> EXAMPLE-Orla - Notas da reuniao",
+      "media-type": "text/markdown"
+    },
+    "drv:file/FIXTURE-b-tactiq": {
+      "location": "FIXTURES/artifacts/case-b-tactiq.md",
+      "name": "EXAMPLE-Beta - revisao de produto - Tactiq",
+      "media-type": "text/markdown"
+    },
+    "drv:file/FIXTURE-c-gemini": {
+      "location": "FIXTURES/artifacts/case-c-gemini.md",
+      "name": "EXAMPLE-Alpha sync - Notas da reuniao",
+      "media-type": "text/markdown"
+    },
+    "drv:file/FIXTURE-d-meet": {
+      "location": "FIXTURES/artifacts/case-d-meet.md",
+      "name": "Alinhamento comercial - Transcricao",
+      "media-type": "text/markdown"
+    },
+    "drv:file/FIXTURE-e-meet": {
+      "location": "FIXTURES/artifacts/case-e-meet.md",
+      "name": "Aula gravada - introducao a estatistica bayesiana - Transcricao",
+      "media-type": "text/markdown"
+    },
+    "drv:file/FIXTURE-f-meet": {
+      "location": "FIXTURES/artifacts/case-f-meet.md",
+      "name": "EXAMPLE-Alpha - chamada sem fala - Transcricao",
+      "media-type": "text/markdown"
+    }
+  },
+  "auxiliary": {
+    "mtg-m6-a": ["drv:file/FIXTURE-a-gemini"]
+  }
+}

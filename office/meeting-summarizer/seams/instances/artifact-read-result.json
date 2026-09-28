@@ -1,0 +1,9 @@
+{
+  "kind": "read-result",
+  "ref": "drv:file/EXAMPLE-meet-1a2b3c",
+  "artifact-kind": "transcript",
+  "media-type": "text/markdown",
+  "text": "---\ntype: transcript\nsource: meet\n---\n\n00:00:04 EXAMPLE-Alba: Bom dia, vamos comecar.\n00:00:11 EXAMPLE-Brum: Bom dia.\n",
+  "sha256": "38f54d8279f9f11e483440540ca20effcad4957820cd4ea3483337577eee1a38",
+  "legible": true
+}

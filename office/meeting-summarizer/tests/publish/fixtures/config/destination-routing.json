@@ -1,0 +1,48 @@
+{
+  "config-key": "destination-routing",
+  "timezone": "America/Sao_Paulo",
+  "_note": "m7 fixture route table. Invented entities only: no owner destination name and no owner path segment appears anywhere under the product tree. 'alpha-works' is the regime-git destination, 'wellbeing-vault' the regime-vault one, 'gamma-corp' the delegated-placement case.",
+  "routes": [
+    {
+      "entity": "clinic-a",
+      "match": {
+        "participants-any": [
+          "Dora Marques"
+        ]
+      },
+      "destination": {
+        "repo": "wellbeing-vault",
+        "path-template": "areas/wellbeing/{year}/encontros/{date}-{type}-resumo.md"
+      },
+      "vars": {
+        "type": "sessao"
+      }
+    },
+    {
+      "entity": "alpha",
+      "match": {
+        "title-matches": [
+          "alpha"
+        ]
+      },
+      "destination": {
+        "repo": "alpha-works",
+        "path-template": "notes/meetings/{year}/{date}-{slug}-resumo.md"
+      },
+      "vars": {
+        "slug": "alpha-sync"
+      }
+    },
+    {
+      "entity": "gamma",
+      "match": {
+        "title-matches": [
+          "gamma"
+        ]
+      },
+      "destination": {
+        "repo": "gamma-corp"
+      }
+    }
+  ]
+}

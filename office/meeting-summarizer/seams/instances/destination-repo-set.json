@@ -1,0 +1,7 @@
+{
+  "config-key": "destination-repos",
+  "repos": [
+    { "name": "EXAMPLE-corp", "remote": "https://git.example/EXAMPLE/EXAMPLE-corp.git" },
+    { "name": "second-brain", "remote": "https://git.example/EXAMPLE/second-brain.git" }
+  ]
+}

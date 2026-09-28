@@ -50,7 +50,7 @@ General shape only. Instance ids, token paths, and launch pins are runtime confi
 { "workspace": "<workspace>",
   "slack": { "team": "<team id>", "botUserId": "<bot user id>", "ownerUserId": "<owner user id>",
     "botTokenFile": "<bot token file>", "appTokenSource": "<env var name or file path>",
-    "ownerTokenFile": "<owner token file>" },
+    "ownerTokenFile": "<owner token file>", "stoolsWorkspace": "<stools workspace name>" },
   "tools": { "cast": "<cmd>", "stools": "<cmd>", "audio": "<cmd>" },
   "defaultLaunch": { "harness": "<harness>", "model": "<model>", "effort": "<effort>" },
   "dmAgent": "<slug>",
@@ -65,10 +65,28 @@ General shape only. Instance ids, token paths, and launch pins are runtime confi
 |---|---|
 | `CLAUDE.md` and `AGENTS.md` | Identical body: standing instructions from the template, plus this agent's purpose and reference paths |
 | `launch.json` | `{ "harness", "model", "effort", "voice"? }` — the one agent-wide launch setting |
+| `settings.json` | This agent's own settings — see "Capabilities vs settings" below. `{}` when `create` was given no `--settings-file` |
 | `board.md` | Human-readable work and the recurring checks the agent attends to |
 | `state.sqlite` | The store. Authoritative |
 | `conversations/<windows-safe key>/history.md` | Derived full thread history. Folder name is the key with `:` and other Windows-forbidden characters replaced by `-`. Regenerable from the store |
 | skill loaders | Written by `rbtv install add --target <home>` per harness |
+
+## Capabilities vs settings
+
+Owner ruling 2026-09-28 (`decisions.md`, "Agent settings vs capabilities"): a CAPABILITY — what an
+agent can do, reusable by other agents — is an rbtv skill component (skill + its tools) under
+`R/<module>/<component>/`, installed into agent homes by the installer like any other skill. It
+carries no agent-specific value: no workspace path, no account name, no owner value. An agent's
+SPECIFIC settings — the values that make a reusable capability act for THIS agent — live in ONE file
+in its home, `settings.json`, referenced from both its `CLAUDE.md` and `AGENTS.md` (the standing
+instructions' own "Settings" section tells the agent to read it) and passed at creation with
+`ignite-agent create --settings-file <file>`. A capability's own tools take their settings and state
+paths as an explicit argument or environment variable — never a hardcoded relative path — so the
+same capability serves any agent that installs it. First applied to the meeting summarizer: its
+capability lives at `R/office/meeting-summarizer/`; its settings (accounts, destinations, the
+summarizer skill binding, the checkout root) are seeded from
+`P/1-projects/ignite-0.2/build/plan/artifacts/summarizer-agent/settings.json` — kept tracked in that
+build record per the orchestrator's safeguard, since an agent home is never committed.
 
 **Conversation key.** `<teamId>:<channelId>:<rootTs>`, DM and channel alike. The mapping key → agent is persisted.
 

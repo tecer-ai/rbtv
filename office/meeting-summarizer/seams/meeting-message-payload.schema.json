@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "meeting-message-payload",
+  "description": "One tagged union: every channel message about one meeting. The filed-note variant is the single definition site of the filed-note fields; the deferred-filed-note index entry names this same file and its instance sets the deferred discriminator.",
+  "type": "object",
+  "properties": {
+    "kind": { "enum": ["filed-note", "doubt", "unroutable", "amendment"] },
+    "meeting-key": { "$ref": "meeting-key-and-source-set.schema.json#/$defs/meeting-key" }
+  },
+  "required": ["kind", "meeting-key"],
+  "oneOf": [
+    {
+      "type": "object",
+      "description": "filed-note: the one-line note every processed meeting gets",
+      "properties": {
+        "kind": { "const": "filed-note" },
+        "destination": {
+          "$ref": "destination-repo-set.schema.json#/$defs/repo-file-ref",
+          "description": "the path the filed-note line names"
+        },
+        "meeting-title": { "type": "string" },
+        "deferred": {
+          "const": true,
+          "description": "present on the filed-note of a previously withheld meeting, filed after a routing answer"
+        }
+      },
+      "required": ["kind", "destination"]
+    },
+    {
+      "type": "object",
+      "description": "doubt: a glossary-unsettled term; the summary is already written with the best guess flagged",
+      "properties": {
+        "kind": { "const": "doubt" },
+        "term": {
+          "type": "string",
+          "minLength": 1,
+          "description": "the transcribed form in doubt"
+        },
+        "guess": {
+          "type": "string",
+          "minLength": 1,
+          "description": "the best guess now standing in the written summary"
+        },
+        "summary": {
+          "$ref": "destination-repo-set.schema.json#/$defs/repo-file-ref",
+          "description": "the already-written summary carrying the flagged guess"
+        }
+      },
+      "required": ["kind", "term", "guess", "summary"]
+    },
+    {
+      "type": "object",
+      "description": "unroutable: no known destination matched; nothing was written; the owner is asked where it goes",
+      "properties": {
+        "kind": { "const": "unroutable" },
+        "signals": {
+          "type": "object",
+          "description": "the candidate signals the owner needs to answer the routing ask",
+          "properties": {
+            "title": { "type": "string" },
+            "participants": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "excerpts": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "short transcript passages that hint at who the meeting was with"
+            }
+          },
+          "required": ["title", "participants"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["kind", "signals"]
+    },
+    {
+      "type": "object",
+      "description": "amendment: an already-filed summary changed wording; one-liner for the meeting's thread",
+      "properties": {
+        "kind": { "const": "amendment" },
+        "what-changed": {
+          "type": "string",
+          "minLength": 1
+        },
+        "summary": {
+          "$ref": "destination-repo-set.schema.json#/$defs/repo-file-ref"
+        }
+      },
+      "required": ["kind", "what-changed"]
+    }
+  ],
+  "unevaluatedProperties": false
+}

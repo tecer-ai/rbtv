@@ -35,6 +35,7 @@ function writeConfig(dir, routes = {}) {
       botTokenFile: path.join(dir, 'bot.json'),
       appTokenSource: 'SLACK_APP_TOKEN',
       ownerTokenFile: path.join(dir, 'owner.json'),
+      stoolsWorkspace: 'ignite',
     },
     tools: { cast: 'cast', stools: 'stools', audio: 'audio' },
     defaultLaunch: { harness: 'claude', model: 'm', effort: 'high' },
@@ -214,6 +215,179 @@ function baseArgs(dir, slug, extra = []) {
     assert.match(moved[0], /^probe-/);
     assert.equal(fs.readFileSync(path.join(trash, moved[0], 'conversations', 'kept.md'), 'utf8'), 'history\n');
     assert.match(removed.out, /moved:/);
+  });
+
+  function stale(home) {
+    for (const name of ['CLAUDE.md', 'AGENTS.md']) {
+      const file = path.join(home, name);
+      const text = fs.readFileSync(file, 'utf8');
+      const at = text.indexOf('\n## Purpose\n');
+      assert.ok(at > 0, name);
+      fs.writeFileSync(file, `# Standing instructions\n\nSTALE STANDING\n${text.slice(at)}\n`);
+    }
+  }
+
+  await test('stale pair refreshed', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const slack = fakeSlack();
+    const created = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe']), { slack });
+    assert.equal(created.code, 0, created.out + created.err);
+    const home = path.join(dir, '.rbtv', 'agents', 'probe');
+    stale(home);
+    const kept = fs.readFileSync(path.join(home, 'CLAUDE.md'), 'utf8').split('\n## Purpose\n')[1];
+    const again = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe']), { slack });
+    assert.equal(again.code, 0, again.out + again.err);
+    const claude = fs.readFileSync(path.join(home, 'CLAUDE.md'), 'utf8');
+    const agents = fs.readFileSync(path.join(home, 'AGENTS.md'), 'utf8');
+    assert.equal(claude, agents);
+    assert.match(claude, /A turn is one shot/);
+    assert.equal(claude.includes('STALE STANDING'), false);
+    assert.match(claude, /Answer briefly/);
+    assert.equal(claude.split('\n## Purpose\n')[1], kept.endsWith('\n') ? kept : `${kept}\n`);
+  });
+
+  await test('identical pair untouched', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const slack = fakeSlack();
+    const created = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe']), { slack });
+    assert.equal(created.code, 0, created.out + created.err);
+    const home = path.join(dir, '.rbtv', 'agents', 'probe');
+    const file = path.join(home, 'CLAUDE.md');
+    const twin = path.join(home, 'AGENTS.md');
+    const before = fs.readFileSync(file, 'utf8');
+    const mtime = fs.statSync(file).mtimeMs;
+    const twinMtime = fs.statSync(twin).mtimeMs;
+    const again = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe']), { slack });
+    assert.equal(again.code, 0, again.out + again.err);
+    assert.equal(fs.readFileSync(file, 'utf8'), before);
+    assert.equal(fs.readFileSync(twin, 'utf8'), before);
+    assert.equal(fs.statSync(file).mtimeMs, mtime);
+    assert.equal(fs.statSync(twin).mtimeMs, twinMtime);
+  });
+
+  await test('dry-run writes nothing', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const slack = fakeSlack();
+    const created = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe']), { slack });
+    assert.equal(created.code, 0, created.out + created.err);
+    const home = path.join(dir, '.rbtv', 'agents', 'probe');
+    stale(home);
+    const before = {
+      claude: fs.readFileSync(path.join(home, 'CLAUDE.md'), 'utf8'),
+      agents: fs.readFileSync(path.join(home, 'AGENTS.md'), 'utf8'),
+      tree: tree(dir),
+    };
+    const calls = slack.calls.length;
+    const result = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe', '--dry-run']), { slack });
+    assert.equal(result.code, 0, result.out + result.err);
+    assert.match(result.out, /writes: none/);
+    assert.match(result.out, /STALE STANDING/);
+    assert.match(result.out, /A turn is one shot/);
+    assert.equal(fs.readFileSync(path.join(home, 'CLAUDE.md'), 'utf8'), before.claude);
+    assert.equal(fs.readFileSync(path.join(home, 'AGENTS.md'), 'utf8'), before.agents);
+    assert.deepEqual(tree(dir), before.tree);
+    assert.equal(slack.calls.length, calls);
+  });
+
+  function mirrorSkill(dir, id) {
+    const [cid, pid] = id.split('#');
+    const folder = path.join(dir, '.rbtv', 'mirror', ...cid.split('/'));
+    fs.mkdirSync(folder, { recursive: true });
+    fs.writeFileSync(path.join(folder, 'exposure.csv'), [
+      'part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots',
+      `${pid},capability,skill,,${pid}.md,fixture,`,
+      '',
+    ].join('\n'));
+  }
+
+  await test('repo skill resolves', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const result = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe', '--skill', 'core/communication#slack-message-format', '--dry-run']));
+    assert.equal(result.code, 0, result.out + result.err);
+    assert.match(result.out, /core\/communication#slack-message-format/);
+    assert.equal(fs.existsSync(path.join(dir, '.rbtv', 'agents', 'probe')), false);
+  });
+
+  await test('workspace-resident skill resolves', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    mirrorSkill(dir, 'lab/widget#widget-skill');
+    const result = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe', '--skill', 'lab/widget#widget-skill', '--dry-run']));
+    assert.equal(result.code, 0, result.out + result.err);
+    assert.match(result.out, /lab\/widget#widget-skill/);
+    assert.equal(fs.existsSync(path.join(dir, '.rbtv', 'agents', 'probe')), false);
+  });
+
+  await test('unknown skill is refused', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const args = baseArgs(dir, 'probe', ['--channel-name', 'probe', '--skill', 'lab/widget#missing', '--dry-run']);
+    const before = tree(dir);
+    const result = await run(args).catch((error) => ({
+      code: error.exitCode || 1,
+      out: '',
+      err: error.message,
+    }));
+    assert.notEqual(result.code, 0);
+    assert.match(result.err, /unknown skill: lab\/widget#missing/);
+    assert.deepEqual(tree(dir), before);
+  });
+
+  await test('new home gets empty settings', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const args = baseArgs(dir, 'probe', ['--channel-name', 'probe', '--dry-run']);
+    const preview = await run(args);
+    assert.equal(preview.code, 0, preview.out + preview.err);
+    assert.match(preview.out, /settings: \{\}/);
+    assert.equal(fs.existsSync(path.join(dir, '.rbtv', 'agents', 'probe')), false);
+    const slack = fakeSlack();
+    const created = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe']), { slack });
+    assert.equal(created.code, 0, created.out + created.err);
+    assert.equal(fs.readFileSync(path.join(dir, '.rbtv', 'agents', 'probe', 'settings.json'), 'utf8'), '{}\n');
+  });
+
+  await test('settings-file seeds settings', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const file = path.join(dir, 'settings.json');
+    fs.writeFileSync(file, '{"voice":"warm"}\n');
+    const slack = fakeSlack();
+    const created = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe', '--settings-file', file]), { slack });
+    assert.equal(created.code, 0, created.out + created.err);
+    assert.equal(fs.readFileSync(path.join(dir, '.rbtv', 'agents', 'probe', 'settings.json'), 'utf8'), '{\n  "voice": "warm"\n}\n');
+  });
+
+  await test('invalid settings JSON refused', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const file = path.join(dir, 'bad.json');
+    fs.writeFileSync(file, '{');
+    const args = baseArgs(dir, 'probe', ['--channel-name', 'probe', '--settings-file', file, '--dry-run']);
+    const before = tree(dir);
+    const result = await run(args).catch((error) => ({ code: error.exitCode || 1, out: '', err: error.message }));
+    assert.notEqual(result.code, 0);
+    assert.match(result.err, /not JSON/);
+    assert.deepEqual(tree(dir), before);
+  });
+
+  await test('re-run keeps settings', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const slack = fakeSlack();
+    const created = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe']), { slack });
+    assert.equal(created.code, 0, created.out + created.err);
+    const file = path.join(dir, '.rbtv', 'agents', 'probe', 'settings.json');
+    fs.writeFileSync(file, '{"kept":true}\n');
+    const mtime = fs.statSync(file).mtimeMs;
+    const again = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe']), { slack });
+    assert.equal(again.code, 0, again.out + again.err);
+    assert.equal(fs.readFileSync(file, 'utf8'), '{"kept":true}\n');
+    assert.equal(fs.statSync(file).mtimeMs, mtime);
   });
 
   if (failures.length) {

@@ -1,0 +1,19 @@
+{
+  "generated-at": "2026-08-13T18:00:00-03:00",
+  "accounts": {
+    "EXAMPLE-home": {
+      "sources": [
+        { "layout": "legacy-meet-recordings", "verdict": "dead" },
+        { "layout": "google-meet-tree", "verdict": "live", "folder-ref": "drv:folder/EXAMPLE-p-tree" },
+        { "layout": "tactiq-autosave", "verdict": "dead", "notes": "auto-save folder absent on this account" }
+      ]
+    },
+    "EXAMPLE-work": {
+      "sources": [
+        { "layout": "legacy-meet-recordings", "verdict": "dead" },
+        { "layout": "google-meet-tree", "verdict": "live", "folder-ref": "drv:folder/EXAMPLE-w-tree" },
+        { "layout": "tactiq-autosave", "verdict": "live", "folder-ref": "drv:folder/EXAMPLE-w-tq", "saves-into-account": "EXAMPLE-work" }
+      ]
+    }
+  }
+}
