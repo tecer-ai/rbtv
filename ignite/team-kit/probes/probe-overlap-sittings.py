@@ -194,7 +194,7 @@ def main():
     # The fixture root ROOTS AN INSTALL — D27's definition, never a bare `.rbtv/`. `ending_store`
     # refuses above a folder that roots none rather than minting one, which is what keeps a probe
     # from planting the stray store of 2026-08-28 [5815fbaa].
-    rec = tmp / ".rbtv" / "modules" / "ignite" / "server.json"
+    rec = tmp / "rbtv.json"
     rec.parent.mkdir(parents=True, exist_ok=True)
     rec.write_text('{"machines": {}}\n', encoding="utf-8")
     registry = tmp / "registry.json"

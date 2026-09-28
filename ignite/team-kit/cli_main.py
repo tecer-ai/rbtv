@@ -1630,7 +1630,7 @@ def build_parser(door=COORDINATION_DOOR):
     s = command(
         "gateway-status",
         "Task 7.57 (DETECT half only). Reports whether an ignite daemon serves THIS\n"
-        "workspace on THIS machine (.rbtv/modules/ignite/server.json) — a pure file read,\n"
+        "workspace on THIS machine (the ancestor holding rbtv.json) — a pure file read,\n"
         "always safe. Does NOT route coordination send/read through the gateway: that is\n"
         "RULED NOT MET (fork 1) — the gateway has no addressed-message door yet.\n"
         "checkin/send/read/pending/... never call this and are unaffected by it.",

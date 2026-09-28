@@ -7,7 +7,7 @@ whatever it landed on, and, finding nothing at all, CREATED one at the start dir
 `ruling.workspace_root` (whose own docstring promised it resolved "the way
 `ending_store.ending_store_db` resolves it" — a promise held by a comment). D27's definition, and
 the one `ignite/ignite-cli/lib/config.js#findInstallRoot` implements, is the INSTALL RECORD:
-the nearest ancestor holding `.rbtv/modules/ignite/server.json`. The same wrong rule at
+the nearest ancestor holding `rbtv.json`. The same wrong rule at
 `ignite/deploy/probe-suite-scheduled.py` and in the watchdog cost the false `probe-suite DOWN`
 alarm of 2026-08-28 03:02–07:35Z; the stray `3-resources/tools/rbtv/.rbtv/runtime/ignite/heart.db`
 found beside it that morning came from THIS kit's copy (5815fbaa, memory entry
@@ -56,7 +56,7 @@ KIT = HERE.parent
 IGNITE = KIT.parent
 ENDING_STORE_PY = KIT / "ending_store.py"
 OUT = HERE / "probe-workspace-record-walk.out"
-RECORD_REL = Path(".rbtv") / "modules" / "ignite" / "server.json"
+RECORD_REL = Path("rbtv.json")
 INSTRUCTIONS_REL = Path(".rbtv") / "runtime" / "ignite" / "leader-instructions"
 CHECKS = []
 T0 = time.time()
@@ -156,8 +156,7 @@ try:
     check("A4: RESOLVING CREATES NOTHING — after both calls the workspace still holds only its "
           "install record and the nested repo only the empty `runtime/` it started with. A "
           "resolver that creates as it looks is how the stray store was planted in the first place",
-          tree(ws / ".rbtv") == [str(Path("modules")), str(Path("modules") / "ignite"),
-                                 str(Path("modules") / "ignite" / "server.json")]
+          (ws / "rbtv.json").is_file() and not (ws / ".rbtv").exists()
           and tree(repo / ".rbtv") == ["runtime"],
           {"ws_rbtv": tree(ws / ".rbtv"), "repo_rbtv": tree(repo / ".rbtv")})
 

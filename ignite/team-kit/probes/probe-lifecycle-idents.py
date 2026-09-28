@@ -350,7 +350,7 @@ def main():
     # minting a `.rbtv/` at the start dir — the fallback that planted the stray
     # `<repo>/.rbtv/runtime/ignite/heart.db` of 2026-08-28 [5815fbaa]. It does not move this
     # package out of the temp tree: check 0a below still holds on the same path.
-    _rec = Path(tmp) / ".rbtv" / "modules" / "ignite" / "server.json"
+    _rec = Path(tmp) / "rbtv.json"
     _rec.parent.mkdir(parents=True, exist_ok=True)
     _rec.write_text('{"machines": {}}\n', encoding="utf-8")
     try:

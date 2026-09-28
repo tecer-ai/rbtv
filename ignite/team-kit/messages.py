@@ -3326,8 +3326,8 @@ def gateway_read_leg(args, base, me):
 
 def cmd_gateway_status(args):
     """Task 7.57 criterion (1), the DETECT half only. Reports whether an ignite daemon
-    serves THIS workspace on THIS machine (`.rbtv/modules/ignite/server.json`,
-    machine-keyed, D27) — a pure file read, always safe, never opt-in.
+    serves THIS workspace on THIS machine (the ancestor holding `rbtv.json`) — a pure
+    file read, always safe, never opt-in.
 
     It does NOT route send/read through the gateway: RULED NOT MET, with the finding
     (task 7.57 fork 1) — the gateway's nine intents carry no addressed-message door.

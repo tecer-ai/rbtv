@@ -47,9 +47,7 @@ def fixture():
     # `ending_store` resolves the store by that record and REFUSES above a folder that roots no
     # install, rather than minting a `.rbtv/` at the start dir — the fallback that planted the
     # stray `<repo>/.rbtv/runtime/ignite/heart.db` of 2026-08-28 [5815fbaa].
-    _rec = root / ".rbtv" / "modules" / "ignite" / "server.json"
-    _rec.parent.mkdir(parents=True, exist_ok=True)
-    _rec.write_text('{"machines": {}}\n', encoding="utf-8")
+    (root / "rbtv.json").write_text("{}\n", encoding="utf-8")
     pkg = root / ".rbtv" / "goals" / "g1"
     for seat in ("leader", "worker-a"):
         (pkg / "seats" / seat).mkdir(parents=True, exist_ok=True)

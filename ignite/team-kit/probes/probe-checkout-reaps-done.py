@@ -176,7 +176,7 @@ def main():
     for _v in ("TMUX", "TMUX_PANE", "COORD_AGENT", "COORD_LAUNCH_TARGET", "COORD_PACKAGE"):
         os.environ.pop(_v, None)
     tmp = Path(tempfile.mkdtemp(prefix="probe-checkout-reaps-"))
-    _rec = tmp / ".rbtv" / "modules" / "ignite" / "server.json"
+    _rec = tmp / "rbtv.json"
     _rec.parent.mkdir(parents=True, exist_ok=True)
     _rec.write_text('{"machines": {}}\n', encoding="utf-8")
     try:

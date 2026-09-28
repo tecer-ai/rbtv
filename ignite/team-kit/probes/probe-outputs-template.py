@@ -115,7 +115,7 @@ def build_mutant(dest_dir):
 
 def main():
     tmp = Path(tempfile.mkdtemp(prefix="probe-outputs-template-"))
-    _rec = tmp / ".rbtv" / "modules" / "ignite" / "server.json"
+    _rec = tmp / "rbtv.json"
     _rec.parent.mkdir(parents=True, exist_ok=True)
     _rec.write_text('{"machines": {}}\n', encoding="utf-8")
     try:

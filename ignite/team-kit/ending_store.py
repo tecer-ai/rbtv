@@ -7,16 +7,11 @@ from pathlib import Path
 
 ENDING_CLI = Path(__file__).resolve().parent.parent / "state-store" / "cli.js"
 
-# D27's definition of a WORKSPACE, stated where this kit needs it: the folder that ROOTS THE
-# INSTALL — the ancestor holding the committed endpoint record `.rbtv/modules/ignite/server.json`
-# — NOT any folder that happens to contain a `.rbtv/` directory. Canonical implementation:
-# `ignite/ignite-cli/lib/config.js#findInstallRoot` ("walk up to the NEAREST ancestor holding
-# `.rbtv/modules/ignite/server.json`. Nearest wins"). MIRRORED here in six lines rather than
-# imported, for the reason `ignite/deploy/probe-suite-scheduled.py` states beside its own copy:
-# the only Python port of config.js — `ignite/coord/gateway_client.py` — takes the workspace root
-# as an ARGUMENT (`resolve_workspace_root(default, env=None)`) and owns no walker to reuse. This is
-# the kit's ONE copy: `ruling.py` calls this function rather than carrying a second walk.
-INSTALL_RECORD_REL = Path(".rbtv") / "modules" / "ignite" / "server.json"
+# A WORKSPACE is the nearest ancestor holding `rbtv.json` — NOT any folder that happens to
+# contain a `.rbtv/` directory. The old marker, a committed endpoint record under `.rbtv/modules/`,
+# was deleted and must not be recreated. This is the kit's ONE copy of the walk: `ruling.py`
+# calls this function rather than carrying a second one.
+INSTALL_RECORD_REL = Path("rbtv.json")
 
 
 class EndingStoreError(Exception):
@@ -41,12 +36,12 @@ def workspace_root(start=None):
     (5815fbaa, memory `observation/20260828-i-a-rbtv-that-does-not-root-the`). A stray `.rbtv/` is
     gitignored (`.gitignore:76 **/.rbtv/`), so nothing in `git status` or a review ever shows it.
 
-    ⇒ So the test is the INSTALL RECORD, never the directory. A bare `.rbtv/` walked past is NAMED
+    ⇒ So the test is `rbtv.json`, never the `.rbtv/` directory. A bare `.rbtv/` walked past is NAMED
     on stderr — that line is what turns the next planting into one journal line instead of two
     components silently disagreeing about which file is `heart.db`. Nearest-ancestor-wins is
-    unchanged, so a genuinely nested install still shadows an outer one.
+    unchanged, so a genuinely nested workspace still shadows an outer one.
 
-    Returns None when no ancestor roots an install. The CALLER decides what that means: this
+    Returns None when no ancestor holds `rbtv.json`. The CALLER decides what that means: this
     function never invents a root, because the folder it would invent is the one the outage was
     made of."""
     here = Path(start or ".").resolve()
@@ -75,8 +70,7 @@ def ending_store_db(start=None):
     if root is None:
         raise EndingStoreError(
             f"no workspace above {Path(start or '.').resolve()}: walked to the filesystem root "
-            f"without finding a directory holding {INSTALL_RECORD_REL} (the install record that "
-            f"D27 and ignite/ignite-cli/lib/config.js#findInstallRoot define a workspace by). "
+            f"without finding a directory holding {INSTALL_RECORD_REL}. "
             f"NOTHING WAS WRITTEN — set ENDING_STORE_DB to name a store explicitly.")
     return root / ".rbtv" / "runtime" / "ignite" / "heart.db"
 

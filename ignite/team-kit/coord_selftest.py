@@ -66,8 +66,8 @@ def is_plain_ref(node):
 def seed_workspace(root):
     """Make `root` a WORKSPACE by writing the install record, and return it.
 
-    D27's definition and the only one `ending_store.workspace_root` accepts: the workspace is the
-    ancestor holding `.rbtv/modules/ignite/server.json`, NOT any folder holding a `.rbtv/`. A
+    The only marker `ending_store.workspace_root` accepts: the workspace is the ancestor holding
+    `rbtv.json`, NOT any folder holding a `.rbtv/`. A
     fixture that only builds `<ws>/.rbtv/goals/<goal>` roots no workspace, and the store resolver
     now refuses rather than inventing one at the cwd — the fallback that planted the stray
     `<repo>/.rbtv/runtime/ignite/heart.db` of 2026-08-28 [5815fbaa]. The record content is not read
@@ -692,8 +692,7 @@ def _selftest_checks(args, failures, names):
 
     with tempfile.TemporaryDirectory() as td:
         # ⚠ THE FIXTURE ROOT IS A WORKSPACE, AND IT SAYS SO WITH THE INSTALL RECORD. `ending_store`
-        # resolves the store by D27's rule — the nearest ancestor holding
-        # `.rbtv/modules/ignite/server.json` (`ignite-cli/lib/config.js#findInstallRoot`) — and
+        # resolves the store by the nearest ancestor holding `rbtv.json`, and
         # REFUSES where nothing does, instead of the create-at-cwd fallback it used to have. Before
         # this line the 73 scratch packages below rooted no workspace, so that fallback walked past
         # them to the first bare `.rbtv/` above: on this box `/tmp/.rbtv/` (itself planted by an

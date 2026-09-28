@@ -58,7 +58,7 @@ Before this kit ships beyond the `ignite/core-daemon` branch, the owner rules on
 
 | Where | Coupling |
 |-------|----------|
-| `coord.py:38` | `VAULT_ROOT = "/home/henri/ht-wkdir/second-brain"` — hardcoded spawn-cwd fallback; should resolve from the run package / workspace root at runtime |
+| `coord.py` | `VAULT_ROOT` is the workspace that holds this kit, walked up to `rbtv.json` at load — never a hardcoded owner path |
 | `coord.py` selftest fixtures | Real captured pane text carries the origin vault's absolute paths (production-regime fixtures — anonymize or keep as-is by ruling) |
 | `team-kit.md` / `system-design.md` | Provenance mentions of the origin vault's run packages (descriptive history, arguably fine) |
 | `tmux-overview` / `overview-compact.py` / `provider-usage.py` | Superseded by the promoted `teamview` CLI (`orchestration/teamview/tool/`) — decide drop vs keep for the `panel` strip |

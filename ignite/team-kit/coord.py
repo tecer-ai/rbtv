@@ -85,7 +85,7 @@ except ImportError:  # pragma: no cover - non-POSIX
     fcntl = None
 
 
-VAULT_ROOT = "/home/henri/ht-wkdir/second-brain"
+VAULT_ROOT = str(ending_store.workspace_root(Path(__file__).resolve().parent) or "")
 CLAUDE_BIN = os.environ.get("COORD_CLAUDE_BIN", "claude")
 CODEX_BIN = os.environ.get("COORD_CODEX_BIN", "codex")
 OPENCODE_BIN = os.environ.get("COORD_OPENCODE_BIN", "opencode")
