@@ -1,6 +1,8 @@
 ---
 id: slack-message-format
 description: "Structural reference — how any owner-facing seat writes to the owner over Slack: mrkdwn syntax, phone-first message shape, the decision-ask format, the ❓ ask / 💭 note markers, and moving files in and out of Slack with `stools` (download and upload). Applied, never executed; exposed as a skill to interactive seats. Converting audio to text or text to speech is a DIFFERENT skill — `core/communication/audio-io`."
+exposes-cli:
+  - meta/planning/stools
 ---
 
 <reference>
@@ -74,9 +76,8 @@ belongs to `audio-io` (the `core/communication` audio capability). That split is
 (2026-08-30): Slack is today's only channel, so channel logistics and audio conversion are kept
 apart and neither assumes the other. If you must hear or speak, you need BOTH skills.
 
-For manual file transfers, use the full path to
-`meta/planning/capabilities/stools-wrapper/tool/stools_wrapper.py`, relative to the rbtv module
-root (`3-resources/tools/rbtv/`). Use the wrapper rather than calling
+For manual file transfers, use the installed `stools` command, whose source is
+`meta/planning/capabilities/stools-wrapper/tool/stools_wrapper.py`. Use that wrapper rather than calling
 `3-resources/tools/stools/stools.py` directly; the wrapper enforces the send-identity rule below.
 An Ignite agent replying in its current conversation attaches file paths through `replies[].files`.
 
@@ -95,8 +96,8 @@ regardless of grant.
 Address the message by permalink, or by channel + ts:
 
 ```
-python3 meta/planning/capabilities/stools-wrapper/tool/stools_wrapper.py download --workspace ignite --permalink "<url>" --output /tmp/slack
-python3 meta/planning/capabilities/stools-wrapper/tool/stools_wrapper.py download --workspace ignite --channel "#canal" --ts <ts> --output /tmp/slack
+stools download --workspace ignite --permalink "<url>" --output /tmp/slack
+stools download --workspace ignite --channel "#canal" --ts <ts> --output /tmp/slack
 ```
 
 `--output` is the DIRECTORY the files land in. `--hours N` pulls a whole channel window instead of
@@ -105,7 +106,7 @@ one message; `--dry-run` lists what would be fetched without fetching it.
 ### Outbound — post a file back
 
 ```
-python3 meta/planning/capabilities/stools-wrapper/tool/stools_wrapper.py upload --workspace ignite --channel "#canal" --file /tmp/answer.mp3 --thread-ts <ts> --message "..."
+stools upload --workspace ignite --channel "#canal" --file /tmp/answer.mp3 --thread-ts <ts> --message "..."
 ```
 
 Upload is a WRITE — `--dry-run` prints the full preview first. `--message-file PATH` carries a

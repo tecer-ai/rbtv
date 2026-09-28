@@ -9,3 +9,4 @@
 # ruled the rbtv CLIs into `meta/` (each command a component).
 part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
 rbtv-teambuild,tool,path,rbtv teambuild,tool/rbtv-teambuild,,
+teambuild,capability,skill,,references/teambuild.md,"Use to discover available agent cards, cognitive units, seats, tasks, or workflows before staffing a plan; search the catalog by meaning.",

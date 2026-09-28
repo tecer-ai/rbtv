@@ -3,10 +3,7 @@ id: deck-builder
 description: "Deck builder — authors the presentation HTML slice by slice against the library Presentation profile, the brand pack and the picked art-direction brief, exports the PDF, and patches surgically on a loop-back re-entry."
 staffing-recommendations: "A strong long-context model at high effort. The occupant holds a picked visual contract while writing and rewriting markup across many slides; a short-context or low-effort sitting drifts off the contract by the middle of the deck."
 exposes:
-  skill:
-    - deck-production
-    - html-standards
-    - converter
+  skill: [deck-production, html-standards, converter]
 ---
 
 <role>

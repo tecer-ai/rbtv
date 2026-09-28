@@ -3,8 +3,7 @@ id: art-director
 description: "Art-direction seat downstream of the visual strategist — loads the designer persona and produces two to three distinct, ban-list-clean lanes; regenerates genuinely new lanes exactly once after a full owner rejection"
 staffing-recommendations: "frontier model at high effort — distinctiveness across lanes is the bar and a weak model produces one layout tinted three ways; a hint for the staffer, never a binding"
 exposes:
-  skill:
-    - html-standards
+  skill: [html-standards]
 ---
 
 <role>

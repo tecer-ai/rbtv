@@ -1,6 +1,9 @@
 ---
 id: audio-io
-description: "How an agent works with audio through the ElevenLabs capability: turn a voice note into text (`transcribe`), turn text into a playable file (`tts`), and switch the one language key both directions read. Channel-agnostic — it takes a path and returns a path, and never touches Slack or any other chat surface."
+description: "Use to transcribe or speak with audio, set its language, or check the older local audio PATH link with link-tools. Channel-agnostic: takes and returns file paths."
+exposes-cli:
+  - audio
+  - link-tools
 ---
 
 <reference>
@@ -23,6 +26,9 @@ skills. Never look for a channel id, a workspace flag or an upload verb here: no
 After installing `core/communication`, run `audio` by name from a new shell:
 the installer links it into `~/.rbtv/bin` and puts that directory on PATH.
 The full script path below also works without an install.
+
+`link-tools --check` inspects the older `~/.local/bin/audio` link. Run `link-tools`
+to repair that link only when the task is to maintain the older local link.
 
 | What | Where |
 |---|---|

@@ -1,13 +1,15 @@
 ---
 description: 'Use when committing changes to git. Triggers: user says "commit", "salva no git", "commita", or a task finishes and changes must be persisted. Handles file-op hygiene (git mv/git rm), remote sync, conflict detection, and commit message generation from diff analysis.'
 tags: [coding]
+exposes-cli:
+  - rbtv-commit
 ---
 
 # commit — deterministic git commit
 
 The agent supplies the judgment — which files belong together, what each message says — and the
-deterministic script `commit.py` (beside this file, at `3-resources/tools/rbtv/core/coding/tool/commit.py`)
-owns every git mechanic in ONE invocation per commit: remote sync, the staging gate, the commit,
+deterministic command `rbtv-commit` (`tool/commit.py` in this component) owns every git mechanic in
+ONE invocation per commit: remote sync, the staging gate, the commit,
 and the optional push. The agent NEVER runs the stage / sync / commit git commands by hand.
 
 ## When to use
@@ -46,14 +48,11 @@ workspace root (or any other repo) makes it operate on the WRONG repo and report
 `no changes to commit` for paths that plainly changed. The `-f` paths are repo-root-relative, so
 they only resolve correctly from inside `{repo}`.
 
-Invoke the script by ABSOLUTE path, built from the WORKSPACE root (the directory containing
-`.rbtv/`): `<workspace-root>/3-resources/tools/rbtv/core/coding/tool/commit.py`. The script runs with the
-working directory inside `{repo}` — often a repo nested below the workspace root — so a bare
-relative `.rbtv/mirror/...` resolves against the repo's cwd and fails. For each confirmed cluster,
+Invoke the installed `rbtv-commit` command from inside `{repo}`. For each confirmed cluster,
 in plan order:
 
 ```
-python "<workspace-root>/3-resources/tools/rbtv/core/coding/tool/commit.py" -m "<message>" -f <path> [-f <path> ...] [--push]
+rbtv-commit -m "<message>" -f <path> [-f <path> ...] [--push]
 ```
 
 (The `-f` paths, by contrast, stay repo-root-relative — the script's cwd is inside `{repo}`.)

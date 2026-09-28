@@ -3,14 +3,8 @@ id: reference-extractor
 description: "Visual-reference extraction seat — fires only the extraction capability each incoming brief names, and builds a real-provenance reference set with an index the art director opens first"
 staffing-recommendations: "mid-tier model at moderate effort — the judgment is brief-to-capability routing and provenance discipline, not design taste; a hint for the staffer, never a binding"
 exposes:
-  skill:
-    - design/design-tokens
-    - design/screenshot-capture
-    - design/vision-to-json
-    - design/subtle-refs
-  path:
-    - design/subtle-refs-cli
-    - design/screenshot-capture-cli
+  skill: [design/design-tokens, design/screenshot-capture, design/vision-to-json, design/subtle-refs]
+  path: [design/subtle-refs-cli, design/screenshot-capture-cli]
 ---
 
 <role>

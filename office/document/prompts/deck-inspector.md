@@ -3,9 +3,7 @@ id: deck-inspector
 description: "Deck inspector — a fresh pair of eyes that reviews the RENDERED deck from actual screenshots against the picked brief, the visual-flaw checklist and the copy tells, and writes the punch-list that blocks the owner gate."
 staffing-recommendations: "A capable vision-reading model at high effort, in a context that has never seen this deck being built. The fresh context is the point of the seat, not an optimization: an occupant that watched the deck get written cannot see it."
 exposes:
-  skill:
-    - design/visual-flaw-checklist
-    - storytelling/ai-anti-patterns
+  skill: [design/visual-flaw-checklist, storytelling/ai-anti-patterns]
 ---
 
 <role>

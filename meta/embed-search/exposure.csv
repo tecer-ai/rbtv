@@ -10,3 +10,4 @@
 # ruled the rbtv CLIs into `meta/` (each command a component).
 part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
 rbtv-embed-search,tool,path,,tool/rbtv-embed-search,,
+embed-search,capability,skill,,references/embed-search.md,"Use to search markdown in a local folder by meaning, keyword, or substring, or inspect and refresh its search index.",

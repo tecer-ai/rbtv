@@ -11,7 +11,7 @@
 # column, never a typo.
 part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
 office,capability,skill,,capabilities/office/office.md,"Use for office work: make or review a document, convert to Word, create a deck or PDF, polish an email, prepare a meeting, extract design references, capture screenshots, or check HTML style. Routes to the office storytelling, design, and document skills and CLIs.",
-html-standards,reference,skill,,references/html-standards.md,"The HTML standards library router — one file per subject, reached through this router, never separately exposed.",
+html-standards,reference,skill,,references/html-standards.md,"Use when making or reviewing Review, Presentation, Learning, or seat-plan dashboard HTML; load the matching standards for the page.",
 html-review,capability,skill,,capabilities/html-review/html-review.md,Reviews produced HTML output against the standards library.,
 deck-production,capability,skill,,capabilities/deck-production/deck-production.md,"Produces the HTML deck and matching PDF (1280x720, matching @page print settings).",
 converter,capability,skill,,capabilities/converter/converter.md,Converts documents between formats (e.g. markdown to DOCX).,

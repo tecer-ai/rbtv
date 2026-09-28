@@ -499,6 +499,24 @@ def test_green_parent_routes_to_sibling_tool():
         assert code == 0, f"parent route should cover sibling tool: {out}\n{err}"
 
 
+def test_green_explicit_route_from_other_module():
+    with tempfile.TemporaryDirectory() as tmp:
+        component, kg = build(tmp, {"exposure.csv": FILES["exposure.csv"] +
+                               "x,tool,path,,tool/demo.py,,\n",
+                               "tool/demo.py": "print('x')\n"})
+        peer = component.parent.parent / "other" / "communication"
+        peer.mkdir(parents=True)
+        (peer / "exposure.csv").write_text(
+            "part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots\n"
+            "slack,reference,skill,,slack.md,Use to send files over Slack.,\n",
+            encoding="utf-8")
+        (peer / "slack.md").write_text(
+            "---\nexposes-cli:\n  - mod/comp/x\n---\n\nUse `x` for files.\n",
+            encoding="utf-8")
+        code, out, err = run(component, kg, "--check", "skill-discovery")
+        assert code == 0, f"cross-component skill route should cover tool: {out}\n{err}"
+
+
 def test_red_router_description_is_generic():
     expect_red("generic router description", "skill-discovery", "no concrete request",
                {"exposure.csv": FILES["exposure.csv"].replace(

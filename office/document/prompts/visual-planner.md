@@ -3,8 +3,7 @@ id: visual-planner
 description: "Visual strategist seat — turns a gated narrative lock into the emphasis map, slide list, per-slide form and design handoff constraints, and emits the visual-reference asks; no palette, no type, no gate"
 staffing-recommendations: "high-tier model at high effort — grouping judgment and form choice are the job; a hint for the staffer, never a binding"
 exposes:
-  skill:
-    - storytelling/visual-strategist
+  skill: [storytelling/visual-strategist]
 ---
 
 <role>

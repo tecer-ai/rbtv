@@ -1,5 +1,5 @@
 ---
-description: "Read at the moment any agent is about to produce or review an HTML page — which sibling standards to load, and when. Applied against the page; never executed as a procedure."
+description: "Use when making or reviewing Review, Presentation, Learning, or seat-plan dashboard HTML; load the matching standards for the page."
 tags: [document]
 ---
 
@@ -23,17 +23,18 @@ V1 page-types are exactly those four. Website, Dashboards, and UI/UX are named f
 
 Stop at this contract. Load only what it names for the page in front of you.
 
-## Siblings
+## Request → child
 
-Each sibling is one subject. Reach it through this router. None of them is a skill of its own.
+Each child is a separate subject. Reach it through this router; none is a skill of its own.
 
-- `html-quality.md` — cross-type content quality (five normative rules, including the glossary bar). Binds both production models and every page-type.
-- `html-production.md` — file mechanics (static markup, assets, agent-note, source-sync). Binds agent-authored HTML only.
-- `html-design-system.md` — default look (tokens, type, index, cards, linear path, density). Binds agent-authored HTML only.
-- `html-charts.md` — chart and dataviz standards for how a chart appears in HTML. Binds agent-authored HTML only; load only when the page contains a chart (rule 4).
-- `html-page-review.md` — Review type-only rules (production model, look authority, type-only structure). Binds agent-authored HTML.
-- `html-page-presentation.md` — Presentation type-only rules (production model, look authority, type-only structure). Binds agent-authored HTML.
-- `html-page-learning.md` — Learning type-only rules (production model, look authority, type-only authoring bar). Binds the schema + deterministic builder model.
+| Request | Child |
+|---|---|
+| Make or review any HTML page | `html-quality.md` |
+| Make or review Review HTML | `html-production.md`, `html-design-system.md`, `html-page-review.md` |
+| Make or review Presentation HTML | `html-production.md`, `html-design-system.md`, `html-page-presentation.md` |
+| Make or review Learning HTML | `html-page-learning.md` |
+| Make or review a seat-plan dashboard | `capabilities/posh/posh.md` |
+| Add or review a chart in agent-authored HTML | `html-charts.md` |
 
 A page-type file never restates a cross-type rule; it points here.
 
