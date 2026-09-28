@@ -127,6 +127,34 @@ def _shim_text(dest: Path) -> str:
     return f'{_SHIM_MARK}{dest}\n@"{interp}" "{arg}" %*\n'
 
 
+def _sh_text(dest: Path) -> str:
+    """The extensionless twin of a `.cmd` shim: git bash resolves only the
+    exact name, never `<name>.cmd`, so without it agents in bash see nothing."""
+    interp = _win_interp(dest).replace("\\", "/")
+    return (f"#!/bin/sh\n# rbtv-shim -> {dest}\n"
+            f'exec "{interp}" "{str(dest).replace(chr(92), "/")}" "$@"\n')
+
+
+def _sh_twin(path: Path) -> Path | None:
+    """The bash twin beside a Windows `.cmd` shim; None off Windows."""
+    return path.with_suffix("") if _WIN and path.suffix.lower() == ".cmd" \
+        else None
+
+
+def _twin_owned(twin: Path) -> bool:
+    try:
+        return twin.read_text(encoding="utf-8").splitlines()[1] \
+            .startswith("# rbtv-shim -> ")
+    except (OSError, IndexError, UnicodeDecodeError):
+        return False
+
+
+def _twin_foreign(path: Path) -> bool:
+    twin = _sh_twin(path)
+    return (twin is not None and twin.exists() and not twin.is_symlink()
+            and not _twin_owned(twin))
+
+
 def _shim_target(path: Path) -> Path | None:
     if not _WIN or path.suffix.lower() != ".cmd" or not path.is_file():
         return None
@@ -197,7 +225,13 @@ def link_points_at(link: Path, dest: Path) -> bool:
         if link.is_symlink():
             return link.readlink() == dest or link.resolve() == dest.resolve()
         # Shim: whole-text compare, so an interpreter change (edited shebang)
-        # also reads as stale and gets relinked.
+        # also reads as stale and gets relinked. A missing bash twin is stale
+        # too, which is how pre-twin installs heal on the next run.
+        twin = _sh_twin(link)
+        if twin is not None and (not twin.is_file() or
+                                 twin.read_bytes().decode("utf-8")
+                                 != _sh_text(dest)):
+            return False
         return link.read_text(encoding="utf-8") == _shim_text(dest)
     except (OSError, Refuse):
         return False
@@ -206,7 +240,15 @@ def link_points_at(link: Path, dest: Path) -> bool:
 def _make_link(path: Path, dest: Path) -> None:
     try:
         if _WIN:
+            twin = _sh_twin(path)
+            if _twin_foreign(path):
+                raise Refuse("path-collision",
+                             f"{twin} exists and is not ours", str(twin))
             path.write_text(_shim_text(dest), encoding="utf-8")
+            if twin.is_symlink():
+                twin.unlink()
+            # Bytes, not text: text mode would write CRLF, which sh rejects.
+            twin.write_bytes(_sh_text(dest).encode("utf-8"))
         else:
             path.symlink_to(dest)
     except OSError as exc:
@@ -256,6 +298,9 @@ def unlink_one(bindir: Path, name: str, *, dry: bool) -> str:
                      "this installer did not create", str(path))
     if not dry:
         path.unlink()
+        twin = _sh_twin(path)
+        if twin is not None and twin.is_file() and _twin_owned(twin):
+            twin.unlink()
     return "unlinked"
 
 
@@ -298,6 +343,10 @@ def gate_path_links(bindir: Path, desired: dict[str, Path],
         if path.exists() and not _owned(path):
             raise Refuse("path-collision",
                          f"{path} exists and is not ours",
+                         str(path))
+        if _twin_foreign(path):
+            raise Refuse("path-collision",
+                         f"{_sh_twin(path)} exists and is not ours",
                          str(path))
     for name in sorted(drop):
         path = link_path(bindir, name)

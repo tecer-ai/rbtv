@@ -384,6 +384,14 @@ see `C:` paths. POSIX behaviour is byte-identical to before. The
 `--write-path` line is likewise per-platform: PowerShell `$PROFILE` syntax
 on Windows, bash/zsh on POSIX, same `# rbtv2:...` fences.
 
+Beside every `.cmd` shim sits an extensionless twin, `<part-id>`: a
+`#!/bin/sh` launcher (LF endings, line 2 `# rbtv-shim -> <target>` as its
+ownership marker) that `exec`s the same interpreter and target. Git bash —
+the shell agents run on Windows — resolves only the exact name, never
+`<name>.cmd`, so without the twin every PATH tool was PowerShell-only. The
+twin is written, checked, and removed together with its `.cmd`; a missing
+twin reads as stale, so pre-twin installs heal on the next run.
+
 ## D10 — BAKED PATHS ARE ABSOLUTE
 
 BAKED PATHS ARE ABSOLUTE — a loader points at its entry point by resolved

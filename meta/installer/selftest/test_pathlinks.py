@@ -1,6 +1,7 @@
 """The `~/.rbtv/bin` shortcuts and the shell PATH line."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from discovery import EXPOSURE_NAME, Refuse, scan_all
@@ -65,6 +66,12 @@ def path_links(ctx) -> None:
           and "ladd-bin" in (lr["report"].get("path") or {}).get(
               "linked", []),
           str(lr["report"].get("path")))
+    twin = link_path(bin_dir(), "ladd-bin").with_suffix("")
+    check("L-bash-twin — on Windows an extensionless LF sh launcher sits "
+          "beside the .cmd (git bash never resolves <name>.cmd)",
+          os.name != "nt" or (twin.is_file()
+                              and b"\r" not in twin.read_bytes()
+                              and twin.read_bytes().startswith(b"#!/bin/sh")))
     check("L-no-flag — shell-startup append does not happen without "
           "--write-path",
           not before_home_rc and not Path(_RUNTIME["rc"]).exists())
@@ -72,6 +79,7 @@ def path_links(ctx) -> None:
     do_uninstall(lws, lcat, ["lmod/ladd"], dry_run=False)
     check("L-rm — unlink on rm; directory kept if anything else remains",
           not link_path(bin_dir(), "ladd-bin").exists()
+          and not twin.exists()
           and bin_dir().is_dir(),
           str(list(bin_dir().iterdir()) if bin_dir().is_dir() else None))
 
