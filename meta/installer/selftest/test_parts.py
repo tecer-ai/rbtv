@@ -149,7 +149,7 @@ def part_level_claim_release(ctx) -> None:
      _mk, rf, pws) = ctx.frame()
 
     print("\nC — part-level claim release")
-    mcp_before = json.loads((pws / ".mcp.json").read_text())
+    mcp_before = json.loads((pws / ".mcp.json").read_text(encoding="utf-8"))
     check("C-setup — MCP key is present before the part rm",
           "fix" in mcp_before.get("mcpServers", {}), str(mcp_before))
     do_uninstall(pws, catalog, ["fixmod/goodcomp"], dry_run=False,
@@ -158,7 +158,7 @@ def part_level_claim_release(ctx) -> None:
     check("C-leak — rm of the config part releases the MCP key",
           (not (pws / ".mcp.json").exists()
            or "fix" not in json.loads(
-               (pws / ".mcp.json").read_text()).get("mcpServers", {}))
+               (pws / ".mcp.json").read_text(encoding="utf-8")).get("mcpServers", {}))
           and _claim_id(".mcp.json", ["mcpServers", "fix"])
           not in pst["shared_claims"],
           str(pst["shared_claims"]))
@@ -198,7 +198,7 @@ def vanished_component_part_rm(ctx) -> None:
     check("C2 — vanished folder, rm config part: MCP key gone, rest stays",
           (not (pv / ".mcp.json").exists()
            or "fix" not in json.loads(
-               (pv / ".mcp.json").read_text()).get("mcpServers", {}))
+               (pv / ".mcp.json").read_text(encoding="utf-8")).get("mcpServers", {}))
           and (pv / ".claude/skills/fixskill/SKILL.md").is_file()
           and "fixmcp" not in pvst["components"]["fixmod/goodcomp"]["parts"]
           and "fixskill" in pvst["components"]["fixmod/goodcomp"]["parts"],

@@ -36,7 +36,7 @@ def the_marker_is_ownership(ctx) -> None:
                       dry_run=False)
     check("M1 — a marked file outside the book is ADOPTED and regenerated",
           resm["adopted"] == [rule_rel]
-          and "a stale body" not in (mk / rule_rel).read_text()
+          and "a stale body" not in (mk / rule_rel).read_text(encoding="utf-8")
           and rule_rel in rec_files(read_state(mk)["components"][
               "fixmod/goodcomp"]),
           str(resm.get("adopted")))
@@ -54,7 +54,7 @@ def the_marker_is_ownership(ctx) -> None:
     except Refuse as exc:
         check("M2 — an UNMARKED file at a planned path refuses",
               exc.code == "collision"
-              and (mk2 / rule_rel).read_text() == hand_rule, exc.code)
+              and (mk2 / rule_rel).read_text(encoding="utf-8") == hand_rule, exc.code)
 
     # RELEASE — a booked file a human took over (marker gone) is dropped
     # from the book, never deleted.
@@ -62,7 +62,7 @@ def the_marker_is_ownership(ctx) -> None:
     resm2 = do_uninstall(mk, catalog, ["fixmod/goodcomp"], dry_run=False)
     check("M3 — a booked file whose marker is gone is RELEASED, not deleted",
           resm2["released"] == [rule_rel]
-          and (mk / rule_rel).read_text() == "# I own this now\n"
+          and (mk / rule_rel).read_text(encoding="utf-8") == "# I own this now\n"
           and rule_rel not in resm2["deleted"], str(resm2["released"]))
 
     # MIGRATION — files a pre-marker run minted under the `rbtv2-` prefix
@@ -102,7 +102,7 @@ def gitignore_block(ctx) -> None:
                                    encoding="utf-8")
     rgi = do_install(gi, catalog, ["fixmod/goodcomp"], ["claude", "codex"],
                      dry_run=False, guidance_basis="CLAUDE.md")
-    body = (gi / EXCLUDE_REL).read_text()
+    body = (gi / EXCLUDE_REL).read_text(encoding="utf-8")
     booked = sorted(rec_files(read_state(gi)["components"]["fixmod/goodcomp"]))
     check("G1 — every per-component artifact and the book are listed",
           all(rel in body for rel in booked)
@@ -121,12 +121,12 @@ def gitignore_block(ctx) -> None:
     check("G2 — a re-run is idempotent, block and all",
           do_install(gi, catalog, ["fixmod/goodcomp"],
                      ["claude", "codex"], dry_run=False)["written"] == []
-          and (gi / EXCLUDE_REL).read_text() == body)
+          and (gi / EXCLUDE_REL).read_text(encoding="utf-8") == body)
     # A shrinking set shrinks the block — the whole point of D14, and
     # since D16 a narrower harness set really is a narrowing.
     rgi2 = do_install(gi, catalog, ["fixmod/goodcomp"], ["claude"],
                       dry_run=False)
-    gi_body = (gi / EXCLUDE_REL).read_text()
+    gi_body = (gi / EXCLUDE_REL).read_text(encoding="utf-8")
     check("G3 — a narrowed harness set drops the dropped harness's files "
           "from disk AND from the block",
           ".claude/rules/fixrule.md" in gi_body
@@ -139,7 +139,7 @@ def gitignore_block(ctx) -> None:
                       dry_run=False)
     check("G3b — widening it back re-writes them",
           ".agents/behavior-rules/fixrule.md"
-          in (gi / EXCLUDE_REL).read_text()
+          in (gi / EXCLUDE_REL).read_text(encoding="utf-8")
           and (gi / ".agents/behavior-rules/fixrule.md").exists()
           and rgi3["deleted"] == [], str(rgi3["deleted"]))
     if os.name == "nt":
@@ -149,14 +149,14 @@ def gitignore_block(ctx) -> None:
         check("G3c — a Hidden exclude file is rewritten in place and stays "
               "hidden",
               ".agents/behavior-rules/fixrule.md"
-              not in (gi / EXCLUDE_REL).read_text()
+              not in (gi / EXCLUDE_REL).read_text(encoding="utf-8")
               and bool(attrs & stat.FILE_ATTRIBUTE_HIDDEN))
     else:
         skip("G3c — Hidden exclude file", "Windows-only file attribute")
     do_uninstall(gi, catalog, ["fixmod/goodcomp"], dry_run=False)
     check("G4 — the last uninstall takes the block, leaves their lines",
-          (gi / EXCLUDE_REL).read_text() == "# theirs\nnode_modules/\n",
-          (gi / EXCLUDE_REL).read_text())
+          (gi / EXCLUDE_REL).read_text(encoding="utf-8") == "# theirs\nnode_modules/\n",
+          (gi / EXCLUDE_REL).read_text(encoding="utf-8"))
 
     ng = tmp / "ws-not-a-repo"
     ng.mkdir()
@@ -180,7 +180,7 @@ def gitignore_block(ctx) -> None:
         check("G6 — a foreign rbtv2 fence refuses",
               exc.code == "collision"
               and EXCLUDE_REL in exc.message
-              and (gf / EXCLUDE_REL).read_text() == foreign, exc.code)
+              and (gf / EXCLUDE_REL).read_text(encoding="utf-8") == foreign, exc.code)
 
     gt = tmp / "ws-tracked"
     gt.mkdir()
@@ -221,7 +221,7 @@ def gitignore_block(ctx) -> None:
     (gs / ".claude/rules/lost.md").write_text(MANAGED_BANNER + "rule\n",
                                               encoding="utf-8")
     do_install(gs, catalog, ["fixmod/goodcomp"], ["claude"], dry_run=False)
-    gs_body = (gs / EXCLUDE_REL).read_text()
+    gs_body = (gs / EXCLUDE_REL).read_text(encoding="utf-8")
     check("G8 — a stray marked artifact the book lost is listed (skill as "
           "its folder), an unmarked one is not",
           ".claude/skills/orphan/\n" in gs_body
@@ -230,7 +230,7 @@ def gitignore_block(ctx) -> None:
     check("G8 — and a re-run stays idempotent",
           do_install(gs, catalog, ["fixmod/goodcomp"], ["claude"],
                      dry_run=False)["written"] == []
-          and (gs / EXCLUDE_REL).read_text() == gs_body)
+          and (gs / EXCLUDE_REL).read_text(encoding="utf-8") == gs_body)
     check("G8 — the shared .gitignore is never written",
           not (gs / ".gitignore").exists(), "a .gitignore was minted")
 
@@ -245,9 +245,9 @@ def gitignore_block(ctx) -> None:
         encoding="utf-8")
     do_install(gs, catalog, ["fixmod/goodcomp"], ["claude"], dry_run=False)
     check("G9 — an old .gitignore block is released, their lines kept",
-          (gs / ".gitignore").read_text() == "theirs/\n"
+          (gs / ".gitignore").read_text(encoding="utf-8") == "theirs/\n"
           and _claim_id(".gitignore", None)
           not in read_state(gs)["shared_claims"]
-          and (gs / EXCLUDE_REL).read_text() == gs_body,
-          (gs / ".gitignore").read_text())
+          and (gs / EXCLUDE_REL).read_text(encoding="utf-8") == gs_body,
+          (gs / ".gitignore").read_text(encoding="utf-8"))
     ctx.keep(locals())

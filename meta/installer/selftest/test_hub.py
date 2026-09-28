@@ -42,20 +42,20 @@ def skills_folder_copied_whole(ctx) -> None:
     check("S2 — non-SKILL.md members are BYTE-IDENTICAL to the source",
           (sk / ".claude/skills/vendored/logo.png").read_bytes()
           == (src / "logo.png").read_bytes()
-          and (sk / ".claude/skills/vendored/references/deep.md").read_text()
-          == (src / "references/deep.md").read_text(),
+          and (sk / ".claude/skills/vendored/references/deep.md").read_text(encoding="utf-8")
+          == (src / "references/deep.md").read_text(encoding="utf-8"),
           "a verbatim copy is not verbatim")
     check("S2 — the copied SKILL.md is the ONE file we stamp",
-          MANAGED_MARK in (sk / ".claude/skills/vendored/SKILL.md").read_text()
-          and (sk / ".claude/skills/vendored/SKILL.md").read_text()
+          MANAGED_MARK in (sk / ".claude/skills/vendored/SKILL.md").read_text(encoding="utf-8")
+          and (sk / ".claude/skills/vendored/SKILL.md").read_text(encoding="utf-8")
           .startswith("---\nname: vendored\n")
           and MANAGED_MARK not in (sk / ".claude/skills/vendored/"
-                                   "references/deep.md").read_text())
+                                   "references/deep.md").read_text(encoding="utf-8"))
     check("S3 — the whole folder is OURS through that one marker",
           all(_is_ours(sk, rel) for rel in want_sk),
           str(sorted(rel for rel in want_sk if not _is_ours(sk, rel))))
     check("S3 — the source folder is never modified",
-          MANAGED_MARK not in (src / SKILL_FILE).read_text())
+          MANAGED_MARK not in (src / SKILL_FILE).read_text(encoding="utf-8"))
     check("S4 — it is booked and reported like any other unit",
           rec_files(read_state(sk)["components"]["_hub/skills/vendored"])
           == want_sk
@@ -76,7 +76,7 @@ def skills_folder_copied_whole(ctx) -> None:
     # human's — uninstall must not delete any of it.
     do_install(sk, catalog, ["_hub/skills/vendored"], ["claude"],
                dry_run=False)
-    taken = (sk / ".claude/skills/vendored/SKILL.md").read_text().replace(
+    taken = (sk / ".claude/skills/vendored/SKILL.md").read_text(encoding="utf-8").replace(
         MANAGED_BANNER, "")
     (sk / ".claude/skills/vendored/SKILL.md").write_text(taken,
                                                          encoding="utf-8")
@@ -171,21 +171,21 @@ def hub_units(ctx) -> None:
     check("H-realize-skill — verbatim folder copy",
           (hw / ".claude/skills/hubskill/SKILL.md").is_file()
           and MANAGED_MARK in (hw / ".claude/skills/hubskill/SKILL.md")
-          .read_text())
+          .read_text(encoding="utf-8"))
     check("H-realize-command — pointer/loader via MATRIX",
           (hw / ".claude/commands/hubcmd.md").is_file()
-          and "Read `" in (hw / ".claude/commands/hubcmd.md").read_text())
+          and "Read `" in (hw / ".claude/commands/hubcmd.md").read_text(encoding="utf-8"))
     check("H-realize-rule — copy-verbatim + marker",
-          "# HUB RULE" in (hw / ".claude/rules/hubrule.md").read_text()
-          and MANAGED_MARK in (hw / ".claude/rules/hubrule.md").read_text())
+          "# HUB RULE" in (hw / ".claude/rules/hubrule.md").read_text(encoding="utf-8")
+          and MANAGED_MARK in (hw / ".claude/rules/hubrule.md").read_text(encoding="utf-8"))
     check("H-realize-sub-agent — pointer/loader via MATRIX",
           (hw / ".claude/agents/hubagent.md").is_file()
-          and "Read `" in (hw / ".claude/agents/hubagent.md").read_text())
+          and "Read `" in (hw / ".claude/agents/hubagent.md").read_text(encoding="utf-8"))
     check("H-realize-hook — shared claim, not a whole file",
           "SessionStart" in json.loads(
-              (hw / ".claude/settings.json").read_text()).get("hooks", {}))
+              (hw / ".claude/settings.json").read_text(encoding="utf-8")).get("hooks", {}))
     check("H-realize-config — MCP key claimed",
-          "hubfix" in json.loads((hw / ".mcp.json").read_text())
+          "hubfix" in json.loads((hw / ".mcp.json").read_text(encoding="utf-8"))
           .get("mcpServers", {}))
     check("H-realize-path — catalogued, nothing under target, linked by part-id",
           not any(r["method"] == "path"

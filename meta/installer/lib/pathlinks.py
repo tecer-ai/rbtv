@@ -23,10 +23,12 @@ from .constants import (
     PATH_BOOTSTRAP,
     PATH_FENCE_END,
     PATH_FENCE_START,
+    STATE_REL,
     WS_PREFIX,
     _RUNTIME,
 )
 from .fsio import write_file
+from .target import is_user_home
 
 _WIN = os.name == "nt"
 
@@ -187,7 +189,8 @@ def _forbid_local_bin(bindir: Path) -> None:
 def workspace_root(start: Path) -> Path:
     here = start.resolve()
     for p in (here, *here.parents):
-        if (p / ".rbtv" / "config").is_dir():
+        if (p / STATE_REL).is_file() or (
+                (p / ".rbtv" / "config").is_dir() and not is_user_home(p)):
             return p
     return here
 

@@ -15,6 +15,12 @@ DISCOVER_CWD = "cwd (no .rbtv/ found above)"
 DISCOVER_FLAG = "--target"
 
 
+def is_user_home(cand: Path) -> bool:
+    """Home's `.rbtv/` is the per-user runtime (`~/.rbtv/bin`), present on every
+    machine that ran the installer — it never marks a workspace by itself."""
+    return cand == Path.home().resolve()
+
+
 def discover_target(start: Path) -> tuple[Path, str]:
     """Resolve the install root from `start` upward. Returns (root, why)."""
     here = start.resolve()
@@ -23,6 +29,6 @@ def discover_target(start: Path) -> tuple[Path, str]:
         if (cand / STATE_REL).is_file():
             return cand, DISCOVER_STATE
     for cand in chain:
-        if (cand / ".rbtv").is_dir():
+        if (cand / ".rbtv").is_dir() and not is_user_home(cand):
             return cand, DISCOVER_RBTV
     return here, DISCOVER_CWD

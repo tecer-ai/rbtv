@@ -60,16 +60,16 @@ def green_arm_all_harnesses(ctx) -> None:
                   or Path(rel).parent.name.startswith(LEGACY_PREFIX)
                   for rel in expect), str(sorted(expect)))
     check("D12 — every artifact carries the ownership marker instead",
-          all(MANAGED_MARK in (target / rel).read_text() for rel in expect)
+          all(MANAGED_MARK in (target / rel).read_text(encoding="utf-8") for rel in expect)
           and all(_is_ours(target, rel) for rel in expect),
           str(sorted(rel for rel in expect
-                     if MANAGED_MARK not in (target / rel).read_text())))
+                     if MANAGED_MARK not in (target / rel).read_text(encoding="utf-8"))))
     check("D12 — the marker sits BELOW the frontmatter, which still parses",
           (target / ".claude/skills/fixskill/SKILL.md")
-          .read_text().startswith("---\nname: fixskill\n")
+          .read_text(encoding="utf-8").startswith("---\nname: fixskill\n")
           and (target / ".claude/skills/fixskill/SKILL.md")
-          .read_text().split("---\n")[2].lstrip().startswith("<!--"),
-          (target / ".claude/skills/fixskill/SKILL.md").read_text()[:200])
+          .read_text(encoding="utf-8").split("---\n")[2].lstrip().startswith("<!--"),
+          (target / ".claude/skills/fixskill/SKILL.md").read_text(encoding="utf-8")[:200])
     check("`pool` minted nothing; `path` still writes nothing under target",
           not (target / ".claude/skills/fixtool").exists()
           and not (target / ".claude/skills/fixpool").exists()
@@ -87,12 +87,12 @@ def green_arm_all_harnesses(ctx) -> None:
           str(list(bin_dir().iterdir()) if bin_dir().is_dir() else None))
     check("skill loader carries a YAML-safe description",
           '"A fixture skill: with a colon"'
-          in (target / ".claude/skills/fixskill/SKILL.md").read_text())
+          in (target / ".claude/skills/fixskill/SKILL.md").read_text(encoding="utf-8"))
     check("rule copied VERBATIM under one marker line",
-          (target / ".claude/rules/fixrule.md").read_text()
+          (target / ".claude/rules/fixrule.md").read_text(encoding="utf-8")
           == MANAGED_BANNER + (tree / "fixmod/goodcomp/rule-entry.md"
-                               ).read_text(),
-          (target / ".claude/rules/fixrule.md").read_text()[:200])
+                               ).read_text(encoding="utf-8"),
+          (target / ".claude/rules/fixrule.md").read_text(encoding="utf-8")[:200])
     check("F3 — NO code path mints the retired .agents/rbtv2-exposure.md",
           not (target / ".agents/rbtv2-exposure.md").exists()
           and not any("exposure.md" in rel for rel in expect),
@@ -110,19 +110,19 @@ def green_arm_all_harnesses(ctx) -> None:
           not (target / "CLAUDE.md").exists()
           and not (target / "AGENTS.md").exists())
     check("claude settings gained OUR keys beside the foreign one",
-          json.loads((target / ".claude/settings.json").read_text())
+          json.loads((target / ".claude/settings.json").read_text(encoding="utf-8"))
           == {"foreignKey": 1, "enableAllProjectMcpServers": True,
               "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
                   {"type": "command", "command": "true"}]}]}})
     check("mcp.json gained the prefixed server beside the foreign one",
-          sorted(json.loads((target / ".mcp.json").read_text())["mcpServers"])
+          sorted(json.loads((target / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"])
           == sorted(["fix", "foreign"]))
     check("codex config.toml carries a fenced block with the url form",
-          f"# {FENCE_ID}:start" in (target / ".codex/config.toml").read_text()
+          f"# {FENCE_ID}:start" in (target / ".codex/config.toml").read_text(encoding="utf-8")
           and 'url = "https://example.invalid/mcp"'
-          in (target / ".codex/config.toml").read_text())
+          in (target / ".codex/config.toml").read_text(encoding="utf-8"))
     check("old-installer rbtv- siblings untouched by the install",
-          all((target / rel).read_text() == body
+          all((target / rel).read_text(encoding="utf-8") == body
               for rel, body in legacy.items()))
 
     state = read_state(target)
@@ -192,7 +192,7 @@ def red_foreign_collision(ctx) -> None:
     (fresh / ".mcp.json").write_text(json.dumps(
         {"mcpServers": {"fix": {"url": "https://squatter.invalid"}}}),
         encoding="utf-8")
-    before = {p.relative_to(fresh).as_posix(): p.read_text()
+    before = {p.relative_to(fresh).as_posix(): p.read_text(encoding="utf-8")
               for p in fresh.rglob("*") if p.is_file()}
     try:
         do_install(fresh, catalog, ["fixmod/goodcomp"], list(HARNESSES),
@@ -204,7 +204,7 @@ def red_foreign_collision(ctx) -> None:
               ".claude/rules/fixrule.md" in exc.message
               and ".mcp.json::mcpServers." + "fix" in exc.message,
               exc.message)
-    after = {p.relative_to(fresh).as_posix(): p.read_text()
+    after = {p.relative_to(fresh).as_posix(): p.read_text(encoding="utf-8")
              for p in fresh.rglob("*") if p.is_file()}
     check("collision refusal left ZERO files and changed nothing",
           before == after, str(sorted(set(after) ^ set(before))))
@@ -298,12 +298,12 @@ def uninstall(ctx) -> None:
           left == sorted(set(legacy) | {".claude/settings.json",
                                         ".mcp.json"}), str(left))
     check("the old installer's rbtv- artifacts are byte-identical",
-          all((target / rel).read_text() == body
+          all((target / rel).read_text(encoding="utf-8") == body
               for rel, body in legacy.items()))
     check("foreign JSON keys survive, ours are gone",
-          json.loads((target / ".claude/settings.json").read_text())
+          json.loads((target / ".claude/settings.json").read_text(encoding="utf-8"))
           == {"foreignKey": 1}
-          and json.loads((target / ".mcp.json").read_text())
+          and json.loads((target / ".mcp.json").read_text(encoding="utf-8"))
           == {"mcpServers": {"foreign": {"url": "https://x.invalid"}}})
     check("shared files we fully owned are gone",
           not (target / ".codex").exists()

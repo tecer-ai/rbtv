@@ -31,7 +31,7 @@ def the_guidance_mirror(ctx) -> None:
     basis_hash = hashlib.sha256((mt / "CLAUDE.md").read_bytes()).hexdigest()
     do_install(mt, catalog, ["fixmod/goodcomp"], list(HARNESSES),
                dry_run=False, guidance_basis="CLAUDE.md")
-    mirrored = (mt / "AGENTS.md").read_text()
+    mirrored = (mt / "AGENTS.md").read_text(encoding="utf-8")
     check("mirror generated from the basis",
           mirrored.endswith(basis_body) and "DO NOT EDIT" in mirrored
           and "mirrors CLAUDE.md" in mirrored, mirrored[:120])
@@ -55,7 +55,7 @@ def the_guidance_mirror(ctx) -> None:
                       dry_run=False)
     check("an edited basis re-renders the mirror on the next run",
           res4["written"] == ["AGENTS.md"]
-          and "A new line." in (mt / "AGENTS.md").read_text(),
+          and "A new line." in (mt / "AGENTS.md").read_text(encoding="utf-8"),
           str(res4["written"]))
     check("full uninstall takes the mirror, leaves the basis",
           do_uninstall(mt, catalog, ["fixmod/goodcomp"], dry_run=False)
@@ -125,7 +125,7 @@ def red_foreign_mirror(ctx) -> None:
               "DO NOT delete it" in exc.message
               and "move or remove it" not in exc.message, exc.message)
         check("the foreign mirror is byte-identical after the refusal",
-              (mt3 / "AGENTS.md").read_text()
+              (mt3 / "AGENTS.md").read_text(encoding="utf-8")
               == "rendered by the OLD installer\n")
     ctx.keep(locals())
 
@@ -159,7 +159,7 @@ def f1_flip_keeps_the_users_file(ctx) -> None:
           == authored_hash)
     check("the flip renders the other name from the new basis",
           res5["written"] == ["CLAUDE.md"]
-          and authored in (mt5 / "CLAUDE.md").read_text(),
+          and authored in (mt5 / "CLAUDE.md").read_text(encoding="utf-8"),
           str(res5["written"]))
     check("the book no longer claims the basis as a generated file",
           "AGENTS.md" not in read_state(mt5)["guidance_files"]
