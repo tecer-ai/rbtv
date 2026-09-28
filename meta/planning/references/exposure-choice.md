@@ -10,6 +10,8 @@ needs it only while doing that component's work. Give the part its own `exposure
 an agent should find it independently. Keep one method per row; the manifest format and method
 canon are in `exposure.md`.
 
+For CLI discovery through a child or parent skill, use `exposure.md` § Skills are the discovery route.
+
 | Reader's need | Method |
 |---|---|
 | A guide loaded at a recognizable task moment | `skill` |

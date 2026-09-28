@@ -16,8 +16,8 @@ run `rbtv install` to update installed loaders. Never hand-edit a loader.
   Part kinds are **capability · reference · workflow · task · prompt · tool · plugin/MCP**.
   Use one method and one kind per row.
 - A first-party CLI gets a `tool,path` row even if it is reached through another skill. A
-  `path` entry points to a runnable file or installed command. Use the CLI's own `-h` for its
-  detailed instructions.
+  `path` entry points to a runnable file or installed command. CLI authoring and executable
+  requirements live in `../capabilities/create-cli/create-cli.md`.
 - A standalone skill or guide gets a row only when an agent should reach it independently.
   Otherwise the component entry point links to it. A `pool` row names a reusable definition
   rather than an independently installed loader.
@@ -28,6 +28,21 @@ run `rbtv install` to update installed loaders. Never hand-edit a loader.
 - The row's method and entry point must match its actual consumer. A source file alone is not
   installed, and an exposure row alone does not make a console plan seat use the part: its
   body must name the instrument and invocation.
+
+## Skills are the discovery route
+
+A reusable ability MUST be reachable through an rbtv skill. Agents receive the skill, whose
+instructions lead to the CLI; agent instructions MUST NOT substitute a bare command for that
+route. Every `tool,path` row MUST be named by a skill in its component or by a parent skill that
+routes to it. A CLI with no such route is buried.
+
+One parent skill MAY route a module's requests to child skills and CLIs. Its description MUST
+name concrete requests in the owner's words, so a plain request selects it. Its body MUST be a
+request → child table, with the child ID and CLI name where relevant; NEVER copy a child's
+instructions into the parent. Put the parent in the module's broadest existing component, since
+exposure manifests belong to components, not module roots. `web/browse#web` and
+`office/document#office` are worked examples; their children remain reachable through those
+tables.
 
 ## Choice and verification
 

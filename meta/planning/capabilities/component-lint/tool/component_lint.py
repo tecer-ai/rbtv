@@ -625,6 +625,90 @@ def _exposure_index(comp_dir):
             for r in csv.DictReader(lines) if (r.get("part-id") or "").strip()}
 
 
+REQUEST_WORDS = {"read", "save", "preview", "browse", "inspect", "research", "make",
+                 "review", "convert", "create", "prepare", "extract", "capture", "check",
+                 "produce", "polish", "render", "generate", "build", "plan", "author",
+                 "write", "edit", "fix", "run", "search", "send", "manage"}
+GENERIC_WORDS = {"a", "an", "and", "for", "from", "in", "of", "or", "the", "to", "with",
+                 "request", "requests", "skill", "skills", "child", "children", "tool", "tools"}
+
+
+def _request_rows(body):
+    """First cells of a native request-to-child Markdown table."""
+    lines = body.splitlines()
+    for i, line in enumerate(lines[:-2]):
+        headers = [cell.strip().lower() for cell in line.strip().strip("|").split("|")]
+        if len(headers) < 2 or headers[0] not in {"request", "need", "task", "job", "you need"} \
+                or headers[1] not in {"child", "route", "tool", "skill", "reach for"}:
+            continue
+        if not re.fullmatch(r"[\s|:-]+", lines[i + 1]):
+            continue
+        for row in lines[i + 2:]:
+            if not row.startswith("|"):
+                break
+            cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
+            if len(cells) >= 2:
+                yield cells[0], cells[1]
+
+
+def _skill_rows(c):
+    """Installed skill sources in this component and its repository peers."""
+    repo = c.root.parent.parent
+    manifests = set(repo.glob("*/*/exposure.csv")) | {c.root / "exposure.csv"}
+    for manifest in sorted(manifests):
+        if not manifest.is_file():
+            continue
+        lines = [line for line in read_text(manifest, "exposure").splitlines()
+                 if line.strip() and not line.lstrip().startswith("#")]
+        for row in csv.DictReader(lines):
+            if row.get("method") != "skill" or not row.get("entry-point"):
+                continue
+            path = manifest.parent / row["entry-point"]
+            if path.is_file():
+                yield manifest.parent, row, path
+
+
+def check_skill_discovery(c, out, census):
+    """A path tool has a skill route; a parent router describes real requests."""
+    tools = {r["fields"][0]: r for r in c.exposure["rows"]
+             if len(r["fields"]) == len(EXPOSURE_HEADER)
+             and r["fields"][1:3] == ["tool", "path"]}
+    routes = set()
+    skill_count = 0
+    for comp, row, path in _skill_rows(c):
+        skill_count += 1
+        source = read_text(path, "skill")
+        body = source.split("\n---\n", 1)[-1]
+        refs = _skill_cli_refs(path) or []
+        for ref in refs:
+            if isinstance(ref, str):
+                target, pid = _ref_target(comp, ref.strip())
+                if target and target.resolve() == c.root:
+                    routes.add(pid)
+        request_rows = list(_request_rows(body))
+        desc = row.get("description") or ""
+        if comp == c.root and (request_rows or re.search(r"\brouter\b|\broutes? to\b", desc, re.I)):
+            words = set(re.findall(r"[a-z]+", desc.lower()))
+            requests = set(re.findall(r"[a-z]+", " ".join(req for req, _ in request_rows).lower()))
+            concrete = (bool((words & requests) - GENERIC_WORDS) if request_rows else
+                        bool(words & REQUEST_WORDS))
+            if not concrete:
+                _fail(out, "skill-discovery", path,
+                      f"router skill {row['part-id']!r} description names no concrete request")
+        for pid in tools:
+            token = rf"(?<![\w-]){re.escape(pid)}(?![\w-])"
+            if comp == c.root and re.search(rf"`{token}`", body):
+                routes.add(pid)
+            elif comp.parent == c.root.parent and any(re.search(token, child) for _, child in request_rows):
+                routes.add(pid)
+    census["skill-routes"] = len(routes & tools.keys())
+    census["skills-surveyed"] = skill_count
+    for pid, row in tools.items():
+        if pid not in routes:
+            _fail(out, "skill-discovery", f"{c.exposure['path']}:{row['line']}",
+                  f"buried tool {pid!r}: no skill in this component or routing parent names it")
+
+
 def check_seat_integrity(c, out, census):
     """M2 — seat/manifest referential integrity, orphans, modality, acyclicity."""
     seats = {s["seat-id"]: s for s in c.seats["rows"]}
@@ -1339,6 +1423,7 @@ def check_resources_coverage(c, out, census):
 
 CHECKS = [
     ("exposure-canon", ("exposure.csv",), "M1 exposure-manifest canon + entry-point existence"),
+    ("skill-discovery", ("exposure.csv",), "path tools have skill routes; router descriptions name requests"),
     ("seat-integrity", ("seats.csv",), "M2 seat/manifest integrity, orphans, modality, acyclicity"),
     ("task-no-context", ("tasks",), "M3 task files carry no deleted context: field"),
     ("task-no-capabilities", ("tasks",), "M4 task files carry no retired capabilities: field"),
@@ -1356,7 +1441,8 @@ CHECKS = [
 ]
 
 RUNNERS = {
-    "exposure-canon": check_exposure_canon, "seat-integrity": check_seat_integrity,
+    "exposure-canon": check_exposure_canon, "skill-discovery": check_skill_discovery,
+    "seat-integrity": check_seat_integrity,
     "task-no-context": check_task_no_context, "task-no-capabilities": check_task_no_capabilities,
     "dimension-roster": check_dimension_roster, "carried-blocks": check_carried_blocks,
     "interactive-fallback": check_interactive_fallback,

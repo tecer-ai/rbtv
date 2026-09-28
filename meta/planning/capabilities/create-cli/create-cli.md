@@ -11,7 +11,7 @@ Create a real CLI that future agent sessions can run by command name from any wo
 
 This is a plain-instruction capability (no bundled tool): its procedure is this file's body plus the three references beside it. This capability is for durable tools, not one-off scripts — if a short script in the current repo solves the task, write the script there instead.
 
-**In rbtv:** a toolsmith task building a seated tool MUST use this capability as its means (core-build `decisions.md#D9`): the product MUST be a registered CLI — cataloged with a first-party `path` row in its owning module's `exposure.csv` (`d-tool-inventory-exposure-rows`), never a bare path-invoked script — and MUST emit at least one machine-readable output (the surface a workflow edge reads to verify the done contract). Consumers shop this capability through `capability-cards`. Its current harness realization is the vault skill `.claude/skills/cli-creator/`.
+**In rbtv:** a toolsmith task building a seated tool MUST use this capability as its means (core-build `decisions.md#D9`): the product MUST be a registered CLI — cataloged with a first-party `path` row in its owning component's `exposure.csv`, never a bare path-invoked script — and MUST emit at least one machine-readable output (the surface a workflow edge reads to verify the done contract). Consumers shop this capability through `capability-cards`. The installed `cli-creator` skill identifies this file as its canonical source.
 
 ## Modes
 
@@ -100,7 +100,7 @@ Use screenshots to infer workflow, UI vocabulary, fields, and confirmation point
 2. Sketch the command list in chat. Keep names short and shell-friendly.
 3. Scaffold the CLI with a README or equivalent repo-facing instructions.
 4. Implement `doctor`, discovery, resolve, read commands, one narrow draft or dry-run write path if requested, and the raw escape hatch.
-5. Install the CLI on PATH so `tool-name ...` works outside the source folder.
+5. For an rbtv CLI, finish the exposure steps below; the rbtv installer owns its PATH link. For a standalone CLI, install it on PATH.
 6. Smoke test from another repo or `/tmp`, not only with `cargo run` or package-manager wrappers. Run `command -v <tool-name>`, `<tool-name> --help`, and `<tool-name> --json doctor`.
 7. Run format, typecheck/build, unit tests for request builders, pagination/request-body builders, no-auth `doctor`, help output, and at least one fixture, dry-run, or live read-only API call.
 
@@ -118,7 +118,12 @@ For log-oriented CLIs, keep deterministic snippet extraction separate from model
 
 ## Install Location and PATH
 
-Install the runnable command into a user-writable directory that is on PATH — the source folder is never the install location.
+For an rbtv `tool,path` row, ship an executable entry point with a shebang (or a native binary).
+The installer links that entry point into its managed bin directory; authoring MUST NOT create
+a second manual link. Check the installer documentation for its PATH rule.
+
+For a standalone CLI outside rbtv, install the runnable command into a user-writable directory
+on PATH — the source folder is never the install location.
 
 - Unix/macOS: default to `~/.local/bin`.
 - Windows: default to `%USERPROFILE%\.local\bin` (create it if missing); do not assume `make` exists — provide an equivalent install script or command.
@@ -170,5 +175,6 @@ Add a `Makefile` target such as `make install-local` that installs the command o
 
 After the CLI works, catalog and expose it:
 
-- **rbtv inventory (mandatory):** add the first-party `path` row to the owning module's `exposure.csv` (`part-kind=tool`, `method=path`, entry-point = the invocable; `rbtv-cli`/`description` empty — the tool self-documents via `-h`), per `d-tool-inventory-exposure-rows`.
-- **Companion skill (when harness exposure is warranted):** write a small skill in the order a future agent session should use the CLI, not as a tour of every feature: how to verify the installed command exists, which command to run first, how auth is configured, which discovery command finds the common ID, the safe read path, the intended draft/write path, the raw escape hatch, what not to do without explicit approval, and three copy-pasteable command examples. Keep API reference details in the CLI docs; keep the skill focused on ordering, safety, and examples future sessions should actually run.
+- **rbtv inventory (mandatory):** add the first-party `path` row to the owning component's `exposure.csv` (`part-kind=tool`, `method=path`, entry-point = the invocable; `rbtv-cli`/`description` empty — the tool self-documents via `-h`).
+- **Skill route (mandatory for rbtv):** name the CLI in a skill in its component or in a parent skill that routes to it, following `../../references/exposure.md` § Skills are the discovery route. Write the skill in the order a future agent session should use the CLI: first command, auth, discovery, safe read, intended write, and raw escape hatch. Keep API details in the CLI docs.
+- **Standalone companion skill:** for a CLI outside rbtv, create a small companion skill when harness exposure is warranted.

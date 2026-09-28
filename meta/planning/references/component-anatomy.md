@@ -32,3 +32,4 @@ which entry point to use. Add other files only when the component performs that 
 `component.md` is orientation, not a tool manual. Prompt and task formats live in `file-prompt.md`
 and `file-task.md`; exposure decisions live in `exposure.md`. A new artifact with no clear
 component owner is a scope question to settle before writing it.
+Parent skill placement follows `exposure.md` § Skills are the discovery route.

@@ -221,7 +221,7 @@ def test_green_control():
     out = expect_green("green control")
     for needle in ("census: ", "prompts=1", "tasks=2", "seats=2", "manifest-rows=2",
                    "exposure-rows=1", "carried-blocks=1", "dimensions=1", "guards=0",
-                   "11 check(s) run, 0 skipped"):
+                   "12 check(s) run, 0 skipped"):
         assert needle in out, f"green control: census missing {needle!r}\n{out}"
 
 
@@ -263,7 +263,7 @@ def test_json_output():
         assert code == 0, out
         import json
         data = json.loads(out)
-        assert data["fail-count"] == 0 and len(data["checks-run"]) == 11, out
+        assert data["fail-count"] == 0 and len(data["checks-run"]) == 12, out
         assert data["census"]["prompts"] == 1, out
 
 
@@ -387,7 +387,8 @@ def test_green_relative_component_path_is_no_escape():
         # the fixture's stock row is method=skill, which never reaches the
         # entry-point arithmetic — a method=path row is what makes this red.
         component, kg = build(tmp, {"exposure.csv":
-                                    FILES["exposure.csv"] + "x,tool,path,,seats.csv,,\n"})
+                                    FILES["exposure.csv"] + "x,tool,path,,seats.csv,,\n",
+                                    "demo.md": "---\nexposes-cli:\n  - x\n---\n\n# demo\n"})
         proc = subprocess.run(
             [sys.executable, "-B", str(LINT), "--component", "..",
              "--home", "..", "--kg", kg],
@@ -422,7 +423,8 @@ def test_green_write_root_with_the_danger_marker():
     the path's."""
     expect_green("W6 marked write-root",
                  {"exposure.csv": FILES["exposure.csv"] + "x,tool,path,,tool/demo.py,,!references\n",
-                  "tool/demo.py": "print('x')\n"})
+                  "tool/demo.py": "print('x')\n",
+                  "demo.md": "---\nexposes-cli:\n  - x\n---\n\n# demo\n"})
 
 
 def test_red_write_root_climbs_out():
@@ -471,6 +473,53 @@ def test_green_skill_cli_resolves():
                  {"exposure.csv": FILES["exposure.csv"] + "x,tool,path,,tool/demo.py,,\n",
                   "tool/demo.py": "print('x')\n",
                   "demo.md": "---\nexposes-cli:\n  - x\n---\n\n# demo\n"})
+
+
+def test_red_buried_tool():
+    expect_red("tool without skill route", "skill-discovery", "buried tool",
+               {"exposure.csv": FILES["exposure.csv"] + "x,tool,path,,tool/demo.py,,\n",
+                "tool/demo.py": "print('x')\n"})
+
+
+def test_green_parent_routes_to_sibling_tool():
+    with tempfile.TemporaryDirectory() as tmp:
+        component, kg = build(tmp, {"exposure.csv": FILES["exposure.csv"] +
+                               "x,tool,path,,tool/demo.py,,\n",
+                               "tool/demo.py": "print('x')\n"})
+        parent = component.parent / "router"
+        parent.mkdir()
+        (parent / "exposure.csv").write_text(
+            "part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots\n"
+            "parent,capability,skill,,parent.md,Use to run demo reports.,\n", encoding="utf-8")
+        (parent / "parent.md").write_text(
+            "---\ndescription: Use to run demo reports.\n---\n\n"
+            "| Request | Child |\n|---|---|\n| Run a demo report | `mod/comp/x` |\n",
+            encoding="utf-8")
+        code, out, err = run(component, kg, "--check", "skill-discovery")
+        assert code == 0, f"parent route should cover sibling tool: {out}\n{err}"
+
+
+def test_red_router_description_is_generic():
+    expect_red("generic router description", "skill-discovery", "no concrete request",
+               {"exposure.csv": FILES["exposure.csv"].replace(
+                    "a demo capability", "Routes requests to child skills"),
+                "demo.md": "---\ndescription: Routes requests to child skills.\n---\n\n"
+                           "| Request | Child |\n|---|---|\n| Run a demo report | `demo-child` |\n"})
+
+
+def test_red_router_without_table_has_generic_description():
+    expect_red("generic router without table", "skill-discovery", "no concrete request",
+               {"exposure.csv": FILES["exposure.csv"].replace(
+                    "a demo capability", "A router for child skills"),
+                "demo.md": "---\ndescription: A router for child skills.\n---\n\n# demo\n"})
+
+
+def test_green_router_description_names_request():
+    expect_green("router names a request",
+                 {"exposure.csv": FILES["exposure.csv"].replace(
+                      "a demo capability", "Use to run demo reports"),
+                  "demo.md": "---\ndescription: Use to run demo reports.\n---\n\n"
+                             "| Request | Child |\n|---|---|\n| Run a demo report | `demo-child` |\n"})
 
 
 def test_red_exposure_canon_crosscheck():

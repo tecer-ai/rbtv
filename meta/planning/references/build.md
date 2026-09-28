@@ -63,6 +63,9 @@ component's parts go in that mirror folder, an rbtv-repo component's parts go in
 folder, and NEVER into a `.claude/` installed copy. A destination that rule cannot resolve is
 REFUSED back to the user with the ambiguity named.
 
+For capability versus agent setting, read `kind-capability.md`; for CLI discovery and parent
+routers, read `exposure.md` § Skills are the discovery route.
+
 ---
 
 ## 3 — The guide table (every guide in meta/planning)
