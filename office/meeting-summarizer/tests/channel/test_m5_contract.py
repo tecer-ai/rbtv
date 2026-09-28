@@ -195,7 +195,7 @@ def test_owner_replies_yield_keyed_schema_valid_answers(replay):
     assert replay.ingest["unmapped"] == []
 
     schema = json.loads((stream.workflow_root() / "seams"
-                         / "owner-answer.schema.json").read_text())
+                         / "owner-answer.schema.json").read_text(encoding="utf-8"))
     required = set(schema["required"])
     allowed = set(schema["properties"])
     kinds = set(schema["$defs"]["answer-kind"]["enum"])

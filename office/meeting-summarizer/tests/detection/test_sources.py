@@ -221,7 +221,7 @@ def test_a_watched_account_the_source_map_never_verified_is_refused(config_dir):
 
 FAKE_GTOOLS = """import json, sys
 args = sys.argv[1:]
-with open(sys.argv[0] + ".calls", "a") as log:
+with open(sys.argv[0] + ".calls", "a", encoding="utf-8") as log:
     log.write(json.dumps(args) + "\\n")
 cap = int(args[args.index("--max-results") + 1])
 count = cap if "FULL" in args[args.index("-q") + 1] else 2

@@ -38,7 +38,7 @@ def workflow_root():
 
 def _instance(name):
     path = workflow_root() / "seams" / "instances" / f"{name}.json"
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 # ---------------------------------------------------------------- the constants
@@ -203,8 +203,8 @@ STREAM_MUTATIONS = {
 
 def _rewrite_log(channel_dir, fn):
     log = Path(channel_dir) / "messages.jsonl"
-    msgs = [json.loads(x) for x in log.read_text().splitlines()]
-    log.write_text("".join(json.dumps(m) + "\n" for m in fn(msgs)))
+    msgs = [json.loads(x) for x in log.read_text(encoding="utf-8").splitlines()]
+    log.write_text("".join(json.dumps(m) + "\n" for m in fn(msgs)), encoding="utf-8")
 
 
 def _swap_token_order(msgs):

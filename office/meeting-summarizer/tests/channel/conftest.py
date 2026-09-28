@@ -30,7 +30,7 @@ def run_cli(op, payload=None, *, channel, store, tmpdir, expect_rc=0):
     cmd = [sys.executable, str(CLI), op]
     if payload is not None:
         pfile = Path(tmpdir) / "payload.json"
-        pfile.write_text(json.dumps(payload))
+        pfile.write_text(json.dumps(payload), encoding="utf-8")
         cmd.append(str(pfile))
     cmd += ["--channel", str(channel), "--store", str(store), "--json"]
     proc = subprocess.run(cmd, capture_output=True, text=True)
@@ -52,7 +52,7 @@ class Replay:
 
     # -- read-back surfaces (the channel is three readable files, per --help) --
     def log(self):
-        text = (Path(self.channel) / "messages.jsonl").read_text()
+        text = (Path(self.channel) / "messages.jsonl").read_text(encoding="utf-8")
         return [json.loads(x) for x in text.splitlines()]
 
     def messages(self, mtype=None):
@@ -62,13 +62,13 @@ class Replay:
         p = Path(self.store)
         if not p.exists():
             return []
-        return [json.loads(x) for x in p.read_text().splitlines()]
+        return [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines()]
 
     def token_files(self):
         tdir = Path(self.channel) / "tokens"
         if not tdir.is_dir():
             return []
-        return [json.loads(f.read_text()) for f in sorted(tdir.glob("*.json"))]
+        return [json.loads(f.read_text(encoding="utf-8")) for f in sorted(tdir.glob("*.json"))]
 
     def thread_of(self, meeting_label):
         """The thread the map store binds to this meeting, unique or absent."""
@@ -113,7 +113,7 @@ def replay(tmp_path_factory):
     if MUTATE == "unmapped-reply":  # mutated fixture: a reply nobody owns
         replies.append({"id": "reply-x", "thread": "thr-nobody-owns-this",
                         "text": "?", "at": "2026-08-14T16:00:00-03:00"})
-    with open(Path(channel) / "replies.jsonl", "a") as f:
+    with open(Path(channel) / "replies.jsonl", "a", encoding="utf-8") as f:
         for r in replies:
             f.write(json.dumps(r) + "\n")
 
