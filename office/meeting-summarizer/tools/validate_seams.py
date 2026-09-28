@@ -939,7 +939,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="seams directory to check (default: ../seams next to this tool). "
         "Its parent is the tree the grep arm scans.",
     )
-    validate_parser.add_argument("--json", action="store_true", help=argparse.SUPPRESS)
+    validate_parser.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
+    )
     selftest_parser = subparsers.add_parser(
         "selftest",
         help="prove every arm green AND red against the bundled fixture",
@@ -949,7 +954,12 @@ def build_parser() -> argparse.ArgumentParser:
             "an arm that cannot fail is not a check. Never touches seams/."
         ),
     )
-    selftest_parser.add_argument("--json", action="store_true", help=argparse.SUPPRESS)
+    selftest_parser.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
+    )
     return parser
 
 
