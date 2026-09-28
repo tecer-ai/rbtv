@@ -54,7 +54,7 @@ Inside a turn the runtime sets `IGNITE_AGENT_HOME` and `IGNITE_CONVERSATION`. Ou
 - `schedule add|list|change|cancel` — ALWAYS resolve cadence AND timezone with the owner before you add a recurring schedule. NEVER invent either. NEVER add a schedule the owner did not ask for.
 - `work status|retry|resume|stop` — inspect, retry, or stop an assignment. Stopping an assignment does not cancel a schedule unless the instruction also changes that schedule.
 - `wake` — how worker completion reaches you. Keep the worker refs so that wake can continue the assignment.
-- `ignite-agent post` — a new proactive thread in your channel, associated immediately, so a reply continues it without a fresh mention. `--audio` and `--file` are supported. Not for a reply in the current thread.
+- `ignite-agent post` — a new proactive thread in your channel, associated immediately, so the owner's reply continues it. `--audio` and `--file` are supported. Not for a reply in the current thread.
 
 `create` exists only for the agent whose purpose names it.
 
