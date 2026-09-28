@@ -19,7 +19,7 @@
 // wake({ workId, conversationKey, note }) — worker completion; false on completed|stopped|held|waiting_owner
 // enqueueScheduleWake({ id, conversationKey, scheduleId, payload, workId }) — ≤1 pending per agent; never reopens or unholds
 // claimNext(now) — pending owner input before automatic continuation; null while a run is active or the agent is held
-// getActiveRun() — running row even with no pid; liveRun() — null unless pid and pidStart are attached
+// getActiveRun() — running row even if the process is dead; liveRun() — the row only when /proc/<pid>/stat field 22 equals pidStart (string compare)
 // attachProcess(runId, { pid, pidStart, setting }) — freezes the launch snapshot for this run
 // finishRun(runId, nonce, { invocationNonce, output, disposition, summary, nextStep, workers, outputs, harness, sessionId, outbox })
 // failRun(runId, reason, { scope, now }) — retry then hold; enqueues the one blocker; callers must not enqueue another
@@ -49,6 +49,19 @@ const AUTO_PRIORITY = 10;
 
 const json = (value) => JSON.stringify(value ?? null);
 const parse = (value) => value == null ? null : JSON.parse(value);
+
+function procStart(pid) {
+  let stat;
+  try {
+    stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  }
+  const end = stat.lastIndexOf(')');
+  if (end < 0) return null;
+  return stat.slice(end + 1).trim().split(/\s+/)[19] ?? null;
+}
 
 function conversationKey(team, channel, rootTs) {
   if (!team || !channel || !rootTs) throw new Error('team, channel and root ts required');
@@ -465,6 +478,8 @@ class Store {
   liveRun() {
     const run = this.getActiveRun();
     if (!run || run.pid == null || !run.pidStart) return null;
+    const start = procStart(run.pid);
+    if (start == null || String(start) !== String(run.pidStart)) return null;
     return run;
   }
 

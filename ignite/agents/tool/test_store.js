@@ -8,22 +8,15 @@ const path = require('node:path');
 const { Store, conversationKey, DISPOSITIONS, RETRY_DELAYS_MS, MAX_ATTEMPTS } = require('./store.js');
 
 const failures = [];
+const pending = [];
 
 function test(name, fn) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-store-'));
-  const db = path.join(dir, 'state.sqlite');
-  let store = new Store(db);
-  const open = () => new Store(db);
-  try {
-    fn(store, { dir, db, open, reopen() { store.close(); store = open(); return store; } });
-    console.log(`PASS ${name}`);
-  } catch (error) {
-    failures.push(name);
-    console.log(`FAIL ${name}: ${error.stack || error.message}`);
-  } finally {
-    try { store.close(); } catch { /* already closed */ }
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+  pending.push([name, fn]);
+}
+
+function procStart(pid) {
+  const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+  return stat.slice(stat.lastIndexOf(')') + 1).trim().split(/\s+/)[19];
 }
 
 function conv(store, key = 'T1:C1:1.1', extra = {}) {
@@ -91,11 +84,50 @@ test('2b liveRun returns pid and pidStart', (store) => {
   assert.equal(store.liveRun(), null);
   assert.equal(store.getActiveRun().id, claim.runId);
   store.attachProcess(claim.runId, { pid: 4242, pidStart: 'start-9' });
-  const live = store.liveRun();
-  assert.equal(live.pid, 4242);
-  assert.equal(live.pidStart, 'start-9');
+  const active = store.getActiveRun();
+  assert.equal(active.pid, 4242);
+  assert.equal(active.pidStart, 'start-9');
+  assert.equal(store.liveRun(), null);
   assert.equal(store.claimNext(2_000), null);
   assert.throws(() => store.attachProcess(claim.runId, { pid: 1, pidStart: 'other' }));
+});
+
+test('2b liveRun matches proc start and refuses a dead or reused pid', async (store, ctx) => {
+  const { spawn } = require('node:child_process');
+  const child = spawn('sleep', ['30'], { stdio: 'ignore' });
+  try {
+    await new Promise((resolve, reject) => {
+      child.once('spawn', resolve);
+      child.once('error', reject);
+    });
+    const start = procStart(child.pid);
+    assert.ok(start);
+    conv(store);
+    launch(store);
+    store.enqueue({ id: 'q-live', conversationKey: 'T1:C1:1.1', availableAt: 1_000 });
+    const claim = store.claimNext(1_000);
+    store.attachProcess(claim.runId, { pid: child.pid, pidStart: Number(start) });
+    const restarted = ctx.reopen();
+    const live = restarted.liveRun();
+    assert.ok(live);
+    assert.equal(String(live.pid), String(child.pid));
+    assert.equal(String(live.pidStart), String(start));
+    const initStart = procStart(1);
+    assert.notEqual(String(initStart), String(start));
+    restarted.db.prepare('UPDATE runs SET pid=?, pid_start=? WHERE id=?').run(1, String(start), live.id);
+    assert.equal(restarted.liveRun(), null);
+    restarted.db.prepare('UPDATE runs SET pid=?, pid_start=? WHERE id=?').run(child.pid, String(start), live.id);
+    assert.ok(restarted.liveRun());
+    child.kill('SIGKILL');
+    await new Promise((resolve) => child.once('exit', resolve));
+    assert.equal(fs.existsSync(`/proc/${child.pid}`), false);
+    assert.equal(restarted.liveRun(), null);
+  } finally {
+    if (child.exitCode == null && child.signalCode == null) {
+      child.kill('SIGKILL');
+      await new Promise((resolve) => child.once('exit', resolve));
+    }
+  }
 });
 
 test('2c clearHold is explicit and wakes do not unhold', (store) => {
@@ -230,9 +262,9 @@ test('2i launch setting timestamp and run snapshot', (store) => {
   const second = store.setLaunchSetting({ harness: 'codex', model: 'other', effort: 'max', voice: 'v' });
   assert.ok(second.changedAt > first.changedAt);
   assert.equal(store.agentHold(), null);
-  const live = store.liveRun();
-  assert.equal(live.launch_snapshot.harness, 'claude');
-  assert.equal(live.launch_snapshot.model, 'm');
+  const active = store.getActiveRun();
+  assert.equal(active.launch_snapshot.harness, 'claude');
+  assert.equal(active.launch_snapshot.model, 'm');
   assert.equal(store.getLaunchSetting().harness, 'codex');
   assert.equal(store.getLaunchSetting().voice, 'v');
 });
@@ -447,8 +479,28 @@ test('held owner input is retained and not an unhold', (store) => {
   assert.equal(next.kind, 'owner');
 });
 
-if (failures.length) {
-  console.log(`FAIL ${failures.length}`);
-  process.exit(1);
+async function runAll() {
+  for (const [name, fn] of pending) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-store-'));
+    const db = path.join(dir, 'state.sqlite');
+    let store = new Store(db);
+    const open = () => new Store(db);
+    try {
+      await fn(store, { dir, db, open, reopen() { store.close(); store = open(); return store; } });
+      console.log(`PASS ${name}`);
+    } catch (error) {
+      failures.push(name);
+      console.log(`FAIL ${name}: ${error.stack || error.message}`);
+    } finally {
+      try { store.close(); } catch { /* already closed */ }
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  if (failures.length) {
+    console.log(`FAIL ${failures.length}`);
+    process.exit(1);
+  }
+  console.log('PASS store');
 }
-console.log('PASS store');
+
+runAll();
