@@ -1,5 +1,5 @@
 part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
-summarizer-cycle,prompt,skill,,prompts/summarizer-cycle.md,"Run one meeting-summarizer cycle inline, in the current turn: detect new meeting transcripts, summarize each, file and publish the settled ones, apply any owner answer from the last grouped question, and ask a new grouped question only when a doubt is genuinely open. Use on every scheduled wake of an agent this capability is installed into.",
+summarizer-cycle,prompt,skill,,prompts/summarizer-cycle.md,"Run one meeting-summarizer cycle inline, in the current turn: detect new meeting transcripts, summarize each, file and publish the settled ones, apply any owner answer from the last grouped question, and ask a new grouped question only when a doubt is genuinely open. A cycle with nothing new and no open question ends with replies: [] — never a status or verification note. Use on every scheduled wake of an agent this capability is installed into.",
 detection-cycle,tool,path,,tools/detection_cycle.py,,
 artifact-bindings,tool,path,,tools/artifact_bindings.py,,
 per-meeting-job,tool,path,,tools/per_meeting_job.py,,

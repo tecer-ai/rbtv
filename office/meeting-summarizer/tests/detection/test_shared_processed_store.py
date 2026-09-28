@@ -1,19 +1,20 @@
-"""Detection and publish must read/write the SAME processed-transcripts file
-(check-summarizer round 3, M1).
+"""Detection reads the SAME processed-transcripts file publish writes — by
+construction, with no flag and no call order needed (check-summarizer round 4,
+M1; the round-3 attempt made this reachable only via `materialize_config.py
+--state`, a flag the model's own turn had to remember to pass, in the right
+order, before the tick — correctly judged "a prompt, not a fix").
 
-Live defect: `detection_cycle.py`'s processed-transcript store resolves, by
+Live defect: `detection_cycle.py`'s processed-transcript store resolved, by
 default, to `<config-dir>/stores/processed-transcripts.jsonl` (`resolve_store`'s
-fallback, `detection_cycle.py:170-190`) while `publish_job.py` writes to
+generic fallback) while `publish_job.py` writes to
 `<state>/processed-transcripts.jsonl` (`publish_job.py:74,735`) — two different
-files. Detection therefore always saw zero processed records for meetings
-publish had already filed, and kept re-emitting them as `new` forever.
-
-`materialize_config.py --state <state>` (this resume's fix) writes
-`<config-root>/stores.json` naming the SAME file publish already uses — the
-config-key redirect `resolve_store` already supported, just never pointed
-anywhere. These tests use the REAL two-directory layout (a `config/` and a
-`state/` the agent actually has) and the REAL row shape `publish_job.py`
-writes, not a hand-typed single path.
+files, whatever order any tool ran in. `detection_cycle.processed_store_path`
+now derives `<state>` directly from `config_dir`'s FIXED position in the agent
+home (`config_dir.parent / "state"`) — no `stores.json`, no prior materialize
+call, no flag: the very first `tick --config-dir <home>/config` of a turn
+already reads the right file. These tests call `tick --config-dir` with
+NOTHING run before it in the same test (no materialize call at all) and use
+the REAL row shape `publish_job.py` writes, not a hand-typed schema guess.
 """
 
 from __future__ import annotations
@@ -33,14 +34,15 @@ if str(TOOLS) not in sys.path:
 
 FIXTURES = HERE / "fixtures"
 
-import detection_cycle as dc      # noqa: E402
-import materialize_config as M    # noqa: E402
-import publish_job as P           # noqa: E402
+import detection_cycle as dc  # noqa: E402
+import publish_job as P        # noqa: E402
 
 
 @pytest.fixture
 def agent_home(tmp_path: Path) -> Path:
-    """The live layout: <home>/config/ (materialized) and <home>/state/ (durable)."""
+    """The live layout: <home>/config/ and <home>/state/, siblings, exactly as
+    the agent has them — `config/` is never touched by materialize_config.py
+    in these tests, proving the fix needs no prior call of any kind."""
     home = tmp_path / "agent-home"
     config = home / "config"
     config.mkdir(parents=True)
@@ -61,66 +63,69 @@ def _publish_a_processed_record(state: Path, meeting_key: str, source: str = "me
     })
 
 
-def test_detections_default_store_and_publishs_store_are_different_files_by_default(agent_home):
-    """Baseline, proving the bug exists absent the redirect (sanity: if this
-    ever fails, the two tools' defaults converged on their own and the fix
-    below is testing something already true)."""
+def test_no_config_root_or_stores_json_exists_and_the_store_still_resolves(agent_home):
+    """Sanity: the fixture's config/ carries no stores.json at all — the exact
+    live condition (round 4's evidence: "stores.json did not exist at tick
+    time") — and `load_env` must not refuse or need one."""
+    assert not (agent_home / "config" / "stores.json").exists()
     env = dc.load_env(agent_home / "config")
-    detection_path = env.stores[dc.PROCESSED_ENTRY]
-    publish_path = agent_home / "state" / P.PROCESSED
-    assert detection_path != publish_path
+    assert env.stores[dc.PROCESSED_ENTRY] == agent_home / "state" / "processed-transcripts.jsonl"
 
 
-def test_after_materialize_with_state_detection_reads_publishs_own_file(agent_home):
-    config = agent_home / "config"
+def test_detection_reads_publishs_file_with_zero_prior_setup(agent_home):
+    """The exact scenario round 4 demanded: NO materialize call (flagged or
+    not) runs before this — `load_env`/`tick` is the very first thing called,
+    exactly as a turn's first bash command was live."""
     state = agent_home / "state"
     _publish_a_processed_record(state, "mtg-8ab4a27f")
     _publish_a_processed_record(state, "mtg-c650cbeb")
 
-    M.write_stores_redirect(config, state)
+    env = dc.load_env(agent_home / "config")
 
-    env = dc.load_env(config)
-    assert env.stores[dc.PROCESSED_ENTRY] == state / "processed-transcripts.jsonl"
     processed = dc.read_processed(env)
     assert {row["meeting-key"] for row in processed} == {"mtg-8ab4a27f", "mtg-c650cbeb"}
 
 
-def test_job_for_reports_already_done_once_the_redirect_is_in_place(agent_home):
-    """The exact live symptom, proven at the decision point `job_for` makes:
-    a meeting with a published, matching-coverage row must NOT come back
-    `new` — that disposition is what drove the tick to re-emit it forever."""
-    config = agent_home / "config"
+def test_job_for_reports_already_done_for_both_live_meetings_with_no_prior_setup(agent_home):
+    """The exact live symptom, at the decision point `job_for` makes, for BOTH
+    meetings named in every round's evidence — proven with nothing run first."""
     state = agent_home / "state"
     _publish_a_processed_record(state, "mtg-8ab4a27f", source="meet")
-    M.write_stores_redirect(config, state)
+    _publish_a_processed_record(state, "mtg-c650cbeb", source="meet")
 
-    env = dc.load_env(config)
+    env = dc.load_env(agent_home / "config")
     processed = dc.read_processed(env)
-    entry = {"meeting-key": "mtg-8ab4a27f",
-            "source-set": [{"account": "tecer", "source": "meet",
-                            "drive-ref": "drv:file/mtg-8ab4a27f"}]}
 
-    job = dc.job_for(entry, processed)
+    for key in ("mtg-8ab4a27f", "mtg-c650cbeb"):
+        entry = {"meeting-key": key,
+                "source-set": [{"account": "tecer", "source": "meet",
+                                "drive-ref": f"drv:file/{key}"}]}
+        job = dc.job_for(entry, processed)
+        assert job["disposition"] == "already-done", (key, job)
 
-    assert job["disposition"] == "already-done"
 
-
-def test_the_redirect_survives_a_fresh_materialize_every_cycle(agent_home):
-    """`stores.json` is rebuilt, not left stale, on every cycle — same
-    unconditional-overwrite rule as every other file under config/."""
+def test_a_stores_json_override_still_wins_when_one_is_declared(agent_home):
+    """The generic config-key redirect stays available for a deployment that
+    genuinely needs a different location — it is not removed, only no longer
+    the ONLY way to reach the right default."""
     config = agent_home / "config"
-    state = agent_home / "state"
-    settings = {"sources": {"accounts": ["tecer"]}}
-    M.materialize(settings, config)
-    M.write_stores_redirect(config, state)
-
-    _publish_a_processed_record(state, "mtg-8ab4a27f")
-    # A later cycle re-materializes; the redirect must still be there, unmoved.
-    M.materialize(settings, config)
-    M.write_stores_redirect(config, state)
+    elsewhere = agent_home / "elsewhere-processed.jsonl"
+    (config / "stores.json").write_text(
+        json.dumps({"processed-transcripts": str(elsewhere)}), encoding="utf-8")
 
     env = dc.load_env(config)
-    assert {row["meeting-key"] for row in dc.read_processed(env)} == {"mtg-8ab4a27f"}
+
+    assert env.stores[dc.PROCESSED_ENTRY] == elsewhere
+
+
+def test_the_default_is_a_sibling_of_config_dir_not_nested_under_it(agent_home):
+    """The bug's exact shape: a naive fix that reused `resolve_store`'s
+    group/leaf nesting would land at `state/stores/processed-transcripts.jsonl`,
+    not `state/processed-transcripts.jsonl` — a THIRD file, matching neither
+    tool. Pin the literal path `publish_job.PROCESSED` actually uses."""
+    env = dc.load_env(agent_home / "config")
+    assert env.stores[dc.PROCESSED_ENTRY].name == P.PROCESSED
+    assert env.stores[dc.PROCESSED_ENTRY].parent == agent_home / "state"
 
 
 if __name__ == "__main__":

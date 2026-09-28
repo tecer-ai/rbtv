@@ -1,6 +1,6 @@
 ---
 id: summarizer-cycle
-description: "Run one meeting-summarizer cycle inline, in the current turn: detect new meeting transcripts, summarize each, file and publish the settled ones, apply any owner answer from the last grouped question, and ask a new grouped question only when a doubt is genuinely open. Use on every scheduled wake of the meeting-summarizer agent — never in a chat reply to an unrelated request."
+description: "Run one meeting-summarizer cycle inline, in the current turn: detect new meeting transcripts, summarize each, file and publish the settled ones, apply any owner answer from the last grouped question, and ask a new grouped question only when a doubt is genuinely open. A cycle with nothing new and no open question ends with replies: [] — never a status or verification note. Use on every scheduled wake of the meeting-summarizer agent — never in a chat reply to an unrelated request."
 exposes:
   path: [materialize-config, detection-cycle, artifact-bindings, per-meeting-job, publish-job, doubt-answer, verify-access]
 ---
@@ -14,6 +14,13 @@ exposes:
   You never leave a background process to finish the turn: every command below runs to completion
   and its output is read before you act on it. You do not decide a destination, a summarizer
   skill, or an account list yourself — those are configuration, read at run time.
+- **before you run anything**: decide your closing disposition LAST, from what actually happened this
+  cycle — never write a status, verification, or "all good" note because the cycle ran. Nothing new,
+  nothing applied, no doubt or routing question open → `replies: []`, `disposition: completed`, and
+  say NOTHING — a quiet cycle IS the correct, reportable outcome, not a thing to additionally confirm
+  (measured live, 2026-09-28: a when-useful cycle with nothing to report still posted a verification
+  note — the rule existed later in this file but was not read before the agent acted). Step 7 restates
+  this at the point you compose the reply; this line exists so you carry it from the first command on.
 </role>
 
 <procedure>
@@ -34,19 +41,18 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
 - **Config root** — `<agent-home>/config/`. Every tool call below passes `--config-root`/
   `--config-dir <agent-home>/config` explicitly; never rely on a tool's own default. **EVERY cycle,
   before anything else, run:**
-  `python3 <tools>/materialize_config.py --settings <agent-home>/settings.json --config-root <agent-home>/config --state <state>`
+  `python3 <tools>/materialize_config.py --settings <agent-home>/settings.json --config-root <agent-home>/config`
   It overwrites `config/*.json` fresh from `settings.json` (the agent's own settings, and its ONLY
-  copy — standing instructions already tell you to read it) every time it runs, AND writes
-  `config/stores.json` naming `<state>/processed-transcripts.jsonl` as WHERE `detection-cycle` reads
-  and (in a mode this skill never uses) writes its own processed-transcript store — without it,
-  `detection-cycle` defaults to a SEPARATE, always-empty file under `config/stores/`, sees no
-  processed record for any meeting `publish-job` already filed, and re-emits it as `new` forever
-  (measured live, 2026-09-28: `mtg-8ab4a27f`/`mtg-c650cbeb` re-emitted every cycle with no
-  `already-done` in sight, though `state/processed-transcripts.jsonl` already carried their rows).
-  `--state` MUST be passed on every call, not just the first. NEVER skip this whole command because
-  `config/` already exists from a prior cycle: it is a DERIVED cache, rebuilt every cycle, never a
-  second copy an owner edit could leave stale. Nothing under `config/` is ever hand-edited or read as
-  authoritative on its own.
+  copy — standing instructions already tell you to read it) every time it runs. NEVER skip this
+  because `config/` already exists from a prior cycle: it is a DERIVED cache, rebuilt every cycle,
+  never a second copy an owner edit could leave stale. Nothing under `config/` is ever hand-edited or
+  read as authoritative on its own. `detection-cycle` finds `<state>/processed-transcripts.jsonl` — the
+  SAME file `publish-job` writes to — by itself, from `--config-dir` alone: it needs no flag from this
+  command and no particular call order, because `<state>` is always `config_dir`'s sibling in the
+  fixed agent-home layout. (Rounds 3-4 tried making this reachable only through a `--state` flag this
+  command had to be given, before the tick, in the same turn — correctly judged "a prompt, not a fix":
+  a turn that ran the tick FIRST, before reading this far, still ticked on the stale default. There is
+  nothing left to pass or order for this specific store any more.)
 - **Channel directory** (the per-meeting routing-ask bookkeeping `per_meeting_job.py` uses; nothing
   chat-specific) — `<state>/channel`.
 - **Checkout root** (where destination repos are cloned) — read `<agent-home>/config/runtime.json` →

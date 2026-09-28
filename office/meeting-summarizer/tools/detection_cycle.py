@@ -190,6 +190,39 @@ def resolve_store(key: str, config_dir: Path, suffix: str) -> Path:
     return config_dir / group / f"{leaf}{suffix}"
 
 
+def processed_store_path(config_dir: Path) -> Path:
+    """Where `publish_job.py` already writes every settled meeting's record.
+
+    Not resolved through `resolve_store`'s generic `<config_dir>/<group>/<leaf>`
+    default: that default landed this store UNDER THE CONFIG ROOT
+    (`<config_dir>/stores/processed-transcripts.jsonl`), a file nothing else in
+    this capability ever writes to — `publish_job.py` writes
+    `<state>/processed-transcripts.jsonl` (`PROCESSED`). Two files, one tick
+    reading the always-empty one, forever re-emitting a filed meeting as `new`
+    (measured live, rounds 3 and 4: a fix that made the STATE-dir location
+    reachable only through an extra flag the agent's own turn had to remember
+    to pass, in the right order, before the tick — dead the moment a turn ran
+    the tick first — was correctly judged "a prompt, not a fix").
+
+    The agent home's layout is FIXED, not a per-deployment choice this
+    capability guesses at: `<home>/config/` (materialized from settings.json)
+    and `<home>/state/` (durable) are always siblings. `--config-dir` is
+    always `<home>/config`, so `<home>/state` is ALWAYS `config_dir.parent /
+    "state"` — derived here directly, needing no flag, no call order, and no
+    file anything has to write first. A `stores.json` override (the same
+    config-key redirect every other store here still honours) wins if one is
+    ever declared, for a deployment where this derivation would be wrong;
+    absent one — the ordinary case — the sibling `state/` is used directly.
+    """
+    declared = config_dir / "stores.json"
+    if declared.is_file():
+        value = json.loads(declared.read_text(encoding="utf-8"))
+        if isinstance(value, dict) and isinstance(value.get("processed-transcripts"), str):
+            path = Path(value["processed-transcripts"]).expanduser()
+            return path if path.is_absolute() else (config_dir / path)
+    return Path(config_dir).resolve().parent / "state" / "processed-transcripts.jsonl"
+
+
 # --------------------------------------------------------------------------
 # the environment one tick runs in
 # --------------------------------------------------------------------------
@@ -296,7 +329,7 @@ def load_env(config_dir: Path, seams: Path | None = None, source_map: dict | Non
     seams = seams or source_adapter.seams_dir()
     stores = {
         WATERMARK_ENTRY: _seam_store(seams, config_dir, WATERMARK_ENTRY),
-        PROCESSED_ENTRY: _seam_store(seams, config_dir, PROCESSED_ENTRY),
+        PROCESSED_ENTRY: processed_store_path(config_dir),
         MEETINGS_KEY: resolve_store(MEETINGS_KEY, config_dir, ".jsonl"),
         ATTEMPTS_KEY: resolve_store(ATTEMPTS_KEY, config_dir, ".jsonl"),
         CLAIMS_KEY: resolve_store(CLAIMS_KEY, config_dir, ""),

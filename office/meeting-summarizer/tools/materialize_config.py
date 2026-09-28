@@ -23,17 +23,14 @@ the one settings file.
 A key starting with `_` is a comment (this capability's own `settings.json`
 convention, e.g. `_this-file`) and is never materialized as a config file.
 
-With `--state`, ALSO writes `config-root/stores.json` naming where the
-`processed-transcripts` store actually lives: `<state>/processed-transcripts.jsonl`
-— the same file `publish_job.py` writes to (`PROCESSED`). Without this, `stores.json`
-carries no such key, `detection_cycle.py`'s own default puts the store UNDER THE
-CONFIG ROOT instead (`resolve_store`'s fallback, `<config-root>/stores/processed-
-transcripts.jsonl`) — a SECOND, always-empty file, since nothing ever wrote there.
-Detection then sees no records for any meeting and never emits `already-done`
-(measured live, 2026-09-28: two settled, filed meetings kept re-emitting as `new`
-forever). `stores.json` is not a `settings.json` key — it is wiring this tool
-derives from `--state`, not an owner preference, so it is always (re)written in
-full alongside every other `config/*.json` file, never merged or left stale.
+This tool no longer touches `stores.json` or knows about the agent's state
+root (a REMOVED `--state` flag, 2026-09-28): `detection_cycle.py` now derives
+its processed-transcripts location itself, from the agent home's fixed layout
+(`config_dir.parent / "state"`), needing no flag from this tool and no call
+order in the calling turn. A fix that worked only if the model passed the
+right flag before the tick, in the right order, was correctly judged "a
+prompt, not a fix" (rounds 3-4) — removed here rather than left as dead,
+unreachable machinery.
 
 Run with --help for the command surface.
 """
@@ -75,23 +72,6 @@ def materialize(settings: dict, config_root: Path) -> list[str]:
     return written
 
 
-def write_stores_redirect(config_root: Path, state_root: Path) -> str:
-    """`config-root/stores.json`, pointing `processed-transcripts` at the ONE
-    file `publish_job.py` already writes to under `--state`.
-
-    Always written in full (never merged, never conditional on whether the
-    file already exists) — the same "config/ is a derived cache, rebuilt every
-    cycle" rule every other file under `config/` follows.
-    """
-    config_root = Path(config_root)
-    config_root.mkdir(parents=True, exist_ok=True)
-    path = config_root / "stores.json"
-    processed = str(Path(state_root) / "processed-transcripts.jsonl")
-    path.write_text(json.dumps({"processed-transcripts": processed}, ensure_ascii=False,
-                               indent=2) + "\n", encoding="utf-8")
-    return str(path)
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="materialize_config",
@@ -101,9 +81,6 @@ def build_parser() -> argparse.ArgumentParser:
                         help="the agent's settings.json")
     parser.add_argument("--config-root", required=True, type=Path,
                         help="the config-module home to write <key>.json files into")
-    parser.add_argument("--state", type=Path,
-                        help="the agent's state root — also writes stores.json pointing "
-                             "processed-transcripts at <state>/processed-transcripts.jsonl")
     return parser
 
 
@@ -118,8 +95,6 @@ def main(argv: list[str] | None = None) -> int:
     if not isinstance(settings, dict):
         refuse(f"{args.settings} is not a JSON object", "settings.json must be an object of keys")
     written = materialize(settings, args.config_root)
-    if args.state:
-        written.append(write_stores_redirect(args.config_root, args.state))
     json.dump({"written": written}, sys.stdout, ensure_ascii=False, indent=2)
     sys.stdout.write("\n")
     return EXIT_OK
