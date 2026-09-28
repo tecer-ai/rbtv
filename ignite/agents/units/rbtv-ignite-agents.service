@@ -1,0 +1,10 @@
+[Unit]
+Description=rbtv ignite agents
+
+[Service]
+Type=simple
+ExecStart=node @DEPLOY@/ignite/agents/tool/daemon.js --workspace @WORKSPACE@
+EnvironmentFile=@ENV_FILE@
+Restart=on-failure
+KillMode=process
+TimeoutStopSec=90
