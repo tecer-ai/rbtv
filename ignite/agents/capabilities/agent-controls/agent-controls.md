@@ -1,5 +1,5 @@
 ---
-description: Use when the owner asks about this agent's harness, model, reasoning effort, or voice; asks for a reminder or recurring check; wants work inspected, retried, resumed, or stopped; or asks for a worker wake or a new proactive post.
+description: Use when the owner asks "what model/program are you on", "what model are you running on right now", "which effort", or "what voice"; asks to inspect or change this agent's harness, model, reasoning effort, or voice; asks for a reminder or recurring check; wants work inspected, retried, resumed, or stopped; or asks for a worker wake or a new proactive post.
 exposes-cli:
   - ignite-agent
 inputs: the owner's request or a worker completion, with the current agent home and conversation supplied by the runtime
@@ -13,7 +13,9 @@ Use this for controls on your own primary agent. Inside a turn, `IGNITE_AGENT_HO
 
 ## Launch setting
 
-Use `ignite-agent settings show` to answer what harness, model, effort, and voice you use. Use `settings set` when the owner asks to change them. It sets one launch setting for the whole agent, including queued turns and scheduled wakes. The new setting starts on the **next** turn; finish this turn under the original setting and tell the owner that. Never claim the running turn changed or substitute a different model. A setting change leaves conversation histories and unfinished work intact. It does not change workers already launched unless the owner asks for that too.
+Run `ignite-agent settings show` before answering what harness, model, effort, or voice you use. Read the result even if you believe you already know your model. Tell the owner the harness (the program), model, and reasoning effort in plain words, plus the voice when asked, without naming internal commands or asking the owner to run them.
+
+Use `settings set` when the owner asks to change them. It sets one launch setting for the whole agent, including queued turns and scheduled wakes. The new setting starts on the **next** turn; finish this turn under the original setting and tell the owner that. Never claim the running turn changed or substitute a different model. A setting change leaves conversation histories and unfinished work intact. It does not change workers already launched unless the owner asks for that too.
 
 ## Schedules and work
 

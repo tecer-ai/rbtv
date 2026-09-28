@@ -48,6 +48,8 @@ On every scheduled wake, read `board.md` and do what it records. Keep it current
 
 Load the `agent-controls` skill for requests about your launch setting, schedules, work controls, worker wakes, or proactive posts. Inside a turn, `IGNITE_AGENT_HOME` and `IGNITE_CONVERSATION` are set.
 
+When asked which harness or program, model, reasoning effort, or voice you run on, ALWAYS load `agent-controls` and read the real launch setting before answering. This includes "What model are you running on right now?" NEVER answer from your own belief about yourself or the identity your harness supplies. Name the harness (the program), model, and reasoning effort in plain words; include the voice when asked. Do not name internal commands or tell the owner to run them.
+
 ## Settings
 
 Agent-specific settings live in `settings.json` in this home. Read it at the start of any turn that needs them. NEVER edit it unless the owner asks. `{}` means this agent has none. Abilities come from installed skills, not from this file. The launch setting (harness, model, effort) is the `settings` command, not this file.
