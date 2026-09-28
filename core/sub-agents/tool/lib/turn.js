@@ -6,10 +6,9 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const { SPECS } = require('../catalog');
-const { SHORT, shortName, resolveEffort } = require('./core');
+const { lookupModel, shortName, resolveEffort } = require('./core');
 const { procStart, emitHandle } = require('./handles');
-const { opencodeTagged } = require('./launch');
+const { launchEnv, opencodeTagged } = require('./launch');
 const { loadOptional } = require('./optional');
 const { spawnable } = require('./win-exec');
 
@@ -34,15 +33,6 @@ function existingDir(cwd) {
     throw new Error('cwd must be an existing absolute directory');
   }
   if (!st.isDirectory()) throw new Error('cwd must be an existing absolute directory');
-}
-
-function resolveLaunchModel(harness, model) {
-  if (typeof harness !== 'string' || !SPECS[harness]) throw new Error(`unknown harness: ${harness}`);
-  if (typeof model !== 'string' || !model) throw new Error('model must be a string');
-  const modelId = SPECS[harness][model] ? model : SHORT[harness][model];
-  const spec = modelId && SPECS[harness][modelId];
-  if (!spec) throw new Error(`unknown ${harness} model: ${model}`);
-  return { modelId, spec };
 }
 
 function resolveTurnEffort(spec, effort, harness, model) {
@@ -99,7 +89,7 @@ function readEnv(env) {
 
 function validate(request) {
   if (!request || typeof request !== 'object' || Array.isArray(request)) throw new Error('request must be an object');
-  const { modelId, spec } = resolveLaunchModel(request.harness, request.model);
+  const { modelId, spec } = lookupModel(request.harness, request.model);
   existingDir(request.cwd);
   const prompt = readPrompt(request);
   const { mode, sessionId } = readSession(request.session);
@@ -230,7 +220,7 @@ function spawnTurn(v, resultFile) {
   const win = spawnable(cmd, childArgs);
   const out = fs.createWriteStream(stdoutPath);
   const err = fs.createWriteStream(stderrPath);
-  const childEnv = v.env ? { ...process.env, ...v.env } : process.env;
+  const childEnv = launchEnv(v.cwd, v.env);
   const startedAt = new Date().toISOString();
   const acc = { codexId: null, claudeId: null };
   let carry = '';

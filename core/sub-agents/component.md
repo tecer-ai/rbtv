@@ -95,7 +95,7 @@ Request JSON:
 | `prompt` | one of | prompt text. Exactly one of `prompt` and `promptFile` |
 | `promptFile` | one of | path to a file whose contents are the prompt |
 | `session` | yes | `{"mode":"new"}` or `{"mode":"resume","id":"<exact id>"}` |
-| `env` | no | string map merged over the process environment for that child |
+| `env` | no | string map merged over the process environment for that child. `PWD` is then set to `cwd` and cannot be overridden — OpenCode records its project directory from `PWD`, not from the spawn chdir |
 
 `mode: "new"` rejects an `id` (the verb mints or discovers the id itself). `mode: "resume"` requires an exact nonempty `id` and refuses `last`. Resume passes the requested model and effort on that invocation. `cast resume` does not — it leaves the session's own settings — and is the wrong verb when the caller changed them.
 

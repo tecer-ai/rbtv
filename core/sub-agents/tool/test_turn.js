@@ -339,4 +339,39 @@ function runTurn(request, env) {
   assert.ok(written.error.includes('exact nonempty'));
 }
 
+// F1: the child must see PWD = request cwd, not the caller's PWD. OpenCode records
+// its project directory from PWD, so a daemon running elsewhere would bind the
+// session to the caller's folder and then fail session_identity_missing.
+{
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-turn-bin-'));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-turn-home-'));
+  const callerPwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-turn-caller-'));
+  const pwdFile = path.join(bin, 'pwd.txt');
+  // Direct node shebang, not the sh wrapper: sh resets PWD to the real cwd and would hide the bug.
+  fs.writeFileSync(path.join(bin, 'opencode'), `#!/usr/bin/env node
+try { require('fs').readFileSync(0); } catch {}
+require('fs').writeFileSync(process.env.PWD_FILE, process.env.PWD || '');
+process.exit(0);
+`);
+  fs.chmodSync(path.join(bin, 'opencode'), 0o755);
+  const env = {
+    ...process.env, HOME: home, USERPROFILE: home, PWD: callerPwd, PWD_FILE: pwdFile,
+    PATH: [bin, path.dirname(process.execPath)].join(path.delimiter),
+  };
+  runTurn({
+    harness: 'opencode', model: 'grok-4.7', effort: 1, cwd,
+    prompt: 'ping', session: { mode: 'new' },
+    env: { PWD: callerPwd },
+  }, env);
+  assert.strictEqual(fs.readFileSync(pwdFile, 'utf8'), cwd);
+}
+
+// F2: one throwing lookup. validate must not exit the process on an unknown model.
+{
+  const { lookupModel } = require('./lib/core');
+  assert.strictEqual(lookupModel('claude', 'sonnet-5').modelId, 'claude-sonnet-5');
+  assert.throws(() => lookupModel('claude', 'no-such'), /unknown claude model/);
+  assert.throws(() => lookupModel('nope', 'sonnet-5'), /unknown harness/);
+}
+
 console.log('test_turn: ok');

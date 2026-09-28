@@ -267,20 +267,28 @@ function refuseIfNotLaunchable(harness, model) {
   }
 }
 
-function resolveModel(harness, model) {
-  if (!SPECS[harness]) {
-    refuseIfNotLaunchable(harness, model);
-    fail(`refused: '${harness}' is not a known harness\nknown: ${HARNESSES.join(', ')}`);
-  }
+function lookupModel(harness, model) {
+  if (typeof harness !== 'string' || !SPECS[harness]) throw new Error(`unknown harness: ${harness}`);
+  if (typeof model !== 'string' || !model) throw new Error('model must be a string');
   const modelId = SPECS[harness][model] ? model : SHORT[harness][model];
-  const spec = SPECS[harness][modelId];
-  if (!spec) {
+  const spec = modelId && SPECS[harness][modelId];
+  if (!spec) throw new Error(`unknown ${harness} model: ${model}`);
+  return { modelId, spec };
+}
+
+function resolveModel(harness, model) {
+  try {
+    return lookupModel(harness, model);
+  } catch {
+    if (typeof harness !== 'string' || !SPECS[harness]) {
+      refuseIfNotLaunchable(harness, model);
+      fail(`refused: '${harness}' is not a known harness\nknown: ${HARNESSES.join(', ')}`);
+    }
     refuseIfNotLaunchable(harness, model);
     const candidates = Object.keys(SHORT[harness]);
     const guess = suggest(model, candidates);
     fail(`refused: '${model}' is not a known model for '${harness}'\ndid you mean '${guess}'?\nknown (${harness}): ${candidates.join(', ')}`);
   }
-  return { modelId, spec };
 }
 
 module.exports = {
@@ -289,5 +297,5 @@ module.exports = {
   RESUME_USAGE, SESSIONS_USAGE, KNOWN_FLAGS, detachMarks,
   refuseIfDetached, effortMap, modelTable, buildInventory,
   suggest, runDoctor, runList, resolveEffort,
-  parseArgs, resolveFolder, refuseIfNotLaunchable, resolveModel,
+  parseArgs, resolveFolder, refuseIfNotLaunchable, lookupModel, resolveModel,
 };
