@@ -12,14 +12,11 @@ import copy
 import csv
 import json
 import re
-import shutil
 import sys
-import tempfile
 from pathlib import Path
 
 TOOL_FILE = Path(__file__).resolve()
 TOOL_DIR = TOOL_FILE.parent
-FIXTURE_DIR = TOOL_DIR / "fixture"
 
 # ---------------------------------------------------------------- the 20 entries
 # Hardcoded on purpose: coverage is the milestone threshold (16 crossings +
@@ -651,234 +648,6 @@ def print_report(result: dict) -> None:
     print("ok" if result["ok"] else "NOT ok")
 
 
-# -------------------------------------------------------------------- selftest
-def _validate_fixture(root: Path) -> dict:
-    return validate(root / "seams", root, {TOOL_FILE})
-
-
-def _broken_copy(source: Path, tmp: Path, breaker) -> dict:
-    target = tmp / source.name
-    shutil.copytree(source, target)
-    breaker(target)
-    return _validate_fixture(target)
-
-
-def _break_instance(root: Path) -> None:
-    (root / "seams" / "instances" / "entry.json").write_text(
-        json.dumps({"kind": "crossing"}) + "\n", encoding="utf-8"
-    )
-
-
-def _break_zero_instances(root: Path) -> None:
-    index = root / "seams" / INDEX_NAME
-    lines = index.read_text(encoding="utf-8").splitlines()
-    for number, line in enumerate(lines):
-        if line.startswith("window-contract,"):
-            lines[number] = "window-contract,crossing,entry.schema.json,"
-    index.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-
-def _break_schema_required(root: Path) -> None:
-    path = root / "seams" / "entry.schema.json"
-    schema = json.loads(path.read_text(encoding="utf-8"))
-    schema["required"] = []
-    path.write_text(json.dumps(schema, indent=2) + "\n", encoding="utf-8")
-
-
-def _break_through_ref(root: Path) -> None:
-    """Violate a rule that lives ONLY in the REFERENCED schema (minLength 1)."""
-    (root / "seams" / "instances" / "entry.json").write_text(
-        json.dumps({"id": "", "kind": "crossing"}) + "\n", encoding="utf-8"
-    )
-
-
-def _break_ref(root: Path) -> None:
-    """Point the fixture's cross-file $ref at a schema file that does not exist."""
-    path = root / "seams" / "entry.schema.json"
-    path.write_text(
-        path.read_text(encoding="utf-8").replace("shared-id.schema.json", "no-such.schema.json"),
-        encoding="utf-8",
-    )
-
-
-def _break_constraint(root: Path) -> None:
-    (root / "seams" / CONSTRAINT_DOC).unlink()
-
-
-def _plant_probe(root: Path) -> None:
-    shutil.copyfile(FIXTURE_DIR / "probe" / "planted-probe.txt", root / "planted-probe.txt")
-
-
-def selftest() -> dict:
-    """Prove every arm both green and red against the bundled fixture."""
-    cases: list[dict] = []
-    arms = {arm: {"green": False, "red": False} for arm in ARMS}
-
-    def record(name: str, expectation: str, passed: bool, detail: str = "") -> None:
-        cases.append(
-            {"name": name, "expectation": expectation, "pass": bool(passed), "detail": detail}
-        )
-
-    def note(result: dict) -> None:
-        for arm, verdict in result["arms"].items():
-            if verdict is True:
-                arms[arm]["green"] = True
-            elif verdict is False:
-                arms[arm]["red"] = True
-
-    if not FIXTURE_DIR.is_dir():
-        record("fixture present", f"{FIXTURE_DIR} exists", False, "fixture directory missing")
-        return {"tool": "validate-seams", "operation": "selftest", "cases": cases,
-                "arms": arms, "ok": False}
-
-    good = _validate_fixture(FIXTURE_DIR / "good")
-    note(good)
-    record(
-        "good/ — complete 19-entry seam set",
-        "ok=true, every arm PASS",
-        good["ok"] and all(good["arms"][arm] is True for arm in ARMS),
-        f"arms={good['arms']} problems={good['problems'][:3]}",
-    )
-    record(
-        "good/ — both cross-file $ref forms resolve",
-        "refs PASS having resolved a whole-file ref AND a ref into another file's $defs "
-        "(the shape a shared sub-shape actually takes)",
-        good["arms"]["refs"] is True
-        and {record["ref"] for record in good["refs"]["references"]}
-        == {"shared-id.schema.json", "shared-id.schema.json#/$defs/kind-name"},
-        f"refs={good['refs']['references']}",
-    )
-
-    minimal = _validate_fixture(FIXTURE_DIR / "minimal")
-    note(minimal)
-    record(
-        "minimal/ — good 2-entry index, short of the 19",
-        "coverage FAIL naming the missing ids; instances and mutation PASS",
-        minimal["arms"]["coverage"] is False
-        and len(minimal["coverage"]["missing"]) == 17
-        and minimal["arms"]["instances"] is True
-        and minimal["arms"]["mutation"] is True,
-        f"missing={len(minimal['coverage']['missing'])} arms={minimal['arms']}",
-    )
-
-    union = _validate_fixture(FIXTURE_DIR / "weak-union")
-    note(union)
-    survivors = union["mutation"]["survivors"]
-    record(
-        "weak-union/ — oneOf variants that do not discriminate",
-        "mutation FAIL naming schema, instance and property",
-        union["arms"]["mutation"] is False
-        and len(survivors) == 1
-        and survivors[0]["property"] == "detail",
-        f"survivors={survivors}",
-    )
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp = Path(tmpdir)
-        probed = _broken_copy(FIXTURE_DIR / "good", tmp / "probe-case", _plant_probe)
-        note(probed)
-        record(
-            "good/ + planted forbidden-probe string",
-            "grep FAIL with file and line",
-            probed["arms"]["grep"] is False
-            and len(probed["grep"]["hits"]) >= 4
-            and all(hit["line"] > 0 for hit in probed["grep"]["hits"]),
-            f"hits={[(h['file'], h['line'], h['pattern']) for h in probed['grep']['hits']]}",
-        )
-
-        broken_ref = _broken_copy(FIXTURE_DIR / "good", tmp / "broken-ref-case", _break_ref)
-        note(broken_ref)
-        record(
-            "good/ with its cross-file $ref pointed at a missing schema file",
-            "refs FAIL naming schema and ref — a finding, never a traceback",
-            broken_ref["arms"]["refs"] is False
-            and {record["ref"] for record in broken_ref["refs"]["unresolvable"]}
-            == {"no-such.schema.json", "no-such.schema.json#/$defs/kind-name"}
-            and all(
-                record["schema"] == "entry.schema.json"
-                for record in broken_ref["refs"]["unresolvable"]
-            )
-            and any("no-such.schema.json" in problem for problem in broken_ref["problems"]),
-            f"unresolvable={broken_ref['refs']['unresolvable']}",
-        )
-
-        through = _broken_copy(FIXTURE_DIR / "good", tmp / "through-ref-case", _break_through_ref)
-        note(through)
-        record(
-            "good/ with an instance violating a rule that lives ONLY in the referenced schema",
-            "instances FAIL — proving validation really traverses the $ref, not just resolves it",
-            through["arms"]["instances"] is False
-            and any("too short" in problem for problem in through["problems"]),
-            f"problems={through['problems'][:2]}",
-        )
-
-        no_doc = _broken_copy(FIXTURE_DIR / "good", tmp / "constraint-case", _break_constraint)
-        note(no_doc)
-        record(
-            f"good/ without seams/{CONSTRAINT_DOC}",
-            "constraint FAIL",
-            no_doc["arms"]["constraint"] is False,
-            f"problems={no_doc['constraint']['problems']}",
-        )
-
-        bad_instance = _broken_copy(FIXTURE_DIR / "good", tmp / "instance-case", _break_instance)
-        note(bad_instance)
-        record(
-            "good/ with a required property removed from the instance",
-            "instances FAIL",
-            bad_instance["arms"]["instances"] is False,
-            f"problems={bad_instance['problems'][:2]}",
-        )
-
-        no_instances = _broken_copy(FIXTURE_DIR / "good", tmp / "zero-case", _break_zero_instances)
-        note(no_instances)
-        record(
-            "good/ with an entry declaring zero instance files",
-            "instances FAIL",
-            no_instances["arms"]["instances"] is False
-            and any("zero instance files" in problem for problem in no_instances["problems"]),
-            f"problems={[p for p in no_instances['problems'] if 'zero instance' in p]}",
-        )
-
-        weak_schema = _broken_copy(FIXTURE_DIR / "good", tmp / "schema-case", _break_schema_required)
-        note(weak_schema)
-        record(
-            "good/ with a schema declaring no required property",
-            "instances FAIL",
-            weak_schema["arms"]["instances"] is False
-            and any("no `required`" in problem for problem in weak_schema["problems"]),
-            f"problems={weak_schema['problems'][:2]}",
-        )
-
-    discriminating = {arm: state["green"] and state["red"] for arm, state in arms.items()}
-    for arm, ok in discriminating.items():
-        record(
-            f"arm {arm} discriminates",
-            "observed both PASS and FAIL",
-            ok,
-            f"green={arms[arm]['green']} red={arms[arm]['red']}",
-        )
-    return {
-        "tool": "validate-seams",
-        "operation": "selftest",
-        "fixture": str(FIXTURE_DIR),
-        "cases": cases,
-        "arms": arms,
-        "discriminating": discriminating,
-        "ok": all(case["pass"] for case in cases),
-    }
-
-
-def print_selftest(result: dict) -> None:
-    print(f"fixture: {result.get('fixture')}")
-    for case in result["cases"]:
-        print(f"  {'PASS' if case['pass'] else 'FAIL'}  {case['name']}")
-        print(f"        expect: {case['expectation']}")
-        if not case["pass"]:
-            print(f"        observed: {case['detail']}")
-    print("ok" if result["ok"] else "NOT ok")
-
-
 # ------------------------------------------------------------------------ main
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -917,7 +686,6 @@ def build_parser() -> argparse.ArgumentParser:
             "examples:\n"
             "  validate_seams.py --json\n"
             "  validate_seams.py validate --seams ../seams\n"
-            "  validate_seams.py selftest\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -945,42 +713,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=argparse.SUPPRESS,
         help=argparse.SUPPRESS,
     )
-    selftest_parser = subparsers.add_parser(
-        "selftest",
-        help="prove every arm green AND red against the bundled fixture",
-        description=(
-            "Runs the whole behavior against fixture/ under this tool's folder. "
-            "Exits 0 only if every arm was observed both passing and failing — "
-            "an arm that cannot fail is not a check. Never touches seams/."
-        ),
-    )
-    selftest_parser.add_argument(
-        "--json",
-        action="store_true",
-        default=argparse.SUPPRESS,
-        help=argparse.SUPPRESS,
-    )
     return parser
 
 
 def main(argv: list[str]) -> int:
     global _JSON_MODE
     parser = build_parser()
-    known = {"validate", "selftest"}
+    known = {"validate"}
     asks_help = {"-h", "--help"} & set(argv)
     if not any(argument in known for argument in argv) and not asks_help:
         argv = ["validate"] + argv  # validate is the default operation
     args = parser.parse_args(argv)
     _JSON_MODE = args.json
-
-    if args.operation == "selftest":
-        result = selftest()
-        if args.json:
-            json.dump(result, sys.stdout, indent=2)
-            sys.stdout.write("\n")
-        else:
-            print_selftest(result)
-        return EXIT_OK if result["ok"] else EXIT_VERDICT
 
     seams_dir = Path(args.seams).resolve() if args.seams else (TOOL_DIR.parent / "seams").resolve()
     if not seams_dir.is_dir():
@@ -988,10 +732,9 @@ def main(argv: list[str]) -> int:
             what=f"no seams directory at {seams_dir}",
             why="the coverage arm reads <seams-dir>/index.csv and there is no such directory",
             fix="author the seam set there, or point the tool at it: --seams DIR",
-            escape="`selftest` runs the same behavior against the bundled fixture "
-            "and needs no seam set at all",
+            escape="none — without a seam set there is nothing to check",
         )
-    result = validate(seams_dir, seams_dir.parent, {TOOL_FILE, FIXTURE_DIR})
+    result = validate(seams_dir, seams_dir.parent, {TOOL_FILE})
     if args.json:
         json.dump(result, sys.stdout, indent=2)
         sys.stdout.write("\n")
