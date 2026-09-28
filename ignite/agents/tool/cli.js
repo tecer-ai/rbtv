@@ -2,9 +2,11 @@
 'use strict';
 
 // API — entry `ignite-agent`. Home from IGNITE_AGENT_HOME, or --agent <slug> + --workspace <path>.
-// main(argv, deps) → exit code. deps.validateLaunch stubs cast. deps.stdout / deps.stderr / deps.env optional.
+// main(argv, deps) → exit code, or a Promise for `create` (create.js). deps.validateLaunch stubs cast.
+// deps.stdout / deps.stderr / deps.env optional.
 // settings set validates through cast list --json (never a copied model list) and writes launch.json
 // plus the store row together. schedule next-occurrence lives in schedule.js.
+// create is dispatched to create.js before a home is opened.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -496,7 +498,6 @@ function dispatch(command, rest, ctx, flags, deps) {
   if (command === 'work') return cmdWork(rest, ctx, flags, deps);
   if (command === 'wake') return cmdWake(rest, ctx, flags, deps);
   if (command === 'post') return cmdPost(rest, ctx, flags, deps);
-  if (command === 'create') fail('create is not part of this command');
   fail(`unknown command: ${command}`);
 }
 
@@ -508,7 +509,8 @@ function main(argv, deps = {}) {
   }
   if (rest.length === 0) fail(`usage: ignite-agent ${COMMANDS.join('|')}`);
   const [command, ...tail] = rest;
-  if (!COMMANDS.includes(command) && command !== 'create') fail(`unknown command: ${command}`);
+  if (command === 'create') return require('./create.js').run(tail, flags, deps);
+  if (!COMMANDS.includes(command)) fail(`unknown command: ${command}`);
   const ctx = openContext(flags, deps);
   try {
     return dispatch(command, tail, ctx, flags, deps);
@@ -518,12 +520,13 @@ function main(argv, deps = {}) {
 }
 
 if (require.main === module) {
-  try {
-    process.exit(main(process.argv.slice(2)) ?? 0);
-  } catch (error) {
-    process.stderr.write(`${error.message}\n`);
-    process.exit(error.exitCode || 1);
-  }
+  Promise.resolve()
+    .then(() => main(process.argv.slice(2)))
+    .then((code) => process.exit(code ?? 0))
+    .catch((error) => {
+      process.stderr.write(`${error.message}\n`);
+      process.exit(error.exitCode || 1);
+    });
 }
 
-module.exports = { main, validateLaunch, HELP };
+module.exports = { main, validateLaunch, applySetting, HELP };

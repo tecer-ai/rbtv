@@ -1,0 +1,4 @@
+# ignite/agents exposure. Columns are the seven of the exposure manifest, in its order.
+# The path row for ignite-agent is added by the component-docs seat. This row is the creation skill.
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+create-primary-agent,capability,skill,,capabilities/create-primary-agent/create-primary-agent.md,"Use when creating a working primary agent: resolve the missing choices in one grouped question, then run ignite-agent create. Covers the home, instructions, Slack channel, route, skills, and an optional schedule. Never an owner checklist.",
