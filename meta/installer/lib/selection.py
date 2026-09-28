@@ -11,6 +11,7 @@ from pathlib import Path
 from discovery import Refuse
 
 from .constants import INDEX_REL
+from .fsio import write_file
 from .catalog import _part_specs, is_installable, module_id
 
 
@@ -109,7 +110,7 @@ def write_index(target: Path, catalog: dict[str, dict],
     payload = {"fingerprint": scan_fingerprint(catalog), "n": n}
     path = target / INDEX_REL
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    write_file(path, json.dumps(payload, indent=2) + "\n")
     return payload
 
 
