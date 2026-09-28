@@ -188,7 +188,7 @@ def _probe_add_collisions(target: Path, catalog: dict,
         files, owners, claims, report = plan_files(records, catalog)
         _add_mirror(target, state, files, owners, report, None,
                     installed_harnesses(records))
-        _add_gitignore(target, owners, claims, report)
+        _add_gitignore(target, owners, claims, report, known_files(state))
     except Refuse as exc:
         return [(exc.path or exc.code, exc.code)], ""
     return collect_collisions(target, files, claims, state), ""

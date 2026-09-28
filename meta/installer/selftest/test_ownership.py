@@ -6,7 +6,8 @@ import io
 
 from discovery import Refuse
 
-from lib.constants import FENCE_ID, LEGACY_PREFIX, MANAGED_BANNER, STATE_REL
+from lib.constants import (EXCLUDE_REL, FENCE_ID, LEGACY_PREFIX, MANAGED_BANNER,
+                           STATE_REL)
 from lib.claims import _claim_id
 from lib.state import read_state, rec_files, write_state
 from lib.operations import do_install, do_uninstall
@@ -90,16 +91,15 @@ def gitignore_block(ctx) -> None:
     (catalog, data, legacy, expect, basis_body, mirrors_on_disk, mtr,
      _mk, rf, pws) = ctx.frame()
 
-    print("\nG — D14: the .gitignore block keeps our artifacts out of git")
+    print("\nG — D14: the .git/info/exclude block keeps our artifacts out of git")
     gi = tmp / "ws-gitignore"
-    gi.mkdir()
-    (gi / ".git").mkdir()
+    (gi / ".git" / "info").mkdir(parents=True)
     (gi / "CLAUDE.md").write_text(basis_body, encoding="utf-8")
-    (gi / ".gitignore").write_text("# theirs\nnode_modules/\n",
+    (gi / EXCLUDE_REL).write_text("# theirs\nnode_modules/\n",
                                    encoding="utf-8")
     rgi = do_install(gi, catalog, ["fixmod/goodcomp"], ["claude", "codex"],
                      dry_run=False, guidance_basis="CLAUDE.md")
-    body = (gi / ".gitignore").read_text()
+    body = (gi / EXCLUDE_REL).read_text()
     booked = sorted(rec_files(read_state(gi)["components"]["fixmod/goodcomp"]))
     check("G1 — every per-component artifact and the book are listed",
           all(rel in body for rel in booked)
@@ -112,18 +112,18 @@ def gitignore_block(ctx) -> None:
           "node_modules/" in body and f"# {FENCE_ID}:start" in body
           and f"# {FENCE_ID}:end" in body, body)
     check("G1 — the claim is booked like any other shared-file claim",
-          _claim_id(".gitignore", None)
+          _claim_id(EXCLUDE_REL, None)
           in read_state(gi)["shared_claims"],
           str(read_state(gi)["shared_claims"]))
     check("G2 — a re-run is idempotent, block and all",
           do_install(gi, catalog, ["fixmod/goodcomp"],
                      ["claude", "codex"], dry_run=False)["written"] == []
-          and (gi / ".gitignore").read_text() == body)
+          and (gi / EXCLUDE_REL).read_text() == body)
     # A shrinking set shrinks the block — the whole point of D14, and
     # since D16 a narrower harness set really is a narrowing.
     rgi2 = do_install(gi, catalog, ["fixmod/goodcomp"], ["claude"],
                       dry_run=False)
-    gi_body = (gi / ".gitignore").read_text()
+    gi_body = (gi / EXCLUDE_REL).read_text()
     check("G3 — a narrowed harness set drops the dropped harness's files "
           "from disk AND from the block",
           ".claude/rules/fixrule.md" in gi_body
@@ -136,29 +136,28 @@ def gitignore_block(ctx) -> None:
                       dry_run=False)
     check("G3b — widening it back re-writes them",
           ".agents/behavior-rules/fixrule.md"
-          in (gi / ".gitignore").read_text()
+          in (gi / EXCLUDE_REL).read_text()
           and (gi / ".agents/behavior-rules/fixrule.md").exists()
           and rgi3["deleted"] == [], str(rgi3["deleted"]))
     do_uninstall(gi, catalog, ["fixmod/goodcomp"], dry_run=False)
     check("G4 — the last uninstall takes the block, leaves their lines",
-          (gi / ".gitignore").read_text() == "# theirs\nnode_modules/\n",
-          (gi / ".gitignore").read_text())
+          (gi / EXCLUDE_REL).read_text() == "# theirs\nnode_modules/\n",
+          (gi / EXCLUDE_REL).read_text())
 
     ng = tmp / "ws-not-a-repo"
     ng.mkdir()
     rng = do_install(ng, catalog, ["fixmod/goodcomp"], ["claude"],
                      dry_run=False)
-    check("G5 — off a git repo, no .gitignore is ever minted",
-          not (ng / ".gitignore").exists()
+    check("G5 — off a git repo, no ignore file is ever minted",
+          not (ng / ".gitignore").exists() and not (ng / EXCLUDE_REL).exists()
           and rng["report"]["gitignore"] == {"claimed": False,
                                              "reason": "not a git repo"},
           str(rng["report"]["gitignore"]))
 
     gf = tmp / "ws-foreign-fence"
-    gf.mkdir()
-    (gf / ".git").mkdir()
+    (gf / ".git" / "info").mkdir(parents=True)
     foreign = f"# {FENCE_ID}:start\nsomething-else\n# {FENCE_ID}:end\n"
-    (gf / ".gitignore").write_text(foreign, encoding="utf-8")
+    (gf / EXCLUDE_REL).write_text(foreign, encoding="utf-8")
     try:
         do_install(gf, catalog, ["fixmod/goodcomp"], ["claude"],
                    dry_run=False)
@@ -166,8 +165,8 @@ def gitignore_block(ctx) -> None:
     except Refuse as exc:
         check("G6 — a foreign rbtv2 fence refuses",
               exc.code == "collision"
-              and ".gitignore" in exc.message
-              and (gf / ".gitignore").read_text() == foreign, exc.code)
+              and EXCLUDE_REL in exc.message
+              and (gf / EXCLUDE_REL).read_text() == foreign, exc.code)
 
     gt = tmp / "ws-tracked"
     gt.mkdir()
@@ -193,4 +192,49 @@ def gitignore_block(ctx) -> None:
         check("G7 — and the human is told, with the fix",
               "ALREADY TRACKED" in buf.getvalue()
               and "git rm --cached" in buf.getvalue(), buf.getvalue()[-400:])
+
+    # A marked artifact the book lost (an earlier run's orphan) is still ours
+    # and machine-local: the block must list it, or it surfaces for commit.
+    gs = tmp / "ws-stray"
+    (gs / ".git" / "info").mkdir(parents=True)
+    (gs / ".claude/skills/orphan").mkdir(parents=True)
+    (gs / ".claude/skills/orphan/SKILL.md").write_text(
+        "---\nname: orphan\n---\n" + MANAGED_BANNER + "loader\n",
+        encoding="utf-8")
+    (gs / ".claude/skills/mine").mkdir(parents=True)
+    (gs / ".claude/skills/mine/SKILL.md").write_text("theirs\n",
+                                                     encoding="utf-8")
+    (gs / ".claude/rules").mkdir(parents=True)
+    (gs / ".claude/rules/lost.md").write_text(MANAGED_BANNER + "rule\n",
+                                              encoding="utf-8")
+    do_install(gs, catalog, ["fixmod/goodcomp"], ["claude"], dry_run=False)
+    gs_body = (gs / EXCLUDE_REL).read_text()
+    check("G8 — a stray marked artifact the book lost is listed (skill as "
+          "its folder), an unmarked one is not",
+          ".claude/skills/orphan/\n" in gs_body
+          and ".claude/rules/lost.md" in gs_body
+          and "skills/mine" not in gs_body, gs_body)
+    check("G8 — and a re-run stays idempotent",
+          do_install(gs, catalog, ["fixmod/goodcomp"], ["claude"],
+                     dry_run=False)["written"] == []
+          and (gs / EXCLUDE_REL).read_text() == gs_body)
+    check("G8 — the shared .gitignore is never written",
+          not (gs / ".gitignore").exists(), "a .gitignore was minted")
+
+    # G9 — the move: a block an older run claimed in the SHARED .gitignore is
+    # released on the next run (their lines kept); the list lives per clone.
+    state = read_state(gs)
+    state["shared_claims"] = sorted(set(state["shared_claims"])
+                                    | {_claim_id(".gitignore", None)})
+    write_state(gs, state)
+    (gs / ".gitignore").write_text(
+        f"theirs/\n# {FENCE_ID}:start\nold-entry\n# {FENCE_ID}:end\n",
+        encoding="utf-8")
+    do_install(gs, catalog, ["fixmod/goodcomp"], ["claude"], dry_run=False)
+    check("G9 — an old .gitignore block is released, their lines kept",
+          (gs / ".gitignore").read_text() == "theirs/\n"
+          and _claim_id(".gitignore", None)
+          not in read_state(gs)["shared_claims"]
+          and (gs / EXCLUDE_REL).read_text() == gs_body,
+          (gs / ".gitignore").read_text())
     ctx.keep(locals())
