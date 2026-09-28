@@ -24,23 +24,29 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
 - **Tools directory** — this capability's own `tools/` folder. Find it by reading `rbtv_path` from
   the workspace's `rbtv.json` (at the workspace root) and joining `office/meeting-summarizer/tools`.
   Call this `<tools>` below.
-- **Config root** — `<agent-home>/config/` (`<agent-home>` is `$IGNITE_AGENT_HOME` inside a turn).
-  Every tool call below passes `--config-root`/`--config-dir <agent-home>/config` explicitly; never
-  rely on a tool's own default. **EVERY cycle, before anything else, run:**
-  `python3 <tools>/materialize_config.py --settings <agent-home>/settings.json --config-root <agent-home>/config`
+- **State directory** — `<agent-home>/state/` (`<agent-home>` is `$IGNITE_AGENT_HOME` inside a turn;
+  starts empty on a new agent, nothing migrates from a prior instance). `doubts.jsonl`,
+  `outcomes.jsonl`, `resolved-doubts.jsonl`, `asked-doubts.jsonl`, `processed-transcripts.jsonl`,
+  `asked-routing.jsonl`, `resolved-routing.jsonl` all live directly under it — call this `<state>`
+  below. The last two are this skill's own plain JSONL files (one line per row, appended with your
+  own file tools — no CLI owns them) tracking which meetings have an open routing question and which
+  are settled; they do not exist until the first routing question.
+- **Config root** — `<agent-home>/config/`. Every tool call below passes `--config-root`/
+  `--config-dir <agent-home>/config` explicitly; never rely on a tool's own default. **EVERY cycle,
+  before anything else, run:**
+  `python3 <tools>/materialize_config.py --settings <agent-home>/settings.json --config-root <agent-home>/config --state <state>`
   It overwrites `config/*.json` fresh from `settings.json` (the agent's own settings, and its ONLY
-  copy — standing instructions already tell you to read it) every time it runs. NEVER skip this
-  because `config/` already exists from a prior cycle: it is a DERIVED cache of `settings.json`,
-  rebuilt every cycle, never a second copy an owner edit could leave stale (measured 2026-09-28 — an
-  owner edit to `settings.json` alone, with materialization gated to the first cycle only, never
-  reached the tools; the orchestrator patched `config/destination-routing.json` by hand). Nothing
-  under `config/` is ever hand-edited or read as authoritative on its own.
-- **State directory** — `<agent-home>/state/` (starts empty on a new agent; nothing migrates from a
-  prior instance). `doubts.jsonl`, `outcomes.jsonl`, `resolved-doubts.jsonl`, `asked-doubts.jsonl`,
-  `processed-transcripts.jsonl`, `asked-routing.jsonl`, `resolved-routing.jsonl` all live directly
-  under it — call this `<state>` below. The last two are this skill's own plain JSONL files (one line
-  per row, appended with your own file tools — no CLI owns them) tracking which meetings have an
-  open routing question and which are settled; they do not exist until the first routing question.
+  copy — standing instructions already tell you to read it) every time it runs, AND writes
+  `config/stores.json` naming `<state>/processed-transcripts.jsonl` as WHERE `detection-cycle` reads
+  and (in a mode this skill never uses) writes its own processed-transcript store — without it,
+  `detection-cycle` defaults to a SEPARATE, always-empty file under `config/stores/`, sees no
+  processed record for any meeting `publish-job` already filed, and re-emits it as `new` forever
+  (measured live, 2026-09-28: `mtg-8ab4a27f`/`mtg-c650cbeb` re-emitted every cycle with no
+  `already-done` in sight, though `state/processed-transcripts.jsonl` already carried their rows).
+  `--state` MUST be passed on every call, not just the first. NEVER skip this whole command because
+  `config/` already exists from a prior cycle: it is a DERIVED cache, rebuilt every cycle, never a
+  second copy an owner edit could leave stale. Nothing under `config/` is ever hand-edited or read as
+  authoritative on its own.
 - **Channel directory** (the per-meeting routing-ask bookkeeping `per_meeting_job.py` uses; nothing
   chat-specific) — `<state>/channel`.
 - **Checkout root** (where destination repos are cloned) — read `<agent-home>/config/runtime.json` →
