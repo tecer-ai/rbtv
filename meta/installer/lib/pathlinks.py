@@ -26,6 +26,7 @@ from .constants import (
     WS_PREFIX,
     _RUNTIME,
 )
+from .fsio import write_file
 
 _WIN = os.name == "nt"
 
@@ -244,11 +245,11 @@ def _make_link(path: Path, dest: Path) -> None:
             if _twin_foreign(path):
                 raise Refuse("path-collision",
                              f"{twin} exists and is not ours", str(twin))
-            path.write_text(_shim_text(dest), encoding="utf-8")
+            write_file(path, _shim_text(dest))
             if twin.is_symlink():
                 twin.unlink()
             # Bytes, not text: text mode would write CRLF, which sh rejects.
-            twin.write_bytes(_sh_text(dest).encode("utf-8"))
+            write_file(twin, _sh_text(dest).encode("utf-8"))
         else:
             path.symlink_to(dest)
     except OSError as exc:
@@ -397,7 +398,7 @@ def _write_shell_path() -> None:
     else:
         text = (text.rstrip() + "\n\n" if text.strip() else "") + block
     rc.parent.mkdir(parents=True, exist_ok=True)
-    rc.write_text(text, encoding="utf-8")
+    write_file(rc, text)
 
 
 def _remove_shell_path() -> None:
@@ -410,7 +411,7 @@ def _remove_shell_path() -> None:
     head = text.split(PATH_FENCE_START, 1)[0]
     tail = text.split(PATH_FENCE_END, 1)[1].lstrip("\n")
     new = (head.rstrip() + "\n" + tail) if head.strip() else tail
-    rc.write_text(new, encoding="utf-8")
+    write_file(rc, new)
 
 
 def _path_rows_from_report(report: dict) -> list[tuple[str, str, Path, str]]:

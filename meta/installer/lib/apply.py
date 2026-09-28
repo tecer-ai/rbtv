@@ -19,6 +19,7 @@ from .claims import (
     _jset,
 )
 from .content import _is_ours
+from .fsio import write_file
 from .state import known_claims, known_files
 
 
@@ -128,10 +129,7 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
             skipped.append(rel)
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
-        if isinstance(body, bytes):
-            path.write_bytes(body)
-        else:
-            path.write_text(body, encoding="utf-8", newline="\n")
+        write_file(path, body, newline="\n")
         written.append(rel)
 
     deleted = []
@@ -202,7 +200,7 @@ def _apply_shared(target: Path, claims: list[dict],
         if path.is_file() and path.read_text(encoding="utf-8") == text:
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8", newline="\n")
+        write_file(path, text, newline="\n")
 
 
 def _clean_bases(target: Path, report: dict, dry_run: bool) -> None:
@@ -212,7 +210,7 @@ def _clean_bases(target: Path, report: dict, dry_run: bool) -> None:
     debanner = report.pop("_debanner", None) or {}
     if not dry_run:
         for rel, text in debanner.items():
-            (target / rel).write_text(text, encoding="utf-8", newline="\n")
+            write_file(target / rel, text, newline="\n")
     report["guidance_debannered"] = sorted(debanner)
 
 

@@ -12,6 +12,7 @@ from discovery import HUB_DIR, HUB_ID_FOLDER, Refuse, SKILLS_DIR
 from .constants import (HARNESSES, INSTALLER_NAME, MANAGED_MARK, SCHEMA,
                         STATE_REL, VERSION)
 from .claims import _fence, _jget
+from .fsio import write_file
 
 
 def read_state(target: Path) -> dict:
@@ -36,8 +37,7 @@ def write_state(target: Path, state: dict) -> None:
     state["target"] = str(target.resolve())
     state.pop("prefix", None)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n",
-                    encoding="utf-8")
+    write_file(path, json.dumps(state, indent=2, sort_keys=True) + "\n")
 
 
 def rewrite_legacy_skill_ids(state: dict) -> list[tuple[str, str]]:

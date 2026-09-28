@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import contextlib
 import io
+import os
+import stat
+import subprocess
 
 from discovery import Refuse
 
@@ -139,6 +142,17 @@ def gitignore_block(ctx) -> None:
           in (gi / EXCLUDE_REL).read_text()
           and (gi / ".agents/behavior-rules/fixrule.md").exists()
           and rgi3["deleted"] == [], str(rgi3["deleted"]))
+    if os.name == "nt":
+        subprocess.run(["attrib", "+h", str(gi / EXCLUDE_REL)], check=True)
+        do_install(gi, catalog, ["fixmod/goodcomp"], ["claude"], dry_run=False)
+        attrs = os.stat(gi / EXCLUDE_REL).st_file_attributes
+        check("G3c — a Hidden exclude file is rewritten in place and stays "
+              "hidden",
+              ".agents/behavior-rules/fixrule.md"
+              not in (gi / EXCLUDE_REL).read_text()
+              and bool(attrs & stat.FILE_ATTRIBUTE_HIDDEN))
+    else:
+        skip("G3c — Hidden exclude file", "Windows-only file attribute")
     do_uninstall(gi, catalog, ["fixmod/goodcomp"], dry_run=False)
     check("G4 — the last uninstall takes the block, leaves their lines",
           (gi / EXCLUDE_REL).read_text() == "# theirs\nnode_modules/\n",
@@ -170,7 +184,6 @@ def gitignore_block(ctx) -> None:
 
     gt = tmp / "ws-tracked"
     gt.mkdir()
-    import subprocess
     if subprocess.run(["git", "-C", str(gt), "init", "-q"],
                       capture_output=True).returncode == 0:
         (gt / ".claude" / "rules").mkdir(parents=True)

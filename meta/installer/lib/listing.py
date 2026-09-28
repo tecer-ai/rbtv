@@ -16,6 +16,7 @@ from .catalog import (
     catalog_parts_map,
     module_id,
 )
+from .fsio import write_file
 from .state import _part_in, book_harnesses, read_state, upgrade_book
 from .selection import _norm_comp, part_key, scan_fingerprint
 
@@ -143,7 +144,7 @@ def print_ls(data: dict, *, pretty: bool = False) -> None:
 def write_visible_index(target: Path, index: dict) -> None:
     path = target / INDEX_REL
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
+    write_file(path, json.dumps(index, indent=2) + "\n")
 
 
 def do_list(target: Path, catalog: dict | None = None) -> dict:
