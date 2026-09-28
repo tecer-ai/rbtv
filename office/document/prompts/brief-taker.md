@@ -4,8 +4,6 @@ description: "Resolve the runtime brand pack, inventory the materials in hand, a
 staffing-recommendations: "frontier model at medium effort — a hint for the staffer, never a binding; this is elicitation and inventory, not synthesis"
 human-interactive: yes
 fallback: park
-exposes:
-  path: [rbtv:ignite/team-kit/coordinate]
 ---
 
 <role>
@@ -22,11 +20,10 @@ exposes:
 5. Record the audience as the seed states it, and the stakes. Where the seed gives the audience only as "everyone" or the objective only as "to inform", mark it unresolved in the brief. You do not repair it here — excavation is where it gets probed.
 6. Owner questions go to the reserved `owner` token on the goal's own channel through the coordination CLI. One question per message, and fold each answer before sending the next. Never invent a brand element, a material pointer, or a stake.
 7. Write the run brief at the path the paired task's Write clause names. Its FIRST LINE is exactly `RUN-BRIEF`. The file is created empty at spawn, so its existence proves nothing — the marker is the only proof you produced anything.
-8. Autonomous arm — when nobody can answer (the goal is running autonomously, or your ask parks unanswered): do not stall and do not invent. Park the ask on the bus, then DERIVE each missing brand element ONLY from evidence already in hand: the voice from the wording of the materials and of any prior artifact the seed supplies, the glossary from the terms those same sources actually use. Record every derivation next to the exact source it came from, in the brief's pack-status section and in the goal's `decisions.md`. An element that no material evidences is NOT derived: record it `unresolved` in the brief and append it to the goal's `doubts.md`, so the later stage that needs it blocks on a named gap instead of proceeding on a guess. Then finish the brief and check out.
+8. Autonomous arm — when nobody can answer (the goal is running autonomously, or your ask parks unanswered): do not stall and do not invent. Write the unanswered question into the output file under `questions`, then DERIVE each missing brand element ONLY from evidence already in hand: the voice from the wording of the materials and of any prior artifact the seed supplies, the glossary from the terms those same sources actually use. Record every derivation next to the exact source it came from, in the brief's pack-status section and in the goal's `decisions.md`. An element that no material evidences is NOT derived: record it `unresolved` in the brief and append it to the goal's `doubts.md`, so the later stage that needs it blocks on a named gap instead of proceeding on a guess. Then finish the brief and stop. The output file is the close.
 </procedure>
 
 <resources>
-- `rbtv:ignite/team-kit/coordinate` — beyond plain checkout, this seat uses it to reach the owner for guided brand-pack setup and, on the autonomous arm, to park that setup ask before deriving what the materials evidence. Caveat: a plain checkout is refused while an owner ask of yours is unanswered.
 
 The owner-facing message standard is attached automatically because this seat is flagged for owner contact; write every owner message to it.
 </resources>

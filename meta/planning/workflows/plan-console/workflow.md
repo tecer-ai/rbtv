@@ -102,13 +102,9 @@ an ask-cap and none has a wall-clock deadline (a planning seat's only clock is t
    `memory.md`), and composes `planning/approval-digest.md`: milestones, seat count, envelope
    summary, which seats are interactive, credential-resolve result, red flags (including
    `unresolved regression` if the cap was hit), artifact paths, the plan's execution declaration
-   and the bound commit read from `planning/bound-commit` — then
-   SENDS it to the owner as the APPROVAL ASK: one `coordinate send owner --type note
-   --approve-commit <the bound commit>` row on the goal's own bus, which the chat bridge turns
-   into an approval thread in the goal's Slack channel. It does NOT author the owner's reply
-   tokens (the thread publishes them from the parser's vocabulary) and it never parses a reply —
-   the owner's `approve` in that thread starts execution through the daemon's `start-execution`
-   intent, and this workflow is over.
+   and the bound commit read from `planning/bound-commit`. The digest file is the approval ask.
+   Do not send a bus message. It does not author reply tokens and it never parses a reply.
+   This workflow ends when the file is written.
 
 **The regression loop.** `plan-verifier` is the only seat with an `on-fail-relaunch` entry —
 `plan-reviewer,plan-verifier` — declared on the seat that ISSUES the verdict, per

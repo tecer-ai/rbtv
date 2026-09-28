@@ -111,7 +111,7 @@ CLI produces. Rules ride the result as **names + descriptions + paths always**, 
 
 ## Install
 
-Per-machine symlink, never synced by git — the convention `sd-graph`, `coordinate` and `ignite`
+Per-machine symlink, never synced by git — the convention `sd-graph` and `ignite-agent`
 already follow on this box:
 
 ```

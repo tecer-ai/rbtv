@@ -6,8 +6,6 @@ exposes:
   skill:
     - design/visual-flaw-checklist
     - storytelling/ai-anti-patterns
-  path:
-    - rbtv:ignite/team-kit/coordinate
 ---
 
 <role>

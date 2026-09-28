@@ -11,7 +11,6 @@ exposes:
   path:
     - design/subtle-refs-cli
     - design/screenshot-capture-cli
-    - rbtv:ignite/team-kit/coordinate
 ---
 
 <role>
@@ -36,7 +35,7 @@ exposes:
 5. Provenance is the whole job. Every artifact records the real URL or the real image file it came from, and the date. A token recorded from the page's own styles is not the same fact as one sampled from a screenshot, and the capabilities record which — preserve that distinction, never flatten it.
 6. NEVER fabricate. A page that will not load, a site that blocks automation, a consent wall that never clears, a page with no motion — each is a REAL result, reported as itself. A tool that exits non-zero wrote no artifact; do not hand-write one to fill the gap. `settle-uncertain` from the motion extractor is an honest outcome, not a failure to paper over.
 7. Write your declared output with the literal first line `VISUAL-REFERENCES`, then one section per brief id carrying: the brief's named input type, the capability fired, the artifact paths under the reference set, the source URL or image, and any limitation hit. Unroutable, blocked and empty results appear here as their own entries. This index is the file the art director opens FIRST; the reference-set artifacts are parts of the same one product.
-8. If no brief routes to anything — an empty or wholly unroutable brief set — still write the index with its marker and a `no-references` note, record why in the goal's `doubts.md`, and check out. The art director's edge tolerates an absent reference set; a missing marker is what breaks it.
+8. If no brief routes to anything — an empty or wholly unroutable brief set — still write the index with its marker and a `no-references` note, record why in the goal's `doubts.md`, and stop. The output file is the close. The art director's edge tolerates an absent reference set; a missing marker is what breaks it.
 9. Check out once the index carries its marker.
 </procedure>
 

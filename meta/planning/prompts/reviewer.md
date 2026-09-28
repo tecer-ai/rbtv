@@ -6,7 +6,6 @@ human-interactive: yes
 fallback: default-and-disclose
 exposes:
   skill: [master/slack-message-format, workflow-authoring-checklist]
-  path: [rbtv:ignite/team-kit/coordinate]
   sub-agent: [researcher, diagnoser]
 ---
 
@@ -26,7 +25,7 @@ exposes:
    ⚠ Reason about the DESCRIPTOR, never the cage. Being able to perform an act is not being permitted to: a seat's `<restrictions>` are what say whether it may, and a finding that assigns work on the strength of "that seat is uncaged" has checked the wrong document.
 3. Emit findings ONCE, each tagged `blocking` or `non-blocking`. Blocking = the plan cannot execute or silently breaks a frozen milestone or a checklist declaration. Everything else is non-blocking accepted residue.
 4. One revision pass: fix only blocking findings. Leave non-blocking in the list as accepted residue. Do not emit a second findings list.
-5. Remaining questions go to the reserved `owner` token via `coordinate`. APPLY `master/slack-message-format`. No ask-cap. No wall-clock. Interactive: one question per message.
+5. Remaining questions are written into the review file under `questions`. Do not send a bus message. There is no coordination CLI. `cast seat` ends when you stop; the file is the close. No ask-cap. No wall-clock.
 6. Write the review package at the path the paired task's Write clause names. First line is exactly `REVIEW-PACKAGE`. Then the findings list (each tagged), the revised plan (full text or a clearly marked replacement of the draft), the approval package (what the owner is being asked to bind: the plan artifacts, the execution declaration he is approving the birth of, and that they bind at a git commit the goal's `leader` records — it commits `planning/` to the vault when it accepts this seat's row and writes the hash to `planning/bound-commit`, because every planning seat runs caged with `.git` masked and can record nothing), and `input-gaps`.
 7. On a verify FAIL relaunch (this seat is on verify's `on-fail-relaunch`): do not emit a new findings list. Treat verify's FAIL body as the closed findings list. Apply a targeted fix for those items only, rewrite the review package (same first-line marker), and stop.
 8. Autonomous arm — when nobody can answer: park the ask, derive the tag (default: non-blocking unless the six-declaration or milestone-list check fails), proceed, disclose in `input-gaps` and `decisions.md`.
@@ -35,7 +34,6 @@ exposes:
 <resources>
 - `master/slack-message-format` skill — Slack mrkdwn, phone-first shape, ❓ vs 💭. Apply to every owner message; never paste a file into chat.
 - `workflow-authoring-checklist` skill — the six declarations. Use it as the seat-trial lens at step 2; a failed declaration is blocking.
-- `rbtv:ignite/team-kit/coordinate` — send owner asks to the reserved `owner` token and check out. Not a second Slack client.
 - `researcher` sub-agent — sourced facts with provenance. Fan out only to ground a finding. Judgment stays yours.
 - `diagnoser` sub-agent — local/codebase cause. Fan out only to ground a finding about how something actually behaves.
 </resources>
@@ -54,7 +52,7 @@ Findings were emitted once and tagged; only blocking items were revised; non-blo
 <permissions>
 - Read: the goal folder; facts brief; design; draft; every artifact those name.
 - Write: the review package the paired task names under `planning/`; APPENDS to the five goal ledgers; this seat's own folder (`memory.md`, `downloads/`, `scratchpad/`, `outputs/`; probes under `scratchpad/probes/<short>-<n>/`).
-- Run: `coordinate`; sub-agent dispatch.
+- Run: sub-agent dispatch.
 </permissions>
 
 <restrictions>

@@ -7,8 +7,6 @@ exposes:
     - deck-production
     - html-standards
     - converter
-  path:
-    - rbtv:ignite/team-kit/coordinate
 ---
 
 <role>

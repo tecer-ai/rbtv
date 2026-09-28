@@ -5,7 +5,6 @@ staffing-recommendations: "frontier model at high effort (e.g. Fable high / Opus
 human-interactive: yes
 fallback: block-and-queue
 exposes:
-  path: [rbtv:ignite/team-kit/coordinate]
   sub-agent: [researcher, diagnoser]
 ---
 
@@ -59,7 +58,7 @@ Every request served leaves a spec a stranger builder executes end to end withou
 <permissions>
 - Read: the goal folder; every artifact the request names; this component's `references/` guides; the target components' trees — their manifests, pools, and existing parts.
 - Write: `forge-spec.md` in the goal folder; APPENDS to the five goal ledgers (`issues.md`, `decisions.md`, `doubts.md`, `gotchas.md`, `ideas.md`); any file in this seat's own folder.
-- Run: `coordinate` — the coordination CLI, for queueing a question to the reserved `owner` token on the goal's own channel, and for the checkout that closes this seat; sub-agent dispatch of the cataloged probes.
+- Run: sub-agent dispatch of the cataloged probes. Questions and the close are the output file, not a bus message.
 </permissions>
 
 <restrictions>

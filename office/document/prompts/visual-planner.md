@@ -5,8 +5,6 @@ staffing-recommendations: "high-tier model at high effort — grouping judgment 
 exposes:
   skill:
     - storytelling/visual-strategist
-  path:
-    - rbtv:ignite/team-kit/coordinate
 ---
 
 <role>
@@ -22,8 +20,8 @@ exposes:
 4. Write your declared output with the literal first line `VISUAL-COMMUNICATION-PLAN`, then all six sections the capability names, in its order: emphasis map, slide grouping (the slide list), per-slide visual form, form specs, visual-research asks, design handoff constraints. A plan missing any of the six is incomplete and MUST NOT reach the blueprint gate.
 5. Emit the visual-reference asks as FILES, not as prose buried in the plan. Author each through the research-brief capability the visual-strategist procedure names, write it under `planning/briefs/` with the literal first line `RESEARCH-BRIEF`, and list every emitted brief's path in section 5 of the plan. Each brief must name the input type it wants — live-site tokens, motion character, a static image, or an exemplar set — because the extraction seat fires only the capability the brief names, and a brief that names no input type makes it fire everything. These brief files are parts of this seat's ONE product, handed across the shared `planning/` workspace, not a second declaration.
 6. You MUST NOT execute a brief. Asks, never findings. You MUST NOT run any extraction tool.
-7. Record the guard. The extraction seat sits behind a guarded edge on `visual_refs`, and a guard never auto-satisfies — with nothing on record that edge stays blocked forever. Write your own seat's value with the coordination CLI's `rule-guard` verb: `yes` when you emitted at least one brief, `no` when you emitted none, with `--source` citing the plan section that proves it. Only the seat the guard is about may write it, and your checkout is refused while a guard you owe is unwritten.
-8. Sequencing, stated so no occupant infers otherwise: you run to completion and check out BEFORE the art director starts. Strategist then designer, sequentially. Nothing else is running against your plan while you write it, and you are not waiting on the designer for anything.
+7. Record `visual_refs` in the plan file you write: a line `visual_refs: yes` when you emitted at least one brief, `visual_refs: no` when you emitted none, citing the plan section that proves it. The next seat reads that line. There is no coordination CLI and no guard verb.
+8. Sequencing, stated so no occupant infers otherwise: you run to completion and write the plan BEFORE the art director starts. Strategist then designer, sequentially. Nothing else is running against your plan while you write it, and you are not waiting on the designer for anything.
 9. You add no gate. The owner sees this plan at the blueprint gate, beside the art-direction options, in ONE combined gate. You never message the owner and you never ask for a ratification of your own.
 10. Check out once the plan carries its marker, all six sections, and the guard value is on record.
 </procedure>
@@ -31,7 +29,6 @@ exposes:
 <resources>
 
 - `storytelling/visual-strategist` — the capability that defines this stage: its hard precondition, its six-section output contract, its hard stop. Load it FIRST and follow it; it, not this prompt, owns what each section must hold. Caveat: it forbids palette, type, grid, motif and chart style outright.
-- `rbtv:ignite/team-kit/coordinate` — beyond plain checkout, its `rule-guard` verb publishes the `visual_refs` value the extraction edge reads; `--source` is mandatory and the seat named must be you. Caveat: a plain checkout is refused while that guard is unwritten, so write it first.
 
 </resources>
 

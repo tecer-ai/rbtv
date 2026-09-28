@@ -4,7 +4,7 @@ description: "Build every piece the forge spec enumerates, land each at its decl
 staffing-recommendations: "frontier model at high effort (e.g. Fable high / Opus max / Codex top reasoning) — a hint for the staffer, never a binding"
 exposes:
   skill: [create-cli, core/coding/coding]
-  path: [rbtv:ignite/team-kit/coordinate, component-lint]
+  path: [component-lint]
   sub-agent: [writer]
 ---
 
@@ -48,7 +48,7 @@ Every piece the spec ordered exists at its declared path, registered exactly as 
 <permissions>
 - Read: the goal folder; this component's `references/` guides; every touched component's tree; the run-time configuration under this component's module configuration folder.
 - Write: the target paths the spec names, inside the `.rbtv/mirror/` component tree and the rbtv repo's module tree; those components' `exposure.csv`, `seats.csv`, workflow manifests, and prompt frontmatter, for the registration act; `forge-build.md` in the goal folder; APPENDS to the five goal ledgers (`issues.md`, `decisions.md`, `doubts.md`, `gotchas.md`, `ideas.md`); any file in this seat's own folder.
-- Run: the `component-lint` CLI; sub-agent dispatch of the writer definitions; the coordination CLI.
+- Run: the `component-lint` CLI; sub-agent dispatch of the writer definitions.
 </permissions>
 
 <restrictions>

@@ -1220,9 +1220,6 @@ def check_fork_discharge(c, out, census):
 
 
 ETHOS_BLOCK = re.compile(r"<!--\s*ethos:start\s*-->.*?<!--\s*ethos:end\s*-->", re.S)
-# Owner-ruled standing checkout grant: every seat declares it, few name it in
-# prose, and it is never drift.
-COORDINATE_GRANT = "rbtv:ignite/team-kit/coordinate"
 # The exposure methods whose part-id is an instrument a prompt BODY would name.
 # Direction 1 (declared-but-unused) covers all three; direction 2
 # (used-but-undeclared) is scoped tighter — measured 2026-08-12 over the live
@@ -1247,7 +1244,7 @@ def check_exposes_body_match(c, out, census):
     Declared-but-unused: an entry nobody mentions is a grant that outlived the
     procedure that needed it. Used-but-undeclared: a prompt that names an
     instrument it was never granted instructs a caged seat to run what it cannot
-    reach (the measured `coordinate` gap, 2026-08-10).
+    reach (the measured unbound-CLI gap, 2026-08-10).
 
     ponytail: substring / word-boundary heuristics, not a parser — this is a
     drift tripwire. A name mentioned only inside a code fence, a URL, or an
@@ -1292,8 +1289,6 @@ def check_exposes_body_match(c, out, census):
                 census["exposes-entries"] += 1
                 name = entry.rsplit("/", 1)[-1]
                 declared.add(name)
-                if key == "path" and entry == COORDINATE_GRANT:
-                    continue  # standing checkout grant — exempt by owner ruling
                 if name.lower() not in lowered:
                     _fail(out, "exposes-body-match", item["path"],
                           f"exposes.{key} declares {entry!r} but the body never names "
@@ -1354,8 +1349,7 @@ def check_resources_coverage(c, out, census):
     """Owner-ruled 2026-08-12 (workflow-authoring-checklist.md §2): every
     `exposes:` entry of method path/skill/sub-agent ALSO gets its own bullet
     inside the prompt's <resources> section, at most 280 characters — prose
-    a materializer-bound grant is not prose an OCCUPANT reads. Exempt: the
-    standing `rbtv:ignite/team-kit/coordinate` checkout grant, and every
+    a materializer-bound grant is not prose an OCCUPANT reads. Exempt: every
     command/rule/hook entry (those arrive as standing behaviour, never a
     chosen instrument) — same exemptions check_exposes_body_match carries."""
     census["resources-entries"] = 0
@@ -1372,8 +1366,6 @@ def check_resources_coverage(c, out, census):
         for key in RESOURCES_INSTRUMENT_METHODS:
             for entry in groups.get(key) or []:
                 entry = str(entry).strip()
-                if key == "path" and entry == COORDINATE_GRANT:
-                    continue  # standing checkout grant — exempt by owner ruling
                 declared.append((key, entry, entry.rsplit("/", 1)[-1]))
         census["resources-entries"] += len(declared)
 

@@ -24,12 +24,11 @@ On top of it a seat declares AT MOST ONE goal-folder output, in the seat catalog
 
 ## 2 — Every instrument declared in `exposes:` AND described in `<resources>`
 
-An occupant never discovers its means. Anything the seat must reach is declared in its prompt frontmatter `exposes:`, keyed by the method its `exposure.csv` row carries — `skill` · `command` · `rule` · `hook` · `sub-agent` · `path`. Prose in `<resources>` says WHEN and WHY; `exposes:` is what makes the thing REACHABLE inside a sandbox. Prose alone left a caged seat ordered to check in with no `coordinate` it could run.
+An occupant never discovers its means. Anything the seat must reach is declared in its prompt frontmatter `exposes:`, keyed by the method its `exposure.csv` row carries — `skill` · `command` · `rule` · `hook` · `sub-agent` · `path`. Prose in `<resources>` says WHEN and WHY; `exposes:` is what makes the thing REACHABLE inside a sandbox. Prose alone left a caged seat ordered to run a CLI it was not granted.
 
 **Declared is not described (owner-ruled 2026-08-12).** Every `exposes:` entry of method `path` (a CLI), `skill`, or `sub-agent` ALSO gets its OWN bullet in the prompt's `<resources>` section: the part-id, then AT MOST 280 characters saying how the occupant uses it — when to reach for it, what it hands back, and the one caveat it would otherwise learn the hard way. The 280 is a ceiling, not a target. The two are not a duplication and neither substitutes: the frontmatter is read by the MATERIALIZER, which binds and mints the instrument; the bullet is read by the OCCUPANT, which decides whether this is the moment to use it. An entry with no bullet is a means the occupant has to discover — the exact failure this checklist exists to prevent.
 
 - `command`, `rule`, and `hook` entries get NO bullet: they arrive as standing behaviour the occupant is already under, not as something it chooses to invoke.
-- ONE exemption inside `path`: the standing `rbtv:ignite/team-kit/coordinate` checkout grant, which belongs to the run protocol and never to the role. Any use of `coordinate` BEYOND checkout — an owner-channel ask, a fail-status query, a registration act — is described like every other instrument.
 - A `sub-agent` bullet says what the dispatched definition is FOR and what comes back, so the occupant knows what to hand it and what it may not delegate — never just that the definition exists.
 - Where a seat holds an instrument no step of its procedure uses, the defect is the GRANT, not the missing bullet: delete the entry.
 - One shape, so a reader scans a `<resources>` section instead of reading it: `` - `<part-id>` <what it is> — <what it gives the occupant>. <when to reach for it, and the caveat>. ``

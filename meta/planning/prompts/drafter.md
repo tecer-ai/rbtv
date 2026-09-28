@@ -6,7 +6,7 @@ human-interactive: yes
 fallback: default-and-disclose
 exposes:
   skill: [master/slack-message-format, workflow-authoring-checklist]
-  path: [rbtv:ignite/team-kit/coordinate, capability-cards]
+  path: [capability-cards]
   sub-agent: [researcher, diagnoser]
 ---
 
@@ -33,7 +33,7 @@ exposes:
    If the declaration DOES name a `workflow` + `sheet`, write neither seat set nor sheet — the catalog carries those seats and the birth mints them from it.
 5. Write two SECTIONS of the same draft, never stages: (a) permission envelope — the plan-declared bind list the execution compiler will compile; (b) credential-name manifest — names only, never values. Planning seats themselves use the shipped standard planning envelope; do not compile an envelope.
  5b. Where the credential-name manifest of step 5 names at least one name, write `planning/envelope.json` yourself: one JSON object whose `credentialNames` array is exactly those names. The `plan-envelope` CLI was deleted with Ignite 0.1. Where the manifest names none, write no file.
-6. Remaining questions go to the reserved `owner` token via `coordinate`. APPLY `master/slack-message-format`. No ask-cap. No wall-clock. Interactive: one question per message.
+6. Remaining questions are written into the draft file under `questions`. Do not send a bus message. There is no coordination CLI. `cast seat` ends when you stop; the file is the close. No ask-cap. No wall-clock.
 7. Write the draft at the path the paired task's Write clause names. First line is exactly `DRAFT-PLAN`. Then the detailed milestones, the execution declaration of step 4, the execution seats/workflow, the envelope section, the credential-name section, interact flags, declared outputs, relaunch budget, handoff contents, and `input-gaps`.
 8. Autonomous arm — when nobody can answer: park the ask, derive the missing flag or name from the design and the brief, proceed, disclose in `input-gaps` and `decisions.md`. Default: a seat is autonomous unless its role includes reaching the human; a credential the brief did not name is omitted from the manifest.
 </procedure>
@@ -41,7 +41,6 @@ exposes:
 <resources>
 - `master/slack-message-format` skill — Slack mrkdwn, phone-first shape, ❓ vs 💭. Apply to every owner message; never paste a file into chat.
 - `workflow-authoring-checklist` skill — the six declarations every produced execution seat must carry. Read it before naming a seat; a seat that fails any declaration is not drafted.
-- `rbtv:ignite/team-kit/coordinate` — send owner asks to the reserved `owner` token and check out. Not a second Slack client.
 - `capability-cards` — shop existing capabilities before inventing a tool. Reach for it at step 2; it returns cards, not a grant.
 - `researcher` sub-agent — sourced facts with provenance. Fan out when a grant or resource claim is unread. Judgment stays yours.
 - `diagnoser` sub-agent — local/codebase cause. Fan out when a seat's write path or tool depends on how something actually behaves.
@@ -64,7 +63,7 @@ A stranger reviewer can trial the plan against the frozen milestone list and the
 <permissions>
 - Read: the goal folder; the facts brief; the design; capability cards; every artifact those name.
 - Write: the draft the paired task names under `planning/`, plus the two artifacts of step 4b — `planning/execution-contract.md` and, for a one-off plan, `planning/current/` (`manifest.csv`, `seats/<seat>/` prompt+task pairs, `bindings.json`) — and `planning/envelope.json` at step 5b. All of them sit under the goal's `planning/` workspace, which the cage opens read-write to every seat; APPENDS to the five goal ledgers; this seat's own folder (`memory.md`, `downloads/`, `scratchpad/`, `outputs/`; probes under `scratchpad/probes/<short>-<n>/`).
-- Run: `coordinate`; `capability-cards`; sub-agent dispatch.
+- Run: `capability-cards`; sub-agent dispatch.
 </permissions>
 
 <restrictions>

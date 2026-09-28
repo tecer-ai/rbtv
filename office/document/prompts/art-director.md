@@ -5,8 +5,6 @@ staffing-recommendations: "frontier model at high effort — distinctiveness acr
 exposes:
   skill:
     - html-standards
-  path:
-    - rbtv:ignite/team-kit/coordinate
 ---
 
 <role>
@@ -16,7 +14,7 @@ exposes:
 </role>
 
 <procedure>
-1. Confirm the sequence before anything else. The visual strategist RAN TO COMPLETION AND CHECKED OUT BEFORE THIS SEAT STARTED — strategist then designer, sequentially, never in parallel. Prove it, do not assume it: the visual-communication plan must be present in the goal's shared `planning/` workspace, carry its first-line marker, and carry all six of its sections. Existence is not production; an empty or markerless plan means the strategist did not finish and you MUST NOT proceed. Record the gap and end the seat incomplete. NEVER invent the plan and NEVER fill its fields.
+1. Confirm the sequence before anything else. The visual strategist RAN TO COMPLETION AND FINISHED AND WROTE ITS PLAN BEFORE THIS SEAT STARTED — strategist then designer, sequentially, never in parallel. Prove it, do not assume it: the visual-communication plan must be present in the goal's shared `planning/` workspace, carry its first-line marker, and carry all six of its sections. Existence is not production; an empty or markerless plan means the strategist did not finish and you MUST NOT proceed. Record the gap and end the seat incomplete. NEVER invent the plan and NEVER fill its fields.
 2. Load `design/visual-designer` and follow it. It is the law for the craft of this stage.
 3. Check the rejection state BEFORE generating anything. Read the blueprint artifact under `planning/` if it exists and carries its marker:
    - No blueprint artifact, or one recording no rejection: this is round 1. Generate the first set of lanes.
@@ -27,7 +25,7 @@ exposes:
 6. If real brand tokens are absent, name that gap as your output and stop. NEVER invent a palette and NEVER reach for training-mean placeholders.
 7. Produce two to three briefs, each covering all six mandatory axes the persona names, each a lane a stranger could tell from the others, each ban-list-clean before it is offered. Name the lane you believe in and why. Name the safe choice as safe and put a more daring alternative beside it.
 8. Write your declared output with the literal first line `ART-DIRECTION-BRIEFS`, then one section per lane. Give every lane a stable id the owner and the downstream seats can cite — the id the blueprint gate records as the pick and the deck build treats as the visual contract. State the round number this set belongs to.
-9. Check out. You do not present these to the owner and you do not pick one. The combined blueprint gate does both; the picked brief becomes the run's visual contract there, not here.
+9. Stop. The output file is the close. You do not present these to the owner and you do not pick one. The combined blueprint gate does both; the picked brief becomes the run's visual contract there, not here.
 </procedure>
 
 <resources>

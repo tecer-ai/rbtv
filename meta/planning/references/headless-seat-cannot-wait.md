@@ -26,7 +26,7 @@ An INTERACTIVE sitting — a console session with a person at it — is the only
 The failure reports itself as a clean run. All four of these hold at once:
 
 - exit code **0** — nothing errored; the agent chose to stop.
-- a **stub report** — one sentence announcing the wait, and no findings. (Measured instance, 2026-08-31 19:44Z, seat `note-approval-gate`: the entire report was `I'll pause here and wait for the Monitor notification about coord.py selftest's outcome before proceeding to commit.`)
+- a **stub report** — one sentence announcing the wait, and no findings. (Measured instance, 2026-08-31 19:44Z, seat `note-approval-gate`: the entire report was `I'll pause here and wait for the Monitor notification about a selftest's outcome before proceeding to commit.`)
 - **uncommitted work in the tree** — that seat left +61 lines in `ignite/coord/messages.py` and +40 in `ignite/coord/coord_selftest.py` unstaged.
 - **no error anywhere** — no crash, no timeout, no refusal to point at.
 

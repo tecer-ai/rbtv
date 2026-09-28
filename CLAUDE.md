@@ -38,7 +38,7 @@ Rules for `ignite/agents/`:
 4. **Self-contained subtree.** `ignite/agents/tool/` requires only its own files and Node built-ins. Other rbtv capabilities (`cast`, stools, audio) are runtime commands named in workspace config, never source imports.
 5. **Docs in sync.** When this component changes, the Keep-Docs-in-Sync rule above applies.
 
-`ignite/team-kit/` remains a normal installable component of this module (thin skill loader; scripts read in place from the repo). `ignite/teambuild/` is the staffing-discovery browse (`rbtv teambuild`).
+`ignite/teambuild/` is the staffing-discovery browse (`rbtv teambuild`).
 
 ## CLI Tool Placement (convention, owner-ruled 2026-07-26)
 

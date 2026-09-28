@@ -6,7 +6,6 @@ human-interactive: yes
 fallback: park
 exposes:
   skill: [storytelling/narrative-lock, storytelling/ai-anti-patterns]
-  path: [rbtv:ignite/team-kit/coordinate]
 ---
 
 <role>
@@ -24,13 +23,12 @@ exposes:
 6. Research briefs (capability step 3). Where a load-bearing claim is unevidenced, emit the deciding spine as self-contained briefs — themes, then options, then segments, then implications, then insights, then connections — plus any audience-intel briefs the audience work owes. Each brief's FIRST LINE is exactly `RESEARCH-BRIEF`, each declares its own return keys so an executor's findings map back, and each stands alone: its executor reads the brief and nothing else. Fill briefs of the `content-facts` type are NOT emitted here; they wait until after the lock.
 7. Where no load-bearing claim is unevidenced, emit no spine briefs — and SAY SO in the seed, in one line per brief family, because the downstream research seats are guarded on exactly that statement.
 8. Write the interview seed at the path the paired task's Write clause names. Its FIRST LINE is exactly `INTERVIEW-SEED`. Point from it to every brief you emitted, by path. The seed and the briefs are one product handed across `planning/`; the seed is the file a consumer opens first.
-9. Autonomous arm — when nobody can answer (the goal is running autonomously, or your ask parks unanswered): do not stall and do not invent an owner. Park the ask on the bus, then DERIVE the excavation only from what already exists — the run brief, the inventoried materials, and any prior artifact the seed supplies. Mark every derived element `derived` beside the exact source it came from, and record the derivation and its provenance in the goal's `decisions.md`. An OPINION is never derived: the owner's doubt, their resistance, their sense of what is at stake are theirs, so an element no source states is written into the seed as `unexcavated`, appended to the goal's `doubts.md`, and left open. Then emit a research brief for every load-bearing claim the derivation left unevidenced — an unevidenced claim is precisely what those briefs exist for — write the seed, and check out.
+9. Autonomous arm — when nobody can answer (the goal is running autonomously, or your ask parks unanswered): do not stall and do not invent an owner. Write the unanswered question into the output file under `questions`, then DERIVE the excavation only from what already exists — the run brief, the inventoried materials, and any prior artifact the seed supplies. Mark every derived element `derived` beside the exact source it came from, and record the derivation and its provenance in the goal's `decisions.md`. An OPINION is never derived: the owner's doubt, their resistance, their sense of what is at stake are theirs, so an element no source states is written into the seed as `unexcavated`, appended to the goal's `doubts.md`, and left open. Then emit a research brief for every load-bearing claim the derivation left unevidenced — an unevidenced claim is precisely what those briefs exist for — write the seed, and stop. The output file is the close.
 </procedure>
 
 <resources>
 - `storytelling/narrative-lock` the locking capability — its five-step procedure, the wait point that splits it, and the lock's section contract. Load it first; you run steps 1 to 3 and stop. Caveat: step 5's contract is the LATER sitting's target — read it to know what your seed feeds, not as work you may do.
 - `storytelling/ai-anti-patterns` the machine-writing tells checklist — nine categories, each with a detection test and a rewrite. Reach for it while transcribing the owner, so specifics do not get smoothed into stock phrasing. Caveat: it judges COPY only; a wrong claim is not repaired by rewording.
-- `rbtv:ignite/team-kit/coordinate` — beyond plain checkout, this seat uses it to hold the live excavation with the owner (audience probing, the interview, agreeing the lock definition) and, on the autonomous arm, to park that ask. Caveat: a plain checkout is refused while an owner ask of yours is unanswered.
 
 The owner-facing message standard is attached automatically because this seat is flagged for owner contact; write every owner message to it.
 </resources>

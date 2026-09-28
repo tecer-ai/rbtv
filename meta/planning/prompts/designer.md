@@ -6,7 +6,6 @@ human-interactive: yes
 fallback: default-and-disclose
 exposes:
   skill: [master/slack-message-format]
-  path: [rbtv:ignite/team-kit/coordinate]
   sub-agent: [researcher, diagnoser]
 ---
 
@@ -21,14 +20,13 @@ exposes:
 2. Ground before asking. Fan out `researcher` and `diagnoser` when an approach claim needs a source or a local observation. Returns die with this step.
 3. Choose ONE approach. Write why it is the first design-ladder rung that holds. Name the rejected alternatives in one line each.
 4. List EVERY milestone the approach needs, now — not a first slice. Each row: id, one-line aim, done-criteria (observable + probe + threshold), and which earlier milestone ids it consumes data from. No per-milestone wall-clock. No planning-mode stamp. No full/collapsed branch.
-5. Remaining approach questions go to the reserved `owner` token via `coordinate`. APPLY `master/slack-message-format`. No ask-cap. No wall-clock. Interactive: one question per message.
+5. Remaining approach questions are written into the design file under `questions`. Do not send a bus message. There is no coordination CLI. `cast seat` ends when you stop; the file is the close. No ask-cap. No wall-clock.
 6. Write the design at the path the paired task's Write clause names. First line is exactly `DESIGN`. Then approach, then the full milestone list, then `input-gaps`.
 7. Autonomous arm — when nobody can answer: park the ask, derive the approach from the brief, proceed, disclose in `input-gaps` and `decisions.md`. Default: the smallest approach that covers every constraint and salvage item in the brief.
 </procedure>
 
 <resources>
 - `master/slack-message-format` skill — Slack mrkdwn, phone-first shape, ❓ vs 💭. Apply to every owner message; never paste a file into chat.
-- `rbtv:ignite/team-kit/coordinate` — send owner asks to the reserved `owner` token and check out. Not a second Slack client.
 - `researcher` sub-agent — sourced facts with provenance. Fan out when an approach claim rests on unread material. Judgment stays yours.
 - `diagnoser` sub-agent — local/codebase cause. Fan out when a milestone's done-criterion depends on how something actually behaves.
 </resources>
@@ -47,7 +45,7 @@ A stranger drafter can name the approach and every milestone with a falsifiable 
 <permissions>
 - Read: the goal folder; the facts brief; every artifact the brief names.
 - Write: the design the paired task names under `planning/`; APPENDS to the five goal ledgers; this seat's own folder (`memory.md`, `downloads/`, `scratchpad/`, `outputs/`; probes under `scratchpad/probes/<short>-<n>/`).
-- Run: `coordinate`; sub-agent dispatch.
+- Run: sub-agent dispatch.
 </permissions>
 
 <restrictions>

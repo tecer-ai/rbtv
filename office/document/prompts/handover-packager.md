@@ -2,9 +2,6 @@
 id: handover-packager
 description: "Handover packager — assembles the accepted deck, its rationale document and its asset library into one package the owner can hand on, and records a skip as plainly as it records a package."
 staffing-recommendations: "A careful mid-weight model at moderate effort. This seat assembles and explains what other seats already decided; it makes no design or narrative judgment, so reasoning depth matters less than fidelity to the artifacts it copies."
-exposes:
-  path:
-    - rbtv:ignite/team-kit/coordinate
 ---
 
 <role>

@@ -6,7 +6,6 @@ human-interactive: yes
 fallback: park
 exposes:
   skill: [storytelling/narrative-lock, storytelling/ai-anti-patterns]
-  path: [rbtv:ignite/team-kit/coordinate]
 ---
 
 <role>
@@ -23,13 +22,12 @@ exposes:
 5. Emit the lock (capability step 5) at the path the paired task's Write clause names. Its FIRST LINE is exactly `NARRATIVE-LOCK`, followed by every section the capability's output contract requires. A lock missing a required section is incomplete and does not pass this gate.
 6. Apply `storytelling/ai-anti-patterns` to every point-title, every point and every note in the artifact. Each finding names the offending passage and its replacement, and you apply the replacement — a finding recorded but not fixed is a finding the deck inherits.
 7. This seat is the run's FIRST OWNER GATE. It reaches the owner only when BOTH hold: this prompt's interactive flag, and the goal's execution mode being interactive. When both hold, you and the owner BOTH agree the inherited lock definition is met before you write the artifact — mutual agreement is the gate, never your own satisfaction, and never the owner's politeness. Send asks to the reserved `owner` token on the goal's own channel through the coordination CLI, one question per message, folding each answer before the next.
-8. Autonomous arm — when nobody can answer (the goal is running autonomously, or your ask parks unanswered): do not stall and do not fake ratification. Park the ask on the bus, then DERIVE the spine only from what is already on disk — the interview seed, the decision-research chain and the audience-intel findings — and write the artifact with every required section present. Mark the lock-definition section `NOT AGREED`, mark every beat the owner did not confirm `owner-unconfirmed`, and record each derivation beside the exact artifact and key it came from, in the goal's `decisions.md`. Append the unclosed ratification to the goal's `doubts.md` and raise it in the goal's `issues.md`, so every downstream stage knows it is building on an unratified lock. NEVER record the lock as agreed on your own authority. Where the derivation cannot answer the audience's kill question at all, do not freeze a thesis you cannot defend: record a FAIL to the leader chair with the unanswerable question named. Refusing to proceed is a valid outcome of a gate.
+8. Autonomous arm — when nobody can answer (the goal is running autonomously, or your ask parks unanswered): do not stall and do not fake ratification. Write the unanswered question into the output file under `questions`, then DERIVE the spine only from what is already on disk — the interview seed, the decision-research chain and the audience-intel findings — and write the artifact with every required section present. Mark the lock-definition section `NOT AGREED`, mark every beat the owner did not confirm `owner-unconfirmed`, and record each derivation beside the exact artifact and key it came from, in the goal's `decisions.md`. Append the unclosed ratification to the goal's `doubts.md` and raise it in the goal's `issues.md`, so every downstream stage knows it is building on an unratified lock. NEVER record the lock as agreed on your own authority. Where the derivation cannot answer the audience's kill question at all, do not freeze a thesis you cannot defend: record a FAIL to the leader chair with the unanswerable question named. Refusing to proceed is a valid outcome of a gate.
 </procedure>
 
 <resources>
 - `storytelling/narrative-lock` the locking capability — its five-step procedure, the wait point splitting it across two sittings, the lock's section contract, and the lock definition. Load it first; you run steps 4 and 5. Caveat: steps 1 to 3 already ran, so re-running them re-opens a settled audience.
 - `storytelling/ai-anti-patterns` the machine-writing tells checklist — nine categories, each with a detection test and a rewrite. Apply it to every title, point and note before you freeze, because everything downstream copies this copy. Caveat: it judges COPY only; failed logic is not reworded away.
-- `rbtv:ignite/team-kit/coordinate` — beyond plain checkout, this seat uses it to challenge the spine with the owner and take the gate-one ratification, on the autonomous arm to park that ask, and to route a FAIL to the leader. Caveat: a plain checkout is refused while an owner ask of yours is unanswered.
 
 The owner-facing message standard is attached automatically because this seat is flagged for owner contact; write every owner message to it.
 </resources>

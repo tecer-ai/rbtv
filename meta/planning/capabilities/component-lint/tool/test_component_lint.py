@@ -1116,7 +1116,7 @@ def test_unknown_check_id_is_exit_2():
 # (EBM_CHECK) so that unrelated FAIL never muddies the exposes-body-match read.
 EXPOSING_PROMPT = PROMPT.replace(
     'description: "demo prompt"',
-    'description: "demo prompt"\nexposes:\n  path: [rbtv:ignite/team-kit/coordinate]\n  skill: [demo-cap]'
+    'description: "demo prompt"\nexposes:\n  skill: [demo-cap]'
 ).replace("<role>\nr\n</role>", "<role>\nr — reach for demo-cap when stuck.\n</role>")
 
 EBM_CHECK = ("--check", "exposes-body-match")
@@ -1124,13 +1124,6 @@ EBM_CHECK = ("--check", "exposes-body-match")
 
 def test_green_exposes_body_match():
     expect_green("exposes declared and used", {"prompts/pa.md": EXPOSING_PROMPT}, extra=EBM_CHECK)
-
-
-def test_green_coordinate_grant_is_exempt():
-    """`rbtv:ignite/team-kit/coordinate` is the standing checkout grant: declared,
-    never named in prose, and never a finding."""
-    out = expect_green("coordinate grant exempt", {"prompts/pa.md": EXPOSING_PROMPT}, extra=EBM_CHECK)
-    assert "coordinate" not in out, out
 
 
 def test_red_exposes_declared_but_unused():
@@ -1251,12 +1244,12 @@ def test_green_resources_entry_named():
     expect_green("declared and named", {"prompts/pa.md": prompt}, extra=RC_CHECK)
 
 
-def test_green_coordinate_and_command_entries_exempt():
-    """The standing checkout grant, and any command/rule/hook entry, never
-    need a bullet — neither is a chosen instrument."""
-    prompt = with_exposes("  path: [rbtv:ignite/team-kit/coordinate]\n  command: [some-command]")
+def test_green_command_entries_exempt():
+    """A command/rule/hook entry never needs a bullet — it is standing behaviour,
+    not a chosen instrument."""
+    prompt = with_exposes("  command: [some-command]")
     assert "<resources>" not in prompt
-    expect_green("coordinate + command exempt", {"prompts/pa.md": prompt}, extra=RC_CHECK)
+    expect_green("command exempt", {"prompts/pa.md": prompt}, extra=RC_CHECK)
 
 
 def test_red_resources_bullet_over_cap():

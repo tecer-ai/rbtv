@@ -328,7 +328,7 @@ const CHECKS = [
     const r = runCli(['ignite']);
     if (r.status !== 0) throw new Error(`\`rbtv ignite\` exited ${r.status}`);
     if (!/teambuild \(component\)/.test(r.stdout)) throw new Error('level 1 does not list teambuild as a component');
-    if (!/team-kit \(component\)/.test(r.stdout)) throw new Error('level 1 does not list team-kit as a component');
+    if (!/agents \(component\)/.test(r.stdout)) throw new Error('level 1 does not list agents as a component');
   }],
 
   ['level 2 on a component folder delivers component.md\'s body (frontmatter stripped) then its exposure.csv rows', () => {
@@ -344,15 +344,15 @@ const CHECKS = [
   }],
 
   ['a component folder delivers its body under ONE header, never a second answer', () => {
-    const r = runCli(['ignite', 'team-kit']);
-    if (r.status !== 0) throw new Error(`\`rbtv ignite team-kit\` exited ${r.status}`);
-    if (!/coordinate \(tool\/path\)/.test(r.stdout)) throw new Error('team-kit exposure rows did not deliver coordinate');
+    const r = runCli(['ignite', 'agents']);
+    if (r.status !== 0) throw new Error(`\`rbtv ignite agents\` exited ${r.status}`);
+    if (!/ignite-agent \(tool\/path\)/.test(r.stdout)) throw new Error('agents exposure rows did not deliver ignite-agent');
     // The second facet used to come from a module-root manifest row; with that
     // manifest retired the only remaining source is a capability folder of the
     // same name, and ignite has none — so the note is not asserted here. What IS
     // asserted is the half that outlived it: ONE header, the folder's body.
-    const headerCount = (r.stdout.match(/ignite team-kit \(/g) || []).length;
-    if (headerCount > 1) throw new Error(`team-kit rendered ${headerCount} separate facet headers — expected one, the folder`);
+    const headerCount = (r.stdout.match(/ignite agents \(/g) || []).length;
+    if (headerCount > 1) throw new Error(`agents rendered ${headerCount} separate facet headers — expected one, the folder`);
   }],
 
   ['an unknown name under a module WITH component folders still refuses, and the known-list carries the new components', () => {

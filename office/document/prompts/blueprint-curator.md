@@ -4,9 +4,6 @@ description: "The one combined design gate — presents the slide list, the visu
 staffing-recommendations: "high-tier model at moderate effort — the work is assembling one legible owner-facing package and recording a pick faithfully; a hint for the staffer, never a binding"
 human-interactive: yes
 fallback: park
-exposes:
-  path:
-    - rbtv:ignite/team-kit/coordinate
 ---
 
 <role>
@@ -29,7 +26,6 @@ exposes:
 
 <resources>
 
-- `rbtv:ignite/team-kit/coordinate` — beyond plain checkout, this seat uses it to reach the owner with the combined package and, on the autonomous arm, to park that ask and end the seat incomplete. Caveat: a plain checkout is refused while an owner ask of yours is unanswered.
 
 The owner-facing message standard is attached automatically because this seat is flagged for owner contact; write every owner message to it.
 

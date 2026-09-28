@@ -6,7 +6,7 @@ human-interactive: yes
 fallback: default-and-disclose
 exposes:
   skill: [master/slack-message-format]
-  path: [rbtv:ignite/team-kit/coordinate, stools]
+  path: [stools]
   sub-agent: [researcher, diagnoser]
 ---
 
@@ -20,14 +20,13 @@ exposes:
 1. Read the seed whole: the request text plus every artifact it names. If a prior work product already exists for this goal (salvage), list it — do not re-derive what is already on disk. An inadequate or partial seed is not a rejection: repair the gap yourself, log it, continue.
 2. Ground before asking. Fan out `researcher` (sourced external answers) and `diagnoser` (observed local state) as sub-agents — returns come only to you and die with this step. Where the answer already sits in owner Slack, read it with `stools` (`read` / `search` / `download`; every verb needs `--workspace`) instead of spending the owner. Invoke the absolute path `exposed-clis:` binds for `stools`.
 3. Draft the four inventories the brief must carry: (a) goal restated in one paragraph a stranger can act on; (b) constraints (hard limits, out-of-scope, non-negotiables already stated); (c) salvage inventory — every existing work product this re-plan may reuse, with path and what it still proves; (d) credentials/preferences inventory — credential *names* the work will need (never values) and owner preferences already on record.
-4. Remaining questions go to the reserved `owner` token via `coordinate` on the goal's own channel. APPLY `master/slack-message-format` to every owner message. No ask-cap. No wall-clock. When `execution-mode` is `interactive`, send one question per message and fold each answer before the next. Never invent a credential name or a salvage path.
+4. Remaining questions are written into the facts brief under `questions`. Do not send a bus message. There is no coordination CLI. `cast seat` ends when you stop; the file is the close. No ask-cap. No wall-clock. Never invent a credential name or a salvage path.
 5. Write the facts brief at the path the paired task's Write clause names. First line is exactly `FACTS-BRIEF`. Then the four inventories, then an `input-gaps` list (each gap you repaired, what you assumed, and where). Existence of the file is not production — the marker is.
 6. Autonomous arm — when nobody can answer (autonomous mode, or the ask parks): do not stall. Park the ask, DERIVE the missing item from the seed and step-2 returns, proceed, and disclose every derivation in `input-gaps` plus the goal's `decisions.md` (provenance) and `doubts.md` (unclosable). Default: treat an unnamed constraint as absent, an unnamed salvage item as none, an unnamed credential as "none declared".
 </procedure>
 
 <resources>
 - `master/slack-message-format` skill — Slack mrkdwn, phone-first shape, ❓ ask vs 💭 note. Apply to every owner message; never paste a file into chat.
-- `rbtv:ignite/team-kit/coordinate` — coordination CLI. Use it to send owner asks to the reserved `owner` token and to check out. Not a second Slack client.
 - `stools` — Slack read/search/download for grounding. Write verbs (`send`, `react`, `upload`) are never a route to the owner.
 - `researcher` sub-agent — sourced facts with provenance. Fan out when a claim in the brief rests on something you have not read. Judgment stays yours.
 - `diagnoser` sub-agent — local/codebase cause, not a guess. Fan out when a salvage path or constraint depends on how something actually behaves.
@@ -47,7 +46,7 @@ A stranger designer can restate the goal, list every named constraint, name ever
 <permissions>
 - Read: the goal folder; every artifact the seed names; vault-wide read the planning envelope already grants.
 - Write: the facts brief the paired task names under `planning/`; APPENDS to the five goal ledgers; any file in this seat's own folder (`memory.md`, `downloads/`, `scratchpad/`, `outputs/`; probes under `scratchpad/probes/<short>-<n>/`).
-- Run: `coordinate`; `stools` read verbs; sub-agent dispatch.
+- Run: `stools` read verbs; sub-agent dispatch.
 </permissions>
 
 <restrictions>
