@@ -29,7 +29,7 @@ from pathlib import Path
 # The kit lives in the sibling component `coord/`. Resolve the symlink first: this file is reached
 # through a `~/.local/bin` symlink like `coordinate` is, and a bare `Path(__file__).parent` would
 # point there instead of at the repo.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "coord"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "team-kit"))
 import coord  # noqa: E402 — the path insert above is what makes this importable
 
 if __name__ == "__main__":

@@ -31,7 +31,7 @@ const { setup, teardown, capture } = require('./lib');
 const { requirePythonCmd } = require('../../../runtime/python-cmd');
 const { refreshSeatDescriptor, catalogRootForSeat } = require('../spawn');
 
-const COORD_KIT = path.join(__dirname, '..', '..', '..', 'coord');
+const COORD_KIT = path.join(__dirname, '..', '..', '..', 'team-kit');
 const MATERIALIZE_PY = path.join(__dirname, '..', '..', '..', 'planning', 'materialize-seats.py');
 
 const md5 = (p) => crypto.createHash('md5').update(fs.readFileSync(p)).digest('hex');
@@ -92,7 +92,7 @@ capture('probe-spawn-refresh', async (lines) => {
     const before = md5(sheet);
     if (fs.readFileSync(sheet, 'utf8').includes(MARK)) throw new Error('fixture is vacuous: the mark was already on the sheet');
 
-    // The launch WILL fail — this fixture seat is cast `claude/claude-opus-5` and the probe's
+    // The launch WILL fail — this fixture seat is cast `claude/claude-opus-5-5` and the probe's
     // launch-spec table carries only the `bash` fixture specs. That is exactly the point: the
     // throw comes from `launchSpecForSeat`, THE FIRST READER OF seat.md, so a sheet that carries
     // the mark afterwards can only have been re-rendered BEFORE that reader ran.

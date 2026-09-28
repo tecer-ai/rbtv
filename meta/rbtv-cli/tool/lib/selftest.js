@@ -77,39 +77,40 @@ const CHECKS = [
     if (!/component\(s\)/.test(r.stdout)) throw new Error('`rbtv ignite` did not list components');
   }],
 
-  ['longest-prefix routing keeps `ignite daemon kill` off `ignite kill`', () => {
-    const daemonKill = verbs.matchRoute(['ignite', 'daemon', 'kill']);
-    const gatewayKill = verbs.matchRoute(['ignite', 'kill']);
-    if (!daemonKill || daemonKill.prefix.join(' ') !== 'ignite daemon') {
-      throw new Error(`\`ignite daemon kill\` routed to ${daemonKill ? daemonKill.prefix.join(' ') : 'nothing'}`);
+  ['Ignite 0.1 verbs are not routed', () => {
+    const retired = [
+      ['ignite', 'daemon'],
+      ['ignite', 'ticker'],
+      ['ignite'],
+      ['goal'],
+      ['run'],
+    ];
+    for (const argv of retired) {
+      const route = verbs.matchRoute(argv);
+      if (route && route.prefix.join(' ') === argv.join(' ')) {
+        throw new Error(`\`${argv.join(' ')}\` is still a route`);
+      }
     }
-    if (!gatewayKill || gatewayKill.prefix.join(' ') !== 'ignite') {
-      throw new Error(`\`ignite kill\` routed to ${gatewayKill ? gatewayKill.prefix.join(' ') : 'nothing'}`);
+    const names = new Set(verbs.verbNamespaceTokens());
+    for (const tok of ['goal', 'run', 'ignite']) {
+      if (names.has(tok)) throw new Error(`\`${tok}\` is still a verb-namespace token`);
     }
-    if (daemonKill.target === gatewayKill.target) {
-      throw new Error('the unit kill and the session kill resolved to the SAME delegate');
+    const r = runCli(['ignite', 'daemon', '-h']);
+    if (r.status === 0) throw new Error('`rbtv ignite daemon -h` exited 0 — the retired verb still runs');
+    if (/not on disk/.test(r.stderr || '')) {
+      throw new Error('`rbtv ignite daemon -h` still delegated to a missing 0.1 target');
     }
   }],
 
-  // REPLACED, not deleted (task 7.66). The former check asserted that this namespace REFUSED and
-  // coined no verb — a check whose SUBJECT WAS A LIMITATION, so it necessarily went red the moment
-  // the limitation closed (`G-164`'s shape). What survives is the property it was really
-  // protecting: the verb name is the DESIGN's, never one this CLI invented. So the assertion moves
-  // from "no verb exists" to "the verb that exists is the design's `set-interval`" — which still
-  // fails if someone renames it here.
-  ['ticker namespace routes to the built surface, on the DESIGN\'s verb name', () => {
-    const route = verbs.matchRoute(['ignite', 'ticker']);
-    if (!route || route.exec !== 'direct') throw new Error('the ticker route is not a built delegation');
-    if (!route.verbs.includes('set-interval')) {
-      throw new Error(`the ticker route lost the design's verb name; has: ${route.verbs.join(', ')}`);
+  ['teambuild delegates to the retained browse and answers -h', () => {
+    const route = verbs.matchRoute(['teambuild']);
+    if (!route || route.exec !== 'direct') throw new Error('teambuild is not a built delegation');
+    if (!/teambuild\/tool\/rbtv-teambuild$/.test(route.target || '')) {
+      throw new Error(`teambuild delegates to ${route.target}`);
     }
-    if (!/rbtv-ignite-ticker$/.test(route.target || '')) {
-      throw new Error(`the ticker route delegates to ${route.target}, not the ticker-settings capability`);
-    }
-    // Delegation is REAL, not declared: the surface answers for itself through a live subprocess.
-    const r = runCli(['ignite', 'ticker', '--help']);
-    if (r.status !== 0) throw new Error(`\`ignite ticker --help\` exited ${r.status}`);
-    if (!/set-interval/.test(r.stdout)) throw new Error('the delegate did not print its own help');
+    const r = runCli(['teambuild', '-h']);
+    if (r.status !== 0) throw new Error(`\`rbtv teambuild -h\` exited ${r.status}: ${r.stderr}`);
+    if (!/agents/.test(r.stdout)) throw new Error('teambuild -h did not print its own help');
   }],
 
   ['delegation propagates a delegate exit code EXACTLY (real subprocess)', () => {
@@ -174,17 +175,19 @@ const CHECKS = [
 
     const l1 = runCli(['ignite']);
     if (l1.status !== 0) throw new Error(`level 1 exited ${l1.status}`);
-    if (!/daemon-operator/.test(l1.stdout)) throw new Error('level 1 does not list the daemon-operator capability');
-    if (!/rbtv ignite daemon/.test(l1.stdout)) throw new Error('level 1 does not surface the action verbs');
+    if (!/teambuild \(component\)/.test(l1.stdout)) throw new Error('level 1 does not list teambuild');
+    if (/rbtv ignite daemon/.test(l1.stdout)) throw new Error('level 1 still surfaces the retired ignite daemon verb');
 
-    const l2 = runCli(['ignite', 'daemon-operator']);
+    const l2 = runCli(['ignite', 'teambuild']);
     if (l2.status !== 0) throw new Error(`level 2 exited ${l2.status}`);
-    if (!/entry point:/.test(l2.stdout)) throw new Error('level 2 delivers no entry point');
-    if (!/rbtv-ignite-daemon/.test(l2.stdout)) throw new Error('level 2 does not list the invocable entry point');
+    if (!/entry point:/.test(l2.stdout) && !/exposure rows/.test(l2.stdout)) {
+      throw new Error('level 2 delivers neither an entry point nor exposure rows');
+    }
+    if (!/rbtv-teambuild/.test(l2.stdout)) throw new Error('level 2 does not list the teambuild invocable');
   }],
 
   ['drill --json is parseable at every level', () => {
-    for (const args of [['--json'], ['--json', 'ignite'], ['--json', 'ignite', 'daemon-operator'], ['--json', 'doctor']]) {
+    for (const args of [['--json'], ['--json', 'ignite'], ['--json', 'ignite', 'teambuild'], ['--json', 'doctor']]) {
       const r = runCli(args);
       if (r.status !== 0 && !(args.includes('doctor'))) throw new Error(`\`${args.join(' ')}\` exited ${r.status}`);
       try {
@@ -199,9 +202,9 @@ const CHECKS = [
     const r = runCli(['ignit']);
     if (r.status !== 1) throw new Error(`expected exit 1, got ${r.status}`);
     if (!/ignite/.test(r.stderr)) throw new Error('no suggestion offered for a near-miss module');
-    const r2 = runCli(['ignite', 'daemon-operatr']);
+    const r2 = runCli(['ignite', 'teambulid']);
     if (r2.status !== 1) throw new Error(`unknown component exited ${r2.status}`);
-    if (!/daemon-operator/.test(r2.stderr)) throw new Error('no suggestion offered for a near-miss component');
+    if (!/teambuild/.test(r2.stderr)) throw new Error('no suggestion offered for a near-miss component');
     if (suggest('zzzzzzzz', ['ignite', 'core']) !== null) throw new Error('a far-miss produced a suggestion');
   }],
 
@@ -210,9 +213,10 @@ const CHECKS = [
     if (r.status !== 0) throw new Error(`--help exited ${r.status}`);
     const lines = r.stdout.trimEnd().split('\n').length;
     if (lines > 30) throw new Error(`top-level help is ${lines} lines — the bar is 30`);
-    if (!/branch on it, never on the exit status/i.test(r.stdout)) {
-      throw new Error('top-level help drops the unit exit-code warning');
+    if (/rbtv ignite daemon|rbtv goal |rbtv run /.test(r.stdout)) {
+      throw new Error('top-level help still advertises a retired 0.1 verb as a command');
     }
+    if (!/rbtv teambuild/.test(r.stdout)) throw new Error('top-level help drops teambuild');
   }],
 
   ['the pretty mode is opt-in, never TTY-derived', () => {
@@ -304,32 +308,6 @@ const CHECKS = [
     if (!/\/nonexistent-rbtv-root/.test(r.stderr)) throw new Error('the refusal does not name the root it resolved');
   }],
 
-  ['the gateway verb list matches the client\'s own COMMANDS map (ASSERTED, both directions)', () => {
-    // The drift this catches, measured 2026-08-11 (7.560a §5): the hand-listed array missed
-    // `deregister-job` and still named `send`/`screen`, retired at 7.29 — so `rbtv ignite
-    // deregister-job` refused a verb the standalone client ran. verbs.js now DERIVES the list
-    // from `ignite/cli/commands/`, which closes that gap but opens a narrower one: a helper
-    // `.js` dropped into that directory would be routed as a verb it is not. So the assertion
-    // is against the map itself, read from the client's source — the thing the directory is
-    // only a proxy for. Both directions, because a one-way check passes on either kind of drift.
-    const src = fs.readFileSync(verbs.GATEWAY_CLIENT, 'utf8');
-    const block = src.match(/const COMMANDS = \{([\s\S]*?)\n\};/);
-    if (!block) throw new Error(`could not find the COMMANDS map in ${verbs.GATEWAY_CLIENT}`);
-    const mapped = new Set(
-      [...block[1].matchAll(/^\s*'?([a-z][a-z-]*)'?\s*:\s*require\(/gm)].map((m) => m[1]),
-    );
-    if (!mapped.size) throw new Error('parsed the COMMANDS map but found no commands in it');
-    const routed = new Set(verbs.GATEWAY_COMMANDS);
-    const missing = [...mapped].filter((c) => !routed.has(c));
-    const extra = [...routed].filter((c) => !mapped.has(c));
-    if (missing.length || extra.length) {
-      throw new Error(
-        `gateway verb list is out of step with the client: ${missing.length ? `unroutable ${missing.join(', ')}` : ''}`
-        + `${missing.length && extra.length ? '; ' : ''}${extra.length ? `routed but nonexistent ${extra.join(', ')}` : ''}`,
-      );
-    }
-  }],
-
   ['blurb truncation never emits a partial escape or unbounded text', () => {
     const long = `${'x'.repeat(400)}. tail`;
     const out = blurb(long);
@@ -343,45 +321,44 @@ const CHECKS = [
   // from the module root) is now a level-1 row, not an invisible folder.
   ['a component FOLDER (component.md + exposure.csv, no module-root row) is listed at level 1', () => {
     const comps = catalog.components('ignite') || [];
-    const woi = comps.find((c) => c.name === 'work-on-ignite' && c.kind === 'component');
-    if (!woi) throw new Error('`ignite` components() does not carry a work-on-ignite component-folder row');
-    if (!woi.exposure_rows || !woi.exposure_rows.length) throw new Error('work-on-ignite carries no exposure rows');
+    const tb = comps.find((c) => c.name === 'teambuild' && c.kind === 'component');
+    if (!tb) throw new Error('`ignite` components() does not carry a teambuild component-folder row');
+    if (!tb.exposure_rows || !tb.exposure_rows.length) throw new Error('teambuild carries no exposure rows');
 
     const r = runCli(['ignite']);
     if (r.status !== 0) throw new Error(`\`rbtv ignite\` exited ${r.status}`);
-    if (!/work-on-ignite \(component\)/.test(r.stdout)) throw new Error('level 1 does not list work-on-ignite as a component');
-    if (!/coord \(component\)/.test(r.stdout)) throw new Error('level 1 does not list coord as a component');
+    if (!/teambuild \(component\)/.test(r.stdout)) throw new Error('level 1 does not list teambuild as a component');
+    if (!/team-kit \(component\)/.test(r.stdout)) throw new Error('level 1 does not list team-kit as a component');
   }],
 
   ['level 2 on a component folder delivers component.md\'s body (frontmatter stripped) then its exposure.csv rows', () => {
-    const r = runCli(['ignite', 'work-on-ignite']);
-    if (r.status !== 0) throw new Error(`\`rbtv ignite work-on-ignite\` exited ${r.status}`);
-    if (!/^\n?ignite work-on-ignite \(component\)/m.test(r.stdout)) throw new Error('no component header printed');
-    const bodyIdx = r.stdout.indexOf('# work-on-ignite');
+    const r = runCli(['ignite', 'teambuild']);
+    if (r.status !== 0) throw new Error(`\`rbtv ignite teambuild\` exited ${r.status}`);
+    if (!/^\n?ignite teambuild \(component\)/m.test(r.stdout)) throw new Error('no component header printed');
+    const bodyIdx = r.stdout.indexOf('# teambuild');
     if (bodyIdx === -1) throw new Error('component.md body (frontmatter stripped) was not delivered');
     if (/^description:/m.test(r.stdout.slice(0, bodyIdx))) throw new Error('component.md frontmatter leaked into the printed body');
     const rowsIdx = r.stdout.indexOf('exposure rows');
     if (rowsIdx === -1 || rowsIdx < bodyIdx) throw new Error('exposure rows did not follow the component.md body');
-    if (!/work-on-ignite \(reference\/skill\)/.test(r.stdout)) throw new Error('the manifest row was not delivered');
+    if (!/rbtv-teambuild \(tool\/path\)/.test(r.stdout)) throw new Error('the manifest row was not delivered');
   }],
 
   ['a component folder delivers its body under ONE header, never a second answer', () => {
-    const r = runCli(['ignite', 'coord']);
-    if (r.status !== 0) throw new Error(`\`rbtv ignite coord\` exited ${r.status}`);
-    if (!/file-issue \(tool\/path\)/.test(r.stdout)) throw new Error('coord exposure rows did not deliver file-issue');
-    if (!/file-system-issue \(capability\/skill\)/.test(r.stdout)) throw new Error('coord exposure rows did not deliver file-system-issue');
+    const r = runCli(['ignite', 'team-kit']);
+    if (r.status !== 0) throw new Error(`\`rbtv ignite team-kit\` exited ${r.status}`);
+    if (!/coordinate \(tool\/path\)/.test(r.stdout)) throw new Error('team-kit exposure rows did not deliver coordinate');
     // The second facet used to come from a module-root manifest row; with that
     // manifest retired the only remaining source is a capability folder of the
     // same name, and ignite has none — so the note is not asserted here. What IS
     // asserted is the half that outlived it: ONE header, the folder's body.
-    const headerCount = (r.stdout.match(/ignite coord \(/g) || []).length;
-    if (headerCount > 1) throw new Error(`coord rendered ${headerCount} separate facet headers — expected one, the folder`);
+    const headerCount = (r.stdout.match(/ignite team-kit \(/g) || []).length;
+    if (headerCount > 1) throw new Error(`team-kit rendered ${headerCount} separate facet headers — expected one, the folder`);
   }],
 
   ['an unknown name under a module WITH component folders still refuses, and the known-list carries the new components', () => {
     const r = runCli(['ignite', 'nosuchthing']);
     if (r.status !== 1) throw new Error(`expected exit 1, got ${r.status}`);
-    if (!/work-on-ignite/.test(r.stderr)) throw new Error('refusal known-list does not carry work-on-ignite');
+    if (!/teambuild/.test(r.stderr)) throw new Error('refusal known-list does not carry teambuild');
   }],
 
   ['a module built ENTIRELY of component folders lists all of them', () => {

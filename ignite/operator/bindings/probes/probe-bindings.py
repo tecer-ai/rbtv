@@ -72,7 +72,7 @@ TOOL = _PROBE_FILE.parents[1] / "tool" / "bindings.py"
 IGNITE = _PROBE_FILE.parents[3]
 LIVE_PROFILES = IGNITE / "envelope" / "spawn-profiles.yaml"
 MATERIALIZE = IGNITE / "planning" / "materialize-seats.py"
-STARTER = IGNITE / "coord" / "starter-set"
+STARTER = IGNITE / "team-kit" / "starter-set"
 WORKSPACE = IGNITE.parents[3]
 REPO = IGNITE.parent
 LIVE_MANIFEST = (REPO / "meta" / "planning"
@@ -183,9 +183,9 @@ with tempfile.TemporaryDirectory() as td:
     shutil.copy2(LIVE_PROFILES, copy)
     base = mod.catalog(copy)
     pairs = {(r["harness"], r["model"]) for r in base}
-    check("the live-copy catalog carries claude/claude-fable-5 and claude/claude-opus-5 — the FULL "
+    check("the live-copy catalog carries claude/claude-fable-5 and claude/claude-opus-5-5 — the FULL "
           "model ids the shipped profiles pin (no aliases, owner ruling 2026-08-10)",
-          ("claude", "claude-fable-5") in pairs and ("claude", "claude-opus-5") in pairs,
+          ("claude", "claude-fable-5") in pairs and ("claude", "claude-opus-5-5") in pairs,
           f"{len(base)} rows")
     check("test-sleep is ABSENT from the catalog — 7.787 moved every model-less deterministic "
           "stand-in into the `jobs:` block, which `catalog` never reads. It used to be REPORTED "
@@ -213,13 +213,13 @@ with tempfile.TemporaryDirectory() as td:
     # `profiles.js#validateSpecKey` refuses the config on the daemon side. Re-keying alone is the
     # honest test of "read, not remembered".
     text = copy.read_text(encoding="utf-8")
-    copy.write_text(text.replace("    claude-opus-5:", "    probe-only-model:")
-                        .replace('"--model", "claude-opus-5"', '"--model", "probe-only-model"'),
+    copy.write_text(text.replace("    claude-opus-5-5:", "    probe-only-model:")
+                        .replace('"--model", "claude-opus-5-5"', '"--model", "probe-only-model"'),
                     encoding="utf-8")
     moved = {(r["harness"], r["model"]) for r in mod.catalog(copy)}
     check("re-keying a spec in the copy MOVES the catalog — the pairs are READ off the keys, not "
           "remembered",
-          ("claude", "probe-only-model") in moved and ("claude", "claude-opus-5") not in moved)
+          ("claude", "probe-only-model") in moved and ("claude", "claude-opus-5-5") not in moved)
     copy.write_text(text, encoding="utf-8")
 
 # ─────────────────────────────────────────────────────────────────── checks 3 + 4 + 5
@@ -246,12 +246,12 @@ with tempfile.TemporaryDirectory() as td:
           and doc["seats"]["plan-binder"]["agent_type"] == "staff"
           and doc["seats"]["plan-binder"]["ctx-refresh"] == 35)
 
-    r = mod.set_seat(LIVE_MANIFEST, "plan-binder", "claude", "claude-opus-5", 4,
+    r = mod.set_seat(LIVE_MANIFEST, "plan-binder", "claude", "claude-opus-5-5", 4,
                      config_root=croot, profiles_path=LIVE_PROFILES)
     stored = json.loads(sheet.read_text())["seats"]["plan-binder"]
     check("effort NUMBER 4 stored as the native STRING `xhigh`, read back from the FILE — the rung "
           "the profile's four-level translation table does not carry",
-          stored["effort"] == "xhigh" and stored["model"] == "claude-opus-5", json.dumps(stored))
+          stored["effort"] == "xhigh" and stored["model"] == "claude-opus-5-5", json.dumps(stored))
     check("the sheet reports which seats remain uncast — every manifest seat but the one just cast",
           len(r["uncast"]) == len(manifest_seats) - 1,
           f"{len(r['uncast'])} of {len(manifest_seats)}")
@@ -301,13 +301,13 @@ with tempfile.TemporaryDirectory() as td:
          lambda: mod.set_seat(LIVE_MANIFEST, "plan-planner", "claude", "probe-only-model", 4,
                               config_root=croot, profiles_path=LIVE_PROFILES)),
         ("effort out of range (6 on a five-rung ladder)",
-         lambda: mod.set_seat(LIVE_MANIFEST, "plan-planner", "claude", "claude-opus-5", 6,
+         lambda: mod.set_seat(LIVE_MANIFEST, "plan-planner", "claude", "claude-opus-5-5", 6,
                               config_root=croot, profiles_path=LIVE_PROFILES)),
         ("effort on a pair whose profile declares NO effort table at all",
          lambda: mod.set_seat(LIVE_MANIFEST, "plan-planner", "claude", "claude-haiku-4-5", 2,
                               config_root=croot, profiles_path=no_dial)),
         ("a seat the manifest does not carry",
-         lambda: mod.set_seat(LIVE_MANIFEST, "plan-nonesuch", "claude", "claude-opus-5", 4,
+         lambda: mod.set_seat(LIVE_MANIFEST, "plan-nonesuch", "claude", "claude-opus-5-5", 4,
                               config_root=croot, profiles_path=LIVE_PROFILES)),
         ("a second scaffold over an existing sheet",
          lambda: mod.scaffold(LIVE_MANIFEST, croot)),
@@ -317,7 +317,7 @@ with tempfile.TemporaryDirectory() as td:
         check(f"{label}: refused, sheet byte-identical, and the author can read why",
               refused and sha(sheet) == before, msg[:150])
 
-    refused, msg = refuses(lambda: mod.set_seat(LIVE_MANIFEST, "plan-binder", "claude", "claude-opus-5", 4,
+    refused, msg = refuses(lambda: mod.set_seat(LIVE_MANIFEST, "plan-binder", "claude", "claude-opus-5-5", 4,
                                                 config_root=td / "empty",
                                                 profiles_path=LIVE_PROFILES), _mod=mod)
     check("`set` before `scaffold`: refused rather than minting a second sheet nobody reads",
@@ -386,10 +386,10 @@ MUTANTS = [
     ("the launch-spec ladder reader's length",
      "    return [str(r) for r in rungs] if isinstance(rungs, list) and rungs else None",
      '    return [str(r) for r in rungs] + ["probe-only-rung"] if isinstance(rungs, list) and rungs else None',
-     lambda m, mani, croot: m.set_seat(mani, "plan-planner", "claude", "claude-opus-5", 6,
+     lambda m, mani, croot: m.set_seat(mani, "plan-planner", "claude", "claude-opus-5-5", 6,
                                        config_root=croot, profiles_path=LIVE_PROFILES)),
     ("the manifest-membership check", 'if seat not in wf["seats"]:', "if False:",
-     lambda m, mani, croot: m.set_seat(mani, "plan-nonesuch", "claude", "claude-opus-5", 4,
+     lambda m, mani, croot: m.set_seat(mani, "plan-nonesuch", "claude", "claude-opus-5-5", 4,
                                        config_root=croot, profiles_path=LIVE_PROFILES)),
 ]
 src = TOOL.read_text(encoding="utf-8")
@@ -434,7 +434,7 @@ with tempfile.TemporaryDirectory() as td:
     sheet = Path(out["bindings"])
     seats = mod.manifest_seats(LIVE_MANIFEST)
     for seat in seats[:-1]:
-        mod.set_seat(LIVE_MANIFEST, seat, "claude", "claude-opus-5", 4,
+        mod.set_seat(LIVE_MANIFEST, seat, "claude", "claude-opus-5-5", 4,
                      config_root=croot, profiles_path=LIVE_PROFILES)
 
     def materialize():
@@ -454,7 +454,7 @@ with tempfile.TemporaryDirectory() as td:
           r.returncode != 0 and "model-invalid" in out,
           out.strip().splitlines()[-1][:160] if out.strip() else f"exit {r.returncode}")
 
-    mod.set_seat(LIVE_MANIFEST, seats[-1], "claude", "claude-opus-5", 4,
+    mod.set_seat(LIVE_MANIFEST, seats[-1], "claude", "claude-opus-5-5", 4,
                  config_root=croot, profiles_path=LIVE_PROFILES)
     r = materialize()
     check("a fully cast sheet plans clean under --dry-run (exit 0)", r.returncode == 0,
@@ -661,7 +661,7 @@ with tempfile.TemporaryDirectory() as td:
     # The SHEET'S OWN `{"seats": {…}}` wrapper, deliberately — it is what an author copying out of
     # `inspect` or out of the file itself will hand the verb, and unwrapping it is a code path.
     good.write_text(json.dumps({"seats": {
-        seats[0]: {"harness": "claude", "model": "claude-opus-5", "effort": 4},
+        seats[0]: {"harness": "claude", "model": "claude-opus-5-5", "effort": 4},
         seats[1]: {"harness": "claude", "model": "claude-fable-5", "effort": 1},
         seats[2]: {"harness": "claude", "model": "claude-haiku-4-5"}}}), encoding="utf-8")
     r = mod.set_many(LIVE_MANIFEST, good, config_root=croot, profiles_path=LIVE_PROFILES)
@@ -679,10 +679,10 @@ with tempfile.TemporaryDirectory() as td:
 
     bad = td / "bad.json"
     bad.write_text(json.dumps({
-        seats[3]: {"harness": "claude", "model": "claude-opus-5", "effort": 4},   # valid
-        "plan-nonesuch": {"harness": "claude", "model": "claude-opus-5", "effort": 4},
+        seats[3]: {"harness": "claude", "model": "claude-opus-5-5", "effort": 4},   # valid
+        "plan-nonesuch": {"harness": "claude", "model": "claude-opus-5-5", "effort": 4},
         seats[4]: {"harness": "claude", "model": "probe-only-model", "effort": 4},
-        seats[5]: {"harness": "claude", "model": "claude-opus-5", "effort": 9}}), encoding="utf-8")
+        seats[5]: {"harness": "claude", "model": "claude-opus-5-5", "effort": 9}}), encoding="utf-8")
     before = sha(sheet)
     refused, msg = refuses(lambda: mod.set_many(LIVE_MANIFEST, bad, config_root=croot,
                                                 profiles_path=LIVE_PROFILES), _mod=mod)
@@ -701,10 +701,10 @@ with tempfile.TemporaryDirectory() as td:
     # reasons to give, and "seat `harnes` is missing harness" is the refusal that wastes the
     # author's next ten minutes.
     for label, payload in (("a rung WORD where the 1-based number belongs",
-                            {seats[3]: {"harness": "claude", "model": "claude-opus-5",
+                            {seats[3]: {"harness": "claude", "model": "claude-opus-5-5",
                                         "effort": "xhigh"}}),
                            ("a misspelled key", {seats[3]: {"harnes": "claude",
-                                                            "model": "claude-opus-5"}})):
+                                                            "model": "claude-opus-5-5"}})):
         shape = td / "shape.json"
         shape.write_text(json.dumps(payload), encoding="utf-8")
         refused, msg = refuses(lambda: mod.set_many(LIVE_MANIFEST, shape, config_root=croot,
@@ -801,12 +801,12 @@ with tempfile.TemporaryDirectory() as td:
           "is absent, because the goal-local lane never materializes it",
           sorted(json.loads(sheet.read_text(encoding="utf-8"))["seats"]) == ["glxx-one", "glxx-two"],
           ", ".join(sorted(json.loads(sheet.read_text(encoding="utf-8"))["seats"])))
-    refused, msg = refuses(lambda: mod.set_seat(goal, "plan-dod-judge", "claude", "claude-opus-5", 4),
+    refused, msg = refuses(lambda: mod.set_seat(goal, "plan-dod-judge", "claude", "claude-opus-5-5", 4),
                            _mod=mod)
     check("casting the CATALOGED REUSE through the goal-local sheet is REFUSED — its cast belongs "
           "to its own workflow's sheet", refused, msg[:120])
     before = sha(sheet)
-    for seat, model, rung in (("glxx-one", "claude-opus-5", 4), ("glxx-two", "claude-fable-5", 3)):
+    for seat, model, rung in (("glxx-one", "claude-opus-5-5", 4), ("glxx-two", "claude-fable-5", 3)):
         mod.set_seat(goal, seat, "claude", model, rung)
     bad, why = refuses(lambda: mod.set_seat(goal, "glxx-one", "claude", "probe-only-model", 4),
                        _mod=mod)
@@ -828,7 +828,7 @@ with tempfile.TemporaryDirectory() as td:
           "is what casts a goal-authored seat, which nothing did before",
           # the descriptors come back as ONE escaped JSON string, so the frontmatter is matched
           # after un-escaping it — the two lines together, since either alone is in the catalog too
-          "model: claude-opus-5\neffort: xhigh" in r.stdout.replace("\\n", "\n")
+          "model: claude-opus-5-5\neffort: xhigh" in r.stdout.replace("\\n", "\n")
           and "model: claude-fable-5\neffort: high" in r.stdout.replace("\\n", "\n"))
     check("--dry-run appended no taskforce row and wrote no seat folder",
           not (goal / "seats").exists()
@@ -855,7 +855,7 @@ with tempfile.TemporaryDirectory() as td:
             # attribute afterwards does not reach it. The MUTANTS loop above passes it for the same
             # reason — and this arm scored INOPERATIVE (FileNotFoundError, not a refusal) until it
             # did too.
-            mut.set_seat(goal, "plan-dod-judge", "claude", "claude-opus-5", 4,
+            mut.set_seat(goal, "plan-dod-judge", "claude", "claude-opus-5-5", 4,
                          profiles_path=LIVE_PROFILES, dry_run=True)
             accepted, why = True, ""
         except Exception as exc:

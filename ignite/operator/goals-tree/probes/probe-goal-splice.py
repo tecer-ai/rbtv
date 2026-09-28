@@ -87,7 +87,7 @@ def render(values):
 
 def taskforce_text():
     return "\n".join([render(TF_HEAD)]
-                     + [render(["tf-1", s, a, "claude", "claude-opus-5", "medium", "50", "m1"])
+                     + [render(["tf-1", s, a, "claude", "claude-opus-5-5", "medium", "50", "m1"])
                         for s, a in FIXTURE_ROWS]) + "\n"
 
 
@@ -116,7 +116,7 @@ def build_tree(td: Path):
     # key outside the set being materialized. A one-seat sheet here would make row 7 pass for
     # the wrong reason.
     sheet.write_text(json.dumps({
-        "defaults": {"harness": "claude", "model": "claude-opus-5", "effort": "medium",
+        "defaults": {"harness": "claude", "model": "claude-opus-5-5", "effort": "medium",
                      "ctx-refresh": "50", "agent_type": "worker", "cwd-mode": "seat-folder"},
         "seats": {s: {} for s, _ in FIXTURE_ROWS}}, indent=2), encoding="utf-8")
     return root, goal, sheet, build_catalog(td)
@@ -261,7 +261,7 @@ def main() -> int:
         row_d = [ln for ln in (goal / "taskforce.csv").read_text(encoding="utf-8").split("\n")
                  if ln.startswith("tf-1,d,")]
         check("4. a `[key=value]` guard span survives the splice untouched",
-              rc == 0 and row_d and row_d[0] == 'tf-1,d,new[gate=b],claude,claude-opus-5,'
+              rc == 0 and row_d and row_d[0] == 'tf-1,d,new[gate=b],claude,claude-opus-5-5,'
                                                 'medium,50,m1',
               f"exit={rc} {row_d} {se.strip()[:200]}")
         reset_registry()
@@ -397,7 +397,7 @@ def main() -> int:
         # A registry WITHOUT the new seat — the mint is what puts it there.
         (goal / "taskforce.csv").write_text(
             "\n".join([render(TF_HEAD)]
-                      + [render(["tf-1", s, a, "claude", "claude-opus-5", "medium", "50", "m1"])
+                      + [render(["tf-1", s, a, "claude", "claude-opus-5-5", "medium", "50", "m1"])
                          for s, a in FIXTURE_ROWS if s != "new"]) + "\n",
             encoding="utf-8", newline="")
         rc, so, se = add_seat(splice_only=False)
@@ -428,7 +428,7 @@ def main() -> int:
         shutil.rmtree(goal / "seats", ignore_errors=True)
         premint_registry = "\n".join(
             [render(TF_HEAD)]
-            + [render(["tf-1", s, a, "claude", "claude-opus-5", "medium", "50", "m1"])
+            + [render(["tf-1", s, a, "claude", "claude-opus-5-5", "medium", "50", "m1"])
                for s, a in FIXTURE_ROWS if s != "new"]) + "\n"
         (goal / "taskforce.csv").write_text(premint_registry, encoding="utf-8", newline="")
         rc, so, _ = add_seat(before="nope", splice_only=False)

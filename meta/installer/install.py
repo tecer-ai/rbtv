@@ -37,12 +37,10 @@ root); its own book is `{target}/.rbtv/config/install.json`. It tolerates files
 at the install root it did not write — see D6 and D12 — and it sees only
 new-standard component folders (D2).
 
-BOUNDARY (core-build `decisions.md#d-materializer-seat-loaders`). The installer
-exposes components at the INSTALL ROOT and NEVER writes under `.rbtv/goals/`.
-Seat-folder exposure belongs to the materializer (`ignite/planning/
-materialize-seats.py`), which is not imported here — `ignite/` must stay a
-relocatable subtree (repo CLAUDE.md), so the forms below are re-implemented
-against CMP-12, the one form authority.
+BOUNDARY. The installer exposes components at the INSTALL ROOT and NEVER
+writes under `.rbtv/goals/`. It does not import the Ignite 0.1 seat
+materializer. The forms below are re-implemented against CMP-12, the one form
+authority.
 
 WHERE THE CODE IS. This file is the entry and holds no logic. One module per
 responsibility under `lib/`, in import order — each may import only from the
@@ -68,9 +66,8 @@ ones above it, so there is no cycle:
     parser        the command grammar
     commands      one handler per verb, and the dispatch
 
-`discovery.py` sits BESIDE this file, not in `lib/`: it is imported from this
-directory by name by `ignite/planning/materialize-seats.py`, so its path is a
-contract with another tool. `selftest/` holds the runnable check, one module
+`discovery.py` sits BESIDE this file, not in `lib/`: this directory is on
+`sys.path` and the package imports it by bare name. `selftest/` holds the runnable check, one module
 per subject. The decisions all of this was built to: `design-decisions.md`.
 """
 from __future__ import annotations

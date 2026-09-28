@@ -27,10 +27,19 @@ function exitDeadline() {
   process.exit(1);
 }
 
+// Node's spawn `cwd` chdirs the child but leaves the inherited PWD env var alone.
+// OpenCode records its project directory from PWD, not from the chdir, so a caller
+// running in another folder would bind the session to the caller's directory.
+// PWD is set last so a request env cannot put it back.
+function launchEnv(folder, extra) {
+  return { ...process.env, ...(extra || {}), PWD: folder };
+}
+
 function spawnWithDeadline(cmd, args, opts, failLabel) {
   const win = spawnable(cmd, args);
-  const res = spawnSync(win.cmd, win.args,
-    { ...opts, ...win.opts, timeout: DEADLINE_MS, killSignal: 'SIGTERM' });
+  const spawned = { ...opts, ...win.opts, timeout: DEADLINE_MS, killSignal: 'SIGTERM' };
+  if (opts.cwd) spawned.env = launchEnv(opts.cwd, opts.env);
+  const res = spawnSync(win.cmd, win.args, spawned);
   if (res.error && res.error.code === 'ETIMEDOUT') exitDeadline();
   if (res.error) fail(`${failLabel}: ${res.error.message}`);
   process.exit(res.status === null ? 1 : res.status);
@@ -143,6 +152,7 @@ function runOpencodeChecked(argv, { cwd, stdinText, t0, bind, model }) {
   const win = spawnable(cmd, args);
   const child = spawn(win.cmd, win.args, {
     cwd,
+    env: launchEnv(cwd),
     stdio: [stdinText === null ? 'inherit' : 'pipe', 'pipe', 'inherit'],
     ...win.opts,
   });
@@ -261,9 +271,9 @@ function runSeat(rawArgv) {
 
   const { modelId, spec } = resolveModel(fm.harness, fm.model);
 
-  // seat.md's `model:` doubles as the daemon's binding: the daemon's launch-spec table requires
-  // the id VERBATIM and never resolves a short alias (`ignite/supervisor/launch-profiles/catalog.js`
-  // #specForSeatCast, owner ruling 2026-08-10 — "claude-fable-5, never fable"). `cast seat` used to
+  // seat.md's `model:` doubles as the daemon's binding: that table requires
+  // the id VERBATIM and never resolves a short alias (owner ruling 2026-08-10 —
+  // "claude-fable-5, never fable"). `cast seat` used to
   // accept either spelling via `resolveModel`'s SHORT-name fallback, so a seat cast clean with the
   // alias still died at first daemon seed (measured on goal-memory-management, 2026-08-23: seat
   // `distill-ignite-memory` declared `grok-4.6`, spawn REFUSED with E_UNMAPPED_BINDING). One
@@ -356,7 +366,7 @@ function runResume(rawArgv) {
 }
 
 module.exports = {
-  launch, runOpencodeChecked, opencodeFinalMessage, opencodeTagged, opencodeTouched,
+  launch, launchEnv, runOpencodeChecked, opencodeFinalMessage, opencodeTagged, opencodeTouched,
   seatFrontmatter, SEAT_WRAPPER, SYSTEM_WRAPPER, runSeat,
   resumeArgv, runResume,
 };

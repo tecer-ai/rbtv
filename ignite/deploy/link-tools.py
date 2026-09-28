@@ -33,13 +33,13 @@ IGNITE = pathlib.Path(__file__).resolve().parent.parent
 # bare name on PATH -> the module-relative file it must resolve to. Component-first since
 # spec-component-map: the kit is `coord/` and the materializer landed in `planning/`.
 TOOLS = {
-    "coordinate": "coord/coord.py",
+    "coordinate": "team-kit/coord.py",
     # The other half of the entry point, split by AUDIENCE (owner ruling 2026-08-25):
     # the daemon's and a leader's remedial surface. `coordinate` is the seat-facing half.
     "supervise": "supervisor/supervise.py",
     "scaffold-seats": "planning/materialize-seats.py",
-    "owed-answers": "coord/owed-answers.py",
-    "tmux-overview": "coord/tmux-overview",
+    "owed-answers": "team-kit/owed-answers.py",
+    "tmux-overview": "team-kit/tmux-overview",
     "file-issue": "coord/file-issue.py",
     # operator/: the three capability doors whose exposure.csv rows carry no `rbtv …` verb, so
     # the bare name is the ONLY way a seat reaches them (owner-ruled bare-name bar, 2026-08-26).

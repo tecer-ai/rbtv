@@ -113,9 +113,14 @@ function saveRows(storePath, rows) {
 
 // The owner-facing body. One block, plain words, and every required field visible - the point of the
 // schema is that the owner never receives an alarm missing one of them, so all four are printed.
+// `mention_user_id` is OPTIONAL and paging, not schema: a channel post without a leading `<@id>` is
+// silent on the owner's phone (measured 2026-08-18, `chat/bus-ferry.js:531`), so a row that carries
+// one is prefixed with it; a row that does not (every row today except `work-liveness`) renders
+// exactly as before this field existed.
 function renderAlarm(row) {
+  const mention = row.mention_user_id ? `<@${row.mention_user_id}> ` : '';
   return [
-    `Alarm · ${row.subject.type} ${row.subject.id}`,
+    `${mention}Alarm · ${row.subject.type} ${row.subject.id}`,
     '',
     row.condition,
     '',
@@ -187,6 +192,7 @@ function createAlarmEmitter({ storePath = null, post, systemChannelId = null, no
       evidence_pointer: input.evidence_pointer,
       what_would_clear_it: input.what_would_clear_it,
       immediate: input.immediate,
+      mention_user_id: input.mention_user_id || null,
       channel_id: String(channelId),
       goal_id: input.goal_id == null ? null : String(input.goal_id),
       first_emitted_at: at,

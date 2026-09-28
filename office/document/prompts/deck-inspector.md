@@ -7,7 +7,7 @@ exposes:
     - design/visual-flaw-checklist
     - storytelling/ai-anti-patterns
   path:
-    - rbtv:ignite/coord/coordinate
+    - rbtv:ignite/team-kit/coordinate
 ---
 
 <role>

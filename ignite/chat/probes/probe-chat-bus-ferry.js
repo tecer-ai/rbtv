@@ -906,7 +906,7 @@ async function main() {
     // `records.py` writes it, `bus-ferry.js` reads it. If they ever drift, the ferry goes blind
     // and every later goal finishes in silence again — exactly the defect this arm exists for.
     // This check is what makes that drift LOUD instead of invisible.
-    const recordsPy = fs.readFileSync(path.join(__dirname, '..', '..', 'coord', 'records.py'), 'utf8');
+    const recordsPy = fs.readFileSync(path.join(__dirname, '..', '..', 'team-kit', 'records.py'), 'utf8');
     check('W9 PIN: the ferry\'s FINISH_MARKER is byte-identical to `records.py`\'s — the two '
       + 'languages hold one convention and nothing imports it across them',
       new RegExp(`^FINISH_MARKER = "${busFerryFinishMarker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"$`, 'm').test(recordsPy),

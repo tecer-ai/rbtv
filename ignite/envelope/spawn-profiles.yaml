@@ -309,7 +309,7 @@ launch-specs:
   # caller anywhere in ignite may select a launch spec; an uncast seat is a NAMED REFUSAL.
   #
   # ⚠ THE KEY IS THE AUTHORITY AND `exec.argv` MUST AGREE WITH IT. `launch-profiles/profiles.js#
-  # validateSpecKey` refuses at config LOAD when a spec filed under `claude/claude-opus-5` runs
+  # validateSpecKey` refuses at config LOAD when a spec filed under `claude/claude-opus-5-5` runs
   # `--model claude-haiku-4-5` — the key decides what a cast resolves to, so a disagreement is a
   # launch running a model nobody asked for while every record says otherwise.
   #
@@ -377,13 +377,13 @@ launch-specs:
       toolset_ceiling: full
       workdir_root: .rbtv/goals
 
-    claude-opus-5:
+    claude-opus-5-5:
       # The FULL model id is pinned, never the `opus` alias (owner ruling 2026-08-10, "full model
       # ids everywhere"): `claude --help` accepts either, but an alias records a mapping true on one
       # machine at one moment, and a config where one profile spells a full id and its sibling an
       # alias hands the bindings catalog two vocabularies for one fact.
       exec:
-        argv: ["claude", "-p", "--model", "claude-opus-5",
+        argv: ["claude", "-p", "--model", "claude-opus-5-5",
                "--session-id", "{session_ref}",
                "--output-format", "stream-json", "--verbose",
                "--permission-mode", "bypassPermissions",
@@ -391,13 +391,13 @@ launch-specs:
         prompt: stdin
       resume:
         argv: ["claude", "-p", "--resume", "{session_ref}",
-               "--model", "claude-opus-5",
+               "--model", "claude-opus-5-5",
                "--output-format", "stream-json", "--verbose",
                "--permission-mode", "bypassPermissions",
                "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/supervisor/worker-session-settings.json"]
         prompt: stdin
       headed:
-        tui: { argv: ["claude", "--model", "claude-opus-5"] }
+        tui: { argv: ["claude", "--model", "claude-opus-5-5"] }
       effort:
         dialect: effort
         rungs: [low, medium, high, xhigh, max]     # 1..5, lowest → highest reasoning
@@ -498,14 +498,14 @@ launch-specs:
       toolset_ceiling: full
       workdir_root: .rbtv/goals
 
-    gpt-5.6-sol:
+    gpt-6-sol:
       exec:
-        argv: ["codex", "exec", "--cd", "{workdir}", "-m", "gpt-5.6-sol",
+        argv: ["codex", "exec", "--cd", "{workdir}", "-m", "gpt-6-sol",
                "--sandbox", "danger-full-access", "-c", "approval_policy=never",
                "--dangerously-bypass-hook-trust", "--json"]
         prompt: stdin        # codex hangs without stdin EOF from a non-TTY; the server closes stdin after writing
       headed:
-        tui: { argv: ["codex", "-m", "gpt-5.6-sol"] }
+        tui: { argv: ["codex", "-m", "gpt-6-sol"] }
       effort:
         dialect: thinking
         rungs: [low, medium, high, xhigh, max]     # 1..5 — cast list 2026-08-18
@@ -532,14 +532,14 @@ launch-specs:
       toolset_ceiling: full
       workdir_root: .rbtv/goals
 
-    gpt-5.6-luna:
+    gpt-6-luna:
       exec:
-        argv: ["codex", "exec", "--cd", "{workdir}", "-m", "gpt-5.6-luna",
+        argv: ["codex", "exec", "--cd", "{workdir}", "-m", "gpt-6-luna",
                "--sandbox", "danger-full-access", "-c", "approval_policy=never",
                "--dangerously-bypass-hook-trust", "--json"]
         prompt: stdin        # codex hangs without stdin EOF from a non-TTY; the server closes stdin after writing
       headed:
-        tui: { argv: ["codex", "-m", "gpt-5.6-luna"] }
+        tui: { argv: ["codex", "-m", "gpt-6-luna"] }
       effort:
         dialect: thinking
         rungs: [low, medium, high, xhigh, max]     # 1..5 — cast list 2026-08-18
@@ -633,12 +633,12 @@ launch-specs:
       workdir_root: .rbtv/goals
       caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
 
-    xai/grok-4.6:
+    xai/grok-4.7:
       exec:
-        argv: ["opencode", "run", "--auto", "-m", "xai/grok-4.6"]
+        argv: ["opencode", "run", "--auto", "-m", "xai/grok-4.7"]
         prompt: stdin
       headed:
-        tui: { argv: ["opencode", "-m", "xai/grok-4.6"] }
+        tui: { argv: ["opencode", "-m", "xai/grok-4.7"] }
       effort:
         dialect: variant
         rungs: [low, medium, high]   # `opencode models xai --verbose` .variants, 2026-08-14 — NO xhigh

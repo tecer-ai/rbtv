@@ -4,7 +4,7 @@
 // `rbtv teambuild` — the staffing-discovery browse over the component databases
 // (registry `concepts/teambuild.md`, decisions.md#d-teambuild-discovery).
 // Mounted as ONE row in the rbtv CLI's delegation-only route registry
-// (core/capabilities/rbtv-cli/tool/lib/verbs.js); this file is the implementation.
+// (meta/rbtv-cli/tool/lib/verbs.js); this file is the implementation.
 //
 // ⚠ THE PARITY CONSTRAINT, and it is a constraint rather than a preference:
 // this is the ONE code path for the browse. The console's disconnected scaffolding
@@ -27,7 +27,7 @@ const corpus = require('./lib/corpus');
 // are the same blurb-first listing and must not drift into two house styles.
 // Same module (`core`, always installed), so this crosses no install boundary.
 const { table, blurb, json, refusal, suggest, paint } = require(
-  path.join(__dirname, '..', '..', 'rbtv-cli', 'tool', 'lib', 'render'),
+  path.join(__dirname, '..', '..', '..', 'meta', 'rbtv-cli', 'tool', 'lib', 'render'),
 );
 
 const VERBS = ['agents', 'units', 'seats', 'tasks', 'workflows', 'search', 'selftest'];

@@ -196,7 +196,7 @@ function seedCounters(countersFile) {
 // WHAT WAS BROKEN. This event cleared EVERY row. `reconcile-respawn`/`nonterm` counts how many
 // times the LEADER was woken to rule another seat's `failed` ENDING — a row in the ending store
 // written before this daemon booted. New daemon bytes do not change it and do not make a fourth
-// wake likelier to succeed than the third, so wiping the count re-bought three paid opus-5 leader
+// wake likelier to succeed than the third, so wiping the count re-bought three paid opus-5-5 leader
 // sittings on every deploy: nine of them on `goal-memory-management` across three deploys on
 // 2026-08-28, all nine producing the same verdict. Crash- and launch-class rows keep the wide
 // behaviour, because those failures are exactly what a code change can fix.

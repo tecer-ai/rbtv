@@ -6,7 +6,7 @@ human-interactive: yes
 fallback: default-and-disclose
 exposes:
   skill: [master/slack-message-format, ignite/coord/file-system-issue]
-  path: [rbtv:ignite/coord/coordinate, rbtv:ignite/planning/approve-package, ignite/coord/file-issue]
+  path: [rbtv:ignite/team-kit/coordinate, rbtv:ignite/planning/approve-package, ignite/coord/file-issue]
 ---
 
 <role>
@@ -52,7 +52,7 @@ exposes:
 
 <resources>
 - `master/slack-message-format` skill — Slack mrkdwn, phone-first shape, ❓ vs 💭. Shape the digest with it. You never call Slack: the ONE send the paired task names goes on the goal's own bus and the bridge does the posting.
-- `rbtv:ignite/coord/coordinate` — check out; and send the ONE message the paired task's Send clause names, where it names one. Owner asks are not this seat's product; do not open an approval thread.
+- `rbtv:ignite/team-kit/coordinate` — check out; and send the ONE message the paired task's Send clause names, where it names one. Owner asks are not this seat's product; do not open an approval thread.
 - `planning/envelope.json` — the drafter's step-5b output, read (never written) for check (c): its `credentialNames` must match the revised plan's credential-name manifest.
 - `rbtv:ignite/planning/approve-package` — write the approve-package the `start-execution` intent reads on `approve`. Validates the execution-goal name and the bound commit, writes atomically, and refuses the daemon-stamped keys.
 - `file-system-issue` — file an ignite/ or meta/ defect into the engine register; file, don't dump it on this goal's issues.md.

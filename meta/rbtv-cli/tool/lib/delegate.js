@@ -8,15 +8,11 @@
 // delegate's output in an envelope, never re-derives its verdict, and never
 // translates its exit code.
 //
-// That matters most for `rbtv ignite daemon unit`. Its exit code reports whether
-// the READ SUCCEEDED, never whether the daemon is HEALTHY — health is a FIELD
-// (`healthy|unstable|starting|inactive|failed`). A wrapper that re-collapsed
-// health into its own exit status would undo defect G-121's fix for every caller
-// that arrives through this CLI. Branch on `health`; never on the exit status.
+// A wrapper that re-collapsed a delegate's health field into its own exit status
+// would undo that contract for every caller that arrives through this CLI.
 //
-// Env passes through untouched, which is also how IGNITE_SENDER_TOKEN stays out
-// of argv: the gateway client reads it from the environment itself and this
-// process never sees, formats, or forwards its value.
+// Env passes through untouched. This process never sees, formats, or forwards a
+// token value; `doctor` reports presence only.
 
 const fs = require('fs');
 const path = require('path');
@@ -115,7 +111,7 @@ function delegate(route, args) {
 }
 
 // Re-attach a global `--json` that was consumed before the route was known, so
-// `rbtv --json ignite daemon unit` and `rbtv ignite daemon unit --json` reach the
+// `rbtv --json teambuild agents` and `rbtv teambuild agents --json` reach the
 // delegate identically. Exported as a pure function so selftest can assert it
 // directly rather than infer it from a delegated call's output.
 function buildDelegateArgs(rest, opts) {

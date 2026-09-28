@@ -413,7 +413,7 @@ function appendRowEnsuringHeader(csvPath, values, log) {
   const before = readCsv(csvPath);
   if (before.exists && before.header.length > 0) return written;
   try {
-    const kit = path.join(process.env.RBTV_IGNITE_SRC || path.resolve(__dirname, '../..'), 'coord');
+    const kit = path.join(process.env.RBTV_IGNITE_SRC || path.resolve(__dirname, '../..'), 'team-kit');
     const header = execFileSync(requirePythonCmd(), [...SESSIONS_HEADER_ARGV, kit],
       { encoding: 'utf8', timeout: 30000 }).trim();
     if (!header.includes(',')) throw new Error(`the schema owner returned no header: ${JSON.stringify(header)}`);

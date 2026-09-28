@@ -1,0 +1,87 @@
+---
+description: Ignite 0.2 — a Slack message or a scheduled wake runs one primary-agent turn and the runtime delivers its replies. CLI is ignite-agent; operator steps are runbook.md.
+---
+
+# agents
+
+Ignite 0.2 is one workspace process. A Slack message or a scheduled wake selects a primary-agent home under the workspace `.rbtv/agents/<slug>/`, runs one non-interactive turn of that agent, and delivers that turn's replies to the right Slack thread. The agent never posts into its own conversation thread. Deploy and the unit are `runbook.md`, not this file.
+
+Exposed entry points: `ignite-agent` (`tool/cli.js` — `ignite-agent -h` is the command surface) and the `create-primary-agent` skill. `exposes-cli` lives on that skill, not here.
+
+## tool/
+
+One line from each file's header. A file with no header comment is marked.
+
+| File | Header |
+|---|---|
+| `audio.js` | `Audio({ script, python?, voice?, spawn? })`. `transcribe(file)` runs `audio.py transcribe` and throws on empty or failed output. `speak(text, { voice?, out? })` runs `audio.py tts`. |
+| `cli.js` | Entry `ignite-agent`. Home from `IGNITE_AGENT_HOME`, or `--agent <slug>` plus `--workspace <path>`. `settings set` validates through `cast list --json` and never a copied model list. `create` dispatches to `create.js` before a home is opened. |
+| `config.js` | `loadConfig(workspace)` reads and validates `<workspace>/.rbtv/agents/ignite.json`. `agentHome(config, slug)` and `storePath(config, slug)`. |
+| `create.js` | `ignite-agent create`. `run(argv, flags, deps)`. Skill installs are part keys only (`module/component#part`), never `--write-path`. Effort is the rung word `validateLaunch` returns, never a number string. |
+| `daemon.js` | No header comment. Exports `start`. Usage line: `daemon.js --workspace <path>`. |
+| `deploy.sh` | `deploy.sh <commit>`. Requires `RBTV_DEPLOY` (deploy worktree) and `RBTV_WORKSPACE` (workspace root). |
+| `history.js` | `historyPath(home, key)` is `<home>/conversations/<key>/history.md`. `writeHistory` regenerates that file from the store. `DEFAULT_HISTORY_WINDOW` is the recent slice in every turn prompt. |
+| `ingress.js` | No header comment. Exports `handleEvent`. |
+| `outbox.js` | `deliverPending(store, deps)`. A row is marked delivered only after `postMessage` returns channel and ts. Harness stdout is never read here. |
+| `prompt.js` | `composeTurn(...)` builds the turn message. `CLAUDE.md` is not copied; the harness reads it because cwd is the home. `readBoard(home)`. |
+| `schedule.js` | `parseAt`, `parseDuration`, `cadenceSpec`, `nextOccurrence`. `FIXED_TZ` is the timezone column for `--every`, not an IANA zone. |
+| `slack.js` | Slack client: `auth`, `normalize`, Socket Mode `connect`, `postMessage`, `addReaction`, `threadHistory`, `createChannel`, `joinChannel`, `inviteUser`. A mention is `<@botUserId>` outside inline code and fences. |
+| `store.js` | One store per agent home. `conversationKey(team, channel, rootTs)` is `<team>:<channel>:<rootTs>`. Dispositions, retry delays, and `MAX_ATTEMPTS` live here. |
+| `test_audio.js` | Suite for `audio.js`. No API header. |
+| `test_cli.js` | Suite for `cli.js`. No API header. |
+| `test_config.js` | Suite for `config.js`. No API header. |
+| `test_create.js` | Suite for `create.js` via `cli.js`. No API header. |
+| `test_daemon.js` | Suite for `daemon.js`. No API header. |
+| `test_ingress.js` | Suite for `ingress.js`. No API header. |
+| `test_slack.js` | Suite for `slack.js`. No API header. |
+| `test_store.js` | Suite for `store.js`. No API header. |
+| `test_turn_loop.js` | Suite for `turn-loop.js`. No API header. |
+| `turn-loop.js` | `runOnce(slug, deps)` is one claimed turn, or a refusal or an empty claim. Refuses when `liveRun()` matches a live pid. `cast turn` cwd is `realpath(home)`. |
+
+Also in this folder, not under `tool/`: `templates/` (files `create` copies into a home), `units/rbtv-ignite-agents.service`, `capabilities/create-primary-agent/`.
+
+## Contracts
+
+General shape only. Instance ids, token paths, and launch pins are runtime config, never source.
+
+**Workspace config.** `<workspace>/.rbtv/agents/ignite.json`, loaded by `tool/config.js`:
+
+```
+{ "workspace": "<workspace>",
+  "slack": { "team": "<team id>", "botUserId": "<bot user id>", "ownerUserId": "<owner user id>",
+    "botTokenFile": "<bot token file>", "appTokenSource": "<env var name or file path>",
+    "ownerTokenFile": "<owner token file>" },
+  "tools": { "cast": "<cmd>", "stools": "<cmd>", "audio": "<cmd>" },
+  "defaultLaunch": { "harness": "<harness>", "model": "<model>", "effort": "<effort>" },
+  "dmAgent": "<slug>",
+  "routes": { "<channel id>": "<agent slug>" } }
+```
+
+`defaultLaunch` is the `cast route` verdict for open access, code type, planner class, resolved at setup. Source MUST NEVER hardcode it.
+
+**Agent home.** `<workspace>/.rbtv/agents/<slug>/`:
+
+| File | Content |
+|---|---|
+| `CLAUDE.md` and `AGENTS.md` | Identical body: standing instructions from the template, plus this agent's purpose and reference paths |
+| `launch.json` | `{ "harness", "model", "effort", "voice"? }` — the one agent-wide launch setting |
+| `board.md` | Human-readable work and the recurring checks the agent attends to |
+| `state.sqlite` | The store. Authoritative |
+| `conversations/<key>/history.md` | Derived full thread history. Regenerable from the store |
+| skill loaders | Written by `rbtv install add --target <home>` per harness |
+
+**Conversation key.** `<teamId>:<channelId>:<rootTs>`, DM and channel alike. The mapping key → agent is persisted.
+
+**Turn.** The runtime claims one queue entry per agent (one active turn per agent), composes the prompt (instructions, triggering input, board, work state, recent history window, full-history path), and runs it through `cast turn --request <file> --result <file>`. Each invocation gets a fresh nonce and an output path. The agent MUST write JSON at that path:
+
+```
+{ "nonce": "<given>", "disposition": "completed|continue|waiting_owner|waiting_workers|stopped",
+  "summary": "…", "nextStep": "…", "workers": [ { "ref": "…", "kind": "…" } ], "outputs": ["<path>"],
+  "replies": [ { "text": "…", "audio": false, "files": ["<path>"] } ] }
+```
+
+A normal exit without valid output is a technical failure. The runtime delivers `replies` through its outbox. Technical failure: 3 total attempts, retry delays 5 s then 30 s, then a durable hold (agent-wide if the launch itself fails, else work-scoped) plus a Slack blocker notice. Timers and restarts NEVER clear a hold.
+
+**CLI.** `ignite-agent`, entry `tool/cli.js`. Inside a turn the runtime sets `IGNITE_AGENT_HOME` and `IGNITE_CONVERSATION`. Outside a turn `--agent <slug>` selects the home. Subcommands: `settings show|set`, `schedule add|list|change|cancel`, `work status|retry|resume|stop`, `wake`, `post`, `create` (master only). Flags are `ignite-agent -h`.
+
+Operator steps — deploy, status, inspect, hold repair — are `runbook.md`.

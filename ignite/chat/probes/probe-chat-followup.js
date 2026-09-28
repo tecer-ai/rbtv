@@ -207,7 +207,7 @@ async function main() {
       args: JSON.stringify({ prompt: 'hi' }),
       enqueuedBy: daemon.bridgeSenderId, sessionMode: 'headless',
       firedTick: 3, firedAt: new Date(),
-      sessionId: 'sess-probe-qt', pid: 999998, profile: 'claude/claude-opus-5', workdir: null,
+      sessionId: 'sess-probe-qt', pid: 999998, profile: 'claude/claude-opus-5-5', workdir: null,
     });
     daemon.store.updateExecutionStatus(execQtStart.exec_id, { status: 'running' });
     const execQt = daemon.store.getExecution(execQtStart.exec_id); // carries thread = exec-<exec_id>

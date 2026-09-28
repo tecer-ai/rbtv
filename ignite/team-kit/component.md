@@ -1,0 +1,115 @@
+---
+description: Read before touching the coordination kit — the `coordinate` CLI and its split modules, addressing, declared outputs, tmux viewports, messages, the checkout write API, and the kit's shipped skills, mirror driver and starter set.
+---
+
+# team-kit
+
+The **coordination kit**: the team mechanics a seat, a leader and the daemon all reach
+through one CLI. Law is
+`1-projects/build-ignite/redesign/specs/spec-component-map.md` §1 under [D22], [T4-R11],
+[C-15]; this component is the map's `coordination kit` row.
+
+It answers *who is addressed*, *what a seat declared it would produce*, *what was said on
+the bus*, and *what a seat wrote when it checked out*. It does not answer whether a sitting
+is alive (`supervisor/`), what an ending means (`state-store/`), what an alarm says
+(`observation/`), or what a cage admits (`envelope/`).
+
+## Entry points, and which doc answers what
+
+| Read this | For |
+|---|---|
+| `CLAUDE.md` | The hard rules binding any agent editing this folder — the save gate, the no-run-state rule, the designer-only marker on `system-design.md` |
+| `team-kit.md` | The kit index: what the toolkit is and how a run uses it |
+| `protocol.md`, `communication.md`, `roles.md` | The run-time protocol, the addressing table and the seat roles |
+| `system-design.md` | Design rationale — **designers only**, never a run seat's pre-read |
+| `coord.py -h` | The command surface itself; a second copy in prose drifted and was deleted |
+
+## What lives here
+
+| Part | File | What it is |
+|---|---|---|
+| the CLI entry | `coord.py` | The `coordinate` front door — the AGENT half of the entry point (owner ruling 2026-08-25): check in, check out, message, read, the goal's record, groups, identity. Also the kit's one namespace: constants, the `SPLIT_MODULES` load, the six imported `supervisor/` modules, and the §3 re-export shim external callers read moved names off. The daemon's and a leader's remedial surface is the OTHER door, `supervisor/supervise.py` |
+| split modules | `addressing.py`, `outputs.py`, `tmux.py`, `records.py`, `identity.py`, `checkout.py`, `messages.py`, `closeout.py`, `ruling.py`, `cli_main.py` | Bodies moved verbatim out of `coord.py` by the move-only split [D23, T4-R12]; one shared runtime namespace, never separate imports. ⚠ A NEW FILE HERE MUST BE ADDED TO `SPLIT_MODULES` and to `PRODUCT_ORDER`, nothing else. A supervision name they read is spelled `<module>.NAME` — never through `coord.py`'s re-export alias, which is a snapshot a selftest stub can never reach |
+| kit doors onto other components | `ending_store.py`, `supervisor_door.py`, `liveness.py`, `gateway_client.py` | Thin Python doors onto `state-store/`, `supervisor/` and the gateway — no second implementation of either |
+| shipped tools | `floor-lint.py`, `owed-answers.py`, `worktree-flow.py`, `save-coord.py`, `budget.py`, `overview-compact.py`, `provider-usage.py`, `statusline-usage.py`, `tmux-overview` | The kit's first-party CLIs; each is an `exposure.csv` `method=path` row |
+| skills | `skills/` | The kit's shipped skill (`team-kit`). `file-system-issue` was not extracted — it stays under `ignite/coord/` until 0.1 deletion |
+| mirror driver | `mirror/` | The scaffolding-repo mirror driver and its tests. Its CLI is `mirror/driver/cli.py`, invoked as `python -m driver.cli` from `mirror/`; the `mirror-driver` `method=path` row is its inventory entry (owner-console, §7.1) |
+| retired nudge timer | `nudge.py` | The deterministic per-seat nudge loop. Internal-daemon (§7.1): no router skill, no agent invocation — the `nudge` `method=path` row is inventory, kept because the tool and its probes are still on the tree |
+| starter set | `starter-set/` | The goal-generic files a scaffold byte-copies into a new package |
+| derived-tree refusal | `records.py` | `refuse_if_derived(path)` + `DERIVED.md` — spec-component-map §4. Every kit write door (`atomic_write`, `write_csv_table`) walks its target's parents for a `DERIVED.md` and REFUSES on a hit, naming the marker's `source:`; `planning/` imports the same predicate. A regenerated tree loses hand edits silently (C10 / IE-13) — this is the marker + refusal, never a lock |
+| selftest | `coord_selftest.py` | The kit's own suite — test module, excluded from the product-source budget |
+
+## Where its parts came from
+
+The former `ignite/coord/` whole, plus `ignite/coord/injection-ladder/` and `ignite/coord/skills/` — moved
+with history per `spec-component-map` §2. Two files left the kit in the same move:
+`cagespec.py` to `envelope/` and the intact `materialize-seats.py` to `planning/`.
+
+The six §3 modules whose named landing is `supervisor/` (`process`, `lifecycle_exec`,
+`ready`, `launch`, `attest`, `carrier`) LEFT for it on 2026-08-25, with history, when the
+owner ruled the loader be redesigned to permit it. They are real modules there now,
+imported rather than `exec`d; the recorded spec-vs-disk conflict is closed. What crosses
+the seam and how is `supervisor/component.md`'s subject.
+
+## The leader's ruling acts (`ruling.py`, 2026-08-26; `hold` 2026-08-28)
+
+`accept`, `instruct`, `hold` and `release` are `supervise`-door verbs whose bodies live here. `accept` stamps a
+seat's ending `done` after re-checking its declared outputs; `instruct` records one of the four
+CLOSED leader instructions into the daemon's own inbox
+(`.rbtv/runtime/ignite/leader-instructions/`), which `supervisor/relaunch-budget.js`'s
+`drainLeaderInstructions` already applies at the top of every reconcile pass — this kit writes
+that inbox, it does not add a second channel beside it. `hold` records a leader verdict the DAEMON honours — `supervise hold <seat>
+--until <new-ending|ask-answered:<ask-id>|release> --anchor "<evidence>" --go` writes a
+`seat_holds` row into the ONE ending store, and `supervisor/owed-from-endings.js` then leaves that
+seat out of the owed set entirely: no leader wake for it and no attempt counted, until the named
+change happens. `release` ends a hold early. Before them a leader's "this cannot be ruled yet"
+verdict was a message, and the reconcile pass reads rows and never mail, so it was counted as a
+burned recovery attempt — nine such sittings on one goal on 2026-08-28. The release vocabulary is
+READ OFF `state-store/vocabulary.js#HOLD_UNTIL` rather than re-spelled here, for the reason
+`instruction_kinds` reads its list off `relaunch-budget.js`: a word this door accepted and the
+store refuses is a ruling the leader believes it recorded and did not.
+`send --record "<title>"` is the ledger
+half: it appends the ruling to the goal's `decision-log` (`<goal>/decisions.md`) in the SAME
+invocation as the message, because a ruling recorded only in a message is not recorded.
+
+⚠ NEITHER IS `rule-disposition` RETURNING. That verb and its authority model were deleted
+[T2-R12, T1-R9] and `disposition` is refused at the ending store's door
+(`state-store/vocabulary.js#KILLED_WORDS`). These verbs write the ENDING STORE, never a `sessions.csv`
+cell, and there is no per-verb role gate on any of them — the audience bound is the DOOR
+[T2-R10, D24, F-simplicity-7]. `hold` is not the deleted `hold-anchor` column either, for the same
+reason: that was a `sessions.csv` cell, this is a row in the store.
+
+## Ledger custody (D3, 2026-08-19)
+
+Seats write their own coordination ledgers directly through `coordinate checkout`. The kit
+originates `exited` for silent deaths and nothing else. There is no proxy writer.
+
+⚠ THE CHECK-OUT WRITE ORDER IS LOAD-BEARING (2026-08-27): transcript export → **ending store** →
+`sessions.csv` → the roster flip → `checked out:`. The ending is stamped FIRST of the closing
+writes so a refused stamp closes NOTHING — the session row stays open, the roster stays active,
+and the seat can simply run the same `checkout` again. With the stamp last (its former place), a
+refusal left a session that read `ended` with no ending anywhere: a closed row is one the
+supervisor no longer walks, so no ending was stamped later, no staff mail was minted, and the DAG
+edge never advanced. Same order `supervisor/attest.py#attest_exit_seat` already ran in.
+
+`ready-seats --json` carries a boolean `dead` per row (D22): true ⇒ the seat's `after` can NEVER be
+satisfied. No consumer may count a dead seat as pending, retry it, or alarm on it. Derived at read
+time from `coordination/guard-values.csv`; never stored.
+
+## The approval ask (`send --approve-commit`, 2026-08-27)
+
+`coordinate send owner --type note --approve-commit <sha>` writes an `approve-commit:` key onto
+the row header. The chat bridge's bus ferry reads it and posts the row as a real APPROVAL THREAD
+(`chat/bus-ferry.js` → `chat-bridge.js#postOwnerAsk` with `kind: 'approval'`), where a one-word
+`approve` from the owner starts execution through the daemon's `start-execution` intent. Without
+the flag a `to: owner` row is an ordinary question and `approve` in its thread starts nothing.
+
+⚠ THE AUTHORITY IS CHECKED HERE, AT `cmd_send`, not at the writer and not at the ferry — the same
+exception the escalation identity gate takes, and for the same reason: `resolve_agent` runs at this
+door and `_append_message_unlocked` has no identity. Three mechanical conditions, no `--force`:
+the sender's own `seat.md` says `human-interactive:`; `<goal>/planning/approve-package.json`
+exists (`start-execution.js` reads it, and refuses `no-approve-package` loudly in the thread
+without it); and the sha on the row IS that package's `bound_commit` (an approval binds at a
+commit [T5-R5] — two shas disagreeing means the owner reads about one tree and the daemon builds
+another). The plan-console workflow's `plan-verifier` is the seat that sends it
+(`meta/planning/tasks/verify-plan.md`, Send clause).

@@ -1,9 +1,16 @@
 # daemon-watchdog — the ignite LIVENESS surface (CMP-28)
 
 A tiny, agentless, independent watchdog: a systemd user timer firing one deterministic
-pass — `tool/rbtv-ignite-watchdog` — that PROBES the deployment, RESTARTS through the
-services' own units what is down, and NOTIFIES the owner's chat DM only when it acted or
-when a restart did not restore the subject. Silence means healthy.
+pass — `tool/rbtv-ignite-watchdog` — that PROBES the deployment and RESTARTS through the
+services' own units what is down. The three process rows (`daemon`, `bridge`, `probe-suite`)
+still DM the owner only when they acted or a restart did not restore the subject (invariant 3,
+unchanged). Any row's `alarm` verdict — up, but a human is needed and no restart can help —
+instead posts once to the system channel through the ONE alarm registry (§ Where an `alarm`
+verdict goes), and exactly one row, `work-liveness`, addresses that post to the owner by
+Slack mention (§ The mention). Silence is NOT a blanket definition of healthy: it is what the
+three process rows earn by staying green, and it is exactly the state `work-liveness` exists
+to distrust — the daemon ran healthy and silent for 46 hours while scheduling zero work, and
+its own last digest called that "Nothing is waiting on you".
 
 The component's contract, its three invariants and its differentiation from every
 neighbour live on the registry record `CMP-28-daemon-watchdog` in the merge-refactor
@@ -20,14 +27,51 @@ campaign's `system-definition/architecture/`. Not restated here (`PRIN-11`).
 
 ## The probe table
 
-Three rows. Each is `probe → restart action → notify condition`, and the notify condition is
-identical on every row: **acted, or acted and it did not come back.** Nothing notifies on green.
+Four rows. Three are `probe → restart action → notify condition`, and their notify condition is
+identical: **acted, or acted and it did not come back.** Nothing notifies on green. The fourth,
+`work-liveness`, is unlike the other three: it has **no restart action**, because no unit restart
+makes a wedged goal run — see the row's own section below for why.
 
 | Row | Probe | Restart action |
 |-----|-------|----------------|
 | `daemon` | `POST /` `{intent:"inspect", payload:{target:"daemon"}}` at the gateway with a Bearer token. Connect failure / timeout / non-200 = **down**. HTTP 401 = **alarm**, never down: the daemon is up and answering, the token is not accepted — restarting cannot fix that and would loop | `RBTV_IGNITE_UNIT=<daemon unit> rbtv-ignite-daemon restart`, **through the restart gate below** |
 | `bridge` | `is-active`, AND the newest Socket-Mode lifecycle line in the last 200 journal lines. `active` only proves the Node process exists — Slack's socket can die under it. The bridge's own `reconnect()` is the first line of self-heal, so what this catches is that **backoff loop being stuck**: newest marker is a reconnect failure with no later hello. Neither marker present is NOT a fault; a healthy bridge is quiet | `RBTV_IGNITE_UNIT=<bridge unit> rbtv-ignite-daemon restart` |
 | `probe-suite` | `<workspace>/.rbtv/runtime/probe-suite/latest.json`: `now - fired_at > stale_after_seconds`. **Liveness first, then correctness**: a LIVE artifact whose `verdict` is anything other than `GREEN`/`UNKNOWN` is an **alarm**, never a down — a failing or ungraded suite is not a liveness problem and no restart fixes it. That covers `RED` (`d-probe-suite-verdict-delivery`, 2026-08-10) and the runner-grade-broken set — `ERROR` · `COVERAGE-MISMATCH` · `ARTIFACT-PATH-MISMATCH` · `ARTIFACT-MISSING` · `INCOMPLETE` (owner ruling 2026-08-11), which carry a `note`/`error` instead of a `failed` count and were previously reported as healthy | `RBTV_IGNITE_UNIT=<timer> rbtv-ignite-daemon restart` — see § The row that used to bypass the operator |
+| `work-liveness` | `work_liveness.assess()` (`tool/work_liveness.py`) — reads ground truth off disk (each live goal's OWN `executions.csv` sitting ledger, `open_asks`/`goal_states` in `.rbtv/runtime/ignite/heart.db`, and the goal folders) and returns `up` / `alarm` / `skip`. Alarms ONLY on the conjunction of: live goals hold a taskforce and are not dormant, ZERO asks are open fleet-wide, and AT LEAST ONE live goal's own ledger shows no sitting started or ended within `RBTV_WATCHDOG_WORK_STALL_SECONDS` — evaluated per goal, never as one fleet-wide maximum, so one busy goal can no longer mask a wedged one. See the row's docstring for the full predicate and why each clause alone is not a fault | **none — see below** |
+
+## work-liveness — the only alarm-only row, and why
+
+`work-liveness` answers a different question than every row above it: not *is a process up*, but
+*is the system actually DOING work, or only ticking*. From 2026-08-31T19:00Z to
+2026-09-03T22:43Z the ignite daemon was healthy, zero restarts, ticking every 11s, ran ZERO seats
+for 46 hours, and the owner found out by asking. Its own last message said "Nothing is waiting on
+you" — true about asks, false about the system: every row above this one would have stayed green
+the whole time.
+
+**Why this can never carry a restart action.** The other three rows restart a UNIT — the daemon
+process, the bridge process, the probe timer — because a hung or dead process is what a unit
+restart fixes. A goal that is not running is not a hung process: the daemon, the bridge and the
+timer can all be alive and correct while nothing schedules a seat. There is no unit whose restart
+makes a wedged goal run, so `_work_liveness_has_no_restart()` is unreachable by construction — the
+probe itself never returns `down`, only `up`, `alarm` or `skip` — and this row's restart action is
+`nothing to restart — work-liveness is an alarm-only row`.
+
+**Why it lives in this out-of-process watchdog and not in the daemon.** Every owner-facing signal
+the daemon itself mints — an ask, an alarm row, a digest post — is produced by the same scheduling
+machinery this row exists to watch. A wedge in that machinery is a wedge in its own reporting path:
+the daemon cannot be the thing that notices its own work has stopped, for the same reason none of
+the other three rows run inside it either (§ What it is NOT — "the daemon's own reconcile loop").
+This tool reads ground truth off disk instead — the sitting ledgers, the ask store, the goal
+folders — and calls nothing, so it still sees a stall the daemon itself never reports.
+
+The predicate that decides `up` vs. `alarm` vs. `skip` is implemented once, in
+`work_liveness.py`'s own docstring and `assess()` — not restated here.
+
+**Its notify condition is the one the other three rows don't have.** With no restart action,
+`alarm` is the only thing this row can ever report to a human. Like every alarm (§ Where an
+`alarm` verdict goes) it posts once to the system channel through the ONE alarm registry — but
+unlike the other three rows' alarms, this one's post is addressed to the owner by Slack
+mention, not left as a plain channel post. § The mention below is why.
 
 ## The daemon row's RESTART GATE — the one place this component interprets before it acts
 
@@ -97,8 +141,8 @@ A `--dry-run` restarts nothing and so never reaches the gate: the counter is not
 
 ## The fourth row: daemon IDENTITY — RESTARTED · CRASH-LOOP · IDENTITY · STALE CODE
 
-The three rows above answer *is it up*. This one answers *is it the SAME one, and is it running
-the code on disk* — the questions `ignite/coord/watch.py` used to answer before it was deleted
+Three of the rows above answer *is it up*, and `work-liveness` answers *is work HAPPENING*. This
+one answers *is it the SAME one, and is it running the code on disk* — the questions `ignite/coord/watch.py` used to answer before it was deleted
 (task 7.35, run decision D8), and which nothing else in the repo asks.
 
 **Why it could not just ride the `daemon` row.** That row asks the GATEWAY, and the gateway's
@@ -218,6 +262,31 @@ fingerprint, dedupe on a second pass, the clear on recovery, a green pass with n
 costing no shim call, and a RED CONTROL that loads a mutated copy of the tool with the pre-fix
 `alerts.append(...)` restored and asserts no registry row is ever written.
 
+## The mention — exactly one row pages, the rest post
+
+An `alarm` verdict, for any row, is an ordinary post to the system channel (§ above) — visible
+on the channel, but nobody's phone buzzes on it. `work-liveness` is the one row whose post
+additionally opens with a Slack `<@…>` mention of the owner: `MENTION_ROWS = {"work-liveness"}`
+(`tool/rbtv-ignite-watchdog:1270`), read by `raise_row_alarm()` to pass `mention_user_id` into
+`emit_alarm()`, which the emitter's `renderAlarm()` prefixes onto the text only when present
+(`ignite/observation/emitter.js`). Nothing else changes: same signature class, same registry
+row, same one-delivery-per-condition rule (§9.2) — the mention addresses the single post, it is
+not a second one.
+
+Two owner rulings, in order:
+
+1. `d-escalation-surface` (2026-08-31): the owner's personal DM carries NO goal traffic at all —
+   every daemon-wide event, alarms included, goes to the system channel, never the DM.
+2. Ruling `1a` (2026-09-04): a plain channel post is not enough for an alarm-only row with no
+   restart action behind it — page the owner by mention, in the system channel, for
+   `work-liveness` specifically.
+
+`daemon`, `bridge` and `probe-suite` alarms stay unaddressed — `MENTION_ROWS` names only
+`work-liveness`. `probe-suite` is the deliberate exclusion that matters most: it has stood RED
+since 2026-09-01T22:22Z, and paging the owner on a known-red test suite is exactly how a real
+page gets muted. The mention set is a one-name list precisely so this stays reversible without
+touching delivery: adding a row's name to it pages that row, removing one stops paging it.
+
 ## Silence, and how it survives a subject that cannot be restored
 
 Invariant 3 says notify on action or failure-to-restore, never on a green pass. At a 60s
@@ -231,8 +300,10 @@ same fault does notify.
 **Dedupe alone fails the other way, and that is the trap this component is most likely to
 fall into.** A condition that never clears — the gateway sender not yet minted, a subject
 that never comes back — would send ONE DM and then be silent forever on the only channel
-that pushes. Silence is this component's word for healthy, so a stuck watchdog would be
-indistinguishable from a working one. An unchanged alert is therefore suppressed for at
+that pushes. On this DM channel, silence is still how the three process rows signal healthy
+— `work-liveness` is the one row for which that is no longer true (§ The mention) — so a stuck
+watchdog's silence on an unrecoverable process fault would be indistinguishable from a working
+one. An unchanged alert is therefore suppressed for at
 most `RBTV_WATCHDOG_REALERT_SECONDS` (default 6h → at most 4 DMs/day), then re-sent marked
 `STILL UNRESOLVED, first alerted Nm ago`. The suppression window is measured from the last
 DM, the "first alerted" figure from the first — so a re-alert does not then fire every pass.
@@ -282,7 +353,8 @@ Every per-instance value is resolved at runtime; nothing is baked into the code.
 | `RBTV_WATCHDOG_GATEWAY` | `http://127.0.0.1:7431/` |
 | `IGNITE_WATCHDOG_TOKEN` | unset. **No fallback to another sender's token, deliberately** — borrowing one would file every probe under the wrong sender id in the gateway's audit columns AND would silently satisfy the mint that § Enabling this thing exists to force. Absent = `alarm`, re-alerted on the ceiling below until someone mints it |
 | `RBTV_WATCHDOG_DAEMON_UNIT` · `_BRIDGE_UNIT` · `_PROBE_TIMER` | `rbtv-ignite.service` · `rbtv-chat-bridge.service` · `rbtv-probe-suite.timer` |
-| `RBTV_WATCHDOG_TARGETS` | all three rows. **The test-override hook** — mirrors `RBTV_IGNITE_UNIT`: a probe scopes the pass to one row and points that row's unit variable at a throwaway unit, instead of editing the real probe table. **Also the recorded-disarm surface**: set persistently in `units/rbtv-watchdog.service` to omit a row that is disarmed ON PURPOSE, with the reason commented above it. Refuses an unknown name with exit `2` — never a silent no-op |
+| `RBTV_WATCHDOG_TARGETS` | all four rows. **The test-override hook** — mirrors `RBTV_IGNITE_UNIT`: a probe scopes the pass to one row and points that row's unit variable at a throwaway unit, instead of editing the real probe table. **Also the recorded-disarm surface**: set persistently in `units/rbtv-watchdog.service` to omit a row that is disarmed ON PURPOSE, with the reason commented above it. Refuses an unknown name with exit `2` — never a silent no-op |
+| `RBTV_WATCHDOG_WORK_STALL_SECONDS` | `172800` (48h) — the per-goal stall threshold `work_liveness.py`'s predicate clause 3 checks each live goal's OWN sitting ledger against (`work_liveness.py:26-34`); not a fleet-wide clock — one busy goal cannot mask a wedged one. Raised from a 6h default 2026-09-04: replayed against 17 days of real sitting/ask ground truth, 6h posted 14 alarms (13 false, ordinary overnight/weekend gaps) and sat in `alarm` 45% of wall-clock time; 48h posts the one real alarm, still ~27h before the owner had to ask. See § work-liveness — the only alarm-only row for the full predicate |
 | `RBTV_WATCHDOG_OPERATOR` | the sibling component `operator/daemon-operator/tool/rbtv-ignite-daemon`, else `rbtv-ignite-daemon` on PATH |
 | `RBTV_WATCHDOG_STATE` | `<workspace>/.rbtv/runtime/watchdog/state.json` |
 | `RBTV_WATCHDOG_FAILCOUNT` | `<workspace>/.rbtv/runtime/watchdog/failcount.json` — the daemon row's two consecutive-failure counters (`strikes`, `timeout_strikes`). Its own file for the same reason `daemon.json` is: `RBTV_WATCHDOG_STATE` is cleared on every green pass |

@@ -102,7 +102,7 @@ function fixtureFinishedOwed() {
 function run() {
   say('── finish event PIN: JS marker is byte-identical to records.py ──');
   {
-    const recordsPy = fs.readFileSync(path.join(__dirname, '..', 'coord', 'records.py'), 'utf8');
+    const recordsPy = fs.readFileSync(path.join(__dirname, '..', 'team-kit', 'records.py'), 'utf8');
     assert.ok(recordsPy.includes(`FINISH_MARKER = "${FINISH_MARKER}"`),
       `FINISH_MARKER drifted from records.py: ${JSON.stringify(FINISH_MARKER)}`);
     say('ok  FINISH_MARKER matches coord/records.py');

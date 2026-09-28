@@ -6,7 +6,7 @@ human-interactive: yes
 fallback: park
 exposes:
   path:
-    - rbtv:ignite/coord/coordinate
+    - rbtv:ignite/team-kit/coordinate
 ---
 
 <role>
@@ -82,7 +82,7 @@ the workflow reads.
 
 <resources>
 
-- `rbtv:ignite/coord/coordinate` — beyond plain checkout, this seat puts the combined accept-or-bounce and handover ask to the owner and, on the autonomous arm, parks that ask for their return before closing. Caveat: a parked ask looks delivered — silence is not an answer.
+- `rbtv:ignite/team-kit/coordinate` — beyond plain checkout, this seat puts the combined accept-or-bounce and handover ask to the owner and, on the autonomous arm, parks that ask for their return before closing. Caveat: a parked ask looks delivered — silence is not an answer.
 
 </resources>
 

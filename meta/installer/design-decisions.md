@@ -30,10 +30,11 @@ The layout:
   `import discovery` however it was reached.
 - `selftest/` — the runnable check, one module per subject, driven by
   `selftest/runner.py`. Reached only by `rbtv install selftest`.
-- `discovery.py` — deliberately NOT inside `lib/`. It is imported by name from
-  this directory by `ignite/planning/materialize-seats.py`
-  (`_live_import(<repo>/meta/installer, "discovery")`), so its path is a
-  contract with another tool, not an internal detail.
+- `discovery.py` — deliberately NOT inside `lib/`. This directory is on
+  `sys.path` and the package imports it by bare name (`from discovery import`).
+  That is an internal layout. The Ignite 0.1 seat materializer used to import
+  it the same way; that contract is retired with 0.1 and is not a reason to
+  keep the materializer.
 - `design-decisions.md` — this file.
 - `exposure.csv` — the component's own manifest (D2).
 

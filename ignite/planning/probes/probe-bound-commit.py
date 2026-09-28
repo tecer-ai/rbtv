@@ -21,7 +21,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PLANNING = HERE.parent
-COORD = PLANNING.parent / "coord"
+COORD = PLANNING.parent / "team-kit"
 SUPERVISE = PLANNING.parent / "supervisor" / "supervise.py"
 OUT = HERE / "probe-bound-commit.out"
 FIX_ANCHOR = '_fr = planning_bind.freshness(pkg)'

@@ -73,7 +73,7 @@ shape (a directory is a goal; a file is a manifest), so there is no parallel ver
 
 ```bash
 rbtv-bindings scaffold .rbtv/goals/<goal>                                  # sheet, every seat uncast
-rbtv-bindings set      .rbtv/goals/<goal> <seat> claude claude-opus-5 3    # same validator
+rbtv-bindings set      .rbtv/goals/<goal> <seat> claude claude-opus-5-5 3    # same validator
 rbtv-bindings inspect  .rbtv/goals/<goal>                                  # casting state
 ```
 
@@ -122,7 +122,7 @@ rbtv-bindings set-many <workflow.csv> casts.json # one call, refused whole or ap
 ```
 
 ```json
-{ "plan-binder":  { "harness": "claude", "model": "claude-opus-5",    "effort": 4 },
+{ "plan-binder":  { "harness": "claude", "model": "claude-opus-5-5",    "effort": 4 },
   "plan-planner": { "harness": "claude", "model": "claude-haiku-4-5" } }
 ```
 
@@ -224,7 +224,7 @@ predicate rejects is listed NOT CASTABLE with its reason rather than dropped: to
 carries no `kimi` row for this predicate to reject in the first place.
 
 ⚠ **The model vocabulary is the profile's pin, verbatim** — `claude-fable-5` for `claude-fable`,
-`claude-opus-5` for `claude-opus`, and so on: every profile now pins a FULL model id (owner ruling
+`claude-opus-5-5` for `claude-opus`, and so on: every profile now pins a FULL model id (owner ruling
 2026-08-10 — the alias/full-id asymmetry the earlier config carried was eliminated at the source,
 not papered over here). The claude binary honours both an alias and a full model id, so both
 spellings would *run*; but only the pinned literal joins a bindings row back to a profile row, and
@@ -261,7 +261,7 @@ there, nothing downstream could translate one either.
 ```json
 { "defaults": { "cwd-mode": "seat-folder" },
   "seats": { "plan-binder": { "agent_type": "staff", "mode": "interactive", "ctx-refresh": 35,
-                              "harness": "claude", "model": "claude-opus-5", "effort": "xhigh",
+                              "harness": "claude", "model": "claude-opus-5-5", "effort": "xhigh",
                               "component": "<abs path to the component>/" } } }
 ```
 

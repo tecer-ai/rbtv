@@ -59,7 +59,7 @@ Environment="RBTV_WATCHDOG_WORKSPACE=@@WORKSPACE_ROOT@@"
 # with the program it watched (`jobs/goal-watcher-job.py`, owner ruling "if the program is
 # dead, delete it"). This line is now redundant with the tool's own default and is kept
 # only as the recorded-disarm surface for whatever row is disarmed next.
-Environment="RBTV_WATCHDOG_TARGETS=daemon,bridge,probe-suite"
+Environment="RBTV_WATCHDOG_TARGETS=daemon,bridge,probe-suite,work-liveness"
 EnvironmentFile=@@ENV_FILE@@
 ExecStart=/usr/bin/python3 @@IGNITE_SRC@@/observation/daemon-watchdog/tool/rbtv-ignite-watchdog
 # NOTHING is whitelisted here, and since owner ruling R1 (2026-08-15) nothing needs to be:

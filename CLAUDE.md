@@ -32,17 +32,17 @@ BEFORE editing anything under `ignite/` or `meta/`: read `ignite/work-on-ignite/
 
 ## ignite/ — Runnable Service Code (convention)
 
-`ignite/` holds the source of the **ignite daemon** — runnable Node.js service code (server core, gateway, client CLI). It is the ONE sanctioned exception to this repo's markdown-only component inventory; runnable service code lives NOWHERE else in the repo.
+`ignite/agents/` is Ignite 0.2: runnable Node code. A Slack message or a scheduled wake selects a primary-agent home under the workspace `.rbtv/agents/<slug>/`, runs one non-interactive turn, and the runtime delivers that turn's replies. It is deployed, not copied into a harness tree: `ignite/agents/tool/deploy.sh <commit>` (env `RBTV_DEPLOY`, `RBTV_WORKSPACE`) checks out the deploy worktree and restarts the user unit `rbtv-ignite-agents.service` (template `ignite/agents/units/rbtv-ignite-agents.service`). Operator steps are `ignite/agents/runbook.md`.
 
-Rules for `ignite/`:
+Rules for `ignite/agents/`:
 
-1. **Not installed, deployed.** `install.py` never installs the daemon code into a workspace's `.claude/` — it is deployed to a runtime host and run as a long-lived service (systemd). The install model above does not apply to it. **Exception — `ignite/team-kit/`:** the team-kit (multi-agent tmux team mechanics) is a normal installable component of the `ignite` module — one thin skill loader (`rbtv-team-kit`) installs; the kit's scripts/docs are read in place from the repo (the safe-move-engine pattern).
-2. **The General rule applies in full.** No hardcoded workspace, vault, or host paths in the code; every per-instance input (workspace root, config, credentials) is resolved at runtime from the target workspace's `.rbtv/` runtime root or explicit configuration — never baked in.
-3. **No runtime state in the repo.** The daemon's state (queues, job logs, per-workspace data) lives in the `.rbtv/` runtime root at the workspace it serves, never under `ignite/`.
-4. **Self-contained subtree.** `ignite/` must stay relocatable as a plain folder/subtree move — no reach-outs into sibling module folders at import/require level. It consumes other rbtv capabilities via runtime interfaces, not source imports.
-5. **Docs in sync.** When ignite components materialize or change, the Keep-Docs-in-Sync rule above applies (README, `modules/`, and — where applicable — the install manifest).
+1. **Not installed, deployed.** `install.py` does not install this service code into a workspace harness tree. What installs is the `create-primary-agent` skill and the `ignite-agent` PATH link (`exposure.csv` `method=path`). The process runs from the deploy worktree.
+2. **The General rule applies in full.** No hardcoded workspace, vault, or host paths. Every per-instance input (workspace root, Slack identity, token file, launch pin) is resolved at runtime from `<workspace>/.rbtv/agents/` or explicit configuration.
+3. **No runtime state in the repo.** Agent homes, `state.sqlite`, and conversation history live under the workspace `.rbtv/agents/`, never under `ignite/agents/`.
+4. **Self-contained subtree.** `ignite/agents/tool/` requires only its own files and Node built-ins. Other rbtv capabilities (`cast`, stools, audio) are runtime commands named in workspace config, never source imports.
+5. **Docs in sync.** When this component changes, the Keep-Docs-in-Sync rule above applies.
 
-Development note: `ignite/` is developed on the `ignite/core-daemon` branch; it is absent from `master` until the repo-infrastructure ruling merges it.
+`ignite/team-kit/` remains a normal installable component of this module (thin skill loader; scripts read in place from the repo). Other `ignite/` trees are Ignite 0.1 and are not this section.
 
 ## CLI Tool Placement (convention, owner-ruled 2026-07-26)
 

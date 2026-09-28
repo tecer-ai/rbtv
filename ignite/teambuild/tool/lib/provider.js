@@ -86,7 +86,7 @@ function keyFilePath(start) {
   }
   let cfg = {};
   try { cfg = JSON.parse(fs.readFileSync(path.join(root, 'rbtv.json'), 'utf8')); } catch { cfg = {}; }
-  return path.join(root, cfg.env_file || '.rbtv/config/.env');
+  return path.join(root, cfg.env_file || '.rbtv/config/env/.env');
 }
 
 // The module's OWN sourcing act: nothing in this workspace loads that file into a
@@ -251,4 +251,4 @@ function voyage(start) {
   };
 }
 
-module.exports = { KEY_VAR, ERRORS, voyage, preamble, renderPreamble, keyFilePath, workspaceRoot };
+module.exports = { KEY_VAR, ERRORS, sourceEnvFile, voyage, preamble, renderPreamble, keyFilePath, workspaceRoot };

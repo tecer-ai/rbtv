@@ -16,7 +16,7 @@ import tempfile
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-for _p in (_HERE, _HERE.parent / "coord"):
+for _p in (_HERE, _HERE.parent / "team-kit"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
@@ -65,7 +65,7 @@ META_MODULE = "meta"
 # argv as `ignite/coord/starter-set/{CLAUDE.md,budget.json}`. A birth has no config surface and no
 # human caller to name them, so it resolves the SAME two files out of the repo it ships in — a
 # repo-relative address, never an instance path, and never invented content.
-STARTER_SET = _HERE.parent / "coord" / "starter-set"
+STARTER_SET = _HERE.parent / "team-kit" / "starter-set"
 
 
 def _run(argv, **kwargs):

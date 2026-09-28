@@ -13,10 +13,10 @@ rbtv                        level 0 — the installed modules
 rbtv <module>               level 1 — that module's components, blurb-first, + its rules and action verbs
 rbtv <module> <component>   level 2 — the component's entry point body + its invocable entry points
 
-rbtv ignite daemon <verb>   start|restart|stop|kill|unit  → ignite/capabilities/daemon-operator
-rbtv ignite ticker          NOT BUILT — core-build task 7.66
-rbtv ignite <command>       the gateway client            → ignite/cli/ignite.js
-rbtv goal <verb>            scaffold|reindex|lint|materialize → ignite/capabilities/goals-tree
+rbtv install <verb>         add|rm|set|ls|li|doctor   → meta/installer/install.py
+rbtv teambuild <verb>       agents|units|seats|tasks|workflows|search → ignite/teambuild
+rbtv embed-search <verb>    index|query|status            → meta/embed-search
+rbtv control-panel <verb>   update|status                 → meta/control-panel
 
 rbtv doctor                 can this tool work here?
 rbtv selftest               this CLI's own mechanics
@@ -42,12 +42,9 @@ Every action verb execs a surface that exists, and delegation is **transparent**
 stdout, stderr and exit code are the caller's, un-reinterpreted. This CLI never wraps a delegate's
 output in an envelope and never re-derives its verdict.
 
-⚠ **`rbtv ignite daemon unit` exits 0 for any unit it could READ** — including a failed or
-crash-looping one. Health is the `health` FIELD (`healthy|unstable|starting|inactive|failed`).
-**Branch on `health`, never on the exit status.** An exit code reports whether the READ succeeded,
-never whether the SUBJECT is healthy (leader ruling on defect `G-121`). A wrapper that re-collapsed
-health into its exit status would undo that fix for every caller arriving through here — so the
-selftest asserts it with a delegate that reports an unhealthy subject on a successful read.
+A delegated call's exit code is the delegate's. The selftest asserts that with a
+delegate that reports an unhealthy subject on a successful read — health is never
+re-collapsed into the exit status.
 
 `rbtv install` delegates to **`meta/installer/install.py`** (named `install2.py` until
 2026-08-23, when the file was split into `meta/installer/lib/` and took the plain name). The installer is homed in the `meta`
@@ -60,19 +57,14 @@ file the human authors) — are answered once on the first `add` and thereafter 
 verbs; `add` refuses those flags afterwards rather than accepting them and doing nothing
 (installer `design-decisions.md` D16).
 
-The daemon verbs' names, the survival-check and `LoadState` behaviours, and the reason `unit` is
-not called `status` are the daemon-operator capability's, carried whole there. Nothing was thinned
-while wrapping. **The 3s settle and 300s unstable windows are guesses routed to task 7.68** — they
-are carried through untouched and re-guessed nowhere.
+The Ignite 0.1 verb families — `ignite daemon`, `ignite ticker`, the gateway client,
+`goal`, `run` — are not routed. Their delegates are 0.1 and are deleted with it.
+`teambuild` stays; its code is `ignite/teambuild/`.
 
 ## Resolution order — and why the ambiguity is refused rather than resolved
 
-`ignite` is BOTH a module and a verb namespace: the registry rules `rbtv <module> <component>` (the
-drill) and `rbtv ignite <subcommand>` (the gateway client) onto the same two tokens.
-
 1. A **bare module token is always the drill** — `rbtv ignite` lists components, never delegates.
-2. At position 2, a **multi-token route** wins first (`ignite daemon`, `ignite ticker`), which is
-   what keeps `rbtv ignite daemon kill` (the unit) off `rbtv ignite kill` (a gateway session).
+2. At position 2, a **multi-token route** wins first, if one exists.
 3. Then a **component**, then a **module-level verb**.
 4. A token that is **both is REFUSED**, never silently resolved — guessing which one the caller
    meant is how the wrong thing runs.
@@ -111,16 +103,11 @@ CLI produces. Rules ride the result as **names + descriptions + paths always**, 
 
 ## What it never does
 
-- **No auth of its own.** The drill and the daemon verbs are local; nothing here crosses the
-  gateway. The delegated gateway client reads `IGNITE_SENDER_TOKEN` from the environment itself —
-  this process never sees, formats or forwards its value, and `doctor` reports token **presence**
-  only. The selftest asserts a token value never reaches stdout or stderr.
-- **No seat gate.** Owner-ruled 2026-07-26: during development all agents on the box may run all
-  daemon commands. The enforcement point is the OS (a caged worker's namespace masks the user bus).
-  Master-gating is PARKED pending `CMP-13` / task 7.10. Do not add one here.
-- **No `run` verb.** The attached-run embedded engine is task 7.44.
-- **No `enable`/`disable`, unit-file edits, or `RBTV_IGNITE_CARRIER` writes** — install-time acts
-  owned by the deploy runbook, and a carrier write would remove a containment gate.
+- **No auth of its own.** Nothing here reads a token value into argv. `doctor` reports
+  `IGNITE_SENDER_TOKEN` **presence** only. The selftest asserts a token value never
+  reaches stdout or stderr.
+- **No Ignite 0.1 verbs.** `ignite daemon`, `ignite ticker`, the gateway client, `goal`
+  and `run` are not routed.
 
 ## Install
 
@@ -137,8 +124,7 @@ actionable.
 
 ## Mounting more on this skeleton
 
-A new command family is **one row in `tool/lib/verbs.js` `ROUTES`** plus its delegate. `rbtv goal`
-is the worked example of a top-level, non-module namespace — which is exactly the shape
-`rbtv teambuild` needs (core-build task 7.55, which depends on this task). Adding a route
+A new command family is **one row in `tool/lib/verbs.js` `ROUTES`** plus its delegate. `rbtv teambuild`
+is the worked example of a top-level, non-module namespace. Adding a route
 automatically puts it in `doctor`, in the disjointness assertion, and in the module's level-1
 listing; nothing else needs editing. That is the property to preserve.

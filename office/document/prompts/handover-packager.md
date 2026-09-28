@@ -4,7 +4,7 @@ description: "Handover packager — assembles the accepted deck, its rationale d
 staffing-recommendations: "A careful mid-weight model at moderate effort. This seat assembles and explains what other seats already decided; it makes no design or narrative judgment, so reasoning depth matters less than fidelity to the artifacts it copies."
 exposes:
   path:
-    - rbtv:ignite/coord/coordinate
+    - rbtv:ignite/team-kit/coordinate
 ---
 
 <role>

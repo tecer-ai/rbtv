@@ -147,7 +147,7 @@ CREATE TABLE IF NOT EXISTS jobs_log (
   -- 7.787 (`#d-abolish-profile-names`): UNCHANGED COLUMN, NEW CONTENT, NO MIGRATION.
   -- It records WHICH LAUNCH SPEC actually ran, written from the RESOLVED value at spawn and never
   -- from a request (the caller no longer has one to make). Since 2026-08-12 that value is the
-  -- launch-spec KEY `<harness>/<model>` (`claude/claude-opus-5`); rows written before it hold the
+  -- launch-spec KEY `<harness>/<model>` (`claude/claude-opus-5-5`); rows written before it hold the
   -- retired profile NAME (`claude-opus`). Neither form is ever re-read as a launch instruction —
   -- this is an audit column — so the two coexisting cost nothing and a rewrite of history would
   -- have been a fabrication. Its ONE parser (`bridges/chat/reply-leg.js#normalizeLog`) takes the

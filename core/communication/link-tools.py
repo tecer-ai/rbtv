@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
 """link-tools — put this component's bare-name CLI on PATH, idempotently.
 
-`audio` (the `capabilities/audio/` capability) is reached bare-name by `core/communication/
-references/audio-io.md`'s caged vantage row and by any uncaged daemon-spawned sitting, which gets
-`~/.local/bin` on PATH via `ignite/supervisor/spawn/spawn.js`'s `local-bin: true` grant. Nothing
-created the symlink itself: a manual, per-box `~/.local/bin/audio` symlink was made by hand on the
-ignite VPS (2026-08-31) and did not survive as repo state — a rebuild or a second machine leaves
+`audio` (the `capabilities/audio/` capability) is reached bare-name by callers that
+have `~/.local/bin` on PATH. Nothing in this repo created that symlink: a manual,
+per-box link did not survive as repo state — a rebuild or a second machine leaves
 the name unresolvable and every caller falls back to exit 127.
 
-This is that missing step, scoped to THIS component. `ignite/deploy/link-tools.py` is the sibling
-for the ignite module and, by its own docstring, deliberately does not extend to other modules'
-tools ("Other repos' PATH names … have the same gap and their own owners; each module exposes its
-own") — `audio` lives outside `ignite/`, so it is this component's job, not that script's.
+This is that missing step, scoped to THIS component. It does not link any other
+module's tools.
 
 Run it after cloning the repo on a box:
 

@@ -106,7 +106,7 @@ function fixture(hasAfter) {
     + `tf,onlyseat,missing-dep,bash,probe-frozen,high,35,\n`);
   const cols = require('node:child_process').execFileSync(requirePythonCmd(),
     ['-c', 'import sys; sys.path.insert(0, sys.argv[1]); import coord; print(",".join(coord.SESSIONS_COLS))',
-      path.join(IGNITE_SRC, 'coord')], { encoding: 'utf8' }).trim().split(',');
+      path.join(IGNITE_SRC, 'team-kit')], { encoding: 'utf8' }).trim().split(',');
   const now = new Date().toISOString();
   const row = { 'session-id': 'sess-missing-dep', seat: 'missing-dep', harness: 'bash',
     workdir: path.join(goalFolder, 'seats', 'missing-dep'), started: now, ended: now };
@@ -253,7 +253,7 @@ function fixtureDead(withPending) {
     + 'struct,planning-mode,collapsed,probe,struct,2026-08-19T00:00:00Z\n');
   const cols = require('node:child_process').execFileSync(requirePythonCmd(),
     ['-c', 'import sys; sys.path.insert(0, sys.argv[1]); import coord; print(",".join(coord.SESSIONS_COLS))',
-      path.join(IGNITE_SRC, 'coord')], { encoding: 'utf8' }).trim().split(',');
+      path.join(IGNITE_SRC, 'team-kit')], { encoding: 'utf8' }).trim().split(',');
   const now = new Date().toISOString();
   const sess = [{ 'session-id': 'sess-struct', seat: 'struct', harness: 'bash',
     workdir: path.join(goalFolder, 'seats', 'struct'), started: now, ended: now,
@@ -374,7 +374,7 @@ function fixtureIdle(withPending) {
   if (withPending) {
     const cols = require('node:child_process').execFileSync(requirePythonCmd(),
       ['-c', 'import sys; sys.path.insert(0, sys.argv[1]); import coord; print(",".join(coord.SESSIONS_COLS))',
-        path.join(IGNITE_SRC, 'coord')], { encoding: 'utf8' }).trim().split(',');
+        path.join(IGNITE_SRC, 'team-kit')], { encoding: 'utf8' }).trim().split(',');
     const now = new Date().toISOString();
     const sess = [{ 'session-id': 'sess-undeclared-dep', seat: 'undeclared-dep', harness: 'bash',
       workdir: path.join(goalFolder, 'seats', 'undeclared-dep'), started: now, ended: now }];

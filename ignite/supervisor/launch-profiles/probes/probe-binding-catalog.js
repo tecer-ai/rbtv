@@ -154,10 +154,10 @@ check('(5) a spec whose argv contradicts its KEY is refused at config LOAD', () 
     ].join('\n'));
     return f;
   };
-  const err = expectCode('E_CONFIG_LOAD', () => loadConfig(write('claude-opus-5', 'claude-haiku-4-5')));
+  const err = expectCode('E_CONFIG_LOAD', () => loadConfig(write('claude-opus-5-5', 'claude-haiku-4-5')));
   if (!/claude-haiku-4-5/.test(err.message)) throw new Error('the refusal does not name what the argv RUNS');
   loadConfig(write('claude-sonnet-5', 'claude-sonnet-5'));      // CONTROL — agreement loads clean
-  return `${err.code} — key says claude-opus-5, argv runs claude-haiku-4-5`;
+  return `${err.code} — key says claude-opus-5-5, argv runs claude-haiku-4-5`;
 });
 
 // ── 6 · the key-guard's derivation edges ─────────────────────────────────────────────────────
@@ -215,8 +215,8 @@ check('(8) an UNCAST seat REFUSES — there is no fallback anywhere any more', (
   }
   // …and the CONTROL that this arm is not vacuous: a FULL cast resolves. Without it, a resolver
   // that threw E_UNCAST_SEAT unconditionally would read green on every line above.
-  const full = seatWith('seat: full\nharness: claude\nmodel: claude-opus-5\neffort: high');
-  eq(launchSpecForSeat(shipped, full, quiet).key, 'claude/claude-opus-5', 'control resolves');
+  const full = seatWith('seat: full\nharness: claude\nmodel: claude-opus-5-5\neffort: high');
+  eq(launchSpecForSeat(shipped, full, quiet).key, 'claude/claude-opus-5-5', 'control resolves');
   // ⚑ AND THE RETIRED CARVE-OUT IS ASSERTED GONE. D3(a) let an uncast seat launch when the
   // CALLER's profile pinned no model — the `sleep`-based probe stand-ins. Those live in the
   // `jobs:` block now and `specForSeatCast` never reads it, so a model-less table refuses the same

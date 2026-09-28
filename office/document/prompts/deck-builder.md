@@ -8,7 +8,7 @@ exposes:
     - html-standards
     - converter
   path:
-    - rbtv:ignite/coord/coordinate
+    - rbtv:ignite/team-kit/coordinate
 ---
 
 <role>

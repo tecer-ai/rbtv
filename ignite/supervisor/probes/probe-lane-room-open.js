@@ -121,7 +121,7 @@ const goalsRoot = path.join(workspace, '.rbtv', 'goals');
 fs.mkdirSync(goalsRoot, { recursive: true });
 
 const TASKFORCE = 'taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n'
-  + 'tf-1,alpha,,claude,claude-opus-5,high,35,\n';
+  + 'tf-1,alpha,,claude,claude-opus-5-5,high,35,\n';
 
 function makeGoal(goal, { lane, taskforce = true, sessions = null, cast = true }) {
   const dir = path.join(goalsRoot, goal);
@@ -130,7 +130,7 @@ function makeGoal(goal, { lane, taskforce = true, sessions = null, cast = true }
   if (taskforce) fs.writeFileSync(path.join(dir, 'taskforce.csv'), TASKFORCE);
   fs.writeFileSync(path.join(dir, 'seats', 'alpha', 'seat.md'),
     cast
-      ? ['---', 'seat: alpha', 'harness: claude', 'model: claude-opus-5', 'effort: high', '---', '', 'probe seat.', ''].join('\n')
+      ? ['---', 'seat: alpha', 'harness: claude', 'model: claude-opus-5-5', 'effort: high', '---', '', 'probe seat.', ''].join('\n')
       : ['---', 'seat: alpha', '---', '', 'probe seat, deliberately UNCAST.', ''].join('\n'));
   if (sessions) fs.writeFileSync(path.join(dir, 'sessions.csv'), sessions);
   return dir;

@@ -20,7 +20,7 @@ Exit codes: `0` success · `1` refusal · `2` usage error.
 
 The unit of ranking is a **markdown section** (heading-delimited) with file path + heading in the output. A short memory entry is one section and ranks as a whole.
 
-**Availability ladder** (wiki-helper shape): `VOYAGE_API_KEY` in the OS environment → else vault `.user/config/env/.env` walking up from cwd/`--root` → semantic+keyword hybrid; key absent → keyword-only; failure → grep-equivalent substring ranking. A failure NEVER throws past the CLI — it degrades and says so on stderr / `--json`. `--arm` pins one arm; if that arm cannot run, the command degrades and names the arm that answered.
+**Availability ladder** (wiki-helper shape): `VOYAGE_API_KEY` in the OS environment → else the workspace env file (`env_file` in the `rbtv.json` found walking up from cwd/`--root`) → semantic+keyword hybrid; key absent → keyword-only; failure → grep-equivalent substring ranking. A failure NEVER throws past the CLI — it degrades and says so on stderr / `--json`. `--arm` pins one arm; if that arm cannot run, the command degrades and names the arm that answered.
 
 `query` self-syncs the index before ranking. `index` is the same refresh without a query.
 

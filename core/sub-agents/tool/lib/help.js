@@ -9,6 +9,7 @@ const { API_USAGE } = require('./api');
 const { RESUME_USAGE, SEAT_USAGE, SESSIONS_USAGE, USAGE, modelTable } = require('./core');
 const { loadOptional } = require('./optional');
 const { ROUTE_FORMS, ROUTE_USAGE } = require('./route');
+const { USAGE: TURN_USAGE } = require('./turn');
 
 const { module: monitorMod } = loadOptional('monitor');
 const MONITOR_USAGE = monitorMod
@@ -26,6 +27,7 @@ function printHelp() {
     `       ${SEAT_USAGE}`,
     `       ${RESUME_USAGE}`,
     `       ${SESSIONS_USAGE}`,
+    `       ${TURN_USAGE}`,
     `       ${MONITOR_USAGE}`,
     `       ${ROUTE_USAGE}`,
     // The batch form is the one route surface a caller cannot guess from the interview line;
@@ -40,11 +42,10 @@ function printHelp() {
     '[launch-folder] defaults to the current directory.',
     '-s TEXT / -S FILE: system prompt — real for claude, prepended to the first message elsewhere.',
     '',
-    'cast seat      launch per seat.md frontmatter (harness/model/effort); seat.md is the',
-    '               system prompt, -p/-f an optional wake message on top',
-    'cast resume    one more turn into an existing session: id from `cast sessions`, or',
-    "               `last` for the folder's newest",
+    'cast seat      launch per seat.md frontmatter; the file body is the system prompt',
+    'cast resume    one more turn into a session id, or `last` for the folder newest',
     'cast sessions  what ran in a folder — harness, id, started, first-prompt label',
+    'cast turn      structured turn with an exact per-conversation session ID and result file',
     'cast route     answer 4 questions about the job, get (harness, model, mode, effort)',
     'cast monitor   live cast jobs; --watch exits 3 on stall, 4 on ENDED.',
     '',
@@ -65,6 +66,32 @@ function printHelp() {
 
 function verbHelpPages() {
   return {
+    turn: [
+      `usage: ${TURN_USAGE}`,
+      '',
+      'One foreground turn for a caller that keeps many conversations in one folder.',
+      'Never resolves `last` and never picks the newest session in the folder.',
+      'Resume passes the requested model and effort on that invocation.',
+      '',
+      'Request JSON:',
+      '  harness          claude | codex | opencode',
+      '  model            short name or harness-native id',
+      '  effort           integer 1-5, or a native rung word',
+      '  cwd              existing absolute directory',
+      '  prompt|promptFile  exactly one',
+      '  session          {"mode":"new"} or {"mode":"resume","id":"<exact id>"}',
+      '  env              optional string map merged over the process environment',
+      '',
+      'Result JSON (written even on failure):',
+      '  ok, harness, model, effort, sessionId, exitCode,',
+      '  startedAt, endedAt, pid, pidStart, stdoutPath, stderrPath, error?',
+      'pid + pidStart (starttime from /proc/<pid>/stat, read while alive) distinguish a',
+      'live run from a reused pid. stdout/stderr are captured to files, not inherited.',
+      '',
+      'Session id: claude mints a UUID and passes --session-id; codex parses thread.started',
+      '(thread_id); opencode binds a unique --title tag to that store row. Resume passes',
+      '--resume / exec resume <id> / run -s <id> plus the requested model and effort.',
+    ],
     seat: [
       `usage: ${SEAT_USAGE}`,
       '',
@@ -205,7 +232,7 @@ function verbHelpPages() {
       '              other questions are asked. `cast route --caps image` on its own is valid.',
       '',
       'VERDICT',
-      '  {"verdict":"route","harness":"claude","model":"opus-5","mode":"cli","effort":3,',
+      '  {"verdict":"route","harness":"claude","model":"opus-5-5","mode":"cli","effort":3,',
       '   "effort_is_floor":true,"alternates":[{"harness":...},{...}]}',
       '  mode is cli (launch it with `cast <harness> <model> <effort>`) or api (`cast api`).',
       '  The top-level worker IS the choice — launch it. `alternates` is the next two of the same',
@@ -236,7 +263,7 @@ function verbHelpPages() {
       '  none of the interview flags, --caps or --catalog.',
       '',
       'THE CATALOG',
-      '  Routing axes live in the shared table ignite/supervisor/models.csv (mode, harness, model, efforts,',
+      '  Routing axes live in core/sub-agents/tool/models.csv (mode, harness, model, efforts,',
       '  image, level, reasoning, coding, cost, use, quality-override, price-override).',
       '  Launch mechanics stay in catalog.js and the',
       '  two are joined on harness+model — a CSV row with no catalog twin is excluded with a',

@@ -6,7 +6,7 @@ human-interactive: yes
 fallback: park
 exposes:
   skill: [storytelling/narrative-lock, storytelling/ai-anti-patterns]
-  path: [rbtv:ignite/coord/coordinate]
+  path: [rbtv:ignite/team-kit/coordinate]
 ---
 
 <role>
@@ -30,7 +30,7 @@ exposes:
 <resources>
 - `storytelling/narrative-lock` the locking capability — its five-step procedure, the wait point that splits it, and the lock's section contract. Load it first; you run steps 1 to 3 and stop. Caveat: step 5's contract is the LATER sitting's target — read it to know what your seed feeds, not as work you may do.
 - `storytelling/ai-anti-patterns` the machine-writing tells checklist — nine categories, each with a detection test and a rewrite. Reach for it while transcribing the owner, so specifics do not get smoothed into stock phrasing. Caveat: it judges COPY only; a wrong claim is not repaired by rewording.
-- `rbtv:ignite/coord/coordinate` — beyond plain checkout, this seat uses it to hold the live excavation with the owner (audience probing, the interview, agreeing the lock definition) and, on the autonomous arm, to park that ask. Caveat: a plain checkout is refused while an owner ask of yours is unanswered.
+- `rbtv:ignite/team-kit/coordinate` — beyond plain checkout, this seat uses it to hold the live excavation with the owner (audience probing, the interview, agreeing the lock definition) and, on the autonomous arm, to park that ask. Caveat: a plain checkout is refused while an owner ask of yours is unanswered.
 
 The owner-facing message standard is attached automatically because this seat is flagged for owner contact; write every owner message to it.
 </resources>

@@ -35,11 +35,10 @@ does the README.
 
 ## What a reader needs before entering
 
-- **The key is the capability's own.** It is read from the workspace key store,
-  `<workspace>/.user/config/env/elevenlabs.key` (owner-ruled 2026-08-23, superseding
-  `d-elevenlabs-key-location-2026-08-18`, which named a `credentials/` folder inside this
-  capability — that folder does not exist and never did). `ELEVENLABS_API_KEY`
-  is accepted when that file holds nothing. Neither present → every verb refuses, exit != 0,
+- **The key is the capability's own.** It is read as `ELEVENLABS_API_KEY` from the workspace env
+  file — `env_file` in the workspace's `rbtv.json` (owner-ruled 2026-09-27: every key lives in one
+  gitignored `.env`). `ELEVENLABS_API_KEY` in the process environment is accepted when that file
+  holds none. Neither present → every verb refuses, exit != 0,
   naming both places. `README.md` is the one home of that detail.
 - **One language key governs both verbs.** `config.json`'s `language` field, default `pt`. No
   verb pins a language anywhere else (`goal.md` clause 11), and the `language` verb is how it

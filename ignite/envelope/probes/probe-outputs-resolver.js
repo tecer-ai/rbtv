@@ -24,7 +24,7 @@ const path = require('node:path');
 
 const HERE = __dirname;
 const OUT_PATH = path.join(HERE, 'probe-outputs-resolver.out');
-const FIXTURES = path.join(HERE, '..', '..', 'coord', 'outputs-resolver-fixtures.json');
+const FIXTURES = path.join(HERE, '..', '..', 'team-kit', 'outputs-resolver-fixtures.json');
 const { parseDeclaredOutputs, declaredOutputs } = require('../cage-admission');
 
 const start = Date.now();

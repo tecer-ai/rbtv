@@ -15,7 +15,7 @@
 // What IS now read (owner-ruled 2026-08-24, option a — cli-drill seat): component
 // FOLDERS. Since 2026-08-22 some components moved their manifest one level down
 // (`component.md` + `exposure.csv` beside the parts they declare, e.g.
-// `ignite/coord/`, `ignite/work-on-ignite/` — component-anatomy.md §1: "a
+// `ignite/teambuild/`, `ignite/team-kit/` — component-anatomy.md §1: "a
 // directory at depth 2 holding exposure.csv IS the component"). `componentFolders()`
 // below enumerates those directly, and `component.md`'s frontmatter + a component's
 // own `exposure.csv` rows are what level 2 delivers for them — the settled CMP-5

@@ -4,7 +4,7 @@ description: "Per-beat fact researcher downstream of a locked narrative — fans
 staffing-recommendations: "mid-to-high tier model at moderate effort — the work is many small bounded lookups plus one strict consolidation; a hint for the staffer, never a binding"
 exposes:
   path:
-    - rbtv:ignite/coord/coordinate
+    - rbtv:ignite/team-kit/coordinate
 ---
 
 <role>

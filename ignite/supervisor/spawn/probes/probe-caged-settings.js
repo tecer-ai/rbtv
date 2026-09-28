@@ -43,7 +43,7 @@ const CONFIG = path.join(IGNITE, 'envelope', 'spawn-profiles.yaml');
 // ⚠ THE (harness, model) KEYS, NOT PROFILE NAMES (7.787 — `#d-abolish-profile-names` re-keyed
 // `launch-specs:` by the pair and deleted the name layer). Same four claude specs, addressed the
 // way everything addresses them now.
-const CLAUDE = ['claude/claude-fable-5', 'claude/claude-opus-5', 'claude/claude-sonnet-5', 'claude/claude-haiku-4-5'];
+const CLAUDE = ['claude/claude-fable-5', 'claude/claude-opus-5-5', 'claude/claude-sonnet-5', 'claude/claude-haiku-4-5'];
 const CONFIG_TREE = path.join(IGNITE, 'envelope');
 
 out(`COMMAND: node ${path.relative(process.cwd(), __filename)}`, `CONFIG: ${CONFIG}`, '');

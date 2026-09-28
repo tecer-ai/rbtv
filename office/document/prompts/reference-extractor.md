@@ -11,7 +11,7 @@ exposes:
   path:
     - design/subtle-refs-cli
     - design/screenshot-capture-cli
-    - rbtv:ignite/coord/coordinate
+    - rbtv:ignite/team-kit/coordinate
 ---
 
 <role>

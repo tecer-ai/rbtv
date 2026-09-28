@@ -78,7 +78,7 @@ check('a: the legacy slashless name `claude-sonnet` reaches the claude arm and t
   { body: legacy.verdict.body, problems: legacy.verdict.problems, events: legacy.events });
 
 // (b) the post-abolition key shape, model literal included.
-for (const key of ['claude/claude-haiku-4-5', 'claude/claude-opus-5', 'claude-haiku-4-5']) {
+for (const key of ['claude/claude-haiku-4-5', 'claude/claude-opus-5-5', 'claude-haiku-4-5']) {
   const r = run(claudeLog, key);
   check(`b: \`${key}\` reaches the claude arm and the fence is found`,
     r.verdict.ok === true && r.verdict.body === REPLY, { key, body: r.verdict.body });

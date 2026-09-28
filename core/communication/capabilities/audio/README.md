@@ -10,7 +10,7 @@ reaches disk through `stools download`, and an answer reaches a channel through 
 |------|-------|
 | the CLI | `3-resources/tools/rbtv/core/communication/capabilities/audio/audio.py` |
 | the config | `3-resources/tools/rbtv/core/communication/capabilities/audio/config.json` |
-| the key | `.user/config/env/elevenlabs.key` (workspace key store — see "The key") |
+| the key | `ELEVENLABS_API_KEY` in the workspace env file (`env_file` in `rbtv.json` — see "The key") |
 | the checks | `3-resources/tools/rbtv/core/communication/capabilities/audio/test_audio.py` — `python3 test_audio.py`, no network |
 
 Nothing is installed on `PATH`. A seat reaches it because its `exposes:` names the `path` row in
@@ -49,36 +49,20 @@ with an empty transcript or a 0-byte audio file.
 
 ## The key
 
-The key lives in the WORKSPACE's key store, outside the component's folder (owner ruling
-2026-08-23, superseding `d-elevenlabs-key-location-2026-08-18` for this workspace: the component
-moved into the rbtv REPO tree, and a secret never sits where a repo push can carry it). `audio.py`
-resolves the store by walking up from its own location to the directory holding `.rbtv/`.
+The key lives in the WORKSPACE's env file, outside the component's folder and outside every repo
+push (owner ruling 2026-09-27: every key lives in one gitignored `.env`). `audio.py` finds the
+workspace by walking up from its own location to the directory holding `rbtv.json`, and reads the
+env file that file's `env_file` field names (default `.rbtv/config/env/.env`).
 
-1. **`<workspace>/.user/config/env/elevenlabs.key`** — one line, the key itself. This is the
-   primary source; when it holds a key, that key is used. The vault `.gitignore` excludes it.
-2. **`ELEVENLABS_API_KEY`** — the override, read when the file above is missing or empty — and a
-   caged seat's route, since the key store is masked inside cages.
+1. **`ELEVENLABS_API_KEY=<key>`** — one line in that env file. This is the primary source; when it
+   holds a key, that key is used. The vault `.gitignore` excludes the file.
+2. **`ELEVENLABS_API_KEY` in the process environment** — read when the env file has no such line,
+   and the route for a seat that cannot read the env file.
 
 Neither present → **every verb** exits non-zero and names both places, with no traceback.
 
-To place the key (the owner's step, run from a normal shell at the workspace root):
-
-```bash
-printf '%s' 'YOUR-ELEVENLABS-KEY' > .user/config/env/elevenlabs.key
-chmod 600 .user/config/env/elevenlabs.key
-```
-
-The expected filename is exactly **`elevenlabs.key`** — one line, the key itself, nothing else.
-
-⚠ **A caged seat reads that file only if its own descriptor SPELLS
-`.user/config/env/elevenlabs.key` — the exact path, not a parent of it.** The cage's pattern floor
-carries `**/*.key` (`ignite/server/spawn/private-scope.js`, `DEFAULT_PATTERNS`) and the file also
-sits on the private deny list, so it is masked for any seat that does not name it — a merely
-BROADER grant is not enough (measured 2026-08-20 on the folder shape this key previously used:
-only the spelled path read, unspelled sibling credential folders listed empty). Give any seat that
-must read the key (the live prober, the channel master) that exact path in its descriptor, or hand
-it `ELEVENLABS_API_KEY`; the grant is effective at that seat's NEXT launch, never inside a live
-session.
+To place the key (the owner's step), add the line `ELEVENLABS_API_KEY=<key>` to the env file
+(`chmod 600` on the file).
 
 The `language` verb demands the key too, though it makes no API call: the contract this component
 is built to says every verb refuses without one (`goal.md` clause 9). To read the language of an

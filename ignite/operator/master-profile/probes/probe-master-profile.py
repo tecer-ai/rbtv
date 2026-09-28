@@ -20,7 +20,7 @@ both inversions are the point:
     effort validator now — one function for "may I?" and "do it" — so the arm that proved the tool
     consumed the shared ladder reader is re-aimed at `cast_seat` itself.
 
-  1. THE HAPPY PATH LANDS — a staged `{"harness": "claude", "model": "claude-opus-5", "effort": N}` rewrites the
+  1. THE HAPPY PATH LANDS — a staged `{"harness": "claude", "model": "claude-opus-5-5", "effort": N}` rewrites the
      seat's harness/model/effort in the COPY, and re-reading the FILE answers claude/…. Read from
      the file, never from the record.
   2. THE RE-RENDER IS INVOKED, WITH THE PACKAGE DERIVED FROM THE INBOX, AND IT IS THE LAST ACT —
@@ -238,7 +238,7 @@ def main():
         print(f"probe-master-profile: INOPERATIVE — {inoperative}")
         return 2
 
-    CLAUDE = mod.effort_ladder("claude", "claude-opus-5", LIVE_PROFILES)
+    CLAUDE = mod.effort_ladder("claude", "claude-opus-5-5", LIVE_PROFILES)
     CODEX = mod.effort_ladder("codex", "gpt-5.5", LIVE_PROFILES)
     HAIKU = mod.effort_ladder("claude", "claude-haiku-4-5", LIVE_PROFILES)
 
@@ -251,12 +251,12 @@ def main():
         stub, rec, snap = stub_materialize(tmp, sheet)
         mod.MATERIALIZE = stub
 
-        stage(inbox, {"harness": "claude", "model": "claude-opus-5", "effort": len(CLAUDE)})
+        stage(inbox, {"harness": "claude", "model": "claude-opus-5-5", "effort": len(CLAUDE)})
         out = mod.apply(inbox, sheet, LIVE_SEAT, profiles_path=LIVE_PROFILES)
 
         check(out["ok"] is True, "the fire reports ok")
         got = mod.read_value(sheet, LIVE_SEAT, LIVE_PROFILES)
-        check(got["pair"] == "claude/claude-opus-5" and got["harness"] == "claude",
+        check(got["pair"] == "claude/claude-opus-5-5" and got["harness"] == "claude",
               f"re-reading the sheet FILE answers claude-opus (got {got['pair']}/{got['harness']})")
         check(got["effort"] == CLAUDE[-1] and got["rung"] == len(CLAUDE),
               f"the file carries the harness's own level string, and the rung reads back "
@@ -275,7 +275,7 @@ def main():
               "and it re-renders the SAME seat out of the SAME sheet the write just landed in")
         seen_by_render = json.loads(snap.read_text())["seats"][LIVE_SEAT] if snap.exists() else {}
         check(seen_by_render.get("harness") == "claude"
-              and seen_by_render.get("model") == "claude-opus-5"
+              and seen_by_render.get("model") == "claude-opus-5-5"
               and seen_by_render.get("effort") == CLAUDE[-1],
               f"the sheet AS THE RE-RENDER SAW IT already carried the new cast — write precedes "
               f"render (it saw {seen_by_render.get('model')!r}/{seen_by_render.get('effort')!r})")
@@ -379,7 +379,7 @@ def main():
         # shape: the seat is read ONCE, before the drain, so an absent one is not a bad request —
         # it is a fire pointed at a sheet that cannot answer, and there is no request to blame it
         # on. `main` renders it as the `{"ok": false, "refusal": …}` envelope.
-        stage(inbox, {"harness": "claude", "model": "claude-opus-5", "effort": len(CLAUDE)})
+        stage(inbox, {"harness": "claude", "model": "claude-opus-5-5", "effort": len(CLAUDE)})
         apply_refused = ""
         try:
             mod.apply(inbox, sheet, "no-such-seat", profiles_path=LIVE_PROFILES)
@@ -486,14 +486,14 @@ def main():
 
         # `/bin/true` stands in for the `ignite` client: `request` stages BEFORE it enqueues, and
         # what is under test here is the payload, not the queue.
-        out = mod.request(inbox, "claude", "claude-opus-5", "/bin/true", profiles_path=LIVE_PROFILES,
+        out = mod.request(inbox, "claude", "claude-opus-5-5", "/bin/true", profiles_path=LIVE_PROFILES,
                           chat_thread=THREAD, effort=len(CLAUDE), bindings=sheet, seat=LIVE_SEAT)
         staged = json.loads(Path(out["staged"]).read_text())
         check(staged.get("chat-thread") == THREAD,
               f"request --chat-thread stages the id in the payload (got {staged.get('chat-thread')!r})")
         bad_refused = False
         try:
-            mod.request(inbox, "claude", "claude-opus-5", "/bin/true", profiles_path=LIVE_PROFILES,
+            mod.request(inbox, "claude", "claude-opus-5-5", "/bin/true", profiles_path=LIVE_PROFILES,
                         chat_thread="C0PROBEMP-1754812345", effort=len(CLAUDE),
                         bindings=sheet, seat=LIVE_SEAT)
         except mod.Refusal:
@@ -513,8 +513,8 @@ def main():
                   "the BRACKETED token is in the body — the plain form does not route")
             check("[deliver: post]" in body,
                   "an ACCEPTED outcome asks to be POSTED verbatim — nothing to act on")
-            check(f"`{prev}` → `claude/claude-opus-5`" in body,
-                  f"the body states the change as old → new (`{prev}` → `claude/claude-opus-5`)")
+            check(f"`{prev}` → `claude/claude-opus-5-5`" in body,
+                  f"the body states the change as old → new (`{prev}` → `claude/claude-opus-5-5`)")
             check("seat.md" in body and "SHEET" in body and "restarted" in body,
                   "and tells the owner the SHEET is written, launch still reads seat.md, nothing restarted "
                   "— not that the sheet is already the live sitting")
@@ -532,7 +532,7 @@ def main():
         goal, inbox, bus, sheet = fixture(tmp, LIVE_SHEET)
         stub, rec, snap = stub_materialize(tmp, sheet, bus=bus)
         mod.MATERIALIZE = stub
-        stage(inbox, {"harness": "claude", "model": "claude-opus-5", "effort": len(CLAUDE)})
+        stage(inbox, {"harness": "claude", "model": "claude-opus-5-5", "effort": len(CLAUDE)})
         out = mod.apply(inbox, sheet, LIVE_SEAT, profiles_path=LIVE_PROFILES)
         check(out["ok"] and not bus.exists(),
               "the switch landed and no bus row exists — an untokened request is silent, as before")
@@ -575,14 +575,14 @@ def main():
               f"the live ladders are read per profile (claude={CLAUDE}, haiku inert={HAIKU == []})")
 
         # (b) staged, then applied — and read back OFF THE FILE, as a STRING not a number.
-        out = mod.request(inbox, "claude", "claude-opus-5", "/bin/true", profiles_path=LIVE_PROFILES,
+        out = mod.request(inbox, "claude", "claude-opus-5-5", "/bin/true", profiles_path=LIVE_PROFILES,
                           effort=len(CLAUDE), bindings=sheet, seat=LIVE_SEAT)
         staged = json.loads(Path(out["staged"]).read_text())
         check(staged.get("effort") == len(CLAUDE),
               f"request --effort stages the RUNG NUMBER in the payload (got {staged.get('effort')!r})")
         mod.apply(inbox, sheet, LIVE_SEAT, profiles_path=LIVE_PROFILES)
         entry = seat_entry(sheet, LIVE_SEAT)
-        check(entry.get("effort") == CLAUDE[-1] and entry.get("model") == "claude-opus-5",
+        check(entry.get("effort") == CLAUDE[-1] and entry.get("model") == "claude-opus-5-5",
               f"the SHEET carries the harness's own LEVEL STRING beside the model, never the number "
               f"({entry.get('model')!r}, {entry.get('effort')!r})")
 
@@ -597,7 +597,7 @@ def main():
         except mod.Refusal as exc:
             codex_refused = f"1..{len(CODEX)}" in str(exc)
         try:
-            mod.request(inbox, "claude", "claude-opus-5", "/bin/true", profiles_path=LIVE_PROFILES,
+            mod.request(inbox, "claude", "claude-opus-5-5", "/bin/true", profiles_path=LIVE_PROFILES,
                         effort=over, bindings=sheet, seat=LIVE_SEAT, dry_run=True)
             claude_ok = True
         except mod.Refusal:
@@ -621,7 +621,7 @@ def main():
               f"harness·model·effort triple present so a STANDING seat materializes "
               f"({entry.get('harness')!r}, {entry.get('model')!r}, {entry.get('effort')!r})")
 
-        stage(inbox, {"harness": "claude", "model": "claude-opus-5"})
+        stage(inbox, {"harness": "claude", "model": "claude-opus-5-5"})
         out = mod.apply(inbox, sheet, LIVE_SEAT, profiles_path=LIVE_PROFILES)
         stated = (out["results"][-1] or {}).get("stated-refusal", "")
         check(out["ok"] is False and "effort-missing" in stated,
@@ -699,11 +699,11 @@ def main():
                 seen["called"] = True
                 return real(*a, **k)
             mod.cast_seat = spy
-            stage(inbox, {"harness": "claude", "model": "claude-opus-5", "effort": len(CLAUDE)})
+            stage(inbox, {"harness": "claude", "model": "claude-opus-5-5", "effort": len(CLAUDE)})
             mod.apply(inbox, sheet, LIVE_SEAT, profiles_path=LIVE_PROFILES)
         finally:
             mod.cast_seat = real
-        check(seen.get("called") is True and seat_entry(sheet, LIVE_SEAT)["model"] == "claude-opus-5",
+        check(seen.get("called") is True and seat_entry(sheet, LIVE_SEAT)["model"] == "claude-opus-5-5",
               "apply's write goes THROUGH that object — replacing it is observed on a real fire, "
               "so the alias is the writer and not decoration")
     check(mod.cast_seat is bindings_mod.cast_seat,
@@ -793,7 +793,7 @@ def main():
                            # 7.787: `request` takes TWO positionals now — harness and model.
                            # The retired single-name form made argparse SystemExit(2) inside the
                            # redirect, which surfaced as a silent INOPERATIVE with no line saying so.
-                           ("request", ["request", "claude", "claude-opus-5", "--inbox", "rel/inbox",
+                           ("request", ["request", "claude", "claude-opus-5-5", "--inbox", "rel/inbox",
                                         "--effort", str(len(CLAUDE)), "--dry-run"])):
             try:
                 mod.apply, mod.request = spy("apply"), spy("request")
@@ -840,7 +840,7 @@ def main():
         tmp = Path(td)
         goal, inbox, bus, sheet = fixture(tmp, LIVE_SHEET)
         mod.MATERIALIZE = tmp / "no-such-materialize.py"
-        stage(inbox, {"harness": "claude", "model": "claude-opus-5", "effort": len(CLAUDE)})
+        stage(inbox, {"harness": "claude", "model": "claude-opus-5-5", "effort": len(CLAUDE)})
         out = mod.apply(inbox, sheet, LIVE_SEAT, profiles_path=LIVE_PROFILES)
         refused = sorted((inbox / "refused").glob("*.outcome.json"))
         done = sorted((inbox / "done").glob("*.outcome.json"))
@@ -860,7 +860,7 @@ def main():
         stub = tmp / "fail-materialize.py"
         stub.write_text("import sys; sys.exit(1)\n", encoding="utf-8")
         mod.MATERIALIZE = stub
-        stage(inbox, {"harness": "claude", "model": "claude-opus-5", "effort": len(CLAUDE),
+        stage(inbox, {"harness": "claude", "model": "claude-opus-5-5", "effort": len(CLAUDE),
                       "chat-thread": "C0PROBEFAIL:1754812999.000001"})
         out = mod.apply(inbox, sheet, LIVE_SEAT, profiles_path=LIVE_PROFILES)
         recs = sorted((inbox / "refused").glob("*.outcome.json"))
@@ -879,12 +879,12 @@ def main():
         stub, rec, snap = stub_materialize(tmp, sheet)
         mod.MATERIALIZE = stub
         check(not any(inbox.glob("*.json")), "no request is staged — the seat never reached a tool call")
-        out = mod.recast("opencode", "xai/grok-4.6", package=goal, bindings=sheet, seat=LIVE_SEAT,
+        out = mod.recast("opencode", "xai/grok-4.7", package=goal, bindings=sheet, seat=LIVE_SEAT,
                          profiles_path=LIVE_PROFILES, effort=2)
         got = mod.read_value(sheet, LIVE_SEAT, LIVE_PROFILES)
         argv = json.loads(rec.read_text(encoding="utf-8")) if rec.exists() else None
         check(out["ok"] is True, f"recast reports ok ({out})")
-        check(got["harness"] == "opencode" and got["model"] == "xai/grok-4.6",
+        check(got["harness"] == "opencode" and got["model"] == "xai/grok-4.7",
               f"sheet carries the new cast without a request file (got {got['harness']}/{got['model']})")
         check(argv is not None and "--bindings" in argv and "--refresh" in argv,
               f"re-render ran with --bindings so the next launch reads the new seat.md "

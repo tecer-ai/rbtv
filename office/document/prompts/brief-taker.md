@@ -5,7 +5,7 @@ staffing-recommendations: "frontier model at medium effort — a hint for the st
 human-interactive: yes
 fallback: park
 exposes:
-  path: [rbtv:ignite/coord/coordinate]
+  path: [rbtv:ignite/team-kit/coordinate]
 ---
 
 <role>
@@ -26,7 +26,7 @@ exposes:
 </procedure>
 
 <resources>
-- `rbtv:ignite/coord/coordinate` — beyond plain checkout, this seat uses it to reach the owner for guided brand-pack setup and, on the autonomous arm, to park that setup ask before deriving what the materials evidence. Caveat: a plain checkout is refused while an owner ask of yours is unanswered.
+- `rbtv:ignite/team-kit/coordinate` — beyond plain checkout, this seat uses it to reach the owner for guided brand-pack setup and, on the autonomous arm, to park that setup ask before deriving what the materials evidence. Caveat: a plain checkout is refused while an owner ask of yours is unanswered.
 
 The owner-facing message standard is attached automatically because this seat is flagged for owner contact; write every owner message to it.
 </resources>

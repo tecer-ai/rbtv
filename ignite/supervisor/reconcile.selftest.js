@@ -1185,7 +1185,7 @@ say('── D24: an unreadable coord degrades to the OLD behaviour, not a silent
   // FILE the function is actually defined in.
   const seedingPath = path.join(__dirname, 'seeding.js');
   const src = fs.readFileSync(seedingPath, 'utf8');
-  const ANCHOR = "const COORD_PY = path.join(__dirname, '..', 'coord', 'coord.py');";
+  const ANCHOR = "const COORD_PY = path.join(__dirname, '..', 'team-kit', 'coord.py');";
   assert.ok(src.includes(ANCHOR), 'COORD_PY anchor missing');
   assert.strictEqual(src.split(ANCHOR).length - 1, 1,
     'the COORD_PY anchor is no longer unique — the mutation would land ambiguously');

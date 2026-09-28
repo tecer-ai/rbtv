@@ -17,6 +17,7 @@ tool/cast.js <harness> <model> <effort 1-5> [launch-folder] (-p TEXT | -f FILE) 
 tool/cast.js seat [launch-folder] [-p TEXT | -f FILE] [--headed] [--dry-run]
 tool/cast.js resume <harness> <session-id|last> [launch-folder] (-p TEXT | -f FILE) [--dry-run]
 tool/cast.js sessions [harness] [launch-folder] [--json] [-n N]
+tool/cast.js turn --request FILE --result FILE
 tool/cast.js api <model> <effort 1-5> (-p TEXT | -f FILE) --output-folder DIR [--image [--input-image PATH ...]] [--target-file PATH] [--timeout N] [--grounded] [--extra-params JSON] [--dry-run]
 tool/cast.js route --access open|bounded --type code|text --class planner|broad|bounded|mechanical --optimize price|quality [--caps image] [--explain]
 tool/cast.js route --caps image
@@ -30,7 +31,7 @@ tool/cast.js -h | --help
 | Arg | Meaning |
 |---|---|
 | `harness` | `claude` \| `codex` \| `opencode` |
-| `model` | that harness's model, SHORT name — the provider prefix and the `claude-` prefix are dropped: `opus-5` (not `claude-opus-5`), `glm-5.2` (not `zai-coding-plan/glm-5.2`). The two K2.7 kimi models are the exception: their ids (`kimi-for-coding`, `kimi-for-coding-highspeed`) name no generation, so they carry the display short names `k2.7`, `k2.7-highspeed` (`k3` and `k3-256k` derive normally). See `cast -h` or `cast list` for the current inventory; a long id is refused with the short one suggested |
+| `model` | that harness's model, SHORT name — the provider prefix and the `claude-` prefix are dropped: `opus-5-5` (not `claude-opus-5-5`), `glm-5.2` (not `zai-coding-plan/glm-5.2`). The two K2.7 kimi models are the exception: their ids (`kimi-for-coding`, `kimi-for-coding-highspeed`) name no generation, so they carry the display short names `k2.7`, `k2.7-highspeed` (`k3` and `k3-256k` derive normally). See `cast -h` or `cast list` for the current inventory; a long id is refused with the short one suggested |
 | `effort` | integer 1-5, the universal dial |
 | `launch-folder` | working directory for the agent, resolved relative to the caller's CWD; MUST already exist |
 | `-p TEXT` | literal prompt text |
@@ -77,7 +78,44 @@ are per-invocation, not per-session. The resumed session keeps its own model/eff
 wrapper blocks skipped) — for cast-launched sessions that is the `-p` prompt itself. Known ceiling: two same-harness sessions launched into the same folder
 in the same minute are distinguishable only by trying them — no id is captured at birth (codex and
 opencode only surface theirs inside their `--json` output streams, which cast passes through
-untouched).
+untouched). `cast turn` is the exception: it returns an exact id for that invocation (see below).
+
+## `cast turn`
+
+`cast turn --request FILE --result FILE` runs one foreground harness turn for a caller that owns many independent conversations in one folder. The caller persists the returned `sessionId` with its own conversation key. This verb never resolves `last` and never picks the newest session in a folder.
+
+Request JSON:
+
+| Field | Required | Meaning |
+|---|---|---|
+| `harness` | yes | `claude`, `codex`, or `opencode` |
+| `model` | yes | short name or the harness-native id |
+| `effort` | yes | integer 1-5 (clamped onto that model's ladder) or a native rung word |
+| `cwd` | yes | existing absolute directory; the child's working directory |
+| `prompt` | one of | prompt text. Exactly one of `prompt` and `promptFile` |
+| `promptFile` | one of | path to a file whose contents are the prompt |
+| `session` | yes | `{"mode":"new"}` or `{"mode":"resume","id":"<exact id>"}` |
+| `env` | no | string map merged over the process environment for that child. `PWD` is then set to `cwd` and cannot be overridden — OpenCode records its project directory from `PWD`, not from the spawn chdir |
+
+`mode: "new"` rejects an `id` (the verb mints or discovers the id itself). `mode: "resume"` requires an exact nonempty `id` and refuses `last`. Resume passes the requested model and effort on that invocation. `cast resume` does not — it leaves the session's own settings — and is the wrong verb when the caller changed them.
+
+Result JSON is written atomically (temp file in the same directory, then rename, mode `0600`) even when the turn fails:
+
+`ok`, `harness`, `model` (short name), `effort` (the rung actually passed, or null when the ladder is inert), `sessionId`, `exitCode`, `startedAt`, `endedAt` (ISO-8601), `pid`, `pidStart`, `stdoutPath`, `stderrPath`, and `error` only when `ok` is false.
+
+`pid` is the child. `pidStart` is field 22 of `/proc/<pid>/stat` (start time in clock ticks), read while that process is alive, so a later observer can tell that pid from a reused one. Both are null when the child never started. `stdoutPath` and `stderrPath` are `<result>.stdout` and `<result>.stderr`. They are null when no child was spawned. Persist `sessionId` only when `ok` is true.
+
+`cast turn` exits 0 when `ok` is true, 1 when a result file was written and `ok` is false, and 2 when the arguments are wrong and no result file could be written. The child's own status is `exitCode`.
+
+Session identity is per harness, and it is never a folder-wide "last session" lookup:
+
+| Harness | New | Resume |
+|---|---|---|
+| claude | mint a UUID and pass `--session-id`. That UUID is `sessionId`. If stdout JSON reports a different `session_id`, the turn fails rather than guessing | `--resume <id>` plus `--model` and `--effort` |
+| codex | `exec --json`; `sessionId` is `thread_id` from a `thread.started` event. No event is a failure, not a guess | `exec resume <id> -m <model> -c model_reasoning_effort=<rung> --json`. The event must echo the same id |
+| opencode | a unique `--title` tag (`cast-turn:<uuid>`). `sessionId` is the store row whose title equals that tag. A missing row is a failure | `run -s <id> -m <model> --variant <rung>` |
+
+Machine-output flags (`--output-format json`, `--json`, `--format json`) are used only by this verb, so the captured stdout file can be parsed. Bare `cast` launches still inherit stdio and do not pass those flags.
 
 ## seat.md descriptor behavior (`cast seat`)
 
@@ -112,8 +150,8 @@ are belt-and-braces on the harnesses that have them). The (possibly descriptor-p
 written to the child's stdin and stdin is then closed. Stdout/stderr are inherited. `cast`
 exits with the child's exit code.
 
-**Output format is deliberately the harness default — no `--output-format`/`--json` flag on any
-harness (owner-ruled 1a, 2026-08-18, closing a measured divergence with ignite).** The contract is
+**Output format is deliberately the harness default — no `--output-format`/`--json` flag on a bare
+launch (owner-ruled 1a, 2026-08-18, closing a measured divergence with ignite).** `cast turn` is the exception: it captures stdout to a file and passes those flags so it can read an exact session id. The contract for every other verb is
 "child stdout IS the plain-text completion report", and callers rely on it. Consequences and
 rationale, per harness: codex and opencode stream their output natively, so their logs grow live;
 **claude's `-p` buffers stdout until exit — a claude launch's log is 0 bytes for the entire run
@@ -168,7 +206,7 @@ because `spawn-profiles.yaml` had gone stale on each:
 |---|---|
 | opencode (kimi) | the four `kimi-for-coding` models, which moved here when the standalone `kimi` CLI went away (2026-08-14); the yaml still lists them under a `kimi` harness |
 | codex | the whole GPT-5.6 family (`sol`, `terra`, `luna`); and `gpt-5.5` gains `xhigh` — the yaml's 3-rung ladder could not reach the model's top |
-| opencode | `glm-5.2-highspeed`, `glm-4.7`, `gemini-3.7-flash` (which replaced `gemini-3.6-flash` on 2026-08-22), `grok-4.6`, `grok-4.6-fast` |
+| opencode | `glm-5.2-highspeed`, `glm-4.7`, `gemini-3.7-flash` (which replaced `gemini-3.6-flash` on 2026-08-22), `grok-4.7`, `grok-4.6-fast` |
 
 The seven opencode ladders `spawn-profiles.yaml` does carry were re-measured and all match — no
 drift there. **`spawn-profiles.yaml` itself is NOT updated by this capability** — the daemon's own
@@ -282,7 +320,7 @@ key — which is the honest answer, not a bug.
 
 ### The catalog: two files, joined
 
-Routing axes live in the shared table **`ignite/supervisor/models.csv`** — data the owner edits without touching code. It sits under `ignite/` rather than beside this tool because the ignite daemon's provider-lane reroute reads the same rows when a transient provider fault takes a model out [spec-recovery §3]. Launch
+Routing axes live in **`tool/models.csv`** — data the owner edits without touching code. It sits beside this tool so `cast route` keeps working when no other tree is present. A per-vault file still replaces it whole (below). Launch
 mechanics (harness-native id, effort ladder, auth) stay in **`tool/catalog.js`**. Route joins them
 on `harness`+`model`, and a CSV row with no `catalog.js` twin is excluded with a loud stderr
 warning: route must never name something cast cannot launch.
@@ -397,8 +435,9 @@ every stdout surface is byte-identical across the split (163-invocation corpus, 
 |---|---|
 | `tool/cast.js` | the CLI front door — argv dispatch and the bare launch path, nothing else |
 | `tool/catalog.js` | LAUNCH mechanics only — harness-native id, effort ladder, auth (see Spec source) |
-| `ignite/supervisor/models.csv` | the SHARED ROUTING TABLE — level, scores, cost, image. Owner-editable; overridable per vault. Moved out of `tool/` 2026-08-25 [spec-recovery §3]: the ignite daemon's provider-lane reroute reads the same rows |
+| `tool/models.csv` | the routing table — level, scores, cost, image. Owner-editable; overridable per vault. Lives beside this tool so routing does not depend on any other tree |
 | `tool/lib/core.js` | shared primitives: argv parsing, model/effort/folder resolution, the model table, `doctor`, `list` |
+| `tool/lib/turn.js` | `cast turn` — exact session id, resume with the requested model/effort, result file |
 | `tool/lib/handles.js` | the launch-handle registry — the one observable a watcher uses to find a run again |
 | `tool/lib/launch.js` | spawn, `cast seat`, `cast resume` |
 | `tool/lib/sessions.js` | the per-harness session-store readers and `cast sessions` |
