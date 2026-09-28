@@ -34,7 +34,10 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
   every tool below already reads; do it once, then skip it on every later cycle.
 - **State directory** — `<agent-home>/state/` (starts empty on a new agent; nothing migrates from a
   prior instance). `doubts.jsonl`, `outcomes.jsonl`, `resolved-doubts.jsonl`, `asked-doubts.jsonl`,
-  `processed-transcripts.jsonl` all live directly under it — call this `<state>` below.
+  `processed-transcripts.jsonl`, `asked-routing.jsonl`, `resolved-routing.jsonl` all live directly
+  under it — call this `<state>` below. The last two are this skill's own plain JSONL files (one line
+  per row, appended with your own file tools — no CLI owns them) tracking which meetings have an
+  open routing question and which are settled; they do not exist until the first routing question.
 - **Channel directory** (the per-meeting routing-ask bookkeeping `per_meeting_job.py` uses; nothing
   chat-specific) — `<state>/channel`.
 - **Checkout root** (where destination repos are cloned) — read `<agent-home>/config/runtime.json` →
@@ -44,16 +47,38 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
   it is yours to create and never shared with another cycle.
 
 1. **Apply any owner answer first.** Read this conversation's recent history for the owner's reply
-   to the LAST grouped question you asked (if any is still open — check `doubt_answer.py list-open`
-   below; a term it no longer lists is already resolved or was never asked, so there is nothing to
-   apply). Match each answered term in the owner's reply to its open doubt by name — this is your
-   own reading, not a lookup table, because there is one conversation and no per-meeting thread to
-   key on. For each term the owner answered, run:
-   `python3 <tools>/doubt_answer.py apply --meeting-key <K> --term <T> --answer-text "<owner's exact words for that term>" --config-root <agent-home>/config --checkout-root <checkout root> --state <state>`
-   Read the JSON result. `"landed": true` means the summary was corrected, committed and pushed —
-   report it plainly. `"landed": false` means it is still open; report why and leave it — a failed
-   apply is never silently retried by guessing, and it stays open for the NEXT cycle to try again
-   (the same owner answer, read again from history) or for you to escalate if it fails repeatedly.
+   to the LAST grouped question you asked (if any is still open). There are two kinds of open
+   question, checked and applied independently:
+
+   a. **Glossary-term doubts** — check `doubt_answer.py list-open` below; a term it no longer lists
+      is already resolved or was never asked, so there is nothing to apply. Match each answered term
+      in the owner's reply to its open doubt by name — this is your own reading, not a lookup table,
+      because there is one conversation and no per-meeting thread to key on. For each term the owner
+      answered, run:
+      `python3 <tools>/doubt_answer.py apply --meeting-key <K> --term <T> --answer-text "<owner's exact words for that term>" --config-root <agent-home>/config --checkout-root <checkout root> --state <state>`
+      Read the JSON result. `"landed": true` means the summary was corrected, committed and pushed —
+      report it plainly. `"landed": false` means it is still open; report why and leave it — a failed
+      apply is never silently retried by guessing, and it stays open for the NEXT cycle to try again.
+
+   b. **Routing questions** — read `<state>/asked-routing.jsonl` for a meeting-key with no matching
+      row in `<state>/resolved-routing.jsonl`. For each one still open, read `<agent-home>/config/destination-routing.json`'s
+      routes and match the owner's reply against a declared route `entity` name (your own reading —
+      the owner may name it loosely; match it to the one route it clearly means, or treat the reply
+      as not yet a clear answer and leave the question open). On a clear match:
+      1. Append one line to `<state>/outcomes.jsonl`: `{"meeting-key": "<K>", "outcome": "amended", "content-entity": "<the matched entity>", "at": "<now, UTC ISO>"}` — this is the same shape
+         `per_meeting_job.py`'s own settlement rows carry; `publish_job.py` reads the LATEST row per
+         meeting-key, so this one now wins.
+      2. Retry publishing that meeting immediately, in this same turn: run `publish_job.py precheck`
+         then (if it no longer refuses) `cycle`, exactly as step 5 describes, using the SAME job file
+         from `<scratch>/jobs/<meeting-key>.json` if this cycle already wrote one for it, otherwise
+         reconstruct it from `detection_cycle.py status`.
+      3. On success, append `{"meeting-key": "<K>", "resolved-at": "<now>"}` to
+         `<state>/resolved-routing.jsonl`. On failure, report why and leave both files as they are —
+         the question stays open and the same retry is attempted again next cycle once you re-read
+         the (still-present) owner reply from history.
+      A reply that names no recognizable entity is NOT applied and NOT marked resolved; say so
+      plainly in this turn's reply and re-ask the SAME routing question in step 7's grouped message
+      (a clarification, not a second question).
 
 2. **Run one detection tick:**
    `python3 <tools>/detection_cycle.py tick --config-dir <agent-home>/config`
@@ -89,27 +114,45 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
    Read each result. This commits and pushes inside this call — never a separate step, never
    deferred to a later turn.
 
-6. **Check for open doubts:**
-   `python3 <tools>/doubt_answer.py list-open --state <state>`
-   For every doubt this prints that this cycle's own pending set produced (a fresh doubt from step
-   4), mark it asked once you include it in your question:
-   `python3 <tools>/doubt_answer.py mark-asked --meeting-key <K> --term <T> --state <state>`
-   A doubt already asked in an earlier cycle and still unanswered is NOT re-asked — `list-open`
-   already excludes it; do not ask it again by any other means.
+   **A precheck that comes back `disposition: unroutable`** is NOT a refusal to report-and-move-on
+   from (never `disposition: continue` for this) — it is an open routing question. If
+   `<state>/asked-routing.jsonl` carries no row for this meeting-key yet, append
+   `{"meeting-key": "<K>", "title": "<the meeting's title, for the question>", "asked-at": "<now>"}`
+   and include it in step 7's grouped question. If it is already there, leave it — it is already
+   asked and step 1 already checked this turn for an answer; do not run `cycle` for it and do not
+   report it again as a fresh find (step 7 still lists it among the OPEN questions, so the owner is
+   never left wondering whether it is still pending).
 
-7. **Compose the report.**
-   - Nothing filed, nothing to apply, nothing newly open: `replies: []`, `disposition: completed`.
+6. **Check for open questions — both kinds.**
+   - Glossary doubts: `python3 <tools>/doubt_answer.py list-open --state <state>`. For every doubt
+     this prints that this cycle's own pending set produced (a fresh doubt from step 4), mark it
+     asked once you include it in your question: `python3 <tools>/doubt_answer.py mark-asked --meeting-key <K> --term <T> --state <state>`.
+     A doubt already asked in an earlier cycle and still unanswered is NOT re-asked — `list-open`
+     already excludes it.
+   - Routing questions: read `<state>/asked-routing.jsonl` minus `<state>/resolved-routing.jsonl` —
+     every remaining meeting-key is an open routing question (step 5 already appended the fresh ones
+     and step 1 already tried to resolve them from this turn's history).
+
+7. **Compose the report.** ONE grouped reply, in the SAME conversation this wake arrived on — never
+   open a new thread for it (`ignite-agent post` is for a proactive check that belongs to NO existing
+   conversation; a scheduled wake of an already-created agent always continues its own conversation).
+   - Nothing filed, nothing applied, nothing newly open: `replies: []`, `disposition: completed`.
      A quiet cycle is a correct cycle — never manufacture a status update.
-   - Something filed and/or an answer was applied, with no new open doubt: report it plainly in ONE
-     grouped reply (load the `slack-message-format` skill first), `disposition: completed`.
-   - A new doubt is open (whether or not something also filed this cycle): report what filed, THEN
-     ask every open doubt in the SAME grouped message (one message, every term, its guess, which
-     meeting) — `disposition: waiting_owner`. Do not end the turn on `waiting_owner` while a
-     background command is still running; everything above must already be finished.
-   - A stage refused (detection, a per-meeting job, a publish precheck/cycle): report the refusal
+   - Something filed and/or an answer was applied, with no doubt or routing question open: report it
+     plainly (load the `slack-message-format` skill first), `disposition: completed`.
+   - A doubt OR a routing question is open (whether or not something also filed this cycle): report
+     what filed, THEN ask every open item in the SAME grouped message — each doubt (term, guess,
+     meeting) and each routing question (meeting title, the declared entity choices from
+     `destination-routing.json`) — `disposition: waiting_owner`. Do not end the turn on
+     `waiting_owner` while a background command is still running; everything above must already be
+     finished.
+   - A stage refused for a reason that is NOT an open question (detection, a per-meeting job, a
+     publish precheck/cycle failing for any reason other than `unroutable`): report the refusal
      plainly, do not retry it yourself, `disposition: continue` with `nextStep` naming the next
      scheduled wake as the retry point — unless the refusal means the whole cycle cannot proceed, in
      which case report it and still end the turn (never hold the turn open waiting for a fix).
+     `unroutable` is never reported this way — it is step 5/6's open routing question, and it drives
+     `disposition: waiting_owner`, never `continue`.
 </procedure>
 
 <resources>
@@ -121,10 +164,11 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
 - `per-meeting-job` (`per_meeting_job.py`) — runs ONE meeting through the summarizer skill (via its
   own nested, unattended `cast` call) and records the settlement and any doubt.
 - `publish-job` (`publish_job.py`) — `precheck` then `cycle` files, commits and pushes one settled
-  meeting's summary and transcripts.
-- `doubt-answer` (`doubt_answer.py`) — this agent's own doubt ledger: `list-open`, `mark-asked`,
-  `apply`. It replaces the old `channel_runtime.py`'s Slack-bound ask/apply cycle; nothing here talks
-  to a chat surface — that is your own `replies` and `ignite-agent post`.
+  meeting. Reads the latest `content-entity` row in `outcomes.jsonl` per meeting — a routing answer
+  you settle there (step 1b) is what a retried `precheck` resolves against.
+- `doubt-answer` (`doubt_answer.py`) — this agent's own glossary-doubt ledger: `list-open`,
+  `mark-asked`, `apply`. Talks to no chat surface — that is your `replies`/`ignite-agent post`.
+  Routing questions follow the same pattern with no CLI of their own (steps 1b, 5, 6).
 - `verify-access` (`verify_access.py`) — reached only when a tick refuses at the account boundary:
   says which watched folder or account grounding is missing.
 - `gtools` — the underlying Drive/Meet API client `source_adapter.py`/`artifact_bindings.py` call;
@@ -140,14 +184,16 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
 
 ## Outcome
 Every new meeting is either summarized, filed, and pushed exactly once, or is reported as
-deliberately not admitted; every settled owner answer is applied to its one summary and committed;
-every doubt still open is asked exactly once and never silently dropped.
+deliberately not admitted; every settled owner answer (a glossary term or a routing choice) is
+applied and committed; every doubt or routing question still open is asked exactly once and never
+silently dropped, and never reported as a plain refusal.
 
 ## Outputs
 - Schema: this turn's `replies` (plain text, phone-first, grouped) and, on disk, the same
   `outcomes.jsonl` / `doubts.jsonl` / `processed-transcripts.jsonl` / `resolved-doubts.jsonl` /
-  `asked-doubts.jsonl` rows the tools above write directly — you write nothing to those files by
-  hand.
+  `asked-doubts.jsonl` rows the tools above write directly, plus `asked-routing.jsonl` /
+  `resolved-routing.jsonl` and the synthetic settlement row in `outcomes.jsonl` (step 1b) that you
+  write yourself with your own file tools — every OTHER write is a tool's own, never done by hand.
 </io-spec>
 
 <permissions>
@@ -155,17 +201,25 @@ every doubt still open is asked exactly once and never silently dropped.
   its `channel` subfolder, and every summary/transcript file the tools above name.
 - Run: `detection-cycle`, `artifact-bindings`, `per-meeting-job`, `publish-job`, `doubt-answer`, and
   `verify-access` when a tick refuses at the account boundary.
-- Write: only `<agent-home>/config/*.json` (the one-time materialization) and `<scratch>` — every
-  other write (state rows, filed summaries, git commits/pushes) is a tool's own, never done by hand.
+- Write: `<agent-home>/config/*.json` (the one-time materialization), `<scratch>`, and
+  `<state>/asked-routing.jsonl` / `<state>/resolved-routing.jsonl` / the one synthetic settlement
+  line you append to `<state>/outcomes.jsonl` for a resolved routing answer (step 1b) — every other
+  write (doubt/outcome rows a tool produces itself, filed summaries, git commits/pushes) is a tool's
+  own, never done by hand.
 </permissions>
 
 <restrictions>
 - Never invent a destination, a summarizer skill, or an account — a tool's refusal is reported, not
-  worked around.
+  worked around. The one exception is a routing answer the owner has actually given (step 1b) —
+  that is the owner naming it, not you inventing it.
 - Never re-run a refused detection tick, and never move its watermark by hand.
 - Never draft or edit summary text yourself — `per_meeting_job.py`'s nested agent call and
   `doubt_answer.py apply`'s amendment call are the only writers of a summary file.
 - Never ask a doubt `list-open` does not currently list, and never ask the same term twice.
+- Never report an `unroutable` precheck as a plain refusal with `disposition: continue` — it is an
+  open routing question (steps 5-7), and it drives `waiting_owner`.
+- Never mark a routing question resolved (`resolved-routing.jsonl`) on a reply that names no
+  declared entity — leave it open and ask again as a clarification of the SAME question.
 - Never end the turn with a command still running in the background — a turn is one shot.
 - Never post a reply yourself; put it in `replies` and let the runtime deliver it.
 </restrictions>

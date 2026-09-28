@@ -73,6 +73,13 @@ TARGETS_KEY = "publish-targets"
 JOURNAL = "publish-journal.jsonl"          # in-flight stages, for resume
 PROCESSED = "processed-transcripts.jsonl"  # the `processed-transcript-store` seam
 
+# per_meeting_job.py's settlement ledger — this layer only READS it, to carry a
+# content-routed meeting's pick forward (see `settled_content_entity`). The
+# filename duplicates per_meeting_job.py's own `OUTCOMES` constant rather than
+# importing it: per_meeting_job.py already imports this module, so importing it
+# back would cycle.
+OUTCOMES_LOG = "outcomes.jsonl"
+
 # The stage ladder. Order is the contract: `processed` is reachable only from
 # `noted`, which is reachable only from `published`, and so on down.
 STAGES = ("synced", "written", "committed", "published", "noted", "processed")
@@ -194,6 +201,40 @@ def target_for(repo: str, targets: dict) -> dict:
         refuse(f"config {TARGETS_KEY}", f"no publish target declared for repo {repo!r}",
                f"add {repo!r} under 'targets', naming its regime, remote and branch")
     return {"repo": repo, **target}
+
+
+# --------------------------------------------------------------- content routing
+def settled_content_entity(state: Path, meeting_key: str) -> str | None:
+    """The content-entity a prior settle() already stored for this meeting, if any.
+
+    `destination_resolver.resolve()` re-derives a route from the job's own fields
+    every time it runs; a meeting routed by CONTENT (a model's classification, not
+    a deterministic participants/title match) carries no predicate a fresh job
+    file can re-derive — the pick was made once, by per_meeting_job.py's settle()
+    call, and rides in `outcomes.jsonl` from then on. The latest row wins (an
+    amendment can resettle the same meeting).
+    """
+    entity = None
+    for row in read_jsonl(Path(state) / OUTCOMES_LOG):
+        if row.get("meeting-key") == meeting_key and row.get("content-entity"):
+            entity = row["content-entity"]
+    return entity
+
+
+def resolve_job(job: dict, config_root, state: Path, routing: dict | None = None) -> dict:
+    """`destination_resolver.resolve()`, carrying forward a settled content-entity.
+
+    Every caller that resolves a job for publishing (precheck and the cycle
+    alike) goes through here rather than calling `destination_resolver.resolve`
+    directly, so a content-routed meeting never comes back `unroutable` on its
+    second pass through the pipeline just because the job file itself never
+    carried the pick.
+    """
+    if not job.get("content-entity"):
+        entity = settled_content_entity(state, job["meeting-key"])
+        if entity:
+            job = {**job, "content-entity": entity}
+    return destination_resolver.resolve(job, config_root, routing=routing)
 
 
 # --------------------------------------------------------------- the discriminator
@@ -515,7 +556,7 @@ def run_cycle(job: dict, *, config_root: Path, checkout_root: Path, state: Path,
     routing = routing if routing is not None else destination_resolver.load_routing(config_root)
 
     trace.append("resolve")
-    routed = destination_resolver.resolve(job, config_root, routing=routing)
+    routed = resolve_job(job, config_root, state, routing=routing)
     if routed["kind"] != "routed":
         # Clause 7: no route, no write. Not this layer's ask to make — it hands
         # the typed answer back untouched.
@@ -733,7 +774,7 @@ def main(argv: list[str] | None = None) -> int:
             job = _read_json(args.job)
             targets = load_targets(args.config_root)
             routing = destination_resolver.load_routing(args.config_root)
-            routed = destination_resolver.resolve(job, args.config_root, routing=routing)
+            routed = resolve_job(job, args.config_root, args.state, routing=routing)
             if routed["kind"] != "routed":
                 result = {"disposition": "unroutable", "routed": routed}
             else:

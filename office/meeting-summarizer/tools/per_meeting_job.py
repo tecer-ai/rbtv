@@ -312,6 +312,19 @@ def report_block(text: str) -> dict:
     return found
 
 
+def summary_path_only(reported: str) -> str:
+    """The SUMMARY report line's leading path, trailing prose stripped.
+
+    The skill's own report sentence is free text after the path — e.g.
+    "SUMMARY: /repo/file.md (existing; amended in place, 0 changes)" — and
+    `report_block()` keeps the whole rest of the line as the value. A path in
+    this tree never contains whitespace (the vault's own filename rules), so
+    the first whitespace-delimited token is the path and everything after it
+    is commentary, never part of the path itself.
+    """
+    return reported.strip().split()[0] if reported.strip() else ""
+
+
 def invocation_of(config: dict) -> dict:
     """Which harness, model and effort run the product's unattended agent turns.
 
@@ -656,7 +669,7 @@ def run(job: dict, *, artifacts: dict, config_root: Path, checkout_root: Path,
                   "at": now_stamp()})
         return {**verdict, "action": "summarize-failed", "messages": 1,
                 "outcome": "failed", "skill-report": reported}
-    written = reported.get("SUMMARY") or ""
+    written = summary_path_only(reported.get("SUMMARY") or "")
     destination = {"repo": routed["destination"]["repo"],
                    "path": relative_to_repo(written, checkout_root,
                                             routed["destination"]["repo"])}
