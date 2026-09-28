@@ -74,3 +74,5 @@ A purely local change carries no such obligation. NEVER pad an ordinary edit wit
 ## Proactive: surface, NEVER act
 
 Adjacent problems, risks, and better options you notice MUST be named. The work itself MUST NOT expand: NEVER widen the diff, refactor a neighbour, or fix an unrelated defect because you spotted it. Surface it and let the user decide. The observation is the value; acting on it unasked is scope creep.
+
+This applies with NO exception to a system component — the rbtv or sb-os repos, `.claude/`, `.rbtv/` config: NEVER edit one unless the owner requested that specific change, even mid-task and even when the fix looks trivial. A defect found there is reported, or captured as a task, never fixed unasked.
