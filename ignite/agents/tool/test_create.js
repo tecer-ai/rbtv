@@ -390,6 +390,29 @@ function baseArgs(dir, slug, extra = []) {
     assert.equal(fs.statSync(file).mtimeMs, mtime);
   });
 
+  await test('re-run installs a missing default skill and keeps an owner-added skill', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const slack = fakeSlack();
+    const created = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe', '--skill', 'core/communication#audio-io']), { slack });
+    assert.equal(created.code, 0, created.out + created.err);
+    const home = path.join(dir, '.rbtv', 'agents', 'probe');
+    const settings = path.join(home, 'settings.json');
+    fs.writeFileSync(settings, '{"kept":true}\n');
+    const mtime = fs.statSync(settings).mtimeMs;
+    for (const harness of ['.claude', '.agents']) {
+      fs.rmSync(path.join(home, harness, 'skills', 'agent-controls'), { recursive: true, force: true });
+    }
+    const again = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe']), { slack });
+    assert.equal(again.code, 0, again.out + again.err);
+    for (const harness of ['.claude', '.agents']) {
+      assert.equal(fs.existsSync(path.join(home, harness, 'skills', 'agent-controls', 'SKILL.md')), true);
+      assert.equal(fs.existsSync(path.join(home, harness, 'skills', 'audio-io', 'SKILL.md')), true);
+    }
+    assert.equal(fs.readFileSync(settings, 'utf8'), '{"kept":true}\n');
+    assert.equal(fs.statSync(settings).mtimeMs, mtime);
+  });
+
   if (failures.length) {
     console.log(`FAILED ${failures.length}`);
     process.exit(1);

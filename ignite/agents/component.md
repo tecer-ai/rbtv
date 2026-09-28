@@ -6,7 +6,7 @@ description: Ignite 0.2 — a Slack message or a scheduled wake runs one primary
 
 Ignite 0.2 is one workspace process. A Slack message or a scheduled wake selects a primary-agent home under the workspace `.rbtv/agents/<slug>/`, runs one non-interactive turn of that agent, and delivers that turn's replies to the right Slack thread. The agent never posts into its own conversation thread. Deploy and the unit are `runbook.md`, not this file.
 
-Exposed entry points: `ignite-agent` (`tool/cli.js` — `ignite-agent -h` is the command surface) and the `create-primary-agent` skill. `exposes-cli` lives on that skill, not here.
+Exposed entry points: `ignite-agent` (`tool/cli.js` — `ignite-agent -h` is the command surface), the `create-primary-agent` skill, and the `agent-controls` skill for an agent's own settings, schedules, work, wakes, and proactive posts. Both skills declare `exposes-cli`; the CLI row lives in `exposure.csv`.
 
 ## tool/
 
@@ -38,7 +38,7 @@ One line from each file's header. A file with no header comment is marked.
 | `test_turn_loop.js` | Suite for `turn-loop.js`. No API header. |
 | `turn-loop.js` | `runOnce(slug, deps)` is one claimed turn, or a refusal or an empty claim. Refuses when `liveRun()` matches a live pid. `cast turn` cwd is `realpath(home)`. |
 
-Also in this folder, not under `tool/`: `templates/` (files `create` copies into a home), `units/rbtv-ignite-agents.service`, `capabilities/create-primary-agent/`.
+Also in this folder, not under `tool/`: `templates/` (files `create` copies into a home), `units/rbtv-ignite-agents.service`, `capabilities/create-primary-agent/`, `capabilities/agent-controls/`.
 
 ## Contracts
 

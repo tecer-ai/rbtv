@@ -3,3 +3,4 @@ core/communication#audio-aware
 core/sub-agents#sub-agents
 core/sub-agents#swarm
 core/functions#investignosis
+ignite/agents#agent-controls
