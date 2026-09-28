@@ -31,7 +31,7 @@ reply mechanism the installing agent has; it posts nothing itself.
   `artifact-reader`, `channel-protocol`, `validate-seams`, `verify-access`** (tools) — library/support
   tools the entries above call; `verify-access` is also runnable directly when a detection tick
   refuses at the account boundary.
-- **`summarization-workflow`** (path) — the actual summarizer skill content
+- **`meeting-summarizer`** (skill) — the actual summarizer skill content
   (`workflows/summarization/workflow.md`) `per-meeting-job` drives; never forked, only read.
 
 ## Settings and state — supplied by the installing agent, never carried here
