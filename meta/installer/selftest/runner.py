@@ -6,6 +6,7 @@ section's module membership says what it is about, never when it runs.
 """
 from __future__ import annotations
 
+import os
 import tempfile
 from pathlib import Path
 
@@ -72,6 +73,20 @@ ORDER = [
 
 def selftest() -> int:
     ctx = Ctx()
+    real_bin = Path.home() / ".rbtv" / "bin"
+
+    def bin_listing() -> tuple:
+        if not real_bin.is_dir():
+            return (False, ())
+        entries = []
+        for p in real_bin.iterdir():
+            kind = "link" if p.is_symlink() else "file" if p.is_file() else "dir"
+            body = (os.fsencode(os.readlink(p)) if kind == "link" else
+                    p.read_bytes() if kind == "file" else b"")
+            entries.append((p.name, kind, body))
+        return (True, tuple(sorted(entries)))
+
+    before_bin = bin_listing()
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
         _RUNTIME["bin"] = tmp / "rbtv-bin"
@@ -105,6 +120,9 @@ def selftest() -> int:
         ctx.keep({"catalog": catalog})
         for section in ORDER:
             section(ctx)
+
+        ctx.check("L-real-bin-untouched — selftest leaves ~/.rbtv/bin "
+                  "byte-identical", bin_listing() == before_bin)
 
         _RUNTIME["bin"] = None
         _RUNTIME["rc"] = None

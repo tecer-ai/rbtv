@@ -22,9 +22,10 @@ def _fixture(root: Path) -> None:
         ("rule-entry.md", "# THE RULE\n\nAlways do the thing.\n"),
         ("agent-entry.md", "# the sub-agent\n"),
         ("guide.md", "# guidance part\n"),
-        ("tool/thing.py", "print('inventory only')\n"),
+        ("tool/thing.py", "#!/usr/bin/env python3\nprint('inventory only')\n"),
     ):
         (good / name).write_text(body, encoding="utf-8")
+    (good / "tool/thing.py").chmod(0o755)
     (good / "hooks.json").write_text(json.dumps({"hooks": {"PreToolUse": [
         {"matcher": "Bash", "hooks": [{"type": "command", "command": "true"}]}]}}),
         encoding="utf-8")
@@ -118,6 +119,7 @@ def _fixture(root: Path) -> None:
     (hub / "path").mkdir()
     (hub / "path" / "hubbin.py").write_text("#!/usr/bin/env python3\nprint(1)\n",
                                             encoding="utf-8")
+    (hub / "path" / "hubbin.py").chmod(0o755)
     (hub / "path" / "hubbindir").mkdir()
     (hub / "path" / "hubbindir" / "child.py").write_text("print(2)\n",
                                                          encoding="utf-8")

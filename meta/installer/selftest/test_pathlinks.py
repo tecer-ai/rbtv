@@ -42,7 +42,9 @@ def path_links(ctx) -> None:
         dest = cdir / Path(entry)
         if not str(entry).startswith(WS_PREFIX):
             dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(body, encoding="utf-8")
+            dest.write_text("#!/usr/bin/env python3\n" + body,
+                            encoding="utf-8")
+            dest.chmod(0o755)
         (cdir / EXPOSURE_NAME).write_text(
             "part-id,part-kind,method,rbtv-cli,entry-point,description,"
             "write-roots\n"
@@ -54,6 +56,44 @@ def path_links(ctx) -> None:
     lws = tmp / "ws-path-add"
     lws.mkdir()
     lcat = _lcomp(lsrc, "lmod", "ladd", "ladd-bin", "impl.py")
+
+    badsrc = tmp / "bad-path-src"
+    badws = tmp / "bad-path-ws"
+    badws.mkdir()
+    badcat = _lcomp(badsrc, "badmod", "badcomp", "badbin", "bad.py")
+    badtool = badsrc / "badmod/badcomp/bad.py"
+    for kind, body, mode in (("no-shebang", "print(1)\n", 0o755),
+                             ("no-execute", "#!/usr/bin/env python3\n", 0o644)):
+        badtool.write_text(body, encoding="utf-8")
+        badtool.chmod(mode)
+        before = (set(badws.iterdir()), set(bin_dir().iterdir()))
+        try:
+            do_install(badws, badcat, ["badmod/badcomp"], ["claude"],
+                       dry_run=True)
+            code = "no refusal"
+        except Refuse as exc:
+            code = exc.code
+        check(f"L-{kind} — invalid PATH target refuses during planning",
+              (code == "path-not-runnable" if os.name != "nt" else
+               code == "no refusal")
+              and before == (set(badws.iterdir()), set(bin_dir().iterdir())),
+              code)
+    badtool.write_text("# reference\n", encoding="utf-8")
+    badtool.rename(badtool.with_suffix(".md"))
+    (badsrc / "badmod/badcomp" / EXPOSURE_NAME).write_text(
+        "part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots\n"
+        "badbin,tool,path,,bad.md,,\n", encoding="utf-8")
+    badcat, _ = scan_all(tmp / "no-mirror-l", badsrc)
+    try:
+        do_install(badws, badcat, ["badmod/badcomp"], ["claude"],
+                   dry_run=True)
+        code = "no refusal"
+    except Refuse as exc:
+        code = exc.code
+    check("L-markdown — data file refuses on every platform",
+          code in ("path-not-runnable", "path-link-failed")
+          and not (badws / STATE_REL).exists(), code)
+
     before_home_rc = _RUNTIME["rc"].exists()
     lr = do_install(lws, lcat, ["lmod/ladd"], ["claude"], dry_run=False)
     check("L-add — link on add, name is the part-id not the basename",
@@ -181,8 +221,9 @@ def path_links(ctx) -> None:
     wws = tmp / "ws-path-ws"
     wws.mkdir()
     (wws / "tools").mkdir()
-    (wws / "tools" / "from-ws.py").write_text("print('ws')\n",
-                                              encoding="utf-8")
+    (wws / "tools" / "from-ws.py").write_text(
+        "#!/usr/bin/env python3\nprint('ws')\n", encoding="utf-8")
+    (wws / "tools" / "from-ws.py").chmod(0o755)
     wcat = _lcomp(wsrc, "wmod", "wcomp", "wsbin", "ws:tools/from-ws.py")
     wr = do_install(wws, wcat, ["wmod/wcomp"], ["claude"], dry_run=False)
     check("L-ws — ws: entry-point resolves workspace-root-relative",

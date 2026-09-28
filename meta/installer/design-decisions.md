@@ -367,6 +367,9 @@ of on argparse's `invalid choice: 'harness'`, which names nothing.
 (`decisions.md#d-tool-inventory-exposure-rows`). `pool` stays inventory.
 A `path` part is linked into `~/.rbtv/bin` under its part-id (human PATH);
 that reverse does not write under `{target}`.
+Planning refuses a POSIX target without both a shebang and execute permission
+before any install write. Windows planning requires a shebang or known script
+extension so the `.cmd` shim has an interpreter; Windows execute bits are ignored.
 
 ## D9b — WINDOWS PATH LINKS ARE `.cmd` SHIMS, NOT SYMLINKS
 

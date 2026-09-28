@@ -318,6 +318,20 @@ def plan_path_links(target: Path,
     for cid, pid, comp_dir, entry in rows:
         name = link_name(pid)
         dest = resolve_path_entry(target, comp_dir, entry)
+        if _WIN:
+            _win_interp(dest)
+        else:
+            try:
+                with dest.open("rb") as fh:
+                    shebang = fh.read(2) == b"#!"
+            except OSError as exc:
+                raise Refuse("path-not-runnable",
+                             f"{name}: cannot read {dest}: {exc}",
+                             str(dest)) from exc
+            if not os.access(dest, os.X_OK) or not shebang:
+                raise Refuse("path-not-runnable",
+                             f"{name}: {dest} needs a shebang and execute "
+                             "permission", str(dest))
         if name in desired and desired[name] != dest:
             raise Refuse("path-name-collision",
                          f"{name} claimed by {seen[name]} and {cid} "
