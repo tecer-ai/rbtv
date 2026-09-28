@@ -15,12 +15,13 @@ description: "Hand work over to a future agent with zero context: transfer ALL k
    - If sub-agents or background jobs are running, wait for them to complete and fold their results into your knowledge.
    - Only then write the handoff.
 2. Scope — the handoff is TOTAL by default: everything this session knows about the work. It is PARTIAL only if the user explicitly asks to hand off just a part (e.g. a side-error found while fixing something else). A partial handoff covers ONLY that part — but covers it with the same completeness.
-3. Destination — a handoff is a knowledge TRANSFER, not necessarily a new file. Pick the first that fits:
+3. Bring the existing homes current — in EVERY handoff, before any destination below. From what this session already knows (the files it changed, read, or was pointed to by `CLAUDE.md`, an index, or another file it read), check that everything describing the work reflects it: the docs of code you changed, indexes, state and plan files, READMEs, memories, task files. Update whatever is stale. This is a check from memory and context, never a new search or investigation: a doc the session never saw is a declared gap, not a hunt.
+4. Destination — a handoff is a knowledge TRANSFER, not necessarily a new file. Pick the first that fits:
    - Work tracked somewhere (a project, a plan, a state doc, an existing handoff doc) you already know of from this session → UPDATE that file.
    - Quick, one-off work with no such home → write to the specific file the user confirms; ask where — not knowing of one means asking, not investigating.
-   - Work finished → no handoff file. Instead make sure every home the session's knowledge belongs in is already current: the docs, indexes, and state files you changed or relied on, the memories, and the task files. Update whatever is stale; a loose end that still has no home becomes a task. Then answer "nothing to hand off", listing what you checked and what you updated.
+   - Work finished → no handoff file. Step 3 already brought the homes current; a loose end that still has no home becomes a task. Then answer "nothing to hand off", listing what you checked and what you updated.
    - Partial handoff: the same order; a new file only when the handed-off part has no home, at a location the user confirms.
-4. Write — transfer ALL knowledge about the handed-off work. Cover, where each applies:
+5. Write — when step 4 lands on a file, transfer ALL knowledge about the handed-off work. Cover, where each applies:
    - Objective and scope — what the work is, what "done" looks like, and (if partial) the exact boundary of what is handed off.
    - Current status — precisely where things stand right now, and the state everything was left in.
    - What was done — every change made, with paths.
@@ -33,7 +34,7 @@ description: "Hand work over to a future agent with zero context: transfer ALL k
    - Pointers to every relevant file, doc, and resource.
    - Next steps — what the successor should do first.
    The completeness test: could a fresh agent, given ONLY this document, continue the work without asking anything and without re-doing anything already done?
-5. Close — report where the knowledge now lives: the handoff file's path, or, when the work is finished, the "nothing to hand off" answer with the list of homes checked and updated. After a TOTAL handoff you stop working on the task — the handoff is your last act on it. After a PARTIAL handoff, the handed-off part leaves your hands; you continue your own remaining work.
+6. Close — report where the knowledge now lives: the handoff file's path, or, when the work is finished, the "nothing to hand off" answer with the list of homes checked and updated. After a TOTAL handoff you stop working on the task — the handoff is your last act on it. After a PARTIAL handoff, the handed-off part leaves your hands; you continue your own remaining work.
 </procedure>
 
 <io-spec>
