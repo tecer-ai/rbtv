@@ -20,6 +20,7 @@
 // enqueueScheduleWake({ id, conversationKey, scheduleId, payload, workId }) — ≤1 pending per agent; never reopens or unholds
 // claimNext(now) — pending owner input before automatic continuation; null while a run is active or the agent is held
 // getActiveRun() — running row even if the process is dead; liveRun() — the row only when /proc/<pid>/stat field 22 equals pidStart (string compare)
+// procStart(pid) — /proc/<pid>/stat field 22, or null if the process is gone
 // attachProcess(runId, { pid, pidStart, setting }) — freezes the launch snapshot for this run
 // finishRun(runId, nonce, { invocationNonce, output, disposition, summary, nextStep, workers, outputs, harness, sessionId, outbox })
 // failRun(runId, reason, { scope, now }) — retry then hold; enqueues the one blocker; callers must not enqueue another
@@ -776,4 +777,4 @@ class Store {
   }
 }
 
-module.exports = { Store, conversationKey, DISPOSITIONS, RETRY_DELAYS_MS, MAX_ATTEMPTS };
+module.exports = { Store, conversationKey, DISPOSITIONS, RETRY_DELAYS_MS, MAX_ATTEMPTS, procStart };

@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { Store, conversationKey, DISPOSITIONS, RETRY_DELAYS_MS, MAX_ATTEMPTS } = require('./store.js');
+const { Store, conversationKey, DISPOSITIONS, RETRY_DELAYS_MS, MAX_ATTEMPTS, procStart: exportedProcStart } = require('./store.js');
 
 const failures = [];
 const pending = [];
@@ -112,6 +112,7 @@ test('2b liveRun matches proc start and refuses a dead or reused pid', async (st
     assert.ok(live);
     assert.equal(String(live.pid), String(child.pid));
     assert.equal(String(live.pidStart), String(start));
+    assert.equal(exportedProcStart(child.pid), String(live.pidStart));
     const initStart = procStart(1);
     assert.notEqual(String(initStart), String(start));
     restarted.db.prepare('UPDATE runs SET pid=?, pid_start=? WHERE id=?').run(1, String(start), live.id);
