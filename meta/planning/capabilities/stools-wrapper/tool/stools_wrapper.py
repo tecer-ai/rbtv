@@ -112,7 +112,7 @@ def matching_grant(workspace, verb):
     if not GRANTS_FILE.exists():
         return None
     import yaml
-    data = yaml.safe_load(GRANTS_FILE.read_text()) or {}
+    data = yaml.safe_load(GRANTS_FILE.read_text(encoding="utf-8")) or {}
     for grant in data.get("grants") or []:
         if grant.get("status") != "active":
             continue
