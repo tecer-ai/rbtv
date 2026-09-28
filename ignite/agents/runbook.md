@@ -54,7 +54,7 @@ Queued turns. One primary turn per agent. Agents do not wait on each other. A me
 
 Steering between turns. There is no mid-turn interruption. An owner message that arrives during a turn is saved and processed on a later turn.
 
-Long threads. The prompt carries a bounded recent window (20 messages) plus the path of the full history file `conversations/<key>/history.md` under the agent home. The file is regenerated from the store. The store is authoritative.
+Long threads. The prompt carries a bounded recent window (20 messages) plus the path of the full history file under the agent home. The folder name is the conversation key with colons replaced by hyphens. A folder left under the raw key is renamed on first access. The file is regenerated from the store. The store is authoritative.
 
 The unit starts at boot when user lingering is on. Check with `systemctl --user is-enabled rbtv-ignite-agents.service`.
 

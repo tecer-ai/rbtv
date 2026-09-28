@@ -9,7 +9,7 @@ const { spawn } = require('node:child_process');
 const { Store } = require('./store.js');
 const { runOnce } = require('./turn-loop.js');
 const { deliverPending } = require('./outbox.js');
-const { historyPath } = require('./history.js');
+const { historyPath, writeHistory } = require('./history.js');
 
 const failures = [];
 const pending = [];
@@ -508,6 +508,34 @@ test('launch failure holds the agent', async (ctx) => {
   assert.equal(outbox.length, 1);
   assert.match(outbox[0].payload.text, /settings set/);
   assert.match(outbox[0].payload.text, /cast exit 2/);
+});
+
+test('history folder name is Windows-valid', async (ctx) => {
+  const home = path.join(ctx.dir, 'agent');
+  const store = ctx.track(new Store(path.join(home, 'state.sqlite')));
+  const key = 'T1:C1:1790563641.107349';
+  store.upsertConversation({
+    key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs: '1790563641.107349', activated: true,
+  });
+  const file = writeHistory(home, store, key);
+  const folder = path.basename(path.dirname(file));
+  assert.equal(folder, 'T1-C1-1790563641.107349');
+  assert.equal(/[:*?"<>|\\]/.test(folder), false);
+  assert.equal(fs.existsSync(path.join(home, 'conversations', key)), false);
+  assert.equal(fs.existsSync(file), true);
+  assert.equal(historyPath(home, key), file);
+});
+
+test('old colon history folder is found', async (ctx) => {
+  const home = path.join(ctx.dir, 'agent');
+  const key = 'T1:C1:1.1';
+  const legacy = path.join(home, 'conversations', key);
+  fs.mkdirSync(legacy, { recursive: true });
+  fs.writeFileSync(path.join(legacy, 'history.md'), 'LEGACY_MARKER\n');
+  const file = historyPath(home, key);
+  assert.equal(fs.readFileSync(file, 'utf8'), 'LEGACY_MARKER\n');
+  assert.equal(path.basename(path.dirname(file)), 'T1-C1-1.1');
+  assert.equal(fs.existsSync(legacy), false);
 });
 
 test('cwd is symlink-resolved', async (ctx) => {
