@@ -418,8 +418,7 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
         target, catalog, picked, harnesses,
         bool(getattr(args, "dry_run", False)),
         guidance_basis=basis,
-        parts=parts,
-        write_path=bool(getattr(args, "write_path", False)))
+        parts=parts)
     _emit(data, bool(getattr(args, "json", False)))
     return 0
 

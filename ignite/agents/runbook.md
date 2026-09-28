@@ -58,4 +58,4 @@ Long threads. The prompt carries a bounded recent window (20 messages) plus the 
 
 The unit starts at boot when user lingering is on. Check with `systemctl --user is-enabled rbtv-ignite-agents.service`.
 
-The unit PATH is the deploying shell's PATH plus the installer's link directory when that directory is not already on it. The directory is the home directory plus `.rbtv/bin`, the same place the installer links `ignite-agent`. After installing a harness or a tool in a new location, redeploy. Startup refuses to go ready if `ignite-agent` is not on that PATH.
+The installer puts `~/.rbtv/bin` on the user shell PATH. `deploy.sh` also keeps its conditional prepend for the service unit, since a boot-time user service may not source a shell profile; it adds the directory only when absent. The installer links `ignite-agent` there. After installing a harness or a tool in a new location, redeploy. Startup refuses to go ready if `ignite-agent` is not on that PATH.

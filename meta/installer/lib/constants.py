@@ -44,11 +44,23 @@ INDEX_REL = Path(".rbtv") / "config" / "install-index.json"
 
 FENCE_ID = "rbtv2"
 
-# The one line the shell profile gets: bash/zsh syntax on POSIX,
-# PowerShell $PROFILE syntax on Windows (the fences' `#` comments both).
-PATH_BOOTSTRAP = (r'$env:Path = "$HOME\.rbtv\bin;" + $env:Path'
-                  if os.name == "nt" else
-                  'export PATH="$HOME/.rbtv/bin:$PATH"')
+# POSIX shell syntax: .profile is also read by sh. Remove inherited copies so
+# login and nested interactive shells keep the managed bin first, only once.
+PATH_BOOTSTRAP = '''_rbtv_dir="$HOME/.rbtv/bin"
+_rbtv_rest=":$PATH:"
+while :; do
+    case "$_rbtv_rest" in
+        *":$_rbtv_dir:"*)
+            _rbtv_before="${_rbtv_rest%%":$_rbtv_dir:"*}"
+            _rbtv_after="${_rbtv_rest#*":$_rbtv_dir:"}"
+            _rbtv_rest="$_rbtv_before:$_rbtv_after" ;;
+        *) break ;;
+    esac
+done
+PATH="$_rbtv_dir:${_rbtv_rest#:}"
+PATH="${PATH%:}"
+export PATH
+unset _rbtv_dir _rbtv_rest _rbtv_before _rbtv_after'''
 
 PATH_FENCE_START = f"# {FENCE_ID}:start path"
 

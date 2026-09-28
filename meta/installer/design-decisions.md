@@ -383,9 +383,8 @@ with the resolutions the cli memory entry
 `20260824-i-rbtv-direct-delegates-unrunnab` settled: `python3` spawns as
 `python`, and `bash` is git's own (`where git` → `../bin/bash.exe`, script
 path forward-slashed), never PATH bash, which is usually WSL's and cannot
-see `C:` paths. POSIX behaviour is byte-identical to before. The
-`--write-path` line is likewise per-platform: PowerShell `$PROFILE` syntax
-on Windows, bash/zsh on POSIX, same `# rbtv2:...` fences.
+see `C:` paths. POSIX link behaviour is byte-identical to before. The
+PATH setup is governed by D9c below.
 
 Beside every `.cmd` shim sits an extensionless twin, `<part-id>`: a
 `#!/bin/sh` launcher (LF endings, line 2 `# rbtv-shim -> <target>` as its
@@ -394,6 +393,21 @@ the shell agents run on Windows — resolves only the exact name, never
 `<name>.cmd`, so without the twin every PATH tool was PowerShell-only. The
 twin is written, checked, and removed together with its `.cmd`; a missing
 twin reads as stale, so pre-twin installs heal on the next run.
+
+## D9c — THE INSTALLER PUTS ITS BIN DIRECTORY ON USER PATH
+
+Owner ruling, 2026-09-28: every installed `path` tool is reachable from the
+owner's shells as well as agent services. Every real install keeps
+`~/.rbtv/bin` on the user PATH. On Linux, `lib/pathlinks.py` writes one
+idempotent `# rbtv2:start path` block to the active shell's interactive and
+login profiles (`.bashrc` and the first Bash login profile, or `.zshrc` and
+`.zprofile`). The block avoids repeated PATH entries in nested shells. On
+Windows it appends the directory once to the user `Environment\Path` registry
+value and broadcasts `WM_SETTINGCHANGE`, so new PowerShell, cmd and Git Bash
+sessions inherit it. It does not use `setx`, which can truncate long values.
+Uninstalling the last workspace component leaves the user PATH setup in place:
+that PATH belongs to the machine and can serve other workspaces. The installer
+never manages `~/.local/bin`.
 
 ## D10 — BAKED PATHS ARE ABSOLUTE
 

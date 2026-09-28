@@ -13,7 +13,6 @@ from .constants import (
     HARNESSES,
     MANAGED_MARK,
     MATRIX,
-    PATH_BOOTSTRAP,
     STATE_REL,
 )
 from .catalog import _part_specs, catalog_parts_map
@@ -22,7 +21,6 @@ from .content import _exposure_block
 from .guidance import plan_mirror, resolve_basis
 from .pathlinks import (
     _path_rows_from_report,
-    _remove_shell_path,
     _write_shell_path,
     bin_dir,
     booked_path_names,
@@ -248,8 +246,7 @@ def do_install(target: Path, catalog: dict[str, dict], picked: list[str],
                harnesses: list[str], dry_run: bool,
                guidance_basis: str | None = None,
                guidance_excludes: list[str] | None = None,
-               parts: list[str] | None = None,
-               write_path: bool = False) -> dict:
+               parts: list[str] | None = None) -> dict:
     state = upgrade_book(read_state(target), catalog_parts_map(catalog))
     records = dict(state.get("components") or {})
     for cid in picked:
@@ -268,7 +265,6 @@ def do_install(target: Path, catalog: dict[str, dict], picked: list[str],
     booked = booked_path_names(state)
     bindir = bin_dir()
     gate_path_links(bindir, desired, booked - set(desired))
-    report["path_bootstrap"] = PATH_BOOTSTRAP
     protect = _add_mirror(target, state, files, owners, report, guidance_basis,
                           installed_harnesses(records), guidance_excludes)
     _add_gitignore(target, owners, claims, report, known_files(state))
@@ -282,12 +278,9 @@ def do_install(target: Path, catalog: dict[str, dict], picked: list[str],
             state["guidance_basis"] = guidance_basis
         if guidance_excludes is not None:
             state["guidance_excludes"] = list(guidance_excludes)
-        if write_path:
-            state["path_bootstrap"] = True
         write_state(target, state)
         report["path"] = reconcile(bindir, desired, booked, dry=False)
-        if write_path:
-            _write_shell_path()
+        _write_shell_path()
     else:
         report["path"] = reconcile(bindir, desired, booked, dry=True)
     return {"ok": True, "installed": picked, "harnesses": harnesses,
@@ -344,7 +337,6 @@ def do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
     keep_names = booked_path_names({"components": stranded})
     bindir = bin_dir()
     gate_path_links(bindir, desired, booked - set(desired) - keep_names)
-    report["path_bootstrap"] = PATH_BOOTSTRAP
     keep_protect: set[str] = set()
     for cid, rec in stranded.items():
         for pid, part in rec["parts"].items():
@@ -384,8 +376,6 @@ def do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
                     path_owners=path_owners, keep_cids=set(stranded))
             write_state(target, state)
         else:
-            if state.get("path_bootstrap"):
-                _remove_shell_path()
             # Nothing left of ours — take the book away too. Only OUR artifacts
             # were removed above; anything foreign at the root is still there.
             path = target / STATE_REL

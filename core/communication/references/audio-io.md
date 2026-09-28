@@ -20,9 +20,9 @@ skills. Never look for a channel id, a workspace flag or an upload verb here: no
 
 ## How you reach it
 
-Run the CLI by its full path from the workspace root. Console users can run
-`python3 core/communication/link-tools.py` once from the rbtv repo to add a bare `audio`
-command to `~/.local/bin` when that directory is on `PATH`.
+After installing `core/communication`, run `audio` by name from a new shell:
+the installer links it into `~/.rbtv/bin` and puts that directory on PATH.
+The full script path below also works without an install.
 
 | What | Where |
 |---|---|

@@ -110,15 +110,17 @@ CLI produces. Rules ride the result as **names + descriptions + paths always**, 
 
 ## Install
 
-Per-machine symlink, never synced by git — the convention `ignite-agent` also follows:
+`rbtv` is a `tool,path` part, booked by the installer like other PATH tools.
+On a new machine, bootstrap the installer directly from the cloned repo once:
 
 ```
-ln -sfn <rbtv_path>/meta/rbtv-cli/tool/rbtv ~/.local/bin/rbtv
+python3 <rbtv_path>/meta/installer/install.py add -c meta/rbtv-cli --target <workspace> --harness claude,codex,opencode --artifact none
 ```
 
-`node` is the only prerequisite (v24 on the ignite VPS). Verify with `rbtv doctor` from any
-directory — it names each delegate individually, because "some delegate is missing" is not
-actionable.
+Open a new shell, then run `rbtv doctor` from any directory. The installer
+books the dispatcher in the workspace and links it into `~/.rbtv/bin`; it also
+puts that directory on the user PATH. `node` is the dispatcher's runtime
+prerequisite (v24 on the ignite VPS).
 
 ## Mounting more on this skeleton
 

@@ -40,8 +40,8 @@ does the README.
 - **One language key governs both verbs.** `config.json`'s `language` field, default `pt`. No
   verb pins a language anywhere else, and the `language` verb is how it
   changes.
-- **It is a `path` part, not a skill.** Run `audio.py` by path. Console users can optionally add
-  the `audio` link with `core/communication/link-tools.py`.
+- **It is a `path` part, not a skill.** Install `core/communication` and run
+  `audio` by name from a new shell, or run `audio.py` by path before installation.
 
 ## What this capability is NOT
 

@@ -199,10 +199,6 @@ def build_parser() -> argparse.ArgumentParser:
              "guidance file you author; the other is generated. none = "
              "author-nothing, generate-nothing. Later `add` refuses it — "
              "change it with `rbtv install set artifact`")
-    s_add.add_argument(
-        "--write-path", action="store_true",
-        help="append the PATH bootstrap line to the shell startup file "
-             "(fenced; teardown can remove it). never happens without this flag")
     setting_noun(s_add, "add")
 
     s_rm = sub.add_parser(

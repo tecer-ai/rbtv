@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 
-from .constants import FENCE_ID, MANAGED_MARK, PATH_BOOTSTRAP
+from .constants import FENCE_ID, MANAGED_MARK
 
 
 def print_result(data: dict) -> None:
@@ -78,8 +78,8 @@ def _print_report_rows(report: dict, planned: bool) -> None:
     for name in pathrep.get("unlinked") or []:
         print(f"  · {'would unlink' if planned else 'unlinked'} PATH {name}")
     if any(pathrep.get(k) for k in ("linked", "relinked", "ok")):
-        print(f"  · add to shell (first wins over ~/.local/bin): "
-              f"{report.get('path_bootstrap') or PATH_BOOTSTRAP}")
+        print(f"  · ~/.rbtv/bin {'would be set' if planned else 'is set'} "
+              "on the user PATH by install")
 
 
 def _print_gitignore(report: dict, planned: bool) -> None:

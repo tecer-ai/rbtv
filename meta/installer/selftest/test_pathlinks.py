@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import os
+import sys
+from types import SimpleNamespace
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from discovery import EXPOSURE_NAME, Refuse, scan_all
 
@@ -16,6 +19,7 @@ from lib.constants import (
 )
 from lib.pathlinks import (bin_dir, gate_path_links, link_path,
                            link_points_at, unlink_one)
+from lib import pathlinks
 from lib.state import read_state
 from lib.operations import do_install, do_uninstall
 
@@ -94,7 +98,6 @@ def path_links(ctx) -> None:
           code in ("path-not-runnable", "path-link-failed")
           and not (badws / STATE_REL).exists(), code)
 
-    before_home_rc = _RUNTIME["rc"].exists()
     lr = do_install(lws, lcat, ["lmod/ladd"], ["claude"], dry_run=False)
     check("L-add — link on add, name is the part-id not the basename",
           link_points_at(link_path(bin_dir(), "ladd-bin"),
@@ -112,11 +115,18 @@ def path_links(ctx) -> None:
           os.name != "nt" or (twin.is_file()
                               and b"\r" not in twin.read_bytes()
                               and twin.read_bytes().startswith(b"#!/bin/sh")))
-    check("L-no-flag — shell-startup append does not happen without "
-          "--write-path",
-          not before_home_rc and not Path(_RUNTIME["rc"]).exists())
+    rc = Path(_RUNTIME["rc"])
+    first = rc.read_text(encoding="utf-8")
+    check("L-auto-path — install writes one marked PATH block",
+          first.count(PATH_FENCE_START) == 1
+          and PATH_BOOTSTRAP in first)
+    do_install(lws, lcat, ["lmod/ladd"], ["claude"], dry_run=False)
+    check("L-auto-path-idempotent — reinstall keeps the block unchanged",
+          rc.read_text(encoding="utf-8") == first)
 
     do_uninstall(lws, lcat, ["lmod/ladd"], dry_run=False)
+    check("L-auto-path-survives-rm — last uninstall leaves user PATH",
+          rc.read_text(encoding="utf-8") == first)
     check("L-rm — unlink on rm; directory kept if anything else remains",
           not link_path(bin_dir(), "ladd-bin").exists()
           and not twin.exists()
@@ -252,11 +262,10 @@ def path_links(ctx) -> None:
 
     fws = tmp / "ws-path-flag"
     fws.mkdir()
-    do_install(fws, lcat, ["lmod/ladd"], ["claude"], dry_run=False,
-               write_path=True)
+    do_install(fws, lcat, ["lmod/ladd"], ["claude"], dry_run=False)
     rc_txt = Path(_RUNTIME["rc"]).read_text(encoding="utf-8") \
         if Path(_RUNTIME["rc"]).is_file() else ""
-    check("L-flag — --write-path appends a fenced bootstrap block",
+    check("L-profile — add writes a fenced bootstrap block",
           PATH_FENCE_START in rc_txt and PATH_BOOTSTRAP in rc_txt
           and PATH_FENCE_END in rc_txt
           and rc_txt.index(PATH_BOOTSTRAP)
@@ -264,7 +273,27 @@ def path_links(ctx) -> None:
     do_uninstall(fws, lcat, ["lmod/ladd"], dry_run=False)
     rc_after = Path(_RUNTIME["rc"]).read_text(encoding="utf-8") \
         if Path(_RUNTIME["rc"]).is_file() else ""
-    check("L-flag-teardown — full rm removes the fenced block",
-          PATH_FENCE_START not in rc_after
-          and PATH_BOOTSTRAP not in rc_after)
+    check("L-profile-survives-rm — full rm keeps the fenced block",
+          PATH_FENCE_START in rc_after
+          and PATH_BOOTSTRAP in rc_after)
+
+    key = MagicMock()
+    key.__enter__.return_value = key
+    values = {"Path": (r"C:\Windows", 1)}
+    fake_reg = SimpleNamespace(
+        HKEY_CURRENT_USER=1, KEY_READ=2, KEY_WRITE=4, REG_EXPAND_SZ=2,
+        CreateKeyEx=lambda *args: key,
+        QueryValueEx=lambda unused, name: values[name],
+        SetValueEx=lambda unused, name, zero, kind, value:
+            values.__setitem__(name, (value, kind)))
+    notice = MagicMock()
+    with patch.dict(sys.modules, {"winreg": fake_reg}), patch.object(
+            pathlinks, "bin_dir", return_value=Path(r"C:\Users\test\.rbtv\bin")), \
+            patch("ctypes.windll", create=True) as windll:
+        windll.user32.SendMessageTimeoutW = notice
+        pathlinks._write_windows_user_path()
+        pathlinks._write_windows_user_path()
+    check("L-windows-user-path — registry PATH is written once and notified",
+          values["Path"][0].count(r"C:\Users\test\.rbtv\bin") == 1
+          and notice.call_count == 1)
     ctx.keep(locals())

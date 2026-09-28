@@ -1,5 +1,4 @@
-"""The ~/.rbtv/bin shortcut links and the one PATH line in the shell
-profile.
+"""The ~/.rbtv/bin shortcut links and user shell PATH setup.
 
 POSIX: each shortcut is a bare symlink; the kernel honours the target's
 shebang. Windows has no shebang layer and an extensionless name is not
@@ -47,33 +46,18 @@ def bin_dir() -> Path:
     return Path(override) if override is not None else Path.home() / ".rbtv" / "bin"
 
 
-def shell_rc() -> Path:
+def shell_profiles() -> tuple[Path, ...]:
     override = _RUNTIME.get("rc")
     if override is not None:
-        return Path(override)
-    if _WIN:
-        return _powershell_profile()
+        return (Path(override),)
     shell = os.environ.get("SHELL", "")
     home = Path.home()
     if shell.endswith("zsh"):
-        return home / ".zshrc"
-    return home / ".bashrc"
-
-
-def _powershell_profile() -> Path:
-    """$PROFILE as PowerShell itself reports it — Documents may be
-    OneDrive-redirected, so guessing the path is wrong on real machines."""
-    for exe in ("pwsh", "powershell"):
-        try:
-            out = subprocess.run([exe, "-NoProfile", "-Command", "$PROFILE"],
-                                 capture_output=True, text=True, timeout=15)
-        except OSError:
-            continue
-        line = (out.stdout or "").strip()
-        if out.returncode == 0 and line:
-            return Path(line)
-    return (Path.home() / "Documents" / "PowerShell"
-            / "Microsoft.PowerShell_profile.ps1")
+        return home / ".zshrc", home / ".zprofile"
+    login = next((home / name for name in
+                  (".bash_profile", ".bash_login", ".profile")
+                  if (home / name).is_file()), home / ".profile")
+    return home / ".bashrc", login
 
 
 def link_path(bindir: Path, name: str) -> Path:
@@ -405,30 +389,43 @@ def reconcile(bindir: Path, desired: dict[str, Path], booked: set[str],
 
 
 def _write_shell_path() -> None:
-    rc = shell_rc()
+    if _WIN and _RUNTIME.get("rc") is None:
+        _write_windows_user_path()
+        return
     block = f"{PATH_FENCE_START}\n{PATH_BOOTSTRAP}\n{PATH_FENCE_END}\n"
-    text = rc.read_text(encoding="utf-8") if rc.is_file() else ""
-    if PATH_FENCE_START in text and PATH_FENCE_END in text:
-        head = text.split(PATH_FENCE_START, 1)[0]
-        tail = text.split(PATH_FENCE_END, 1)[1].lstrip("\n")
-        text = head + block + tail
-    else:
-        text = (text.rstrip() + "\n\n" if text.strip() else "") + block
-    rc.parent.mkdir(parents=True, exist_ok=True)
-    write_file(rc, text)
+    for rc in shell_profiles():
+        text = rc.read_text(encoding="utf-8") if rc.is_file() else ""
+        if PATH_FENCE_START in text and PATH_FENCE_END in text:
+            head = text.split(PATH_FENCE_START, 1)[0]
+            tail = text.split(PATH_FENCE_END, 1)[1].lstrip("\n")
+            text = head + block + tail
+        else:
+            text = (text.rstrip() + "\n\n" if text.strip() else "") + block
+        rc.parent.mkdir(parents=True, exist_ok=True)
+        write_file(rc, text)
 
 
-def _remove_shell_path() -> None:
-    rc = shell_rc()
-    if not rc.is_file():
-        return
-    text = rc.read_text(encoding="utf-8")
-    if PATH_FENCE_START not in text or PATH_FENCE_END not in text:
-        return
-    head = text.split(PATH_FENCE_START, 1)[0]
-    tail = text.split(PATH_FENCE_END, 1)[1].lstrip("\n")
-    new = (head.rstrip() + "\n" + tail) if head.strip() else tail
-    write_file(rc, new)
+def _write_windows_user_path() -> None:
+    """Persist PATH for PowerShell, cmd.exe and Git Bash without setx truncation."""
+    import ctypes
+    import winreg
+
+    entry = str(bin_dir())
+    with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, "Environment", 0,
+                            winreg.KEY_READ | winreg.KEY_WRITE) as key:
+        try:
+            current, kind = winreg.QueryValueEx(key, "Path")
+        except FileNotFoundError:
+            current, kind = "", winreg.REG_EXPAND_SZ
+        if any(item.strip('"').replace("/", "\\").casefold()
+               == entry.replace("/", "\\").casefold()
+               for item in current.split(";")):
+            return
+        winreg.SetValueEx(key, "Path", 0, kind,
+                          current.rstrip(";") + ";" + entry if current else entry)
+    # Tell the desktop to pass the updated user environment to new terminals.
+    ctypes.windll.user32.SendMessageTimeoutW(0xFFFF, 0x001A, 0,
+                                              "Environment", 0x0002, 5000, None)
 
 
 def _path_rows_from_report(report: dict) -> list[tuple[str, str, Path, str]]:

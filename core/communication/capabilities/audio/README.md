@@ -13,9 +13,9 @@ as separate steps.
 | the key | `ELEVENLABS_API_KEY` in the workspace env file (`env_file` in `rbtv.json` — see "The key") |
 | the checks | `3-resources/tools/rbtv/core/communication/capabilities/audio/test_audio.py` — `python3 test_audio.py`, no network |
 
-Run it by path. Console users may add a bare `audio` link with
-`core/communication/link-tools.py`. `python3` and `requests` are the only
-requirements (`dependencies.txt`).
+Run it by path, or install `core/communication` and use the bare `audio`
+command from a new shell. `link-tools.py` is the older `~/.local/bin` helper.
+`python3` and `requests` are the only requirements (`dependencies.txt`).
 
 ## The three verbs
 

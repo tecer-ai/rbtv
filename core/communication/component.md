@@ -48,11 +48,9 @@ owner's audio/Slack skills split of 2026-08-30.
 - `exposure.csv` — the `audio` row (the mandatory first-party tool inventory), one row per file
   in `references/` (`rule` for the three style rules, `skill` for `audio-aware`, `audio-io`,
   `slack-message-format`), plus `link-tools`.
-- `link-tools.py` — puts `audio` on `~/.local/bin`, idempotently, so a caller that
-  has that directory on PATH can reach it bare-name. Run it once per box
-  (`python3 core/communication/link-tools.py`). It links this component's tools only.
-  Without it, `audio` is a manual per-box symlink that does not survive a rebuild or
-  a second machine (measured 2026-08-31).
+- `link-tools.py` — legacy per-box helper that puts `audio` on `~/.local/bin`.
+  Installing the component now books `audio` in `~/.rbtv/bin` and puts that
+  directory on the user PATH; the helper remains for existing callers.
 
 **RELOCATED 2026-08-21** from the `communication/` MODULE (`mirror/communication/audio/`) to
 `core/communication/`, where the former component `audio` is now a capability — owner instruction.
