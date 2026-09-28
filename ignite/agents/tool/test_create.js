@@ -291,6 +291,51 @@ function baseArgs(dir, slug, extra = []) {
     assert.equal(slack.calls.length, calls);
   });
 
+  function mirrorSkill(dir, id) {
+    const [cid, pid] = id.split('#');
+    const folder = path.join(dir, '.rbtv', 'mirror', ...cid.split('/'));
+    fs.mkdirSync(folder, { recursive: true });
+    fs.writeFileSync(path.join(folder, 'exposure.csv'), [
+      'part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots',
+      `${pid},capability,skill,,${pid}.md,fixture,`,
+      '',
+    ].join('\n'));
+  }
+
+  await test('repo skill resolves', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const result = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe', '--skill', 'core/communication#slack-message-format', '--dry-run']));
+    assert.equal(result.code, 0, result.out + result.err);
+    assert.match(result.out, /core\/communication#slack-message-format/);
+    assert.equal(fs.existsSync(path.join(dir, '.rbtv', 'agents', 'probe')), false);
+  });
+
+  await test('workspace-resident skill resolves', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    mirrorSkill(dir, 'lab/widget#widget-skill');
+    const result = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe', '--skill', 'lab/widget#widget-skill', '--dry-run']));
+    assert.equal(result.code, 0, result.out + result.err);
+    assert.match(result.out, /lab\/widget#widget-skill/);
+    assert.equal(fs.existsSync(path.join(dir, '.rbtv', 'agents', 'probe')), false);
+  });
+
+  await test('unknown skill is refused', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const args = baseArgs(dir, 'probe', ['--channel-name', 'probe', '--skill', 'lab/widget#missing', '--dry-run']);
+    const before = tree(dir);
+    const result = await run(args).catch((error) => ({
+      code: error.exitCode || 1,
+      out: '',
+      err: error.message,
+    }));
+    assert.notEqual(result.code, 0);
+    assert.match(result.err, /unknown skill: lab\/widget#missing/);
+    assert.deepEqual(tree(dir), before);
+  });
+
   if (failures.length) {
     console.log(`FAILED ${failures.length}`);
     process.exit(1);

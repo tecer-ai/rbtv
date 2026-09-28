@@ -6,6 +6,7 @@
 // deps.afterChannel() runs after the channel id is saved and before the route write.
 // Effort is stored as the rung word validateLaunch returns, never a number string.
 // Skill installs are part keys only (`module/component#part`), never --write-path.
+// Skill ids resolve through the installer's catalog (repo + workspace mirror), not a local copy.
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -20,7 +21,7 @@ const { validateLaunch, applySetting } = require('./cli.js');
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const CHANNEL = /^[a-z0-9][a-z0-9_-]{0,79}$/;
-const REPO = path.resolve(__dirname, '../../..');
+const INSTALLER = path.resolve(__dirname, '../../../meta/installer');
 const BOARD_ROOT = 'board';
 
 const HELP = `ignite-agent create — create or remove a primary-agent home
@@ -145,19 +146,39 @@ function skillPart(id) {
   return { cid, pid, mod: cid.slice(0, slash), comp: cid.slice(slash + 1) };
 }
 
-function assertSkill(id, deps) {
+function catalogKeys(workspace, deps) {
+  if (deps._catalog) return deps._catalog;
+  const script = [
+    'import json, sys',
+    'from pathlib import Path',
+    'sys.path.insert(0, sys.argv[1])',
+    'from discovery import scan_all',
+    'from lib.selection import iter_catalog_parts',
+    'from lib.constants import REPO_ROOT',
+    'catalog, _shadowed = scan_all(Path(sys.argv[2]) / ".rbtv" / "mirror", REPO_ROOT)',
+    'print(json.dumps(sorted({p["key"] for p in iter_catalog_parts(catalog)})))',
+  ].join('\n');
+  const res = spawnSync('python3', ['-c', script, INSTALLER, workspace], { encoding: 'utf8' });
+  if (res.error) fail(`installer catalog failed: ${res.error.message}`);
+  if (res.status !== 0) fail(`installer catalog failed: ${(res.stderr || res.stdout || 'scan failed').trim()}`);
+  let keys;
+  try {
+    keys = JSON.parse(res.stdout);
+  } catch (error) {
+    fail(`installer catalog did not return JSON: ${error.message}`);
+  }
+  if (!Array.isArray(keys)) fail('installer catalog did not return a list');
+  deps._catalog = new Set(keys);
+  return deps._catalog;
+}
+
+function assertSkill(id, deps, workspace) {
+  const parsed = skillPart(id);
   if (deps.skillExists) {
     if (!deps.skillExists(id)) fail(`unknown skill: ${id}`);
-    return skillPart(id);
+    return parsed;
   }
-  const parsed = skillPart(id);
-  const file = path.join(REPO, parsed.mod, parsed.comp, 'exposure.csv');
-  if (!fs.existsSync(file)) fail(`unknown skill: ${id}`);
-  const found = fs.readFileSync(file, 'utf8').split('\n').some((line) => {
-    if (!line || line.startsWith('#')) return false;
-    return line.split(',')[0] === parsed.pid;
-  });
-  if (!found) fail(`unknown skill: ${id}`);
+  if (!catalogKeys(workspace, deps).has(id)) fail(`unknown skill: ${id}`);
   return parsed;
 }
 
@@ -411,7 +432,7 @@ function validateCreate(opts, flags, deps) {
     return abs;
   });
   const skills = [...new Set([...defaultSkills(), ...opts.skill])];
-  for (const id of skills) assertSkill(id, deps);
+  for (const id of skills) assertSkill(id, deps, workspace);
   const launch = launchFrom(config, opts, deps);
   const now = deps.now ? deps.now() : Date.now();
   const schedule = opts['schedule-json'] ? scheduleFrom(opts['schedule-json'], now) : null;
