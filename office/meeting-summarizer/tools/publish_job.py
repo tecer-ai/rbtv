@@ -160,7 +160,7 @@ def checkout_lock(checkout: Path):
     # Inside .git where there is one: a lock file in the working tree is an
     # untracked file left in the owner's repo (observed 2026-09-27).
     home = checkout / ".git" if (checkout / ".git").is_dir() else checkout
-    handle = open(home / "publish-job.lock", "w")
+    handle = open(home / "publish-job.lock", "w", encoding="utf-8")
     try:
         fcntl.flock(handle, fcntl.LOCK_EX)
         yield
