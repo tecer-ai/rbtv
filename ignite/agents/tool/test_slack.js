@@ -107,7 +107,7 @@ function harness(routes, { run } = {}) {
   const slack = new Slack({
     botToken: 'xoxb-test',
     appToken: 'xapp-test',
-    workspace: 'ws',
+    stoolsWorkspace: 'ignite',
     toolsWrapper: 'stools.py',
     fetch,
     WebSocket: FakeWS,
@@ -253,9 +253,23 @@ test('downloadFile', async () => {
   assert.deepEqual(argv[0].slice(2, 8), ['--channel', 'C1', '--ts', '4.4', '--thread-ts', '1.1']);
   assert.equal(argv[0][8], '--output');
   assert.equal(argv[0].at(-2), '--workspace');
-  assert.equal(argv[0].at(-1), 'ws');
+  assert.equal(argv[0].at(-1), 'ignite');
+  assert.equal(argv[0].at(-1).includes('/'), false);
   assert.equal(files[0].name, 'voice note.mp3');
   assert.equal(path.basename(files[0].path), 'voice note.mp3');
+});
+
+test('download-refuses-vault-path', async () => {
+  const slack = new Slack({
+    botToken: 'xoxb-test',
+    stoolsWorkspace: '/tmp/vault',
+    toolsWrapper: 'stools.py',
+    run: async () => { throw new Error('stools must not be called'); },
+  });
+  await assert.rejects(
+    () => slack.downloadFile({ channel: 'C1', ts: '1.1', dir: os.tmpdir() }),
+    /not a path/,
+  );
 });
 
 test('canvasCreate', async () => {

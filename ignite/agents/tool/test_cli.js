@@ -37,6 +37,7 @@ function writeConfig(workspace, slug, routes) {
       botTokenFile: path.join(workspace, 'bot.json'),
       appTokenSource: 'SLACK_APP_TOKEN',
       ownerTokenFile: path.join(workspace, 'owner.json'),
+      stoolsWorkspace: 'ignite',
     },
     tools: { cast: 'cast', stools: 'stools', audio: 'audio' },
     defaultLaunch: { harness: 'claude', model: 'm', effort: 'high' },

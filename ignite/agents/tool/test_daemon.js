@@ -49,6 +49,7 @@ function workspace() {
       botTokenFile: path.join(dir, 'bot.json'),
       appTokenSource: 'SLACK_APP_TOKEN',
       ownerTokenFile: path.join(dir, 'owner.json'),
+      stoolsWorkspace: 'ignite',
     },
     tools: { cast: 'cast', stools: 'stools', audio: 'audio' },
     defaultLaunch: { harness: 'claude', model: 'm', effort: 'low' },
@@ -366,6 +367,31 @@ test('harness-missing', async () => {
     assert.match(stdout, new RegExp(empty.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     assert.equal(stdout.includes('"event":"ready"'), false);
     assert.match(stderr, /harness not on PATH/);
+  } finally {
+    if (child.exitCode == null) child.kill('SIGKILL');
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('stools-workspace-missing', async () => {
+  const { dir } = workspace();
+  const cfgPath = path.join(dir, '.rbtv', 'agents', 'ignite.json');
+  const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+  delete cfg.slack.stoolsWorkspace;
+  fs.writeFileSync(cfgPath, JSON.stringify(cfg));
+  const child = spawn(process.execPath, [daemonPath, '--workspace', dir], {
+    env: { ...process.env, IGNITE_DAEMON_FAKE: '1' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8').on('data', (chunk) => { stdout += chunk; });
+  child.stderr.setEncoding('utf8').on('data', (chunk) => { stderr += chunk; });
+  try {
+    const code = await new Promise((resolve) => child.once('exit', resolve));
+    assert.notEqual(code, 0);
+    assert.match(stderr, /stoolsWorkspace required/);
+    assert.equal(stdout.includes('"event":"ready"'), false);
   } finally {
     if (child.exitCode == null) child.kill('SIGKILL');
     fs.rmSync(dir, { recursive: true, force: true });

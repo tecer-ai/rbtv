@@ -50,7 +50,7 @@ General shape only. Instance ids, token paths, and launch pins are runtime confi
 { "workspace": "<workspace>",
   "slack": { "team": "<team id>", "botUserId": "<bot user id>", "ownerUserId": "<owner user id>",
     "botTokenFile": "<bot token file>", "appTokenSource": "<env var name or file path>",
-    "ownerTokenFile": "<owner token file>" },
+    "ownerTokenFile": "<owner token file>", "stoolsWorkspace": "<stools workspace name>" },
   "tools": { "cast": "<cmd>", "stools": "<cmd>", "audio": "<cmd>" },
   "defaultLaunch": { "harness": "<harness>", "model": "<model>", "effort": "<effort>" },
   "dmAgent": "<slug>",

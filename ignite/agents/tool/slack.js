@@ -1,7 +1,8 @@
 'use strict';
 
 // Exported API — other seats treat this file as read-only.
-// Slack({ botToken, appToken?, workspace?, toolsWrapper?, python?, fetch?, WebSocket?, run?, schedule?, cancel?, log? })
+// Slack({ botToken, appToken?, stoolsWorkspace?, toolsWrapper?, python?, fetch?, WebSocket?, run?, schedule?, cancel?, log? })
+//   stoolsWorkspace is the stools workspace name, never the vault path.
 // auth() → { team, botUserId, botId }
 // normalize(event, { team, botUserId, botId }) →
 //   { team, channel, channelType, ts, threadTs, user, text, files, isBotOrSelf, mentionsBot }
@@ -240,9 +241,13 @@ class Slack {
 
   async stools(...args) {
     if (!this.config.toolsWrapper) throw new Error('Slack requires toolsWrapper');
-    if (!this.config.workspace) throw new Error('Slack requires workspace');
+    const name = this.config.stoolsWorkspace;
+    if (!name) throw new Error('Slack requires stoolsWorkspace');
+    if (name.includes('/') || name.includes('\\')) {
+      throw new Error('Slack stoolsWorkspace must be a workspace name, not a path');
+    }
     const { stdout } = await this.run(this.config.python || 'python3', [
-      this.config.toolsWrapper, ...args, '--workspace', this.config.workspace,
+      this.config.toolsWrapper, ...args, '--workspace', name,
     ], { maxBuffer: 8 * 1024 * 1024 });
     return stdout;
   }

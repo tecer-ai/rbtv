@@ -394,7 +394,7 @@ async function startLocked(opts, workspace, held) {
       slack = new Slack({
         botToken: readBotToken(config.slack.botTokenFile),
         appToken: readAppToken(config),
-        workspace: config.workspace,
+        stoolsWorkspace: config.slack.stoolsWorkspace,
         toolsWrapper: config.tools.stools,
         log: (level, message) => log({ event: 'slack', level, message }),
       });
