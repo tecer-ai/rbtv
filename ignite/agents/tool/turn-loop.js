@@ -12,6 +12,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { procStart } = require('./store.js');
 const { composeTurn, readBoard } = require('./prompt.js');
 const { DEFAULT_HISTORY_WINDOW, historyPath, listAll, writeHistory } = require('./history.js');
 
@@ -20,18 +21,6 @@ const DISPOSITIONS = new Set(['completed', 'continue', 'waiting_owner', 'waiting
 
 function clock(deps) {
   return deps.now ? deps.now() : Date.now();
-}
-
-function procStart(pid) {
-  try {
-    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
-    const end = stat.lastIndexOf(')');
-    if (end < 0) return null;
-    return stat.slice(end + 1).trim().split(/\s+/)[19] ?? null;
-  } catch (error) {
-    if (error.code === 'ENOENT') return null;
-    throw error;
-  }
 }
 
 function fail(message, scope) {
