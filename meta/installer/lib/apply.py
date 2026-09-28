@@ -147,12 +147,13 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
 
 
 def _same(path: Path, body: str | bytes) -> bool:
-    """Is the file already exactly this content? Bytes compare as bytes; text
-    compares as text (an unreadable file is simply not equal)."""
+    """Is the file already exactly the bytes we would write? Text is written
+    with newline="\\n" (no translation), so its bytes are body.encode("utf-8");
+    comparing decoded text would fold CRLF and never match a CRLF source."""
+    want = body if isinstance(body, bytes) else body.encode("utf-8")
     try:
-        return (path.read_bytes() == body if isinstance(body, bytes)
-                else path.read_text(encoding="utf-8") == body)
-    except (OSError, UnicodeDecodeError):
+        return path.read_bytes() == want
+    except OSError:
         return False
 
 

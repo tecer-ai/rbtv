@@ -4,6 +4,7 @@ ones it owns.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from discovery import Refuse, SKILL_FILE
@@ -34,14 +35,17 @@ def _loader(part: str, desc: str, entry: str, what: str, named: bool) -> str:
             "instructions.\n")
 
 
+_FRONTMATTER = re.compile(r"---\r?\n(?:.*?\r?\n)?---\r?\n", re.S)
+
+
 def _mark(text: str) -> str:
     """Stamp *text* with the ownership marker (D12), AFTER any YAML frontmatter
-    — a marker above a loader's `---` block would stop that block parsing."""
-    if text.startswith("---\n"):
-        end = text.find("\n---\n", 3)
-        if end != -1:
-            cut = end + len("\n---\n")
-            return text[:cut] + "\n" + MANAGED_BANNER + text[cut:]
+    — a marker above a loader's `---` block would stop that block parsing.
+    CRLF counts: a Windows checkout (core.autocrlf) delivers `---\\r\\n`."""
+    front = _FRONTMATTER.match(text)
+    if front:
+        cut = front.end()
+        return text[:cut] + "\n" + MANAGED_BANNER + text[cut:]
     return MANAGED_BANNER + text
 
 

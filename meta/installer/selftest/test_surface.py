@@ -273,24 +273,29 @@ def ls_li_doctor(ctx) -> None:
           and "hitfile" in dcol["path-collision"]["detail"]
           and "not a symlink" in dcol["path-collision"]["detail"],
           dcol["path-collision"]["detail"])
-    nox = tmp / "not-exec.py"
-    nox.write_text("print(1)\n", encoding="utf-8")
-    nox.chmod(0o644)
-    (ghost / "noexec").symlink_to(nox)
-    nexec_cat = {
-        "amod/acomp": {
-            "id": "amod/acomp", "module": "amod",
-            "component": "acomp", "kind": "component",
-            "manifest": True, "tree": "repo",
-            "path": str(tmp),
-            "rows": [{"part-id": "noexec", "method": "path"}]}}
-    dnx = {c["name"]: c for c in do_doctor(
-        tws, DISCOVER_CWD, nexec_cat, [], rtree, mtree)["checks"]}
-    check("SURF-doctor-not-exec — names the non-executable dest",
-          dnx["path-not-executable"]["level"] == "warn"
-          and "noexec" in dnx["path-not-executable"]["detail"]
-          and "not executable" in dnx["path-not-executable"]["detail"],
-          dnx["path-not-executable"]["detail"])
+    if os.name == "nt":
+        # Windows has no execute bit (os.access X_OK is true for any file);
+        # there a PATH entry with no interpreter is refused at add time.
+        skip("SURF-doctor-not-exec", "POSIX-only: Windows has no execute bit")
+    else:
+        nox = tmp / "not-exec.py"
+        nox.write_text("print(1)\n", encoding="utf-8")
+        nox.chmod(0o644)
+        (ghost / "noexec").symlink_to(nox)
+        nexec_cat = {
+            "amod/acomp": {
+                "id": "amod/acomp", "module": "amod",
+                "component": "acomp", "kind": "component",
+                "manifest": True, "tree": "repo",
+                "path": str(tmp),
+                "rows": [{"part-id": "noexec", "method": "path"}]}}
+        dnx = {c["name"]: c for c in do_doctor(
+            tws, DISCOVER_CWD, nexec_cat, [], rtree, mtree)["checks"]}
+        check("SURF-doctor-not-exec — names the non-executable dest",
+              dnx["path-not-executable"]["level"] == "warn"
+              and "noexec" in dnx["path-not-executable"]["detail"]
+              and "not executable" in dnx["path-not-executable"]["detail"],
+              dnx["path-not-executable"]["detail"])
     _RUNTIME["bin"] = saved_bin
     if saved_path is None:
         os.environ.pop("PATH", None)

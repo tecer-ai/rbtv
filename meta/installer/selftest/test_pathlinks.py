@@ -139,7 +139,7 @@ def path_links(ctx) -> None:
           ucode == "path-collision"
           and usurper.is_file()
           and not usurper.is_symlink()
-          and usurper.read_text() == "a real file, not ours\n",
+          and usurper.read_text(encoding="utf-8") == "a real file, not ours\n",
           f"code={ucode} exists={usurper.exists()}")
     usurper.unlink()
 
@@ -153,7 +153,7 @@ def path_links(ctx) -> None:
     except Refuse as exc:
         check("L-gate-drop-refuses-regular",
               exc.code == "path-collision" and victim.is_file()
-              and victim.read_text() == "real file\n", exc.code)
+              and victim.read_text(encoding="utf-8") == "real file\n", exc.code)
     victim.unlink()
 
     n1 = tmp / "n1src"
