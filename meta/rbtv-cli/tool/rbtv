@@ -36,10 +36,9 @@ function topHelp() {
     '',
     'ACT (delegates — no second implementation)',
     '  rbtv install <verb>        install here: add|rm|set|ls|li|doctor',
-    '  rbtv ignite daemon <verb>  daemon lifecycle: start|restart|stop|kill|unit|deploy',
-    '  rbtv ignite <command>      the ignite gateway client (jobs, queue, sessions)',
-    '  rbtv goal <verb>           goals-tree: scaffold|reindex|lint|materialize|lane',
-    '  rbtv run <run-folder>      advance a run ATTACHED to this terminal (the daemon\'s engine, in-process)',
+    '  rbtv teambuild <verb>      browse component databases: agents|units|seats|tasks|workflows|search',
+    '  rbtv embed-search <verb>   index a folder and rank markdown sections',
+    '  rbtv control-panel <verb>  build the control panel page',
     '',
     'ORIENT',
     '  rbtv doctor                can this tool work here? delegates present? substrate readable?',
@@ -50,11 +49,11 @@ function topHelp() {
     '  --pretty   human mode: colour + alignment. Never chosen by TTY detection.',
     '  --rules    with a drill level: also deliver that scope\'s rule BODIES.',
     '',
-    '⚠ `rbtv ignite daemon unit` exits 0 for any unit it could READ, including a failed or',
-    '  crash-looping one. Health is the `health` FIELD. Branch on it, never on the exit status.',
+    'Retired with Ignite 0.1, not routed: ignite daemon, ignite ticker, the gateway',
+    'client, goal, run.',
     '',
     'next: rbtv            (level 0 — start here)',
-    'per-command help: rbtv <module> <component>, or rbtv ignite --help for the gateway client',
+    'per-command help: rbtv <verb> -h, or rbtv <module> <component>',
   ].join('\n');
 }
 
@@ -100,14 +99,10 @@ function main(argvIn) {
   if (head === 'doctor') return doctor(opts);
   if (head === 'selftest') return runSelftest();
 
-  // RESOLUTION ORDER, and it exists because `ignite` is BOTH a module and a verb
-  // namespace — the registry rules both `rbtv <module> <component>` (the drill) and
-  // `rbtv ignite <subcommand>` (the gateway client) onto the same two tokens.
-  //
-  // A bare module token is ALWAYS the drill: `rbtv ignite` lists components, it
-  // never delegates. At position 2 the token decides — a multi-token route
-  // (`ignite daemon`, `ignite ticker`) first, then a component, then a
-  // module-level verb. A token that is BOTH is refused, never silently resolved:
+  // RESOLUTION ORDER. A bare module token is ALWAYS the drill: `rbtv ignite`
+  // lists components, it never delegates. At position 2 a multi-token route wins
+  // first, then a component, then a module-level verb. A token that is BOTH is
+  // refused, never silently resolved:
   // guessing which one the caller meant is how the wrong thing runs. selftest
   // asserts the two sets stay disjoint per module, so that refusal is a tripwire
   // for a future collision rather than a path anyone is expected to hit.

@@ -50,13 +50,11 @@ owner's audio/Slack skills split of 2026-08-30.
 - `exposure.csv` — the `audio` row (the mandatory first-party tool inventory), one row per file
   in `references/` (`rule` for the three style rules, `skill` for `audio-aware`, `audio-io`,
   `slack-message-format`), plus `link-tools`.
-- `link-tools.py` — puts `audio` on `~/.local/bin`, idempotently, so an UNCAGED chair (which never
-  gets a cage's `~/.rbtv-bin` shim) can also reach it bare-name: an uncaged daemon-spawned sitting
-  gets `~/.local/bin` on PATH via `ignite/supervisor/spawn/spawn.js`'s `local-bin: true` grant.
-  Run it once per box (`python3 core/communication/link-tools.py`) — analogous to, and
-  deliberately separate from, `ignite/deploy/link-tools.py` (that script is scoped to the ignite
-  module only, by its own docstring). Without it, `audio` is a manual per-box symlink that does not
-  survive a rebuild or a second machine (measured 2026-08-31).
+- `link-tools.py` — puts `audio` on `~/.local/bin`, idempotently, so a caller that
+  has that directory on PATH can reach it bare-name. Run it once per box
+  (`python3 core/communication/link-tools.py`). It links this component's tools only.
+  Without it, `audio` is a manual per-box symlink that does not survive a rebuild or
+  a second machine (measured 2026-08-31).
 
 **RELOCATED 2026-08-21** from the `communication/` MODULE (`mirror/communication/audio/`) to
 `core/communication/`, where the former component `audio` is now a capability — owner instruction.

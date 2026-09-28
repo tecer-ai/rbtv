@@ -1,6 +1,7 @@
 """Performing one install or one uninstall over a chosen set."""
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 
 from discovery import EXPOSURE_NAME, Refuse
@@ -263,7 +264,10 @@ def do_install(target: Path, catalog: dict[str, dict], picked: list[str],
 def do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
                  dry_run: bool, parts: list[str] | None = None) -> dict:
     state = upgrade_book(read_state(target), catalog_parts_map(catalog))
-    records = dict(state.get("components") or {})
+    # Deep copy: popping a part mutates the dict apply() later reads as the
+    # previous book. A shallow copy left removed part files off the stale set,
+    # so uninstall forgot them instead of deleting them.
+    records = copy.deepcopy(state.get("components") or {})
     missing = [cid for cid in picked if cid not in records]
     if missing:
         raise Refuse("not-installed",
