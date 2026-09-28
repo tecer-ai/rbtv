@@ -31,7 +31,7 @@ A component name carrying **two facets delivers both** — `core safe-move` is a
 loader) and a tool (the package it loads). Handing over whichever the manifest listed first would
 make the answer depend on key order.
 
-**Exit codes** (the `sd-graph` / `rbtv-goal` / `daemon-operator` convention): `0` success · `1`
+**Exit codes**: `0` success · `1`
 refusal or not-found · `2` usage error. A delegated call's exit code is **the delegate's**,
 unchanged.
 
@@ -106,13 +106,11 @@ CLI produces. Rules ride the result as **names + descriptions + paths always**, 
 - **No auth of its own.** Nothing here reads a token value into argv. `doctor` reports
   `IGNITE_SENDER_TOKEN` **presence** only. The selftest asserts a token value never
   reaches stdout or stderr.
-- **No Ignite 0.1 verbs.** `ignite daemon`, `ignite ticker`, the gateway client, `goal`
-  and `run` are not routed.
+- **Only declared routes.** A verb with no current component entry is refused.
 
 ## Install
 
-Per-machine symlink, never synced by git — the convention `sd-graph` and `ignite-agent`
-already follow on this box:
+Per-machine symlink, never synced by git — the convention `ignite-agent` also follows:
 
 ```
 ln -sfn <rbtv_path>/meta/rbtv-cli/tool/rbtv ~/.local/bin/rbtv

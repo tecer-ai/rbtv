@@ -1,43 +1,30 @@
 ---
-description: Primer addendum, read at the moment of structuring a workflow DAG, authoring its manifest, or binding its taskforce — the workflow/graph mechanics the primer under-covers.
+description: Structure a reusable component workflow manifest and its seat catalog
 tags: [planning]
 ---
 
-# Workflow anatomy — the graph side, in practice
+# Workflow anatomy — reusable component definitions
 
-Companion page to `system-definition/primer.md` (orientation; read it first — this page adds the workflow/graph mechanics it under-covers). You are structuring a DAG, defining task edges, assembling a manifest, or binding executors — the same mechanics serve an ad-hoc goal, an optimize pass, a port, and a scaffold build. `sd-graph show <term>` every term before use. Component-side artifacts (pools, `seats.csv`, capability folders) are `component-anatomy.md`'s (sibling) — nothing component-side is decided here.
+A reusable workflow lives in its owning component at `workflows/<name>/` with a `workflow.md`
+that explains its purpose and a `<name>.csv` manifest that orders its seats. It is component
+scaffolding. A console seat plan follows `plan.md` instead and has no manifest or seat catalog.
 
-## 1 — Where the definition lands (two inscriptions)
+## Catalog and manifest
 
-- **Scaffolding** (a cataloged product — an optimize, port, or scaffold output, or explicit owner intent): a workflow folder `workflows/<workflow>/` in its owning component, pairing `workflow.md` (the entry point — the workflow's OWN goal · scope · procedure prose, its body, never assembled from units) with `<workflow>.csv` (`sd-graph show "workflow folder"`).
-- **Goal folder** (ephemeral — the default for an ad-hoc goal's product): NO workflow folder, no catalog rows; the run's `taskforce.csv` plus each produced seat's FULL-content `seat.md` IS the inscription (`d-planning-ephemeral-default`). A reused cataloged seat is named by its source prompt/task ids in `seat.md` frontmatter.
+A component seat has one `seats.csv` row pairing a prompt with a task. The workflow manifest
+references those seat ids; it does not duplicate prompt or task content. Give each seat one
+bounded job and a done contract its reader can verify. Keep reusable prompts and tasks in the
+component's flat `prompts/` and `tasks/` pools.
 
-## 2 — The manifest (`<workflow>.csv`)
+The manifest's `after` field names a real data dependency: the predecessor's output is an input
+to this row. Independent rows remain roots. Check that the graph has no cycle and that every
+input named by a seat is supplied by its entry request or a predecessor. A conditional branch
+needs a written decision rule and an explicit result for each arm. Do not encode priority or a
+shared-file lock as an `after` edge; document a custody rule for that resource.
 
-One row = one seat REFERENCE — a seat-id minted in `seats.csv` (the manifest ORDERS seats, never joins executor to task), or a nested workflow. Columns — Seat/workflow · `after` · i/o · Modality — per `sd-graph show "workflow manifest"`. There is no Order column: order is derived from the DAG, and authoring one is a defect.
+## Registration check
 
-## 3 — `after` sets: an edge is data moving, nothing else
-
-- Author an edge ONLY where a datum actually crosses: the upstream seat's OUTPUT is the downstream seat's SEED. No datum, no edge — birth order, narrative sequence, and caution mint no edges.
-- Empty `after` = a root; independent rows run in parallel; the graph MUST be acyclic (goal-lint rejects cycles).
-- Routing without judgment: an `after` entry may carry a guard `ref[field=value]`, evaluated deterministically by the edge-runner against the predecessor's validated output; `a|b` is a whichever-ran join. Judgment lives at seats; edges only verify and route.
-
-## 4 — Seed flow and edge checks (what your authoring must survive)
-
-- The entry seat's seed comes from the workflow's entry capability; every other seed is machine-fed from an upstream output. A seat starts when its `after` set is satisfied AND its declared inputs exist — so every seat declares its i/o, and an undeclared input is a seat that never starts.
-- On each seat finish, the edge job runs the check derived from that seat's done contract. Author every done contract MACHINE-CHECKABLE — an edge job cannot verify prose intent; a contract you cannot state as a runnable check is not finished being authored.
-
-## 5 — `taskforce.csv`: the run's binding
-
-- ONE per run (`sd-graph show "taskforce-descriptor"`); each planning pass APPENDS its team's rows — never a file per milestone.
-- A row binds one seat to its executor: harness + model + effort + ctx-refresh for an agent; capability→tool for a deterministic seat. Binding is LATE: no static file names a model or harness — recommendations live as hints (the seat catalog's per-pairing staffing-hints override the prompt's frontmatter), bound only here.
-- **The taskforce also carries the goal's STAFF CHAIR.** `leader` is MANDATORY — every taskforce staffs one. It holds no manifest node or `after` set: it is an ON-DEMAND chair reached by mail, minted into `taskforce.csv` by `goal-materialize` itself, so no seat you author declares it and no edge points at it. It is minted only where a casting sheet exists at `.rbtv/config/modules/<module>/<component>/bindings/leader.json`; its absence is a materialize WARNING, because the goal then has no chair for a routed FAIL, a mid-run ask or the session-closer's staff mail to reach.
-- `after` (guards included) is FROZEN-copied from the manifest at instantiation — a mid-run manifest edit never rewires a live run. No status column exists: run state is DERIVED from disk artifacts, never stored here.
-
-## 6 — The pipeline gate (who acts)
-
-Registered plan → goal-lint exit 0 → `goal-materialize` (deterministic, queue-fired) → launch → deterministic edge jobs advance the DAG. You author and register; the daemon opens, materializes, and advances. Your closing act is VERIFYING ON DISK what materialize produced — never trusting the registration.
-
-## Stop rule
-
-A graph need the manifest/taskforce contracts cannot express (a cycle you think you need, a non-deterministic guard, a status column): STOP and surface it — the contract is the constraint, not a suggestion.
+Read `workflow-authoring-checklist.md` for each row. Then run `component-lint` on the owning
+component, inspect its census, and verify that every manifest id resolves to a catalog row and
+that every catalog row resolves to existing prompt and task files. A definition is finished when
+its entry point, dependencies, and failure routes are understandable without a running instance.

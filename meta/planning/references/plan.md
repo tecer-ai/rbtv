@@ -86,7 +86,13 @@ Nothing seat-specific goes here: a fact true of ONE seat belongs in that seat's 
 
 ## `seats/<name>/seat.md` — one self-contained unit
 
-**Frontmatter.** `cast seat <seat-folder>` reads exactly three keys from it — `harness`, `model`, `effort` — and refuses (exit 2) when the folder holds no `seat.md`. All three MUST be present, each one plain scalar on its own line inside the leading `---` block; a quoted, nested, or space-carrying value is not read. Their VALUES are yours to choose as the plan's author: this file mandates the KEYS and NEVER which executor a seat gets. Any further key — `seat`, `description`, `cwd` — is spelled as the live seat standard spells it, and NEVER invented here. NEVER carry a key only the materializer consumes (`exposes`, `goal-writes`, `rw-paths`, `human-interactive`): no materializer and no sandbox run here, so those keys mint nothing, bind nothing, and grant nothing — an instrument the seat needs is named in its BODY, in prose. The seat FOLDER's own standard surfaces are declaration 4 of `references/workflow-authoring-checklist.md`, and a plan seat folder follows it unchanged.
+**Frontmatter.** `cast seat <seat-folder>` reads exactly three keys from it — `harness`, `model`, `effort` — and refuses (exit 2) when the folder holds no `seat.md`. All three MUST be present, each one plain scalar on its own line inside the leading `---` block; a quoted, nested, or space-carrying value is not read. Their VALUES are yours to choose as the plan's author: this file mandates the KEYS and NEVER which executor a seat gets. Any further key — `seat`, `description`, `cwd` — is spelled as the live seat standard spells it, and NEVER invented here. Do not carry component workflow keys (`exposes`, `goal-writes`, `rw-paths`, `human-interactive`): they grant nothing in a console seat plan. Name each instrument in the seat BODY with its purpose and invocation. The seat folder holds `seat.md`; create `report.md` when the seat finishes and any scratch files only when needed. Shared outputs go at paths named by both producer and consumer in their seat bodies.
+
+**Instrument selection.** While authoring each seat body, check the existing catalog before
+inventing a tool: run `python3 meta/planning/capabilities/capability-cards/tool/capability_cards.py
+list` from the rbtv repo, or `show <part-id>` for a candidate. Its cards describe exposed
+component resources; the tool's `-h` is the command reference. Put the selected command and
+its purpose in that seat's body, since a console seat has no exposure grant or generated loader.
 
 **ALWAYS verify a seat launches before the plan is handed over:** `cast seat <seat-folder> --dry-run` prints the composed argv and exits 0 without launching. A frontmatter typo is otherwise found by the orchestrator, mid-run, on a seat it cannot start.
 

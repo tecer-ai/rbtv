@@ -13,10 +13,8 @@ CARD_FIELDS = ["part-id", "part-kind", "component", "module", "method", "entry-p
 
 # The rbtv repo root — this file's own position is `<repo>/meta/planning/capabilities/
 # capability-cards/tool/capability_cards.py`, five levels down. Derived, never hardcoded to a
-# user's home: `.rbtv/mirror/` (the old default) is a partial installer copy — a 5-card slice
-# of the ~182 cards the real repo carries, and it doesn't exist at all from a seat folder
-# (owner ethos rung 2: shop capability cards before inventing a tool; a seat that trusts the
-# default must see the real catalog, not a sliver of it).
+# user's home: an installed mirror is a partial copy of the repo catalog and may not exist
+# from a plan seat folder. The default must give the seat author the full shipped catalog.
 DEFAULT_ROOT = str(Path(__file__).resolve().parents[5])
 
 

@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """component-lint — one growing deterministic lint over an rbtv component folder.
 
-Detection only; never writes. Owner ruling D19 (planning-v4-build decisions.md)
-picks the check roster; the design is `evidence/E-mechanization-survey.md` § 3.
+Detection only; never writes. It checks source component files and their exposure manifest.
 
 Two carried requirements bind every check:
   1. the census is printed AND gated — a check that discovered nothing where its
@@ -12,14 +11,9 @@ Two carried requirements bind every check:
 
 Exit: 0 clean · 1 findings · 2 broken preconditions.
 
-Target scope (7.625 ruling): any mirror/meta component, not only planning. A
-component's seats.csv must share the five-column header PREFIX (seat-id,
-executor, task, staffing-hints, description) and may append columns after it
-(master adds cage-grants, rw-paths — read positionally, extras ignored);
-a header diverging inside the prefix is still a broken precondition. Checks
-whose surface is planning-shaped guard their vacuity tripwire per component
-shape (see check_dimension_roster) instead of failing components that
-legitimately lack the surface.
+Target scope: any component. A seat catalog shares the five-column header prefix
+(seat-id, executor, task, staffing-hints, description); extra columns are read
+positionally and do not change that prefix.
 """
 
 import argparse
@@ -35,7 +29,7 @@ from pathlib import Path, PurePosixPath
 
 # ---------------------------------------------------------------- vocabularies
 # HARDCODED + CROSS-CHECKED. Each vocabulary below is asserted against the
-# artifact that owns it (a reference page, or the KG record) at run time, so a
+# artifact that owns it (a reference page, or an optional query) at run time, so a
 # silent copy cannot drift: the two police each other. Never "just update" one
 # side — a mismatch is a finding on THIS FILE.
 
@@ -44,10 +38,7 @@ from pathlib import Path, PurePosixPath
 EXPOSURE_METHODS = ("skill", "command", "rule", "hook", "sub-agent",
                     "agents.md", "config", "path", "pool")
 
-# Owner: references/exposure.md §1 (stated from `sd-graph show "exposure
-# manifest"` § file schema, part-kind column; the tool inventory ruling above
-# mints the `tool` value; the seventh value `plugin/MCP` is owner-ruled
-# 2026-08-15, sd `decisions.md#d-exposure-part-kind-plugin-mcp`).
+# Owner: references/exposure.md § Row rules.
 EXPOSURE_PART_KINDS = ("capability", "reference", "workflow", "task", "prompt", "tool",
                       "plugin/MCP")
 
@@ -56,8 +47,7 @@ EXPOSURE_PART_KINDS = ("capability", "reference", "workflow", "task", "prompt", 
 # DANGER SIGIL `!` and takes the entry-point grammar (component-relative or
 # `ws:<path-from-the-workspace-root>`, no `..`). The marker is IN-CELL and
 # the header stays SEVEN columns: it qualifies one entry, not the row. An
-# unmarked entry is refused HERE and at materialize both — a write grant is
-# never inferred.
+# unmarked entry is refused here; a write root is never inferred.
 EXPOSURE_HEADER = ["part-id", "part-kind", "method", "rbtv-cli", "entry-point",
                    "description", "write-roots"]
 DANGER_SIGIL = "!"
@@ -68,15 +58,13 @@ WS_PREFIX = "ws:"
 # point at some other file.
 EXPOSES_CLI_KEY = "exposes-cli"
 
-# Owner: `sd-graph show "workflow manifest"` (Modality column desc).
+# Owner: references/workflow-anatomy.md (manifest modality).
 MODALITIES = ("deterministic", "agentic", "interactive")
 
 MANIFEST_HEADER = ["Seat/workflow", "after", "i/o", "Modality"]
 SEATS_HEADER = ["seat-id", "executor", "task", "staffing-hints", "description"]
 
-# Owner: `sd-graph show "cognitive unit"` § Requirement matrix. Section tag per
-# matrix kind; only top-level (non-indented) kinds are sections — the nested
-# ones (persona/agent type; input/outcome/output) are sub-kinds, M6's subject.
+# Owner: references/file-prompt.md and references/file-task.md.
 KIND_TAGS = {
     "role": "role", "procedure": "procedure", "permissions": "permissions",
     "restrictions": "restrictions", "constraints": "constraints",
@@ -101,11 +89,6 @@ ORDER = {
 # Owner: D14 (interactive-seat doctrine) via D19's typed-field pick.
 FALLBACK_ARMS = ("park", "default-and-disclose", "block-and-queue")
 AUTONOMOUS_ARM = "Autonomous arm —"  # the step marker a block-and-queue <procedure> carries
-
-# Owner ruling 2026-08-10 (execution-mode lifecycle). The field a workflow
-# definition declares, and the goal.md field a workflow-producing run carries it
-# from. Absent on both sides is legal: the creation path derives from Modality.
-DECLARED_MODE = re.compile(r"^default-execution-mode:\s*(\S+)\s*$", re.M)
 
 SECTION_OPEN = re.compile(r"^<([a-z][a-z0-9-]*)((?:\s[^>]*)?)>\s*$")
 SECTION_CLOSE = re.compile(r"^</([a-z][a-z0-9-]*)>\s*$")
@@ -285,18 +268,13 @@ def normalize(block):
 class Component:
     """Everything every check needs, parsed ONCE (survey §3 reason 1)."""
 
-    def __init__(self, root, extra_roots, cards_root, home=None, goal=None, produced=()):
+    def __init__(self, root, extra_roots, cards_root, home=None):
         # ABSOLUTE, always: every entry-point check is `c.root / entry` tested
         # for a `..` part. A relative --component (`../../..`, the natural form
         # from a nested cwd) would put its OWN `..` into every one of those
         # joins and make every entry point read as an escape.
         self.root = Path(root).resolve()
         self.home = Path(home) if home else HOME
-        # The produced-workflow pairing: the goal folder whose goal.md carries
-        # the owner's confirmed default, and the workflow names THAT goal
-        # produced into this component. Absent -> M11 is not applicable.
-        self.goal = Path(goal) if goal else None
-        self.produced = list(produced)
         if not self.root.is_dir():
             raise Precondition(f"component path is not a directory: {self.root}")
         self.extra_roots = [Path(r) for r in extra_roots]
@@ -331,7 +309,7 @@ class Component:
         rows, offset = read_csv(path, "seats")
         header, data = rows[0], rows[1:]
         # Prefix match (7.625): a component may append columns after the shared
-        # five (master adds cage-grants, rw-paths); rows are read
+        # five; rows are read
         # positionally from the shared prefix, so extras are ignored, but a
         # header that diverges INSIDE the prefix is still refused.
         if header[:len(SEATS_HEADER)] != SEATS_HEADER:
@@ -429,8 +407,7 @@ def workspace_root(start):
     """The first ancestor of `start` holding a `.rbtv/config/` DIRECTORY — the
     base a `ws:` entry-point resolves against — or None when none does.
 
-    Mirrors `materialize-seats.py#_workspace_root`, which REFUSES where this
-    returns None: a linter reports findings, it never raises."""
+    A missing workspace returns None so the caller can report a finding."""
     start = Path(start).resolve()
     for parent in (start, *start.parents):
         if (parent / ".rbtv" / "config").is_dir():
@@ -506,7 +483,7 @@ def check_exposure_canon(c, out, census):
                 _fail(out, "exposure-canon", where,
                       f"entry-point climbs out of its component with `..`: {raw} — reach a "
                       "workspace tool with `ws:<path-from-the-workspace-root>` instead "
-                      "(materialize REFUSES this at generation time)")
+                      "(the installer refuses this path)")
             elif not target.exists():
                 _fail(out, "exposure-canon", where, f"entry-point does not exist on disk: {entry}")
             elif not os.access(target, os.X_OK):
@@ -525,8 +502,7 @@ def check_exposure_canon(c, out, census):
 def _check_write_roots(c, out, where, part_id, method, cell):
     """The SEVENTH column. Same two rules as the entry-point (`ws:` base, then
     the `..` refusal) plus the danger sigil every entry must carry — stated in
-    ONE place so the lint and `materialize-seats.py#_write_roots` cannot drift
-    into two different grammars."""
+    one place so exposure checks use the same grammar."""
     cell = (cell or "").strip()
     if not cell:
         return
@@ -550,7 +526,7 @@ def _check_write_roots(c, out, where, part_id, method, cell):
                   f"{part_id!r} declares write-root {authored!r} — the marker carries no path")
             continue
         # Prefix stripped BEFORE the `..` test, matching the entry-point rule and
-        # `materialize-seats.py#_write_roots`: `!ws:../x` and `!../x` take ONE rule.
+        # `!ws:../x` and `!../x` take one rule.
         prefixed = body.startswith(WS_PREFIX)
         rel = body[len(WS_PREFIX):] if prefixed else body
         if ".." in PurePosixPath(rel).parts:
@@ -571,7 +547,7 @@ def _check_write_roots(c, out, where, part_id, method, cell):
         if not target.is_dir():
             _fail(out, "exposure-canon", where,
                   f"{part_id!r} declares write-root {authored!r}, which is no directory on "
-                  f"disk ({target}) — the cage binds it, and bwrap needs a source that exists")
+                  f"disk ({target}) — a write root must exist before installation")
 
 
 def _skill_cli_refs(path):
@@ -591,9 +567,8 @@ def _skill_cli_refs(path):
 
 def _check_skill_clis(c, out, where, part_id, entry_path, census):
     """`skill-cli-dangling` — every `exposes-cli:` ref on a skill's entry point
-    resolves to a `method=path` row. Enforced HERE and at materialize both: the
-    lint catches it while the author still holds the file, materialize catches
-    it before a dead reference reaches a seat."""
+    resolves to a `method=path` row. Lint catches it while the author still
+    holds the source file, before a dead reference reaches an installed skill."""
     refs = _skill_cli_refs(entry_path)
     if refs is None:
         return                                   # absence is normal
@@ -605,13 +580,13 @@ def _check_skill_clis(c, out, where, part_id, entry_path, census):
                   "list of part references")
             continue
         if ref.strip().startswith("rbtv:"):
-            continue                                # resolved by materialize, not here
+            continue                                # resolved by the installer, not here
         ref_dir, pid = _ref_target(c.root, ref.strip())
         if ref_dir is None:
             _fail(out, "exposure-canon", entry_path,
                   f"skill {part_id!r} routes to CLI {ref!r} — a reference is `part`, "
                   "`component/part`, or `module/component/part` (`rbtv:` refs are resolved by "
-                  "materialize against the repo and are not checked here)")
+                  "resolve against the repo and are not checked here)")
             continue
         rows = _exposure_index(ref_dir)
         if rows.get(pid) != "path":
@@ -624,7 +599,7 @@ def _check_skill_clis(c, out, where, part_id, entry_path, census):
 def _ref_target(comp_dir, ref):
     """(component dir, part-id) for one `exposes:`-grammar reference, or
     (None, ref) when the grammar refuses it. `rbtv:` refs return (None, ...)
-    deliberately: resolving them needs the repo root materialize derives from
+    deliberately: resolving them needs the repo root
     rbtv.json, and a linter that guesses it would report a false dangling."""
     if ref.startswith("rbtv:"):
         return None, ref
@@ -723,7 +698,7 @@ def check_seat_integrity(c, out, census):
 
     if c.manifests:
         # A no-manifest seat is sanctioned by a sub-agent or pool exposure row
-        # on its executor prompt (owner-ruled, planning-v4 D22); neither → FAIL.
+        # on its executor prompt; neither → FAIL.
         sanctioning = {r["fields"][0] for r in c.exposure["rows"]
                        if len(r["fields"]) == len(EXPOSURE_HEADER)
                        and r["fields"][2] in ("sub-agent", "pool")}
@@ -779,7 +754,7 @@ def check_task_no_context(c, out, census):
 
     WARN, not FAIL, on an already-MATERIALIZED seat.md: live descriptors carry
     the field from before the deletion and a re-render drops it
-    (`materialize-seats.py#RETIRED_DESCRIPTOR_KEYS`). This check reads tasks and
+    This check reads tasks and
     components, where it REFUSES."""
     census["task-context"] = 0
     if not c.tasks:
@@ -814,7 +789,7 @@ def kg_matrix(kg_cmd):
     """The Requirement matrix as the KG record states it: {carrier: {tag: status}}.
     Raises Precondition when the record cannot be read — never a silent skip."""
     # Resolve the binary through PATH ourselves: Windows CreateProcess does NOT
-    # apply PATHEXT, so a `sd-graph.cmd` sitting on PATH is invisible to a
+    # apply PATHEXT, so a `query.cmd` sitting on PATH is invisible to a
     # shell=False subprocess and raises WinError 2 (IPH-22). shutil.which DOES
     # honor PATHEXT, and on POSIX it just returns the symlink's path — one
     # cross-platform answer, no platform branch. Unresolvable -> leave the argv
@@ -869,9 +844,9 @@ def guide_order(c, carrier):
 
 def check_kind_sections(c, out, census, kg_cmd):
     """M5 — kind-section presence · order · uniqueness vs the requirement matrix."""
-    live = kg_matrix(kg_cmd)
+    live = kg_matrix(kg_cmd) if kg_cmd else None
     for carrier in ("prompt", "task"):
-        if live[carrier] != MATRIX[carrier]:
+        if live is not None and live[carrier] != MATRIX[carrier]:
             _fail(out, "kind-sections", "component_lint.py",
                   f"requirement-matrix cross-check ({carrier}): hardcoded {MATRIX[carrier]} != "
                   f"KG record {live[carrier]} — update this file from the record, never the reverse")
@@ -1093,54 +1068,7 @@ def check_interactive_fallback(c, out, census):
                 for tag, _a, _l, body in sections_of(item["text"])):
             _fail(out, "interactive-fallback", item["path"],
                   f"fallback: block-and-queue with no {AUTONOMOUS_ARM!r} step in <procedure> — "
-                  "in autonomous mode the ask parks, nobody answers and the engine does not hold, "
-                  "so this arm IS the workaround and the procedure carries it in its own words")
-
-
-def check_declared_mode_carry(c, out, census):
-    """The owner's confirmed default execution mode survives into a workflow
-    definition PRODUCED by a planned taskforce.
-
-    The assembler drafts the declaration only where planning itself writes the
-    definition; on a scaffolding-output run the produced taskforce authors
-    `workflow.md` as normal work, and nothing downstream of the task text
-    carries the field. This is the edge check that task text names. Absent on
-    BOTH sides stays legal — the creation path derives from the Modality
-    column — so the check indicts a DROPPED value and an INVENTED one alike,
-    never the absence itself."""
-    goal_md = c.goal if c.goal.is_file() else c.goal / "goal.md"
-    if not goal_md.is_file():
-        raise Precondition(f"--goal names no goal.md: {goal_md}")
-    match = DECLARED_MODE.search(read_text(goal_md, "goal.md"))
-    declared = match.group(1) if match else None
-    census["produced-workflows"] = 0
-    for name in c.produced:
-        path = c.root / "workflows" / name / "workflow.md"
-        if not path.is_file():
-            _fail(out, "declared-mode-carry", path,
-                  f"--workflow {name} names no workflow definition on disk")
-            continue
-        census["produced-workflows"] += 1
-        fm = parse_frontmatter(read_text(path, "workflow definition"), str(path))
-        carried = fm.get("default-execution-mode")
-        carried = str(carried) if carried is not None else None
-        if declared and carried is None:
-            _fail(out, "declared-mode-carry", path,
-                  f"{goal_md} declares default-execution-mode: {declared} — the produced "
-                  "workflow definition declares none, so the owner's confirmed default was "
-                  "DROPPED and every goal born from this workflow will derive instead")
-        elif declared and carried != declared:
-            _fail(out, "declared-mode-carry", path,
-                  f"declares default-execution-mode: {carried} — {goal_md} carries "
-                  f"{declared}; the declaration is verbatim or it is wrong")
-        elif not declared and carried is not None:
-            _fail(out, "declared-mode-carry", path,
-                  f"declares default-execution-mode: {carried} while {goal_md} declares "
-                  "none — an invented declaration outranks the Modality derivation nobody "
-                  "asked it to override")
-    if not census["produced-workflows"]:
-        _fail(out, "declared-mode-carry", c.root / "workflows",
-              "discovered 0 produced workflow definitions — nothing was checked")
+                  "the procedure must state how this seat proceeds when no answer arrives")
 
 
 def declared_json_outputs(text):
@@ -1148,8 +1076,7 @@ def declared_json_outputs(text):
     `<io-spec>` `## Outputs` section; None when there is no such section at all.
 
     The section anchor, the backtick-and-slash artifact grammar, and the
-    JSON-only field surface are the EDGE RUNNER's, mirrored: a declaration this
-    cannot read is one the runner cannot read either. The field NAMES are the
+    JSON-only field surface are this check's format. The field NAMES are the
     authored convention (references/kind-io-spec.md): backticked bare tokens
     sharing the artifact's bullet."""
     io = next((b for tag, _a, _l, b in sections_of(text) if tag == "io-spec"), None)
@@ -1223,7 +1150,7 @@ ETHOS_BLOCK = re.compile(r"<!--\s*ethos:start\s*-->.*?<!--\s*ethos:end\s*-->", r
 # The exposure methods whose part-id is an instrument a prompt BODY would name.
 # Direction 1 (declared-but-unused) covers all three; direction 2
 # (used-but-undeclared) is scoped tighter — measured 2026-08-12 over the live
-# pool: workflow part-ids ("planning", "forge") and skill-method parts match
+# pool: workflow part-ids and skill-method parts match
 # ordinary prose vocabulary, not invocations, so direction 2 reads only
 # method=path parts (distinctive CLI names) and method=sub-agent parts on
 # lines that talk dispatch.
@@ -1243,7 +1170,7 @@ def check_exposes_body_match(c, out, census):
 
     Declared-but-unused: an entry nobody mentions is a grant that outlived the
     procedure that needed it. Used-but-undeclared: a prompt that names an
-    instrument it was never granted instructs a caged seat to run what it cannot
+    instrument it never declared instructs a seat to use an unavailable means
     reach (the measured unbound-CLI gap, 2026-08-10).
 
     ponytail: substring / word-boundary heuristics, not a parser — this is a
@@ -1314,7 +1241,7 @@ def check_exposes_body_match(c, out, census):
                 _fail(out, "exposes-body-match", item["path"],
                       f"body names the instrument {part!r} (exposure.csv "
                       f"method={instruments[part]}) but no exposes: group declares it — "
-                      "a caged seat cannot reach what it was not granted")
+                      "the prompt names a tool missing from its exposure declarations")
 
 
 RESOURCES_BULLET_CAP = 280
@@ -1349,7 +1276,7 @@ def check_resources_coverage(c, out, census):
     """Owner-ruled 2026-08-12 (workflow-authoring-checklist.md §2): every
     `exposes:` entry of method path/skill/sub-agent ALSO gets its own bullet
     inside the prompt's <resources> section, at most 280 characters — prose
-    a materializer-bound grant is not prose an OCCUPANT reads. Exempt: every
+    an exposure declaration is not prose an occupant reads. Exempt: every
     command/rule/hook entry (those arrive as standing behaviour, never a
     chosen instrument) — same exemptions check_exposes_body_match carries."""
     census["resources-entries"] = 0
@@ -1415,12 +1342,10 @@ CHECKS = [
     ("seat-integrity", ("seats.csv",), "M2 seat/manifest integrity, orphans, modality, acyclicity"),
     ("task-no-context", ("tasks",), "M3 task files carry no deleted context: field"),
     ("task-no-capabilities", ("tasks",), "M4 task files carry no retired capabilities: field"),
-    ("kind-sections", ("prompts", "tasks"), "M5 kind-section presence/order/uniqueness vs the KG matrix"),
+    ("kind-sections", ("prompts", "tasks"), "M5 kind-section presence/order/uniqueness"),
     ("dimension-roster", ("tasks", "seats.csv"), "M10 check-dimension roster coverage"),
     ("carried-blocks", ("*.md",), "M7 byte-diff of every source= carried block"),
     ("interactive-fallback", ("prompts",), "M9 human-interactive <-> fallback: <-> interactive modality"),
-    ("declared-mode-carry", ("--goal + --workflow",),
-     "M11 produced workflow.md carries goal.md's default-execution-mode verbatim"),
     ("fork-discharge", ("workflows",),
      "M12 every manifest guard is served by its predecessor's declared ## Outputs"),
     ("exposes-body-match", ("prompts", "exposure.csv"),
@@ -1435,7 +1360,6 @@ RUNNERS = {
     "task-no-context": check_task_no_context, "task-no-capabilities": check_task_no_capabilities,
     "dimension-roster": check_dimension_roster, "carried-blocks": check_carried_blocks,
     "interactive-fallback": check_interactive_fallback,
-    "declared-mode-carry": check_declared_mode_carry,
     "fork-discharge": check_fork_discharge,
     "exposes-body-match": check_exposes_body_match,
     "resources-coverage": check_resources_coverage,
@@ -1445,11 +1369,7 @@ RUNNERS = {
 def surface_present(c, name):
     return {"exposure.csv": c.exposure is not None, "seats.csv": c.seats is not None,
             "prompts": c.prompts is not None, "tasks": c.tasks is not None,
-            "*.md": bool(c.markdown), "workflows": c.manifests is not None,
-            # Both halves, never one: the pairing IS the surface. Naming no
-            # produced workflow would silently widen the check to definitions
-            # this goal never produced, and every one of those would fail.
-            "--goal + --workflow": bool(c.goal and c.produced)}[name]
+            "*.md": bool(c.markdown), "workflows": c.manifests is not None}[name]
 
 
 # ------------------------------------------------------------------------ main
@@ -1459,8 +1379,7 @@ def lint_component(component, args):
     Returns the raw result dict; printing and exit-code policy stay with the
     caller (run() for one component, sweep() for --all) so both share this
     without duplicating the check loop."""
-    c = Component(component, args.root, args.cards_root, args.home,
-                  args.goal, args.workflow)
+    c = Component(component, args.root, args.cards_root, args.home)
     census = {"prompts": len(c.prompts or {}), "tasks": len(c.tasks or {}),
               "seats": len(c.seats["rows"]) if c.seats else 0,
               "manifests": len(c.manifests or []),
@@ -1520,10 +1439,6 @@ def print_component_result(result):
 
 
 def run(args):
-    # Half the pairing is an operator error, never a skip: whoever asked for the
-    # carry check must get it or an error, never a quiet "not applicable".
-    if bool(args.goal) != bool(args.workflow):
-        raise Precondition("--goal and --workflow are declared together or not at all")
     result = lint_component(args.component, args)
     fails = [f for f in result["findings"] if f["severity"] == "FAIL"]
     if args.json:
@@ -1534,8 +1449,7 @@ def run(args):
 
 
 def find_components(mirror_root):
-    """Every directory under `mirror_root` carrying a component.md — "no
-    component.md, no component" (sd-graph, component-anatomy.md). Enumerated
+    """Every directory under `mirror_root` carrying a component.md. Enumerated
     from the tree, never a hand-written list, so a component added later is
     covered without editing this file."""
     return sorted({p.parent for p in mirror_root.rglob("component.md")})
@@ -1636,16 +1550,8 @@ def main(argv=None):
     p.add_argument("--home", default=None, metavar="PATH",
                    help="component holding the references the hardcoded vocabularies are "
                         "cross-checked against (default: the component this tool ships in)")
-    p.add_argument("--kg", default="sd-graph", metavar="CMD",
-                   help="the read-only KG query command the requirement matrix is "
-                        "cross-checked against (default: %(default)s)")
-    p.add_argument("--goal", default=None, metavar="PATH",
-                   help="the goal folder (or goal.md) a workflow-producing run planned; "
-                        "with --workflow, enables the declared-mode-carry check")
-    p.add_argument("--workflow", action="append", default=[], metavar="NAME",
-                   help="a workflow folder name THIS goal produced into the component "
-                        "(repeatable); required with --goal, so the check never widens "
-                        "onto definitions the goal never produced")
+    p.add_argument("--kg", default="", metavar="CMD",
+                   help="optional read-only query for cross-checking the requirement matrix")
     p.add_argument("--check", action="append", default=[], metavar="ID",
                    help="run only this check (repeatable); see --list-checks")
     p.add_argument("--list-checks", action="store_true", help="print the check roster and exit")

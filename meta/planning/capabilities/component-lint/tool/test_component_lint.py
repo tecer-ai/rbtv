@@ -133,7 +133,7 @@ FILES = {
         "`<task-goal>` → `<scope>` → `<done-contract>`\n"),
 }
 
-# A stand-in for the read-only KG query, so the suite never depends on sd-graph
+# A stand-in for the optional read-only matrix query.
 # being installed. It prints the `cognitive unit` Requirement matrix verbatim.
 KG_ROWS = [
     ("role", "n-a", "n-a", "required", "n-a"),
@@ -221,7 +221,7 @@ def test_green_control():
     out = expect_green("green control")
     for needle in ("census: ", "prompts=1", "tasks=2", "seats=2", "manifest-rows=2",
                    "exposure-rows=1", "carried-blocks=1", "dimensions=1", "guards=0",
-                   "11 check(s) run, 1 skipped"):
+                   "11 check(s) run, 0 skipped"):
         assert needle in out, f"green control: census missing {needle!r}\n{out}"
 
 
@@ -251,7 +251,7 @@ def test_list_checks():
     assert proc.returncode == 0
     for cid in ("exposure-canon", "seat-integrity", "task-no-context", "task-no-capabilities",
                 "kind-sections", "dimension-roster", "carried-blocks", "interactive-fallback",
-                "declared-mode-carry", "fork-discharge", "exposes-body-match",
+                "fork-discharge", "exposes-body-match",
                 "resources-coverage"):
         assert cid in proc.stdout, proc.stdout
 
@@ -929,96 +929,6 @@ def test_red_block_and_queue_without_autonomous_arm():
 def test_green_block_and_queue_with_autonomous_arm():
     expect_green("M9 autonomous arm present", {"prompts/pa.md": BLOCK_AND_QUEUE.replace(
         "<procedure>\np\n", "<procedure>\np\n2. Autonomous arm — derive and disclose.\n")})
-
-
-# ------------------------------------------------------ M11 declared-mode-carry
-# The pairing under test: a goal.md whose owner-confirmed default-execution-mode
-# must survive into a workflow definition the PRODUCED taskforce authored.
-
-GOAL_MD = "# goal\n\nuse-case: scaffold\ndefault-execution-mode: autonomous\n"
-WORKFLOW_MD = "---\ndefault-execution-mode: autonomous\n---\n# w\n"
-
-
-def carry(goal_text, workflow_text, workflow="w"):
-    """Run ONLY the carry check over the fixture, with a goal folder beside it."""
-    with tempfile.TemporaryDirectory() as tmp:
-        component, kg = build(tmp, {"workflows/w/workflow.md": workflow_text}
-                              if workflow_text is not None else None)
-        goal = Path(tmp) / "goals" / "g"
-        goal.mkdir(parents=True)
-        if goal_text is not None:
-            (goal / "goal.md").write_text(goal_text, encoding="utf-8")
-        return run(component, kg, "--check", "declared-mode-carry",
-                   "--goal", str(goal), "--workflow", workflow)
-
-
-def expect_carry_red(label, needle, goal_text, workflow_text, workflow="w"):
-    code, out, err = carry(goal_text, workflow_text, workflow)
-    if code != 1:
-        raise AssertionError(f"{label}: expected exit 1, got {code}\n{out}\n{err}")
-    fired = [l for l in out.splitlines() if l.strip().startswith("FAIL")
-             and "[declared-mode-carry]" in l and needle in l]
-    if not fired:
-        raise AssertionError(f"{label}: no declared-mode-carry FAIL naming {needle!r}\n{out}")
-
-
-def test_green_declared_mode_carried_verbatim():
-    code, out, err = carry(GOAL_MD, WORKFLOW_MD)
-    assert code == 0, f"{out}\n{err}"
-    assert "produced-workflows=1" in out, f"the census must show what it checked\n{out}"
-
-
-def test_red_declared_mode_dropped():
-    """THE gap this check exists for: the produced taskforce authored the
-    workflow definition and the owner's confirmed default did not survive."""
-    expect_carry_red("M11 dropped", "DROPPED", GOAL_MD, "---\nid: w\n---\n# w\n")
-
-
-def test_red_declared_mode_altered():
-    expect_carry_red("M11 altered", "verbatim", GOAL_MD,
-                     WORKFLOW_MD.replace("autonomous", "interactive"))
-
-
-def test_red_declared_mode_invented():
-    """The other direction — absent-means-derive stays intact only if a
-    declaration nobody confirmed is a finding too."""
-    expect_carry_red("M11 invented", "invented",
-                     "# goal\n\nuse-case: scaffold\n", WORKFLOW_MD)
-
-
-def test_green_no_declaration_on_either_side():
-    code, out, err = carry("# goal\n\nuse-case: scaffold\n", "---\nid: w\n---\n# w\n")
-    assert code == 0, f"absent-means-derive must stay legal\n{out}\n{err}"
-
-
-def test_red_produced_workflow_absent():
-    expect_carry_red("M11 no definition", "no workflow definition on disk", GOAL_MD, None)
-
-
-def test_carry_check_skipped_without_the_pairing():
-    with tempfile.TemporaryDirectory() as tmp:
-        component, kg = build(tmp, {"workflows/w/workflow.md": WORKFLOW_MD})
-        code, out, _ = run(component, kg, "--check", "declared-mode-carry")
-        assert code == 0 and "SKIP declared-mode-carry" in out, out
-
-
-def test_half_the_pairing_is_exit_2():
-    with tempfile.TemporaryDirectory() as tmp:
-        component, kg = build(tmp)
-        code, _out, err = run(component, kg, "--goal", str(component))
-        assert code == 2 and "declared together" in err, (code, err)
-
-
-def test_goal_without_goal_md_is_exit_2():
-    with tempfile.TemporaryDirectory() as tmp:
-        component, kg = build(tmp, {"workflows/w/workflow.md": WORKFLOW_MD})
-        goal = Path(tmp) / "goals" / "g"
-        goal.mkdir(parents=True)
-        code, out, _err = run(component, kg, "--check", "declared-mode-carry",
-                              "--goal", str(goal), "--workflow", "w")
-        # inside the loop, so it BLOCKS its own check (stdout) — still exit 2
-        assert code == 2 and "BLOCKED declared-mode-carry" in out and "no goal.md" in out, \
-            (code, out)
 
 
 # --------------------------------------------------------- M12 fork-discharge

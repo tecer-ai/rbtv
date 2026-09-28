@@ -329,16 +329,15 @@ const TYPE_ICON = {
 TYPE_ICON.checker = TYPE_ICON.verifier;
 TYPE_ICON.judge = TYPE_ICON.verifier;
 TYPE_ICON.staff = TYPE_ICON.planner;
-TYPE_ICON.leader = TYPE_ICON.master;
 const HI_ICON = svg(`<path d="M2.4 3.4h11.2c.6 0 1 .5 1 1v5.9c0 .6-.4 1-1 1H7.3l-3.1 2.3v-2.3H2.4c-.6 0-1-.4-1-1V4.4c0-.5.4-1 1-1Z"/>
   <path d="M6.7 6.1a1.4 1.4 0 1 1 1.8 1.4c-.4.2-.6.4-.6.8"/><circle cx="7.9" cy="9.7" r=".8" fill="currentColor" stroke="none"/>`);
 const FB_ICON = svg(`<rect x="11.4" y="2.4" width="2.2" height="11.2" rx="1.1" fill="currentColor" stroke="none"/>
   <path d="M2 5.2h6.6M2 8h6.6M2 10.8h6.6"/>`);
 const TYPE_TIP = {
-  planner: "Planner — it decides the shape of the work: what the goal means, how it splits, who is needed. It produces plans, never products.",
+  planner: "Planner — it structures decided work into seats, dependencies, and checks.",
   verifier: "Verifier — a gate the work passes through. It judges finished work against its contract and can only pass or fail it; it never repairs or re-plans.",
   worker: "Worker — it does one bounded piece of the work and produces the artifact itself.",
-  master: "Master — the standing coordinator that routes requests and holds the run open.",
+  master: "Master — the primary agent that receives owner direct messages.",
 };
 const typeKey = s => String((s.prompt && s.prompt.agentType) || "").toLowerCase().replace(/[^a-z].*$/, "");
 
@@ -411,7 +410,7 @@ function popHTML(rows) {
 
 function seatAlarms(s) {
   let h = (s.health || []).map(e => `<div class="alarm"><b>${esc(e.level)}</b>${md(e.what)}</div>`).join("");
-  if (s.overrides) h += `<div class="alarm"><b>mirror overrides shipped</b>This seat is defined in the mirror and SUPPRESSES the shipped file
+  if (s.overrides) h += `<div class="alarm"><b>mirror overrides shipped</b>This seat is defined in the mirror and takes precedence over the shipped file
     <span class="mono">${esc(s.overrides)}</span>. The shipped definition is on disk and is not what runs.</div>`;
   return h;
 }
@@ -465,7 +464,7 @@ function taskSections(s) {
 }
 
 const EXP_META = {
-  path: ["CLIs &mdash; on PATH", "exposure method `path` — a real executable the seat calls; its cage binds the path in the seat descriptor"],
+  path: ["CLIs &mdash; on PATH", "exposure method `path` — a real executable named by the seat"],
   skill: ["Skills &mdash; loaded", "exposure method `skill` — a file the seat LOADS by name and applies; it is read, never executed"],
   "sub-agent": ["Sub-agents &mdash; dispatchable", "exposure method `sub-agent` — a cataloged prompt this seat may fan out in-process; the dispatch dies with the step"],
 };
@@ -477,19 +476,19 @@ function railExposes(s) {
     </div>`).join("");
   return `<div class="card">
     <div class="chead">Exposes <span class="info" title="What this seat may reach, from its prompt frontmatter's exposes: block — grouped by the method that carries it, since a CLI it runs and a skill it loads are not the same kind of reach.">&#9432;</span></div>
-    <div class="cbody">${groups || `<div class="empty">Nothing exposed &mdash; this definition names no <span class="mono">exposes:</span> block, so its cage grants it no CLI, skill or sub-agent.</div>`}</div>
+    <div class="cbody">${groups || `<div class="empty">Nothing exposed &mdash; this definition names no <span class="mono">exposes:</span> block, so this definition names no CLI, skill or sub-agent.</div>`}</div>
   </div>`;
 }
 function railDeclarations(s) {
   const p = s.prompt || {};
   return `<div class="card">
-    <div class="chead">Declarations <span class="info" title="What the catalog row declares about the seat: the ONE goal file it owns, the cage grants it needs, the paths it opens read-write, and what happens when it fails.">&#9432;</span></div>
+    <div class="chead">Declarations <span class="info" title="Fields declared by this catalog row: output, grants, writable paths, and failure route.">&#9432;</span></div>
     <div class="cbody">
       ${kv("goal-writes", s.goalWrites ? `<span class="mono">${esc(s.goalWrites)}</span>` : `<span class="empty">&mdash; none; it hands its work on without owning a goal file</span>`,
-        "the ONE output this seat owns in the goal folder")}
-      ${has(s.cageGrants) ? `<div><div class="exp-h" title="the named grants the seat's cage must carry">Cage grants</div>${chips(s.cageGrants)}</div>`
-        : kv("cage grants", `<span class="empty">&mdash; none declared</span>`)}
-      ${has(s.rwPaths) ? `<div><div class="exp-h" title="paths the cage opens read-write for this seat">Read-write paths</div>${chips(s.rwPaths)}</div>`
+        "the output declared by this catalog row")}
+      ${has(s.cageGrants) ? `<div><div class="exp-h" title="the grants declared for this seat">Declared grants</div>${chips(s.cageGrants)}</div>`
+        : kv("declared grants", `<span class="empty">&mdash; none declared</span>`)}
+      ${has(s.rwPaths) ? `<div><div class="exp-h" title="writable paths declared for this seat">Read-write paths</div>${chips(s.rwPaths)}</div>`
         : kv("rw-paths", `<span class="empty">&mdash; none declared</span>`)}
       ${s.onFailRelaunch ? kv("on fail", esc(s.onFailRelaunch), "the relaunch declaration in the catalog row") : ""}
       ${s.staffingHints ? `<div class="hint"><b>Catalog staffing hint</b> &mdash; ${md(s.staffingHints)}</div>` : ""}
@@ -546,7 +545,7 @@ function seatView() {
   <div class="strip">
     ${cell("Executor", `<span class="mono">${esc(s.executor)}</span>`, "the prompt file behind the seat")}
     ${cell("Task", `<span class="mono">${esc(s.task)}</span>`, "the task file behind the seat")}
-    ${cell("Goal-writes", s.goalWrites ? `<span class="mono">${esc(s.goalWrites)}</span>` : "none", "the ONE output this seat owns in the goal folder", !s.goalWrites)}
+    ${cell("Goal-writes", s.goalWrites ? `<span class="mono">${esc(s.goalWrites)}</span>` : "none", "the output declared by this catalog row", !s.goalWrites)}
     ${cell("Workflows", has(s.workflows) ? s.workflows.map(w => esc(w.name)).join(" &middot; ") : "none &mdash; off-manifest",
       "the manifests that carry a row for this seat", !has(s.workflows))}
     ${cell("Origin", esc(s.origin) + (s.overrides ? " &mdash; overrides shipped" : ""), "which tree this definition was read from")}
@@ -731,7 +730,7 @@ function wfView() {
         <h1>${esc(w.name)}</h1>
         <span class="chip c-home mono" title="module / component — where this workflow's files live">${esc(w.componentId)}</span>
         ${originChipW(w)}
-        <span class="chip c-type" title="This page is the workflow's SCAFFOLDING — the definition every run of it is made from. No run, no state, no history: those live in a goal folder, and a goal is not a workflow.">definition</span>
+        <span class="chip c-type" title="This page shows the reusable workflow definition on disk, not execution state.">definition</span>
       </div>
       <div class="bsub" title="${esc((doc && doc.description) || w.manifestPath)}">${esc((doc && doc.description) || w.manifestPath)}</div>
     </div>

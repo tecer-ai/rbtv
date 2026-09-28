@@ -60,8 +60,7 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 > `{target}/.rbtv/config/install.json`, recording every file and every shared-config key it
 > wrote — so the two installers can never sweep, overwrite, or delete each other's work, and
 > `rbtv install rm` removes exactly what it wrote and nothing else. It exposes at the
-> INSTALL ROOT only and never writes under `.rbtv/goals/`. It does not call the
-> Ignite 0.1 seat materializer. It never read or wrote the predecessor's state file.
+> INSTALL ROOT only and never writes under `.rbtv/goals/`.
 >
 > It is reachable as **`rbtv install`** — the system CLI routes that namespace straight to it,
 > and the commands below are the same tool either way:
@@ -260,4 +259,4 @@ Some components ship in this repo but are flagged `stale` in the module manifest
 
 ## Extending RBTV
 
-`/rbtv-create-component` was RETIRED 2026-08-11 (`builder/RETIRED.md`) and no longer installs. Component structure, naming, and the exposure/seat canon are defined by the meta/planning reference set and the forge workflow — build new components from those. Placement still follows the module-first layout above, and every component change still updates `README.md`, `modules/{module}.md`, and `admin/install/module-manifest.json` in the same change.
+`/rbtv-create-component` was RETIRED 2026-08-11 (`builder/RETIRED.md`) and no longer installs. Component structure, naming, and the exposure/seat canon are defined by the meta/planning `build` and `plan` skills — use their guides and console seat plans to build new components. Placement still follows the module-first layout above, and every component change still updates `README.md`, `modules/{module}.md`, and `admin/install/module-manifest.json` in the same change.

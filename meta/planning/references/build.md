@@ -5,12 +5,9 @@ tags: [planning]
 
 # build — the scaffolding router
 
-**You are reading this because a user wants scaffolding created or changed.** This page is the ONE
-router surface for the meta/planning component (owner-ruled 2026-08-21): it replaced the standalone
-`planning` and `forge` skills, and it holds the kind router that used to
-live in forge's console entry. The `plan` skill (named `plan-in-session-run` until 2026-08-24)
-stands alone again — owner-directed 2026-08-24. Stop at the first section that answers you; everything deeper is
-reached through the links here.
+**You are reading this because a user wants scaffolding created or changed.** This page routes
+the request to the right authoring guide or to the `plan` skill. Stop at the first section that
+answers you; details live in the linked guides.
 
 Written to be read cold. Nothing below assumes you saw an earlier turn.
 
@@ -28,43 +25,38 @@ Before ANY scaffolding act — routing included — read these three, every time
 
 ---
 
-## 1 — Workflow or guide? The route rule
+## 1 — Plan or guide? The route rule
 
-A request to CREATE or BUILD something always routes to a WORKFLOW — you never author the part
-yourself in the console session. The GUIDES (§3) are reached when an agent must understand or
-author correctly mid-task — a kind's anatomy, a naming law, a style rule — without launching
-anything.
+A multi-seat request routes to the `plan` skill, whose output is a console-orchestrated seat plan.
+For a single, bounded component part, use the matching guide in §2 and edit it in the current
+session. The guides also apply when a plan seat authors that part.
 
 | The request is… | Route |
 |---|---|
-| ONE small part of a component that already EXISTS — a reference, prompt, task, seat, capability, exposure entry, or sub-agent definition | **forge** — `workflows/forge/console-entry.md` (setup + run handover; the per-kind authoring table is §2 below) |
-| a NEW component, a NEW workflow, a DAG change larger than one seat row, or pieces spanning components | **plan-console** — `workflows/plan-console/console-entry.md` |
-| already-decided work to structure as a console-orchestrated seat plan (no goal/daemon run) | **plan** — `references/plan.md` |
+| ONE small part of an existing component — a reference, prompt, task, seat, capability, exposure entry, or sub-agent definition | Author it with the matching guide in §2; run `component-lint` on the touched component. |
+| a new component, a new reusable workflow, a larger DAG change, or pieces spanning components | **plan** — `references/plan.md`; settle the scope and decisions before writing its seat plan. |
+| already-decided work to structure as a console-orchestrated seat plan | **plan** — `references/plan.md`. |
 
-Three further conditions escalate a forge-shaped request to plan-console whatever the kind: the pieces
-span more than one component in a way one build pass cannot carry; a new workflow or DAG is needed;
-the request is a symptom of an unstated bigger goal. `forg-intake` runs that test itself — you
-route, it rules.
+If a small request exposes a larger unsettled goal, settle that goal before writing a seat plan.
 
 ---
 
 ## 2 — The KIND ROUTER (authoring table per piece kind)
 
-Read the request and stop at the FIRST row that holds. The row names the guide the part is authored
-against, the shape of its target path, the registration act that makes it real, and the condition
-that sends the request to plan-console instead of forge.
+Read the request and stop at the FIRST row that holds. The row names the guide, target path,
+registration act, and condition that calls for a seat plan.
 
 | Piece kind | Authoring guide | Target-path shape | Registration act | Escalates when |
 |---|---|---|---|---|
-| **a NEW COMPONENT** | — | — | — | **ALWAYS — forge never mints a component. Route the request to the plan-console workflow.** |
+| **a NEW COMPONENT** | `references/component-anatomy.md` | `<module>/<component>/` | component entry and any needed exposure rows | the work needs several seats or decisions are unsettled — use `plan` |
 | reference | `references/kind-reference.md` | `<component-root>/references/<name>.md` | none by default — a reference is reached by an explicit prose read; an `exposure.csv` row appears only on a real exposure decision | its subject belongs to a component that does not exist |
 | prompt | `references/file-prompt.md` plus the kind guide of each section it carries | `<component-root>/prompts/<id>.md` | a `seats.csv` row pairing it with a task; an `exposure.csv` row only where an agent must reach it on its own | it needs a manifest node in a workflow that does not exist |
 | task | `references/file-task.md` | `<component-root>/tasks/<id>.md` | a `seats.csv` row pairing it with a prompt | the same |
-| seat | `references/workflow-anatomy.md` + `references/workflow-authoring-checklist.md` | a row in `<component-root>/seats.csv`, plus one row in the workflow manifest when the seat holds a node | the `seats.csv` row, and the manifest row with its `after` edges | the seat needs a NEW workflow, or a DAG change larger than one row |
+| seat in a reusable component workflow | `references/workflow-anatomy.md` + `references/workflow-authoring-checklist.md` | a row in `<component-root>/seats.csv`, plus one row in the workflow manifest when the seat holds a node | the `seats.csv` row and manifest row | several dependent rows change — use `plan` |
 | capability | `references/kind-capability.md` | `<component-root>/<name>.md` for a single capability carrying no tool, otherwise `<component-root>/capabilities/<name>/<name>.md` | registered AND exposed in the same act — the `exposure.csv` row per `references/exposure.md` | its owning component does not exist |
 | capability whose core is a CLI | the `create-cli` capability, followed exactly | `<component-root>/capabilities/<name>/tool/` — a CLI is a capability's tool, landed inside its owning component | the first-party `path` row in the owning component's `exposure.csv`, written in the same act — create-cli's *Expose the Finished Tool* close-out | the owning component cannot be resolved |
 | exposure entry | `references/exposure.md` + `references/exposure-choice.md` | a row in `<component-root>/exposure.csv` | the row IS the act | no method in the closed canon fits the part |
-| sub-agent definition | `references/file-prompt.md` + `references/file-task.md` | `<component-root>/prompts/<id>.md` and `<component-root>/tasks/<id>.md` | a `seats.csv` row holding no manifest node, sanctioned by a `method=sub-agent` row on its executor prompt | it must run as a workflow node instead |
+| sub-agent definition | `references/file-prompt.md` + `references/file-task.md` | `<component-root>/prompts/<id>.md` and `<component-root>/tasks/<id>.md` | a `seats.csv` row with no manifest node and any needed exposure row | it needs a scheduled workflow node — use `plan` |
 
 `<component-root>` is resolved by the write-destination rule, never guessed: a `.rbtv/mirror/`
 component's parts go in that mirror folder, an rbtv-repo component's parts go in that repo's module
@@ -101,8 +93,8 @@ to READ. Descriptions are each file's own frontmatter, verbatim in spirit; the f
 
 | Guide | Moment |
 |---|---|
-| `references/workflow-anatomy.md` | structuring a workflow DAG, authoring its manifest, binding its taskforce |
-| `references/workflow-authoring-checklist.md` | authoring or amending seat declarations — the six walls (also a standalone skill: seat prompts materialize it) |
+| `references/workflow-anatomy.md` | structuring a reusable component workflow DAG and its manifest |
+| `references/workflow-authoring-checklist.md` | authoring or amending reusable workflow seat declarations |
 | `references/seat-id-naming.md` | naming a workflow's seat rows — the workflow-code prefix law |
 | `references/plan.md` | structuring already-decided work as a console-run seat plan |
 | `references/headless-seat-cannot-wait.md` | a seat is about to background a check or end its turn expecting to be woken — and an orchestrator meeting a seat that exited 0 with a stub report and uncommitted work |
@@ -118,7 +110,6 @@ to READ. Descriptions are each file's own frontmatter, verbatim in spirit; the f
 
 | Capability | What it does |
 |---|---|
-| `capabilities/create-cli/create-cli.md` | build or UX-review a composable agent-facing CLI — the D9 toolsmith means (also a standalone skill: seat prompts materialize it) |
+| `capabilities/create-cli/create-cli.md` | build or UX-review a composable agent-facing CLI — the D9 toolsmith means (also an independently installed skill) |
 | `capabilities/component-lint/component-lint.md` | deterministic lint over a component folder |
-| `capabilities/capability-cards/capability-cards.md` | render one uniform card per exposed mirror resource |
-| `capabilities/delta-anchors/delta-anchors.md` | verify/apply an authoring seat's delta file — anchors verbatim, all-or-nothing |
+| `capabilities/capability-cards/tool/capability_cards.py -h` | inspect existing exposed tools while assigning seat instruments (§ `plan`) |

@@ -157,9 +157,8 @@ def test_json_fields():
 
 
 def test_default_root_is_the_rbtv_repo():
-    # task 158: the old default (".rbtv/mirror/") was a partial installer copy — ~5 cards
-    # against the repo's ~182, and absent entirely from a seat folder. The default must be the
-    # rbtv repo root itself, derived from this file's own position, never a hardcoded home path.
+    # The default must be the repo root derived from this file, even when run
+    # from a directory with no local component catalog.
     repo_root = Path(cc.__file__).resolve().parents[5]
     assert cc.DEFAULT_ROOT == str(repo_root), (
         f"DEFAULT_ROOT {cc.DEFAULT_ROOT!r} must be the rbtv repo root {repo_root!r}")
@@ -171,8 +170,9 @@ def test_default_root_is_the_rbtv_repo():
         os.chdir(cwd)
     assert code == 0, f"no-arg `list` from a non-repo cwd must not refuse: {err}"
     data = json.loads(out)
-    assert len(data) > 100, (
-        f"the real repo catalog is ~182 cards; got {len(data)} — the default is still a slice")
+    explicit_code, explicit_out, explicit_err = run("list", "--root", str(repo_root), "--json")
+    assert explicit_code == 0, explicit_err
+    assert data == json.loads(explicit_out), "default catalog differs from the repo catalog"
 
 
 def main_test():

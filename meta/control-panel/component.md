@@ -19,7 +19,7 @@ Exit codes: `0` success · `1` refusal · `2` usage error.
 
 The **scaffolding** — shipped `rbtv/` plus this install's `mirror` (`concepts/mirror.md`), which the shared machinery treats as native. Both roots are scanned; the mirror's path-shadowing is resolved, so a mirror row that supersedes a shipped one appears ONCE, marked, naming the file it suppresses (`d-mirror-path-shadowing`).
 
-It is **not** a view of runs. Nothing under `.rbtv/goals/` is read: no execution records, no bindings, no seat memory. The catalog's `staffing-hints` is a hint and is shown as one — the real harness/model binding is decided late, at goal-materialize, and does not belong on a page about what a seat *is*.
+It is **not** a view of runs. Nothing under `.rbtv/goals/` is read: no execution records, no bindings, no seat memory. The catalog shows `staffing-hints` as source metadata. A console seat plan selects its harness and model in each seat file; those choices are outside this catalog.
 
 ## what it reads
 
@@ -27,7 +27,7 @@ Per component folder (`<module>/<component>/`, depth exactly 2, in each root):
 
 | Source | Gives |
 |---|---|
-| `seats.csv` | one row per seat. Columns DIFFER between catalogs (`meta/master` carries no `goal-writes`); each catalog is read by its own header row, never a fixed schema |
+| `seats.csv` | one row per seat. Columns differ between catalogs; each is read by its own header row, never a fixed schema |
 | `prompts/<executor>.md` | the seat's contract — frontmatter (`id`, `description`, `staffing-recommendations`, `human-interactive`, `fallback`, `exposes`) over `<role>`, `<procedure>`, `<resources>`, `<io-spec>`, `<permissions>`, `<restrictions>`, `<constraints>` |
 | `tasks/<task>.md` | the paired task — `<task-goal>`, `<scope>`, `<done-contract>` |
 | `workflows/<name>/<name>.csv` | the manifest — `Seat/workflow,after,i/o,Modality`. `after` is the only ordering fact on disk, and the drawn diagram is layered from it alone |

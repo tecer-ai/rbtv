@@ -16,12 +16,11 @@ One growing lint over any rbtv component folder. Detection only — it never wri
 | `kind-sections` | per carrier kind: required sections present, n-a sections absent, no duplicate section of one kind, canonical order — matrix and order both HARDCODED **and** cross-checked against the KG `cognitive unit` record and the `file-prompt.md`/`file-task.md` guides, so the copies police each other |
 | `dimension-roster` | the check-dimension set is one set across three homes — dimension task files, `seats.csv` pairings, manifest rows — each with a non-empty kill-criteria block and its dimension named in seat description and manifest i/o |
 | `carried-blocks` | byte-diff of EVERY `<tag source="path[#anchor]">` block against `<!-- name:start -->`/`<!-- name:end -->` in its source (generalizes the ethos-specific drift checker) |
-| `declared-mode-carry` | the produced `workflow.md` declares `default-execution-mode:` exactly as the planning run's `goal.md` carries it — dropped, altered, and invented declarations all fail; absent on both sides stays legal (the creation path derives from Modality). Needs the `--goal` + `--workflow` pairing, else SKIP |
 | `interactive-fallback` | `human-interactive: yes` ⇒ a typed `fallback:` (`park`/`default-and-disclose`/`block-and-queue`); `fallback:` present ⇒ the flag or an `interactive`-modality row; an `interactive` row's prompt carries the flag |
-| `fork-discharge` | every manifest guard `pred[key=value]` is SERVABLE: `pred`'s prompt declares, under its `<io-spec>` `## Outputs` heading, a `.json` artifact (a backticked token carrying a `/` and an extension) stating a top-level field `key` — the edge runner's own read. An alternate is checked limb by limb (a bare limb needs nothing). Outputs written as prose declare nothing, so the guard reads UNEVALUABLE and the fork neither opens nor dies |
+| `fork-discharge` | every manifest guard `pred[key=value]` is SERVABLE: `pred`'s prompt declares, under its `<io-spec>` `## Outputs` heading, a `.json` artifact stating a top-level field `key`. An alternate is checked limb by limb. Outputs written only as prose do not provide a checkable guard value |
 
-| `exposes-body-match` | `exposes:` and the prompt BODY name the same instruments, both directions: every declared entry's LAST path segment appears somewhere in the body (an unused grant outlived its procedure), and every `exposure.csv` part-id named in a body is declared in some `exposes:` group (a caged seat cannot reach what it was not granted) — this second direction reads only `method=path` parts plus `method=sub-agent` parts mentioned on a line that talks dispatch/fan-out, and skips `method=skill` and `part-kind=workflow` rows, whose names double as prose vocabulary (measured over the live pool 2026-08-12). Matches inside a carried `<!-- ethos:start -->…<!-- ethos:end -->` block, and a prompt naming its own part-id, do not count |
-| `resources-coverage` | workflow-authoring-checklist.md §2: every `exposes:` entry of method `path`/`skill`/`sub-agent` gets its OWN bullet inside the prompt's `<resources>` section — a FAIL names the part-id and distinguishes itself from `exposes-body-match` (this check reads the `<resources>` SECTION only). A prompt with non-exempt entries but no `<resources>` section at all is ONE finding, not one per entry. Every `<resources>` bullet that NAMES a declared instrument (top-level `- ` item, leading `- ` and leading backtick token stripped) over 280 measured characters FAILS; no grandfather list exists, deliberately — an over-cap instrument bullet is trimmed, and prose about a file, folder, or output contract answers to no ceiling. Exempt from needing a bullet at all: every `command`/`rule`/`hook` entry |
+| `exposes-body-match` | `exposes:` and the prompt body name the same instruments in both directions. Unused declarations and undeclared tools named by a dispatch step are findings; skill and workflow names in ordinary prose are not treated as dispatches |
+| `resources-coverage` | each declared `path`, `skill`, or `sub-agent` used by the prompt gets its own `<resources>` bullet naming when and why it is used. A missing section or a bullet over the 280-character ceiling is a finding. `command`, `rule`, and `hook` entries are exempt |
 
 Detail — options, per-check applicability, the exit contract — is in the tool's own `-h`.
 
@@ -34,20 +33,13 @@ python -B 3-resources/tools/rbtv/meta/planning/capabilities/component-lint/tool/
   --root 1-projects/build-ignite
 python -B .../component_lint.py --component <component-path> --json
 python -B .../component_lint.py --list-checks
-
-# the execution-mode carry check, at the edge of the task that authored the
-# workflow definition a planned taskforce produced:
-python -B .../component_lint.py --component <component-path> \
-  --check declared-mode-carry --goal .rbtv/goals/<goal> --workflow <workflow-name>
 ```
 
-`--goal` and `--workflow` are declared TOGETHER or not at all (half the pairing is exit 2, never a quiet skip): `--workflow` names the definitions THIS goal produced, so the check never widens onto workflows the component already held — those declare their own mode and would fail for the wrong reason.
-
-`--root` declares an extra root a declared path may resolve against — since `context:` was deleted its one consumer is `carried-blocks`, whose carried-block source references may name a tree outside the component (the planning component's blocks cite `system-definition/`, whose home on this vault is `1-projects/build-ignite/`). `--component` targets any component folder; a check whose surfaces are all absent (a produced workflow has `taskforce.csv` and `seat.md`, not `seats.csv` and `prompts/`) is reported SKIP, never silently passed. `-B` keeps `__pycache__` out of the mirror.
+`--root` declares an extra root a source reference may resolve against. `--component` targets any component folder; a check whose surfaces are all absent is reported SKIP, never silently passed. `--kg` optionally cross-checks the built-in section matrix against a query command; it is not required. `-B` keeps `__pycache__` out of the mirror.
 
 ## I/O
 
-- Input: a component folder; a read-only KG query command, `--kg` (for the `kind-sections` cross-check). The vocabulary cross-checks read the references of the component this tool SHIPS IN (`--home`), never the linted one — a cross-check indicts the tool's own hardcoded copy.
+- Input: a component folder; an optional read-only `--kg` query for a matrix cross-check. The vocabulary cross-checks read the references of the component this tool SHIPS IN (`--home`), never the linted one — a cross-check indicts the tool's own hardcoded copy.
 - Output: a census line, one `SKIP` line per non-applicable check, one `BLOCKED <check>: <reason>` line per check whose precondition broke (that check alone did not run — the others still did, and the run exits 2), one line per finding (`FAIL` gates, `INFO` reports), and a summary line carrying the counts. `--json` emits census + `checks-run` + `checks-skipped` + `checks-blocked` + findings + `fail-count`.
 - Exit codes: `0` clean · `1` findings · `2` broken preconditions (component absent, unreadable file, unparseable frontmatter, KG query unavailable).
 

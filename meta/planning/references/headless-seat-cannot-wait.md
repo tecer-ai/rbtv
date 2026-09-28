@@ -11,7 +11,7 @@ This has cost FIVE sittings in one plan. It is not carelessness: every one of th
 
 ## The mechanism
 
-A headless seat is one agent process invoked non-interactively — `claude -p`, a `cast seat` launch, or a daemon-spawned sitting. The process runs ONE turn and exits. Nothing holds the session open between turns: there is no terminal reading from a person, no pump feeding new input, and no listener that can inject a message into a turn that has already ended.
+A headless seat is one agent process invoked non-interactively — `claude -p` or a `cast seat` launch. The process runs ONE turn and exits. Nothing holds the session open between turns: there is no terminal reading from a person, no pump feeding new input, and no listener that can inject a message into a turn that has already ended.
 
 Therefore:
 
