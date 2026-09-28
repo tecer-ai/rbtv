@@ -1,0 +1,8 @@
+{
+  "_this-fixture": "The sources config the detection arms run under. Every value is invented: the accounts are the fixtures' EXAMPLE keys, and the tokens are the words the fixtures' Meet-folder file names carry after their date stamp.",
+  "accounts": [
+    "EXAMPLE-home",
+    "EXAMPLE-work"
+  ],
+  "gtools-path": "EXAMPLE/gtools.py"
+}

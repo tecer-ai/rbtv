@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "glossary-artifact",
+  "description": "Format contract of the user glossary, derived from reading the artifact on 2026-08-13: markdown, level-2 headed sections (Portuguese), each one 3-column table — correct name | transcription variants | context. Serves two index entries: the crossing (glossary-artifact) and the store (glossary-store), whose instance adds the store binding.",
+  "type": "object",
+  "properties": {
+    "format": {
+      "type": "object",
+      "properties": {
+        "syntax": { "const": "markdown" },
+        "section-heading-level": { "const": 2 },
+        "table-columns": { "const": 3 },
+        "variant-separator": {
+          "const": ", ",
+          "description": "how one variants cell lists many transcription variants"
+        }
+      },
+      "required": ["syntax", "section-heading-level", "table-columns", "variant-separator"],
+      "additionalProperties": false
+    },
+    "sections": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/section" }
+    },
+    "store": {
+      "type": "object",
+      "description": "the store binding, carried by the glossary-store entry's instance",
+      "properties": {
+        "medium": { "const": "markdown-file" },
+        "location": {
+          "$ref": "destination-repo-set.schema.json#/$defs/config-key",
+          "const": "glossary-path",
+          "description": "where the artifact lives, as a config key — never a literal path"
+        }
+      },
+      "required": ["medium", "location"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["format", "sections"],
+  "additionalProperties": false,
+  "$defs": {
+    "section": {
+      "type": "object",
+      "properties": {
+        "heading": { "type": "string", "minLength": 1 },
+        "column-headers": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": { "type": "string" },
+          "description": "the section's own header row wording; wording varies per section, the 3-column shape does not"
+        },
+        "entries": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/entry" }
+        }
+      },
+      "required": ["heading", "column-headers", "entries"],
+      "additionalProperties": false
+    },
+    "entry": {
+      "type": "object",
+      "properties": {
+        "correct-name": { "type": "string", "minLength": 1 },
+        "variants": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "transcription variants; empty when the table cell is the em-dash placeholder"
+        },
+        "context": { "type": "string" }
+      },
+      "required": ["correct-name", "variants", "context"],
+      "additionalProperties": false
+    }
+  }
+}

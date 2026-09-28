@@ -1,0 +1,25 @@
+{
+  "config-key": "summarize",
+  "_this-file": [
+    "THE DECLARED SOURCE for the two things the per-meeting job cannot know from the bytes:",
+    "which display-name markers mean 'this artifact is auxiliary meeting notes rather than a",
+    "transcript', and which summarizer skill writes an entity's meetings. Both are owner values;",
+    "neither is ever typed into tools/per_meeting_job.py.",
+    "",
+    "artifact-kinds: read by tools/artifact_reader.py ONLY when the artifact does not declare its",
+    "own type in frontmatter. Notes markers are tried before transcript markers.",
+    "skill-bindings: by-entity wins; 'default' is used only if declared. With neither, the job",
+    "REFUSES rather than picking a summarizer for the owner."
+  ],
+  "artifact-kinds": {
+    "meeting-notes": { "name-contains": ["notas da reuni", "notes by gemini", "meeting notes by"] },
+    "transcript": { "name-contains": ["transcri"] }
+  },
+  "skill-bindings": {
+    "by-entity": {
+      "clinic-fix": "/agent-home/config/skills/therapy-summarizer.md",
+      "alpha": "/agent-home/config/skills/summarization/workflow.md",
+      "beta": "/agent-home/config/skills/summarization/workflow.md"
+    }
+  }
+}

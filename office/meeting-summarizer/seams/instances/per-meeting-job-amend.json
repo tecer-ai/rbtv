@@ -1,0 +1,27 @@
+{
+  "meeting-key": "mtg-4f2a9c1e",
+  "source-set": [
+    {
+      "account": "tecer",
+      "source": "tactiq",
+      "drive-ref": "drv:file/EXAMPLE-tq-4d5e6f",
+      "title": "Tecer <> Inni — weekly",
+      "start-time": "2026-08-14T10:05:00-03:00",
+      "participants": [
+        "Henrique",
+        "Kenu",
+        "Leo"
+      ]
+    }
+  ],
+  "disposition": "amend",
+  "amend": {
+    "summary": {
+      "repo": "EXAMPLE-corp",
+      "path": "clients/EXAMPLE-client/meetings/2026-08-14-weekly-resumo.md"
+    },
+    "coverage": [
+      "meet"
+    ]
+  }
+}

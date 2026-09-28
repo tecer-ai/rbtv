@@ -1,0 +1,14 @@
+{
+  "meeting-key": "mtg-m6-b",
+  "source-set": [
+    {
+      "account": "work-b@fixture.invalid",
+      "source": "tactiq",
+      "drive-ref": "drv:file/FIXTURE-b-tactiq",
+      "title": "EXAMPLE-Beta - revisao de produto",
+      "start-time": "2026-03-12T09:00:00-03:00",
+      "participants": ["EXAMPLE-Nara", "EXAMPLE-Teo"]
+    }
+  ],
+  "disposition": "new"
+}

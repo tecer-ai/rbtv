@@ -1,0 +1,16 @@
+{
+  "config-key": "summarize",
+  "_this-file": "Detection fixture: only 'artifact-kinds' is read here \u2014 the ONE home of the file-name words that tell a Gemini notes file from a Meet transcript (shared with the artifact reader).",
+  "artifact-kinds": {
+    "meeting-notes": {
+      "name-contains": [
+        "Notes by Gemini"
+      ]
+    },
+    "transcript": {
+      "name-contains": [
+        "Transcript"
+      ]
+    }
+  }
+}

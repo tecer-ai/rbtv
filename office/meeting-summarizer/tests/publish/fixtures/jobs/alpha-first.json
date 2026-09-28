@@ -1,0 +1,13 @@
+{
+  "meeting-key": "mtg-g-morning",
+  "source-set": [
+    {
+      "account": "work-a@fixture.invalid",
+      "source": "meet",
+      "drive-ref": "drv:file/FIXTURE-g-morning-meet",
+      "title": "Alpha sync — manha",
+      "start-time": "2026-03-11T10:02:00-03:00",
+      "participants": ["Henrique", "Kenu"]
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "failure-event-and-outcome",
+  "description": "Two kind-discriminated shapes. The failure event makes no failure silent (goal.md clause 12); the per-meeting outcome makes filed-notes = processed meetings checkable (clause 10).",
+  "oneOf": [
+    {
+      "type": "object",
+      "description": "failure-event: one owner-visible failure, emitted instead of dying quietly",
+      "properties": {
+        "kind": { "const": "failure-event" },
+        "cause": {
+          "type": "string",
+          "minLength": 1,
+          "description": "what failed, named as the channel failure note will say it"
+        },
+        "scope": {
+          "enum": ["poll", "account", "meeting"],
+          "description": "how much work the failure took down"
+        },
+        "account": {
+          "$ref": "transcript-record.schema.json#/$defs/account",
+          "description": "present when scope is account"
+        },
+        "meeting-key": {
+          "$ref": "meeting-key-and-source-set.schema.json#/$defs/meeting-key",
+          "description": "present when scope is meeting"
+        },
+        "at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["kind", "cause", "scope", "at"],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "description": "per-meeting-outcome: how one meeting's processing ended this cycle",
+      "properties": {
+        "kind": { "const": "per-meeting-outcome" },
+        "meeting-key": { "$ref": "meeting-key-and-source-set.schema.json#/$defs/meeting-key" },
+        "outcome": {
+          "enum": ["filed", "amended", "withheld-unroutable", "skipped", "unprocessable", "failed"],
+          "description": "filed: summary written and routed; amended: existing summary rewritten in place; withheld-unroutable: no write, owner asked and has not answered; skipped: no write, the owner answered `skip`; unprocessable: no write, the transcript carried nothing to summarize; failed: this meeting's processing failed"
+        },
+        "destination": {
+          "$ref": "destination-repo-set.schema.json#/$defs/repo-file-ref",
+          "description": "present when the outcome wrote or rewrote a file"
+        },
+        "content-entity": {
+          "$ref": "meeting-key-and-source-set.schema.json#/$defs/content-entity",
+          "description": "present when the route came from the meeting's content, so the publish stage re-resolves to the same destination"
+        },
+        "at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["kind", "meeting-key", "outcome", "at"],
+      "additionalProperties": false,
+      "if": {
+        "properties": { "outcome": { "enum": ["filed", "amended"] } },
+        "required": ["outcome"]
+      },
+      "then": { "required": ["destination"] }
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "meeting-key": "mtg-m6-a",
+  "source-set": [
+    {
+      "account": "work-a@fixture.invalid",
+      "source": "meet",
+      "drive-ref": "drv:file/FIXTURE-a-meet",
+      "title": "EXAMPLE-Alpha <> EXAMPLE-Orla - revisao trimestral",
+      "start-time": "2026-03-11T10:02:00-03:00",
+      "participants": ["EXAMPLE-Nara", "EXAMPLE-Brum", "Xandi"]
+    },
+    {
+      "account": "work-a@fixture.invalid",
+      "source": "tactiq",
+      "drive-ref": "drv:file/FIXTURE-a-tactiq",
+      "title": "EXAMPLE-Alpha <> EXAMPLE-Orla - revisao trimestral",
+      "start-time": "2026-03-11T10:04:00-03:00",
+      "participants": ["EXAMPLE-Nara", "EXAMPLE-Brum", "Xandi"]
+    }
+  ],
+  "disposition": "new"
+}

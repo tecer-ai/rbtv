@@ -1,0 +1,13 @@
+{
+  "meeting-key": "mtg-fixture-m1",
+  "source-set": [
+    {
+      "account": "work-a@fixture.invalid",
+      "source": "meet",
+      "drive-ref": "drv:file/FIXTURE-m-meet",
+      "title": "Alpha <> Cliente - late",
+      "start-time": "2026-01-01T01:30:00+00:00",
+      "participants": ["Henrique"]
+    }
+  ]
+}

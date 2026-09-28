@@ -1,0 +1,12 @@
+{
+  "generated-at": "2026-08-13T18:00:00-03:00",
+  "accounts": {
+    "EXAMPLE-home": {
+      "sources": [
+        { "layout": "google-meet-tree", "verdict": "live", "folder-ref": "drv:folder/EXAMPLE-p-tree" },
+        { "layout": "legacy-meet-recordings", "verdict": "dead" },
+        { "layout": "tactiq-autosave", "verdict": "dead" }
+      ]
+    }
+  }
+}

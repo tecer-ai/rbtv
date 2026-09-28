@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "artifact-content",
+  "description": "The artifact-content READER protocol: how the piece that holds Drive references (the detection side) hands raw artifact bytes to the piece that summarizes one meeting (the per-meeting job). One tagged union — the request names a drive-ref, the result carries the decoded text plus the two verdicts a consumer cannot re-derive from the bytes alone: which KIND of artifact this is (a transcript, or auxiliary meeting notes) and whether it is LEGIBLE. goal.md clause 5 turns on legibility and clause 19 turns on the kind, so both are reader output, never consumer guesswork.",
+  "type": "object",
+  "properties": {
+    "kind": { "enum": ["read-request", "read-result"] },
+    "ref": { "$ref": "transcript-record.schema.json#/$defs/drive-ref" }
+  },
+  "required": ["kind", "ref"],
+  "oneOf": [
+    {
+      "type": "object",
+      "description": "read-request: fetch the bytes behind one drive-ref. Carries no expectation of what will come back — telling a transcript from a notes file is the reader's job, and a request that pre-declares the kind would let the caller's guess override the reader's reading.",
+      "properties": {
+        "kind": { "const": "read-request" },
+        "name": {
+          "type": "string",
+          "description": "the artifact's display name as the source carries it, when the caller has it; the reader uses it as one kind signal and never as an identity"
+        }
+      },
+      "required": ["kind", "ref"]
+    },
+    {
+      "type": "object",
+      "description": "read-result: the decoded artifact and the reader's two verdicts",
+      "properties": {
+        "kind": { "const": "read-result" },
+        "artifact-kind": { "$ref": "#/$defs/artifact-kind" },
+        "media-type": {
+          "type": "string",
+          "minLength": 1,
+          "description": "the artifact's media type as the source reports it (e.g. text/markdown); the legibility verdict is justified against it"
+        },
+        "text": {
+          "type": "string",
+          "description": "the decoded artifact, whole; empty exactly when the artifact carries no text"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "digest of the decoded text, so a re-read of the same artifact is recognisable as the same bytes"
+        },
+        "legible": {
+          "type": "boolean",
+          "description": "false when the bytes could not be decoded into usable text; clause 5's Meet-over-Tactiq rule applies only where BOTH sources are legible, so this verdict is what makes that condition checkable"
+        },
+        "illegible-reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "present when legible is false; names what defeated the read, as the failure note will say it"
+        }
+      },
+      "required": ["kind", "ref", "artifact-kind", "media-type", "text", "sha256", "legible"]
+    }
+  ],
+  "unevaluatedProperties": false,
+  "$defs": {
+    "artifact-kind": {
+      "enum": ["transcript", "meeting-notes", "undetermined"],
+      "description": "transcript: an utterance record of the meeting; meeting-notes: an auxiliary notes artifact (a Gemini notes file), auxiliary input only and never a trigger on its own (clause 19); undetermined: the reader could not tell, which is a failure event and never a default to transcript"
+    }
+  }
+}

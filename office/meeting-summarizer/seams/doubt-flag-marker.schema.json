@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "doubt-flag-marker",
+  "description": "The written-summary handoff: which summary file was written and which glossary doubts it carries, plus the exact inline marker grammar (fixed here by const) that flags each doubt in the summary text. Answer application (m6) replaces a whole marker with the settled term.",
+  "type": "object",
+  "properties": {
+    "summary": { "$ref": "destination-repo-set.schema.json#/$defs/repo-file-ref" },
+    "marker-syntax": {
+      "const": "{{doubt|term=<term>|guess=<best-guess>}}",
+      "description": "the exact inline grammar, literal braces and pipes; <term> is the transcribed form in doubt, <best-guess> the glossary-informed best guess that renders in place until the owner answers"
+    },
+    "doubts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/doubt" },
+      "description": "empty when the summary carries no doubt"
+    }
+  },
+  "required": ["summary", "marker-syntax", "doubts"],
+  "additionalProperties": false,
+  "$defs": {
+    "doubt": {
+      "type": "object",
+      "properties": {
+        "term": {
+          "type": "string",
+          "minLength": 1,
+          "description": "the transcribed form in doubt, exactly as it appears in the marker"
+        },
+        "guess": {
+          "type": "string",
+          "minLength": 1,
+          "description": "the best guess, exactly as it appears in the marker"
+        },
+        "excerpt": {
+          "type": "string",
+          "description": "one summary line containing this doubt's marker, for the doubt thread"
+        }
+      },
+      "required": ["term", "guess"],
+      "additionalProperties": false
+    }
+  }
+}

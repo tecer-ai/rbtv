@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "meeting-key-and-source-set",
+  "description": "The pairing result: one opaque meeting key and the transcript set it currently binds. The pairing rule lives in goal.md clause 16 and is never restated here.",
+  "type": "object",
+  "properties": {
+    "meeting-key": { "$ref": "#/$defs/meeting-key" },
+    "source-set": { "$ref": "#/$defs/source-set" },
+    "content-entity": { "$ref": "#/$defs/content-entity" }
+  },
+  "required": ["meeting-key", "source-set"],
+  "additionalProperties": false,
+  "$defs": {
+    "content-entity": {
+      "type": "string",
+      "minLength": 1,
+      "description": "the routing entity a model picked from the meeting's CONTENT when no declarative route matched (owner ruling r-route-by-content-not-account, 2026-09-27); present only when a pick was made"
+    },
+    "meeting-key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "opaque identity of one meeting; minted by the detection cycle, compared for equality only, never parsed"
+    },
+    "source-set": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "transcript-record.schema.json" },
+      "description": "every transcript currently paired to this meeting"
+    }
+  }
+}

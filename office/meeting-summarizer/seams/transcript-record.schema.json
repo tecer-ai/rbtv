@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "transcript-record",
+  "description": "One detected meeting artifact — a transcript, or a Gemini notes file — as the detection cycle (m3) emits it from a Drive sweep. Shape only: how transcripts are detected or paired is goal.md's business, never this file's.",
+  "type": "object",
+  "properties": {
+    "account": { "$ref": "#/$defs/account" },
+    "source": { "$ref": "#/$defs/source" },
+    "drive-ref": { "$ref": "#/$defs/drive-ref" },
+    "title": {
+      "type": "string",
+      "description": "meeting title as the source carries it; may be empty"
+    },
+    "start-time": {
+      "type": "string",
+      "format": "date-time",
+      "description": "meeting start, RFC 3339 with UTC offset"
+    },
+    "participants": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "participant display names as the source carries them; may be empty"
+    },
+    "metadata-handle": {
+      "type": "object",
+      "description": "optional authoritative metadata linkage, present when the source exposes one",
+      "properties": {
+        "kind": { "enum": ["conference-record", "calendar-event"] },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "opaque reference into the authoritative system; consumers never parse it"
+        }
+      },
+      "required": ["kind", "ref"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["account", "source", "drive-ref", "title", "start-time", "participants"],
+  "additionalProperties": false,
+  "$defs": {
+    "account": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Google account label; the labels themselves are data (e.g. 'pessoal', 'tecer'), never schema"
+    },
+    "source": {
+      "enum": ["meet", "tactiq", "gemini-notes"],
+      "description": "which pipeline produced the file: 'meet' and 'tactiq' are verbatim transcripts; 'gemini-notes' is a model-written notes file (Notes by Gemini) — a supplementary source, never a transcript"
+    },
+    "drive-ref": {
+      "type": "string",
+      "minLength": 1,
+      "description": "opaque reference to one Drive object (file or folder); compared for equality only, never parsed, never treated as a filesystem path"
+    }
+  }
+}

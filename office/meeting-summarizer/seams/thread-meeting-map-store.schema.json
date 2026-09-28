@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "thread-meeting-map-store",
+  "description": "The thread-to-meeting mapping: one record per opened thread, so a later doubt or amendment reuses the meeting's thread and an owner reply resolves to its meeting.",
+  "type": "object",
+  "properties": {
+    "container": {
+      "$ref": "processed-transcript-store.schema.json#/$defs/container",
+      "properties": {
+        "format": { "const": "jsonl" },
+        "location": { "const": "stores/thread-meeting-map" }
+      }
+    },
+    "record": {
+      "type": "object",
+      "properties": {
+        "thread": { "$ref": "owner-answer.schema.json#/$defs/thread-ref" },
+        "meeting-key": { "$ref": "meeting-key-and-source-set.schema.json#/$defs/meeting-key" },
+        "created-at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["thread", "meeting-key"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["container", "record"],
+  "additionalProperties": false
+}

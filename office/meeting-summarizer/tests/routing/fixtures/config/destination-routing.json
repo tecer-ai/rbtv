@@ -1,0 +1,78 @@
+{
+  "config-key": "destination-routing",
+  "timezone": "America/Sao_Paulo",
+  "_note": "Fixture route table, mirroring the shape of the live one. Neutral invented entities only: no owner destination name and no owner path segment appears anywhere under the product tree. Order is significant — routes are first-match-wins and the resolver refuses a route an earlier one shadows. There is deliberately NO account predicate anywhere: owner ruling r-route-by-content-not-account (2026-09-27) — clinical, business and personal meetings share one account, so routes key on participants, title or content, and a meeting matching none is ASKED about, not filed.",
+  "routes": [
+    {
+      "entity": "clinic-a",
+      "match": {
+        "participants-any": [
+          "Dora Marques"
+        ]
+      },
+      "destination": {
+        "repo": "wellbeing-vault",
+        "path-template": "areas/wellbeing/{year}/encontros/{date}-{type}-resumo.md"
+      },
+      "vars": {
+        "type": "sessao"
+      }
+    },
+    {
+      "entity": "clinic-b",
+      "match": {
+        "participants-any": [
+          "Nilo Prado"
+        ]
+      },
+      "destination": {
+        "repo": "wellbeing-vault",
+        "path-template": "areas/wellbeing/{year}/encontros/{date}-{type}-resumo.md"
+      },
+      "vars": {
+        "type": "avaliacao"
+      }
+    },
+    {
+      "entity": "alpha",
+      "match": {
+        "title-matches": [
+          "alpha"
+        ]
+      },
+      "destination": {
+        "repo": "alpha-works",
+        "path-template": "notes/meetings/{year}/{date}-{slug}-resumo.md"
+      },
+      "vars": {
+        "slug": "alpha-sync"
+      }
+    },
+    {
+      "entity": "beta",
+      "match": {
+        "title-matches": [
+          "beta"
+        ]
+      },
+      "destination": {
+        "repo": "beta-labs",
+        "path-template": "docs/encontros/{year}/{date}-{slug}-resumo.md"
+      },
+      "vars": {
+        "slug": "beta-review"
+      }
+    },
+    {
+      "entity": "gamma",
+      "match": {
+        "title-matches": [
+          "gamma"
+        ]
+      },
+      "destination": {
+        "repo": "gamma-corp"
+      }
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "owner-answer",
+  "description": "One owner reply on a meeting's thread, ingested by the channel (m5) and consumed by answer application (m6).",
+  "type": "object",
+  "properties": {
+    "thread": { "$ref": "#/$defs/thread-ref" },
+    "meeting-key": { "$ref": "meeting-key-and-source-set.schema.json#/$defs/meeting-key" },
+    "kind": { "$ref": "#/$defs/answer-kind" },
+    "answer-text": {
+      "type": "string",
+      "minLength": 1,
+      "description": "the owner's reply, verbatim; interpreting it is the consumer's job"
+    },
+    "answered-at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["thread", "meeting-key", "kind", "answer-text"],
+  "additionalProperties": false,
+  "$defs": {
+    "thread-ref": {
+      "type": "string",
+      "minLength": 1,
+      "description": "opaque channel thread identity; compared for equality only, never parsed"
+    },
+    "answer-kind": {
+      "enum": ["glossary-term", "routing"],
+      "description": "what the ask was: a glossary doubt, or an unroutable meeting's destination"
+    }
+  }
+}

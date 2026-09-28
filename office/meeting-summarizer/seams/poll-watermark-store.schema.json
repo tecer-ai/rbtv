@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "poll-watermark-store",
+  "description": "The last-successful-poll watermark: one record, rewritten after each fully successful poll. The next poll-window's since opens here; a failed poll leaves it unmoved, so downtime catch-up is automatic (goal.md clause 12).",
+  "type": "object",
+  "properties": {
+    "container": {
+      "$ref": "processed-transcript-store.schema.json#/$defs/container",
+      "properties": {
+        "format": { "const": "json" },
+        "location": { "const": "stores/poll-watermark" }
+      }
+    },
+    "record": {
+      "type": "object",
+      "properties": {
+        "last-successful-poll": {
+          "type": "string",
+          "format": "date-time",
+          "description": "the until cutoff of the last poll in which every live account's sweep completed"
+        }
+      },
+      "required": ["last-successful-poll"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["container", "record"],
+  "additionalProperties": false
+}

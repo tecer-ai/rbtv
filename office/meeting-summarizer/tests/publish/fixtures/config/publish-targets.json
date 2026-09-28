@@ -1,0 +1,22 @@
+{
+  "config-key": "publish-targets",
+  "_this-file": [
+    "One entry per destination repo, naming the WRITE REGIME that repo is published under.",
+    "'git'   an ordinary clone this workflow owns; a rejected push is integrated by merging.",
+    "'vault' a SHARED working tree other sessions also edit, of which the destination is one",
+    "        subtree; a rejected push is completed from a temporary worktree created OUTSIDE",
+    "        that tree, so the shared tree is never merged into, reset or swept.",
+    "The regime is deployment fact and is declared, never inferred. Branch and remote are",
+    "configuration for the same reason: the commit policy is the owner's to set."
+  ],
+  "targets": {
+    "alpha-works":     { "regime": "git",   "remote": "origin", "branch": "main" },
+    "gamma-corp":      { "regime": "git",   "remote": "origin", "branch": "main" },
+    "wellbeing-vault": { "regime": "vault", "remote": "origin", "branch": "main" }
+  },
+  "discriminator": {
+    "_why": "Owner ruling 2026-08-28: derived from the meeting's START time, rendered in the timezone the routing table declares. 'insert-before' keeps the owner's own filename suffix last, so a summary stays recognisable as one.",
+    "format": "%H%M",
+    "insert-before": "-resumo"
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "window-contract",
+  "description": "Two kind-discriminated shapes: the since-watermark window the cycle hands the source adapter (poll-window), and the records-in-window answer the adapter hands back. The floor is a fixed field on both; nothing before it is ever read (goal.md clause 15).",
+  "type": "object",
+  "properties": {
+    "kind": { "enum": ["poll-window", "records-in-window"] },
+    "floor": {
+      "const": "2026-08-13",
+      "description": "the owner-ruled processing start date; fixed, never derived from launch time"
+    }
+  },
+  "required": ["kind", "floor"],
+  "oneOf": [
+    {
+      "type": "object",
+      "description": "poll-window: what the cycle asks the source adapter to sweep",
+      "properties": {
+        "kind": { "const": "poll-window" },
+        "since": {
+          "type": "string",
+          "format": "date-time",
+          "description": "the last successful poll's watermark; absent on the first poll, where the floor alone bounds the sweep"
+        },
+        "until": {
+          "type": "string",
+          "format": "date-time",
+          "description": "this poll's cutoff"
+        }
+      },
+      "required": ["kind", "until"]
+    },
+    {
+      "type": "object",
+      "description": "records-in-window: what the source adapter hands back",
+      "properties": {
+        "kind": { "const": "records-in-window" },
+        "window": {
+          "type": "object",
+          "description": "the window actually swept",
+          "properties": {
+            "start": { "type": "string", "format": "date-time" },
+            "end": { "type": "string", "format": "date-time" }
+          },
+          "required": ["start", "end"],
+          "additionalProperties": false
+        },
+        "accounts": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "$ref": "transcript-record.schema.json#/$defs/account" },
+          "description": "per-account coverage: every account the sweep was asked for appears here",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "covered": {
+                "type": "boolean",
+                "description": "false when this account's sweep did not complete; a failure event names why"
+              },
+              "records": {
+                "type": "array",
+                "items": { "$ref": "transcript-record.schema.json" }
+              }
+            },
+            "required": ["covered", "records"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["kind", "window", "accounts"]
+    }
+  ],
+  "unevaluatedProperties": false
+}

@@ -1,0 +1,19 @@
+{
+  "config-key": "destination-routing",
+  "timezone": "America/Sao_Paulo",
+  "_this-file": [
+    "The detection cycle reads ONE field of this key: the timezone every date in the",
+    "product is computed in (owner ruling 2026-08-28, d-m3-timezone-is-config - required,",
+    "no default). The routes below exist only so the file is a well-formed route table;",
+    "the cycle never reads them, and no destination here is an owner destination."
+  ],
+  "routes": [
+    {
+      "entity": "EXAMPLE-entity",
+      "destination": {
+        "repo": "EXAMPLE-repo"
+      },
+      "content": "EXAMPLE business meetings"
+    }
+  ]
+}

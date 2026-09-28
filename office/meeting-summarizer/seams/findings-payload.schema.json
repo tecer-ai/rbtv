@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "findings-payload",
+  "description": "The one-time grounding-note content: per account, one verdict per verification precondition of milestones.csv m2, with every dead source named explicitly. Producer m2, consumer the channel (m5); posted before the first live poll.",
+  "type": "object",
+  "properties": {
+    "verified-at": { "type": "string", "format": "date-time" },
+    "accounts": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "transcript-record.schema.json#/$defs/account" },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "preconditions": { "$ref": "#/$defs/precondition-verdicts" }
+        },
+        "required": ["preconditions"],
+        "additionalProperties": false
+      }
+    },
+    "dead-sources": {
+      "type": "array",
+      "description": "every source found dead, named — never discovered by silence; empty when all are live",
+      "items": {
+        "type": "object",
+        "properties": {
+          "account": { "$ref": "transcript-record.schema.json#/$defs/account" },
+          "layout": { "$ref": "verified-source-map.schema.json#/$defs/layout" },
+          "why": { "type": "string", "minLength": 1 }
+        },
+        "required": ["account", "layout", "why"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["verified-at", "accounts", "dead-sources"],
+  "additionalProperties": false,
+  "$defs": {
+    "precondition-verdict": {
+      "type": "object",
+      "properties": {
+        "verdict": { "$ref": "verified-source-map.schema.json#/$defs/verdict" },
+        "detail": { "type": "string" }
+      },
+      "required": ["verdict"],
+      "additionalProperties": false
+    },
+    "precondition-verdicts": {
+      "type": "object",
+      "description": "one verdict per verification precondition of milestones.csv m2; all five present, none unknown",
+      "properties": {
+        "legacy-meet-recordings-folder": { "$ref": "#/$defs/precondition-verdict" },
+        "google-meet-tree": { "$ref": "#/$defs/precondition-verdict" },
+        "tactiq-autosave-folder": { "$ref": "#/$defs/precondition-verdict" },
+        "meet-transcription-config": { "$ref": "#/$defs/precondition-verdict" },
+        "tactiq-naming-discriminator": { "$ref": "#/$defs/precondition-verdict" }
+      },
+      "required": [
+        "legacy-meet-recordings-folder",
+        "google-meet-tree",
+        "tactiq-autosave-folder",
+        "meet-transcription-config",
+        "tactiq-naming-discriminator"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

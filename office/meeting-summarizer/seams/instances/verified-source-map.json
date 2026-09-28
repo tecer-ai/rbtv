@@ -1,0 +1,24 @@
+{
+  "generated-at": "2026-08-13T18:00:00-03:00",
+  "accounts": {
+    "pessoal": {
+      "sources": [
+        { "layout": "legacy-meet-recordings", "verdict": "live", "folder-ref": "drv:folder/EXAMPLE-p-legacy-9f31" },
+        { "layout": "google-meet-tree", "verdict": "live", "folder-ref": "drv:folder/EXAMPLE-p-tree-4c88" },
+        { "layout": "tactiq-autosave", "verdict": "dead", "notes": "auto-save folder absent on this account" }
+      ]
+    },
+    "tecer": {
+      "sources": [
+        { "layout": "legacy-meet-recordings", "verdict": "dead" },
+        { "layout": "google-meet-tree", "verdict": "live", "folder-ref": "drv:folder/EXAMPLE-t-tree-7a02" },
+        {
+          "layout": "tactiq-autosave",
+          "verdict": "live",
+          "folder-ref": "drv:folder/EXAMPLE-t-tq-51de",
+          "saves-into-account": "tecer"
+        }
+      ]
+    }
+  }
+}

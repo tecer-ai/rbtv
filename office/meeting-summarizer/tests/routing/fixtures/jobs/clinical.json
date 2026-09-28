@@ -1,0 +1,13 @@
+{
+  "meeting-key": "mtg-fixture-t1",
+  "source-set": [
+    {
+      "account": "own@fixture.invalid",
+      "source": "meet",
+      "drive-ref": "drv:file/FIXTURE-t-meet",
+      "title": "Sessao",
+      "start-time": "2026-03-12T19:00:00-03:00",
+      "participants": ["Henrique", "Dora Marques"]
+    }
+  ]
+}

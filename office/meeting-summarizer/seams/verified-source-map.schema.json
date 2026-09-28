@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "verified-source-map",
+  "description": "Per-account source verdicts from m2's verification pass. Producer m2; the live poll reads its folder references at cutover (m8). A dead source appears here with verdict dead, never by omission.",
+  "type": "object",
+  "properties": {
+    "generated-at": { "type": "string", "format": "date-time" },
+    "accounts": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "transcript-record.schema.json#/$defs/account" },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "sources": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "$ref": "#/$defs/source-verification" },
+            "description": "one entry per folder layout this account was checked for"
+          }
+        },
+        "required": ["sources"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["generated-at", "accounts"],
+  "additionalProperties": false,
+  "$defs": {
+    "layout": {
+      "enum": ["legacy-meet-recordings", "google-meet-tree", "tactiq-autosave"],
+      "description": "the three source folder layouts goal.md clause 17 names"
+    },
+    "verdict": { "enum": ["live", "dead"] },
+    "source-verification": {
+      "type": "object",
+      "properties": {
+        "layout": { "$ref": "#/$defs/layout" },
+        "verdict": { "$ref": "#/$defs/verdict" },
+        "folder-ref": {
+          "$ref": "transcript-record.schema.json#/$defs/drive-ref",
+          "description": "present when the verdict is live"
+        },
+        "saves-into-account": {
+          "$ref": "transcript-record.schema.json#/$defs/account",
+          "description": "for the tactiq-autosave layout: which account the saved files actually land in"
+        },
+        "notes": { "type": "string" }
+      },
+      "required": ["layout", "verdict"],
+      "additionalProperties": false
+    }
+  }
+}

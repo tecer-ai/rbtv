@@ -1,0 +1,14 @@
+{
+  "meeting-key": "mtg-m6-d",
+  "source-set": [
+    {
+      "account": "stranger@fixture.invalid",
+      "source": "meet",
+      "drive-ref": "drv:file/FIXTURE-d-meet",
+      "title": "Alinhamento comercial",
+      "start-time": "2026-04-01T14:00:00-03:00",
+      "participants": ["EXAMPLE-Nara", "EXAMPLE-Quim"]
+    }
+  ],
+  "disposition": "new"
+}

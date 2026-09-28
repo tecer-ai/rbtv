@@ -1,0 +1,9 @@
+Read and execute /home/henri/ht-wkdir/second-brain/.user/workflows/therapy-summarizer/therapy-summarizer.md
+
+Operating scope: the CLAUDE.md in the current working directory. Its `## Name Glossary` section
+declares the glossary this run must load.
+
+Transcript: ./therapy/2026-09-15-terapia.md
+Output path: ./destination/EXAMPLE-wellbeing/2026/encontros/2026-09-15-terapia-resumo.md
+
+Execute in **autonomous mode**.

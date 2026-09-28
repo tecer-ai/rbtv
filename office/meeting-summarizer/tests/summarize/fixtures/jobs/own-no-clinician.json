@@ -1,0 +1,15 @@
+{
+  "meeting-key": "mtg-own-no-clinician",
+  "_why": "The shape owner ruling r-owner-ruling-batch-0926 item 3 is about: a meeting on the owner's OWN account (the fixture stand-in for it) whose participants match neither clinician route. With the catch-all route removed it must be asked about, never filed.",
+  "source-set": [
+    {
+      "account": "own@fixture.invalid",
+      "source": "meet",
+      "drive-ref": "drv:file/FIXTURE-e-meet",
+      "title": "Conversa com um amigo",
+      "start-time": "2026-04-02T19:00:00-03:00",
+      "participants": ["EXAMPLE-Romeu", "EXAMPLE-Nara"]
+    }
+  ],
+  "disposition": "new"
+}
