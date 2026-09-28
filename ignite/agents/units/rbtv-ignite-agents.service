@@ -4,6 +4,7 @@ Description=rbtv ignite agents
 [Service]
 Type=simple
 ExecStart=node @DEPLOY@/ignite/agents/tool/daemon.js --workspace @WORKSPACE@
+Environment=PATH=@PATH@
 EnvironmentFile=@ENV_FILE@
 Restart=on-failure
 KillMode=process

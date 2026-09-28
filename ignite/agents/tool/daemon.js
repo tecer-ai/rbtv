@@ -117,6 +117,52 @@ function releaseLock(held) {
   try { fs.unlinkSync(held.lockPath); } catch { /* already gone */ }
 }
 
+function isExecutableFile(file) {
+  try {
+    if (!fs.statSync(file).isFile()) return false;
+    fs.accessSync(file, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveHarness(name, pathEnv) {
+  if (!name || name.includes('/') || name.includes('\\')) {
+    return path.isAbsolute(name) && isExecutableFile(name) ? name : null;
+  }
+  for (const dir of String(pathEnv || '').split(path.delimiter)) {
+    if (!dir) continue;
+    const candidate = path.join(dir, name);
+    if (isExecutableFile(candidate)) return candidate;
+  }
+  return null;
+}
+
+function namedHarnesses(config) {
+  const names = new Set();
+  if (config.defaultLaunch?.harness) names.add(config.defaultLaunch.harness);
+  for (const slug of agentSlugs(config.workspace)) {
+    const file = path.join(agentHome(config, slug), 'launch.json');
+    if (!fs.existsSync(file)) continue;
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (typeof raw.harness === 'string' && raw.harness.trim()) names.add(raw.harness.trim());
+  }
+  return [...names];
+}
+
+function assertHarnesses(config) {
+  const pathEnv = process.env.PATH || '';
+  const missing = namedHarnesses(config).filter((name) => !resolveHarness(name, pathEnv));
+  if (!missing.length) return;
+  for (const harness of missing) {
+    log({ event: 'error', harness, path: pathEnv, message: `harness not on PATH: ${harness}` });
+  }
+  const error = new Error(`harness not on PATH: ${missing.join(', ')}`);
+  error.exitCode = 1;
+  throw error;
+}
+
 function agentSlugs(workspace) {
   const dir = path.join(workspace, '.rbtv', 'agents');
   let names;
@@ -318,6 +364,7 @@ async function startLocked(opts, workspace, held) {
   }
 
   try {
+    assertHarnesses(config);
     if (!slack && !fake) {
       slack = new Slack({
         botToken: readBotToken(config.slack.botTokenFile),

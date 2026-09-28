@@ -47,16 +47,25 @@ if [[ ! -f "$unit_src" ]]; then
   exit 1
 fi
 
+if [[ -z "${PATH:-}" ]]; then
+  echo "PATH is empty" >&2
+  exit 1
+fi
+
 mkdir -p "$unit_dir"
 node -e '
 const fs = require("fs");
-const [src, dst, deploy, workspace, envFile] = process.argv.slice(1);
+const [src, dst, deploy, workspace, envFile, pathValue] = process.argv.slice(1);
+if (!pathValue) throw new Error("PATH required");
 let text = fs.readFileSync(src, "utf8");
-const fill = { "@DEPLOY@": deploy, "@WORKSPACE@": workspace, "@ENV_FILE@": envFile };
-for (const [key, value] of Object.entries(fill)) text = text.split(key).join(value);
+const fill = { "@DEPLOY@": deploy, "@WORKSPACE@": workspace, "@ENV_FILE@": envFile, "@PATH@": pathValue };
+text = text.replace(/@[A-Z_]+@/g, (token) => {
+  if (!Object.prototype.hasOwnProperty.call(fill, token)) throw new Error("unit still has placeholders");
+  return fill[token];
+});
 if (/@[A-Z_]+@/.test(text)) throw new Error("unit still has placeholders");
 fs.writeFileSync(dst, text);
-' "$unit_src" "$unit_dst" "$deploy" "$workspace" "$env_file"
+' "$unit_src" "$unit_dst" "$deploy" "$workspace" "$env_file" "$PATH"
 
 systemctl --user daemon-reload
 systemctl --user enable rbtv-ignite-agents.service

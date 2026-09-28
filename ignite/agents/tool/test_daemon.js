@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const { Store } = require('./store.js');
 const { start } = require('./daemon.js');
 const { FIXED_TZ } = require('./schedule.js');
@@ -136,9 +136,20 @@ function fakeSocket() {
   return socket;
 }
 
-function spawnDaemon(dir) {
+function harnessBin(dir, names) {
+  const bin = path.join(dir, 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  for (const name of names) {
+    const file = path.join(bin, name);
+    fs.writeFileSync(file, '#!/bin/sh\nexit 0\n');
+    fs.chmodSync(file, 0o755);
+  }
+  return bin;
+}
+
+function spawnDaemon(dir, pathEnv = harnessBin(dir, ['claude'])) {
   const child = spawn(process.execPath, [daemonPath, '--workspace', dir], {
-    env: { ...process.env, IGNITE_DAEMON_FAKE: '1' },
+    env: { ...process.env, IGNITE_DAEMON_FAKE: '1', PATH: pathEnv },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let stderr = '';
@@ -170,7 +181,11 @@ test('dm-delivered-once', async () => {
   const cast = fakeCast(dir);
   const slack = fakeSlack();
   const socket = fakeSocket();
-  const runtime = await start({
+  const prevPath = process.env.PATH;
+  process.env.PATH = `${harnessBin(dir, ['claude'])}${path.delimiter}${prevPath || ''}`;
+  let runtime;
+  try {
+  runtime = await start({
     workspace: dir,
     slack,
     socket,
@@ -181,7 +196,6 @@ test('dm-delivered-once', async () => {
     sweepMs: 60_000,
     drainMs: 50,
   });
-  try {
     const saved = await socket.inject({
       team: 'T1',
       channel: 'D1',
@@ -202,7 +216,8 @@ test('dm-delivered-once', async () => {
     assert.equal(slack.posts[0].text, 'reply-once');
     assert.equal(slack.posts[0].channel, 'D1');
   } finally {
-    runtime.stop('test');
+    process.env.PATH = prevPath;
+    if (runtime) runtime.stop('test');
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -224,7 +239,11 @@ test('due-schedule-one-wake', async () => {
     report: 'when-useful',
   });
   store.close();
-  const runtime = await start({
+  const prevPath = process.env.PATH;
+  process.env.PATH = `${harnessBin(dir, ['claude'])}${path.delimiter}${prevPath || ''}`;
+  let runtime;
+  try {
+  runtime = await start({
     workspace: dir,
     slack: fakeSlack(),
     socket: fakeSocket(),
@@ -236,7 +255,6 @@ test('due-schedule-one-wake', async () => {
     sweepMs: 60_000,
     drainMs: 60_000,
   });
-  try {
     const count = () => {
       const check = new Store(path.join(home, 'state.sqlite'));
       try {
@@ -249,7 +267,8 @@ test('due-schedule-one-wake', async () => {
     await new Promise((resolve) => setTimeout(resolve, 120));
     assert.equal(count(), 1);
   } finally {
-    runtime.stop('test');
+    process.env.PATH = prevPath;
+    if (runtime) runtime.stop('test');
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -276,6 +295,80 @@ test('sigterm-clean', async () => {
     assert.equal(fs.existsSync(lock), false);
   } finally {
     if (holder.child.exitCode == null) holder.child.kill('SIGKILL');
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('unit-path-filled', () => {
+  const deploy = fs.readFileSync(path.join(__dirname, 'deploy.sh'), 'utf8');
+  const marker = 'const [src, dst, deploy, workspace, envFile, pathValue]';
+  const at = deploy.indexOf(marker);
+  assert.ok(at > 0);
+  const open = deploy.lastIndexOf("node -e '", at);
+  const close = deploy.indexOf("' \"$unit_src\"", at);
+  const program = deploy.slice(open + "node -e '".length, close);
+  const dst = path.join(os.tmpdir(), `ignite-unit-${process.pid}.service`);
+  const pathValue = '/usr/bin:/opt/harness-bin';
+  const result = spawnSync(process.execPath, [
+    '-e', program,
+    path.join(__dirname, '..', 'units', 'rbtv-ignite-agents.service'),
+    dst,
+    '/opt/deploy',
+    '/opt/workspace',
+    '/opt/env/.env',
+    pathValue,
+  ], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const filled = fs.readFileSync(dst, 'utf8');
+  fs.rmSync(dst, { force: true });
+  assert.match(filled, /^Environment=PATH=\/usr\/bin:\/opt\/harness-bin$/m);
+  assert.equal(filled.includes('@PATH@'), false);
+  assert.equal(/@[A-Z_]+@/.test(filled), false);
+});
+
+test('harness-missing', async () => {
+  const { dir, home } = workspace();
+  const cfgPath = path.join(dir, '.rbtv', 'agents', 'ignite.json');
+  const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+  cfg.defaultLaunch.harness = 'missing-default';
+  fs.writeFileSync(cfgPath, JSON.stringify(cfg));
+  const launchPath = path.join(home, 'launch.json');
+  const launch = JSON.parse(fs.readFileSync(launchPath, 'utf8'));
+  launch.harness = 'missing-home';
+  fs.writeFileSync(launchPath, JSON.stringify(launch));
+  const empty = fs.mkdtempSync(path.join(dir, 'empty-'));
+  const child = spawn(process.execPath, [daemonPath, '--workspace', dir], {
+    env: { ...process.env, IGNITE_DAEMON_FAKE: '1', PATH: empty },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8').on('data', (chunk) => { stdout += chunk; });
+  child.stderr.setEncoding('utf8').on('data', (chunk) => { stderr += chunk; });
+  try {
+    const code = await new Promise((resolve) => child.once('exit', resolve));
+    assert.notEqual(code, 0);
+    assert.match(stdout, /"event":"error"/);
+    assert.match(stdout, /missing-default/);
+    assert.match(stdout, /missing-home/);
+    assert.match(stdout, new RegExp(empty.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.equal(stdout.includes('"event":"ready"'), false);
+    assert.match(stderr, /harness not on PATH/);
+  } finally {
+    if (child.exitCode == null) child.kill('SIGKILL');
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('harness-ready', async () => {
+  const { dir } = workspace();
+  const holder = spawnDaemon(dir, harnessBin(dir, ['claude']));
+  try {
+    await waitFor(() => holder.stdout().includes('"event":"ready"') && holder.child.exitCode == null);
+    assert.equal(holder.stdout().includes('"event":"error"'), false);
+  } finally {
+    if (holder.child.exitCode == null) holder.child.kill('SIGTERM');
+    await new Promise((resolve) => holder.child.once('exit', resolve));
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });

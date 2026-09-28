@@ -57,3 +57,5 @@ Steering between turns. There is no mid-turn interruption. An owner message that
 Long threads. The prompt carries a bounded recent window (20 messages) plus the path of the full history file `conversations/<key>/history.md` under the agent home. The file is regenerated from the store. The store is authoritative.
 
 The unit starts at boot when user lingering is on. Check with `systemctl --user is-enabled rbtv-ignite-agents.service`.
+
+PATH is captured from the deploying shell when the unit is installed. After installing a harness in a new location, redeploy.
