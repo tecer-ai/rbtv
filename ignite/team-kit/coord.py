@@ -218,7 +218,7 @@ PRODUCT_ORDER = ("addressing", "outputs", "tmux", "process", "records", "identit
                  "launch", "ready", "coord_selftest", "cli_main")
 COORD_PY = Path(__file__).resolve()
 KIT_DIR = COORD_PY.parent
-SUPERVISOR_DIR = KIT_DIR.parent / "supervisor"
+SUPERVISOR_DIR = KIT_DIR
 # The supervision door — the other half of the entry-point split (owner ruling 2026-08-25).
 SUPERVISE_PY = SUPERVISOR_DIR / "supervise.py"
 # The supervision half is imported by plain module name, so its folder joins this one on the path.
