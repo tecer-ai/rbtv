@@ -154,11 +154,15 @@ function namedHarnesses(config) {
 function assertHarnesses(config) {
   const pathEnv = process.env.PATH || '';
   const missing = namedHarnesses(config).filter((name) => !resolveHarness(name, pathEnv));
-  if (!missing.length) return;
+  const tool = resolveHarness('ignite-agent', pathEnv);
+  if (!missing.length && tool) return;
   for (const harness of missing) {
     log({ event: 'error', harness, path: pathEnv, message: `harness not on PATH: ${harness}` });
   }
-  const error = new Error(`harness not on PATH: ${missing.join(', ')}`);
+  if (!tool) log({ event: 'error', tool: 'ignite-agent', path: pathEnv, message: 'ignite-agent not on PATH' });
+  const parts = missing.map((name) => `harness not on PATH: ${name}`);
+  if (!tool) parts.push('ignite-agent not on PATH');
+  const error = new Error(parts.join('; '));
   error.exitCode = 1;
   throw error;
 }
