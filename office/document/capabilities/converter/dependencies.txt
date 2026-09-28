@@ -1,0 +1,7 @@
+# converter capability — EVERY external dependency with its install command; updated IN THE SAME
+# CHANGE as any dependency change (convention: core/communication/capabilities/audio/dependencies.txt).
+#
+# Format: name — why — install command
+
+python3 — interpreter for tool/md-to-docx.py. System tool.
+python-docx — builds the .docx document (import docx) in tool/md-to-docx.py. Installed on the ignite VPS 2026-09-28 (1.2.0) — `pip3 install --user --break-system-packages python-docx` if a machine lacks it (PEP-668 externally managed python; --user confines it to ~/.local). On Windows: `py -m pip install --user python-docx`.
