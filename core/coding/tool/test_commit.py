@@ -61,7 +61,7 @@ def repo(tmp_path):
 def write(repo, rel, content="x\n"):
     p = repo / rel
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(content)
+    p.write_text(content, encoding="utf-8")
 
 
 def test_folder_move_stages_delete_and_add(repo):
@@ -177,7 +177,7 @@ def test_move_excludes_parallel_staged_file(repo):
     # Only the move is committed — the foreign file is not.
     assert commit_files(repo) == {"old/a.md", "new/a.md"}
     # Its working-tree change survives, simply left unstaged.
-    assert (repo / "unrelated.md").read_text() == "noise\n"
+    assert (repo / "unrelated.md").read_text(encoding="utf-8") == "noise\n"
     status = git(["status", "--porcelain", "unrelated.md"], repo)
     assert status.startswith("??") or status.startswith(" "), status
 

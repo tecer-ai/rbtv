@@ -843,19 +843,19 @@ def selftest():
             "ident": lambda s: dig(s, "who", "uuid"),
             "who": lambda s: dig(s, "who", "mail"), "expires": lambda s: None}
         os.environ["RBTV_WORKSPACE"] = str(td)
-        (td / "rbtv.json").write_text("{}")
+        (td / "rbtv.json").write_text("{}", encoding="utf-8")
         try:
-            cred.write_text(json.dumps({"tok": "A"}))
-            conf.write_text(json.dumps({"keep": "me", "acc": {"uuid": "u-a", "mail": "a@x"}}))
+            cred.write_text(json.dumps({"tok": "A"}), encoding="utf-8")
+            conf.write_text(json.dumps({"keep": "me", "acc": {"uuid": "u-a", "mail": "a@x"}}), encoding="utf-8")
             save("_t", "a")
             ck("active-a", active("_t") == "a")
-            cred.write_text(json.dumps({"tok": "B"}))
-            conf.write_text(json.dumps({"keep": "me", "acc": {"uuid": "u-b", "mail": "b@x"}}))
+            cred.write_text(json.dumps({"tok": "B"}), encoding="utf-8")
+            conf.write_text(json.dumps({"keep": "me", "acc": {"uuid": "u-b", "mail": "b@x"}}), encoding="utf-8")
             save("_t", "b")
             ck("active-b", active("_t") == "b")
             cmd_use("_t", "a")
-            ck("use-swaps", json.loads(cred.read_text())["tok"] == "A")
-            ck("use-keeps-siblings", json.loads(conf.read_text())["keep"] == "me")
+            ck("use-swaps", json.loads(cred.read_text(encoding="utf-8"))["tok"] == "A")
+            ck("use-keeps-siblings", json.loads(conf.read_text(encoding="utf-8"))["keep"] == "me")
             # the outgoing login must be parked, not lost: b's token has to survive the swap
             ck("use-parks-outgoing", read_slot("_t", "b")["credentials"]["tok"] == "B")
             ck("names", slot_names("_t") == ["a", "b"])
