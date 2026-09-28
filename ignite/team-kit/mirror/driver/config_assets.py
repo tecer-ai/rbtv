@@ -37,9 +37,9 @@ from .state import write_if_changed
 # ---------------------------------------------------------------------------
 # Resolve the assets/ tree, sibling to driver/ in this mirror/ package.  This
 # module lives at:
-#   ignite/coord/mirror/driver/config_assets.py
+#   ignite/team-kit/mirror/driver/config_assets.py
 # assets live at:
-#   ignite/coord/mirror/assets/<name>/
+#   ignite/team-kit/mirror/assets/<name>/
 # ---------------------------------------------------------------------------
 _DRIVER_DIR = Path(__file__).resolve().parent          # …/mirror/driver/
 _MIRROR_DIR = _DRIVER_DIR.parent                       # …/mirror/

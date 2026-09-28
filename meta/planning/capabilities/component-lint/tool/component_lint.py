@@ -1222,7 +1222,7 @@ def check_fork_discharge(c, out, census):
 ETHOS_BLOCK = re.compile(r"<!--\s*ethos:start\s*-->.*?<!--\s*ethos:end\s*-->", re.S)
 # Owner-ruled standing checkout grant: every seat declares it, few name it in
 # prose, and it is never drift.
-COORDINATE_GRANT = "rbtv:ignite/coordinate"
+COORDINATE_GRANT = "rbtv:ignite/team-kit/coordinate"
 # The exposure methods whose part-id is an instrument a prompt BODY would name.
 # Direction 1 (declared-but-unused) covers all three; direction 2
 # (used-but-undeclared) is scoped tighter — measured 2026-08-12 over the live
@@ -1355,7 +1355,7 @@ def check_resources_coverage(c, out, census):
     `exposes:` entry of method path/skill/sub-agent ALSO gets its own bullet
     inside the prompt's <resources> section, at most 280 characters — prose
     a materializer-bound grant is not prose an OCCUPANT reads. Exempt: the
-    standing `rbtv:ignite/coordinate` checkout grant, and every
+    standing `rbtv:ignite/team-kit/coordinate` checkout grant, and every
     command/rule/hook entry (those arrive as standing behaviour, never a
     chosen instrument) — same exemptions check_exposes_body_match carries."""
     census["resources-entries"] = 0

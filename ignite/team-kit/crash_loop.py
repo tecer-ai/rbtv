@@ -78,7 +78,7 @@ def prune_stale(pkg, *, now=None, window_sec=WINDOW_SEC):
     definition is already "N pre-checkin deaths inside window_sec" — once that much time has
     passed with no new one counted, the pattern it reported is no longer live, whether or not the
     seat has run again. A check-in-triggered clear would need a hook in `session_checkin`
-    (`ignite/coord/records.py`), which is outside this seat's granted files (custody: only
+    (this kit's `records.py`), which is outside this seat's granted files (custody: only
     `crash_loop.py` + `supervisor_door.py` + `attest.py#close_session_seat`) and under `coord/`'s
     own save/selftest discipline; the window-based rule is self-contained — this module owns both
     the raise and the clear — and needs no cross-package hook.

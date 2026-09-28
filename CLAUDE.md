@@ -26,10 +26,6 @@ When carrying a file INTO this repo from an archive or an instance:
 
 Precedent: `studio/deck-loop-spec.md` (carried + generalized 2026-06-13).
 
-## Build memory — read before editing ignite/ or meta/
-
-BEFORE editing anything under `ignite/` or `meta/`: read `ignite/work-on-ignite/CLAUDE.md` and follow its skill (read memory first, file after).
-
 ## ignite/ — Runnable Service Code (convention)
 
 `ignite/agents/` is Ignite 0.2: runnable Node code. A Slack message or a scheduled wake selects a primary-agent home under the workspace `.rbtv/agents/<slug>/`, runs one non-interactive turn, and the runtime delivers that turn's replies. It is deployed, not copied into a harness tree: `ignite/agents/tool/deploy.sh <commit>` (env `RBTV_DEPLOY`, `RBTV_WORKSPACE`) checks out the deploy worktree and restarts the user unit `rbtv-ignite-agents.service` (template `ignite/agents/units/rbtv-ignite-agents.service`). Operator steps are `ignite/agents/runbook.md`.
@@ -42,7 +38,7 @@ Rules for `ignite/agents/`:
 4. **Self-contained subtree.** `ignite/agents/tool/` requires only its own files and Node built-ins. Other rbtv capabilities (`cast`, stools, audio) are runtime commands named in workspace config, never source imports.
 5. **Docs in sync.** When this component changes, the Keep-Docs-in-Sync rule above applies.
 
-`ignite/team-kit/` remains a normal installable component of this module (thin skill loader; scripts read in place from the repo). Other `ignite/` trees are Ignite 0.1 and are not this section.
+`ignite/team-kit/` remains a normal installable component of this module (thin skill loader; scripts read in place from the repo). `ignite/teambuild/` is the staffing-discovery browse (`rbtv teambuild`).
 
 ## CLI Tool Placement (convention, owner-ruled 2026-07-26)
 

@@ -5,8 +5,8 @@ staffing-recommendations: "frontier model at high effort — a hint for the staf
 human-interactive: yes
 fallback: default-and-disclose
 exposes:
-  skill: [master/slack-message-format, workflow-authoring-checklist, ignite/coord/file-system-issue]
-  path: [rbtv:ignite/team-kit/coordinate, capability-cards, ignite/coord/file-issue, rbtv:ignite/planning/plan-envelope]
+  skill: [master/slack-message-format, workflow-authoring-checklist]
+  path: [rbtv:ignite/team-kit/coordinate, capability-cards, rbtv:ignite/planning/plan-envelope]
   sub-agent: [researcher, diagnoser]
 ---
 
@@ -46,8 +46,6 @@ exposes:
 - `plan-envelope` — writes `planning/envelope.json`, the PLAN-side fill-ins the bound commit carries. Run it at step 5b with `--plan-artifacts planning --credential-name <name>` once per name in the credential-name manifest; skip it when the manifest names none.
 - `researcher` sub-agent — sourced facts with provenance. Fan out when a grant or resource claim is unread. Judgment stays yours.
 - `diagnoser` sub-agent — local/codebase cause. Fan out when a seat's write path or tool depends on how something actually behaves.
-- `file-system-issue` — file an ignite/ or meta/ defect into the engine register; file, don't dump it on this goal's issues.md.
-- `file-issue` — the filing CLI the skill routes to. `file-issue doctor` then `file-issue file` with the required flags.
 </resources>
 
 <io-spec>
@@ -67,7 +65,7 @@ A stranger reviewer can trial the plan against the frozen milestone list and the
 <permissions>
 - Read: the goal folder; the facts brief; the design; capability cards; every artifact those name.
 - Write: the draft the paired task names under `planning/`, plus the two artifacts of step 4b — `planning/execution-contract.md` and, for a one-off plan, `planning/current/` (`manifest.csv`, `seats/<seat>/` prompt+task pairs, `bindings.json`) — and `planning/envelope.json` via `plan-envelope` at step 5b. All of them sit under the goal's `planning/` workspace, which the cage opens read-write to every seat; APPENDS to the five goal ledgers; this seat's own folder (`memory.md`, `downloads/`, `scratchpad/`, `outputs/`; probes under `scratchpad/probes/<short>-<n>/`).
-- Run: `coordinate`; `capability-cards`; `file-issue`; `plan-envelope`; sub-agent dispatch.
+- Run: `coordinate`; `capability-cards`; `plan-envelope`; sub-agent dispatch.
 </permissions>
 
 <restrictions>
@@ -77,7 +75,7 @@ A stranger reviewer can trial the plan against the frozen milestone list and the
 - Never write a per-seat wall-clock deadline field. Never write a credential value.
 - Never mint a durable workflow; honour the owner's durable-vs-one-off declaration already on the goal.
 - Never assign the casting, materializing or launching of an execution seat to any seat — not to this goal's `leader`, not to a produced seat. The daemon mints the roster at the birth your execution declaration describes.
-- An ignite/ or meta/ defect is filed through file-system-issue / file-issue, never this goal's issues.md.
+- An ignite/ or meta/ defect goes on this goal's issues.md.
 </restrictions>
 
 <constraints source="references/ethos.md">

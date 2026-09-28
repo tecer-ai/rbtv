@@ -177,7 +177,7 @@ def drive_death_stamp(module_js, db, evidence, registry, where):
 
     ⚠ `where` IS THE FIXTURE DIRECTORY AND IS NOT DERIVED FROM `module_js`. The green half of arm
     B drives the SHIPPED module, and a driver written beside its subject would land a `drive.js`
-    inside `ignite/supervisor/` — a probe writing into the tree it measures."""
+    inside the former supervisor tree — a probe writing into the tree it measures."""
     driver = Path(where) / "drive.js"
     driver.write_text(DRIVER, encoding="utf-8")
     proc = subprocess.run(

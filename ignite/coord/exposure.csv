@@ -1,6 +1,0 @@
-# Residual 0.1 component. The coordination kit moved to ignite/team-kit/.
-# What remains is the dropped file-system-issue skill and the injection ladder
-# the 0.1 spawn path still resolves, both deleted with 0.1.
-part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
-file-issue,tool,path,,file-issue.py,,!ws:.rbtv/goals/ignite-engine/register;!ws:3-resources/tools/rbtv/ignite/work-on-ignite/memory
-file-system-issue,capability,skill,,skills/file-system-issue/SKILL.md,"File a system issue (defect, gap, change notice) under ignite/ or meta/ into the engine goal's register — file, don't fix",

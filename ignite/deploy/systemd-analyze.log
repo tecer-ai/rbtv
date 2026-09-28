@@ -1,4 +1,0 @@
-# systemd-analyze verify — p3-2 unit template (substituted copy in /tmp; NEVER installed)
-# substitutions used: USER=nobody WORKSPACE_ROOT=/srv/rbtv/workspace WORKDIR_ROOT=/srv/rbtv/work
-# the 'nobody' notice is an artifact of that placeholder user, not of the template
-/tmp/rbtv-ignite-substituted.service:44: Special user nobody configured, this is not safe!

@@ -19,11 +19,11 @@ against the REAL module, never a stub:
       even against that same held lock — proving the lock is genuinely OFF rather than merely
       quiet — AND writes the one-line "fcntl unavailable — NO single-loop lock" warning to stderr.
 
-RED-FIRST. `RBTV_PROBE_TREE` re-points TARGET at another tree's `ignite/coord/nudge.py`.
+RED-FIRST. `RBTV_PROBE_TREE` re-points TARGET at another tree's `ignite/team-kit/nudge.py`.
 Pointed at the pre-fix source, P1 goes red.
 
 ⚠ AN ABSENT/UNIMPORTABLE TARGET IS THE FAILURE, NEVER A SKIP. Run it through the suite —
-`node ignite/deploy/probe-suite.js --only nudge-degrade` — never by hand (`G-163`).
+`the probe suite --only nudge-degrade` — never by hand (`G-163`).
 Exit 0 = green · 1 = a property is broken · 2 = INOPERATIVE.
 """
 
@@ -39,7 +39,7 @@ for _v in ("TMUX", "TMUX_PANE"):
     os.environ.pop(_v, None)
 
 HERE = Path(__file__).resolve().parent
-# HERE = <root>/ignite/coord/probes -> parents[2] is the rbtv repo root. `RBTV_PROBE_TREE` is
+# HERE = <root>/ignite/team-kit/probes -> parents[2] is the rbtv repo root. `RBTV_PROBE_TREE` is
 # the RED-FIRST knob (see the docstring): it re-points TARGET at another tree's source.
 ROOT = Path(os.environ.get("RBTV_PROBE_TREE") or HERE.parents[2])
 TARGET = ROOT / "ignite" / "team-kit" / "nudge.py"

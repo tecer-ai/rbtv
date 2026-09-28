@@ -1628,7 +1628,7 @@ REORIENT_NUDGE = ("You were RESUMED after your session's process died — this i
                   "lost with the process (recovery, not survival) — re-derive it, never assume it "
                   "landed.")
 
-# The harness's OWN resume vocabulary. Keyed to `ignite/envelope/spawn-profiles.yaml`'s
+# The harness's OWN resume vocabulary. Keyed to the former spawn-profiles table's
 # `session_ref:` source for each harness, verified against the installed CLIs 2026-08-05:
 #   claude   `session_ref: {source: stdout-json, field: session_id}`        -> `--resume <id>`
 #   codex    `session_ref: {source: stdout-json-event, field: thread_id}`   -> `resume <id>`

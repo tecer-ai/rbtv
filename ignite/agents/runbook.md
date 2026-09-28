@@ -8,7 +8,7 @@ One process per workspace, unit `rbtv-ignite-agents.service`. It runs from the d
 RBTV_DEPLOY=<worktree> RBTV_WORKSPACE=<workspace> deploy.sh <commit>
 ```
 
-`deploy.sh` is `ignite/agents/tool/deploy.sh` in the repo that owns the worktree. It checks the worktree out detached at `<commit>`, runs `npm ci` in `ignite/` only when `ignite/package.json` changed, fills the unit template, `systemctl --user daemon-reload`, restarts `rbtv-ignite-agents.service`, and prints the running commit. Running it again at the same commit is safe.
+`deploy.sh` is `ignite/agents/tool/deploy.sh` in the repo that owns the worktree. It checks the worktree out detached at `<commit>`, runs `npm ci` in `ignite/` only when `ignite/package.json` still exists and changed, fills the unit template, `systemctl --user daemon-reload`, restarts `rbtv-ignite-agents.service`, and prints the running commit. Running it again at the same commit is safe.
 
 ## Status
 
