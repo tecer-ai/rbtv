@@ -2,7 +2,7 @@
 id: summarizer-cycle
 description: "Run one meeting-summarizer cycle inline, in the current turn: detect new meeting transcripts, summarize each, file and publish the settled ones, apply any owner answer from the last grouped question, and ask a new grouped question only when a doubt is genuinely open. Use on every scheduled wake of the meeting-summarizer agent — never in a chat reply to an unrelated request."
 exposes:
-  path: [detection-cycle, artifact-bindings, per-meeting-job, publish-job, doubt-answer, verify-access]
+  path: [materialize-config, detection-cycle, artifact-bindings, per-meeting-job, publish-job, doubt-answer, verify-access]
 ---
 
 <role>
@@ -26,12 +26,15 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
   Call this `<tools>` below.
 - **Config root** — `<agent-home>/config/` (`<agent-home>` is `$IGNITE_AGENT_HOME` inside a turn).
   Every tool call below passes `--config-root`/`--config-dir <agent-home>/config` explicitly; never
-  rely on a tool's own default. **First-ever cycle only** (the folder does not exist yet): read
-  `<agent-home>/settings.json` (the agent's own settings — standing instructions already tell you to
-  read it) and write each of its top-level keys to its own file under `<agent-home>/config/` — key
-  `sources` → `config/sources.json`, `destination-routing` → `config/destination-routing.json`, and
-  likewise for `destination-repos`, `publish-targets`, `runtime`, `summarize`. This is the shape
-  every tool below already reads; do it once, then skip it on every later cycle.
+  rely on a tool's own default. **EVERY cycle, before anything else, run:**
+  `python3 <tools>/materialize_config.py --settings <agent-home>/settings.json --config-root <agent-home>/config`
+  It overwrites `config/*.json` fresh from `settings.json` (the agent's own settings, and its ONLY
+  copy — standing instructions already tell you to read it) every time it runs. NEVER skip this
+  because `config/` already exists from a prior cycle: it is a DERIVED cache of `settings.json`,
+  rebuilt every cycle, never a second copy an owner edit could leave stale (measured 2026-09-28 — an
+  owner edit to `settings.json` alone, with materialization gated to the first cycle only, never
+  reached the tools; the orchestrator patched `config/destination-routing.json` by hand). Nothing
+  under `config/` is ever hand-edited or read as authoritative on its own.
 - **State directory** — `<agent-home>/state/` (starts empty on a new agent; nothing migrates from a
   prior instance). `doubts.jsonl`, `outcomes.jsonl`, `resolved-doubts.jsonl`, `asked-doubts.jsonl`,
   `processed-transcripts.jsonl`, `asked-routing.jsonl`, `resolved-routing.jsonl` all live directly
@@ -156,6 +159,8 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
 </procedure>
 
 <resources>
+- `materialize-config` (`materialize_config.py`) — overwrites `<agent-home>/config/*.json` from
+  `settings.json`, every cycle. Run this FIRST; every tool below reads what it wrote.
 - `detection-cycle` (`detection_cycle.py`) — `tick` polls every watched account and source once,
   settles meeting identity, advances the one whole-poll watermark, and emits this cycle's pending
   jobs; `status`/`retry`/`schedule`/`keys` read back state without polling.
@@ -199,13 +204,14 @@ silently dropped, and never reported as a plain refusal.
 <permissions>
 - Read: this agent's `settings.json`, its materialized `<agent-home>/config/*.json`, `<state>` and
   its `channel` subfolder, and every summary/transcript file the tools above name.
-- Run: `detection-cycle`, `artifact-bindings`, `per-meeting-job`, `publish-job`, `doubt-answer`, and
-  `verify-access` when a tick refuses at the account boundary.
-- Write: `<agent-home>/config/*.json` (the one-time materialization), `<scratch>`, and
-  `<state>/asked-routing.jsonl` / `<state>/resolved-routing.jsonl` / the one synthetic settlement
-  line you append to `<state>/outcomes.jsonl` for a resolved routing answer (step 1b) — every other
-  write (doubt/outcome rows a tool produces itself, filed summaries, git commits/pushes) is a tool's
-  own, never done by hand.
+- Run: `materialize-config` (every cycle, first), `detection-cycle`, `artifact-bindings`,
+  `per-meeting-job`, `publish-job`, `doubt-answer`, and `verify-access` when a tick refuses at the
+  account boundary.
+- Write: `<agent-home>/config/*.json` (via `materialize-config`, every cycle — never by hand),
+  `<scratch>`, and `<state>/asked-routing.jsonl` / `<state>/resolved-routing.jsonl` / the one
+  synthetic settlement line you append to `<state>/outcomes.jsonl` for a resolved routing answer
+  (step 1b) — every other write (doubt/outcome rows a tool produces itself, filed summaries, git
+  commits/pushes) is a tool's own, never done by hand.
 </permissions>
 
 <restrictions>
