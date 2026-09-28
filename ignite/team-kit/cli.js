@@ -63,12 +63,12 @@ function parseArgs(argv) {
 // require would make the liveness half of this module hostage to the endings half.
 function openStore(dbPath) {
   // eslint-disable-next-line global-require
-  const { openHeartStore, closeHeartStore } = require('./ending-store/heart/heart-store');
+  const { openEndingStore, closeEndingStores } = require('./ending-store/open');
   // eslint-disable-next-line global-require
   const endingStore = require('./ending-store');
-  const heart = openHeartStore({ dbPath });
-  const api = endingStore.bind(heart.db);
-  return { api, close: () => { heart.close(); closeHeartStore(); } };
+  const db = openEndingStore(dbPath);
+  const api = endingStore.bind(db);
+  return { api, close: () => closeEndingStores() };
 }
 
 function loadPayload(spec) {

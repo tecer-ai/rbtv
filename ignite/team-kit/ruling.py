@@ -40,7 +40,7 @@ RELAUNCH_BUDGET_JS = Path(__file__).resolve().parent / "relaunch-budget.js"
 # The hold's release vocabulary is the ENDING STORE's, read off it for `instruction_kinds`' reason:
 # a second copy in Python is how a door accepts a word the store refuses.
 VOCABULARY_JS = Path(__file__).resolve().parent / "ending-store" / "vocabulary.js"
-LEADER_INSTRUCTIONS_REL = Path(".rbtv") / "runtime" / "ignite" / "leader-instructions"
+LEADER_INSTRUCTIONS_REL = Path(".rbtv") / "runtime" / "team-kit" / "leader-instructions"
 
 # The keys `executeLeaderInstruction` refuses as WORK PRODUCT [CF-3, T2-R5] — a leader reports, it
 # never does the seat's work. Refused HERE too, at write time, so the leader meets the wall while
@@ -81,7 +81,7 @@ def instruction_kinds():
 
 
 def instruction_path(root, goal, seat):
-    """`<workspace>/.rbtv/runtime/ignite/leader-instructions/<goal>--<seat>.json` — the exact name
+    """`<workspace>/.rbtv/runtime/team-kit/leader-instructions/<goal>--<seat>.json` — the exact name
     `leaderInstructionPath` composes and `drainLeaderInstructions` matches by `<goal>--` prefix."""
     return Path(root) / LEADER_INSTRUCTIONS_REL / f"{goal}--{seat}.json"
 

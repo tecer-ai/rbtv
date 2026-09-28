@@ -72,7 +72,7 @@ def ending_store_db(start=None):
             f"no workspace above {Path(start or '.').resolve()}: walked to the filesystem root "
             f"without finding a directory holding {INSTALL_RECORD_REL}. "
             f"NOTHING WAS WRITTEN — set ENDING_STORE_DB to name a store explicitly.")
-    return root / ".rbtv" / "runtime" / "ignite" / "heart.db"
+    return root / ".rbtv" / "runtime" / "team-kit" / "heart.db"
 
 
 # `evidence_pointer` is spec §1.2 TEXT, and this door is the validation boundary that decides

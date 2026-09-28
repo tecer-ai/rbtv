@@ -3,7 +3,7 @@
 // ── OPENING THE ENDING STORE **AT ITS OWN HOME**, WITHOUT THE HEART STORE'S WRITER SLOT ────────
 //
 // WHY THIS EXISTS. Spec-state-store §1.1 puts the ONE ending store at
-// `<workspace>/.rbtv/runtime/ignite/heart.db` — workspace-scoped, and explicitly NOT per-goal
+// `<workspace>/.rbtv/runtime/team-kit/heart.db` — workspace-scoped, and explicitly NOT per-goal
 // `heart.db` ("that would recreate dual writers") and NOT `{state_root}/heart.db` after cutover.
 // A reader therefore has to reach a file that is NOT the lane store it already holds: the attached
 // lane opens `<goal>/heart.db` and the daemon opens `{data_root}/heart.db`, and if endings were

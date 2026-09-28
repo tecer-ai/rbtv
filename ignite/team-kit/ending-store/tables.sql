@@ -112,7 +112,7 @@ CREATE INDEX IF NOT EXISTS idx_open_asks_seat ON open_asks(goal, seat);
 -- (3) The hold's own lifetime is not the ending's: it survives a code-deploy re-arm (a hold is a
 -- ruling, not a counter) and is released by a change the ending row cannot express.
 -- It IS in this file, and therefore in the ONE workspace-scoped ending store
--- (`<workspace>/.rbtv/runtime/ignite/heart.db`, `state-store/open.js`), because the reader that
+-- (`<workspace>/.rbtv/runtime/team-kit/heart.db`, `open.js`), because the reader that
 -- must honour it is the reconcile pass's ending read and a second store is the defect
 -- `ending-reads.js`'s header exists to end.
 --
@@ -162,7 +162,7 @@ CREATE INDEX IF NOT EXISTS idx_seat_holds_goal ON seat_holds(goal);
 -- .js#archiveCurrent`) — so an `ending` value could be superseded away by a later `done`/`failed`
 -- stamp, and "abandoned forever" cannot live somewhere a later write erases it.
 -- It IS in this file, and therefore in the ONE workspace-scoped ending store
--- (`<workspace>/.rbtv/runtime/ignite/heart.db`), for the same reason `seat_holds` is: the readers
+-- (`<workspace>/.rbtv/runtime/team-kit/heart.db`), for the same reason `seat_holds` is: the readers
 -- that must inherit this answer (`owed.js`, `owed-from-endings.js`, and the reconcile/lane-watch
 -- pass) already read this store.
 --

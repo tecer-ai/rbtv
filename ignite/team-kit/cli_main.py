@@ -1164,7 +1164,7 @@ def build_parser(door=COORDINATION_DOOR):
     s = command(
         "instruct",
         "RULE on a seat's ended session, so it stops re-waking the chair. The judgment is recorded\n"
-        "where the daemon ALREADY drains it — `.rbtv/runtime/ignite/leader-instructions/` — and is\n"
+        "where the drain already reads it — `.rbtv/runtime/team-kit/leader-instructions/` — and is\n"
         "applied once, at the top of the next reconcile pass, then filed under `done/`.\n"
         "\n"
         "The kind is one of a CLOSED list of four, read off `supervisor/relaunch-budget.js` rather\n"

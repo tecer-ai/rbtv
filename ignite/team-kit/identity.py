@@ -1,6 +1,5 @@
 import os
 import re
-import subprocess
 import sys
 
 # ---------- identity (T1) ----------
@@ -34,9 +33,9 @@ def pane_agent(base, pane):
 #
 #   1. `/proc/self/cgroup`  -> the transient unit this process is inside. Kernel-maintained; no env
 #                              var, flag or config sets it.
-#   2. `rbtv-ignite.service` -> must be ACTIVE, and its MainPID's `/proc/<pid>/environ` carries the
-#                              daemon's own data root.
-#   3. `heart.db` `jobs_log` -> a LIVE turn row for that unit_name. THIS is the discriminating step,
+#   2. There is no 0.1 daemon heart left. `rbtv-ignite.service` is deleted, so an uninjected call
+#      fails closed instead of opening `/var/lib/rbtv-ignite/heart.db`.
+#   3. An injected `db_path` (the self-test seam) must hold a LIVE `jobs_log` turn for that unit.
 #                              and it is why link 1 alone is not enough: any local process can run
 #                              `systemd-run --user --unit=rbtv-worker-<uuid>` and wear the name. The
 #                              unit name is a NAMING convention, not a credential — the same thing
@@ -50,8 +49,6 @@ def pane_agent(base, pane):
 # pane's registered roster row, and it does not touch `--as` precedence (that is arm 2's bound, not
 # this one's). Zero behaviour change for every caller that already resolved.
 DAEMON_IDENTITY = "ignite-daemon"
-IGNITE_UNIT = "rbtv-ignite.service"
-DAEMON_DATA_ROOT_DEFAULT = "/var/lib/rbtv-ignite"   # envelope/spawn-profiles.yaml's seeded data_root
 # `spawn/carrier.js` mints `rbtv-worker-<sessionId>`; systemd renders that as a .service unit and
 # the cgroup line carries it as the path LEAF. Anchored on the separator and on `.service` so a
 # substring appearing anywhere else in the line cannot smuggle a unit name in.
@@ -69,42 +66,8 @@ def daemon_worker_unit(cgroup_text):
 
 
 def daemon_heart_db():
-    """The LIVE daemon's own `heart.db` path, read off the running unit — or '' when unanswerable.
-
-    ⚠ `--user` IS LOAD-BEARING AND IS NOT A STYLE CHOICE (watch.py `daemon_identity()`'s measured
-    lesson). The unit is user-scoped; the SYSTEM bus answers `LoadState=not-found` / `MainPID=0` /
-    exit 0, byte-identical to a unit that genuinely does not exist. coord cannot import watch
-    (watch imports coord), so this asks for the two properties it needs and treats every answer
-    that is not a determinate `active` as NO IDENTITY — which is the safe direction here, unlike
-    watch's, where the same ambiguity had to be reported rather than resolved."""
-    try:
-        out = subprocess.run(["systemctl", "--user", "show", IGNITE_UNIT,
-                              "--property=ActiveState,MainPID"],
-                             capture_output=True, text=True, timeout=10)
-    except (OSError, subprocess.SubprocessError):
-        return ""
-    if out.returncode != 0:
-        return ""
-    kv = {}
-    for line in (out.stdout or "").splitlines():
-        k, _, v = line.partition("=")
-        kv[k.strip()] = v.strip()
-    if kv.get("ActiveState") != "active":
-        return ""
-    pid = kv.get("MainPID", "")
-    if not pid.isdigit() or int(pid) <= 0:
-        return ""
-    # The RUNNING environment, not the unit's declared `Environment=`: a deploy may carry the data
-    # root in an `EnvironmentFile=`, which `show --property=Environment` does not render at all.
-    root = ""
-    try:
-        with open(f"/proc/{pid}/environ", "rb") as fh:
-            for entry in fh.read().decode("utf-8", "replace").split("\0"):
-                if entry.startswith("RBTV_IGNITE_DATA_ROOT="):
-                    root = entry.split("=", 1)[1]
-    except OSError:
-        return ""
-    return os.path.join(root or DAEMON_DATA_ROOT_DEFAULT, "heart.db")
+    """No 0.1 daemon heart remains. The unit this used to read is deleted, so the answer is ''."""
+    return ""
 
 
 def daemon_exec_identity(cgroup_text=None, db_path=None):

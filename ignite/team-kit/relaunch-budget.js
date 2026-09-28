@@ -373,7 +373,7 @@ function handoffPayloadText(payload, answerPath) {
 //
 // Beside the ask records [spec-state-store 1.1], workspace-relative and GENERAL - no instance path
 // is spelled anywhere in this repo.
-const LEADER_INSTRUCTIONS_REL = path.join('.rbtv', 'runtime', 'ignite', 'leader-instructions');
+const LEADER_INSTRUCTIONS_REL = path.join('.rbtv', 'runtime', 'team-kit', 'leader-instructions');
 
 function leaderInstructionsDir(workspaceRoot) {
   if (!workspaceRoot) throw new RelaunchBudgetError('leaderInstructionsDir requires workspaceRoot');

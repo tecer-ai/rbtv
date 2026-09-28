@@ -57,7 +57,7 @@ IGNITE = KIT.parent
 ENDING_STORE_PY = KIT / "ending_store.py"
 OUT = HERE / "probe-workspace-record-walk.out"
 RECORD_REL = Path("rbtv.json")
-INSTRUCTIONS_REL = Path(".rbtv") / "runtime" / "ignite" / "leader-instructions"
+INSTRUCTIONS_REL = Path(".rbtv") / "runtime" / "team-kit" / "leader-instructions"
 CHECKS = []
 T0 = time.time()
 
@@ -142,9 +142,9 @@ try:
           resolved == ws, {"resolved": str(resolved), "ws": str(ws), "repo": str(repo)})
 
     check("A2: the ARTIFACT PATH follows the resolution — the store lands at "
-          "`<ws>/.rbtv/runtime/ignite/heart.db`, the file the daemon reads, not at a path inside "
+          "`<ws>/.rbtv/runtime/team-kit/heart.db`, the file team-kit reads, not at a path inside "
           "the nested repo where a reader would never look",
-          db == ws / ".rbtv" / "runtime" / "ignite" / "heart.db"
+          db == ws / ".rbtv" / "runtime" / "team-kit" / "heart.db"
           and str(repo) not in str(db), {"db": str(db)})
 
     check("A3: the bare `.rbtv/` walked past is NAMED on stderr as NOT a workspace — one line "
@@ -166,7 +166,7 @@ try:
     stray = list((repo / ".rbtv").rglob("*.json"))
     check("B1: the RULING half lands in the same workspace — a real `supervise instruct worker-a "
           "reassign --go`, run with its cwd INSIDE the nested repo, writes the leader's inbox at "
-          "`<ws>/.rbtv/runtime/ignite/leader-instructions/<goal>--<seat>.json`, the path "
+          "`<ws>/.rbtv/runtime/team-kit/leader-instructions/<goal>--<seat>.json`, the path "
           "`drainLeaderInstructions` matches, and the nested repo gains no JSON at all",
           rc == 0 and landed.is_file() and stray == []
           and json.loads(landed.read_text())["kind"] == "reassign",

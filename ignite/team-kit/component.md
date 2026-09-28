@@ -56,7 +56,7 @@ the seam and how is `supervisor/component.md`'s subject.
 `accept`, `instruct`, `hold` and `release` are `supervise`-door verbs whose bodies live here. `accept` stamps a
 seat's ending `done` after re-checking its declared outputs; `instruct` records one of the four
 CLOSED leader instructions into the daemon's own inbox
-(`.rbtv/runtime/ignite/leader-instructions/`), which `supervisor/relaunch-budget.js`'s
+(`.rbtv/runtime/team-kit/leader-instructions/`), which `relaunch-budget.js`'s
 `drainLeaderInstructions` already applies at the top of every reconcile pass — this kit writes
 that inbox, it does not add a second channel beside it. `hold` records a leader verdict the DAEMON honours — `supervise hold <seat>
 --until <new-ending|ask-answered:<ask-id>|release> --anchor "<evidence>" --go` writes a

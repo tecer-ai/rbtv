@@ -125,7 +125,7 @@ def collect_unanswered_asks(label, base, coord=None):
     apart and reply in the right thread.
 
     A NEW union member, never a widen of `coord.open_asks` (`p-owed-answers-locus` forbids that —
-    four hold gates read it). Read-only over the `open_asks` table in `.rbtv/runtime/ignite/heart.db`
+    four hold gates read it). Read-only over the `open_asks` table in `.rbtv/runtime/team-kit/heart.db`
     (spec-state-store §3); `ignite/bridges/chat/ask-store.js` is the ONE writer.
 
     ⚠ `owner-asks.json` IS GONE, and with it both shapes this used to normalize. The ONE record is

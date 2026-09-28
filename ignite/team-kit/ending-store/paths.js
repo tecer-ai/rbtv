@@ -2,12 +2,12 @@
 
 const path = require('node:path');
 
-const RUNTIME_IGNITE = path.join('.rbtv', 'runtime', 'ignite');
+const RUNTIME_REL = path.join('.rbtv', 'runtime', 'team-kit');
 const STORE_FILENAME = 'heart.db';
 
 function endingStorePath(workspaceRoot) {
   if (!workspaceRoot) throw new Error('endingStorePath requires workspaceRoot');
-  return path.resolve(workspaceRoot, RUNTIME_IGNITE, STORE_FILENAME);
+  return path.resolve(workspaceRoot, RUNTIME_REL, STORE_FILENAME);
 }
 
 function endingStoreDir(workspaceRoot) {
@@ -15,7 +15,7 @@ function endingStoreDir(workspaceRoot) {
 }
 
 module.exports = {
-  RUNTIME_IGNITE,
+  RUNTIME_REL,
   STORE_FILENAME,
   endingStorePath,
   endingStoreDir,

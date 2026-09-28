@@ -68,7 +68,7 @@ def run(pkg, *argv):
 
 
 def store_db(root):
-    return root / ".rbtv" / "runtime" / "ignite" / "heart.db"
+    return root / ".rbtv" / "runtime" / "team-kit" / "heart.db"
 
 
 def holds(root):

@@ -201,7 +201,7 @@ def main():
     registry.write_text("{}\n", encoding="utf-8")
     try:
         mod = load_coord(COORD, "coord_subject")
-        db = tmp / ".rbtv" / "runtime" / "ignite" / "heart.db"
+        db = tmp / ".rbtv" / "runtime" / "team-kit" / "heart.db"
 
         # ---- ARM A1: the older sitting's own CHECK-OUT cannot replace the newer's `done` -------
         pkg = make_package(tmp / "test-overlap-checkout", ["goal-master"])

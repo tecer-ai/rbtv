@@ -32,7 +32,7 @@ const counters = require('./attempt-counters');
 
 // The ask record home, beside the ONE ending store [spec-state-store 1.1]. Workspace-relative and
 // GENERAL - no instance path is spelled anywhere in this repo.
-const ASKS_REL = path.join('.rbtv', 'runtime', 'ignite', 'asks');
+const ASKS_REL = path.join('.rbtv', 'runtime', 'team-kit', 'asks');
 
 // The ladder's options, verbatim [T1-R8, D-2-ruling]. Not configurable: an ask that offered a
 // different set would be a different rung of a ruled ladder.

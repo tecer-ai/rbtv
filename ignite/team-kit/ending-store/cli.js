@@ -1,7 +1,7 @@
 'use strict';
 
 const fs = require('node:fs');
-const { openHeartStore, closeHeartStore } = require('./heart/heart-store');
+const { openEndingStore, closeEndingStores } = require('./open');
 const store = require('./index');
 
 const OPS = new Set([
@@ -48,7 +48,7 @@ const OPS = new Set([
 // caller-supplied handle IS the fix 919be192 landed - the executor used to take the caller's
 // `heartStore` and a Slack `pause` wrote the daemon's private lane store while the lane gate read
 // the workspace home, so the owner's pause was inert. Handing this op a `--db` would re-open that
-// exact defect through a new door. A rooted op therefore never reaches `openHeartStore`.
+// exact defect through a new door. A rooted op therefore never takes a caller `--db`.
 const ROOTED_OPS = new Set(['pauseResume']);
 
 function parseArgs(argv) {
@@ -130,17 +130,16 @@ if (require.main === module) {
     }
     return;
   }
-  const heart = openHeartStore({ dbPath: args.db });
+  const db = openEndingStore(args.db);
   try {
-    const api = store.bind(heart.db);
+    const api = store.bind(db);
     const result = runOp(api, args.op, loadPayload(args.payload));
     process.stdout.write(`${JSON.stringify(result == null ? null : result)}\n`);
   } catch (err) {
     process.stderr.write(`${err && err.message ? err.message : String(err)}\n`);
     process.exit(err && err.code ? 1 : 1);
   } finally {
-    heart.close();
-    closeHeartStore();
+    closeEndingStores();
   }
 }
 
