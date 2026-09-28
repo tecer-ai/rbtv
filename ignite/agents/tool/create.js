@@ -31,14 +31,16 @@ create --workspace <path> --slug <slug> --purpose-file <file>
        [--harness <name> --model <cast short name> --effort <rung>]
        [--voice <id>]
        (--channel-name <name> | --dm)
-       [--schedule-json <file>] [--dry-run] [--json]
+       [--schedule-json <file>] [--settings-file <file>] [--dry-run] [--json]
 
   Validates first: slug free or resumable, launch setting through cast,
   reference paths exist, skill ids resolve, channel name legal.
   Default launch is config.defaultLaunch. A passed effort number is stored
   as the rung word cast returns, never as the number.
   Home: CLAUDE.md and AGENTS.md (one body), launch.json, board.md,
-  state.sqlite, conversations/.
+  settings.json, state.sqlite, conversations/.
+  settings.json is {} unless --settings-file is passed. The file must be JSON.
+  A re-run keeps an existing settings.json. Pass --settings-file again to replace it.
   Slack (omit with --dm): create the channel, bot joins, owner is invited,
   routes[channelId] = slug written atomically. Re-running the same slug
   reuses a channel id already saved or already routed.
@@ -314,6 +316,33 @@ function instructionReport(plan) {
   return lines.join('');
 }
 
+function settingsSeed(file) {
+  let raw;
+  try {
+    raw = fs.readFileSync(file, 'utf8');
+  } catch (error) {
+    fail(`cannot read --settings-file: ${error.message}`);
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    fail(`--settings-file is not JSON: ${error.message}`);
+  }
+}
+
+function settingsPlan(home, seed) {
+  const exists = fs.existsSync(path.join(home, 'settings.json'));
+  if (seed === undefined) {
+    return { action: exists ? 'kept' : 'empty', text: exists ? 'settings: kept' : 'settings: {}' };
+  }
+  return { action: 'seed', body: `${JSON.stringify(seed, null, 2)}\n`, text: `settings: ${JSON.stringify(seed)}` };
+}
+
+function writeSettings(home, plan) {
+  if (plan.action === 'kept') return;
+  fs.writeFileSync(path.join(home, 'settings.json'), plan.action === 'empty' ? '{}\n' : plan.body);
+}
+
 function writeInstructions(home, body) {
   const claude = path.join(home, 'CLAUDE.md');
   const agents = path.join(home, 'AGENTS.md');
@@ -402,6 +431,7 @@ function planText(plan) {
     `skills: ${plan.skills.join(', ')}`,
     `references: ${plan.references.length ? plan.references.join(', ') : 'none'}`,
     `schedule: ${plan.schedule ? `${plan.schedule.cadence} ${plan.schedule.timezone}` : 'none'}`,
+    plan.settings,
     'writes: none',
   ];
   return `${lines.join('\n')}\n`;
@@ -436,12 +466,13 @@ function validateCreate(opts, flags, deps) {
   const launch = launchFrom(config, opts, deps);
   const now = deps.now ? deps.now() : Date.now();
   const schedule = opts['schedule-json'] ? scheduleFrom(opts['schedule-json'], now) : null;
+  const settings = opts['settings-file'] ? settingsSeed(opts['settings-file']) : undefined;
   const routes = routeFor(config, opts.slug);
   if (routes.length > 1) fail(`agent ${opts.slug} has more than one channel route`);
   const setup = fs.existsSync(home) ? readSetup(home) : null;
   if (setup && Boolean(setup.dm) !== opts.dm) fail(`slug ${opts.slug} was started as ${setup.dm ? 'dm' : 'a channel agent'}`);
   if (routes.length === 1 && opts.dm) fail(`slug ${opts.slug} already has a channel route`);
-  return { workspace, config, purpose, references, skills, launch, schedule, home, routes, setup, now };
+  return { workspace, config, purpose, references, skills, launch, schedule, settings, home, routes, setup, now };
 }
 
 async function ensureChannel(ctx, slack, deps) {
@@ -498,7 +529,7 @@ async function bindSchedule(ctx) {
 function selfCheck(ctx, extras) {
   const { home, opts, config, skills, channel } = ctx;
   const lines = ['self-check'];
-  const required = ['CLAUDE.md', 'AGENTS.md', 'launch.json', 'board.md', 'state.sqlite'];
+  const required = ['CLAUDE.md', 'AGENTS.md', 'launch.json', 'board.md', 'settings.json', 'state.sqlite'];
   const missing = required.filter((name) => !fs.existsSync(path.join(home, name)));
   if (!fs.existsSync(path.join(home, 'conversations'))) missing.push('conversations/');
   lines.push(missing.length ? `home: missing ${missing.join(', ')}` : 'home: ok');
@@ -538,6 +569,7 @@ async function createAgent(opts, flags, deps) {
     skills: ctx.skills,
     references: ctx.references,
     schedule: ctx.schedule,
+    settings: settingsPlan(ctx.home, ctx.settings).text,
   };
   const fresh = ctx.purpose ? renderBody(ctx.purpose, ctx.references, ctx.skills) : null;
   const instr = instructionPlan(ctx.home, fresh);
@@ -548,6 +580,7 @@ async function createAgent(opts, flags, deps) {
   fs.mkdirSync(ctx.home, { recursive: true });
   fs.mkdirSync(path.join(ctx.home, 'conversations'), { recursive: true });
   writeInstructions(ctx.home, instr.body);
+  writeSettings(ctx.home, settingsPlan(ctx.home, ctx.settings));
   if (!fs.existsSync(path.join(ctx.home, 'board.md'))) writeBoard(ctx.home, null);
   const store = new Store(path.join(ctx.home, 'state.sqlite'));
   try {
@@ -602,7 +635,7 @@ async function removeAgent(opts, flags, deps) {
   if (!workspace) fail('--workspace required');
   if (!opts.slug) fail('--slug required');
   if (!SLUG.test(opts.slug)) fail('slug must match [a-z0-9][a-z0-9-]{0,63}');
-  if (opts['purpose-file'] || opts['channel-name'] || opts.dm || opts.skill.length || opts.reference.length) {
+  if (opts['purpose-file'] || opts['channel-name'] || opts.dm || opts.skill.length || opts.reference.length || opts['settings-file']) {
     fail('--remove accepts only --slug, --workspace, and --archive-channel');
   }
   const config = loadConfig(workspace);

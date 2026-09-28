@@ -336,6 +336,59 @@ function baseArgs(dir, slug, extra = []) {
     assert.deepEqual(tree(dir), before);
   });
 
+  await test('new home gets empty settings', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const args = baseArgs(dir, 'probe', ['--channel-name', 'probe', '--dry-run']);
+    const preview = await run(args);
+    assert.equal(preview.code, 0, preview.out + preview.err);
+    assert.match(preview.out, /settings: \{\}/);
+    assert.equal(fs.existsSync(path.join(dir, '.rbtv', 'agents', 'probe')), false);
+    const slack = fakeSlack();
+    const created = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe']), { slack });
+    assert.equal(created.code, 0, created.out + created.err);
+    assert.equal(fs.readFileSync(path.join(dir, '.rbtv', 'agents', 'probe', 'settings.json'), 'utf8'), '{}\n');
+  });
+
+  await test('settings-file seeds settings', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const file = path.join(dir, 'settings.json');
+    fs.writeFileSync(file, '{"voice":"warm"}\n');
+    const slack = fakeSlack();
+    const created = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe', '--settings-file', file]), { slack });
+    assert.equal(created.code, 0, created.out + created.err);
+    assert.equal(fs.readFileSync(path.join(dir, '.rbtv', 'agents', 'probe', 'settings.json'), 'utf8'), '{\n  "voice": "warm"\n}\n');
+  });
+
+  await test('invalid settings JSON refused', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const file = path.join(dir, 'bad.json');
+    fs.writeFileSync(file, '{');
+    const args = baseArgs(dir, 'probe', ['--channel-name', 'probe', '--settings-file', file, '--dry-run']);
+    const before = tree(dir);
+    const result = await run(args).catch((error) => ({ code: error.exitCode || 1, out: '', err: error.message }));
+    assert.notEqual(result.code, 0);
+    assert.match(result.err, /not JSON/);
+    assert.deepEqual(tree(dir), before);
+  });
+
+  await test('re-run keeps settings', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const slack = fakeSlack();
+    const created = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe']), { slack });
+    assert.equal(created.code, 0, created.out + created.err);
+    const file = path.join(dir, '.rbtv', 'agents', 'probe', 'settings.json');
+    fs.writeFileSync(file, '{"kept":true}\n');
+    const mtime = fs.statSync(file).mtimeMs;
+    const again = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe']), { slack });
+    assert.equal(again.code, 0, again.out + again.err);
+    assert.equal(fs.readFileSync(file, 'utf8'), '{"kept":true}\n');
+    assert.equal(fs.statSync(file).mtimeMs, mtime);
+  });
+
   if (failures.length) {
     console.log(`FAILED ${failures.length}`);
     process.exit(1);
