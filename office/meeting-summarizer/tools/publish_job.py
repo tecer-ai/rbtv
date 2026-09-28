@@ -335,6 +335,24 @@ def dirty_paths(checkout: Path) -> set[str]:
     return {entry[3:] for entry in listed.split("\0") if len(entry) > 3}
 
 
+def head_unpublished(target: dict, checkout: Path) -> str | None:
+    """Local HEAD, if it differs from the FETCHED remote tracking ref — else None.
+
+    For a caller with no per-meeting journal (unlike `run_cycle`'s
+    `unpublished_commits`): after a `sync()`, local HEAD equals the remote tip
+    unless something committed locally without pushing — this cycle's own
+    `commit()` call, or an earlier attempt that got that far and no further.
+    Returns the ONE commit to push, never a range: `remote..HEAD` can carry a
+    PEER's unpushed commits in a shared "vault" checkout (swept once, found
+    2026-09-27) — a single named hash never can.
+    """
+    local = git(checkout, "rev-parse", "HEAD").stdout.strip()
+    remote = git(checkout, "rev-parse", f"{target['remote']}/{target['branch']}")
+    if remote.returncode != 0 or remote.stdout.strip() != local:
+        return local or None
+    return None
+
+
 def propagated_paths(state: Path, meeting_key: str) -> list[str]:
     """The destination paths this meeting's summarize sitting changed, as
     per_meeting_job recorded them; [] when it recorded none."""
@@ -662,21 +680,42 @@ def run_cycle(job: dict, *, config_root: Path, checkout_root: Path, state: Path,
 
         trace.append("push")
         own = unpublished_commits(state, key)
-        published = push(target, checkout, own)
-        if not published.get("pushed"):
-            cause = published.get("cause") or "push failed"
-            # Clause 12/18: named, owner-visible, and the job is LEFT IN THE
-            # JOURNAL at 'committed' so the next cycle resumes it. Nothing is
-            # dropped and no processed record is written.
-            if bus is not None:
-                bus({"kind": "failure-event", "scope": "meeting", "meeting-key": key,
-                     "cause": f"publication to {target['repo']} failed: {cause}",
-                     "at": now_stamp()})
-            return {"meeting-key": key, "outcome": "failed", "trace": trace,
-                    "precheck": decision, "wrote": paths, "destination": destination,
-                    "cause": cause, "retryable": True, "published": published,
-                    "why": "the artifacts are committed and the job stays in the journal "
-                           "at 'committed'; the next cycle resumes at the push"}
+        if own:
+            published = push(target, checkout, own)
+            if not published.get("pushed"):
+                cause = published.get("cause") or "push failed"
+                # Clause 12/18: named, owner-visible, and the job is LEFT IN THE
+                # JOURNAL at 'committed' so the next cycle resumes it. Nothing is
+                # dropped and no processed record is written.
+                if bus is not None:
+                    bus({"kind": "failure-event", "scope": "meeting", "meeting-key": key,
+                         "cause": f"publication to {target['repo']} failed: {cause}",
+                         "at": now_stamp()})
+                return {"meeting-key": key, "outcome": "failed", "trace": trace,
+                        "precheck": decision, "wrote": paths, "destination": destination,
+                        "cause": cause, "retryable": True, "published": published,
+                        "why": "the artifacts are committed and the job stays in the journal "
+                               "at 'committed'; the next cycle resumes at the push"}
+        else:
+            # `own` is empty: NO journal "committed" row for this meeting lacks
+            # a later "published" row (`unpublished_commits`, above), from this
+            # call or any earlier, interrupted one — and `unpublished_commits`
+            # only counts a "committed" row with a REAL head, so a prior cycle
+            # that also found nothing to commit (head: null) was never counted
+            # either. So this meeting's destination bytes already match the
+            # FETCHED REMOTE's HEAD: filed already, by the owner, a peer
+            # session, or an earlier cycle of this same meeting. That is a
+            # successful publish, not a push with nothing to send: calling
+            # `push()` here would report "nothing of this cycle's own is
+            # unpushed" (regime "vault"'s `_push_via_worktree` on an empty
+            # commit list) and the caller used to treat that as a failure
+            # forever — the meeting never reached `processed`, and a later
+            # tick kept re-emitting it as new (measured live, 2026-09-28). A
+            # REAL committed-but-unpushed head (a killed cycle that got as far
+            # as `commit`, e.g.) makes `own` non-empty and still goes through
+            # `push()` above, so it can still fail and still resumes correctly.
+            trace.append("already-published")
+            published = {"pushed": True, "via": "already-current"}
         note_stage(state, key, "published", via=published.get("via"))
 
         trace.append("filed-note")
@@ -718,7 +757,19 @@ def _read_json(path: str):
 
 def _file_summarize(text_path: Path, offered: str | None):
     def summarize(_request):
-        answer = {"text": Path(text_path).read_text(encoding="utf-8")}
+        try:
+            text = Path(text_path).read_text(encoding="utf-8")
+        except OSError as exc:
+            # A stale --summary path (the verdict that named it is no longer
+            # current — the meeting's transcript is not gone, only the path a
+            # prior pass reported is) is a REFUSAL, never a crash: measured
+            # live, 2026-09-28 — an unhandled FileNotFoundError here was read
+            # by the calling agent as "the file was deleted" and produced an
+            # owner question on a false premise.
+            refuse("summary", f"cannot read --summary {text_path}: {exc}",
+                   "re-run per_meeting_job.py for this meeting to get a current "
+                   "summary-file path, then retry cycle with it")
+        answer = {"text": text}
         if offered:
             answer["path"] = offered
         return answer

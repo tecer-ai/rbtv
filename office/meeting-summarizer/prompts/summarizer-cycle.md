@@ -126,6 +126,16 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
    report it again as a fresh find (step 7 still lists it among the OPEN questions, so the owner is
    never left wondering whether it is still pending).
 
+   **A `cycle` that REFUSES (`publish_job: summary: cannot read --summary ...`, exit `EXIT_REFUSED`)**
+   means the summary path a verdict named is stale — the meeting's transcript and its content are
+   still there, only the path a prior pass reported no longer resolves (the destination folder moved,
+   or this scratch dir's own job file is older than you think). This is NEVER "the file was deleted":
+   do not ask the owner about it, and do not touch `resolved-doubts.jsonl`/settlement rows on this
+   premise. Re-run `per_meeting_job.py` for that meeting fresh (same as step 4) to get a CURRENT
+   `summary-file` value, then retry `precheck`/`cycle` with it, in this same turn if time allows. If
+   the refusal recurs, leave the meeting for the next cycle — report the refusal plainly, do not
+   invent a reason for it.
+
 6. **Check for open questions — both kinds.**
    - Glossary doubts: `python3 <tools>/doubt_answer.py list-open --state <state>`. For every doubt
      this prints that this cycle's own pending set produced (a fresh doubt from step 4), mark it

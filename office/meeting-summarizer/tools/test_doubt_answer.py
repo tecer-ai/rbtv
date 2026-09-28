@@ -103,8 +103,11 @@ def test_apply_answer_lands_and_records_resolution(tmp_path, monkeypatch):
     monkeypatch.setattr(publish_job, "dirty_paths", lambda checkout: set())
     monkeypatch.setattr(publish_job, "commit",
                         lambda target, checkout, paths, message: {"committed": True, "head": "abc123"})
+    monkeypatch.setattr(publish_job, "head_unpublished", lambda target, checkout: "abc123")
+    push_calls = []
     monkeypatch.setattr(publish_job, "push",
-                        lambda target, checkout, own: {"pushed": True, "via": "direct"})
+                        lambda target, checkout, own: push_calls.append(own) or
+                        {"pushed": True, "via": "direct"})
 
     import contextlib
     monkeypatch.setattr(publish_job, "checkout_lock",
@@ -117,6 +120,7 @@ def test_apply_answer_lands_and_records_resolution(tmp_path, monkeypatch):
     assert landed_state["applied"] is True
     assert result["landed"] is True
     assert result["published"]["pushed"] is True
+    assert push_calls == [["abc123"]]  # push was actually reached, not the already-current path
     resolved = per_meeting_job.read_jsonl(state / doubt_answer.RESOLVED)
     assert resolved == [{"meeting-key": "m1", "term": "Quill", "answer-text": "Quill is correct",
                          "resolved-at": resolved[0]["resolved-at"], "published": True}]
@@ -159,6 +163,62 @@ def test_apply_answer_does_not_record_when_marker_survives(tmp_path, monkeypatch
     assert result["landed"] is False
     assert "still in the summary" in result["why"]
     assert per_meeting_job.read_jsonl(state / doubt_answer.RESOLVED) == []
+
+
+def test_apply_answer_treats_nothing_to_commit_as_already_published(tmp_path, monkeypatch):
+    """The sibling of publish_job.py's M1/M2 bug: a correction whose bytes
+    already match the fetched remote (this correction was already committed
+    and pushed by an earlier, interrupted `apply`) must land as published, not
+    be silently re-pushed or reported as a failure — and `push()` must not be
+    called at all, since there is nothing local ahead of the remote."""
+    state = tmp_path / "state"
+    checkout_root = tmp_path / "checkout"
+    config_root = tmp_path / "config"
+    _write_doubts_row(state, meeting_key="m1", terms=(("Quill", "quill-guess"),))
+
+    summary = checkout_root / "tecer-biz" / "meetings" / "2026-09-28-m1.md"
+    summary.parent.mkdir(parents=True, exist_ok=True)
+    summary.write_text("Summary text with {{doubt|term=Quill|guess=quill-guess}}.\n",
+                       encoding="utf-8")
+
+    config_root.mkdir(parents=True, exist_ok=True)
+    (config_root / "summarize.json").write_text(json.dumps({
+        "artifact-kinds": {}, "skill-bindings": {"by-entity": {"tecer": "workflow.md"}},
+        "invocation": {"harness": "claude", "model": "sonnet", "effort": "low"},
+    }), encoding="utf-8")
+
+    def fake_invoke_agent(prompt, cwd, log_dir, timeout, invocation):
+        summary.write_text("Summary text with Quill correctly named.\n", encoding="utf-8")
+        return {"exit": 0, "text": "ok"}
+
+    monkeypatch.setattr(per_meeting_job, "invoke_agent", fake_invoke_agent)
+    monkeypatch.setattr(publish_job, "load_targets",
+                        lambda config_root: {"targets": {"tecer-biz": {
+                            "regime": "git", "remote": "origin", "branch": "main"}},
+                            "discriminator": {"format": "%Y-%m-%d"}})
+    monkeypatch.setattr(publish_job, "sync", lambda target, checkout: {"fetched": True})
+    monkeypatch.setattr(publish_job, "dirty_paths", lambda checkout: set())
+    monkeypatch.setattr(publish_job, "commit",
+                        lambda target, checkout, paths, message: {"committed": False})
+    monkeypatch.setattr(publish_job, "head_unpublished", lambda target, checkout: None)
+    push_calls = []
+    monkeypatch.setattr(publish_job, "push",
+                        lambda target, checkout, own: push_calls.append(own) or
+                        {"pushed": True, "via": "direct"})
+
+    import contextlib
+    monkeypatch.setattr(publish_job, "checkout_lock",
+                        lambda checkout: contextlib.nullcontext())
+
+    result = doubt_answer.apply_answer(
+        meeting_key="m1", term="Quill", answer_text="Quill is correct",
+        config_root=config_root, checkout_root=checkout_root, state=state)
+
+    assert result["landed"] is True
+    assert result["published"] == {"pushed": True, "via": "already-current"}
+    assert push_calls == []  # push() is never called when nothing is ahead of the remote
+    resolved = per_meeting_job.read_jsonl(state / doubt_answer.RESOLVED)
+    assert resolved[0]["published"] is True
 
 
 if __name__ == "__main__":

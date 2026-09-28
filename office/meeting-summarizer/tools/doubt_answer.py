@@ -171,8 +171,7 @@ def apply_answer(*, meeting_key: str, term: str, answer_text: str, config_root: 
     owned = target["regime"] == "git"
 
     with publish_job.checkout_lock(checkout):
-        if owned:
-            publish_job.sync(target, checkout)
+        publish_job.sync(target, checkout)
         before = publish_job.dirty_paths(checkout) if owned else set()
         invocation = per_meeting_job.invocation_of(config)
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -197,8 +196,19 @@ def apply_answer(*, meeting_key: str, term: str, answer_text: str, config_root: 
         committed = publish_job.commit(
             target, checkout, paths,
             f"correct term {term!r} in the summary of meeting {meeting_key}")
-        published = publish_job.push(target, checkout,
-                                     [committed["head"]] if committed.get("head") else [])
+        # Unlike `run_cycle`'s per-meeting journal, this call has no persistent
+        # record of an earlier attempt that committed but never pushed (a
+        # retried `apply` for a term whose prior invocation died between commit
+        # and push) — so "did commit() make a NEW commit just now" is not
+        # enough (the sibling of publish_job.py:362-363's bug: `committed():
+        # False` also happens when a PRIOR attempt already committed, not only
+        # when there is truly nothing to publish). `head_unpublished` checks
+        # local HEAD against the fetched remote directly instead.
+        pending = publish_job.head_unpublished(target, checkout)
+        if pending:
+            published = publish_job.push(target, checkout, [pending])
+        else:
+            published = {"pushed": True, "via": "already-current"}
 
     resolved_row = {"meeting-key": meeting_key, "term": term, "answer-text": answer_text,
                     "resolved-at": per_meeting_job.now_stamp(),
