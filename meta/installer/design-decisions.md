@@ -228,9 +228,9 @@ makes the basis FLIP safe: a generated file that later becomes the basis has
 both its banner and its fenced block stripped before it is re-mirrored, so
 neither can stack across runs.
 
-## D14 — THE `.gitignore` BLOCK
+## D14 — THE IGNORE BLOCK (`.git/info/exclude` since 2026-09-27)
 
-THE `.gitignore` BLOCK (owner ruling, 2026-08-21) — every per-component
+THE IGNORE BLOCK (owner ruling, 2026-08-21) — every per-component
 artifact and the state file are MACHINE-LOCAL: a loader bakes an ABSOLUTE
 entry-point path (D10) and the book records an absolute target, so a
 committed copy is wrong on every other machine
@@ -239,17 +239,38 @@ the workspace enforced that with name patterns (`.claude/skills/rbtv2-*/`);
 D12 retired the prefix, and git cannot match an in-file marker — so the
 installer, which is the one thing that knows exactly what it wrote, carries
 the list itself. It is an ORDINARY D7/D12 shared-file claim: one fenced
-`# rbtv2:start … # rbtv2:end` block in `{target}/.gitignore`, recomputed
+`# rbtv2:start … # rbtv2:end` block in `{target}/.git/info/exclude` (PER CLONE, below), recomputed
 from the whole installed set on every install and uninstall, removed with
 the last component, gated by the same collision rule as every other claim.
-Bounds: only when the target is a GIT REPO (nothing mints a `.gitignore`
+Bounds: only when the target is a GIT REPO (nothing mints an ignore file
 in a workspace that has no git); the GUIDANCE MIRROR is never listed (it
 carries no absolute path and is authored-adjacent content the workspace
-commits — install.py's mirrors always were); and a `.gitignore` that
+commits — install.py's mirrors always were); and an ignore file that
 already carries a fence we do not own refuses, like any other claim.
-A file ALREADY TRACKED by git is not covered — `.gitignore` does not
-reach one, and untracking it is the workspace owner's call, not ours; the
+A file ALREADY TRACKED by git is not covered — no ignore file
+reaches one, and untracking it is the workspace owner's call, not ours; the
 report names any such file so the human sees it.
+
+PER CLONE (owner ruling, 2026-09-27) — the block lives in
+`{target}/.git/info/exclude`, NOT the committed `.gitignore`. The list is
+machine-local, but `.gitignore` is shared: two machines on one repo each
+rewrote the block with THEIR install set and whichever committed last won —
+the other machine's loaders then surfaced for commit (observed: a 2026-09-26
+commit from the second machine dropped `audio-io`/`generate-image`, booked on
+the first). `.git/info/exclude` is git's own per-clone ignore file, read like
+`.gitignore` and never committed. A block an older run claimed in `.gitignore`
+is an ordinary stale claim: the next run releases it, their lines kept (G9).
+Bound: a `.git` FILE (linked worktree, submodule) is not claimed — its exclude
+lives in another directory.
+
+STRAYS (owner ruling, 2026-09-27) — the book is not the only source. A
+marked artifact on disk that the book does not know (an earlier run's output
+whose record entry was lost — 12 such files in one workspace, among them
+loaders git had tracked) is still machine-local, yet a book-only block left
+it out. So every run also globs the MATRIX destinations for files carrying
+`MANAGED_MARK` that the book does not list, and adds them — a skill as its
+FOLDER (D15). Booked files stay the book's business: this run either
+re-plans or prunes them, so a narrowing still shrinks the block (G3).
 
 ## D15 — `_hub/`
 

@@ -7,9 +7,12 @@ from pathlib import Path
 from discovery import EXPOSURE_NAME, Refuse
 
 from .constants import (
+    EXCLUDE_REL,
     GUIDANCE_FILE,
     GUIDANCE_NAMES,
     HARNESSES,
+    MANAGED_MARK,
+    MATRIX,
     PATH_BOOTSTRAP,
     STATE_REL,
 )
@@ -132,29 +135,37 @@ GITIGNORE_NOTE = (
     "install.py artifacts — MACHINE-LOCAL, never committed: the "
     "loaders bake\nabsolute entry-point paths and the book records an absolute "
     "target, so a committed copy\nis wrong on every other machine "
-    "(d-s15-installer2-artifacts-machine-local). Generated from\nthe book on "
-    "every install and uninstall — edit nothing between the fences; re-run the\n"
-    "installer instead. The guidance mirror is deliberately absent: it is "
-    "workspace content.")
+    "(d-s15-installer2-artifacts-machine-local). Generated from\nthe book and "
+    "the marked files on disk on every install and uninstall — edit nothing\n"
+    "between the fences; re-run the installer instead. This file is per clone "
+    "(D14),\nso each machine keeps its own list.")
 
 
 def _add_gitignore(target: Path, owners: dict[str, list], claims: list[dict],
-                   report: dict) -> None:
-    """Claim the `.gitignore` block that keeps our artifacts out of git (D14).
+                   report: dict, booked: set[str]) -> None:
+    """Claim the `.git/info/exclude` block that keeps our artifacts out of git
+    (D14) — the per-clone ignore file, so machines sharing a repo never
+    overwrite each other's lists.
 
     Listed: every per-component file (the `<aggregate>` owner is the guidance
-    mirror, which is workspace content and stays committable) plus the book.
-    Skipped entirely off a git repo. Files git ALREADY TRACKS are reported,
-    because no ignore rule reaches one."""
+    mirror, which is workspace content and stays committable), the book, and
+    every STRAY artifact on disk (`_stray_artifacts`). Skipped entirely off a
+    git repo, and when `.git` is a FILE (a linked worktree or submodule keeps
+    its exclude elsewhere). Files git ALREADY TRACKS are reported, because no
+    ignore rule reaches one."""
     if not (target / ".git").exists():
         report["gitignore"] = {"claimed": False, "reason": "not a git repo"}
         return
-    paths = sorted([rel for rel, own in owners.items() if own != ["<aggregate>"]]
-                   + [STATE_REL.as_posix()])
+    if not (target / ".git").is_dir():
+        report["gitignore"] = {"claimed": False,
+                               "reason": ".git is a file, not a clone's own folder"}
+        return
+    paths = sorted({rel for rel, own in owners.items() if own != ["<aggregate>"]}
+                   | {STATE_REL.as_posix()} | _stray_artifacts(target, booked))
     if len(paths) == 1:                       # the book alone — nothing installed
         report["gitignore"] = {"claimed": False, "reason": "nothing installed"}
         return
-    claims.append({"path": ".gitignore", "fmt": "text", "comment": "#",
+    claims.append({"path": EXCLUDE_REL, "fmt": "text", "comment": "#",
                    "key": None,
                    "value": "\n".join("# " + ln for ln in
                                       GITIGNORE_NOTE.split("\n"))
@@ -163,8 +174,30 @@ def _add_gitignore(target: Path, owners: dict[str, list], claims: list[dict],
                            "tracked": _tracked(target, paths)}
 
 
+def _stray_artifacts(target: Path, booked: set[str]) -> set[str]:
+    """Marked artifacts on disk that the book does not know — output of an
+    earlier run whose record entry was lost, which the book alone would leave
+    out of the block and so up for commit (D14, 2026-09-27). A booked file is
+    left to `owners`: this run either re-plans it or prunes it. A skill is
+    listed as its FOLDER, the unit D15 owns."""
+    out = set()
+    for template in {t for row in MATRIX.values() for t in row.values() if t}:
+        skill = template.endswith("/{name}/SKILL.md")
+        for path in target.glob(template.replace("{name}", "*")):
+            rel = path.relative_to(target).as_posix()
+            if rel in booked:
+                continue
+            try:
+                marked = MANAGED_MARK in path.read_text(encoding="utf-8")[:2000]
+            except (OSError, UnicodeDecodeError):
+                continue
+            if marked:
+                out.add(rel.rsplit("/", 1)[0] + "/" if skill else rel)
+    return out
+
+
 def _tracked(target: Path, paths: list[str]) -> list[str]:
-    """The listed paths git already tracks — `.gitignore` cannot reach those.
+    """The listed paths git already tracks — no ignore file reaches those.
     Empty when git is unavailable; this is a report, never a gate."""
     import subprocess
     try:
@@ -238,7 +271,7 @@ def do_install(target: Path, catalog: dict[str, dict], picked: list[str],
     report["path_bootstrap"] = PATH_BOOTSTRAP
     protect = _add_mirror(target, state, files, owners, report, guidance_basis,
                           installed_harnesses(records), guidance_excludes)
-    _add_gitignore(target, owners, claims, report)
+    _add_gitignore(target, owners, claims, report, known_files(state))
     result = apply(target, files, claims, state, dry_run, protect)
     _clean_bases(target, report, dry_run)
     if not dry_run:
@@ -342,7 +375,7 @@ def do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
                 if rel.rsplit("/", 1)[-1] in GUIDANCE_NAMES)
             report["guidance_mirror"] = {"basis": None, "targets": [],
                                          "skipped": exc.code}
-    _add_gitignore(target, owners, claims, report)
+    _add_gitignore(target, owners, claims, report, known_files(state))
     result = apply(target, files, claims, state, dry_run, protect)
     _clean_bases(target, report, dry_run)
     if not dry_run:

@@ -30,6 +30,9 @@ LEGACY_PREFIX = "rbtv2-"
 SKILL_FOLDER_SKIP = frozenset({".git", "node_modules", "__pycache__"})
 
 STATE_REL = Path(".rbtv") / "config" / "install.json"
+# D14: the per-clone ignore file git reads beside .gitignore - never committed,
+# so one machine's artifact list never overwrites another's.
+EXCLUDE_REL = ".git/info/exclude"
 
 # D1 — this file sits at `<repo>/meta/installer/lib/constants.py`, so the repo
 # tree it scans is THREE directories up. Named once: every caller reads THIS,

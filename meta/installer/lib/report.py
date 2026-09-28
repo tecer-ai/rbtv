@@ -83,16 +83,16 @@ def _print_report_rows(report: dict, planned: bool) -> None:
 
 
 def _print_gitignore(report: dict, planned: bool) -> None:
-    """What the `.gitignore` block covers — and what it cannot (D14)."""
+    """What the `.git/info/exclude` block covers — and what it cannot (D14)."""
     gi = report.get("gitignore")
     if not gi:
         return
     if not gi.get("claimed"):
-        print(f"  · .gitignore: not claimed ({gi.get('reason')})")
+        print(f"  · git exclude: not claimed ({gi.get('reason')})")
         return
-    print(f"  · .gitignore: {'would keep' if planned else 'keeps'} "
+    print(f"  · git exclude: {'would keep' if planned else 'keeps'} "
           f"{gi['count']} artifact path(s) out of git, in one "
-          f"`{FENCE_ID}:start` block (D14)")
+          f"`{FENCE_ID}:start` block of .git/info/exclude (D14)")
     for rel in gi.get("tracked") or []:
         print(f"    ⚠ {rel} is ALREADY TRACKED by git — no ignore rule reaches "
               "a tracked file. Untrack it (`git rm --cached`) or accept that "
