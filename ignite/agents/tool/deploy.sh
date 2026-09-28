@@ -59,5 +59,6 @@ fs.writeFileSync(dst, text);
 ' "$unit_src" "$unit_dst" "$deploy" "$workspace" "$env_file"
 
 systemctl --user daemon-reload
+systemctl --user enable rbtv-ignite-agents.service
 systemctl --user restart rbtv-ignite-agents.service
 echo "$new"

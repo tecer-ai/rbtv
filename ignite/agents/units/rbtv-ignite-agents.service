@@ -8,3 +8,6 @@ EnvironmentFile=@ENV_FILE@
 Restart=on-failure
 KillMode=process
 TimeoutStopSec=90
+
+[Install]
+WantedBy=default.target

@@ -254,6 +254,16 @@ test('due-schedule-one-wake', async () => {
   }
 });
 
+test('starts-at-boot', () => {
+  const unit = fs.readFileSync(path.join(__dirname, '..', 'units', 'rbtv-ignite-agents.service'), 'utf8');
+  assert.match(unit, /^\[Install\]$/m);
+  assert.match(unit, /^WantedBy=default\.target$/m);
+  const deploy = fs.readFileSync(path.join(__dirname, 'deploy.sh'), 'utf8');
+  const enableAt = deploy.indexOf('systemctl --user enable rbtv-ignite-agents.service');
+  const restartAt = deploy.indexOf('systemctl --user restart rbtv-ignite-agents.service');
+  assert.ok(enableAt >= 0 && restartAt > enableAt);
+});
+
 test('sigterm-clean', async () => {
   const { dir } = workspace();
   const holder = spawnDaemon(dir);
