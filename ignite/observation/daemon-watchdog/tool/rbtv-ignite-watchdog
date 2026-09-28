@@ -77,7 +77,8 @@ Environment (every per-instance value is resolved at runtime; nothing is baked i
   RBTV_WATCHDOG_DAEMON_UNIT   default rbtv-ignite.service
   RBTV_WATCHDOG_BRIDGE_UNIT   default rbtv-chat-bridge.service
   RBTV_WATCHDOG_PROBE_TIMER   default rbtv-probe-suite.timer
-  RBTV_WATCHDOG_TARGETS       comma list to scope the pass (default: all three).
+  RBTV_WATCHDOG_TARGETS       comma list to scope the pass (default: all four rows —
+                              daemon, bridge, probe-suite, work-liveness).
                               The test-override hook, mirroring RBTV_IGNITE_UNIT —
                               a probe points this at a throwaway unit instead of
                               editing the real probe table.
@@ -193,6 +194,7 @@ GATEWAY = env("RBTV_WATCHDOG_GATEWAY", "http://127.0.0.1:7431/")
 DAEMON_UNIT = env("RBTV_WATCHDOG_DAEMON_UNIT", "rbtv-ignite.service")
 BRIDGE_UNIT = env("RBTV_WATCHDOG_BRIDGE_UNIT", "rbtv-chat-bridge.service")
 PROBE_TIMER = env("RBTV_WATCHDOG_PROBE_TIMER", "rbtv-probe-suite.timer")
+WORK_STALL_SECONDS = int(env("RBTV_WATCHDOG_WORK_STALL_SECONDS", "172800"))  # 48h
 TIMEOUT = float(env("RBTV_WATCHDOG_TIMEOUT_SECONDS", "10"))
 
 
@@ -330,6 +332,36 @@ def probe_probe_suite():
         return "alarm", ("suite is LIVE but produced no clean grade: verdict=%s%s — %s"
                          % (verdict, (" — %s" % why) if why else "", live))
     return "up", "%s, verdict=%s" % (live, verdict or "?")
+
+
+def probe_work_liveness():
+    """THE ROW THAT ASKS WHETHER WORK IS HAPPENING, not whether a process is alive.
+
+    Its whole predicate lives in the sibling `work_liveness` module, which reads ground truth off
+    disk and is verifiable on its own; this is the adapter that makes it a row. Returns `up`,
+    `alarm` or `skip` and NEVER `down`: no unit restart makes a wedged goal run, so this row has
+    no restart lever (see its ROWS entry).
+
+    The import is LAZY and lives here, not at module level: a copy of this single file relocated
+    without its `work_liveness.py` sibling (a probe writing a scratch mutant, this tool moved on
+    its own) must not take the other three rows down with it — it degrades ONLY this row to
+    `skip`, which is exactly the "not graded" contract every other unreadable-input case in this
+    row already returns."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        import work_liveness
+    except ImportError as exc:
+        return "skip", "the work_liveness sibling module is unavailable (%s) — this copy of the tool cannot grade this row" % exc
+    return work_liveness.assess(WORKSPACE, WORK_STALL_SECONDS)
+
+
+def _work_liveness_has_no_restart():
+    """Unreachable by construction — `probe_work_liveness` never returns `down`, and `main()`
+    reaches a row's restart member on no other verdict. It exists because ROWS is unpacked
+    POSITIONALLY as (probe, restart, describe), so this row must supply a third callable; a `None`
+    parked there would fail obscurely if that invariant ever broke. This fails loudly, naming it."""
+    return 2, ("work-liveness has no restart lever: no unit restart can make a wedged goal run. "
+               "Reaching this means the probe returned `down`, which it must never do.")
 
 
 # ── daemon identity · restart · crash-loop · stale code ─────────────────────
@@ -500,7 +532,8 @@ def _run_alarm_shim(payload):
     return True, answer
 
 
-def emit_alarm(condition, subject_id, evidence, clears_when, signature_class, subject_type="daemon"):
+def emit_alarm(condition, subject_id, evidence, clears_when, signature_class, subject_type="daemon",
+               mention_user_id=None):
     """Emit ONE system-health alarm through the emitter. Returns (ok, detail).
 
     `immediate` is True and not a judgement call: spec §9.2 makes system-health alarms
@@ -509,14 +542,21 @@ def emit_alarm(condition, subject_id, evidence, clears_when, signature_class, su
     `subject_type` defaults to `daemon` so the N-fail caller reads exactly as it always did; the
     row alarms below name the row they observed instead.
 
+    `mention_user_id`, when given, pages the owner: the emitter prefixes the Slack text with
+    `<@id>` (owner ruling `1a`, 2026-09-04). Omitted, this call renders byte-identical to before
+    the field existed — only `raise_row_alarm` passes it, and only for `work-liveness`.
+
     ⚠ NEVER RAISES — see `_run_alarm_shim`."""
-    ok, answer = _run_alarm_shim({"condition": condition,
-                                  "subject": {"type": subject_type, "id": subject_id},
-                                  "evidence_pointer": evidence,
-                                  "what_would_clear_it": clears_when,
-                                  "signature_class": signature_class,
-                                  "immediate": True,
-                                  "workspace_root": WORKSPACE})
+    payload = {"condition": condition,
+              "subject": {"type": subject_type, "id": subject_id},
+              "evidence_pointer": evidence,
+              "what_would_clear_it": clears_when,
+              "signature_class": signature_class,
+              "immediate": True,
+              "workspace_root": WORKSPACE}
+    if mention_user_id:
+        payload["mention_user_id"] = mention_user_id
+    ok, answer = _run_alarm_shim(payload)
     if not ok:
         return False, answer.get("error") or "alarm shim refused with no reason"
     return True, "posted=%s reason=%s signature=%s outbox_id=%s delivered=%s" % (
@@ -1189,6 +1229,14 @@ ROWS = {
                     lambda: "restarted %s" % BRIDGE_UNIT),
     "probe-suite": (probe_probe_suite,  lambda: restart_via_operator(PROBE_TIMER),
                     lambda: "restarted %s" % PROBE_TIMER),
+    # ⚠ THE ONLY ALARM-ONLY ROW. The three rows above grade a PROCESS and can restart it. This one
+    # grades WORK, which no unit restart can revive — a wedged goal needs a human. It is here, in
+    # the out-of-process watchdog, rather than in the daemon, because every owner-facing signal the
+    # daemon mints is downstream of the machinery that wedges, so the daemon cannot be the thing
+    # that reports its own work stopping. Added after 2026-08-31 → 2026-09-03: 46 hours of zero
+    # work behind three green rows and a digest that said "Nothing is waiting on you".
+    "work-liveness": (probe_work_liveness, _work_liveness_has_no_restart,
+                      lambda: "nothing to restart \u2014 work-liveness is an alarm-only row"),
 }
 
 # ── an `alarm` row goes to the ONE alarm registry [T4-R10, spec-owner-io §9] ─
@@ -1215,6 +1263,12 @@ ROWS = {
 
 ROW_UNITS = {"daemon": DAEMON_UNIT, "bridge": BRIDGE_UNIT, "probe-suite": PROBE_TIMER}
 
+# Which rows PAGE the owner (a Slack mention, not just a post) — a SEPARATE one-name set from
+# ROW_UNITS on purpose: ROW_UNITS is the systemd-unit lookup, this is the paging decision (owner
+# ruling `1a`, 2026-09-04). `probe-suite` is deliberately excluded — paging a known-red test suite
+# is how a real page gets muted. Dropping the page later is a one-line edit: remove the name here.
+MENTION_ROWS = {"work-liveness"}
+
 
 def row_signature_class(name):
     """One condition class per row. NOT per observed text: `probe-suite` going from RED to a
@@ -1230,6 +1284,10 @@ def row_evidence(name):
         return os.path.join(WORKSPACE, ".rbtv", "runtime", "probe-suite", "latest.json")
     if name == "daemon":
         return "%s (gateway) · journalctl --user -u %s" % (GATEWAY, DAEMON_UNIT)
+    if name == "work-liveness":
+        # The goals tree and the sitting ledgers under it ARE the observation — not a log of
+        # this tool's opinion about them.
+        return "%s · rbtv ignite status" % os.path.join(WORKSPACE, ".rbtv", "goals")
     return "journalctl --user -u %s" % ROW_UNITS.get(name, name)
 
 
@@ -1274,7 +1332,8 @@ def raise_row_alarm(name, detail, dry):
         evidence=row_evidence(name),
         clears_when="the watchdog reads the %s row `up` again on any pass" % name,
         signature_class=row_signature_class(name),
-        subject_type=name)
+        subject_type=name,
+        mention_user_id=(owner_dm_user() if name in MENTION_ROWS else None))
     if ok:
         open_rows[name] = {"signature_class": row_signature_class(name),
                            "subject": ROW_UNITS.get(name, name),
