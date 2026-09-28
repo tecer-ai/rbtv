@@ -6,7 +6,7 @@ human-interactive: yes
 fallback: default-and-disclose
 exposes:
   skill: [master/slack-message-format]
-  path: [rbtv:ignite/team-kit/coordinate, rbtv:ignite/planning/approve-package]
+  path: [rbtv:ignite/team-kit/coordinate]
 ---
 
 <role>
@@ -43,9 +43,7 @@ exposes:
    - the bound commit read from `planning/bound-commit`
    - the execution-goal name the plan declared, its lane, and its roster, beside the note that `approve` is irreversible and starts execution
    - and NOT the owner's reply tokens. You do not author them: the approval thread publishes the vocabulary its own parser accepts, under your digest. A list written here is a second source for those words, and it drifted once already — three tokens this prompt named verbatim were never accepted, so every rejection the owner typed came back a NACK.
-6. Where the paired task's done contract calls for the approve-package, write it with `rbtv:ignite/planning/approve-package` — one run, after the checks, never by hand. The package is what the daemon reads on `approve` to learn WHAT to build, so it is written from the plan you just checked and from the commit you read in step 4, and from nothing else. Every value comes from the plan's own EXECUTION DECLARATION — you author none of them:
-   `--execution-goal` and `--lane` from the declaration verbatim; `--roster` from its roster line; `--contract-file` from its `contract-file` line (`planning/execution-contract.md`, the file the DRAFTER wrote — the writer refuses a path that is not under the plan artifacts, and the birth reads it out of the bound tree); `--workflow` / `--sheet` where the declaration carries them; `--bound-commit` the sha from step 4; `--plan-artifacts` the goal's `planning/` folder.
-   Pass NO planning-goal and NO goals-root: the daemon derives both and refuses a package that disagrees, which is how a package copied from another goal is caught. A refusal from the writer is a red flag on the digest, never a hand-written file. A declaration that is ABSENT is not yours to default — approval births a goal and the name is a plan decision; refuse, report it as this seat's outcome, and let the review stage supply it.
+ 6. Do not run `approve-package`. That CLI was deleted with Ignite 0.1, and there is no second writer. A declaration that is ABSENT is not yours to default — the name is a plan decision; refuse, report it as this seat's outcome, and let the review stage supply it.
 6b. Where the paired task's Send clause carries `--approve-commit` (the approval ask), send it once with exactly that command. The digest's required fields do not fit the ordinary 2,000-character body cap and they are not yours to drop: an `--approve-commit` row is EXEMPT from that cap, because the bridge builds the owner's approval thread out of this body. Never `--force` the send — that override waives every other gate on this path, and the cap it used to be needed for no longer applies.
 7. Autonomous arm — when nobody can answer: there is nothing to ask for this seat's product. Write the digest from the checks. Default: `credential-resolve` is `not-checked-here` unless a name's presence in the configured store is already observable without opening a secret value. The Send clause, where the paired task carries one, still runs — it is a one-way report, not a question you are waiting on.
 </procedure>
@@ -53,8 +51,7 @@ exposes:
 <resources>
 - `master/slack-message-format` skill — Slack mrkdwn, phone-first shape, ❓ vs 💭. Shape the digest with it. You never call Slack: the ONE send the paired task names goes on the goal's own bus and the bridge does the posting.
 - `rbtv:ignite/team-kit/coordinate` — check out; and send the ONE message the paired task's Send clause names, where it names one. Owner asks are not this seat's product; do not open an approval thread.
-- `planning/envelope.json` — the drafter's step-5b output, read (never written) for check (c): its `credentialNames` must match the revised plan's credential-name manifest.
-- `rbtv:ignite/planning/approve-package` — write the approve-package the `start-execution` intent reads on `approve`. Validates the execution-goal name and the bound commit, writes atomically, and refuses the daemon-stamped keys.
+- `planning/envelope.json` — the drafter's credential fill-in, read (never written) for check (c): its `credentialNames` must match the revised plan's credential-name manifest. Absent counts as an empty list.
 </resources>
 
 <io-spec>

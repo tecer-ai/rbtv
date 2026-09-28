@@ -30,8 +30,7 @@ def bound_path(pkg):
 
 def frozen(pkg):
     """True when a delivered (or about-to-deliver) approval ask already names a hash."""
-    from approve_package import APPROVE_PACKAGE
-    p = Path(pkg) / APPROVE_PACKAGE
+    p = Path(pkg) / "planning" / "approve-package.json"
     if not p.is_file():
         return False
     try:

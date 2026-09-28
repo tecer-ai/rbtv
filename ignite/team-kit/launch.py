@@ -563,7 +563,7 @@ def _cast_effort(w):
     a binary. `validate_seat` refuses the off-ladder word one guard earlier; this returns nothing
     for it, so neither door can emit one."""
     try:
-        tool = Path(__file__).resolve().parents[1] / "operator" / "bindings" / "tool"
+        tool = Path(__file__).resolve().parent
         if str(tool) not in sys.path:
             sys.path.append(str(tool))
         from bindings import DEFAULT_PROFILES
@@ -1579,29 +1579,20 @@ def cmd_session_open(args):
 # is no leader-only admission on `launch` anymore either [T2-R10, D24, F-simplicity-7] — the role
 # predicate that used to gate it here (`is_authorized_launcher`) is deleted.
 
-_GOAL_CLI_TOOL_DIR = Path(__file__).resolve().parent.parent / "operator" / "goals-tree" / "tool"
+_LANE_FILE = "execution-lane"
 
 
 def goal_execution_lane(pkg):
-    """`daemon` or `console` for this package's `execution-lane` marker — read through the goals
-    tree's OWN Python speller (`goal_cli.read_lane`, DEC-1's twin of `lane-watch.js#readLane`),
-    never a third copy of the grammar in this file (the W1 note on `cmd_boot_prompt`). The import
-    is lazy (this is the one verb that needs it) and resolved relative to this file, exactly as
-    `materialize-seats.py` resolves the same module. An import failure is a LOUD refusal, never a
-    silent `console`: a launch that cannot tell its lane must not open an uncaged pane."""
+    """`daemon` or `console` for this package's `execution-lane` marker.
+
+    The whole trimmed text must BE the lane word. Anything else, including a missing file, is
+    `console`. The goals-tree module that used to own this read was deleted with Ignite 0.1;
+    launch is the remaining reader, so the read lives here."""
     try:
-        if str(_GOAL_CLI_TOOL_DIR) not in sys.path:
-            sys.path.append(str(_GOAL_CLI_TOOL_DIR))
-        from goal_cli import read_lane as _read_lane  # noqa: E402 — lazy by design
-    except Exception as exc:  # noqa: BLE001 — any import failure is the same refusal
-        coord.refuse("environment",
-               f"cannot read this goal's execution lane: the goals-tree speller "
-               f"`goal_cli.read_lane` did not import from {_GOAL_CLI_TOOL_DIR} "
-               f"({type(exc).__name__}: {exc}). A launch that cannot tell `daemon` from `console` "
-               f"must not guess — on the daemon lane a guessed `console` opens an UNCAGED pane. "
-               f"Nothing was opened.", 1)
-    lane, _legacy = _read_lane(Path(pkg))
-    return lane
+        text = (Path(pkg) / _LANE_FILE).read_text(encoding="utf-8").strip()
+    except OSError:
+        return "console"
+    return "daemon" if text.lower() == "daemon" else "console"
 
 
 # ── `--rerun`'s ADMITTED FROM-STATE, spelled once [D42, spec-supervisor §4, T1-R3] ─────────────

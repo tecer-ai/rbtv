@@ -18,7 +18,7 @@ from pathlib import Path
 import crash_loop
 from ending_store import EndingStoreError, ending_store_db, goal_id_of
 
-SUPERVISOR_CLI = Path(__file__).resolve().parent.parent / "supervisor" / "cli.js"
+SUPERVISOR_CLI = Path(__file__).resolve().parent / "cli.js"
 
 
 class SupervisorError(Exception):

@@ -434,7 +434,7 @@ def advice_refused_sends(path=None):
             # `<repo>/.rbtv/runtime/ignite/heart.db` of 2026-08-28 [5815fbaa]. The record's PATH is
             # read off the resolver so the fixture cannot drift from the rule it satisfies.
             _adv_rec = Path(td) / ending_store.INSTALL_RECORD_REL
-            _adv_rec.parent.mkdir(parents=True)
+            _adv_rec.parent.mkdir(parents=True, exist_ok=True)
             _adv_rec.write_text("{}", encoding="utf-8")
             RUNS_INDEX = Path(td) / "runs.json"
             pkg = Path(td) / "pkg"

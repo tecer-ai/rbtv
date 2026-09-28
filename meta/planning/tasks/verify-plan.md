@@ -9,8 +9,8 @@ Run exactly two contract checks against the seeded review package and the design
 
 <scope>
 - **Read:** the review package; the design; the draft plan, if the package points at it — including its EXECUTION DECLARATION, which supplies every field the approve-package writer takes; `planning/bound-commit`, the one line holding the commit the plan artifacts bind to; this seat's own `memory.md` regression-pass lines.
-- **Write:** `planning/approval-digest.md`; `planning/approve-package.json`, through the
-  `approve-package` writer only.
+- **Write:** `planning/approval-digest.md`. Do not run `approve-package` — that CLI was
+  deleted with Ignite 0.1.
 - **Send:** the digest to the owner, ONCE, as the APPROVAL ASK — one `note` addressed to `owner`
   on the coordination bus carrying the bound commit, which the bus ferry turns into the owner's
   approval thread:
@@ -36,22 +36,14 @@ Done criteria — all must hold:
 - The digest names: milestones (ids + one-line aims), seat count, envelope summary (deltas vs the shipped planning envelope), which seats are interactive, credential-resolve result per declared credential name, red flags, paths to every on-disk artifact (facts brief, design, draft, review package, this digest), the plan's execution declaration (the goal name it will be born under, its lane, its roster), and the bound commit the plan artifacts bind to.
 - The bound commit was READ from `planning/bound-commit`, never derived and never typed. This seat is caged with `.git` masked, so no `git` command here can answer. Where the file is absent, empty, or not a lowercase hex sha of 7-64 characters: NOTHING is composed and NOTHING is sent — the missing binding is this task's outcome and the check-out is `--incomplete` naming the file.
 - The binding is FRESH, not merely present. `planning/bound-commit` must be NEWER than `planning/review-package.md` (compare their modification times — `ls -l` or `stat` on the two files, both of which sit in the goal's shared `planning/` workspace this seat can read). A bound-commit OLDER than the review package names a tree that does not contain the review package. The after-edge holds this seat at `bind=stale` until a fresh bind lands; this check is the caged refusal so you never compose against a dead tree. Where the binding is STALE: NOTHING is composed and NOTHING is sent. Check out `--incomplete "awaiting re-bind"` naming both files and their times. NEVER compose against a stale binding and NEVER carry the shortfall as a red flag: a digest that describes one tree while `planning/bound-commit` names another is the exact disagreement the owner cannot see from the approval thread, and by the time it is noticed every planning seat has departed.
-- Every field handed to the `approve-package` writer came from the plan's EXECUTION DECLARATION (`--execution-goal`, `--lane`, `--roster`, `--contract-file`, and `--workflow` / `--sheet` where declared), plus the bound commit and the `planning/` artifacts path. No field was authored here. An absent or invalid declaration is NOT defaulted: nothing is composed, nothing is sent, and the missing declaration is this task's outcome — approval births a goal under that name, and inventing one approves a goal the plan never described.
+- The execution declaration was read, not authored here. An absent or invalid declaration is NOT defaulted: nothing is composed, nothing is sent, and the missing declaration is this task's outcome.
 - The digest does NOT list the owner's reply tokens. The approval thread publishes them itself,
   from the parser's own vocabulary (`ignite/chat/approval-thread.js` composes the posted message:
   the goal name, the irreversible warning, this digest, the bound commit, then the token line).
   A digest that names its own token list is a SECOND source for the words the parser accepts, and
   it drifted: this file asked for `reject-close` / `reject-pause` / `reject-retry`, none of which
   the parser accepts — a NACK for every rejection the owner tried to type.
-- `planning/approve-package.json` exists and was written by the `approve-package` writer — never
-  by hand and never by a second writer. It is what the daemon reads when the owner types `approve`,
-  and until this task writes one every approval refuses `no-approve-package`, loudly, in the thread.
-  It carries the execution-goal name the plan declares, the bound commit recorded above, the lane
-  the plan declares, and the path to the plan artifacts; it names NO planning goal and NO goals
-  root, because the daemon derives both and refuses a package that disagrees with its derivation.
-- Where the writer refuses (a name that is not a bare safe name, a bound commit that is a ref name
-  rather than a hex sha), the refusal is carried as a red flag on the digest and the package is
-  NOT hand-written. A hand-written package is the one way this file can claim a plan nobody checked.
+- `approve-package` is not run. That CLI was deleted with Ignite 0.1.
 - The digest was SENT, exactly once, by the Send clause's command, and the command exited 0. A
   refusal from that command is a red flag on the digest and a FAIL of this task — never a hand-
   written Slack post and never a second attempt through another transport.
@@ -59,7 +51,7 @@ Done criteria — all must hold:
 
 Outcome map:
 
-- **Both checks pass** → the approve-package is written, then the digest is sent to the owner as
+- **Both checks pass** → the digest is sent to the owner as
   the approval ask. The owner's `approve` in that thread starts execution; nothing else in this
   workflow runs after it.
 - **The bound commit is missing** (`planning/bound-commit` absent, empty, or not a sha) → nothing is
@@ -71,11 +63,7 @@ Outcome map:
 - **The plan declares no execution goal** (or an invalid one) → nothing is composed and nothing is
   sent. Report it; the review stage supplies the declaration. Never a default and never a name of
   this seat's own invention.
-- **The approve-package writer refuses** → the digest is written to disk carrying the refusal as a
-  red flag, and it is NOT sent: with no package the send is refused at `coordinate` anyway, and an
-  approval the daemon would answer `no-approve-package` is worse than no ask. Nothing is
-  hand-written. Report the refusal as this task's outcome so a later pass can fix the input the
-  writer named.
+- **Do not run `approve-package`.** That CLI was deleted with Ignite 0.1.
 - **A check fails, cap not reached** → FAIL recorded; the revision seat then this task re-fire. Feedback schema: the failed check's items only, as the closed findings list.
 - **A check fails, cap already reached** (two prior `REGRESSION-PASS` lines) → no further FAIL; the digest ships with the `unresolved regression` red flag instead.
 - **Markerless review package** → repair enough to run the two checks from what is on disk, log the gap among the digest's red flags, complete. Never reject. Never re-enter an earlier stage.

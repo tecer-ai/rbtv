@@ -36,10 +36,10 @@ from pathlib import Path
 # verb's job exactly: *"The answer path is a FILE because no ruling CLI exists. If a leader-facing
 # ruling instrument is ever built (matrix B9), this inbox is the thing it should write, not a
 # second channel beside it."*
-RELAUNCH_BUDGET_JS = Path(__file__).resolve().parent.parent / "supervisor" / "relaunch-budget.js"
+RELAUNCH_BUDGET_JS = Path(__file__).resolve().parent / "relaunch-budget.js"
 # The hold's release vocabulary is the ENDING STORE's, read off it for `instruction_kinds`' reason:
 # a second copy in Python is how a door accepts a word the store refuses.
-VOCABULARY_JS = Path(__file__).resolve().parent.parent / "state-store" / "vocabulary.js"
+VOCABULARY_JS = Path(__file__).resolve().parent / "ending-store" / "vocabulary.js"
 LEADER_INSTRUCTIONS_REL = Path(".rbtv") / "runtime" / "ignite" / "leader-instructions"
 
 # The keys `executeLeaderInstruction` refuses as WORK PRODUCT [CF-3, T2-R5] — a leader reports, it

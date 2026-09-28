@@ -2531,11 +2531,8 @@ def cmd_send(args):
             refuse(
                 "state",
                 f"there is no approve-package on this goal ({_apkg}), so an `approve` in the "
-                f"thread you are about to open would be answered `no-approve-package` — the owner "
-                f"would have approved a plan the daemon then refuses to start.\n"
-                f"Write it FIRST, through its own writer, and pass the same commit:\n"
-                f"  approve-package --goal-dir {_pkg_ap} --execution-goal <name> "
-                f"--bound-commit <sha> --lane <lane> --plan-artifacts <path>\n"
+                f"thread you are about to open would have nothing to bind to. The approve-package "
+                f"writer was deleted with Ignite 0.1; do not run it.\n"
                 f"There is no --force for this one: the missing file is the answer, not the gate.",
                 1)
         except (OSError, ValueError) as _apkg_err:
@@ -2543,8 +2540,7 @@ def cmd_send(args):
                 "state",
                 f"the approve-package at {_apkg} could not be read as JSON ({_apkg_err}), so the "
                 f"commit on this row cannot be checked against it and the daemon will refuse the "
-                f"approval anyway. Re-write it through the `approve-package` writer — never by "
-                f"hand.",
+                f"approval anyway. The approve-package writer was deleted with Ignite 0.1.",
                 1)
         _bound = str((_apkg_data or {}).get("bound_commit") or "")
         if _bound != approve_commit:

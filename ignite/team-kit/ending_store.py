@@ -1,11 +1,11 @@
-"""Kit door onto the ONE ending store. Calls state-store/cli.js; does not rebuild it."""
+"""Kit door onto the ONE ending store. The store lives in this kit (`ending-store/`); it is not a second writer."""
 import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 
-ENDING_CLI = Path(__file__).resolve().parent.parent / "state-store" / "cli.js"
+ENDING_CLI = Path(__file__).resolve().parent / "ending-store" / "cli.js"
 
 # A WORKSPACE is the nearest ancestor holding `rbtv.json` — NOT any folder that happens to
 # contain a `.rbtv/` directory. The old marker, a committed endpoint record under `.rbtv/modules/`,
