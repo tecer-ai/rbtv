@@ -2,7 +2,7 @@
 """stools_wrapper — the ONE entry point every seat and the host PATH resolve `stools` to.
 
 Owner ruling `d-slack-identity-a` (2026-08-31, design in
-`1-projects/build-ignite/build/redesign-continue-1/slack-send-identity-design.md`): sending to
+`1-projects/build-ignite/build/redesign-continue-1/slack-send-identity-design.md` — deleted 2026-09-28; in git history): sending to
 Slack as the BOT is unrestricted; sending AS THE OWNER (`--workspace ignite-owner`, the xoxp
 user token) is refused unless a live, owner-recorded grant matches this sitting. This module is
 that gate. It is not a stools source edit — stools stays third-party-managed and unaware of

@@ -31,7 +31,7 @@ From the vault root:
 
 ```bash
 python -B 3-resources/tools/rbtv/meta/planning/capabilities/component-lint/tool/component_lint.py \
-  --root 1-projects/build-ignite
+  --root 1-projects/ignite-0.2
 python -B .../component_lint.py --component <component-path> --json
 python -B .../component_lint.py --list-checks
 ```

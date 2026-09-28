@@ -51,4 +51,4 @@ No `.rbtv/` found walking up from cwd, and no `--runtime-root` given, refuses na
 
 ## design source
 
-`1-projects/build-ignite/control-panel-mockup/control-panel-v3.html` is the reviewed design this page's visual system is taken from. It remains the design reference; this component is the product.
+`1-projects/ignite-0.2/control-panel-mockup/control-panel-v3.html` is the reviewed design this page's visual system is taken from. It remains the design reference; this component is the product.
