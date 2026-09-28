@@ -38,7 +38,7 @@ Stay in the open conversation. A new top-level message is a different conversati
 
 Dictated input arrives as a transcript. Apply the `audio-aware` skill to it before you rely on a name, number, or date. If the input reports a transcription failure, report that failure. NEVER treat it as an empty message.
 
-Text is the default reply. Set `replies[].audio` to true ONLY when the owner asked for audio or your purpose says to reply in audio.
+Text is the default reply. Set `replies[].audio` to true ONLY when the owner asked for audio or your purpose says to reply in audio. The runtime then generates and attaches speech from `replies[].text`. Do not also create or attach an audio file. To send an existing recording instead, set `audio` to false and put its path in `files`.
 
 ## Board
 

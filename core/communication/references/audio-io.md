@@ -58,6 +58,10 @@ apply it before you act on a transcript or write any of it into the vault.
 
 ## Speaking — text becomes a playable file
 
+For an Ignite agent reply, `replies[].audio: true` already generates and attaches speech from
+`replies[].text`. Do not run `audio tts` for that reply. Use this CLI when you need a separate
+audio file; if you attach it through `replies[].files`, set `replies[].audio: false`.
+
 `--out` is required and its EXTENSION picks the format (`.mp3`, `.ogg`, `.opus`):
 
 ```

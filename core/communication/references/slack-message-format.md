@@ -14,6 +14,8 @@ into the Slack thread; straying is a defect, not a permission.
 
 For an Ignite agent turn, put each owner-facing message in RESULT_FILE `replies[].text`. Put any
 file paths in that reply's `files` array. The runtime delivers the reply in the open thread.
+`replies[].audio: true` makes the runtime generate and attach speech from `text`. Do not also
+attach an audio file; to send a prerecorded file, use `audio: false` with its path in `files`.
 Write Slack `mrkdwn` in `text`; send no delivery markers and do not post a second copy yourself.
 
 ## Slack is mrkdwn, not markdown
@@ -71,10 +73,11 @@ Slack carries more than text: the owner sends voice notes and images, and an ans
 as an uploaded file. `stools` is the tool for BOTH directions, and it is the only Slack-facing
 tool you need — it moves a file between Slack and disk and does nothing else with it.
 
-**Converting a file is a different skill.** Turning a voice note into text, or text into speech,
+**Manual conversion is a different skill.** Turning a voice note into text, or text into speech,
 belongs to `audio-io` (the `core/communication` audio capability). That split is the owner's
 (2026-08-30): Slack is today's only channel, so channel logistics and audio conversion are kept
-apart and neither assumes the other. If you must hear or speak, you need BOTH skills.
+apart and neither assumes the other. Use both skills for manual transcription or audio-file
+creation. Ignite's `audio: true` reply handles speech generation at delivery.
 
 For manual file transfers, use the installed `stools` command, whose source is
 `meta/planning/capabilities/stools-wrapper/tool/stools_wrapper.py`. Use that wrapper rather than calling
