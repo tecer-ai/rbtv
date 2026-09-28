@@ -23,12 +23,23 @@ by design: `search:read` has no bot-token equivalent, so reads are never gated):
 """
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 
-# Same fixed-VAULT_ROOT convention as ignite/coord/coord.py — a personal, single-machine repo has
-# one home; a `Path(__file__)`-relative walk would have to reinvent that same fact per caller.
-VAULT_ROOT = Path("/home/henri/ht-wkdir/second-brain")
+
+def workspace_root():
+    """First ancestor holding `.rbtv/config` — from this file's real location (PATH links are
+    symlinks on POSIX, so resolve first), else from the cwd. Same discovery rule as the installer's
+    `workspace_root()`; a fixed path broke every machine but the one it named."""
+    for start in (Path(__file__).resolve().parent, Path.cwd().resolve()):
+        for p in (start, *start.parents):
+            if (p / ".rbtv" / "config").is_dir():
+                return p
+    sys.exit("stools: no workspace found — no ancestor of this wrapper or the cwd holds .rbtv/config")
+
+
+VAULT_ROOT = workspace_root()
 STOOLS_ROOT = Path(os.environ.get("SLACK_TOOLS_ROOT") or (VAULT_ROOT / "3-resources/tools/stools"))
 REAL_STOOLS = STOOLS_ROOT / "stools.py"
 GRANTS_FILE = VAULT_ROOT / ".rbtv/config/stools-as-owner-grants.yaml"
@@ -46,6 +57,10 @@ def die_refused(workspace, verb):
 
 
 def exec_real(argv):
+    if os.name == "nt":
+        # Windows has no shebang exec and its os.execv detaches the child from the console, so
+        # run the real script under this interpreter and pass its exit code through.
+        sys.exit(subprocess.call([sys.executable, str(REAL_STOOLS)] + argv))
     os.execv(str(REAL_STOOLS), [str(REAL_STOOLS)] + argv)
 
 
