@@ -2,13 +2,15 @@
 # not invented; `#`-led lines are dropped before the header is read.
 #
 # Eight LOCKED rows (owner ruling 20, decisions.md #20 / OQ4), plus the two posh rows
-# (owner-directed addition, 2026-09-01 console session). No row for: library siblings, legal
+# (owner-directed addition, 2026-09-01 console session) and the `office` parent router.
+# No row for: library siblings, legal
 # styles, meeting-type data, email-voice-pt-br, converter engine docs, summaries (referenced via
 # office/meeting-summarizer, never owned here), Google Slides (future), ai-anti-patterns
 # (storytelling's row). No `rule` rows. Third-party (md-to-pdf, Chromium) get no rows —
 # package.json declares them. `write-roots` stays empty on every row — the trailing comma IS the
 # column, never a typo.
 part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+office,capability,skill,,capabilities/office/office.md,"Use for office work: make or review a document, convert to Word, create a deck or PDF, polish an email, prepare a meeting, extract design references, capture screenshots, or check HTML style. Routes to the office storytelling, design, and document skills and CLIs.",
 html-standards,reference,skill,,references/html-standards.md,"The HTML standards library router — one file per subject, reached through this router, never separately exposed.",
 html-review,capability,skill,,capabilities/html-review/html-review.md,Reviews produced HTML output against the standards library.,
 deck-production,capability,skill,,capabilities/deck-production/deck-production.md,"Produces the HTML deck and matching PDF (1280x720, matching @page print settings).",

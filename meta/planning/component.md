@@ -21,6 +21,7 @@ scaffolding work to the matching authoring guide or to a seat plan when the work
 - `capabilities/capability-cards/tool/capability_cards.py` — live exposure cards used while
   assigning instruments to plan seats.
 - `capabilities/stools-wrapper/` — the approved workspace file transfer command.
+- `capabilities/gtools/gtools.md` — Google Workspace requests through the external `gtools` CLI; its existing `ws:` tool row remains in this component's exposure manifest.
 
 The component has no resident planning runner or seat catalog. A plan's seat bodies and
 reports live in the plan folder named by its caller.

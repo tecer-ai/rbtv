@@ -4,3 +4,6 @@ core/sub-agents#sub-agents
 core/sub-agents#swarm
 core/functions#investignosis
 ignite/agents#agent-controls
+web/browse#web
+office/document#office
+meta/planning#google-workspace

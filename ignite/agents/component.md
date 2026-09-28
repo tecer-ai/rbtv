@@ -6,7 +6,7 @@ description: Ignite 0.2 — a Slack message or a scheduled wake runs one primary
 
 Ignite 0.2 is one workspace process. A Slack message or a scheduled wake selects a primary-agent home under the workspace `.rbtv/agents/<slug>/`, runs one non-interactive turn of that agent, and delivers that turn's replies to the right Slack thread. The agent never posts into its own conversation thread. Deploy and the unit are `runbook.md`, not this file.
 
-Exposed entry points: `ignite-agent` (`tool/cli.js` — `ignite-agent -h` is the command surface), the `create-primary-agent` skill, and the `agent-controls` skill for an agent's own settings, schedules, work, wakes, and proactive posts. Both skills declare `exposes-cli`; the CLI row lives in `exposure.csv`.
+Exposed entry points: `ignite-agent` (`tool/cli.js` — `ignite-agent -h` is the command surface), the `create-primary-agent` skill, the `agent-controls` skill for an agent's own settings, schedules, work, wakes, and proactive posts, and the master-only `admin` router. The first two skills declare `exposes-cli: ignite-agent`; `admin` names the provider, rbtv, and control-panel CLI rows in their owning components. The master gets `admin` through `create --skill ignite/agents#admin`, while `templates/skills.txt` stays shared.
 
 ## tool/
 

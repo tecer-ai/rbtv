@@ -8,6 +8,8 @@ description: "The web module — the system's components for reaching the open w
 
 The `web/` module hosts the components an agent reaches the open web through.
 
+`web/browse#web` is the module's parent skill: it routes page reading, browser work, and research requests to the appropriate child.
+
 ## Components
 
 | Component | What it is |

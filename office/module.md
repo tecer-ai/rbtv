@@ -12,6 +12,8 @@ emails built from them. Voice, palette, templates, and terminology resolve at ru
 workspace brand pack (`.rbtv/config/office/`); the module itself ships no vault paths, owner
 names, client names, or instance palettes.
 
+`office/document#office` is the module's parent skill. It routes document, deck, email, storytelling, and design requests; meeting summarization remains in its single-agent component.
+
 ## Components
 
 | Component | What it is |

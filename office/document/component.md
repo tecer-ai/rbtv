@@ -4,6 +4,8 @@ description: "The document component — deliverable production: the HTML standa
 
 # document
 
+The `office` skill (`capabilities/office/office.md`) routes ordinary office requests to this component and the sibling storytelling and design skills. Meeting summarization stays in its own component.
+
 `document/` owns every finished deliverable this module ships. It hosts the HTML standards
 library every page-type builds against, the `html-review` and `visual-check`-consuming production
 capabilities (deck production, conversion, email voice), and the two cataloged workflows —
