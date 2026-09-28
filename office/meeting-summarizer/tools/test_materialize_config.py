@@ -30,8 +30,8 @@ def test_materialize_writes_one_file_per_top_level_key(tmp_path):
     written = M.materialize(settings, config_root)
 
     assert sorted(Path(p).name for p in written) == ["destination-routing.json", "sources.json"]
-    assert json.loads((config_root / "sources.json").read_text()) == {"accounts": ["a"]}
-    assert json.loads((config_root / "destination-routing.json").read_text()) == {
+    assert json.loads((config_root / "sources.json").read_text(encoding="utf-8")) == {"accounts": ["a"]}
+    assert json.loads((config_root / "destination-routing.json").read_text(encoding="utf-8")) == {
         "timezone": "America/Sao_Paulo"}
 
 
@@ -47,7 +47,7 @@ def test_an_edit_to_settings_json_overwrites_the_stale_config_file(tmp_path):
     config_root = tmp_path / "config"
     M.materialize({"destination-routing": {"timezone": "America/Sao_Paulo", "routes": []}},
                   config_root)
-    before = json.loads((config_root / "destination-routing.json").read_text())
+    before = json.loads((config_root / "destination-routing.json").read_text(encoding="utf-8"))
     assert before["routes"] == []
 
     # The owner edits settings.json — a route is added. A later cycle's
@@ -55,7 +55,7 @@ def test_an_edit_to_settings_json_overwrites_the_stale_config_file(tmp_path):
     M.materialize({"destination-routing": {"timezone": "America/Sao_Paulo",
                                             "routes": [{"entity": "new-route"}]}},
                   config_root)
-    after = json.loads((config_root / "destination-routing.json").read_text())
+    after = json.loads((config_root / "destination-routing.json").read_text(encoding="utf-8"))
     assert after["routes"] == [{"entity": "new-route"}]
 
 
@@ -67,7 +67,7 @@ def test_a_file_belonging_to_a_removed_key_is_left_alone(tmp_path):
     assert (config_root / "summarize.json").is_file()
     M.materialize({"runtime": {"checkout-root": "/new"}}, config_root)  # summarize dropped
     assert (config_root / "summarize.json").is_file()  # not deleted
-    assert json.loads((config_root / "runtime.json").read_text()) == {"checkout-root": "/new"}
+    assert json.loads((config_root / "runtime.json").read_text(encoding="utf-8")) == {"checkout-root": "/new"}
 
 
 def test_cli_refuses_a_missing_settings_file(tmp_path):
@@ -84,7 +84,7 @@ def test_cli_end_to_end(tmp_path, capsys):
     exit_code = M.main(["--settings", str(settings), "--config-root", str(config_root)])
 
     assert exit_code == M.EXIT_OK
-    assert json.loads((config_root / "sources.json").read_text()) == {"accounts": ["tecer"]}
+    assert json.loads((config_root / "sources.json").read_text(encoding="utf-8")) == {"accounts": ["tecer"]}
     printed = json.loads(capsys.readouterr().out)
     assert printed["written"] == [str(config_root / "sources.json")]
 
