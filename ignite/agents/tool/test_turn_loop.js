@@ -469,6 +469,78 @@ test('outbox never double-posts when delivery is retried', async (ctx) => {
   assert.equal(box.store.db.prepare('SELECT state FROM outbox WHERE id=?').get('r3').state, 'delivered');
 });
 
+test('board reply is a new root and associated', async (ctx) => {
+  const box = harness(ctx);
+  const key = 'T1:C1:board';
+  box.store.upsertConversation({
+    key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs: 'board', activated: true,
+  });
+  box.store.enqueueOutbox({
+    id: 'reply:board:0', conversationKey: key, clientMsgId: 'cid-board',
+    payload: { text: 'board result' },
+  });
+  const [result] = await deliverPending(box.store, { slack: box.slack, audio: box.audio, home: box.home });
+  assert.equal(result.delivered, true);
+  assert.equal(box.slack.posts.length, 1);
+  assert.equal(box.slack.posts[0].channel, 'C1');
+  assert.equal(box.slack.posts[0].threadTs, undefined);
+  assert.equal(box.slack.posts[0].text, 'board result');
+  assert.equal(box.store.getConversation(key), null);
+  const bound = box.store.getConversation(result.conversationKey);
+  assert.equal(bound.root_ts, result.ts);
+  assert.equal(bound.activated, true);
+  assert.equal(bound.channel, 'C1');
+});
+
+test('permanent Slack error does not retry', async (ctx) => {
+  const box = harness(ctx);
+  seed(box.store);
+  box.store.enqueueOutbox({
+    id: 'reply:perm:0', conversationKey: 'T1:C1:1.1', clientMsgId: 'cid-perm',
+    payload: { text: 'nope' },
+  });
+  box.slack.postMessage = async (args) => {
+    box.slack.posts.push(args);
+    throw new Error('Slack chat.postMessage: invalid_thread_ts');
+  };
+  let t = Date.now();
+  const deps = { slack: box.slack, audio: box.audio, home: box.home, now: () => t };
+  const [first] = await deliverPending(box.store, deps);
+  assert.equal(first.stopped, true);
+  assert.equal(box.store.db.prepare('SELECT state FROM outbox WHERE id=?').get('reply:perm:0').state, 'failed');
+  const holds = () => box.store.db.prepare("SELECT id FROM outbox WHERE id LIKE 'hold:%'").all();
+  assert.equal(holds().length, 1);
+  t += 60_000;
+  await deliverPending(box.store, deps);
+  await deliverPending(box.store, deps);
+  assert.equal(box.slack.posts.filter((post) => post.clientMsgId === 'cid-perm').length, 1);
+  assert.equal(holds().length, 1);
+});
+
+test('transient delivery retries are capped', async (ctx) => {
+  const box = harness(ctx);
+  seed(box.store);
+  box.store.enqueueOutbox({
+    id: 'reply:cap:0', conversationKey: 'T1:C1:1.1', clientMsgId: 'cid-cap',
+    payload: { text: 'later' },
+  });
+  box.slack.postMessage = async (args) => {
+    box.slack.posts.push(args);
+    throw new Error('slack down');
+  };
+  let t = Date.now();
+  const deps = { slack: box.slack, audio: box.audio, home: box.home, now: () => t };
+  for (let i = 0; i < 3; i += 1) {
+    await deliverPending(box.store, deps);
+    t += 5_000;
+  }
+  assert.equal(box.slack.posts.filter((post) => post.clientMsgId === 'cid-cap').length, 3);
+  assert.equal(box.store.db.prepare('SELECT state FROM outbox WHERE id=?').get('reply:cap:0').state, 'failed');
+  assert.equal(box.store.db.prepare("SELECT COUNT(*) AS n FROM outbox WHERE id LIKE 'hold:%'").get().n, 1);
+  await deliverPending(box.store, deps);
+  assert.equal(box.slack.posts.filter((post) => post.clientMsgId === 'cid-cap').length, 3);
+});
+
 test('transcription failure is a visible reply', async (ctx) => {
   const box = harness(ctx);
   seed(box.store, {

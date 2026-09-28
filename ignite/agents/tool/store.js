@@ -28,7 +28,8 @@
 // stopWork(id) — stops continuation; does not delete schedules or clear an agent hold
 // getLaunchSetting() / setLaunchSetting({ harness, model, effort, voice }) — changedAt; does not rewrite the active snapshot
 // enqueueOutbox({ id, conversationKey, payload, asRoot, clientMsgId }) — client_msg_id defaults to id
-// pendingOutbox(now) / markDelivered(id, { channel, ts }) / markDeliveryFailed(id, error, { retryAt })
+// pendingOutbox(now) / markDelivered(id, { channel, ts, asRoot? }) / markDeliveryFailed(id, error, { retryAt })
+// stopOutbox(id, error) — state failed on the existing column; pendingOutbox no longer returns it. No new column.
 // beginProactive({ id, agent, workspace, channel, payload, clientMsgId }) — activated; Slack key bound in markDelivered
 // upsertSchedule({ id, conversationKey, workId, cadence, timezone, nextAt, enabled, note, report })
 // getSchedule(id) / listSchedules() / dueSchedules(now) / deleteSchedule(id)
@@ -680,12 +681,16 @@ class Store {
       AND (next_retry_at IS NULL OR next_retry_at<=?) ORDER BY created_at, id`).all(now).map((row) => this._outbox(row));
   }
 
-  markDelivered(id, { channel, ts }) {
+  markDelivered(id, { channel, ts, asRoot = false }) {
     if (!channel || !ts) throw new Error('delivered Slack channel and timestamp required');
     return this.transaction(() => {
       const row = this.db.prepare('SELECT * FROM outbox WHERE id=?').get(id);
       if (!row) throw new Error('unknown outbox message');
       if (row.state === 'delivered') return { channel: row.channel, ts: row.ts, clientMsgId: row.client_msg_id };
+      if (asRoot) {
+        this.db.prepare('UPDATE outbox SET as_root=1 WHERE id=?').run(id);
+        row.as_root = 1;
+      }
       let conversationKeyValue = row.conversation_key;
       if (row.as_root) {
         const conv = this.db.prepare('SELECT * FROM conversations WHERE key=?').get(row.conversation_key);
@@ -711,6 +716,18 @@ class Store {
       if (row.state === 'delivered') throw new Error('delivered outbox message cannot be retried');
       this.db.prepare(`UPDATE outbox SET attempts=attempts+1, last_error=?, next_retry_at=? WHERE id=?`)
         .run(String(error), retryAt, id);
+      return this._outbox(this.db.prepare('SELECT * FROM outbox WHERE id=?').get(id));
+    });
+  }
+
+  stopOutbox(id, error) {
+    if (!error) throw new Error('delivery error required');
+    return this.transaction(() => {
+      const row = this.db.prepare('SELECT * FROM outbox WHERE id=?').get(id);
+      if (!row) throw new Error('unknown outbox message');
+      if (row.state === 'delivered') return this._outbox(row);
+      this.db.prepare(`UPDATE outbox SET state='failed', last_error=?, next_retry_at=NULL WHERE id=?`)
+        .run(String(error), id);
       return this._outbox(this.db.prepare('SELECT * FROM outbox WHERE id=?').get(id));
     });
   }

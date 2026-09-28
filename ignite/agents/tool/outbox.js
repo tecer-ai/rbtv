@@ -1,16 +1,28 @@
 'use strict';
 
 // API
-// deliverPending(store, deps) → [{ id, delivered, channel?, ts?, error? }]
+// deliverPending(store, deps) → [{ id, delivered, stopped?, channel?, ts?, error? }]
 //   deps.slack.postMessage / uploadFile, deps.audio.speak when payload.audio.
 //   payload.imUser is posted as the channel (Slack accepts a user id; slack.js has no open-DM call).
+//   A board conversation (root ts "board") is posted as a new root and markDelivered rekeys it.
 //   client_msg_id is the stored id, stable across retries. A row is marked delivered only after
 //   postMessage returns channel and ts. Harness stdout is never read here.
+//   Transient failures retry MAX_ATTEMPTS times (the same few-then-stop bound as a turn), then
+//   stopOutbox plus one hold: notice. A permanent Slack error stops on the first failure.
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { MAX_ATTEMPTS } = require('./store.js');
 
 const RETRY_MS = 5_000;
+const PERMANENT = new Set([
+  'invalid_thread_ts',
+  'channel_not_found',
+  'thread_not_found',
+  'not_in_channel',
+  'is_archived',
+  'account_inactive',
+]);
 
 function voiceOf(store, home) {
   if (home) {
@@ -24,19 +36,47 @@ function voiceOf(store, home) {
   return store.getLaunchSetting()?.voice || null;
 }
 
+function isBoard(conv) {
+  return conv?.root_ts === 'board' || String(conv?.key || '').endsWith(':board');
+}
+
+function permanentError(message) {
+  const text = String(message || '');
+  for (const code of PERMANENT) {
+    if (text.includes(code)) return true;
+  }
+  return false;
+}
+
 function targetOf(row, conv) {
   const channel = row.payload?.imUser || conv.channel;
-  const threadTs = row.as_root ? undefined : (conv.root_ts || undefined);
-  return { channel, threadTs };
+  const asRoot = Boolean(row.as_root) || isBoard(conv);
+  const threadTs = asRoot ? undefined : (conv.root_ts || undefined);
+  return { channel, threadTs, asRoot };
+}
+
+function giveUp(store, row, message) {
+  const conv = store.getConversation(row.conversation_key);
+  store.transaction(() => {
+    store.stopOutbox(row.id, message);
+    if (String(row.id).startsWith('hold:') || !conv) return;
+    store.enqueueOutbox({
+      id: `hold:delivery:${row.id}`,
+      conversationKey: row.conversation_key,
+      payload: { text: `Delivery is on hold. ${message} Repair: ignite-agent post` },
+      asRoot: Boolean(row.as_root) || isBoard(conv),
+    });
+  });
 }
 
 async function deliverOne(store, row, deps, now) {
   const conv = store.getConversation(row.conversation_key);
   if (!conv) {
-    store.markDeliveryFailed(row.id, 'unknown conversation', { retryAt: now + RETRY_MS });
-    return { id: row.id, delivered: false, error: 'unknown conversation' };
+    store.stopOutbox(row.id, 'unknown conversation');
+    return { id: row.id, delivered: false, stopped: true, error: 'unknown conversation' };
   }
-  const { channel, threadTs } = targetOf(row, conv);
+  const target = targetOf(row, conv);
+  const { channel, threadTs } = target;
   const text = typeof row.payload?.text === 'string' ? row.payload.text : '';
   const files = Array.isArray(row.payload?.files) ? row.payload.files.slice() : [];
   try {
@@ -57,11 +97,24 @@ async function deliverOne(store, row, deps, now) {
       clientMsgId: row.client_msg_id,
     });
     if (!posted?.channel || !posted?.ts) throw new Error('Slack did not confirm delivery');
-    const saved = store.markDelivered(row.id, { channel: posted.channel, ts: posted.ts });
-    return { id: row.id, delivered: true, channel: saved.channel, ts: saved.ts };
+    const saved = store.markDelivered(row.id, {
+      channel: posted.channel,
+      ts: posted.ts,
+      asRoot: target.asRoot,
+    });
+    return { id: row.id, delivered: true, channel: saved.channel, ts: saved.ts, conversationKey: saved.conversationKey };
   } catch (error) {
-    store.markDeliveryFailed(row.id, error.message, { retryAt: now + RETRY_MS });
-    return { id: row.id, delivered: false, error: error.message };
+    const message = error.message || String(error);
+    if (!store.getConversation(row.conversation_key)) {
+      store.stopOutbox(row.id, message);
+      return { id: row.id, delivered: false, stopped: true, error: message };
+    }
+    const failed = store.markDeliveryFailed(row.id, message, { retryAt: now + RETRY_MS });
+    if (permanentError(message) || failed.attempts >= MAX_ATTEMPTS) {
+      giveUp(store, row, message);
+      return { id: row.id, delivered: false, stopped: true, error: message };
+    }
+    return { id: row.id, delivered: false, error: message };
   }
 }
 
@@ -75,4 +128,4 @@ async function deliverPending(store, deps = {}) {
   return results;
 }
 
-module.exports = { deliverPending, RETRY_MS };
+module.exports = { deliverPending, RETRY_MS, MAX_ATTEMPTS };

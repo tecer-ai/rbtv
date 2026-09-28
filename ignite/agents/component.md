@@ -22,7 +22,7 @@ One line from each file's header. A file with no header comment is marked.
 | `deploy.sh` | `deploy.sh <commit>`. Requires `RBTV_DEPLOY` (deploy worktree) and `RBTV_WORKSPACE` (workspace root). |
 | `history.js` | `historyPath(home, key)` is `<home>/conversations/<safe>/history.md`. `safe` is the key with Windows-forbidden characters replaced by `-`. A folder still named with the raw key is renamed on first access. `writeHistory` regenerates that file from the store. `DEFAULT_HISTORY_WINDOW` is the recent slice in every turn prompt. |
 | `ingress.js` | No header comment. Exports `handleEvent`. |
-| `outbox.js` | `deliverPending(store, deps)`. A row is marked delivered only after `postMessage` returns channel and ts. Harness stdout is never read here. |
+| `outbox.js` | `deliverPending(store, deps)`. A board conversation (`root_ts` `board`) is posted as a new root and rekeyed. A row is marked delivered only after `postMessage` returns channel and ts. Transient delivery retries stop at `MAX_ATTEMPTS` (3); a permanent Slack error stops at once. One `hold:` notice. Harness stdout is never read here. |
 | `prompt.js` | `composeTurn(...)` builds the turn message. `CLAUDE.md` is not copied; the harness reads it because cwd is the home. `readBoard(home)`. |
 | `schedule.js` | `parseAt`, `parseDuration`, `cadenceSpec`, `nextOccurrence`. `FIXED_TZ` is the timezone column for `--every`, not an IANA zone. |
 | `slack.js` | Slack client: `auth`, `normalize`, Socket Mode `connect`, `postMessage`, `addReaction`, `threadHistory`, `createChannel`, `joinChannel`, `inviteUser`. A mention is `<@botUserId>` outside inline code and fences. |
