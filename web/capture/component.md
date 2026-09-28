@@ -63,7 +63,7 @@ absent rung removes itself; it never breaks the tool.
 
 ## Dependencies — ONE manifest, one manager
 
-`package.json` is this component's **dependency manifest** (`sd-graph show dependency-manifest`).
+`package.json` is this component's **dependency manifest**.
 It declares `defuddle-cli` and the Node floor, and that is all npm resolves here.
 
 **The three Python extractor libraries are NOT npm `dependencies`, and not a second manifest

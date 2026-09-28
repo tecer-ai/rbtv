@@ -139,7 +139,7 @@ backlog for a separate ruling.
 
 ## Dependencies
 
-`package.json` is this component's **dependency manifest** (`sd-graph show dependency-manifest`,
+`package.json` is this component's **dependency manifest** (registry concept `dependency-manifest`,
 minted 2026-08-08 by `decisions.md#d-dependency-manifest`): what the environment must provide,
 declared in npm's own manifest rather than a format rbtv coins, read by `rbtv install`.
 

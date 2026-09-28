@@ -29,7 +29,7 @@ moves under a module, or the reader learns both depths. The owner chose the move
 
 The predicted second component arrived 2026-08-18: `research/`, minted by owner ruling at console
 (its `component.md` § Origin). The ≥2-component tension the earlier revision recorded against the
-KG's module membership test (`sd-graph show module`) is thereby resolved in substance; the registry
+registry's module membership test is thereby resolved in substance; the registry
 still settles the formal membership (`PRIN-10`).
 
 The third arrived 2026-08-21: `capture/`, a port of the generic half of sb-os's wiki source-capture
