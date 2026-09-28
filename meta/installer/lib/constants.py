@@ -57,8 +57,9 @@ while :; do
         *) break ;;
     esac
 done
-PATH="$_rbtv_dir:${_rbtv_rest#:}"
-PATH="${PATH%:}"
+_rbtv_rest="${_rbtv_rest#:}"
+_rbtv_rest="${_rbtv_rest%:}"
+PATH="$_rbtv_dir${_rbtv_rest:+:$_rbtv_rest}"
 export PATH
 unset _rbtv_dir _rbtv_rest _rbtv_before _rbtv_after'''
 
