@@ -34,15 +34,8 @@ if [[ ! -f "$env_file" ]]; then
   exit 1
 fi
 
-old="$(git -C "$deploy" rev-parse HEAD)"
 git -C "$deploy" checkout --detach "$commit"
 new="$(git -C "$deploy" rev-parse HEAD)"
-
-if [[ -f "$deploy/ignite/package.json" ]] && ! git -C "$deploy" diff --quiet "$old" "$new" -- ignite/package.json; then
-  npm ci --omit=dev --prefix "$deploy/ignite"
-elif [[ ! -f "$deploy/ignite/package.json" && -d "$deploy/ignite/node_modules" ]]; then
-  rm -rf "$deploy/ignite/node_modules"
-fi
 
 if [[ ! -f "$unit_src" ]]; then
   echo "unit template missing: $unit_src" >&2
