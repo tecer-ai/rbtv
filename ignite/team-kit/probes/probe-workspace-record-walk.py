@@ -161,7 +161,7 @@ try:
           {"ws_rbtv": tree(ws / ".rbtv"), "repo_rbtv": tree(repo / ".rbtv")})
 
     # ---- B. THE RULING PATH, end to end ----------------------------------------------------
-    rc, text = supervise_instruct(IGNITE / "supervisor" / "supervise.py", pkg)
+    rc, text = supervise_instruct(IGNITE / "team-kit" / "supervise.py", pkg)
     landed = ws / INSTRUCTIONS_REL / f"{pkg.name}--worker-a.json"
     stray = list((repo / ".rbtv").rglob("*.json"))
     check("B1: the RULING half lands in the same workspace — a real `supervise instruct worker-a "
@@ -175,7 +175,7 @@ try:
 
     # ---- C. NEAREST WINS — the answer tracks the RECORD and nothing else -------------------
     ws2, repo2, pkg2 = make_fixture(ROOT / "c", nested_record=True)
-    rc2, text2 = supervise_instruct(IGNITE / "supervisor" / "supervise.py", pkg2)
+    rc2, text2 = supervise_instruct(IGNITE / "team-kit" / "supervise.py", pkg2)
     landed2 = repo2 / INSTRUCTIONS_REL / f"{pkg2.name}--worker-a.json"
     check("C1: NEAREST-ANCESTOR-WINS IS UNCHANGED, and this row is the discriminating control for "
           "B1 — the ONLY edit to the fixture is an install record inside the nested repo, and the "
@@ -207,7 +207,7 @@ try:
           "no workspace above" in raised and str(RECORD_REL) in raised
           and "findInstallRoot" in raised, {"raised": raised[:400]})
 
-    rc3, text3 = supervise_instruct(IGNITE / "supervisor" / "supervise.py", pkg3)
+    rc3, text3 = supervise_instruct(IGNITE / "team-kit" / "supervise.py", pkg3)
     check("D2: the ruling door refuses the same tree by the same rule — nonzero, the record named, "
           "and NOTHING WAS WRITTEN said in as many words. A ruling that reached no inbox must say "
           "so: filed into a workspace the daemon never drains, it reads as ruled",
@@ -265,17 +265,15 @@ try:
           str(bare5) in str(mut_db) and mut_db.name == "heart.db", {"mutant_db": str(mut_db)})
 
     # ---- G. RED CONTROL 2: the RULING half, riding the mutated walker -----------------------
-    # The whole kit is copied, not a slim subset: `supervise.py` reaches `coord/`, `supervisor/`
-    # and `state-store/` by path off its own location, and a partial copy would fail for a reason
-    # that is the copy's and not the mutation's. `__pycache__` is dropped — a stale `.pyc` serves
-    # the previous source's verdict.
+    # The kit is one folder now. supervise.py, the ending store, and the supervision modules
+    # all live in team-kit. Copying the deleted sibling folders would fail for a reason that
+    # is the copy's. `__pycache__` is dropped — a stale `.pyc` serves the previous source.
     kit_copy = ROOT / "kit" / "ignite"
-    for part in ("team-kit", "supervisor", "state-store", "planning"):
-        shutil.copytree(IGNITE / part, kit_copy / part,
-                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "node_modules"))
+    shutil.copytree(IGNITE / "team-kit", kit_copy / "team-kit",
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "node_modules"))
     (kit_copy / "team-kit" / "ending_store.py").write_text(mutated, encoding="utf-8")
     ws6, repo6, pkg6 = make_fixture(ROOT / "g")
-    rc6, text6 = supervise_instruct(kit_copy / "supervisor" / "supervise.py", pkg6)
+    rc6, text6 = supervise_instruct(kit_copy / "team-kit" / "supervise.py", pkg6)
     mut_landed = repo6 / INSTRUCTIONS_REL / f"{pkg6.name}--worker-a.json"
     check("G1: RED CONTROL — a COPY OF THE KIT carrying only that one mutated line writes the "
           "leader's inbox into the NESTED REPO, where no reconcile pass drains it, while B1's "

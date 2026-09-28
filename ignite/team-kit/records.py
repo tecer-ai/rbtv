@@ -656,7 +656,7 @@ def pad_row(row, header):
 # one home; one home with two language bindings costs one subprocess per ask, at a 30-second
 # cadence, and buys a predicate that cannot fork.
 
-LEASE_JS = Path(__file__).resolve().parent.parent / "runtime" / "lease" / "lease.js"
+LEASE_JS = Path(__file__).resolve().parent / "lease.js"
 
 
 def derive_lease(goal):

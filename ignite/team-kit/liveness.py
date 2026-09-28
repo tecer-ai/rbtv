@@ -27,7 +27,7 @@ import os
 import subprocess
 from pathlib import Path
 
-PROBE_JS = Path(__file__).resolve().parent.parent / "supervisor" / "probe.js"
+PROBE_JS = Path(__file__).resolve().parent / "probe.js"
 
 
 class LivenessError(Exception):

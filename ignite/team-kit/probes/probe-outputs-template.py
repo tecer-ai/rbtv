@@ -104,11 +104,6 @@ def build_mutant(dest_dir):
     dest.mkdir(parents=True, exist_ok=True)
     for sib in KIT.glob("*.py"):
         shutil.copyfile(sib, dest / sib.name)
-    sup_src = KIT.parent / "supervisor"
-    sup_dest = dest.parent / "supervisor"
-    sup_dest.mkdir(parents=True, exist_ok=True)
-    for sup in sup_src.glob("*.py"):
-        shutil.copyfile(sup, sup_dest / sup.name)
     (dest / "checkout.py").write_text(src, encoding="utf-8")
     return dest / "coord.py", ""
 

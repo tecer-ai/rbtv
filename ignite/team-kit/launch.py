@@ -982,9 +982,8 @@ def cmd_boot_prompt(args):
                f"boot prompt FROM — and an empty prompt boots a harness that exits on empty "
                f"input. Seats with a descriptor here: "
                f"{', '.join(sorted(x['agent'] for x in seats)) or '(none)'}\n"
-               f"Materialize the taskforce first: python3 "
-               f"{coord.KIT_DIR.parent / 'planning' / 'materialize-seats.py'} --package "
-               f"{coord.package_dir(args, register=False)}",
+                f"Materialize the taskforce first. The old materialize-seats CLI was deleted "
+                f"with Ignite 0.1. Package: {coord.package_dir(args, register=False)}",
                2)
     # ⚠ W1 (adv, C4) — THE LANE IS TOLD, NEVER DERIVED HERE. `execution-lane`'s grammar already
     # has exactly two spellings that DEC-1 binds to change together (`supervisor/lane-watch.js#readLane`

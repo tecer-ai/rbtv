@@ -425,7 +425,7 @@ def coord_invocation(args, door="coordinate"):
     import shutil
     script = Path(__file__).resolve()
     if door == "supervise":
-        target = Path(__file__).resolve().parent.parent / "supervisor" / "supervise.py"
+        target = Path(__file__).resolve().parent / "supervise.py"
         cli = "supervise" if shutil.which("supervise") else f"python3 {target}"
     else:
         cli = "coordinate" if shutil.which("coordinate") else f"python3 {script}"

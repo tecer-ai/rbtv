@@ -30,7 +30,7 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-SUPERVISE = HERE.parent.parent / "supervisor" / "supervise.py"
+SUPERVISE = HERE.parent / "supervise.py"
 OUT = HERE / "probe-leader-hold.out"
 CHECKS = []
 T0 = time.time()
@@ -76,7 +76,7 @@ def holds(root):
     db = store_db(root)
     if not db.exists():
         return []
-    cli = HERE.parent.parent / "state-store" / "cli.js"
+    cli = HERE.parent / "ending-store" / "cli.js"
     proc = subprocess.run(
         ["node", str(cli), "--db", str(db), "--op", "listSeatHolds",
          "--payload", json.dumps({"goal": "g1"})], capture_output=True, text=True)

@@ -62,8 +62,7 @@ def kit_siblings():
     kit = HERE.parent
     names, in_supervisor = _coord_module_names()
     return (sorted(p for p in (kit / f"{n}.py" for n in names - in_supervisor) if p.is_file()),
-            sorted(p for p in (kit.parent / "supervisor" / f"{n}.py" for n in in_supervisor)
-                   if p.is_file()))
+            sorted(p for p in (kit / f"{n}.py" for n in in_supervisor) if p.is_file()))
 
 
 def _coord_module_names():
@@ -103,13 +102,10 @@ def _coord_module_names():
 def stock_kit(dest, siblings, supervisor_siblings):
     for p in siblings:
         shutil.copy2(p, dest / p.name)
-    # The stand-in `supervisor/` is a SIBLING of the stand-in kit, because that is where coord.py
-    # looks: `Path(__file__).resolve().parent.parent / "supervisor"`.
-    if supervisor_siblings:
-        sup = dest.parent / "supervisor"
-        sup.mkdir(exist_ok=True)
-        for p in supervisor_siblings:
-            shutil.copy2(p, sup / p.name)
+    # Supervision modules live in the kit now (SUPERVISOR_DIR = KIT_DIR). Copy them into the
+    # stand-in kit, not a sibling supervisor/ folder that no longer exists.
+    for p in supervisor_siblings:
+        shutil.copy2(p, dest / p.name)
 
 
 def sha(p):
@@ -139,7 +135,7 @@ def main():
         siblings, supervisor_siblings = kit_siblings()
         check("the stand-in kit carries every kit module coord.py imports at module level "
               f"(found: {[p.name for p in siblings]})", len(siblings) >= 2)
-        check("the stand-in kit reproduces the sibling `supervisor/` half of the product "
+        check("the stand-in kit carries the six supervision modules beside coord.py "
               f"(found: {[p.name for p in supervisor_siblings]})",
               len(supervisor_siblings) == 6)
         stock_kit(work, siblings, supervisor_siblings)

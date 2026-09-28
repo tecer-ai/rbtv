@@ -138,15 +138,15 @@ MUTANT_ANCHOR = "function declaredEndingIsStale(current, evidence) {"
 
 
 def build_stale_guard_mutant(dest_dir):
-    src_path = IGNITE / "supervisor" / "death-stamp.js"
+    src_path = IGNITE / "team-kit" / "death-stamp.js"
     src = src_path.read_text(encoding="utf-8")
     if MUTANT_ANCHOR not in src:
         return None, f"mutation seam NOT FOUND, mutant not built: {MUTANT_ANCHOR!r}"
     src = src.replace(MUTANT_ANCHOR, MUTANT_ANCHOR + "\n  return true;  // MUTANT", 1)
     seams = [("require('./registry')",
-              f"require({str(IGNITE / 'supervisor' / 'registry.js')!r})"),
-             ("require('../runtime/seat-identity/csv')",
-              f"require({str(IGNITE / 'runtime' / 'seat-identity' / 'csv.js')!r})")]
+              f"require({str(IGNITE / 'team-kit' / 'registry.js')!r})"),
+             ("require('./csv')",
+              f"require({str(IGNITE / 'team-kit' / 'csv.js')!r})")]
     for old, new in seams:
         if old not in src:
             return None, f"require seam NOT FOUND, mutant not built: {old!r}"
@@ -181,7 +181,7 @@ def drive_death_stamp(module_js, db, evidence, registry, where):
     driver = Path(where) / "drive.js"
     driver.write_text(DRIVER, encoding="utf-8")
     proc = subprocess.run(
-        ["node", str(driver), str(module_js), str(IGNITE / "state-store" / "index.js"),
+        ["node", str(driver), str(module_js), str(IGNITE / "team-kit" / "ending-store" / "index.js"),
          str(db), json.dumps(evidence), str(registry)],
         capture_output=True, text=True)
     if proc.returncode != 0:
@@ -262,7 +262,7 @@ def main():
             # differ in the guard and in nothing else, so the green above is attributable to it.
             mod.ending_store.stamp_seat_declare(pkg2, "goal-master", "done",
                                                 declared_outputs=None, evidence="probe:restore")
-            green, err2 = drive_death_stamp(IGNITE / "supervisor" / "death-stamp.js", db,
+            green, err2 = drive_death_stamp(IGNITE / "team-kit" / "death-stamp.js", db,
                                             evidence, registry, tmp)
             check(f"B: GREEN — the SHIPPED guard refuses the same stamp{'' if green else ' — ' + err2}",
                   bool(green) and green.get("stamped") is False
