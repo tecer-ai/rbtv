@@ -5,11 +5,11 @@
 // auth() → { team, botUserId, botId }
 // normalize(event, { team, botUserId, botId }) →
 //   { team, channel, channelType, ts, threadTs, user, text, files, isBotOrSelf, mentionsBot }
-//   mentionsBot: <@botUserId> outside `code` and ```fences```. isBotOrSelf: user === botUserId,
-//   OR bot_id === botId (a different bot_id is not self), OR subtype message_changed /
-//   message_deleted / channel_join / group_join.
+//   throws unless botUserId and botId are both set. mentionsBot: <@botUserId> outside `code`
+//   and ```fences```. isBotOrSelf: user === botUserId, OR bot_id === botId (a different bot_id
+//   is not self), OR subtype message_changed / message_deleted / channel_join / group_join.
 // connect(onEvent): Socket Mode via app token. ACK only after onEvent resolves; no ACK if it
-//   rejects. Reconnect with backoff (1s→60s). disconnect envelopes close and reconnect.
+//   rejects. Backoff 1s→60s, reset only on hello. disconnect envelopes close and reconnect.
 // postMessage({ channel, threadTs?, text, clientMsgId? }) → { channel, ts }  (mrkdwn: true)
 // addReaction(channel, ts) → reactions.add name=eyes
 // threadHistory(channel, threadTs) → normalized messages, oldest first (conversations.replies)
@@ -56,9 +56,12 @@ function fileRef(file) {
   };
 }
 
-function normalize(event, identity = {}, extra = {}) {
-  const botUserId = identity.botUserId || null;
-  const botId = identity.botId || null;
+function normalize(event, identity, extra = {}) {
+  if (!identity?.botUserId || !identity?.botId) {
+    throw new Error('normalize requires botUserId and botId');
+  }
+  const botUserId = identity.botUserId;
+  const botId = identity.botId;
   const files = Array.isArray(event?.files) ? event.files.map(fileRef).filter(Boolean) : [];
   const ts = event?.ts || null;
   return {
@@ -148,13 +151,13 @@ class Slack {
 
   async auth() {
     const data = await this.api('auth.test');
-    if (!data.user_id) throw new Error('Slack auth.test returned no user_id');
-    this.identity = { team: data.team_id || null, botUserId: data.user_id, botId: data.bot_id || null };
+    if (!data.user_id || !data.bot_id) throw new Error('Slack auth.test returned no user_id or bot_id');
+    this.identity = { team: data.team_id || null, botUserId: data.user_id, botId: data.bot_id };
     return this.identity;
   }
 
   normalize(event) {
-    return normalize(event, this.identity || {});
+    return normalize(event, this.identity);
   }
 
   async postMessage({ channel, threadTs, text, clientMsgId } = {}) {
@@ -176,6 +179,7 @@ class Slack {
 
   async threadHistory(channel, threadTs) {
     if (!channel || !threadTs) throw new Error('threadHistory requires channel and threadTs');
+    if (!this.identity) await this.auth();
     const messages = [];
     let cursor;
     const seen = new Set();
@@ -192,7 +196,7 @@ class Slack {
       if (cursor) seen.add(cursor);
     } while (cursor);
     return messages
-      .map((message) => normalize({ ...message, channel: message.channel || channel }, this.identity || {}))
+      .map((message) => normalize({ ...message, channel: message.channel || channel }, this.identity))
       .sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
   }
 
@@ -314,7 +318,6 @@ class Slack {
     if (!data.url) throw new Error('Slack Socket Mode returned no URL');
     const socket = new this.WebSocket(data.url);
     this.socket = socket;
-    this.retryMs = 1000;
     socket.addEventListener('message', (event) => {
       const job = this.handleFrame(event.data, socket);
       this.pending = job.catch((error) => this.log('error', error.message));
@@ -332,11 +335,14 @@ class Slack {
       socket.close();
       return;
     }
-    if (envelope.type === 'hello') return;
+    if (envelope.type === 'hello') {
+      this.retryMs = 1000;
+      return;
+    }
     const event = envelope.payload?.event;
     const deliver = envelope.type === 'events_api' && event &&
       (event.type === 'message' || event.type === 'app_mention');
-    if (deliver) await this.onEvent(normalize(event, this.identity || {}));
+    if (deliver) await this.onEvent(normalize(event, this.identity));
     if (envelope.envelope_id && socket === this.socket && !socket.closed) {
       socket.send(JSON.stringify({ envelope_id: envelope.envelope_id }));
     }

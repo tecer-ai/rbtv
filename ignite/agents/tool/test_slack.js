@@ -13,6 +13,17 @@ function identity() {
   return { team: 'T1', botUserId: 'UBOT', botId: 'BBOT' };
 }
 
+test('normalize-requires-identity', () => {
+  assert.throws(
+    () => normalize({ user: 'UBOT', bot_id: 'BBOT', text: 'echo', ts: '1' }),
+    /botUserId/
+  );
+  assert.throws(
+    () => normalize({ user: 'UBOT', text: 'echo', ts: '1' }, { botUserId: 'UBOT' }),
+    /botId/
+  );
+});
+
 test('normalize-shape', () => {
   const event = normalize({
     type: 'message', channel: 'C1', channel_type: 'channel', ts: '2.2', thread_ts: '1.1',
@@ -145,6 +156,23 @@ test('threadHistory', async () => {
   assert.deepEqual(rows.map((row) => row.ts), ['1.0', '2.0']);
   assert.equal(rows[1].isBotOrSelf, true);
   assert.equal(calls.filter((call) => call.method === 'conversations.replies').length, 2);
+});
+
+test('threadHistory-auths-when-identity-missing', async () => {
+  const { slack, calls } = harness({
+    'auth.test': authOk,
+    'conversations.replies': {
+      ok: true,
+      messages: [
+        { ts: '1.0', user: 'UBOT', bot_id: 'BBOT', text: 'echo' },
+        { ts: '2.0', user: 'UOWNER', text: '<@UBOT> hi' },
+      ],
+    },
+  });
+  const rows = await slack.threadHistory('C1', '1.0');
+  assert.equal(calls.some((call) => call.method === 'auth.test'), true);
+  assert.equal(rows[0].isBotOrSelf, true);
+  assert.equal(rows[1].mentionsBot, true);
 });
 
 test('createChannel', async () => {
@@ -320,6 +348,24 @@ test('socket-reconnect-backoff', async () => {
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(timers[1].ms, 2000);
   assert.equal(timers[1].cancelled, false);
+});
+
+test('socket-flap-backs-off-until-hello', async () => {
+  let opens = 0;
+  const { slack, FakeWS, timers } = harness({
+    'auth.test': authOk,
+    'apps.connections.open': () => {
+      opens += 1;
+      return { ok: true, url: `wss://example.test/${opens}` };
+    },
+  });
+  await slack.connect(async () => {});
+  FakeWS.latest.close();
+  assert.equal(timers[0].ms, 1000);
+  timers[0].fn();
+  await new Promise((resolve) => setImmediate(resolve));
+  FakeWS.latest.close();
+  assert.equal(timers[1].ms, 2000);
 });
 
 test('socket-stop-cancels-reconnect', async () => {
