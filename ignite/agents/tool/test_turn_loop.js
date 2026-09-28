@@ -541,6 +541,72 @@ test('transient delivery retries are capped', async (ctx) => {
   assert.equal(box.slack.posts.filter((post) => post.clientMsgId === 'cid-cap').length, 3);
 });
 
+function textHits(slack, text) {
+  return [...slack.posts, ...slack.uploads].filter((call) => call.text === text).length;
+}
+
+test('voice reply text appears once', async (ctx) => {
+  const box = harness(ctx);
+  seed(box.store);
+  box.store.enqueueOutbox({
+    id: 'reply:voice:0', conversationKey: 'T1:C1:1.1', clientMsgId: 'cid-voice',
+    payload: { text: 'voice check ok', audio: true, files: ['/tmp/agent.mp3'] },
+  });
+  await deliverPending(box.store, { slack: box.slack, audio: box.audio, home: box.home });
+  assert.equal(textHits(box.slack, 'voice check ok'), 1);
+  assert.equal(box.slack.uploads.length, 2);
+  assert.equal(box.slack.uploads.every((upload) => upload.text == null), true);
+  assert.equal(box.store.db.prepare('SELECT state FROM outbox WHERE id=?').get('reply:voice:0').state, 'delivered');
+});
+
+test('files-only reply delivers without a text post', async (ctx) => {
+  const box = harness(ctx);
+  seed(box.store);
+  box.store.enqueueOutbox({
+    id: 'reply:file:0', conversationKey: 'T1:C1:1.1', clientMsgId: 'cid-file',
+    payload: { text: '', audio: false, files: ['/tmp/note.txt'] },
+  });
+  const [result] = await deliverPending(box.store, { slack: box.slack, audio: box.audio, home: box.home });
+  assert.equal(result.delivered, true);
+  assert.equal(box.slack.posts.length, 0);
+  assert.equal(box.slack.uploads.length, 1);
+  assert.equal(box.slack.uploads[0].text, undefined);
+});
+
+test('retry after a posted text does not post it again', async (ctx) => {
+  const box = harness(ctx);
+  seed(box.store);
+  box.store.enqueueOutbox({
+    id: 'reply:partial:0', conversationKey: 'T1:C1:1.1', clientMsgId: 'cid-partial',
+    payload: { text: 'once only', audio: false, files: ['/tmp/a.txt', '/tmp/b.txt'] },
+  });
+  let uploads = 0;
+  box.slack.uploadFile = async (args) => {
+    box.slack.uploads.push(args);
+    uploads += 1;
+    if (uploads === 2) throw new Error('upload failed');
+    return { ts: '8.1', files: [args.file] };
+  };
+  let t = Date.now();
+  const deps = { slack: box.slack, audio: box.audio, home: box.home, now: () => t };
+  const [first] = await deliverPending(box.store, deps);
+  assert.equal(first.delivered, false);
+  assert.equal(box.slack.posts.length, 1);
+  assert.equal(box.slack.posts[0].text, 'once only');
+  const pending = box.store.db.prepare('SELECT state, ts FROM outbox WHERE id=?').get('reply:partial:0');
+  assert.equal(pending.state, 'pending');
+  assert.ok(pending.ts);
+  box.slack.uploadFile = async (args) => {
+    box.slack.uploads.push(args);
+    return { ts: '8.2', files: [args.file] };
+  };
+  t += 6_000;
+  const [second] = await deliverPending(box.store, deps);
+  assert.equal(second.delivered, true);
+  assert.equal(box.slack.posts.length, 1);
+  assert.equal(textHits(box.slack, 'once only'), 1);
+});
+
 test('transcription failure is a visible reply', async (ctx) => {
   const box = harness(ctx);
   seed(box.store, {

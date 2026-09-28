@@ -5,8 +5,11 @@
 //   deps.slack.postMessage / uploadFile, deps.audio.speak when payload.audio.
 //   payload.imUser is posted as the channel (Slack accepts a user id; slack.js has no open-DM call).
 //   A board conversation (root ts "board") is posted as a new root and markDelivered rekeys it.
+//   The reply text is posted once (postMessage). Each file, including a synthesized voice file,
+//   is uploaded with no caption. A files-only reply skips the empty post and confirms from the
+//   upload ts. A confirmed post is rememberPost'd before uploads, so a retry does not post it again.
 //   client_msg_id is the stored id, stable across retries. A row is marked delivered only after
-//   postMessage returns channel and ts. Harness stdout is never read here.
+//   Slack confirms channel and ts. Harness stdout is never read here.
 //   Transient failures retry MAX_ATTEMPTS times (the same few-then-stop bound as a turn), then
 //   stopOutbox plus one hold: notice. A permanent Slack error stops on the first failure.
 
@@ -86,20 +89,27 @@ async function deliverOne(store, row, deps, now) {
       files.push(await deps.audio.speak(text, voice ? { voice } : {}));
     }
     if (files.length && typeof deps.slack?.uploadFile !== 'function') throw new Error('slack.uploadFile required');
-    for (const file of files) {
-      await deps.slack.uploadFile({ channel, threadTs, file, text: text || undefined });
+    let confirmed = row.channel && row.ts ? { channel: row.channel, ts: row.ts } : null;
+    if ((text || !files.length) && !confirmed) {
+      if (typeof deps.slack?.postMessage !== 'function') throw new Error('slack.postMessage required');
+      const posted = await deps.slack.postMessage({
+        channel,
+        threadTs,
+        text,
+        clientMsgId: row.client_msg_id,
+      });
+      if (!posted?.channel || !posted?.ts) throw new Error('Slack did not confirm delivery');
+      store.rememberPost(row.id, posted);
+      confirmed = posted;
     }
-    if (typeof deps.slack?.postMessage !== 'function') throw new Error('slack.postMessage required');
-    const posted = await deps.slack.postMessage({
-      channel,
-      threadTs,
-      text,
-      clientMsgId: row.client_msg_id,
-    });
-    if (!posted?.channel || !posted?.ts) throw new Error('Slack did not confirm delivery');
+    for (const file of files) {
+      const uploaded = await deps.slack.uploadFile({ channel, threadTs, file });
+      if (!confirmed && uploaded?.ts) confirmed = { channel, ts: uploaded.ts };
+    }
+    if (!confirmed?.channel || !confirmed?.ts) throw new Error('Slack did not confirm delivery');
     const saved = store.markDelivered(row.id, {
-      channel: posted.channel,
-      ts: posted.ts,
+      channel: confirmed.channel,
+      ts: confirmed.ts,
       asRoot: target.asRoot,
     });
     return { id: row.id, delivered: true, channel: saved.channel, ts: saved.ts, conversationKey: saved.conversationKey };

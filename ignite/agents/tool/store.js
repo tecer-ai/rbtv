@@ -30,6 +30,7 @@
 // enqueueOutbox({ id, conversationKey, payload, asRoot, clientMsgId }) — client_msg_id defaults to id
 // pendingOutbox(now) / markDelivered(id, { channel, ts, asRoot? }) / markDeliveryFailed(id, error, { retryAt })
 // stopOutbox(id, error) — state failed on the existing column; pendingOutbox no longer returns it. No new column.
+// rememberPost(id, { channel, ts }) — text already confirmed; row stays pending so file uploads can retry. No new column.
 // beginProactive({ id, agent, workspace, channel, payload, clientMsgId }) — activated; Slack key bound in markDelivered
 // upsertSchedule({ id, conversationKey, workId, cadence, timezone, nextAt, enabled, note, report })
 // getSchedule(id) / listSchedules() / dueSchedules(now) / deleteSchedule(id)
@@ -717,6 +718,18 @@ class Store {
       this.db.prepare(`UPDATE outbox SET attempts=attempts+1, last_error=?, next_retry_at=? WHERE id=?`)
         .run(String(error), retryAt, id);
       return this._outbox(this.db.prepare('SELECT * FROM outbox WHERE id=?').get(id));
+    });
+  }
+
+  rememberPost(id, { channel, ts }) {
+    if (!channel || !ts) throw new Error('posted Slack channel and timestamp required');
+    return this.transaction(() => {
+      const row = this.db.prepare('SELECT state FROM outbox WHERE id=?').get(id);
+      if (!row) throw new Error('unknown outbox message');
+      if (row.state !== 'pending') return false;
+      this.db.prepare(`UPDATE outbox SET channel=?, ts=? WHERE id=? AND state='pending' AND ts IS NULL`)
+        .run(channel, ts, id);
+      return true;
     });
   }
 
