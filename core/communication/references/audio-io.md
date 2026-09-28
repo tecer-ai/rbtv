@@ -4,8 +4,7 @@ description: "How an agent works with audio through the ElevenLabs capability: t
 ---
 
 <reference>
-Form: PROCEDURAL (command recipes) with a normative edge (the full-path rule and the
-config-key-not-a-flag rule are binding).
+Form: PROCEDURAL (command recipes) with a normative edge (the config-key-not-a-flag rule is binding).
 Enforcement: advisory. Reach: any agent that must hear or speak.
 
 ## What this capability is, and what it is NOT
@@ -21,23 +20,9 @@ skills. Never look for a channel id, a workspace flag or an upload verb here: no
 
 ## How you reach it
 
-**Which command NAME works depends on your vantage, and the vantages disagree.** Measured
-2026-08-28 and 2026-08-31:
-
-| Your vantage | A bare `audio <verb>` | Why |
-|---|---|---|
-| a CAGED seat that declares `audio` in its `exposed-clis` | **works** | the sandbox materializes a `~/.rbtv-bin/audio` SYMLINK from that declaration |
-| a CAGED seat that does not declare it | **exits 127**, command not found | `~/.rbtv-bin` is built inside a sandbox; it does not exist on the real filesystem at all |
-| an UNCAGED daemon-spawned staff sitting, on a box where `python3 core/communication/link-tools.py` has been run | **works** | `~/.local/bin/audio` (the link that script installs) is on PATH via `spawn.js`'s `local-bin: true` grant |
-| an UNCAGED chair on a box that has never run that install step (a fresh clone, an unrebuilt box) | **exits 127**, command not found | the symlink does not exist yet — running the install step, once per box, is what creates it |
-
-Uncaged means unmasked, NOT better-equipped — the uncaged chairs never declared this CLI, so a
-caged shim was never on the table for them; the install step above gives them a different route to
-the same bare name, conditional on having been run on that box.
-
-**So DEFAULT to the full path form.** It is the one form correct in EVERY vantage, which is what
-any instruction that cannot know its reader's cage needs; the bare name is a caged-seat
-convenience, never the documented recipe. Every path below is relative to the workspace root.
+Run the CLI by its full path from the workspace root. Console users can run
+`python3 core/communication/link-tools.py` once from the rbtv repo to add a bare `audio`
+command to `~/.local/bin` when that directory is on `PATH`.
 
 | What | Where |
 |---|---|
@@ -87,24 +72,6 @@ Both verbs read `language` from this component's `config.json` (default `pt`). N
 language flag, and none is compiled into the CLI. Change it for the whole integration — both
 directions at once — with the `language` verb; the change persists and the next `transcribe` or
 `tts` reads it.
-
-## What a caged seat can and cannot do today
-
-**A caged seat cannot reach the ElevenLabs key, so it cannot transcribe or synthesize.** Measured
-2026-08-28: `ELEVENLABS_API_KEY` is unset inside cages, and the key store is masked there by the
-cage's `**/*.key` pattern floor — a cage sees a zero-length character device, which is a MASK and
-NOT an absent key. Never read that as "the key is missing" and never go asking for one to be
-placed. Every verb refuses in-cage with exit 2, naming both key routes; that refusal is correct
-behaviour, not a broken install.
-
-- **Who can run it today:** the uncaged chairs — a seat running outside a cage, and the owner's
-  own console — where the key store is a real file.
-- **What a caged seat does instead:** hand the CONVERSION to an uncaged chair by mail, rather than
-  retrying against a wall known to stand. Only this capability needs the key; a channel tool that
-  merely moves the file is unaffected, so a caged seat can still fetch the note and still post the
-  answer.
-- **What would change it:** a caged seat is handed `ELEVENLABS_API_KEY` in its environment;
-  that takes effect at the seat's NEXT launch, never inside a live session.
 
 Flags are documented by the CLI itself — `<path> --help`, and `<path> <verb> --help` — and in
 `3-resources/tools/rbtv/core/communication/capabilities/audio/README.md`. This reference does not

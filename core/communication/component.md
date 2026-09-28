@@ -9,7 +9,7 @@ the MEDIUM it travels in — turning a voice note into text an agent can act on,
 agent's answer into audio the owner can listen to — and, since 2026-08-21 (owner instruction),
 the STYLE agents talk to the owner in, as three always-on rules. Since 2026-09-27 (owner
 ruling) it also holds the SHAPE of what is written into a Slack thread: the
-`slack-message-format` skill, moved from the 0.1 `meta/master` component. Delivering a message —
+`slack-message-format` skill. Delivering a message —
 which channel carries it, what posts it — remains the channel machinery's business, never this
 component's.
 
@@ -27,8 +27,7 @@ clarity in `plain-language`, the code-specific overlay in `non-technical-user`, 
 structure (mrkdwn, the thread, file logistics), reached on demand as a skill rather than
 always-on.
 
-The split that mints it is the owner's (goal `stools-canvas-audio-elevenlabs`, `goal.md`
-§ "Divisão de abstração"): **file logistics stay in `stools`** — downloading a voice note from
+The owner's split is: **file logistics stay in `stools`** — downloading a voice note from
 Slack, uploading an mp3 back to a channel — **and conversion lives here**. Nothing in the `audio`
 capability speaks to Slack; the caller hands it a file and takes a file back — the Slack side of
 that handoff (addressing the thread, carrying the file) is `slack-message-format`'s, per the
@@ -36,7 +35,7 @@ owner's audio/Slack skills split of 2026-08-30.
 
 | Capability | Answers |
 |---|---|
-| `audio` | **How does a message change medium?** Speech ↔ text through ElevenLabs: transcribe an audio file, synthesize an mp3/ogg, and switch the one language key both verbs read. One CLI, one key in its own `credentials/`, no Slack surface. |
+| `audio` | **How does a message change medium?** Speech ↔ text through ElevenLabs: transcribe an audio file, synthesize an mp3/ogg, and switch the one language key both verbs read. One CLI, one key in the workspace env file, no Slack surface. |
 
 ## Entry points
 
@@ -44,8 +43,7 @@ owner's audio/Slack skills split of 2026-08-30.
   each harness's rules scaffolding, e.g. `.claude/rules/`), and the skill bodies this component
   exposes (`audio-aware`, `audio-io`, `slack-message-format`), each reached through a thin loader.
 - `capabilities/audio/` — `audio.md` (the manual) + `audio.py` (the CLI), its `config.json`,
-  `credentials/`, and `test_audio.py`. Not on PATH: a seat reaches it because its `exposes:` names
-  the `path` row in `exposure.csv` (`core/communication/audio`) and the cage binds the file.
+  and `test_audio.py`. Run it by path; the `audio` row in `exposure.csv` inventories the tool.
   `python test_audio.py` must be green after any edit.
 - `exposure.csv` — the `audio` row (the mandatory first-party tool inventory), one row per file
   in `references/` (`rule` for the three style rules, `skill` for `audio-aware`, `audio-io`,

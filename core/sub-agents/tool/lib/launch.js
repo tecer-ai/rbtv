@@ -79,9 +79,8 @@ function launch({ harness, modelId, folder, effortWord, effortArgv, system, prom
     argv = [...argv, '--title', tag];
   }
 
-  // ⚑ Uniform descriptor carriage (ignite's `d-uniform-descriptor-carriage`): claude gets a true
-  // system-prompt flag; every other harness rides the system text on the first message,
-  // ahead of the wake prompt, with the same wrapper text spawn.js composes.
+  // Claude gets a true system-prompt flag; every other harness rides the system text on the first message,
+  // ahead of the wake prompt, with the descriptor wrapper text below.
   if (system && harness === 'claude') {
     argv = [...argv, ...(system.file
       ? ['--append-system-prompt-file', system.file]
@@ -270,19 +269,6 @@ function runSeat(rawArgv) {
   }
 
   const { modelId, spec } = resolveModel(fm.harness, fm.model);
-
-  // seat.md's `model:` doubles as the daemon's binding: that table requires
-  // the id VERBATIM and never resolves a short alias (owner ruling 2026-08-10 —
-  // "claude-fable-5, never fable"). `cast seat` used to
-  // accept either spelling via `resolveModel`'s SHORT-name fallback, so a seat cast clean with the
-  // alias still died at first daemon seed (measured on goal-memory-management, 2026-08-23: seat
-  // `distill-ignite-memory` declared `grok-4.6`, spawn REFUSED with E_UNMAPPED_BINDING). One
-  // spelling is the only legal pin in seat.md — refuse here rather than launch a descriptor the
-  // daemon cannot.
-  if (fm.model !== modelId) {
-    fail(`refused: seat.md model '${fm.model}' is a short alias — the daemon accepts only the `
-      + `pin VERBATIM ('${modelId}', never '${fm.model}'). Fix seat.md: ${descriptor}`);
-  }
 
   let effortWord = null;
   let effortArgv = [];

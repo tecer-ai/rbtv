@@ -2,7 +2,7 @@
 
 One CLI, three verbs, JSON on stdout. It converts; it never fetches or posts — a Slack voice note
 reaches disk through `stools download`, and an answer reaches a channel through `stools upload`
-(the owner's split, `goal.md` § "Divisão de abstração").
+as separate steps.
 
 **Paths on this workspace** (everything below is relative to the workspace root):
 
@@ -13,8 +13,8 @@ reaches disk through `stools download`, and an answer reaches a channel through 
 | the key | `ELEVENLABS_API_KEY` in the workspace env file (`env_file` in `rbtv.json` — see "The key") |
 | the checks | `3-resources/tools/rbtv/core/communication/capabilities/audio/test_audio.py` — `python3 test_audio.py`, no network |
 
-Nothing is installed on `PATH`. A seat reaches it because its `exposes:` names the `path` row in
-`exposure.csv`; a console session runs it by path. `python3` and `requests` are the only
+Run it by path. Console users may add a bare `audio` link with
+`core/communication/link-tools.py`. `python3` and `requests` are the only
 requirements (`dependencies.txt`).
 
 ## The three verbs
@@ -64,8 +64,7 @@ Neither present → **every verb** exits non-zero and names both places, with no
 To place the key (the owner's step), add the line `ELEVENLABS_API_KEY=<key>` to the env file
 (`chmod 600` on the file).
 
-The `language` verb demands the key too, though it makes no API call: the contract this component
-is built to says every verb refuses without one (`goal.md` clause 9). To read the language of an
+The `language` verb demands the key too, though it makes no API call. To read the language of an
 install that has no key, read `config.json` — it is one JSON object.
 
 ## The one language key
@@ -81,13 +80,13 @@ install that has no key, read `config.json` — it is one JSON object.
 `language` is the ONLY place a language is set for this component's whole ElevenLabs integration —
 transcription and synthesis both. The default is `pt`. No verb takes a language flag and no
 language is compiled into the CLI (`test_audio.py` asserts that against the source). Change it
-with the `language` verb, which any seat holding the CLI — the channel master included — can run;
-the change persists in `config.json` and the next `transcribe` or `tts` reads it.
+with the `language` verb. The change persists in `config.json`; the next `transcribe` or `tts`
+reads it.
 
 ## Models and voices — what the defaults are, and why
 
 Sourced 2026-08-18 from `api.elevenlabs.io/openapi.json` and the docs pages beside it; the full
-findings with URLs are in this goal's `seats/audio-component-smith/scratchpad/probes/`.
+findings with URLs were recorded in the original audio research notes.
 
 - **Transcription: `scribe_v2`.** ElevenLabs' current batch STT model (`scribe_v1` is marked
   deprecated on `docs/overview/models`). Portuguese sits in its top accuracy tier — the capability
@@ -112,8 +111,5 @@ findings with URLs are in this goal's `seats/audio-component-smith/scratchpad/pr
 
 ## What it is not
 
-No Slack surface: no Slack SDK import, no call to Slack's web API, no channel ids. The two greps
-that check it (`goal.md` clause 5) find nothing here, and this sentence is written so that they
-still find nothing when they run over this file. No PyYAML anywhere either — the
-workspace's private-scope floor masks `yaml/tokens.py` and bricks that import inside every cage,
-which is why the config is JSON.
+No Slack SDK import, web API call, or channel id is needed here. The config is JSON and read
+through Python's standard library.

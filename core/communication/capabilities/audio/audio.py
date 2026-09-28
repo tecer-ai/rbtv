@@ -6,8 +6,7 @@ The command inventory lives in the parser below and nowhere else: `--help` and
 `<verb> --help` are the documentation (README.md points here rather than
 restating flags, which is how a second copy goes stale).
 
-Never PyYAML: the workspace's private-scope floor masks `yaml/tokens.py`, which
-bricks the import inside every cage. Config is JSON, read with the stdlib.
+Config is JSON, read with the standard library.
 """
 
 import argparse
@@ -41,7 +40,7 @@ def _env_file():
 ENV_FILE = _env_file()
 KEY_ENV = "ELEVENLABS_API_KEY"
 
-# The ONE home of a language value in this file (goal.md clause 11). Every other
+# The one home of a language value in this file. Every other
 # mention interpolates this constant — a literal language code anywhere else in
 # this source is a defect, and `grep` for one is a done-contract criterion.
 LANGUAGE_KEY = "language"
@@ -64,7 +63,7 @@ VOICES_URL = f"{API}/v2/voices"
 # which the docs recommend for quality — because `language_code` "is not
 # supported for multilingual_v2 models" (docs/api-reference/text-to-speech/
 # convert), and a default under which the config key could not reach TTS would
-# defeat the key's whole purpose (goal.md clauses 11-12). flash_v2_5 covers
+# defeat the key's whole purpose. flash_v2_5 covers
 # "all eleven_multilingual_v2 languages plus hu, no, vi" (docs/models), so it
 # is pt-capable. A caller who wants the higher-fidelity model passes
 # `--model eleven_multilingual_v2` and the language rides in the text instead.
@@ -149,10 +148,7 @@ def language():
 
 
 def language_write(code):
-    """Rewrite the language key IN PLACE — deliberately not a temp-file-plus-
-    rename. The exposure manifest binds this FILE (not its directory) read-write
-    into a seat's cage, so an atomic writer's sibling temp file meets EROFS on a
-    read-only parent. Truncate-and-write is what actually lands there."""
+    """Update the language key in the component config."""
     data = config_read()
     data[LANGUAGE_KEY] = code
     body = json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
@@ -161,8 +157,7 @@ def language_write(code):
             fh.write(body)
     except OSError as exc:
         die(f"cannot write {CONFIG}", str(exc),
-            "the config file must be writable — inside a cage that means the "
-            "exposure row's `write-roots` cell must carry it, marked `!`")
+            "check that the config file and its directory are writable")
 
 
 # ─────────────────────────────────────────────────────────────── the API layer
@@ -259,9 +254,8 @@ def cmd_transcribe(args):
 
 def cmd_language(args):
     # This verb touches no network — and still demands the key, because the
-    # contract this component is built to says EVERY verb refuses without one
-    # (goal.md clause 9: "qualquer verbo sai exit != 0"; m2 probe (e) runs the
-    # absence arm over every verb). Deliberate, not incidental: a caller who
+    # contract for this component says EVERY verb refuses without one.
+    # Deliberate, not incidental: a caller who
     # switches the language of an integration that cannot run is being told the
     # integration cannot run. Reading the language of a keyless install is done
     # by reading config.json, which is one JSON object.

@@ -107,7 +107,7 @@ function verbHelpPages() {
       '',
       '  -s/-S is refused here: the system prompt is seat.md.',
       '',
-      'example: cast seat .rbtv/goals/my-goal/seats/writer -p "second pass, ship it"',
+      'example: cast seat 1-projects/my-project/build/plan/seats/writer -p "second pass, ship it"',
     ],
     resume: [
       `usage: ${RESUME_USAGE}`,
@@ -139,7 +139,7 @@ function verbHelpPages() {
       '',
       'columns: harness, session id, started, first-prompt label.',
       '',
-      'example: cast sessions claude .rbtv/goals/my-goal/seats/writer -n 3',
+      'example: cast sessions claude 1-projects/my-project/build/plan/seats/writer -n 3',
     ],
     monitor: [
       `usage: ${MONITOR_USAGE}`,
@@ -176,7 +176,7 @@ function verbHelpPages() {
       'An empty roster means "no REGISTERED launch is live" — jobs started outside cast, or',
       'before the registry existed, are invisible here. It is not proof the box is quiet.',
       '',
-      'example: cast monitor --watch --folder .rbtv/goals/my-goal',
+      'example: cast monitor --watch --folder 1-projects/my-project/build/plan',
     ],
     route: [
       `usage: ${ROUTE_USAGE}`,

@@ -17,21 +17,13 @@
 #
 # THE TOOL ROW: the component's one first-party tool (the `audio` capability). `part-kind: tool` + `method: path` is the
 # MANDATORY inventory row every component keeps for a CLI it authors and ships (owner-ruled
-# 2026-08-09, core-build `decisions.md#d-tool-inventory-exposure-rows`), and it is also the row a
-# CAGED seat's `exposes: path: [core/communication/audio]` binds to. `rbtv-cli` and `description`
+# 2026-08-09, core-build `decisions.md#d-tool-inventory-exposure-rows`). `rbtv-cli` and `description`
 # are empty because the tool self-documents through `-h` — a second inventory here is what drifts.
 #
-# The seventh cell is `write-roots`, legal on `method=path` rows ONLY. It carries `!capabilities/audio/config.json`:
-# the `language` verb REWRITES that file (goal.md clause 12 — the channel master must be able to
-# switch the language from inside its own cage), and under the universal read-only workspace floor
-# that write meets EROFS without this grant. The `!` is the danger marker every entry must carry —
-# a write grant is never inferred, it reaches a seat only because it was typed here.
-#
-# The grant is the FILE, not the folder, on purpose: `capabilities/audio/credentials/` and `audio.py` itself stay
-# read-only inside the cage, and `language_write()` writes in place (no temp-plus-rename) so a
-# file-level bind is enough.
+# The seventh `write-roots` column stays in the schema. The audio row needs no write grant:
+# agents run the CLI directly.
 part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
-audio,tool,path,,capabilities/audio/audio.py,,!capabilities/audio/config.json
+audio,tool,path,,capabilities/audio/audio.py,,
 link-tools,tool,path,,link-tools.py,,
 plain-language,reference,rule,,references/plain-language.md,"Plain language on every turn: define every term on first use, no analogies, no bare name-drops, no unexpanded acronyms, a phase named with its purpose, and existing terminology only — never an invented term or alias.",
 non-technical-user,reference,rule,,references/non-technical-user.md,"The code overlay for a non-technical owner: every technical name paired with a plain translation the owner learns from, every coding decision framed as the behavior change the owner will see, and never a raw log/diff/output dump in chat.",

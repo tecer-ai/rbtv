@@ -8,44 +8,11 @@ Form: STRUCTURAL (message shape) with a normative edge (the decision-ask shape i
 Enforcement: advisory. Reach: this seat's Slack surface. Apply this to EVERY message you write
 into the Slack thread; straying is a defect, not a permission.
 
-## END EVERY TURN WITH YOUR REPLY BETWEEN THESE TWO LINES
+## Agent replies
 
-SCOPE — this ONE section is the chat bridge's contract, and it binds you only if the bridge reads
-your turn for the owner (the master's Slack sittings). If your messages reach the owner another way
-— sent up the owner channel to the master — skip to the next section and NEVER write the markers;
-they would travel as literal text. Everything below this section binds every seat that writes to
-the owner.
-
-This is BINDING, not a style note. The bridge takes what is between the two lines and posts it
-into the Slack thread VERBATIM — nothing converts it, nothing cleans it up:
-
-```
-<<<SLACK-REPLY>>>
-*The answer in one bold lead line*
-
-Detail below it, only what changes what the owner does next.
-<<<END-SLACK-REPLY>>>
-```
-
-- Each marker sits ALONE on its own line, spelled exactly as above.
-- Write NOTHING after the closing line. Your reasoning, your tool work and your notes belong
-  BEFORE the opening line, where the owner never sees them — that is what the fence is for.
-- Everything between the lines is Slack `mrkdwn` (the mappings below). It is delivered as typed,
-  so a markdown habit inside the fence reaches the owner broken.
-- If you end a turn twice by mistake, the LAST complete pair wins.
-
-**If you get this wrong the bridge sends the turn back to you** with what failed and the line that
-broke it, and you answer again. Twice more at most; after that the owner receives your text marked
-as unformatted. Nobody is served by that round trip — get it right on the first turn.
-
-Inside the fence:
-
-- NEVER preface it — no "here's the answer", no "here's confirmation, in the Slack shape:", no
-  note about how you formatted it. The owner sees the preface as the first line of the message.
-- NEVER emit two versions (a chat-style answer, then a formatted copy). The owner gets both,
-  concatenated, and reads the duplication as a mistake — because it is one.
-- What you would say to a colleague in this thread, formatted per the rules below, and nothing
-  wrapped around it.
+For an Ignite agent turn, put each owner-facing message in RESULT_FILE `replies[].text`. Put any
+file paths in that reply's `files` array. The runtime delivers the reply in the open thread.
+Write Slack `mrkdwn` in `text`; send no delivery markers and do not post a second copy yourself.
 
 ## Slack is mrkdwn, not markdown
 
@@ -82,8 +49,7 @@ Slack renders its own `mrkdwn`. Markdown habits produce broken output — these 
 
 ## Decision asks
 
-A decision ask follows the master's decision-ask contract (carried in your prompt units) and is
-formatted for Slack: what is being asked in one plain sentence · lettered options `a) b) c)` each
+A decision ask says what is being asked in one plain sentence · lettered options `a) b) c)` each
 with its consequence on one line · your recommendation and its reason last. Never bury an ask
 inside prose — it is its own message.
 
@@ -108,15 +74,11 @@ belongs to `audio-io` (the `core/communication` audio capability). That split is
 (2026-08-30): Slack is today's only channel, so channel logistics and audio conversion are kept
 apart and neither assumes the other. If you must hear or speak, you need BOTH skills.
 
-**Which command NAME works depends on your vantage.** A bare `stools` works only inside a cage
-whose seat declared it in `exposed-clis` — the sandbox materializes a `~/.rbtv-bin/stools`
-SYMLINK from that declaration. From an undeclared caged seat, and from EVERY uncaged chair
-including the console, it exits 127: `~/.rbtv-bin` is built inside a sandbox and does not exist on
-the real filesystem. Uncaged means unmasked, NOT better-equipped. **So DEFAULT to the full path
-form** — `meta/planning/capabilities/stools-wrapper/tool/stools_wrapper.py`, relative to the rbtv
-module root (`3-resources/tools/rbtv/`). It is the one form correct in both vantages, and it is
-the WRAPPER, not `stools.py` itself — never call `3-resources/tools/stools/stools.py` directly;
-that skips the send-identity gate below.
+For manual file transfers, use the full path to
+`meta/planning/capabilities/stools-wrapper/tool/stools_wrapper.py`, relative to the rbtv module
+root (`3-resources/tools/rbtv/`). Use the wrapper rather than calling
+`3-resources/tools/stools/stools.py` directly; the wrapper enforces the send-identity rule below.
+An Ignite agent replying in its current conversation attaches file paths through `replies[].files`.
 
 **Every `stools` verb needs `--workspace`. Default to `--workspace ignite` (the bot) — every
 example in this reference uses it.** `--workspace ignite-owner` sends as Henrique himself (the

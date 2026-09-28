@@ -5,8 +5,8 @@ description: "The sub-agents component — one headless sub-agent launch behind 
 
 The component is `sub-agents`; the CLI it ships is `cast`.
 
-Launches ONE headless agent turn in any of three harnesses behind one CLI. Detached — no
-cage/systemd; the caller's process IS the launch (foreground, blocking). Sessions are
+Launches ONE headless agent turn in any of three harnesses behind one CLI. The caller's
+process runs the launch (foreground, blocking). Sessions are
 addressable after the fact: `sessions` lists what ran in a folder, `resume` sends one more
 turn into an existing session.
 
@@ -48,8 +48,8 @@ providers: {name: {enabled, via, slots, active}}, usage: [...]}`.
 
 ## Effort mapping (1-5 → the harness's own ladder)
 
-Each (harness, model) has its own rung ladder (mirrored from
-`ignite/config/spawn-profiles.yaml`, `launch-specs:`). Rule: `rung = ladder[min(N, ladder.length) - 1]`
+Each (harness, model) has its own rung ladder in `tool/catalog.js`. Rule:
+`rung = ladder[min(N, ladder.length) - 1]`
 — asking for 5 on a 3-rung ladder clamps to that ladder's top rung, never a refusal. An `inert`
 ladder (`haiku-4-5`) accepts any N and emits no effort argv at all. `cast -h` prints the
 resolved mapping per model with the clamping folded in (e.g. `glm-5.2  1=high 2-5=max`), so the
@@ -125,8 +125,7 @@ seat.md sitting in the folder):
 
 - **claude** — has a real system-prompt flag: `--append-system-prompt-file <launch-folder>/seat.md` is appended to argv.
 - **codex / opencode** — no system-prompt flag exists, so the descriptor rides the first
-  stdin message instead, prepended ahead of the wake prompt with the same wrapper text ignite's
-  daemon uses (`d-uniform-descriptor-carriage`):
+  stdin message instead, prepended ahead of the wake prompt with this wrapper text:
 
   ```
   <seat.md content>
@@ -196,25 +195,10 @@ xai is authenticated via opencode oauth as of 2026-08-13 and both grok ladders a
 (`low,medium,high`). A model with no variants at all (`zai-coding-plan/glm-4.7`) is inert: any
 effort number, no `--variant` argv.
 
-The (harness, model) → argv/effort table lives in `tool/catalog.js` (extracted from `cast.js`
-2026-08-18), copied from
-`ignite/config/spawn-profiles.yaml`'s `launch-specs:` block — see that file's comment
-`// source of truth: ...`. Three model lists go BEYOND that block, all read live on 2026-08-12,
-because `spawn-profiles.yaml` had gone stale on each:
-
-| Harness | What it adds over `spawn-profiles.yaml` |
-|---|---|
-| opencode (kimi) | the four `kimi-for-coding` models, which moved here when the standalone `kimi` CLI went away (2026-08-14); the yaml still lists them under a `kimi` harness |
-| codex | the whole GPT-5.6 family (`sol`, `terra`, `luna`); and `gpt-5.5` gains `xhigh` — the yaml's 3-rung ladder could not reach the model's top |
-| opencode | `glm-5.2-highspeed`, `glm-4.7`, `gemini-3.7-flash` (which replaced `gemini-3.6-flash` on 2026-08-22), `grok-4.7`, `grok-4.6-fast` |
-
-The seven opencode ladders `spawn-profiles.yaml` does carry were re-measured and all match — no
-drift there. **`spawn-profiles.yaml` itself is NOT updated by this capability** — the daemon's own
-launch path still carries the stale codex list and the retired `kimi` harness. `ignite/launch-profiles/catalog.js` and `profiles.js` were tried first
-(`loadConfig()` require()s cleanly) but `profiles.js#loadConfig` refuses to parse the real config
-without a daemon-supplied `seatBindValidator` for the `cage`/`sandbox` blocks — not a plain
-require() away — so this tool does not depend on the daemon's resolver. Update `tool/catalog.js`
-by hand when `spawn-profiles.yaml`'s ladders or argv shapes drift.
+The (harness, model) → argv/effort table lives in `tool/catalog.js`; `tool/models.csv` holds
+the routing catalog. `cast -h` and `cast list --json` read the current launch table. Update
+`tool/catalog.js` when a harness model or effort ladder changes, then run `test_cast.js` and
+`test_route.js`.
 
 ## `cast route`
 

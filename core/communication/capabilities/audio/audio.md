@@ -5,19 +5,16 @@ description: The audio capability — speech to text and text to speech through 
 # audio
 
 > A capability of the `core/communication` component (relocated 2026-08-21 from the
-> `communication/` module, where it was a component of its own). Seats reach it as
+> `communication/` module, where it was a component of its own). The exposure catalog lists it as
 > `core/communication/audio`.
 
 The owner talks to the agents from a phone. Typing a long request is slow and reading a wall of
 text is slower, so a voice note is the natural input and an audio answer is often the natural
-output — and until this component existed, a voice note that reached Slack was unusable by any
-agent and every answer was text (goal `stools-canvas-audio-elevenlabs`, `goal.md`
-job-to-be-done).
+output.
 
 This capability is the CONVERSION half of that job, and only that half. **File logistics stay in
-`stools`** — `stools download` fetches the voice note, `stools upload` posts the mp3 back (owner
-constraint, `goal.md` § "Divisão de abstração"). It never speaks to Slack: it takes a
-path and returns a path.
+`stools`** — `stools download` fetches the voice note, `stools upload` posts the mp3 back.
+It never speaks to Slack: it takes a path and returns a path.
 
 ## The entry point
 
@@ -41,10 +38,10 @@ does the README.
   holds none. Neither present → every verb refuses, exit != 0,
   naming both places. `README.md` is the one home of that detail.
 - **One language key governs both verbs.** `config.json`'s `language` field, default `pt`. No
-  verb pins a language anywhere else (`goal.md` clause 11), and the `language` verb is how it
-  changes — including from the channel master's own hands (clause 12).
-- **It is a `path` part, not a skill.** Nothing is installed on `PATH`: a seat reaches it because
-  its `exposes:` names the `path` row in `exposure.csv`, and the cage binds the file.
+  verb pins a language anywhere else, and the `language` verb is how it
+  changes.
+- **It is a `path` part, not a skill.** Run `audio.py` by path. Console users can optionally add
+  the `audio` link with `core/communication/link-tools.py`.
 
 ## What this capability is NOT
 
