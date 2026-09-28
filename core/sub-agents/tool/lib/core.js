@@ -29,7 +29,8 @@ for (const harness of Object.keys(SPECS)) {
 function baseArgv(harness, model, folder, headed) {
   switch (harness) {
     case 'claude': return ['claude', ...(headed ? [] : ['-p']), '--model', model, '--permission-mode', 'bypassPermissions'];
-    case 'codex': return ['codex', ...(headed ? [] : ['exec']), '--cd', folder, '-m', model, '--sandbox', 'danger-full-access', '-c', 'approval_policy=never'];
+    // --skip-git-repo-check: codex refuses to start outside a git repo without it (0.154+, observed 2026-09-24).
+    case 'codex': return ['codex', ...(headed ? [] : ['exec']), '--cd', folder, '-m', model, '--sandbox', 'danger-full-access', '-c', 'approval_policy=never', '--skip-git-repo-check'];
     // --auto: headless `opencode run` auto-REJECTS every permission.asked (observed: external_directory
     // on /tmp and on the launch folder of a resumed session — issue G-owner-console-0819-0010); --auto
     // flips that to auto-approve, per invocation. The opencode twin of the two flags above.

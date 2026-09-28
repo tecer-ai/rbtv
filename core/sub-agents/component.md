@@ -66,7 +66,7 @@ with is not cast's to name, so the handle's `model` field reads `resume` instead
 | Harness | Store read by `cast sessions` | `resume` argv |
 |---|---|---|
 | claude | `~/.claude/projects/<encoded-folder>/<id>.jsonl` — filename is the id | `claude -p --resume <id>` (`last` → `--continue`) + `--permission-mode bypassPermissions` |
-| codex | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` — id + cwd in the first-line `session_meta` (walked newest-first, stops at `-n` matches) | `codex exec resume <id\|--last>` + `-c sandbox_mode=danger-full-access -c approval_policy=never` |
+| codex | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` — id + cwd in the first-line `session_meta` (walked newest-first, stops at `-n` matches) | `codex exec resume <id\|--last>` + `-c sandbox_mode=danger-full-access -c approval_policy=never --skip-git-repo-check` |
 | opencode | `opencode session list --format json` run with cwd = folder, rows filtered on their `directory` field | `opencode run -s <id>` (`last` → `-c`) |
 
 `resume` runs with cwd = launch-folder (that is also what scopes every harness's `last`), takes the

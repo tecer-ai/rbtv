@@ -104,6 +104,7 @@ rejects(base({ env: { A: 1 } }), 'must be a string');
   assert.deepStrictEqual(argv.slice(0, 3), ['codex', 'exec', '--cd']);
   assert.ok(argv.includes('-m') && argv.includes('gpt-5.5'));
   assert.ok(argv.includes('model_reasoning_effort=high'));
+  assert.ok(argv.includes('--skip-git-repo-check'), 'codex turn must run outside git repos');
   assert.ok(argv.includes('--json'));
   assert.ok(!argv.includes('resume'));
   assert.ok(!argv.includes('last'));

@@ -298,7 +298,7 @@ function resumeArgv(harness, id) {
     case 'claude': return ['claude', '-p', ...(id === 'last' ? ['--continue'] : ['--resume', id]),
       '--permission-mode', 'bypassPermissions'];
     case 'codex': return ['codex', 'exec', 'resume', ...(id === 'last' ? ['--last'] : [id]),
-      '-c', 'sandbox_mode=danger-full-access', '-c', 'approval_policy=never'];
+      '-c', 'sandbox_mode=danger-full-access', '-c', 'approval_policy=never', '--skip-git-repo-check'];
     case 'opencode': return ['opencode', 'run', ...(id === 'last' ? ['-c'] : ['-s', id]), '--auto'];
   }
 }

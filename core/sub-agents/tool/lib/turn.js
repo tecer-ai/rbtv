@@ -119,9 +119,9 @@ function argvFor(v, freshId, tag) {
     case 'codex':
       return v.mode === 'resume'
         ? ['codex', 'exec', 'resume', v.sessionId, '-m', v.modelId, ...effort,
-          '-c', 'sandbox_mode=danger-full-access', '-c', 'approval_policy=never', '--json', '-']
+          '-c', 'sandbox_mode=danger-full-access', '-c', 'approval_policy=never', '--skip-git-repo-check', '--json', '-']
         : ['codex', 'exec', '--cd', v.cwd, '-m', v.modelId, '--sandbox', 'danger-full-access',
-          '-c', 'approval_policy=never', ...effort, '--json', '-'];
+          '-c', 'approval_policy=never', '--skip-git-repo-check', ...effort, '--json', '-'];
     case 'opencode':
       return ['opencode', 'run', '-m', v.modelId, '--auto', ...effort,
         ...(v.mode === 'resume' ? ['-s', v.sessionId] : ['--title', tag]), '--format', 'json'];

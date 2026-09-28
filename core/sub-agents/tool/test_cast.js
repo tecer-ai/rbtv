@@ -177,6 +177,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   const folder = mkFolder('codex');
   const out = dryRun(['codex', 'gpt-5.5', '5', folder, '-p', 'hello']);
   assert.ok(out.argv.includes('model_reasoning_effort=xhigh'));
+  assert.ok(out.argv.includes('--skip-git-repo-check'), 'codex launch must run outside git repos');
   assert.strictEqual(out.effort_word, 'xhigh');
 }
 
@@ -288,6 +289,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   fs.writeFileSync(path.join(folder, 'seat.md'), seatText);
   const out = dryRun(['seat', folder, '-p', 'wake up']);
   assert.ok(out.argv[0] === 'codex' && out.argv.includes('model_reasoning_effort=high'));
+  assert.ok(out.argv.includes('--skip-git-repo-check'), 'codex seat must run outside git repos');
   assert.ok(!out.argv.includes('--append-system-prompt-file'));
   assert.ok(out.stdin_preview.startsWith(seatText), `stdin_preview did not start with seat text: ${out.stdin_preview}`);
 }
@@ -485,6 +487,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.deepStrictEqual(codex.argv.slice(0, 4), ['codex', 'exec', 'resume', '--last']);
   assert.ok(codex.argv.includes('sandbox_mode=danger-full-access'));
   assert.ok(codex.argv.includes('approval_policy=never'));
+  assert.ok(codex.argv.includes('--skip-git-repo-check'), 'codex resume must run outside git repos');
 
   const oc = dryRun(['resume', 'opencode', 'ses_x1', folder, '-p', 'hi']);
   assert.deepStrictEqual(oc.argv, ['opencode', 'run', '-s', 'ses_x1', '--auto']);
