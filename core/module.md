@@ -10,12 +10,8 @@ The `core/` module hosts the agent-facing components — the parts that shape ho
 workspace behaves and works, as opposed to `meta/` (the agents, workflows, and CLIs that operate
 the rbtv system itself) and `ignite/` (the daemon).
 
-**Unified here 2026-08-23 (owner ruling).** These components previously lived install-local at
-`.rbtv/mirror/core/`; the owner ruled the module into the repo, all together. In the same sitting
-the module's former repo-side content left: the rbtv CLIs (`rbtv-cli`, `embed-search`)
-moved to `meta/` (each command a component), and the commit skill collapsed into `coding/` as one
-reference. The ElevenLabs key moved OUT of the repo tree — today it is `ELEVENLABS_API_KEY` in the
-workspace env file (`env_file` in `rbtv.json`) — a secret never sits where a repo push can carry it.
+The ElevenLabs key is `ELEVENLABS_API_KEY` in the workspace env file (`env_file` in `rbtv.json`),
+never in the repo tree — a secret never sits where a repo push can carry it.
 
 ## Components
 

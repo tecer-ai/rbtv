@@ -26,7 +26,7 @@ The unit of ranking is a **markdown section** (heading-delimited) with file path
 
 ## the index
 
-Default location: `$XDG_STATE_HOME/rbtv-embed-search/<hash-of-root>/index.json` (falls back to `~/.local/state/...`). **Never inside the indexed tree.** Incremental by file mtime + section hash. `4-archives/` is never walked.
+Default location: `$XDG_STATE_HOME/voyage-embed/<hash-of-root>/index.json` (falls back to `~/.local/state/...`). **Never inside the indexed tree.** Incremental by file mtime + section hash. `4-archives/` is never walked.
 
 ## the vendor boundary
 

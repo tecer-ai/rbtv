@@ -20,7 +20,7 @@ function help() {
     '  voyage-embed status --root <dir>',
     '  voyage-embed selftest',
     '',
-    'Index default: $XDG_STATE_HOME/rbtv-embed-search/<hash-of-root>/index.json (never inside the tree).',
+    'Index default: $XDG_STATE_HOME/voyage-embed/<hash-of-root>/index.json (never inside the tree).',
     'query self-syncs before ranking and prints which ARM answered.',
     'Key: VOYAGE_API_KEY env, else the env_file named in rbtv.json. Absent key → keyword. Failure → grep.',
     '4-archives/ is never indexed. Exit: 0 success · 1 refusal · 2 usage.',

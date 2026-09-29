@@ -37,7 +37,7 @@ function resolveRoot(root) {
 function defaultIndexPath(root) {
   const key = sha256(path.resolve(root)).slice(0, 16);
   const state = process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state');
-  return path.join(state, 'rbtv-embed-search', key, 'index.json');
+  return path.join(state, 'voyage-embed', key, 'index.json');
 }
 
 function globToRe(glob) {
