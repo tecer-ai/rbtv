@@ -12,9 +12,6 @@
 const path = require('path');
 const { RBTV_ROOT } = require('./catalog');
 
-const EMBED_SEARCH = path.join(
-  RBTV_ROOT, 'meta', 'embed-search', 'tool', 'rbtv-embed-search',
-);
 const CONTROL_PANEL = path.join(
   RBTV_ROOT, 'meta', 'control-panel', 'tool', 'rbtv-control-panel',
 );
@@ -25,7 +22,6 @@ const CONTROL_PANEL = path.join(
 // own argparse prog is already `rbtv install`; this route makes that string true.
 const INSTALLER = path.join(RBTV_ROOT, 'meta', 'installer', 'install.py');
 
-const EMBED_SEARCH_VERBS = ['index', 'query', 'status', 'selftest'];
 const CONTROL_PANEL_VERBS = ['update', 'status', 'selftest'];
 
 // The installer's own verb set. `harness` and `artifact` own the two WORKSPACE
@@ -56,13 +52,6 @@ const ROUTES = [
     exec: 'direct',
     verbs: INSTALL_VERBS,
     summary: 'discover and manage rbtv parts in a workspace — status, list, show, add, remove, doctor',
-  },
-  {
-    prefix: ['embed-search'],
-    target: EMBED_SEARCH,
-    exec: 'direct',
-    verbs: EMBED_SEARCH_VERBS,
-    summary: 'index a folder and rank markdown sections — semantic (Voyage) → keyword → grep; index lives outside the tree',
   },
   {
     prefix: ['control-panel'],
@@ -96,8 +85,6 @@ function matchRoute(argv) {
 
 module.exports = {
   ROUTES,
-  EMBED_SEARCH,
-  EMBED_SEARCH_VERBS,
   CONTROL_PANEL,
   CONTROL_PANEL_VERBS,
   INSTALLER,

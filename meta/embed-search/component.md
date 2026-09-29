@@ -4,13 +4,13 @@ description: Standalone folder search — index markdown sections and rank them 
 
 # embed-search — semantic search over any folder
 
-`rbtv embed-search` — one surface for Voyage embeddings over an arbitrary directory (memory, wiki, tecer search, anything else). Purpose-free: it knows no consuming workflow. Grep is the deterministic floor. Built so three copies of a Voyage integration collapse to one capability.
+`voyage-embed` — a standalone command (not an `rbtv` verb), exposed to agents by the `embed-search` skill — one surface for Voyage embeddings over an arbitrary directory (memory, wiki, tecer search, anything else). Purpose-free: it knows no consuming workflow. Grep is the deterministic floor. Built so three copies of a Voyage integration collapse to one capability.
 
 ```
-rbtv embed-search index  --root <dir> [--glob '**/*.md'] [--index <file>]   build/refresh the index
-rbtv embed-search query  --root <dir> "<text>" [--top N] [--json] [--arm semantic|keyword|grep]
-rbtv embed-search status --root <dir>                                          index age, doc count, arms
-rbtv embed-search selftest                                                     red arm included; passes with NO key
+voyage-embed index  --root <dir> [--glob '**/*.md'] [--index <file>]   build/refresh the index
+voyage-embed query  --root <dir> "<text>" [--top N] [--json] [--arm semantic|keyword|grep]
+voyage-embed status --root <dir>                                          index age, doc count, arms
+voyage-embed selftest                                                     red arm included; passes with NO key
 ```
 
 Flags: `--root <dir>` (required for index/query/status) · `--glob <pat>` (default `**/*.md`) · `--index <f>` · `--top <n>` · `--arm semantic|keyword|grep` · `--json` · `--pretty`.

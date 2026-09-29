@@ -13,12 +13,12 @@ const ARMS = ['semantic', 'keyword', 'grep'];
 
 function help() {
   return [
-    'rbtv embed-search — index a folder and rank markdown sections (semantic → keyword → grep).',
+    'voyage-embed — index a folder and rank markdown sections (semantic → keyword → grep).',
     '',
-    '  rbtv embed-search index  --root <dir> [--glob \'**/*.md\'] [--index <file>]',
-    '  rbtv embed-search query  --root <dir> "<text>" [--top N] [--json] [--arm semantic|keyword|grep]',
-    '  rbtv embed-search status --root <dir>',
-    '  rbtv embed-search selftest',
+    '  voyage-embed index  --root <dir> [--glob \'**/*.md\'] [--index <file>]',
+    '  voyage-embed query  --root <dir> "<text>" [--top N] [--json] [--arm semantic|keyword|grep]',
+    '  voyage-embed status --root <dir>',
+    '  voyage-embed selftest',
     '',
     'Index default: $XDG_STATE_HOME/rbtv-embed-search/<hash-of-root>/index.json (never inside the tree).',
     'query self-syncs before ranking and prints which ARM answered.',
@@ -55,7 +55,7 @@ function usage(msg) {
   console.error(refusal({
     what: msg,
     why: 'a mistyped flag or missing argument would otherwise search the wrong tree.',
-    fix: 'known: --root <dir> --glob <pat> --index <file> --top N --arm semantic|keyword|grep --json. Run `rbtv embed-search --help`.',
+    fix: 'known: --root <dir> --glob <pat> --index <file> --top N --arm semantic|keyword|grep --json. Run `voyage-embed --help`.',
   }));
   return 2;
 }
@@ -65,7 +65,7 @@ function refuse(err) {
   console.error(refusal({
     what: err.message,
     why: 'the command degrades rather than throwing; this case cannot proceed.',
-    fix: 'pass an existing --root directory. Run `rbtv embed-search --help`.',
+    fix: 'pass an existing --root directory. Run `voyage-embed --help`.',
   }));
   return 1;
 }
@@ -91,7 +91,7 @@ async function main(argv) {
     console.error(refusal({
       what: `\`${verb}\` is not an embed-search verb`,
       why: near ? `Did you mean \`${near}\`?` : 'nothing under embed-search carries this name.',
-      fix: `known: ${VERBS.join(', ')}. Run \`rbtv embed-search --help\`.`,
+      fix: `known: ${VERBS.join(', ')}. Run \`voyage-embed --help\`.`,
     }));
     return 1;
   }

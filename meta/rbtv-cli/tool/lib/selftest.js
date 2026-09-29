@@ -208,7 +208,6 @@ const CHECKS = [
     if (/rbtv ignite daemon|rbtv goal |rbtv run /.test(r.stdout)) {
       throw new Error('top-level help still advertises a retired 0.1 verb as a command');
     }
-    if (!/rbtv embed-search/.test(r.stdout)) throw new Error('top-level help drops embed-search');
   }],
 
   ['the pretty mode is opt-in, never TTY-derived', () => {

@@ -12,7 +12,7 @@ The `meta/` module holds tooling whose subject is rbtv itself. Current component
 | `installer/` | `rbtv install` discovers, installs, and removes modules, components, skills, and rules; `manage-components` guides agents through it. |
 | `rbtv-cli/` | `rbtv` lists components and routes commands. |
 | `control-panel/` | `rbtv control-panel` shows the shipped and installed seat and workflow catalog. |
-| `embed-search/` | `rbtv embed-search` indexes and searches folders. |
+| `embed-search/` | `voyage-embed` (a standalone command, not an `rbtv` verb) indexes and searches folders; the `embed-search` skill exposes it. |
 
 The direct-message primary agent is named `master`; its home and runtime are owned by
 `ignite/agents/`.

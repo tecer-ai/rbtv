@@ -14,7 +14,6 @@ rbtv <module>               level 1 — that module's components, blurb-first, +
 rbtv <module> <component>   level 2 — the component's entry point body + its invocable entry points
 
 rbtv install <verb>         status|list|show|add|remove|doctor → meta/installer/install.py
-rbtv embed-search <verb>    index|query|status            → meta/embed-search
 rbtv control-panel <verb>   update|status                 → meta/control-panel
 
 rbtv doctor                 can this tool work here?
@@ -122,7 +121,7 @@ prerequisite (v24 on the ignite VPS).
 
 ## Mounting more on this skeleton
 
-A new command family is **one row in `tool/lib/verbs.js` `ROUTES`** plus its delegate. `rbtv embed-search`
+A new command family is **one row in `tool/lib/verbs.js` `ROUTES`** plus its delegate. `rbtv control-panel`
 is an example of a top-level, non-module namespace. Adding a route
 automatically puts it in `doctor`, in the disjointness assertion, and in the module's level-1
 listing; nothing else needs editing. That is the property to preserve.
