@@ -30,7 +30,7 @@ Default location: `$XDG_STATE_HOME/rbtv-embed-search/<hash-of-root>/index.json` 
 
 ## the vendor boundary
 
-Embedding calls go through teambuild's `tool/lib/provider.js` (imported, not copied). That module is the one place a Voyage request is formed. This capability adds the folder corpus, the keyword/grep arms, and the outside-the-tree index. Swapping providers stays teambuild's contract (`id`/`model`/`dim`).
+Embedding calls go through this component's `tool/lib/provider.js`. That module is the one place a Voyage request is formed. This capability adds the folder corpus, the keyword/grep arms, and the outside-the-tree index. Swapping providers preserves the `id`/`model`/`dim` contract.
 
 The key's value is never printed, logged, committed, or passed as an argument — name and origin only.
 

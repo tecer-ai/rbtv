@@ -111,7 +111,7 @@ function delegate(route, args) {
 }
 
 // Re-attach a global `--json` that was consumed before the route was known, so
-// `rbtv --json teambuild agents` and `rbtv teambuild agents --json` reach the
+// `rbtv --json embed-search status` and `rbtv embed-search status --json` reach the
 // delegate identically. Exported as a pure function so selftest can assert it
 // directly rather than infer it from a delegated call's output.
 function buildDelegateArgs(rest, opts) {

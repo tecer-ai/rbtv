@@ -36,7 +36,6 @@ function topHelp() {
     '',
     'ACT (delegates — no second implementation)',
     '  rbtv install <verb>        install here: add|rm|set|ls|li|doctor',
-    '  rbtv teambuild <verb>      browse component databases: agents|units|seats|tasks|workflows|search',
     '  rbtv embed-search <verb>   index a folder and rank markdown sections',
     '  rbtv control-panel <verb>  build the control panel page',
     '',

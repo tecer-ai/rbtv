@@ -15,5 +15,4 @@ The `meta/` module holds tooling whose subject is rbtv itself. Current component
 | `embed-search/` | `rbtv embed-search` indexes and searches folders. |
 
 The direct-message primary agent is named `master`; its home and runtime are owned by
-`ignite/agents/`. Staffing discovery lives in `ignite/teambuild/` and remains available through
-`rbtv teambuild`.
+`ignite/agents/`.

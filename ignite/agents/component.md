@@ -6,7 +6,7 @@ description: Ignite 0.2 — a Slack message or a scheduled wake runs one primary
 
 Ignite 0.2 is one workspace process. A Slack message or a scheduled wake selects a primary-agent home under the workspace `.rbtv/agents/<slug>/`, runs one non-interactive turn of that agent, and delivers that turn's replies to the right Slack thread. The agent never posts into its own conversation thread. Deploy and the unit are `runbook.md`, not this file.
 
-Exposed entry points: `ignite-agent` (`tool/cli.js` — `ignite-agent -h` is the command surface), the `create-primary-agent` skill, the `agent-controls` skill for an agent's own settings, schedules, work, wakes, and proactive posts, and the master-only `admin` router. The first two skills declare `exposes-cli: ignite-agent`; `admin` names the provider, rbtv, and control-panel CLI rows in their owning components. The master gets `admin` through `create --skill ignite/agents#admin`, while `templates/skills.txt` stays shared.
+Exposed entry points: `ignite-agent` (`tool/cli.js` — `ignite-agent -h` is the command surface), the `create-primary-agent` skill, and the `agent-controls` skill for an agent's own settings, schedules, work, wakes, and proactive posts. Both skills declare `exposes-cli: ignite-agent`.
 
 ## tool/
 
@@ -89,6 +89,14 @@ summarizer skill binding, the checkout root) are seeded from
 build record per the orchestrator's safeguard, since an agent home is never committed.
 
 **Conversation key.** `<teamId>:<channelId>:<rootTs>`, DM and channel alike. The mapping key → agent is persisted.
+
+### Conversation and work state
+
+A Slack thread is one conversation. A reply uses the thread's root message timestamp as `rootTs`; a new top-level message uses its own timestamp, so it starts a separate conversation even in the same channel. Each agent has its own `state.sqlite`, and work records belong to a conversation key, not to the channel or the agent as a whole.
+
+An owner message in a conversation reuses its latest work record unless that work is `completed` or `stopped`. Those terminal states cause a new work record linked to the old one as its predecessor. A held work record is reused but remains blocked until an explicit retry. A new conversation starts with a new work record. Old records are retained; neither a new thread nor completion deletes their summaries. A new work record starts without a saved summary or next step, although earlier messages in the same thread remain in its history.
+
+For each turn, the runtime puts the current work's `summary`, `nextStep`, `workers`, and `outputs` in the prompt, along with `board.md`, the triggering input, recent messages, and the path to full conversation history. It does not put every open work record in that prompt; `ignite-agent work status` lists them when needed. The agent reports updated work fields and a disposition in RESULT_FILE. The runtime stores those values: `continue` requires a next step and queues another turn; `waiting_owner` and `waiting_workers` pause automatic continuation; `completed` closes that work. Completion does not erase a supplied `nextStep`, but only `continue` queues a turn from it. These fields report the agent's assessment; the runtime validates the result shape and nonce, not whether the underlying task is actually done.
 
 **Turn.** The runtime claims one queue entry per agent (one active turn per agent), composes the prompt (instructions, triggering input, board, work state, recent history window, full-history path), and runs it through `cast turn --request <file> --result <file>`. Each invocation gets a fresh nonce and an output path. The agent MUST write JSON at that path:
 
