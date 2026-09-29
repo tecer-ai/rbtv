@@ -199,7 +199,7 @@ def _prompt(destination: dict) -> str:
 
 def test_a_template_placement_names_the_folder_and_the_filename():
     text = _prompt({"repo": "r", "path": "a/b/2026-01-01-x-resumo.md", "placement": "template"})
-    assert "Destination folder: /checkout/r/a/b" in text
+    assert f"Destination folder: {Path('/checkout/r/a/b')}" in text
     # The final, discriminated name: the summarizer writes it, publication files it.
     assert "Summary filename: 2026-01-01-x-0954-resumo.md" in text
     assert "own CLAUDE.md" not in text
@@ -207,7 +207,7 @@ def test_a_template_placement_names_the_folder_and_the_filename():
 
 def test_a_delegated_placement_names_the_repo_and_defers_to_its_CLAUDE_md():
     text = _prompt({"repo": "r", "placement": "delegated"})
-    assert "Destination repo: /checkout/r" in text
+    assert f"Destination repo: {Path('/checkout/r')}" in text
     assert "own CLAUDE.md" in text
     assert "Summary filename:" not in text
     assert "`-0954`" in text

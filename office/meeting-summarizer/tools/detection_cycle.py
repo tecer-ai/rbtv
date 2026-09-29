@@ -50,7 +50,6 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import fcntl
 import hashlib
 import json
 import os
@@ -65,6 +64,7 @@ if str(TOOL_DIR) not in sys.path:
     sys.path.insert(0, str(TOOL_DIR))
 
 import destination_resolver as dr  # noqa: E402
+import file_lock  # noqa: E402
 import meeting_matcher  # noqa: E402
 import source_adapter  # noqa: E402
 from source_adapter import DriverError, Refused, failure_event  # noqa: E402
@@ -459,9 +459,7 @@ def claim_meeting(env: Env, meeting_key: str, tick_id: str, at: datetime):
     path = claim_path(env, meeting_key)
     path.parent.mkdir(parents=True, exist_ok=True)
     handle = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
-    try:
-        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
+    if not file_lock.try_lock(handle):
         os.close(handle)
         yield None
         return
@@ -473,7 +471,7 @@ def claim_meeting(env: Env, meeting_key: str, tick_id: str, at: datetime):
     try:
         yield payload
     finally:
-        fcntl.flock(handle, fcntl.LOCK_UN)
+        file_lock.unlock(handle)
         os.close(handle)
         path.unlink(missing_ok=True)
 
@@ -490,17 +488,16 @@ def live_claims(env: Env) -> list:
     held = []
     for path in sorted(root.glob("*.claim")):
         handle = os.open(path, os.O_RDWR)
-        try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            body = path.read_text(encoding="utf-8").strip()
-            held.append(json.loads(body) if body else {"meeting-key": None})
-            continue
-        else:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+        taken = file_lock.try_lock(handle)
+        if taken:
+            file_lock.unlock(handle)
+        os.close(handle)
+        if taken:
+            # Closed first: Windows refuses to delete a file that is still open.
             path.unlink(missing_ok=True)
-        finally:
-            os.close(handle)
+            continue
+        body = path.read_text(encoding="utf-8").strip()
+        held.append(json.loads(body) if body else {"meeting-key": None})
     return held
 
 

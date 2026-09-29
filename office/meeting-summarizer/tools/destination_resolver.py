@@ -495,7 +495,7 @@ def walk_summaries(root: Path) -> list[dict]:
         marker = MARKER_RE.search(text)
         found.append(
             {
-                "path": str(path.relative_to(root)),
+                "path": path.relative_to(root).as_posix(),
                 "meeting-key": marker.group(1) if marker else None,
                 "suffix-conventional": path.name.endswith("-resumo.md"),
             }

@@ -511,7 +511,7 @@ def arm_grep(tree_root: Path, excludes) -> dict:
                 if pattern.search(line):
                     hits.append(
                         {
-                            "file": str(path.relative_to(tree_root)),
+                            "file": path.relative_to(tree_root).as_posix(),
                             "line": number,
                             "pattern": name,
                             "text": line.strip()[:200],

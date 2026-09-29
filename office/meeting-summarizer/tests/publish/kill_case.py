@@ -31,7 +31,8 @@ def main() -> int:
     key = job["meeting-key"]
 
     def die(*_args, **_kwargs):
-        os.kill(os.getpid(), signal.SIGKILL)
+        # Windows has no SIGKILL; SIGTERM there is TerminateProcess, an equally hard kill.
+        os.kill(os.getpid(), getattr(signal, "SIGKILL", signal.SIGTERM))
 
     # The kill lands at the push: the summary and its transcripts are on disk and
     # committed, publication has not happened, and nothing downstream of it has.

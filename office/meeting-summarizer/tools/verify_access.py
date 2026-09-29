@@ -156,7 +156,7 @@ def build_validator(seams_dir: Path):
         contents = json.loads(path.read_text(encoding="utf-8"))
         resource = Resource.from_contents(contents, default_specification=DRAFT202012)
         registry = registry.with_resources(
-            [(path.name, resource), (str(path.relative_to(seams_dir)), resource)]
+            [(path.name, resource), (path.relative_to(seams_dir).as_posix(), resource)]
         )
 
     def validate(instance, entry_id: str) -> list[str]:

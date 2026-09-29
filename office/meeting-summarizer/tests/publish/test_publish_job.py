@@ -11,6 +11,7 @@ and a clone of it under a scratch root outside the workspace, and deletes them.
 from __future__ import annotations
 
 import json
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -310,7 +311,9 @@ def test_case_f_killed_cycle_resumes_and_flag_is_written_last(world):
 
     killed = subprocess.run([sys.executable, str(HERE / "kill_case.py"), str(world.root), job_name],
                             capture_output=True, text=True)
-    assert killed.returncode == -9, f"{world.regime}: the victim was not killed: {killed.returncode}"
+    # POSIX reports death by signal as -9; Windows TerminateProcess exits with the signal number.
+    expected = -9 if hasattr(signal, "SIGKILL") else signal.SIGTERM
+    assert killed.returncode == expected, f"{world.regime}: the victim was not killed: {killed.returncode}"
 
     # the killed run wrote NO fully-processed record
     assert P.processed_for(world.state, key) == [], \

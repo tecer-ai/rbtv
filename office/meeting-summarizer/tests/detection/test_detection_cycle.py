@@ -198,7 +198,8 @@ def test_arm_d_killed_tick_is_re_detected_and_reaches_an_enum_outcome(config_dir
     held = [c for c in dc.live_claims(env) if c.get("meeting-key") == key]
     assert len(held) == 1 and held[0]["pid"] == victim.pid
 
-    os.kill(victim.pid, signal.SIGKILL)
+    # Windows has no SIGKILL; os.kill with SIGTERM there is TerminateProcess, an equally hard kill.
+    os.kill(victim.pid, getattr(signal, "SIGKILL", signal.SIGTERM))
     victim.wait(timeout=30)
 
     # The kernel released the claim with the process that held it.

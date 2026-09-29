@@ -46,7 +46,6 @@ Run with --help for the command surface.
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
 import os
 import shutil
@@ -58,6 +57,7 @@ from datetime import datetime
 from pathlib import Path
 
 import destination_resolver
+import file_lock
 
 # Where per_meeting_job records the destination paths a summarize sitting changed.
 PROPAGATED_FILE = "propagated.json"
@@ -162,10 +162,10 @@ def checkout_lock(checkout: Path):
     home = checkout / ".git" if (checkout / ".git").is_dir() else checkout
     handle = open(home / "publish-job.lock", "w", encoding="utf-8")
     try:
-        fcntl.flock(handle, fcntl.LOCK_EX)
+        file_lock.lock(handle.fileno())
         yield
     finally:
-        fcntl.flock(handle, fcntl.LOCK_UN)
+        file_lock.unlock(handle.fileno())
         handle.close()
 
 
