@@ -8,14 +8,10 @@
 //
 // Ignite 0.1 verbs (ignite daemon, ignite ticker, the gateway client, goal, run)
 // are not routed. Their delegates live in the 0.1 tree and are deleted with it.
-// `teambuild` stays: its code is `ignite/teambuild/`, which is retained.
 
 const path = require('path');
 const { RBTV_ROOT } = require('./catalog');
 
-const TEAMBUILD = path.join(
-  RBTV_ROOT, 'ignite', 'teambuild', 'tool', 'rbtv-teambuild',
-);
 const EMBED_SEARCH = path.join(
   RBTV_ROOT, 'meta', 'embed-search', 'tool', 'rbtv-embed-search',
 );
@@ -29,11 +25,6 @@ const CONTROL_PANEL = path.join(
 // own argparse prog is already `rbtv install`; this route makes that string true.
 const INSTALLER = path.join(RBTV_ROOT, 'meta', 'installer', 'install.py');
 
-// Core-build task 7.433. The staffing-discovery browse — one database per verb.
-// `search` joins them at 7.434: the semantic ranking now exists behind its own
-// provider-module boundary (teambuild's lib/provider.js) and rides that same corpus
-// enumerator, so the route no longer points at nothing.
-const TEAMBUILD_VERBS = ['agents', 'units', 'seats', 'tasks', 'workflows', 'search', 'selftest'];
 const EMBED_SEARCH_VERBS = ['index', 'query', 'status', 'selftest'];
 const CONTROL_PANEL_VERBS = ['update', 'status', 'selftest'];
 
@@ -65,13 +56,6 @@ const ROUTES = [
     exec: 'direct',
     verbs: INSTALL_VERBS,
     summary: 'discover and manage rbtv parts in a workspace — status, list, show, add, remove, doctor',
-  },
-  {
-    prefix: ['teambuild'],
-    target: TEAMBUILD,
-    exec: 'direct',
-    verbs: TEAMBUILD_VERBS,
-    summary: 'browse the component databases blurb-first — agent cards, kind-filtered cognitive units, seats, tasks, workflows — or `search` them by meaning (read-only; binds nothing)',
   },
   {
     prefix: ['embed-search'],
@@ -112,8 +96,6 @@ function matchRoute(argv) {
 
 module.exports = {
   ROUTES,
-  TEAMBUILD,
-  TEAMBUILD_VERBS,
   EMBED_SEARCH,
   EMBED_SEARCH_VERBS,
   CONTROL_PANEL,

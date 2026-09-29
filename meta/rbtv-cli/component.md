@@ -14,7 +14,6 @@ rbtv <module>               level 1 — that module's components, blurb-first, +
 rbtv <module> <component>   level 2 — the component's entry point body + its invocable entry points
 
 rbtv install <verb>         status|list|show|add|remove|doctor → meta/installer/install.py
-rbtv teambuild <verb>       agents|units|seats|tasks|workflows|search → ignite/teambuild
 rbtv embed-search <verb>    index|query|status            → meta/embed-search
 rbtv control-panel <verb>   update|status                 → meta/control-panel
 
@@ -59,7 +58,6 @@ setting-change command. See installer `design-decisions.md` D16 and its current 
 
 The Ignite 0.1 verb families — `ignite daemon`, `ignite ticker`, the gateway client,
 `goal`, `run` — are not routed. Their delegates are 0.1 and are deleted with it.
-`teambuild` stays; its code is `ignite/teambuild/`.
 
 ## Resolution order — and why the ambiguity is refused rather than resolved
 
@@ -124,7 +122,7 @@ prerequisite (v24 on the ignite VPS).
 
 ## Mounting more on this skeleton
 
-A new command family is **one row in `tool/lib/verbs.js` `ROUTES`** plus its delegate. `rbtv teambuild`
-is the worked example of a top-level, non-module namespace. Adding a route
+A new command family is **one row in `tool/lib/verbs.js` `ROUTES`** plus its delegate. `rbtv embed-search`
+is an example of a top-level, non-module namespace. Adding a route
 automatically puts it in `doctor`, in the disjointness assertion, and in the module's level-1
 listing; nothing else needs editing. That is the property to preserve.

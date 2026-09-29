@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 
-const provider = require(path.join(__dirname, '..', '..', '..', '..', 'ignite', 'teambuild', 'tool', 'lib', 'provider'));
+const provider = require('./provider');
 
 const KEY_VAR = 'VOYAGE_API_KEY';
 const SKIP_DIRS = new Set(['.git', 'node_modules', '4-archives']);

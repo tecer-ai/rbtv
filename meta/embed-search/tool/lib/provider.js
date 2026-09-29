@@ -1,9 +1,9 @@
 'use strict';
 
-// THE PROVIDER BOUNDARY — the one place `teambuild search` touches an embedding
+// THE PROVIDER BOUNDARY — the one place `embed-search` touches an embedding
 // vendor, and the one place the API key is ever read.
 //
-// THE CONTRACT (this is the boundary; `search.js` knows nothing else about any
+// THE CONTRACT (this is the boundary; `engine.js` knows nothing else about any
 // vendor). A provider is an object:
 //
 //   { id, model, dim, batchLimit,
@@ -11,7 +11,7 @@
 //     embedQuery(text)      -> Promise<number[]> }    // query side
 //
 //   id/model/dim go into the index header. Changing ANY of them invalidates every
-//   stored vector (search.js §header check) — that is what makes the swap safe
+//   stored vector (engine.js header check) — that is what makes the swap safe
 //   rather than merely possible: a new provider cannot inherit the old one's
 //   vectors.
 //   embedDocuments returns one vector per input text, in input order.
@@ -20,7 +20,7 @@
 //
 // SHIPPED REALIZATIONS: exactly one — Voyage. There is no provider table, no
 // `--provider` flag and no stub in this file: a second realization is proven by
-// CONSTRUCTING one against the contract above and passing it to search.js, which
+// CONSTRUCTING one against the contract above and passing it to engine.js, which
 // is a scratch act (`p-green-harness` stays refused — a stub proves the boundary,
 // it never produces a shipped ranking).
 //

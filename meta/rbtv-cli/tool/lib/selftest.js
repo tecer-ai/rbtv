@@ -102,17 +102,6 @@ const CHECKS = [
     }
   }],
 
-  ['teambuild delegates to the retained browse and answers -h', () => {
-    const route = verbs.matchRoute(['teambuild']);
-    if (!route || route.exec !== 'direct') throw new Error('teambuild is not a built delegation');
-    if (route.target !== path.join(catalog.RBTV_ROOT, 'ignite', 'teambuild', 'tool', 'rbtv-teambuild')) {
-      throw new Error(`teambuild delegates to ${route.target}`);
-    }
-    const r = runCli(['teambuild', '-h']);
-    if (r.status !== 0) throw new Error(`\`rbtv teambuild -h\` exited ${r.status}: ${r.stderr}`);
-    if (!/agents/.test(r.stdout)) throw new Error('teambuild -h did not print its own help');
-  }],
-
   ['delegation propagates a delegate exit code EXACTLY (real subprocess)', () => {
     // Silent by design: delegation inherits stdio, so a chatty fixture would print
     // into this report. Its exit code is the whole subject here.
@@ -178,19 +167,19 @@ const CHECKS = [
 
     const l1 = runCli(['ignite']);
     if (l1.status !== 0) throw new Error(`level 1 exited ${l1.status}`);
-    if (!/teambuild \(component\)/.test(l1.stdout)) throw new Error('level 1 does not list teambuild');
+    if (!/agents \(component\)/.test(l1.stdout)) throw new Error('level 1 does not list agents');
     if (/rbtv ignite daemon/.test(l1.stdout)) throw new Error('level 1 still surfaces the retired ignite daemon verb');
 
-    const l2 = runCli(['ignite', 'teambuild']);
+    const l2 = runCli(['ignite', 'agents']);
     if (l2.status !== 0) throw new Error(`level 2 exited ${l2.status}`);
     if (!/entry point:/.test(l2.stdout) && !/exposure rows/.test(l2.stdout)) {
       throw new Error('level 2 delivers neither an entry point nor exposure rows');
     }
-    if (!/rbtv-teambuild/.test(l2.stdout)) throw new Error('level 2 does not list the teambuild invocable');
+    if (!/ignite-agent/.test(l2.stdout)) throw new Error('level 2 does not list the ignite-agent invocable');
   }],
 
   ['drill --json is parseable at every level', () => {
-    for (const args of [['--json'], ['--json', 'ignite'], ['--json', 'ignite', 'teambuild'], ['--json', 'doctor']]) {
+    for (const args of [['--json'], ['--json', 'ignite'], ['--json', 'ignite', 'agents'], ['--json', 'doctor']]) {
       const r = runCli(args);
       if (r.status !== 0 && !(args.includes('doctor'))) throw new Error(`\`${args.join(' ')}\` exited ${r.status}`);
       try {
@@ -205,9 +194,9 @@ const CHECKS = [
     const r = runCli(['ignit']);
     if (r.status !== 1) throw new Error(`expected exit 1, got ${r.status}`);
     if (!/ignite/.test(r.stderr)) throw new Error('no suggestion offered for a near-miss module');
-    const r2 = runCli(['ignite', 'teambulid']);
+    const r2 = runCli(['ignite', 'agnts']);
     if (r2.status !== 1) throw new Error(`unknown component exited ${r2.status}`);
-    if (!/teambuild/.test(r2.stderr)) throw new Error('no suggestion offered for a near-miss component');
+    if (!/agents/.test(r2.stderr)) throw new Error('no suggestion offered for a near-miss component');
     if (suggest('zzzzzzzz', ['ignite', 'core']) !== null) throw new Error('a far-miss produced a suggestion');
   }],
 
@@ -219,7 +208,7 @@ const CHECKS = [
     if (/rbtv ignite daemon|rbtv goal |rbtv run /.test(r.stdout)) {
       throw new Error('top-level help still advertises a retired 0.1 verb as a command');
     }
-    if (!/rbtv teambuild/.test(r.stdout)) throw new Error('top-level help drops teambuild');
+    if (!/rbtv embed-search/.test(r.stdout)) throw new Error('top-level help drops embed-search');
   }],
 
   ['the pretty mode is opt-in, never TTY-derived', () => {
@@ -326,26 +315,25 @@ const CHECKS = [
   // from the module root) is now a level-1 row, not an invisible folder.
   ['a component FOLDER (component.md + exposure.csv, no module-root row) is listed at level 1', () => {
     const comps = catalog.components('ignite') || [];
-    const tb = comps.find((c) => c.name === 'teambuild' && c.kind === 'component');
-    if (!tb) throw new Error('`ignite` components() does not carry a teambuild component-folder row');
-    if (!tb.exposure_rows || !tb.exposure_rows.length) throw new Error('teambuild carries no exposure rows');
+    const agents = comps.find((c) => c.name === 'agents' && c.kind === 'component');
+    if (!agents) throw new Error('`ignite` components() does not carry an agents component-folder row');
+    if (!agents.exposure_rows || !agents.exposure_rows.length) throw new Error('agents carries no exposure rows');
 
     const r = runCli(['ignite']);
     if (r.status !== 0) throw new Error(`\`rbtv ignite\` exited ${r.status}`);
-    if (!/teambuild \(component\)/.test(r.stdout)) throw new Error('level 1 does not list teambuild as a component');
     if (!/agents \(component\)/.test(r.stdout)) throw new Error('level 1 does not list agents as a component');
   }],
 
   ['level 2 on a component folder delivers component.md\'s body (frontmatter stripped) then its exposure.csv rows', () => {
-    const r = runCli(['ignite', 'teambuild']);
-    if (r.status !== 0) throw new Error(`\`rbtv ignite teambuild\` exited ${r.status}`);
-    if (!/^\n?ignite teambuild \(component\)/m.test(r.stdout)) throw new Error('no component header printed');
-    const bodyIdx = r.stdout.indexOf('# teambuild');
+    const r = runCli(['ignite', 'agents']);
+    if (r.status !== 0) throw new Error(`\`rbtv ignite agents\` exited ${r.status}`);
+    if (!/^\n?ignite agents \(component\)/m.test(r.stdout)) throw new Error('no component header printed');
+    const bodyIdx = r.stdout.indexOf('# agents');
     if (bodyIdx === -1) throw new Error('component.md body (frontmatter stripped) was not delivered');
     if (/^description:/m.test(r.stdout.slice(0, bodyIdx))) throw new Error('component.md frontmatter leaked into the printed body');
     const rowsIdx = r.stdout.indexOf('exposure rows');
     if (rowsIdx === -1 || rowsIdx < bodyIdx) throw new Error('exposure rows did not follow the component.md body');
-    if (!/rbtv-teambuild \(tool\/path\)/.test(r.stdout)) throw new Error('the manifest row was not delivered');
+    if (!/ignite-agent \(tool\/path\)/.test(r.stdout)) throw new Error('the manifest row was not delivered');
   }],
 
   ['a component folder delivers its body under ONE header, never a second answer', () => {
@@ -363,7 +351,7 @@ const CHECKS = [
   ['an unknown name under a module WITH component folders still refuses, and the known-list carries the new components', () => {
     const r = runCli(['ignite', 'nosuchthing']);
     if (r.status !== 1) throw new Error(`expected exit 1, got ${r.status}`);
-    if (!/teambuild/.test(r.stderr)) throw new Error('refusal known-list does not carry teambuild');
+    if (!/agents/.test(r.stderr)) throw new Error('refusal known-list does not carry agents');
   }],
 
   ['a module built ENTIRELY of component folders lists all of them', () => {
