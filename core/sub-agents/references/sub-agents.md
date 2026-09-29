@@ -23,6 +23,7 @@ tags: [sub-agents]
 - Launching:
   - ALWAYS check `cast route` to define the best agent/model for the desired task before launching. The verdict's top-level worker is THE choice — launch it; the `alternates` list is backup only, for when the first cannot be launched (unavailable harness, no native tool for it). Never pick an alternate because you prefer it.
   - Use the `cast` CLI to launch sub-agents (directly or from seats), decide best models, see models available, etc.
+  - **Codex agents on native Windows only:** request execution outside the Codex sandbox when launching a sub-agent with `cast`. The sandbox can deny access to user-installed harness commands and `cast`'s session files even when those commands work in another terminal. Use the harness's normal escalation mechanism and let its configured reviewer decide; if denied, report the block. Do not change the sandbox or approval policy, and do not apply this instruction to agents running in other harnesses.
   - If your harness natively allows launching sub-agents, you can use it for such — but only if you first checked `cast route` and you can launch the recommended model through your native sub-agent tool.
 
 - Compose freely: swarm, panel, synthesis seats are BUILDING BLOCKS, not a menu to pick one item from. Waves of panels, panels over swarm outputs, a synthesis seat between any two stages: combine whatever fits the job. Worked chain example (real case):
