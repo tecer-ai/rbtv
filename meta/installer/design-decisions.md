@@ -5,6 +5,27 @@ name from the code that implements it; the module that owns a decision names it
 in its own docstring. Delegated to the builder and recorded here — this file is
 documentation, nothing reads it at runtime.
 
+## D25 — SHARED PATH SHORTCUT OWNERSHIP
+
+PATH SHORTCUT OWNERSHIP — `~/.rbtv/path-owners.json` is a machine-local record
+beside `~/.rbtv/bin`. For every shortcut created under this rule it records the
+resolved tool target and every workspace that currently needs it. The shortcut
+remains until its last recorded workspace owner removes it. The record and the
+shortcut update share a bounded cross-platform lock; a busy lock refuses before
+either workspace or user-runtime files change. A source conflict between two
+workspaces refuses before target writes. Old shortcuts with no record are
+legacy and uncertain: they are preserved and reported, never adopted or
+deleted. The installer persists the user's PATH only when the resulting
+workspace set has real PATH tools. That persistence is auxiliary: a failure is
+reported as a warning after the workspace install succeeds.
+
+Workspace mutation locks are persistent hash-named files under the operating
+system temporary directory's `rbtv-installer-locks/` folder. They key only the
+resolved target path, so competing installer processes serialize before reading
+the book without creating `.rbtv/` content in a target that is missing, dry-run,
+or refused. The shared shortcut lock remains beside the machine-local ownership
+record because it protects that record and its links.
+
 Lifted out of `install2.py`'s module docstring on 2026-08-23, when that file was
 split into `lib/` and renamed `install.py`; the text below is unchanged except
 where a decision was itself superseded, which is stated in the decision.

@@ -9,7 +9,7 @@ The `meta/` module holds tooling whose subject is rbtv itself. Current component
 | Component | Entry point |
 |---|---|
 | `planning/` | `build` routes scaffolding work; `plan` defines console seat plans. |
-| `installer/` | `rbtv install` installs and removes component exposures. |
+| `installer/` | `rbtv install` discovers, installs, and removes modules, components, skills, and rules; `manage-components` guides agents through it. |
 | `rbtv-cli/` | `rbtv` lists components and routes commands. |
 | `control-panel/` | `rbtv control-panel` shows the shipped and installed seat and workflow catalog. |
 | `embed-search/` | `rbtv embed-search` indexes and searches folders. |

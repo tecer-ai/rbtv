@@ -236,7 +236,7 @@ def three_harnesses(ctx) -> None:
     try:
         cmd_add(build_parser().parse_args(
             ["add", "-c", "fixmod/goodcomp", "--harness", "kimi",
-             "--dry-run"]),
+             "--guidance", "none", "--dry-run"]),
                 kf, catalog, [])
         check("D4-cli-harness-kimi-refuses", False, "no refusal")
     except Refuse as exc:

@@ -5,25 +5,30 @@ Installs components into a workspace by reading their EXPOSURE MANIFESTS
 (`exposure.csv`) and realizing each row's canonical method per harness, at the
 INSTALL ROOT only. Python 3 stdlib only.
 
-    rbtv install ls                     what is available (+ shadowed)
-    rbtv install li                     what is installed (from the state file)
-    rbtv install add -c <module>/<component> [--target D]
-    rbtv install add -m <module> [-x skill]
-        FIRST add on a workspace only: --harness a,b --artifact CLAUDE.md|none
-    rbtv install rm -c <id> | -m <name> | -A
-    rbtv install add|rm harness a,b     which AI tools get files; files follow
-    rbtv install set artifact N         N = CLAUDE.md | AGENTS.md | none
-    rbtv install add|rm artifact exclude DIR   folders the mirror walk skips
-        all three are READ at the head of `rbtv install li` (D16c)
-    rbtv install dupe-artifacts         regenerate harness guidance from the basis
-    rbtv install interactive            the human flow (also: no arguments)
-    rbtv install selftest               the runnable check
+    rbtv install status                target, settings and installed counts
+    rbtv install list [QUERY]          search available items
+    rbtv install list --installed      inspect recorded installed items
+    rbtv install show NAME             resolve a name and inspect details
+    rbtv install add NAME...           install or refresh selected items
+        First add: --harness codex --guidance CLAUDE.md|AGENTS.md|none
+        Identical setup flags may be repeated on later adds.
+    rbtv install add --module core     select a whole module
+    rbtv install remove NAME...        remove selected items
+    rbtv install remove --all --yes    explicitly confirm broad removal
+    rbtv install set --harness codex --guidance none
+    rbtv install doctor               read-only health and recovery checks
+    rbtv install interactive           explicitly start the guided flow
+    rbtv install selftest              run isolated regression checks
+
+    No arguments prints help. ls/li/rm and explicit selector flags remain
+    compatible aliases. See --help for the complete command grammar.
 
     --dry-run and --json on every verb where they mean something.
     Exit codes: 0 success · 1 refusal · 2 usage.
 
     THE TARGET. `--target D` is explicit and always wins. Without it the
-    install root is DISCOVERED by walking upward from the current directory —
+    existing IGNITE_AGENT_HOME is used when set; invalid values refuse.
+    Otherwise the install root is discovered from the current directory —
     first ancestor holding `.rbtv/config/install.json`, else first ancestor
     holding a `.rbtv/` directory, else the cwd (D24). So a run from anywhere
     inside the workspace finds the workspace, and a run from inside this repo
@@ -58,7 +63,7 @@ ones above it, so there is no cycle:
     apply         writing that set to disk, and removing what the book records
     selection     what the human typed -> the component and part keys it names
     operations    performing one install or one uninstall
-    listing       the `ls` and `li` views
+    listing       available/installed item views and item details
     doctor        the read-only health check
     report        printing what a run planned or did
     tui           the arrow-key widgets the interactive flow is built from
@@ -74,6 +79,17 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+
+
+def _configure_unicode_output() -> None:
+    """Avoid Windows legacy-console crashes on installer diagnostics."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
+_configure_unicode_output()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 

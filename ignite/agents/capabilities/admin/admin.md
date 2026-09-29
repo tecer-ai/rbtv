@@ -13,8 +13,8 @@ This skill belongs to the master agent. Run the named command's `--help` before 
 | Request | Tool |
 |---|---|
 | Inspect provider accounts, usage, or login health; switch an account | `acct` — see `core/providers/capabilities/acct/acct.md` for account-slot behavior |
-| List available or installed components; install, remove, or diagnose one | `rbtv install` — use `ls`, `li`, `add`, `rm`, or `doctor` as the request requires |
+| Discover modules, components, skills, or rules; install, remove, or diagnose one | `rbtv install` — run `status` for the current target, `list` and `show` to choose a stable name, then `add` or `remove`; use `doctor` for diagnosis |
 | Check rbtv mechanics | `rbtv selftest` or `rbtv install selftest` for the installer |
 | Inspect or refresh the control panel | `rbtv-control-panel status|update|selftest` |
 
-Use the tool's result to report what changed or what is installed.
+For another agent, pass `--target <agent-home>` to each installer command. The current agent's `IGNITE_AGENT_HOME` selects its own home. Use `--dry-run` when the change's scope is uncertain. Report the resolved target and what changed.

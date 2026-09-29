@@ -13,7 +13,7 @@ rbtv                        level 0 — the installed modules
 rbtv <module>               level 1 — that module's components, blurb-first, + its rules and action verbs
 rbtv <module> <component>   level 2 — the component's entry point body + its invocable entry points
 
-rbtv install <verb>         add|rm|set|ls|li|doctor   → meta/installer/install.py
+rbtv install <verb>         status|list|show|add|remove|doctor → meta/installer/install.py
 rbtv teambuild <verb>       agents|units|seats|tasks|workflows|search → ignite/teambuild
 rbtv embed-search <verb>    index|query|status            → meta/embed-search
 rbtv control-panel <verb>   update|status                 → meta/control-panel
@@ -54,8 +54,8 @@ was the wrong home). Its own `argparse` program name has always been `rbtv insta
 what makes that string true at a shell. Its two workspace settings —
 `harness` (which AI coding tools get files written for them) and `artifact` (which root guidance
 file the human authors) — are answered once on the first `add` and thereafter owned by their own
-verbs; `add` refuses those flags afterwards rather than accepting them and doing nothing
-(installer `design-decisions.md` D16).
+verbs. Identical settings on a repeat add are accepted; conflicting settings refuse with the
+setting-change command. See installer `design-decisions.md` D16 and its current override.
 
 The Ignite 0.1 verb families — `ignite daemon`, `ignite ticker`, the gateway client,
 `goal`, `run` — are not routed. Their delegates are 0.1 and are deleted with it.
@@ -114,7 +114,7 @@ CLI produces. Rules ride the result as **names + descriptions + paths always**, 
 On a new machine, bootstrap the installer directly from the cloned repo once:
 
 ```
-python3 <rbtv_path>/meta/installer/install.py add -c meta/rbtv-cli --target <workspace> --harness claude,codex,opencode --artifact none
+python3 <rbtv_path>/meta/installer/install.py add meta/rbtv-cli --target <workspace> --harness claude,codex,opencode --guidance none
 ```
 
 Open a new shell, then run `rbtv doctor` from any directory. The installer

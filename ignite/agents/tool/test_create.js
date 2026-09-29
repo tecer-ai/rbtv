@@ -82,12 +82,17 @@ function fakeSlack() {
   };
 }
 
-function install(id, home) {
-  const part = id.split('#')[1];
-  for (const rel of [path.join('.claude', 'skills'), path.join('.agents', 'skills')]) {
-    const folder = path.join(home, rel, part);
-    fs.mkdirSync(folder, { recursive: true });
-    fs.writeFileSync(path.join(folder, 'SKILL.md'), `---\nname: ${part}\ndescription: stub\n---\nstub\n`);
+function install(ids, home) {
+  const config = path.join(home, '.rbtv', 'config');
+  fs.mkdirSync(config, { recursive: true });
+  fs.writeFileSync(path.join(config, 'install.json'), '{}\n');
+  for (const id of ids) {
+    const part = id.split('#')[1];
+    for (const rel of [path.join('.claude', 'skills'), path.join('.agents', 'skills')]) {
+      const folder = path.join(home, rel, part);
+      fs.mkdirSync(folder, { recursive: true });
+      fs.writeFileSync(path.join(folder, 'SKILL.md'), `---\nname: ${part}\ndescription: stub\n---\nstub\n`);
+    }
   }
 }
 
@@ -312,6 +317,48 @@ function baseArgs(dir, slug, extra = []) {
     assert.equal(fs.existsSync(path.join(dir, '.rbtv', 'agents', 'probe')), false);
   });
 
+  await test('short skill name resolves to a canonical part and installs in one batch', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const calls = [];
+    const result = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe', '--skill', 'audio-io']), {
+      slack: fakeSlack(),
+      install(ids, home, args) {
+        calls.push({ ids, home, args });
+        install(ids, home);
+      },
+    });
+    assert.equal(result.code, 0, result.out + result.err);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].ids.filter((id) => id === 'core/communication#audio-io').length, 1);
+    assert.deepEqual(calls[0].args.slice(0, calls[0].ids.length + 1), ['add', ...calls[0].ids]);
+    assert.equal(calls[0].args[calls[0].args.indexOf('--target') + 1], calls[0].home);
+    assert.equal(calls[0].args.includes('--harness'), true);
+    assert.equal(calls[0].args.includes('--guidance'), true);
+    const again = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe', '--skill', 'audio-io']), {
+      slack: fakeSlack(),
+      install(ids, home, args) {
+        calls.push({ ids, home, args });
+        install(ids, home);
+      },
+    });
+    assert.equal(again.code, 0, again.out + again.err);
+    assert.equal(calls.length, 2);
+    assert.equal(calls[1].args.includes('--harness'), false);
+  });
+
+  await test('hub skill canonical key from resolver remains valid', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const result = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe', '--skill', 'hub-skill']), {
+      slack: fakeSlack(),
+      resolveSkill(id) { return id === 'hub-skill' ? '_hub/skills/hub-skill#hub-skill' : id; },
+    });
+    assert.equal(result.code, 0, result.out + result.err);
+    const home = path.join(dir, '.rbtv', 'agents', 'probe');
+    assert.equal(fs.existsSync(path.join(home, '.claude', 'skills', 'hub-skill', 'SKILL.md')), true);
+  });
+
   await test('workspace-resident skill resolves', async () => {
     const dir = workspace();
     writeConfig(dir);
@@ -335,6 +382,18 @@ function baseArgs(dir, slug, extra = []) {
     assert.notEqual(result.code, 0);
     assert.match(result.err, /unknown skill: lab\/widget#missing/);
     assert.deepEqual(tree(dir), before);
+  });
+
+  await test('install failure reports the batch and leaves creation unsuccessful', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const result = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe']), {
+      slack: fakeSlack(),
+      install() { throw new Error('injected install failure'); },
+    });
+    assert.equal(result.code, 1);
+    assert.match(result.out, /injected install failure/);
+    assert.match(result.out, /loaders:/);
   });
 
   await test('new home gets empty settings', async () => {

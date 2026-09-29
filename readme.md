@@ -1,10 +1,10 @@
 # RBTV
 
-Short for Robotville, RBTV is a standalone Claude Code toolkit for business innovation, pitch generation, documentation, and structured thinking.
+Short for Robotville, RBTV is a toolkit for Claude Code, Codex, and OpenCode workspaces.
 
 ## What is RBTV?
 
-RBTV is a self-contained set of agents, workflows, skills, and rules designed to be bootstrapped into any Claude Code workspace. After install, RBTV appears as `/rbtv-<command>` slash commands (e.g., `/rbtv-strategist`, `/rbtv-doc-export`, `/rbtv-plan-doc`) and auto-triggered skills in your workspace.
+RBTV is a self-contained set of agents, workflows, skills, and rules. A module is a bundle of components; a component groups related content; a skill or rule is an exposed part of a component. A harness is an AI coding tool that receives installed files. Installed skills and commands appear in the selected harnesses.
 
 ## Modules
 
@@ -30,6 +30,19 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 - Claude Code plugins (see [Plugins](#plugins) for install instructions)
 
 ## Install
+
+For a first run, point the installer at an existing workspace directory. `status` shows which directory it selected and which harnesses are configured. `list` finds a few choices; `show` explains one; `add` installs its stable name; `remove` takes that same name.
+
+```bash
+rbtv install status --target /path/to/workspace
+rbtv install list brainstorm --target /path/to/workspace
+rbtv install show brainstorm --target /path/to/workspace
+rbtv install add brainstorm --target /path/to/workspace --harness claude,codex --guidance CLAUDE.md
+rbtv install status --target /path/to/workspace
+rbtv install remove brainstorm --target /path/to/workspace
+```
+
+The first add needs `--harness` (which AI coding tools receive files) and `--guidance` (which root guidance file you author). A short name selects one exposed item such as a skill or rule. Use a full `module/component` name or `--component` for a whole component. For another agent, set `--target` to its home directory on each command. Use `--dry-run` to preview a change and `--json` for a machine-readable result. Run `rbtv install --help` for module-wide choices, settings changes, and compatibility forms. Bare `rbtv install` prints help; `rbtv install interactive` starts the guided flow.
 
 > **The installer is `meta/installer/install.py`, reachable as `rbtv install`.**
 > It carried the name `install2.py` from its first commit until 2026-08-23, while a
@@ -66,38 +79,30 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 > and the commands below are the same tool either way:
 >
 > ```bash
-> rbtv install --target /path/to/workspace ls                    # what is installable
-> rbtv install --target /path/to/workspace li                    # what is installed + settings
-> rbtv install --target W add -c meta/planning \
->       --harness claude,codex --artifact CLAUDE.md              # FIRST add: both required
-> rbtv install --target W add -m office                          # later adds: components only
-> rbtv install --target W rm -c meta/planning
-> rbtv install --target W rm -c web/browse,web/capture         # -m/-c/-x/-nm/-nc/-nx take a comma list
-> rbtv install --target W rm -c 3,7,9                          # …or the numbers from the last ls/li
-> rbtv install --target W rm -c 2-9,14                         # …N-M is an inclusive range of those numbers
-> rbtv install --target W add|rm harness opencode                # change which tools get files
-> rbtv install --target W set artifact CLAUDE.md|AGENTS.md|none  # change the guidance basis
-> rbtv install --target W add|rm artifact exclude <dir>          # folders the mirror skips
-> rbtv install                                                   # interactive
+> rbtv install --target W status                                # target and saved settings
+> rbtv install --target W list planning                         # copyable stable names
+> rbtv install --target W show meta/planning                    # component detail
+> rbtv install --target W add meta/planning \
+>       --harness claude,codex --guidance CLAUDE.md              # first add: both required
+> rbtv install --target W add --module office                   # a whole module
+> rbtv install --target W remove meta/planning                  # one component
+> rbtv install --target W remove web/browse web/capture         # several components
+> rbtv install --target W set --harness claude,codex             # change which tools get files
+> rbtv install --target W set --guidance CLAUDE.md              # change the guidance basis
+> rbtv install --target W add artifact exclude <dir>            # folders the mirror skips
+> rbtv install interactive                                       # guided flow
 > rbtv install selftest                                          # its runnable check
 > ```
 >
 > **The two workspace settings are answered once.** `--harness` (which AI coding tools get files
-> written for them) and `--artifact` (which root guidance file YOU author, the others being
-> generated from it) are REQUIRED on the first `add` and REFUSED on every later one, because both
-> used to be silent: `--harness` defaulted to every harness and a narrower list on a later run
-> merged instead of narrowing, so asking for fewer harnesses succeeded and changed nothing. After
-> the first install the ACTION-FIRST settings forms own them — `add|rm harness`, `set artifact`,
-> `add|rm artifact exclude` — and `rm harness` really does delete that harness's files. The
-> action word always comes first, the same way it does for components, and `set` exists because
-> the guidance basis holds ONE value: choosing a new one replaces the old, which is a set and not
-> an add. The old noun-led spelling (`harness add`, `artifact set`) is retired, not aliased: it
-> refuses with `verb-moved` and names its replacement. The three settings are READ at the head of
-> `rbtv install li` (and ride its `--json` under `settings`) — the two verbs that existed only to
-> print them are gone from the menu, kept hidden so the old spelling still lands on a sentence
-> saying where it went. See `meta/installer/design-decisions.md`, D16, D16b and D16c.
+> written for them) and `--guidance` (which root guidance file you author) are required on the
+> first `add`. Identical repeat values are accepted; conflicting values refuse with a runnable
+> `set` command. `status` displays the saved settings. Older `ls`, `li`, `rm`, `-c`, `-m`, `-x`,
+> and `--artifact` spellings remain compatible, but stable names and readable commands are the
+> main workflow. Numeric catalog positions are not identifiers. The earlier settings design and
+> its current override are recorded in `meta/installer/design-decisions.md`.
 >
-> Every verb takes `--dry-run` and `--json`; exit codes are `0` success / `1` refusal /
+> Mutations take `--dry-run`; all commands take `--json`. Exit codes are `0` success / `1` refusal /
 > `2` usage. Its design decisions (tree precedence, the new-standard scope, the ownership marker, the collision
 > rule, the workspace settings) are documented in `meta/installer/design-decisions.md` —
 > that is their one home.
@@ -119,10 +124,10 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 2. Run the installer:
 
    ```bash
-   rbtv install                 # or: python rbtv/meta/installer/install.py
+   rbtv install status          # or: python rbtv/meta/installer/install.py status
    ```
 
-   With no arguments it runs the guided flow: choose the workspace, tick the
+   For a guided flow, run `rbtv install interactive`: choose the workspace, tick the
    components with the arrow keys (space toggles, `i` shows what a component
    installs, `a` ticks everything), tick which AI tools get files written for
    them, choose which root guidance file you author, then confirm. Piped or

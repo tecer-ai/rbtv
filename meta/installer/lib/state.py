@@ -15,12 +15,67 @@ from .claims import _fence, _jget
 from .fsio import write_file
 
 
+def _state_refuse(path: Path, detail: str) -> None:
+    raise Refuse("state-unreadable",
+                 f"installer state has an invalid structure: {detail} ({path})",
+                 str(path))
+
+
+def _string_list(value: object, label: str, path: Path) -> None:
+    if not isinstance(value, list) or not all(isinstance(item, str)
+                                              for item in value):
+        _state_refuse(path, f"{label} must be a list of strings")
+
+
+def _validate_state(state: dict, path: Path) -> None:
+    """Validate every book shape consumed by migrations and planners."""
+    components = state.get("components", {})
+    if components is None:
+        state["components"] = {}
+        components = state["components"]
+    if not isinstance(components, dict):
+        _state_refuse(path, "components must be an object")
+    for cid, rec in components.items():
+        if not isinstance(cid, str) or not isinstance(rec, dict):
+            _state_refuse(path, "components must map string ids to objects")
+        for name in ("files", "claims", "path_links", "harnesses"):
+            if name in rec:
+                _string_list(rec[name], f"components.{cid}.{name}", path)
+        if "parts" not in rec:
+            continue
+        parts = rec["parts"]
+        if not isinstance(parts, dict):
+            _state_refuse(path, f"components.{cid}.parts must be an object")
+        for pid, part in parts.items():
+            if not isinstance(pid, str) or not isinstance(part, dict):
+                _state_refuse(path, f"components.{cid}.parts must map ids to objects")
+            for name in ("files", "claims", "links"):
+                if name in part:
+                    _string_list(part[name],
+                                 f"components.{cid}.parts.{pid}.{name}", path)
+    for name in ("harnesses", "guidance_files", "shared_claims"):
+        if name in state:
+            _string_list(state[name], name, path)
+    if "guidance_basis" in state and state["guidance_basis"] is not None and \
+            not isinstance(state["guidance_basis"], str):
+        _state_refuse(path, "guidance_basis must be a string or null")
+
+
 def read_state(target: Path) -> dict:
     path = target / STATE_REL
     if not path.is_file():
         return {"schema": SCHEMA, "installer": INSTALLER_NAME, "components": {},
                 "shared_claims": []}
-    state = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise Refuse("state-unreadable",
+                     f"cannot read installer state; repair or restore {path} before changing this workspace ({exc})",
+                     str(path)) from exc
+    if not isinstance(state, dict):
+        raise Refuse("state-unreadable",
+                     f"installer state must be a JSON object: {path}", str(path))
+    _validate_state(state, path)
     rewrite_legacy_skill_ids(state)
     strip_retired_harnesses(state)
     migrate_workspace_harnesses(state)

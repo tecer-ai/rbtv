@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sys
+from functools import wraps
 from pathlib import Path
 
 from discovery import Refuse, scan_all
@@ -14,26 +15,27 @@ from .constants import (
     REPO_ROOT,
     STATE_REL,
 )
-from .catalog import module_id
 from .guidance import _norm_prefix
-from .target import DISCOVER_CWD, DISCOVER_FLAG, discover_target
+from .target import DISCOVER_CWD, resolve_target
 from .state import book_harnesses, read_state
 from .selection import (
-    _expand_nums,
     _has_negative,
-    _norm_comp,
     _split_part_keys,
-    part_key,
-    read_index,
+    resolve_name,
     resolve_selection,
-    scan_fingerprint,
 )
 from .operations import do_install, do_uninstall
-from .listing import build_ls, do_list, print_li, print_ls, write_visible_index
+from .pathlinks import bin_dir
+from .shared_links import release_workspace_links, workspace_mutation_lock
+from .listing import build_list, build_show, do_list, print_list, print_show
 from .doctor import do_doctor, doctor_exit, render_doctor
 from .report import print_result
+from .recovery import shell_quote
 from .interactive import interactive
 from .parser import SETTING_VERB, _refuse_moved, build_parser
+
+
+_quote = shell_quote
 
 
 def _parse_harnesses(raw: str) -> list[str]:
@@ -47,123 +49,154 @@ def _parse_harnesses(raw: str) -> list[str]:
     return [h for h in HARNESSES if h in picked]
 
 
-def _emit(data: dict, as_json: bool) -> None:
+def _emit(data: dict, as_json: bool, target: Path | None = None,
+          source: str | None = None) -> None:
+    if target is not None:
+        data = {**data, "target": str(target.resolve()), "source": source}
+    data.setdefault("next", "rbtv install status --target " + _quote(target)
+                    if target is not None else "rbtv install status")
     print(json.dumps(data, indent=2)) if as_json else print_result(data)
 
 
-def _ls_filters(args, catalog: dict, target: Path) -> dict:
-    comps = list(getattr(args, "component", None) or [])
-    drop_c = list(getattr(args, "exclude_component", None) or [])
-    fp = scan_fingerprint(catalog)
-    idx = read_index(target)
-    # No `is this numeric?` gate here: _expand_nums hands every non-index token
-    # straight back, and a gate that has to recognise index tokens ITSELF is a
-    # second copy of that rule — the copy that missed ranges when they landed.
-    comps = _expand_nums(comps, "component", idx, fp)
-    drop_c = _expand_nums(drop_c, "component", idx, fp)
-    return dict(
-        modules=list(getattr(args, "module", None) or []),
-        methods=list(getattr(args, "method", None) or []),
-        components=comps,
-        exclude_modules=list(getattr(args, "exclude_module", None) or []),
-        exclude_methods=list(getattr(args, "exclude_method", None) or []),
-        exclude_components=drop_c,
-    )
+def mutation_locked(handler):
+    """Cover selection/settings reads and the operation with one target lock."""
+    @wraps(handler)
+    def run(args, target, catalog, shadowed, *, ask=None):
+        if getattr(args, "dry_run", False):
+            return handler(args, target, catalog, shadowed, ask=ask)
+        with workspace_mutation_lock(target):
+            return handler(args, target, catalog, shadowed, ask=ask)
+    return run
 
 
-def _li_filter(data: dict, catalog: dict, args) -> dict:
-    want_m = {module_id(m) for m in (getattr(args, "module", None) or [])}
-    want_c = {_norm_comp(c) for c in (getattr(args, "component", None) or [])}
-    drop_m = {module_id(m) for m in (getattr(args, "exclude_module", None) or [])}
-    drop_c = {_norm_comp(c) for c in (getattr(args, "exclude_component", None) or [])}
-    want_x = set(getattr(args, "method", None) or [])
-    drop_x = set(getattr(args, "exclude_method", None) or [])
-    if not (want_m or want_c or drop_m or drop_c or want_x or drop_x):
-        return data
-    kept = {}
-    for cid, rec in data["components"].items():
-        mod = rec.get("module") or cid.split("/")[0]
-        if want_m and module_id(mod) not in want_m:
-            continue
-        if drop_m and module_id(mod) in drop_m:
-            continue
-        if want_c and cid not in want_c:
-            continue
-        if drop_c and cid in drop_c:
-            continue
-        rec = dict(rec)
-        if want_x or drop_x:
-            parts = {pid: p for pid, p in (rec.get("parts") or {}).items()
-                     if isinstance(p, dict)
-                     and (not want_x or p.get("method") in want_x)
-                     and p.get("method") not in drop_x}
-            rec["parts"] = parts
-        kept[cid] = rec
-    out = dict(data)
-    out["components"] = kept
-    return out
 
 
-def confirm_removal(keys, *, dry_run: bool, ask=None) -> bool:
-    """R7 guard: print the full resolved removal list. Dry-run never asks."""
-    print("DRY RUN — would remove:" if dry_run else "will remove:")
-    for k in sorted(keys):
-        print(f"  {k}")
-    if dry_run:
-        return True
-    fn = ask or input
-    try:
-        ans = fn("Proceed? [y/N]: ")
-    except EOFError:
-        ans = ""
-    return str(ans).strip().lower() in ("y", "yes")
+def cmd_list(args, target: Path, catalog: dict, shadowed: list,
+             *, ask=None) -> int:
+    del ask, shadowed
+    limit, offset = args.limit, args.offset
+    if limit < 1 or limit > 100 or offset < 0:
+        raise Refuse("list-window-invalid",
+                     "--limit must be 1-100 and --offset must be zero or more")
+    state = read_state(target)
+    data = build_list(catalog, state, query=args.query,
+                      modules=args.module, components=args.component,
+                      methods=args.method,
+                      installed=bool(args.installed or args.verb == "li"),
+                      limit=limit, offset=offset)
+    data.update(target=str(target.resolve()), source=getattr(args, "_why", "unknown"))
+    if offset >= data["total"] and data["total"]:
+        raise Refuse("offset-out-of-range",
+                     f"--offset {offset} is past {data['total']} matching items. "
+                     "Run `rbtv install list --offset 0 --target "
+                     + _quote(target) + "`")
+    command = ["rbtv install list"]
+    if args.query:
+        command.append(_quote(args.query))
+    for flag, values in (("--module", args.module), ("--component", args.component),
+                         ("--kind", args.method)):
+        command.extend(f"{flag} {_quote(value)}" for value in values)
+    if args.installed or args.verb == "li":
+        command.append("--installed")
+    command.append("--target " + _quote(target))
+    if offset + data["returned"] < data["total"]:
+        command.extend((f"--limit {limit}", f"--offset {offset + data['returned']}"))
+    elif not data["total"]:
+        command = ["rbtv install list --target " + _quote(target)]
+    else:
+        command = ["rbtv install show ID --target " + _quote(target)]
+    data["next"] = " ".join(command)
+    if args.json:
+        print(json.dumps(data, indent=2))
+    else:
+        print(f"Target: {target.resolve()} ({data['source']}). "
+              "Override with --target PATH.")
+        print_list(data)
+    return 0
 
 
 def cmd_ls(args, target: Path, catalog: dict, shadowed: list,
            *, ask=None) -> int:
-    del ask
-    state = read_state(target)
-    data = build_ls(catalog, shadowed, state, **_ls_filters(args, catalog, target))
-    write_visible_index(target, data["index"])
-    if getattr(args, "json", False):
-        print(json.dumps(data, indent=2))
-    else:
-        print_ls(data, pretty=bool(getattr(args, "pretty", False)))
-    return 0
+    return cmd_list(args, target, catalog, shadowed, ask=ask)
 
 
 def cmd_li(args, target: Path, catalog: dict, shadowed: list,
            *, ask=None) -> int:
+    return cmd_list(args, target, catalog, shadowed, ask=ask)
+
+
+def cmd_show(args, target: Path, catalog: dict, shadowed: list,
+             *, ask=None) -> int:
     del ask, shadowed
-    data = do_list(target, catalog)
-    data = _li_filter(data, catalog, args)
-    n, k = {}, 1
-    for cid in data["components"]:
-        n[str(k)] = {"kind": "component", "id": cid}
-        k += 1
-    for cid, rec in data["components"].items():
-        for pid in sorted(rec.get("parts") or {}):
-            n[str(k)] = {"kind": "part", "id": part_key(cid, pid)}
-            k += 1
-    write_visible_index(target, {"fingerprint": scan_fingerprint(catalog),
-                                 "n": n})
-    if getattr(args, "json", False):
+    state = read_state(target)
+    selected = resolve_name(args.name, catalog, state.get("components"),
+                            methods=set(args.method) or None)
+    data = {"ok": True, "target": str(target.resolve()),
+            "source": getattr(args, "_why", "unknown"),
+            "selection": build_show(selected, catalog, state)}
+    data["next"] = (f"rbtv install remove {selected['id']} --target {_quote(target)}"
+                    if all(part["installed"] for part in data["selection"]["parts"])
+                    else f"rbtv install add {selected['id']} --target {_quote(target)}")
+    if args.json:
         print(json.dumps(data, indent=2))
     else:
-        print_li(data, pretty=bool(getattr(args, "pretty", False)))
+        print(f"Target: {target.resolve()} ({data['source']}). "
+              "Override with --target PATH.")
+        print_show(data)
+    return 0
+
+
+def cmd_status(args, target: Path, catalog: dict, shadowed: list,
+               *, ask=None) -> int:
+    del ask, shadowed
+    installed = do_list(target, catalog)
+    comps = installed["components"]
+    count = sum(len(rec.get("parts") or {}) for rec in comps.values())
+    modules = sorted({("hub" if (comp.get("module") or cid.split("/")[0]) == "_hub"
+                       else comp.get("module") or cid.split("/")[0])
+                      for cid, comp in catalog.items()})
+    data = {"ok": True, "target": str(target.resolve()),
+            "source": getattr(args, "_why", "unknown"),
+            "settings": installed["settings"],
+            "installed_components": len(comps), "installed_items": count,
+            "available_modules": modules,
+            "installed_basis": "install record",
+            "health_check": f"rbtv install doctor --target {_quote(target)}",
+            "next": (f"rbtv install list --installed --target {_quote(target)}" if comps
+                     else f"rbtv install list --target {_quote(target)}")}
+    if args.json:
+        print(json.dumps(data, indent=2))
+    else:
+        print(f"Target: {data['target']} ({data['source']}). "
+              "Override with --target PATH.")
+        settings = data["settings"]
+        if settings["recorded"]:
+            print("Harnesses: " + ", ".join(settings["harnesses"]))
+            print("Guidance: " + (settings["artifact"] or "none"))
+            print("Excluded guidance folders: "
+                  + (", ".join(settings["guidance_excludes"]) or "none"))
+        else:
+            print("Workspace settings: none recorded yet.")
+        print(f"Recorded installed: {len(comps)} components, {count} items.")
+        print("Available modules: " + ", ".join(modules)
+              + ". Explore one with 'rbtv install list --module NAME'.")
+        print("Check installed files: " + data["health_check"])
+        print("next: " + data["next"])
     return 0
 
 
 def _gate_add_harness(target: Path, state: dict, raw: str | None) -> list[str]:
-    """D16 — `--harness` is answerable exactly once, on the first `add`."""
+    """Accept a repeated setup value when it agrees with the saved value."""
     booked = book_harnesses(state)
     if booked is not None and raw is not None:
-        raise Refuse(
-            "setting-locked",
-            "--harness is a workspace setting and this workspace already has "
-            f"one: {', '.join(booked) or '(none)'}. `add` chooses COMPONENTS, "
-            f"never harnesses — change the set with `{SETTING_VERB['harness']}`",
-            str(target / STATE_REL))
+        if _parse_harnesses(raw) != booked:
+            raise Refuse(
+                "setting-locked",
+                "this workspace already targets " + ", ".join(booked)
+                + "; change it with `rbtv install set --harness "
+                + _quote(raw) + " --target " + _quote(target)
+                + "` before adding components",
+                str(target / STATE_REL))
     if booked is None:
         if raw is None:
             raise Refuse(
@@ -184,16 +217,18 @@ def _gate_add_artifact(target: Path, state: dict, raw: str | None) -> str | None
     never recorded one is asked here: unset used to MEAN `none` silently."""
     booked = "guidance_basis" in state
     if booked and raw is not None:
-        raise Refuse(
-            "setting-locked",
-            "--artifact is a workspace setting and this workspace already has "
-            f"one: {state.get('guidance_basis') or BASIS_NONE}. Change it with "
-            f"`{SETTING_VERB['artifact']}`",
-            str(target / STATE_REL))
+        if raw != state.get("guidance_basis"):
+            raise Refuse(
+                "setting-locked",
+                "this workspace already uses guidance "
+                + str(state.get("guidance_basis") or BASIS_NONE)
+                + "; change it with `rbtv install set --guidance "
+                + _quote(raw) + " --target " + _quote(target) + "`",
+                str(target / STATE_REL))
     if not booked and raw is None:
         raise Refuse(
             "artifact-required",
-            "first install on this workspace: pass --artifact with "
+            "first install on this workspace: pass --guidance with "
             + " or ".join((*GUIDANCE_NAMES, BASIS_NONE))
             + " — the root guidance file YOU author, from which the others are "
               f"generated. `{BASIS_NONE}` means author nothing and generate "
@@ -223,8 +258,8 @@ def _require_recorded(target: Path, state: dict) -> list[str]:
         raise Refuse(
             "workspace-unrecorded",
             "this workspace has no recorded settings yet — nothing has been "
-            "installed here. Run `rbtv install add` first; its --harness and "
-            "--artifact flags are where the settings are chosen",
+            "installed here. The first add needs both --harness and "
+            "--guidance; run `rbtv install list` to choose an item",
             str(target / STATE_REL))
     return booked
 
@@ -260,11 +295,14 @@ def _apply_harness(args, target: Path, catalog: dict, op: str,
             "Removing every harness is an uninstall — `rbtv install rm -A`",
             str(target / STATE_REL))
     if new == current:
-        print(f"no change — this workspace already targets {', '.join(new)}")
+        _emit({"ok": True, "changed": False, "dry_run": bool(args.dry_run),
+               "message": f"this workspace already targets {', '.join(new)}"},
+              bool(args.json), target, getattr(args, "_why", "unknown"))
         return 0
     data = _replan_all(target, catalog, new,
                        bool(getattr(args, "dry_run", False)))
-    _emit(data, bool(getattr(args, "json", False)))
+    _emit(data, bool(getattr(args, "json", False)),
+          target, getattr(args, "_why", "unknown"))
     return 0
 
 
@@ -278,12 +316,15 @@ def _apply_artifact(args, target: Path, catalog: dict, value: str) -> int:
             + ", ".join((*GUIDANCE_NAMES, BASIS_NONE))
             + f" — `{BASIS_NONE}` means author nothing and generate nothing")
     if state.get("guidance_basis", object()) == value:
-        print(f"no change — the basis already is {value}")
+        _emit({"ok": True, "changed": False, "dry_run": bool(args.dry_run),
+               "message": f"guidance is already {value}"},
+              bool(args.json), target, getattr(args, "_why", "unknown"))
         return 0
     data = _replan_all(target, catalog, harnesses,
                        bool(getattr(args, "dry_run", False)),
                        guidance_basis=value)
-    _emit(data, bool(getattr(args, "json", False)))
+    _emit(data, bool(getattr(args, "json", False)),
+          target, getattr(args, "_why", "unknown"))
     return 0
 
 
@@ -307,12 +348,15 @@ def _apply_exclude(args, target: Path, catalog: dict, op: str,
                 str(target / STATE_REL))
         new = sorted(set(current) - set(delta))
     if new == sorted(current):
-        print("no change — " + (", ".join(new) or "nothing") + " excluded")
+        _emit({"ok": True, "changed": False, "dry_run": bool(args.dry_run),
+               "message": (", ".join(new) or "nothing") + " excluded"},
+              bool(args.json), target, getattr(args, "_why", "unknown"))
         return 0
     data = _replan_all(target, catalog, harnesses,
                        bool(getattr(args, "dry_run", False)),
                        guidance_excludes=new)
-    _emit(data, bool(getattr(args, "json", False)))
+    _emit(data, bool(getattr(args, "json", False)),
+          target, getattr(args, "_why", "unknown"))
     return 0
 
 
@@ -389,29 +433,59 @@ def _settings_form(args, target: Path, catalog: dict, verb: str,
         "noun — run `rbtv install " + verb + " --help`")
 
 
+@mutation_locked
 def cmd_set(args, target: Path, catalog: dict, shadowed: list,
             *, ask=None) -> int:
     del ask, shadowed
     noun = list(getattr(args, "noun", None) or [])
+    raw_h = getattr(args, "harness", None)
+    raw_g = getattr(args, "artifact", None)
+    if raw_h is not None or raw_g is not None:
+        if noun:
+            raise Refuse("usage", "use either 'set artifact NAME' or "
+                         "'set --harness ... --guidance ...', not both")
+        state = read_state(target)
+        current = _require_recorded(target, state)
+        wanted_h = _parse_harnesses(raw_h) if raw_h is not None else current
+        if not wanted_h:
+            raise Refuse("harness-unknown", "--harness selected no harness")
+        wanted_g = raw_g if raw_g is not None else state.get("guidance_basis")
+        if wanted_h == current and wanted_g == state.get("guidance_basis"):
+            data = {"ok": True, "changed": False, "dry_run": bool(args.dry_run)}
+        else:
+            data = _replan_all(target, catalog, wanted_h, bool(args.dry_run),
+                               guidance_basis=wanted_g)
+        _emit(data, bool(args.json), target, getattr(args, "_why", "unknown"))
+        return 0
     if not noun:
         raise Refuse(
             "noun-missing",
-            f"`set` needs the setting to change: {SETTING_VERB['artifact']}")
+            "set needs --harness, --guidance, or the legacy 'artifact NAME' form")
     return _settings_form(args, target, catalog, "set", noun)
 
 
+@mutation_locked
 def cmd_add(args, target: Path, catalog: dict, shadowed: list,
             *, ask=None) -> int:
     del ask, shadowed
     noun = list(getattr(args, "noun", None) or [])
-    if noun:
+    if noun and noun[0] in ("harness", "artifact"):
         return _settings_form(args, target, catalog, "add", noun)
-    if not _has_selectors(args):
+    if not (_has_selectors(args) or noun):
         raise SystemExit(2)
-    args.index = read_index(target)
+    args.names = noun
     keys = resolve_selection(args, catalog, None)
     picked, parts = _split_part_keys(keys)
     state = read_state(target)
+    if book_harnesses(state) is None and (
+            getattr(args, "harness", None) is None
+            or getattr(args, "artifact", None) is None):
+        raise Refuse(
+            "setup-required",
+            "first add needs both --harness (which AI tools receive items) "
+            "and --guidance (CLAUDE.md, AGENTS.md, or none). Example: "
+            "rbtv install add " + parts[0]
+            + " --harness codex --guidance none --target " + _quote(target))
     harnesses = _gate_add_harness(target, state, getattr(args, "harness", None))
     basis = _gate_add_artifact(target, state, getattr(args, "artifact", None))
     data = do_install(
@@ -419,32 +493,78 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
         bool(getattr(args, "dry_run", False)),
         guidance_basis=basis,
         parts=parts)
-    _emit(data, bool(getattr(args, "json", False)))
+    data["selected_items"] = parts
+    _emit(data, bool(getattr(args, "json", False)),
+          target, getattr(args, "_why", "unknown"))
     return 0
 
 
+@mutation_locked
 def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
            *, ask=None) -> int:
-    del shadowed
+    del shadowed, ask
     noun = list(getattr(args, "noun", None) or [])
-    if noun:
+    if noun and noun[0] in ("harness", "artifact"):
         return _settings_form(args, target, catalog, "rm", noun)
-    if not _has_selectors(args):
+    if not (_has_selectors(args) or noun):
         raise SystemExit(2)
-    args.index = read_index(target)
+    args.names = noun
     book = read_state(target).get("components")
     keys = resolve_selection(args, catalog, book)
     dry = bool(getattr(args, "dry_run", False))
-    if _has_negative(args):
-        if not confirm_removal(keys, dry_run=dry, ask=ask):
-            print("cancelled")
-            return 0
+    path_release = bool(args.all and getattr(args, "_why", None) == "--target"
+                        and not (target / STATE_REL).is_file())
+    preview_links = (release_workspace_links(bin_dir(), target, dry=True)
+                     if path_release else {})
+    shared_count = len(set(preview_links.get("released") or [])
+                       | set(preview_links.get("unlinked") or [])
+                       | set(preview_links.get("kept_shared") or []))
+    if not keys and not shared_count:
+        _emit({"ok": True, "uninstalled": [], "dry_run": dry,
+               "message": "no installed items matched this request"},
+              bool(args.json), target, getattr(args, "_why", "unknown"))
+        return 0
+    broad = bool(args.all or args.module or args.method or _has_negative(args))
+    if broad and not (dry or getattr(args, "yes", False)):
+        flags = ["--all"] if args.all else []
+        flags += [f"--module {_quote(m)}" for m in args.module]
+        flags += [f"--component {_quote(c)}" for c in args.component]
+        flags += [f"--kind {_quote(m)}" for m in args.method]
+        flags += [f"--exclude-module {_quote(m)}" for m in args.exclude_module]
+        flags += [f"--exclude-component {_quote(c)}" for c in args.exclude_component]
+        flags += [f"--exclude-kind {_quote(m)}" for m in args.exclude_method]
+        retry = "rbtv install remove " + " ".join(
+            [_quote(name) for name in noun] + flags
+            + ["--yes", "--target", _quote(target)])
+        preview = sorted(keys)[:20]
+        exc = Refuse(
+            "confirmation-required",
+            f"broad removal selected {len(keys)} item(s)"
+            + (f" and {shared_count} registered shared shortcut(s)" if shared_count else "")
+            + "; preview: "
+            + (", ".join(preview) or "(none)")
+            + (f"; {len(keys)-20} more" if len(keys) > 20 else "")
+            + f". Review with --dry-run, then run: {retry}")
+        exc.preview = {"total": len(keys), "items": preview,
+                       "next": retry}
+        raise exc
+    if not keys:
+        report = {"path": (preview_links if dry else
+                           release_workspace_links(bin_dir(), target, dry=False))}
+        _emit({"ok": True, "uninstalled": [], "dry_run": dry,
+               "report": report,
+               "message": "released shared shortcut claims for this target"},
+              bool(args.json), target, getattr(args, "_why", "unknown"))
+        return 0
     picked, parts = _split_part_keys(keys)
     data = do_uninstall(target, catalog, picked, dry, parts=parts)
-    _emit(data, bool(getattr(args, "json", False)))
+    data["selected_items"] = parts
+    _emit(data, bool(getattr(args, "json", False)),
+          target, getattr(args, "_why", "unknown"))
     return 0
 
 
+@mutation_locked
 def cmd_dupe(args, target: Path, catalog: dict, shadowed: list,
              *, ask=None) -> int:
     del ask, shadowed
@@ -455,7 +575,8 @@ def cmd_dupe(args, target: Path, catalog: dict, shadowed: list,
     data = do_install(
         target, catalog, picked, hs,
         bool(getattr(args, "dry_run", False)))
-    _emit(data, bool(getattr(args, "json", False)))
+    _emit(data, bool(getattr(args, "json", False)),
+          target, getattr(args, "_why", "unknown"))
     return 0
 
 
@@ -493,8 +614,12 @@ def cmd_selftest(args, target: Path, catalog: dict, shadowed: list,
 _HANDLERS = {
     "add": cmd_add,
     "rm": cmd_rm,
+    "remove": cmd_rm,
+    "list": cmd_list,
     "ls": cmd_ls,
     "li": cmd_li,
+    "show": cmd_show,
+    "status": cmd_status,
     "set": cmd_set,
     "harness": cmd_harness,
     "artifact": cmd_artifact,
@@ -507,31 +632,33 @@ _HANDLERS = {
 
 def main(argv: list[str] | None = None, *, ask=None) -> int:
     parser = build_parser()
+    raw = list(argv) if argv is not None else sys.argv[1:]
+    as_json = "--json" in raw
     try:
-        args = parser.parse_args(argv)
+        args = parser.parse_args(raw)
+    except Refuse as exc:
+        if as_json:
+            print(json.dumps(exc.payload()))
+        else:
+            print(f"REFUSED [{exc.code}] {exc.message}", file=sys.stderr)
+        return 2
     except SystemExit as exc:
         return int(exc.code or 0)
 
+    if args.verb is None:
+        parser.print_help()
+        return 0
     if args.verb == "selftest":
         from selftest.runner import selftest
         return selftest()
 
-    as_json = bool(getattr(args, "json", False))
-    if getattr(args, "target", None) is None:
-        target, why = discover_target(Path.cwd())
-        if args.verb != "doctor":
-            print(f"target: {target}  (discovered by {why}; pass --target to "
-                  f"override)", file=sys.stderr)
-    else:
-        target = Path(args.target).expanduser()
-        why = DISCOVER_FLAG
-    args._why = why
-    repo_tree = REPO_ROOT
-    mirror_tree = target / ".rbtv" / "mirror"
-
     try:
+        target, why = resolve_target(getattr(args, "target", None), Path.cwd())
+        args._why = why
+        repo_tree = REPO_ROOT
+        mirror_tree = target / ".rbtv" / "mirror"
         catalog, shadowed = scan_all(mirror_tree, repo_tree)
-        if args.verb in (None, "interactive"):
+        if args.verb == "interactive":
             if as_json:
                 raise Refuse("usage", "interactive mode has no --json output")
             return interactive(target, catalog)
@@ -542,24 +669,47 @@ def main(argv: list[str] | None = None, *, ask=None) -> int:
         # selector gate must let it through — this gate sits AHEAD of the
         # handler, and without the noun clause every `add harness codex`
         # died here as a usage error before the dispatch ever saw it.
-        if (args.verb in ("add", "rm")
+        if (args.verb in ("add", "rm", "remove")
                 and not getattr(args, "noun", None)
                 and not _has_selectors(args)):
             parser.error(
-                f"{args.verb} needs -A or -m/-c/-x for components, or a "
-                f"setting: {args.verb} harness <h> · {args.verb} artifact "
-                "exclude <dir>")
+                f"{args.verb} needs a name, --all, --module, --component "
+                "or --kind")
         return handler(args, target, catalog, shadowed, ask=ask)
     except Refuse as exc:
         if as_json:
-            print(json.dumps(exc.payload(), indent=2))
+            payload = exc.payload()
+            for extra in ("candidates", "preview"):
+                if hasattr(exc, extra):
+                    payload["refusal"][extra] = getattr(exc, extra)
+            print(json.dumps(payload, indent=2))
         else:
             print(f"REFUSED [{exc.code}] {exc.message}", file=sys.stderr)
             if exc.path:
                 print(f"  at: {exc.path}", file=sys.stderr)
+        return 2 if exc.code == "usage" else 1
+    except OSError as exc:
+        where = str(locals().get("target", Path.cwd()))
+        message = (f"file operation failed: {exc}. A preceding workspace write "
+                   "may have applied; inspect the target before retrying")
+        next_cmd = "rbtv install doctor --target " + _quote(where)
+        if as_json:
+            print(json.dumps({"ok": False, "refusal": {
+                "code": "io-error", "message": message,
+                "path": getattr(exc, "filename", None) or where,
+                "next": next_cmd}}, indent=2))
+        else:
+            print(f"REFUSED [io-error] {message}\nnext: {next_cmd}",
+                  file=sys.stderr)
         return 1
     except SystemExit as exc:
         return int(exc.code or 0)
     except KeyboardInterrupt:
-        print("\ncancelled", file=sys.stderr)
+        if as_json:
+            print(json.dumps({"ok": False, "refusal": {
+                "code": "interrupted",
+                "message": "operation interrupted; inspect status before retrying"}}))
+        else:
+            print("\ninterrupted; inspect status before retrying",
+                  file=sys.stderr)
         return 1

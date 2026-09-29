@@ -3,22 +3,58 @@ workspace's settings.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from discovery import exposure_rows
 
-from .constants import (ANSI, BASIS_NONE, INDEX_REL, INSTALLER_NAME,
-                        MANAGED_MARK, STATE_REL)
+from .constants import BASIS_NONE, MANAGED_MARK, STATE_REL
 from .catalog import (
     _hub_refuse_message,
     _part_specs,
     catalog_parts_map,
-    module_id,
 )
-from .fsio import write_file
 from .state import _part_in, book_harnesses, read_state, upgrade_book
-from .selection import _norm_comp, part_key, scan_fingerprint
+from .selection import component_keys, iter_booked_parts, module_names, part_key
+
+
+def _part_description(comp: dict, pid: str) -> str:
+    if comp.get("manifest"):
+        for row in exposure_rows(comp):
+            if (row.get("part-id") or "").strip() == pid:
+                return (row.get("description") or "").strip()
+    if comp.get("kind") == "hub":
+        source = Path(comp["path"])
+        if source.is_dir():
+            source /= "SKILL.md"
+        if source.is_file() and source.suffix == ".md":
+            try:
+                lines = source.read_text(encoding="utf-8").splitlines()
+            except (OSError, UnicodeDecodeError):
+                return ""
+            for line in lines[:20]:
+                if line.startswith("description:"):
+                    return line.partition(":")[2].strip().strip('"')
+    return ""
+
+
+def _short_description(text: str) -> str:
+    sentence = text.split(". ", 1)[0].strip()
+    if sentence and not sentence.endswith("."):
+        sentence += "."
+    return sentence if len(sentence) <= 150 else sentence[:147].rstrip() + "…"
+
+
+def part_detail(catalog: dict, state: dict, part: dict) -> dict:
+    cid, pid = part["component"], part["part_id"]
+    comp = catalog.get(cid) or {}
+    row = next((r for r in exposure_rows(comp)
+                if (r.get("part-id") or "").strip() == pid), {}) if comp.get("manifest") else {}
+    return {**part,
+            "description": _part_description(comp, pid),
+            "entry_point": (row.get("entry-point") or "").strip(),
+            "tree": comp.get("tree") or "book",
+            "source_available": bool(comp and (comp.get("kind") == "hub" or row)),
+            "installed": _part_in(state, cid, pid)}
 
 
 def do_scan(catalog: dict[str, dict], shadowed: list[dict]) -> dict:
@@ -69,13 +105,13 @@ def build_ls(catalog: dict, shadowed: list, state: dict, *,
              exclude_modules: list[str] | None = None,
              exclude_methods: list[str] | None = None,
              exclude_components: list[str] | None = None) -> dict:
-    want_m = {module_id(m) for m in (modules or [])}
+    want_m = module_names(modules or [], catalog)
     want_x = set(methods or [])
-    want_c = {_norm_comp(c) for c in (components or [])}
-    drop_m = {module_id(m) for m in (exclude_modules or [])}
+    want_c = component_keys(components or [], catalog) if components else set()
+    drop_m = module_names(exclude_modules or [], catalog)
     drop_x = set(exclude_methods or [])
-    drop_c = {_norm_comp(c) for c in (exclude_components or [])}
-    entries, nmap, n = [], {}, 0
+    drop_c = component_keys(exclude_components or [], catalog) if exclude_components else set()
+    entries = []
     for cid in sorted(catalog):
         c = catalog[cid]
         hub = c.get("kind") in ("hub", "skill-folder")
@@ -84,27 +120,27 @@ def build_ls(catalog: dict, shadowed: list, state: dict, *,
             continue
         if drop_m and mod in drop_m:
             continue
-        if want_c and cid not in want_c and not any(
-                token == cid or token.endswith("#" + cid.split("/")[-1])
-                or (token.startswith(cid + "#"))
-                for token in want_c):
-            continue
-        if drop_c and cid in drop_c:
-            continue
         items = []
         for spec in _part_specs(c):
             pid, meth = spec["id"], spec.get("method") or ""
+            key = part_key(cid, pid)
+            if want_c and key not in want_c:
+                continue
+            if key in drop_c:
+                continue
             if want_x and meth not in want_x:
                 continue
             if drop_x and meth in drop_x:
                 continue
-            n += 1
-            items.append({"index": n, "part_id": pid, "method": meth,
-                          "in": _part_in(state, cid, pid)})
-            nmap[str(n)] = {"kind": "part", "id": part_key(cid, pid)}
+            detail = part_detail(catalog, state, {
+                "key": key, "component": cid, "module": mod,
+                "part_id": pid, "method": meth})
+            items.append({"id": key, "part_id": pid, "method": meth,
+                          "description": detail["description"],
+                          "in": detail["installed"]})
         refusal = c.get("hub_refusal") or ""
         note = _hub_refuse_message(c) if refusal else ""
-        if (want_x or drop_x) and not items:
+        if (want_x or drop_x or want_c or drop_c) and not items:
             continue
         entries.append({
             "id": cid, "tree": c.get("tree", ""), "module": mod,
@@ -117,34 +153,98 @@ def build_ls(catalog: dict, shadowed: list, state: dict, *,
     hub_refusals = [cid for cid, c in sorted(catalog.items())
                     if c.get("hub_refusal")]
     return {"ok": True, "components": entries, "shadowed": shadowed,
-            "hub_refusals": hub_refusals,
-            "index": {"fingerprint": scan_fingerprint(catalog), "n": nmap}}
+            "hub_refusals": hub_refusals}
 
 
-def print_ls(data: dict, *, pretty: bool = False) -> None:
-    print(f" {'#':>2}  {'COMPONENT / part':<42} {'TREE':<7} {'METHOD':<10} IN")
-    for e in data["components"]:
-        extra = f"  ({e['note']})" if e["note"] else ""
-        n_in = sum(1 for i in e["items"] if i["in"])
-        n = len(e["items"])
-        tally = f"{n} part{'' if n == 1 else 's'}, {n_in} in" if n else ""
-        print(f"     {e['id']:<42} {e['tree']:<7} {tally}{extra}")
-        for i in e["items"]:
-            flag = "in" if i["in"] else "-"
-            if pretty:
-                flag = ((ANSI["ok"] + "in" + ANSI["reset"]) if i["in"]
-                        else flag)
-            print(f"{i['index']:>3}    {i['part_id']:<39} {'':<7} "
-                  f"{i['method']:<10} {flag}")
-    for s in data["shadowed"]:
-        print(f"\nSHADOWED: {s['id']} exists on both trees — mirror wins "
-              f"({s['winner_path']}); repo copy ignored ({s['shadowed_path']})")
+def build_list(catalog: dict, state: dict, *, query: str = "",
+               modules: list[str] | None = None,
+               components: list[str] | None = None,
+               methods: list[str] | None = None,
+               installed: bool = False,
+               limit: int = 20, offset: int = 0) -> dict:
+    """Bounded search over the same stable keys that mutation resolves."""
+    view = build_ls(catalog, [], state)
+    book = state.get("components") or {}
+    want_m = module_names(modules or [], catalog, book)
+    want_c = component_keys(components or [], catalog, book) if components else set()
+    want_x = set(methods or [])
+    words = query.casefold().split()
+    rows: list[dict] = []
+    for comp in view["components"]:
+        for part in comp["items"]:
+            rows.append({"id": part["id"], "component": comp["id"],
+                         "module": comp["module"], "method": part["method"],
+                         "description": _short_description(part["description"]),
+                         "_search": part["description"],
+                         "installed": part["in"], "source_available": True,
+                         "tree": comp["tree"]})
+    seen = {row["id"] for row in rows}
+    for part in iter_booked_parts(catalog, book):
+        if part["key"] in seen:
+            continue
+        rows.append({"id": part["key"], "component": part["component"],
+                     "module": part["module"], "method": part["method"],
+                     "description": "Recorded item; source is no longer available.",
+                     "installed": True, "source_available": False,
+                     "tree": "missing"})
+    matched = []
+    for row in sorted(rows, key=lambda item: item["id"]):
+        if want_m and row["module"] not in want_m:
+            continue
+        if want_c and row["id"] not in want_c:
+            continue
+        if want_x and row["method"] not in want_x:
+            continue
+        if installed and not row["installed"]:
+            continue
+        part_id = row["id"].split("#", 1)[-1]
+        hay = " ".join((row["id"], part_id,
+                        row.get("_search", row["description"]))).casefold()
+        if words and not all(word in hay for word in words):
+            continue
+        matched.append({key: value for key, value in row.items()
+                        if key != "_search"})
+    total = len(matched)
+    return {"ok": True, "query": query, "total": total,
+            "returned": len(matched[offset:offset + limit]),
+            "limit": limit, "offset": offset,
+            "items": matched[offset:offset + limit]}
 
 
-def write_visible_index(target: Path, index: dict) -> None:
-    path = target / INDEX_REL
-    path.parent.mkdir(parents=True, exist_ok=True)
-    write_file(path, json.dumps(index, indent=2) + "\n")
+def print_list(data: dict) -> None:
+    start = data["offset"] + 1 if data["returned"] else 0
+    end = data["offset"] + data["returned"]
+    print(f"Found {data['total']} item(s); showing {start}-{end}.")
+    for row in data["items"]:
+        state = ("recorded installed" if row["installed"] else "available")
+        if not row["source_available"]:
+            state += "; source unavailable"
+        description = f" — {row['description']}" if row["description"] else ""
+        print(f"{row['id']} ({row['method']}, {state}){description}")
+    print("next: " + data["next"])
+
+
+def build_show(selection: dict, catalog: dict, state: dict) -> dict:
+    parts = [part_detail(catalog, state, part) for part in selection["parts"]]
+    out = {"kind": selection["kind"], "id": selection["id"],
+           "parts": parts}
+    if selection["kind"] == "part":
+        out.update(method=parts[0]["method"], component=parts[0]["component"],
+                   part_id=parts[0]["part_id"])
+    return out
+
+
+def print_show(data: dict) -> None:
+    selected = data["selection"]
+    print(f"{selected['kind']}: {selected['id']}")
+    for part in selected["parts"]:
+        print(f"  {part['key']} — {part['method']}, "
+              f"{'recorded installed' if part['installed'] else 'available'}")
+        if part["description"]:
+            print(f"  {part['description']}")
+        if part["entry_point"]:
+            print(f"  Source: {part['entry_point']}")
+    print("next: " + data["next"])
 
 
 def do_list(target: Path, catalog: dict | None = None) -> dict:
@@ -188,92 +288,3 @@ def _settings_view(state: dict) -> dict:
             "artifact": (state.get("guidance_basis") or BASIS_NONE
                          if "guidance_basis" in state else None),
             "guidance_excludes": list(state.get("guidance_excludes") or [])}
-
-
-def _print_settings(view: dict) -> None:
-    """The workspace settings block at the head of `li` (D16c).
-
-    It is printed where a human is already looking at this workspace, and it
-    carries the commands that CHANGE each line — the two verbs that used to
-    exist only to show these three values are gone, and a reader who has to
-    go find the help to change what they are looking at is why.
-    """
-    if not view["recorded"]:
-        print("settings  : none recorded — nothing installed here yet")
-        return
-    print("harnesses : " + (", ".join(view["harnesses"]) or "(none)")
-          + "   (change: rbtv install add|rm harness <h>)")
-    print("artifact  : " + (view["artifact"] or "(unset — no guidance mirror)")
-          + "   (change: rbtv install set artifact <name>)")
-    print("excluded  : " + (", ".join(view["guidance_excludes"]) or "(none)")
-          + "   (change: rbtv install add|rm artifact exclude <dir>)")
-
-
-def print_li(data: dict, *, pretty: bool = False) -> None:
-    print(f"target: {data['target']}  marker: {data['marker']}")
-    _print_settings(data["settings"])
-    print()
-    comps = data["components"]
-    if not comps:
-        print(f"nothing installed by {INSTALLER_NAME}")
-    else:
-        print(f"{'#':<3} {'ST':<5} {'IN':<6} {'COMPONENT':<42} {'TREE':<7} "
-              f"HARNESSES")
-        cids = list(comps)
-        part_no: dict[str, dict[str, int]] = {cid: {} for cid in cids}
-        k = len(cids) + 1
-        for cid, rec in comps.items():
-            for pid in sorted(rec.get("parts") or {}):
-                part_no[cid][pid] = k
-                k += 1
-        for i, cid in enumerate(cids, 1):
-            rec = comps[cid]
-            cat_n = len((set(rec.get("parts") or {})
-                         | set(rec.get("missing") or {}))
-                        - set(rec.get("orphans") or {}))
-            booked = set(rec.get("parts") or {})
-            orph = set(rec.get("orphans") or {})
-            st = rec["status"]
-            if st == "gone":
-                inn = f"{len(booked)}/—"
-            else:
-                inn = f"{len(booked - orph)}/{cat_n}"
-            paint = f"{st:<5}"
-            if pretty and st in ANSI:
-                paint = ANSI[st] + paint + ANSI["reset"]
-            hs = ",".join(rec.get("harnesses") or [])
-            names = ",".join(sorted(booked))
-            if pretty:
-                print(f"{i:<3} {paint} {inn:<6} {cid:<42} "
-                      f"{rec.get('tree', ''):<7} {hs}")
-                for pid, part in sorted((rec.get("parts") or {}).items()):
-                    if not isinstance(part, dict):
-                        continue
-                    print(f"    {part_no[cid][pid]:<3} {pid:<22} "
-                          f"{part.get('method', '')}")
-            else:
-                print(f"{i:<3} {paint} {inn:<6} {cid:<42} "
-                      f"{rec.get('tree', ''):<7} {hs}")
-            miss = rec.get("missing") or []
-            orph_l = rec.get("orphans") or []
-            if st == "part" or miss or orph_l:
-                extra = []
-                if miss:
-                    extra.append("out: " + ", ".join(miss))
-                if orph_l:
-                    extra.append("orphan: " + ", ".join(orph_l))
-                if extra:
-                    print("        " + " · ".join(extra))
-    def _section(label: str, items: list[str]) -> None:
-        """Owned outside our own files — the only place a human sees it."""
-        if not items:
-            print(f"\n{label}: (none)")
-            return
-        print(f"\n{label}:")
-        for it in items:
-            print(f"  {it}")
-
-    _section("guidance files written", data["guidance_files"])
-    _section("keys held in shared config files", data["shared_claims"])
-    _section("commands linked onto PATH",
-             [p["name"] for p in data["path_links"]])

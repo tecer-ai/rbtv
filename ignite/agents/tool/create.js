@@ -2,11 +2,11 @@
 
 // API — ignite-agent create. run(argv, flags, deps) → Promise<exit code>.
 // flags.workspace / flags.json come from cli.js parseGlobal. deps.slack stubs Slack.
-// deps.install(id, home, args) stubs `rbtv install add`. deps.validateLaunch stubs cast.
+// deps.install(ids, home, args) stubs `rbtv install add`. deps.resolveSkill stubs `rbtv install show`.
 // deps.afterChannel() runs after the channel id is saved and before the route write.
 // Effort is stored as the rung word validateLaunch returns, never a number string.
-// Skill installs are part keys only (`module/component#part`), never --write-path.
-// Skill ids resolve through the installer's catalog (repo + workspace mirror), not a local copy.
+// Skill installs use canonical part keys (`module/component#part`), never --write-path.
+// Skill ids resolve through the installer's public show command (repo + workspace mirror).
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -22,6 +22,7 @@ const { validateLaunch, applySetting } = require('./cli.js');
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const CHANNEL = /^[a-z0-9][a-z0-9_-]{0,79}$/;
 const INSTALLER = path.resolve(__dirname, '../../../meta/installer');
+const INSTALLER_ENTRY = path.join(INSTALLER, 'install.py');
 const BOARD_ROOT = 'board';
 
 const HELP = `ignite-agent create — create or remove a primary-agent home
@@ -44,8 +45,8 @@ create --workspace <path> --slug <slug> --purpose-file <file>
   Slack (omit with --dm): create the channel, bot joins, owner is invited,
   routes[channelId] = slug written atomically. Re-running the same slug
   reuses a channel id already saved or already routed.
-  Skills: template defaults plus --skill, each as module/component#part,
-  installed with --artifact none and no path links.
+  Skills: template defaults plus --skill; short names or module/component#part,
+  installed with --guidance none and no path links.
   Schedule: only when --schedule-json has an explicit cadence and timezone.
   --dry-run validates and prints the plan, including the instruction diff. It writes nothing.
   Re-running the same slug rewrites CLAUDE.md and AGENTS.md from the current
@@ -134,54 +135,27 @@ function defaultSkills() {
   return fs.readFileSync(file, 'utf8').split('\n').map((line) => line.trim()).filter((line) => line && !line.startsWith('#'));
 }
 
-function skillPart(id) {
-  const hash = id.indexOf('#');
-  if (hash < 1 || hash !== id.lastIndexOf('#') || hash === id.length - 1) {
-    fail(`skill id must be module/component#part: ${id}`);
-  }
-  const cid = id.slice(0, hash);
-  const pid = id.slice(hash + 1);
-  const slash = cid.indexOf('/');
-  if (slash < 1 || slash !== cid.lastIndexOf('/') || slash === cid.length - 1) {
-    fail(`skill id must be module/component#part: ${id}`);
-  }
-  return { cid, pid, mod: cid.slice(0, slash), comp: cid.slice(slash + 1) };
+function installerCommand(args) {
+  const python = process.platform === 'win32' ? 'python' : 'python3';
+  return spawnSync(python, [INSTALLER_ENTRY, ...args], { encoding: 'utf8' });
 }
 
-function catalogKeys(workspace, deps) {
-  if (deps._catalog) return deps._catalog;
-  const script = [
-    'import json, sys',
-    'from pathlib import Path',
-    'sys.path.insert(0, sys.argv[1])',
-    'from discovery import scan_all',
-    'from lib.selection import iter_catalog_parts',
-    'from lib.constants import REPO_ROOT',
-    'catalog, _shadowed = scan_all(Path(sys.argv[2]) / ".rbtv" / "mirror", REPO_ROOT)',
-    'print(json.dumps(sorted({p["key"] for p in iter_catalog_parts(catalog)})))',
-  ].join('\n');
-  const res = spawnSync('python3', ['-c', script, INSTALLER, workspace], { encoding: 'utf8' });
-  if (res.error) fail(`installer catalog failed: ${res.error.message}`);
-  if (res.status !== 0) fail(`installer catalog failed: ${(res.stderr || res.stdout || 'scan failed').trim()}`);
-  let keys;
+function resolveSkill(id, deps, workspace) {
+  if (deps.resolveSkill) return deps.resolveSkill(id, workspace);
+  const res = installerCommand(['show', id, '--kind', 'skill', '--json', '--target', workspace]);
+  if (res.error) fail(`installer resolver failed: ${res.error.message}`);
+  let body;
   try {
-    keys = JSON.parse(res.stdout);
-  } catch (error) {
-    fail(`installer catalog did not return JSON: ${error.message}`);
+    body = JSON.parse(res.stdout);
+  } catch {
+    fail(`installer resolver did not return JSON: ${(res.stderr || res.stdout || 'empty result').trim()}`);
   }
-  if (!Array.isArray(keys)) fail('installer catalog did not return a list');
-  deps._catalog = new Set(keys);
-  return deps._catalog;
-}
-
-function assertSkill(id, deps, workspace) {
-  const parsed = skillPart(id);
-  if (deps.skillExists) {
-    if (!deps.skillExists(id)) fail(`unknown skill: ${id}`);
-    return parsed;
+  if (res.status !== 0 || !body.ok) fail(`unknown skill: ${id}: ${body.refusal?.message || 'resolution failed'}`);
+  const selection = body.selection;
+  if (selection?.kind !== 'part' || selection.method !== 'skill' || typeof selection.id !== 'string') {
+    fail(`skill name must select one skill part: ${id}`);
   }
-  if (!catalogKeys(workspace, deps).has(id)) fail(`unknown skill: ${id}`);
-  return parsed;
+  return selection.id;
 }
 
 function launchFrom(config, opts, deps) {
@@ -293,9 +267,12 @@ function unified(name, before, after) {
     const right = path.join(dir, 'next');
     fs.writeFileSync(left, before);
     fs.writeFileSync(right, after);
-    const res = spawnSync('diff', ['-u', '--label', name, '--label', `${name} (template)`, left, right], { encoding: 'utf8' });
+    const res = spawnSync('git', ['diff', '--no-index', '--', left, right], { encoding: 'utf8' });
     if (res.status === 0) return '';
-    if (res.status === 1) return res.stdout.endsWith('\n') ? res.stdout : `${res.stdout}\n`;
+    if (res.status === 1) {
+      const output = res.stdout.replaceAll(left, name).replaceAll(right, `${name} (template)`);
+      return output.endsWith('\n') ? output : `${output}\n`;
+    }
     fail(`diff failed: ${(res.stderr || res.error?.message || 'unknown').trim()}`);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -371,7 +348,7 @@ function writeBoard(home, schedule) {
     `- report: ${schedule.report}`,
     '',
   ].join('\n');
-  const next = text.replace(/## Recurring checks\n\n[\s\S]*?\n\n## Open work/, `${block}\n## Open work`);
+  const next = text.replace(/## Recurring checks\r?\n\r?\n[\s\S]*?\r?\n\r?\n## Open work/, `${block}\n## Open work`);
   if (next === text) fail('board template has no recurring-checks section');
   fs.writeFileSync(file, next);
 }
@@ -388,32 +365,27 @@ function slackClient(config, deps) {
 }
 
 async function installSkills(home, skills, deps) {
-  const errors = [];
-  let booked = fs.existsSync(path.join(home, '.rbtv', 'config', 'install.json'));
-  for (const id of skills) {
-    const first = !booked;
-    const args = ['install', 'add', '-c', id, '--target', home];
-    if (first) args.push('--harness', 'claude,codex,opencode', '--artifact', 'none');
-    try {
-      if (deps.install) await deps.install(id, home, args);
-      else {
-        const cmd = deps.installer || 'rbtv';
-        const res = spawnSync(cmd, args, { encoding: 'utf8' });
-        if (res.error) throw new Error(res.error.message);
-        if (res.status !== 0) throw new Error((res.stderr || res.stdout || 'install failed').trim());
-      }
-      booked = true;
-    } catch (error) {
-      errors.push(`${id}: ${error.message}`);
-    }
+  const args = ['add', ...skills, '--target', home];
+  if (!fs.existsSync(path.join(home, '.rbtv', 'config', 'install.json'))) {
+    args.push('--harness', 'claude,codex,opencode', '--guidance', 'none');
   }
-  return errors;
+  try {
+    if (deps.install) await deps.install(skills, home, args);
+    else {
+      const res = installerCommand(args);
+      if (res.error) throw new Error(res.error.message);
+      if (res.status !== 0) throw new Error((res.stderr || res.stdout || 'install failed').trim());
+    }
+    return [];
+  } catch (error) {
+    return [`${skills.join(', ')}: ${error.message}`];
+  }
 }
 
 function loaderMissing(home, skills) {
   const missing = [];
   for (const id of skills) {
-    const { pid } = skillPart(id);
+    const pid = id.slice(id.lastIndexOf('#') + 1);
     for (const rel of [path.join('.claude', 'skills', pid, 'SKILL.md'), path.join('.agents', 'skills', pid, 'SKILL.md')]) {
       if (!fs.existsSync(path.join(home, rel))) missing.push(rel);
     }
@@ -461,8 +433,7 @@ function validateCreate(opts, flags, deps) {
     if (!fs.existsSync(abs)) fail(`reference path not found: ${item}`);
     return abs;
   });
-  const skills = [...new Set([...defaultSkills(), ...opts.skill])];
-  for (const id of skills) assertSkill(id, deps, workspace);
+  const skills = [...new Set([...defaultSkills(), ...opts.skill].map((id) => resolveSkill(id, deps, workspace)))];
   const launch = launchFrom(config, opts, deps);
   const now = deps.now ? deps.now() : Date.now();
   const schedule = opts['schedule-json'] ? scheduleFrom(opts['schedule-json'], now) : null;

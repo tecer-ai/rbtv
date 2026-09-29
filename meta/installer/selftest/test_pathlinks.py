@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import os
+import json
 import sys
+import threading
 from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -19,6 +21,8 @@ from lib.constants import (
 )
 from lib.pathlinks import (bin_dir, gate_path_links, link_path,
                            link_points_at, unlink_one)
+from lib.locks import mutation_lock
+from lib.shared_links import owner_file
 from lib import pathlinks
 from lib.state import read_state
 from lib.operations import do_install, do_uninstall
@@ -132,6 +136,73 @@ def path_links(ctx) -> None:
           and not twin.exists()
           and bin_dir().is_dir(),
           str(list(bin_dir().iterdir()) if bin_dir().is_dir() else None))
+
+    baseline_links = (set(json.loads(owner_file(bin_dir()).read_text(
+        encoding="utf-8"))["links"])
+        if owner_file(bin_dir()).is_file() else set())
+    left, right = tmp / "ws-path-left", tmp / "ws-path-right"
+    left.mkdir()
+    right.mkdir()
+    do_install(left, lcat, ["lmod/ladd"], ["claude"], dry_run=False)
+    do_install(right, lcat, ["lmod/ladd"], ["claude"], dry_run=False)
+    owners = json.loads(owner_file(bin_dir()).read_text(encoding="utf-8"))
+    check("L-shared — two workspaces register one shortcut",
+          set(owners["links"]["ladd-bin"]["owners"])
+          == {str(left.resolve()), str(right.resolve())})
+    left_rm = do_uninstall(left, lcat, ["lmod/ladd"], dry_run=False)
+    check("L-shared — first removal preserves the last owner's shortcut",
+          link_points_at(link_path(bin_dir(), "ladd-bin"),
+                         (lsrc / "lmod/ladd/impl.py").resolve())
+          and "ladd-bin" in left_rm["report"]["path"]["kept_shared"])
+    do_uninstall(right, lcat, ["lmod/ladd"], dry_run=False)
+    owners_after = json.loads(owner_file(bin_dir()).read_text(encoding="utf-8"))
+    check("L-shared — last removal deletes only its shortcut ownership",
+          not link_path(bin_dir(), "ladd-bin").exists()
+          and "ladd-bin" not in owners_after["links"]
+          and set(owners_after["links"]) == baseline_links,
+          str(owners_after["links"]))
+
+    conflict_src = tmp / "path-conflict-src"
+    conflict_ws = tmp / "path-conflict-ws"
+    conflict_ws.mkdir()
+    conflict_cat = _lcomp(conflict_src, "other", "tool", "ladd-bin",
+                          "other.py", "other\n")
+    do_install(left, lcat, ["lmod/ladd"], ["claude"], dry_run=False)
+    try:
+        do_install(conflict_ws, conflict_cat, ["other/tool"], ["claude"],
+                   dry_run=False)
+        conflict_code = "no refusal"
+    except Refuse as exc:
+        conflict_code = exc.code
+    check("L-shared-conflict — another workspace cannot replace a live shortcut",
+          conflict_code == "path-owner-conflict"
+          and not (conflict_ws / STATE_REL).exists(), conflict_code)
+    do_uninstall(left, lcat, ["lmod/ladd"], dry_run=False)
+
+    owner_path = owner_file(bin_dir())
+    owner_path.parent.mkdir(parents=True, exist_ok=True)
+    owner_path.write_text("not json", encoding="utf-8")
+    corrupt_ws = tmp / "ws-path-corrupt"
+    corrupt_ws.mkdir()
+    try:
+        do_install(corrupt_ws, lcat, ["lmod/ladd"], ["claude"], dry_run=False)
+        corrupt_code = "no refusal"
+    except Refuse as exc:
+        corrupt_code = exc.code
+    check("L-owner-book-corrupt — refusal precedes target writes",
+          corrupt_code == "path-owners-unreadable"
+          and not (corrupt_ws / STATE_REL).exists(), corrupt_code)
+    owner_path.unlink()
+
+    warn_ws = tmp / "ws-path-warning"
+    warn_ws.mkdir()
+    with patch("lib.operations._write_shell_path", side_effect=PermissionError("denied")):
+        warned = do_install(warn_ws, lcat, ["lmod/ladd"], ["claude"], dry_run=False)
+    check("L-path-warning — PATH persistence failure keeps a successful install",
+          (warn_ws / STATE_REL).is_file()
+          and warned["report"].get("path_warning", {}).get("code")
+          == "path-persist-failed")
+    do_uninstall(warn_ws, lcat, ["lmod/ladd"], dry_run=False)
 
     cws = tmp / "ws-path-coll"
     cws.mkdir()
@@ -276,6 +347,51 @@ def path_links(ctx) -> None:
     check("L-profile-survives-rm — full rm keeps the fenced block",
           PATH_FENCE_START in rc_after
           and PATH_BOOTSTRAP in rc_after)
+
+    isolated_bin = tmp / "skill-only" / "bin"
+    isolated_owner = owner_file(isolated_bin)
+    isolated_owner.parent.mkdir(parents=True)
+    isolated_owner.write_text("{broken", encoding="utf-8")
+    saved_bin = _RUNTIME["bin"]
+    _RUNTIME["bin"] = isolated_bin
+    skill_ws = tmp / "ws-skill-only"
+    skill_ws.mkdir()
+    try:
+        skill = do_install(skill_ws, catalog, ["fixmod/goodcomp"],
+                           ["claude"], dry_run=False, parts=["fixskill"])
+        do_uninstall(skill_ws, catalog, ["fixmod/goodcomp"], dry_run=False,
+                     parts=["fixskill"])
+        skill_ok = (skill["report"]["path"]["linked"] == []
+                    and isolated_owner.read_text(encoding="utf-8") == "{broken")
+    except Refuse as exc:
+        skill_ok = False
+        skill_detail = exc.code
+    else:
+        skill_detail = "installed and removed without reading ownership record"
+    finally:
+        _RUNTIME["bin"] = saved_bin
+    check("L-skill-only — no PATH records leave corrupt machine ownership alone",
+          skill_ok, skill_detail)
+
+    busy_path = tmp / "lock-contention" / "installer.lock"
+    entered, release = threading.Event(), threading.Event()
+    def _hold_lock() -> None:
+        with mutation_lock(busy_path, timeout=1):
+            entered.set()
+            release.wait(2)
+    holder = threading.Thread(target=_hold_lock)
+    holder.start()
+    entered.wait(1)
+    try:
+        with mutation_lock(busy_path, timeout=0.1):
+            busy_code = "no refusal"
+    except Refuse as exc:
+        busy_code = exc.code
+    finally:
+        release.set()
+        holder.join(2)
+    check("L-lock-contention — a concurrent mutation refuses before effects",
+          busy_code == "mutation-busy" and not holder.is_alive(), busy_code)
 
     key = MagicMock()
     key.__enter__.return_value = key

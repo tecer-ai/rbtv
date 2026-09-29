@@ -13,7 +13,7 @@ from lib.state import read_state
 from lib.operations import do_install
 from lib.listing import _settings_view
 from lib.parser import SETTING_VERB, build_parser
-from lib.commands import _HANDLERS, cmd_li
+from lib.commands import _HANDLERS, cmd_li, cmd_status
 
 
 def workspace_settings(ctx) -> None:
@@ -44,16 +44,16 @@ def workspace_settings(ctx) -> None:
                 return exc.code, exc.message
 
     w = _mkws("ws-d16")
-    check("W1 — a first add with no --harness refuses, and writes nothing",
-          _run(w, ["add", "-c", "fixmod/goodcomp"]) == "harness-required"
+    check("W1 — a first add needs both workspace settings, and writes nothing",
+          _run(w, ["add", "-c", "fixmod/goodcomp"]) == "setup-required"
           and not (w / STATE_REL).exists())
-    check("W2 — a first add with no --artifact refuses too",
+    check("W2 — a first add with no --guidance refuses too",
           _run(w, ["add", "-c", "fixmod/goodcomp",
-                   "--harness", "claude"]) == "artifact-required"
+                   "--harness", "claude"]) == "setup-required"
           and not (w / STATE_REL).exists())
     check("W3 — with both, the first add records them at TOP LEVEL",
           _run(w, ["add", "-c", "fixmod/goodcomp", "--harness",
-                   "claude,codex", "--artifact", "CLAUDE.md"]) == 0
+                   "claude,codex", "--guidance", "CLAUDE.md"]) == 0
           and read_state(w)["harnesses"] == ["claude", "codex"]
           and read_state(w)["guidance_basis"] == "CLAUDE.md",
           str(read_state(w).get("harnesses")))
@@ -69,7 +69,7 @@ def workspace_settings(ctx) -> None:
     w7 = _run_msg(w, ["add", "-c", "fixmod/goodcomp",
                       "--harness", "claude"])
     check("W7 — the refusal names the verb that DOES change it",
-          SETTING_VERB["harness"] in w7[1], w7[1])
+          "set --harness" in w7[1] and "--target" in w7[1], w7[1])
     check("W8 — a later add with NO flags inherits the recorded set",
           _run(w, ["add", "-c", "fixmod/codexcomp"]) == 0
           and read_state(w)["components"]["fixmod/codexcomp"]["harnesses"]
@@ -156,36 +156,39 @@ def workspace_settings(ctx) -> None:
           _run(w, ["rm", "artifact", "exclude", "skipme"])
           == "exclude-unknown")
 
-    # D16c — the settings are READ in `li`, and the two verbs that used
-    # to print them are gone from the menu.
+    # `status` owns workspace settings; `li` is an exact installed-list alias.
     _lib = io.StringIO()
     with contextlib.redirect_stdout(_lib):
-        _rc_li = cmd_li(build_parser().parse_args(["li"]), w, catalog, [])
+        _rc_li = cmd_status(build_parser().parse_args(["status"]), w, catalog, [])
     _litext = _lib.getvalue()
-    check("W21 — `li` heads its listing with all three settings",
+    check("W21 — `status` shows all three settings",
           _rc_li == 0
           and "claude, codex" in _litext
-          and "artifact  :" in _litext and "excluded  :" in _litext,
+          and "Guidance:" in _litext and "Excluded guidance folders:" in _litext,
           _litext[:300])
-    check("W21b — and names the command that changes each one, so a "
-          "reader never has to go find the help",
-          "add|rm harness" in _litext
-          and "set artifact" in _litext
-          and "add|rm artifact exclude" in _litext,
+    check("W21b — status provides the next inventory and health commands",
+          "list --installed" in _litext and "doctor --target" in _litext,
           _litext[:400])
     _lij = io.StringIO()
     with contextlib.redirect_stdout(_lij):
-        cmd_li(build_parser().parse_args(["li", "--json"]), w, catalog, [])
-    check("W21c — and they ride --json, so nothing that parsed the "
-          "retired verbs loses the values",
+        cmd_status(build_parser().parse_args(["status", "--json"]), w, catalog, [])
+    check("W21c — settings ride status --json",
           json.loads(_lij.getvalue())["settings"]
           == _settings_view(read_state(w)),
           str(json.loads(_lij.getvalue()).get("settings")))
+    _li, _list = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(_li):
+        cmd_li(build_parser().parse_args(["li", "--json"]), w, catalog, [])
+    with contextlib.redirect_stdout(_list):
+        _HANDLERS["list"](build_parser().parse_args(
+            ["list", "--installed", "--json"]), w, catalog, [])
+    check("W21g — li and list --installed have identical JSON",
+          json.loads(_li.getvalue()) == json.loads(_list.getvalue()))
     for _gone in ("harness", "artifact"):
         _c, _m = _run_msg(w, [_gone])
         check(f"W21d — bare `{_gone}` is retired and sends the reader "
-              "to `li`",
-              _c == "verb-moved" and "rbtv install li" in _m,
+              "to the new command",
+              _c == "verb-moved" and "rbtv install" in _m,
               f"{_c}: {_m}")
     # HIDDEN, not merely undocumented: a menu that still lists them has
     # not actually shrunk, which is the whole ask.
@@ -199,9 +202,11 @@ def workspace_settings(ctx) -> None:
     check("W21e — neither is a verb ENTRY in the menu any more",
           not ({"harness", "artifact"} & _menu_verbs),
           str(sorted(_menu_verbs)))
-    check("W21f — and the menu still lists every verb that DOES act, so "
-          "the trim removed exactly two entries",
-          {"add", "rm", "set", "ls", "li", "doctor"} <= _menu_verbs,
+    check("W21f — the menu leads with canonical commands; aliases stay in the footer",
+          {"add", "remove", "set", "list", "show", "status", "doctor"} <= _menu_verbs
+          and not ({"rm", "ls", "li"} & _menu_verbs)
+          and "ls = list; li = list --installed; rm = remove"
+          in build_parser().format_help(),
           str(sorted(_menu_verbs)))
 
     # D16b — the ACTION word leads. Every arm below is about SPELLING;
@@ -236,14 +241,14 @@ def workspace_settings(ctx) -> None:
           _run_msg(w, ["set"])[0] == "noun-missing")
     check("W28 — a noun that names no setting refuses, never guessing "
           "it is a component",
-          _run(w, ["add", "sub-agents"]) == "noun-unknown")
+          _run(w, ["add", "sub-agents"]) == "name-unknown")
     check("W29 — the basis is a SET, and `add`/`rm` say so rather than "
           "silently replacing it",
           _run(w, ["add", "artifact", "CLAUDE.md"])
           == "setting-wrong-verb"
           and _run(w, ["rm", "artifact", "CLAUDE.md"])
           == "setting-wrong-verb")
-    check("W30 — the harness set is MANY values, and `set` says so",
+    check("W30 — legacy set harness spelling directs to the flag",
           _run(w, ["set", "harness", "codex"]) == "setting-wrong-verb")
     check("W31 — a settings noun mixed with component selectors refuses; "
           "neither half is applied",
@@ -263,9 +268,8 @@ def workspace_settings(ctx) -> None:
           and _run(w2, ["dupe-artifacts"]) == "workspace-unrecorded")
     _w2li = io.StringIO()
     with contextlib.redirect_stdout(_w2li):
-        _rc2 = cmd_li(build_parser().parse_args(["li"]), w2, catalog, [])
-    check("W22b — and `li` on that workspace SAYS nothing is recorded "
-          "rather than printing an empty settings block",
+        _rc2 = cmd_status(build_parser().parse_args(["status"]), w2, catalog, [])
+    check("W22b — status on that workspace says nothing is recorded",
           _rc2 == 0 and "none recorded" in _w2li.getvalue(),
           _w2li.getvalue()[:200])
 

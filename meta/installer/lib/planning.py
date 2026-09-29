@@ -23,9 +23,11 @@ from .content import (
     _opencode_mcp_entry,
 )
 from .state import _wanted_parts
+from .recovery import vanished_component_message
 
 
-def plan_files(records: dict[str, dict], catalog: dict[str, dict]
+def plan_files(records: dict[str, dict], catalog: dict[str, dict],
+               target: Path | None = None
                ) -> tuple[dict[str, str], dict[str, list], list[dict], dict]:
     """The COMPLETE set of whole files AND shared-file claims the installed set
     implies (D7). Every gate fires here, before any write — a refusal leaves
@@ -107,12 +109,7 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict]
         if comp is None:
             raise Refuse(
                 "component-vanished",
-                f"component {cid!r} is recorded as installed but no longer "
-                f"exists under {rec.get('tree_root')!r} (renamed or deleted "
-                "upstream). Every run at this target refuses until the book "
-                "agrees with the trees. Recover with EITHER: restore the "
-                f"folder; or `uninstall --component {cid}`, which needs no "
-                "tree — the book holds its files",
+                vanished_component_message(cid, rec.get("tree_root"), target),
                 str(rec.get("tree_root", "")))
         comp_dir = Path(comp["path"])
         harnesses = [h for h in HARNESSES if h in rec["harnesses"]]

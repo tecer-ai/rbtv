@@ -15,14 +15,27 @@ from .constants import (
     FENCE_ID,
     GUIDANCE_NAMES,
     HARNESSES,
+    PATH_FENCE_END,
+    PATH_FENCE_START,
     SCHEMA,
     STATE_REL,
     VERSION,
+    _RUNTIME,
 )
 from .catalog import catalog_parts_map, is_installable
 from .claims import _claim_id, _fence, _jget
 from .content import _is_ours
-from .pathlinks import bin_dir, booked_path_names, link_name, local_bin
+from .pathlinks import (
+    _owned,
+    _shim_target,
+    bin_dir,
+    booked_path_names,
+    link_name,
+    link_path,
+    local_bin,
+    shell_profiles,
+)
+from .shared_links import path_ownership_status
 from .state import (
     installed_harnesses,
     known_claims,
@@ -33,6 +46,7 @@ from .state import (
 from .planning import plan_files
 from .selection import iter_catalog_parts
 from .operations import _add_gitignore, _add_mirror, _select_parts
+from .recovery import shell_quote
 
 
 def booked_links(state: dict) -> set[str]:
@@ -89,26 +103,80 @@ def collect_collisions(target: Path, files: dict, claims: list,
     return hits
 
 
-def inspect_bindir(bindir: Path, booked: set[str],
-                   desired: set[str]) -> dict:
-    out = {"unbooked": [], "collision": [], "not_exec": []}
+def inspect_bindir(bindir: Path, booked: set[str], desired: set[str],
+                   registered: set[str]) -> dict:
+    out = {"unbooked": [], "collision": [], "not_exec": [],
+           "legacy": []}
     if not bindir.is_dir():
         return out
-    names = {p.name for p in bindir.iterdir()}
-    out["unbooked"] = sorted(names - booked)
+    for path in bindir.iterdir():
+        # A Windows shortcut has both `name.cmd` and its bash twin `name`.
+        # The twin belongs to a managed .cmd shim, so it is not an unbooked
+        # file in its own right.
+        if os.name == "nt" and path.suffix.lower() != ".cmd" and \
+                _owned(link_path(bindir, path.name)):
+            continue
+        name = path.stem if os.name == "nt" and \
+            path.suffix.lower() == ".cmd" else path.name
+        if name in booked or name in registered:
+            continue
+        if _owned(path):
+            out["legacy"].append(path.name)
+        else:
+            out["unbooked"].append(path.name)
     for name in sorted(desired):
-        p = bindir / name
-        if p.exists() and not p.is_symlink():
+        p = link_path(bindir, name)
+        if (p.exists() or p.is_symlink()) and not _owned(p):
             out["collision"].append(str(p))
             continue
-        if p.is_symlink():
+        if _owned(p):
             try:
-                dest = p.resolve()
+                dest = _shim_target(p) or p.resolve()
             except OSError:
                 dest = p
-            if dest.is_file() and not os.access(dest, os.X_OK):
+            if os.name != "nt" and dest.is_file() and not os.access(dest, os.X_OK):
                 out["not_exec"].append(f"{name} → {dest}")
+    out["unbooked"].sort()
+    out["legacy"].sort()
     return out
+
+
+def _same_path(left: Path, right: Path) -> bool:
+    try:
+        return left.resolve() == right.resolve()
+    except OSError:
+        return left == right
+
+
+def _persistent_path_status(bindir: Path) -> tuple[bool | None, str | None]:
+    """Whether setup persists beyond this process; None means unreadable."""
+    if os.name == "nt" and _RUNTIME.get("rc") is None:
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0,
+                                winreg.KEY_READ) as key:
+                raw = winreg.QueryValueEx(key, "Path")[0]
+        except FileNotFoundError:
+            return False, None
+        except OSError as exc:
+            return None, str(exc)
+        entries = (Path(os.path.expandvars(part)).expanduser()
+                   for part in str(raw).split(";") if part)
+        return any(_same_path(entry, bindir) for entry in entries), None
+    for profile in shell_profiles():
+        try:
+            text = profile.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            return None, f"cannot read {profile}: {exc}"
+        if PATH_FENCE_START in text and PATH_FENCE_END in text:
+            return True, None
+    return False, None
+
+
+def _quote_target(target: Path) -> str:
+    return shell_quote(target)
 
 
 def shadows(bindir: Path, booked: set[str]) -> list[str]:
@@ -185,7 +253,7 @@ def _probe_add_collisions(target: Path, catalog: dict,
             if "files" in existing:
                 rec["files"] = list(existing["files"])
             records[cid] = rec
-        files, owners, claims, report = plan_files(records, catalog)
+        files, owners, claims, report = plan_files(records, catalog, target)
         _add_mirror(target, state, files, owners, report, None,
                     installed_harnesses(records))
         _add_gitignore(target, owners, claims, report, known_files(state))
@@ -217,7 +285,7 @@ def do_doctor(target: Path, why: str, catalog: dict, shadowed: list,
             checks.append(_check(
                 "book", "ok",
                 f"schema {state.get('schema')} · {n} components"))
-        except (ValueError, OSError, json.JSONDecodeError) as exc:
+        except (ValueError, OSError, json.JSONDecodeError, Refuse) as exc:
             checks.append(_check("book", "fail", f"unreadable: {exc}"))
             state = {"schema": SCHEMA, "components": {}}
 
@@ -247,9 +315,22 @@ def do_doctor(target: Path, why: str, catalog: dict, shadowed: list,
     bidx = _path_index(bindir)
     lidx = _path_index(local_bin())
     if bidx < 0:
+        persisted, persistent_error = _persistent_path_status(bindir)
+        if persisted:
+            detail = ("not on current PATH; persistent user PATH setup exists — "
+                      "open a new terminal")
+        elif persistent_error:
+            detail = ("not on current PATH; could not read persistent PATH "
+                      f"setup: {persistent_error}")
+        elif os.name == "nt":
+            detail = ("not on current PATH or persistent user PATH — rerun an "
+                      "install containing a PATH tool where user PATH writes "
+                      "are permitted")
+        else:
+            detail = ("not on current PATH or shell profile — rerun an install "
+                      "containing a PATH tool, then open a new shell")
         checks.append(_check(
-            "bin-on-path", "warn",
-            f'not on PATH — add once: export PATH="$HOME/.rbtv/bin:$PATH"'))
+            "bin-on-path", "warn", detail))
     elif lidx >= 0 and lidx < bidx:
         checks.append(_check(
             "bin-on-path", "warn",
@@ -266,13 +347,44 @@ def do_doctor(target: Path, why: str, catalog: dict, shadowed: list,
 
     booked = booked_links(state)
     desired = _desired_path_names(catalog, booked)
+    ownership = None
+    try:
+        ownership = path_ownership_status(bindir)
+    except Refuse as exc:
+        checks.append(_check("path-ownership", "fail",
+                             f"unreadable: {exc}"))
     sh = shadows(bindir, booked)
     if sh:
         checks.append(_check("local-bin-shadow", "warn", ", ".join(sh)))
     else:
         checks.append(_check("local-bin-shadow", "ok", "none"))
 
-    insp = inspect_bindir(bindir, booked, desired)
+    registered = set((ownership or {}).get("names") or [])
+    insp = inspect_bindir(bindir, booked, desired, registered)
+    if ownership is not None:
+        missing = sorted({Path(owner) for row in ownership["orphaned"]
+                          for owner in row["owners"]}, key=str)
+        if missing:
+            commands = "; ".join(
+                "rbtv install remove --all --yes --target "
+                + _quote_target(owner) for owner in missing)
+            checks.append(_check(
+                "path-ownership", "warn",
+                "orphaned workspace owner(s): " + ", ".join(map(str, missing))
+                + "; cleanup: " + commands))
+        elif ownership["unreadable"]:
+            detail = "; ".join(
+                f"{row['owner']}: {row['error']}" for row in ownership["unreadable"])
+            checks.append(_check("path-ownership", "warn",
+                                 "owner path could not be checked: " + detail))
+        elif insp["legacy"]:
+            checks.append(_check(
+                "path-ownership", "warn",
+                "unregistered managed shortcut(s) preserved: "
+                + ", ".join(insp["legacy"])))
+        else:
+            checks.append(_check("path-ownership", "ok",
+                                 f"{ownership['links']} registered shortcut(s)"))
     if not bindir.is_dir():
         checks.append(_check("path-unbooked", "ok", "no directory"))
         checks.append(_check("path-collision", "ok", "no directory"))
@@ -288,8 +400,8 @@ def do_doctor(target: Path, why: str, catalog: dict, shadowed: list,
         if insp["collision"]:
             checks.append(_check(
                 "path-collision", "warn",
-                f"{', '.join(insp['collision'])} exists and is not a "
-                f"symlink — next add refuses"))
+                f"{', '.join(insp['collision'])} exists and is not a managed "
+                f"shortcut — next add refuses"))
         else:
             checks.append(_check("path-collision", "ok", "none"))
         if not desired and not booked:

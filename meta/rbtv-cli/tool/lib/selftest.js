@@ -27,7 +27,7 @@ const { spawnSync } = require('child_process');
 
 const catalog = require('./catalog');
 const verbs = require('./verbs');
-const { delegate, buildDelegateArgs } = require('./delegate');
+const { delegate, buildDelegateArgs, winShebang } = require('./delegate');
 const { suggest, blurb } = require('./render');
 
 const RBTV_BIN = path.join(__dirname, '..', 'rbtv');
@@ -105,7 +105,7 @@ const CHECKS = [
   ['teambuild delegates to the retained browse and answers -h', () => {
     const route = verbs.matchRoute(['teambuild']);
     if (!route || route.exec !== 'direct') throw new Error('teambuild is not a built delegation');
-    if (!/teambuild\/tool\/rbtv-teambuild$/.test(route.target || '')) {
+    if (route.target !== path.join(catalog.RBTV_ROOT, 'ignite', 'teambuild', 'tool', 'rbtv-teambuild')) {
       throw new Error(`teambuild delegates to ${route.target}`);
     }
     const r = runCli(['teambuild', '-h']);
@@ -139,7 +139,10 @@ const CHECKS = [
     // this report while the direct call still proves the bytes are unaltered.
     const { file, cleanup } = throwaway(`#!/bin/sh\n[ -n "$SHOW" ] && printf '%s\\n' '${payload}'\nexit 0\n`);
     try {
-      const r = spawnSync(file, [], { encoding: 'utf8', env: { ...process.env, SHOW: '1' } });
+      const interp = winShebang(file);
+      const r = spawnSync(interp || file, interp ? [file.replace(/\\/g, '/')] : [], {
+        encoding: 'utf8', env: { ...process.env, SHOW: '1' },
+      });
       if (r.status !== 0) throw new Error(`fixture itself exited ${r.status}`);
       const res = delegate({ prefix: ['fake'], target: file, exec: 'direct' }, []);
       if (res.status !== 0) {
@@ -305,7 +308,9 @@ const CHECKS = [
     if (r.status !== 1) throw new Error(`expected refusal exit 1, got ${r.status}`);
     if (/INTERNAL:|at Module\._compile/.test(r.stderr)) throw new Error('a stack trace reached the caller');
     if (!/RBTV_ROOT=/.test(r.stderr)) throw new Error('the refusal does not name the override that fixes it');
-    if (!/\/nonexistent-rbtv-root/.test(r.stderr)) throw new Error('the refusal does not name the root it resolved');
+    if (!r.stderr.includes(path.resolve('/nonexistent-rbtv-root'))) {
+      throw new Error('the refusal does not name the root it resolved');
+    }
   }],
 
   ['blurb truncation never emits a partial escape or unbounded text', () => {

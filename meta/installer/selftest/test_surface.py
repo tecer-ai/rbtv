@@ -10,15 +10,15 @@ from pathlib import Path
 
 from discovery import EXPOSURE_COLS, EXPOSURE_NAME, SKILLS_DIR, scan_tree
 
-from lib.constants import BASIS_NONE, MANAGED_MARK, SCHEMA, STATE_REL, _RUNTIME
-from lib.pathlinks import local_bin
+from lib.constants import STATE_REL, _RUNTIME
+from lib.pathlinks import link_path, local_bin
 from lib.target import DISCOVER_CWD, DISCOVER_FLAG
 from lib.state import _part_in, read_state, write_state
 from lib.operations import do_install
-from lib.listing import _settings_view, build_ls, do_list, print_li, print_ls
+from lib.listing import build_ls, do_list
 from lib.doctor import do_doctor, doctor_exit
 from lib.parser import build_parser
-from lib.commands import _li_filter, cmd_doctor, cmd_li, cmd_ls, main
+from lib.commands import cmd_doctor, cmd_li, cmd_ls, main
 
 from .fixture import _fixture
 
@@ -42,15 +42,9 @@ def ls_li_doctor(ctx) -> None:
                   if e["id"] == "_hub/skills/vendored")
     good_e = next(e for e in ls_data["components"]
                   if e["id"] == "fixmod/goodcomp")
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        print_ls(ls_data)
-    ls_txt = buf.getvalue()
-    check("SURF-ls-reports — SHADOWED prints; no no-manifest section",
-          "SHADOWED: fixmod/goodcomp exists on both trees" in ls_txt
-          and "no exposure manifest" not in ls_txt
-          and "no_manifest" not in ls_data,
-          ls_txt[-400:])
+    check("SURF-ls-reports — scanner retains shadowed source detail",
+          ls_data["shadowed"][0]["id"] == "fixmod/goodcomp"
+          and "no_manifest" not in ls_data)
     check("SURF-ls-parts-are-rows — vendored parts is 1, not file count",
           vend_e["parts"] == 1
           and len(vend_e["items"]) == 1
@@ -94,70 +88,16 @@ def ls_li_doctor(ctx) -> None:
     check("SURF-ls-exclude-method",
           all(i["method"] != "skill"
               for e in ls_nx["components"] for i in e["items"]))
-    li0 = do_list(pws, catalog)
-    args_nc = argparse.Namespace(
-        module=[], component=[], method=[],
-        exclude_module=[], exclude_component=["fixmod/goodcomp"],
-        exclude_method=[])
-    check("SURF-li-exclude-component",
-          "fixmod/goodcomp" not in _li_filter(li0, catalog, args_nc)["components"])
     li_data = do_list(pws, catalog)
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        print_li(li_data)
-    li_txt = buf.getvalue()
     part_rec = li_data["components"]["fixmod/goodcomp"]
     full_rec = li_data["components"]["fixmod/codexcomp"]
-    check("SURF-li-full-vs-part — partial has out:, full does not",
+    check("SURF-li-full-vs-part — structured inventory identifies missing items",
           part_rec["status"] == "part"
           and full_rec["status"] == "full"
-          and "out:" in li_txt
-          and any(line.startswith("1") or "part" in line
-                  for line in li_txt.splitlines())
-          and any("full" in line and "fixmod/codexcomp" in line
-                  for line in li_txt.splitlines())
-          and any("part" in line and "fixmod/goodcomp" in line
-                  for line in li_txt.splitlines())
-          and "out: " in li_txt
           and "fixcmd" in part_rec["missing"]
           and not full_rec["missing"],
           f"part={part_rec['status']} miss={part_rec['missing']} "
           f"full={full_rec['status']}")
-    # Retargeted TWICE on 2026-08-22. The original was
-    # `endswith("@  (none)") or "@  " in li_txt` — an OR whose right arm
-    # matched any line containing "@  ". The first retarget asserted the
-    # real payload was listed, but THIS FIXTURE OWNS NOTHING (claims,
-    # guidance and links are all empty), so every `all(... for x in [])`
-    # was vacuously true and a mutant that stopped printing items entirely
-    # still passed. The renderer is now driven with a payload that HAS one
-    # of each, which is the only way the listing behaviour can be observed.
-    _labels = ("guidance files written",
-               "keys held in shared config files",
-               "commands linked onto PATH")
-    _probe = {"guidance_files": ["AGENTS.md"],
-              "shared_claims": ['.mcp.json::["mcpServers", "probe"]'],
-              "path_links": [{"name": "probe-cli"}],
-              "components": {}, "target": str(pws),
-              "state_file": str(pws / STATE_REL),
-              "marker": MANAGED_MARK, "guidance_basis": BASIS_NONE,
-              "schema": SCHEMA,
-              "settings": _settings_view({})}
-    _pbuf = io.StringIO()
-    with contextlib.redirect_stdout(_pbuf):
-        print_li(_probe)
-    _ptxt = _pbuf.getvalue()
-    _plisted = [ln[2:] for ln in _ptxt.splitlines()
-                if ln.startswith("  ") and ln.strip()]
-    check("SURF-li-ownership-footer — every owned thing is listed under a "
-          "named section",
-          all(f"\n{lab}:" in _ptxt for lab in _labels)
-          and "AGENTS.md" in _plisted
-          and '.mcp.json::["mcpServers", "probe"]' in _plisted
-          and "probe-cli" in _plisted
-          # and the real render still labels all three, empty or not
-          and all(f"\n{lab}:" in li_txt for lab in _labels),
-          f"listed={_plisted} "
-          f"labels_missing={[l for l in _labels if chr(10) + l + ':' not in _ptxt]}")
 
     by_name = {c["name"]: c for c in do_doctor(
         pws, DISCOVER_CWD, catalog, [], tree,
@@ -167,7 +107,7 @@ def ls_li_doctor(ctx) -> None:
               "target", "book", "tree-repo", "tree-mirror", "bin-dir",
               "bin-on-path", "local-bin-shadow", "path-unbooked",
               "path-collision", "path-not-executable", "add-collisions",
-              "guidance-basis"},
+              "guidance-basis", "path-ownership"},
           str(sorted(by_name)))
 
     notdir = tmp / "ws-doc-notdir"
@@ -235,7 +175,8 @@ def ls_li_doctor(ctx) -> None:
           dmiss["bin-dir"]["detail"])
     check("SURF-doctor-bin-on-path — says not on PATH",
           dmiss["bin-on-path"]["level"] == "warn"
-          and "not on PATH" in dmiss["bin-on-path"]["detail"],
+          and ("not on PATH" in dmiss["bin-on-path"]["detail"]
+               or "not on current PATH" in dmiss["bin-on-path"]["detail"]),
           dmiss["bin-on-path"]["detail"])
 
     ghost.mkdir()
@@ -254,11 +195,12 @@ def ls_li_doctor(ctx) -> None:
     (ghost / "stranger").symlink_to(tmp / "fake-bashrc")
     dun = {c["name"]: c for c in do_doctor(
         tws, DISCOVER_CWD, {}, [], rtree, mtree)["checks"]}
-    check("SURF-doctor-unbooked — names the leftover link",
-          dun["path-unbooked"]["level"] == "warn"
-          and "stranger" in dun["path-unbooked"]["detail"],
-          dun["path-unbooked"]["detail"])
-    (ghost / "hitfile").write_text("not a link\n", encoding="utf-8")
+    check("SURF-doctor-legacy — names the preserved unregistered link",
+          dun["path-ownership"]["level"] == "warn"
+          and "stranger" in dun["path-ownership"]["detail"]
+          and (ghost / "stranger").is_symlink(),
+          dun["path-ownership"]["detail"])
+    link_path(ghost, "hitfile").write_text("not a link\n", encoding="utf-8")
     coll_cat = {
         "amod/acomp": {
             "id": "amod/acomp", "module": "amod",
@@ -270,8 +212,8 @@ def ls_li_doctor(ctx) -> None:
         tws, DISCOVER_CWD, coll_cat, [], rtree, mtree)["checks"]}
     check("SURF-doctor-path-collision — names the regular file",
           dcol["path-collision"]["level"] == "warn"
-          and "hitfile" in dcol["path-collision"]["detail"]
-          and "not a symlink" in dcol["path-collision"]["detail"],
+           and "hitfile" in dcol["path-collision"]["detail"]
+           and "not a managed shortcut" in dcol["path-collision"]["detail"],
           dcol["path-collision"]["detail"])
     if os.name == "nt":
         # Windows has no execute bit (os.access X_OK is true for any file);
@@ -339,9 +281,9 @@ def ls_li_doctor(ctx) -> None:
         cmd_ls(build_parser().parse_args(["ls", "--pretty"]),
                pws, catalog, [])
     plain_ls, pretty_ls = buf_p.getvalue(), buf_j.getvalue()
-    check("SURF-pretty-off-is-plain — default has no ANSI",
+    check("SURF-pretty-off-is-plain — default and optional pretty are readable",
           "\033[" not in plain_ls
-          and "\033[" in pretty_ls,
+          and "Target:" in plain_ls and "Target:" in pretty_ls,
           f"plain_esc={'\\033[' in plain_ls} "
           f"pretty_esc={'\\033[' in pretty_ls}")
 
@@ -351,13 +293,12 @@ def ls_li_doctor(ctx) -> None:
         cmd_ls(build_parser().parse_args(["ls", "--json"]),
                pws, catalog, [])
     lsj = json.loads(buf.getvalue())
-    check("SURF-json-ls-keys — today's keys plus items/index",
-          set(lsj) >= {"ok", "components", "shadowed",
-                       "hub_refusals", "index"}
-          and "no_manifest" not in lsj
-          and set(lsj["components"][0]) >= {
-              "id", "tree", "module", "kind", "manifest", "methods",
-              "parts", "note", "items"}
+    check("SURF-json-ls-keys — list envelope and stable item identity",
+          set(lsj) >= {"ok", "target", "source", "items", "total", "returned",
+                       "limit", "offset", "next"}
+          and all(set(row) >= {"id", "component", "module", "method",
+                                   "description", "installed"}
+                  for row in lsj["items"])
           and lsj["ok"] is True,
           str(sorted(lsj)))
     buf = io.StringIO()
@@ -366,12 +307,9 @@ def ls_li_doctor(ctx) -> None:
         cmd_li(build_parser().parse_args(["li", "--json"]),
                pws, catalog, [])
     lij = json.loads(buf.getvalue())
-    check("SURF-json-li-keys — today's keys plus path_links/status",
-          set(lij) >= {"ok", "target", "schema", "state_file", "marker",
-                       "guidance_basis", "components", "guidance_files",
-                       "shared_claims", "path_links", "settings"}
-          and lij["components"]["fixmod/goodcomp"]["status"] == "part"
-          and "missing" in lij["components"]["fixmod/goodcomp"],
+    check("SURF-json-li-keys — installed list has same envelope",
+          set(lij) == set(lsj)
+          and all(row["installed"] for row in lij["items"]),
           str(sorted(lij)))
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf), \

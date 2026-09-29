@@ -255,13 +255,13 @@ def dry_run_prints_the_report_rows(ctx) -> None:
           and bool(rr_dry["report"]["no_realization"]),
           str(rr_dry["report"]))
     check("7.622 — every skipped-inventory row is named in the dry run",
-          all(f"`{row['method']}` row {row['component']}/{row['part']}"
+          all(f"{row['component']}#{row['part']}"
               in dry_out
               for row in rr_dry["report"]["skipped_inventory_rows"]),
           dry_out)
     check("7.622 — every no-realization row is named in the dry run",
-          all(f"{row['harness']} has no realization for method "
-              f"{row['method']} ({row['component']}/{row['part']})"
+          all(f"{row['harness']} cannot use this {row['method']} item "
+              f"({row['component']}#{row['part']})"
               in dry_out
               for row in rr_dry["report"]["no_realization"]),
           dry_out)
@@ -271,10 +271,12 @@ def dry_run_prints_the_report_rows(ctx) -> None:
                  if ln.startswith("  · ")),
           f"dry={dry_out}\nreal={real_out}")
     check("7.622 — planned rows read as planned, real rows as done",
-          "would skip `pool` row" in dry_out
-          and "would mint nothing" in dry_out
-          and "skipped `pool` row" in real_out
-          and "nothing minted" in real_out,
+          "would skip " in dry_out
+          and "no file would be written" in dry_out
+          and "skipped " in real_out
+          and "no file was written" in real_out
+          and "Would refresh components:" in dry_out
+          and not dry_out.startswith("Installed:"),
           dry_out + "\n=====\n" + real_out)
     check("7.622 — the JSON shape is untouched by the printing change",
           set(rr_dry["report"]) == set(rr_real["report"])

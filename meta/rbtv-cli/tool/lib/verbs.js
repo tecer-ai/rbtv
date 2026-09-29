@@ -52,8 +52,9 @@ const CONTROL_PANEL_VERBS = ['update', 'status', 'selftest'];
 // refusal naming where they went. Dropping them here would replace that
 // sentence with this CLI's own `not a component or action verb`, which knows
 // nothing about the move.
-const INSTALL_VERBS = ['add', 'rm', 'set', 'ls', 'li', 'harness', 'artifact',
-  'dupe-artifacts', 'doctor', 'selftest', 'interactive'];
+const INSTALL_VERBS = ['list', 'status', 'show', 'add', 'remove', 'doctor',
+  'rm', 'set', 'ls', 'li', 'harness', 'artifact',
+  'dupe-artifacts', 'selftest', 'interactive'];
 
 // Routes are matched by their token PREFIX, longest first, so a later
 // multi-token route can never be shadowed by a shorter one that shares its head.
@@ -63,7 +64,7 @@ const ROUTES = [
     target: INSTALLER,
     exec: 'direct',
     verbs: INSTALL_VERBS,
-    summary: 'install rbtv components into a workspace — add/rm, ls/li, and the workspace settings (harness, artifact)',
+    summary: 'discover and manage rbtv parts in a workspace — status, list, show, add, remove, doctor',
   },
   {
     prefix: ['teambuild'],

@@ -235,8 +235,8 @@ function frontmatterField(absPath, key) {
 // orientation text, distinct from the manifest fact the frontmatter carries).
 function stripFrontmatter(text) {
   if (!text) return text;
-  const m = text.match(/^---\n[\s\S]*?\n---\n?/);
-  return m ? text.slice(m[0].length).replace(/^\n+/, '') : text;
+  const m = text.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+  return m ? text.slice(m[0].length).replace(/^(?:\r?\n)+/, '') : text;
 }
 
 // A component's own exposure.csv — same 7-column schema as the module-root

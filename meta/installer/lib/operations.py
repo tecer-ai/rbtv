@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+from contextlib import nullcontext
 from pathlib import Path
 
 from discovery import EXPOSURE_NAME, Refuse
@@ -24,9 +25,13 @@ from .pathlinks import (
     _write_shell_path,
     bin_dir,
     booked_path_names,
-    gate_path_links,
     plan_path_links,
-    reconcile,
+)
+from .shared_links import (
+    preflight_shared_links,
+    reconcile_shared,
+    shared_mutation_lock,
+    workspace_mutation_lock,
 )
 from .state import (
     _rebuild_claim,
@@ -37,6 +42,7 @@ from .state import (
     write_state,
 )
 from .planning import plan_files
+from .recovery import shell_quote, vanished_component_message
 from .apply import _clean_bases, _prune, apply
 
 
@@ -242,7 +248,7 @@ def _select_parts(comp: dict, existing_parts, requested: list[str] | None
     return out
 
 
-def do_install(target: Path, catalog: dict[str, dict], picked: list[str],
+def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
                harnesses: list[str], dry_run: bool,
                guidance_basis: str | None = None,
                guidance_excludes: list[str] | None = None,
@@ -260,34 +266,74 @@ def do_install(target: Path, catalog: dict[str, dict], picked: list[str],
         if "files" in existing:
             rec["files"] = list(existing["files"])
         records[cid] = rec
-    files, owners, claims, report = plan_files(records, catalog)
+    files, owners, claims, report = plan_files(records, catalog, target)
     desired, path_owners = plan_path_links(target, _path_rows_from_report(report))
+    requested_parts = set(parts or ())
+    selected_path_parts = sorted(
+        f"{cid}#{pid}"
+        for _name, (cid, pid) in path_owners.items()
+        if cid in picked and (parts is None or pid in requested_parts
+                              or f"{cid}#{pid}" in requested_parts))
     booked = booked_path_names(state)
     bindir = bin_dir()
-    gate_path_links(bindir, desired, booked - set(desired))
-    protect = _add_mirror(target, state, files, owners, report, guidance_basis,
-                          installed_harnesses(records), guidance_excludes)
-    _add_gitignore(target, owners, claims, report, known_files(state))
-    result = apply(target, files, claims, state, dry_run, protect)
-    _clean_bases(target, report, dry_run)
-    if not dry_run:
-        _rebook(state, records, files, owners, claims, report,
-                path_owners=path_owners)
-        state["harnesses"] = [h for h in HARNESSES if h in harnesses]
-        if guidance_basis is not None:
-            state["guidance_basis"] = guidance_basis
-        if guidance_excludes is not None:
-            state["guidance_excludes"] = list(guidance_excludes)
-        write_state(target, state)
-        report["path"] = reconcile(bindir, desired, booked, dry=False)
-        _write_shell_path()
-    else:
-        report["path"] = reconcile(bindir, desired, booked, dry=True)
+    path_active = bool(desired or booked)
+    lock = (nullcontext() if dry_run or not path_active else
+            shared_mutation_lock(bindir))
+    with lock:
+        if path_active:
+            preflight_shared_links(bindir, desired, booked - set(desired), target)
+        protect = _add_mirror(target, state, files, owners, report, guidance_basis,
+                              installed_harnesses(records), guidance_excludes)
+        _add_gitignore(target, owners, claims, report, known_files(state))
+        result = apply(target, files, claims, state, dry_run, protect)
+        _clean_bases(target, report, dry_run)
+        if not dry_run:
+            _rebook(state, records, files, owners, claims, report,
+                    path_owners=path_owners)
+            state["harnesses"] = [h for h in HARNESSES if h in harnesses]
+            if guidance_basis is not None:
+                state["guidance_basis"] = guidance_basis
+            if guidance_excludes is not None:
+                state["guidance_excludes"] = list(guidance_excludes)
+            write_state(target, state)
+            report["path"] = (reconcile_shared(
+                bindir, desired, booked, target, dry=False, locked=True)
+                if path_active else {"linked": [], "relinked": [], "ok": [],
+                                     "unlinked": [], "unbooked": [],
+                                     "dangling": [], "kept_shared": [],
+                                     "legacy_preserved": []})
+            report["path_setup"] = {"attempted": False, "ok": None,
+                                    "recovery": None}
+            if selected_path_parts:
+                report["path_setup"]["attempted"] = True
+                try:
+                    _write_shell_path()
+                except OSError as exc:
+                    warning = {
+                        "code": "path-persist-failed", "message": str(exc),
+                        "recovery": "rbtv install add "
+                        + selected_path_parts[0]
+                        + " --target " + shell_quote(target),
+                    }
+                    report["path_warning"] = warning
+                    report["path_setup"].update(ok=False,
+                                                 recovery=warning["recovery"])
+                else:
+                    report["path_setup"]["ok"] = True
+        else:
+            report["path"] = (reconcile_shared(
+                bindir, desired, booked, target, dry=True)
+                if path_active else {"linked": [], "relinked": [], "ok": [],
+                                     "unlinked": [], "unbooked": [],
+                                     "dangling": [], "kept_shared": [],
+                                     "legacy_preserved": []})
+            report["path_setup"] = {"attempted": False, "ok": None,
+                                    "recovery": "apply this install to persist PATH"}
     return {"ok": True, "installed": picked, "harnesses": harnesses,
             "files": sorted(files), **result, "report": report}
 
 
-def do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
+def _do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
                  dry_run: bool, parts: list[str] | None = None) -> dict:
     state = upgrade_book(read_state(target), catalog_parts_map(catalog))
     # Deep copy: popping a part mutates the dict apply() later reads as the
@@ -324,69 +370,97 @@ def do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
         rec0 = stranded[blockers[0]]
         raise Refuse(
             "component-vanished",
-            f"component {blockers[0]!r} is recorded as installed but no longer "
-            f"exists under {rec0.get('tree_root')!r} (renamed or deleted "
-            "upstream). Every run at this target refuses until the book "
-            "agrees with the trees. Recover with EITHER: restore the "
-            f"folder; or `uninstall --component {blockers[0]}`, which needs no "
-            "tree — the book holds its files",
+            vanished_component_message(blockers[0], rec0.get("tree_root"),
+                                       target),
             str(rec0.get("tree_root", "")))
-    files, owners, claims, report = plan_files(live, catalog)
+    files, owners, claims, report = plan_files(live, catalog, target)
     desired, path_owners = plan_path_links(target, _path_rows_from_report(report))
     booked = booked_path_names(state)
     keep_names = booked_path_names({"components": stranded})
     bindir = bin_dir()
-    gate_path_links(bindir, desired, booked - set(desired) - keep_names)
-    keep_protect: set[str] = set()
-    for cid, rec in stranded.items():
-        for pid, part in rec["parts"].items():
-            for rel in part.get("files") or []:
-                keep_protect.add(rel)
-                owners.setdefault(rel, []).append((cid, pid))
-            for claim_id in part.get("claims") or []:
-                rebuilt = _rebuild_claim(target, claim_id, (cid, pid))
-                if rebuilt:
-                    claims.append(rebuilt)
-    report["shared_files"] = sorted({c["path"] for c in claims})
-    protect: frozenset[str] = frozenset(keep_protect)
-    if records:
-        # Components remain → the mirror stays. A full uninstall takes it with
-        # everything else (it is installer-owned output, not the basis).
-        try:
-            protect = protect | _add_mirror(
-                target, state, files, owners, report, None,
-                installed_harnesses(records))
-        except Refuse as exc:
-            # Removing a component must NEVER be blocked by a mirror problem
-            # (a deleted basis, a hand-edited book). Skip the replan, and keep
-            # EVERY guidance file the book holds, under either name and at any
-            # depth, off the delete set — un-managed on disk beats deleted, and
-            # the next install re-books whatever is real.
-            protect = protect | frozenset(GUIDANCE_NAMES) | frozenset(
-                rel for rel in known_files(state)
-                if rel.rsplit("/", 1)[-1] in GUIDANCE_NAMES)
-            report["guidance_mirror"] = {"basis": None, "targets": [],
-                                         "skipped": exc.code}
-    _add_gitignore(target, owners, claims, report, known_files(state))
-    result = apply(target, files, claims, state, dry_run, protect)
-    _clean_bases(target, report, dry_run)
-    if not dry_run:
+    path_active = bool(desired or booked)
+    lock = (nullcontext() if dry_run or not path_active else
+            shared_mutation_lock(bindir))
+    with lock:
+        if path_active:
+            preflight_shared_links(bindir, desired,
+                                   booked - set(desired) - keep_names, target)
+        keep_protect: set[str] = set()
+        for cid, rec in stranded.items():
+            for pid, part in rec["parts"].items():
+                for rel in part.get("files") or []:
+                    keep_protect.add(rel)
+                    owners.setdefault(rel, []).append((cid, pid))
+                for claim_id in part.get("claims") or []:
+                    rebuilt = _rebuild_claim(target, claim_id, (cid, pid))
+                    if rebuilt:
+                        claims.append(rebuilt)
+        report["shared_files"] = sorted({c["path"] for c in claims})
+        protect: frozenset[str] = frozenset(keep_protect)
         if records:
-            _rebook(state, records, files, owners, claims, report,
-                    path_owners=path_owners, keep_cids=set(stranded))
-            write_state(target, state)
+            # Components remain → the mirror stays. A full uninstall takes it
+            # with everything else (it is installer-owned output, not the basis).
+            try:
+                protect = protect | _add_mirror(
+                    target, state, files, owners, report, None,
+                    installed_harnesses(records))
+            except Refuse as exc:
+                # Removing a component must NEVER be blocked by a mirror problem.
+                protect = protect | frozenset(GUIDANCE_NAMES) | frozenset(
+                    rel for rel in known_files(state)
+                    if rel.rsplit("/", 1)[-1] in GUIDANCE_NAMES)
+                report["guidance_mirror"] = {"basis": None, "targets": [],
+                                             "skipped": exc.code}
+        _add_gitignore(target, owners, claims, report, known_files(state))
+        result = apply(target, files, claims, state, dry_run, protect)
+        _clean_bases(target, report, dry_run)
+        if not dry_run:
+            if records:
+                _rebook(state, records, files, owners, claims, report,
+                        path_owners=path_owners, keep_cids=set(stranded))
+                write_state(target, state)
+            else:
+                # Nothing left of ours — take the book away too.
+                path = target / STATE_REL
+                if path.is_file():
+                    path.unlink()
+                _prune(target, path.parent)
+            report["path"] = (reconcile_shared(
+                bindir, desired, booked - keep_names, target,
+                dry=False, locked=True) if path_active else
+                {"linked": [], "relinked": [], "ok": [], "unlinked": [],
+                 "unbooked": [], "dangling": [], "kept_shared": [],
+                 "legacy_preserved": []})
         else:
-            # Nothing left of ours — take the book away too. Only OUR artifacts
-            # were removed above; anything foreign at the root is still there.
-            path = target / STATE_REL
-            if path.is_file():
-                path.unlink()
-            _prune(target, path.parent)
-        report["path"] = reconcile(bindir, desired, booked, dry=False,
-                                   keep=keep_names)
-    else:
-        report["path"] = reconcile(bindir, desired, booked, dry=True,
-                                   keep=keep_names)
+            report["path"] = (reconcile_shared(
+                bindir, desired, booked - keep_names, target, dry=True)
+                if path_active else {"linked": [], "relinked": [], "ok": [],
+                                     "unlinked": [], "unbooked": [],
+                                     "dangling": [], "kept_shared": [],
+                                     "legacy_preserved": []})
     return {"ok": True, "uninstalled": picked,
             "remaining": sorted(records),
             **result, "report": report}
+
+
+def do_install(target: Path, catalog: dict[str, dict], picked: list[str],
+               harnesses: list[str], dry_run: bool,
+               guidance_basis: str | None = None,
+               guidance_excludes: list[str] | None = None,
+               parts: list[str] | None = None) -> dict:
+    """Serialize target state before building a plan from it."""
+    if dry_run:
+        return _do_install(target, catalog, picked, harnesses, dry_run,
+                           guidance_basis, guidance_excludes, parts)
+    with workspace_mutation_lock(target):
+        return _do_install(target, catalog, picked, harnesses, dry_run,
+                           guidance_basis, guidance_excludes, parts)
+
+
+def do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
+                 dry_run: bool, parts: list[str] | None = None) -> dict:
+    """Serialize target state before deciding which booked parts to release."""
+    if dry_run:
+        return _do_uninstall(target, catalog, picked, dry_run, parts)
+    with workspace_mutation_lock(target):
+        return _do_uninstall(target, catalog, picked, dry_run, parts)

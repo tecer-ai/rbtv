@@ -35,7 +35,7 @@ function topHelp() {
     '  rbtv <module> <component>  level 2 — the component\'s entry point + its entry points',
     '',
     'ACT (delegates — no second implementation)',
-    '  rbtv install <verb>        install here: add|rm|set|ls|li|doctor',
+    '  rbtv install <verb>        manage here: status|list|show|add|remove|doctor',
     '  rbtv teambuild <verb>      browse component databases: agents|units|seats|tasks|workflows|search',
     '  rbtv embed-search <verb>   index a folder and rank markdown sections',
     '  rbtv control-panel <verb>  build the control panel page',

@@ -20,6 +20,7 @@ from lib.state import (
     known_files,
     read_state,
     rec_files,
+    rec_owns_nothing,
     rewrite_legacy_skill_ids,
     upgrade_book,
     write_state,
@@ -57,7 +58,9 @@ def vanished_component_removable(ctx) -> None:
         check("V1 — a vanished component blocks the run",
               exc.code == "component-vanished", exc.code)
         check("V1 — and the refusal names a door that actually opens",
-              "uninstall --component gonemod/gonecomp" in exc.message,
+              "rbtv install remove" in exc.message
+              and "gonemod/gonecomp" in exc.message
+              and "--target" in exc.message,
               exc.message)
     try:
         resolve_selection(_sel(verb="add", component=["gonemod/gonecomp"]),
@@ -282,16 +285,21 @@ def v1_to_v2_upgrade(ctx) -> None:
         check("U-live shared_claims unchanged",
               got["shared_claims"] == old_claims)
         dropped = old_ids - set(got["components"])
-        check("U-live empty uncatalogued already flushed (no leftover drop)",
-              dropped == set(),
+        check("U-live drops only vanished records that own nothing",
+              all(rec_owns_nothing(raw["components"][cid]) for cid in dropped),
               str(sorted(dropped)))
         try:
             plan_files(got["components"], live_cat)
             live_refuse = None
         except Refuse as exc:
             live_refuse = f"{exc.code}: {exc.message}"
-        check("U-live plan_files refuses nothing after the drop",
-              live_refuse is None, str(live_refuse))
+        retained_vanished = [cid for cid in got["components"]
+                             if cid not in live_cat]
+        check("U-live planning reports retained vanished records honestly",
+              (live_refuse is None if not retained_vanished
+               else live_refuse is not None and live_refuse.startswith(
+                   "component-vanished:")),
+              str(live_refuse))
         check("U-live known_files dual-read equals booked files ∪ guidance",
               known_files(got) == set().union(*src_files.values())
               | set(raw.get("guidance_files") or []))

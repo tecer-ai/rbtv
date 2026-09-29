@@ -41,24 +41,29 @@ function winShebang(target) {
   if (interp === 'env') interp = parts[1];
   if (!interp) return null;
   if (interp === 'python3') return 'python';
-  if (interp === 'sh' || interp === 'bash') return winBash();
+  if (interp === 'sh' || interp === 'bash') return winShell(interp);
   return interp;
 }
 
-// The `bash` on a stock Windows PATH is WSL's, whose filesystem view has no
-// `C:/...` — it answers a Windows script path with exit 127. Git for Windows
-// ships a bash that DOES understand those paths, so resolve it from git's own
-// install (…/cmd/git.exe → …/bin/bash.exe) rather than trusting PATH order.
-function winBash() {
+// The shell on a stock Windows PATH can be WSL's, whose filesystem view has no
+// `C:/...`. Git for Windows ships POSIX shells that understand these paths;
+// resolve the requested shell from Git's own install rather than PATH order.
+function winShell(interp) {
   const which = spawnSync('where', ['git'], { encoding: 'utf8' });
   if (which.status === 0) {
     const gitExe = which.stdout.split(/\r?\n/)[0].trim();
     if (gitExe) {
-      const bash = path.join(path.dirname(path.dirname(gitExe)), 'bin', 'bash.exe');
-      if (fs.existsSync(bash)) return bash;
+      const gitRoot = path.dirname(path.dirname(gitExe));
+      const names = interp === 'sh'
+        ? ['usr/bin/sh.exe', 'usr/bin/dash.exe', 'usr/bin/bash.exe']
+        : ['bin/bash.exe', 'usr/bin/bash.exe'];
+      for (const rel of names) {
+        const shell = path.join(gitRoot, rel);
+        if (fs.existsSync(shell)) return shell;
+      }
     }
   }
-  return 'bash';
+  return interp;
 }
 
 function delegate(route, args) {
@@ -120,4 +125,4 @@ function buildDelegateArgs(rest, opts) {
   return [...rest, '--json'];
 }
 
-module.exports = { delegate, buildDelegateArgs };
+module.exports = { delegate, buildDelegateArgs, winShebang };

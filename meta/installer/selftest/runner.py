@@ -17,10 +17,10 @@ from lib.pathlinks import _forbid_local_bin, bin_dir
 
 from .context import Ctx
 from .fixture import _fixture
-from . import (test_cli, test_discovery, test_guidance, test_guidance_walk,
+from . import (test_cli, test_discovery, test_doctor_ownership, test_guidance, test_guidance_walk,
                test_hub, test_install, test_interactive, test_layout,
                test_ownership, test_parts, test_pathlinks, test_settings,
-               test_surface)
+               test_surface, test_ux_contract)
 
 ORDER = [
     test_layout.repo_root_is_the_repo,
@@ -66,7 +66,9 @@ ORDER = [
     test_parts.v1_to_v2_upgrade,
     test_cli.parser_selectors_index,
     test_pathlinks.path_links,
+    test_doctor_ownership.doctor_ownership,
     test_surface.ls_li_doctor,
+    test_ux_contract.public_contract,
     test_install.uninstall,
 ]
 
@@ -87,6 +89,8 @@ def selftest() -> int:
         return (True, tuple(sorted(entries)))
 
     before_bin = bin_listing()
+    real_owners = real_bin.parent / "path-owners.json"
+    before_owners = real_owners.read_bytes() if real_owners.exists() else None
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
         _RUNTIME["bin"] = tmp / "rbtv-bin"
@@ -123,6 +127,10 @@ def selftest() -> int:
 
         ctx.check("L-real-bin-untouched — selftest leaves ~/.rbtv/bin "
                   "byte-identical", bin_listing() == before_bin)
+        ctx.check("L-real-owners-untouched — selftest leaves shared ownership "
+                  "byte-identical", (real_owners.read_bytes()
+                                     if real_owners.exists() else None)
+                  == before_owners)
 
         _RUNTIME["bin"] = None
         _RUNTIME["rc"] = None
