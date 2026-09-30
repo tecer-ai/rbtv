@@ -9,6 +9,7 @@ It gives one purpose a home the installer can read. Without that home, those uni
 ## What good looks like
 
 - Its purpose fits in one line, and no existing component's stated purpose already covers the new cognitive units and capabilities ([Keep it simple](../principles/kiss.md)).
+- Its name is a noun, never a gerund: `plan`, not `planning`.
 - Every cognitive unit and capability serves that one purpose. One that does not belongs in a separate component.
 - A human and an agent create it by editing the same files and running the [installer](../glossary/rbtv-installer.md). No step needs a control only a human can use ([Agent parity](../principles/agent-parity.md)).
 - A rename updates every current file that uses the name, including skills, agent files, and tool paths, not only [`<component>.json`](component-json.md). Decision records stay as written ([Terminology is king](../principles/terminology-is-king.md)).

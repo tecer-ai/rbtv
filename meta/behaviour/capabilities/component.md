@@ -7,7 +7,7 @@ and nothing here is loaded on demand: every part is exposed with `method: rule`,
 separates this component from `meta/functions`, whose parts are skills an agent reaches for at
 a moment.
 
-The boundary against `meta/planning`: planning references rule how an ARTIFACT is authored and
+The boundary against `meta/plan`: planning references rule how an ARTIFACT is authored and
 are read at the moment of authoring one. Behaviour rules govern the agent itself and are read
 on every turn, authoring or not.
 

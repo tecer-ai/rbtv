@@ -10,6 +10,7 @@ It groups components that share one subject area. Without a module whose purpose
 
 - No existing module's stated purpose fits the subject without stretching that purpose ([Keep it simple](../principles/kiss.md)).
 - The name is not an existing glossary term used in another meaning ([Terminology is king](../principles/terminology-is-king.md)).
+- The name is a noun, never a gerund: `plan`, not `planning`.
 - It contains at least one component, and one further component can be named that would belong there.
 
 ## Making it good

@@ -1,6 +1,6 @@
 ---
 name: build
-description: "Use whenever the user says plan, build, or create for any scaffolding — rules, prompts, skills, workflows, agents, parts of rbtv, or the mirror. The one router: mandatory reads, the workflow-vs-guide route rule, the per-kind authoring table, and every meta/planning guide. NOT plan-document writing."
+description: "Use whenever the user says plan, build, or create for any scaffolding — rules, prompts, skills, workflows, agents, parts of rbtv, or the mirror. The one router: mandatory reads, the workflow-vs-guide route rule, the per-kind authoring table, and every meta/plan guide. NOT plan-document writing."
 ---
 # build — the scaffolding router
 
@@ -67,7 +67,7 @@ routers, read `exposure.md` § Skills are the discovery route.
 
 ---
 
-## 3 — The guide table (every guide in meta/planning)
+## 3 — The guide table (every guide in meta/plan)
 
 Reach a single guide when the moment its description names has arrived — no workflow launch needed
 to READ. Descriptions are each file's own frontmatter, verbatim in spirit; the file self-documents.

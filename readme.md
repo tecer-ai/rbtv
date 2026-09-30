@@ -77,13 +77,13 @@ On a fresh workspace, run `configure --harness NAMES --guidance NAME` or supply 
 >
 > ```bash
 > rbtv install --target W status                                # target and saved settings
-> rbtv install --target W list meta/planning                    # exact component scope
+> rbtv install --target W list meta/plan                    # exact component scope
 > rbtv install --target W search planning                      # broad discovery
-> rbtv install --target W show meta/planning                    # component detail
+> rbtv install --target W show meta/plan                    # component detail
 > rbtv install --target W configure --harness claude,codex --guidance CLAUDE.md
-> rbtv install --target W add meta/planning                     # select the component
+> rbtv install --target W add meta/plan                     # select the component
 > rbtv install --target W add --module office                   # a whole module
-> rbtv install --target W remove meta/planning                  # one component
+> rbtv install --target W remove meta/plan                  # one component
 > rbtv install --target W remove web/browse web/capture         # several components
 > rbtv install --target W configure --harness claude,codex      # replace receiving tools
 > rbtv install --target W configure --guidance CLAUDE.md        # replace maintained guidance
