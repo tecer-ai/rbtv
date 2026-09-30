@@ -40,7 +40,7 @@ The defects that have actually bitten (2026-09-28), each a rule:
 6. **`~/.rbtv/` is the per-user runtime** (`~/.rbtv/bin`), present on every machine — never a workspace marker. Walks that look for a workspace skip the home folder unless it holds a real install record (`.rbtv/config/install.json`).
 7. **File and folder names are Windows-valid** — no `: * ? " < > | \`, no trailing dot or space, no reserved device names (`CON`, `NUL`, `COM1`…). Code that builds a name from a timestamp or user text sanitizes it.
 
-## ignite/ — Runnable Service Code (convention)
+## core/ignite/ — Runnable Service Code (convention)
 
 `core/ignite/` is Ignite 0.2: runnable Node code. A Slack message or a scheduled wake selects a primary-agent home under the workspace `.rbtv/agents/<slug>/`, runs one non-interactive turn, and the runtime delivers that turn's replies. It is deployed, not copied into a harness tree: `core/ignite/capabilities/tools/ignite-agent/deploy.sh <commit>` (env `RBTV_DEPLOY`, `RBTV_WORKSPACE`) checks out the deploy worktree and restarts the user unit `rbtv-ignite-agents.service` (template `core/ignite/capabilities/tools/ignite-agent/units/rbtv-ignite-agents.service`). Operator steps are `core/ignite/capabilities/runbook.md`.
 
