@@ -92,6 +92,7 @@ function stubInstall(calls) {
     const home = path.join(dir, '.rbtv', 'agents', 'probe');
     fs.mkdirSync(home, { recursive: true });
     fs.writeFileSync(path.join(home, 'agent.md'), 'already\n');
+    fs.writeFileSync(path.join(home, 'launch.json'), '{"harness":"claude","model":"m","effort":"high"}\n');
     const calls = [];
     const result = await run([
       'install', file, '--workspace', dir, '--harness', 'claude', '--model', 'm', '--effort', 'high',

@@ -12,7 +12,8 @@ const path = require('path');
 
 // The installed agent's folder: under `target` when given, else the nearest installation above `from`.
 function findHome(name, from, target) {
-  const has = (home) => fs.existsSync(path.join(home, 'agent.md'));
+  // Installed means launch.json exists (the installer writes it; remove takes it back).
+  const has = (home) => fs.existsSync(path.join(home, 'launch.json')) && fs.existsSync(path.join(home, 'agent.md'));
   if (target) {
     const home = path.join(path.resolve(target), '.rbtv', 'agents', name);
     return has(home) ? home : null;
@@ -56,7 +57,7 @@ function agentLaunch(flags, fail) {
     const home = findHome(flags.installed, process.cwd(), flags.target);
     if (!home) {
       fail(`refused: no installed agent '${flags.installed}' was found\n`
-        + `looked for .rbtv/agents/${flags.installed}/agent.md ${flags.target ? `under ${path.resolve(flags.target)}` : 'from the current folder upward'}\n`
+        + `looked for .rbtv/agents/${flags.installed}/launch.json ${flags.target ? `under ${path.resolve(flags.target)}` : 'from the current folder upward'}\n`
         + 'install one: rbtv install agent add <agent file> --harness … --model … --effort …');
     }
     return { folder: home, system: { file: path.join(home, 'agent.md') } };

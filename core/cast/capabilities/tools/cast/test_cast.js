@@ -1426,6 +1426,7 @@ else {
   const home = path.join(root, '.rbtv', 'agents', 'sara');
   fs.mkdirSync(home, { recursive: true });
   fs.writeFileSync(path.join(home, 'agent.md'), '---\nname: sara\ndescription: x\n---\nYou are Sara.');
+  fs.writeFileSync(path.join(home, 'launch.json'), '{"harness":"claude","model":"sonnet-5","effort":"medium"}\n');
   const ig = dryRun(['claude', 'sonnet-5', '2', '-ig', 'sara', '--target', root, '-p', 'go']);
   assert.strictEqual(ig.cwd, home);
   assert.strictEqual(ig.argv[ig.argv.indexOf('--append-system-prompt-file') + 1], path.join(home, 'agent.md'));

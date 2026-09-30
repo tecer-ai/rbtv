@@ -206,7 +206,7 @@ async function installAgent(opts, positionals, flags, deps) {
   const name = agentNameFromFile(file);
   if (!SLUG.test(name)) fail('agent name must match [a-z0-9][a-z0-9-]{0,63}');
   const home = agentHome(workspace, name);
-  if (fs.existsSync(path.join(home, 'agent.md'))) {
+  if (fs.existsSync(path.join(home, 'launch.json'))) {
     fail(`agent ${name} is already installed at ${home}. Refresh it with: ignite-agent update ${name}`);
   }
   const requested = { harness: opts.harness, model: opts.model, effort: opts.effort };
@@ -244,8 +244,8 @@ async function updateAgent(opts, positionals, flags, deps) {
   if (!SLUG.test(name)) fail('agent name must match [a-z0-9][a-z0-9-]{0,63}');
   const workspace = workspaceOf(flags);
   const home = agentHome(workspace, name);
-  if (!fs.existsSync(path.join(home, 'agent.md'))) {
-    fail(`agent ${name} is not installed (no agent.md at ${home}). Install it with: ignite-agent install <agent file> --harness … --model … --effort …`);
+  if (!fs.existsSync(path.join(home, 'launch.json'))) {
+    fail(`agent ${name} is not installed (no launch.json at ${home}). Install it with: ignite-agent install <agent file> --harness … --model … --effort …`);
   }
   const launch = readLaunch(home);
   if (!launch?.harness) fail(`no launch.json in ${home}`);

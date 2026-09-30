@@ -194,7 +194,9 @@ def add_agent(root: Path, file: Path, harness: str, model: str, effort: str,
     front, raw = read_agent_file(file)
     name = front["name"]
     home = agent_home(root, name)
-    if (home / "agent.md").exists():
+    # Installed means launch.json exists: the installer writes it and remove takes
+    # it back, while agent.md is the agent's own and stays after a remove.
+    if (home / "launch.json").exists():
         raise Refuse("agent-exists",
                      f"agent {name!r} is already installed at {home}. Refresh it "
                      f"with: rbtv install agent update {name}", str(home))
@@ -220,10 +222,11 @@ def add_agent(root: Path, file: Path, harness: str, model: str, effort: str,
 
 def _existing(root: Path, name: str) -> tuple[Path, dict, dict]:
     home = agent_home(root, name)
-    if not (home / "agent.md").is_file():
+    if not (home / "agent.md").is_file() or not (home / "launch.json").exists():
         raise Refuse("agent-unknown",
-                     f"no agent {name!r} is installed under {root / AGENTS_REL}",
-                     str(home))
+                     f"no agent {name!r} is installed under {root / AGENTS_REL}. "
+                     f"Install it with: rbtv install agent add <agent file> "
+                     f"--harness … --model … --effort …", str(home))
     try:
         launch = json.loads((home / "launch.json").read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:

@@ -3,7 +3,7 @@
 // API — ignite-agent connect | disconnect. run(command, argv, flags, deps) → Promise<exit code>.
 // flags.workspace / flags.json / flags.help come from cli.js parseGlobal.
 // deps.slack stubs Slack. deps.afterChannel() runs after the route write and before the bot joins.
-// The agent must already be installed (agent.md). Config must already exist; this does not create it.
+// The agent must already be installed (launch.json). Config must already exist; this does not create it.
 // Slack tokens come from slackToken(config, …) and are never printed.
 // A re-run reuses the channel already routed; config.json is the only record of a connection.
 // disconnect removes routes and dmAgent, optionally archives the channel, and cancels timers.
@@ -128,8 +128,8 @@ function requireConfig(workspace) {
 
 function requireInstalled(config, agent) {
   const home = agentHome(config, agent);
-  if (!fs.existsSync(path.join(home, 'agent.md'))) {
-    fail(`agent ${agent} is not installed (no agent.md at ${home}). Install it with: ignite-agent install <agent file> --harness … --model … --effort …`);
+  if (!fs.existsSync(path.join(home, 'launch.json'))) {
+    fail(`agent ${agent} is not installed (no launch.json at ${home}). Install it with: ignite-agent install <agent file> --harness … --model … --effort …`);
   }
   return home;
 }

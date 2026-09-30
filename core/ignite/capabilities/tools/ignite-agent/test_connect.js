@@ -248,7 +248,7 @@ async function run(argv, extra = {}) {
     writeConfig(dir);
     const result = await run(['connect', 'probe', '--dm', '--workspace', dir]).catch((error) => error);
     assert.match(result.message, /not installed/);
-    assert.match(result.message, /agent\.md/);
+    assert.match(result.message, /launch\.json/);
     assert.match(result.message, /ignite-agent install/);
     assert.equal(readConfig(dir).dmAgent, undefined);
   });

@@ -110,6 +110,18 @@ def installed_agents(ctx) -> None:
               == ["agent.md", "notes.md", "settings.json"]
               and gone["kept"] == ["agent.md", "notes.md", "settings.json"],
               str(gone["kept"]))
+        add_agent(ws, src, "claude", "m1", "3", cat, False)
+        check("A-remove — a removed agent can be installed again",
+              (home / "launch.json").is_file()
+              and (home / ".claude/skills/alpha/SKILL.md").is_file())
+        remove_agent(ws, "sara", cat, False)
+        try:
+            update_agent(ws, "sara", cat, False)
+            removed = None
+        except Refuse as exc:
+            removed = exc.code
+        check("A-remove — update of a removed agent refuses as not installed",
+              removed == "agent-unknown", str(removed))
         try:
             update_agent(ws, "nobody", cat, False)
             unknown = None
