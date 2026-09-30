@@ -12,6 +12,7 @@ from .constants import (
     CANONICAL_METHODS,
     GUIDANCE_FILE,
     HARNESSES,
+    HOOK_HARNESSES,
     MATRIX,
     SKILL_FOLDER_SKIP,
 )
@@ -186,6 +187,11 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                 if (cid, pid) not in hook_owners.setdefault(data["event"], []):
                     hook_owners[data["event"]].append((cid, pid))
                 hook_harnesses |= set(harnesses)
+                for harness in harnesses:
+                    if harness not in HOOK_HARNESSES:
+                        report["no_realization"].append(
+                            {"component": cid, "part": pid, "type": method,
+                             "harness": harness})
                 continue
 
             realized: dict[str, str] = {}

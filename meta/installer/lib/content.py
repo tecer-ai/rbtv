@@ -16,6 +16,7 @@ from .constants import (
     LEGACY_MARKS,
     LEGACY_PREFIX,
     MANAGED_BANNER,
+    TOML_BANNER,
     MANAGED_MARK,
 )
 from .claims import _fence
@@ -78,7 +79,8 @@ def _is_ours(target: Path, rel: str) -> bool:
 
 def _content_for(rel: str, method: str, part: str, desc: str, entry: str,
                  comp_dir: Path, entry_rel: str) -> str:
-    return _mark(_body_for(rel, method, part, desc, entry, comp_dir, entry_rel))
+    body = _body_for(rel, method, part, desc, entry, comp_dir, entry_rel)
+    return TOML_BANNER + body if rel.endswith(".toml") else _mark(body)
 
 
 def _body_for(rel: str, method: str, part: str, desc: str, entry: str,
@@ -90,6 +92,14 @@ def _body_for(rel: str, method: str, part: str, desc: str, entry: str,
     if method == "skill":
         return _loader(part, desc, entry, "skill", named=True)
     if method == "agent":
+        if rel.endswith(".toml"):
+            # Codex's own sub-agent definition: a name, a description, and the
+            # instruction to read the agent file.
+            return (f"name = {json.dumps(part)}\n"
+                    f"description = {json.dumps(desc, ensure_ascii=False)}\n"
+                    "developer_instructions = "
+                    + json.dumps(f"Read `{entry}` NOW and follow it as this "
+                                 "agent's full instructions.") + "\n")
         return _loader(part, desc, entry, "agent", named=True)
     if method == "command":
         if rel.startswith(".codex/prompts/"):

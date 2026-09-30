@@ -45,6 +45,7 @@ def green_arm_all_harnesses(ctx) -> None:
         ".agents/behavior-rules/fixrule.md",
         ".claude/agents/fixagent.md",
         ".opencode/agents/fixagent.md",
+        ".codex/agents/fixagent.toml",
     }
     shared = {".claude/settings.json", ".codex/hooks.json", ".mcp.json",
               ".codex/config.toml", "opencode.json"}
@@ -89,6 +90,13 @@ def green_arm_all_harnesses(ctx) -> None:
           and read_state(target)["components"]["fixmod/goodcomp"]
           .get("path_links") == ["fixtool"],
           str(list(bin_dir().iterdir()) if bin_dir().is_dir() else None))
+    toml = (target / ".codex/agents/fixagent.toml").read_text(encoding="utf-8")
+    check("Codex's agent definition is TOML, marked, and points at the agent file",
+          toml.startswith("# rbtv-managed")
+          and 'name = "fixagent"' in toml
+          and 'description = "The fixture agent"' in toml
+          and "fixagent.md" in toml
+          and "developer_instructions = " in toml, toml)
     check("skill loader carries a YAML-safe description",
           '"A fixture skill: with a colon"'
           in (target / ".claude/skills/fixskill/SKILL.md").read_text(encoding="utf-8"))
