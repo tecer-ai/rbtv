@@ -1419,4 +1419,30 @@ else {
   }
 }
 
+// -ig launches an installed agent from its folder with agent.md as the system prompt; -rg launches an
+// agent file that is not installed, its body (frontmatter ignored) as the system prompt.
+{
+  const root = mkFolder('ig-root');
+  const home = path.join(root, '.rbtv', 'agents', 'sara');
+  fs.mkdirSync(home, { recursive: true });
+  fs.writeFileSync(path.join(home, 'agent.md'), '---\nname: sara\ndescription: x\n---\nYou are Sara.');
+  const ig = dryRun(['claude', 'sonnet-5', '2', '-ig', 'sara', '--target', root, '-p', 'go']);
+  assert.strictEqual(ig.cwd, home);
+  assert.strictEqual(ig.argv[ig.argv.indexOf('--append-system-prompt-file') + 1], path.join(home, 'agent.md'));
+  assert.strictEqual(ig.stdin_preview, 'go');
+
+  const rg = dryRun(['codex', 'gpt-5.5', '2', '-rg', path.join(home, 'agent.md'), '-p', 'go']);
+  assert.ok(rg.argv.includes(`developer_instructions=${JSON.stringify('You are Sara.')}`), `frontmatter must not reach the prompt: ${rg.argv}`);
+
+  for (const args of [
+    ['claude', 'sonnet-5', '2', '-ig', 'nobody', '--target', root, '-p', 'go'],
+    ['claude', 'sonnet-5', '2', '-ig', 'sara', '-rg', 'x.md', '-p', 'go'],
+    ['claude', 'sonnet-5', '2', '-ig', 'sara', '--target', root, '-s', 'x', '-p', 'go'],
+    ['claude', 'sonnet-5', '2', '--target', root, '-p', 'go'],
+  ]) {
+    const res = spawnSync('node', [TOOL, ...args, '--dry-run']);
+    assert.strictEqual(res.status, 2, `expected a refusal for: ${args.join(' ')}`);
+  }
+}
+
 console.log('all cast tests passed');

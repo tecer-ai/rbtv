@@ -7,6 +7,7 @@
 // in its own module under lib/, split out 2026-08-20 along the section banners this file used
 // to carry. Read lib/<verb>.js for a verb; read here only for how argv reaches it.
 
+const { agentLaunch, takeAgentFlags } = require('./lib/agent');
 const { runApi } = require('./lib/api');
 const { USAGE, fail, parseArgs, resolveEffort, resolveFolder, resolveModel, runDoctor, runList } = require('./lib/core');
 const { printHelp, verbHelpPages } = require('./lib/help');
@@ -49,9 +50,17 @@ function main(rawArgv) {
   // invocation — there is no longer a launch-shaped `cast api …` form to fall through to.
   if (rawArgv[0] === 'api') return runApi(rawArgv.slice(1));
 
-  const { dryRun, headed, detached, promptText, system, positional } = parseArgs(rawArgv, USAGE, true);
+  const agentFlags = takeAgentFlags(rawArgv, fail);
+  const parsed = parseArgs(agentFlags.argv, USAGE, true);
+  const { dryRun, headed, detached, promptText, positional } = parsed;
+  let { system } = parsed;
+  const agent = agentFlags.installed || agentFlags.file ? agentLaunch(agentFlags, fail) : null;
+  if (agent) {
+    if (system) fail('refused: -s/-S cannot be combined with -ig or -rg — the agent file is the system prompt');
+    system = agent.system;
+  }
   if (system) system.wrapper = SYSTEM_WRAPPER;
-  if (positional.length < 3 || positional.length > 4) {
+  if (positional.length < 3 || positional.length > 4 || (agent && agent.folder && positional.length === 4)) {
     fail(`usage: ${USAGE}\nrun cast -h for full help`);
   }
   const [harness, model, effortStr, folderArg = '.'] = positional;
@@ -61,7 +70,7 @@ function main(rawArgv) {
   const n = Number(effortStr);
   if (!Number.isInteger(n) || n < 1 || n > 5) fail(`effort must be an integer 1-5, got: ${effortStr}`);
 
-  const folder = resolveFolder(folderArg);
+  const folder = agent && agent.folder ? agent.folder : resolveFolder(folderArg);
   const { word: effortWord, argv: effortArgv } = resolveEffort(spec, n);
 
   launch({ harness, modelId, folder, effortWord, effortArgv, system, promptText, headed, dryRun, detached });

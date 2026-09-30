@@ -19,10 +19,10 @@ from discovery import Refuse
 from . import frontmatter, schema
 from .catalog import catalog_units_map
 from .claims import _block_del, _block_set
-from .constants import GUIDANCE_FILE, HARNESSES
+from .constants import GUIDANCE_FILE, HARNESSES, STATE_REL
 from .fsio import write_file
 from .operations import do_install, do_uninstall
-from .state import read_state
+from .state import read_state, write_state
 
 AGENTS_REL = Path(".rbtv") / "agents"
 
@@ -159,19 +159,28 @@ def _drop_section(home: Path, harness: str) -> None:
 
 
 def _install_units(home: Path, catalog: dict, keys: list[str], harness: str,
-                   dry_run: bool) -> dict | None:
-    """Install the selected units into the agent folder, and remove those an
-    earlier install placed there that the agent file no longer selects."""
+                   dry_run: bool, *, everything: bool = False) -> dict | None:
+    """Install the units the agent file selects into the agent folder. Units an
+    earlier call selected that it no longer does go (`agent_units` in the folder's
+    install record says which were the agent file's); units installed on the side,
+    such as Ignite's standard ones, stay. `everything` takes back every booked unit."""
+    state = read_state(home)
     booked = {f"{cid}#{u}": cid
-              for cid, rec in (read_state(home).get("components") or {}).items()
+              for cid, rec in (state.get("components") or {}).items()
               for u in (rec.get("units") or {})}
-    for cid in sorted({booked[k] for k in booked if k not in keys}):
+    gone = set(booked) if everything else set(state.get("agent_units") or []) & set(booked) - set(keys)
+    for cid in sorted({booked[k] for k in gone}):
         do_uninstall(home, catalog, [cid], dry_run,
-                     parts=[k for k in booked if k not in keys and booked[k] == cid])
-    if not keys:
-        return None
-    return do_install(home, catalog, sorted({k.split("#")[0] for k in keys}),
-                      [harness], dry_run, guidance_basis="none", parts=keys)
+                     parts=[k for k in sorted(gone) if booked[k] == cid])
+    result = None
+    if keys:
+        result = do_install(home, catalog, sorted({k.split("#")[0] for k in keys}),
+                            [harness], dry_run, guidance_basis="none", parts=keys)
+    if not dry_run and (home / STATE_REL).is_file():
+        state = read_state(home)
+        state["agent_units"] = [] if everything else keys
+        write_state(home, state)
+    return result
 
 
 def _result(name: str, home: Path, launch: dict, keys: list[str], dry_run: bool,
@@ -236,7 +245,7 @@ def remove_agent(root: Path, name: str, catalog: dict, dry_run: bool) -> dict:
     """Take back what the installer put in the folder. The agent file, the
     settings and everything the agent made stay: they are the agent's, not ours."""
     home, launch, _front = _existing(root, name)
-    _install_units(home, catalog, [], launch["harness"], dry_run)
+    _install_units(home, catalog, [], launch["harness"], dry_run, everything=True)
     if not dry_run:
         _drop_section(home, launch["harness"])
         for generated in ("launch.json", ".gitignore"):

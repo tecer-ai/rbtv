@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from discovery import Refuse, scan_all
 
+from lib.operations import do_install
 from lib.agents import add_agent, launch_values, remove_agent, update_agent
 from lib.state import read_state
 
@@ -34,6 +35,7 @@ def installed_agents(ctx) -> None:
     _unit_md(a / "skills/alpha.md", "alpha", "Alpha skill", "alpha\n")
     _unit_md(a / "skills/shared.md", "shared", "Shared in A", "a\n")
     _unit_md(a / "rules/law.md", "law", "A rule", "law\n")
+    _unit_md(a / "skills/extra.md", "extra", "Installed on the side", "x\n")
     b = _component(root, "modb", "comp")
     _unit_md(b / "skills/shared.md", "shared", "Shared in B", "b\n")
     cat, _ = scan_all(tmp / "no-mirror-a", root)
@@ -90,6 +92,16 @@ def installed_agents(ctx) -> None:
               and (home / ".claude/skills/alpha/SKILL.md").is_file()
               and json.loads((home / "launch.json").read_text(encoding="utf-8"))
               ["effort"] == "low", str(sorted(p.name for p in home.rglob("*"))))
+
+        do_install(home, cat, ["moda/comp"], ["claude"], False,
+                   guidance_basis="none", parts=["moda/comp#extra"])
+        update_agent(ws, "sara", cat, False)
+        check("A-update — a unit installed on the side stays when the agent file "
+              "does not select it",
+              (home / ".claude/skills/extra/SKILL.md").is_file()
+              and (home / ".claude/skills/alpha/SKILL.md").is_file()
+              and read_state(home)["agent_units"] == ["moda/comp#alpha"],
+              str(read_state(home).get("agent_units")))
 
         (home / "notes.md").write_text("the agent's own\n", encoding="utf-8")
         gone = remove_agent(ws, "sara", cat, False)
