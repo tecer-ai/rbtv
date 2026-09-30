@@ -1,0 +1,10 @@
+{
+  "description": "The document component — deliverable production: the HTML standards library, HTML review, deck production, document conversion, deterministic document presentation (posh), email voice, and the meeting-prep and presentation workflows that chain storytelling and design into finished output.",
+  "dependencies": [
+    "md-to-pdf",
+    "node",
+    "python-docx",
+    "python3",
+    "pyyaml"
+  ]
+}

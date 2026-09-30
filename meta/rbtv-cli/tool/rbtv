@@ -346,7 +346,7 @@ function renderFacet(moduleName, comp, opts) {
 // exposed parts, then — of those — the ones it routes to as action verbs.
 function renderComponentFacet(moduleName, comp, opts) {
   console.log(paint(opts.pretty, 'bold', `\n${moduleName} ${comp.name} (component)`));
-  console.log(comp.entry_point ? `entry point: ${comp.entry_point}` : 'entry point: (no component.md at this folder yet)');
+  console.log(comp.entry_point ? `entry point: ${comp.entry_point}` : 'entry point: (no capabilities/component.md at this folder yet)');
 
   if (comp.entry_point) {
     const body = catalog.stripFrontmatter(catalog.readBody(comp.entry_point));
@@ -413,7 +413,7 @@ function doctor(opts) {
   // reads `module.md`, but the rbtv-cli exposure column is still read as data
   // with no dispatch built on it.
   push('drill substrate', true,
-    'STAND-IN pending CMP-5 — reads module.md, component.md and exposure.csv '
+    'STAND-IN pending CMP-5 — reads module.md, capabilities/component.md and exposure.csv '
     + 'off the tree; the rbtv-cli exposure column carries no dispatch yet');
 
   push('node', true, process.version);

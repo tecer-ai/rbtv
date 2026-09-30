@@ -1,0 +1,5 @@
+{
+  "name": "stools",
+  "description": "The stools entry point every seat resolves — gates send/upload/react/canvas to --workspace ignite-owner behind an active grant (d-slack-identity-a, 2026-08-31); reads and --workspace ignite (bot) stay ungated.",
+  "entry": "../../stools-wrapper/tool/stools_wrapper.py"
+}

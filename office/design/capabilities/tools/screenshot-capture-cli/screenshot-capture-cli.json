@@ -1,0 +1,5 @@
+{
+  "name": "screenshot-capture-cli",
+  "description": "screenshot-capture-cli command",
+  "entry": "../../screenshot-capture/tool/capture.py"
+}

@@ -1,0 +1,4 @@
+{
+  "description": "The meeting-summarizer capability — detects new meeting transcripts across a watched Google account and Tactiq's Drive auto-save, produces exactly one corrected summary per meeting through the summarizer skill, files it with its transcripts at its resolved destination, and tracks doubts an owner must answer. No chat transport of its own: an agent's own reply mechanism carries the ask/answer.",
+  "dependencies": []
+}

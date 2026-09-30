@@ -1,0 +1,9 @@
+{
+  "description": "The design component — extracts a visual system (tokens, subtle references, reconstructable prompts, exemplar screenshots) from source material, generates and edits images from a prompt, creates and governs project design systems, and checks produced HTML against it, deterministically and by model review.",
+  "dependencies": [
+    "Pillow",
+    "chromium",
+    "playwright",
+    "python3"
+  ]
+}

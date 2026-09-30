@@ -1,0 +1,8 @@
+{
+  "description": "The browse component — the workspace's three BROWSER surfaces (two CLIs and one MCP server), reached through one skill. Drive a real page, script one, or instrument one; nothing here summarizes, routes, or saves. Reading a page without a browser is the sibling `capture` component.",
+  "dependencies": [
+    "agent-browser",
+    "node",
+    "playwright"
+  ]
+}

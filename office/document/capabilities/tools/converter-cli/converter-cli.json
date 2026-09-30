@@ -1,0 +1,5 @@
+{
+  "name": "converter-cli",
+  "description": "converter-cli command",
+  "entry": "../../converter/tool/md-to-docx.py"
+}

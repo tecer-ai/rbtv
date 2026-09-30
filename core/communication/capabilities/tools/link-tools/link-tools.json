@@ -1,0 +1,5 @@
+{
+  "name": "link-tools",
+  "description": "link-tools command",
+  "entry": "../../../link-tools.py"
+}

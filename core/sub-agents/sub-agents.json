@@ -1,0 +1,4 @@
+{
+  "description": "The sub-agents component — one headless sub-agent launch behind a single interface (CLI: `cast`): claude, codex, or opencode",
+  "dependencies": []
+}

@@ -1,0 +1,5 @@
+{
+  "name": "rbtv",
+  "description": "rbtv command",
+  "entry": "../../../tool/rbtv"
+}

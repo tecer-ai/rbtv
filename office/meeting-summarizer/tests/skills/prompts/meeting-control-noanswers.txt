@@ -1,4 +1,4 @@
-Read and execute /home/henri/ht-wkdir/second-brain/.rbtv/mirror/office/meeting-summarizer/workflows/summarization/workflow.md
+Read and execute /home/henri/ht-wkdir/second-brain/.rbtv/mirror/office/meeting-summarizer/skills/meeting-summarizer.md
 
 Operating scope: the CLAUDE.md in the current working directory.
 Transcript: ./meeting/2026-09-15-onboarding.md

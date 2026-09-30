@@ -103,7 +103,7 @@ Done when, checkable at the edge:
 """
 
 FILES = {
-    "component.md": "---\ndescription: demo\n---\n# demo\n",
+    "capabilities/component.md": "---\ndescription: demo\n---\n# demo\n",
     "exposure.csv": ("part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots\n"
                      "demo-cap,capability,skill,exhibit,demo.md,a demo capability,\n"),
     "seats.csv": ("seat-id,executor,task,staffing-hints,description\n"

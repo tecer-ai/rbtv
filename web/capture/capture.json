@@ -1,0 +1,11 @@
+{
+  "description": "The capture component — reaching a page and KEEPING it. One first-party CLI fetches a URL, extracts it through the strongest of three extractors present, rules on whether what came back was an article at all, and writes it where the caller points. Handles PDFs; also owns the cheap title-only link preview. Driving or measuring a browser is the sibling `browse` component.",
+  "dependencies": [
+    "beautifulsoup4",
+    "defuddle-cli",
+    "node",
+    "pypdf",
+    "python3",
+    "trafilatura"
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "name": "rbtv-control-panel",
+  "description": "rbtv-control-panel command",
+  "entry": "../../../tool/rbtv-control-panel"
+}

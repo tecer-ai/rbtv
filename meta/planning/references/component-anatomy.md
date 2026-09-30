@@ -5,13 +5,13 @@ tags: [planning]
 
 # Component anatomy
 
-A component is a direct child of a module folder. Its `component.md` explains what it is and
+A component is a direct child of a module folder. Its `capabilities/component.md` explains what it is and
 which entry point to use. Add other files only when the component performs that job. The
 `build` skill routes authoring work; `plan.md` defines console seat plans separately.
 
 | Artifact | Add when |
 |---|---|
-| `component.md` | Always: orientation and entry points. |
+| `capabilities/component.md` | Always: orientation and entry points. |
 | `exposure.csv` | A part is exposed to an agent or a first-party CLI needs inventory. |
 | `package.json` or equivalent | The runtime needs declared dependencies. |
 | `prompts/<id>.md` and `tasks/<id>.md` | A reusable component seat pairs a prompt with a task. |
@@ -29,7 +29,7 @@ which entry point to use. Add other files only when the component performs that 
 4. Write a part where its owning component lives: a repo component in the repo, a mirror
    component in the mirror. An installed harness loader is generated and is never authored.
 
-`component.md` is orientation, not a tool manual. Prompt and task formats live in `file-prompt.md`
+`capabilities/component.md` is orientation, not a tool manual. Prompt and task formats live in `file-prompt.md`
 and `file-task.md`; exposure decisions live in `exposure.md`. A new artifact with no clear
 component owner is a scope question to settle before writing it.
 Parent skill placement follows `exposure.md` § Skills are the discovery route.

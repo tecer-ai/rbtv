@@ -1,0 +1,5 @@
+{
+  "name": "capture-cli",
+  "description": "capture-cli command",
+  "entry": "../../capture/capture.py"
+}

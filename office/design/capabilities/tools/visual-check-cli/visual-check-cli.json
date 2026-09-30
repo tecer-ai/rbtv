@@ -1,0 +1,5 @@
+{
+  "name": "visual-check-cli",
+  "description": "visual-check-cli command",
+  "entry": "../../visual-check/tool/visual-check.py"
+}

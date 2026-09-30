@@ -1,0 +1,5 @@
+{
+  "name": "detection-cycle",
+  "description": "detection-cycle command",
+  "entry": "../../../tools/detection_cycle.py"
+}

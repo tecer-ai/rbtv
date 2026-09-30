@@ -1,0 +1,5 @@
+{
+  "name": "capability-cards",
+  "description": "capability-cards command",
+  "entry": "../../capability-cards/tool/capability_cards.py"
+}

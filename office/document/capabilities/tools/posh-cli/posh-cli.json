@@ -1,0 +1,5 @@
+{
+  "name": "posh-cli",
+  "description": "posh-cli command",
+  "entry": "../../posh/tool/posh.py"
+}

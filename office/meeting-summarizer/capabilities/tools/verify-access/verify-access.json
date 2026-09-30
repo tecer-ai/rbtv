@@ -1,0 +1,5 @@
+{
+  "name": "verify-access",
+  "description": "verify-access command",
+  "entry": "../../../tools/verify_access.py"
+}

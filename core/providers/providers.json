@@ -1,0 +1,4 @@
+{
+  "description": "The providers component — the two CLIs that stand between this workspace and whoever supplies its compute: launch an executor in any harness (`cast`), and manage the accounts the harnesses authenticate with (`acct`).",
+  "dependencies": []
+}

@@ -30,6 +30,6 @@ form including this cheapest one, is the `capture` component's).
 ## The stop rule
 
 **Needing the body means this was the wrong job.** Do not extend the chain to get content out of it —
-go to `capabilities/capture/capture.md` and capture the page properly. This file's whole value is
+go to `skills/capture.md` and capture the page properly. This file's whole value is
 that it is the thing you reach for INSTEAD of reading, and a preview that grows into a read is a
 worse capture with none of the content gate's protections.

@@ -1,0 +1,5 @@
+{
+  "name": "artifact-bindings",
+  "description": "artifact-bindings command",
+  "entry": "../../../tools/artifact_bindings.py"
+}

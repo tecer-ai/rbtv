@@ -3,7 +3,7 @@
 // The drill substrate — levels 0, 1 and 2.
 //
 // ⚠ STAND-IN PENDING CMP-5. The registry (`concepts/rbtv-cli.md`) specifies this
-// drill over `module.md` (level 0/1), per-component `component.md` description
+// drill over `module.md` (level 0/1), per-component `capabilities/component.md` description
 // lines (level 1), and exposure-manifest rows carrying an `rbtv-cli` column
 // (level 2). `module.md` IS now read (2026-08-24): the retired installer's
 // `admin/install/module-manifest.json` was this file's level-0 stand-in, and it
@@ -14,10 +14,10 @@
 //
 // What IS now read (owner-ruled 2026-08-24, option a — cli-drill seat): component
 // FOLDERS. Since 2026-08-22 some components moved their manifest one level down
-// (`component.md` + `exposure.csv` beside the parts they declare, e.g.
+// (`capabilities/component.md` + `exposure.csv` beside the parts they declare, e.g.
 // `ignite/agents/` — component-anatomy.md §1: "a
 // directory at depth 2 holding exposure.csv IS the component"). `componentFolders()`
-// below enumerates those directly, and `component.md`'s frontmatter + a component's
+// below enumerates those directly, and `capabilities/component.md`'s frontmatter + a component's
 // own `exposure.csv` rows are what level 2 delivers for them — the settled CMP-5
 // shape, read straight off disk rather than through a manifest that never learns
 // about them. What is still NOT read: `module.md` (level 0/1), and the `rbtv-cli`
@@ -153,7 +153,7 @@ function components(moduleName) {
   return out;
 }
 
-// Component folders — a direct child of a MODULE folder carrying `component.md`
+// Component folders — a direct child of a MODULE folder carrying `capabilities/component.md`
 // OR `exposure.csv` IS a component (component-anatomy.md §1; coord/exposure.csv's
 // own header note). `node_modules`, dot-directories and `probes` are never
 // components — the first is a dependency tree, the second is bookkeeping, the third
@@ -173,7 +173,7 @@ function componentFolders(moduleName) {
     if (!d.isDirectory()) continue;
     if (d.name.startsWith('.') || COMPONENT_FOLDER_SKIP.has(d.name)) continue;
     const dir = path.join(modDir, d.name);
-    const componentMdAbs = path.join(dir, 'component.md');
+    const componentMdAbs = path.join(dir, 'capabilities/component.md');
     const exposureCsvAbs = path.join(dir, 'exposure.csv');
     const hasComponentMd = fs.existsSync(componentMdAbs);
     const hasExposureCsv = fs.existsSync(exposureCsvAbs);
@@ -183,11 +183,11 @@ function componentFolders(moduleName) {
   return out;
 }
 
-// Description priority, exactly the seat ruling's order: component.md frontmatter
+// Description priority, exactly the seat ruling's order: capabilities/component.md frontmatter
 // `description:` -> the folder's own `<name>.md` description line -> the first
 // non-comment manifest row carrying a description -> "(component)".
 function componentFolderDescriptor(name, dir, hasComponentMd, hasExposureCsv) {
-  const componentMdAbs = hasComponentMd ? path.join(dir, 'component.md') : null;
+  const componentMdAbs = hasComponentMd ? path.join(dir, 'capabilities/component.md') : null;
   const exposureCsvAbs = hasExposureCsv ? path.join(dir, 'exposure.csv') : null;
   const rows = exposureCsvAbs ? parseExposureCsv(exposureCsvAbs) : [];
 
@@ -229,7 +229,7 @@ function frontmatterField(absPath, key) {
   return unquoted || null;
 }
 
-// A component.md's DELIVERABLE body never includes its own frontmatter block — the
+// A capabilities/component.md's DELIVERABLE body never includes its own frontmatter block — the
 // frontmatter is addressing metadata (the level-1 blurb), the body is what level 2
 // prints (registry: "component entry point" § definition — the agent-facing
 // orientation text, distinct from the manifest fact the frontmatter carries).

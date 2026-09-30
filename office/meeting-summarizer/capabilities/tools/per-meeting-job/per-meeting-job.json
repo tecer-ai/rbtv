@@ -1,0 +1,5 @@
+{
+  "name": "per-meeting-job",
+  "description": "per-meeting-job command",
+  "entry": "../../../tools/per_meeting_job.py"
+}

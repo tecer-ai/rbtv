@@ -77,7 +77,7 @@ const CAPS = ['image'];
 //   route  the normal state; the row competes for `cast route` verdicts. A BLANK cell reads as
 //          this, so a CSV written before the column existed keeps behaving exactly as it did.
 //   panel  invisible to every verdict; the row still appears in `cast route --catalog`, which is
-//          the surface a panel spreads its seats across (references/panel.md). For a model worth
+//          the surface a panel spreads its seats across (skills/panel.md). For a model worth
 //          a second opinion but never worth being the single answer.
 //   off    invisible to routing entirely. Still LAUNCHABLE by hand (`cast <harness> <model> <n>`)
 //          and still listed by --catalog with its use value — nothing is hidden from the owner.

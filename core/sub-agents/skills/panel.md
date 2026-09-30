@@ -1,0 +1,95 @@
+---
+name: panel
+description: "Examine ONE subject through several independent points of view at once — parallel sub-agents with different perspectives, different models, or both, then a synthesis. Use when the user says 'panel', 'second opinion', 'multiple perspectives', 'have different models look at this', 'devil's advocate', 'independent review' — and on any judgment call important enough that a single viewpoint should not be trusted alone, even when they never say 'panel'. Carries the panel architecture and per-seat model routing via `cast route`, which your native sub-agent tool does not know. NOT for splitting a large task into parts — that is `swarm` or `sub-agents`."
+---
+# Panel
+
+A panel dispatches N sub-agents at the SAME subject, each contributing an independent point
+of view. Where swarm layers waves to cover breadth, a panel is FLAT: one round of peers whose
+value is diversity — different perspectives (agent roles), different models, or both. The
+point: surface what any single viewpoint misses, and make disagreement visible instead of
+averaged away.
+
+## Trigger — a judgment call is in front of you
+
+- A diagnosis, a verdict, a review, or a recommendation over more than a trivial evidence base
+  is a PANEL. Never one agent, and never the manager itself.
+- The test: does answering require weighing evidence that no single file read settles? Yes →
+  panel. A judgment over N reports handed to one agent both breaks small scope (sub-agents
+  skill § Staffing) and throws away the independence that makes the answer trustworthy.
+- Trivial and settled by one read → one agent, no panel. Do not convene four lenses to confirm
+  a value.
+
+Staffing and launch mechanics are the sub-agents skill's (`skills/sub-agents.md` — seats,
+`cast` launches, output schemas, output location). This reference adds only what is
+panel-specific.
+
+## Interview — tiered
+
+- **Always**: propose ONE composition to the user and get a confirm/adjust —
+  the diversity axis (perspectives | models | both), the panelists (each one's angle; on the
+  model axis the models are fixed by the class — Routing below), and whether a rebuttal round is on the table. One short round, then go.
+- **Generative panels** (the panel produces solutions, designs, or drafts — not reviews):
+  FIRST interview the user until the problem and their desired functioning are pinned.
+  Every panelist inherits the problem statement; a vague one wastes the whole panel.
+
+## Composition
+
+- Panelists are ALWAYS sub-agents — the manager never takes an angle itself. A viewpoint
+  produced inside the coordinator's context is not independent.
+- Each panelist gets the same subject, a bounded scope, and ONE viewpoint stated in its
+  prompt. Output schema is REQUIRED — panel outputs are always piped into synthesis.
+- Diversity axes:
+  - **Perspective** — same model, different roles/angles.
+  - **Model** — same brief, different models (ideally different providers).
+  - **Both** — the strongest form when the subject warrants the spend.
+
+## Routing — the panel's seats are fixed by the class (owner ruling 2026-09-24)
+
+One `cast route` call for the task sets the CLASS and EFFORT for the whole panel. When model
+diversity is a chosen axis, the top-verdict-only rule is deliberately relaxed, and the seats are
+NOT chosen: the panel ALWAYS seats every model at the class's level PLUS every model at the level
+directly below it. Read them from `cast route --catalog --json`.
+
+| Class (its level) | Panel levels |
+|---|---|
+| planner (SOTA) | SOTA + L1 |
+| broad (L1) | L1 + L2 |
+| bounded (L2) | L2 + L3 |
+| mechanical (L3) | L3 only — L4 is the image tier, never a panel seat |
+
+- Eligible rows: `use` reads `route` or `panel` — a `panel` row is in the roster FOR this, a
+  model the owner wants heard in a panel but never named as a single verdict. A `use: off` row
+  is out: routing and panels both ignore it.
+- A model listed at both panel levels takes ONE seat.
+- A row that cannot run the job drops, and the drop is named in the synthesis: `--access open`
+  drops api rows, and a row whose credential does not resolve cannot launch.
+- Never above the class's own level. The route verdict's effort applies to every panelist.
+
+## Synthesis
+
+One run folder per panel (location per the sub-agents skill's output-location rule); every
+panelist's raw output file is KEPT there — synthesis condenses, the raw files preserve.
+A SYNTHESIS SEAT synthesizes — the manager reading N panelist outputs to combine them is the
+violation the sub-agents skill's tripwire names. The manager synthesizes only a 2-panelist
+panel it can hold in one page. Either way the synthesis is:
+
+- **Convergence** — what multiple viewpoints independently agree on (the strongest findings).
+- **Divergence** — where viewpoints conflict, with EACH side's argument. Never silently
+  merged: a disagreement between independent viewpoints is signal, not noise.
+- **Recommendation** — the manager's call, with its reason.
+
+## Modes
+
+The mode is whatever the subject needs; compose viewpoints freely. Two worked shapes:
+
+- **Review panel** — panelists review one artifact, each through a different lens. Example
+  lenses: adversarial (try to break it), consistency, bug hunt, design quality, root cause,
+  first principles, customer/user, investor, completeness (edge cases, states), references
+  (do the cited things exist and say what's claimed). The planning module's check seats
+  (clarity, consistency, edges, permissions, resources, scope) are ready-made lenses to
+  reuse when the subject is a plan.
+- **Design panel** — after the deep interview, 2+ panelists each produce an independent
+  solution to the same pinned problem (route class planner/broad — strong models), each with
+  a small bounded scope and a shared output schema. Synthesis compares the designs and
+  recommends one, grafting the best ideas from the others.

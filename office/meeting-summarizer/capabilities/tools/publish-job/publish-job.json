@@ -1,0 +1,5 @@
+{
+  "name": "publish-job",
+  "description": "publish-job command",
+  "entry": "../../../tools/publish_job.py"
+}

@@ -22,7 +22,7 @@ def find_components(root: Path):
     """Yield (component_path, module_name, component_name) for every component folder."""
     if not root.exists():
         return
-    for path in root.rglob("component.md"):
+    for path in root.rglob("capabilities/component.md"):
         comp_dir = path.parent
         # module = the folder holding the component ("" when it sits directly under root)
         yield comp_dir, comp_dir.relative_to(root).parent.name, comp_dir.name

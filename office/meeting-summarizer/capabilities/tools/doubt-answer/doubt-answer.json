@@ -1,0 +1,5 @@
+{
+  "name": "doubt-answer",
+  "description": "doubt-answer command",
+  "entry": "../../../tools/doubt_answer.py"
+}

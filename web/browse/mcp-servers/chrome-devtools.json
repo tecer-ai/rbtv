@@ -1,0 +1,8 @@
+{
+  "name": "chrome-devtools",
+  "description": "Chrome DevTools MCP server registration — browser automation, network/console inspection, performance traces, screenshots, Lighthouse",
+  "command": "npx",
+  "args": [
+    "chrome-devtools-mcp@latest"
+  ]
+}

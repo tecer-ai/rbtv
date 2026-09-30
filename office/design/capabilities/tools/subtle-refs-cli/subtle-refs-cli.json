@@ -1,0 +1,5 @@
+{
+  "name": "subtle-refs-cli",
+  "description": "subtle-refs-cli command",
+  "entry": "../../subtle-refs/tool/extract.py"
+}

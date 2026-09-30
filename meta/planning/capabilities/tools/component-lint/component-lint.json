@@ -1,0 +1,5 @@
+{
+  "name": "component-lint",
+  "description": "component-lint command",
+  "entry": "../../component-lint/tool/component_lint.py"
+}

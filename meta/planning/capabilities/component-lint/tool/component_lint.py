@@ -1345,10 +1345,10 @@ def run(args):
 
 
 def find_components(mirror_root):
-    """Every directory under `mirror_root` carrying a component.md. Enumerated
+    """Every directory under `mirror_root` carrying a capabilities/component.md. Enumerated
     from the tree, never a hand-written list, so a component added later is
     covered without editing this file."""
-    return sorted({p.parent for p in mirror_root.rglob("component.md")})
+    return sorted({p.parent for p in mirror_root.rglob("capabilities/component.md")})
 
 
 def sweep(args):
@@ -1369,14 +1369,14 @@ def sweep(args):
         raise Precondition(f"discovered 0 components under {mirror_root} — nothing was checked")
 
     # The legacy tree's exposure.csv files sit at MODULE roots with no
-    # component.md, so find_components() silently yields nothing there — say
+    # capabilities/component.md, so find_components() silently yields nothing there — say
     # so out loud instead of leaving that absence unexplained.
     legacy = ws / "3-resources" / "tools" / "rbtv"
     legacy_note = None
     if legacy.is_dir():
         legacy_note = (f"legacy tree {legacy} contributes 0 components under this definition "
                        f"({len(list(legacy.glob('*/exposure.csv')))} exposure.csv file(s) sit at "
-                       "module roots with no component.md)")
+                       "module roots with no capabilities/component.md)")
 
     # Per-COMPONENT boundary, the same shape run() carries per CHECK and for the
     # same reason one level up: an exception escaping ONE component's lint used
@@ -1433,7 +1433,7 @@ def main(argv=None):
     p.add_argument("--all", action="store_true",
                    help="lint EVERY component: enumerated from the tree as every directory "
                         "under .rbtv/mirror/** (of the workspace found by walking up from "
-                        "--component) carrying a component.md (.rbtv/goals/** scratch "
+                        "--component) carrying a capabilities/component.md (.rbtv/goals/** scratch "
                         "fixtures are excluded by construction). --component then anchors "
                         "the workspace search instead of selecting one component. Exits "
                         "non-zero if any component has a finding.")

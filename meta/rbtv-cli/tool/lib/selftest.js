@@ -327,9 +327,9 @@ const CHECKS = [
   }],
 
   // cli-drill seat (owner-ruled 2026-08-24, option a): a component-level manifest
-  // (`component.md` + `exposure.csv` beside the parts it declares, one level down
+  // (`capabilities/component.md` + `exposure.csv` beside the parts it declares, one level down
   // from the module root) is now a level-1 row, not an invisible folder.
-  ['a component FOLDER (component.md + exposure.csv, no module-root row) is listed at level 1', () => {
+  ['a component FOLDER (capabilities/component.md + exposure.csv, no module-root row) is listed at level 1', () => {
     const comps = catalog.components('ignite') || [];
     const agents = comps.find((c) => c.name === 'agents' && c.kind === 'component');
     if (!agents) throw new Error('`ignite` components() does not carry an agents component-folder row');
@@ -340,15 +340,15 @@ const CHECKS = [
     if (!/agents \(component\)/.test(r.stdout)) throw new Error('level 1 does not list agents as a component');
   }],
 
-  ['level 2 on a component folder delivers component.md\'s body (frontmatter stripped) then its exposure.csv rows', () => {
+  ['level 2 on a component folder delivers capabilities/component.md\'s body (frontmatter stripped) then its exposure.csv rows', () => {
     const r = runCli(['ignite', 'agents']);
     if (r.status !== 0) throw new Error(`\`rbtv ignite agents\` exited ${r.status}`);
     if (!/^\n?ignite agents \(component\)/m.test(r.stdout)) throw new Error('no component header printed');
     const bodyIdx = r.stdout.indexOf('# agents');
-    if (bodyIdx === -1) throw new Error('component.md body (frontmatter stripped) was not delivered');
-    if (/^description:/m.test(r.stdout.slice(0, bodyIdx))) throw new Error('component.md frontmatter leaked into the printed body');
+    if (bodyIdx === -1) throw new Error('capabilities/component.md body (frontmatter stripped) was not delivered');
+    if (/^description:/m.test(r.stdout.slice(0, bodyIdx))) throw new Error('capabilities/component.md frontmatter leaked into the printed body');
     const rowsIdx = r.stdout.indexOf('exposure rows');
-    if (rowsIdx === -1 || rowsIdx < bodyIdx) throw new Error('exposure rows did not follow the component.md body');
+    if (rowsIdx === -1 || rowsIdx < bodyIdx) throw new Error('exposure rows did not follow the capabilities/component.md body');
     if (!/ignite-agent \(tool\/path\)/.test(r.stdout)) throw new Error('the manifest row was not delivered');
   }],
 

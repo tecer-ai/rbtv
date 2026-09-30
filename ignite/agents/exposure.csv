@@ -1,7 +1,0 @@
-# ignite/agents exposure. Columns are the seven of the exposure manifest, in its order.
-# ignite-agent is the mandatory first-party tool row. The creation and controls skills name it
-# in exposes-cli.
-part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
-create-primary-agent,capability,skill,,capabilities/create-primary-agent/create-primary-agent.md,"Use when creating a working primary agent: resolve the missing choices in one grouped question, then run ignite-agent create. Covers the home, instructions, Slack channel, route, skills, and an optional schedule. Never an owner checklist.",
-agent-controls,capability,skill,,capabilities/agent-controls/agent-controls.md,"Use when the owner asks to change or inspect this agent's harness, model, effort, or voice; manage reminders or recurring checks; inspect, retry, resume, or stop work; wake after workers; or open a new proactive thread.",
-ignite-agent,tool,path,,tool/cli.js,,

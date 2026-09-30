@@ -28,7 +28,7 @@ def component(root, rel, manifest=None):
     """Create a component folder under root, optionally with an exposure.csv."""
     comp = Path(root) / rel
     comp.mkdir(parents=True)
-    (comp / "component.md").write_text("x", encoding="utf-8")
+    (comp / "capabilities/component.md").write_text("x", encoding="utf-8")
     if manifest is not None:
         (comp / "exposure.csv").write_text(manifest, encoding="utf-8")
 

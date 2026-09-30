@@ -1,0 +1,4 @@
+{
+  "description": "The coding component — the code-hygiene disciplines an agent applies whenever it writes, edits, fixes, or refactors code (the `coding` skill: no-dead-code, no-duplicate, no-monolith, no-patches), plus the on-demand architecture audit (`improve-codebase-architecture`).",
+  "dependencies": []
+}
