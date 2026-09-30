@@ -375,4 +375,46 @@ process.exit(0);
   assert.throws(() => lookupModel('nope', 'sonnet-5'), /unknown harness/);
 }
 
+// The agent's standing prompt rides each harness's strongest channel.
+{
+  const { stdinFor } = require('./lib/turn');
+  const file = path.join(cwd, 'agent.md');
+  fs.writeFileSync(file, '# Role\nYou are the agent.\n');
+  const sys = (over) => validate({ ...base(), systemPromptFile: file, ...over });
+
+  const fresh = argvFor(sys(), '11111111-1111-4111-8111-111111111111', null);
+  assert.ok(fresh.includes('--append-system-prompt-file') && fresh.includes(file));
+  const resumed = argvFor(sys({ session: { mode: 'resume', id: 'ses-1' } }), null, null);
+  assert.ok(!resumed.includes('--append-system-prompt-file'), 'claude keeps its system prompt across resume');
+  assert.strictEqual(stdinFor(sys()), 'hello');
+
+  const codex = { harness: 'codex', model: 'gpt-5.5', effort: 2 };
+  const cx = argvFor(sys(codex), null, null);
+  const cxResumed = argvFor(sys({ ...codex, session: { mode: 'resume', id: 'tid-1' } }), null, null);
+  if (process.platform === 'win32') {
+    assert.ok(!cx.some((a) => a.startsWith('developer_instructions=')), 'cmd.exe argv cannot carry the prompt');
+    assert.ok(stdinFor(sys(codex)).startsWith('# Role\nYou are the agent.'));
+  } else {
+    for (const argv of [cx, cxResumed]) {
+      const at = argv.findIndex((a) => a.startsWith('developer_instructions='));
+      assert.ok(at > 0 && argv[at - 1] === '-c', 'codex gets developer instructions on every turn');
+      assert.strictEqual(JSON.parse(argv[at].slice('developer_instructions='.length)), '# Role\nYou are the agent.\n');
+    }
+    assert.strictEqual(stdinFor(sys(codex)), 'hello');
+  }
+
+  const oc = { harness: 'opencode', model: 'grok-4.7', effort: 1 };
+  const first = stdinFor(sys(oc));
+  assert.ok(first.startsWith('# Role\nYou are the agent.') && first.endsWith('\n\nhello'), 'opencode: first message');
+  assert.strictEqual(stdinFor(sys({ ...oc, session: { mode: 'resume', id: 'ses-2' } })), 'hello');
+  assert.strictEqual(stdinFor(validate(base())), 'hello', 'no standing prompt, no change');
+}
+rejects(base({ systemPromptFile: 'relative.md' }), 'absolute path');
+rejects(base({ systemPromptFile: path.join(cwd, 'missing.md') }), 'cannot read systemPromptFile');
+{
+  const empty = path.join(cwd, 'empty.md');
+  fs.writeFileSync(empty, ' \n');
+  rejects(base({ systemPromptFile: empty }), 'nonempty');
+}
+
 console.log('test_turn: ok');

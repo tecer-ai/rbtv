@@ -8,7 +8,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { lookupModel, shortName, resolveEffort } = require('./core');
 const { procStart, emitHandle } = require('./handles');
-const { launchEnv, opencodeTagged } = require('./launch');
+const { launchEnv, opencodeTagged, SYSTEM_WRAPPER } = require('./launch');
 const { loadOptional } = require('./optional');
 const { spawnable } = require('./win-exec');
 
@@ -63,6 +63,40 @@ function readPrompt(request) {
   return request.prompt;
 }
 
+// The agent's standing prompt (`agent.md`), handed over as a file. Claude reads the file
+// itself; Codex and OpenCode receive its text (see systemPromptRoute).
+function readSystemPrompt(request) {
+  if (!Object.prototype.hasOwnProperty.call(request, 'systemPromptFile')) return null;
+  const file = request.systemPromptFile;
+  if (typeof file !== 'string' || !path.isAbsolute(file)) throw new Error('systemPromptFile must be an absolute path');
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); } catch (e) {
+    throw new Error(`cannot read systemPromptFile: ${e.message}`);
+  }
+  if (!text.trim()) throw new Error('systemPromptFile must hold nonempty text');
+  return { file, text };
+}
+
+// How each harness receives the standing prompt, by its strongest channel:
+//   claude   a real system prompt (`--append-system-prompt-file`), on a NEW session only —
+//            the harness keeps it across resume and compaction;
+//   codex    developer instructions (`-c developer_instructions=…`), on every turn — a run
+//            rebuilds its context, so the prompt is re-passed; on win32 the text is too long
+//            and multi-line for cmd.exe argv, so it rides the first message instead;
+//   opencode the first message of a NEW session (no system-prompt flag exists).
+function systemPromptRoute(v) {
+  if (!v.systemPrompt) return 'none';
+  if (v.harness === 'claude') return v.mode === 'new' ? 'flag' : 'none';
+  if (v.harness === 'codex') return process.platform === 'win32' ? 'message' : 'developer';
+  return v.mode === 'new' ? 'message' : 'none';
+}
+
+function stdinFor(v) {
+  return systemPromptRoute(v) === 'message'
+    ? `${v.systemPrompt.text}\n\n---\n\n${SYSTEM_WRAPPER}\n\n${v.prompt}`
+    : v.prompt;
+}
+
 function readSession(session) {
   if (!session || typeof session !== 'object' || Array.isArray(session)) throw new Error('session must be an object');
   if (session.mode !== 'new' && session.mode !== 'resume') throw new Error('session.mode must be new or resume');
@@ -92,6 +126,7 @@ function validate(request) {
   const { modelId, spec } = lookupModel(request.harness, request.model);
   existingDir(request.cwd);
   const prompt = readPrompt(request);
+  const systemPrompt = readSystemPrompt(request);
   const { mode, sessionId } = readSession(request.session);
   const env = readEnv(request.env);
   const resolved = resolveTurnEffort(spec, request.effort, request.harness, request.model);
@@ -103,6 +138,7 @@ function validate(request) {
     effortArgv: resolved.argv,
     cwd: request.cwd,
     prompt,
+    systemPrompt,
     mode,
     sessionId,
     env,
@@ -111,17 +147,22 @@ function validate(request) {
 
 function argvFor(v, freshId, tag) {
   const effort = v.effortArgv;
+  const route = systemPromptRoute(v);
   switch (v.harness) {
     case 'claude':
       return ['claude', '-p', '--model', v.modelId, '--permission-mode', 'bypassPermissions', ...effort,
         '--output-format', 'json',
+        ...(route === 'flag' ? ['--append-system-prompt-file', v.systemPrompt.file] : []),
         ...(v.mode === 'resume' ? ['--resume', v.sessionId] : ['--session-id', freshId])];
-    case 'codex':
+    case 'codex': {
+      const developer = route === 'developer'
+        ? ['-c', `developer_instructions=${JSON.stringify(v.systemPrompt.text)}`] : [];
       return v.mode === 'resume'
-        ? ['codex', 'exec', 'resume', v.sessionId, '-m', v.modelId, ...effort,
+        ? ['codex', 'exec', 'resume', v.sessionId, '-m', v.modelId, ...effort, ...developer,
           '-c', 'sandbox_mode=danger-full-access', '-c', 'approval_policy=never', '--skip-git-repo-check', '--json', '-']
         : ['codex', 'exec', '--cd', v.cwd, '-m', v.modelId, '--sandbox', 'danger-full-access',
-          '-c', 'approval_policy=never', '--skip-git-repo-check', ...effort, '--json', '-'];
+          '-c', 'approval_policy=never', '--skip-git-repo-check', ...effort, ...developer, '--json', '-'];
+    }
     case 'opencode':
       return ['opencode', 'run', '-m', v.modelId, '--auto', ...effort,
         ...(v.mode === 'resume' ? ['-s', v.sessionId] : ['--title', tag]), '--format', 'json'];
@@ -284,7 +325,7 @@ function spawnTurn(v, resultFile) {
     child.stderr.on('data', (d) => { err.write(d); });
     child.on('close', (status) => finish(status === null ? 1 : status, null));
     child.stdin.on('error', () => {});
-    child.stdin.end(v.prompt);
+    child.stdin.end(stdinFor(v));
   });
 }
 
@@ -324,6 +365,6 @@ function runTurn(args) {
 }
 
 module.exports = {
-  USAGE, requestPaths, validate, argvFor, noteLine, parseSessionEvents,
+  USAGE, requestPaths, validate, argvFor, stdinFor, noteLine, parseSessionEvents,
   capturePaths, blankResult, buildResult, writeResult, runTurn,
 };
