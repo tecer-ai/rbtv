@@ -2,28 +2,41 @@
 'use strict';
 
 // API — entry `ignite-agent`. Home from IGNITE_AGENT_HOME, or --agent <slug> + --workspace <path>.
-// main(argv, deps) → exit code, or a Promise for `create` (create.js). deps.validateLaunch stubs cast.
+// main(argv, deps) → exit code, or a Promise for install/update/connect/disconnect.
+// deps.validateLaunch stubs cast. deps.install stubs the installer. deps.slack stubs Slack.
 // deps.stdout / deps.stderr / deps.env optional.
 // settings set validates through cast list --json (never a copied model list) and writes launch.json
 // plus the store row together. schedule next-occurrence lives in schedule.js.
-// create is dispatched to create.js before a home is opened.
+// install, update, connect, and disconnect run before a home is opened. There is no create command.
 
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
 const { Store } = require('./store.js');
-const { loadConfig, agentHome } = require('./config.js');
+const { loadConfig, agentHome, configPath } = require('./config.js');
 const { cadenceSpec, nextOccurrence, FIXED_TZ } = require('./schedule.js');
 
 const APPLIES = 'applies from the next turn in every conversation';
 const COMMANDS = ['settings', 'schedule', 'schedules-due', 'work', 'wake', 'post'];
 const REPORTS = new Set(['always', 'when-useful']);
 
-const HELP = `ignite-agent — settings schedule schedules-due work wake post
+const HELP = `ignite-agent — install update connect disconnect settings schedule schedules-due work wake post
+
+install <agent file> --harness <name> --model <cast short name> --effort <rung or 1-5> [--workspace <path>] [--dry-run]
+  Runs rbtv install agent add, then installs Ignite's standard units. No Slack.
+  Refuses when the agent is already installed; use update.
+update <agent> [--workspace <path>] [--dry-run]
+  Runs rbtv install agent update, then re-installs Ignite's standard units.
+  Keeps launch.json, settings.json, board.md, the database, and conversations.
+connect <agent> (--channel-name <name> | --dm) [--schedule-json <file>] [--workspace <path>] [--dry-run]
+  On the machine that will run the agent. Needs .rbtv/config/ignite/config.json.
+  See core/ignite/capabilities/runbook.md. Does not write that file.
+disconnect <agent> [--archive-channel] [--workspace <path>] [--dry-run]
+  Removes the route and direct-message assignment. Does not delete the agent folder.
 
 Home: IGNITE_AGENT_HOME, or --agent <slug> --workspace <path>
-      (workspace defaults to the directory walk that finds .rbtv/agents/ignite.json).
+      (workspace defaults to the directory walk that finds .rbtv/config/ignite/config.json).
 --json selects JSON on stdout. Inside a turn the runtime also sets IGNITE_CONVERSATION.
 
 settings show
@@ -120,7 +133,7 @@ function workspaceFromHome(home) {
 function findWorkspace(start) {
   let dir = path.resolve(start);
   for (;;) {
-    if (fs.existsSync(path.join(dir, '.rbtv', 'agents', 'ignite.json'))) return dir;
+    if (fs.existsSync(configPath(dir))) return dir;
     const parent = path.dirname(dir);
     if (parent === dir) return null;
     dir = parent;
@@ -142,7 +155,7 @@ function resolveHome(flags, deps) {
 
 function openContext(flags, deps) {
   const located = resolveHome(flags, deps);
-  const config = located.config || (located.workspace && fs.existsSync(path.join(located.workspace, '.rbtv', 'agents', 'ignite.json'))
+  const config = located.config || (located.workspace && fs.existsSync(configPath(located.workspace))
     ? loadConfig(located.workspace)
     : null);
   return {
@@ -507,9 +520,10 @@ function main(argv, deps = {}) {
     emit(deps, { json: false }, { help: COMMANDS }, HELP);
     return 0;
   }
-  if (rest.length === 0) fail(`usage: ignite-agent ${COMMANDS.join('|')}`);
+  if (rest.length === 0) fail(`usage: ignite-agent ${['install', 'update', 'connect', 'disconnect', ...COMMANDS].join('|')}`);
   const [command, ...tail] = rest;
-  if (command === 'create') return require('./create.js').run(tail, flags, deps);
+  if (command === 'install' || command === 'update') return require('./install.js').run(command, tail, flags, deps);
+  if (command === 'connect' || command === 'disconnect') return require('./connect.js').run(command, tail, flags, deps);
   if (!COMMANDS.includes(command)) fail(`unknown command: ${command}`);
   const ctx = openContext(flags, deps);
   try {

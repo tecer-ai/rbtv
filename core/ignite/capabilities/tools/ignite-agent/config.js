@@ -1,25 +1,26 @@
 'use strict';
 
 // API
-// loadConfig(workspace) — read and validate <workspace>/.rbtv/agents/ignite.json
-// agentHome(config, slug) — <workspace>/.rbtv/agents/<slug>
-// storePath(config, slug) — <agentHome>/state.sqlite
+// configPath(workspace)        — <workspace>/.rbtv/config/ignite/config.json
+// loadConfig(workspace)        — read and validate that file (schema: core/build templates/ignite-config.schema.json);
+//                                returns the parsed object plus `workspace` (the absolute path it was read for)
+// updateConfig(workspace, fn)  — read, let fn(config) change it, validate, write atomically; returns the new config
+// agentHome(config, slug)      — <workspace>/.rbtv/agents/<slug>
+// storePath(config, slug)      — <agentHome>/state.sqlite
+// envValue(workspace, name)    — a variable's value: the OS environment first, then <workspace>/.rbtv/config/env/.env; null when unset
+// slackToken(config, key)      — the token the config names under slack.<key>Env ('app' | 'bot' | 'owner'); throws when unset
 
 const fs = require('node:fs');
 const path = require('node:path');
 
-const TOP_KEYS = ['workspace', 'slack', 'tools', 'defaultLaunch', 'dmAgent', 'routes'];
-const SLACK_KEYS = ['team', 'botUserId', 'ownerUserId', 'botTokenFile', 'appTokenSource', 'ownerTokenFile', 'stoolsWorkspace'];
+const TOP_KEYS = ['slack', 'tools', 'dmAgent', 'routes'];
+const SLACK_KEYS = ['team', 'botUserId', 'ownerUserId', 'appTokenEnv', 'botTokenEnv', 'ownerTokenEnv', 'stoolsWorkspace'];
 const TOOL_KEYS = ['cast', 'stools', 'audio'];
-const LAUNCH_KEYS = ['harness', 'model', 'effort', 'voice'];
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-function samePath(left, right) {
-  const norm = (value) => {
-    const abs = path.resolve(value);
-    try { return fs.realpathSync(abs); } catch { return abs; }
-  };
-  return norm(left) === norm(right);
+function configPath(workspace) {
+  return path.join(workspace, '.rbtv', 'config', 'ignite', 'config.json');
 }
 
 function rejectUnknown(obj, allowed, label) {
@@ -35,14 +36,14 @@ function reqString(obj, key, label) {
   return value;
 }
 
-function reqAbs(obj, key, label) {
-  const value = reqString(obj, key, label);
-  if (!path.isAbsolute(value)) throw new Error(`${label} must be an absolute path`);
+function reqSlug(value, label) {
+  if (typeof value !== 'string' || !SLUG.test(value)) throw new Error(`${label} must be a slug`);
   return value;
 }
 
-function reqSlug(value, label) {
-  if (typeof value !== 'string' || !SLUG.test(value)) throw new Error(`${label} must be a slug`);
+function reqEnvName(obj, key) {
+  const value = reqString(obj, key, `slack.${key}`);
+  if (!ENV_NAME.test(value)) throw new Error(`slack.${key} must be an environment variable name`);
   return value;
 }
 
@@ -54,49 +55,19 @@ function reqWorkspaceName(value) {
   return value;
 }
 
-function reqTokenSource(value) {
-  if (typeof value !== 'string' || !value.trim()) throw new Error('slack.appTokenSource required');
-  if (value.includes('/') || value.startsWith('.')) {
-    if (!path.isAbsolute(value)) throw new Error('slack.appTokenSource path must be absolute');
-    return value;
-  }
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)) {
-    throw new Error('slack.appTokenSource must be an env var name or an absolute path');
-  }
-  return value;
-}
-
-function loadConfig(workspace) {
-  if (!workspace || typeof workspace !== 'string') throw new Error('workspace path required');
-  const file = path.join(workspace, '.rbtv', 'agents', 'ignite.json');
-  let raw;
-  try {
-    raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (error) {
-    throw new Error(`cannot load workspace config: ${error.message}`);
-  }
+function validate(raw) {
   rejectUnknown(raw, TOP_KEYS, 'config');
-  if (!samePath(reqString(raw, 'workspace', 'workspace'), workspace)) {
-    throw new Error('config workspace does not match the runtime workspace path');
-  }
   rejectUnknown(raw.slack, SLACK_KEYS, 'slack');
   reqString(raw.slack, 'team', 'slack.team');
   reqString(raw.slack, 'botUserId', 'slack.botUserId');
   reqString(raw.slack, 'ownerUserId', 'slack.ownerUserId');
-  reqAbs(raw.slack, 'botTokenFile', 'slack.botTokenFile');
-  reqAbs(raw.slack, 'ownerTokenFile', 'slack.ownerTokenFile');
-  reqTokenSource(raw.slack.appTokenSource);
+  reqEnvName(raw.slack, 'appTokenEnv');
+  reqEnvName(raw.slack, 'botTokenEnv');
+  reqEnvName(raw.slack, 'ownerTokenEnv');
   reqWorkspaceName(raw.slack.stoolsWorkspace);
   rejectUnknown(raw.tools, TOOL_KEYS, 'tools');
   for (const key of TOOL_KEYS) reqString(raw.tools, key, `tools.${key}`);
-  rejectUnknown(raw.defaultLaunch, LAUNCH_KEYS, 'defaultLaunch');
-  reqString(raw.defaultLaunch, 'harness', 'defaultLaunch.harness');
-  reqString(raw.defaultLaunch, 'model', 'defaultLaunch.model');
-  reqString(raw.defaultLaunch, 'effort', 'defaultLaunch.effort');
-  if (raw.defaultLaunch.voice != null && typeof raw.defaultLaunch.voice !== 'string') {
-    throw new Error('defaultLaunch.voice must be a string');
-  }
-  reqSlug(raw.dmAgent, 'dmAgent');
+  if (raw.dmAgent !== undefined) reqSlug(raw.dmAgent, 'dmAgent');
   if (!raw.routes || typeof raw.routes !== 'object' || Array.isArray(raw.routes)) {
     throw new Error('routes must be an object');
   }
@@ -105,6 +76,29 @@ function loadConfig(workspace) {
     reqSlug(slug, `routes.${channelId}`);
   }
   return raw;
+}
+
+function loadConfig(workspace) {
+  if (!workspace || typeof workspace !== 'string') throw new Error('workspace path required');
+  let raw;
+  try {
+    raw = JSON.parse(fs.readFileSync(configPath(workspace), 'utf8'));
+  } catch (error) {
+    throw new Error(`cannot load Ignite config: ${error.message}`);
+  }
+  validate(raw);
+  return { ...raw, workspace: path.resolve(workspace) };
+}
+
+function updateConfig(workspace, change) {
+  const { workspace: _unused, ...raw } = loadConfig(workspace);
+  const next = change(raw) || raw;
+  validate(next);
+  const file = configPath(workspace);
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
+  fs.renameSync(tmp, file);
+  return { ...next, workspace: path.resolve(workspace) };
 }
 
 function agentHome(config, slug) {
@@ -117,4 +111,29 @@ function storePath(config, slug) {
   return path.join(agentHome(config, slug), 'state.sqlite');
 }
 
-module.exports = { loadConfig, agentHome, storePath };
+function envValue(workspace, name) {
+  if (process.env[name]) return process.env[name];
+  let text;
+  try { text = fs.readFileSync(path.join(workspace, '.rbtv', 'config', 'env', '.env'), 'utf8'); } catch { return null; }
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq < 0 || trimmed.slice(0, eq).trim() !== name) continue;
+    let value = trimmed.slice(eq + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    return value || null;
+  }
+  return null;
+}
+
+function slackToken(config, key) {
+  const name = config.slack[`${key}TokenEnv`];
+  const value = envValue(config.workspace, name);
+  if (!value) throw new Error(`Slack ${key} token ${name} is unset`);
+  return value;
+}
+
+module.exports = { configPath, loadConfig, updateConfig, agentHome, storePath, envValue, slackToken };

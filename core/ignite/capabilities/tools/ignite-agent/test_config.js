@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { loadConfig, agentHome, storePath } = require('./config.js');
+const { configPath, loadConfig, agentHome, storePath, envValue, slackToken } = require('./config.js');
 
 const failures = [];
 
@@ -24,104 +24,152 @@ function test(name, fn) {
 
 function writeConfig(dir, patch = {}) {
   const base = {
-    workspace: dir,
     slack: {
       team: 'T1',
       botUserId: 'U1',
       ownerUserId: 'U2',
-      botTokenFile: path.join(dir, 'bot.json'),
-      appTokenSource: 'SLACK_APP_TOKEN',
-      ownerTokenFile: path.join(dir, 'owner.json'),
+      appTokenEnv: 'IGNITE_APP_TOKEN',
+      botTokenEnv: 'IGNITE_BOT_TOKEN',
+      ownerTokenEnv: 'IGNITE_OWNER_TOKEN',
       stoolsWorkspace: 'ignite',
     },
     tools: { cast: 'cast', stools: 'stools', audio: 'audio' },
-    defaultLaunch: { harness: 'claude', model: 'm', effort: 'high' },
     dmAgent: 'master',
     routes: { C1: 'sample' },
   };
-  const body = { ...base, ...patch };
-  const folder = path.join(dir, '.rbtv', 'agents');
+  const body = { ...base, ...patch, slack: { ...base.slack, ...patch.slack } };
+  const folder = path.dirname(configPath(dir));
   fs.mkdirSync(folder, { recursive: true });
-  fs.writeFileSync(path.join(folder, 'ignite.json'), JSON.stringify(body));
+  fs.writeFileSync(configPath(dir), JSON.stringify(body));
   return body;
 }
 
-test('loads a valid workspace config from the runtime path', (dir) => {
+function without(name, fn) {
+  const prev = process.env[name];
+  delete process.env[name];
+  try {
+    return fn();
+  } finally {
+    if (prev === undefined) delete process.env[name];
+    else process.env[name] = prev;
+  }
+}
+
+test('loads a valid config from the runtime path', (dir) => {
   writeConfig(dir);
   const config = loadConfig(dir);
+  assert.equal(configPath(dir), path.join(dir, '.rbtv', 'config', 'ignite', 'config.json'));
+  assert.equal(config.workspace, path.resolve(dir));
   assert.equal(config.dmAgent, 'master');
   assert.equal(config.routes.C1, 'sample');
-  assert.equal(config.slack.appTokenSource, 'SLACK_APP_TOKEN');
+  assert.equal(config.slack.appTokenEnv, 'IGNITE_APP_TOKEN');
+  assert.equal(config.slack.botTokenEnv, 'IGNITE_BOT_TOKEN');
+  assert.equal(Object.hasOwn(config, 'defaultLaunch'), false);
 });
 
 test('agentHome resolves under the given workspace', (dir) => {
-  const config = writeConfig(dir);
+  writeConfig(dir);
   const loaded = loadConfig(dir);
-  assert.equal(agentHome(loaded, 'master'), path.join(config.workspace, '.rbtv', 'agents', 'master'));
+  assert.equal(agentHome(loaded, 'master'), path.join(dir, '.rbtv', 'agents', 'master'));
   assert.equal(storePath(loaded, 'sample'), path.join(dir, '.rbtv', 'agents', 'sample', 'state.sqlite'));
 });
 
 test('missing file throws', (dir) => {
-  assert.throws(() => loadConfig(dir), /cannot load workspace config/);
-});
-
-test('workspace mismatch throws', (dir) => {
-  writeConfig(dir, { workspace: path.join(dir, 'elsewhere') });
-  assert.throws(() => loadConfig(dir), /does not match/);
+  assert.throws(() => loadConfig(dir), /cannot load Ignite config/);
 });
 
 test('missing field throws', (dir) => {
   const body = writeConfig(dir);
   delete body.slack.botUserId;
-  fs.writeFileSync(path.join(dir, '.rbtv', 'agents', 'ignite.json'), JSON.stringify(body));
+  fs.writeFileSync(configPath(dir), JSON.stringify(body));
   assert.throws(() => loadConfig(dir), /botUserId/);
 });
 
-test('relative token path and bad slug throw', (dir) => {
-  const body = writeConfig(dir);
-  body.slack.botTokenFile = 'credentials/token.json';
-  fs.writeFileSync(path.join(dir, '.rbtv', 'agents', 'ignite.json'), JSON.stringify(body));
-  assert.throws(() => loadConfig(dir), /absolute path/);
+test('bad slug throws', (dir) => {
   writeConfig(dir);
   assert.throws(() => agentHome(loadConfig(dir), '../escape'), /slug/);
   assert.throws(() => agentHome(loadConfig(dir), 'HasCaps'), /slug/);
 });
 
-test('appTokenSource accepts env name or absolute path only', (dir) => {
+test('token env name is a name, not a path', (dir) => {
   const body = writeConfig(dir);
-  body.slack.appTokenSource = path.join(dir, 'app.token');
-  fs.writeFileSync(path.join(dir, '.rbtv', 'agents', 'ignite.json'), JSON.stringify(body));
-  assert.equal(loadConfig(dir).slack.appTokenSource, path.join(dir, 'app.token'));
-  body.slack.appTokenSource = 'relative/app.token';
-  fs.writeFileSync(path.join(dir, '.rbtv', 'agents', 'ignite.json'), JSON.stringify(body));
-  assert.throws(() => loadConfig(dir), /absolute/);
+  body.slack.appTokenEnv = path.join(dir, 'app.token');
+  fs.writeFileSync(configPath(dir), JSON.stringify(body));
+  assert.throws(() => loadConfig(dir), /environment variable name/);
+  body.slack.appTokenEnv = 'relative/app.token';
+  fs.writeFileSync(configPath(dir), JSON.stringify(body));
+  assert.throws(() => loadConfig(dir), /environment variable name/);
 });
 
 test('unknown field and bad route slug throw', (dir) => {
   const body = writeConfig(dir);
-  body.extra = true;
-  fs.writeFileSync(path.join(dir, '.rbtv', 'agents', 'ignite.json'), JSON.stringify(body));
+  body.defaultLaunch = { harness: 'claude' };
+  fs.writeFileSync(configPath(dir), JSON.stringify(body));
   assert.throws(() => loadConfig(dir), /unknown config field/);
-  writeConfig(dir);
   const again = writeConfig(dir);
+  again.slack.botTokenFile = path.join(dir, 'bot.json');
+  fs.writeFileSync(configPath(dir), JSON.stringify(again));
+  assert.throws(() => loadConfig(dir), /unknown slack field/);
+  again.slack = writeConfig(dir).slack;
   again.routes = { C1: 'Not A Slug' };
-  fs.writeFileSync(path.join(dir, '.rbtv', 'agents', 'ignite.json'), JSON.stringify(again));
+  fs.writeFileSync(configPath(dir), JSON.stringify(again));
   assert.throws(() => loadConfig(dir), /slug/);
 });
 
 test('stoolsWorkspace required and not a path', (dir) => {
   const body = writeConfig(dir);
   delete body.slack.stoolsWorkspace;
-  fs.writeFileSync(path.join(dir, '.rbtv', 'agents', 'ignite.json'), JSON.stringify(body));
+  fs.writeFileSync(configPath(dir), JSON.stringify(body));
   assert.throws(() => loadConfig(dir), /stoolsWorkspace required/);
   body.slack.stoolsWorkspace = path.join(dir, 'vault');
-  fs.writeFileSync(path.join(dir, '.rbtv', 'agents', 'ignite.json'), JSON.stringify(body));
+  fs.writeFileSync(configPath(dir), JSON.stringify(body));
   assert.throws(() => loadConfig(dir), /not a path/);
 });
 
-test('empty routes object is valid', (dir) => {
-  writeConfig(dir, { routes: {} });
-  assert.deepEqual(loadConfig(dir).routes, {});
+test('empty routes object is valid and dmAgent is optional', (dir) => {
+  const body = writeConfig(dir, { routes: {} });
+  delete body.dmAgent;
+  fs.writeFileSync(configPath(dir), JSON.stringify(body));
+  const config = loadConfig(dir);
+  assert.deepEqual(config.routes, {});
+  assert.equal(config.dmAgent, undefined);
+  body.dmAgent = 'Not-A-Slug';
+  fs.writeFileSync(configPath(dir), JSON.stringify(body));
+  assert.throws(() => loadConfig(dir), /dmAgent/);
+});
+
+test('envValue prefers the OS environment, then .env', (dir) => {
+  const name = `IGNITE_W5A_ENV_${process.pid}`;
+  const envDir = path.join(dir, '.rbtv', 'config', 'env');
+  fs.mkdirSync(envDir, { recursive: true });
+  fs.writeFileSync(path.join(envDir, '.env'), `${name}="from-file"\r\nOTHER=xoxb-other\n# ${name}=comment\n`);
+  without(name, () => {
+    assert.equal(envValue(dir, name), 'from-file');
+    assert.equal(envValue(dir, 'OTHER'), 'xoxb-other');
+    assert.equal(envValue(dir, 'MISSING_IGNITE_W5A'), null);
+    process.env[name] = 'from-env';
+    assert.equal(envValue(dir, name), 'from-env');
+  });
+});
+
+test('unset token names the variable and not a value', (dir) => {
+  const appName = `IGNITE_W5A_APP_${process.pid}`;
+  const botName = `IGNITE_W5A_BOT_${process.pid}`;
+  const secret = 'xoxb-do-not-print-w5a';
+  writeConfig(dir, { slack: { appTokenEnv: appName, botTokenEnv: botName } });
+  const envDir = path.join(dir, '.rbtv', 'config', 'env');
+  fs.mkdirSync(envDir, { recursive: true });
+  fs.writeFileSync(path.join(envDir, '.env'), `${botName}=${secret}\n`);
+  without(appName, () => without(botName, () => {
+    const config = loadConfig(dir);
+    assert.throws(() => slackToken(config, 'app'), (error) => {
+      assert.match(error.message, new RegExp(appName));
+      assert.equal(error.message.includes(secret), false);
+      assert.equal(error.message.includes('xoxb'), false);
+      return true;
+    });
+    assert.equal(slackToken(config, 'bot'), secret);
+  }));
 });
 
 if (failures.length) {

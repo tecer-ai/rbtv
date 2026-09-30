@@ -26,26 +26,24 @@ function tempHome() {
 }
 
 function writeConfig(workspace, slug, routes) {
-  const dir = path.join(workspace, '.rbtv', 'agents');
-  fs.mkdirSync(dir, { recursive: true });
+  const configDir = path.join(workspace, '.rbtv', 'config', 'ignite');
+  fs.mkdirSync(configDir, { recursive: true });
   const body = {
-    workspace,
     slack: {
       team: 'T1',
       botUserId: 'UBOT',
       ownerUserId: 'UOWNER',
-      botTokenFile: path.join(workspace, 'bot.json'),
-      appTokenSource: 'SLACK_APP_TOKEN',
-      ownerTokenFile: path.join(workspace, 'owner.json'),
+      appTokenEnv: 'SLACK_APP_TOKEN',
+      botTokenEnv: 'SLACK_BOT_TOKEN',
+      ownerTokenEnv: 'SLACK_OWNER_TOKEN',
       stoolsWorkspace: 'ignite',
     },
     tools: { cast: 'cast', stools: 'stools', audio: 'audio' },
-    defaultLaunch: { harness: 'claude', model: 'm', effort: 'high' },
     dmAgent: 'master',
     routes,
   };
-  fs.writeFileSync(path.join(dir, 'ignite.json'), JSON.stringify(body));
-  const home = path.join(dir, slug);
+  fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify(body));
+  const home = path.join(workspace, '.rbtv', 'agents', slug);
   fs.mkdirSync(home, { recursive: true });
   return home;
 }
@@ -316,6 +314,21 @@ test('post association', () => {
   } finally {
     dmStore.close();
   }
+});
+
+test('help names the new verbs and not create', () => {
+  const result = run(['--help']);
+  assert.equal(result.code, 0);
+  assert.match(result.out, /install <agent file>/);
+  assert.match(result.out, /update <agent>/);
+  assert.match(result.out, /connect <agent>/);
+  assert.match(result.out, /disconnect <agent>/);
+  assert.doesNotMatch(result.out, /ignite-agent create/);
+  assert.match(HELP, /fixed-interval/);
+});
+
+test('create is not a command', () => {
+  assert.throws(() => run(['create']), /unknown command: create/);
 });
 
 if (failures.length) {

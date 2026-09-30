@@ -36,27 +36,30 @@ function waitFor(fn, ms = 4000) {
   });
 }
 
+function configFile(dir) {
+  return path.join(dir, '.rbtv', 'config', 'ignite', 'config.json');
+}
+
 function workspace() {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-daemon-')));
   const agents = path.join(dir, '.rbtv', 'agents');
+  fs.mkdirSync(path.dirname(configFile(dir)), { recursive: true });
   fs.mkdirSync(agents, { recursive: true });
   const body = {
-    workspace: dir,
     slack: {
       team: 'T1',
       botUserId: 'UBOT',
       ownerUserId: 'UOWNER',
-      botTokenFile: path.join(dir, 'bot.json'),
-      appTokenSource: 'SLACK_APP_TOKEN',
-      ownerTokenFile: path.join(dir, 'owner.json'),
+      appTokenEnv: 'IGNITE_APP_TOKEN',
+      botTokenEnv: 'IGNITE_BOT_TOKEN',
+      ownerTokenEnv: 'IGNITE_OWNER_TOKEN',
       stoolsWorkspace: 'ignite',
     },
     tools: { cast: 'cast', stools: 'stools', audio: 'audio' },
-    defaultLaunch: { harness: 'claude', model: 'm', effort: 'low' },
     dmAgent: 'master',
     routes: {},
   };
-  fs.writeFileSync(path.join(agents, 'ignite.json'), JSON.stringify(body));
+  fs.writeFileSync(configFile(dir), JSON.stringify(body));
   const home = path.join(agents, 'master');
   fs.mkdirSync(home, { recursive: true });
   fs.writeFileSync(path.join(home, 'launch.json'), JSON.stringify({
@@ -339,16 +342,17 @@ test('unit-path-has-link-bin', () => {
   assert.equal(filled.includes('@PATH@'), false);
 });
 
-test('harness-missing', async () => {
+test('launch-json-drives-preflight', async () => {
   const { dir, home } = workspace();
-  const cfgPath = path.join(dir, '.rbtv', 'agents', 'ignite.json');
-  const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-  cfg.defaultLaunch.harness = 'missing-default';
-  fs.writeFileSync(cfgPath, JSON.stringify(cfg));
   const launchPath = path.join(home, 'launch.json');
   const launch = JSON.parse(fs.readFileSync(launchPath, 'utf8'));
   launch.harness = 'missing-home';
   fs.writeFileSync(launchPath, JSON.stringify(launch));
+  const side = path.join(dir, '.rbtv', 'agents', 'side');
+  fs.mkdirSync(side, { recursive: true });
+  fs.writeFileSync(path.join(side, 'launch.json'), JSON.stringify({
+    harness: 'missing-side', model: 'm', effort: 'low',
+  }));
   const empty = fs.mkdtempSync(path.join(dir, 'empty-'));
   const child = spawn(process.execPath, [daemonPath, '--workspace', dir], {
     env: { ...process.env, IGNITE_DAEMON_FAKE: '1', PATH: empty },
@@ -362,11 +366,52 @@ test('harness-missing', async () => {
     const code = await new Promise((resolve) => child.once('exit', resolve));
     assert.notEqual(code, 0);
     assert.match(stdout, /"event":"error"/);
-    assert.match(stdout, /missing-default/);
     assert.match(stdout, /missing-home/);
-    assert.match(stdout, new RegExp(empty.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(stdout, /missing-side/);
+    assert.equal(stdout.includes('missing-default'), false);
+    const loggedPath = JSON.stringify(empty).slice(1, -1);
+    assert.match(stdout, new RegExp(loggedPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     assert.equal(stdout.includes('"event":"ready"'), false);
-    assert.match(stderr, /harness not on PATH/);
+    assert.match(stderr, /harness not on PATH: missing-home/);
+    assert.match(stderr, /harness not on PATH: missing-side/);
+  } finally {
+    if (child.exitCode == null) child.kill('SIGKILL');
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('unset-token-refuses', async () => {
+  const { dir } = workspace();
+  const appName = `IGNITE_W5A_APP_${process.pid}`;
+  const botName = `IGNITE_W5A_BOT_${process.pid}`;
+  const secret = 'xoxb-do-not-print-w5a';
+  const cfgPath = configFile(dir);
+  const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+  cfg.slack.appTokenEnv = appName;
+  cfg.slack.botTokenEnv = botName;
+  fs.writeFileSync(cfgPath, JSON.stringify(cfg));
+  const envDir = path.join(dir, '.rbtv', 'config', 'env');
+  fs.mkdirSync(envDir, { recursive: true });
+  fs.writeFileSync(path.join(envDir, '.env'), `${botName}=${secret}\n`);
+  const env = { ...process.env, PATH: harnessBin(dir, ['claude', 'ignite-agent']) };
+  delete env.IGNITE_DAEMON_FAKE;
+  delete env[appName];
+  delete env[botName];
+  const child = spawn(process.execPath, [daemonPath, '--workspace', dir], {
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8').on('data', (chunk) => { stdout += chunk; });
+  child.stderr.setEncoding('utf8').on('data', (chunk) => { stderr += chunk; });
+  try {
+    const code = await new Promise((resolve) => child.once('exit', resolve));
+    assert.notEqual(code, 0);
+    assert.match(stderr, new RegExp(appName));
+    assert.equal(stderr.includes(secret), false);
+    assert.equal(stdout.includes(secret), false);
+    assert.equal(stdout.includes('"event":"ready"'), false);
   } finally {
     if (child.exitCode == null) child.kill('SIGKILL');
     fs.rmSync(dir, { recursive: true, force: true });
@@ -375,7 +420,7 @@ test('harness-missing', async () => {
 
 test('stools-workspace-missing', async () => {
   const { dir } = workspace();
-  const cfgPath = path.join(dir, '.rbtv', 'agents', 'ignite.json');
+  const cfgPath = configFile(dir);
   const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
   delete cfg.slack.stoolsWorkspace;
   fs.writeFileSync(cfgPath, JSON.stringify(cfg));
@@ -434,7 +479,7 @@ test('harness-ready', async () => {
 });
 
 function setRoutes(dir, routes) {
-  const file = path.join(dir, '.rbtv', 'agents', 'ignite.json');
+  const file = configFile(dir);
   const body = JSON.parse(fs.readFileSync(file, 'utf8'));
   body.routes = routes;
   fs.writeFileSync(file, JSON.stringify(body));
@@ -524,7 +569,7 @@ test('half-written-config', async () => {
   setRoutes(dir, { COLD: 'master' });
   const box = await started(dir);
   try {
-    fs.writeFileSync(path.join(dir, '.rbtv', 'agents', 'ignite.json'), '{');
+    fs.writeFileSync(configFile(dir), '{');
     const saved = await box.socket.inject(mention('COLD'));
     assert.equal(saved.queued, true);
     assert.equal(saved.agent, 'master');

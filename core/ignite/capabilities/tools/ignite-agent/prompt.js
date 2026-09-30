@@ -2,7 +2,8 @@
 
 // API
 // composeTurn({ board, work, inputs, recent, stored, historyPath, resultPath, nonce, rehydrate })
-//   → turn message. CLAUDE.md is not copied here; the harness reads it because cwd is the home.
+//   → turn message. Standing instructions are not copied here; turn-loop passes
+//   <home>/agent.md as systemPromptFile on the cast request. This file does not read CLAUDE.md.
 // readBoard(home) → board.md text, or a visible missing/unreadable note
 
 const fs = require('node:fs');

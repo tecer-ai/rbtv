@@ -5,7 +5,7 @@ description: "Use when the owner asks to change or inspect this agent's harness,
 
 # agent-controls
 
-Use this for controls on your own primary agent. Inside a turn, `IGNITE_AGENT_HOME` and `IGNITE_CONVERSATION` identify your home and conversation. Outside a turn, select the home with `--agent`. Check `ignite-agent <subcommand> --help` before acting; never invent a flag. Use the command's result to describe what happened. `create` belongs to the separate `create-primary-agent` skill and only to the agent assigned that purpose.
+Use this for controls on your own agent. Inside a turn, `IGNITE_AGENT_HOME` and `IGNITE_CONVERSATION` identify your home and conversation. Outside a turn, select the home with `--agent`. Check `ignite-agent <subcommand> --help` before acting; never invent a flag. Use the command's result to describe what happened. `install` and `connect` belong to the separate `create-agent` skill and only to the agent assigned that purpose.
 
 ## Launch setting
 

@@ -19,15 +19,7 @@ unit_src="$deploy/core/ignite/capabilities/tools/ignite-agent/units/rbtv-ignite-
 unit_dir="${XDG_CONFIG_HOME:-$HOME}/.config/systemd/user"
 unit_dst="$unit_dir/rbtv-ignite-agents.service"
 
-env_file="$(node -e '
-const fs = require("fs");
-const path = require("path");
-const ws = process.argv[1];
-const book = JSON.parse(fs.readFileSync(path.join(ws, "rbtv.json"), "utf8"));
-if (!book.env_file || typeof book.env_file !== "string") throw new Error("rbtv.json env_file required");
-const rel = book.env_file.trim();
-process.stdout.write(path.isAbsolute(rel) ? rel : path.join(ws, rel));
-' "$workspace")"
+env_file="${workspace}/.rbtv/config/env/.env"
 
 if [[ ! -f "$env_file" ]]; then
   echo "env file missing: $env_file" >&2

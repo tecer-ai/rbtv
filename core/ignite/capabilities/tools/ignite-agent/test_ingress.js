@@ -360,6 +360,28 @@ test('late-mention-three-earlier', async () => {
   }
 });
 
+test('dm-without-dmAgent-refuses', async () => {
+  const h = harness();
+  try {
+    delete h.ctx.config.dmAgent;
+    await assert.rejects(
+      () => handleEvent(event({ text: 'dm' }), h.ctx),
+      /config\.dmAgent required/,
+    );
+    const channel = await handleEvent(event({
+      channel: 'CCHAN', channelType: 'channel', ts: '12.100000', text: 'chan',
+    }), h.ctx);
+    assert.equal(channel.queued, true);
+    assert.equal(channel.agent, 'probe');
+    h.ctx.config.dmAgent = 'other';
+    const routed = await handleEvent(event({ ts: '12.200000', text: 'other-dm' }), h.ctx);
+    assert.equal(routed.queued, true);
+    assert.equal(routed.agent, 'other');
+  } finally {
+    h.close();
+  }
+});
+
 test('ack-after-store-write', async () => {
   let wrote = false;
   let release;

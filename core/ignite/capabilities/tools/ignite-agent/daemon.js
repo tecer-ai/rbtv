@@ -3,7 +3,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { loadConfig, agentHome, storePath } = require('./config.js');
+const { loadConfig, agentHome, storePath, slackToken } = require('./config.js');
 const { Store, procStart } = require('./store.js');
 const { handleEvent } = require('./ingress.js');
 const { runOnce } = require('./turn-loop.js');
@@ -18,55 +18,6 @@ const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 function log(fields) {
   process.stdout.write(`${JSON.stringify({ ts: new Date().toISOString(), ...fields })}\n`);
-}
-
-function envFilePath(workspace) {
-  const book = path.join(workspace, 'rbtv.json');
-  let rel = '.rbtv/config/env/.env';
-  if (fs.existsSync(book)) {
-    const cfg = JSON.parse(fs.readFileSync(book, 'utf8'));
-    if (typeof cfg.env_file === 'string' && cfg.env_file.trim()) rel = cfg.env_file.trim();
-  }
-  return path.isAbsolute(rel) ? rel : path.join(workspace, rel);
-}
-
-function envValue(workspace, name) {
-  let text;
-  try { text = fs.readFileSync(envFilePath(workspace), 'utf8'); } catch { return null; }
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eq = trimmed.indexOf('=');
-    if (eq < 0 || trimmed.slice(0, eq).trim() !== name) continue;
-    let value = trimmed.slice(eq + 1).trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
-    }
-    return value || null;
-  }
-  return null;
-}
-
-function readBotToken(file) {
-  let data;
-  try { data = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (error) {
-    throw new Error(`cannot read bot token file: ${error.message}`);
-  }
-  if (typeof data.bot_token !== 'string' || !data.bot_token) throw new Error('bot token file has no bot_token');
-  return data.bot_token;
-}
-
-function readAppToken(config) {
-  const source = config.slack.appTokenSource;
-  if (source.includes('/') || source.startsWith('.')) {
-    const text = fs.readFileSync(source, 'utf8').trim();
-    if (!text) throw new Error('app token file is empty');
-    return text.split(/\s+/)[0];
-  }
-  if (process.env[source]) return process.env[source];
-  const fromFile = envValue(config.workspace, source);
-  if (fromFile) return fromFile;
-  throw new Error(`app token ${source} is unset`);
 }
 
 function holderOf(lockPath) {
@@ -141,7 +92,6 @@ function resolveHarness(name, pathEnv) {
 
 function namedHarnesses(config) {
   const names = new Set();
-  if (config.defaultLaunch?.harness) names.add(config.defaultLaunch.harness);
   for (const slug of agentSlugs(config.workspace)) {
     const file = path.join(agentHome(config, slug), 'launch.json');
     if (!fs.existsSync(file)) continue;
@@ -391,9 +341,11 @@ async function startLocked(opts, workspace, held) {
   try {
     assertHarnesses(config);
     if (!slack && !fake) {
+      const appToken = slackToken(config, 'app');
+      const botToken = slackToken(config, 'bot');
       slack = new Slack({
-        botToken: readBotToken(config.slack.botTokenFile),
-        appToken: readAppToken(config),
+        botToken,
+        appToken,
         stoolsWorkspace: config.slack.stoolsWorkspace,
         toolsWrapper: config.tools.stools,
         log: (level, message) => log({ event: 'slack', level, message }),

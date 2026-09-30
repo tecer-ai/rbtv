@@ -6,7 +6,9 @@
 //   Refuses when liveRun() matches a live pid. A running row that is not live is failRun'd
 //   (recovery) before the next claim. cast turn cwd is realpath(home). Same harness + stored
 //   session id resumes that id; a harness change or no id starts a new session and the prompt
-//   carries stored history and work state. failRun enqueues the one blocker — this file does not.
+//   carries stored history and work state. Every cast request includes systemPromptFile
+//   <home>/agent.md (absolute). This file does not read or require CLAUDE.md.
+//   failRun enqueues the one blocker — this file does not.
 // DEFAULT_HISTORY_WINDOW — re-exported for callers
 
 const fs = require('node:fs');
@@ -291,6 +293,7 @@ async function execute(slug, claim, deps) {
     effort: setting.effort,
     cwd: home,
     prompt,
+    systemPromptFile: path.join(home, 'agent.md'),
     session,
     env: {
       IGNITE_AGENT_HOME: home,

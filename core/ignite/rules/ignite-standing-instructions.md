@@ -1,3 +1,8 @@
+---
+name: ignite-standing-instructions
+description: "On every turn, communicate inside the assigned Slack scope, own the accepted work, and write RESULT_FILE before the turn ends."
+---
+
 # Standing instructions
 
 You communicate with the owner inside your assigned Slack scope, and you own the work you accept.

@@ -29,6 +29,7 @@ const control = JSON.parse(fs.readFileSync(process.env.FAKE_CAST_CONTROL, 'utf8'
 fs.appendFileSync(process.env.FAKE_CAST_SEEN, JSON.stringify({
   harness: request.harness, model: request.model, effort: request.effort,
   cwd: request.cwd, session: request.session, prompt: request.prompt, env: request.env,
+  systemPromptFile: request.systemPromptFile,
 }) + '\\n');
 const prompt = request.prompt || '';
 const resultLine = prompt.split('\\n').find((line) => line.startsWith('RESULT_FILE: '));
@@ -128,7 +129,6 @@ function harness(ctx, setting = {}) {
   const launch = { harness: 'claude', model: 'sonnet-5', effort: 'low', voice: 'voice-a', ...setting };
   fs.writeFileSync(path.join(home, 'launch.json'), `${JSON.stringify(launch)}\n`);
   fs.writeFileSync(path.join(home, 'board.md'), 'BOARD_TOKEN\n');
-  fs.writeFileSync(path.join(home, 'CLAUDE.md'), 'standing\n');
   const store = ctx.track(new Store(path.join(home, 'state.sqlite')));
   store.setLaunchSetting(launch);
   const controlPath = path.join(ctx.dir, 'control.json');
@@ -272,6 +272,22 @@ test('owner retry clears it', async (ctx) => {
   assert.equal(result.disposition, 'completed');
   assert.equal(result.work.state, 'completed');
   assert.equal(seen(box).length, 4);
+});
+
+test('request carries systemPromptFile', async (ctx) => {
+  const box = harness(ctx);
+  const home = fs.realpathSync(box.home);
+  const agentMd = path.join(home, 'agent.md');
+  fs.writeFileSync(agentMd, 'STANDING_SECRET\n');
+  assert.equal(fs.existsSync(path.join(box.home, 'CLAUDE.md')), false);
+  seed(box.store, { text: 'hello' });
+  box.sync();
+  const result = await runOnce('master', box.deps);
+  const request = JSON.parse(fs.readFileSync(path.join(home, 'turns', result.runId, 'request.json'), 'utf8'));
+  assert.equal(request.systemPromptFile, agentMd);
+  assert.equal(path.isAbsolute(request.systemPromptFile), true);
+  assert.equal(request.prompt.includes('STANDING_SECRET'), false);
+  assert.equal(fs.existsSync(path.join(box.home, 'CLAUDE.md')), false);
 });
 
 test('live-PID refusal', async (ctx) => {

@@ -42,12 +42,12 @@ The defects that have actually bitten (2026-09-28), each a rule:
 
 ## core/ignite/ — Runnable Service Code (convention)
 
-`core/ignite/` is Ignite 0.2: runnable Node code. A Slack message or a scheduled wake selects a primary-agent home under the workspace `.rbtv/agents/<slug>/`, runs one non-interactive turn, and the runtime delivers that turn's replies. It is deployed, not copied into a harness tree: `core/ignite/capabilities/tools/ignite-agent/deploy.sh <commit>` (env `RBTV_DEPLOY`, `RBTV_WORKSPACE`) checks out the deploy worktree and restarts the user unit `rbtv-ignite-agents.service` (template `core/ignite/capabilities/tools/ignite-agent/units/rbtv-ignite-agents.service`). Operator steps are `core/ignite/capabilities/runbook.md`.
+`core/ignite/` is Ignite 0.2: runnable Node code. A Slack message or a scheduled wake selects an agent folder under the workspace `.rbtv/agents/<slug>/`, runs one non-interactive turn, and the runtime delivers that turn's replies. It is deployed, not copied into a harness tree: `core/ignite/capabilities/tools/ignite-agent/deploy.sh <commit>` (env `RBTV_DEPLOY`, `RBTV_WORKSPACE`) checks out the deploy worktree and restarts the user unit `rbtv-ignite-agents.service` (template `core/ignite/capabilities/tools/ignite-agent/units/rbtv-ignite-agents.service`). Operator steps are `core/ignite/capabilities/runbook.md`.
 
 Rules for `core/ignite/`:
 
-1. **Not installed, deployed.** `install.py` does not install this service code into a workspace harness tree. What installs is the `create-primary-agent` skill and the `ignite-agent` tool's PATH link (`capabilities/tools/ignite-agent/`). The process runs from the deploy worktree.
-2. **The General rule applies in full.** No hardcoded workspace, vault, or host paths. Every per-instance input (workspace root, Slack identity, token file, launch pin) is resolved at runtime from `<workspace>/.rbtv/agents/` or explicit configuration.
+1. **Not installed, deployed.** `install.py` does not install this service code into a workspace harness tree. What installs is the `create-agent` skill, the `agent-controls` skill, the `ignite-standing-instructions` rule, and the `ignite-agent` tool's PATH link (`capabilities/tools/ignite-agent/`). The process runs from the deploy worktree.
+2. **The General rule applies in full.** No hardcoded workspace, vault, or host paths. Every per-instance input (workspace root, Slack identity, token variable names, launch setting) is resolved at runtime from `<workspace>/.rbtv/agents/` or explicit configuration.
 3. **No runtime state in the repo.** Agent homes, `state.sqlite`, and conversation history live under the workspace `.rbtv/agents/`, never under `core/ignite/`.
 4. **Self-contained subtree.** `core/ignite/capabilities/tools/ignite-agent/` requires only its own files and Node built-ins. Other rbtv capabilities (`cast`, stools, audio) are runtime commands named in workspace config, never source imports.
 5. **Docs in sync.** When this component changes, the Keep-Docs-in-Sync rule above applies.
