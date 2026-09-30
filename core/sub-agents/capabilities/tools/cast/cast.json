@@ -1,5 +1,0 @@
-{
-  "name": "cast",
-  "description": "cast command",
-  "entry": "../../../tool/cast.js"
-}

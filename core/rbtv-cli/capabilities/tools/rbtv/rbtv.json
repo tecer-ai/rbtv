@@ -1,0 +1,5 @@
+{
+  "name": "rbtv",
+  "description": "The rbtv command: browse modules and components, and run its action verbs.",
+  "entry": "rbtv"
+}

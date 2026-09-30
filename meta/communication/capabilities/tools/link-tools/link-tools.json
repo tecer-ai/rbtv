@@ -1,0 +1,5 @@
+{
+  "name": "link-tools",
+  "description": "Puts this component's bare-name command on PATH, repairing stale links.",
+  "entry": "link-tools.py"
+}

@@ -1,0 +1,6 @@
+{
+  "description": "Ignite: connects installed agents to Slack, one agent turn per message or timer; its waking program runs on Linux.",
+  "dependencies": [
+    "node"
+  ]
+}

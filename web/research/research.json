@@ -1,0 +1,4 @@
+{
+  "description": "The research component — the workspace's web-research rigor standards: source evaluation and scoring, citation format, data-integrity rules, and the sources-manifest convention. It owns HOW research is conducted and reported; which tool reads a page is the sibling browse component's question.",
+  "dependencies": []
+}

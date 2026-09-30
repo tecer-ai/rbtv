@@ -1,0 +1,5 @@
+{
+  "name": "cast",
+  "description": "Launches one agent turn on any harness and model, routes a task to the right model, and lists or monitors running launches.",
+  "entry": "cast.js"
+}

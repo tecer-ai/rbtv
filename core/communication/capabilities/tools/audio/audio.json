@@ -1,5 +1,0 @@
-{
-  "name": "audio",
-  "description": "audio command",
-  "entry": "../../audio/audio.py"
-}

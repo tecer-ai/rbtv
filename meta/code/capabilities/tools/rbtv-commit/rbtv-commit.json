@@ -1,0 +1,5 @@
+{
+  "name": "rbtv-commit",
+  "description": "Commits a chosen set of files in one step: syncs the remote, stages exactly those files, commits, and optionally pushes.",
+  "entry": "commit.py"
+}

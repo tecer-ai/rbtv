@@ -1,5 +1,0 @@
-{
-  "name": "voyage-embed",
-  "description": "voyage-embed command",
-  "entry": "../../../tool/voyage-embed"
-}

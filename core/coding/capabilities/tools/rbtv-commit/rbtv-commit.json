@@ -1,5 +1,0 @@
-{
-  "name": "rbtv-commit",
-  "description": "rbtv-commit command",
-  "entry": "../../../tool/commit.py"
-}

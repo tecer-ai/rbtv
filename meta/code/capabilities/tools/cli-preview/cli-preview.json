@@ -1,0 +1,4 @@
+{
+  "name": "cli-preview",
+  "description": "Validate a Markdown-authored CLI output review and render it to one offline, self-contained HTML preview with search, navigation, and copy controls."
+}

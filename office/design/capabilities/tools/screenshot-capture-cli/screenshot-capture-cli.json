@@ -1,5 +1,5 @@
 {
   "name": "screenshot-capture-cli",
-  "description": "screenshot-capture-cli command",
+  "description": "Captures reference screenshots of a page for a design's exemplar set.",
   "entry": "../../screenshot-capture/tool/capture.py"
 }

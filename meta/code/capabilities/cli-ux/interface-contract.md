@@ -1,0 +1,53 @@
+# CLI interface contract
+
+Use this contract to design or review a command-line interface (CLI) that a person or agent can understand from the installed command alone. Apply each item to the relevant command; record “not applicable” with a reason rather than adding a feature just to satisfy a list. Product vocabulary and existing callers decide the actual command names, hierarchy, formats, and exit numbers.
+
+## Inventory the complete surface
+
+Record every root command, group, leaf, alias, positional, and option. For each argument and option, specify:
+
+- Meaning, type, accepted literal values and what each value does; for dynamic values, the discovery command and constraints; whether required, optional, or repeatable.
+- Default and omitted behavior; if repeated or comma-separated values are accepted, whether later values replace or append.
+- Ranges, empty values, quoting/path expectations, and which combinations are valid or refused.
+- Precedence among command arguments, environment, saved settings, and discovery; the selected context or target made visible when relevant.
+- Read versus write effects, external requests, setup needs, confirmation and preview semantics, files or shared resources touched, and whether prompts can occur.
+- Text and structured outputs, standard output versus standard error, empty/error results, and exit status meaning.
+- Existing callers, including scripts, agent instructions, and parsers of structured output.
+
+Use a coverage matrix with a row per documented command path and columns for help positions, argument/value classes, ordinary/empty/failure output, structured mode, mutation, and applicable contexts. A command group has its own row. Pairwise or risk-based tests cover interacting options; a full cross-product is rarely useful. A coverage cell marked “not applicable” needs the reason.
+
+## Help is a working interface
+
+Design help to work at every command depth: root, groups, and leaves. Support `-h` and `--help` before and after command tokens, global options, and positionals wherever those tokens are options. A request for help succeeds without required arguments, credentials, saved configuration, network, or side effects, and shows the deepest command context the parser can identify. Define how ambiguous help mixed with an invalid token is resolved, then implement and test that policy. Respect the `--` option terminator and literal values such as `--name=-h`; raw token scanning that mistakes values for help breaks commands.
+
+Root help lets a newcomer find command groups and first-use steps. Group help lists every child and the purpose of each. Leaf help includes, where relevant:
+
+- Purpose and complete usage forms, including aliases or alternate forms that actually work.
+- Every positional and option at the point of use; accepted values with short meanings, defaults, omission and replace/append behavior, and meaningful ranges.
+- Selection scope and filter combinations; exact addressing versus broad discovery where the product offers both.
+- Target/context precedence, setup and authentication needed for execution (not for help), read/write effects, preview, confirmation, and interactive behavior.
+- Text and structured formats, output streams, errors and exit statuses, plus a realistic example and the next related command when helpful.
+
+Concise shared explanations can be linked or named consistently, but a leaf must still explain enough to choose its arguments. Do not put unexplained internal labels in help or errors. Verify help against the actual parser, not only a hand-authored manual.
+
+## Address and resolve things honestly
+
+When a product has a hierarchy, show its real levels and let a named scope stay within them. Exact names or identifiers must never silently broaden into description search. Give broad discovery its own explicit route where useful. Resolve a short name only when unique; ambiguity refuses action and shows copyable choices. Preserve stable full identifiers in results, errors, and follow-up commands. An explicit filter must apply inside the selected scope and must not be silently ignored at a different depth. Use one public term for the same classification across help, tables, errors, and structured fields.
+
+Distinguish a source catalog from a selected target and a saved selection from checked file or service health. Name where a check ran: selected target, local source, shared command path, or external service. A global `PATH` check (the shell's command lookup order) can matter to a target when it determines which command runs; label its scope instead of removing it for being outside the target folder.
+
+## Default text and structured output
+
+Default text is readable to people and agents without a special pretty flag. Terminal output is plain text: Markdown table pipes or headings will not render as a page. Use a short command title and whitespace between sections or consecutive command results, with compact aligned tables when they aid scanning. Keep full copyable identifiers, item type and state; shorten descriptions first. At narrow widths, switch to labeled per-item blocks if essential columns cannot fit. Never split or truncate an identifier. Avoid decorative lines that consume space without carrying information.
+
+Color is optional emphasis, never the sole state signal. Honor `NO_COLOR` and redirected output. Use deterministic ordering, a bounded default for collections, and a real continuation mechanism such as cursor or offset. State the limit and next page in usable terms. An empty collection succeeds when it is a valid result; label it clearly and distinguish it from a failed query.
+
+In structured mode, emit exactly one documented, stable, undecorated value on standard output for success **and** failure; a failure also exits nonzero. Define the product's success/error fields, field meanings, null/absence behavior, and exit numbers without assuming a universal envelope. Keep titles, colors, extra prose, and progress out of that value. Put diagnostics and progress on standard error without duplicating the structured failure there. Keep secrets out of both streams, including error and raw-response paths. When authentication is needed, prefer standard environment, configuration, or provider mechanisms to token arguments that appear in shell history. If a command creates a file, return a usable file path and relevant outcome details in structured mode where those are part of the job.
+
+Human-readable errors state the attempted action and scope, the reason for refusal or failure, whether anything changed, and a concrete recovery command when the context makes one certain. Preserve exact quoted identifiers; otherwise point to discovery or help rather than inventing an identifier.
+
+## One operation for all users
+
+Every human or agent control for an action must reach the same underlying operation: interactive and noninteractive terminal modes, graphical controls, and agent tools may present it differently, but cannot keep separate state-changing logic. An agent must be able to discover and perform the same relevant actions a human can without driving a graphical interface when a direct tool route is feasible. Noninteractive calls must not unexpectedly prompt; required choices become explicit arguments or a clear refusal. Define write boundaries for every route, including an optional raw command. Preview and dry-run outputs state what would happen and cannot claim a write happened.
+
+Prefer narrow, composable operations for repeated jobs, exact reads after discovery, stable IDs, bounded listing, and named writes. Include only operations the product needs. Setup, health checks, raw escape hatches, authentication storage, and companion agent instructions are conditional features, not a fixed CLI skeleton.

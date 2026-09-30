@@ -92,7 +92,7 @@ that no longer exists.
 
 They are **reference material, so they carry no `exposure.csv` row** — a `references/` file is wired
 in only by being pointed at from the routing body, exactly as `web/capture` does with
-`references/link-preview.md` and `core/coding` does with its four discipline files. `skills/browse.md`
+`references/link-preview.md` and `meta/code` does with its four discipline files. `skills/browse.md`
 carries that pointer.
 
 The set's index is `references/playwright/playwright.md`. It arrived as `workflow.md` carrying skill
