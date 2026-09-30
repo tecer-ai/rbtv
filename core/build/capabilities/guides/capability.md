@@ -14,6 +14,7 @@ It is the one home for text a second cognitive unit needs. Without it, that text
 - Read with only the passed inputs, a builder can follow it. It names no file the pointer did not pass.
 - No other file restates its content. ([Single source of truth](../principles/single-source-of-truth.md))
 - Every pointer names the moment to open it. A bare link fails. ([Progressive disclosure](../principles/progressive-disclosure.md))
+- No channel id, absolute path, account, host, or credential is typed into it: these belong to one installation and are read at run time from its configuration, settings, or task ([Single source of truth](../principles/single-source-of-truth.md)).
 
 ## Making it good
 

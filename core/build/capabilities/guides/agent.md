@@ -16,6 +16,8 @@ It gives one standing prompt, and the cognitive units it selects, a different [t
 - The prompt names no file, goal, or done check that belongs to one task ([Progressive disclosure](../principles/progressive-disclosure.md)).
 - Its key folders are the folders its tasks actually work in, so it starts where its work is ([Progressive disclosure](../principles/progressive-disclosure.md)).
 - An agent whose [role](role.md), [persona](persona.md), [procedure](procedure.md), and [constraints](constraints.md) match an existing agent is not created ([Keep it simple](../principles/kiss.md)).
+- No channel id, absolute path, account, host, or credential is typed into it: these belong to one installation and are read at run time from its configuration, settings, or task ([Single source of truth](../principles/single-source-of-truth.md)).
+- Where the agent runs without a person present (through Slack, a timer, or `cast`), the prompt never has it wait after its turn ends: each run is one turn, nothing wakes it with a result, and any check its conclusion depends on runs to completion inside the turn.
 
 ## Making it good
 
