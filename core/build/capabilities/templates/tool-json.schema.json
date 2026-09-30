@@ -19,7 +19,7 @@
       "type": "string"
     },
     "entry": {
-      "description": "The program file the installer places on PATH, relative to the tool's folder and written with forward slashes. It starts with a shebang line or ends in .py, .js, or .sh, so every operating system can run it. The command's name on PATH is the tool's name.",
+      "description": "The program file the installer places on PATH, written with forward slashes, relative to the tool's folder and inside its component; or, with the prefix `ws:`, a program in another repository of the installation, relative to the installation root. It starts with a shebang line or ends in .py, .js, or .sh, so every operating system can run it. The command's name on PATH is the tool's name.",
       "type": "string",
       "minLength": 1
     }

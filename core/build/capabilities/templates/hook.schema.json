@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "<hook>.json",
-  "description": "One hook, in rbtv's format, read by the rbtv installer and translated into each harness's own hook settings. A harness without hooks receives none.",
+  "description": "One hook, in rbtv's format, read by the rbtv installer and written into the hook settings of Claude Code and Codex. OpenCode receives no hooks.",
   "type": "object",
   "required": [
     "name",
@@ -24,7 +24,7 @@
     "event": {
       "type": "string",
       "minLength": 1,
-      "description": "The event that runs the hook, such as a tool use or the end of a turn; the installer translates it into each harness's own event."
+      "description": "The event that runs the hook, by Claude Code's event name, which Codex shares, such as a tool use or the end of a turn."
     },
     "matcher": {
       "type": "string",
