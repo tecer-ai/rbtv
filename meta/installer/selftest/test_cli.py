@@ -79,7 +79,7 @@ def parser_selectors_index(ctx) -> None:
     check("CLI-reach-handler-doctor", rc_doc == 0, str(rc_doc))
 
     for flag, meth in (("-xs", "skill"), ("-xr", "rule"),
-                       ("-xc", "command"), ("-xsa", "sub-agent")):
+                       ("-xc", "command"), ("-xa", "agent")):
         a = build_parser().parse_args(["add", flag])
         b = build_parser().parse_args(["add", "-x", meth])
         check(f"CLI-alias-{flag}", a.method == b.method == [meth],
@@ -111,38 +111,35 @@ def parser_selectors_index(ctx) -> None:
         "core/communication": {
             "module": "core", "component": "communication",
             "manifest": True, "kind": "component", "rows": [
-                {"part-id": "audio", "method": "path"},
-                {"part-id": "plain-language", "method": "rule"},
-                {"part-id": "non-technical-user", "method": "rule"},
-                {"part-id": "concise-chat", "method": "rule"},
-                {"part-id": "audio-aware", "method": "skill"}]},
+                {"id": "audio", "method": "tool"},
+                {"id": "plain-language", "method": "rule"},
+                {"id": "non-technical-user", "method": "rule"},
+                {"id": "concise-chat", "method": "rule"},
+                {"id": "audio-aware", "method": "skill"}]},
         "core/sub-agents": {
             "module": "core", "component": "sub-agents",
             "manifest": True, "kind": "component", "rows": [
-                {"part-id": "cast", "method": "path"},
-                {"part-id": "sub-agents", "method": "skill"},
-                {"part-id": "swarm", "method": "skill"},
-                {"part-id": "panel", "method": "skill"}]},
+                {"id": "cast", "method": "tool"},
+                {"id": "sub-agents", "method": "skill"},
+                {"id": "swarm", "method": "skill"},
+                {"id": "panel", "method": "skill"}]},
         "web/browse": {
             "module": "web", "component": "browse",
             "manifest": True, "kind": "component", "rows": [
-                {"part-id": "browse", "method": "skill"},
-                {"part-id": "chrome-devtools", "method": "config"}]},
+                {"id": "browse", "method": "skill"},
+                {"id": "chrome-devtools", "method": "mcp-server"}]},
         "web/capture": {
             "module": "web", "component": "capture",
             "manifest": True, "kind": "component", "rows": [
-                {"part-id": "capture", "method": "skill"}]},
+                {"id": "capture", "method": "skill"}]},
         "_hub/skills/ponytail": {
             "module": "_hub", "component": "ponytail",
             "manifest": False, "kind": "hub"},
-        "badmod/silent": {
-            "module": "badmod", "component": "silent",
-            "manifest": False, "kind": "component"},
     }
     SEL_BOOK = {
         "core/communication": {
             "module": "core", "component": "communication",
-            "parts": {"audio-aware": {"method": "skill"},
+            "units": {"audio-aware": {"method": "skill"},
                       "plain-language": {"method": "rule"}}},
         "web/browse": {"module": "web", "component": "browse"},
         "ghost/gone": {"module": "ghost", "component": "gone"},
@@ -231,7 +228,7 @@ def parser_selectors_index(ctx) -> None:
     duplicate["other/capture"] = {
         "module": "other", "component": "capture",
         "manifest": True, "kind": "component",
-        "rows": [{"part-id": "capture", "method": "skill"}]}
+        "rows": [{"id": "capture", "method": "skill"}]}
     try:
         resolve_selection(_sel(names=["capture"]), duplicate)
         ambiguous = "no refusal"

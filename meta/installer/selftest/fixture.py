@@ -5,77 +5,84 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from discovery import EXPOSURE_NAME, HUB_DIR, Refuse, SKILLS_DIR, SKILL_FILE
+from discovery import HUB_DIR, Refuse, SKILLS_DIR, SKILL_FILE
 
 from lib.constants import HARNESSES
 from lib.operations import do_install
 
 
+def _w(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def _unit_md(path: Path, name: str, description: str, body: str = "",
+             extra: str = "") -> None:
+    _w(path, f"---\nname: {name}\ndescription: {json.dumps(description)}\n"
+             f"{extra}---\n\n{body}")
+
+
+def _module(root: Path, module: str) -> Path:
+    _w(root / module / f"{module}.json",
+       json.dumps({"description": f"The {module} module"}))
+    return root / module
+
+
+def _component(root: Path, module: str, comp: str) -> Path:
+    _module(root, module)
+    _w(root / module / comp / f"{comp}.json",
+       json.dumps({"description": f"The {comp} component", "dependencies": []}))
+    return root / module / comp
+
+
 def _fixture(root: Path) -> None:
-    """A throwaway tree covering every method, incl. a `path` row that must be
-    skipped, a component with NO manifest, and an unknown-method component."""
-    good = root / "fixmod" / "goodcomp"
-    (good / "tool").mkdir(parents=True)
-    for name, body in (
-        ("skill-entry.md", "# the skill\n"),
-        ("cmd-entry.md", "# the command\n"),
-        ("rule-entry.md", "# THE RULE\n\nAlways do the thing.\n"),
-        ("agent-entry.md", "# the sub-agent\n"),
-        ("guide.md", "# guidance part\n"),
-        ("tool/thing.py", "#!/usr/bin/env python3\nprint('inventory only')\n"),
-    ):
-        (good / name).write_text(body, encoding="utf-8")
-    (good / "tool/thing.py").chmod(0o755)
-    (good / "hooks.json").write_text(json.dumps({"hooks": {"PreToolUse": [
-        {"matcher": "Bash", "hooks": [{"type": "command", "command": "true"}]}]}}),
-        encoding="utf-8")
-    (good / "mcp.json").write_text(json.dumps({"mcpServers": {
-        "fix": {"type": "http", "url": "https://example.invalid/mcp"}}}),
-        encoding="utf-8")
-    (good / EXPOSURE_NAME).write_text(
-        "part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots\n"
-        "fixskill,capability,skill,exhibit,skill-entry.md,A fixture skill: with a colon,\n"
-        "fixcmd,workflow,command,,cmd-entry.md,,\n"
-        "fixrule,reference,rule,,rule-entry.md,the fixture rule,\n"
-        "fixagent,prompt,sub-agent,,agent-entry.md,,\n"
-        "fixhook,capability,hook,,hooks.json,,\n"
-        "fixmcp,plugin/MCP,config,,mcp.json,,\n"
-        "fixguide,prompt,agents.md,exhibit,guide.md,,\n"
-        "fixtool,tool,path,,tool/thing.py,,\n"
-        "fixpool,prompt,pool,,guide.md,a pool member — shopped, never minted,\n",
-        encoding="utf-8")
+    """A throwaway tree covering every method: a tool, a folder-instructions
+    file, a whole-folder skill, an invalid unit, a component with no record."""
+    good = _component(root, "fixmod", "goodcomp")
+    _unit_md(good / "skills/fixskill.md", "fixskill",
+             "A fixture skill: with a colon", "# the skill\n")
+    _unit_md(good / "commands/fixcmd.md", "fixcmd", "The fixture command",
+             "# the command\n")
+    _unit_md(good / "rules/fixrule.md", "fixrule", "the fixture rule",
+             "# THE RULE\n\nAlways do the thing.\n")
+    _unit_md(good / "agents/fixagent.md", "fixagent", "The fixture agent",
+             "## Role\n\nthe agent\n")
+    _w(good / "hooks/fixhook.json", json.dumps({
+        "name": "fixhook", "description": "The fixture hook",
+        "event": "PreToolUse", "matcher": "Bash", "command": "true"}))
+    _w(good / "mcp-servers/fixmcp.json", json.dumps({
+        "name": "fixmcp", "description": "The fixture MCP server",
+        "url": "https://example.invalid/mcp"}))
+    _w(good / "folder-instructions/fixguide.md",
+       "---\ntarget: .\n---\n\n# guidance for the root\n")
+    tool = good / "capabilities/tools/fixtool"
+    _w(tool / "fixtool.json", json.dumps({
+        "name": "fixtool", "description": "The fixture tool",
+        "entry": "thing.py"}))
+    _w(tool / "thing.py", "#!/usr/bin/env python3\nprint('inventory only')\n")
+    (tool / "thing.py").chmod(0o755)
 
-    codexc = root / "fixmod" / "codexcomp"
-    codexc.mkdir(parents=True)
-    (codexc / "rule-entry.md").write_text("# CODEX RULE\n", encoding="utf-8")
-    (codexc / "guide.md").write_text("# codex guidance part\n", encoding="utf-8")
-    (codexc / EXPOSURE_NAME).write_text(
-        "part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots\n"
-        "codexrule,reference,rule,,rule-entry.md,the codex-side rule,\n"
-        "codexguide,prompt,agents.md,,guide.md,,\n", encoding="utf-8")
+    codexc = _component(root, "fixmod", "codexcomp")
+    _unit_md(codexc / "rules/codexrule.md", "codexrule", "the codex-side rule",
+             "# CODEX RULE\n")
+    _w(codexc / "folder-instructions/codexguide.md",
+       "---\ntarget: .\n---\n\n# codex guidance\n")
 
-    bare = root / "fixmod" / "barecomp"
-    bare.mkdir(parents=True)
-    (bare / "component.md").write_text("# barecomp — no manifest\n",
-                                       encoding="utf-8")
+    # A folder with no record and no unit folders is not a component: invisible.
+    _w(root / "fixmod" / "barecomp" / "notes.md", "# barecomp — no record\n")
 
-    res = root / "fixmod" / "reservedcomp"
-    res.mkdir(parents=True)
-    (res / "skill-entry.md").write_text("# the skill\n", encoding="utf-8")
-    (res / EXPOSURE_NAME).write_text(
-        "part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots\n"
-        "rbtv-legacy,prompt,skill,,skill-entry.md,,\n", encoding="utf-8")
+    res = _component(root, "fixmod", "reservedcomp")
+    _unit_md(res / "skills/rbtv-legacy.md", "rbtv-legacy", "A reserved name",
+             "# the skill\n")
 
-    # D2 — depth-1 module-root manifest (invisible) and a depth-2 manifest
-    # with no component.md (a component). Depth-3 is added below.
-    old = root / "oldmod"
-    (old / "oldcomp").mkdir(parents=True)
-    old_rows = ("part-id,part-kind,method,rbtv-cli,entry-point,description,"
-                "write-roots\nold,prompt,skill,,entry.md,,\n")
-    (old / EXPOSURE_NAME).write_text(old_rows, encoding="utf-8")
-    (old / "entry.md").write_text("# old\n", encoding="utf-8")
-    (old / "oldcomp" / EXPOSURE_NAME).write_text(old_rows, encoding="utf-8")
-    (old / "oldcomp" / "entry.md").write_text("# old\n", encoding="utf-8")
+    # A component deeper than depth 2 is not a component.
+    old = _component(root, "oldmod", "oldcomp")
+    _unit_md(old / "skills/old.md", "old", "An old skill", "# old\n")
+    nested = root / "deepmod" / "deepcomp" / "nested"
+    _component(root, "deepmod", "deepcomp")
+    _w(nested / "nested.json", json.dumps({
+        "description": "too deep", "dependencies": []}))
+    _unit_md(nested / "skills/deep.md", "deep", "A deep skill", "# deep\n")
 
     # D15 — a whole skill folder: SKILL.md + a nested reference + a binary
     # asset + a directory the copier must skip.
@@ -91,68 +98,19 @@ def _fixture(root: Path) -> None:
     (vend / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n binary")
     (vend / "__pycache__/junk.pyc").write_bytes(b"\x00junk")
 
-    hub = root / HUB_DIR
-    skill = hub / "skills" / "hubskill"
-    skill.mkdir(parents=True)
-    (skill / SKILL_FILE).write_text(
-        "---\nname: hubskill\ndescription: A hub skill\n---\n\n# Hub skill\n",
-        encoding="utf-8")
-    (hub / "command").mkdir()
-    (hub / "command" / "hubcmd.md").write_text("# hub command\n", encoding="utf-8")
-    (hub / "rules").mkdir()
-    (hub / "rules" / "hubrule.md").write_text("# HUB RULE\n\nDo the hub thing.\n",
-                                              encoding="utf-8")
-    (hub / "hook").mkdir()
-    (hub / "hook" / "hubhook.json").write_text(json.dumps({"hooks": {"SessionStart": [
-        {"matcher": "", "hooks": [{"type": "command", "command": "true"}]}]}}),
-        encoding="utf-8")
-    (hub / "sub-agent").mkdir()
-    (hub / "sub-agent" / "hubagent.md").write_text("# hub sub-agent\n",
-                                                   encoding="utf-8")
-    (hub / "agents.md").mkdir()
-    (hub / "agents.md" / "hubguide.md").write_text("# hub guidance fragment\n",
-                                                   encoding="utf-8")
-    (hub / "config").mkdir()
-    (hub / "config" / "hubmcp.json").write_text(json.dumps({"mcpServers": {
-        "hubfix": {"type": "http", "url": "https://hub.example.invalid/mcp"}}}),
-        encoding="utf-8")
-    (hub / "path").mkdir()
-    (hub / "path" / "hubbin.py").write_text("#!/usr/bin/env python3\nprint(1)\n",
-                                            encoding="utf-8")
-    (hub / "path" / "hubbin.py").chmod(0o755)
-    (hub / "path" / "hubbindir").mkdir()
-    (hub / "path" / "hubbindir" / "child.py").write_text("print(2)\n",
-                                                         encoding="utf-8")
-    (hub / "pool").mkdir()
-    (hub / "pool" / "hubpool.md").write_text("# not a pool\n", encoding="utf-8")
+    # A unit that fails its schema: its file name and its `name` disagree.
+    bad = _component(root, "badmod", "badcomp")
+    _unit_md(bad / "skills/boom.md", "not-boom", "Names itself wrongly", "x\n")
 
-    # Depth 3 — not a component (D2).
-    deep = root / "deepmod" / "deepcomp" / "nested"
-    deep.mkdir(parents=True)
-    (deep / EXPOSURE_NAME).write_text(
-        "part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots\n"
-        "deep,prompt,skill,,entry.md,,\n", encoding="utf-8")
-
-    bad = root / "badmod" / "badcomp"
-    bad.mkdir(parents=True)
-    (bad / "x.md").write_text("x\n", encoding="utf-8")
-    (bad / EXPOSURE_NAME).write_text(
-        "part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots\n"
-        "boom,capability,telepathy,,x.md,,\n", encoding="utf-8")
-
-    dup = root / "fixmod" / "dupcomp"
-    dup.mkdir(parents=True)
-    (dup / "a.md").write_text("a\n", encoding="utf-8")
-    (dup / "b.md").write_text("b\n", encoding="utf-8")
-    (dup / EXPOSURE_NAME).write_text(
-        "part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots\n"
-        "same,capability,skill,,a.md,,\n"
-        "same,reference,rule,,b.md,,\n", encoding="utf-8")
+    # Two units of one component with one name.
+    dup = _component(root, "fixmod", "dupcomp")
+    _unit_md(dup / "skills/same.md", "same", "a skill", "a\n")
+    _unit_md(dup / "rules/same.md", "same", "a rule", "b\n")
 
 
 def _reserved_id_refuses(tmp: Path, catalog: dict[str, dict]) -> bool:
-    """A manifest declaring a `rbtv-*` part id refuses, and writes nothing —
-    the old installer's sweep would delete that file behind our back (D12)."""
+    """A unit with a `rbtv-*` name refuses, and writes nothing — the old
+    installer's sweep would delete that file behind our back (D12)."""
     ws = tmp / "ws-reserved-id"
     ws.mkdir()
     try:
@@ -160,5 +118,5 @@ def _reserved_id_refuses(tmp: Path, catalog: dict[str, dict]) -> bool:
                    dry_run=False)
         return False
     except Refuse as exc:
-        return (exc.code == "part-id-reserved"
+        return (exc.code == "unit-name-reserved"
                 and not any(ws.rglob("*.md")))

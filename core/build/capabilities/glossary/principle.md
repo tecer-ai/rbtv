@@ -1,0 +1,5 @@
+# Principle
+
+A standing design choice that shapes an agent's [context window](context-window.md), so the model drifts and hallucinates less and reasons better. Agents work through files and folders, and the [cognitive units](cognitive-unit.md) written and organized in them fill the context window. A principle shapes cognitive units directly, and indirectly what decides which of them reach the window: [tools](tool.md), and designs not yet made, such as memory. A new design is tested against the principles before it is built, so the principles hold as rbtv grows. Each principle is one file under `principles/` with a Statement naming the trade-off it makes, a Rationale that names the context-window effects it reduces, and Implications that a builder applies as tests to its own design.
+
+A principle differs from a [rule](rule.md) by what it governs. A principle shapes the system and applies when a structure is designed or changed. A rule governs an agent's conduct while it carries out a task, and the harness always presents it. An instruction about how an agent behaves during a task is a rule, never a principle.

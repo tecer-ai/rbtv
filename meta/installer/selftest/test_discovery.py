@@ -3,8 +3,7 @@ from __future__ import annotations
 
 import json
 
-from discovery import (EXPOSURE_COLS, EXPOSURE_NAME, HUB_DIR, Refuse,
-                       exposure_rows, scan_all)
+from discovery import HUB_DIR, Refuse, scan_all, scan_tree, unit_rows
 
 from lib.constants import (
     FORCED_READ_HARNESSES,
@@ -13,7 +12,7 @@ from lib.constants import (
     MATRIX,
     STATE_REL,
 )
-from lib.catalog import catalog_parts_map, is_installable
+from lib.catalog import catalog_units_map
 from lib.state import read_state, upgrade_book, write_state
 from lib.planning import plan_files
 from lib.listing import do_scan
@@ -21,7 +20,7 @@ from lib.commands import _parse_harnesses
 from lib.parser import build_parser
 from lib.commands import cmd_add
 
-from .fixture import _reserved_id_refuses
+from .fixture import _component, _reserved_id_refuses, _unit_md, _w
 
 
 def scan(ctx) -> None:
@@ -32,36 +31,40 @@ def scan(ctx) -> None:
 
     print("scan")
     data = do_scan(catalog, shadowed)
-    check("discovers every NEW-STANDARD component on the tree",
-          sorted(catalog) == ["_hub/agents.md/hubguide",
-                              "_hub/command/hubcmd",
-                              "_hub/config/hubmcp",
-                              "_hub/hook/hubhook",
-                              "_hub/path/hubbin.py",
-                              "_hub/path/hubbindir",
-                              "_hub/pool/hubpool",
-                              "_hub/rules/hubrule",
-                              "_hub/skills/hubskill",
-                              "_hub/skills/vendored",
-                              "_hub/sub-agent/hubagent",
+    check("discovers every component on the tree, and the whole-folder skill",
+          sorted(catalog) == ["_hub/skills/vendored",
                               "badmod/badcomp",
+                              "deepmod/deepcomp",
                               "fixmod/codexcomp",
                               "fixmod/dupcomp", "fixmod/goodcomp",
                               "fixmod/reservedcomp",
                               "oldmod/oldcomp"],
           str(sorted(catalog)))
-    check("a _skills/ folder is discovered as a hub skill unit (D15)",
+    check("a _skills/ folder is discovered as a whole-folder skill (D15)",
           catalog["_hub/skills/vendored"]["kind"] == "hub"
           and catalog["_hub/skills/vendored"]["method"] == "skill"
           and catalog["_hub/skills/vendored"]["module"] == HUB_DIR
-          and catalog["_hub/skills/vendored"]["legacy_skills_dir"]
           and not catalog["_hub/skills/vendored"]["manifest"],
           str(catalog["_hub/skills/vendored"]))
-    check("it is INSTALLABLE despite having no manifest, and says so",
-          is_installable(catalog["_hub/skills/vendored"])
-          and [e for e in data["components"]
-               if e["id"] == "_hub/skills/vendored"][0]["methods"]
-          == ["skill"], str(catalog["_hub/skills/vendored"]))
+    check("the scan carries each component's description and its module's",
+          catalog["fixmod/goodcomp"]["description"] == "The goodcomp component"
+          and catalog["fixmod/goodcomp"]["module_description"]
+          == "The fixmod module"
+          and catalog["fixmod/goodcomp"]["dependencies"] == [],
+          str(catalog["fixmod/goodcomp"]))
+    good = {r["id"]: r for r in unit_rows(catalog["fixmod/goodcomp"])}
+    check("a component's units are read from its folders, one method each",
+          {uid: r["method"] for uid, r in good.items()}
+          == {"fixskill": "skill", "fixcmd": "command", "fixrule": "rule",
+              "fixagent": "agent", "fixhook": "hook", "fixmcp": "mcp-server",
+              "fixguide": "folder-instructions", "fixtool": "tool"},
+          str({u: r["method"] for u, r in good.items()}))
+    check("a unit's entry is relative to its component; a tool's is its program",
+          good["fixskill"]["entry"] == "skills/fixskill.md"
+          and good["fixtool"]["entry"] == "capabilities/tools/fixtool/thing.py"
+          and good["fixskill"]["description"]
+          == "A fixture skill: with a colon",
+          str(good["fixskill"]))
     ctx.keep(locals())
 
 
@@ -71,69 +74,92 @@ def depth_two_is_the_marker(ctx) -> None:
     (catalog, data, legacy, expect, basis_body, mirrors_on_disk, mtr,
      _mk, rf, pws) = ctx.frame()
 
-    print("\nD2 — depth-2 + exposure.csv is the marker")
-    check("a module-root exposure.csv is NOT a component (depth 1)",
-          "oldmod" not in catalog,
+    print("\nD2 — a component is <module>/<component>/<component>.json")
+    check("a component deeper than depth 2 is NOT a component",
+          "deepmod/deepcomp/nested" not in catalog
+          and not any("nested" in cid for cid in catalog),
           str(sorted(catalog)))
-    check("a depth-2 exposure.csv IS a component even without component.md",
-          "oldmod/oldcomp" in catalog
-          and catalog["oldmod/oldcomp"]["manifest"],
-          str(sorted(catalog)))
-    check("a component.md with no exposure.csv is not a component",
+    check("a folder with no record and no unit folders is not a component",
           "fixmod/barecomp" not in catalog,
           str(sorted(catalog)))
 
-    d1 = tmp / "d1-only"
-    (d1 / "onlymod").mkdir(parents=True)
-    (d1 / "onlymod" / EXPOSURE_NAME).write_text(
-        ",".join(EXPOSURE_COLS) + "\n", encoding="utf-8")
-    d1_cat, _ = scan_all(tmp / "no-mirror-d1", d1)
-    check("D2-depth1 — a depth-1 manifest stays invisible",
-          "onlymod" not in d1_cat
-          and not any(cid == "onlymod" or cid.startswith("onlymod/")
-                      for cid in d1_cat),
-          str(sorted(d1_cat)))
-
-    d2 = tmp / "d2-only"
-    (d2 / "m" / "c").mkdir(parents=True)
-    (d2 / "m" / "c" / EXPOSURE_NAME).write_text(
-        ",".join(EXPOSURE_COLS) + "\n", encoding="utf-8")
-    md_hits = list(d2.rglob("component.md"))
-    d2_cat, _ = scan_all(tmp / "no-mirror-d2", d2)
-    check("D2-depth2 — a depth-2 manifest is a component with no "
-          "component.md present anywhere",
-          not md_hits and "m/c" in d2_cat
-          and d2_cat["m/c"]["manifest"],
-          f"md={md_hits} cat={sorted(d2_cat)}")
-
-    d3 = tmp / "d3-only"
-    (d3 / "m" / "c" / "nested").mkdir(parents=True)
-    (d3 / "m" / "c" / "nested" / EXPOSURE_NAME).write_text(
-        ",".join(EXPOSURE_COLS) + "\n", encoding="utf-8")
-    d3_cat, _ = scan_all(tmp / "no-mirror-d3", d3)
-    check("D2-depth3 — a depth-3 manifest is not a component",
-          "m/c" not in d3_cat and "m/c/nested" not in d3_cat
-          and not any("nested" in cid for cid in d3_cat),
-          str(sorted(d3_cat)))
-
-    badm = tmp / "bad-manifest"
-    (badm / "m" / "c").mkdir(parents=True)
-    (badm / "m" / "c" / EXPOSURE_NAME).write_text(
-        "part-id,method,entry-point\nfoo,skill,x.md\n", encoding="utf-8")
-    bad_cat, _ = scan_all(tmp / "no-mirror-bad", badm)
+    norec = tmp / "no-record"
+    _w(norec / "m" / "m.json", json.dumps({"description": "m"}))
+    _unit_md(norec / "m" / "c" / "skills" / "x.md", "x", "a skill")
     try:
-        exposure_rows(bad_cat["m/c"])
-        check("D2-malformed — a malformed manifest refuses by name",
+        scan_tree(norec, "repo")
+        check("a component folder without its record refuses by name",
               False, "no refusal")
     except Refuse as exc:
-        check("D2-malformed — a malformed manifest refuses by name",
-              exc.code == "manifest-malformed"
-              and "exposure.csv" in (exc.path or exc.message)
-              and "part-kind" in exc.message,
+        check("a component folder without its record refuses by name",
+              exc.code == "component-record-missing" and "c.json" in exc.message,
               f"{exc.code}: {exc.message}")
-    check("D2-malformed — the component is still catalogued "
-          "(refuses, does not vanish)",
-          "m/c" in bad_cat, str(sorted(bad_cat)))
+
+    nomod = tmp / "no-module-record"
+    _w(nomod / "m" / "c" / "c.json",
+       json.dumps({"description": "c", "dependencies": []}))
+    try:
+        scan_tree(nomod, "repo")
+        check("a module folder without its record refuses by name",
+              False, "no refusal")
+    except Refuse as exc:
+        check("a module folder without its record refuses by name",
+              exc.code == "module-record-missing" and "m.json" in exc.message,
+              f"{exc.code}: {exc.message}")
+
+    badrec = tmp / "bad-record"
+    _w(badrec / "m" / "m.json", json.dumps({"description": "m"}))
+    _w(badrec / "m" / "c" / "c.json", json.dumps({"description": "c"}))
+    try:
+        scan_tree(badrec, "repo")
+        check("a component record that breaks its schema refuses",
+              False, "no refusal")
+    except Refuse as exc:
+        check("a component record that breaks its schema refuses",
+              exc.code == "record-invalid" and "dependencies" in exc.message,
+              f"{exc.code}: {exc.message}")
+
+    bad_cat = catalog_units_map(catalog)
+    check("an invalid unit empties only its own component in the units map",
+          bad_cat["badmod/badcomp"] == [] and bad_cat["fixmod/goodcomp"],
+          str({k: len(v) for k, v in bad_cat.items()}))
+    for cid, code, words in (
+            ("badmod/badcomp", "unit-invalid", "not the file name"),
+            ("fixmod/dupcomp", "unit-duplicate", "same")):
+        try:
+            unit_rows(catalog[cid])
+            check(f"{cid} refuses by name", False, "no refusal")
+        except Refuse as exc:
+            check(f"{cid} refuses by name",
+                  exc.code == code and words in exc.message,
+                  f"{exc.code}: {exc.message}")
+
+    frontless = tmp / "frontless"
+    _component(frontless, "m", "c")
+    _w(frontless / "m" / "c" / "skills" / "x.md", "# no frontmatter\n")
+    try:
+        unit_rows(scan_tree(frontless, "repo")["m/c"])
+        check("a unit file without frontmatter refuses", False, "no refusal")
+    except Refuse as exc:
+        check("a unit file without frontmatter refuses",
+              exc.code == "unit-invalid" and "no frontmatter" in exc.message,
+              f"{exc.code}: {exc.message}")
+
+    extra = tmp / "extra-field"
+    _component(extra, "m", "c")
+    _unit_md(extra / "m" / "c" / "skills" / "x.md", "x", "a skill",
+             extra="color: red\n")
+    try:
+        unit_rows(scan_tree(extra, "repo")["m/c"])
+        check("a frontmatter field the schema does not name refuses",
+              False, "no refusal")
+    except Refuse as exc:
+        check("a frontmatter field the schema does not name refuses",
+              exc.code == "unit-invalid" and "color" in exc.message,
+              f"{exc.code}: {exc.message}")
+
+    mirror_cat, shadow = scan_all(tmp / "no-mirror", tmp / "no-repo")
+    check("an absent tree root scans to nothing", mirror_cat == {} and not shadow)
 
     ev = tmp / "ws-empty-vanished"
     ev.mkdir()
@@ -147,7 +173,7 @@ def depth_two_is_the_marker(ctx) -> None:
             "harnesses": ["claude"], "files": [],
         },
     }, "shared_claims": []})
-    ev_st = upgrade_book(read_state(ev), catalog_parts_map(catalog))
+    ev_st = upgrade_book(read_state(ev), catalog_units_map(catalog))
     try:
         plan_files(ev_st["components"], catalog)
         ev_refused = None
@@ -173,7 +199,7 @@ def depth_two_is_the_marker(ctx) -> None:
             "harnesses": ["claude"], "files": [],
         },
     }, "shared_claims": []})
-    fv_st = upgrade_book(read_state(fv), catalog_parts_map(catalog))
+    fv_st = upgrade_book(read_state(fv), catalog_units_map(catalog))
     check("D2-files-vanished — owning files is kept in the book",
           "gone/full" in fv_st["components"],
           str(sorted(fv_st["components"])))
@@ -320,7 +346,7 @@ def predecessor_sweep_cannot_reach(ctx) -> None:
      _mk, rf, pws) = ctx.frame()
 
     print("\nD12 — the old installer's sweep cannot reach our names")
-    check("a `rbtv-` part id is REFUSED, never minted",
+    check("a `rbtv-` unit name is REFUSED, never minted",
           _reserved_id_refuses(tmp, catalog))
 
     # Pre-existing foreign content the run must preserve (D6/D12): an

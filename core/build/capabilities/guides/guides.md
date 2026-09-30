@@ -1,0 +1,39 @@
+# guides
+
+- [agent.md](agent.md) — Before writing an agent's prompt or choosing the cognitive units it uses.
+- [capability.md](capability.md) — Before adding shared instructions or knowledge, or an executable tool.
+- [choosing-what-to-build.md](choosing-what-to-build.md) — Before choosing a module, component, or kind of unit, when that choice is not made.
+- [command.md](command.md) — Before writing a command a human invokes.
+- [component-json.md](component-json.md) — Before writing a component's `<component>.json`.
+- [component.md](component.md) — Before creating or renaming a component folder.
+- [config.md](config.md) — Before reading or changing installation records or component configuration under `.rbtv/config/`.
+- [constraints.md](constraints.md) — Before writing standing limits in an agent's prompt.
+- [done-contract.md](done-contract.md) — Before writing how one task's result is judged.
+- [folder-artifact.md](folder-artifact.md) — Before adding a standard file named after its folder.
+- [folder-instructions.md](folder-instructions.md) — Before writing text that should reach an agent when it works on files in a folder.
+- [ignite-config.md](ignite-config.md) — Before connecting an agent to a Slack channel on a machine.
+- [hook.md](hook.md) — Before adding a command a harness runs when an event happens.
+- [index-file.md](index-file.md) — Before adding a folder's list of when to open each item.
+- [install-json.md](install-json.md) — Before relying on the installer's record of a target folder.
+- [launch-json.md](launch-json.md) — Before choosing or changing an installed agent's harness, model, or effort.
+- [mcp-server.md](mcp-server.md) — Before giving agents an MCP server's actions.
+- [mirror.md](mirror.md) — Before adding or replacing a component under `.rbtv/mirror/`.
+- [module-json.md](module-json.md) — Before writing a module's `<module>.json`.
+- [module.md](module.md) — Before creating a top-level module folder.
+- [path-owners-json.md](path-owners-json.md) — Before relying on the installer's record of commands on `PATH`.
+- [persona.md](persona.md) — Before writing an agent's standpoint inside its role.
+- [principle.md](principle.md) — Before writing a principle file.
+- [procedure.md](procedure.md) — Before writing a reusable method in an agent's prompt.
+- [rbtv-folder.md](rbtv-folder.md) — Before creating or repairing `.rbtv/` in a target folder.
+- [rbtv-home-folder.md](rbtv-home-folder.md) — Before relying on the user's `~/.rbtv/` folder.
+- [role.md](role.md) — Before writing who an agent is and its standing function.
+- [rule.md](rule.md) — Before writing an instruction that must reach every task of every agent that receives it.
+- [runtime.md](runtime.md) — Before a component writes data while it runs.
+- [schema.md](schema.md) — Before writing a file's code-readable shape.
+- [scope.md](scope.md) — Before stating what one task may examine or change.
+- [settings-json.md](settings-json.md) — Before giving an installed agent values its tasks use.
+- [skill.md](skill.md) — Before writing an ability an agent chooses when to read.
+- [template.md](template.md) — Before writing a file's agent-readable shape.
+- [thin-loader.md](thin-loader.md) — Before touching the installer's pointer to a skill or command.
+- [tool-json.md](tool-json.md) — Before writing a tool's `<tool>.json`.
+- [tool.md](tool.md) — Before adding an executable program a component supplies.

@@ -1,0 +1,25 @@
+# templates
+
+- [agent.md](agent.md) — Before writing an agent file.
+- [agent.schema.json](agent.schema.json) — Before writing or checking an agent file's frontmatter.
+- [command.md](command.md) — Before writing a command file.
+- [command.schema.json](command.schema.json) — Before writing or checking a command file's frontmatter.
+- [component-json.schema.json](component-json.schema.json) — Before writing `<component>.json`.
+- [folder-instructions.md](folder-instructions.md) — Before reading or changing the installer's marked sections in a folder instructions file.
+- [folder-instructions.schema.json](folder-instructions.schema.json) — Before writing a file in a component's `folder-instructions/` folder.
+- [guide.md](guide.md) — Before writing a file under `guides/`: the full shape, or the short shape for a file a program creates.
+- [hook.schema.json](hook.schema.json) — Before writing a hook.
+- [ignite-config.schema.json](ignite-config.schema.json) — Before writing Ignite's `config/ignite/config.json`.
+- [index-file.md](index-file.md) — Before writing `<folder>.md`.
+- [install-json.schema.json](install-json.schema.json) — Before writing or reading an install record, `install.json`.
+- [launch-json.schema.json](launch-json.schema.json) — Before writing an installed agent's `launch.json`.
+- [mcp-server.schema.json](mcp-server.schema.json) — Before writing an MCP server's record.
+- [module-json.schema.json](module-json.schema.json) — Before writing `<module>.json`.
+- [path-owners-json.schema.json](path-owners-json.schema.json) — Before reading the installer's record of commands on `PATH`.
+- [principle.md](principle.md) — Before writing a principle file.
+- [rule.md](rule.md) — Before writing a rule file.
+- [rule.schema.json](rule.schema.json) — Before writing or checking a rule file's frontmatter.
+- [skill.md](skill.md) — Before writing a skill file.
+- [skill.schema.json](skill.schema.json) — Before writing or checking a skill file's frontmatter.
+- [thin-loader.md](thin-loader.md) — Before reading or changing what the installer writes as a thin loader.
+- [tool-json.schema.json](tool-json.schema.json) — Before writing `<tool>.json`.

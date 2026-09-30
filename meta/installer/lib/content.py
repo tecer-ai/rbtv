@@ -13,8 +13,8 @@ from .constants import (
     FORCED_READ_HARNESSES,
     GENERATED_MARKERS,
     GUIDANCE_FILE,
+    LEGACY_MARKS,
     LEGACY_PREFIX,
-    LOADER_NOTE,
     MANAGED_BANNER,
     MANAGED_MARK,
 )
@@ -30,7 +30,6 @@ def _yq(text: str) -> str:
 def _loader(part: str, desc: str, entry: str, what: str, named: bool) -> str:
     name_line = f"name: {part}\n" if named else ""
     return (f"---\n{name_line}description: {_yq(desc)}\n---\n\n"
-            + LOADER_NOTE + "\n\n"
             f"Read `{entry}` NOW and follow it as this {what}'s full "
             "instructions.\n")
 
@@ -45,7 +44,7 @@ def _mark(text: str) -> str:
     front = _FRONTMATTER.match(text)
     if front:
         cut = front.end()
-        return text[:cut] + "\n" + MANAGED_BANNER + text[cut:]
+        return text[:cut] + MANAGED_BANNER + text[cut:]
     return MANAGED_BANNER + text
 
 
@@ -57,7 +56,7 @@ def _marked(path: Path) -> bool:
         head = path.read_text(encoding="utf-8")[:2000]
     except (OSError, UnicodeDecodeError):
         return False
-    return MANAGED_MARK in head or any(m in head for m in GENERATED_MARKERS)
+    return any(m in head for m in (MANAGED_MARK, *LEGACY_MARKS, *GENERATED_MARKERS))
 
 
 def _is_ours(target: Path, rel: str) -> bool:
@@ -90,22 +89,37 @@ def _body_for(rel: str, method: str, part: str, desc: str, entry: str,
         return (comp_dir / entry_rel).read_text(encoding="utf-8")
     if method == "skill":
         return _loader(part, desc, entry, "skill", named=True)
-    if method == "sub-agent":
-        return _loader(part, desc, entry, "sub-agent", named=True)
+    if method == "agent":
+        return _loader(part, desc, entry, "agent", named=True)
     if method == "command":
         if rel.startswith(".codex/prompts/"):
             # codex prompt files are plain markdown — no frontmatter.
-            return (LOADER_NOTE + "\n\n"
-                    f"Read `{entry}` NOW and follow it as this command's full "
+            return (f"Read `{entry}` NOW and follow it as this command's full "
                     "instructions.\n")
         return _loader(part, desc, entry, "command", named=False)
     raise Refuse("internal", f"no content rule for method {method!r}")
 
 
+def _claude_mcp_entry(spec: dict) -> dict:
+    """An rbtv MCP server as a `.mcp.json` entry. `env` maps each variable the
+    server reads to the NAME of the environment variable holding its value;
+    Claude Code expands `${NAME}` when it starts the server."""
+    if spec.get("url"):
+        return {"type": "http", "url": str(spec["url"])}
+    entry: dict = {"command": str(spec.get("command", ""))}
+    if spec.get("args"):
+        entry["args"] = [str(a) for a in spec["args"]]
+    if spec.get("env"):
+        entry["env"] = {k: "${" + v + "}" for k, v in spec["env"].items()}
+    return entry
+
+
 def _codex_mcp_toml_block(servers: dict) -> str:
-    """The `[mcp_servers.*]` tables for `.codex/config.toml`, from the neutral
-    `mcpServers` shape. json.dumps of a str/list is valid TOML for both, so the
-    stdlib's missing TOML writer is not needed."""
+    """The `[mcp_servers.*]` tables for `.codex/config.toml`, from the rbtv
+    server shape. json.dumps of a str/list is valid TOML for both, so the
+    stdlib's missing TOML writer is not needed. Codex forwards an environment
+    variable to the server by its own name (`env_vars`), so a server whose
+    variable holds a value under another name cannot be written for Codex."""
     lines: list[str] = []
     for name in sorted(servers):
         spec = servers[name]
@@ -117,11 +131,16 @@ def _codex_mcp_toml_block(servers: dict) -> str:
             if spec.get("args"):
                 lines.append("args = " + json.dumps([str(a) for a in spec["args"]]))
             env = spec.get("env") or {}
+            renamed = sorted(k for k, v in env.items() if k != v)
+            if renamed:
+                raise Refuse(
+                    "mcp-env-unsupported",
+                    f"MCP server {name!r}: Codex forwards an environment "
+                    "variable under its own name, so "
+                    + ", ".join(renamed)
+                    + " cannot be mapped to a differently named variable")
             if env:
-                lines.append("")
-                lines.append(f"[mcp_servers.{name}.env]")
-                for k in sorted(env):
-                    lines.append(f"{k} = {json.dumps(str(env[k]))}")
+                lines.append("env_vars = " + json.dumps(sorted(env)))
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
@@ -137,12 +156,11 @@ def _opencode_mcp_entry(spec: dict) -> dict:
     }
     env = spec.get("env") or {}
     if env:
-        entry["environment"] = {k: str(v) for k, v in env.items()}
+        entry["environment"] = {k: "{env:" + v + "}" for k, v in env.items()}
     return entry
 
 
 def _exposure_block(name: str, harnesses: list[str],
-                    agents_parts: list[tuple[str, str, str]],
                     rule_parts: list[tuple[str, str]]) -> str:
     """The rbtv exposure preamble ONE guidance file carries (D8), fenced.
 
@@ -152,8 +170,7 @@ def _exposure_block(name: str, harnesses: list[str],
     claude and opencode never get it. It enumerates the paths those harnesses'
     rule files were ACTUALLY written to — a rule realized only under
     `.claude/rules/` (its component installed claude-only) is never named to
-    codex, whose copy does not exist. The `agents.md` rows are named in every
-    guidance file, because that method's realization IS the guidance file.
+    codex, whose copy does not exist.
 
     Empty string when there is nothing to say — no block, no fence, no file
     churn.
@@ -164,7 +181,7 @@ def _exposure_block(name: str, harnesses: list[str],
     for _pid, desc, by_harness in rule_parts:
         for rel in sorted({by_harness[h] for h in readers if h in by_harness}):
             forced.append((rel, desc))
-    if not agents_parts and not forced:
+    if not forced:
         return ""
     out = ["# rbtv exposure — installed components", ""]
     if forced:
@@ -181,10 +198,5 @@ def _exposure_block(name: str, harnesses: list[str],
             suffix = f" — {desc}" if desc else ""
             out.append(f"{i}. `{rel}`{suffix}")
         out.append("")
-    if agents_parts:
-        out += ["## Guidance parts", ""]
-        for pid, desc, entry in agents_parts:
-            suffix = f" — {desc}" if desc else ""
-            out.append(f"- **{pid}**: read `{entry}`{suffix}")
     start, end = _fence("<!--")
     return f"{start}\n" + "\n".join(out).rstrip() + f"\n{end}\n"

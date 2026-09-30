@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from discovery import HUB_DIR, HUB_ID_FOLDER, Refuse, scan_all
+from discovery import HUB_DIR, Refuse, scan_all
 
 from lib.constants import (
     HARNESSES,
@@ -13,7 +13,7 @@ from lib.constants import (
     SCHEMA,
     STATE_REL,
 )
-from lib.catalog import catalog_parts_map
+from lib.catalog import catalog_units_map
 from lib.claims import _claim_id
 from lib.target import discover_target
 from lib.state import (
@@ -27,7 +27,7 @@ from lib.state import (
 )
 from lib.planning import plan_files
 from lib.selection import _sel, resolve_selection
-from lib.operations import _select_parts, do_install, do_uninstall
+from lib.operations import _select_units, do_install, do_uninstall
 
 
 def vanished_component_removable(ctx) -> None:
@@ -101,19 +101,19 @@ def part_level_install_remove(ctx) -> None:
         check("D-dup — duplicate part-id refuses", False, "no refusal")
     except Refuse as exc:
         check("D-dup — duplicate part-id refuses",
-              exc.code == "part-id-duplicate", exc.code)
+              exc.code == "unit-duplicate", exc.code)
         check("D-dup — zero files written",
               not any(pdup.rglob("*.md")) and not (pdup / STATE_REL).exists())
 
     try:
-        _select_parts(catalog["fixmod/goodcomp"], None, ["no-such-part"])
+        _select_units(catalog["fixmod/goodcomp"], None, ["no-such-part"])
         pu = "no refusal"
     except Refuse as exc:
         pu = exc.code
     except Exception as exc:
         pu = type(exc).__name__
     check("P-unknown — unknown part-id refuses",
-          pu == "part-unknown", pu)
+          pu == "unit-unknown", pu)
 
     pws = tmp / "ws-parts"
     pws.mkdir()
@@ -128,19 +128,19 @@ def part_level_install_remove(ctx) -> None:
           str(sorted(pdisk)))
     prec = read_state(pws)["components"]["fixmod/goodcomp"]
     check("P-add — book carries only that part",
-          set(prec["parts"]) == {"fixskill"}, str(sorted(prec["parts"])))
+          set(prec["units"]) == {"fixskill"}, str(sorted(prec["units"])))
     rp2 = do_install(pws, catalog, ["fixmod/goodcomp"], list(HARNESSES),
                      dry_run=False)
     check("P-add — re-add with no parts list refreshes booked, does not fill",
-          set(read_state(pws)["components"]["fixmod/goodcomp"]["parts"])
+          set(read_state(pws)["components"]["fixmod/goodcomp"]["units"])
           == {"fixskill"}
           and not (pws / ".claude/rules/fixrule.md").exists()
           and rp2["written"] == [],
-          str(sorted(read_state(pws)["components"]["fixmod/goodcomp"]["parts"])))
+          str(sorted(read_state(pws)["components"]["fixmod/goodcomp"]["units"])))
     do_install(pws, catalog, ["fixmod/goodcomp"], list(HARNESSES),
                dry_run=False, parts=["fixrule", "fixmcp", "fixhook"])
     check("P-add — later add MERGES parts",
-          set(read_state(pws)["components"]["fixmod/goodcomp"]["parts"])
+          set(read_state(pws)["components"]["fixmod/goodcomp"]["units"])
           == {"fixskill", "fixrule", "fixmcp", "fixhook"})
     ctx.keep(locals())
 
@@ -154,24 +154,24 @@ def part_level_claim_release(ctx) -> None:
     print("\nC — part-level claim release")
     mcp_before = json.loads((pws / ".mcp.json").read_text(encoding="utf-8"))
     check("C-setup — MCP key is present before the part rm",
-          "fix" in mcp_before.get("mcpServers", {}), str(mcp_before))
+          "fixmcp" in mcp_before.get("mcpServers", {}), str(mcp_before))
     do_uninstall(pws, catalog, ["fixmod/goodcomp"], dry_run=False,
                  parts=["fixmcp"])
     pst = read_state(pws)
     check("C-leak — rm of the config part releases the MCP key",
           (not (pws / ".mcp.json").exists()
-           or "fix" not in json.loads(
+           or "fixmcp" not in json.loads(
                (pws / ".mcp.json").read_text(encoding="utf-8")).get("mcpServers", {}))
-          and _claim_id(".mcp.json", ["mcpServers", "fix"])
+          and _claim_id(".mcp.json", ["mcpServers", "fixmcp"])
           not in pst["shared_claims"],
           str(pst["shared_claims"]))
     check("C-leak — sibling hook claim stays, skill file stays",
           (pws / ".claude/skills/fixskill/SKILL.md").is_file()
           and _claim_id(".claude/settings.json", ["hooks", "PreToolUse"])
           in pst["shared_claims"]
-          and "fixmcp" not in pst["components"]["fixmod/goodcomp"]["parts"]
-          and "fixhook" in pst["components"]["fixmod/goodcomp"]["parts"])
-    hook_claims = pst["components"]["fixmod/goodcomp"]["parts"]["fixhook"].get(
+          and "fixmcp" not in pst["components"]["fixmod/goodcomp"]["units"]
+          and "fixhook" in pst["components"]["fixmod/goodcomp"]["units"])
+    hook_claims = pst["components"]["fixmod/goodcomp"]["units"]["fixhook"].get(
         "claims") or []
     check("C-leak — claims are tagged on the part that minted them",
           any("hooks" in c for c in hook_claims), str(hook_claims))
@@ -200,12 +200,12 @@ def vanished_component_part_rm(ctx) -> None:
     pvst = read_state(pv)
     check("C2 — vanished folder, rm config part: MCP key gone, rest stays",
           (not (pv / ".mcp.json").exists()
-           or "fix" not in json.loads(
+           or "fixmcp" not in json.loads(
                (pv / ".mcp.json").read_text(encoding="utf-8")).get("mcpServers", {}))
           and (pv / ".claude/skills/fixskill/SKILL.md").is_file()
-          and "fixmcp" not in pvst["components"]["fixmod/goodcomp"]["parts"]
-          and "fixskill" in pvst["components"]["fixmod/goodcomp"]["parts"],
-          str(sorted(pvst["components"]["fixmod/goodcomp"]["parts"])))
+          and "fixmcp" not in pvst["components"]["fixmod/goodcomp"]["units"]
+          and "fixskill" in pvst["components"]["fixmod/goodcomp"]["units"],
+          str(sorted(pvst["components"]["fixmod/goodcomp"]["units"])))
     check("C2-rebuild — vanished part-rm keeps sibling hook claim",
           _claim_id(".claude/settings.json", ["hooks", "PreToolUse"])
           in pvst["shared_claims"],
@@ -216,7 +216,7 @@ def vanished_component_part_rm(ctx) -> None:
     do_install(vu, catalog, ["fixmod/goodcomp"], ["claude"], dry_run=False)
     st = read_state(vu)
     rec = st["components"]["fixmod/goodcomp"]
-    rec.pop("parts", None)
+    rec.pop("units", None)
     rec["files"] = sorted(rec_files(rec)) if "files" not in rec else rec["files"]
     write_state(vu, st)
     gone_vu = {k: v for k, v in catalog.items() if k != "fixmod/goodcomp"}
@@ -227,7 +227,7 @@ def vanished_component_part_rm(ctx) -> None:
               "no refusal")
     except Refuse as exc:
         check("P-unbooked-v1 — vanished v1 part-rm refuses",
-              exc.code == "part-unbooked", exc.code)
+              exc.code == "unit-unbooked", exc.code)
     ctx.keep(locals())
 
 
@@ -259,7 +259,7 @@ def v1_to_v2_upgrade(ctx) -> None:
             cid: list(rec.get("harnesses") or [])
             for cid, rec in raw["components"].items()}
         src_parts = {
-            cid: set((rec.get("parts") or {}))
+            cid: set((rec.get("units") or {}))
             for cid, rec in raw["components"].items()}
         src_files = {cid: rec_files(rec)
                      for cid, rec in raw["components"].items()}
@@ -267,7 +267,7 @@ def v1_to_v2_upgrade(ctx) -> None:
         old_ids = set(raw["components"])
         live_cat, _ = scan_all(live_root / ".rbtv" / "mirror",
                                REPO_ROOT)
-        upgraded = upgrade_book(raw, catalog_parts_map(live_cat))
+        upgraded = upgrade_book(raw, catalog_units_map(live_cat))
         write_state(dest_root, upgraded)
         got = json.loads(dest.read_text(encoding="utf-8"))
         check("U-live live file untouched",
@@ -277,8 +277,8 @@ def v1_to_v2_upgrade(ctx) -> None:
         present = [cid for cid in old_ids if cid in live_cat]
         check("U-live still-present cids keep their parts maps",
               present
-              and all("parts" in got["components"][cid]
-                      and set(got["components"][cid]["parts"])
+              and all("units" in got["components"][cid]
+                      and set(got["components"][cid]["units"])
                       == src_parts.get(cid, set())
                       for cid in present),
               str(present[:5]))
@@ -315,7 +315,7 @@ def v1_to_v2_upgrade(ctx) -> None:
         # things, so those are what is left.
         hub_skills = [
             cid for cid in src_harnesses
-            if cid.startswith(f"{HUB_DIR}/{HUB_ID_FOLDER['skill']}/")]
+            if cid.startswith(f"{HUB_DIR}/skills/")]
         check("U-live upgrade carries every record and invents no "
               "harness this tool does not know",
               len(got["components"]) == len(src_harnesses)

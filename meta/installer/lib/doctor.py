@@ -15,13 +15,14 @@ from discovery import Refuse, scan_tree
 from .constants import (
     BASIS_NONE,
     GUIDANCE_NAMES,
+    LEGACY_PATH_FENCE,
     PATH_FENCE_END,
     PATH_FENCE_START,
     SCHEMA,
     STATE_REL,
     VERSION,
 )
-from .catalog import catalog_parts_map
+from .catalog import catalog_units_map
 from .pathlinks import (
     _owned,
     _path_rows_from_report,
@@ -92,7 +93,8 @@ def _persistent_path_status(bindir: Path) -> tuple[bool | None, str | None]:
             continue
         except OSError as exc:
             return None, f"cannot read {profile}: {exc}"
-        if PATH_FENCE_START in text and PATH_FENCE_END in text:
+        if any(a in text and b in text for a, b in
+               ((PATH_FENCE_START, PATH_FENCE_END), LEGACY_PATH_FENCE)):
             return True, None
     return False, None
 
@@ -107,7 +109,7 @@ def _selected_path_rows(target: Path, catalog: dict, state: dict
         return {}, None
     try:
         _, _, _, report = plan_files(records, catalog, target)
-        desired, _owners = plan_path_links(target, _path_rows_from_report(report))
+        desired, _owners = plan_path_links(_path_rows_from_report(report))
     except Refuse as exc:
         return {}, exc
     return desired, None
@@ -152,7 +154,7 @@ def do_doctor(target: Path, why: str, catalog: dict, shadowed: list,
                                  "no saved selection (never installed)"))
         else:
             try:
-                state = upgrade_book(read_state(target), catalog_parts_map(catalog))
+                state = upgrade_book(read_state(target), catalog_units_map(catalog))
                 n = len(state.get("components") or {})
                 checks.append(_check(
                     "Saved selection", "ok", "Workspace",

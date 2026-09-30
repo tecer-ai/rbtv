@@ -5,18 +5,19 @@ import copy
 from contextlib import nullcontext
 from pathlib import Path
 
-from discovery import EXPOSURE_NAME, Refuse
+from discovery import Refuse
 
 from .constants import (
     EXCLUDE_REL,
     GUIDANCE_FILE,
     GUIDANCE_NAMES,
     HARNESSES,
+    LEGACY_MARKS,
     MANAGED_MARK,
     MATRIX,
     STATE_REL,
 )
-from .catalog import _part_specs, catalog_parts_map
+from .catalog import _unit_specs, catalog_units_map
 from .claims import _block_set, _claim_id, _fence
 from .content import _exposure_block
 from .guidance import plan_mirror, resolve_basis
@@ -52,13 +53,13 @@ def _rebook(state: dict, records: dict, files: dict, owners: dict,
             keep_cids: set[str] | None = None) -> None:
     keep_cids = set(keep_cids or ())
     for cid, rec in records.items():
-        parts = rec.setdefault("parts", {})
+        parts = rec.setdefault("units", {})
         rec_names: list[str] = []
         for pid, part in parts.items():
             part["files"] = sorted(
                 rel for rel, own in owners.items() if (cid, pid) in own)
             owned = sorted(
-                _claim_id(c["path"], c["key"])
+                _claim_id(c["path"], c["key"], c.get("label"))
                 for c in claims if c.get("owner") == (cid, pid))
             if owned:
                 part["claims"] = owned
@@ -86,7 +87,7 @@ def _rebook(state: dict, records: dict, files: dict, owners: dict,
     state["guidance_files"] = sorted(
         rel for rel, own in owners.items() if own == ["<aggregate>"])
     state["shared_claims"] = sorted(
-        _claim_id(c["path"], c["key"]) for c in claims)
+        _claim_id(c["path"], c["key"], c.get("label")) for c in claims)
     state["shared_files"] = report["shared_files"]
     state.pop("prefix", None)
 
@@ -133,13 +134,18 @@ def _instruction_claims(report: dict, harnesses: list[str]) -> list[dict]:
     for name in sorted({GUIDANCE_FILE[h] for h in harnesses
                         if h in GUIDANCE_FILE}):
         block = _exposure_block(name, harnesses,
-                                report.get("agents_parts") or [],
                                 report.get("rule_parts") or [])
         if block:
             body = block.split(start, 1)[1].split(end, 1)[0].strip()
             claims.append({"path": name, "fmt": "text", "comment": "<!--",
                            "key": None, "value": body})
     return claims
+
+
+def _section_paths(claims: list[dict]) -> list[str]:
+    """The instruction files that carry a managed section in this plan."""
+    return sorted({c["path"] for c in claims
+                   if c["fmt"] == "text" and c["comment"] == "<!--"})
 
 
 GITIGNORE_NOTE = (
@@ -199,7 +205,8 @@ def _stray_artifacts(target: Path, booked: set[str]) -> set[str]:
             if rel in booked:
                 continue
             try:
-                marked = MANAGED_MARK in path.read_text(encoding="utf-8")[:2000]
+                head = path.read_text(encoding="utf-8")[:2000]
+                marked = any(m in head for m in (MANAGED_MARK, *LEGACY_MARKS))
             except (OSError, UnicodeDecodeError):
                 continue
             if marked:
@@ -219,7 +226,7 @@ def _tracked(target: Path, paths: list[str]) -> list[str]:
     return sorted(set(out.stdout.split()) & set(paths))
 
 
-def _parts_for_cid(cid: str, parts: list[str] | None) -> list[str] | None:
+def _units_for_cid(cid: str, parts: list[str] | None) -> list[str] | None:
     """None = all/refresh. Bare pids apply to every cid. `{cid}#{pid}` only to theirs."""
     if parts is None:
         return None
@@ -234,9 +241,9 @@ def _parts_for_cid(cid: str, parts: list[str] | None) -> list[str] | None:
     return bare + keyed if (bare or keyed or not any("#" in p for p in parts)) else []
 
 
-def _select_parts(comp: dict, existing_parts, requested: list[str] | None
+def _select_units(comp: dict, existing_parts, requested: list[str] | None
                   ) -> dict:
-    specs = {r["id"]: r["method"] for r in _part_specs(comp, strict=True)}
+    specs = {r["id"]: r["method"] for r in _unit_specs(comp)}
     if requested is None:
         if existing_parts is not None:
             return {pid: dict(p) for pid, p in existing_parts.items()}
@@ -246,10 +253,10 @@ def _select_parts(comp: dict, existing_parts, requested: list[str] | None
     for pid in requested:
         if pid not in specs:
             raise Refuse(
-                "part-unknown",
-                f"{comp.get('id', '?')}: no part {pid!r} in the exposure "
-                "manifest — refusing before any write",
-                str(Path(comp["path"]) / EXPOSURE_NAME))
+                "unit-unknown",
+                f"{comp.get('id', '?')}: no unit {pid!r} in the component "
+                "— refusing before any write",
+                str(comp["path"]))
         if pid not in out:
             out[pid] = {"method": specs[pid], "files": []}
     return out
@@ -261,7 +268,7 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
                guidance_excludes: list[str] | None = None,
                parts: list[str] | None = None,
                scope: str = "all") -> dict:
-    state = upgrade_book(read_state(target), catalog_parts_map(catalog))
+    state = upgrade_book(read_state(target), catalog_units_map(catalog))
     records = dict(state.get("components") or {})
     if scope == "guidance":
         report: dict = {}
@@ -287,8 +294,8 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
         rec = {"tree": c["tree"], "tree_root": c["tree_root"],
                "module": c["module"], "component": c["component"],
                "harnesses": [h for h in HARNESSES if h in harnesses],
-                "parts": _select_parts(c, existing.get("parts"),
-                                       _parts_for_cid(cid, parts))}
+                "units": _select_units(c, existing.get("units"),
+                                       _units_for_cid(cid, parts))}
         if "files" in existing:
             rec["files"] = list(existing["files"])
         records[cid] = rec
@@ -296,14 +303,14 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
     saved_guidance = list(state.get("guidance_files") or [])
     instruction_claims = _instruction_claims(report, harnesses)
     claims += instruction_claims
-    report["guidance_sections"] = sorted(c["path"] for c in instruction_claims)
+    report["guidance_sections"] = _section_paths(claims)
     if scope == "scaffolding":
         # The instruction-file copies belong exclusively to update guidance.
         # Exclude them from both the plan and the old-file deletion set.
         apply_state = {**state, "guidance_files": []}
     else:
         apply_state = state
-    desired, path_owners = plan_path_links(target, _path_rows_from_report(report))
+    desired, path_owners = plan_path_links(_path_rows_from_report(report))
     requested_parts = set(parts or ())
     selected_path_parts = sorted(
         f"{cid}#{pid}"
@@ -326,14 +333,16 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
             if rel in report.get("_debanner", {}) and claim["fmt"] == "text":
                 report["_debanner"][rel] = _block_set(
                     report["_debanner"][rel], claim["value"], claim["comment"],
-                    preserve_outside=(rel in GUIDANCE_NAMES))
-            if (rel in files and rel in GUIDANCE_NAMES
+                    preserve_outside=(Path(rel).name in GUIDANCE_NAMES),
+                    label=claim.get("label"))
+            if (rel in files and Path(rel).name in GUIDANCE_NAMES
                     and claim["fmt"] == "text" and claim["comment"] == "<!--"):
                 # The shared claim will still be booked, but comparing a copy
                 # without its section to the finished file would rewrite it
                 # on every identical run and overstate dry-run changes.
                 files[rel] = _block_set(files[rel], claim["value"], "<!--",
-                                        preserve_outside=True)
+                                        preserve_outside=True,
+                                        label=claim.get("label"))
         copied = {rel for rel, owner in owners.items()
                   if owner == ["<aggregate>"]}
         if copied:
@@ -394,7 +403,7 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
 
 def _do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
                  dry_run: bool, parts: list[str] | None = None) -> dict:
-    state = upgrade_book(read_state(target), catalog_parts_map(catalog))
+    state = upgrade_book(read_state(target), catalog_units_map(catalog))
     # Deep copy: popping a part mutates the dict apply() later reads as the
     # previous book. A shallow copy left removed part files off the stale set,
     # so uninstall forgot them instead of deleting them.
@@ -405,26 +414,26 @@ def _do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
                      "not installed at this target: " + ", ".join(missing))
     for cid in picked:
         rec = records[cid]
-        want = _parts_for_cid(cid, parts)
+        want = _units_for_cid(cid, parts)
         if want is None:
             records.pop(cid)
             continue
-        if "parts" not in rec:
+        if "units" not in rec:
             name = rec.get("component") or cid.split("/")[-1]
             if set(want) <= {name}:
                 records.pop(cid)
                 continue
             raise Refuse(
-                "part-unbooked",
+                "unit-unbooked",
                 f"{cid} has no parts map (a vanished v1 record) — remove the "
                 "whole component; files cannot be split across parts")
         for pid in want:
-            rec["parts"].pop(pid, None)
-        if not rec["parts"]:
+            rec["units"].pop(pid, None)
+        if not rec["units"]:
             records.pop(cid)
     live = {cid: rec for cid, rec in records.items() if cid in catalog}
     stranded = {cid: rec for cid, rec in records.items() if cid not in catalog}
-    blockers = [cid for cid, rec in stranded.items() if "parts" not in rec]
+    blockers = [cid for cid, rec in stranded.items() if "units" not in rec]
     if blockers:
         rec0 = stranded[blockers[0]]
         raise Refuse(
@@ -438,8 +447,8 @@ def _do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
         instruction_claims = _instruction_claims(
             report, installed_harnesses(records))
         claims += instruction_claims
-    report["guidance_sections"] = sorted(c["path"] for c in instruction_claims)
-    desired, path_owners = plan_path_links(target, _path_rows_from_report(report))
+    report["guidance_sections"] = _section_paths(claims)
+    desired, path_owners = plan_path_links(_path_rows_from_report(report))
     booked = booked_path_names(state)
     keep_names = booked_path_names({"components": stranded})
     bindir = bin_dir()
@@ -452,7 +461,7 @@ def _do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
                                    booked - set(desired) - keep_names, target)
         keep_protect: set[str] = set()
         for cid, rec in stranded.items():
-            for pid, part in rec["parts"].items():
+            for pid, part in rec["units"].items():
                 for rel in part.get("files") or []:
                     keep_protect.add(rel)
                     owners.setdefault(rel, []).append((cid, pid))

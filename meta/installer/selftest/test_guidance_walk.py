@@ -107,7 +107,7 @@ def r2_flip_protects_every_dir(ctx) -> None:
     check("flipped-to bases retain their owner text",
           all(hashlib.sha256((mtr / rel).read_bytes()).hexdigest() == h
               for rel, h in flipped.items() if rel != "AGENTS.md")
-          and "rbtv2:start" in (mtr / "AGENTS.md").read_text(encoding="utf-8"))
+          and "rbtv:start" in (mtr / "AGENTS.md").read_text(encoding="utf-8"))
     check("the flip renders the other name at every depth",
           sorted(resr3["written"]) == ["CLAUDE.md", "sub/CLAUDE.md",
                                        "sub/deep/CLAUDE.md"],
@@ -307,7 +307,7 @@ def h_harness_keyed(ctx) -> None:
           "Step 0" in (h2 / "AGENTS.md").read_text(encoding="utf-8")
           and "`.agents/behavior-rules/fixrule.md`"
           in (h2 / "AGENTS.md").read_text(encoding="utf-8")
-          and "fixguide" in (h2 / "AGENTS.md").read_text(encoding="utf-8")
+          and "guidance for the root" in (h2 / "AGENTS.md").read_text(encoding="utf-8")
           and "Step 0" not in (h2 / "sub/AGENTS.md").read_text(encoding="utf-8"),
           (h2 / "AGENTS.md").read_text(encoding="utf-8")[:400])
     check("H2 — the generated body retains the basis's human text",

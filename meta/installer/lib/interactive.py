@@ -5,11 +5,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from discovery import HUB_DIR, Refuse, SKILLS_DIR, scan_all
+from discovery import Refuse, SKILLS_DIR, scan_all
 
 from . import tui
 from .constants import BASIS_NONE, GUIDANCE_NAMES, HARNESSES, REPO_ROOT
-from .catalog import _hub_refuse_message, catalog_parts_map, is_installable
+from .catalog import catalog_units_map
 from .state import book_harnesses, read_state
 from .operations import do_install
 from .report import print_result
@@ -49,28 +49,14 @@ def interactive(target: Path, catalog: dict[str, dict]) -> int:
     if not target.is_dir():
         raise Refuse("target-missing", f"target is not a directory: {target}")
 
-    installable = [cid for cid in sorted(catalog)
-                   if is_installable(catalog[cid])]
+    installable = sorted(catalog)
     if not installable:
-        print("Nothing installable — no component on either tree carries an "
-              f"exposure manifest, and no {HUB_DIR}/ (or legacy "
-              f"{SKILLS_DIR}/) folder exists.")
+        print("Nothing installable — no component on either tree carries its "
+              f"record, and no {SKILLS_DIR}/ folder exists in the mirror.")
         return 1
 
-    # Refused units are named OUTSIDE the picker: a picker row can be ticked or
-    # greyed out, and neither says "this one is broken, here is why".
-    refused = [(cid, _hub_refuse_message(catalog[cid]))
-               for cid in sorted(catalog)
-               if not is_installable(catalog[cid])
-               and catalog[cid].get("hub_refusal")]
-    if refused:
-        print("Not installable:")
-        for cid, why in refused:
-            print(f"  {cid} — {why}")
-        print()
-
     installed = set(read_state(target).get("components") or {})
-    parts = catalog_parts_map(catalog)
+    parts = catalog_units_map(catalog)
     items = [{"label": cid,
               "selected": cid in installed,
               "hint": f"{len(parts[cid])} part(s) · {catalog[cid]['tree']}"

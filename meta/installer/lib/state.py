@@ -7,11 +7,11 @@ import datetime as _dt
 import json
 from pathlib import Path
 
-from discovery import HUB_DIR, HUB_ID_FOLDER, Refuse, SKILLS_DIR
+from discovery import HUB_DIR, Refuse, SKILLS_DIR
 
 from .constants import (HARNESSES, INSTALLER_NAME, MANAGED_MARK, SCHEMA,
                         STATE_REL, VERSION)
-from .claims import _fence, _jget
+from .claims import _jget, _located
 from .fsio import write_file
 
 
@@ -41,24 +41,48 @@ def _validate_state(state: dict, path: Path) -> None:
         for name in ("files", "claims", "path_links", "harnesses"):
             if name in rec:
                 _string_list(rec[name], f"components.{cid}.{name}", path)
-        if "parts" not in rec:
+        if "units" not in rec:
             continue
-        parts = rec["parts"]
+        parts = rec["units"]
         if not isinstance(parts, dict):
-            _state_refuse(path, f"components.{cid}.parts must be an object")
+            _state_refuse(path, f"components.{cid}.units must be an object")
         for pid, part in parts.items():
             if not isinstance(pid, str) or not isinstance(part, dict):
-                _state_refuse(path, f"components.{cid}.parts must map ids to objects")
+                _state_refuse(path, f"components.{cid}.units must map ids to objects")
             for name in ("files", "claims", "links"):
                 if name in part:
                     _string_list(part[name],
-                                 f"components.{cid}.parts.{pid}.{name}", path)
+                                 f"components.{cid}.units.{pid}.{name}", path)
     for name in ("harnesses", "guidance_files", "shared_claims"):
         if name in state:
             _string_list(state[name], name, path)
     if "guidance_basis" in state and state["guidance_basis"] is not None and \
             not isinstance(state["guidance_basis"], str):
         _state_refuse(path, "guidance_basis must be a string or null")
+
+
+# How the 0.2 installer named what it booked, and what 0.2.1 calls it.
+_LEGACY_METHODS = {"sub-agent": "agent", "config": "mcp-server",
+                   "path": "tool", "agents.md": "folder-instructions"}
+
+
+def migrate_legacy_record(state: dict) -> None:
+    """Read a 0.2 book as a 0.2.1 one: a component's `parts` are its `units`,
+    its methods carry the new names, and `pool` parts (never installed) go."""
+    for rec in (state.get("components") or {}).values():
+        if not isinstance(rec, dict):
+            continue
+        if "parts" in rec and "units" not in rec:
+            rec["units"] = rec.pop("parts")
+        units = rec.get("units")
+        if not isinstance(units, dict):
+            continue
+        for uid in [u for u, b in units.items()
+                    if isinstance(b, dict) and b.get("method") == "pool"]:
+            units.pop(uid)
+        for unit in units.values():
+            if isinstance(unit, dict) and unit.get("method") in _LEGACY_METHODS:
+                unit["method"] = _LEGACY_METHODS[unit["method"]]
 
 
 def read_state(target: Path) -> dict:
@@ -75,6 +99,7 @@ def read_state(target: Path) -> dict:
     if not isinstance(state, dict):
         raise Refuse("state-unreadable",
                      f"installer state must be a JSON object: {path}", str(path))
+    migrate_legacy_record(state)
     _validate_state(state, path)
     rewrite_legacy_skill_ids(state)
     strip_retired_harnesses(state)
@@ -102,7 +127,7 @@ def rewrite_legacy_skill_ids(state: dict) -> list[tuple[str, str]]:
     for old in list(comps):
         if not old.startswith(f"{SKILLS_DIR}/"):
             continue
-        new = f"{HUB_DIR}/{HUB_ID_FOLDER['skill']}/{old.split('/', 1)[1]}"
+        new = f"{HUB_DIR}/skills/{old.split('/', 1)[1]}"
         rec = comps.pop(old)
         rec["module"] = HUB_DIR
         if new in comps:
@@ -164,14 +189,14 @@ def migrate_workspace_harnesses(state: dict) -> None:
         state["harnesses"] = lifted
 
 
-def _wanted_parts(rec: dict) -> set[str] | None:
-    raw = rec.get("parts")
+def _wanted_units(rec: dict) -> set[str] | None:
+    raw = rec.get("units")
     return None if raw is None else set(raw)
 
 
 def rec_files(rec: dict) -> set[str]:
     out = set(rec.get("files") or [])
-    for part in (rec.get("parts") or {}).values():
+    for part in (rec.get("units") or {}).values():
         out |= set(part.get("files") or [])
     return out
 
@@ -180,7 +205,7 @@ def rec_owns_nothing(rec: dict) -> bool:
     """True when a booked record holds no files, claims, or PATH links."""
     if rec_files(rec) or rec.get("path_links") or rec.get("claims"):
         return False
-    for part in (rec.get("parts") or {}).values():
+    for part in (rec.get("units") or {}).values():
         if not isinstance(part, dict):
             continue
         if part.get("claims") or part.get("links"):
@@ -199,14 +224,14 @@ def known_claims(state: dict) -> set[str]:
     return set(state.get("shared_claims") or [])
 
 
-def _part_in(state: dict, cid: str, pid: str) -> bool:
+def _unit_in(state: dict, cid: str, pid: str) -> bool:
     rec = (state.get("components") or {}).get(cid)
     if rec is None and cid.startswith(f"{HUB_DIR}/skills/"):
         rec = (state.get("components") or {}).get(
             f"{SKILLS_DIR}/{cid.rsplit('/', 1)[-1]}")
     if rec is None:
         return False
-    parts = rec.get("parts")
+    parts = rec.get("units")
     if parts is None:
         return True
     return pid in parts
@@ -230,12 +255,12 @@ def upgrade_book(state: dict, catalog_parts: dict[str, list[dict]]) -> dict:
         if cid not in catalog_parts and rec_owns_nothing(rec):
             comps.pop(cid)
             continue
-        if "parts" in rec:
-            rec["parts"] = {p: dict(b) for p, b in rec["parts"].items()}
+        if "units" in rec:
+            rec["units"] = {p: dict(b) for p, b in rec["units"].items()}
             continue
         if cid not in catalog_parts:
             continue
-        rec["parts"] = {r["id"]: {"method": r["method"], "files": []}
+        rec["units"] = {r["id"]: {"method": r["method"], "files": []}
                         for r in catalog_parts[cid]}
     out["components"] = comps
     out.pop("prefix", None)
@@ -253,14 +278,19 @@ def _rebuild_claim(target: Path, claim_id: str, owner: tuple) -> dict | None:
     path = target / rel
     if not path.is_file():
         return None
-    if keypart == "#block":
+    if keypart.startswith("#block"):
+        label = keypart[len("#block:"):] or None
+        comment = "<!--" if rel.endswith(".md") else "#"
         text = path.read_text(encoding="utf-8")
-        start, end = _fence("#")
-        if start not in text or end not in text:
+        found = _located(text, comment, label)
+        if not found:
             return None
-        body = text.split(start, 1)[1].split(end, 1)[0].strip("\n")
-        return {"path": rel, "fmt": "text", "comment": "#", "key": None,
-                "value": body, "owner": owner}
+        body = text.split(found[0], 1)[1].split(found[1], 1)[0].strip("\n")
+        claim = {"path": rel, "fmt": "text", "comment": comment, "key": None,
+                 "value": body, "owner": owner}
+        if label:
+            claim["label"] = label
+        return claim
     key = json.loads(keypart)
     try:
         doc = json.loads(path.read_text(encoding="utf-8") or "{}")

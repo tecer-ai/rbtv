@@ -1,44 +1,38 @@
-"""Installer discovery — D2 components + D15 hub units, no root derivation.
+"""Installer discovery — modules, components and their units, read from the
+folder layout. Roots are ARGUMENTS. The installer keeps `REPO_ROOT` (the repo
+that ships install.py); the caller passes the workspace mirror and that root.
+One scan, one merge (mirror wins), one unit reader.
 
-Roots are ARGUMENTS. The installer keeps `REPO_ROOT` (the repo that ships
-install.py). The materializer passes the workspace mirror and `rbtv.json`'s
-`rbtv_path`. One scan, one merge (mirror wins), one manifest reader.
-
-Hub discovery (`discover_hub`, D15) lives here because `scan_tree` calls it.
+A module is a folder holding `<module>/<module>.json`; a component is a folder
+inside it holding `<component>/<component>.json`. The folder a file sits in
+decides how it is exposed: `skills/`, `rules/`, `commands/`, `agents/`,
+`hooks/`, `mcp-servers/`, `capabilities/tools/<tool>/`, `folder-instructions/`.
+Whole-folder skills live only in the mirror, under `_skills/<name>/`.
 
 This module deliberately sits BESIDE install.py rather than inside its `lib/`
 package: the installer puts this directory on `sys.path` and imports it by bare
-name (`from discovery import`). That layout is internal. It is not a contract
-with the Ignite 0.1 seat materializer.
+name (`from discovery import`).
 """
 from __future__ import annotations
 
-import csv
+import json
 from pathlib import Path
 
+from lib import frontmatter, schema
 
-EXPOSURE_NAME = "exposure.csv"
-EXPOSURE_COLS = (
-    "part-id", "part-kind", "method", "rbtv-cli",
-    "entry-point", "description", "write-roots",
-)
 
-HUB_DIR = "_hub"
+HUB_DIR = "_hub"          # only the id prefix of whole-folder skills, `_hub/skills/<name>`
 SKILLS_DIR = "_skills"
 SKILL_FILE = "SKILL.md"
-HUB_FOLDERS = {
-    "skill": "skill", "skills": "skill",
-    "command": "command",
-    "rule": "rule", "rules": "rule",
-    "hook": "hook", "sub-agent": "sub-agent",
-    "agents.md": "agents.md", "config": "config", "path": "path",
-    "pool": "pool",
-}
-HUB_ID_FOLDER = {
-    "skill": "skills", "command": "command", "rule": "rules",
-    "hook": "hook", "sub-agent": "sub-agent", "agents.md": "agents.md",
-    "config": "config", "path": "path", "pool": "pool",
-}
+
+# Folder -> method, for the units that are one `<name>.md` or `<name>.json` file.
+MD_FOLDERS = {"skills": "skill", "rules": "rule",
+              "commands": "command", "agents": "agent"}
+JSON_FOLDERS = {"hooks": "hook", "mcp-servers": "mcp-server"}
+FOLDER_INSTRUCTIONS = "folder-instructions"
+TOOLS_DIR = Path("capabilities") / "tools"
+COMPONENT_FOLDERS = (*MD_FOLDERS, *JSON_FOLDERS, "capabilities",
+                     FOLDER_INSTRUCTIONS)
 
 
 class Refuse(Exception):
@@ -58,114 +52,90 @@ class Refuse(Exception):
         return out
 
 
-def _hub_unit_name(method: str, path: Path) -> str:
-    return path.name if method == "path" else (path.stem if path.is_file() else path.name)
+def _read_json(path: Path, code: str) -> object:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise Refuse(code, f"{path}: not readable JSON ({exc})", str(path)) from exc
 
 
-def _is_hub_unit(method: str, path: Path) -> bool:
-    if path.name.startswith("."):
-        return False
-    if method == "skill":
-        return path.is_dir() and (path / SKILL_FILE).is_file()
-    if method == "pool":
-        return path.is_file() or path.is_dir()
-    if method == "path":
-        return path.is_file() or path.is_dir()
-    if method in {"command", "rule", "sub-agent", "agents.md"}:
-        return path.is_file() and path.suffix == ".md"
-    return path.is_file()  # hook | config
+def _checked(value: object, template: str, path: Path, code: str) -> None:
+    problems = schema.errors(value, schema.load(template))
+    if problems:
+        raise Refuse(code, f"{path}: " + "; ".join(problems), str(path))
 
 
-def _hub_refusal(method: str, path: Path) -> str:
-    if method == "pool":
-        return "hub-pool-inexpressible"
-    if method == "path" and path.is_dir():
-        return "hub-path-directory"
-    return ""
-
-
-def discover_hub(root: Path, tree: str) -> dict[str, dict]:
-    """Hub units under one tree. id = `_hub/<id-folder>/<name>` (never the
-    on-disk relpath). `_skills/<name>/` is a legacy alias of `_hub/skills/`."""
-    found: dict[str, dict] = {}
-    if not root.is_dir():
-        return found
-
-    def put(path: Path, method: str, *, legacy: bool) -> None:
-        name = _hub_unit_name(method, path)
-        if not name or name.startswith("."):
-            return
-        cid = f"{HUB_DIR}/{HUB_ID_FOLDER[method]}/{name}"
-        rec = {
-            "id": cid, "tree": tree, "tree_root": str(root),
-            "module": HUB_DIR, "component": name, "path": str(path),
-            "kind": "hub", "method": method, "manifest": False,
-            "legacy_skills_dir": legacy,
-        }
-        refusal = _hub_refusal(method, path)
-        if refusal:
-            rec["hub_refusal"] = refusal
-        prev = found.get(cid)
-        if prev and prev.get("legacy_skills_dir") and not legacy:
-            found[cid] = rec
-        elif prev is None:
-            found[cid] = rec
-
-    hub = root / HUB_DIR
-    if hub.is_dir():
-        for folder in sorted(hub.iterdir()):
-            method = HUB_FOLDERS.get(folder.name)
-            if not method or not folder.is_dir():
-                continue
-            for child in sorted(folder.iterdir()):
-                if _is_hub_unit(method, child):
-                    put(child, method, legacy=False)
-    skills = root / SKILLS_DIR
-    if skills.is_dir():
-        for child in sorted(skills.iterdir()):
-            if _is_hub_unit("skill", child):
-                put(child, "skill", legacy=True)
-    return found
+def _record(path: Path, template: str) -> dict:
+    """A module or component record, read and checked against its schema."""
+    data = _read_json(path, "record-invalid")
+    _checked(data, template, path, "record-invalid")
+    return data  # type: ignore[return-value]
 
 
 def _is_component_dir(path: Path) -> bool:
-    """D2 — a directory holding `exposure.csv`. Combined with scan_tree's
-    depth-2 walk, that is the whole component rule."""
-    return (path / EXPOSURE_NAME).is_file()
+    return (path / f"{path.name}.json").is_file() or any(
+        (path / folder).is_dir() for folder in COMPONENT_FOLDERS)
+
+
+def discover_skill_folders(root: Path, tree: str) -> dict[str, dict]:
+    """Whole-folder skills under `<root>/_skills/<name>/` (a `SKILL.md` and its
+    files, the open skill format). id = `_hub/skills/<name>`."""
+    found: dict[str, dict] = {}
+    skills = root / SKILLS_DIR
+    if not skills.is_dir():
+        return found
+    for child in sorted(skills.iterdir()):
+        if child.name.startswith(".") or not (child / SKILL_FILE).is_file():
+            continue
+        cid = f"{HUB_DIR}/skills/{child.name}"
+        found[cid] = {
+            "id": cid, "tree": tree, "tree_root": str(root),
+            "module": HUB_DIR, "component": child.name, "path": str(child),
+            "kind": "hub", "method": "skill", "manifest": False,
+        }
+    return found
 
 
 def scan_tree(root: Path, tree: str) -> dict[str, dict]:
-    """Every component under one tree root, by id (D2) — a directory at
-    EXACTLY depth 2 that holds `exposure.csv`. {} when the root is absent.
-    Depth-1 (module-root) manifests and depth-3 files are invisible here.
-    Hub units are a separate branch (D15)."""
+    """Every component under one tree root, by id `<module>/<component>`:
+    a folder holding its own `<component>.json`, inside a folder holding its own
+    `<module>.json`. {} when the root is absent. A module or component folder
+    without its record is refused, never skipped."""
     found: dict[str, dict] = {}
     if not root.is_dir():
         return found
-
-    def record(dir_path: Path, kind: str = "component") -> None:
-        rel = dir_path.relative_to(root).as_posix()
-        found[rel] = {
-            "id": rel,
-            "tree": tree,
-            "tree_root": str(root),
-            "module": rel.split("/")[0],
-            "component": rel.split("/")[-1],
-            "path": str(dir_path),
-            "kind": kind,
-            "manifest": (dir_path / EXPOSURE_NAME).is_file(),
-        }
-
-    found.update(discover_hub(root, tree))
+    found.update(discover_skill_folders(root, tree))
     for top in sorted(root.iterdir()):
-        if not top.is_dir() or top.name.startswith("."):
+        if not top.is_dir() or top.name.startswith(".") \
+                or top.name in {HUB_DIR, SKILLS_DIR}:
             continue
-        if top.name in {HUB_DIR, SKILLS_DIR}:
+        subs = [sub for sub in sorted(top.iterdir())
+                if sub.is_dir() and not sub.name.startswith(".")
+                and _is_component_dir(sub)]
+        if not subs:
             continue
-        # Depth 2 ONLY — a component folder lives inside a module folder (D2).
-        for sub in sorted(top.iterdir()):
-            if sub.is_dir() and not sub.name.startswith(".") and _is_component_dir(sub):
-                record(sub)
+        module_json = top / f"{top.name}.json"
+        if not module_json.is_file():
+            raise Refuse("module-record-missing",
+                         f"module folder {top} has components but no "
+                         f"{module_json.name}", str(module_json))
+        module = _record(module_json, "module-json")
+        for sub in subs:
+            record_path = sub / f"{sub.name}.json"
+            if not record_path.is_file():
+                raise Refuse("component-record-missing",
+                             f"component folder {sub} has no {record_path.name}",
+                             str(record_path))
+            data = _record(record_path, "component-json")
+            cid = f"{top.name}/{sub.name}"
+            found[cid] = {
+                "id": cid, "tree": tree, "tree_root": str(root),
+                "module": top.name, "component": sub.name, "path": str(sub),
+                "kind": "component", "manifest": True,
+                "description": data["description"],
+                "dependencies": data["dependencies"],
+                "module_description": module["description"],
+            }
     return found
 
 
@@ -187,19 +157,71 @@ def scan_all(mirror_root: Path, repo_root: Path) -> tuple[dict[str, dict], list[
     return merged, shadowed
 
 
-def exposure_rows(component: dict) -> list[dict]:
-    path = Path(component["path"]) / EXPOSURE_NAME
-    if not path.is_file():
-        return []
-    with path.open(encoding="utf-8", newline="") as fh:
-        # `#` comment lines: both real manifests use them for their own header.
-        lines = [ln for ln in fh if not ln.lstrip().startswith("#")]
-    reader = csv.DictReader(lines)
-    got = tuple(reader.fieldnames or ())
-    if got != EXPOSURE_COLS:
-        raise Refuse(
-            "manifest-malformed",
-            f"{path}: columns are {','.join(got) or '(none)'} — "
-            f"want {','.join(EXPOSURE_COLS)}",
-            str(path))
-    return [dict(r) for r in reader]
+def _unit(comp: dict, method: str, path: Path, template: str) -> dict:
+    """One `<name>.md` or `<name>.json` unit: its record checked against the
+    schema, its `name` equal to the file name."""
+    comp_dir = Path(comp["path"])
+    if path.suffix == ".md":
+        data, _body = frontmatter.split(path.read_text(encoding="utf-8"))
+        if data is None:
+            raise Refuse("unit-invalid", f"{path}: no frontmatter", str(path))
+    else:
+        data = _read_json(path, "unit-invalid")
+    _checked(data, template, path, "unit-invalid")
+    if method != "folder-instructions" and data["name"] != path.stem:
+        raise Refuse("unit-invalid",
+                     f"{path}: name {data['name']!r} is not the file name "
+                     f"{path.stem!r}", str(path))
+    description = (f"folder instructions for {data['target']}"
+                   if method == "folder-instructions" else data["description"])
+    return {"id": path.stem, "method": method,
+            "entry": path.relative_to(comp_dir).as_posix(),
+            "description": description, "data": data}
+
+
+def unit_rows(comp: dict) -> list[dict]:
+    """Every unit of one component, read from its folders: [{id, method, entry,
+    description, data}]. `entry` is relative to the component folder; `data` is
+    the unit's checked frontmatter or JSON record (none for a tool). A file that
+    fails its schema, or whose name is not its file name, refuses; so does a
+    name used by two units of one component."""
+    comp_dir = Path(comp["path"])
+    rows: list[dict] = []
+    for folder, method in MD_FOLDERS.items():
+        for path in sorted((comp_dir / folder).glob("*.md")):
+            rows.append(_unit(comp, method, path, method))
+    for folder, method in JSON_FOLDERS.items():
+        for path in sorted((comp_dir / folder).glob("*.json")):
+            rows.append(_unit(comp, method, path, method))
+    for path in sorted((comp_dir / FOLDER_INSTRUCTIONS).glob("*.md")):
+        rows.append(_unit(comp, "folder-instructions", path,
+                          "folder-instructions"))
+    for record in sorted((comp_dir / TOOLS_DIR).glob("*/*.json")):
+        if record.stem != record.parent.name:
+            continue
+        data = _read_json(record, "unit-invalid")
+        _checked(data, "tool-json", record, "unit-invalid")
+        if data["name"] != record.parent.name:
+            raise Refuse("unit-invalid",
+                         f"{record}: name {data['name']!r} is not its folder "
+                         f"name {record.parent.name!r}", str(record))
+        if Path(data["entry"]).is_absolute() or ".." in Path(data["entry"]).parts:
+            raise Refuse("entry-point-escape",
+                         f"{record}: entry {data['entry']!r} leaves the "
+                         "tool's folder", str(record))
+        entry = record.parent / data["entry"]
+        if not entry.is_file():
+            raise Refuse("unit-invalid",
+                         f"{record}: entry {data['entry']!r} is not a file",
+                         str(record))
+        rows.append({"id": data["name"], "method": "tool",
+                     "entry": entry.relative_to(comp_dir).as_posix(),
+                     "description": data["description"], "data": data})
+    names = [r["id"] for r in rows]
+    dups = sorted({n for n in names if names.count(n) > 1})
+    if dups:
+        raise Refuse("unit-duplicate",
+                     f"{comp.get('id', '?')}: the name {', '.join(dups)} is "
+                     "used by more than one unit — a name is one unit",
+                     str(comp_dir))
+    return rows

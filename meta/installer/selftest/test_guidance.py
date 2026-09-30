@@ -35,7 +35,7 @@ def the_guidance_mirror(ctx) -> None:
           and "mirrors CLAUDE.md" in mirrored, mirrored[:120])
     check("the user-authored basis text survives around a managed section",
           (mt / "CLAUDE.md").read_text(encoding="utf-8").startswith(basis_body)
-          and "rbtv2:start" in (mt / "CLAUDE.md").read_text(encoding="utf-8"))
+          and "rbtv:start" in (mt / "CLAUDE.md").read_text(encoding="utf-8"))
     check("the basis choice is persisted",
           read_state(mt).get("guidance_basis") == "CLAUDE.md")
     check("the mirror is booked as an installer-owned file",

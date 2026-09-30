@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "<mcp-server>.json",
+  "description": "One MCP server, in rbtv's format, read by the rbtv installer and translated into each harness's own MCP server settings.",
+  "type": "object",
+  "required": [
+    "name",
+    "description"
+  ],
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "required": [
+        "url"
+      ],
+      "not": {
+        "required": [
+          "command"
+        ]
+      }
+    },
+    {
+      "required": [
+        "command"
+      ],
+      "not": {
+        "required": [
+          "url"
+        ]
+      }
+    }
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "The server's name, the same as its file name without `.json`."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "One line that is enough to decide whether the server is relevant."
+    },
+    "url": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The address of a remote server. Present only when `command` is absent."
+    },
+    "command": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The program that starts a local server. Present only when `url` is absent."
+    },
+    "args": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Arguments passed to `command`."
+    },
+    "env": {
+      "type": "object",
+      "description": "Variables the server receives: each key is the variable the server reads, and each value is the name of the environment variable that holds its value. Never the value itself.",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+      }
+    }
+  }
+}

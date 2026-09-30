@@ -49,7 +49,7 @@ def workspace_settings(ctx) -> None:
           and read_state(fresh)["harnesses"] == ["claude", "codex"])
     check("W3 — add inherits configured settings",
           run(fresh, "add", "fixmod/goodcomp#fixskill")[0] == 0
-          and set(read_state(fresh)["components"]["fixmod/goodcomp"]["parts"])
+          and set(read_state(fresh)["components"]["fixmod/goodcomp"]["units"])
           == {"fixskill"})
     code, message = run(fresh, "add", "fixmod/goodcomp#fixskill",
                         "--harness", "claude")
@@ -60,7 +60,7 @@ def workspace_settings(ctx) -> None:
     mirror = fresh / "AGENTS.md"
     check("W5 — all update preserves partial selection",
           run(fresh, "update", "all")[0] == 0
-          and set(read_state(fresh)["components"]["fixmod/goodcomp"]["parts"])
+          and set(read_state(fresh)["components"]["fixmod/goodcomp"]["units"])
           == {"fixskill"})
     correct_skill = skill.read_bytes()
     correct_mirror = mirror.read_bytes()
@@ -118,7 +118,7 @@ def workspace_settings(ctx) -> None:
                    for name in ("set", "dupe-artifacts")]
     check("W15 — retired commands refuse", retired == [2, 2])
     check("W16 — saved book keeps internal method schema",
-          read_state(fresh)["components"]["fixmod/goodcomp"]["parts"]
+          read_state(fresh)["components"]["fixmod/goodcomp"]["units"]
           ["fixskill"]["method"] == "skill")
 
     codex_skill = fresh / ".agents/skills/fixskill/SKILL.md"
@@ -216,45 +216,45 @@ def workspace_settings(ctx) -> None:
                   f"<!-- {FENCE_ID}:end -->")
     owner_prefix = b"# Owner start\r\n\r\n"
     owner_suffix = b"\r\n\r\nOwner end\r\n"
-    (legacy_section / "CLAUDE.md").write_bytes(
+    (legacy_section / "AGENTS.md").write_bytes(
         owner_prefix + f"{start}\r\nold block\r\n{end}".encode("utf-8")
         + owner_suffix)
-    adopted = do_install(legacy_section, catalog, ["fixmod/goodcomp"],
-                         ["claude"], dry_run=False, guidance_basis="none",
-                         parts=["fixmod/goodcomp#fixguide"])
-    updated = (legacy_section / "CLAUDE.md").read_bytes()
+    adopted = do_install(legacy_section, catalog, ["fixmod/codexcomp"],
+                         ["codex"], dry_run=False, guidance_basis="none",
+                         parts=["fixmod/codexcomp#codexrule"])
+    updated = (legacy_section / "AGENTS.md").read_bytes()
     check("W30 — valid legacy section is adopted without owning the whole file",
-          adopted["adopted_sections"] == ["CLAUDE.md"]
-          and "CLAUDE.md" not in adopted["adopted"]
+          adopted["adopted_sections"] == ["AGENTS.md"]
+          and "AGENTS.md" not in adopted["adopted"]
           and updated.startswith(owner_prefix)
           and updated.endswith(owner_suffix)
           and updated.count(start.encode("utf-8")) == 1
-          and b"fixguide" in updated,
+          and b"Step 0" in updated,
           str(adopted["adopted_sections"]))
     check("W31 — adopted section is idempotent",
-          do_install(legacy_section, catalog, ["fixmod/goodcomp"],
-                     ["claude"], dry_run=False)["shared_written"] == []
-          and (legacy_section / "CLAUDE.md").read_bytes() == updated)
+          do_install(legacy_section, catalog, ["fixmod/codexcomp"],
+                     ["codex"], dry_run=False)["shared_written"] == []
+          and (legacy_section / "AGENTS.md").read_bytes() == updated)
 
     for label, body in (
             ("incomplete", f"Owner\n{start}\nunfinished\n"),
             ("duplicate", f"Owner\n{start}\na\n{end}\n{start}\nb\n{end}\n"),
             ("reversed", f"Owner\n{end}\n{start}\n")):
         malformed = workspace("ws-legacy-" + label)
-        (malformed / "CLAUDE.md").write_text(body, encoding="utf-8")
+        (malformed / "AGENTS.md").write_text(body, encoding="utf-8")
         try:
-            do_install(malformed, catalog, ["fixmod/goodcomp"], ["claude"],
+            do_install(malformed, catalog, ["fixmod/codexcomp"], ["codex"],
                        dry_run=False, guidance_basis="none",
-                       parts=["fixmod/goodcomp#fixguide"])
+                       parts=["fixmod/codexcomp#codexrule"])
         except Refuse as exc:
             code = exc.code
         else:
             code = None
         check(f"W32-{label} — malformed section refuses before writes",
               code == "guidance-section-malformed"
-              and (malformed / "CLAUDE.md").read_text(encoding="utf-8") == body
+              and (malformed / "AGENTS.md").read_text(encoding="utf-8") == body
               and not (malformed / STATE_REL).exists()
-              and not (malformed / ".claude").exists())
+              and not (malformed / ".agents").exists())
 
     whitespace = workspace("ws-owner-whitespace")
     owner_bytes = b"# Owner\r\nKeep two spaces  \r\n\r\n"

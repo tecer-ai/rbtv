@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "<component>.json",
+  "description": "A component's record, read by the rbtv installer.",
+  "type": "object",
+  "required": [
+    "description",
+    "dependencies"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "description": {
+      "description": "One line that is enough to decide whether the component is relevant.",
+      "type": "string"
+    },
+    "dependencies": {
+      "description": "Outside software the component requires but does not include.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

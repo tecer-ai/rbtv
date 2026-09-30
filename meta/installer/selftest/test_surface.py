@@ -10,7 +10,7 @@ from discovery import SKILLS_DIR
 
 from lib.constants import STATE_REL
 from lib.target import DISCOVER_CWD, DISCOVER_FLAG
-from lib.state import _part_in, read_state, write_state
+from lib.state import _unit_in, read_state, write_state
 from lib.operations import do_install
 from lib.listing import build_ls, do_list
 from lib.doctor import do_doctor, doctor_exit
@@ -43,12 +43,12 @@ def ls_li_doctor(ctx) -> None:
           ls_data["shadowed"][0]["id"] == "fixmod/goodcomp"
           and "no_manifest" not in ls_data)
     check("SURF-ls-parts-are-rows — vendored parts is 1, not file count",
-          vend_e["parts"] == 1
+          vend_e["units"] == 1
           and len(vend_e["items"]) == 1
           and vend_files > 1
-          and good_e["parts"] == len(good_e["items"]) == 9
+          and good_e["units"] == len(good_e["items"]) == 9
           and f"{vend_files}" not in
-          [str(e["parts"]) for e in ls_data["components"]
+          [str(e["units"]) for e in ls_data["components"]
            if e["id"] == "_hub/skills/vendored"],
           f"parts={vend_e['parts']} files={vend_files} "
           f"good={good_e['parts']}")
@@ -63,20 +63,20 @@ def ls_li_doctor(ctx) -> None:
                dry_run=False)
     ls_in = build_ls(catalog, [], read_state(pws))
     good = next(e for e in ls_in["components"] if e["id"] == "fixmod/goodcomp")
-    inn = {i["part_id"]: i["in"] for i in good["items"]}
+    inn = {i["unit_id"]: i["in"] for i in good["items"]}
     check("SURF-ls-in-column — booked True, sibling False",
           inn.get("fixskill") is True and inn.get("fixrule") is True
           and inn.get("fixcmd") is False,
           str(inn))
     raw_sk = {"components": {
-        "_skills/vendored": {"parts": {"vendored": {"method": "skill"}}}}}
+        "_skills/vendored": {"units": {"vendored": {"method": "skill"}}}}}
     check("ls-in-legacy-skills-key — leftover _skills/ counts as in",
-          _part_in(raw_sk, "_hub/skills/vendored", "vendored") is True)
+          _unit_in(raw_sk, "_hub/skills/vendored", "vendored") is True)
     raw_v1 = {"components": {
         "fixmod/goodcomp": {"files": [".claude/rules/fixrule.md"]}}}
     check("ls-in-schema1-whole — missing parts map means every pid is in",
-          _part_in(raw_v1, "fixmod/goodcomp", "fixrule") is True
-          and _part_in(raw_v1, "fixmod/goodcomp", "fixcmd") is True)
+          _unit_in(raw_v1, "fixmod/goodcomp", "fixrule") is True
+          and _unit_in(raw_v1, "fixmod/goodcomp", "fixcmd") is True)
     ls_nc = build_ls(catalog, [], {}, exclude_components=["fixmod/goodcomp"])
     check("SURF-ls-exclude-component",
           all(e["id"] != "fixmod/goodcomp" for e in ls_nc["components"]),

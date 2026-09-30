@@ -171,7 +171,7 @@ def build_parser() -> argparse.ArgumentParser:
             help="select item types; comma-separated or repeatable: "
                  + " · ".join(CANONICAL_METHODS))
         for flag, meth in (("-xs", "skill"), ("-xr", "rule"),
-                           ("-xc", "command"), ("-xsa", "sub-agent")):
+                           ("-xc", "command"), ("-xa", "agent")):
             dest.add_argument(
                 flag, action="append_const", const=meth, dest="method",
                 help=argparse.SUPPRESS)

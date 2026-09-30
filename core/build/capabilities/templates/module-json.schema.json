@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "<module>.json",
+  "description": "A module's record, read by the rbtv installer and the rbtv command.",
+  "type": "object",
+  "required": [
+    "description"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "One line that is enough to decide whether the module is relevant."
+    }
+  }
+}

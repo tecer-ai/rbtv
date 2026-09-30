@@ -20,10 +20,10 @@ from discovery import Refuse
 
 from .constants import (
     PATH_BOOTSTRAP,
+    LEGACY_PATH_FENCE,
     PATH_FENCE_END,
     PATH_FENCE_START,
     STATE_REL,
-    WS_PREFIX,
     _RUNTIME,
 )
 from .fsio import write_file
@@ -170,41 +170,21 @@ def _forbid_local_bin(bindir: Path) -> None:
         return
 
 
-def workspace_root(start: Path) -> Path:
-    here = start.resolve()
-    for p in (here, *here.parents):
-        if (p / STATE_REL).is_file() or (
-                (p / ".rbtv" / "config").is_dir() and not is_user_home(p)):
-            return p
-    return here
-
-
-def resolve_path_entry(target: Path, comp_dir: Path, entry: str) -> Path:
-    raw = (entry or "").split("#", 1)[0].strip()
-    if not raw:
-        raise Refuse("entry-point-missing", "path row declares no entry-point")
-    if raw.startswith(WS_PREFIX):
-        body = raw[len(WS_PREFIX):]
-        dest = workspace_root(target) / body
-    else:
-        body = raw
-        dest = comp_dir / body
-    if Path(body).is_absolute() or ".." in Path(body).parts:
-        raise Refuse("entry-point-escape",
-                     f"entry-point {raw!r} climbs with .. — use ws:<path>",
-                     str(comp_dir))
+def resolve_path_entry(comp_dir: Path, entry: str) -> Path:
+    """The program a tool places on PATH: its entry, relative to the component."""
+    dest = comp_dir / entry
     if dest.exists():
         dest = dest.resolve()
     if not dest.is_file():
         raise Refuse("entry-point-missing",
-                     f"{raw!r} resolves to no file", str(dest))
+                     f"{entry!r} resolves to no file", str(dest))
     return dest
 
 
 def link_name(pid: str) -> str:
     name = (pid or "").strip()
     if not name or name in (".", "..") or "/" in name or "\\" in name:
-        raise Refuse("path-name-invalid", f"part-id {pid!r} is not a PATH name")
+        raise Refuse("path-name-invalid", f"tool name {pid!r} is not a PATH name")
     return name
 
 
@@ -292,16 +272,15 @@ def unlink_one(bindir: Path, name: str, *, dry: bool) -> str:
     return "unlinked"
 
 
-def plan_path_links(target: Path,
-                    rows: list[tuple[str, str, Path, str]]
+def plan_path_links(rows: list[tuple[str, str, Path, str]]
                     ) -> tuple[dict[str, Path], dict[str, tuple[str, str]]]:
-    """rows = (component_id, part_id, comp_dir, entry). One name → one dest."""
+    """rows = (component_id, unit_id, comp_dir, entry). One name → one dest."""
     desired: dict[str, Path] = {}
     owners: dict[str, tuple[str, str]] = {}
     seen: dict[str, str] = {}
     for cid, pid, comp_dir, entry in rows:
         name = link_name(pid)
-        dest = resolve_path_entry(target, comp_dir, entry)
+        dest = resolve_path_entry(comp_dir, entry)
         if _WIN:
             _win_interp(dest)
         else:
@@ -330,7 +309,7 @@ def booked_path_names(state: dict) -> set[str]:
     names: set[str] = set()
     for rec in (state.get("components") or {}).values():
         names.update(rec.get("path_links") or [])
-        for part in (rec.get("parts") or {}).values():
+        for part in (rec.get("units") or {}).values():
             if isinstance(part, dict):
                 names.update(part.get("links") or [])
     return names
@@ -395,9 +374,12 @@ def _write_shell_path() -> None:
     block = f"{PATH_FENCE_START}\n{PATH_BOOTSTRAP}\n{PATH_FENCE_END}\n"
     for rc in shell_profiles():
         text = rc.read_text(encoding="utf-8") if rc.is_file() else ""
-        if PATH_FENCE_START in text and PATH_FENCE_END in text:
-            head = text.split(PATH_FENCE_START, 1)[0]
-            tail = text.split(PATH_FENCE_END, 1)[1].lstrip("\n")
+        fence = next(((a, b) for a, b in
+                      ((PATH_FENCE_START, PATH_FENCE_END), LEGACY_PATH_FENCE)
+                      if a in text and b in text), None)
+        if fence:
+            head = text.split(fence[0], 1)[0]
+            tail = text.split(fence[1], 1)[1].lstrip("\n")
             text = head + block + tail
         else:
             text = (text.rstrip() + "\n\n" if text.strip() else "") + block

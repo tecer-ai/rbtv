@@ -5,25 +5,30 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from discovery import Refuse, exposure_rows
+from discovery import Refuse, unit_rows
 
 from . import present
 from .constants import BASIS_NONE, MANAGED_MARK, STATE_REL
 from .catalog import (
-    _hub_refuse_message,
-    _part_specs,
-    catalog_parts_map,
+    _unit_specs,
+    catalog_units_map,
 )
-from .state import _part_in, book_harnesses, read_state, upgrade_book
-from .selection import (component_keys, iter_booked_parts, module_names,
-                        part_key, resolve_name)
+from .state import _unit_in, book_harnesses, read_state, upgrade_book
+from .selection import (component_keys, iter_booked_units, module_names,
+                        unit_key, resolve_name)
 
 
-def _part_description(comp: dict, pid: str) -> str:
+def _unit_row(comp: dict, pid: str) -> dict:
+    """The catalog row of one unit of a component, or {}."""
     if comp.get("manifest"):
-        for row in exposure_rows(comp):
-            if (row.get("part-id") or "").strip() == pid:
-                return (row.get("description") or "").strip()
+        return next((r for r in unit_rows(comp) if r["id"] == pid), {})
+    return {}
+
+
+def _unit_description(comp: dict, pid: str) -> str:
+    row = _unit_row(comp, pid)
+    if row:
+        return row["description"]
     if comp.get("kind") == "hub":
         source = Path(comp["path"])
         if source.is_dir():
@@ -39,6 +44,15 @@ def _part_description(comp: dict, pid: str) -> str:
     return ""
 
 
+def _safe_specs(comp: dict) -> tuple[list[dict], str]:
+    """A component's units, or none and why: one component's invalid file must
+    not blank the whole listing."""
+    try:
+        return _unit_specs(comp), ""
+    except Refuse as exc:
+        return [], exc.message
+
+
 def _short_description(text: str) -> str:
     sentence = text.split(". ", 1)[0].strip()
     if sentence and not sentence.endswith("."):
@@ -49,25 +63,14 @@ def _short_description(text: str) -> str:
     return head.rstrip(".,;:") + "…"
 
 
-def _catalog_description(path: Path) -> str:
-    try:
-        for line in path.read_text(encoding="utf-8").splitlines()[:12]:
-            if line.startswith("description:"):
-                return _short_description(line.partition(":")[2].strip().strip('"'))
-    except (OSError, UnicodeDecodeError):
-        pass
-    return ""
-
-
-def part_detail(catalog: dict, state: dict, part: dict) -> dict:
-    cid, pid = part["component"], part["part_id"]
+def unit_detail(catalog: dict, state: dict, part: dict) -> dict:
+    cid, pid = part["component"], part["unit_id"]
     comp = catalog.get(cid) or {}
-    row = next((r for r in exposure_rows(comp)
-                if (r.get("part-id") or "").strip() == pid), {}) if comp.get("manifest") else {}
-    entry_point = (row.get("entry-point") or "").strip()
+    row = _unit_row(comp, pid)
+    entry_point = row.get("entry", "")
     comp_path = Path(comp["path"]) if comp.get("path") else None
     return {**part,
-            "description": _part_description(comp, pid),
+            "description": _unit_description(comp, pid),
             "entry_point": entry_point,
             # The unambiguous path a human can open: entry_point alone
             # (e.g. `prompts/brainstorm.md`) is component-relative and reads
@@ -77,41 +80,33 @@ def part_detail(catalog: dict, state: dict, part: dict) -> dict:
                             if comp_path and entry_point else ""),
             "tree": comp.get("tree") or "book",
             "source_available": bool(comp and (comp.get("kind") == "hub" or row)),
-            "installed": _part_in(state, cid, pid)}
+            "installed": _unit_in(state, cid, pid)}
 
 
 def do_scan(catalog: dict[str, dict], shadowed: list[dict]) -> dict:
     entries = []
     for cid in sorted(catalog):
         c = catalog[cid]
-        hub = c.get("kind") == "hub"
-        rows = exposure_rows(c) if c["manifest"] else []
-        refusal = c.get("hub_refusal") or ""
-        specs = _part_specs(c)
+        specs, note = _safe_specs(c)
         entries.append({
             "id": cid, "tree": c["tree"], "module": c["module"],
             "kind": c.get("kind", "component"),
             "manifest": c["manifest"],
-            "methods": ([c["method"]] if hub else
-                        sorted({(r.get("method") or "").strip() for r in rows
-                                if (r.get("part-id") or "").strip()})),
-            "parts": len(specs),
-            "note": (_hub_refuse_message(c) if refusal else ""),
-            "refusal": refusal,
+            "methods": sorted({s["method"] for s in specs}),
+            "units": len(specs), "note": note,
         })
-    return {"ok": True, "components": entries, "shadowed": shadowed,
-            "hub_refusals": [e["id"] for e in entries if e.get("refusal")]}
+    return {"ok": True, "components": entries, "shadowed": shadowed}
 
 
 def catalog_ids(catalog: dict, cid: str) -> list[str]:
     c = catalog.get(cid) or {}
-    return [s["id"] for s in _part_specs(c) if s.get("id")]
+    return [s["id"] for s in _unit_specs(c) if s.get("id")]
 
 
 def status_of(cid: str, rec: dict, catalog: dict
               ) -> tuple[str, set[str], set[str], set[str]]:
     cat = set(catalog_ids(catalog, cid))
-    booked = set(rec["parts"]) if "parts" in rec else cat
+    booked = set(rec["units"]) if "units" in rec else cat
     if cid not in catalog:
         return "gone", booked, set(), booked
     if not cat:
@@ -144,9 +139,10 @@ def build_ls(catalog: dict, shadowed: list, state: dict, *,
         if drop_m and mod in drop_m:
             continue
         items = []
-        for spec in _part_specs(c):
+        specs, note = _safe_specs(c)
+        for spec in specs:
             pid, meth = spec["id"], spec.get("method") or ""
-            key = part_key(cid, pid)
+            key = unit_key(cid, pid)
             if want_c and key not in want_c:
                 continue
             if key in drop_c:
@@ -155,14 +151,12 @@ def build_ls(catalog: dict, shadowed: list, state: dict, *,
                 continue
             if drop_x and meth in drop_x:
                 continue
-            detail = part_detail(catalog, state, {
+            detail = unit_detail(catalog, state, {
                 "key": key, "component": cid, "module": mod,
-                "part_id": pid, "method": meth})
-            items.append({"id": key, "part_id": pid, "method": meth,
+                "unit_id": pid, "method": meth})
+            items.append({"id": key, "unit_id": pid, "method": meth,
                           "description": detail["description"],
                           "in": detail["installed"]})
-        refusal = c.get("hub_refusal") or ""
-        note = _hub_refuse_message(c) if refusal else ""
         if (want_x or drop_x or want_c or drop_c) and not items:
             continue
         entries.append({
@@ -170,13 +164,9 @@ def build_ls(catalog: dict, shadowed: list, state: dict, *,
             "kind": "hub" if hub else c.get("kind", "component"),
             "manifest": bool(c.get("manifest")),
             "methods": sorted({i["method"] for i in items}),
-            "parts": len(items), "note": note, "items": items,
-            "refusal": refusal,
+            "units": len(items), "items": items, "note": note,
         })
-    hub_refusals = [cid for cid, c in sorted(catalog.items())
-                    if c.get("hub_refusal")]
-    return {"ok": True, "components": entries, "shadowed": shadowed,
-            "hub_refusals": hub_refusals}
+    return {"ok": True, "components": entries, "shadowed": shadowed}
 
 
 def build_list(catalog: dict, state: dict, *, query: str = "",
@@ -196,12 +186,8 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
     rows: list[dict] = []
     for comp in view["components"]:
         source_comp = catalog.get(comp["id"]) or {}
-        source_path = Path(source_comp["path"]) if source_comp.get("path") else None
-        comp_desc = (_catalog_description(source_path / "component.md")
-                     if source_path and source_path.is_dir() else
-                     _catalog_description(source_path) if source_path else "")
-        mod_desc = (_catalog_description(source_path.parent / "module.md")
-                    if source_path else "")
+        comp_desc = _short_description(source_comp.get("description", ""))
+        mod_desc = _short_description(source_comp.get("module_description", ""))
         for part in comp["items"]:
             rows.append({"id": part["id"], "component": comp["id"],
                          "module": comp["module"], "type": part["method"],
@@ -212,7 +198,7 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
                          "installed": part["in"], "source_available": True,
                          "tree": comp["tree"]})
     seen = {row["id"] for row in rows}
-    for part in iter_booked_parts(catalog, book):
+    for part in iter_booked_units(catalog, book):
         if part["key"] in seen:
             continue
         rows.append({"id": part["key"], "component": part["component"],
@@ -229,8 +215,8 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
             continue
         if want_x and row["type"] not in want_x:
             continue
-        part_id = row["id"].split("#", 1)[-1]
-        hay = " ".join((row["id"], part_id,
+        unit_id = row["id"].split("#", 1)[-1]
+        hay = " ".join((row["id"], unit_id,
                         row.get("_search", row["description"]))).casefold()
         if words and not all(word in hay for word in words):
             continue
@@ -252,7 +238,7 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
             else:
                 chosen = resolve_name(query, catalog, book,
                                       methods=want_x or None)
-                ids = {p["key"] for p in chosen["parts"]}
+                ids = {p["key"] for p in chosen["units"]}
                 matched = [r for r in matched if r["id"] in ids]
                 if chosen["kind"] == "component" and not want_x:
                     scope = "items"
@@ -364,23 +350,21 @@ def print_list(data: dict) -> None:
 
 
 def build_show(selection: dict, catalog: dict, state: dict) -> dict:
-    parts = [part_detail(catalog, state, part) for part in selection["parts"]]
+    parts = [unit_detail(catalog, state, part) for part in selection["units"]]
     parts = [{**p, "type": p["method"]} for p in parts]
     for part in parts:
         part.pop("method", None)
     out = {"scope": "item" if selection["kind"] == "part" else selection["kind"],
            "id": selection["id"],
-           "parts": parts,
+           "units": parts,
            "harnesses": book_harnesses(state) or []}
     if selection["kind"] == "part":
         out.update(type=parts[0]["type"], component=parts[0]["component"],
-                   part_id=parts[0]["part_id"])
+                   unit_id=parts[0]["unit_id"])
     elif selection["kind"] == "component":
         source_comp = catalog.get(selection["id"]) or {}
         source_path = Path(source_comp["path"]) if source_comp.get("path") else None
-        description = (_catalog_description(source_path / "component.md")
-                       if source_path and source_path.is_dir() else
-                       _catalog_description(source_path) if source_path else "")
+        description = _short_description(source_comp.get("description", ""))
         out.update(description=description,
                    source_entry=(str(source_path) if source_path else ""))
     return out
@@ -412,18 +396,18 @@ def print_show(data: dict) -> None:
         print(f"Description: {sel.get('description') or '(no catalog description)'}")
         if sel.get("source_entry"):
             print(f"Source entry: {sel['source_entry']} (local RBTV source)")
-        print(f"Local source: {len(sel['parts'])} item(s) in this component.")
+        print(f"Local source: {len(sel['units'])} item(s) in this component.")
         print()
         headers = ["ID", "Type", "State", "Description"]
         rows = [[p["key"], p["type"],
                  "installed" if p["installed"] else "not installed",
-                 p["description"]] for p in sel["parts"]]
+                 p["description"]] for p in sel["units"]]
         for line in present.render_table(headers, rows):
             print(line)
         print()
         print("Next: " + data["next"])
         return
-    part = sel["parts"][0]
+    part = sel["units"][0]
     meaning = present.TYPE_MEANING.get(part["type"], "")
     print(f"Type: {part['type']}" + (f" ({meaning})" if meaning else ""))
     if part["description"]:
@@ -448,7 +432,7 @@ def print_show(data: dict) -> None:
 def do_list(target: Path, catalog: dict | None = None) -> dict:
     raw = read_state(target)
     catalog = catalog or {}
-    state = upgrade_book(raw, catalog_parts_map(catalog)) if catalog else raw
+    state = upgrade_book(raw, catalog_units_map(catalog)) if catalog else raw
     comps: dict = {}
     links: list[dict] = []
     for cid, rec in sorted((state.get("components") or {}).items()):
@@ -456,9 +440,9 @@ def do_list(target: Path, catalog: dict | None = None) -> dict:
         st, booked, miss, orph = status_of(cid, rec, catalog)
         rec["status"], rec["missing"], rec["orphans"] = (
             st, sorted(miss), sorted(orph))
-        rec.setdefault("parts", {})
+        rec.setdefault("units", {})
         comps[cid] = rec
-        for pid, part in (rec.get("parts") or {}).items():
+        for pid, part in (rec.get("units") or {}).items():
             if not isinstance(part, dict):
                 continue
             for name in part.get("links") or []:

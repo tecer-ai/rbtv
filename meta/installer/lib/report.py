@@ -137,16 +137,12 @@ def _print_changes(write_files: list[str], delete_files: list[str],
 
 
 def _print_report_rows(report: dict, planned: bool) -> None:
-    """Why a manifest row minted nothing. Printed on DRY RUNS TOO, marked as
+    """Why a unit minted nothing. Printed on DRY RUNS TOO, marked as
     planned (task 7.622): `install --component X --dry-run` is the command the
     acceptance sketches name, and suppressing these rows there left the human
     ~11 lines with no per-row detail while the data sat in `--json` all along.
     The two lists are the SAME data a real run prints; only the tense moves."""
-    verb = "would skip" if planned else "skipped"
     tail = "no file would be written" if planned else "no file was written"
-    for row in report.get("skipped_inventory_rows") or []:
-        print(f"  · {verb} {row['component']}#{row['part']}: "
-              "reference only; no file to install")
     for row in report.get("skill_folders") or []:
         print(f"  · {'would copy' if planned else 'copied'} skill folder "
               f"{row['component']} whole — {row['files']} file(s) into "

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "path-owners.json",
+  "description": "The rbtv installer's per-user record of the commands it placed on PATH, at ~/.rbtv/path-owners.json, and which installations own each one. Written and read only by the installer.",
+  "type": "object",
+  "required": [
+    "schema",
+    "links"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": 1,
+      "description": "The version of this record's format."
+    },
+    "links": {
+      "type": "object",
+      "description": "Each command on PATH, keyed by its name.",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "target",
+          "owners"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "target": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The absolute path of the program the command runs."
+          },
+          "owners": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The absolute paths of the installations that installed the command. The command is removed only when its last owner uninstalls it."
+          }
+        }
+      }
+    }
+  }
+}

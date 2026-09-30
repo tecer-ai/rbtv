@@ -7,54 +7,50 @@ import re
 
 from discovery import Refuse
 
-from .catalog import _part_specs, is_installable, module_id
+from .catalog import _unit_specs, module_id
 
 
-def part_key(cid: str, pid: str) -> str:
+def unit_key(cid: str, pid: str) -> str:
     return f"{cid}#{pid}"
 
 
 def iter_catalog_parts(catalog: dict[str, dict]) -> list[dict]:
     out: list[dict] = []
     for cid, comp in catalog.items():
-        if not is_installable(comp):
-            continue
-        for spec in _part_specs(comp):
+        try:
+            specs = _unit_specs(comp)
+        except Refuse:
+            continue        # its own install refuses it; it never blocks the rest
+        for spec in specs:
             if spec["id"]:
-                out.append({"key": part_key(cid, spec["id"]),
+                out.append({"key": unit_key(cid, spec["id"]),
                             "component": cid,
                             "module": comp.get("module") or cid.split("/")[0],
-                            "part_id": spec["id"],
+                            "unit_id": spec["id"],
                             "method": spec.get("method") or ""})
     return out
 
 
-def iter_booked_parts(catalog: dict[str, dict],
+def iter_booked_units(catalog: dict[str, dict],
                       book: dict[str, dict] | None) -> list[dict]:
     by_cid: dict[str, list[dict]] = {}
     for part in iter_catalog_parts(catalog):
         by_cid.setdefault(part["component"], []).append(part)
     booked: list[dict] = []
     for cid, rec in (book or {}).items():
-        declared = rec.get("parts")
+        declared = rec.get("units")
         if isinstance(declared, dict) and declared:
             for pid, part in declared.items():
-                booked.append({"key": part_key(cid, pid), "component": cid,
+                booked.append({"key": unit_key(cid, pid), "component": cid,
                                "module": rec.get("module") or cid.split("/")[0],
-                               "part_id": pid, "method": (part or {}).get("method") or ""})
-        elif isinstance(declared, list) and declared:
-            for item in declared:
-                pid = (item.get("part-id") or item.get("part_id") or "").strip()
-                booked.append({"key": part_key(cid, pid), "component": cid,
-                               "module": rec.get("module") or cid.split("/")[0],
-                               "part_id": pid, "method": (item.get("method") or "").strip()})
+                               "unit_id": pid, "method": (part or {}).get("method") or ""})
         elif cid in by_cid:
             booked.extend(by_cid[cid])
         else:
             pid = rec.get("component") or cid.split("/")[-1]
-            booked.append({"key": part_key(cid, pid), "component": cid,
+            booked.append({"key": unit_key(cid, pid), "component": cid,
                            "module": rec.get("module") or cid.split("/")[0],
-                           "part_id": pid, "method": "component"})
+                           "unit_id": pid, "method": "component"})
     return booked
 
 
@@ -91,7 +87,7 @@ def _ambiguous(token: str, choices: list[str]) -> Refuse:
 
 def _pool(catalog: dict, book: dict | None = None) -> list[dict]:
     by_key = {p["key"]: p for p in iter_catalog_parts(catalog)}
-    for part in iter_booked_parts(catalog, book):
+    for part in iter_booked_units(catalog, book):
         by_key[part["key"]] = part
     return list(by_key.values())
 
@@ -109,21 +105,20 @@ def resolve_name(token: str, catalog: dict, book: dict | None = None,
     if "#" in token:
         part = by_key.get(token)
         if part and (not methods or part["method"] in methods):
-            return {"kind": "part", "id": token, "parts": [part]}
-        raise _unknown("part-unknown", "item", token,
+            return {"kind": "part", "id": token, "units": [part]}
+        raise _unknown("unit-unknown", "item", token,
                        [p["key"] for p in allowed])
     if token in components:
         parts = [p for p in allowed if p["component"] == token]
         if parts:
-            return {"kind": "component", "id": token, "parts": parts}
-        if token in catalog and not is_installable(catalog[token]):
-            raise Refuse("component-not-installable",
-                         f"{token!r} has no installable exposure")
+            return {"kind": "component", "id": token, "units": parts}
+        if token in catalog:
+            _unit_specs(catalog[token])     # an invalid component says why
         raise Refuse("kind-mismatch", f"{token!r} has no item of the requested type")
     if not component_only:
-        hits = [p for p in allowed if p["part_id"] == token]
+        hits = [p for p in allowed if p["unit_id"] == token]
         if len(hits) == 1:
-            return {"kind": "part", "id": hits[0]["key"], "parts": hits}
+            return {"kind": "part", "id": hits[0]["key"], "units": hits}
         if len(hits) > 1:
             raise _ambiguous(token, [p["key"] for p in hits])
     if component_only:
@@ -133,7 +128,7 @@ def resolve_name(token: str, catalog: dict, book: dict | None = None,
                                 component_only=True)
         if len(hits_c) > 1:
             raise _ambiguous(token, hits_c)
-    choices = ([p["key"] for p in allowed] + [p["part_id"] for p in allowed]
+    choices = ([p["key"] for p in allowed] + [p["unit_id"] for p in allowed]
                + sorted(components))
     raise _unknown("component-unknown" if component_only else "name-unknown",
                    "component" if component_only else "name", token, choices)
@@ -147,7 +142,7 @@ def component_keys(tokens: list[str], catalog: dict,
     for token in tokens:
         resolved = resolve_name(token, catalog, book, methods=methods,
                                 component_only=True)
-        keys.update(p["key"] for p in resolved["parts"])
+        keys.update(p["key"] for p in resolved["units"])
     return keys
 
 
@@ -182,7 +177,7 @@ def resolve_selection(args, catalog: dict[str, dict],
         raise Refuse("selection-empty", "name an item or component, or use --all, "
                      "--module, --component or --type")
 
-    universe = (iter_booked_parts(catalog, book) if verb in ("rm", "remove")
+    universe = (iter_booked_units(catalog, book) if verb in ("rm", "remove")
                 else iter_catalog_parts(catalog))
     by_key = {p["key"]: p for p in universe}
     selected = set(by_key)
@@ -190,7 +185,7 @@ def resolve_selection(args, catalog: dict[str, dict],
         requested: set[str] = set()
         for name in names:
             resolved = resolve_name(name, catalog, book, methods=pos_x or None)
-            requested.update(p["key"] for p in resolved["parts"])
+            requested.update(p["key"] for p in resolved["units"])
         requested |= component_keys(pos_c, catalog, book)
         selected &= requested
     if pos_m:

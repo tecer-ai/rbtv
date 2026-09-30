@@ -3,26 +3,27 @@ would write.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-from discovery import EXPOSURE_NAME, Refuse, SKILL_FILE, exposure_rows
+from discovery import Refuse, SKILL_FILE, unit_rows
 
+from . import frontmatter
 from .constants import (
     CANONICAL_METHODS,
+    GUIDANCE_FILE,
     HARNESSES,
-    INVENTORY_METHODS,
     MATRIX,
     SKILL_FOLDER_SKIP,
 )
-from .catalog import _hub_refuse_message, _part_specs
+from .catalog import _unit_specs
 from .content import (
+    _claude_mcp_entry,
     _codex_mcp_toml_block,
     _content_for,
     _mark,
     _opencode_mcp_entry,
 )
-from .state import _wanted_parts
+from .state import _wanted_units
 from .recovery import vanished_component_message
 
 
@@ -43,20 +44,19 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
     hooks: dict[str, list] = {}
     hook_harnesses: set[str] = set()
     hook_owners: dict[str, list] = {}
-    agents_parts: list[tuple[str, str, str]] = []
+    sections: list[dict] = []
     rule_parts: list[tuple[str, str]] = []
-    report: dict = {"skipped_inventory_rows": [], "no_realization": [],
-                    "skill_folders": [], "path_rows": []}
+    report: dict = {"no_realization": [], "skill_folders": [], "path_rows": []}
 
     def claim_file(rel: str, content: str, cid: str, pid: str) -> None:
         if rel in files and files[rel] != content:
             other = owners[rel][0]
             other_cid = other[0] if isinstance(other, tuple) else other
             raise Refuse(
-                "part-collision",
+                "unit-collision",
                 f"components {other_cid!r} and {cid!r} both realize "
                 f"{rel!r} with different content — two components exposing the "
-                "same part id is a manifest conflict, not something to resolve "
+                "same unit name is a conflict, not something to resolve "
                 "by write order",
                 rel)
         files[rel] = content
@@ -73,7 +73,7 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
         named = comp["component"]
         if named.startswith("rbtv-"):
             raise Refuse(
-                "part-id-reserved",
+                "unit-name-reserved",
                 f"{cid}: a skill folder named {named!r} would land under "
                 "`rbtv-*`, which the OLD installer sweeps out of "
                 "`.claude/skills/` on every run — rename the folder (D12)",
@@ -114,134 +114,77 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
         comp_dir = Path(comp["path"])
         harnesses = [h for h in HARNESSES if h in rec["harnesses"]]
 
-        wanted = _wanted_parts(rec)
+        wanted = _wanted_units(rec)
         if comp.get("kind") == "hub":
-            if comp.get("hub_refusal"):
-                raise Refuse(comp["hub_refusal"],
-                             _hub_refuse_message(comp), comp["path"])
-            if comp.get("method") == "skill":
-                pid = comp["component"]
-                if wanted is not None and pid not in wanted:
-                    continue
-                claim_skill_folder(comp, cid, harnesses)
+            pid = comp["component"]
+            if wanted is not None and pid not in wanted:
                 continue
-            src = Path(comp["path"])
-            if src.is_file():
-                comp_dir = src.parent
-            rows = [{"part-id": comp["component"],
-                     "method": comp["method"],
-                     "entry-point": src.name,
-                     "description": ""}]
-        else:
-            _part_specs(comp, strict=True)
-            rows = exposure_rows(comp)
-        for row in rows:
-            pid = (row.get("part-id") or "").strip()
-            method = (row.get("method") or "").strip()
-            entry_rel = (row.get("entry-point") or "").strip()
-            desc = (row.get("description") or "").strip()
-            if not pid:
-                continue
+            claim_skill_folder(comp, cid, harnesses)
+            continue
+        _unit_specs(comp)
+        for row in unit_rows(comp):
+            pid, method = row["id"], row["method"]
+            entry_rel, desc = row["entry"], row["description"]
             if wanted is not None and pid not in wanted:
                 continue
             if method not in CANONICAL_METHODS:
                 raise Refuse(
                     "method-unknown",
-                    f"{cid}: exposure row {pid!r} declares method "
-                    f"{method or '(empty)'!r}, which is outside the canonical "
-                    f"vocabulary ({' · '.join(CANONICAL_METHODS)}) — "
-                    "d-exposure-method-canon; refusing before any write",
-                    str(comp_dir / EXPOSURE_NAME))
-            if method in INVENTORY_METHODS:
-                # D9 — pool is inventory only. path is collected below.
-                report["skipped_inventory_rows"].append(
-                    {"component": cid, "part": pid, "type": method,
-                     "entry_point": entry_rel})
-                continue
-            if method == "path":
+                    f"{cid}: unit {pid!r} has method {method!r}, which is "
+                    f"outside the vocabulary ({' · '.join(CANONICAL_METHODS)}) "
+                    "— refusing before any write", str(comp_dir / entry_rel))
+            if method == "tool":
                 report["path_rows"].append(
                     {"component": cid, "part": pid, "type": method,
                      "entry_point": entry_rel, "comp_dir": str(comp_dir)})
                 continue
-            if not entry_rel:
-                raise Refuse(
-                    "entry-point-missing",
-                    f"{cid}: exposure row {pid!r} ({method}) declares no "
-                    "entry-point — there is nothing to realize",
-                    str(comp_dir / EXPOSURE_NAME))
-            # D11 — a `file.csv#row` reference is checked at its file half.
-            entry_file = entry_rel.split("#", 1)[0]
-            if not (comp_dir / entry_file).is_file():
-                raise Refuse(
-                    "entry-point-missing",
-                    f"{cid}: exposure row {pid!r} ({method}) points at "
-                    f"{entry_rel!r}, which resolves to no file under the "
-                    "component — refusing before any write",
-                    str(comp_dir / entry_file))
-            entry_abs = str((comp_dir / entry_file).resolve())
-            entry_ref = entry_abs + (("#" + entry_rel.split("#", 1)[1])
-                                     if "#" in entry_rel else "")
             if pid.startswith("rbtv-"):
                 raise Refuse(
-                    "part-id-reserved",
-                    f"{cid}: exposure row {pid!r} starts with `rbtv-`, the "
+                    "unit-name-reserved",
+                    f"{cid}: unit {pid!r} starts with `rbtv-`, the "
                     "prefix the OLD installer sweeps out of "
                     "`.claude/{rules,commands,agents,skills}` on every run "
                     "(generator.py::clear_previous_install) — a file minted "
                     "under that name would be deleted behind this installer's "
-                    "back. Rename the part (D12)",
-                    str(comp_dir / EXPOSURE_NAME))
-            named = pid
+                    "back. Rename the unit (D12)",
+                    str(comp_dir / entry_rel))
+            entry_abs = str((comp_dir / entry_rel).resolve())
+            data = row["data"]
 
-            if method == "agents.md":
-                agents_parts.append((named, desc, entry_ref))
+            if method == "folder-instructions":
+                _front, body = frontmatter.split(
+                    (comp_dir / entry_rel).read_text(encoding="utf-8"))
+                sections.append({"owner": (cid, pid), "harnesses": harnesses,
+                                 "label": f"{comp['module']}/{comp['component']}",
+                                 "target": data["target"],
+                                 "body": body.strip("\r\n")})
                 continue
-            if method == "config":
-                data = _read_json(comp_dir / entry_file, "config", cid, pid)
-                decl = data.get("mcpServers") if isinstance(data, dict) else None
-                if decl is None:
-                    continue  # another config payload kind — not ours to place
-                if not isinstance(decl, dict) or not all(
-                        isinstance(v, dict) for v in decl.values()):
+            if method == "mcp-server":
+                spec = ({"url": data["url"]} if "url" in data else
+                        {k: data[k] for k in ("command", "args", "env")
+                         if data.get(k)})
+                if pid in servers and servers[pid] != spec:
                     raise Refuse(
-                        "config-declaration-invalid",
-                        f"{cid}: config entry-point {entry_rel!r} carries an "
-                        "`mcpServers` that is not an object of server objects "
-                        "— not the neutral schema "
-                        "(d-mcp-registration-is-config)",
-                        str(comp_dir / entry_file))
-                for name, spec in decl.items():
-                    # D12: the registration is claimed under its declared name;
-                    # a foreign key of the same name refuses (D6), it is never
-                    # renamed around.
-                    key = name
-                    if key in servers and servers[key] != spec:
-                        raise Refuse(
-                            "config-server-conflict",
-                            f"MCP server {key!r} is declared differently by "
-                            "more than one installed component — one "
-                            "registration, one home",
-                            str(comp_dir / entry_file))
-                    servers[key] = spec
-                    if (cid, pid) not in server_owners.setdefault(key, []):
-                        server_owners[key].append((cid, pid))
+                        "mcp-server-conflict",
+                        f"MCP server {pid!r} is declared differently by "
+                        "more than one installed component — one "
+                        "registration, one home",
+                        str(comp_dir / entry_rel))
+                servers[pid] = spec
+                if (cid, pid) not in server_owners.setdefault(pid, []):
+                    server_owners[pid].append((cid, pid))
                 server_harnesses |= set(harnesses)
                 continue
             if method == "hook":
-                data = _read_json(comp_dir / entry_file, "hook", cid, pid)
-                decl = data.get("hooks") if isinstance(data, dict) else None
-                if not isinstance(decl, dict):
-                    raise Refuse(
-                        "hook-declaration-invalid",
-                        f"{cid}: hook entry-point {entry_rel!r} carries no "
-                        "`hooks` object — the neutral shape is claude's "
-                        "settings `hooks` block",
-                        str(comp_dir / entry_file))
-                for event, entries in decl.items():
-                    hooks.setdefault(event, []).extend(
-                        entries if isinstance(entries, list) else [entries])
-                    if (cid, pid) not in hook_owners.setdefault(event, []):
-                        hook_owners[event].append((cid, pid))
+                handler = {"type": "command", "command": data["command"]}
+                if "timeout" in data:
+                    handler["timeout"] = data["timeout"]
+                item = {"hooks": [handler]}
+                if "matcher" in data:
+                    item = {"matcher": data["matcher"], **item}
+                hooks.setdefault(data["event"], []).append(item)
+                if (cid, pid) not in hook_owners.setdefault(data["event"], []):
+                    hook_owners[data["event"]].append((cid, pid))
                 hook_harnesses |= set(harnesses)
                 continue
 
@@ -253,18 +196,17 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                         {"component": cid, "part": pid, "type": method,
                          "harness": harness})
                     continue
-                rel = template.format(name=named)
+                rel = template.format(name=pid)
                 claim_file(rel, _content_for(
-                    rel, method, named,
-                    desc or f"{pid} — exposed via {cid}/{EXPOSURE_NAME}",
-                    entry_abs, comp_dir, entry_file), cid, pid)
+                    rel, method, pid, desc, entry_abs, comp_dir, entry_rel),
+                    cid, pid)
                 realized[harness] = rel
             if method == "rule" and realized:
-                # The REALIZED path per harness, not the part id: a component
+                # The REALIZED path per harness, not the unit name: a component
                 # installed for claude only put no file under
                 # `.agents/behavior-rules/`, so codex's forced read must not
                 # enumerate one (a MANDATORY Step 0 pointing at a missing file).
-                rule_parts.append((named, desc, realized))
+                rule_parts.append((pid, desc, realized))
 
     # ── D7/D12: shared-file claims, recomputed from the whole set ──
     claims: list[dict] = []
@@ -291,7 +233,7 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
             for name in sorted(servers):
                 for owner in _owners_of(server_owners, name) or [None]:
                     claim_json(".mcp.json", ["mcpServers", name],
-                               servers[name], owner)
+                               _claude_mcp_entry(servers[name]), owner)
             # measured 2026-08-08, claude 2.1.226: without the flag every
             # project server sits "Pending approval".
             for owner in _all_owners(server_owners) or [None]:
@@ -310,9 +252,6 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                 for owner in _owners_of(server_owners, name) or [None]:
                     claim_json("opencode.json", ["mcp", name],
                                _opencode_mcp_entry(servers[name]), owner)
-        # kimi: no project-local MCP auto-load (measured — `cli/mcp.py` stores
-        # servers at `~/.kimi/mcp.json`). The root `.mcp.json` above IS its
-        # realization, passed at launch: `kimi --mcp-config-file .mcp.json`.
     if hooks:
         for event in sorted(hooks):
             ev_owners = _owners_of(hook_owners, event) or [None]
@@ -326,24 +265,23 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                 for owner in ev_owners:
                     claim_json(".codex/hooks.json", ["hooks", event],
                                hooks[event], owner)
-        # opencode has no hooks surface; kimi's hooks are user-scope
-        # (`~/.kimi/config.toml` `hooks = [...]`) — neither is minted here.
+        # opencode has no hooks surface — nothing is minted for it.
 
-    # D8 — the exposure surface is the GENERATED GUIDANCE FILE, not a file of
-    # this installer's invention. The parts ride the report to `_add_mirror`,
-    # which knows the harnesses and therefore which guidance file gets what.
-    report["agents_parts"] = agents_parts
+    # A component's folder instructions: one marked section per component in
+    # the instructions file of every installed harness, inside the target
+    # folder. Text outside the markers is never touched.
+    for section in sections:
+        folder = "" if section["target"] == "." else section["target"] + "/"
+        for name in sorted({GUIDANCE_FILE[h] for h in section["harnesses"]
+                            if h in GUIDANCE_FILE}):
+            claims.append({"path": folder + name, "fmt": "text",
+                           "comment": "<!--", "key": None,
+                           "label": section["label"],
+                           "value": section["body"],
+                           "owner": section["owner"]})
+
+    # D8 — the Step 0 forced read rides the report to `_instruction_claims`,
+    # which knows the harnesses and therefore which root file gets what.
     report["rule_parts"] = rule_parts
     report["shared_files"] = sorted({c["path"] for c in claims})
     return files, owners, claims, report
-
-
-def _read_json(path: Path, method: str, cid: str, pid: str) -> dict:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        raise Refuse(
-            f"{method}-declaration-invalid",
-            f"{cid}: {method} entry-point for {pid!r} is not readable JSON "
-            f"({exc}) — refusing before any write",
-            str(path)) from exc

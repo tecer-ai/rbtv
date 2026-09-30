@@ -8,11 +8,15 @@ from pathlib import Path
 
 from discovery import Refuse
 
-from .constants import FENCE_ID
+from .constants import FENCE_ID, LEGACY_FENCE_ID
 
 
-def _claim_id(rel: str, key: list[str] | None) -> str:
-    return f"{rel}::" + (json.dumps(key) if key else "#block")
+def _claim_id(rel: str, key: list[str] | None, label: str | None = None) -> str:
+    """One claim: a JSON key path, or a fenced block. A block carries its label
+    when the file holds several (a component's section of folder instructions)."""
+    if key:
+        return f"{rel}::" + json.dumps(key)
+    return f"{rel}::#block" + (f":{label}" if label else "")
 
 
 def _jget(doc: dict, key: list[str]):
@@ -47,23 +51,41 @@ def _jdel(doc: dict, key: list[str]) -> None:
             chain[i - 1].pop(key[i - 1], None)
 
 
-def _fence(comment: str) -> tuple[str, str]:
+def _fence(comment: str, label: str | None = None,
+           fence_id: str = FENCE_ID) -> tuple[str, str]:
+    """The start and end lines of one fenced block. `label` names one of
+    several blocks in a file; none names the file's single unlabeled block."""
+    suffix = f" {label}" if label else ""
     if comment == "#":
-        return f"# {FENCE_ID}:start", f"# {FENCE_ID}:end"
-    return f"<!-- {FENCE_ID}:start -->", f"<!-- {FENCE_ID}:end -->"
+        return f"# {fence_id}:start{suffix}", f"# {fence_id}:end{suffix}"
+    return f"<!-- {fence_id}:start{suffix} -->", f"<!-- {fence_id}:end{suffix} -->"
+
+
+def _located(text: str, comment: str, label: str | None
+             ) -> tuple[str, str] | None:
+    """The fence pair this block is written under in *text*: the current one,
+    else the one the 0.2 installer wrote. None when the block is absent."""
+    for fence_id in (FENCE_ID, LEGACY_FENCE_ID):
+        start, end = _fence(comment, label, fence_id)
+        if start in text and end in text:
+            return start, end
+    return None
 
 
 def _instruction_block_valid(text: str, rel: str, path: Path) -> bool:
-    """A root instruction file has zero or one complete owned section."""
-    start, end = _fence("<!--")
-    starts, ends = text.count(f"{FENCE_ID}:start"), text.count(f"{FENCE_ID}:end")
+    """A root instruction file has zero or one complete owned section (the
+    unlabeled one; component sections carry a label and are checked apart)."""
+    pairs = [_fence("<!--", None, fid) for fid in (FENCE_ID, LEGACY_FENCE_ID)]
+    starts = sum(text.count(start) for start, _ in pairs)
+    ends = sum(text.count(end) for _, end in pairs)
     if not (starts or ends):
         return False
+    start, end = next(((s, e) for s, e in pairs if s in text or e in text))
     if (starts != 1 or ends != 1 or text.count(start) != 1
             or text.count(end) != 1 or text.index(start) > text.index(end)):
         raise Refuse(
             "guidance-section-malformed",
-            f"{rel} has an incomplete, duplicate, or reversed rbtv2 "
+            f"{rel} has an incomplete, duplicate, or reversed rbtv "
             "instruction section; inspect its fences before retrying. "
             "Nothing was written",
             str(path))
@@ -71,27 +93,31 @@ def _instruction_block_valid(text: str, rel: str, path: Path) -> bool:
 
 
 def _block_set(text: str, body: str, comment: str,
-               *, preserve_outside: bool = False) -> str:
-    start, end = _fence(comment)
+               *, preserve_outside: bool = False,
+               label: str | None = None) -> str:
+    start, end = _fence(comment, label)
     block = f"{start}\n{body.rstrip()}\n{end}\n"
-    if start in text and end in text:
-        head = text.split(start, 1)[0]
-        tail = text.split(end, 1)[1]
+    found = _located(text, comment, label)
+    if found:
+        head = text.split(found[0], 1)[0]
+        tail = text.split(found[1], 1)[1]
         if preserve_outside:
             return head + block.rstrip("\n") + tail
         return head + block + tail.lstrip("\n")
     if preserve_outside:
-        return text + block.rstrip("\n")
+        gap = "" if not text or text.endswith("\n") else "\n"
+        return text + gap + block.rstrip("\n")
     return (text.rstrip() + "\n\n" if text.strip() else "") + block
 
 
 def _block_del(text: str, comment: str,
-               *, preserve_outside: bool = False) -> str:
-    start, end = _fence(comment)
-    if start not in text or end not in text:
+               *, preserve_outside: bool = False,
+               label: str | None = None) -> str:
+    found = _located(text, comment, label)
+    if not found:
         return text
-    head = text.split(start, 1)[0]
-    tail = text.split(end, 1)[1]
+    head = text.split(found[0], 1)[0]
+    tail = text.split(found[1], 1)[1]
     if preserve_outside:
         return head + tail
     tail = tail.lstrip("\n")

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "<tool>.json",
+  "description": "A tool's record, read by the rbtv installer.",
+  "type": "object",
+  "required": [
+    "name",
+    "description",
+    "entry"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "description": "The tool's name, the same as its folder.",
+      "type": "string"
+    },
+    "description": {
+      "description": "One line that is enough for an agent to decide whether to use the tool.",
+      "type": "string"
+    },
+    "entry": {
+      "description": "The program file the installer places on PATH, relative to the tool's folder and written with forward slashes. It starts with a shebang line or ends in .py, .js, or .sh, so every operating system can run it. The command's name on PATH is the tool's name.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

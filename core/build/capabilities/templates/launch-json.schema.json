@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "launch.json",
+  "description": "An installed agent's live launch values, read by the programs that run it from its folder.",
+  "type": "object",
+  "required": ["harness", "model", "effort"],
+  "additionalProperties": false,
+  "properties": {
+    "harness": {
+      "description": "The harness that runs the agent.",
+      "type": "string",
+      "enum": ["claude", "codex", "opencode"]
+    },
+    "model": {
+      "description": "A model name that `cast` knows for that harness.",
+      "type": "string",
+      "minLength": 1
+    },
+    "effort": {
+      "description": "An effort level name that model accepts, or `inert` when the model has no effort setting.",
+      "type": "string",
+      "minLength": 1
+    },
+    "voice": {
+      "description": "The voice an Ignite agent uses when it replies with audio. Absent when it replies in text only.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

@@ -1,0 +1,3 @@
+# Component
+
+A named unit within a module. It lives at `<module>/<component>/`, has a [`<component>.json`](component-json.md), and groups the cognitive units and capabilities, including tools, that belong together. Its source folders are [`skills/`](skill.md), [`rules/`](rule.md), [`commands/`](command.md), [`agents/`](agent.md), [`hooks/`](hook.md), [`mcp-servers/`](mcp-server.md), [`capabilities/`](capability.md), and [`folder-instructions/`](folder-instructions.md), from which it ships [folder instructions](folder-instructions.md) into target folders. Each skill, rule, command, and agent is one file, `<name>.md`; each hook and MCP server is one file, `<name>.json`. A component has no [index file](index-file.md): its `<component>.json` describes it.

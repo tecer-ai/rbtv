@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "install.json",
+  "description": "The install record at .rbtv/config/install.json: what the rbtv installer installed in one target folder. Written and read only by the installer.",
+  "type": "object",
+  "required": [
+    "schema",
+    "installer",
+    "version",
+    "marker",
+    "installed_at",
+    "target",
+    "harnesses",
+    "components"
+  ],
+  "properties": {
+    "schema": {
+      "description": "The version of this record's format.",
+      "type": "integer"
+    },
+    "installer": {
+      "description": "The installer program that wrote the record.",
+      "type": "string"
+    },
+    "version": {
+      "description": "The installer's version.",
+      "type": "string"
+    },
+    "marker": {
+      "description": "The text the installer writes into every file it generates, `rbtv-managed`, so it can recognise its own files.",
+      "type": "string"
+    },
+    "installed_at": {
+      "description": "When the last install ran.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "target": {
+      "description": "The target folder this record belongs to.",
+      "type": "string"
+    },
+    "harnesses": {
+      "description": "The harnesses installed for.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "claude",
+          "codex",
+          "opencode"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "guidance_basis": {
+      "description": "The folder instructions file the author writes: CLAUDE.md or AGENTS.md.",
+      "type": "string"
+    },
+    "guidance_excludes": {
+      "description": "Paths the installer does not walk when it writes folder instructions copies.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "guidance_files": {
+      "description": "Folder instructions copies the installer generated.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "components": {
+      "description": "Each installed component, keyed by its id.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "module",
+          "component",
+          "tree",
+          "tree_root",
+          "harnesses",
+          "units"
+        ],
+        "properties": {
+          "module": {
+            "description": "The component's module.",
+            "type": "string"
+          },
+          "component": {
+            "description": "The component's name.",
+            "type": "string"
+          },
+          "tree": {
+            "description": "Where the component came from: `shipped` or `mirror`.",
+            "type": "string"
+          },
+          "tree_root": {
+            "description": "The folder the component was read from.",
+            "type": "string"
+          },
+          "harnesses": {
+            "description": "The harnesses this component was installed for.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "units": {
+            "description": "Each installed skill, rule, command, agent, hook, MCP server, tool, or folder-instructions file of the component, keyed by its name.",
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "required": [
+                "method",
+                "files"
+              ],
+              "properties": {
+                "method": {
+                  "description": "How it is installed: its exposure method, `tool` for a tool placed on PATH, or `folder-instructions` for a component's marked section.",
+                  "type": "string",
+                  "enum": [
+                    "skill",
+                    "rule",
+                    "command",
+                    "agent",
+                    "hook",
+                    "mcp-server",
+                    "tool",
+                    "folder-instructions"
+                  ]
+                },
+                "files": {
+                  "description": "The files the installer wrote for it.",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "claims": {
+                  "description": "Keys it owns inside harness files shared with other components, such as a hook's entry in a harness settings file.",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "links": {
+                  "description": "Commands the installer placed on PATH for it.",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "shared_files": {
+      "description": "Files several components write into, each in its own marked section.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "shared_claims": {
+      "description": "Which component owns which key inside a shared file, as path::key.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "path_links": {
+      "description": "Links the installer placed on PATH for tools.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

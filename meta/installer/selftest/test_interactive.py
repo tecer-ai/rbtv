@@ -10,7 +10,6 @@ from discovery import Refuse
 
 from lib import tui
 from lib.constants import BASIS_NONE, GUIDANCE_NAMES, HARNESSES
-from lib.catalog import is_installable
 from lib.guidance import resolve_basis
 from lib.interactive import interactive
 from lib.state import read_state
@@ -42,8 +41,7 @@ def guided_flow(ctx) -> None:
     print("\nI — the guided flow, driven end to end without a terminal")
     ws = tmp / "ws-interactive"
     ws.mkdir()
-    installable = [cid for cid in sorted(catalog)
-                   if is_installable(catalog[cid])]
+    installable = sorted(catalog)
     pick = installable.index("fixmod/goodcomp") + 1
     out = io.StringIO()
     with _typed([str(ws), str(pick), "1", "", "y"]):

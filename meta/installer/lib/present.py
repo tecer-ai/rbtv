@@ -16,14 +16,13 @@ from .target import DISCOVER_FLAG
 # help screen and error message shows them.
 TYPE_MEANING = {
     "skill": "Ability an agent can invoke for a task.",
-    "command": "Explicit command an operator or agent can invoke.",
     "rule": "Standing instruction applied to an agent.",
+    "command": "Explicit command an operator or agent can invoke.",
+    "agent": "An agent's prompt and the units it uses.",
     "hook": "Action triggered by a tool event.",
-    "sub-agent": "Specialized delegated agent definition.",
-    "agents.md": "Folder guidance read by an agent tool.",
-    "config": "Settings file used by an agent tool.",
-    "path": "Runnable tool exposed through a command shortcut.",
-    "pool": "Reusable source definition; no standalone installed loader.",
+    "mcp-server": "Server an agent tool connects to for extra tools.",
+    "tool": "Runnable program exposed through a command shortcut.",
+    "folder-instructions": "Text added to a folder's instructions file.",
 }
 assert set(TYPE_MEANING) == set(CANONICAL_METHODS)
 

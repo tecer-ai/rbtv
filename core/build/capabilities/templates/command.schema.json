@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "command frontmatter",
+  "description": "The frontmatter of a command file, which the rbtv installer reads and validates. The file's body follows the template command.md.",
+  "type": "object",
+  "required": [
+    "name",
+    "description"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "The command's name, the same as its file name without `.md`."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "First sentence enough for a human to decide whether to invoke the command; then when to invoke it, and one similar action it must not take."
+    }
+  }
+}

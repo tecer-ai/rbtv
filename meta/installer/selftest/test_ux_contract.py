@@ -108,7 +108,7 @@ def public_contract(ctx) -> None:
     _, details = run("show", "fixskill", "--type", "skill")
     ctx.check("UX-show-public-resolver", details["selection"]["id"]
               == "fixmod/goodcomp#fixskill"
-              and details["selection"]["part_id"] == "fixskill"
+              and details["selection"]["unit_id"] == "fixskill"
               and details["selection"]["scope"] == "item"
               and details["selection"]["type"] == "skill"
               and "method" not in details["selection"])
@@ -180,7 +180,7 @@ def public_contract(ctx) -> None:
     ctx.check("UX-show-installed-item-real-receiving-tools",
               installed_item["selection"]["harnesses"] == ["codex"],
               str(installed_item["selection"].get("harnesses")))
-    part0 = installed_item["selection"]["parts"][0]
+    part0 = installed_item["selection"]["units"][0]
     src = part0.get("source_path", "")
     ctx.check("UX-show-item-unambiguous-source-path",
               bool(src) and "/" in src.replace("\\", "/")
@@ -190,7 +190,7 @@ def public_contract(ctx) -> None:
     ctx.check("UX-show-component-next-drills-into-real-item",
               comp_detail["next"].startswith("rbtv install show fixmod/goodcomp#")
               and any(comp_detail["next"] == f"rbtv install show {p['key']} --target {tq}"
-                      for p in comp_detail["selection"]["parts"]),
+                      for p in comp_detail["selection"]["units"]),
               str(comp_detail))
     _, mod_detail = run("show", "fixmod")
     ctx.check("UX-show-module-next-drills-into-real-component",

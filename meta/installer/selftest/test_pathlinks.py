@@ -9,14 +9,13 @@ from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from discovery import EXPOSURE_NAME, Refuse, scan_all
+from discovery import Refuse, scan_all
 
 from lib.constants import (
     PATH_BOOTSTRAP,
     PATH_FENCE_END,
     PATH_FENCE_START,
     STATE_REL,
-    WS_PREFIX,
     _RUNTIME,
 )
 from lib.pathlinks import (bin_dir, gate_path_links, link_path,
@@ -27,6 +26,8 @@ from lib import pathlinks
 from lib.state import read_state
 from lib.operations import do_install, do_uninstall
 
+from .fixture import _component, _w
+
 
 def path_links(ctx) -> None:
     check, skip, tmp, tree, target, shadowed = (
@@ -34,7 +35,7 @@ def path_links(ctx) -> None:
     (catalog, data, legacy, expect, basis_body, mirrors_on_disk, mtr,
      _mk, rf, pws) = ctx.frame()
 
-    print("\nL — PATH links (part-id name, book-aware, rebound bindir)")
+    print("\nL — PATH links (tool name, book-aware, rebound bindir)")
 
     def _lsnap(root: Path) -> set[str]:
         if not root.exists():
@@ -45,18 +46,13 @@ def path_links(ctx) -> None:
 
     def _lcomp(root: Path, mod: str, name: str, pid: str, entry: str,
                body: str = "print(1)\n") -> dict[str, dict]:
-        cdir = root / mod / name
-        cdir.mkdir(parents=True)
-        dest = cdir / Path(entry)
-        if not str(entry).startswith(WS_PREFIX):
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text("#!/usr/bin/env python3\n" + body,
-                            encoding="utf-8")
-            dest.chmod(0o755)
-        (cdir / EXPOSURE_NAME).write_text(
-            "part-id,part-kind,method,rbtv-cli,entry-point,description,"
-            "write-roots\n"
-            f"{pid},tool,path,,{entry},,\n", encoding="utf-8")
+        _component(root, mod, name)
+        tool = root / mod / name / "capabilities" / "tools" / pid
+        dest = tool / entry
+        _w(dest, "#!/usr/bin/env python3\n" + body)
+        dest.chmod(0o755)
+        _w(tool / f"{pid}.json", json.dumps(
+            {"name": pid, "description": "a tool", "entry": entry}))
         cat, _ = scan_all(tmp / "no-mirror-l", root)
         return cat
 
@@ -69,7 +65,7 @@ def path_links(ctx) -> None:
     badws = tmp / "bad-path-ws"
     badws.mkdir()
     badcat = _lcomp(badsrc, "badmod", "badcomp", "badbin", "bad.py")
-    badtool = badsrc / "badmod/badcomp/bad.py"
+    badtool = badsrc / "badmod/badcomp/capabilities/tools/badbin/bad.py"
     for kind, body, mode in (("no-shebang", "print(1)\n", 0o755),
                              ("no-execute", "#!/usr/bin/env python3\n", 0o644)):
         badtool.write_text(body, encoding="utf-8")
@@ -88,9 +84,9 @@ def path_links(ctx) -> None:
               code)
     badtool.write_text("# reference\n", encoding="utf-8")
     badtool.rename(badtool.with_suffix(".md"))
-    (badsrc / "badmod/badcomp" / EXPOSURE_NAME).write_text(
-        "part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots\n"
-        "badbin,tool,path,,bad.md,,\n", encoding="utf-8")
+    (badtool.parent / "badbin.json").write_text(json.dumps(
+        {"name": "badbin", "description": "a tool", "entry": "bad.md"}),
+        encoding="utf-8")
     badcat, _ = scan_all(tmp / "no-mirror-l", badsrc)
     try:
         do_install(badws, badcat, ["badmod/badcomp"], ["claude"],
@@ -105,7 +101,7 @@ def path_links(ctx) -> None:
     lr = do_install(lws, lcat, ["lmod/ladd"], ["claude"], dry_run=False)
     check("L-add — link on add, name is the part-id not the basename",
           link_points_at(link_path(bin_dir(), "ladd-bin"),
-                         (lsrc / "lmod/ladd/impl.py").resolve())
+                         (lsrc / "lmod/ladd/capabilities/tools/ladd-bin/impl.py").resolve())
           and not link_path(bin_dir(), "impl.py").exists()
           and not (lws / "ladd-bin").exists()
           and read_state(lws)["components"]["lmod/ladd"]["path_links"]
@@ -152,7 +148,7 @@ def path_links(ctx) -> None:
     left_rm = do_uninstall(left, lcat, ["lmod/ladd"], dry_run=False)
     check("L-shared — first removal preserves the last owner's shortcut",
           link_points_at(link_path(bin_dir(), "ladd-bin"),
-                         (lsrc / "lmod/ladd/impl.py").resolve())
+                         (lsrc / "lmod/ladd/capabilities/tools/ladd-bin/impl.py").resolve())
           and "ladd-bin" in left_rm["report"]["path"]["kept_shared"])
     do_uninstall(right, lcat, ["lmod/ladd"], dry_run=False)
     owners_after = json.loads(owner_file(bin_dir()).read_text(encoding="utf-8"))
@@ -296,39 +292,6 @@ def path_links(ctx) -> None:
               and _lsnap(nws) == snap_n
               and _lsnap(bin_dir()) == snap_nb
               and not (nws / STATE_REL).exists(),
-              exc.code)
-
-    wsrc = tmp / "wsrc"
-    wws = tmp / "ws-path-ws"
-    wws.mkdir()
-    (wws / "tools").mkdir()
-    (wws / "tools" / "from-ws.py").write_text(
-        "#!/usr/bin/env python3\nprint('ws')\n", encoding="utf-8")
-    (wws / "tools" / "from-ws.py").chmod(0o755)
-    wcat = _lcomp(wsrc, "wmod", "wcomp", "wsbin", "ws:tools/from-ws.py")
-    wr = do_install(wws, wcat, ["wmod/wcomp"], ["claude"], dry_run=False)
-    check("L-ws — ws: entry-point resolves workspace-root-relative",
-          link_points_at(link_path(bin_dir(), "wsbin"),
-                         (wws / "tools/from-ws.py").resolve())
-          and not (wsrc / "wmod/wcomp" / "ws:tools").exists(),
-          str(wr["report"].get("path")))
-    do_uninstall(wws, wcat, ["wmod/wcomp"], dry_run=False)
-
-    esrc = tmp / "esrc"
-    ews = tmp / "ws-path-esc"
-    ews.mkdir()
-    ecat = _lcomp(esrc, "emod", "ecomp", "escbin", "ws:../secret.py")
-    (tmp / "secret.py").write_text("nope\n", encoding="utf-8")
-    snap_e = _lsnap(ews)
-    try:
-        do_install(ews, ecat, ["emod/ecomp"], ["claude"], dry_run=False)
-        check("L-escape — .. refuse", False, "no refusal")
-    except Refuse as exc:
-        check("L-escape — .. refuse",
-              exc.code == "entry-point-escape"
-              and _lsnap(ews) == snap_e
-              and not (ews / STATE_REL).exists()
-              and not (bin_dir() / "escbin").exists(),
               exc.code)
 
     fws = tmp / "ws-path-flag"

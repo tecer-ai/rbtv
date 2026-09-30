@@ -61,14 +61,15 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
     adopted.sort()
     # Key-level collisions inside shared files (D12).
     for claim in claims:
-        cid = _claim_id(claim["path"], claim["key"])
+        cid = _claim_id(claim["path"], claim["key"], claim.get("label"))
         path = target / claim["path"]
         if not path.is_file():
             continue
         instruction = (claim["path"] in GUIDANCE_NAMES
                        and claim["fmt"] == "text"
                        and claim["comment"] == "<!--"
-                       and claim["key"] is None)
+                       and claim["key"] is None
+                       and not claim.get("label"))
         if instruction:
             valid_fence = _instruction_fence(path, claim["path"])
             if (valid_fence and cid not in ours_claims
@@ -90,7 +91,7 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
                 collisions.append(f"{claim['path']}::"
                                   + ".".join(claim["key"]))
         else:
-            start, _ = _fence(claim["comment"])
+            start, _ = _fence(claim["comment"], claim.get("label"))
             if (start in path.read_text(encoding="utf-8")
                     and not instruction
                     and not _is_ours(target, claim["path"])):
@@ -131,7 +132,8 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
     released = [rel for rel in stale
                 if (target / rel).is_file() and not _is_ours(target, rel)]
     stale_files = [rel for rel in stale if rel not in released]
-    planned_claims = {_claim_id(c["path"], c["key"]) for c in claims}
+    planned_claims = {_claim_id(c["path"], c["key"], c.get("label"))
+                      for c in claims}
     stale_claims = sorted(ours_claims - planned_claims)
     for cid in stale_claims:
         rel, _, key = cid.partition("::")
@@ -214,16 +216,20 @@ def _render_shared(target: Path, claims: list[dict], stale_claims: list[str],
         touched[claim["path"]]["set"].append(claim)
     for cid in stale_claims:
         rel, _, keypart = cid.partition("::")
-        fmt = "json" if keypart != "#block" else "text"
+        block = keypart.startswith("#block")
         comment = "<!--" if rel.endswith(".md") else "#"
-        entry = touched.setdefault(rel, {"fmt": fmt, "comment": comment,
-                                         "set": [], "del": []})
-        entry["del"].append(None if keypart == "#block" else json.loads(keypart))
+        entry = touched.setdefault(
+            rel, {"fmt": "text" if block else "json", "comment": comment,
+                  "set": [], "del": []})
+        entry["del"].append(
+            {"label": keypart[len("#block:"):] or None} if block
+            else {"key": json.loads(keypart)})
 
     rendered: dict[str, str] = {}
     bases: dict[str, str | None] = {}
     for rel, work in touched.items():
         path = target / rel
+        guidance = Path(rel).name in GUIDANCE_NAMES
         if rel in files:
             planned = files[rel]
             base = planned.decode("utf-8") if isinstance(planned, bytes) else planned
@@ -233,29 +239,28 @@ def _render_shared(target: Path, claims: list[dict], stale_claims: list[str],
             on_disk = None
         else:
             on_disk = path.read_bytes().decode("utf-8") if path.is_file() else None
-            base = (on_disk if rel in GUIDANCE_NAMES or on_disk is None else
+            base = (on_disk if guidance or on_disk is None else
                     path.read_text(encoding="utf-8"))
         bases[rel] = on_disk
         if work["fmt"] == "json":
             doc = json.loads(base or "{}")
-            for key in work["del"]:
-                _jdel(doc, key)
+            for gone in work["del"]:
+                _jdel(doc, gone["key"])
             for claim in work["set"]:
                 _jset(doc, claim["key"], claim["value"])
             text = json.dumps(doc, indent=2, sort_keys=True) + "\n" if doc else ""
         else:
             text = base or ""
-            if work["del"]:
-                text = _block_del(
-                    text, work["comment"],
-                    preserve_outside=(rel in GUIDANCE_NAMES
-                                      and work["comment"] == "<!--"))
+            keep_outside = guidance and work["comment"] == "<!--"
+            for gone in work["del"]:
+                text = _block_del(text, work["comment"],
+                                  preserve_outside=keep_outside,
+                                  label=gone["label"])
             for claim in work["set"]:
-                text = _block_set(
-                    text, claim["value"], work["comment"],
-                    preserve_outside=(rel in GUIDANCE_NAMES
-                                      and work["comment"] == "<!--"))
-            if not text.strip() and rel not in GUIDANCE_NAMES:
+                text = _block_set(text, claim["value"], work["comment"],
+                                  preserve_outside=keep_outside,
+                                  label=claim.get("label"))
+            if not text.strip() and not guidance:
                 text = ""
         rendered[rel] = text
     return rendered, bases

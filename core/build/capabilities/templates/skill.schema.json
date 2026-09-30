@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "skill frontmatter",
+  "description": "The frontmatter of a skill file, which the rbtv installer reads and validates. The file's body follows the template skill.md.",
+  "type": "object",
+  "required": [
+    "name",
+    "description"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "The skill's name, the same as its file name without `.md`."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "First sentence enough to decide whether to open the skill; then the situations that should open it, including one that does not use the skill's name, and one similar task that must not."
+    }
+  }
+}

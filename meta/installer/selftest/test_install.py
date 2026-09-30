@@ -13,14 +13,13 @@ from lib.constants import (
     FENCE_ID,
     HARNESSES,
     LEGACY_PREFIX,
-    MANAGED_BANNER,
     MANAGED_MARK,
     SCHEMA,
     STATE_REL,
 )
 from lib.claims import _claim_id
 from lib.apply import apply
-from lib.content import _is_ours
+from lib.content import _is_ours, _mark
 from lib.pathlinks import bin_dir, link_path, link_points_at
 from lib.state import read_state, rec_files
 from lib.operations import do_install, do_uninstall
@@ -71,16 +70,12 @@ def green_arm_all_harnesses(ctx) -> None:
           and (target / ".claude/skills/fixskill/SKILL.md")
           .read_text(encoding="utf-8").split("---\n")[2].lstrip().startswith("<!--"),
           (target / ".claude/skills/fixskill/SKILL.md").read_text(encoding="utf-8")[:200])
-    check("`pool` minted nothing; `path` still writes nothing under target",
+    check("a tool writes nothing under target",
           not (target / ".claude/skills/fixtool").exists()
-          and not (target / ".claude/skills/fixpool").exists()
-          and [r["type"] for r
-               in res["report"]["skipped_inventory_rows"]] == ["pool"]
           and not (target / "fixtool").exists()
           and not (target / "tool/thing.py").exists(),
-          str(res["report"]["skipped_inventory_rows"]))
-    public_rows = [row for key in ("skipped_inventory_rows", "no_realization",
-                                    "path_rows")
+          str(res["report"]["path_rows"]))
+    public_rows = [row for key in ("no_realization", "path_rows")
                    for row in res["report"][key]]
     check("report rows classify items by public type",
           bool(public_rows)
@@ -89,7 +84,7 @@ def green_arm_all_harnesses(ctx) -> None:
           str(public_rows))
     check("green — path part-id is the link name, not the basename",
           link_points_at(link_path(bin_dir(), "fixtool"),
-                         (tree / "fixmod/goodcomp/tool/thing.py").resolve())
+                         (tree / "fixmod/goodcomp/capabilities/tools/fixtool/thing.py").resolve())
           and not link_path(bin_dir(), "thing.py").exists()
           and read_state(target)["components"]["fixmod/goodcomp"]
           .get("path_links") == ["fixtool"],
@@ -97,10 +92,10 @@ def green_arm_all_harnesses(ctx) -> None:
     check("skill loader carries a YAML-safe description",
           '"A fixture skill: with a colon"'
           in (target / ".claude/skills/fixskill/SKILL.md").read_text(encoding="utf-8"))
-    check("rule copied VERBATIM under one marker line",
+    check("rule copied VERBATIM, the marker line just below its frontmatter",
           (target / ".claude/rules/fixrule.md").read_text(encoding="utf-8")
-          == MANAGED_BANNER + (tree / "fixmod/goodcomp/rule-entry.md"
-                               ).read_text(encoding="utf-8"),
+          == _mark((tree / "fixmod/goodcomp/rules/fixrule.md"
+                    ).read_text(encoding="utf-8")),
           (target / ".claude/rules/fixrule.md").read_text(encoding="utf-8")[:200])
     check("F3 — NO code path mints the retired .agents/rbtv2-exposure.md",
           not (target / ".agents/rbtv2-exposure.md").exists()
@@ -108,10 +103,11 @@ def green_arm_all_harnesses(ctx) -> None:
           str(sorted(expect)))
     check("with no copy basis, the managed sections are reported from the plan",
           res["report"]["guidance_sections"] == ["AGENTS.md", "CLAUDE.md"]
+          and f"{FENCE_ID}:start fixmod/goodcomp" in (target / "CLAUDE.md").read_text(encoding="utf-8")
           and "guidance_manual" not in res["report"]
           and "Step 0" in (target / "AGENTS.md").read_text(encoding="utf-8")
           and "Step 0" not in (target / "CLAUDE.md").read_text(encoding="utf-8")
-          and "fixguide" in (target / "CLAUDE.md").read_text(encoding="utf-8"),
+          and "guidance for the root" in (target / "CLAUDE.md").read_text(encoding="utf-8"),
           str(res["report"]["guidance_sections"]))
     check("managed guidance sections are installed without replacing owner files",
           all(f"{FENCE_ID}:start" in (target / name).read_text(encoding="utf-8")
@@ -123,7 +119,7 @@ def green_arm_all_harnesses(ctx) -> None:
                   {"type": "command", "command": "true"}]}]}})
     check("mcp.json gained the prefixed server beside the foreign one",
           sorted(json.loads((target / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"])
-          == sorted(["fix", "foreign"]))
+          == sorted(["fixmcp", "foreign"]))
     check("codex config.toml carries a fenced block with the url form",
           f"# {FENCE_ID}:start" in (target / ".codex/config.toml").read_text(encoding="utf-8")
           and 'url = "https://example.invalid/mcp"'
@@ -140,25 +136,26 @@ def green_arm_all_harnesses(ctx) -> None:
     check("schema 2 books parts keyed by bare part-id, no rec.files",
           state.get("schema") == SCHEMA
           and "files" not in rec
-          and set(rec["parts"]) >= {"fixskill", "fixcmd", "fixrule",
+          and set(rec["units"]) >= {"fixskill", "fixcmd", "fixrule",
                                     "fixagent", "fixhook", "fixmcp",
-                                    "fixguide", "fixtool", "fixpool"}
-          and rec["parts"]["fixskill"]["method"] == "skill"
-          and rec["parts"]["fixmcp"]["method"] == "config"
+                                    "fixguide", "fixtool"}
+          and rec["units"]["fixskill"]["method"] == "skill"
+          and rec["units"]["fixmcp"]["method"] == "mcp-server"
           and ".claude/skills/fixskill/SKILL.md"
-          in rec["parts"]["fixskill"]["files"],
-          str(sorted(rec.get("parts") or {})))
+          in rec["units"]["fixskill"]["files"],
+          str(sorted(rec.get("units") or {})))
     check("install.json books every shared-file claim",
           sorted(state["shared_claims"]) == sorted([
               _claim_id(".claude/settings.json",
                         ["enableAllProjectMcpServers"]),
               _claim_id(".claude/settings.json", ["hooks", "PreToolUse"]),
               _claim_id(".codex/hooks.json", ["hooks", "PreToolUse"]),
-              _claim_id(".mcp.json", ["mcpServers", "fix"]),
-              _claim_id("opencode.json", ["mcp", "fix"]),
+              _claim_id(".mcp.json", ["mcpServers", "fixmcp"]),
+              _claim_id("opencode.json", ["mcp", "fixmcp"]),
               _claim_id(".codex/config.toml", None),
               _claim_id("AGENTS.md", None),
-              _claim_id("CLAUDE.md", None),
+              _claim_id("AGENTS.md", None, "fixmod/goodcomp"),
+              _claim_id("CLAUDE.md", None, "fixmod/goodcomp"),
           ]), str(sorted(state["shared_claims"])))
     check("install.json books the source tree + harnesses",
           rec["tree"] == "repo" and rec["tree_root"] == str(tree)
@@ -226,14 +223,14 @@ def red_unknown_method(ctx) -> None:
     (catalog, data, legacy, expect, basis_body, mirrors_on_disk, mtr,
      _mk, rf, pws) = ctx.frame()
 
-    print("\nred arm — unknown method")
+    print("\nred arm — invalid unit")
     try:
         do_install(target, catalog, ["badmod/badcomp"], list(HARNESSES),
                    dry_run=False)
-        check("unknown method refuses", False, "no refusal raised")
+        check("an invalid unit refuses", False, "no refusal raised")
     except Refuse as exc:
-        check("unknown method refuses", exc.code == "method-unknown", exc.code)
-        check("unknown-method refusal wrote nothing",
+        check("an invalid unit refuses", exc.code == "unit-invalid", exc.code)
+        check("invalid-unit refusal wrote nothing",
               "badcomp" not in json.dumps(read_state(target)))
     ctx.keep(locals())
 
@@ -250,7 +247,7 @@ def red_foreign_collision(ctx) -> None:
     (fresh / ".claude/rules/fixrule.md").write_text(
         "hand-placed\n", encoding="utf-8")
     (fresh / ".mcp.json").write_text(json.dumps(
-        {"mcpServers": {"fix": {"url": "https://squatter.invalid"}}}),
+        {"mcpServers": {"fixmcp": {"url": "https://squatter.invalid"}}}),
         encoding="utf-8")
     before = {p.relative_to(fresh).as_posix(): p.read_text(encoding="utf-8")
               for p in fresh.rglob("*") if p.is_file()}
@@ -262,7 +259,7 @@ def red_foreign_collision(ctx) -> None:
         check("collision refuses", exc.code == "collision", exc.code)
         check("both the file AND the shared key are named",
               ".claude/rules/fixrule.md" in exc.message
-              and ".mcp.json::mcpServers." + "fix" in exc.message,
+              and ".mcp.json::mcpServers." + "fixmcp" in exc.message,
               exc.message)
     after = {p.relative_to(fresh).as_posix(): p.read_text(encoding="utf-8")
              for p in fresh.rglob("*") if p.is_file()}
@@ -310,15 +307,9 @@ def dry_run_prints_the_report_rows(ctx) -> None:
     with contextlib.redirect_stdout(buf):
         print_result(rr_real)
     real_out = buf.getvalue()
-    check("7.622 — setup: the fixture HAS rows of both kinds to print",
-          bool(rr_dry["report"]["skipped_inventory_rows"])
-          and bool(rr_dry["report"]["no_realization"]),
+    check("7.622 — setup: the fixture HAS rows to print",
+          bool(rr_dry["report"]["no_realization"]),
           str(rr_dry["report"]))
-    check("7.622 — every skipped-inventory row is named in the dry run",
-          all(f"{row['component']}#{row['part']}"
-              in dry_out
-              for row in rr_dry["report"]["skipped_inventory_rows"]),
-          dry_out)
     check("7.622 — every no-realization row is named in the dry run",
           all(f"{row['harness']} cannot use this {row['type']} item "
               f"({row['component']}#{row['part']})"
@@ -331,17 +322,15 @@ def dry_run_prints_the_report_rows(ctx) -> None:
                  if ln.startswith("  · ")),
           f"dry={dry_out}\nreal={real_out}")
     check("7.622 — planned rows read as planned, real rows as done",
-          "would skip " in dry_out
-          and "no file would be written" in dry_out
-          and "skipped " in real_out
+          "no file would be written" in dry_out
           and "no file was written" in real_out
           and "Would refresh components:" in dry_out
           and not dry_out.startswith("Installed:"),
           dry_out + "\n=====\n" + real_out)
     check("7.622 — the JSON shape is untouched by the printing change",
           set(rr_dry["report"]) == set(rr_real["report"])
-          and rr_dry["report"]["skipped_inventory_rows"]
-          == rr_real["report"]["skipped_inventory_rows"],
+          and rr_dry["report"]["no_realization"]
+          == rr_real["report"]["no_realization"],
           str(sorted(set(rr_dry["report"]) ^ set(rr_real["report"]))))
     ctx.keep(locals())
 

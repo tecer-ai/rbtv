@@ -25,14 +25,14 @@ from .selection import (
     _has_negative,
     _split_part_keys,
     iter_catalog_parts,
-    iter_booked_parts,
+    iter_booked_units,
     resolve_name,
     resolve_selection,
 )
 from .operations import do_install, do_uninstall
 from .pathlinks import bin_dir
 from .shared_links import release_workspace_links, workspace_mutation_lock
-from .listing import (_catalog_description, build_list, build_show,
+from .listing import (_short_description, build_list, build_show,
                       do_list, print_list, print_show)
 from .doctor import do_doctor, doctor_exit
 from .report import print_result
@@ -100,7 +100,7 @@ def _error_data(exc: Refuse, target: Path | None = None,
     elif error.get("suggestions"):
         out["next"] = ("rbtv install show " + _quote(error["suggestions"][0]["id"])
                        + (" --target " + _quote(target) if target is not None else ""))
-    elif exc.code in {"name-unknown", "part-unknown", "component-unknown"}:
+    elif exc.code in {"name-unknown", "unit-unknown", "component-unknown"}:
         out["next"] = ("rbtv install list"
                        + (" --target " + _quote(target) if target is not None else ""))
     return out
@@ -201,8 +201,7 @@ def cmd_show(args, target: Path, catalog: dict, shadowed: list,
         view = build_list(catalog, state, query=args.name, limit=100)
         comp = next((c for c in catalog.values()
                      if c.get("module") == named_module), None)
-        description = (_catalog_description(Path(comp["path"]).parent / "module.md")
-                       if comp else "")
+        description = _short_description(comp.get("module_description", "")) if comp else ""
         selection = {"scope": "module", "id": args.name,
                      "description": description,
                      "components": view["items"],
@@ -228,7 +227,7 @@ def cmd_show(args, target: Path, catalog: dict, shadowed: list,
     data = {"ok": True, "target": str(target.resolve()),
             "source": getattr(args, "_why", "unknown"),
             "selection": build_show(selected, catalog, state)}
-    parts = data["selection"]["parts"]
+    parts = data["selection"]["units"]
     if selected["kind"] == "part":
         # Approved screens 20/55: an installed item's next step is a health
         # check, never a removal suggestion just because it happens to be
@@ -255,7 +254,7 @@ def cmd_status(args, target: Path, catalog: dict, shadowed: list,
     del ask, shadowed
     installed = do_list(target, catalog)
     comps = installed["components"]
-    count = sum(len(rec.get("parts") or {}) for rec in comps.values())
+    count = sum(len(rec.get("units") or {}) for rec in comps.values())
     modules = sorted({("hub" if (comp.get("module") or cid.split("/")[0]) == "_hub"
                        else comp.get("module") or cid.split("/")[0])
                       for cid, comp in catalog.items()})
@@ -696,7 +695,7 @@ def cmd_update(args, target: Path, catalog: dict, shadowed: list,
                        bool(getattr(args, "dry_run", False)),
                        scope=args.scope)
     records = state.get("components") or {}
-    data["recorded_items"] = len(iter_booked_parts(catalog, records))
+    data["recorded_items"] = len(iter_booked_units(catalog, records))
     data["source_missing"] = sorted(cid for cid in records if cid not in catalog)
     _emit(data, bool(getattr(args, "json", False)),
           target, getattr(args, "_why", "unknown"), verb="update")

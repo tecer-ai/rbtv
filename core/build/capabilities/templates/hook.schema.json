@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "<hook>.json",
+  "description": "One hook, in rbtv's format, read by the rbtv installer and translated into each harness's own hook settings. A harness without hooks receives none.",
+  "type": "object",
+  "required": [
+    "name",
+    "description",
+    "event",
+    "command"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "The hook's name, the same as its file name without `.json`."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "One line that is enough to decide whether the hook is relevant."
+    },
+    "event": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The event that runs the hook, such as a tool use or the end of a turn; the installer translates it into each harness's own event."
+    },
+    "matcher": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Which tools or inputs the hook applies to, for events that take one. Absent means all."
+    },
+    "command": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The command the harness runs, such as a tool placed on PATH."
+    },
+    "timeout": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Seconds before the harness stops the command. Absent means the harness default."
+    }
+  }
+}
