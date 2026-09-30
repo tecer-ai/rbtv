@@ -152,10 +152,10 @@ const dropped = (v, stage) => (v.explain || [])
     assert.ok(dropped(v, 'class').includes('codex/gpt-6-sol'), `the cheaper L1 row must drop at the class stage: ${JSON.stringify(dropped(v, 'class'))}`);
   }
 
-  // Batch: an omitted optimize on a seat takes the same default as the flag form.
+  // Batch: an omitted optimize on an agent takes the same default as the flag form.
   const b = routeBatch([{ name: 'm', access: 'bounded', type: 'code', class: 'mechanical' }]);
   assert.strictEqual(b._status, 0, JSON.stringify(b));
-  assert.strictEqual(`${b.seats[0].harness}/${b.seats[0].model}`, 'codex/gpt-6-luna');
+  assert.strictEqual(`${b.agents[0].harness}/${b.agents[0].model}`, 'codex/gpt-6-luna');
 }
 
 // --- max quality NEVER leaves the class's own levels --------------------------------------------
@@ -403,11 +403,11 @@ const dropped = (v, stage) => (v.explain || [])
 }
 
 // --- batch: a whole team in one call -------------------------------------------------------------
-// Batch turns a plan's seats into ONE assignment table. These arms pin the envelope (input order,
-// name-keyed entries, exit 0 only when every seat routed) and the selector's purity (a batch of
+// Batch turns a plan's agents into ONE assignment table. These arms pin the envelope (input order,
+// name-keyed entries, exit 0 only when every agent routed) and the selector's purity (a batch of
 // one must answer EXACTLY what the flag form answers for the same interview).
 function routeBatch(body, extraFlags = []) {
-  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cast-route-batch-')), 'seats.json');
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cast-route-batch-')), 'agents.json');
   fs.writeFileSync(file, typeof body === 'string' ? body : JSON.stringify(body));
   const res = spawnSync('node', [TOOL, 'route', '--batch', file, ...extraFlags], { encoding: 'utf8', env: ENV, cwd: FIXTURE });
   assert.ok(res.stdout, `batch printed nothing; stderr: ${res.stderr}`);
@@ -420,54 +420,54 @@ function routeBatchStdin(text, extraFlags = []) {
   return { ...JSON.parse(res.stdout), _status: res.status, _stderr: res.stderr };
 }
 
-const PLANNER_SEAT = { name: 'planner', access: 'open', type: 'text', class: 'planner', optimize: 'quality' };
-const FIXER_SEAT = { name: 'fixer', access: 'bounded', type: 'code', class: 'mechanical', optimize: 'price' };
+const PLANNER_AGENT = { name: 'planner', access: 'open', type: 'text', class: 'planner', optimize: 'quality' };
+const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'mechanical', optimize: 'price' };
 
-// --- batch happy path: multi-seat, input order, exit 0 ------------------------------------------
+// --- batch happy path: multi-agent, input order, exit 0 ------------------------------------------
 {
-  const v = routeBatch({ seats: [PLANNER_SEAT, FIXER_SEAT] });
-  assert.strictEqual(v._status, 0, `every seat routed, so exit 0: ${JSON.stringify(v)}`);
+  const v = routeBatch({ agents: [PLANNER_AGENT, FIXER_AGENT] });
+  assert.strictEqual(v._status, 0, `every agent routed, so exit 0: ${JSON.stringify(v)}`);
   assert.strictEqual(v.verdict, 'route-batch');
-  assert.deepStrictEqual(v.seats.map((s) => s.name), ['planner', 'fixer'], 'seats must come back in INPUT order');
-  assert.strictEqual(pair(v.seats[0]), 'codex/gpt-6-astra/cli');
-  assert.strictEqual(pair(v.seats[1]), 'codex/gpt-6-luna/cli');
+  assert.deepStrictEqual(v.agents.map((s) => s.name), ['planner', 'fixer'], 'agents must come back in INPUT order');
+  assert.strictEqual(pair(v.agents[0]), 'codex/gpt-6-astra/cli');
+  assert.strictEqual(pair(v.agents[1]), 'codex/gpt-6-luna/cli');
 }
 
 // --- batch of one == the flag form, field for field ----------------------------------------------
 // The batch must not fork the selector: same answers in, same verdict fields out.
 {
   const flag = route(['--access', 'open', '--type', 'text', '--class', 'planner', '--optimize', 'quality']);
-  const batch = routeBatch([PLANNER_SEAT]);
+  const batch = routeBatch([PLANNER_AGENT]);
   assert.strictEqual(batch._status, 0);
   for (const f of ['verdict', 'harness', 'model', 'mode', 'effort', 'effort_is_floor', 'alternates']) {
-    assert.deepStrictEqual(batch.seats[0][f], flag[f], `batch seat must reproduce the flag form's ${f}`);
+    assert.deepStrictEqual(batch.agents[0][f], flag[f], `batch agent must reproduce the flag form's ${f}`);
   }
 }
 
-// --- a per-seat error never aborts the batch ------------------------------------------------------
+// --- a per-agent error never aborts the batch ------------------------------------------------------
 {
-  const v = routeBatch([PLANNER_SEAT, { name: 'typo', access: 'open', type: 'text', class: 'planer', optimize: 'quality' }]);
-  assert.strictEqual(v._status, 1, 'any seat error means exit 1');
-  assert.strictEqual(v.seats[0].verdict, 'route', 'the good seat still routed');
-  assert.strictEqual(v.seats[1].error, 'malformed_request');
-  assert.ok(/class must be one of/.test(v.seats[1].details[0]), JSON.stringify(v.seats[1].details));
+  const v = routeBatch([PLANNER_AGENT, { name: 'typo', access: 'open', type: 'text', class: 'planer', optimize: 'quality' }]);
+  assert.strictEqual(v._status, 1, 'any agent error means exit 1');
+  assert.strictEqual(v.agents[0].verdict, 'route', 'the good agent still routed');
+  assert.strictEqual(v.agents[1].error, 'malformed_request');
+  assert.ok(/class must be one of/.test(v.agents[1].details[0]), JSON.stringify(v.agents[1].details));
 }
 
 // --- an unknown key is a refusal, not a silent ignore ---------------------------------------------
 {
-  const v = routeBatch([{ ...FIXER_SEAT, model: 'opus-5-5' }]);
+  const v = routeBatch([{ ...FIXER_AGENT, model: 'opus-5-5' }]);
   assert.strictEqual(v._status, 1);
-  assert.strictEqual(v.seats[0].error, 'malformed_request');
-  assert.ok(/unknown key 'model'/.test(v.seats[0].details[0]), JSON.stringify(v.seats[0].details));
+  assert.strictEqual(v.agents[0].error, 'malformed_request');
+  assert.ok(/unknown key 'model'/.test(v.agents[0].details[0]), JSON.stringify(v.agents[0].details));
 }
 
 // --- envelope refusals: one malformed_request object, nothing routed ------------------------------
 {
-  const dupe = routeBatch([PLANNER_SEAT, { ...FIXER_SEAT, name: 'planner' }]);
+  const dupe = routeBatch([PLANNER_AGENT, { ...FIXER_AGENT, name: 'planner' }]);
   assert.strictEqual(dupe._status, 1);
   assert.strictEqual(dupe.error, 'malformed_request');
-  assert.ok(!dupe.seats, 'an envelope refusal carries no seats array');
-  assert.ok(/duplicate seat name 'planner'/.test(dupe.details[0]), JSON.stringify(dupe.details));
+  assert.ok(!dupe.agents, 'an envelope refusal carries no agents array');
+  assert.ok(/duplicate agent name 'planner'/.test(dupe.details[0]), JSON.stringify(dupe.details));
 
   const empty = routeBatch('[]');
   assert.strictEqual(empty.error, 'malformed_request');
@@ -477,28 +477,28 @@ const FIXER_SEAT = { name: 'fixer', access: 'bounded', type: 'code', class: 'mec
   assert.strictEqual(junk.error, 'malformed_request');
   assert.ok(/not valid JSON/.test(junk.details[0]), JSON.stringify(junk.details));
 
-  const nonObject = routeBatch([PLANNER_SEAT, 'just a string']);
+  const nonObject = routeBatch([PLANNER_AGENT, 'just a string']);
   assert.strictEqual(nonObject.error, 'malformed_request');
-  assert.ok(/seat at index 1 is not an object/.test(nonObject.details[0]), JSON.stringify(nonObject.details));
+  assert.ok(/agent at index 1 is not an object/.test(nonObject.details[0]), JSON.stringify(nonObject.details));
 
-  const noSeats = routeBatchStdin('');
-  assert.strictEqual(noSeats._status, 1);
-  assert.strictEqual(noSeats.error, 'malformed_request');
-  assert.ok(/empty stdin/.test(noSeats.details[0]), JSON.stringify(noSeats.details));
+  const noAgents = routeBatchStdin('');
+  assert.strictEqual(noAgents._status, 1);
+  assert.strictEqual(noAgents.error, 'malformed_request');
+  assert.ok(/empty stdin/.test(noAgents.details[0]), JSON.stringify(noAgents.details));
 }
 
 // --- the stdin form answers exactly what the file form answers -------------------------------------
 {
-  const fromFile = routeBatch([PLANNER_SEAT, FIXER_SEAT]);
-  const fromStdin = routeBatchStdin(JSON.stringify([PLANNER_SEAT, FIXER_SEAT]));
+  const fromFile = routeBatch([PLANNER_AGENT, FIXER_AGENT]);
+  const fromStdin = routeBatchStdin(JSON.stringify([PLANNER_AGENT, FIXER_AGENT]));
   assert.strictEqual(fromStdin._status, 0);
-  assert.deepStrictEqual(fromStdin.seats, fromFile.seats, '--batch - must reproduce --batch FILE');
+  assert.deepStrictEqual(fromStdin.agents, fromFile.agents, '--batch - must reproduce --batch FILE');
 }
 
 // --- --batch combines with none of the interview flags ---------------------------------------------
 {
-  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cast-route-batch-')), 'seats.json');
-  fs.writeFileSync(file, JSON.stringify([FIXER_SEAT]));
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cast-route-batch-')), 'agents.json');
+  fs.writeFileSync(file, JSON.stringify([FIXER_AGENT]));
   for (const flags of [['--access', 'open'], ['--caps', 'image'], ['--catalog']]) {
     const res = spawnSync('node', [TOOL, 'route', '--batch', file, ...flags], { encoding: 'utf8', env: ENV, cwd: __dirname });
     assert.strictEqual(res.status, 2, `batch + ${flags[0]} must be refused: ${res.stdout}`);
@@ -507,17 +507,17 @@ const FIXER_SEAT = { name: 'fixer', access: 'bounded', type: 'code', class: 'mec
   }
 }
 
-// --- --explain attaches each seat's OWN trace -------------------------------------------------------
+// --- --explain attaches each agent's OWN trace -------------------------------------------------------
 {
-  const v = routeBatch([PLANNER_SEAT, FIXER_SEAT], ['--explain']);
+  const v = routeBatch([PLANNER_AGENT, FIXER_AGENT], ['--explain']);
   assert.strictEqual(v._status, 0);
-  for (const s of v.seats) {
-    assert.ok(Array.isArray(s.explain), `seat ${s.name} must carry its own trace`);
+  for (const s of v.agents) {
+    assert.ok(Array.isArray(s.explain), `agent ${s.name} must carry its own trace`);
     assert.strictEqual(s.explain[0].stage, 'catalog');
   }
-  const plannerDrops = (v.seats[0].explain || []).filter((e) => e.action === 'drop').length;
-  const fixerDrops = (v.seats[1].explain || []).filter((e) => e.action === 'drop').length;
-  assert.notStrictEqual(plannerDrops, fixerDrops, 'each trace is the seat\'s own pipeline, not a shared one');
+  const plannerDrops = (v.agents[0].explain || []).filter((e) => e.action === 'drop').length;
+  const fixerDrops = (v.agents[1].explain || []).filter((e) => e.action === 'drop').length;
+  assert.notStrictEqual(plannerDrops, fixerDrops, 'each trace is the agent\'s own pipeline, not a shared one');
 }
 
 // --- the SHIPPED table: validation, never verdicts ----------------------------------------------

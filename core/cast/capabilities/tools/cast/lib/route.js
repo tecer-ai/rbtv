@@ -28,7 +28,7 @@ const ROUTE_USAGE = 'cast route --access open|bounded --type code|text --class p
 // The forms that ask nothing as flags. Kept OUT of ROUTE_USAGE so the top-level `cast -h` stays
 // one line per verb; the route help page and every refusal print all of them.
 const ROUTE_FORMS = ['cast route --caps image          # short-circuit, no other flags',
-  'cast route --batch seats.json    # a whole team in one call (- reads stdin)',
+  'cast route --batch agents.json    # a whole team in one call (- reads stdin)',
   'cast route --catalog [--json]    # the roster, asks nothing'];
 
 const CSV_NAME = 'models.csv';
@@ -479,11 +479,11 @@ function validateRequest(req) {
 
 // --- batch -------------------------------------------------------------------------------------
 
-// `--batch FILE` routes a whole TEAM in one call: a planning agent designs every seat at once and
+// `--batch FILE` routes a whole TEAM in one call: a planning agent designs every agent at once and
 // needs one deterministic assignment table, not N shell calls. The interview moves from flags to
-// JSON; the selector does not move — each seat goes through the same selectRoute, and the CSV is
+// JSON; the selector does not move — each agent goes through the same selectRoute, and the CSV is
 // loaded and joined ONCE for the whole batch.
-const SEAT_KEYS = ['name', 'access', 'type', 'class', 'optimize', 'caps'];
+const AGENT_KEYS = ['name', 'access', 'type', 'class', 'optimize', 'caps'];
 
 function readBatchInput(source) {
   let text;
@@ -498,66 +498,66 @@ function readBatchInput(source) {
   }
 }
 
-// The envelope is a bare array of seat objects or {"seats":[...]}. Anything that breaks the
+// The envelope is a bare array of agent objects or {"agents":[...]}. Anything that breaks the
 // name-keyed mapping the caller relies on — wrong shape, an entry with no usable name, a
 // duplicate name — refuses the WHOLE batch (one malformed_request object, nothing routed):
-// a table the caller cannot map back to its seats is worse than no table.
-function batchSeats(data) {
-  let seats = null;
-  if (Array.isArray(data)) seats = data;
+// a table the caller cannot map back to its agents is worse than no table.
+function batchAgents(data) {
+  let agents = null;
+  if (Array.isArray(data)) agents = data;
   else if (data && typeof data === 'object') {
-    if (!Array.isArray(data.seats)) return { error: '"seats" must be an array of seat objects' };
-    seats = data.seats;
+    if (!Array.isArray(data.agents)) return { error: '"agents" must be an array of agent objects' };
+    agents = data.agents;
   }
-  if (seats === null) return { error: 'a batch is a JSON array of seat objects, or {"seats":[...]}' };
-  if (!seats.length) return { error: 'the seats list is empty' };
+  if (agents === null) return { error: 'a batch is a JSON array of agent objects, or {"agents":[...]}' };
+  if (!agents.length) return { error: 'the agents list is empty' };
   const seen = new Set();
-  for (let i = 0; i < seats.length; i++) {
-    const s = seats[i];
-    if (!s || typeof s !== 'object' || Array.isArray(s)) return { error: `seat at index ${i} is not an object` };
+  for (let i = 0; i < agents.length; i++) {
+    const s = agents[i];
+    if (!s || typeof s !== 'object' || Array.isArray(s)) return { error: `agent at index ${i} is not an object` };
     if (typeof s.name !== 'string' || s.name.trim() === '') {
-      return { error: `seat at index ${i} has no usable name — every seat needs a non-empty string name, unique across the batch` };
+      return { error: `agent at index ${i} has no usable name — every agent needs a non-empty string name, unique across the batch` };
     }
-    if (seen.has(s.name)) return { error: `duplicate seat name '${s.name}' — the caller maps verdicts back by name` };
+    if (seen.has(s.name)) return { error: `duplicate agent name '${s.name}' — the caller maps verdicts back by name` };
     seen.add(s.name);
   }
-  return { seats };
+  return { agents };
 }
 
-// A seat IS the flag interview as an object: same vocabulary, same required-ness, same image
-// short-circuit. Errors here are PER-SEAT — the batch keeps going so the caller fixes the whole
-// plan in one pass instead of one seat per run.
-function validateSeat(seat) {
+// An agent IS the flag interview as an object: same vocabulary, same required-ness, same image
+// short-circuit. Errors here are PER-AGENT — the batch keeps going so the caller fixes the whole
+// plan in one pass instead of one agent per run.
+function validateAgent(agent) {
   const errors = [];
-  for (const k of Object.keys(seat)) {
-    if (!SEAT_KEYS.includes(k)) errors.push(`unknown key '${k}' — a seat carries only: ${SEAT_KEYS.join(', ')}`);
+  for (const k of Object.keys(agent)) {
+    if (!AGENT_KEYS.includes(k)) errors.push(`unknown key '${k}' — an agent carries only: ${AGENT_KEYS.join(', ')}`);
   }
   const caps = new Set();
-  if (seat.caps !== undefined && seat.caps !== null) {
-    if (!Array.isArray(seat.caps) || seat.caps.some((c) => typeof c !== 'string')) {
+  if (agent.caps !== undefined && agent.caps !== null) {
+    if (!Array.isArray(agent.caps) || agent.caps.some((c) => typeof c !== 'string')) {
       errors.push('caps must be an array of strings');
     } else {
-      for (const c of seat.caps) {
+      for (const c of agent.caps) {
         if (!CAPS.includes(c)) errors.push(`caps must be one of ${CAPS.join(' | ')}, got '${c}'`);
         else caps.add(c);
       }
     }
   }
   const oneOf = (field, allowed) => {
-    const v = seat[field];
+    const v = agent[field];
     if (v === undefined || v === null) errors.push(`missing required field: ${field} (one of ${allowed.join(' | ')})`);
     else if (!allowed.includes(v)) errors.push(`${field} must be one of ${allowed.join(' | ')}, got '${v}'`);
   };
   if (caps.has('image')) {
     // Short-circuit: the other fields are optional here, but a value typed WRONG is still an error.
-    if (seat.optimize != null && !OPTIMIZE.includes(seat.optimize)) errors.push(`optimize must be one of ${OPTIMIZE.join(' | ')}, got '${seat.optimize}'`);
-    if (seat.type != null && !TYPES.includes(seat.type)) errors.push(`type must be one of ${TYPES.join(' | ')}, got '${seat.type}'`);
+    if (agent.optimize != null && !OPTIMIZE.includes(agent.optimize)) errors.push(`optimize must be one of ${OPTIMIZE.join(' | ')}, got '${agent.optimize}'`);
+    if (agent.type != null && !TYPES.includes(agent.type)) errors.push(`type must be one of ${TYPES.join(' | ')}, got '${agent.type}'`);
     return { errors, caps };
   }
   oneOf('access', ACCESS);
   oneOf('type', TYPES);
   oneOf('class', Object.keys(CLASSES));
-  if (seat.optimize != null && !OPTIMIZE.includes(seat.optimize)) errors.push(`optimize must be one of ${OPTIMIZE.join(' | ')}, got '${seat.optimize}'`);
+  if (agent.optimize != null && !OPTIMIZE.includes(agent.optimize)) errors.push(`optimize must be one of ${OPTIMIZE.join(' | ')}, got '${agent.optimize}'`);
   return { errors, caps };
 }
 
@@ -568,7 +568,7 @@ function runBatch(source, explain, root, cfg) {
   };
   const input = readBatchInput(source);
   if (input.error) envelopeError(input.error);
-  const parsed = batchSeats(input.data);
+  const parsed = batchAgents(input.data);
   if (parsed.error) envelopeError(parsed.error);
 
   const csv = loadCsv(root);
@@ -576,29 +576,29 @@ function runBatch(source, explain, root, cfg) {
     process.stdout.write(`${JSON.stringify({ error: 'no_models', details: csv.error })}\n`);
     process.exit(1);
   }
-  // ONE load, ONE join, ONE round of warnings — N seats share the catalog.
+  // ONE load, ONE join, ONE round of warnings — N agents share the catalog.
   const warnings = [];
   const joined = joinCatalog(csv.rows, warnings);
   for (const w of warnings) process.stderr.write(`cast route: WARNING: ${w}\n`);
 
   let allRouted = true;
-  const seats = parsed.seats.map((seat) => {
+  const agents = parsed.agents.map((agent) => {
     const trace = [{ stage: 'catalog', source: csv.file, csv_rows: csv.rows.length,
       joined: joined.length, excluded: warnings }];
-    const { errors, caps } = validateSeat(seat);
+    const { errors, caps } = validateAgent(agent);
     if (errors.length) {
       allRouted = false;
-      return { name: seat.name, error: 'malformed_request', details: errors };
+      return { name: agent.name, error: 'malformed_request', details: errors };
     }
-    const req = { access: seat.access ?? null, type: seat.type ?? null, class: seat.class ?? null,
-      optimize: seat.optimize ?? null, caps };
+    const req = { access: agent.access ?? null, type: agent.type ?? null, class: agent.class ?? null,
+      optimize: agent.optimize ?? null, caps };
     const result = selectRoute(req, joined, root, cfg, trace);
     if (!result.verdict) allRouted = false;
-    const entry = { name: seat.name, ...(result.verdict || { error: result.error, details: result.details }) };
+    const entry = { name: agent.name, ...(result.verdict || { error: result.error, details: result.details }) };
     if (explain) entry.explain = trace;
     return entry;
   });
-  process.stdout.write(`${JSON.stringify({ verdict: 'route-batch', seats })}\n`);
+  process.stdout.write(`${JSON.stringify({ verdict: 'route-batch', agents })}\n`);
   process.exit(allRouted ? 0 : 1);
 }
 
@@ -618,7 +618,7 @@ function runRoute(rawArgv) {
     if (req.caps.size) mixed.push('--caps');
     if (req.catalog) mixed.push('--catalog');
     if (mixed.length) {
-      fail(`refused: --batch takes the whole interview as JSON — do not combine it with ${mixed.join(', ')}\nusage: cast route --batch seats.json  # or --batch - for stdin\n       ${ROUTE_USAGE}`);
+      fail(`refused: --batch takes the whole interview as JSON — do not combine it with ${mixed.join(', ')}\nusage: cast route --batch agents.json  # or --batch - for stdin\n       ${ROUTE_USAGE}`);
     }
     return runBatch(req.batch, req.explain, root, cfg);
   }
@@ -656,5 +656,5 @@ module.exports = {
   isAvailable, unavailableReason,
   parseCsv, csvPath, loadCsv, joinCatalog,
   scoreOf, pick, selectRoute, runCatalog, parseRouteArgs, validateRequest, runRoute,
-  SEAT_KEYS, readBatchInput, batchSeats, validateSeat, runBatch,
+  AGENT_KEYS, readBatchInput, batchAgents, validateAgent, runBatch,
 };

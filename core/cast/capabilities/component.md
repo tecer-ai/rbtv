@@ -10,15 +10,14 @@ turn into an existing session.
 ## Usage
 
 ```
-tool/cast.js <harness> <model> <effort 1-5> [launch-folder] (-p TEXT | -f FILE) [-s TEXT | -S FILE] [--headed] [--dry-run]
-tool/cast.js seat [launch-folder] [-p TEXT | -f FILE] [--headed] [--dry-run]
+tool/cast.js <harness> <model> <effort 1-5> [launch-folder] (-p TEXT | -f FILE) [-s TEXT | -S FILE | -ig AGENT [--target DIR] | -rg AGENT-FILE] [--headed] [--dry-run]
 tool/cast.js resume <harness> <session-id|last> [launch-folder] (-p TEXT | -f FILE) [--dry-run]
 tool/cast.js sessions [harness] [launch-folder] [--json] [-n N]
 tool/cast.js turn --request FILE --result FILE
 tool/cast.js api <model> <effort 1-5> (-p TEXT | -f FILE) --output-folder DIR [--image [--input-image PATH ...]] [--target-file PATH] [--timeout N] [--grounded] [--extra-params JSON] [--dry-run]
 tool/cast.js route --access open|bounded --type code|text --class planner|broad|bounded|mechanical --optimize price|quality [--caps image] [--explain]
 tool/cast.js route --caps image
-tool/cast.js route --batch <seats.json | -> [--explain]
+tool/cast.js route --batch <agents.json | -> [--explain]
 tool/cast.js route --catalog [--json]
 tool/cast.js doctor [--json]
 tool/cast.js list [--json]
@@ -57,7 +56,7 @@ number-to-rung answer is never inferred.
 Discovery is pull-based: `sessions` prints nothing at launch and reads no registry of its own —
 the harnesses' own session stores ARE the registry, keyed by launch folder. `resume` is a launch in
 its own right, though, so it DOES emit a `cast: handle` line and register with `cast monitor`'s
-handle registry, exactly like a bare or `seat` launch — the model/effort a resumed session runs
+handle registry, exactly like a bare launch — the model/effort a resumed session runs
 with is not cast's to name, so the handle's `model` field reads `resume` instead of a model name:
 
 | Harness | Store read by `cast sessions` | `resume` argv |
@@ -215,7 +214,7 @@ clause, footprint/window gating and evidence ranking.
 cast route --access open|bounded --type code|text \
            --class planner|broad|bounded|mechanical [--optimize price|quality] [--caps image] [--explain]
 cast route --caps image        # short-circuit — no other flag needed
-cast route --batch seats.json  # a whole team in one call; `--batch -` reads stdin
+cast route --batch agents.json  # a whole team in one call; `--batch -` reads stdin
 cast route --catalog [--json]  # the roster, asks nothing
 ```
 
@@ -263,32 +262,32 @@ Pipeline order: parse flags → load CSV (override-aware) → join `catalog.js` 
 image short-circuit → access → caps → class levels → optimize → effort. `--explain` attaches the full
 trace with a reason on every dropped row.
 
-**Batch.** `--batch seats.json` (or `--batch -` for stdin) routes a whole team in ONE call — a
-planning agent designs every seat at once and needs one deterministic assignment table, not N
-shell calls. Input is a JSON array of seat objects (or `{"seats":[...]}`); each seat is the
+**Batch.** `--batch agents.json` (or `--batch -` for stdin) routes a whole team in ONE call — a
+planning agent designs every agent at once and needs one deterministic assignment table, not N
+shell calls. Input is a JSON array of agent objects (or `{"agents":[...]}`); each agent is the
 interview as an object with a unique `name`, the same vocabulary and required-ness as the flags
 (`"caps":["image"]` short-circuits the same way), and an unknown key is a refusal. The CSV load
-and the catalog join happen ONCE for the batch; every seat still goes through the same selector,
-so a batch of one produces exactly the flag form's verdict. Output is one object with the seats in
+and the catalog join happen ONCE for the batch; every agent still goes through the same selector,
+so a batch of one produces exactly the flag form's verdict. Output is one object with the agents in
 INPUT order, the name mapping each verdict back:
 
 ```
-{"verdict":"route-batch","seats":[
+{"verdict":"route-batch","agents":[
   {"name":"planner","verdict":"route","harness":…,"model":…,"mode":…,"effort":…,"effort_is_floor":…,"alternates":[…]},
   {"name":"fixer","error":"zero_candidates","details":"…"}]}
 ```
 
-Exit 0 only when EVERY seat routed; 1 when any seat errored. A per-seat error never aborts the
-batch — every seat's problem lands in its own entry so the whole plan is fixed in one pass. A bad
-envelope (unreadable/unparseable input, empty stdin, empty or duplicate-named seat list) refuses
+Exit 0 only when EVERY agent routed; 1 when any agent errored. A per-agent error never aborts the
+batch — every agent's problem lands in its own entry so the whole plan is fixed in one pass. A bad
+envelope (unreadable/unparseable input, empty stdin, empty or duplicate-named agent list) refuses
 the whole call with one `{"error":"malformed_request","details":[…]}` and routes nothing.
-`--explain` attaches each seat's own trace to its entry. `--batch` combines with none of the
+`--explain` attaches each agent's own trace to its entry. `--batch` combines with none of the
 interview flags, `--caps` or `--catalog`.
 
 | Verdict | Shape | Exit |
 |---|---|---|
 | route | `{"verdict":"route","harness":…,"model":…,"mode":"cli"\|"api","effort":1-5,"effort_is_floor":false,"alternates":[{"harness":…,"model":…,"mode":…}]}` | 0 |
-| route-batch | `{"verdict":"route-batch","seats":[{"name":…,"verdict":"route",…} \| {"name":…,"error":…,"details":…}]}` — seats in input order | 0 only when EVERY seat routed, else 1 |
+| route-batch | `{"verdict":"route-batch","agents":[{"name":…,"verdict":"route",…} \| {"name":…,"error":…,"details":…}]}` — agents in input order | 0 only when EVERY agent routed, else 1 |
 | error | `{"error":"malformed_request"\|"zero_candidates"\|"no_models","details":…}` | 1 |
 
 The top-level worker IS the verdict — launch it. `alternates` carries the next two of the same
