@@ -24,13 +24,17 @@ for (const harness of Object.keys(SPECS)) {
   for (const id of Object.keys(SPECS[harness])) SHORT[harness][shortName(harness, id)] = id;
 }
 
+// Codex reads at most this many bytes of AGENTS.md (default 32 KiB); rbtv rules reach it as
+// full text there, so every Codex launch raises it. Needs no trusted folder, unlike config.toml.
+const CODEX_DOC_LIMIT = ['-c', 'project_doc_max_bytes=131072'];
+
 // headed = the harness's interactive TUI instead of its one-shot print mode. The TUI owns the
 // terminal, so the prompt rides argv (see promptArgv) instead of stdin.
 function baseArgv(harness, model, folder, headed) {
   switch (harness) {
     case 'claude': return ['claude', ...(headed ? [] : ['-p']), '--model', model, '--permission-mode', 'bypassPermissions'];
     // --skip-git-repo-check: codex refuses to start outside a git repo without it (0.154+, observed 2026-09-24).
-    case 'codex': return ['codex', ...(headed ? [] : ['exec']), '--cd', folder, '-m', model, '--sandbox', 'danger-full-access', '-c', 'approval_policy=never', '--skip-git-repo-check'];
+    case 'codex': return ['codex', ...(headed ? [] : ['exec']), '--cd', folder, '-m', model, '--sandbox', 'danger-full-access', '-c', 'approval_policy=never', '--skip-git-repo-check', ...CODEX_DOC_LIMIT];
     // --auto: headless `opencode run` auto-REJECTS every permission.asked (observed: external_directory
     // on /tmp and on the launch folder of a resumed session — issue G-owner-console-0819-0010); --auto
     // flips that to auto-approve, per invocation. The opencode twin of the two flags above.
@@ -293,7 +297,7 @@ function resolveModel(harness, model) {
 }
 
 module.exports = {
-  shortName, SHORT, baseArgv, promptArgv,
+  CODEX_DOC_LIMIT, shortName, SHORT, baseArgv, promptArgv,
   fail, HARNESSES, USAGE, SEAT_USAGE,
   RESUME_USAGE, SESSIONS_USAGE, KNOWN_FLAGS, detachMarks,
   refuseIfDetached, effortMap, modelTable, buildInventory,

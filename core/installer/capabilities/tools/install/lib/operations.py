@@ -9,7 +9,6 @@ from discovery import Refuse
 
 from .constants import (
     EXCLUDE_REL,
-    GUIDANCE_FILE,
     GUIDANCE_NAMES,
     HARNESSES,
     LEGACY_MARKS,
@@ -18,8 +17,7 @@ from .constants import (
     STATE_REL,
 )
 from .catalog import _unit_specs, catalog_units_map
-from .claims import _block_set, _claim_id, _fence
-from .content import _exposure_block
+from .claims import _block_set, _claim_id
 from .guidance import plan_mirror, resolve_basis
 from .pathlinks import (
     _path_rows_from_report,
@@ -125,21 +123,6 @@ def _add_mirror(target: Path, state: dict, files: dict, owners: dict,
          "banner_stripped": stripped} if basis
         else {"basis": None, "targets": []})
     return bases
-
-
-def _instruction_claims(report: dict, harnesses: list[str]) -> list[dict]:
-    """Owned sections in every configured root instruction file."""
-    start, end = _fence("<!--")
-    claims = []
-    for name in sorted({GUIDANCE_FILE[h] for h in harnesses
-                        if h in GUIDANCE_FILE}):
-        block = _exposure_block(name, harnesses,
-                                report.get("rule_parts") or [])
-        if block:
-            body = block.split(start, 1)[1].split(end, 1)[0].strip()
-            claims.append({"path": name, "fmt": "text", "comment": "<!--",
-                           "key": None, "value": body})
-    return claims
 
 
 def _section_paths(claims: list[dict]) -> list[str]:
@@ -301,8 +284,6 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
         records[cid] = rec
     files, owners, claims, report = plan_files(records, catalog, target)
     saved_guidance = list(state.get("guidance_files") or [])
-    instruction_claims = _instruction_claims(report, harnesses)
-    claims += instruction_claims
     report["guidance_sections"] = _section_paths(claims)
     if scope == "scaffolding":
         # The instruction-file copies belong exclusively to update guidance.
@@ -442,11 +423,6 @@ def _do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
                                        target),
             str(rec0.get("tree_root", "")))
     files, owners, claims, report = plan_files(live, catalog, target)
-    instruction_claims = []
-    if records:
-        instruction_claims = _instruction_claims(
-            report, installed_harnesses(records))
-        claims += instruction_claims
     report["guidance_sections"] = _section_paths(claims)
     desired, path_owners = plan_path_links(target, _path_rows_from_report(report))
     booked = booked_path_names(state)

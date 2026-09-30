@@ -197,6 +197,9 @@ def workspace_settings(ctx) -> None:
           run(gone, "update", "scaffolding", source=absent_source)[0]
           == "component-vanished")
 
+    rule_start = f"<!-- {FENCE_ID}:start rule fixmod/codexcomp#codexrule -->"
+    rule_end = f"<!-- {FENCE_ID}:end rule fixmod/codexcomp#codexrule -->"
+
     no_copy = workspace("ws-guidance-none-rule")
     (no_copy / "AGENTS.md").write_text("Owner instructions\n", encoding="utf-8")
     check("W28 — no guidance copying still installs the Codex rule section",
@@ -204,57 +207,44 @@ def workspace_settings(ctx) -> None:
               "--harness", "codex", "--guidance", "none")[0] == 0
           and "Owner instructions" in
           (no_copy / "AGENTS.md").read_text(encoding="utf-8")
-          and "Step 0" in (no_copy / "AGENTS.md").read_text(encoding="utf-8")
-          and (no_copy / ".agents/behavior-rules/codexrule.md").exists())
+          and rule_start in (no_copy / "AGENTS.md").read_text(encoding="utf-8")
+          and "# CODEX RULE" in (no_copy / "AGENTS.md").read_text(encoding="utf-8")
+          and not (no_copy / ".agents/behavior-rules").exists())
     check("W29 — removing the last rule keeps owner instructions",
           run(no_copy, "remove", "fixmod/codexcomp#codexrule")[0] == 0
           and (no_copy / "AGENTS.md").read_text(encoding="utf-8")
           == "Owner instructions\n")
 
-    legacy_section = workspace("ws-legacy-owner-section")
     start, end = (f"<!-- {FENCE_ID}:start -->",
                   f"<!-- {FENCE_ID}:end -->")
+    # A 0.2 install booked an unlabeled section (the Codex "Step 0" rule list).
+    # Nothing writes it any more, so the next install takes it back.
+    legacy_section = workspace("ws-legacy-step0")
     owner_prefix = b"# Owner start\r\n\r\n"
     owner_suffix = b"\r\n\r\nOwner end\r\n"
+    do_install(legacy_section, catalog, ["fixmod/codexcomp"], ["codex"],
+               dry_run=False, guidance_basis="none",
+               parts=["fixmod/codexcomp#codexrule"])
     (legacy_section / "AGENTS.md").write_bytes(
-        owner_prefix + f"{start}\r\nold block\r\n{end}".encode("utf-8")
+        owner_prefix + f"{start}\r\nStep 0 list\r\n{end}".encode("utf-8")
         + owner_suffix)
-    adopted = do_install(legacy_section, catalog, ["fixmod/codexcomp"],
-                         ["codex"], dry_run=False, guidance_basis="none",
-                         parts=["fixmod/codexcomp#codexrule"])
+    book = json.loads((legacy_section / STATE_REL).read_text(encoding="utf-8"))
+    book["shared_claims"] = sorted(set(book["shared_claims"]) | {"AGENTS.md::#block"})
+    (legacy_section / STATE_REL).write_text(json.dumps(book), encoding="utf-8")
+    do_install(legacy_section, catalog, ["fixmod/codexcomp"], ["codex"],
+               dry_run=False, parts=["fixmod/codexcomp#codexrule"])
     updated = (legacy_section / "AGENTS.md").read_bytes()
-    check("W30 — valid legacy section is adopted without owning the whole file",
-          adopted["adopted_sections"] == ["AGENTS.md"]
-          and "AGENTS.md" not in adopted["adopted"]
-          and updated.startswith(owner_prefix)
-          and updated.endswith(owner_suffix)
-          and updated.count(start.encode("utf-8")) == 1
-          and b"Step 0" in updated,
-          str(adopted["adopted_sections"]))
-    check("W31 — adopted section is idempotent",
+    check("W30 — a booked 0.2 Step 0 section is taken back on the next install",
+          updated.startswith(owner_prefix)
+          and b"Step 0 list" not in updated
+          and updated.count(start.encode("utf-8")) == 0
+          and rule_start.encode("utf-8") in updated
+          and "AGENTS.md::#block" not in read_state(legacy_section)["shared_claims"],
+          repr(updated))
+    check("W31 — and the run after it is idempotent",
           do_install(legacy_section, catalog, ["fixmod/codexcomp"],
                      ["codex"], dry_run=False)["shared_written"] == []
           and (legacy_section / "AGENTS.md").read_bytes() == updated)
-
-    for label, body in (
-            ("incomplete", f"Owner\n{start}\nunfinished\n"),
-            ("duplicate", f"Owner\n{start}\na\n{end}\n{start}\nb\n{end}\n"),
-            ("reversed", f"Owner\n{end}\n{start}\n")):
-        malformed = workspace("ws-legacy-" + label)
-        (malformed / "AGENTS.md").write_text(body, encoding="utf-8")
-        try:
-            do_install(malformed, catalog, ["fixmod/codexcomp"], ["codex"],
-                       dry_run=False, guidance_basis="none",
-                       parts=["fixmod/codexcomp#codexrule"])
-        except Refuse as exc:
-            code = exc.code
-        else:
-            code = None
-        check(f"W32-{label} — malformed section refuses before writes",
-              code == "guidance-section-malformed"
-              and (malformed / "AGENTS.md").read_text(encoding="utf-8") == body
-              and not (malformed / STATE_REL).exists()
-              and not (malformed / ".agents").exists())
 
     whitespace = workspace("ws-owner-whitespace")
     owner_bytes = b"# Owner\r\nKeep two spaces  \r\n\r\n"
@@ -265,33 +255,13 @@ def workspace_settings(ctx) -> None:
     inserted = (whitespace / "AGENTS.md").read_bytes()
     check("W33 — first managed section retains outside CRLF and trailing blanks",
           inserted.startswith(owner_bytes)
-          and inserted.count(start.encode("utf-8")) == 1,
+          and inserted.count(rule_start.encode("utf-8")) == 1,
           repr(inserted))
     do_uninstall(whitespace, catalog, ["fixmod/codexcomp"], dry_run=False,
                  parts=["fixmod/codexcomp#codexrule"])
     check("W34 — final section removal restores exact owner bytes",
           (whitespace / "AGENTS.md").read_bytes() == owner_bytes,
           repr((whitespace / "AGENTS.md").read_bytes()))
-
-    stale_fence = workspace("ws-malformed-booked-section")
-    do_install(stale_fence, catalog, ["fixmod/codexcomp"], ["codex"],
-               dry_run=False, guidance_basis="none",
-               parts=["fixmod/codexcomp#codexrule"])
-    booked_bytes = (stale_fence / STATE_REL).read_bytes()
-    (stale_fence / "AGENTS.md").write_text(
-        f"Owner\n{start}\nfirst\n{end}\n{start}\nsecond\n{end}\n",
-        encoding="utf-8")
-    try:
-        do_uninstall(stale_fence, catalog, ["fixmod/codexcomp"], dry_run=False,
-                     parts=["fixmod/codexcomp#codexrule"])
-    except Refuse as exc:
-        stale_code = exc.code
-    else:
-        stale_code = None
-    check("W35 — malformed booked section refuses removal before writes",
-          stale_code == "guidance-section-malformed"
-          and (stale_fence / STATE_REL).read_bytes() == booked_bytes
-          and (stale_fence / ".agents/behavior-rules/codexrule.md").exists())
 
     only_space = workspace("ws-whitespace-only-owner")
     whitespace_bytes = b"\r\n  \r\n"
@@ -307,20 +277,24 @@ def workspace_settings(ctx) -> None:
     split = workspace("ws-content-split")
     (split / "nested").mkdir()
     (split / "nested/CLAUDE.md").write_text("Nested source v1\n", encoding="utf-8")
-    check("W37 — fresh add creates the counterpart's own generated section",
+    check("W37 — fresh add puts the rule section in AGENTS.md only",
           run(split, "add", "fixmod/codexcomp#codexrule", "--harness",
               "claude,codex", "--guidance", "CLAUDE.md")[0] == 0
-          and "Step 0" in (split / "AGENTS.md").read_text(encoding="utf-8")
-          and "Step 0" not in (split / "CLAUDE.md").read_text(encoding="utf-8"))
+          and rule_start in (split / "AGENTS.md").read_text(encoding="utf-8")
+          and rule_start not in (split / "CLAUDE.md").read_text(encoding="utf-8"))
 
     def replace_section(text: str, body: str) -> str:
         return text.split(start, 1)[0] + start + "\n" + body + "\n" + end \
             + text.split(end, 1)[1]
 
+    def replace_rule(text: str, body: str) -> str:
+        return text.split(rule_start, 1)[0] + rule_start + "\n" + body + "\n" \
+            + rule_end + text.split(rule_end, 1)[1]
+
     (split / "CLAUDE.md").write_text("Source human v2\n", encoding="utf-8")
     (split / "AGENTS.md").write_text(
-        replace_section((split / "AGENTS.md").read_text(encoding="utf-8"),
-                        "Stale destination section"), encoding="utf-8")
+        replace_rule((split / "AGENTS.md").read_text(encoding="utf-8"),
+                     "Stale destination section"), encoding="utf-8")
     (split / "nested/CLAUDE.md").write_text(
         "Nested source v2\n" + start + "\nWrong source section\n" + end + "\n",
         encoding="utf-8")
@@ -328,7 +302,7 @@ def workspace_settings(ctx) -> None:
         replace_section((split / "nested/AGENTS.md").read_text(encoding="utf-8")
                         + "\n" + start + "\nOld nested section\n" + end + "\n",
                         "Old nested section"), encoding="utf-8")
-    rule_before = (split / ".agents/behavior-rules/codexrule.md").read_bytes()
+    rule_before = (split / ".claude/rules/codexrule.md").read_bytes()
     guide_preview = (split / "AGENTS.md").read_bytes()
     book_preview = (split / STATE_REL).read_bytes()
     check("W38 — guidance preview is write-free even with stale sections",
@@ -340,42 +314,45 @@ def workspace_settings(ctx) -> None:
           and "Source human v2" in (split / "AGENTS.md").read_text(encoding="utf-8")
           and "Stale destination section" in
           (split / "AGENTS.md").read_text(encoding="utf-8")
-          and "Step 0" not in (split / "AGENTS.md").read_text(encoding="utf-8")
+          and "# CODEX RULE" not in (split / "AGENTS.md").read_text(encoding="utf-8")
           and "Nested source v2" in
           (split / "nested/AGENTS.md").read_text(encoding="utf-8")
           and "Old nested section" in
           (split / "nested/AGENTS.md").read_text(encoding="utf-8")
           and "Wrong source section" not in
           (split / "nested/AGENTS.md").read_text(encoding="utf-8")
-          and (split / ".agents/behavior-rules/codexrule.md").read_bytes()
-          == rule_before)
+          and (split / ".claude/rules/codexrule.md").read_bytes()
+          == rule_before,
+          (split / "AGENTS.md").read_text(encoding="utf-8")
+          + "|NESTED|" + (split / "nested/AGENTS.md").read_text(encoding="utf-8"))
 
     (split / "AGENTS.md").write_text(
-        replace_section("Destination human only\n" + start
-                        + "\nStale destination section\n" + end + "\n",
-                        "Stale destination section"), encoding="utf-8")
-    check("W40 — scaffolding refreshes counterpart section, keeps its human text",
+        "Destination human only\n" + rule_start
+        + "\nStale destination section\n" + rule_end + "\n", encoding="utf-8")
+    check("W40 — scaffolding refreshes the rule section, keeps its human text",
           run(split, "update", "scaffolding")[0] == 0
           and (split / "AGENTS.md").read_text(encoding="utf-8")
           .startswith("Destination human only\n")
-          and "Step 0" in (split / "AGENTS.md").read_text(encoding="utf-8")
+          and "# CODEX RULE" in (split / "AGENTS.md").read_text(encoding="utf-8")
           and "Stale destination section" not in
           (split / "AGENTS.md").read_text(encoding="utf-8")
           and (split / "CLAUDE.md").read_text(encoding="utf-8")
           == "Source human v2\n")
     (split / "CLAUDE.md").write_text("Source human v3\n", encoding="utf-8")
     (split / "AGENTS.md").write_text(
-        replace_section((split / "AGENTS.md").read_text(encoding="utf-8"),
-                        "Stale again"), encoding="utf-8")
-    check("W41 — all copies human text and regenerates counterpart section",
+        replace_rule((split / "AGENTS.md").read_text(encoding="utf-8"),
+                     "Stale again"), encoding="utf-8")
+    check("W41 — all copies human text and regenerates the rule section",
           run(split, "update", "all")[0] == 0
           and "Source human v3" in (split / "AGENTS.md").read_text(encoding="utf-8")
-          and "Step 0" in (split / "AGENTS.md").read_text(encoding="utf-8")
+          and "# CODEX RULE" in (split / "AGENTS.md").read_text(encoding="utf-8")
           and "Stale again" not in (split / "AGENTS.md").read_text(encoding="utf-8")
           and "Old nested section" in
           (split / "nested/AGENTS.md").read_text(encoding="utf-8")
           and "Wrong source section" not in
-          (split / "nested/AGENTS.md").read_text(encoding="utf-8"))
+          (split / "nested/AGENTS.md").read_text(encoding="utf-8"),
+          (split / "AGENTS.md").read_text(encoding="utf-8"))
+
     same = do_install(split, catalog, ["fixmod/codexcomp"], ["claude", "codex"],
                       dry_run=True, scope="all")
     check("W42 — identical all preview plans no file changes",

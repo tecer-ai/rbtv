@@ -31,7 +31,8 @@ def skills_folder_copied_whole(ctx) -> None:
                for member in ("SKILL.md", "LICENSE.txt",
                               "references/deep.md", "logo.png")}
     on_disk = {q.relative_to(sk).as_posix()
-               for q in sk.rglob("*") if q.is_file()} - {STATE_REL.as_posix()}
+               for q in sk.rglob("*") if q.is_file()} - {STATE_REL.as_posix(),
+                                                          ".codex/config.toml"}
     check("S1 — every member lands under every harness's skills dir",
           on_disk == want_sk,
           f"missing={sorted(want_sk - on_disk)} extra={sorted(on_disk - want_sk)}")

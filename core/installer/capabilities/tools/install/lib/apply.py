@@ -65,11 +65,13 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
         path = target / claim["path"]
         if not path.is_file():
             continue
-        instruction = (claim["path"] in GUIDANCE_NAMES
-                       and claim["fmt"] == "text"
-                       and claim["comment"] == "<!--"
-                       and claim["key"] is None
-                       and not claim.get("label"))
+        guidance_section = (claim["path"] in GUIDANCE_NAMES
+                            and claim["fmt"] == "text"
+                            and claim["comment"] == "<!--"
+                            and claim["key"] is None)
+        instruction = guidance_section and not claim.get("label")
+        # A rule section is the installer's own too: its label names the rule.
+        rule_section = guidance_section and str(claim.get("label") or "").startswith("rule ")
         if instruction:
             valid_fence = _instruction_fence(path, claim["path"])
             if (valid_fence and cid not in ours_claims
@@ -92,8 +94,14 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
                                   + ".".join(claim["key"]))
         else:
             start, _ = _fence(claim["comment"], claim.get("label"))
-            if (start in path.read_text(encoding="utf-8")
-                    and not instruction
+            text = path.read_text(encoding="utf-8")
+            if claim["comment"] == "#":
+                # whole line only: `# rbtv:start` prefixes `# rbtv:start <label>`
+                present = start + "\n" in text or text.endswith(start)
+            else:
+                present = start in text
+            if (present
+                    and not instruction and not rule_section
                     and not _is_ours(target, claim["path"])):
                 collisions.append(f"{claim['path']}::{FENCE_ID}-block")
     if collisions:
@@ -259,7 +267,8 @@ def _render_shared(target: Path, claims: list[dict], stale_claims: list[str],
             for claim in work["set"]:
                 text = _block_set(text, claim["value"], work["comment"],
                                   preserve_outside=keep_outside,
-                                  label=claim.get("label"))
+                                  label=claim.get("label"),
+                                  first=claim.get("first", False))
             if not text.strip() and not guidance:
                 text = ""
         rendered[rel] = text

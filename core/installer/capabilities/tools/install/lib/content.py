@@ -10,16 +10,13 @@ from pathlib import Path
 from discovery import Refuse, SKILL_FILE
 
 from .constants import (
-    FORCED_READ_HARNESSES,
     GENERATED_MARKERS,
-    GUIDANCE_FILE,
     LEGACY_MARKS,
     LEGACY_PREFIX,
     MANAGED_BANNER,
     TOML_BANNER,
     MANAGED_MARK,
 )
-from .claims import _fence
 
 
 def _yq(text: str) -> str:
@@ -168,45 +165,3 @@ def _opencode_mcp_entry(spec: dict) -> dict:
     if env:
         entry["environment"] = {k: "{env:" + v + "}" for k, v in env.items()}
     return entry
-
-
-def _exposure_block(name: str, harnesses: list[str],
-                    rule_parts: list[tuple[str, str]]) -> str:
-    """The rbtv exposure preamble ONE guidance file carries (D8), fenced.
-
-    `name` is the guidance FILENAME this block is for. The Step-0 forced read is
-    emitted only for the harnesses that auto-inject no rule folder
-    (`FORCED_READ_HARNESSES` — CMP-12 § Fallback mechanics) AND read that name;
-    claude and opencode never get it. It enumerates the paths those harnesses'
-    rule files were ACTUALLY written to — a rule realized only under
-    `.claude/rules/` (its component installed claude-only) is never named to
-    codex, whose copy does not exist.
-
-    Empty string when there is nothing to say — no block, no fence, no file
-    churn.
-    """
-    readers = [h for h in harnesses
-               if h in FORCED_READ_HARNESSES and GUIDANCE_FILE.get(h) == name]
-    forced: list[tuple[str, str]] = []
-    for _pid, desc, by_harness in rule_parts:
-        for rel in sorted({by_harness[h] for h in readers if h in by_harness}):
-            forced.append((rel, desc))
-    if not forced:
-        return ""
-    out = ["# rbtv exposure — installed components", ""]
-    if forced:
-        out += [
-            "## Step 0 — MANDATORY, before anything else",
-            "",
-            "Read EACH of these behavior-rule files, one at a time, IN THIS "
-            "ORDER. They are always-on rules; this harness auto-injects no rule "
-            "folder, so this enumeration is the read. Do not bulk-read them — "
-            "a bulk read truncates the last entries.",
-            "",
-        ]
-        for i, (rel, desc) in enumerate(forced, 1):
-            suffix = f" — {desc}" if desc else ""
-            out.append(f"{i}. `{rel}`{suffix}")
-        out.append("")
-    start, end = _fence("<!--")
-    return f"{start}\n" + "\n".join(out).rstrip() + f"\n{end}\n"

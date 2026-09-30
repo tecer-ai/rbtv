@@ -72,6 +72,15 @@ def _located(text: str, comment: str, label: str | None
     else the one the 0.2 installer wrote. None when the block is absent."""
     for fence_id in (FENCE_ID, LEGACY_FENCE_ID):
         start, end = _fence(comment, label, fence_id)
+        if comment == "#":
+            # `# rbtv:start` is a prefix of `# rbtv:start <label>`: a `#` fence
+            # matches only as a whole line, so the returned markers carry
+            # their line end (none for an end marker closing the file).
+            start += "\n"
+            if end + "\n" in text:
+                end += "\n"
+            elif not text.endswith(end):
+                continue
         if start in text and end in text:
             return start, end
     return None
@@ -99,7 +108,7 @@ def _instruction_block_valid(text: str, rel: str, path: Path) -> bool:
 
 def _block_set(text: str, body: str, comment: str,
                *, preserve_outside: bool = False,
-               label: str | None = None) -> str:
+               label: str | None = None, first: bool = False) -> str:
     start, end = _fence(comment, label)
     block = f"{start}\n{body.rstrip()}\n{end}\n"
     found = _located(text, comment, label)
@@ -108,7 +117,16 @@ def _block_set(text: str, body: str, comment: str,
         tail = text.split(found[1], 1)[1]
         if preserve_outside:
             return head + block.rstrip("\n") + tail
-        return head + block + tail.lstrip("\n")
+        # `block` ends its own line; drop only the newline that ended the old
+        # end marker (unless the marker found already carried it), so the
+        # blank line before a following block survives.
+        if not found[1].endswith("\n") and tail.startswith("\n"):
+            tail = tail[1:]
+        return head + block + tail
+    if first:
+        # A new block that must precede everything else (a TOML root key
+        # cannot follow a table header).
+        return block + ("\n" + text if text.strip() else "")
     if preserve_outside:
         gap = "" if not text or text.endswith("\n") else "\n"
         return text + gap + block.rstrip("\n")

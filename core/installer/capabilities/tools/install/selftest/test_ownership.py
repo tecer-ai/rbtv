@@ -130,17 +130,17 @@ def gitignore_block(ctx) -> None:
     check("G3 — a narrowed harness set drops the dropped harness's files "
           "from disk AND from the block",
           ".claude/rules/fixrule.md" in gi_body
-          and ".agents/behavior-rules/fixrule.md" not in gi_body
-          and ".agents/behavior-rules/fixrule.md" in rgi2["deleted"]
-          and not (gi / ".agents/behavior-rules/fixrule.md").exists(),
+          and ".codex/prompts/fixcmd.md" not in gi_body
+          and ".codex/prompts/fixcmd.md" in rgi2["deleted"]
+          and not (gi / ".codex/prompts/fixcmd.md").exists(),
           str(rgi2["deleted"]))
     # …and widening it back restores them.
     rgi3 = do_install(gi, catalog, ["fixmod/goodcomp"], ["claude", "codex"],
                       dry_run=False)
     check("G3b — widening it back re-writes them",
-          ".agents/behavior-rules/fixrule.md"
+          ".codex/prompts/fixcmd.md"
           in (gi / EXCLUDE_REL).read_text(encoding="utf-8")
-          and (gi / ".agents/behavior-rules/fixrule.md").exists()
+          and (gi / ".codex/prompts/fixcmd.md").exists()
           and rgi3["deleted"] == [], str(rgi3["deleted"]))
     if os.name == "nt":
         subprocess.run(["attrib", "+h", str(gi / EXCLUDE_REL)], check=True)
@@ -148,7 +148,7 @@ def gitignore_block(ctx) -> None:
         attrs = os.stat(gi / EXCLUDE_REL).st_file_attributes
         check("G3c — a Hidden exclude file is rewritten in place and stays "
               "hidden",
-              ".agents/behavior-rules/fixrule.md"
+              ".codex/prompts/fixcmd.md"
               not in (gi / EXCLUDE_REL).read_text(encoding="utf-8")
               and bool(attrs & stat.FILE_ATTRIBUTE_HIDDEN))
     else:

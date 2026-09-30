@@ -14,6 +14,8 @@ from .constants import (
     HARNESSES,
     HOOK_HARNESSES,
     MATRIX,
+    RULE_SECTION_HARNESSES,
+    CODEX_PROJECT_DOC_MAX_BYTES,
     SKILL_FOLDER_SKIP,
 )
 from .catalog import _unit_specs
@@ -46,8 +48,8 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
     hook_harnesses: set[str] = set()
     hook_owners: dict[str, list] = {}
     sections: list[dict] = []
-    rule_parts: list[tuple[str, str]] = []
     report: dict = {"no_realization": [], "skill_folders": [], "path_rows": []}
+    codex_used = False
 
     def claim_file(rel: str, content: str, cid: str, pid: str) -> None:
         if rel in files and files[rel] != content:
@@ -114,6 +116,7 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                 str(rec.get("tree_root", "")))
         comp_dir = Path(comp["path"])
         harnesses = [h for h in HARNESSES if h in rec["harnesses"]]
+        codex_used = codex_used or "codex" in harnesses
 
         wanted = _wanted_units(rec)
         if comp.get("kind") == "hub":
@@ -194,10 +197,19 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                              "harness": harness})
                 continue
 
-            realized: dict[str, str] = {}
+            if method == "rule":
+                readers = [h for h in harnesses if h in RULE_SECTION_HARNESSES]
+                if readers:
+                    _front, body = frontmatter.split(
+                        (comp_dir / entry_rel).read_text(encoding="utf-8"))
+                    sections.append({"owner": (cid, pid), "harnesses": readers,
+                                     "label": f"rule {comp['module']}/{comp['component']}#{pid}",
+                                     "target": ".", "body": body.strip("\r\n")})
             for harness in harnesses:
                 template = MATRIX[method].get(harness)
                 if template is None:
+                    if method == "rule" and harness in RULE_SECTION_HARNESSES:
+                        continue
                     report["no_realization"].append(
                         {"component": cid, "part": pid, "type": method,
                          "harness": harness})
@@ -206,13 +218,6 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                 claim_file(rel, _content_for(
                     rel, method, pid, desc, entry_abs, comp_dir, entry_rel),
                     cid, pid)
-                realized[harness] = rel
-            if method == "rule" and realized:
-                # The REALIZED path per harness, not the unit name: a component
-                # installed for claude only put no file under
-                # `.agents/behavior-rules/`, so codex's forced read must not
-                # enumerate one (a MANDATORY Step 0 pointing at a missing file).
-                rule_parts.append((pid, desc, realized))
 
     # ── D7/D12: shared-file claims, recomputed from the whole set ──
     claims: list[dict] = []
@@ -234,6 +239,11 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                     seen.append(owner)
         return seen
 
+    if codex_used:
+        claims.append({"path": ".codex/config.toml", "fmt": "text",
+                       "comment": "#", "key": None, "label": "codex-limits",
+                       "value": f"project_doc_max_bytes = {CODEX_PROJECT_DOC_MAX_BYTES}",
+                       "first": True})
     if servers:
         if "claude" in server_harnesses:
             for name in sorted(servers):
@@ -276,7 +286,10 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
     # A component's folder instructions: one marked section per component in
     # the instructions file of every installed harness, inside the target
     # folder. Text outside the markers is never touched.
-    for section in sections:
+    # Component sections first, rule sections after: AGENTS.md can be a mirror
+    # of CLAUDE.md, which carries only the component sections, so rules must be
+    # the ones appended last or their place would flip between runs.
+    for section in sorted(sections, key=lambda s: s["label"].startswith("rule ")):
         folder = "" if section["target"] == "." else section["target"] + "/"
         for name in sorted({GUIDANCE_FILE[h] for h in section["harnesses"]
                             if h in GUIDANCE_FILE}):
@@ -286,8 +299,5 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                            "value": section["body"],
                            "owner": section["owner"]})
 
-    # D8 — the Step 0 forced read rides the report to `_instruction_claims`,
-    # which knows the harnesses and therefore which root file gets what.
-    report["rule_parts"] = rule_parts
     report["shared_files"] = sorted({c["path"] for c in claims})
     return files, owners, claims, report

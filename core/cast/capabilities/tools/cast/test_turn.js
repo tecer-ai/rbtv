@@ -105,6 +105,7 @@ rejects(base({ env: { A: 1 } }), 'must be a string');
   assert.ok(argv.includes('-m') && argv.includes('gpt-5.5'));
   assert.ok(argv.includes('model_reasoning_effort=high'));
   assert.ok(argv.includes('--skip-git-repo-check'), 'codex turn must run outside git repos');
+  assert.ok(argv.includes('project_doc_max_bytes=131072'), 'codex turn must raise the AGENTS.md limit');
   assert.ok(argv.includes('--json'));
   assert.ok(!argv.includes('resume'));
   assert.ok(!argv.includes('last'));

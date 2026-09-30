@@ -42,7 +42,6 @@ def green_arm_all_harnesses(ctx) -> None:
         ".codex/prompts/fixcmd.md",
         ".opencode/commands/fixcmd.md",
         ".claude/rules/fixrule.md",
-        ".agents/behavior-rules/fixrule.md",
         ".claude/agents/fixagent.md",
         ".opencode/agents/fixagent.md",
         ".codex/agents/fixagent.toml",
@@ -113,8 +112,8 @@ def green_arm_all_harnesses(ctx) -> None:
           res["report"]["guidance_sections"] == ["AGENTS.md", "CLAUDE.md"]
           and f"{FENCE_ID}:start fixmod/goodcomp" in (target / "CLAUDE.md").read_text(encoding="utf-8")
           and "guidance_manual" not in res["report"]
-          and "Step 0" in (target / "AGENTS.md").read_text(encoding="utf-8")
-          and "Step 0" not in (target / "CLAUDE.md").read_text(encoding="utf-8")
+          and f"{FENCE_ID}:start rule fixmod/goodcomp#fixrule" in (target / "AGENTS.md").read_text(encoding="utf-8")
+          and f"{FENCE_ID}:start rule" not in (target / "CLAUDE.md").read_text(encoding="utf-8")
           and "guidance for the root" in (target / "CLAUDE.md").read_text(encoding="utf-8"),
           str(res["report"]["guidance_sections"]))
     check("managed guidance sections are installed without replacing owner files",
@@ -161,7 +160,8 @@ def green_arm_all_harnesses(ctx) -> None:
               _claim_id(".mcp.json", ["mcpServers", "fixmcp"]),
               _claim_id("opencode.json", ["mcp", "fixmcp"]),
               _claim_id(".codex/config.toml", None),
-              _claim_id("AGENTS.md", None),
+              _claim_id(".codex/config.toml", None, "codex-limits"),
+              _claim_id("AGENTS.md", None, "rule fixmod/goodcomp#fixrule"),
               _claim_id("AGENTS.md", None, "fixmod/goodcomp"),
               _claim_id("CLAUDE.md", None, "fixmod/goodcomp"),
           ]), str(sorted(state["shared_claims"])))
@@ -171,6 +171,22 @@ def green_arm_all_harnesses(ctx) -> None:
     check("re-install is idempotent",
           do_install(target, catalog, ["fixmod/goodcomp"], list(HARNESSES),
                      dry_run=False)["written"] == [])
+    toml_ws = tmp / "ws-codex-limit"
+    (toml_ws / ".codex").mkdir(parents=True)
+    (toml_ws / ".codex/config.toml").write_text("[features]\nhooks = true\n",
+                                               encoding="utf-8")
+    do_install(toml_ws, catalog, ["fixmod/goodcomp"], ["codex"], dry_run=False)
+    toml = (toml_ws / ".codex/config.toml").read_text(encoding="utf-8")
+    check("the Codex AGENTS.md limit is a root key, above the owner's tables",
+          toml.startswith(f"# {FENCE_ID}:start codex-limits\n"
+                          "project_doc_max_bytes = 131072\n")
+          and "[features]\nhooks = true\n" in toml
+          and toml.index("[features]") < toml.index("[mcp_servers.fixmcp]"),
+          toml)
+    check("…and two blocks in one TOML file are stable across runs",
+          do_install(toml_ws, catalog, ["fixmod/goodcomp"], ["codex"],
+                     dry_run=False)["shared_written"] == []
+          and (toml_ws / ".codex/config.toml").read_text(encoding="utf-8") == toml)
     before_preview = {p.relative_to(target).as_posix(): p.read_bytes()
                       for p in target.rglob("*") if p.is_file()}
     preview = do_install(target, catalog, ["fixmod/goodcomp"],

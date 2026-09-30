@@ -6,7 +6,7 @@ import json
 from discovery import HUB_DIR, Refuse, scan_all, scan_tree, unit_rows
 
 from lib.constants import (
-    FORCED_READ_HARNESSES,
+    RULE_SECTION_HARNESSES,
     GUIDANCE_FILE,
     HARNESSES,
     MATRIX,
@@ -234,10 +234,9 @@ def three_harnesses(ctx) -> None:
                   for method in MATRIX)
           and all(h in MATRIX["skill"] for h in HARNESSES)
           and "kimi" not in GUIDANCE_FILE
-          and "kimi" not in FORCED_READ_HARNESSES
-          and FORCED_READ_HARNESSES == ("codex",)
+          and RULE_SECTION_HARNESSES == ("codex", "opencode")
           and all(h in GUIDANCE_FILE for h in HARNESSES),
-          f"HARNESSES={HARNESSES} forced={FORCED_READ_HARNESSES}")
+          f"HARNESSES={HARNESSES} rule_sections={RULE_SECTION_HARNESSES}")
     try:
         _parse_harnesses("kimi")
         check("D4-harness-kimi-refuses", False, "no refusal")

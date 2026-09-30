@@ -1434,6 +1434,7 @@ else {
 
   const rg = dryRun(['codex', 'gpt-5.5', '2', '-rg', path.join(home, 'agent.md'), '-p', 'go']);
   assert.ok(rg.argv.includes(`developer_instructions=${JSON.stringify('You are Sara.')}`), `frontmatter must not reach the prompt: ${rg.argv}`);
+  assert.ok(rg.argv.includes('project_doc_max_bytes=131072'), `every Codex launch raises the AGENTS.md limit: ${rg.argv}`);
 
   for (const args of [
     ['claude', 'sonnet-5', '2', '-ig', 'nobody', '--target', root, '-p', 'go'],

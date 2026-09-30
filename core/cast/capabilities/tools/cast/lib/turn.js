@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const { lookupModel, shortName, resolveEffort } = require('./core');
+const { CODEX_DOC_LIMIT, lookupModel, shortName, resolveEffort } = require('./core');
 const { procStart, emitHandle } = require('./handles');
 const { launchEnv, opencodeTagged, SYSTEM_WRAPPER } = require('./launch');
 const { loadOptional } = require('./optional');
@@ -159,9 +159,9 @@ function argvFor(v, freshId, tag) {
         ? ['-c', `developer_instructions=${JSON.stringify(v.systemPrompt.text)}`] : [];
       return v.mode === 'resume'
         ? ['codex', 'exec', 'resume', v.sessionId, '-m', v.modelId, ...effort, ...developer,
-          '-c', 'sandbox_mode=danger-full-access', '-c', 'approval_policy=never', '--skip-git-repo-check', '--json', '-']
+          '-c', 'sandbox_mode=danger-full-access', '-c', 'approval_policy=never', '--skip-git-repo-check', ...CODEX_DOC_LIMIT, '--json', '-']
         : ['codex', 'exec', '--cd', v.cwd, '-m', v.modelId, '--sandbox', 'danger-full-access',
-          '-c', 'approval_policy=never', '--skip-git-repo-check', ...effort, ...developer, '--json', '-'];
+          '-c', 'approval_policy=never', '--skip-git-repo-check', ...CODEX_DOC_LIMIT, ...effort, ...developer, '--json', '-'];
     }
     case 'opencode':
       return ['opencode', 'run', '-m', v.modelId, '--auto', ...effort,
