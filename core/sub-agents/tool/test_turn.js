@@ -391,17 +391,12 @@ process.exit(0);
   const codex = { harness: 'codex', model: 'gpt-5.5', effort: 2 };
   const cx = argvFor(sys(codex), null, null);
   const cxResumed = argvFor(sys({ ...codex, session: { mode: 'resume', id: 'tid-1' } }), null, null);
-  if (process.platform === 'win32') {
-    assert.ok(!cx.some((a) => a.startsWith('developer_instructions=')), 'cmd.exe argv cannot carry the prompt');
-    assert.ok(stdinFor(sys(codex)).startsWith('# Role\nYou are the agent.'));
-  } else {
-    for (const argv of [cx, cxResumed]) {
-      const at = argv.findIndex((a) => a.startsWith('developer_instructions='));
-      assert.ok(at > 0 && argv[at - 1] === '-c', 'codex gets developer instructions on every turn');
-      assert.strictEqual(JSON.parse(argv[at].slice('developer_instructions='.length)), '# Role\nYou are the agent.\n');
-    }
-    assert.strictEqual(stdinFor(sys(codex)), 'hello');
+  for (const argv of [cx, cxResumed]) {
+    const at = argv.findIndex((a) => a.startsWith('developer_instructions='));
+    assert.ok(at > 0 && argv[at - 1] === '-c', 'codex gets developer instructions on every turn');
+    assert.strictEqual(JSON.parse(argv[at].slice('developer_instructions='.length)), '# Role\nYou are the agent.\n');
   }
+  assert.strictEqual(stdinFor(sys(codex)), 'hello');
 
   const oc = { harness: 'opencode', model: 'grok-4.7', effort: 1 };
   const first = stdinFor(sys(oc));

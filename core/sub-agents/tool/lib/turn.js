@@ -81,13 +81,13 @@ function readSystemPrompt(request) {
 //   claude   a real system prompt (`--append-system-prompt-file`), on a NEW session only —
 //            the harness keeps it across resume and compaction;
 //   codex    developer instructions (`-c developer_instructions=…`), on every turn — a run
-//            rebuilds its context, so the prompt is re-passed; on win32 the text is too long
-//            and multi-line for cmd.exe argv, so it rides the first message instead;
+//            rebuilds its context, so the prompt is re-passed (on Windows cast starts Codex's
+//            script with node directly, so no cmd.exe re-parses the text);
 //   opencode the first message of a NEW session (no system-prompt flag exists).
 function systemPromptRoute(v) {
   if (!v.systemPrompt) return 'none';
   if (v.harness === 'claude') return v.mode === 'new' ? 'flag' : 'none';
-  if (v.harness === 'codex') return process.platform === 'win32' ? 'message' : 'developer';
+  if (v.harness === 'codex') return 'developer';
   return v.mode === 'new' ? 'message' : 'none';
 }
 

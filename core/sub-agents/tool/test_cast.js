@@ -1385,6 +1385,19 @@ else {
   assert.strictEqual(shim.opts.windowsVerbatimArguments, true);
   assert.ok(shim.args[3].includes(path.join(bin, 'opencode.cmd')), 'must invoke the resolved shim');
 
+  // A real npm shim names the node script it runs: that script is started with node directly, so
+  // an argument full of cmd.exe syntax (a whole agent prompt) arrives untouched.
+  const scriptDir = path.join(bin, 'node_modules', 'pkg', 'bin');
+  fs.mkdirSync(scriptDir, { recursive: true });
+  fs.writeFileSync(path.join(scriptDir, 'real.js'), '');
+  fs.writeFileSync(path.join(bin, 'real.cmd'),
+    '@ECHO off\r\nendLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\pkg\\bin\\real.js" %*\r\n');
+  const prompt = 'Role: a & b | c < d > e % f "quoted" ^ caret\nsecond line';
+  const direct = spawnable('real', ['exec', '-c', `developer_instructions=${JSON.stringify(prompt)}`], 'win32', env);
+  assert.strictEqual(direct.cmd, process.execPath);
+  assert.deepStrictEqual(direct.args, [path.join(scriptDir, 'real.js'), 'exec', '-c', `developer_instructions=${JSON.stringify(prompt)}`]);
+  assert.deepStrictEqual(direct.opts, {});
+
   // THE regression guard. opencode's --title is the only session identity cast has, and losing it
   // is the 2026-08-31 bug where one seat's report was appended to another seat's output. Under
   // `shell:true` this title splits at its space into two arguments. Here the space and brackets

@@ -20,8 +20,9 @@
 // one seat's report landed in another seat's output. A headed prompt shatters at every space,
 // an apostrophe aborts the launch, and `$(id)` inside any argument really executed.
 //
-// So: resolve what Windows would actually start, and route ONLY a batch file through
-// cmd.exe, with every token pre-quoted and argv still a real array. A .exe keeps the exact
+// So: resolve what Windows would actually start. An npm shim is replaced by the node script it
+// runs; any other batch file goes through cmd.exe, with every token pre-quoted and argv still a
+// real array. A .exe keeps the exact
 // direct-spawn path it has today, so the one harness that already works is not disturbed.
 // On POSIX this module returns its input unchanged.
 
@@ -83,6 +84,19 @@ function resolveWindowsExecutable(name, env) {
   return null;
 }
 
+// An npm global shim is a batch file ending in `"%_prog%" "%dp0%\path\to\entry.js" %*`. The
+// script it runs is what matters: started with node directly, argv stays a real array and cmd.exe
+// never re-parses it (a `&`, `|`, `<`, `>`, `%` or quote in an argument — a whole agent prompt —
+// breaks the batch route). Null when the shim is not that shape.
+function npmShimScript(shim) {
+  let text;
+  try { text = fs.readFileSync(shim, 'utf8'); } catch { return null; }
+  const m = text.match(/"%_prog%"\s+"%dp0%\\([^"]+)"\s+%\*/);
+  if (!m) return null;
+  const script = path.join(path.dirname(shim), ...m[1].split('\\'));
+  return fs.existsSync(script) ? script : null;
+}
+
 // The one call every spawn site goes through. Returns the command, args and extra spawn options
 // to use on this platform. `platform` and `env` are injectable so the Windows branch is checkable
 // from the POSIX self-check suite.
@@ -93,6 +107,9 @@ function spawnable(cmd, args, platform = process.platform, env = process.env) {
   // Not found, or directly executable: leave it exactly as it is. A missing program must still
   // surface as Node's own ENOENT for `cmd`, not as a confusing error from cmd.exe.
   if (resolved === null || /\.(exe|com)$/i.test(resolved)) return { cmd, args, opts: {} };
+
+  const script = /\.cmd$/i.test(resolved) ? npmShimScript(resolved) : null;
+  if (script) return { cmd: process.execPath, args: [script, ...args], opts: {} };
 
   // cross-spawn double-escapes only for a .cmd under node_modules/.bin, whose shim re-enters
   // cmd.exe a second time. A global npm shim (AppData\Roaming\npm) does not, so a single pass
