@@ -25,3 +25,16 @@ def repo_root_is_the_repo(ctx) -> None:
     check("D1 — the repo root is not the component folder",
           REPO_ROOT.name not in ("installer", "install", "lib"),
           f"REPO_ROOT={REPO_ROOT}")
+
+    # The catalog maps a component with an invalid unit record to no units, so
+    # one bad file hides the whole component from list, show and install with
+    # no error (a tool record without `entry` hid meta/code, 2026-10-01).
+    from discovery import Refuse, scan_tree, unit_rows
+    invalid = []
+    for cid, comp in sorted(scan_tree(REPO_ROOT, "repo").items()):
+        try:
+            unit_rows(comp)
+        except Refuse as exc:
+            invalid.append(f"{cid}: {exc}")
+    check("D2 — every component in this repo has valid unit records",
+          not invalid, "; ".join(invalid))
