@@ -49,3 +49,4 @@
 - [thin-loader.md](thin-loader.md) — Before editing a harness pointer to a skill or command.
 - [tool-json.md](tool-json.md) — Before writing a tool's record.
 - [tool.md](tool.md) — Before adding an executable program, or before treating a tool as a cognitive unit.
+- [workflow.md](workflow.md) — Before arranging tasks for sub-agents to run, or before reading a `workflow.md`.

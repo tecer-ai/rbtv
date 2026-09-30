@@ -37,3 +37,4 @@
 - [thin-loader.md](thin-loader.md) — Before touching the installer's pointer to a skill or command.
 - [tool-json.md](tool-json.md) — Before writing a tool's `<tool>.json`.
 - [tool.md](tool.md) — Before adding an executable program a component supplies.
+- [workflow.md](workflow.md) — Before writing a `workflow.md` for sub-agents to run.

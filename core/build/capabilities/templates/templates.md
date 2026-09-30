@@ -23,3 +23,4 @@
 - [skill.schema.json](skill.schema.json) — Before writing or checking a skill file's frontmatter.
 - [thin-loader.md](thin-loader.md) — Before reading or changing what the installer writes as a thin loader.
 - [tool-json.schema.json](tool-json.schema.json) — Before writing `<tool>.json`.
+- [workflow.md](workflow.md) — Before writing a `workflow.md`.
