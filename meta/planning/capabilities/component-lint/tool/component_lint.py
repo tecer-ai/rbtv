@@ -407,10 +407,16 @@ def workspace_root(start):
     """The first ancestor of `start` holding a `.rbtv/config/` DIRECTORY — the
     base a `ws:` entry-point resolves against — or None when none does.
 
-    A missing workspace returns None so the caller can report a finding."""
+    The home folder is the exception: its `~/.rbtv/` is the per-user runtime,
+    never a workspace marker, so home counts only when it holds a real install
+    record (`.rbtv/config/install.json`) — the rule the installer's target
+    discovery follows. A missing workspace returns None so the caller can
+    report a finding."""
     start = Path(start).resolve()
+    home = Path.home().resolve()
     for parent in (start, *start.parents):
-        if (parent / ".rbtv" / "config").is_dir():
+        config = parent / ".rbtv" / "config"
+        if config.is_dir() and (parent != home or (config / "install.json").is_file()):
             return parent
     return None
 
@@ -477,8 +483,9 @@ def check_exposure_canon(c, out, census):
                 _fail(out, "exposure-canon", where, "method=path with no entry-point")
             elif raw.startswith("ws:") and ws is None:
                 _fail(out, "exposure-canon", where,
-                      f"entry-point {raw} is `ws:`-prefixed but no `.rbtv/config/` directory "
-                      "exists at or above the component — no workspace to resolve it against")
+                      f"entry-point {raw} is `ws:`-prefixed but no workspace (a `.rbtv/config/` "
+                      "directory; home's own counts only with install.json) exists at or above "
+                      "the component — nothing to resolve it against")
             elif ".." in Path(target).parts:
                 _fail(out, "exposure-canon", where,
                       f"entry-point climbs out of its component with `..`: {raw} — reach a "
@@ -538,8 +545,9 @@ def _check_write_roots(c, out, where, part_id, method, cell):
             ws = workspace_root(c.root)
             if ws is None:
                 _fail(out, "exposure-canon", where,
-                      f"{part_id!r} declares write-root {authored!r} but no `.rbtv/config/` "
-                      "directory exists at or above the component — no workspace to resolve it")
+                      f"{part_id!r} declares write-root {authored!r} but no workspace (a "
+                      "`.rbtv/config/` directory; home's own counts only with install.json) "
+                      "exists at or above the component — nothing to resolve it against")
                 continue
             target = ws / rel
         else:

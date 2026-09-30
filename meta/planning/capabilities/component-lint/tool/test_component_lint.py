@@ -1091,6 +1091,33 @@ def test_unknown_check_id_is_exit_2():
         assert code == 2 and "unknown check id" in err, err
 
 
+def test_home_rbtv_is_not_a_workspace_without_install_json():
+    """Home's `~/.rbtv/` is the per-user runtime (rbtv CLAUDE.md, Linux AND
+    Windows rule 6): a home holding only `.rbtv/config/install-index.json` is
+    never the workspace; with a real `install.json` it is. Called in-process
+    with Path.home patched. A real ancestor above the fake home (on Windows,
+    the machine's own home) must not decide the result, so the red arm asserts
+    only that the fake home was NOT chosen."""
+    import importlib.util
+    from unittest import mock
+    spec = importlib.util.spec_from_file_location("component_lint_under_test", LINT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    with tempfile.TemporaryDirectory() as tmp:
+        home = Path(tmp).resolve()
+        config = home / ".rbtv" / "config"
+        config.mkdir(parents=True)
+        (config / "install-index.json").write_text("{}", encoding="utf-8")
+        start = home / "mirror" / "mod" / "comp"
+        start.mkdir(parents=True)
+        with mock.patch.object(Path, "home", return_value=home):
+            assert mod.workspace_root(start) != home, \
+                "home holding only install-index.json was taken as the workspace"
+            (config / "install.json").write_text("{}", encoding="utf-8")
+            assert mod.workspace_root(start) == home, \
+                "home holding a real install.json must be the workspace"
+
+
 def main():
     os.chdir(tempfile.gettempdir())
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
