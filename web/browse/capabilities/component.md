@@ -45,9 +45,7 @@ has no stable path here). Everything else is the CLI's own to document.
 `exposure.csv` row** (see that file's header for why).
 
 **And the router stays at the component root, not in a `capabilities/` folder.** That is the ruled
-shape for a component holding ONE capability that carries no tool and no sub-structure
-(`meta/plan/references/kind-capability.md` § *where that file lives*, which cites this very file
-as its live example). A `capabilities/` folder is EARNED by a second capability or a first tool;
+shape for a component holding ONE capability that carries no tool and no sub-structure. A `capabilities/` folder is EARNED by a second capability or a first tool;
 this component has neither and is not to pre-build one. The sibling `capture` component does have a
 tool, which is why its file sits at `capabilities/capture/capture.md` — the same rule, the other branch.
 
