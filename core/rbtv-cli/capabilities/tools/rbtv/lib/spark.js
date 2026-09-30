@@ -65,7 +65,12 @@ function spark(args, opts) {
   for (let i = 0; i < args.length; i += 1) {
     if (flagsWithValue.has(args[i])) { target = args[i + 1]; i += 1; } else if (args[i] === '--dry-run') dry = true;
     else if (args[i] === '--json') json = true;
-    else if (args[i].startsWith('-')) {
+    else if (args[i] === '-h' || args[i] === '--help') {
+      console.log('usage: rbtv spark <agent> [--target <workspace>] [--dry-run] [--json]\n'
+        + 'Runs an installed agent interactively in its own folder, with its agent.md as the system prompt\n'
+        + 'and its launch.json harness, model and effort.');
+      return 0;
+    } else if (args[i].startsWith('-')) {
       console.error(refusal({
         what: `\`${args[i]}\` is not a spark option`,
         why: 'spark takes one agent name and the options --target, --dry-run and --json.',
