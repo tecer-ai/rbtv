@@ -6,15 +6,12 @@
 // Two things live here and they are deliberately different in kind:
 //
 //   THE DRILL (levels 0-2) delivers CONTENT — modules, then a module's components,
-//   then a component's entry point and its invocable entry points.
+//   then a component's orientation text and its units.
 //   THE ACTION VERBS do things — and every one of them DELEGATES to a surface that
 //   already ships. This CLI owns no second implementation of any of them (PRIN-11).
 //
-// ⚠ THE DRILL IS A STAND-IN PENDING CMP-5 — see lib/catalog.js for what is missing
-// and what is read instead. The action verbs are NOT a stand-in: they are the
-// ruled fold-in home of the surfaces they delegate to.
-//
-// Built for core-build task 7.65.
+// The drill reads the tree (lib/catalog.js). The action verbs are the ruled home
+// of the surfaces they delegate to.
 
 const path = require('path');
 const catalog = require('./lib/catalog');
@@ -23,7 +20,7 @@ const { delegate, buildDelegateArgs } = require('./lib/delegate');
 const { table, blurb, json, refusal, suggest, paint } = require('./lib/render');
 const { runSelftest } = require('./lib/selftest');
 
-const VERSION = '0.1.0-standin';
+const VERSION = '0.2.1';
 
 function topHelp() {
   return [
@@ -32,7 +29,7 @@ function topHelp() {
     'DRILL (delivers content)',
     '  rbtv                       level 0 — the installed modules',
     '  rbtv <module>              level 1 — that module\'s components, blurb-first',
-    '  rbtv <module> <component>  level 2 — the component\'s entry point + its entry points',
+    '  rbtv <module> <component>  level 2 — the component\'s orientation text + its units',
     '',
     'ACT (delegates — no second implementation)',
     '  rbtv install <verb>        manage here: status|list|search|show|configure|add|remove|update|doctor',
@@ -140,10 +137,10 @@ function main(argvIn) {
     if (positionals.length === 0) return level1(head, opts);
 
     const token = positionals[0];
-    const matches = catalog.findComponents(head, token);
+    const match = catalog.findComponent(head, token);
     const isVerb = Boolean(moduleRoute && moduleRoute.verbs.includes(token));
 
-    if (matches.length && isVerb) {
+    if (match && isVerb) {
       console.error(refusal({
         what: `\`${token}\` is AMBIGUOUS under \`${head}\` — it names both a component and an action verb`,
         why: 'resolving it either way would silently run something you did not ask for.',
@@ -152,7 +149,7 @@ function main(argvIn) {
       }));
       return 1;
     }
-    if (matches.length) return level2(head, matches, opts);
+    if (match) return level2(head, match, opts);
 
     const known = [
       ...(catalog.components(head) || []).map((c) => c.name),
@@ -209,7 +206,7 @@ function runRoute(route, argv, opts) {
 function level0(opts) {
   const mods = catalog.modules();
   if (opts.json) {
-    json({ level: 0, substrate: 'stand-in pending CMP-5', modules: mods });
+    json({ level: 0, modules: mods });
     return 0;
   }
   const rows = mods.map((m) => [m.name, blurb(m.description)]);
@@ -228,7 +225,6 @@ function level1(moduleName, opts) {
     json({
       level: 1,
       module: moduleName,
-      substrate: 'stand-in pending CMP-5',
       components: comps,
       rules: opts.rules ? rules.map((r) => ({ ...r, body: catalog.readBody(r.path) })) : rules,
       action_verbs: routes.map((r) => ({ route: r.prefix.join(' '), verbs: r.verbs, built: r.exec !== 'unbuilt' })),
@@ -237,7 +233,7 @@ function level1(moduleName, opts) {
   }
 
   console.log(paint(opts.pretty, 'bold', `${moduleName} — ${comps.length} component(s)`));
-  console.log(table(comps.map((c) => [`${c.name} (${c.kind})`, blurb(c.description)]), opts.pretty).join('\n'));
+  console.log(table(comps.map((c) => [c.name, blurb(c.description)]), opts.pretty).join('\n'));
 
   if (routes.length) {
     console.log(`\n${paint(opts.pretty, 'bold', 'action verbs')}`);
@@ -264,87 +260,21 @@ function level1(moduleName, opts) {
   return 0;
 }
 
-// `matches` is EVERY component carrying the name, not the first. In `core`,
-// `safe-move` is both a skill and a tool — two facets of one capability — and
-// delivering only whichever source happened to be read first would hide half of
-// it, with the half you got decided by key order.
-//
-// A `kind: 'component'` facet (a component FOLDER — component-anatomy.md §1) is
-// never just another facet among equals: when one is present, the folder WINS the
-// body and any module-root part sharing the name is listed under it as a note,
-// never rendered as a second full answer (cli-drill seat, owner-ruled 2026-08-24).
-function level2(moduleName, matches, opts) {
-  const compFacet = matches.find((c) => c.kind === 'component');
-  const otherFacets = matches.filter((c) => c !== compFacet);
-
+// A component's level-2 answer: the orientation body first (what a reader decides
+// whether to enter with), then the component's units.
+function level2(moduleName, comp, opts) {
   if (opts.json) {
     json({
       level: 2,
       module: moduleName,
-      component: matches[0].name,
-      facets: matches.map((c) => ({
-        kind: c.kind,
-        entry_point: c.entry_point,
-        entry_point_body: catalog.readBody(c.entry_point),
-        entry_points: c.tools,
-        exposure_rows: c.exposure_rows,
-      })),
-      folder_wins_body: Boolean(compFacet && otherFacets.length),
-      substrate: 'stand-in pending CMP-5',
+      component: comp.name,
+      entry_point: comp.entry_point,
+      entry_point_body: catalog.readBody(comp.entry_point),
+      units: comp.units,
     });
     return 0;
   }
 
-  if (compFacet && otherFacets.length) {
-    renderFacet(moduleName, compFacet, opts);
-    console.log(`\n${paint(opts.pretty, 'bold',
-      `note: \`${compFacet.name}\` carries a SECOND facet — the folder wins the body above, the other facet is listed here, never as a second answer`)}`);
-    console.log(table(otherFacets.map((o) => [`${o.name} (${o.kind})`, o.entry_point || '(no entry point)']), opts.pretty).join('\n'));
-  } else if (matches.length > 1) {
-    console.log(paint(opts.pretty, 'bold',
-      `${moduleName} ${matches[0].name} — ${matches.length} facets (${matches.map((c) => c.kind).join(' + ')}), all delivered`));
-    for (const comp of matches) renderFacet(moduleName, comp, opts);
-  } else {
-    renderFacet(moduleName, matches[0], opts);
-  }
-
-  const route = verbs.ROUTES.find((r) => r.prefix[0] === moduleName);
-  console.log(`\nnext: ${route ? `rbtv ${route.prefix.join(' ')} <verb>` : `rbtv ${moduleName}`}`);
-  return 0;
-}
-
-function renderFacet(moduleName, comp, opts) {
-  if (comp.kind === 'component') return renderComponentFacet(moduleName, comp, opts);
-
-  const body = catalog.readBody(comp.entry_point);
-
-  console.log(paint(opts.pretty, 'bold', `\n${moduleName} ${comp.name} (${comp.kind})`));
-  console.log(comp.entry_point ? `entry point: ${comp.entry_point}` : 'entry point: (none recorded)');
-
-  if (comp.tools.length) {
-    // ⚠ INFERRED, and said so rather than presented as fact. CMP-5's exposure
-    // manifest is what DECLARES which files are entry points (its `rbtv-cli`
-    // column); with it unbuilt this list is derived from the executable bit under
-    // `tool*/`, which over-reports — an importable module that happens to be +x
-    // shows up here. Inferring a property and printing it as a measurement is the
-    // exact shape this run has paid for repeatedly, so the output carries the
-    // qualifier instead of the reader having to know.
-    console.log(`\n${paint(opts.pretty, 'bold', 'entry points (INFERRED from the executable bit — CMP-5 unbuilt, nothing declares these)')}`);
-    console.log(table(comp.tools.map((t) => [t.name, t.path]), opts.pretty).join('\n'));
-  }
-
-  if (body) {
-    console.log(`\n--- ${comp.entry_point} ---\n${body}`);
-  } else if (comp.entry_point) {
-    console.log(`\n(no deliverable body at ${comp.entry_point} — it names a package or directory, not a document)`);
-  }
-}
-
-// A component FOLDER's level-2 answer, in the order the registry's
-// "component entry point" record and exposure.md §3 settle: the orientation body
-// first (what a reader decides whether to enter with), then the component's own
-// exposed parts, then — of those — the ones it routes to as action verbs.
-function renderComponentFacet(moduleName, comp, opts) {
   console.log(paint(opts.pretty, 'bold', `\n${moduleName} ${comp.name} (component)`));
   console.log(comp.entry_point ? `entry point: ${comp.entry_point}` : 'entry point: (no capabilities/component.md at this folder yet)');
 
@@ -353,20 +283,14 @@ function renderComponentFacet(moduleName, comp, opts) {
     if (body) console.log(`\n--- ${comp.entry_point} ---\n${body}`);
   }
 
-  const rows = comp.exposure_rows || [];
-  if (rows.length) {
-    console.log(`\n${paint(opts.pretty, 'bold', `exposure rows (${comp.exposure_path})`)}`);
-    console.log(table(rows.map((r) => [
-      `${r['part-id']} (${r['part-kind']}/${r.method})`,
-      [r['entry-point'], r.description].filter(Boolean).join(' — '),
-    ]), opts.pretty).join('\n'));
-
-    const verbRows = rows.filter((r) => r['rbtv-cli']);
-    if (verbRows.length) {
-      console.log(`\n${paint(opts.pretty, 'bold', 'action verbs (rbtv-cli column)')}`);
-      console.log(table(verbRows.map((r) => [r['rbtv-cli'], r.description || r['part-id']]), opts.pretty).join('\n'));
-    }
+  if (comp.units.length) {
+    console.log(`\n${paint(opts.pretty, 'bold', `units (${comp.units.length})`)}`);
+    console.log(table(comp.units.map((u) => [`${u.id} (${u.method})`, u.description]), opts.pretty).join('\n'));
   }
+
+  const route = verbs.ROUTES.find((r) => r.prefix[0] === moduleName);
+  console.log(`\nnext: ${route ? `rbtv ${route.prefix.join(' ')} <verb>` : `rbtv ${moduleName}`}`);
+  return 0;
 }
 
 function doctor(opts) {
@@ -377,7 +301,7 @@ function doctor(opts) {
   let mods = [];
   try {
     mods = catalog.modules();
-    push('modules readable', true, `${mods.length} modules, each from its own module.md`);
+    push('modules readable', true, `${mods.length} modules, each from its own <module>.json`);
   } catch (err) {
     push('modules readable', false, err.message);
   }
@@ -406,15 +330,7 @@ function doctor(opts) {
     );
   }
 
-  // CMP-5 divergence — reported by doctor rather than only documented, so it
-  // cannot be forgotten by anyone who never opens the README. What the drill
-  // reads today is named here so the gap is the part that stands out: the
-  // retired installer's module manifest is gone (2026-08-24) and level 0/1 now
-  // reads `module.md`, but the rbtv-cli exposure column is still read as data
-  // with no dispatch built on it.
-  push('drill substrate', true,
-    'STAND-IN pending CMP-5 — reads module.md, capabilities/component.md and exposure.csv '
-    + 'off the tree; the rbtv-cli exposure column carries no dispatch yet');
+  push('drill substrate', true, 'reads <module>.json, <component>.json and the unit folders off the tree');
 
   push('node', true, process.version);
 

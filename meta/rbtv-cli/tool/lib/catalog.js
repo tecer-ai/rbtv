@@ -1,33 +1,16 @@
 'use strict';
 
-// The drill substrate — levels 0, 1 and 2.
+// The drill substrate — levels 0, 1 and 2, read straight off the tree.
 //
-// ⚠ STAND-IN PENDING CMP-5. The registry (`concepts/rbtv-cli.md`) specifies this
-// drill over `module.md` (level 0/1), per-component `capabilities/component.md` description
-// lines (level 1), and exposure-manifest rows carrying an `rbtv-cli` column
-// (level 2). `module.md` IS now read (2026-08-24): the retired installer's
-// `admin/install/module-manifest.json` was this file's level-0 stand-in, and it
-// was deleted with the installer it belonged to — a manifest of the flat-module
-// standard nothing serves any more. Every verb passes through `modules()`, so
-// its absence refused the whole CLI. Level 0/1 now reads the tree the registry
-// always named.
+// A module is a folder at the repo root holding its own `<module>.json`; a
+// component is a folder inside it holding its own `<component>.json`. Both records
+// carry the description shown at levels 0 and 1. Level 2 delivers a component's
+// orientation text (`capabilities/component.md`, when it has one) and its units,
+// found by the folder each sits in: `skills/`, `rules/`, `commands/`, `agents/`,
+// `hooks/`, `mcp-servers/`, `capabilities/tools/<tool>/`, `folder-instructions/`.
 //
-// What IS now read (owner-ruled 2026-08-24, option a — cli-drill seat): component
-// FOLDERS. Since 2026-08-22 some components moved their manifest one level down
-// (`capabilities/component.md` + `exposure.csv` beside the parts they declare, e.g.
-// `ignite/agents/` — component-anatomy.md §1: "a
-// directory at depth 2 holding exposure.csv IS the component"). `componentFolders()`
-// below enumerates those directly, and `capabilities/component.md`'s frontmatter + a component's
-// own `exposure.csv` rows are what level 2 delivers for them — the settled CMP-5
-// shape, read straight off disk rather than through a manifest that never learns
-// about them. What is still NOT read: `module.md` (level 0/1), and the `rbtv-cli`
-// column is read as data (which parts a component exposes as verbs) without any
-// dispatch machinery around it.
-//
-// So this module reads the substrate that IS live — `module.md`, the
-// capability-folder shape, and component folders — and every function below is
-// a stand-in for a CMP-5 reader, NOT the settled schema. When CMP-5 lands, this
-// file is the one that changes; nothing above it should need to.
+// This reader lists; it does not validate. The installer refuses a file that
+// breaks its schema — here a unit's name and description are simply read.
 
 const fs = require('fs');
 const path = require('path');
@@ -45,37 +28,54 @@ const path = require('path');
 const RBTV_ROOT = process.env.RBTV_ROOT
   ? path.resolve(process.env.RBTV_ROOT)
   : path.resolve(__dirname, '..', '..', '..', '..');
-// Level 0 — the modules ON THE TREE. A directory at the repo root holding
-// `module.md` IS a module, and that file's `description:` frontmatter is its
-// blurb. Read from disk rather than from an inventory file, so a module added or
-// removed is visible the moment it exists, with nothing to keep in step.
-//
-// A tree with no `module.md` anywhere is a resolved-root failure, not an empty
-// repo, so it refuses by name — every verb passes through here, and "0 modules"
-// silently answered would send a caller looking for a module that is really
-// there.
-function modules() {
+
+// A folder with `<name>/<name>.json` is a module (at the root) or a component
+// (inside a module). `node_modules`, dot-directories and `probes` are never
+// either: the first is a dependency tree, the second is bookkeeping, the third
+// is test fixtures.
+const SKIP = new Set(['node_modules', 'probes']);
+
+function readJson(abs) {
+  try {
+    return JSON.parse(fs.readFileSync(abs, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function recordFolders(parent) {
   let entries;
   try {
-    entries = fs.readdirSync(RBTV_ROOT, { withFileTypes: true });
+    entries = fs.readdirSync(parent, { withFileTypes: true });
   } catch (err) {
-    const e = new Error(`cannot read the rbtv tree at ${RBTV_ROOT}: ${err.message}`);
+    const e = new Error(`cannot read the rbtv tree at ${parent}: ${err.message}`);
     e.rbtvCode = 'NO_TREE';
     throw e;
   }
   const out = [];
   for (const d of entries) {
-    if (!d.isDirectory() || d.name.startsWith('.')) continue;
-    const md = path.join(RBTV_ROOT, d.name, 'module.md');
-    if (!fs.existsSync(md)) continue;
-    out.push({
-      name: d.name,
-      description: frontmatterField(md, 'description') || firstDescriptionLine(md) || '',
-      entry_point: rel(md),
-    });
+    if (!d.isDirectory() || d.name.startsWith('.') || SKIP.has(d.name)) continue;
+    const record = readJson(path.join(parent, d.name, `${d.name}.json`));
+    if (record) out.push({ name: d.name, dir: path.join(parent, d.name), record });
   }
+  return out;
+}
+
+// Level 0 — the modules ON THE TREE, read from disk rather than from an inventory
+// file, so a module added or removed is visible the moment it exists.
+//
+// A tree with no module record anywhere is a resolved-root failure, not an empty
+// repo, so it refuses by name — every verb passes through here, and "0 modules"
+// silently answered would send a caller looking for a module that is really
+// there.
+function modules() {
+  const out = recordFolders(RBTV_ROOT).map((m) => ({
+    name: m.name,
+    description: m.record.description || '',
+    entry_point: rel(path.join(m.dir, `${m.name}.json`)),
+  }));
   if (!out.length) {
-    const e = new Error(`no directory under ${RBTV_ROOT} carries a module.md`);
+    const e = new Error(`no directory under ${RBTV_ROOT} carries a <module>/<module>.json`);
     e.rbtvCode = 'NO_MODULES';
     throw e;
   }
@@ -86,126 +86,79 @@ function moduleExists(name) {
   return modules().some((m) => m.name === name);
 }
 
-// A capability is a folder `<module>/capabilities/<name>/` holding `<name>.md`
-// (its entry point) and, by convention, `tool/` with the runnable surface. This is
-// the settled CLI placement shape (rbtv/CLAUDE.md § CLI Tool Placement) and is the
-// closest live thing to CMP-5's exposure rows — hence its use here.
-function capabilities(moduleName) {
-  const dir = path.join(RBTV_ROOT, moduleName, 'capabilities');
-  let names;
-  try {
-    names = fs.readdirSync(dir, { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name)
-      .sort();
-  } catch {
-    return [];
-  }
-  return names.map((name) => {
-    const entryPoint = path.join(dir, name, `${name}.md`);
-    return {
-      kind: 'capability',
-      name,
-      description: firstDescriptionLine(entryPoint) || `capability ${name}`,
-      entry_point: fs.existsSync(entryPoint) ? rel(entryPoint) : null,
-      tools: toolsOf(path.join(dir, name)),
-    };
-  });
-}
-
-// A capability's runnable entry points: executables directly under `tool*/`.
-// Directories and non-executable files (READMEs, importable modules) are not
-// entry points — only what a caller can actually invoke.
-function toolsOf(capabilityDir) {
-  const out = [];
-  let sub;
-  try {
-    sub = fs.readdirSync(capabilityDir, { withFileTypes: true });
-  } catch {
-    return out;
-  }
-  for (const d of sub) {
-    if (!d.isDirectory() || !d.name.startsWith('tool')) continue;
-    const toolDir = path.join(capabilityDir, d.name);
-    for (const f of fs.readdirSync(toolDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-      if (!f.isFile()) continue;
-      const p = path.join(toolDir, f.name);
-      try {
-        fs.accessSync(p, fs.constants.X_OK);
-      } catch {
-        continue;
-      }
-      out.push({ name: f.name, path: rel(p) });
-    }
-  }
-  return out;
-}
-
-// Level 1 — a module's components: capability folders plus component folders,
-// both read off the tree. The retired installer's manifest used to contribute a
-// third set of rows here, and it never listed either of these two (it installed
-// neither), so removing it removes rows that duplicated a component already
-// found on disk, not rows nobody else reports.
+// Level 1 — a module's components.
 function components(moduleName) {
   if (!moduleExists(moduleName)) return null;
-  const out = [...capabilities(moduleName), ...componentFolders(moduleName)];
-  out.sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
-  return out;
+  return componentFolders(moduleName);
 }
 
-// Component folders — a direct child of a MODULE folder carrying `capabilities/component.md`
-// OR `exposure.csv` IS a component (component-anatomy.md §1; coord/exposure.csv's
-// own header note). `node_modules`, dot-directories and `probes` are never
-// components — the first is a dependency tree, the second is bookkeeping, the third
-// is test fixtures, per the seat ruling that added this reader.
-const COMPONENT_FOLDER_SKIP = new Set(['node_modules', 'probes']);
-
 function componentFolders(moduleName) {
-  const modDir = path.join(RBTV_ROOT, moduleName);
-  let entries;
+  const out = recordFolders(path.join(RBTV_ROOT, moduleName)).map((c) => {
+    const orientation = path.join(c.dir, 'capabilities', 'component.md');
+    const hasOrientation = fs.existsSync(orientation);
+    return {
+      kind: 'component',
+      name: c.name,
+      description: c.record.description || '(component)',
+      entry_point: hasOrientation ? rel(orientation) : null,
+      units: unitsOf(c.dir),
+    };
+  });
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+const FILE_UNITS = [
+  ['skills', 'skill', '.md'],
+  ['rules', 'rule', '.md'],
+  ['commands', 'command', '.md'],
+  ['agents', 'agent', '.md'],
+  ['hooks', 'hook', '.json'],
+  ['mcp-servers', 'mcp-server', '.json'],
+];
+
+// A component's units: what each exposure folder holds, with the description its
+// own frontmatter or record carries.
+function unitsOf(dir) {
+  const out = [];
+  for (const [folder, method, ext] of FILE_UNITS) {
+    for (const file of listDir(path.join(dir, folder)).filter((f) => f.endsWith(ext))) {
+      const abs = path.join(dir, folder, file);
+      out.push({
+        id: file.slice(0, -ext.length),
+        method,
+        description: ext === '.md' ? frontmatterField(abs, 'description') : (readJson(abs) || {}).description,
+        entry: rel(abs),
+      });
+    }
+  }
+  for (const tool of listDir(path.join(dir, 'capabilities', 'tools'))) {
+    const record = readJson(path.join(dir, 'capabilities', 'tools', tool, `${tool}.json`));
+    if (!record) continue;
+    out.push({
+      id: tool,
+      method: 'tool',
+      description: record.description,
+      entry: rel(path.resolve(dir, 'capabilities', 'tools', tool, record.entry || '')),
+    });
+  }
+  for (const file of listDir(path.join(dir, 'folder-instructions')).filter((f) => f.endsWith('.md'))) {
+    const abs = path.join(dir, 'folder-instructions', file);
+    out.push({
+      id: file.slice(0, -3),
+      method: 'folder-instructions',
+      description: `folder instructions for ${frontmatterField(abs, 'target') || '?'}`,
+      entry: rel(abs),
+    });
+  }
+  return out.map((u) => ({ ...u, description: u.description || '' }));
+}
+
+function listDir(abs) {
   try {
-    entries = fs.readdirSync(modDir, { withFileTypes: true });
+    return fs.readdirSync(abs).sort();
   } catch {
     return [];
   }
-  const out = [];
-  for (const d of entries) {
-    if (!d.isDirectory()) continue;
-    if (d.name.startsWith('.') || COMPONENT_FOLDER_SKIP.has(d.name)) continue;
-    const dir = path.join(modDir, d.name);
-    const componentMdAbs = path.join(dir, 'capabilities/component.md');
-    const exposureCsvAbs = path.join(dir, 'exposure.csv');
-    const hasComponentMd = fs.existsSync(componentMdAbs);
-    const hasExposureCsv = fs.existsSync(exposureCsvAbs);
-    if (!hasComponentMd && !hasExposureCsv) continue;
-    out.push(componentFolderDescriptor(d.name, dir, hasComponentMd, hasExposureCsv));
-  }
-  return out;
-}
-
-// Description priority, exactly the seat ruling's order: capabilities/component.md frontmatter
-// `description:` -> the folder's own `<name>.md` description line -> the first
-// non-comment manifest row carrying a description -> "(component)".
-function componentFolderDescriptor(name, dir, hasComponentMd, hasExposureCsv) {
-  const componentMdAbs = hasComponentMd ? path.join(dir, 'capabilities/component.md') : null;
-  const exposureCsvAbs = hasExposureCsv ? path.join(dir, 'exposure.csv') : null;
-  const rows = exposureCsvAbs ? parseExposureCsv(exposureCsvAbs) : [];
-
-  const fromComponentMd = componentMdAbs ? frontmatterField(componentMdAbs, 'description') : null;
-  const fromOwnDoc = firstDescriptionLine(path.join(dir, `${name}.md`));
-  const fromFirstRow = (rows.find((r) => r.description) || {}).description || null;
-  const description = fromComponentMd || fromOwnDoc || fromFirstRow || '(component)';
-
-  return {
-    kind: 'component',
-    name,
-    description,
-    entry_point: componentMdAbs ? rel(componentMdAbs) : null,
-    tools: [],
-    exposure_rows: rows,
-    exposure_path: exposureCsvAbs ? rel(exposureCsvAbs) : null,
-    has_component_md: hasComponentMd,
-  };
 }
 
 // Minimal frontmatter field read — the same `---\nkey: value\n---` block every
@@ -220,98 +173,39 @@ function frontmatterField(absPath, key) {
   } catch {
     return null;
   }
-  const block = text.match(/^---\n([\s\S]*?)\n---/);
+  const block = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!block) return null;
-  const line = block[1].split('\n').find((l) => l.startsWith(`${key}:`));
+  const line = block[1].split(/\r?\n/).find((l) => l.startsWith(`${key}:`));
   if (!line) return null;
   const value = line.slice(line.indexOf(':') + 1).trim();
   const unquoted = /^(["']).*\1$/.test(value) ? value.slice(1, -1) : value;
   return unquoted || null;
 }
 
-// A capabilities/component.md's DELIVERABLE body never includes its own frontmatter block — the
-// frontmatter is addressing metadata (the level-1 blurb), the body is what level 2
-// prints (registry: "component entry point" § definition — the agent-facing
-// orientation text, distinct from the manifest fact the frontmatter carries).
+// A component's orientation text DELIVERABLE never includes its own frontmatter
+// block: the body is what level 2 prints.
 function stripFrontmatter(text) {
   if (!text) return text;
   const m = text.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
   return m ? text.slice(m[0].length).replace(/^(?:\r?\n)+/, '') : text;
 }
 
-// A component's own exposure.csv — same 7-column schema as the module-root
-// manifest (concepts/exposure-manifest.md), read with a quoted-field-aware line
-// parser (a naive split corrupts any description carrying a comma inside quotes,
-// which coord's and work-on-ignite's both do).
-function parseExposureCsv(absPath) {
-  let text;
-  try {
-    text = fs.readFileSync(absPath, 'utf8');
-  } catch {
-    return [];
-  }
-  const dataLines = text.split('\n').filter((l) => l.trim() && !l.trim().startsWith('#'));
-  if (!dataLines.length) return [];
-  const header = splitCsvLine(dataLines[0]);
-  const rows = [];
-  for (const line of dataLines.slice(1)) {
-    const cells = splitCsvLine(line);
-    if (!cells.length || !cells.some((c) => c)) continue;
-    const row = {};
-    header.forEach((h, i) => { row[h] = cells[i] || ''; });
-    rows.push(row);
-  }
-  return rows;
+// The component with this name, or null.
+function findComponent(moduleName, componentName) {
+  return (components(moduleName) || []).find((c) => c.name === componentName) || null;
 }
 
-function splitCsvLine(line) {
-  const out = [];
-  let cur = '';
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i += 1) {
-    const ch = line[i];
-    if (inQuotes) {
-      if (ch === '"' && line[i + 1] === '"') { cur += '"'; i += 1; } else if (ch === '"') inQuotes = false;
-      else cur += ch;
-    } else if (ch === '"') inQuotes = true;
-    else if (ch === ',') { out.push(cur); cur = ''; } else cur += ch;
-  }
-  out.push(cur);
-  return out;
-}
-
-// The name an agent types. Installed components are addressed by their INSTALLED
-// name (what `.claude/` actually carries), with the `rbtv-` prefix stripped so the
-// module scope is not repeated in every token: `rbtv core commit`, not
-// `rbtv core rbtv-commit`.
-// ALL matches, never the first. One name can legitimately carry two facets — in
-// `core`, `safe-move` is BOTH a skill (the loader installed into `.claude/`) and a
-// tool (the package it loads). Returning the first match would deliver one facet
-// and silently hide the other, and which one you got would depend on manifest key
-// order. Level 2 delivers every facet instead.
-function findComponents(moduleName, componentName_) {
-  const list = components(moduleName);
-  if (!list) return [];
-  return list.filter((c) => c.name === componentName_);
-}
-
-// Rules ride the drill's results (registry: "entering a module or component
-// delivers that scope's rules in the tool result, module/component granularity").
-// Delivered as NAMES + PATHS inline and BODIES under --rules: `core` alone carries
-// 11 rules, and unconditionally inlining them would make the cheap scan step the
-// most expensive output the CLI produces. Divergence stated in rbtv-cli.md.
+// Rules ride the drill's results: delivered as NAMES + PATHS inline and BODIES
+// under --rules, because unconditionally inlining them would make the cheap scan
+// step the most expensive output the CLI produces.
 function rulesOf(moduleName) {
   if (!moduleExists(moduleName)) return [];
   const out = [];
   for (const comp of componentFolders(moduleName)) {
-    for (const row of comp.exposure_rows || []) {
-      if ((row.method || '').trim() !== 'rule') continue;
-      const entry = (row['entry-point'] || '').trim();
-      out.push({
-        name: row['part-id'] || '(unnamed rule row)',
-        description: row.description || '',
-        path: entry ? `${moduleName}/${comp.name}/${entry}` : null,
-      });
+    for (const unit of comp.units) {
+      if (unit.method === 'rule') {
+        out.push({ name: unit.id, description: unit.description, path: unit.entry });
+      }
     }
   }
   return out;
@@ -328,21 +222,6 @@ function readBody(relPath) {
   }
 }
 
-function firstDescriptionLine(absPath) {
-  let text;
-  try {
-    text = fs.readFileSync(absPath, 'utf8');
-  } catch {
-    return null;
-  }
-  for (const line of text.split('\n')) {
-    const t = line.trim();
-    if (!t || t.startsWith('#') || t.startsWith('---')) continue;
-    return t.replace(/[*_`]/g, '');
-  }
-  return null;
-}
-
 function rel(abs) {
   return path.relative(RBTV_ROOT, abs).split(path.sep).join('/');
 }
@@ -352,9 +231,8 @@ module.exports = {
   modules,
   moduleExists,
   components,
-  capabilities,
   componentFolders,
-  findComponents,
+  findComponent,
   rulesOf,
   readBody,
   stripFrontmatter,

@@ -167,13 +167,13 @@ const CHECKS = [
 
     const l1 = runCli(['ignite']);
     if (l1.status !== 0) throw new Error(`level 1 exited ${l1.status}`);
-    if (!/agents \(component\)/.test(l1.stdout)) throw new Error('level 1 does not list agents');
+    if (!/^agents\b/m.test(l1.stdout)) throw new Error('level 1 does not list agents');
     if (/rbtv ignite daemon/.test(l1.stdout)) throw new Error('level 1 still surfaces the retired ignite daemon verb');
 
     const l2 = runCli(['ignite', 'agents']);
     if (l2.status !== 0) throw new Error(`level 2 exited ${l2.status}`);
-    if (!/entry point:/.test(l2.stdout) && !/exposure rows/.test(l2.stdout)) {
-      throw new Error('level 2 delivers neither an entry point nor exposure rows');
+    if (!/entry point:/.test(l2.stdout) && !/units \(/.test(l2.stdout)) {
+      throw new Error('level 2 delivers neither an entry point nor units');
     }
     if (!/ignite-agent/.test(l2.stdout)) throw new Error('level 2 does not list the ignite-agent invocable');
   }],
@@ -276,22 +276,13 @@ const CHECKS = [
     if (runCli(['ignite', '--nonsense']).status !== 2) throw new Error('an unknown drill flag is not a usage error');
   }],
 
-  ['a name resolves to EVERY facet it has, never whichever came first', () => {
-    // `core safe-move` used to be a skill AND a tool, and returning the first match
-    // handed over one facet and hid the other. That name went with the retired
-    // installer's manifest, and no name on the tree carries two facets today — a
-    // capability folder and a component folder sharing a name still would, so the
-    // ALL-matches contract is held here against every live name instead of one
-    // fixture. It cannot go vacuous: a `findComponents` that dropped or duplicated
-    // a match reddens on the very first name.
+  ['every component on the tree resolves by name to exactly itself', () => {
     let checked = 0;
     for (const mod of catalog.modules()) {
-      const list = catalog.components(mod.name) || [];
-      for (const name of new Set(list.map((c) => c.name))) {
-        const expected = list.filter((c) => c.name === name).length;
-        const got = catalog.findComponents(mod.name, name).length;
-        if (got !== expected) {
-          throw new Error(`${mod.name} ${name}: findComponents gave ${got}, components() holds ${expected}`);
+      for (const comp of catalog.components(mod.name) || []) {
+        const got = catalog.findComponent(mod.name, comp.name);
+        if (!got || got.name !== comp.name) {
+          throw new Error(`${mod.name} ${comp.name}: findComponent did not return it`);
         }
         checked += 1;
       }
@@ -300,8 +291,8 @@ const CHECKS = [
     const r = runCli(['core', 'coding']);
     if (r.status !== 0) throw new Error(`\`rbtv core coding\` exited ${r.status}`);
     const j = JSON.parse(runCli(['--json', 'core', 'coding']).stdout);
-    if (j.facets.length !== catalog.findComponents('core', 'coding').length) {
-      throw new Error('--json dropped a facet');
+    if (j.units.length !== catalog.findComponent('core', 'coding').units.length) {
+      throw new Error('--json dropped a unit');
     }
   }],
 
@@ -326,42 +317,28 @@ const CHECKS = [
     if (blurb(null) !== '') throw new Error('blurb of null is not empty');
   }],
 
-  // cli-drill seat (owner-ruled 2026-08-24, option a): a component-level manifest
-  // (`capabilities/component.md` + `exposure.csv` beside the parts it declares, one level down
-  // from the module root) is now a level-1 row, not an invisible folder.
-  ['a component FOLDER (capabilities/component.md + exposure.csv, no module-root row) is listed at level 1', () => {
-    const comps = catalog.components('ignite') || [];
-    const agents = comps.find((c) => c.name === 'agents' && c.kind === 'component');
-    if (!agents) throw new Error('`ignite` components() does not carry an agents component-folder row');
-    if (!agents.exposure_rows || !agents.exposure_rows.length) throw new Error('agents carries no exposure rows');
+  ['a component is listed at level 1 with its units read from its folders', () => {
+    const agents = catalog.findComponent('ignite', 'agents');
+    if (!agents) throw new Error('`ignite` components() does not carry the agents component');
+    if (!agents.units.some((u) => u.id === 'ignite-agent' && u.method === 'tool')) {
+      throw new Error('agents carries no ignite-agent tool unit');
+    }
 
     const r = runCli(['ignite']);
     if (r.status !== 0) throw new Error(`\`rbtv ignite\` exited ${r.status}`);
-    if (!/agents \(component\)/.test(r.stdout)) throw new Error('level 1 does not list agents as a component');
+    if (!/^agents\b/m.test(r.stdout)) throw new Error('level 1 does not list agents as a component');
   }],
 
-  ['level 2 on a component folder delivers capabilities/component.md\'s body (frontmatter stripped) then its exposure.csv rows', () => {
+  ['level 2 delivers the orientation body (frontmatter stripped) then the units', () => {
     const r = runCli(['ignite', 'agents']);
     if (r.status !== 0) throw new Error(`\`rbtv ignite agents\` exited ${r.status}`);
     if (!/^\n?ignite agents \(component\)/m.test(r.stdout)) throw new Error('no component header printed');
-    const bodyIdx = r.stdout.indexOf('# agents');
-    if (bodyIdx === -1) throw new Error('capabilities/component.md body (frontmatter stripped) was not delivered');
-    if (/^description:/m.test(r.stdout.slice(0, bodyIdx))) throw new Error('capabilities/component.md frontmatter leaked into the printed body');
-    const rowsIdx = r.stdout.indexOf('exposure rows');
-    if (rowsIdx === -1 || rowsIdx < bodyIdx) throw new Error('exposure rows did not follow the capabilities/component.md body');
-    if (!/ignite-agent \(tool\/path\)/.test(r.stdout)) throw new Error('the manifest row was not delivered');
-  }],
-
-  ['a component folder delivers its body under ONE header, never a second answer', () => {
-    const r = runCli(['ignite', 'agents']);
-    if (r.status !== 0) throw new Error(`\`rbtv ignite agents\` exited ${r.status}`);
-    if (!/ignite-agent \(tool\/path\)/.test(r.stdout)) throw new Error('agents exposure rows did not deliver ignite-agent');
-    // The second facet used to come from a module-root manifest row; with that
-    // manifest retired the only remaining source is a capability folder of the
-    // same name, and ignite has none — so the note is not asserted here. What IS
-    // asserted is the half that outlived it: ONE header, the folder's body.
-    const headerCount = (r.stdout.match(/ignite agents \(/g) || []).length;
-    if (headerCount > 1) throw new Error(`agents rendered ${headerCount} separate facet headers — expected one, the folder`);
+    const bodyIdx = r.stdout.indexOf('--- ignite/agents/capabilities/component.md ---');
+    if (bodyIdx === -1) throw new Error('the orientation body was not delivered');
+    if (/^description:/m.test(r.stdout.slice(bodyIdx))) throw new Error('frontmatter leaked into the printed body');
+    const unitsIdx = r.stdout.indexOf('units (');
+    if (unitsIdx === -1 || unitsIdx < bodyIdx) throw new Error('units did not follow the orientation body');
+    if (!/ignite-agent \(tool\)/.test(r.stdout)) throw new Error('the ignite-agent unit was not delivered');
   }],
 
   ['an unknown name under a module WITH component folders still refuses, and the known-list carries the new components', () => {
