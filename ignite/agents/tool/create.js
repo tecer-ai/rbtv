@@ -142,7 +142,7 @@ function installerCommand(args) {
 
 function resolveSkill(id, deps, workspace) {
   if (deps.resolveSkill) return deps.resolveSkill(id, workspace);
-  const res = installerCommand(['show', id, '--kind', 'skill', '--json', '--target', workspace]);
+  const res = installerCommand(['show', id, '--type', 'skill', '--json', '--target', workspace]);
   if (res.error) fail(`installer resolver failed: ${res.error.message}`);
   let body;
   try {
@@ -150,9 +150,9 @@ function resolveSkill(id, deps, workspace) {
   } catch {
     fail(`installer resolver did not return JSON: ${(res.stderr || res.stdout || 'empty result').trim()}`);
   }
-  if (res.status !== 0 || !body.ok) fail(`unknown skill: ${id}: ${body.refusal?.message || 'resolution failed'}`);
+  if (res.status !== 0 || !body.ok) fail(`unknown skill: ${id}: ${body.error?.message || 'resolution failed'}`);
   const selection = body.selection;
-  if (selection?.kind !== 'part' || selection.method !== 'skill' || typeof selection.id !== 'string') {
+  if (selection?.scope !== 'item' || selection.type !== 'skill' || typeof selection.id !== 'string') {
     fail(`skill name must select one skill part: ${id}`);
   }
   return selection.id;

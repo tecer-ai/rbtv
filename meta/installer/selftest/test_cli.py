@@ -17,7 +17,7 @@ from lib.commands import (
     _HANDLERS,
     cmd_add,
     cmd_doctor,
-    cmd_dupe,
+    cmd_update,
     cmd_li,
     cmd_ls,
     cmd_rm,
@@ -34,9 +34,10 @@ def parser_selectors_index(ctx) -> None:
     print("\nCLI — parser, selectors, stable names, confirmation")
     for verb in ("add", "remove", "rm", "list", "status", "show",
                  "ls", "li", "harness", "artifact",
-                 "dupe-artifacts", "doctor", "selftest", "interactive"):
+                 "configure", "update", "search", "doctor", "selftest", "interactive"):
         argv = (["add", "-A"] if verb == "add" else
-                ["show", "fixskill"] if verb == "show" else [verb])
+                ["show", "fixskill"] if verb == "show" else
+                ["update", "guidance"] if verb == "update" else [verb])
         ns = build_parser().parse_args(argv)
         check(f"CLI-reach-{verb}", ns.verb == verb
               and verb in _HANDLERS, ns.verb)
@@ -47,7 +48,7 @@ def parser_selectors_index(ctx) -> None:
         rc_ls = cmd_ls(build_parser().parse_args(["ls"]), empty, catalog, [])
         rc_li = cmd_li(build_parser().parse_args(["li"]), empty, catalog, [])
         try:
-            cmd_dupe(build_parser().parse_args(["dupe-artifacts"]),
+            cmd_update(build_parser().parse_args(["update", "guidance"]),
                      empty, catalog, [])
             rc_dupe = "ok"
         except Refuse as exc:

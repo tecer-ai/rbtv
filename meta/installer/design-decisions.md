@@ -5,6 +5,36 @@ name from the code that implements it; the module that owns a decision names it
 in its own docstring. Delegated to the builder and recorded here — this file is
 documentation, nothing reads it at runtime.
 
+## D26 — CURRENT PUBLIC COMMANDS AND LOCAL UPDATE (2026-09-29)
+
+The approved CLI redesign supersedes the public spellings and display semantics
+in D16–D16c while keeping their persisted workspace-setting rationale. `configure`
+initializes a target or replaces supplied `harness` and `guidance` settings; a
+first `add` may still supply both settings directly. Public item classification is
+`type` (`--type`, `--exclude-type`, and JSON `type`); source exposure rows and
+saved installation records still use their internal `method` field. Structured
+`show` output keeps a `selection` object and stable `id`, uses `scope` for
+module/component/item, and uses `type` for an item. `list` follows exact named
+scope through module, component, and item; `search` matches names and
+descriptions broadly. Short names act only when unique.
+
+`update guidance` copies maintained human text into the configured counterpart
+instruction files while preserving each destination's generated sections.
+`update scaffolding` regenerates selected installer-owned files and the generated
+sections in EVERY configured instruction file, including guidance counterparts.
+It preserves human text outside those sections and does not copy maintained
+human text. `update all` validates both phases before writing and runs both.
+This content-based split is the owner's 2026-09-29 override of the preview's
+whole-counterpart-unchanged wording. Neither scope expands selected items or
+downloads a newer source version. `dupe-artifacts` is replaced by `update
+guidance`; guidance-folder exclusions are edited with `add|remove guidance
+exclude FOLDER`. The prior manual-placement description in D8 is historical.
+
+Saved `install.json` records retain their supported schema. Named removal needs
+no blanket confirmation; a broad nonempty removal needs explicit confirmation.
+Dry runs change nothing. The installer exposes saved selection separately from
+the `doctor` check of files and selected shared command shortcuts.
+
 ## D25 — SHARED PATH SHORTCUT OWNERSHIP
 
 PATH SHORTCUT OWNERSHIP — `~/.rbtv/path-owners.json` is a machine-local record
@@ -148,11 +178,12 @@ qwen `QWEN.md`, opencode `AGENTS.md`-or-`CLAUDE.md`).
 There is no index file: the earlier `.agents/rbtv2-exposure.md` was an
 invented artifact in no CMP-12 cell, auto-loaded by no harness, and is
 RETIRED — an existing one is removed by the ordinary booked-file machinery
-on the next install or uninstall. Every `agents.md` row and every forced
-rule read is carried by the GENERATED guidance file (D13), inside one fenced
-`rbtv2:start … rbtv2:end` block at its head. The BASIS is still never
-written: whatever block the basis itself would need is REPORTED for the
-human to place, and mirrors from there.
+on the next install or uninstall. Every `agents.md` row is carried inside
+one fenced `rbtv2:start … rbtv2:end` block at the head of every root
+guidance file, and every forced rule read in the guidance files its
+harnesses read (D13). That block is a shared claim regenerated into every
+configured root guidance file — the basis included — preserving everything
+outside the fence; the human authors the rest of the file.
 
 THE FORCED READ (CMP-12 § Fallback mechanics) is for the harnesses that
 auto-inject no rule folder — Codex and Qwen ONLY. It is emitted into a

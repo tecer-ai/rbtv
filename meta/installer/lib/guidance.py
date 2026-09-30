@@ -17,7 +17,7 @@ from .constants import (
     GUIDANCE_SKIP_DIRS,
     STATE_REL,
 )
-from .claims import _block_del
+from .claims import _block_del, _fence, _instruction_block_valid
 
 
 def resolve_basis(stored, override: str | None) -> str | None:
@@ -115,7 +115,7 @@ def strip_generated_banner(body: str) -> tuple[str, bool]:
 
 def plan_mirror(target: Path, basis: str | None, harnesses,
                 excludes: list[str] | tuple[str, ...] = (),
-                blocks: dict[str, str] | None = None
+                preserve_destination_block: bool = False,
                 ) -> tuple[dict[str, str], frozenset[str], list[str],
                            list[str], dict[str, str]]:
     """The mirror files the basis implies: one per TARGET NAME (D13, harness-
@@ -128,26 +128,23 @@ def plan_mirror(target: Path, basis: str | None, harnesses,
     was removed before mirroring; `targets` is the resolved filename set;
     `debanner` maps a basis path to its cleaned body (see below).
 
-    `blocks` maps a target filename to its exposure block (D8), placed at the
-    ROOT only — nested mirrors are pure per-folder guidance.
+    Guidance-only copies keep each root destination's existing generated
+    section verbatim. Other scopes render fresh sections as shared claims.
+    This planner creates no nested sections; existing nested destination
+    sections are retained beside the copied per-folder human guidance.
     """
     if basis is None:
         return {}, frozenset(), [], [], {}
-    blocks = blocks or {}
     targets = mirror_targets(harnesses, basis)
     root_source = target / basis
     if not root_source.is_file():
-        if not targets:
-            # Nothing would be rendered anyway — a missing basis is not this
-            # run's problem, and there is no basis on disk to protect.
-            return {}, frozenset(), [], [], {}
         other = " or ".join(n for n in GUIDANCE_NAMES if n != basis)
         raise Refuse(
             "guidance-basis-missing",
             f"the recorded guidance basis {basis!r} does not exist at the "
             "install root, so there is nothing to mirror. Recover with ONE of: "
-            f"restore {basis}; or `rbtv install set artifact {other}` to make "
-            f"the file you do have the basis; or `rbtv install set artifact "
+            f"restore {basis}; or `rbtv install configure --guidance {other}` to make "
+            f"the file you do have the basis; or `rbtv install configure --guidance "
             f"{BASIS_NONE}` to turn the mirror off. Nothing was written",
             str(root_source))
     files: dict[str, str] = {}
@@ -171,7 +168,8 @@ def plan_mirror(target: Path, basis: str | None, harnesses,
                 continue          # unreadable proves nothing — leave it alone
             cleaned, had_banner = strip_generated_banner(body)
             if had_banner:
-                cleaned = _block_del(cleaned, "<!--").lstrip("\n")
+                _instruction_block_valid(cleaned, rel, source)
+                cleaned = _block_del(cleaned, "<!--", preserve_outside=True).lstrip("\n")
                 debanner[rel] = (cleaned if cleaned.endswith("\n")
                                  else cleaned + "\n")
             continue
@@ -182,25 +180,33 @@ def plan_mirror(target: Path, basis: str | None, harnesses,
                 "guidance-basis-unreadable",
                 f"the guidance basis {rel!r} is not readable as UTF-8 text "
                 f"({exc}) — a mirror of it would be garbage; refusing before "
-                f"any write. Turn the mirror off with `rbtv install set "
-                f"artifact {BASIS_NONE}` if this file is not meant to be "
+                f"any write. Turn the mirror off with `rbtv install configure "
+                f"--guidance {BASIS_NONE}` if this file is not meant to be "
                 "guidance, or skip its directory with `rbtv install add "
-                "artifact exclude <dir>`",
+                "guidance exclude <dir>`",
                 str(source)) from exc
         body, stripped_banner = strip_generated_banner(body)
         if stripped_banner:
             stripped.append(rel)
-        # A basis that used to be OUR generated file still carries the fenced
-        # exposure block — drop it, or every flip would stack another copy.
-        body = _block_del(body, "<!--")
-        at_root = source.parent == target
+        # The source section belongs to its own harness. Never copy it into a
+        # counterpart, even when no catalog source is available to refresh it.
+        _instruction_block_valid(body, rel, source)
+        body = _block_del(body, "<!--", preserve_outside=True)
         for mirror in targets:
-            block = blocks.get(mirror, "") if at_root else ""
+            mrel = (source.parent / mirror).relative_to(target).as_posix()
+            block = ""
+            destination = target / mrel
+            if destination.is_file():
+                existing = destination.read_bytes().decode("utf-8")
+                if _instruction_block_valid(existing, mrel, destination):
+                    if preserve_destination_block or source.parent != target:
+                        start, end = _fence("<!--")
+                        block = (start + existing.split(start, 1)[1]
+                                 .split(end, 1)[0] + end)
             text = (f"<!-- GENERATED by {INSTALLER_NAME} — DO NOT EDIT.\n"
                     f"     {mirror} mirrors {rel}, per the guidance basis "
                     f"recorded in {STATE_REL.as_posix()}.\n"
                     f"     Edit {rel}; re-run the installer to refresh this "
                     "file. -->\n\n") + (block + "\n" if block else "") + body
-            mrel = (source.parent / mirror).relative_to(target).as_posix()
             files[mrel] = text if text.endswith("\n") else text + "\n"
     return files, frozenset(bases), sorted(stripped), targets, debanner

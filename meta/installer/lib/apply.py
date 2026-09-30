@@ -14,6 +14,7 @@ from .claims import (
     _block_set,
     _claim_id,
     _fence,
+    _instruction_block_valid,
     _jdel,
     _jget,
     _jset,
@@ -21,6 +22,14 @@ from .claims import (
 from .content import _is_ours
 from .fsio import write_file
 from .state import known_claims, known_files
+
+
+def _instruction_fence(path: Path, rel: str) -> bool:
+    """Validate the one root instruction section before any file changes."""
+    if not path.is_file():
+        return False
+    text = path.read_bytes().decode("utf-8")
+    return _instruction_block_valid(text, rel, path)
 
 
 def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
@@ -40,7 +49,7 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
     # generated-mirror banner) is taken over and booked. The collision refusal
     # exists to protect HAND-AUTHORED files; a file that says on its face it was
     # generated is not one. Without that proof it still refuses.
-    collisions, adopted = [], []
+    collisions, adopted, adopted_sections = [], [], []
     for rel in files:
         if rel in ours_files or not (target / rel).exists():
             continue
@@ -53,10 +62,19 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
     # Key-level collisions inside shared files (D12).
     for claim in claims:
         cid = _claim_id(claim["path"], claim["key"])
-        if cid in ours_claims:
-            continue
         path = target / claim["path"]
         if not path.is_file():
+            continue
+        instruction = (claim["path"] in GUIDANCE_NAMES
+                       and claim["fmt"] == "text"
+                       and claim["comment"] == "<!--"
+                       and claim["key"] is None)
+        if instruction:
+            valid_fence = _instruction_fence(path, claim["path"])
+            if (valid_fence and cid not in ours_claims
+                    and not _is_ours(target, claim["path"])):
+                adopted_sections.append(claim["path"])
+        if cid in ours_claims:
             continue
         if claim["fmt"] == "json":
             try:
@@ -73,7 +91,9 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
                                   + ".".join(claim["key"]))
         else:
             start, _ = _fence(claim["comment"])
-            if start in path.read_text(encoding="utf-8"):
+            if (start in path.read_text(encoding="utf-8")
+                    and not instruction
+                    and not _is_ours(target, claim["path"])):
                 collisions.append(f"{claim['path']}::{FENCE_ID}-block")
     if collisions:
         collisions = sorted(set(collisions))
@@ -90,7 +110,7 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
                 "guidance or a mirror rendered by another tool (install.py's "
                 "`model_mirror` renders one beside every CLAUDE.md). This run "
                 f"would generate it from the basis. DO NOT delete it: either "
-                f"`rbtv install set artifact {BASIS_NONE}` to leave both root "
+                f"`rbtv install configure --guidance {BASIS_NONE}` to leave both root "
                 "guidance files alone, or point the basis at the file you "
                 "author and retire the other tool's copy of the one it "
                 "generates. "
@@ -113,12 +133,34 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
     stale_files = [rel for rel in stale if rel not in released]
     planned_claims = {_claim_id(c["path"], c["key"]) for c in claims}
     stale_claims = sorted(ours_claims - planned_claims)
+    for cid in stale_claims:
+        rel, _, key = cid.partition("::")
+        if rel in GUIDANCE_NAMES and key == "#block":
+            _instruction_fence(target / rel, rel)
+    file_write = sorted(rel for rel, body in files.items()
+                        if not (target / rel).is_file()
+                        or not _same(target / rel, body))
+    file_unchanged = sorted(set(files) - set(file_write))
+    file_delete = sorted(rel for rel in stale_files
+                         if (target / rel).is_file())
+    shared_rendered, shared_bases = _render_shared(
+        target, claims, stale_claims, files, set(file_delete))
+    shared_write, shared_delete, shared_unchanged = _shared_delta(
+        shared_rendered, shared_bases)
 
     if dry_run:
-        return {"written": [], "skipped": sorted(files), "deleted": stale_files,
+        return {"written": [], "skipped": file_unchanged, "deleted": [],
                 "shared": sorted(planned_claims), "adopted": adopted,
+                "adopted_sections": sorted(adopted_sections),
                 "released": released,
-                "shared_removed": stale_claims, "dry_run": True}
+                "shared_removed": stale_claims, "dry_run": True,
+                "planned_changes": {
+                    "write_files": file_write,
+                    "delete_files": file_delete,
+                    "unchanged_files": file_unchanged,
+                    "write_shared_files": shared_write,
+                    "delete_shared_files": shared_delete,
+                    "unchanged_shared_files": shared_unchanged}}
 
     written, skipped = [], []
     for rel in sorted(files):
@@ -140,10 +182,13 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
             deleted.append(rel)
         _prune(target, path.parent)
 
-    _apply_shared(target, claims, stale_claims)
+    _apply_shared(target, shared_rendered)
     return {"written": written, "skipped": skipped, "deleted": deleted,
             "shared": sorted(planned_claims), "shared_removed": stale_claims,
-            "adopted": adopted, "released": released, "dry_run": False}
+            "shared_written": shared_write, "shared_deleted": shared_delete,
+            "shared_skipped": shared_unchanged,
+            "adopted": adopted, "adopted_sections": sorted(adopted_sections),
+            "released": released, "dry_run": False}
 
 
 def _same(path: Path, body: str | bytes) -> bool:
@@ -157,10 +202,10 @@ def _same(path: Path, body: str | bytes) -> bool:
         return False
 
 
-def _apply_shared(target: Path, claims: list[dict],
-                  stale_claims: list[str]) -> None:
-    """Set every planned claim and drop every stale one — key by key, block by
-    block (D12). A shared file is deleted only when NOTHING is left in it."""
+def _render_shared(target: Path, claims: list[dict], stale_claims: list[str],
+                   files: dict[str, str | bytes], deleted_files: set[str]
+                   ) -> tuple[dict[str, str], dict[str, str | None]]:
+    """Render over the post-file-plan body, as real apply would see it."""
     touched: dict[str, dict] = {}
     for claim in claims:
         touched.setdefault(claim["path"], {"fmt": claim["fmt"],
@@ -170,38 +215,77 @@ def _apply_shared(target: Path, claims: list[dict],
     for cid in stale_claims:
         rel, _, keypart = cid.partition("::")
         fmt = "json" if keypart != "#block" else "text"
-        entry = touched.setdefault(rel, {"fmt": fmt, "comment": "#",
+        comment = "<!--" if rel.endswith(".md") else "#"
+        entry = touched.setdefault(rel, {"fmt": fmt, "comment": comment,
                                          "set": [], "del": []})
         entry["del"].append(None if keypart == "#block" else json.loads(keypart))
 
+    rendered: dict[str, str] = {}
+    bases: dict[str, str | None] = {}
     for rel, work in touched.items():
         path = target / rel
+        if rel in files:
+            planned = files[rel]
+            base = planned.decode("utf-8") if isinstance(planned, bytes) else planned
+            on_disk = base
+        elif rel in deleted_files:
+            base = None
+            on_disk = None
+        else:
+            on_disk = path.read_bytes().decode("utf-8") if path.is_file() else None
+            base = (on_disk if rel in GUIDANCE_NAMES or on_disk is None else
+                    path.read_text(encoding="utf-8"))
+        bases[rel] = on_disk
         if work["fmt"] == "json":
-            doc = {}
-            if path.is_file():
-                doc = json.loads(path.read_text(encoding="utf-8") or "{}")
+            doc = json.loads(base or "{}")
             for key in work["del"]:
                 _jdel(doc, key)
             for claim in work["set"]:
                 _jset(doc, claim["key"], claim["value"])
             text = json.dumps(doc, indent=2, sort_keys=True) + "\n" if doc else ""
         else:
-            text = path.read_text(encoding="utf-8") if path.is_file() else ""
+            text = base or ""
             if work["del"]:
-                text = _block_del(text, work["comment"])
+                text = _block_del(
+                    text, work["comment"],
+                    preserve_outside=(rel in GUIDANCE_NAMES
+                                      and work["comment"] == "<!--"))
             for claim in work["set"]:
-                text = _block_set(text, claim["value"], work["comment"])
-            if not text.strip():
+                text = _block_set(
+                    text, claim["value"], work["comment"],
+                    preserve_outside=(rel in GUIDANCE_NAMES
+                                      and work["comment"] == "<!--"))
+            if not text.strip() and rel not in GUIDANCE_NAMES:
                 text = ""
+        rendered[rel] = text
+    return rendered, bases
+
+
+def _shared_delta(rendered: dict[str, str], bases: dict[str, str | None]
+                  ) -> tuple[list[str], list[str], list[str]]:
+    write, delete, unchanged = [], [], []
+    for rel, text in rendered.items():
+        base = bases[rel]
+        if text:
+            (unchanged if base is not None and base == text else write).append(rel)
+        elif base is not None:
+            delete.append(rel)
+        else:
+            unchanged.append(rel)
+    return sorted(write), sorted(delete), sorted(unchanged)
+
+
+def _apply_shared(target: Path, rendered: dict[str, str]) -> None:
+    """Write only shared bodies that differ, using the preview's rendering."""
+    for rel, text in rendered.items():
+        path = target / rel
         if not text:
             if path.is_file():
                 path.unlink()
             _prune(target, path.parent)
-            continue
-        if path.is_file() and path.read_text(encoding="utf-8") == text:
-            continue
-        path.parent.mkdir(parents=True, exist_ok=True)
-        write_file(path, text, newline="\n")
+        elif not (path.is_file() and _same(path, text)):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            write_file(path, text, newline="\n")
 
 
 def _clean_bases(target: Path, report: dict, dry_run: bool) -> None:

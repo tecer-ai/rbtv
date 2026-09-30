@@ -188,7 +188,7 @@ def hub_units(ctx) -> None:
           "hubfix" in json.loads((hw / ".mcp.json").read_text(encoding="utf-8"))
           .get("mcpServers", {}))
     check("H-realize-path — catalogued, nothing under target, linked by part-id",
-          not any(r["method"] == "path"
+          not any(r["type"] == "path"
                   for r in hr["report"]["skipped_inventory_rows"])
           and not (hw / "hubbin.py").exists()
           and "hubbin.py" in read_state(hw)["components"]

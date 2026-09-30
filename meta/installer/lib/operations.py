@@ -17,7 +17,7 @@ from .constants import (
     STATE_REL,
 )
 from .catalog import _part_specs, catalog_parts_map
-from .claims import _claim_id
+from .claims import _block_set, _claim_id, _fence
 from .content import _exposure_block
 from .guidance import plan_mirror, resolve_basis
 from .pathlinks import (
@@ -93,7 +93,8 @@ def _rebook(state: dict, records: dict, files: dict, owners: dict,
 
 def _add_mirror(target: Path, state: dict, files: dict, owners: dict,
                 report: dict, override: str | None, harnesses,
-                exclude_override: list[str] | None = None) -> frozenset[str]:
+                exclude_override: list[str] | None = None,
+                preserve_destination_block: bool = False) -> frozenset[str]:
     """Fold the D13 mirror into the planned set — booked as an aggregate file,
     so collision-gating, idempotence and uninstall come from the same machinery
     every other installer-owned file uses.
@@ -108,12 +109,9 @@ def _add_mirror(target: Path, state: dict, files: dict, owners: dict,
     basis = resolve_basis(state.get("guidance_basis"), override)
     excludes = (list(exclude_override) if exclude_override is not None
                 else list(state.get("guidance_excludes") or []))
-    blocks = {name: _exposure_block(name, list(harnesses),
-                                    report.get("agents_parts") or [],
-                                    report.get("rule_parts") or [])
-              for name in GUIDANCE_NAMES}
     mirrors, bases, stripped, targets, debanner = plan_mirror(
-        target, basis, harnesses, excludes, blocks)
+        target, basis, harnesses, excludes,
+        preserve_destination_block=preserve_destination_block)
     # Carried privately: these are writes OUTSIDE the booked-file machinery
     # (booking a basis would put it on a later uninstall's delete set).
     report["_debanner"] = debanner
@@ -125,14 +123,23 @@ def _add_mirror(target: Path, state: dict, files: dict, owners: dict,
          "count": len(mirrors), "excludes": excludes,
          "banner_stripped": stripped} if basis
         else {"basis": None, "targets": []})
-    # D8 — every guidance file an installed harness reads that this run does NOT
-    # write (the basis, or all of them when the mirror is off) needs its block
-    # placed by hand. Reported, never written.
-    needed = {GUIDANCE_FILE[h] for h in harnesses if h in GUIDANCE_FILE}
-    report["guidance_manual"] = {
-        name: block for name, block in blocks.items()
-        if block and name in needed and name not in targets}
     return bases
+
+
+def _instruction_claims(report: dict, harnesses: list[str]) -> list[dict]:
+    """Owned sections in every configured root instruction file."""
+    start, end = _fence("<!--")
+    claims = []
+    for name in sorted({GUIDANCE_FILE[h] for h in harnesses
+                        if h in GUIDANCE_FILE}):
+        block = _exposure_block(name, harnesses,
+                                report.get("agents_parts") or [],
+                                report.get("rule_parts") or [])
+        if block:
+            body = block.split(start, 1)[1].split(end, 1)[0].strip()
+            claims.append({"path": name, "fmt": "text", "comment": "<!--",
+                           "key": None, "value": body})
+    return claims
 
 
 GITIGNORE_NOTE = (
@@ -252,9 +259,28 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
                harnesses: list[str], dry_run: bool,
                guidance_basis: str | None = None,
                guidance_excludes: list[str] | None = None,
-               parts: list[str] | None = None) -> dict:
+               parts: list[str] | None = None,
+               scope: str = "all") -> dict:
     state = upgrade_book(read_state(target), catalog_parts_map(catalog))
     records = dict(state.get("components") or {})
+    if scope == "guidance":
+        report: dict = {}
+        report["guidance_sections"] = []
+        mirror_files: dict[str, str] = {}
+        mirror_owners: dict[str, list] = {}
+        protect = _add_mirror(target, state, mirror_files, mirror_owners,
+                              report, guidance_basis,
+                              harnesses, guidance_excludes,
+                              preserve_destination_block=True)
+        prior = {**state, "components": {}, "shared_claims": []}
+        result = apply(target, mirror_files, [], prior, dry_run, protect)
+        _clean_bases(target, report, dry_run)
+        if not dry_run:
+            state["guidance_files"] = sorted(mirror_files)
+            write_state(target, state)
+        return {"ok": True, "scope": scope, "installed": picked,
+                "harnesses": harnesses, "files": sorted(mirror_files),
+                **result, "report": report}
     for cid in picked:
         c = catalog[cid]
         existing = records.get(cid) or {}
@@ -267,6 +293,16 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
             rec["files"] = list(existing["files"])
         records[cid] = rec
     files, owners, claims, report = plan_files(records, catalog, target)
+    saved_guidance = list(state.get("guidance_files") or [])
+    instruction_claims = _instruction_claims(report, harnesses)
+    claims += instruction_claims
+    report["guidance_sections"] = sorted(c["path"] for c in instruction_claims)
+    if scope == "scaffolding":
+        # The instruction-file copies belong exclusively to update guidance.
+        # Exclude them from both the plan and the old-file deletion set.
+        apply_state = {**state, "guidance_files": []}
+    else:
+        apply_state = state
     desired, path_owners = plan_path_links(target, _path_rows_from_report(report))
     requested_parts = set(parts or ())
     selected_path_parts = sorted(
@@ -282,14 +318,37 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
     with lock:
         if path_active:
             preflight_shared_links(bindir, desired, booked - set(desired), target)
-        protect = _add_mirror(target, state, files, owners, report, guidance_basis,
-                              installed_harnesses(records), guidance_excludes)
+        protect = (_add_mirror(target, state, files, owners, report, guidance_basis,
+                               harnesses, guidance_excludes)
+                   if scope == "all" else frozenset())
+        for claim in claims:
+            rel = claim["path"]
+            if rel in report.get("_debanner", {}) and claim["fmt"] == "text":
+                report["_debanner"][rel] = _block_set(
+                    report["_debanner"][rel], claim["value"], claim["comment"],
+                    preserve_outside=(rel in GUIDANCE_NAMES))
+            if (rel in files and rel in GUIDANCE_NAMES
+                    and claim["fmt"] == "text" and claim["comment"] == "<!--"):
+                # The shared claim will still be booked, but comparing a copy
+                # without its section to the finished file would rewrite it
+                # on every identical run and overstate dry-run changes.
+                files[rel] = _block_set(files[rel], claim["value"], "<!--",
+                                        preserve_outside=True)
+        copied = {rel for rel, owner in owners.items()
+                  if owner == ["<aggregate>"]}
+        if copied:
+            apply_state = {**apply_state,
+                           "shared_claims": [cid for cid in
+                                             apply_state.get("shared_claims") or []
+                                             if cid.partition("::")[0] not in copied]}
         _add_gitignore(target, owners, claims, report, known_files(state))
-        result = apply(target, files, claims, state, dry_run, protect)
+        result = apply(target, files, claims, apply_state, dry_run, protect)
         _clean_bases(target, report, dry_run)
         if not dry_run:
             _rebook(state, records, files, owners, claims, report,
                     path_owners=path_owners)
+            if scope == "scaffolding":
+                state["guidance_files"] = saved_guidance
             state["harnesses"] = [h for h in HARNESSES if h in harnesses]
             if guidance_basis is not None:
                 state["guidance_basis"] = guidance_basis
@@ -329,7 +388,7 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
                                      "legacy_preserved": []})
             report["path_setup"] = {"attempted": False, "ok": None,
                                     "recovery": "apply this install to persist PATH"}
-    return {"ok": True, "installed": picked, "harnesses": harnesses,
+    return {"ok": True, "scope": scope, "installed": picked, "harnesses": harnesses,
             "files": sorted(files), **result, "report": report}
 
 
@@ -374,6 +433,12 @@ def _do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
                                        target),
             str(rec0.get("tree_root", "")))
     files, owners, claims, report = plan_files(live, catalog, target)
+    instruction_claims = []
+    if records:
+        instruction_claims = _instruction_claims(
+            report, installed_harnesses(records))
+        claims += instruction_claims
+    report["guidance_sections"] = sorted(c["path"] for c in instruction_claims)
     desired, path_owners = plan_path_links(target, _path_rows_from_report(report))
     booked = booked_path_names(state)
     keep_names = booked_path_names({"components": stranded})
@@ -447,14 +512,15 @@ def do_install(target: Path, catalog: dict[str, dict], picked: list[str],
                harnesses: list[str], dry_run: bool,
                guidance_basis: str | None = None,
                guidance_excludes: list[str] | None = None,
-               parts: list[str] | None = None) -> dict:
+               parts: list[str] | None = None,
+               scope: str = "all") -> dict:
     """Serialize target state before building a plan from it."""
     if dry_run:
         return _do_install(target, catalog, picked, harnesses, dry_run,
-                           guidance_basis, guidance_excludes, parts)
+                           guidance_basis, guidance_excludes, parts, scope)
     with workspace_mutation_lock(target):
         return _do_install(target, catalog, picked, harnesses, dry_run,
-                           guidance_basis, guidance_excludes, parts)
+                           guidance_basis, guidance_excludes, parts, scope)
 
 
 def do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],

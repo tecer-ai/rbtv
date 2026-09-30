@@ -4,6 +4,9 @@ shared with the whole installed set.
 from __future__ import annotations
 
 import json
+from pathlib import Path
+
+from discovery import Refuse
 
 from .constants import FENCE_ID
 
@@ -50,20 +53,46 @@ def _fence(comment: str) -> tuple[str, str]:
     return f"<!-- {FENCE_ID}:start -->", f"<!-- {FENCE_ID}:end -->"
 
 
-def _block_set(text: str, body: str, comment: str) -> str:
+def _instruction_block_valid(text: str, rel: str, path: Path) -> bool:
+    """A root instruction file has zero or one complete owned section."""
+    start, end = _fence("<!--")
+    starts, ends = text.count(f"{FENCE_ID}:start"), text.count(f"{FENCE_ID}:end")
+    if not (starts or ends):
+        return False
+    if (starts != 1 or ends != 1 or text.count(start) != 1
+            or text.count(end) != 1 or text.index(start) > text.index(end)):
+        raise Refuse(
+            "guidance-section-malformed",
+            f"{rel} has an incomplete, duplicate, or reversed rbtv2 "
+            "instruction section; inspect its fences before retrying. "
+            "Nothing was written",
+            str(path))
+    return True
+
+
+def _block_set(text: str, body: str, comment: str,
+               *, preserve_outside: bool = False) -> str:
     start, end = _fence(comment)
     block = f"{start}\n{body.rstrip()}\n{end}\n"
     if start in text and end in text:
         head = text.split(start, 1)[0]
-        tail = text.split(end, 1)[1].lstrip("\n")
-        return head + block + tail
+        tail = text.split(end, 1)[1]
+        if preserve_outside:
+            return head + block.rstrip("\n") + tail
+        return head + block + tail.lstrip("\n")
+    if preserve_outside:
+        return text + block.rstrip("\n")
     return (text.rstrip() + "\n\n" if text.strip() else "") + block
 
 
-def _block_del(text: str, comment: str) -> str:
+def _block_del(text: str, comment: str,
+               *, preserve_outside: bool = False) -> str:
     start, end = _fence(comment)
     if start not in text or end not in text:
         return text
     head = text.split(start, 1)[0]
-    tail = text.split(end, 1)[1].lstrip("\n")
+    tail = text.split(end, 1)[1]
+    if preserve_outside:
+        return head + tail
+    tail = tail.lstrip("\n")
     return (head.rstrip() + "\n" + tail) if head.strip() else tail

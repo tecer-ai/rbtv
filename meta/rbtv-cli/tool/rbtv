@@ -35,7 +35,7 @@ function topHelp() {
     '  rbtv <module> <component>  level 2 — the component\'s entry point + its entry points',
     '',
     'ACT (delegates — no second implementation)',
-    '  rbtv install <verb>        manage here: status|list|show|add|remove|doctor',
+    '  rbtv install <verb>        manage here: status|list|search|show|configure|add|remove|update|doctor',
     '  rbtv control-panel <verb>  build the control panel page',
     '',
     'ORIENT',
@@ -96,6 +96,19 @@ function main(argvIn) {
   const head = argv[0];
   if (head === 'doctor') return doctor(opts);
   if (head === 'selftest') return runSelftest();
+  if (head === 'status') {
+    const flagErr = consumeFlags(argv.slice(1), opts);
+    if (flagErr !== 0) return flagErr;
+    const next = 'rbtv install status --target "<workspace>"';
+    if (opts.json) {
+      json({ ok: false, error: { code: 'wrong-command', message: 'status belongs to rbtv install' },
+        changed: false, next });
+      return 2;
+    }
+    console.error('RBTV — invalid command\n\nstatus belongs to rbtv install. Nothing changed.\n'
+      + `Fix: ${next}\nFor top-level commands: rbtv -h`);
+    return 2;
+  }
 
   // RESOLUTION ORDER. A bare module token is ALWAYS the drill: `rbtv ignite`
   // lists components, it never delegates. At position 2 a multi-token route wins

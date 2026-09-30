@@ -83,7 +83,7 @@ def _unknown(code: str, label: str, token: str, choices: list[str]) -> Refuse:
 def _ambiguous(token: str, choices: list[str]) -> Refuse:
     keys = sorted(set(choices))
     exc = Refuse("name-ambiguous",
-                 f"{token!r} names multiple parts or components: "
+                 f"{token!r} names multiple items or components: "
                  + ", ".join(keys) + ". Use a full identifier")
     exc.candidates = keys
     return exc
@@ -110,7 +110,7 @@ def resolve_name(token: str, catalog: dict, book: dict | None = None,
         part = by_key.get(token)
         if part and (not methods or part["method"] in methods):
             return {"kind": "part", "id": token, "parts": [part]}
-        raise _unknown("part-unknown", "part", token,
+        raise _unknown("part-unknown", "item", token,
                        [p["key"] for p in allowed])
     if token in components:
         parts = [p for p in allowed if p["component"] == token]
@@ -119,7 +119,7 @@ def resolve_name(token: str, catalog: dict, book: dict | None = None,
         if token in catalog and not is_installable(catalog[token]):
             raise Refuse("component-not-installable",
                          f"{token!r} has no installable exposure")
-        raise Refuse("kind-mismatch", f"{token!r} has no part of the requested kind")
+        raise Refuse("kind-mismatch", f"{token!r} has no item of the requested type")
     if not component_only:
         hits = [p for p in allowed if p["part_id"] == token]
         if len(hits) == 1:
@@ -179,8 +179,8 @@ def resolve_selection(args, catalog: dict[str, dict],
     for token in (*names, *pos_c, *neg_c, *pos_m, *neg_m):
         _retire_number(token)
     if not (all_flag or names or pos_c or pos_m or pos_x):
-        raise Refuse("selection-empty", "name a part/component, or use --all, "
-                     "--module, --component or --kind")
+        raise Refuse("selection-empty", "name an item or component, or use --all, "
+                     "--module, --component or --type")
 
     universe = (iter_booked_parts(catalog, book) if verb in ("rm", "remove")
                 else iter_catalog_parts(catalog))
@@ -206,7 +206,7 @@ def resolve_selection(args, catalog: dict[str, dict],
     if verb in ("rm", "remove"):
         return selected
     if not selected:
-        raise Refuse("selection-empty", "selectors matched no installable part")
+        raise Refuse("selection-empty", "selectors matched no installable item")
     return selected
 
 

@@ -4,10 +4,13 @@ accepts.
 from __future__ import annotations
 
 import argparse
+import difflib
 
 from discovery import Refuse
 
+from . import present
 from .constants import BASIS_NONE, CANONICAL_METHODS, GUIDANCE_NAMES, HARNESSES
+from .recovery import shell_quote
 
 
 class InstallerParser(argparse.ArgumentParser):
@@ -17,20 +20,20 @@ class InstallerParser(argparse.ArgumentParser):
         raise Refuse("usage", message)
 
 
-SETTING_VERB = {"harness": "rbtv install set --harness <harnesses>",
-                "artifact": "rbtv install set --guidance <name>"}
+SETTING_VERB = {"harness": "rbtv install configure --harness <harnesses>",
+                "guidance": "rbtv install configure --guidance <name>"}
 
 # D16b — the ACTION-FIRST settings grammar, in one place so the help text, the
 # `verb-moved` refusal and the dispatch can never spell it three ways.
 SETTINGS_EPILOG = (
     "Change saved settings:\n"
-    "  rbtv install set --harness codex,claude --guidance CLAUDE.md\n"
+    "  rbtv install configure --harness codex,claude --guidance CLAUDE.md\n"
     "  rbtv install status\n"
     "\nAdditional supported forms:\n"
     "  rbtv install add harness codex       (add one receiving AI tool)\n"
     "  rbtv install remove harness codex    (remove one receiving AI tool)\n"
-    "  rbtv install add artifact exclude vendor\n"
-    "  rbtv install remove artifact exclude vendor\n"
+    "  rbtv install add guidance exclude vendor\n"
+    "  rbtv install remove guidance exclude vendor\n"
     "The last two commands exclude/include a folder when copying guidance.")
 
 # The noun-led spelling D16b retired, mapped to what replaces it. Data, so the
@@ -39,9 +42,9 @@ SETTINGS_EPILOG = (
 MOVED_FORMS = {
     ("harness", "add"): "add harness",
     ("harness", "rm"): "rm harness",
-    ("artifact", "set"): "set artifact",
-    ("artifact", "exclude", "add"): "add artifact exclude",
-    ("artifact", "exclude", "rm"): "rm artifact exclude",
+    ("artifact", "set"): "configure --guidance",
+    ("artifact", "exclude", "add"): "add guidance exclude",
+    ("artifact", "exclude", "rm"): "rm guidance exclude",
 }
 
 
@@ -56,43 +59,42 @@ def _refuse_moved(head: str, tokens: list[str]) -> None:
     for old, new in MOVED_FORMS.items():
         if old[0] != head or list(old[1:]) != tokens[:len(old) - 1]:
             continue
-        rest = " ".join(tokens[len(old) - 1:])
+        rest = " ".join(shell_quote(token) for token in tokens[len(old) - 1:])
         raise Refuse(
             "verb-moved",
             f"`rbtv install {head} {' '.join(old[1:])}` moved — the ACTION "
-            f"word now comes first, the same way it does for components "
-            f"(D16b). Run: rbtv install {new} {rest}".rstrip())
+            f"word now comes first, the same way it does for components. "
+            f"Run: rbtv install {new} {rest}".rstrip())
     raise Refuse(
         "verb-moved",
         f"`rbtv install {head}` is gone. READ the workspace settings "
         "with `rbtv install status`. "
         "CHANGE this one with "
         + (SETTING_VERB["harness"] if head == "harness"
-           else f"{SETTING_VERB['artifact']} or "
-                "`rbtv install add|rm artifact exclude <dir>`"))
+           else f"{SETTING_VERB['guidance']} or "
+                "`rbtv install add|remove guidance exclude <dir>`"))
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = InstallerParser(
-        prog="rbtv install",
-        description=(
-            "Find, install and remove skills, rules and tools.\n"
-            "Humans and agents use the same commands; add --json for structured output.\n"
-            "Only 'interactive' asks questions.\n"
-            "\nStart here:\n"
-            "  rbtv install status\n"
-            "  rbtv install list brainstorm\n"
-            "  rbtv install show brainstorm\n"
-            "  rbtv install add brainstorm --harness codex --guidance none\n"
-            "  rbtv install list --installed\n"
-            "  rbtv install remove brainstorm\n"
-            "\nThe add example chooses Codex and no guidance-file copying.\n"
-            "Use --target \"PATH\" to manage another workspace or agent home."),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        allow_abbrev=False,
-        epilog=("More help: rbtv install COMMAND --help\n"
-                "Shortcuts still accepted: ls = list; li = list --installed; rm = remove.\n"
-                "Exit codes: 0 success; 1 refused or failed; 2 invalid command arguments."))
+    p = InstallerParser(prog="rbtv install", allow_abbrev=False)
+    # `present.root_help()` is the ONE authored root `-h` / bare-command
+    # screen (grouped by intent, approved screen 01) — argparse's own
+    # subparsers listing is flat and cannot hide a retired verb's help text
+    # via `help=SUPPRESS` on a subaction, so its default formatting is never
+    # used for the root parser. Every per-command `-h` still uses argparse's
+    # own formatter, built from each subparser's own description/epilog.
+    p.format_help = present.root_help
+
+    def title_help(sp: argparse.ArgumentParser, label: str) -> None:
+        """Root help is fully custom (above); every OTHER `-h` still needs
+        the shared `RBTV install — <label> help` title argparse's own
+        formatter never adds — it only ever writes `usage: ...` first. This
+        PREPENDS the title to argparse's own rendering rather than replacing
+        it, so real usage syntax and the accepted-value tables stay exactly
+        as argparse renders them; `label` always differs from root's own
+        `"help"` label, so the two titles never collide."""
+        base = sp.format_help
+        sp.format_help = lambda: present.title(f"{label} help") + "\n\n" + base()
 
     def tree_flags(dest, *, on_verb: bool) -> None:
         sup = argparse.SUPPRESS
@@ -114,7 +116,8 @@ def build_parser() -> argparse.ArgumentParser:
             default=(sup if on_verb else False),
             help=("preview changes without writing or removing files" if not on_verb
                   or dest.prog.rsplit(" ", 1)[-1] in
-                  ("add", "remove", "rm", "set", "dupe-artifacts") else sup))
+                  ("add", "remove", "rm", "configure", "update",
+                   "guidance", "scaffolding", "all") else sup))
 
     class ListAction(argparse.Action):
         """One selector token per comma, appended across repeats.
@@ -137,15 +140,18 @@ def build_parser() -> argparse.ArgumentParser:
                 if not part:
                     continue
                 if self.VALID and part not in self.VALID:
+                    flag = option_string or f"--{self.NOUN}"
+                    close = difflib.get_close_matches(part, self.VALID, n=1, cutoff=0.5)
+                    hint = f" Did you mean {close[0]}?" if close else ""
                     parser.error(
-                        f"unknown {self.NOUN} {part!r} (want "
-                        + " · ".join(self.VALID) + ")")
+                        f"{flag} {part!r} is unknown.{hint}\nAccepted {self.NOUN}s:\n"
+                        + present.types_block(self.VALID))
                 cur.append(part)
             setattr(namespace, self.dest, cur)
 
     class MethodsAction(ListAction):
         VALID = CANONICAL_METHODS
-        NOUN = "method"
+        NOUN = "type"
 
     def selectors(dest) -> None:
         dest.add_argument(
@@ -160,8 +166,8 @@ def build_parser() -> argparse.ArgumentParser:
             metavar="COMPONENT",
             help="select a component (a group of related items); accepts full item IDs too")
         dest.add_argument(
-            "--kind", "-x", action=MethodsAction, default=[], dest="method",
-            metavar="KIND",
+            "--type", "-x", action=MethodsAction, default=[], dest="method",
+            metavar="TYPE",
             help="select item types; comma-separated or repeatable: "
                  + " · ".join(CANONICAL_METHODS))
         for flag, meth in (("-xs", "skill"), ("-xr", "rule"),
@@ -170,8 +176,8 @@ def build_parser() -> argparse.ArgumentParser:
                 flag, action="append_const", const=meth, dest="method",
                 help=argparse.SUPPRESS)
         dest.add_argument(
-            "--exclude-kind", "-nx", action=MethodsAction, default=[], dest="exclude_method",
-            metavar="KIND",
+            "--exclude-type", "-nx", action=MethodsAction, default=[], dest="exclude_method",
+            metavar="TYPE",
             help="leave these item types out of the selection")
         dest.add_argument(
             "--exclude-module", "-nm", action=ListAction, default=[], dest="exclude_module",
@@ -195,14 +201,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     def list_flags(dest, *, installed_default: bool = False) -> None:
         dest.add_argument("query", nargs="?", default="",
-                          help="words to search in names and descriptions")
+                          help="exact module, component, or item name")
         dest.add_argument("--module", "-m", action=ListAction, default=[],
                           metavar="MODULE", help="filter to a module (a bundle of components)")
         dest.add_argument("--component", "-c", action=ListAction, default=[],
                           metavar="COMPONENT", help="filter to a component (related items)")
-        dest.add_argument("--kind", "-x", action=MethodsAction, default=[],
+        dest.add_argument("--type", "-x", action=MethodsAction, default=[],
                           dest="method",
-                          metavar="KIND", help="filter to item types, such as skill or rule")
+                          metavar="TYPE", help="filter to item types, such as skill or rule")
         dest.add_argument("--installed", action="store_true",
                           default=installed_default,
                           help="show only installed items")
@@ -211,18 +217,24 @@ def build_parser() -> argparse.ArgumentParser:
         dest.add_argument("--offset", type=int, default=0,
                           help="rows to skip (default: 0)")
 
+    types_help = ("\n\nTypes (--type; comma-separated or repeatable):\n"
+                 + present.types_block())
+
     list_help = (
-        "Search item names and descriptions. Copy an item's full ID into show, add or remove.\n"
-        "Installed means recorded by this installer; use doctor to check the files.\n"
-        "\nExamples:\n"
-        "  rbtv install list\n"
-        "  rbtv install list \"browser automation\"\n"
+        "Browse the local source catalog. No NAME shows modules; a module shows\n"
+        "its components; a component shows its items; an exact item name shows\n"
+        "only that item. NAME never searches descriptions — use search for\n"
+        "broad discovery. Installed means recorded by this installer; use\n"
+        "doctor to check the files."
+        + types_help
+        + "\n\nExamples:\n"
+        "  rbtv install list core\n"
+        "  rbtv install list core --type skill\n"
         "  rbtv install list --installed\n"
-        "  rbtv install list --module core --kind skill\n"
         "  rbtv install list --limit 20 --offset 20\n"
         "\nResults show the next-page command when more items match.")
     s_list = sub.add_parser(
-        "list", help="find available or installed items", description=list_help,
+        "list", help="browse exact module, component, or item scope", description=list_help,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     list_flags(s_list)
     s_ls = sub.add_parser("ls", description=list_help,
@@ -232,19 +244,34 @@ def build_parser() -> argparse.ArgumentParser:
                          formatter_class=argparse.RawDescriptionHelpFormatter)
     list_flags(s_li, installed_default=True)
 
+    search_help = (
+        "Search names and descriptions in the local source catalog broadly.\n"
+        "Results are items with full IDs. Search does not select or install\n"
+        "anything. Use list NAME when you know an exact module, component, or\n"
+        "item name."
+        + types_help
+        + "\n\nExample: rbtv install search \"brainstorm\"")
+    s_search = sub.add_parser(
+        "search", help="search names and descriptions broadly",
+        description=search_help, formatter_class=argparse.RawDescriptionHelpFormatter)
+    list_flags(s_search)
+
     s_show = sub.add_parser(
-        "show", help="inspect an item before installing or removing it",
-        description=("Show one item's description, source and recorded installation state.\n"
-                     "Ambiguous names return choices; use the full ID to choose one.\n"
-                     "\nExamples:\n"
+        "show", help="show description, included items, and installation details",
+        description=("Show the catalog description, included items or component "
+                     "summaries, and\nrecorded installation details for one item, "
+                     "component, or module. It\ndoes not print arbitrary source-file "
+                     "contents. A short item name must be\nunique; ambiguity refuses."
+                     + types_help
+                     + "\n\nExamples:\n"
                      "  rbtv install show brainstorm\n"
                      "  rbtv install show core/functions#brainstorm\n"
                      "  rbtv install show core/functions"),
         formatter_class=argparse.RawDescriptionHelpFormatter)
     s_show.add_argument("name", help="unique item name, full item ID, or module/component")
-    s_show.add_argument("--kind", "-x", action=MethodsAction, default=[],
+    s_show.add_argument("--type", "-x", action=MethodsAction, default=[],
                         dest="method",
-                        metavar="KIND", help="require this item type, such as skill")
+                        metavar="TYPE", help="require this item type, such as skill")
     s_status = sub.add_parser(
         "status", help="see the selected workspace, saved settings and installed counts",
         description="Show which workspace will be changed and its saved settings. "
@@ -254,8 +281,13 @@ def build_parser() -> argparse.ArgumentParser:
         "add",
         help="install items or refresh their generated files",
         description=(
-            "Install one or more named items. Ambiguous names refuse with choices.\n"
-            "\nFirst install in a workspace:\n"
+            "Install named items, whole components, or a filtered selection from\n"
+            "local source. Exact short names must be unique. Different filters\n"
+            "narrow together; comma-separated or repeated values within one filter\n"
+            "are alternatives. Exclusions leave matching items out. Nothing fetches\n"
+            "a newer source version."
+            + types_help
+            + "\n\nFirst install in a workspace:\n"
             "  rbtv install add brainstorm --harness codex --guidance none\n"
             "\n--harness chooses which AI tools receive files.\n"
             "--guidance chooses the instruction file you maintain; the installer\n"
@@ -267,11 +299,11 @@ def build_parser() -> argparse.ArgumentParser:
             "Examples after setup:\n"
             "  rbtv install add brainstorm challenging\n"
             "  rbtv install add core/functions#brainstorm --dry-run\n"
-            "  rbtv install add --module core --kind skill\n"
+            "  rbtv install add --module core --type skill\n"
             "\nDifferent filters narrow the selection together; values within one filter\n"
-            "are alternatives. For example, --module core --kind skill selects only\n"
+            "are alternatives. For example, --module core --type skill selects only\n"
             "skills in core. Exclusions leave matching items out.\n"
-            "\nChange saved settings with 'rbtv install set --help'."))
+            "\nChange saved settings with 'rbtv install configure --help'."))
     selectors(s_add)
     s_add.add_argument(
         "--harness", default=argparse.SUPPRESS,
@@ -282,32 +314,29 @@ def build_parser() -> argparse.ArgumentParser:
         default=argparse.SUPPRESS,
         choices=(*GUIDANCE_NAMES, BASIS_NONE),
         help="instruction file you maintain, or none to disable copying; required on first add")
-    s_add.add_argument("--artifact", dest="artifact",
-                       default=argparse.SUPPRESS,
-                       choices=(*GUIDANCE_NAMES, BASIS_NONE),
-                       help=argparse.SUPPRESS)
     selection_names(s_add)
 
     removal_help = (
-        "Remove installed items from the selected workspace.\n"
-        "\nRemove a named item directly:\n"
+        "Remove recorded installed items from this target. A named item or\n"
+        "component needs no blanket confirmation. Broad filters (--all,\n"
+        "--module, --type, or any exclusion) need --yes when they match\n"
+        "installed items. Empty selections do not need confirmation. Removal\n"
+        "never asks questions. Shared command shortcuts remain while another\n"
+        "workspace owns them."
+        + types_help
+        + "\n\nRemove a named item directly:\n"
         "  rbtv install remove brainstorm\n"
         "\nPreview a larger selection, then confirm it:\n"
         "  rbtv install remove --module core --dry-run\n"
         "  rbtv install remove --module core --yes\n"
-        "  rbtv install remove --all --yes\n"
-        "\n--yes is required when matching installed items using --all, --module,\n"
-        "--kind, or any --exclude-* option. It is not required for --dry-run,\n"
-        "a selection using only names/--component, or an empty selection.\n"
-        "Removal never prompts.\n"
-        "Shared command shortcuts stay until their last workspace removes them.")
+        "  rbtv install remove --all --yes")
     s_rm = sub.add_parser(
         "rm", description=removal_help,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         allow_abbrev=False)
     selectors(s_rm)
     s_rm.add_argument("--yes", action="store_true",
-                      help="confirm removal selected by module, kind, all, or exclusions")
+                      help="confirm removal selected by module, type, all, or exclusions")
     selection_names(s_rm)
 
     s_remove = sub.add_parser(
@@ -316,17 +345,21 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter)
     selectors(s_remove)
     s_remove.add_argument("--yes", action="store_true",
-                          help="confirm removal selected by module, kind, all, or exclusions")
+                          help="confirm removal selected by module, type, all, or exclusions")
     selection_names(s_remove)
 
     s_set = sub.add_parser(
-        "set", help="change the receiving AI tools or instruction-file settings",
-        description=("Change settings for a workspace that already has an installation.\n"
-                     "The installer updates existing installed files to match.\n"
+        "configure", help="initialize or change receiving tools and guidance settings",
+        description=("Initialize a fresh target or change saved receiving tools and\n"
+                     "guidance. This command selects no catalog items. Changing settings\n"
+                     "regenerates files for items already selected; it does not add new\n"
+                     "items. On first setup, give both --harness and --guidance. Later,\n"
+                     "each supplied option replaces its saved setting; omitted settings\n"
+                     "stay as they are.\n"
                      "\nExamples:\n"
-                     "  rbtv install set --harness codex,claude --dry-run\n"
-                     "  rbtv install set --harness codex,claude\n"
-                     "  rbtv install set --guidance CLAUDE.md\n"
+                     "  rbtv install configure --harness codex,claude --guidance CLAUDE.md --dry-run\n"
+                     "  rbtv install configure --harness codex,claude --guidance CLAUDE.md\n"
+                     "  rbtv install configure --guidance AGENTS.md  (later change)\n"
                      "\n--harness replaces the complete list of receiving AI tools.\n"
                      "--guidance names the instruction file you maintain; none disables copying."),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -338,15 +371,103 @@ def build_parser() -> argparse.ArgumentParser:
     s_set.add_argument("--guidance", dest="artifact",
                        choices=(*GUIDANCE_NAMES, BASIS_NONE),
                        help="choose the instruction file to copy from, or none")
-    s_set.add_argument("--artifact", dest="artifact",
-                       choices=(*GUIDANCE_NAMES, BASIS_NONE),
-                       help=argparse.SUPPRESS)
 
-    s_dupe = sub.add_parser(
-        "dupe-artifacts",
-        help="refresh generated instruction files using saved settings",
-        description="Refresh generated instruction files. To change which instruction "
-                    "file you maintain, use 'rbtv install set --guidance NAME'.")
+    s_update = sub.add_parser(
+        "update", help="regenerate selected files from local source",
+        description=(
+            "Regenerate the current target from RBTV source already on this "
+            "machine.\nThis does not download newer RBTV, install "
+            "dependencies, change its\nsource version, or select additional "
+            "catalog items.\n\n"
+            "Scopes split by CONTENT OWNERSHIP — guidance and scaffolding can "
+            "both write\nthe SAME instruction file (e.g. AGENTS.md), each "
+            "touching only the part it\nowns:\n"
+            "  guidance      Copy your maintained instructions (the human "
+            "text you\n"
+            "                author) into each configured tool's "
+            "counterpart file.\n"
+            "                Leaves that file's own existing generated "
+            "section exactly\n"
+            "                as it is — does not rebuild it. Replaces "
+            "dupe-artifacts.\n"
+            "  scaffolding   Regenerate the generated instruction section "
+            "in EVERY\n"
+            "                configured instruction file — including a "
+            "copied file like\n"
+            "                AGENTS.md — plus selected skills, rules, and "
+            "tool shortcuts.\n"
+            "                Leaves human-authored text in those files "
+            "alone; does not\n"
+            "                copy or sync it from the basis.\n"
+            "  all           Run scaffolding, then guidance, so both parts "
+            "of every\n"
+            "                configured file are current."),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=("Example: rbtv install update all --dry-run\n"
+                "Next: rbtv install update all"))
+    # D9 §9 — each scope explains its OWN effect; a single generic `update
+    # -h` left guidance/scaffolding/all indistinguishable (the acceptance
+    # drill's `update scope help` gap). A real subparser per scope, not a
+    # `choices=` positional, is what gives each one its own `-h` text.
+    update_sub = s_update.add_subparsers(dest="scope", metavar="{guidance,scaffolding,all}")
+    update_sub.required = True
+
+    def _update_scope(name: str, summary: str, body: str, example: str):
+        sp = update_sub.add_parser(
+            name, help=summary, description=body,
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog=f"Example: {example}\nNext: rbtv install doctor")
+        sp.set_defaults(scope=name)
+        tree_flags(sp, on_verb=True)
+        return sp
+
+    s_upd_guidance = _update_scope(
+        "guidance", "copy your maintained human text to counterpart files",
+        "Copy your maintained instruction file's HUMAN text (CLAUDE.md or "
+        "AGENTS.md,\nwhichever you author) into each configured tool's "
+        "counterpart file, stripping\nany source-specific generated content "
+        "from what it copies. It leaves each\ndestination's OWN existing "
+        "generated instruction section exactly as it is —\nit does NOT "
+        "rebuild that section (that is update scaffolding's job, below), so "
+        "a\ncounterpart file is not left fully untouched by this scope AND "
+        "is not fully\nregenerated by it either. Works even with no "
+        "selected source components.\nSaved guidance exclusions apply. If "
+        "guidance is none, there is nothing to\ncopy. If the maintained "
+        "file is missing, the command refuses and changes\nnothing. This "
+        "scope does not rebuild skills, rules, or tool shortcuts.\n\n"
+        "Former command: rbtv install dupe-artifacts",
+        "rbtv install update guidance")
+    s_upd_scaffolding = _update_scope(
+        "scaffolding", "regenerate selected skills, rules, shortcuts, and every "
+                       "file's generated section",
+        "Regenerate files for items already selected in this target, plus "
+        "the\ngenerated instruction section in EVERY configured instruction "
+        "file — including\na file this workspace only ever RECEIVES as a "
+        "copy, such as AGENTS.md when\nCLAUDE.md is the maintained basis. "
+        "This includes selected skills, rules, and\ntool shortcuts. It "
+        "preserves human-authored text in every file it touches;\nit does "
+        "not copy or synchronize that text from the basis (that is update\n"
+        "guidance's job, above) — so this scope and guidance can both write "
+        "the SAME\nfile, each owning a different part of it. Use update all "
+        "when both parts of\nevery configured file must be current.",
+        "rbtv install update scaffolding")
+    s_upd_all = _update_scope(
+        "all", "regenerate scaffolding, then copy guidance, for every "
+              "configured file",
+        "Run scaffolding and guidance regeneration from local source. This\n"
+        "refreshes selected installed files and the generated instruction "
+        "section in\nevery configured file (scaffolding), then copies your "
+        "maintained human text\ninto each counterpart file (guidance) — "
+        "the two parts of the SAME file, each\nwritten by the scope that "
+        "owns it. No new catalog items are selected, and no\nsaved "
+        "selection expands. Validates both phases before writing: if the "
+        "maintained\nguidance file is missing, refuses without partial "
+        "scaffolding edits.",
+        "rbtv install update all")
+
+    # `set` and `dupe-artifacts` need no subparser: `main()` checks the verb
+    # position before argparse runs, without confusing a positional name or
+    # path that happens to have either spelling with a retired command.
 
     # D16c — HIDDEN, and hidden is the point: no `help=` keyword means
     # argparse never lists them, so the menu carries only verbs that DO
@@ -364,7 +485,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="check installation health and show recovery steps",
         description="Check the workspace, installed files and shared command shortcuts. "
                     "Reports problems and recovery steps; changes no files.")
-    sub.add_parser(
+    s_doc.add_argument("--cleanup-audit", action="store_true",
+                       help="also inspect shortcut claims from other workspaces")
+    s_selftest = sub.add_parser(
         "selftest",
         help="run installer checks in temporary workspaces",
         description="Run automated installer checks using temporary files and "
@@ -374,8 +497,20 @@ def build_parser() -> argparse.ArgumentParser:
         description="Start the guided menu. This is the only mode that asks questions. "
                     "For scripts or agents, use list, show, add and remove.")
 
-    for s in (s_add, s_rm, s_remove, s_set, s_ls, s_li, s_list, s_show,
-              s_status, s_dupe, s_doc, s_inter,
+    for sp, label in (
+        (s_list, "list"), (s_ls, "list"), (s_li, "list"),
+        (s_search, "search"), (s_show, "show"), (s_status, "status"),
+        (s_add, "add"), (s_rm, "remove"), (s_remove, "remove"),
+        (s_set, "configure"), (s_update, "update"),
+        (s_upd_guidance, "update guidance"),
+        (s_upd_scaffolding, "update scaffolding"), (s_upd_all, "update all"),
+        (s_doc, "doctor"), (s_selftest, "selftest"), (s_inter, "interactive"),
+    ):
+        title_help(sp, label)
+
+    for s in (s_add, s_rm, s_remove, s_set, s_search,
+              s_ls, s_li, s_list, s_show,
+              s_status, s_doc, s_inter,
               s_h, s_art):
         tree_flags(s, on_verb=True)
     return p

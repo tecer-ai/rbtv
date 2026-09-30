@@ -24,24 +24,11 @@ const INSTALLER = path.join(RBTV_ROOT, 'meta', 'installer', 'install.py');
 
 const CONTROL_PANEL_VERBS = ['update', 'status', 'selftest'];
 
-// The installer's own verb set. `harness` and `artifact` own the two WORKSPACE
-// SETTINGS (which AI tools to write files for, and which root guidance file the
-// human authors): `add` chooses components and refuses those flags after the
-// first install, so a human who reaches for them lands on the verb that works
-// rather than on a run that succeeds and changes nothing (installer D16).
-// `set` joined at D16b (2026-08-22): the workspace settings moved to an
-// ACTION-FIRST grammar (`add harness`, `rm harness`, `set artifact`), and the
-// basis needs a third action word because choosing a new one REPLACES the old.
-//
-// `harness` and `artifact` are RETIRED verbs kept on this list deliberately
-// (D16c): the installer no longer advertises them — their three values are
-// read at the head of `rbtv install li` — but it still answers them with a
-// refusal naming where they went. Dropping them here would replace that
-// sentence with this CLI's own `not a component or action verb`, which knows
-// nothing about the move.
-const INSTALL_VERBS = ['list', 'status', 'show', 'add', 'remove', 'doctor',
-  'rm', 'set', 'ls', 'li', 'harness', 'artifact',
-  'dupe-artifacts', 'selftest', 'interactive'];
+// Advertise the current installer commands. Every token after `install` is
+// delegated unchanged, so aliases and retired forms can still receive the
+// installer's own help or teaching refusal without appearing in the drill.
+const INSTALL_VERBS = ['status', 'list', 'search', 'show', 'configure',
+  'add', 'remove', 'update', 'doctor', 'interactive', 'selftest'];
 
 // Routes are matched by their token PREFIX, longest first, so a later
 // multi-token route can never be shadowed by a shorter one that shares its head.

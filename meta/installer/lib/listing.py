@@ -5,8 +5,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from discovery import exposure_rows
+from discovery import Refuse, exposure_rows
 
+from . import present
 from .constants import BASIS_NONE, MANAGED_MARK, STATE_REL
 from .catalog import (
     _hub_refuse_message,
@@ -14,7 +15,8 @@ from .catalog import (
     catalog_parts_map,
 )
 from .state import _part_in, book_harnesses, read_state, upgrade_book
-from .selection import component_keys, iter_booked_parts, module_names, part_key
+from .selection import (component_keys, iter_booked_parts, module_names,
+                        part_key, resolve_name)
 
 
 def _part_description(comp: dict, pid: str) -> str:
@@ -41,7 +43,20 @@ def _short_description(text: str) -> str:
     sentence = text.split(". ", 1)[0].strip()
     if sentence and not sentence.endswith("."):
         sentence += "."
-    return sentence if len(sentence) <= 150 else sentence[:147].rstrip() + "…"
+    if len(sentence) <= 150:
+        return sentence
+    head = sentence[:147].rsplit(" ", 1)[0] or sentence[:147]
+    return head.rstrip(".,;:") + "…"
+
+
+def _catalog_description(path: Path) -> str:
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines()[:12]:
+            if line.startswith("description:"):
+                return _short_description(line.partition(":")[2].strip().strip('"'))
+    except (OSError, UnicodeDecodeError):
+        pass
+    return ""
 
 
 def part_detail(catalog: dict, state: dict, part: dict) -> dict:
@@ -49,9 +64,17 @@ def part_detail(catalog: dict, state: dict, part: dict) -> dict:
     comp = catalog.get(cid) or {}
     row = next((r for r in exposure_rows(comp)
                 if (r.get("part-id") or "").strip() == pid), {}) if comp.get("manifest") else {}
+    entry_point = (row.get("entry-point") or "").strip()
+    comp_path = Path(comp["path"]) if comp.get("path") else None
     return {**part,
             "description": _part_description(comp, pid),
-            "entry_point": (row.get("entry-point") or "").strip(),
+            "entry_point": entry_point,
+            # The unambiguous path a human can open: entry_point alone
+            # (e.g. `prompts/brainstorm.md`) is component-relative and reads
+            # like a repo root. This is entry_point resolved under the
+            # component's own source directory.
+            "source_path": (str(comp_path / entry_point)
+                            if comp_path and entry_point else ""),
             "tree": comp.get("tree") or "book",
             "source_available": bool(comp and (comp.get("kind") == "hub" or row)),
             "installed": _part_in(state, cid, pid)}
@@ -161,20 +184,30 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
                components: list[str] | None = None,
                methods: list[str] | None = None,
                installed: bool = False,
+               search: bool = False,
                limit: int = 20, offset: int = 0) -> dict:
-    """Bounded search over the same stable keys that mutation resolves."""
+    """Browse exact hierarchy, or search the same item pool broadly."""
     view = build_ls(catalog, [], state)
     book = state.get("components") or {}
     want_m = module_names(modules or [], catalog, book)
     want_c = component_keys(components or [], catalog, book) if components else set()
     want_x = set(methods or [])
-    words = query.casefold().split()
+    words = query.casefold().split() if search else []
     rows: list[dict] = []
     for comp in view["components"]:
+        source_comp = catalog.get(comp["id"]) or {}
+        source_path = Path(source_comp["path"]) if source_comp.get("path") else None
+        comp_desc = (_catalog_description(source_path / "component.md")
+                     if source_path and source_path.is_dir() else
+                     _catalog_description(source_path) if source_path else "")
+        mod_desc = (_catalog_description(source_path.parent / "module.md")
+                    if source_path else "")
         for part in comp["items"]:
             rows.append({"id": part["id"], "component": comp["id"],
-                         "module": comp["module"], "method": part["method"],
+                         "module": comp["module"], "type": part["method"],
                          "description": _short_description(part["description"]),
+                         "component_description": comp_desc,
+                         "module_description": mod_desc,
                          "_search": part["description"],
                          "installed": part["in"], "source_available": True,
                          "tree": comp["tree"]})
@@ -183,8 +216,9 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
         if part["key"] in seen:
             continue
         rows.append({"id": part["key"], "component": part["component"],
-                     "module": part["module"], "method": part["method"],
+                     "module": part["module"], "type": part["method"],
                      "description": "Recorded item; source is no longer available.",
+                     "component_description": "", "module_description": "",
                      "installed": True, "source_available": False,
                      "tree": "missing"})
     matched = []
@@ -193,9 +227,7 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
             continue
         if want_c and row["id"] not in want_c:
             continue
-        if want_x and row["method"] not in want_x:
-            continue
-        if installed and not row["installed"]:
+        if want_x and row["type"] not in want_x:
             continue
         part_id = row["id"].split("#", 1)[-1]
         hay = " ".join((row["id"], part_id,
@@ -204,47 +236,213 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
             continue
         matched.append({key: value for key, value in row.items()
                         if key != "_search"})
+    scope = "items"
+    if not search:
+        if query:
+            try:
+                named_module = module_names([query], catalog, book)
+            except Refuse:
+                named_module = set()
+            if named_module and not want_x:
+                scope = "components"
+                matched = [r for r in matched if r["module"] in named_module]
+                matched = _group_rows(matched, "component")
+            elif named_module and want_x:
+                matched = [r for r in matched if r["module"] in named_module]
+            else:
+                chosen = resolve_name(query, catalog, book,
+                                      methods=want_x or None)
+                ids = {p["key"] for p in chosen["parts"]}
+                matched = [r for r in matched if r["id"] in ids]
+                if chosen["kind"] == "component" and not want_x:
+                    scope = "items"
+        elif not want_x and not components:
+            scope = "modules"
+            matched = _group_rows(matched, "module")
+        elif components and not want_x:
+            scope = "components"
+            matched = _group_rows(matched, "component")
+    if installed:
+        matched = [r for r in matched if (r["installed"] if scope == "items"
+                   else r["installed_items"] > 0)]
     total = len(matched)
-    return {"ok": True, "query": query, "total": total,
-            "returned": len(matched[offset:offset + limit]),
+    page = matched[offset:offset + limit]
+    if scope == "items":
+        page = [{k: v for k, v in row.items()
+                 if k not in ("component_description", "module_description")}
+                for row in page]
+    return {"ok": True, "query": query, "scope": scope, "total": total,
+            "returned": len(page),
             "limit": limit, "offset": offset,
-            "items": matched[offset:offset + limit]}
+            "items": page}
+
+
+def _group_rows(rows: list[dict], field: str) -> list[dict]:
+    grouped: dict[str, list[dict]] = {}
+    for row in rows:
+        grouped.setdefault(row[field], []).append(row)
+    desc_field = "module_description" if field == "module" else "component_description"
+    return [{"id": "hub" if name == "_hub" and field == "module" else name,
+             "installed_items": sum(r["installed"] for r in parts),
+             "source_items": sum(r["source_available"] for r in parts),
+             "description": next((r[desc_field] for r in parts if r[desc_field]), "")}
+            for name, parts in sorted(grouped.items())]
+
+
+def _list_scope_noun(data: dict) -> str:
+    """The title-line noun: what this table's rows ARE, so list/search/show
+    never rely on the reader inferring it from column shape alone."""
+    scope, query = data["scope"], data.get("query") or ""
+    if data.get("searching"):
+        return "search results"
+    if scope == "modules":
+        return "installed modules" if data.get("installed_only") else "modules"
+    if scope == "components":
+        return f"{query} components" if query else "components"
+    if query and data.get("total") == 1:
+        return query
+    if query:
+        return f"{query} items"
+    return "installed items" if data.get("installed_only") else "items"
+
+
+def _list_context_line(data: dict) -> str | None:
+    scope, query = data["scope"], data.get("query") or ""
+    if data.get("searching"):
+        n = data["total"]
+        return (f"Query: {query} (names and descriptions); "
+                f"{n} match{'es' if n != 1 else ''}")
+    if scope != "items":
+        return None
+    if query and data["total"] == 1:
+        return f"Exact item: {data['items'][0]['id']}"
+    start = data["offset"] + 1 if data["returned"] else 0
+    end = data["offset"] + data["returned"]
+    scope_txt = f"Scope: {query}; " if query else ""
+    return f"{scope_txt}showing {start}-{end} of {data['total']}"
 
 
 def print_list(data: dict) -> None:
-    start = data["offset"] + 1 if data["returned"] else 0
-    end = data["offset"] + data["returned"]
-    print(f"Found {data['total']} item(s); showing {start}-{end}.")
-    for row in data["items"]:
-        state = ("recorded installed" if row["installed"] else "available")
-        if not row["source_available"]:
-            state += "; source unavailable"
-        description = f" — {row['description']}" if row["description"] else ""
-        print(f"{row['id']} ({row['method']}, {state}){description}")
-    print("next: " + data["next"])
+    """Human-readable rendering of `build_list`'s JSON envelope — the JSON
+    field names are the stable contract; this only decides how they look on
+    a terminal. Module/component rows use ID/Installed items/Description;
+    item rows use ID/Type/State/Description (D9)."""
+    print(present.title(_list_scope_noun(data)))
+    print()
+    print(f"Target: {data['target']} "
+          f"({present.target_source_label(data.get('source'))})")
+    context = _list_context_line(data)
+    if context:
+        print(context)
+    print()
+    items = data["items"]
+    if data["scope"] == "items":
+        headers = ["ID", "Type", "State", "Description"]
+        rows = [[row["id"], row["type"],
+                 "installed" if row["installed"] else "not installed",
+                 row["description"] + ("" if row["source_available"]
+                                        else " (source missing)")]
+                for row in items]
+    else:
+        headers = ["ID", "Installed items", "Description"]
+        rows = [[row["id"], f"{row['installed_items']}/{row['source_items']}",
+                 row["description"]] for row in items]
+    lines = present.render_table(headers, rows)
+    for line in lines:
+        print(line)
+    if items:
+        print()
+        if data["scope"] == "items":
+            print("State is the saved selection for this target; "
+                  "run doctor to check files.")
+        else:
+            print("Installed items is the saved selection; "
+                  "run doctor to check files.")
+    print()
+    label = "More" if data.get("has_more") else "Next"
+    print(f"{label}: {data['next']}")
 
 
 def build_show(selection: dict, catalog: dict, state: dict) -> dict:
     parts = [part_detail(catalog, state, part) for part in selection["parts"]]
-    out = {"kind": selection["kind"], "id": selection["id"],
-           "parts": parts}
+    parts = [{**p, "type": p["method"]} for p in parts]
+    for part in parts:
+        part.pop("method", None)
+    out = {"scope": "item" if selection["kind"] == "part" else selection["kind"],
+           "id": selection["id"],
+           "parts": parts,
+           "harnesses": book_harnesses(state) or []}
     if selection["kind"] == "part":
-        out.update(method=parts[0]["method"], component=parts[0]["component"],
+        out.update(type=parts[0]["type"], component=parts[0]["component"],
                    part_id=parts[0]["part_id"])
+    elif selection["kind"] == "component":
+        source_comp = catalog.get(selection["id"]) or {}
+        source_path = Path(source_comp["path"]) if source_comp.get("path") else None
+        description = (_catalog_description(source_path / "component.md")
+                       if source_path and source_path.is_dir() else
+                       _catalog_description(source_path) if source_path else "")
+        out.update(description=description,
+                   source_entry=(str(source_path) if source_path else ""))
     return out
 
 
 def print_show(data: dict) -> None:
-    selected = data["selection"]
-    print(f"{selected['kind']}: {selected['id']}")
-    for part in selected["parts"]:
-        print(f"  {part['key']} — {part['method']}, "
-              f"{'recorded installed' if part['installed'] else 'available'}")
-        if part["description"]:
-            print(f"  {part['description']}")
-        if part["entry_point"]:
-            print(f"  Source: {part['entry_point']}")
-    print("next: " + data["next"])
+    """Human-readable rendering of `build_show`'s envelope: description,
+    included items or installation details, source entry path (D9 §4)."""
+    sel = data["selection"]
+    print(present.title(sel["id"]))
+    print()
+    print(f"Target: {data['target']} "
+          f"({present.target_source_label(data.get('source'))})")
+    if sel["scope"] == "module":
+        print(f"Description: {sel['description'] or '(no catalog description)'}")
+        print(f"Local source: {sel['source_items']} items; "
+              f"installed here: {sel['installed_items']} saved selections. "
+              "Files not checked.")
+        print()
+        headers = ["ID", "Installed items", "Description"]
+        rows = [[c["id"], f"{c['installed_items']}/{c['source_items']}",
+                 c["description"]] for c in sel["components"]]
+        for line in present.render_table(headers, rows):
+            print(line)
+        print()
+        print("Next: " + data["next"])
+        return
+    if sel["scope"] == "component":
+        print(f"Description: {sel.get('description') or '(no catalog description)'}")
+        if sel.get("source_entry"):
+            print(f"Source entry: {sel['source_entry']} (local RBTV source)")
+        print(f"Local source: {len(sel['parts'])} item(s) in this component.")
+        print()
+        headers = ["ID", "Type", "State", "Description"]
+        rows = [[p["key"], p["type"],
+                 "installed" if p["installed"] else "not installed",
+                 p["description"]] for p in sel["parts"]]
+        for line in present.render_table(headers, rows):
+            print(line)
+        print()
+        print("Next: " + data["next"])
+        return
+    part = sel["parts"][0]
+    meaning = present.TYPE_MEANING.get(part["type"], "")
+    print(f"Type: {part['type']}" + (f" ({meaning})" if meaning else ""))
+    if part["description"]:
+        print(f"Description: {part['description']}")
+    if part.get("source_path"):
+        print(f"Source entry: {part['source_path']} (local RBTV source)")
+    elif part["entry_point"]:
+        print(f"Source entry: {part['entry_point']} (local RBTV source)")
+    print()
+    print("Installation in this target")
+    print(f"  Selection: {'installed' if part['installed'] else 'not installed'} "
+          "(saved; files not checked here)")
+    if part["installed"] and sel.get("harnesses"):
+        print("  Receiving tools: " + ", ".join(
+            f"{h} ({present.HARNESS_MEANING.get(h, h)})" for h in sel["harnesses"]))
+    if not part["source_available"]:
+        print("  Source: no longer present in the local catalog")
+    print()
+    print("Next: " + data["next"])
 
 
 def do_list(target: Path, catalog: dict | None = None) -> dict:

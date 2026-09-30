@@ -3,7 +3,6 @@ it.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 
 from discovery import Refuse
@@ -20,24 +19,23 @@ def the_guidance_mirror(ctx) -> None:
      _mk, rf, pws) = ctx.frame()
 
     print("\nD13 — the guidance mirror")
-    check("mirror OFF by default: nothing written, nothing recorded",
-          not (target / "AGENTS.md").exists()
+    check("copying OFF by default, managed guidance still present",
+          (target / "AGENTS.md").exists()
           and "guidance_basis" not in read_state(target))
 
     mt = tmp / "workspace4"
     mt.mkdir()
     basis_body = "# The workspace\n\nHand-authored guidance.\n"
     (mt / "CLAUDE.md").write_text(basis_body, encoding="utf-8")
-    basis_hash = hashlib.sha256((mt / "CLAUDE.md").read_bytes()).hexdigest()
     do_install(mt, catalog, ["fixmod/goodcomp"], list(HARNESSES),
                dry_run=False, guidance_basis="CLAUDE.md")
     mirrored = (mt / "AGENTS.md").read_text(encoding="utf-8")
     check("mirror generated from the basis",
-          mirrored.endswith(basis_body) and "DO NOT EDIT" in mirrored
+          basis_body in mirrored and "DO NOT EDIT" in mirrored
           and "mirrors CLAUDE.md" in mirrored, mirrored[:120])
-    check("the user-authored basis file was NEVER modified",
-          hashlib.sha256((mt / "CLAUDE.md").read_bytes()).hexdigest()
-          == basis_hash)
+    check("the user-authored basis text survives around a managed section",
+          (mt / "CLAUDE.md").read_text(encoding="utf-8").startswith(basis_body)
+          and "rbtv2:start" in (mt / "CLAUDE.md").read_text(encoding="utf-8"))
     check("the basis choice is persisted",
           read_state(mt).get("guidance_basis") == "CLAUDE.md")
     check("the mirror is booked as an installer-owned file",
@@ -148,15 +146,13 @@ def f1_flip_keeps_the_users_file(ctx) -> None:
     authored = "# Authored by hand, under the old mirror's name\n"
     (mt5 / "AGENTS.md").write_text(authored, encoding="utf-8")
     (mt5 / "CLAUDE.md").unlink()
-    authored_hash = hashlib.sha256((mt5 / "AGENTS.md").read_bytes()).hexdigest()
     res5 = do_install(mt5, catalog, ["fixmod/goodcomp"], list(HARNESSES),
                       dry_run=False, guidance_basis="AGENTS.md")
     check("the flipped-to basis is NOT in the delete set",
           res5["deleted"] == [], str(res5["deleted"]))
-    check("the hand-authored file survives the flip byte-for-byte",
+    check("the hand-authored text survives the flip",
           (mt5 / "AGENTS.md").is_file()
-          and hashlib.sha256((mt5 / "AGENTS.md").read_bytes()).hexdigest()
-          == authored_hash)
+          and (mt5 / "AGENTS.md").read_text(encoding="utf-8").startswith(authored))
     check("the flip renders the other name from the new basis",
           res5["written"] == ["CLAUDE.md"]
           and authored in (mt5 / "CLAUDE.md").read_text(encoding="utf-8"),
@@ -189,8 +185,8 @@ def f2_missing_basis_names_recovery(ctx) -> None:
         check("a missing basis refuses",
               exc.code == "guidance-basis-missing", exc.code)
         check("the refusal names BOTH recoveries, in verbs that EXIST",
-              "rbtv install set artifact AGENTS.md" in exc.message
-              and f"rbtv install set artifact {BASIS_NONE}" in exc.message,
+              "rbtv install configure --guidance AGENTS.md" in exc.message
+              and f"rbtv install configure --guidance {BASIS_NONE}" in exc.message,
               exc.message)
     res6 = do_install(mt6, catalog, ["fixmod/goodcomp"], list(HARNESSES),
                       dry_run=False, guidance_basis="AGENTS.md")

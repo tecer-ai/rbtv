@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { main } = require('./cli.js');
 
 const failures = [];
@@ -125,6 +126,14 @@ async function run(argv, extra = {}) {
 
 function baseArgs(dir, slug, extra = []) {
   return ['create', '--workspace', dir, '--slug', slug, '--purpose-file', purposeFile(dir), ...extra];
+}
+
+function installerShow(dir, id) {
+  const entry = path.resolve(__dirname, '../../../meta/installer/install.py');
+  const result = spawnSync(process.platform === 'win32' ? 'python' : 'python3',
+    [entry, 'show', id, '--type', 'skill', '--json', '--target', dir],
+    { encoding: 'utf8' });
+  return { status: result.status, body: JSON.parse(result.stdout), stderr: result.stderr };
 }
 
 (async () => {
@@ -311,6 +320,12 @@ function baseArgs(dir, slug, extra = []) {
   await test('repo skill resolves', async () => {
     const dir = workspace();
     writeConfig(dir);
+    const shown = installerShow(dir, 'core/communication#slack-message-format');
+    assert.equal(shown.status, 0, shown.stderr);
+    const selection = shown.body.selection;
+    assert.equal(selection.scope, 'item');
+    assert.equal(selection.type, 'skill');
+    assert.equal(selection.id, 'core/communication#slack-message-format');
     const result = await run(baseArgs(dir, 'probe', ['--channel-name', 'probe', '--skill', 'core/communication#slack-message-format', '--dry-run']));
     assert.equal(result.code, 0, result.out + result.err);
     assert.match(result.out, /core\/communication#slack-message-format/);
@@ -381,7 +396,28 @@ function baseArgs(dir, slug, extra = []) {
     }));
     assert.notEqual(result.code, 0);
     assert.match(result.err, /unknown skill: lab\/widget#missing/);
+    const shown = installerShow(dir, 'lab/widget#missing');
+    assert.equal(shown.status, 1);
+    assert.ok(shown.body.error?.message);
+    assert.ok(result.err.includes(shown.body.error.message));
     assert.deepEqual(tree(dir), before);
+  });
+
+  await test('ambiguous skill refusal keeps the installer explanation', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    mirrorSkill(dir, 'lab/widget#audio-io');
+    const shown = installerShow(dir, 'audio-io');
+    assert.equal(shown.status, 1);
+    assert.ok(shown.body.error?.message);
+    const result = await run(baseArgs(dir, 'probe',
+      ['--channel-name', 'probe', '--skill', 'audio-io', '--dry-run'])).catch((error) => ({
+      code: error.exitCode || 1,
+      err: error.message,
+    }));
+    assert.notEqual(result.code, 0);
+    assert.ok(result.err.includes(shown.body.error.message));
+    assert.doesNotMatch(result.err, /resolution failed/);
   });
 
   await test('install failure reports the batch and leaves creation unsuccessful', async () => {

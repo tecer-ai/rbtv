@@ -200,6 +200,23 @@ const CHECKS = [
     if (suggest('zzzzzzzz', ['ignite', 'core']) !== null) throw new Error('a far-miss produced a suggestion');
   }],
 
+  ['bare status teaches the installer command without acting', () => {
+    const r = runCli(['status']);
+    if (r.status !== 2) throw new Error(`bare status exited ${r.status}, expected usage exit 2`);
+    if (!/Fix: rbtv install status --target/.test(r.stderr)) {
+      throw new Error('bare status did not teach the installer status command');
+    }
+    for (const args of [['--json', 'status'], ['status', '--json']]) {
+      const structured = runCli(args);
+      if (structured.status !== 2 || structured.stderr) throw new Error('JSON status refusal has prose or wrong exit');
+      const body = JSON.parse(structured.stdout);
+      if (body.ok !== false || body.error?.code !== 'wrong-command'
+          || !body.next?.startsWith('rbtv install status --target')) {
+        throw new Error('JSON status refusal lacks the exact recovery command');
+      }
+    }
+  }],
+
   ['top-level help stays a map, not a manual (<= 30 lines)', () => {
     const r = runCli(['--help']);
     if (r.status !== 0) throw new Error(`--help exited ${r.status}`);

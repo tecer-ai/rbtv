@@ -64,9 +64,11 @@ def r1_recursive_walk(ctx) -> None:
           in (mtr / "sub/deep/AGENTS.md").read_text(encoding="utf-8")
           and (mtr / "sub/AGENTS.md").read_text(encoding="utf-8").endswith(
               bodies["sub/CLAUDE.md"]))
-    check("EVERY basis file is byte-identical after the run",
+    check("nested bases stay identical; root owner text gains only a managed section",
           all(hashlib.sha256((mtr / rel).read_bytes()).hexdigest() == h
-              for rel, h in base_hashes.items()))
+              for rel, h in base_hashes.items() if rel != "CLAUDE.md")
+          and (mtr / "CLAUDE.md").read_text(encoding="utf-8").startswith(
+              bodies["CLAUDE.md"]))
     check("every nested mirror is booked",
           read_state(mtr)["guidance_files"] == sorted(
               ["AGENTS.md", "sub/AGENTS.md", "sub/deep/AGENTS.md"]),
@@ -102,9 +104,10 @@ def r2_flip_protects_every_dir(ctx) -> None:
                        dry_run=False, guidance_basis="AGENTS.md")
     check("NO basis is deleted by the flip, at any depth",
           resr3["deleted"] == [], str(resr3["deleted"]))
-    check("every flipped-to basis survives byte-for-byte",
+    check("flipped-to bases retain their owner text",
           all(hashlib.sha256((mtr / rel).read_bytes()).hexdigest() == h
-              for rel, h in flipped.items()))
+              for rel, h in flipped.items() if rel != "AGENTS.md")
+          and "rbtv2:start" in (mtr / "AGENTS.md").read_text(encoding="utf-8"))
     check("the flip renders the other name at every depth",
           sorted(resr3["written"]) == ["CLAUDE.md", "sub/CLAUDE.md",
                                        "sub/deep/CLAUDE.md"],
@@ -196,7 +199,7 @@ def r4_adoption(ctx) -> None:
           str(resa.get("adopted")))
     check("an adopted mirror is regenerated fresh from its own basis",
           {"AGENTS.md", "deep/AGENTS.md"} <= set(resa["written"])
-          and (mta / "AGENTS.md").read_text(encoding="utf-8").endswith(basis_body)
+          and basis_body in (mta / "AGENTS.md").read_text(encoding="utf-8")
           and "Stale body from a month ago"
           not in (mta / "AGENTS.md").read_text(encoding="utf-8"),
           str(resa["written"]))
@@ -207,9 +210,10 @@ def r4_adoption(ctx) -> None:
           {"AGENTS.md", "deep/AGENTS.md"}
           <= set(read_state(mta)["guidance_files"]),
           str(read_state(mta)["guidance_files"]))
-    check("adoption never touches a basis, at any depth",
+    check("adoption preserves nested bases and root owner text",
           all(hashlib.sha256((mta / rel).read_bytes()).hexdigest() == h
-              for rel, h in basis_hashes.items()))
+              for rel, h in basis_hashes.items() if rel != "CLAUDE.md")
+          and (mta / "CLAUDE.md").read_text(encoding="utf-8").startswith(basis_body))
     check("the run AFTER an adoption is idempotent",
           do_install(mta, catalog, ["fixmod/goodcomp"], list(HARNESSES),
                      dry_run=False)["written"] == [])
@@ -281,11 +285,12 @@ def h_harness_keyed(ctx) -> None:
           == h1_hash
           and (h1 / "sub/CLAUDE.md").read_text(encoding="utf-8") == "# sub\n\nSub "
           "guidance.\n")
-    check("H1 — the block claude needs is REPORTED for the basis, "
-          "never written",
-          sorted(r1["report"]["guidance_manual"]) == ["CLAUDE.md"]
-          and "Step 0" not in r1["report"]["guidance_manual"]["CLAUDE.md"],
-          str(sorted(r1["report"]["guidance_manual"])))
+    check("H1 — the basis gets only its planned managed section",
+          r1["report"]["guidance_sections"] == ["CLAUDE.md"]
+          and "guidance_manual" not in r1["report"]
+          and "Step 0" not in (h1 / "CLAUDE.md").read_text(encoding="utf-8")
+          and f"{FENCE_ID}:start" in (h1 / "CLAUDE.md").read_text(encoding="utf-8"),
+          str(r1["report"]["guidance_sections"]))
     check("H1 — a claude-only re-run stays a no-op",
           do_install(h1, catalog, ["fixmod/goodcomp"], ["claude"],
                      dry_run=False)["written"] == [])
@@ -305,8 +310,8 @@ def h_harness_keyed(ctx) -> None:
           and "fixguide" in (h2 / "AGENTS.md").read_text(encoding="utf-8")
           and "Step 0" not in (h2 / "sub/AGENTS.md").read_text(encoding="utf-8"),
           (h2 / "AGENTS.md").read_text(encoding="utf-8")[:400])
-    check("H2 — the generated body still ends with the basis body",
-          (h2 / "AGENTS.md").read_text(encoding="utf-8").endswith(basis_body))
+    check("H2 — the generated body retains the basis's human text",
+          basis_body in (h2 / "AGENTS.md").read_text(encoding="utf-8"))
 
     h3, r3 = _mk("ws-agents-share", ["codex", "opencode"],
                  "CLAUDE.md")
@@ -330,7 +335,8 @@ def h_harness_keyed(ctx) -> None:
           r5["report"]["guidance_mirror"]["targets"] == ["CLAUDE.md"]
           and (h5 / "CLAUDE.md").is_file()
           and "Step 0" not in (h5 / "CLAUDE.md").read_text(encoding="utf-8")
-          and "Step 0" in r5["report"]["guidance_manual"]["AGENTS.md"],
+          and r5["report"]["guidance_sections"] == ["AGENTS.md", "CLAUDE.md"]
+          and "Step 0" in (h5 / "AGENTS.md").read_text(encoding="utf-8"),
           str(r5["report"]["guidance_mirror"]))
     ctx.keep(locals())
 
@@ -378,7 +384,8 @@ def h7_block_never_stacks(ctx) -> None:
     check("H7 — the flipped file's fenced block is stripped, not stacked",
           (h7 / "CLAUDE.md").read_text(encoding="utf-8").count(f"{FENCE_ID}:start") == 1
           and (h7 / "CLAUDE.md").read_text(encoding="utf-8").count("Step 0") == 0
-          and "Step 0" in r7["report"]["guidance_manual"]["AGENTS.md"],
+          and r7["report"]["guidance_sections"] == ["AGENTS.md", "CLAUDE.md"]
+          and "Step 0" in (h7 / "AGENTS.md").read_text(encoding="utf-8"),
           (h7 / "CLAUDE.md").read_text(encoding="utf-8")[:400])
     check("H7 — and the flipped run is idempotent",
           do_install(h7, catalog, ["fixmod/goodcomp"], ["claude", "codex"],
@@ -431,6 +438,7 @@ def rf2_dry_run_reports_the_block(ctx) -> None:
      _mk, rf, pws) = ctx.frame()
 
     print("\nRF2 — a DRY RUN still reports the block the human must place")
+    basis_before = (rf / "CLAUDE.md").read_bytes()
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         print_result(do_install(rf, catalog, ["fixmod/codexcomp"],
@@ -438,10 +446,9 @@ def rf2_dry_run_reports_the_block(ctx) -> None:
     out = buf.getvalue()
     check("RF2 — the dry run prints the guidance-mirror summary",
           "guidance mirror:" in out and "would generate" in out, out[-600:])
-    check("RF2 — and the manual block, flush (never a 4-space code block)",
-          "Add this block to CLAUDE.md" in out
-          and "\n# rbtv exposure" in out
-          and "\n    # rbtv exposure" not in out, out[-600:])
+    check("RF2 — preview keeps the workspace files untouched",
+          (rf / "CLAUDE.md").read_bytes() == basis_before
+          and "Would" in out, out[-600:])
     ctx.keep(locals())
 
 
@@ -465,11 +472,11 @@ def rf3_flip_debanners_the_basis(ctx) -> None:
     check("RF3 — the file the human now authors carries NO stale banner",
           "GENERATED by install.py" not in cleaned
           and "DO NOT EDIT" not in cleaned
-          and f"{FENCE_ID}:start" not in cleaned
+          and cleaned.count(f"{FENCE_ID}:start") == 1
           and rfb["report"]["guidance_debannered"] == ["CLAUDE.md"],
           cleaned[:400])
     check("RF3 — the guidance BODY survives the cleaning",
-          cleaned.rstrip() == basis_body.rstrip(), repr(cleaned[:200]))
+          cleaned.startswith(basis_body), repr(cleaned[:200]))
     check("RF3 — a hand-authored basis is never rewritten by the cleaner",
           do_install(fb, catalog, ["fixmod/goodcomp"], ["claude"],
                      dry_run=False)["report"]["guidance_debannered"] == []

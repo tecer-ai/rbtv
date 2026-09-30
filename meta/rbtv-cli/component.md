@@ -13,7 +13,7 @@ rbtv                        level 0 — the installed modules
 rbtv <module>               level 1 — that module's components, blurb-first, + its rules and action verbs
 rbtv <module> <component>   level 2 — the component's entry point body + its invocable entry points
 
-rbtv install <verb>         status|list|show|add|remove|doctor → meta/installer/install.py
+rbtv install <verb>         status|list|search|show|configure|add|remove|update|doctor → meta/installer/install.py
 rbtv control-panel <verb>   update|status                 → meta/control-panel
 
 rbtv doctor                 can this tool work here?
@@ -50,10 +50,10 @@ module because `meta/` hosts what operates on the rbtv SYSTEM itself rather than
 content, and installing rbtv into a workspace is exactly that (owner ruling, 2026-08-22 — `core/`
 was the wrong home). Its own `argparse` program name has always been `rbtv install`; this route is
 what makes that string true at a shell. Its two workspace settings —
-`harness` (which AI coding tools get files written for them) and `artifact` (which root guidance
-file the human authors) — are answered once on the first `add` and thereafter owned by their own
-verbs. Identical settings on a repeat add are accepted; conflicting settings refuse with the
-setting-change command. See installer `design-decisions.md` D16 and its current override.
+`harness` (which AI coding tools get files written for them) and `guidance` (which root guidance
+file the human authors) — can be set by `configure` before the first `add`, or supplied together on
+that first `add`. Later changes use `configure`; omitted settings retain their saved values.
+See installer `design-decisions.md` for the persisted-setting rationale and current command names.
 
 The Ignite 0.1 verb families — `ignite daemon`, `ignite ticker`, the gateway client,
 `goal`, `run` — are not routed. Their delegates are 0.1 and are deleted with it.
@@ -73,10 +73,9 @@ is what makes that arrive as a test failure instead of an outage.
 
 ## ⚠ The drill is a STAND-IN pending CMP-5
 
-The registry specifies the drill over `module.md`, per-component `component.md` description lines,
-and exposure-manifest rows carrying an `rbtv-cli` column. **None of those exist** — measured:
-`find . -name component.md -o -name module.md` over the whole repo returns zero, and no exposure
-manifest carries that column. That is `G-109` (CMP-5 designed-unbuilt).
+The registry specifies the drill over `module.md`, per-component `component.md` descriptions,
+and exposure-manifest rows carrying an `rbtv-cli` column. Those files and columns now exist;
+the remaining stand-in is dispatch from that exposure column, which `rbtv` does not yet use.
 
 So `tool/lib/catalog.js` reads the substrate that IS live, and is a stand-in for a CMP-5 reader,
 **not the settled schema**:

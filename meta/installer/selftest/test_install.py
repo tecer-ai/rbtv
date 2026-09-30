@@ -19,6 +19,7 @@ from lib.constants import (
     STATE_REL,
 )
 from lib.claims import _claim_id
+from lib.apply import apply
 from lib.content import _is_ours
 from lib.pathlinks import bin_dir, link_path, link_points_at
 from lib.state import read_state, rec_files
@@ -50,7 +51,7 @@ def green_arm_all_harnesses(ctx) -> None:
               ".codex/config.toml", "opencode.json"}
     on_disk = {p.relative_to(target).as_posix()
                for p in target.rglob("*") if p.is_file()}
-    want = expect | shared | set(legacy) | {STATE_REL.as_posix()}
+    want = expect | shared | {"AGENTS.md", "CLAUDE.md"} | set(legacy) | {STATE_REL.as_posix()}
     check("every CMP-12 realization landed under its BARE part id, and "
           "nothing else",
           on_disk == want,
@@ -73,11 +74,19 @@ def green_arm_all_harnesses(ctx) -> None:
     check("`pool` minted nothing; `path` still writes nothing under target",
           not (target / ".claude/skills/fixtool").exists()
           and not (target / ".claude/skills/fixpool").exists()
-          and [r["method"] for r
+          and [r["type"] for r
                in res["report"]["skipped_inventory_rows"]] == ["pool"]
           and not (target / "fixtool").exists()
           and not (target / "tool/thing.py").exists(),
           str(res["report"]["skipped_inventory_rows"]))
+    public_rows = [row for key in ("skipped_inventory_rows", "no_realization",
+                                    "path_rows")
+                   for row in res["report"][key]]
+    check("report rows classify items by public type",
+          bool(public_rows)
+          and all("type" in row and "method" not in row
+                  for row in public_rows),
+          str(public_rows))
     check("green — path part-id is the link name, not the basename",
           link_points_at(link_path(bin_dir(), "fixtool"),
                          (tree / "fixmod/goodcomp/tool/thing.py").resolve())
@@ -97,18 +106,16 @@ def green_arm_all_harnesses(ctx) -> None:
           not (target / ".agents/rbtv2-exposure.md").exists()
           and not any("exposure.md" in rel for rel in expect),
           str(sorted(expect)))
-    check("with no basis, the exposure block is REPORTED per guidance file "
-          "an installed harness reads",
-          sorted(res["report"]["guidance_manual"]) == ["AGENTS.md",
-                                                       "CLAUDE.md"]
-          and "Step 0" in res["report"]["guidance_manual"]["AGENTS.md"]
-          and "Step 0" not in res["report"]["guidance_manual"]["CLAUDE.md"]
-          and "fixguide"
-          in res["report"]["guidance_manual"]["CLAUDE.md"],
-          str(sorted(res["report"]["guidance_manual"])))
-    check("root guidance file NEVER written (D8)",
-          not (target / "CLAUDE.md").exists()
-          and not (target / "AGENTS.md").exists())
+    check("with no copy basis, the managed sections are reported from the plan",
+          res["report"]["guidance_sections"] == ["AGENTS.md", "CLAUDE.md"]
+          and "guidance_manual" not in res["report"]
+          and "Step 0" in (target / "AGENTS.md").read_text(encoding="utf-8")
+          and "Step 0" not in (target / "CLAUDE.md").read_text(encoding="utf-8")
+          and "fixguide" in (target / "CLAUDE.md").read_text(encoding="utf-8"),
+          str(res["report"]["guidance_sections"]))
+    check("managed guidance sections are installed without replacing owner files",
+          all(f"{FENCE_ID}:start" in (target / name).read_text(encoding="utf-8")
+              for name in ("CLAUDE.md", "AGENTS.md")))
     check("claude settings gained OUR keys beside the foreign one",
           json.loads((target / ".claude/settings.json").read_text(encoding="utf-8"))
           == {"foreignKey": 1, "enableAllProjectMcpServers": True,
@@ -150,6 +157,8 @@ def green_arm_all_harnesses(ctx) -> None:
               _claim_id(".mcp.json", ["mcpServers", "fix"]),
               _claim_id("opencode.json", ["mcp", "fix"]),
               _claim_id(".codex/config.toml", None),
+              _claim_id("AGENTS.md", None),
+              _claim_id("CLAUDE.md", None),
           ]), str(sorted(state["shared_claims"])))
     check("install.json books the source tree + harnesses",
           rec["tree"] == "repo" and rec["tree_root"] == str(tree)
@@ -157,6 +166,57 @@ def green_arm_all_harnesses(ctx) -> None:
     check("re-install is idempotent",
           do_install(target, catalog, ["fixmod/goodcomp"], list(HARNESSES),
                      dry_run=False)["written"] == [])
+    before_preview = {p.relative_to(target).as_posix(): p.read_bytes()
+                      for p in target.rglob("*") if p.is_file()}
+    preview = do_install(target, catalog, ["fixmod/goodcomp"],
+                         list(HARNESSES), dry_run=True)
+    after_preview = {p.relative_to(target).as_posix(): p.read_bytes()
+                     for p in target.rglob("*") if p.is_file()}
+    planned = preview["planned_changes"]
+    check("identical reinstall previews zero file and shared changes",
+          not (planned["write_files"] or planned["delete_files"]
+               or planned["write_shared_files"]
+               or planned["delete_shared_files"])
+          and planned["unchanged_files"]
+          and planned["unchanged_shared_files"]
+          and before_preview == after_preview,
+          str(planned))
+    changed_file = target / ".claude/skills/fixskill/SKILL.md"
+    changed_shared = target / ".claude/settings.json"
+    old_file, old_shared = changed_file.read_bytes(), changed_shared.read_bytes()
+    changed_file.write_text("stale generated file\n", encoding="utf-8")
+    changed_shared.write_text('{"foreignKey": 1}\n', encoding="utf-8")
+    changed_before = (changed_file.read_bytes(), changed_shared.read_bytes())
+    changed_preview = do_install(target, catalog, ["fixmod/goodcomp"],
+                                 list(HARNESSES), dry_run=True)
+    changed_plan = changed_preview["planned_changes"]
+    check("preview names changed file and shared setting without writing",
+          ".claude/skills/fixskill/SKILL.md" in changed_plan["write_files"]
+          and ".claude/settings.json" in changed_plan["write_shared_files"]
+          and (changed_file.read_bytes(), changed_shared.read_bytes())
+          == changed_before,
+          str(changed_plan))
+    changed_file.write_bytes(old_file)
+    changed_shared.write_bytes(old_shared)
+
+    overlap = tmp / "ws-shared-file-overlap"
+    overlap.mkdir()
+    overlap_files = {"CLAUDE.md": "Owner instructions\n"}
+    overlap_claims = [{"path": "CLAUDE.md", "fmt": "text",
+                       "comment": "<!--", "key": None,
+                       "value": "Managed instructions"}]
+    overlap_preview = apply(overlap, overlap_files, overlap_claims, {}, True)
+    overlap_plan = overlap_preview["planned_changes"]
+    overlap_result = apply(overlap, overlap_files, overlap_claims, {}, False)
+    overlap_body = (overlap / "CLAUDE.md").read_text(encoding="utf-8")
+    check("shared preview renders over the planned file body",
+          overlap_plan["write_files"] == ["CLAUDE.md"]
+          and overlap_plan["write_shared_files"] == ["CLAUDE.md"]
+          and overlap_result["written"] == ["CLAUDE.md"]
+          and overlap_result["shared_written"] == ["CLAUDE.md"]
+          and overlap_body.startswith("Owner instructions\n")
+          and f"{FENCE_ID}:start" in overlap_body,
+          str(overlap_plan))
     ctx.keep(locals())
 
 
@@ -260,7 +320,7 @@ def dry_run_prints_the_report_rows(ctx) -> None:
               for row in rr_dry["report"]["skipped_inventory_rows"]),
           dry_out)
     check("7.622 — every no-realization row is named in the dry run",
-          all(f"{row['harness']} cannot use this {row['method']} item "
+          all(f"{row['harness']} cannot use this {row['type']} item "
               f"({row['component']}#{row['part']})"
               in dry_out
               for row in rr_dry["report"]["no_realization"]),

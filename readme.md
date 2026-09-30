@@ -31,7 +31,7 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 
 ## Install
 
-For a first run, point the installer at an existing workspace directory. `status` shows which directory it selected and which harnesses are configured. `list` finds a few choices; `show` explains one; `add` installs its stable name; `remove` takes that same name.
+For a first run, point the installer at an existing workspace directory. `status` shows which directory it selected and which harnesses are configured. `list` opens the exact module, component, or item hierarchy; `search` finds names and descriptions broadly; `show` explains one choice; `add` installs its stable name; `remove` takes that same name.
 
 ```bash
 rbtv install status --target /path/to/workspace
@@ -42,7 +42,7 @@ rbtv install status --target /path/to/workspace
 rbtv install remove brainstorm --target /path/to/workspace
 ```
 
-The first add needs `--harness` (which AI coding tools receive files) and `--guidance` (which root guidance file you author). A short name selects one exposed item such as a skill or rule. Use a full `module/component` name or `--component` for a whole component. For another agent, set `--target` to its home directory on each command. Use `--dry-run` to preview a change and `--json` for a machine-readable result. Run `rbtv install --help` for module-wide choices, settings changes, and compatibility forms. Bare `rbtv install` prints help; `rbtv install interactive` starts the guided flow.
+On a fresh workspace, run `configure --harness NAMES --guidance NAME` or supply both settings on the first `add`. A short name selects one exposed item such as a skill or rule when unique; a full `module/component` name selects a component. `list NAME` opens that exact scope, while `search WORDS` looks across names and descriptions. For another agent, set `--target` to its home directory on each command. Use `--dry-run` to preview a change and `--json` for a machine-readable result. Bare `rbtv install` prints help; `rbtv install interactive` starts the guided flow.
 
 > **The installer is `meta/installer/install.py`, reachable as `rbtv install`.**
 > It carried the name `install2.py` from its first commit until 2026-08-23, while a
@@ -63,16 +63,15 @@ The first add needs `--harness` (which AI coding tools receive files) and `--gui
 > standalone kimi CLI was retired 2026-08-14; its models ride opencode.
 > Everything else — module-root manifests, folders with no `exposure.csv` — was the old
 > standard, which only the predecessor installer ever managed: the two covered disjoint sets.
-> One exception by design: a tree-root **`_skills/`** folder holds whole vendored skill
-> folders (`_skills/cli-creator/`), which are not rbtv parts and carry no manifest. Each is
-> its own installable unit (`--component _skills/cli-creator`, `--module _skills`) and is
-> **copied verbatim** into every installed harness's skills directory rather than thin-loaded
-> — installed and uninstalled as a whole folder.
-> Its artifacts are named after their bare part id, each carrying the machine-readable
-> `rbtv2-managed` marker that says the installer may rewrite it, and its state lives at
+> One exception by design: a tree-root **`_hub/<method>/<name>/`** folder can hold whole units
+> with no exposure manifest. Legacy `_skills/<name>/` folders are discovered as hub skills.
+> Each is its own installable unit selected by its catalog ID. A hub skill folder is
+> **copied verbatim** into each installed harness's skills directory rather than thin-loaded;
+> its copied `SKILL.md` carries the `rbtv2-managed` ownership marker.
+> Other generated artifacts are named after their bare item ID and marked as installer-owned.
+> Installation state lives at
 > `{target}/.rbtv/config/install.json`, recording every file and every shared-config key it
-> wrote — so the two installers can never sweep, overwrite, or delete each other's work, and
-> `rbtv install rm` removes exactly what it wrote and nothing else. It exposes at the
+> wrote; `rbtv install remove` releases exactly those claims. It exposes at the
 > INSTALL ROOT only and never writes under `.rbtv/goals/`.
 >
 > It is reachable as **`rbtv install`** — the system CLI routes that namespace straight to it,
@@ -80,29 +79,31 @@ The first add needs `--harness` (which AI coding tools receive files) and `--gui
 >
 > ```bash
 > rbtv install --target W status                                # target and saved settings
-> rbtv install --target W list planning                         # copyable stable names
+> rbtv install --target W list meta/planning                    # exact component scope
+> rbtv install --target W search planning                      # broad discovery
 > rbtv install --target W show meta/planning                    # component detail
-> rbtv install --target W add meta/planning \
->       --harness claude,codex --guidance CLAUDE.md              # first add: both required
+> rbtv install --target W configure --harness claude,codex --guidance CLAUDE.md
+> rbtv install --target W add meta/planning                     # select the component
 > rbtv install --target W add --module office                   # a whole module
 > rbtv install --target W remove meta/planning                  # one component
 > rbtv install --target W remove web/browse web/capture         # several components
-> rbtv install --target W set --harness claude,codex             # change which tools get files
-> rbtv install --target W set --guidance CLAUDE.md              # change the guidance basis
-> rbtv install --target W add artifact exclude <dir>            # folders the mirror skips
+> rbtv install --target W configure --harness claude,codex      # replace receiving tools
+> rbtv install --target W configure --guidance CLAUDE.md        # replace maintained guidance
+> rbtv install --target W add guidance exclude vendor           # skip a guidance folder
+> rbtv install --target W update all                             # regenerate locally
 > rbtv install interactive                                       # guided flow
 > rbtv install selftest                                          # its runnable check
 > ```
 >
-> **The two workspace settings are answered once.** `--harness` (which AI coding tools get files
-> written for them) and `--guidance` (which root guidance file you author) are required on the
-> first `add`. Identical repeat values are accepted; conflicting values refuse with a runnable
-> `set` command. `status` displays the saved settings. Older `ls`, `li`, `rm`, `-c`, `-m`, `-x`,
-> and `--artifact` spellings remain compatible, but stable names and readable commands are the
-> main workflow. Numeric catalog positions are not identifiers. The earlier settings design and
-> its current override are recorded in `meta/installer/design-decisions.md`.
+> **The two workspace settings are explicit.** `--harness` chooses which AI coding tools receive
+> files, and `--guidance` chooses the root instruction file you maintain. On a fresh target, set
+> both with `configure` or on the first `add`. A later `configure` replaces only the settings
+> supplied; `status` displays them. `--type` filters item types; `--exclude-type` excludes them.
+> Numeric catalog positions are not identifiers. The setting rationale and current command names
+> are recorded in `meta/installer/design-decisions.md`.
 >
-> Mutations take `--dry-run`; all commands take `--json`. Exit codes are `0` success / `1` refusal /
+> `configure`, `add`, `remove`, and `update` accept `--dry-run`. The read and change commands
+> accept `--json`; `interactive` and `selftest` accept neither flag. Exit codes are `0` success / `1` refusal /
 > `2` usage. Its design decisions (tree precedence, the new-standard scope, the ownership marker, the collision
 > rule, the workspace settings) are documented in `meta/installer/design-decisions.md` —
 > that is their one home.
@@ -228,10 +229,13 @@ cd /path/to/your/workspace/rbtv
 git pull
 ```
 
-Content changes appear live. You only need to re-run `rbtv install` when:
-- Adding or removing components
-- A component's exposure manifest (`exposure.csv`) changes what it exposes, or
-  how a loader is rendered changes
+Content changes behind thin loaders appear live. Run `rbtv install update scaffolding` when an
+exposure manifest (`exposure.csv`), loader, or generated instruction section changes. This
+refreshes generated sections in every configured instruction file, including counterpart files,
+while preserving human text outside them. Use `rbtv install update guidance` when maintained
+human instructions change; it copies that text to configured counterparts while preserving
+their generated sections. `rbtv install update all` does both from local source. Use `add` or
+`remove` when you want to change the selected items.
 
 ## Source of truth
 
@@ -239,7 +243,8 @@ Installed files under `.claude/skills/`, `.claude/commands/`, `.claude/rules/` a
 
 ## Retired components
 
-Some components ship in this repo but are flagged `stale` in the module manifest — the installer neither installs nor offers them (it skips any manifest entry with `"stale": true` and hides it from the component picker). Source files remain for reference and history. To revive one, remove its `stale` flag and re-run `install.py`.
+The table below records retired components from earlier layouts. The current installer discovers
+installable content from each component's `exposure.csv`, not from the deleted central manifest.
 
 | Component | Module | Why retired |
 |---|---|---|
@@ -256,12 +261,14 @@ Some components ship in this repo but are flagged `stale` in the module manifest
 
 ## Architecture notes
 
-- **Module-first source layout:** every component lives under its owning module folder (`{module}/{type}/{name}`, e.g. `office/skills/doc-export/SKILL.md`). `admin/install/module-manifest.json` declares what each module installs; `modules/{module}.md` documents it.
-- **Thin loaders:** installed loaders are short files that point back to this repo via a vault-relative path (e.g., `rbtv/`). No content is duplicated into your workspace.
+- **Component source layout:** a component lives at `<module>/<component>/` with an `exposure.csv` describing its installed items. The owning `<module>/module.md` documents it.
+- **Thin loaders:** installed skill and command loaders point back to this repo by resolved source path. Their installed copies are generated.
 - **Rule exception:** rule files are copied as content (not loaders), because rules load passively into Claude's context and indirection is unreliable.
-- **Subagent exception:** subagent files (`.claude/agents/rbtv-*.md`) are copied as content too — they're dispatched in fresh context via the Task tool, so they must be self-contained.
-- **Overwrite scope:** re-install tracks the previous install's file list in `rbtv.json` (`installed_files`) and removes only those paths. Your workspace content (notes, projects, other skills, Fernando-authored local components) is never touched.
+- **Subagent exception:** installed subagent files are copied as content too — they are dispatched in fresh context and must be self-contained.
+- **Overwrite scope:** the installer records owned files and shared settings in `.rbtv/config/install.json`; removal releases those claims while preserving unowned workspace content.
 
 ## Extending RBTV
 
-`/rbtv-create-component` was RETIRED 2026-08-11 (`builder/RETIRED.md`) and no longer installs. Component structure, naming, and the exposure/seat canon are defined by the meta/planning `build` and `plan` skills — use their guides and console seat plans to build new components. Placement still follows the module-first layout above, and every component change still updates `README.md`, `modules/{module}.md`, and `admin/install/module-manifest.json` in the same change.
+`/rbtv-create-component` was retired. Component structure, naming, and the exposure/seat canon are
+defined by the meta/planning `build` and `plan` skills. Place a new component in its owning module;
+update its `exposure.csv`, `<module>/module.md`, and relevant README guidance in the same change.

@@ -6,7 +6,8 @@ Installs components into a workspace by reading their EXPOSURE MANIFESTS
 INSTALL ROOT only. Python 3 stdlib only.
 
     rbtv install status                target, settings and installed counts
-    rbtv install list [QUERY]          search available items
+    rbtv install list [NAME]           browse modules, components or exact items
+    rbtv install search QUERY          search items broadly
     rbtv install list --installed      inspect recorded installed items
     rbtv install show NAME             resolve a name and inspect details
     rbtv install add NAME...           install or refresh selected items
@@ -15,7 +16,10 @@ INSTALL ROOT only. Python 3 stdlib only.
     rbtv install add --module core     select a whole module
     rbtv install remove NAME...        remove selected items
     rbtv install remove --all --yes    explicitly confirm broad removal
-    rbtv install set --harness codex --guidance none
+    rbtv install configure --harness codex --guidance none
+    rbtv install update guidance       copy maintained instructions
+    rbtv install update scaffolding    refresh selected installed files
+    rbtv install update all            do both updates
     rbtv install doctor               read-only health and recovery checks
     rbtv install interactive           explicitly start the guided flow
     rbtv install selftest              run isolated regression checks

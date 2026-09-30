@@ -1,26 +1,23 @@
 """What `ls`, `li` and `doctor` print, plain, pretty and as JSON."""
 from __future__ import annotations
 
-import argparse
 import contextlib
 import io
 import json
-import os
-from pathlib import Path
+import re
 
-from discovery import EXPOSURE_COLS, EXPOSURE_NAME, SKILLS_DIR, scan_tree
+from discovery import SKILLS_DIR
 
-from lib.constants import STATE_REL, _RUNTIME
-from lib.pathlinks import link_path, local_bin
+from lib.constants import STATE_REL
 from lib.target import DISCOVER_CWD, DISCOVER_FLAG
 from lib.state import _part_in, read_state, write_state
 from lib.operations import do_install
 from lib.listing import build_ls, do_list
 from lib.doctor import do_doctor, doctor_exit
 from lib.parser import build_parser
-from lib.commands import cmd_doctor, cmd_li, cmd_ls, main
+from lib.commands import _print_doctor, cmd_doctor, cmd_li, cmd_ls, main
+from lib.report import print_result
 
-from .fixture import _fixture
 
 
 def ls_li_doctor(ctx) -> None:
@@ -99,179 +96,51 @@ def ls_li_doctor(ctx) -> None:
           f"part={part_rec['status']} miss={part_rec['missing']} "
           f"full={full_rec['status']}")
 
-    by_name = {c["name"]: c for c in do_doctor(
-        pws, DISCOVER_CWD, catalog, [], tree,
-        pws / ".rbtv" / "mirror")["checks"]}
-    check("SURF-doctor-names — every check has a stable name",
-          set(by_name) == {
-              "target", "book", "tree-repo", "tree-mirror", "bin-dir",
-              "bin-on-path", "local-bin-shadow", "path-unbooked",
-              "path-collision", "path-not-executable", "add-collisions",
-              "guidance-basis", "path-ownership"},
-          str(sorted(by_name)))
+    doctor_data = do_doctor(pws, DISCOVER_CWD, catalog, [], tree,
+                            pws / ".rbtv" / "mirror")
+    by_name = {c["name"]: c for c in doctor_data["checks"]}
+    check("SURF-doctor-workspace-scope — current selection is explicit",
+          {"Saved selection", "Selected files", "Maintained guidance",
+           "Source catalog"} <= set(by_name)
+          and all(c["scope"] for c in doctor_data["checks"])
+          and "fixmod" not in by_name["Source catalog"]["detail"],
+          str(doctor_data["checks"]))
 
     notdir = tmp / "ws-doc-notdir"
     notdir.write_text("x\n", encoding="utf-8")
-    tfail = {c["name"]: c for c in do_doctor(
-        notdir, DISCOVER_FLAG, {}, [], tree,
-        notdir / ".rbtv" / "mirror")["checks"]}
-    check("SURF-doctor-target-fail — names the path",
-          tfail["target"]["level"] == "fail"
-          and str(notdir) in tfail["target"]["detail"]
-          and "not a directory" in tfail["target"]["detail"]
-          and doctor_exit(list(tfail.values())) == 1,
-          tfail["target"]["detail"])
+    tfail = do_doctor(notdir, DISCOVER_FLAG, {}, [], tree,
+                      notdir / ".rbtv" / "mirror")
+    named_tfail = {c["name"]: c for c in tfail["checks"]}
+    check("SURF-doctor-target-fail — selected path is named",
+          named_tfail["Saved selection"]["level"] == "fail"
+          and str(notdir) in named_tfail["Saved selection"]["detail"]
+          and doctor_exit(tfail["checks"]) == 1,
+          named_tfail["Saved selection"]["detail"])
 
     bws = tmp / "ws-doc-badbook"
     bws.mkdir()
     (bws / STATE_REL).parent.mkdir(parents=True)
     (bws / STATE_REL).write_text("{not-json", encoding="utf-8")
-    bfail = {c["name"]: c for c in do_doctor(
-        bws, DISCOVER_CWD, catalog, [], tree,
-        bws / ".rbtv" / "mirror")["checks"]}
-    check("SURF-doctor-book-fail — unreadable book is named",
-          bfail["book"]["level"] == "fail"
-          and "unreadable" in bfail["book"]["detail"]
-          and doctor_exit(list(bfail.values())) == 1,
-          bfail["book"]["detail"])
-
-    rtree = tmp / "doc-repo-tree"
-    rtree.mkdir()
-    _fixture(rtree)
-    mtree = tmp / "doc-mirror-tree"
-    mtree.mkdir()
-    (mtree / "fixmod" / "goodcomp").mkdir(parents=True)
-    (mtree / "fixmod" / "goodcomp" / EXPOSURE_NAME).write_text(
-        ",".join(EXPOSURE_COLS) + "\n", encoding="utf-8")
-    tws = tmp / "ws-doc-trees"
-    tws.mkdir()
-    tchecks = {c["name"]: c for c in do_doctor(
-        tws, DISCOVER_CWD, {}, [], rtree, mtree)["checks"]}
-    repo_n = len(scan_tree(rtree, "repo"))
-    mir_n = len(scan_tree(mtree, "mirror"))
-    check("SURF-doctor-trees — counts come from the trees given",
-          tchecks["tree-repo"]["level"] == "ok"
-          and tchecks["tree-mirror"]["level"] == "ok"
-          and f"{repo_n} components" in tchecks["tree-repo"]["detail"]
-          and str(rtree) in tchecks["tree-repo"]["detail"]
-          and f"{mir_n} components" in tchecks["tree-mirror"]["detail"]
-          and str(mtree) in tchecks["tree-mirror"]["detail"]
-          and repo_n != mir_n,
-          f"repo={tchecks['tree-repo']['detail']} "
-          f"mir={tchecks['tree-mirror']['detail']}")
-
-    saved_bin, saved_path = _RUNTIME["bin"], os.environ.get("PATH")
-    ghost = tmp / "ghost-bin"
-    _RUNTIME["bin"] = ghost
-    os.environ["PATH"] = "/usr/bin"
-    dmiss = {c["name"]: c for c in do_doctor(
-        tws, DISCOVER_CWD, {}, [], rtree, mtree)["checks"]}
-    check("SURF-doctor-bin-missing — names the bindir",
-          dmiss["bin-dir"]["level"] == "warn"
-          and str(ghost) in dmiss["bin-dir"]["detail"]
-          and "missing" in dmiss["bin-dir"]["detail"]
-          and dmiss["path-unbooked"]["detail"] == "no directory"
-          and doctor_exit(list(dmiss.values())) == 0,
-          dmiss["bin-dir"]["detail"])
-    check("SURF-doctor-bin-on-path — says not on PATH",
-          dmiss["bin-on-path"]["level"] == "warn"
-          and ("not on PATH" in dmiss["bin-on-path"]["detail"]
-               or "not on current PATH" in dmiss["bin-on-path"]["detail"]),
-          dmiss["bin-on-path"]["detail"])
-
-    ghost.mkdir()
-    os.environ["PATH"] = str(ghost) + os.pathsep + str(local_bin())
-    (local_bin()).mkdir(parents=True, exist_ok=True)
-    (local_bin() / "shadowme").write_text("x\n", encoding="utf-8")
-    (ghost / "shadowme").symlink_to(tmp / "fake-bashrc")
-    Path(_RUNTIME["rc"]).write_text("x\n", encoding="utf-8")
-    dsh = {c["name"]: c for c in do_doctor(
-        tws, DISCOVER_CWD, {}, [], rtree, mtree)["checks"]}
-    check("SURF-doctor-local-shadow — names the shadowed command",
-          dsh["local-bin-shadow"]["level"] == "warn"
-          and "shadowme" in dsh["local-bin-shadow"]["detail"]
-          and "shadows" in dsh["local-bin-shadow"]["detail"],
-          dsh["local-bin-shadow"]["detail"])
-    (ghost / "stranger").symlink_to(tmp / "fake-bashrc")
-    dun = {c["name"]: c for c in do_doctor(
-        tws, DISCOVER_CWD, {}, [], rtree, mtree)["checks"]}
-    check("SURF-doctor-legacy — names the preserved unregistered link",
-          dun["path-ownership"]["level"] == "warn"
-          and "stranger" in dun["path-ownership"]["detail"]
-          and (ghost / "stranger").is_symlink(),
-          dun["path-ownership"]["detail"])
-    link_path(ghost, "hitfile").write_text("not a link\n", encoding="utf-8")
-    coll_cat = {
-        "amod/acomp": {
-            "id": "amod/acomp", "module": "amod",
-            "component": "acomp", "kind": "component",
-            "manifest": True, "tree": "repo",
-            "path": str(tmp),
-            "rows": [{"part-id": "hitfile", "method": "path"}]}}
-    dcol = {c["name"]: c for c in do_doctor(
-        tws, DISCOVER_CWD, coll_cat, [], rtree, mtree)["checks"]}
-    check("SURF-doctor-path-collision — names the regular file",
-          dcol["path-collision"]["level"] == "warn"
-           and "hitfile" in dcol["path-collision"]["detail"]
-           and "not a managed shortcut" in dcol["path-collision"]["detail"],
-          dcol["path-collision"]["detail"])
-    if os.name == "nt":
-        # Windows has no execute bit (os.access X_OK is true for any file);
-        # there a PATH entry with no interpreter is refused at add time.
-        skip("SURF-doctor-not-exec", "POSIX-only: Windows has no execute bit")
-    else:
-        nox = tmp / "not-exec.py"
-        nox.write_text("print(1)\n", encoding="utf-8")
-        nox.chmod(0o644)
-        (ghost / "noexec").symlink_to(nox)
-        nexec_cat = {
-            "amod/acomp": {
-                "id": "amod/acomp", "module": "amod",
-                "component": "acomp", "kind": "component",
-                "manifest": True, "tree": "repo",
-                "path": str(tmp),
-                "rows": [{"part-id": "noexec", "method": "path"}]}}
-        dnx = {c["name"]: c for c in do_doctor(
-            tws, DISCOVER_CWD, nexec_cat, [], rtree, mtree)["checks"]}
-        check("SURF-doctor-not-exec — names the non-executable dest",
-              dnx["path-not-executable"]["level"] == "warn"
-              and "noexec" in dnx["path-not-executable"]["detail"]
-              and "not executable" in dnx["path-not-executable"]["detail"],
-              dnx["path-not-executable"]["detail"])
-    _RUNTIME["bin"] = saved_bin
-    if saved_path is None:
-        os.environ.pop("PATH", None)
-    else:
-        os.environ["PATH"] = saved_path
-
-    cws = tmp / "ws-doc-addcoll"
-    cws.mkdir()
-    (cws / ".claude/skills/fixskill").mkdir(parents=True)
-    (cws / ".claude/skills/fixskill/SKILL.md").write_text(
-        "hand authored, no marker\n", encoding="utf-8")
-    dadd = {c["name"]: c for c in do_doctor(
-        cws, DISCOVER_CWD, {"fixmod/goodcomp": catalog["fixmod/goodcomp"]},
-        [], tree, cws / ".rbtv" / "mirror")["checks"]}
-    check("SURF-doctor-add-collisions — names the unbooked file",
-          dadd["add-collisions"]["level"] == "warn"
-          and "fixskill" in dadd["add-collisions"]["detail"]
-          and "collision" in dadd["add-collisions"]["detail"]
-          and doctor_exit(list(dadd.values())) == 0,
-          dadd["add-collisions"]["detail"])
+    bfail = do_doctor(bws, DISCOVER_CWD, catalog, [], tree,
+                      bws / ".rbtv" / "mirror")
+    named_bfail = {c["name"]: c for c in bfail["checks"]}
+    check("SURF-doctor-book-fail — unreadable selection is named",
+          named_bfail["Saved selection"]["level"] == "fail"
+          and "unreadable" in named_bfail["Saved selection"]["detail"]
+          and doctor_exit(bfail["checks"]) == 1,
+          named_bfail["Saved selection"]["detail"])
 
     gws = tmp / "ws-doc-basis"
     gws.mkdir()
     write_state(gws, {"components": {}, "guidance_basis": "WAT.md",
                       "shared_claims": []})
-    dbas = {c["name"]: c for c in do_doctor(
-        gws, DISCOVER_CWD, {}, [], tree,
-        gws / ".rbtv" / "mirror")["checks"]}
-    check("SURF-doctor-guidance-basis — names the bad value",
-          dbas["guidance-basis"]["level"] == "warn"
-          and "WAT.md" in dbas["guidance-basis"]["detail"]
-          and "guidance-basis-invalid" in dbas["guidance-basis"]["detail"],
-          dbas["guidance-basis"]["detail"])
-
+    dbas = do_doctor(gws, DISCOVER_CWD, {}, [], tree,
+                     gws / ".rbtv" / "mirror")
+    named_dbas = {c["name"]: c for c in dbas["checks"]}
+    check("SURF-doctor-guidance-basis — invalid saved basis is named",
+          named_dbas["Maintained guidance"]["level"] == "fail"
+          and "WAT.md" in named_dbas["Maintained guidance"]["detail"],
+          named_dbas["Maintained guidance"]["detail"])
     buf_p, buf_j = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(buf_p), \
          contextlib.redirect_stderr(io.StringIO()):
@@ -296,8 +165,8 @@ def ls_li_doctor(ctx) -> None:
     check("SURF-json-ls-keys — list envelope and stable item identity",
           set(lsj) >= {"ok", "target", "source", "items", "total", "returned",
                        "limit", "offset", "next"}
-          and all(set(row) >= {"id", "component", "module", "method",
-                                   "description", "installed"}
+          and all(set(row) >= {"id", "installed_items", "source_items",
+                                   "description"}
                   for row in lsj["items"])
           and lsj["ok"] is True,
           str(sorted(lsj)))
@@ -309,7 +178,7 @@ def ls_li_doctor(ctx) -> None:
     lij = json.loads(buf.getvalue())
     check("SURF-json-li-keys — installed list has same envelope",
           set(lij) == set(lsj)
-          and all(row["installed"] for row in lij["items"]),
+          and all(row["installed_items"] > 0 for row in lij["items"]),
           str(sorted(lij)))
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf), \
@@ -330,9 +199,335 @@ def ls_li_doctor(ctx) -> None:
         rc_ref = main(["add", "--target", str(pws), "-c", "no/comp",
                        "--json"])
     env = json.loads(buf.getvalue())
-    check("SURF-json-refuse-keys — refusal envelope kept",
+    check("SURF-json-refuse-keys — actionable error envelope",
           rc_ref == 1 and env.get("ok") is False
-          and "refusal" in env and "code" in env["refusal"]
-          and "message" in env["refusal"],
+          and "error" in env and "code" in env["error"]
+          and "message" in env["error"],
           str(env))
+
+    root_help = build_parser().format_help()
+    group_body = root_help.split("Shared options:", 1)[0]
+    check("SURF-root-help-grouped-no-argparse-leakage",
+          root_help.startswith("RBTV install — help")
+          and "Discover" in root_help and "Change this workspace" in root_help
+          and "Check and guided use" in root_help
+          and "==SUPPRESS==" not in root_help
+          # The two retired verbs get no row of their own in the grouped
+          # command listing — only a mention later, in "Renamed:".
+          and not any(line.strip().startswith(("set ", "dupe-artifacts "))
+                      for line in group_body.splitlines())
+          and "Renamed: set -> configure" in root_help,
+          root_help)
+
+    fail_data = {"ok": False, "target": str(pws), "why": DISCOVER_CWD,
+                 "checks": [
+                     {"name": "Saved selection", "ok": True, "level": "ok",
+                      "scope": "Workspace", "detail": "2 components; record readable"},
+                     {"name": "Selected shortcut: cast", "ok": False, "level": "fail",
+                      "scope": "Shared commands",
+                      "detail": "Managed cast shortcut missing; preview: "
+                                "rbtv install update scaffolding --dry-run "
+                                "--target 'X'; apply: rbtv install update "
+                                "scaffolding --target 'X'"},
+                     {"name": "Command lookup: cast", "ok": False, "level": "fail",
+                      "scope": "Current PATH",
+                      "detail": "no cast on PATH; run update scaffolding, "
+                                "open a new terminal, then rerun doctor"},
+                 ]}
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        _print_doctor(fail_data, color=False)
+    doctor_plain = buf.getvalue()
+    check("SURF-doctor-detail-not-truncated-at-width100 — full recovery text survives",
+          fail_data["checks"][1]["detail"] in doctor_plain,
+          doctor_plain)
+    check("SURF-doctor-truthful-discovery-claim — FAIL never reads 'verified'",
+          "Selected command discovery verified" not in doctor_plain
+          and "FAILED for at least one shortcut" in doctor_plain,
+          doctor_plain)
+
+    ok_data = {"ok": True, "target": str(pws), "why": DISCOVER_CWD,
+               "checks": [{"name": "Saved selection", "ok": True, "level": "ok",
+                          "scope": "Workspace", "detail": "fine"}]}
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        _print_doctor(ok_data, color=False)
+    check("SURF-doctor-truthful-discovery-claim-no-path-checks",
+          "No selected command shortcut needed a PATH lookup" in buf.getvalue(),
+          buf.getvalue())
+
+    buf_color = io.StringIO()
+    with contextlib.redirect_stdout(buf_color):
+        _print_doctor(fail_data, color=True)
+    ansi_re = re.compile(r"\033\[[0-9;]*m")
+    colored_lines = [ln for ln in buf_color.getvalue().splitlines()
+                     if ln.startswith("Saved selection") or ln.startswith("Selected shortcut")]
+    plain_lines = [ln for ln in doctor_plain.splitlines()
+                   if ln.startswith("Saved selection") or ln.startswith("Selected shortcut")]
+    check("SURF-doctor-color-does-not-shift-alignment — ANSI bytes excluded from column width",
+          len(colored_lines) == len(plain_lines) == 2
+          and [ansi_re.sub("", ln) for ln in colored_lines] == plain_lines
+          and any("\033[" in ln for ln in colored_lines),
+          f"colored={colored_lines!r} plain={plain_lines!r}")
+
+    # report.py's `planned_changes`/`shared_*` contract (report-contract.md):
+    # the renderer must show REAL planned changes on a fresh preview, REAL
+    # zero-change counts on an identical reinstall preview, and the
+    # automatically-managed guidance-section report — never the retired
+    # manual-paste instructions.
+    fresh_preview = {"_verb": "add", "dry_run": True, "target": str(pws),
+                     "source": DISCOVER_CWD, "selected_items": ["fixmod/goodcomp#fixskill"],
+                     "harnesses": ["codex"], "adopted": [], "adopted_sections": [],
+                     "released": [], "shared_removed": [],
+                     "planned_changes": {
+                         "write_files": [".agents/skills/fixskill/SKILL.md"],
+                         "delete_files": [], "unchanged_files": [],
+                         "write_shared_files": ["AGENTS.md"],
+                         "delete_shared_files": [], "unchanged_shared_files": []},
+                     "report": {"guidance_sections": ["AGENTS.md"],
+                               "guidance_mirror": {"basis": None, "targets": []}},
+                     "next": "rbtv install doctor --target " + str(pws)}
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        print_result(fresh_preview)
+    fresh_text = buf.getvalue()
+    check("SURF-fresh-add-preview-shows-real-planned-changes-in-text",
+          "would write 1 file(s)" in fresh_text
+          and "would write 1 shared file(s)" in fresh_text
+          and "  + .agents/skills/fixskill/SKILL.md" in fresh_text
+          and "  ~ AGENTS.md" in fresh_text,
+          fresh_text)
+    check("SURF-preview-reports-automatic-owned-section-no-manual-paste",
+          "will regenerate the automatically managed instruction section "
+          "in: AGENTS.md" in fresh_text
+          and "D8" not in fresh_text and "Add this block to" not in fresh_text
+          and "paste" not in fresh_text.lower(),
+          fresh_text)
+
+    reinstall_preview = {**fresh_preview,
+                         "planned_changes": {
+                             "write_files": [], "delete_files": [],
+                             "unchanged_files": [".agents/skills/fixskill/SKILL.md"],
+                             "write_shared_files": [], "delete_shared_files": [],
+                             "unchanged_shared_files": ["AGENTS.md"]}}
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        print_result(reinstall_preview)
+    reinstall_text = buf.getvalue()
+    check("SURF-identical-reinstall-preview-shows-zero-changes-in-text",
+          "would write 0 file(s), would delete 0 file(s)" in reinstall_text
+          and "would write 0 shared file(s), would delete 0 shared file(s)"
+          in reinstall_text
+          and "2 file(s) already match and stay untouched" in reinstall_text
+          and "  + " not in reinstall_text and "  ~ " not in reinstall_text,
+          reinstall_text)
+
+    # Preview adoption wording MUST be prospective — a dry run adopts
+    # nothing, so it must never claim a takeover already happened.
+    adoption_data = {"_verb": "add", "target": str(pws), "source": DISCOVER_CWD,
+                     "adopted": ["AGENTS.md"], "adopted_sections": ["CLAUDE.md"],
+                     "released": [], "shared_removed": [],
+                     "planned_changes": {"write_files": [], "delete_files": [],
+                                        "unchanged_files": [],
+                                        "write_shared_files": [],
+                                        "delete_shared_files": [],
+                                        "unchanged_shared_files": []},
+                     "report": {}, "next": "rbtv install status"}
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        print_result({**adoption_data, "dry_run": True})
+    adoption_preview = buf.getvalue()
+    check("SURF-preview-adoption-wording-is-prospective-not-a-completed-claim",
+          "would become managed here" in adoption_preview
+          and "would adopt its existing owned section only" in adoption_preview
+          and "now managed here" not in adoption_preview
+          and "\n  ^ CLAUDE.md: adopted its existing owned section only"
+          not in adoption_preview,
+          adoption_preview)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        print_result({**adoption_data, "dry_run": False,
+                      "written": [], "deleted": [], "skipped": [],
+                      "shared_written": [], "shared_deleted": [],
+                      "shared_skipped": []})
+    adoption_real = buf.getvalue()
+    check("SURF-real-adoption-wording-claims-the-completed-takeover",
+          "now managed here" in adoption_real
+          and "adopted its existing owned section only" in adoption_real
+          and "would become managed" not in adoption_real
+          and "would adopt" not in adoption_real,
+          adoption_real)
+
+    # Every public command's `-h` and every `update` scope's `-h` carries the
+    # shared title, argparse's own usage text survives untouched, and root's
+    # OWN title string never appears a second time inside a subcommand's help.
+    root_text = build_parser().format_help()
+    for argv, label in (
+        (["list", "-h"], "list"), (["search", "-h"], "search"),
+        (["show", "-h"], "show"), (["status", "-h"], "status"),
+        (["add", "-h"], "add"), (["remove", "-h"], "remove"),
+        (["configure", "-h"], "configure"),
+        (["update", "-h"], "update"),
+        (["update", "guidance", "-h"], "update guidance"),
+        (["update", "scaffolding", "-h"], "update scaffolding"),
+        (["update", "all", "-h"], "update all"),
+        (["doctor", "-h"], "doctor"),
+        (["interactive", "-h"], "interactive"),
+        (["selftest", "-h"], "selftest"),
+    ):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            try:
+                main(argv)
+            except SystemExit:
+                pass
+        text = buf.getvalue()
+        expected_title = f"RBTV install — {label} help"
+        check(f"SURF-help-title-{'-'.join(argv)}",
+              text.startswith(expected_title + "\n\n")
+              and text.split("\n\n", 1)[1].startswith("usage:")
+              and text.count("RBTV install —") == 1
+              and root_text.strip() != text.strip(),
+              text[:120])
+
+    # Configure's FIRST example must be a complete, copyable first-setup
+    # command — first setup requires BOTH --harness and --guidance.
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        try:
+            main(["configure", "-h"])
+        except SystemExit:
+            pass
+    configure_help = buf.getvalue()
+    first_example = configure_help.split("Examples:\n", 1)[1].splitlines()[0]
+    check("SURF-configure-help-first-example-is-a-complete-first-setup-command",
+          "--harness" in first_example and "--guidance" in first_example,
+          first_example)
+
+    # The shared refusal title at every plain-text stderr boundary: parser
+    # validation, a retired form, a target/command Refuse, and an io-error —
+    # JSON stays a single undecorated value throughout.
+    for argv in (["set", "--guidance", "none"], ["list", "--limit", "abc"],
+                ["show", "no-such-thing-zzz"]):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            main(argv)
+        check(f"SURF-refusal-has-shared-title-{'-'.join(argv)}",
+              err.getvalue().startswith("RBTV install — refused\n\nREFUSED [")
+              and not out.getvalue(),
+              err.getvalue())
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            main([*argv, "--json"])
+        check(f"SURF-refusal-json-stays-undecorated-{'-'.join(argv)}",
+              not err.getvalue() and out.getvalue().strip().startswith("{")
+              and "RBTV install" not in out.getvalue(),
+              out.getvalue())
+
+    # Owner ruling (content split): guidance copies maintained HUMAN text
+    # only, preserving each destination's own generated section unrebuilt;
+    # scaffolding regenerates the generated section in EVERY configured
+    # file, including a received copy like AGENTS.md; both may write the
+    # SAME file. Help text for every scope must say so explicitly, and
+    # never make the superseded whole-counterpart-file claim.
+    for argv, must_contain in (
+        (["update", "-h"], ("CONTENT OWNERSHIP", "SAME instruction file")),
+        (["update", "guidance", "-h"],
+         ("HUMAN text", "does NOT rebuild that section")),
+        (["update", "scaffolding", "-h"],
+         ("generated instruction section in EVERY configured",
+          "does not copy or synchronize that text from the basis")),
+        (["update", "all", "-h"],
+         ("the two parts of the SAME file",)),
+    ):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            try:
+                main(argv)
+            except SystemExit:
+                pass
+        text = buf.getvalue()
+        check(f"SURF-update-help-states-content-ownership-{'-'.join(argv)}",
+              all(phrase in text for phrase in must_contain),
+              text)
+    for argv in (["update", "-h"], ["update", "guidance", "-h"],
+                ["update", "scaffolding", "-h"], ["update", "all", "-h"]):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            try:
+                main(argv)
+            except SystemExit:
+                pass
+        text = buf.getvalue()
+        check(f"SURF-update-help-never-claims-whole-file-untouched-or-copied-"
+              f"{'-'.join(argv)}",
+              "left untouched" not in text
+              and "copies the generated" not in text
+              and "copies its generated" not in text,
+              text)
+
+    # `_print_guidance`/`_print_guidance_sections` wording: never claim a
+    # whole counterpart is untouched, and never claim a destination's own
+    # generated section "is preserved as-is" for a scope where that is not
+    # actually guaranteed — `_add_mirror` (operations.py) only skips
+    # rewriting it when scope == "guidance"; `all`/`add` rebuild it via
+    # their own planned claims in the SAME run. `guidance_sections` reads as
+    # "regenerated", not "kept"/"preserved".
+    #
+    # scope="all" fixture (also stands in for `add`'s default scope): the
+    # mirror copies maintained text; the destination's own generated
+    # section is REBUILT elsewhere in this same run (guidance_sections),
+    # never claimed "preserved" here.
+    all_scope_data = {"_verb": "update", "scope": "all", "dry_run": True,
+                      "target": str(pws), "source": DISCOVER_CWD,
+                      "adopted": [], "adopted_sections": [], "released": [],
+                      "shared_removed": [],
+                      "planned_changes": {"write_files": [], "delete_files": [],
+                                         "unchanged_files": [],
+                                         "write_shared_files": ["AGENTS.md"],
+                                         "delete_shared_files": [],
+                                         "unchanged_shared_files": []},
+                      "report": {"guidance_sections": ["AGENTS.md"],
+                                "guidance_mirror": {"basis": "CLAUDE.md",
+                                                    "targets": ["AGENTS.md"],
+                                                    "count": 1, "excludes": []}},
+                      "next": "rbtv install doctor"}
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        print_result(all_scope_data)
+    all_scope_text = buf.getvalue()
+    check("SURF-all-scope-guidance-mirror-never-claims-whole-file-copy-or-preserved",
+          "maintained text" in all_scope_text
+          and "generated sections are not copied from the basis" in all_scope_text
+          and "preserved as-is" not in all_scope_text
+          and "left untouched" not in all_scope_text,
+          all_scope_text)
+    check("SURF-all-scope-guidance-sections-wording-says-regenerated-not-preserved",
+          "will regenerate the automatically managed instruction section "
+          "in: AGENTS.md" in all_scope_text
+          and "kept" not in all_scope_text.lower(),
+          all_scope_text)
+
+    # scope="guidance" fixture: preservation of the destination's own
+    # generated section IS actually guaranteed here, so the message may
+    # (and does) say so — and real `update guidance` never regenerates a
+    # section (`operations.py` sets `guidance_sections = []` for this
+    # scope), so no regeneration claim should print at all.
+    guidance_only_data = {**all_scope_data, "scope": "guidance",
+                          "report": {"guidance_sections": [],
+                                    "guidance_mirror": all_scope_data["report"]
+                                    ["guidance_mirror"]}}
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        print_result(guidance_only_data)
+    guidance_only_text = buf.getvalue()
+    check("SURF-guidance-only-scope-states-destination-section-is-preserved",
+          "generated sections are not copied from the basis" in guidance_only_text
+          and "each destination's own existing generated instruction "
+          "section is preserved as-is by this copy" in guidance_only_text,
+          guidance_only_text)
+    check("SURF-guidance-only-scope-has-no-sections-and-no-regeneration-claim",
+          "regenerate" not in guidance_only_text.lower()
+          and "instruction section in:" not in guidance_only_text,
+          guidance_only_text)
     ctx.keep(locals())

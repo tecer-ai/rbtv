@@ -155,12 +155,12 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
             if method in INVENTORY_METHODS:
                 # D9 — pool is inventory only. path is collected below.
                 report["skipped_inventory_rows"].append(
-                    {"component": cid, "part": pid, "method": method,
+                    {"component": cid, "part": pid, "type": method,
                      "entry_point": entry_rel})
                 continue
             if method == "path":
                 report["path_rows"].append(
-                    {"component": cid, "part": pid, "method": method,
+                    {"component": cid, "part": pid, "type": method,
                      "entry_point": entry_rel, "comp_dir": str(comp_dir)})
                 continue
             if not entry_rel:
@@ -250,7 +250,7 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                 template = MATRIX[method].get(harness)
                 if template is None:
                     report["no_realization"].append(
-                        {"component": cid, "part": pid, "method": method,
+                        {"component": cid, "part": pid, "type": method,
                          "harness": harness})
                     continue
                 rel = template.format(name=named)
