@@ -118,6 +118,19 @@ def installed_agents(ctx) -> None:
         check("A-remove — an unknown agent refuses by name",
               unknown == "agent-unknown", str(unknown))
 
+        kept = ws / ".rbtv/agents/kept"
+        kept.mkdir(parents=True)
+        (kept / "settings.json").write_text('{"accounts": ["a"]}\n', encoding="utf-8")
+        _agent_file(tmp / "kept.md", skills=["alpha"])
+        (tmp / "kept.md").write_text((tmp / "kept.md").read_text(encoding="utf-8")
+                                     .replace("name: sara", "name: kept"),
+                                     encoding="utf-8")
+        add_agent(ws, tmp / "kept.md", "claude", "m1", "3", cat, False)
+        check("A-add — an existing settings.json is kept, never replaced",
+              (kept / "settings.json").read_text(encoding="utf-8")
+              == '{"accounts": ["a"]}\n' and (kept / "agent.md").is_file(),
+              (kept / "settings.json").read_text(encoding="utf-8"))
+
         for names, code in ((["shared"], "unit-ambiguous"),
                             (["nothing"], "unit-unknown"),
                             (["modb/comp/shared"], None)):

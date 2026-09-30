@@ -200,14 +200,18 @@ def add_agent(root: Path, file: Path, harness: str, model: str, effort: str,
                      f"with: rbtv install agent update {name}", str(home))
     launch = launch_values(harness, model, effort, cast_catalog())
     keys = resolve_units(catalog, front)
-    written = ["agent.md", "launch.json", "settings.json", ".gitignore",
-               GUIDANCE_FILE[harness]]
+    # settings.json belongs to the agent: an existing one (a folder converted
+    # from an earlier install) is kept, and only a missing one is created.
+    fresh_settings = not (home / "settings.json").exists()
+    written = ["agent.md", "launch.json"] + (["settings.json"] if fresh_settings else []) \
+        + [".gitignore", GUIDANCE_FILE[harness]]
     if not dry_run:
         home.mkdir(parents=True, exist_ok=True)
         (home / "agent.md").write_bytes(raw)
         write_file(home / "launch.json", json.dumps(launch, indent=2) + "\n",
                    newline="\n")
-        write_file(home / "settings.json", "{}\n", newline="\n")
+        if fresh_settings:
+            write_file(home / "settings.json", "{}\n", newline="\n")
         write_file(home / ".gitignore", IGNORE_TEXT, newline="\n")
         _write_section(home, harness, front.get("folders") or [])
     _install_units(home, catalog, keys, harness, dry_run)
