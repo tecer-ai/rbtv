@@ -46,12 +46,12 @@ def ls_li_doctor(ctx) -> None:
           vend_e["units"] == 1
           and len(vend_e["items"]) == 1
           and vend_files > 1
-          and good_e["units"] == len(good_e["items"]) == 9
+          and good_e["units"] == len(good_e["items"]) == 8
           and f"{vend_files}" not in
           [str(e["units"]) for e in ls_data["components"]
            if e["id"] == "_hub/skills/vendored"],
-          f"parts={vend_e['parts']} files={vend_files} "
-          f"good={good_e['parts']}")
+          f"parts={vend_e['units']} files={vend_files} "
+          f"good={good_e['units']}")
 
     pws = tmp / "ws-surf-li"
     pws.mkdir()

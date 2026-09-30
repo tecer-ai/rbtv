@@ -18,6 +18,7 @@ from lib.claims import _claim_id
 from lib.target import discover_target
 from lib.state import (
     known_files,
+    migrate_legacy_record,
     read_state,
     rec_files,
     rec_owns_nothing,
@@ -254,6 +255,7 @@ def v1_to_v2_upgrade(ctx) -> None:
         dest.parent.mkdir(parents=True)
         dest.write_bytes(before)
         raw = json.loads(dest.read_text(encoding="utf-8"))
+        migrate_legacy_record(raw)
         old_claims = list(raw.get("shared_claims") or [])
         src_harnesses = {
             cid: list(rec.get("harnesses") or [])

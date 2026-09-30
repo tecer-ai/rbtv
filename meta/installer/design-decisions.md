@@ -112,7 +112,7 @@ forgets the count is caught by the suite rather than by a user.
 WHAT A COMPONENT IS — DEPTH-2 + exposure.csv (owner ruling, 2026-08-22)
 — a directory at EXACTLY depth 2 of a scanned tree that contains
 `exposure.csv`. Identity is `<module>/<component>` (two segments), so
-depth 2 is forced by the id scheme. `component.md` is not read, not
+depth 2 is forced by the id scheme. `capabilities/component.md` is not read, not
 checked, not a marker. A depth-1 manifest (the module-root files of the
 old standard) is invisible here; a depth-3 file is not a component.
 A malformed manifest (columns other than the seven) refuses by name —
@@ -328,7 +328,7 @@ re-plans or prunes them, so a narrowing still shrinks the block (G3).
 
 `_hub/` — METHOD-FIRST UNITS, NO MANIFEST (generalises the 2026-08-21
 `_skills/` ruling) — `_hub/<method>/<name>` is an installable unit with no
-`component.md` and no `exposure.csv`. The parent folder names the method.
+`capabilities/component.md` and no `exposure.csv`. The parent folder names the method.
 A hub skill folder is still copied VERBATIM (the original D15 rule). Legacy
 `_skills/<name>/` is discovered as `_hub/skills/<name>`; book keys rewrite
 the same way on load (R6). `-m hub` reaches module `_hub`. pool, and a

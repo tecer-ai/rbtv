@@ -20,7 +20,7 @@ from .fixture import _fixture
 from . import (test_cli, test_discovery, test_doctor_ownership, test_guidance, test_guidance_walk,
                test_hub, test_install, test_interactive, test_layout,
                test_ownership, test_parts, test_pathlinks, test_settings,
-               test_surface, test_ux_contract)
+               test_surface, test_units, test_ux_contract)
 
 ORDER = [
     test_layout.repo_root_is_the_repo,
@@ -28,6 +28,10 @@ ORDER = [
     test_discovery.depth_two_is_the_marker,
     test_discovery.three_harnesses,
     test_discovery.predecessor_sweep_cannot_reach,
+    test_units.schema_and_frontmatter,
+    test_units.component_sections,
+    test_units.legacy_names,
+    test_units.translations,
     test_install.green_arm_all_harnesses,
     test_install.red_unknown_method,
     test_install.red_foreign_collision,

@@ -205,11 +205,12 @@ def unit_rows(comp: dict) -> list[dict]:
             raise Refuse("unit-invalid",
                          f"{record}: name {data['name']!r} is not its folder "
                          f"name {record.parent.name!r}", str(record))
-        if Path(data["entry"]).is_absolute() or ".." in Path(data["entry"]).parts:
+        entry = record.parent / data["entry"]
+        if Path(data["entry"]).is_absolute() or not entry.resolve().is_relative_to(
+                comp_dir.resolve()):
             raise Refuse("entry-point-escape",
                          f"{record}: entry {data['entry']!r} leaves the "
-                         "tool's folder", str(record))
-        entry = record.parent / data["entry"]
+                         "component's folder", str(record))
         if not entry.is_file():
             raise Refuse("unit-invalid",
                          f"{record}: entry {data['entry']!r} is not a file",

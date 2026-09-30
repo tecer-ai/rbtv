@@ -4,11 +4,16 @@ shared with the whole installed set.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from discovery import Refuse
 
 from .constants import FENCE_ID, LEGACY_FENCE_ID
+
+
+# The end line of a block this installer wrote, now or under the 0.2 fence.
+_OWN_END = re.compile(r"<!-- rbtv2?:end[^>]*-->\Z")
 
 
 def _claim_id(rel: str, key: list[str] | None, label: str | None = None) -> str:
@@ -119,6 +124,12 @@ def _block_del(text: str, comment: str,
     head = text.split(found[0], 1)[0]
     tail = text.split(found[1], 1)[1]
     if preserve_outside:
+        # The newline `_block_set` put between two of our blocks goes with the
+        # block it separated; the owner's own newlines never do.
+        if not tail and head.endswith("\n") and _OWN_END.search(head[:-1]):
+            head = head[:-1]
+        elif tail.startswith("\n<!-- " + FENCE_ID):
+            tail = tail[1:]
         return head + tail
     tail = tail.lstrip("\n")
     return (head.rstrip() + "\n" + tail) if head.strip() else tail

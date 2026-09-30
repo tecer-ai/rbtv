@@ -1,8 +1,6 @@
 ---
 name: manage-components
-description: Discover, install, or remove RBTV modules, components, skills, and rules for the current workspace or another agent home.
-exposes-cli:
-  - meta/installer/install
+description: "Discover and manage RBTV modules components skills and rules in a workspace or agent home"
 ---
 
 # Manage RBTV components
