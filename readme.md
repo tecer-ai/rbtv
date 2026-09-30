@@ -8,20 +8,20 @@ RBTV is a self-contained set of agents, workflows, skills, and rules. A module i
 
 ## Modules
 
-Each module is documented in detail in [`modules/`](./modules/). The doc covers the module's purpose, every component it ships, and how to use them. The repo is module-first: each module's components live under its own root folder (`core/`, `office/`, `studio/`, …) organized by type (`skills/`, `commands/`, `rules/`, `personas/`, `tasks/`, `workflows/`).
+Each module is documented in detail in [`modules/`](modules). The doc covers the module's purpose, every component it ships, and how to use them. The repo is module-first: each module's components live under its own root folder (`core/`, `office/`, `studio/`, …) organized by type (`skills/`, `commands/`, `rules/`, `personas/`, `tasks/`, `workflows/`).
 
 | Module | What it does | Doc |
 |---|---|---|
-| **core** (always installed) | Powering up AI use — guided git commits, web research, safe file/folder moves with automatic reference-fixing (`rbtv-safe-move`), session close, and the always-on behavioral rules | [modules/core.md](./modules/core.md) |
-| **office** | Daily knowledge work — narrative and audience strategy (`storytelling/`: narrative-lock, visual-strategist, research briefs), visual-system extraction, image generation, design-system creation, and style checking (`design/`: design-tokens, subtle-refs, vision-to-json, screenshot-capture, generate-image, design-system, visual-check), and deliverable production (`document/`: HTML standards library, html-review, deck production, document conversion, email voice, meeting-prep and presentation workflows); meeting summarization is referenced via `office/meeting-summarizer`, not owned here (formerly `productivity`; the structured-thinking persona was retired — it lives on as the `brainstorm` function, Dom Cobb, in the mirror-format `core/functions` component) | [modules/office.md](./modules/office.md) |
-| **studio** | Design and communication module — the studio loop entry (`/rbtv-strategist` — opens the Strategist for message-lock, then hands off to design); the four-beat studio loop (message-lock · art-direction · generate · human-gate) covering deck, site, and app artifacts — every authored deck is role-token-conformant (library-ready + theme-switchable, no manual tokenization; convention-spec § 10.6); artifact forks for sites (`forks/site.md` — structure beat + responsive multi-page HTML contract) and apps (`forks/app.md` — goals/user-flow/UX discovery beats + plain-HTML designed-screens contract + coding-agent handoff package); the Strategist persona (four audience modes: investor · client · site-marketing · app-product); Vivian the Designer (`rbtv-designing`); the `rbtv-hypresent-comments` skill (a thin router over two self-contained procedures — respond to existing hypresent comments without deleting them — reconciling the pass and weighing each change against the whole deck (propagate entailed facts, surface the rest as new comments), reply inline and never resolve the human's thread; or author a new comment from scratch via `hypresent.py add-comment`, which drives the real runtime headlessly to anchor and save the comment — the agent passes only a CSS selector + text, never reading runtime code or hand-editing the comment island); standards bundle (ban-list + flaw-checklist + UX companion-docs contract); v1.1 comparative taxonomy-driven critic (never gates — improver + stopping rule, optional loop wiring via `critic: on`); design-state schema; reference-set scaffold; design-token extraction from live sites; reference-image forensics into regeneration prompts (`/rbtv-vision-to-json`); browser automation; AI image generation; exemplar-screenshot capture; motion/interaction reference extraction; the hypresent presentation engine; the slide-library engine (manifest with optional `status` column; multi-theme + role-token contract v2.0 support — per-theme contracts plus a generic no-literal-skin lint, engine v1.2); and in-app deck→library export (slide selection → `<section>`-only fragments + `status: to-review` rows) | [modules/studio.md](./modules/studio.md) |
-| **orchestration** | Long-horizon work — general multi-agent orchestration (route tasks to the right worker, dispatch self-contained artifacts, verify every return against disk, recover from halts; single front door incl. CLI-model dispatch via `cast`), the cast catalog + `cast route` selector (task profile → route/self_execute/halt_seam; algorithm authority is the routing card), a deterministic context-window monitor (a `PostToolUse` hook wired in when orchestration is elected) that emits tiered refresh advisories during a run, structured planning, plan execution via tiered sub-agents, and long-source mining | [modules/orchestration.md](./modules/orchestration.md) |
-| **builder** | Building RBTV itself — component creation (with a build-time efficiency gate), component token- and cognitive-load review, and the source-of-truth rule | [modules/builder.md](./modules/builder.md) |
-| **writing** | Long-form writing via the writer persona, tone extraction | [modules/writing.md](./modules/writing.md) |
-| **coding** | The done-gate rule — done on coding tasks requires an owner-confirmed outcome contract, real-input exercise of each criterion, and weight-graded evidence (a disk sheet for substantial work, inline proof in the done message for trivial tasks); the done gate also carries a Contract-time drivability check (merged in from the former build-for-agent-testability rule) so surfaces the agent can't drive (native dialogs, isolated-run config, fused output) get a test seam built into the feature (plain-language code communication moved to the new **communication** module; git commits moved to core; the coding-discipline guardrails were generalized into the always-on reasoning rule — see [Retired components](#retired-components)). The done gate is split into a thin always-on trigger rule (≈420 words) plus an on-fire protocol body (≈2,200 words) loaded via a skill loader only when a coding task starts; a workspace that does no coding omits this module at install (see [modules/coding.md](./modules/coding.md) § Scoping) | [modules/coding.md](./modules/coding.md) |
-| **communication** | Audience-adapted communication, electable independent of coding — a general plain-language rule (define terms, no jargon, no analogies, no bare name-drops, explain plan phases) plus the non-technical-user code-communication overlay (translate code identifiers, frame decisions as behavior changes, no raw output dumps). Both MECE with core's chat-discipline | [modules/communication.md](./modules/communication.md) |
-| **caveman** | Optional ultra-compressed caveman communication mode (the linguistic transform; behavioral bans deferred to chat-discipline). Parody commit voice ships but is off by default — token savings and fun, based on JuliusBrussee/caveman | [modules/caveman.md](./modules/caveman.md) |
-| **ignite** | Ignite 0.2 is `ignite/agents/`: runnable Node code — a Slack message or a scheduled wake runs one primary-agent turn, deployed by `ignite/agents/tool/deploy.sh` and unit `rbtv-ignite-agents.service`, state in the workspace `.rbtv/agents/`, reached through `ignite-agent` and the `create-primary-agent` skill. | [ignite/module.md](./ignite/module.md) |
+| **core** (always installed) | Powering up AI use — guided git commits, web research, safe file/folder moves with automatic reference-fixing (`rbtv-safe-move`), session close, and the always-on behavioral rules | [modules/core.md](modules/core.md) |
+| **office** | Daily knowledge work — narrative and audience strategy (`storytelling/`: narrative-lock, visual-strategist, research briefs), visual-system extraction, image generation, design-system creation, and style checking (`design/`: design-tokens, subtle-refs, vision-to-json, screenshot-capture, generate-image, design-system, visual-check), and deliverable production (`document/`: HTML standards library, html-review, deck production, document conversion, email voice, meeting-prep and presentation workflows); meeting summarization is referenced via `office/meeting-summarizer`, not owned here (formerly `productivity`; the structured-thinking persona was retired — it lives on as the `brainstorm` function, Dom Cobb, in the mirror-format `core/functions` component) | [modules/office.md](modules/office.md) |
+| **studio** | Design and communication module — the studio loop entry (`/rbtv-strategist` — opens the Strategist for message-lock, then hands off to design); the four-beat studio loop (message-lock · art-direction · generate · human-gate) covering deck, site, and app artifacts — every authored deck is role-token-conformant (library-ready + theme-switchable, no manual tokenization; convention-spec § 10.6); artifact forks for sites (`forks/site.md` — structure beat + responsive multi-page HTML contract) and apps (`forks/app.md` — goals/user-flow/UX discovery beats + plain-HTML designed-screens contract + coding-agent handoff package); the Strategist persona (four audience modes: investor · client · site-marketing · app-product); Vivian the Designer (`rbtv-designing`); the `rbtv-hypresent-comments` skill (a thin router over two self-contained procedures — respond to existing hypresent comments without deleting them — reconciling the pass and weighing each change against the whole deck (propagate entailed facts, surface the rest as new comments), reply inline and never resolve the human's thread; or author a new comment from scratch via `hypresent.py add-comment`, which drives the real runtime headlessly to anchor and save the comment — the agent passes only a CSS selector + text, never reading runtime code or hand-editing the comment island); standards bundle (ban-list + flaw-checklist + UX companion-docs contract); v1.1 comparative taxonomy-driven critic (never gates — improver + stopping rule, optional loop wiring via `critic: on`); design-state schema; reference-set scaffold; design-token extraction from live sites; reference-image forensics into regeneration prompts (`/rbtv-vision-to-json`); browser automation; AI image generation; exemplar-screenshot capture; motion/interaction reference extraction; the hypresent presentation engine; the slide-library engine (manifest with optional `status` column; multi-theme + role-token contract v2.0 support — per-theme contracts plus a generic no-literal-skin lint, engine v1.2); and in-app deck→library export (slide selection → `<section>`-only fragments + `status: to-review` rows) | [modules/studio.md](modules/studio.md) |
+| **orchestration** | Long-horizon work — general multi-agent orchestration (route tasks to the right worker, dispatch self-contained artifacts, verify every return against disk, recover from halts; single front door incl. CLI-model dispatch via `cast`), the cast catalog + `cast route` selector (task profile → route/self_execute/halt_seam; algorithm authority is the routing card), a deterministic context-window monitor (a `PostToolUse` hook wired in when orchestration is elected) that emits tiered refresh advisories during a run, structured planning, plan execution via tiered sub-agents, and long-source mining | [modules/orchestration.md](modules/orchestration.md) |
+| **builder** | Building RBTV itself — component creation (with a build-time efficiency gate), component token- and cognitive-load review, and the source-of-truth rule | [modules/builder.md](modules/builder.md) |
+| **writing** | Long-form writing via the writer persona, tone extraction | [modules/writing.md](modules/writing.md) |
+| **coding** | The done-gate rule — done on coding tasks requires an owner-confirmed outcome contract, real-input exercise of each criterion, and weight-graded evidence (a disk sheet for substantial work, inline proof in the done message for trivial tasks); the done gate also carries a Contract-time drivability check (merged in from the former build-for-agent-testability rule) so surfaces the agent can't drive (native dialogs, isolated-run config, fused output) get a test seam built into the feature (plain-language code communication moved to the new **communication** module; git commits moved to core; the coding-discipline guardrails were generalized into the always-on reasoning rule — see [Retired components](#retired-components)). The done gate is split into a thin always-on trigger rule (≈420 words) plus an on-fire protocol body (≈2,200 words) loaded via a skill loader only when a coding task starts; a workspace that does no coding omits this module at install (see [modules/coding.md](modules/coding.md) § Scoping) | [modules/coding.md](modules/coding.md) |
+| **communication** | Audience-adapted communication, electable independent of coding — a general plain-language rule (define terms, no jargon, no analogies, no bare name-drops, explain plan phases) plus the non-technical-user code-communication overlay (translate code identifiers, frame decisions as behavior changes, no raw output dumps). Both MECE with core's chat-discipline | [modules/communication.md](modules/communication.md) |
+| **caveman** | Optional ultra-compressed caveman communication mode (the linguistic transform; behavioral bans deferred to chat-discipline). Parody commit voice ships but is off by default — token savings and fun, based on JuliusBrussee/caveman | [modules/caveman.md](modules/caveman.md) |
+| **ignite** | Ignite 0.2 is `ignite/agents/`: runnable Node code — a Slack message or a scheduled wake runs one primary-agent turn, deployed by `ignite/agents/tool/deploy.sh` and unit `rbtv-ignite-agents.service`, state in the workspace `.rbtv/agents/`, reached through `ignite-agent` and the `create-primary-agent` skill. | [ignite/ignite.json](ignite/ignite.json) |
 
 ## Requirements
 
@@ -54,21 +54,19 @@ On a fresh workspace, run `configure --harness NAMES --guidance NAME` or supply 
 > `rbtv.json` — was DELETED on 2026-08-24. Its content lives in git history, and the
 > `rbtv.json` it wrote in a workspace is not read by anything any more.
 >
-> The installer manages **only NEW-STANDARD component folders** — a `<module>/<component>/`
-> directory holding an `exposure.csv` (that manifest at depth 2 IS the component; the former
-> `component.md` requirement was retired 2026-08-22) — on BOTH the workspace
-> mirror (`{target}/.rbtv/mirror`) and this repo, discovering their parts from the
-> **exposure manifest** (`exposure.csv`) beside it, and realizes each row's canonical method
-> for **three harnesses** (claude, codex, opencode) through CMP-12's adapter matrix. The
-> standalone kimi CLI was retired 2026-08-14; its models ride opencode.
-> Everything else — module-root manifests, folders with no `exposure.csv` — was the old
-> standard, which only the predecessor installer ever managed: the two covered disjoint sets.
-> One exception by design: a tree-root **`_hub/<method>/<name>/`** folder can hold whole units
-> with no exposure manifest. Legacy `_skills/<name>/` folders are discovered as hub skills.
-> Each is its own installable unit selected by its catalog ID. A hub skill folder is
-> **copied verbatim** into each installed harness's skills directory rather than thin-loaded;
-> its copied `SKILL.md` carries the `rbtv2-managed` ownership marker.
-> Other generated artifacts are named after their bare item ID and marked as installer-owned.
+> The installer manages **components**: a `<module>/<component>/` folder holding its own
+> `<component>.json`, inside a `<module>/` folder holding its own `<module>.json`, on BOTH the
+> workspace mirror (`{target}/.rbtv/mirror`) and this repo. It finds a component's units by the
+> folder each sits in (`skills/`, `rules/`, `commands/`, `agents/`, `hooks/`, `mcp-servers/`,
+> `capabilities/tools/<tool>/`, `folder-instructions/`), checks each file's frontmatter or record
+> against the schemas in `core/build/capabilities/templates/`, and realizes the units for
+> **three harnesses** (claude, codex, opencode). A component's folder instructions become a
+> marked section of the target folder's instructions file. The one unit shaped as a folder is a
+> whole skill in the workspace mirror, `{target}/.rbtv/mirror/_skills/<name>/`: it is **copied
+> verbatim** into each installed harness's skills directory rather than thin-loaded, and its
+> copied `SKILL.md` carries the `rbtv-managed` ownership marker (files written by the earlier
+> installer carry `rbtv2-managed` and are still recognised).
+> Other generated artifacts are named after their bare unit name and marked as installer-owned.
 > Installation state lives at
 > `{target}/.rbtv/config/install.json`, recording every file and every shared-config key it
 > wrote; `rbtv install remove` releases exactly those claims. It exposes at the
@@ -230,7 +228,7 @@ git pull
 ```
 
 Content changes behind thin loaders appear live. Run `rbtv install update scaffolding` when an
-exposure manifest (`exposure.csv`), loader, or generated instruction section changes. This
+unit file, loader, or generated instruction section changes. This
 refreshes generated sections in every configured instruction file, including counterpart files,
 while preserving human text outside them. Use `rbtv install update guidance` when maintained
 human instructions change; it copies that text to configured counterparts while preserving
@@ -239,12 +237,12 @@ their generated sections. `rbtv install update all` does both from local source.
 
 ## Source of truth
 
-Installed files under `.claude/skills/`, `.claude/commands/`, `.claude/rules/` and `.claude/agents/` that carry the `rbtv2-managed` marker are regenerated on every `rbtv install` run. **Do not edit them in your workspace** — edit the source in this repo and re-install. This section is the canonical statement of that principle for installs without the **builder** module; workspaces that install builder also get the always-on `rbtv-source-of-truth` rule enforcing it (recovered from retirement — see [modules/builder.md](./modules/builder.md)).
+Installed files under `.claude/skills/`, `.claude/commands/`, `.claude/rules/` and `.claude/agents/` that carry the `rbtv-managed` marker (or the earlier `rbtv2-managed`) are regenerated on every `rbtv install` run. **Do not edit them in your workspace** — edit the source in this repo and re-install. This section is the canonical statement of that principle for installs without the **builder** module; workspaces that install builder also get the always-on `rbtv-source-of-truth` rule enforcing it (recovered from retirement — see [modules/builder.md](modules/builder.md)).
 
 ## Retired components
 
 The table below records retired components from earlier layouts. The current installer discovers
-installable content from each component's `exposure.csv`, not from the deleted central manifest.
+installable content from each component's folders, not from a central manifest.
 
 | Component | Module | Why retired |
 |---|---|---|
@@ -261,7 +259,7 @@ installable content from each component's `exposure.csv`, not from the deleted c
 
 ## Architecture notes
 
-- **Component source layout:** a component lives at `<module>/<component>/` with an `exposure.csv` describing its installed items. The owning `<module>/module.md` documents it.
+- **Component source layout:** a component lives at `<module>/<component>/` with its `<component>.json` and one folder per kind of unit it exposes. The owning `<module>/<module>.json` describes the module.
 - **Thin loaders:** installed skill and command loaders point back to this repo by resolved source path. Their installed copies are generated.
 - **Rule exception:** rule files are copied as content (not loaders), because rules load passively into Claude's context and indirection is unreliable.
 - **Subagent exception:** installed subagent files are copied as content too — they are dispatched in fresh context and must be self-contained.
@@ -269,6 +267,6 @@ installable content from each component's `exposure.csv`, not from the deleted c
 
 ## Extending RBTV
 
-`/rbtv-create-component` was retired. Component structure, naming, and the exposure/seat canon are
-defined by the meta/planning `build` and `plan` skills. Place a new component in its owning module;
-update its `exposure.csv`, `<module>/module.md`, and relevant README guidance in the same change.
+`/rbtv-create-component` was retired. Component structure and naming are defined by `core/build/capabilities/`. Place a new component in
+its owning module; update its `<component>.json`, `<module>/<module>.json`, and relevant README
+guidance in the same change.
