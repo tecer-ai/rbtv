@@ -28,14 +28,13 @@ test, default-vs-masking, sameness test, no-touch deadlock), the architecture pr
 ## Entry points
 
 - `skills/coding.md` — the `coding` skill's body; `references/no-dead-code.md`,
-  `no-duplicate.md`, `no-monolith.md`, `no-patches.md` — the four disciplines it reads (no exposure
-  rows of their own: reached only through `coding`); `references/architecture-report-format.md` —
+  `no-duplicate.md`, `no-monolith.md`, `no-patches.md` — the four disciplines it reads (no unit — reached through `coding`); `references/architecture-report-format.md` —
   the HTML report format the architecture skill reads.
 - `skills/commit.md` — the `commit` skill's body (procedure + merge-conflict arm, one file);
   `tool/commit.py` — the deterministic commit script it drives (self-documents via `-h`;
   `tool/test_commit.py` is its test suite).
 - `skills/improve-codebase-architecture.md` — the architecture skill.
-- `exposure.csv` — three `skill` rows plus the `rbtv-commit` tool inventory row.
+- `skills/coding.md`, `skills/improve-codebase-architecture.md`, `skills/commit.md` — the skill units; `capabilities/tools/rbtv-commit/rbtv-commit.json` — the `rbtv-commit` tool.
 
 **ORIGIN 2026-08-23.** Owner interview. `improve-codebase-architecture` is a FORK of
 `github.com/mattpocock/skills` (`skills/engineering/improve-codebase-architecture` +

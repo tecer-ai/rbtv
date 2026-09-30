@@ -3,8 +3,8 @@
 `behaviour/` holds the dispositions an agent carries into EVERY turn — how it receives a
 request, how it responds to a proposal it disagrees with, how simply it decides to build, and
 how it approaches a fix. Nothing here is task-specific
-and nothing here is loaded on demand: every part is exposed with `method: rule`, which is what
-separates this component from `meta/functions`, whose parts are skills an agent reaches for at
+and nothing here is loaded on demand: every unit sits in `rules/`, which is what
+separates this component from `meta/functions`, whose units are skills an agent reaches for at
 a moment.
 
 The boundary against `meta/plan`: planning references rule how an ARTIFACT is authored and
@@ -20,8 +20,7 @@ on every turn, authoring or not.
 
 ## Entry points
 
-- `references/` — the rule bodies.
-- `exposure.csv` — one `reference`/`rule` row per file.
+- `rules/` — one rule unit per file (`challenging`, `problem-framing`, `kiss`, `root-cause`).
 
 **ORIGIN 2026-08-21.** Both files carry forward the `Critical Partnership` and `Problem Framing`
 sections of the retired `rbtv-reasoning` behavior rule, split into one subject each and extended

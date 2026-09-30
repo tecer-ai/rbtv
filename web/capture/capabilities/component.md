@@ -24,7 +24,7 @@ staging-and-move machinery). The sb-os original is UNTOUCHED and still runs the 
 | Part | What it is |
 |---|---|
 | `skills/capture.md` | The router capability. Which extractor is right, and what a `blocked` verdict means. The one exposed skill. |
-| `capabilities/capture/capture.py` | The CLI it routes to. Self-documents through `-h`; inventoried in `exposure.csv` as this component's one first-party tool. |
+| `capabilities/capture/capture.py` | The CLI it routes to. Self-documents through `-h`; its tool record is `capabilities/tools/capture-cli/capture-cli.json`. |
 | `references/link-preview.md` | The four-step chain for *what is this link?* — title and description, no page read. Applied, never executed. |
 
 ## The `defuddle` move (owner-ruled 2026-08-21)

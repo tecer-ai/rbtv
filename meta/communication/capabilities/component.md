@@ -35,23 +35,19 @@ owner's audio/Slack skills split of 2026-08-30.
 
 ## Entry points
 
-- `references/` — the three rule bodies, exposed with `method: rule` (installed verbatim into
-  each harness's rules scaffolding, e.g. `.claude/rules/`), and the skill bodies this component
-  exposes (`audio-aware`, `audio-io`, `slack-message-format`), each reached through a thin loader.
-- `capabilities/audio/` — `audio.md` (the manual) + `audio.py` (the CLI), its `config.json`,
-  and `test_audio.py`. Run it by path; the `audio` row in `exposure.csv` inventories the tool.
+- `rules/` — the three rule units (installed verbatim into
+  each harness's rules scaffolding, e.g. `.claude/rules/`), and the skill units
+  (`audio-aware`, `audio-io`, `slack-message-format`), each reached through a thin loader.
+- `capabilities/audio/audio.md` (the manual). The CLI, `config.json`, and `test_audio.py` sit in `capabilities/tools/audio/`. Run it by path; `capabilities/tools/audio/audio.json` inventories the `audio` tool.
   `python test_audio.py` must be green after any edit.
-- `exposure.csv` — the `audio` row (the mandatory first-party tool inventory), one row per file
-  in `references/` (`rule` for the three style rules, `skill` for `audio-aware`, `audio-io`,
-  `slack-message-format`), plus `link-tools`.
+- `rules/` — one rule unit per file (`plain-language`, `non-technical-user`, `concise-chat`); `skills/` — `audio-aware`, `audio-io`, `slack-message-format`; `capabilities/tools/link-tools/link-tools.json` — the `link-tools` tool.
 - `link-tools.py` — legacy per-box helper that puts `audio` on `~/.local/bin`.
   Installing the component now books `audio` in `~/.rbtv/bin` and puts that
   directory on the user PATH; the helper remains for existing callers.
 
 **RELOCATED 2026-08-21** from the `communication/` MODULE (`mirror/communication/audio/`) to
 `meta/communication/`, where the former component `audio` is now a capability — owner instruction.
-This resolves the one-component tension the old `module.md` recorded (the KG's module membership
-test asks for ≥2 components; that module had one, and sat at module depth only so a seat's
-`exposes:` could resolve it). At component depth inside `core/`, the reference resolves as
+This resolves the one-component tension (the KG's module membership
+test asks for ≥2 components; that module had one). At component depth inside `core/`, the reference resolves as
 `meta/communication/audio` with no such tension. The registry settles formal membership
 (`PRIN-10`).

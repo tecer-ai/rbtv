@@ -67,25 +67,23 @@ is a tripwire for a future collision rather than a path anyone is expected to re
 by accident of naming; a capability later called `status` or `inspect` breaks it, and the assertion
 is what makes that arrive as a test failure instead of an outage.
 
-## ⚠ The drill is a STAND-IN pending CMP-5
+## The drill reads the tree
 
-The registry specifies the drill over `module.md`, per-component `capabilities/component.md` descriptions,
-and exposure-manifest rows carrying an `rbtv-cli` column. Those files and columns now exist;
-the remaining stand-in is dispatch from that exposure column, which `rbtv` does not yet use.
+The drill reads `<module>/<module>.json` and `<component>/<component>.json` (each record's
+description), per-component `capabilities/component.md` where one exists, and each unit from the
+folder that exposes it (`skills/`, `rules/`, `commands/`, `agents/`, `hooks/`, `mcp-servers/`,
+`capabilities/tools/<tool>/`, `folder-instructions/`). `rbtv install list`, `search`, and `show`
+list those units.
 
-So `tool/lib/catalog.js` reads the substrate that IS live, and is a stand-in for a CMP-5 reader,
-**not the settled schema**:
+So `tool/lib/catalog.js` reads the substrate that IS live, straight off the tree:
 
 | Level | Ruled substrate | Read instead |
 |-------|-----------------|--------------|
-| 0 | `module.md` | `module.md` — read since 2026-08-24; a directory at the tree root holding one IS a module |
-| 1 | `capabilities/component.md` description lines | `capabilities/component.md` frontmatter + capability folders + component folders. The retired installer's `admin/install/module-manifest.json` supplied a third set of rows here until 2026-08-24; it was deleted with that installer, and it never listed either of the two folder shapes anyway |
-| 2 | exposure rows where `rbtv-cli` is set | the capability-folder shape; **invocable entry points are INFERRED from the executable bit** |
+| 0 | `<module>/<module>.json` | `<module>/<module>.json` — a directory at the tree root holding one IS a module |
+| 1 | `<component>/<component>.json` description | `<component>.json` plus `capabilities/component.md` when present. The retired installer's `admin/install/module-manifest.json` supplied a third set of rows here until 2026-08-24; it was deleted with that installer, and it never listed either of the two folder shapes anyway |
+| 2 | the unit file in its exposure folder | the folder the unit sits in; a tool's `<tool>.json` names its `entry` |
 
-**When CMP-5 lands, `catalog.js` is the file that changes; nothing above it should need to.**
-The inference at level 2 over-reports (an importable module that happens to be `+x` is listed), and
-the output says so on the line itself rather than leaving the reader to know it. `rbtv doctor`
-reports the stand-in posture too, so it reaches anyone who never opens this file.
+`catalog.js` lists; it does not validate. The installer refuses a file that breaks its schema.
 
 **One deliberate divergence from the ruled behaviour, stated rather than silent:** the registry says
 entering a scope "delivers that scope's rules in the tool result". `core` alone carries 11 rules, so

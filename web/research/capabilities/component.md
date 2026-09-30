@@ -6,9 +6,8 @@ sources-manifest convention.
 
 ## Parts
 
-One reference carries the whole procedure, reached by an explicit prose read — no exposure manifest
-exists yet because no part is exposed on its own (a row appears only on a real exposure decision,
-per the reference kind's default).
+One reference carries the whole procedure, reached by an explicit prose read — no unit,
+reached through `web/browse#web` (the reference kind's default).
 
 | Part | What it is |
 |---|---|
@@ -26,5 +25,4 @@ a page will not be read without a browser, this reference to score and report th
 
 Minted at console by owner ruling during the forge routing of the web-research move: forge never
 mints a component, and the owner chose a console scaffold over a full planning run for a
-one-reference component. This is also the second occupant `../module.md` predicted for the `web/`
-module.
+one-reference component. `web/` is the module (`web/web.json`).

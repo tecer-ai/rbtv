@@ -41,20 +41,16 @@ So this component is ONE capability: `skills/browse.md`, the router. It answers 
 tool*, plus the handful of things `-h` does not say (sessions persist and must be closed; Playwright
 has no stable path here). Everything else is the CLI's own to document.
 
-**Adding a further third-party CLI is a row in `skills/browse.md`'s table — not a new file, and not an
-`exposure.csv` row** (see that file's header for why).
+**Adding a further third-party CLI is a row in `skills/browse.md`'s table — not a new file, and not a
+new unit** (see that file's header for why).
 
 **And the router stays at the component root, not in a `capabilities/` folder.** That is the ruled
 shape for a component holding ONE capability that carries no tool and no sub-structure. A `capabilities/` folder is EARNED by a second capability or a first tool;
 this component has neither and is not to pre-build one. The sibling `capture` component does have a
 tool, which is why its file sits at `capabilities/capture/capture.md` — the same rule, the other branch.
 
-**A `plugin/MCP` registration is the ruled exception, and it DOES take a manifest row.** An MCP
-server is a part of its own kind, carried by the `config` exposure method: one row whose
-`entry-point` names a harness-agnostic server-declaration file in this component, which
-materialization then realizes per harness (`decisions.md#d-exposure-part-kind-plugin-mcp` +
-`#d-mcp-registration-is-config`, owner-ruled 2026-08-15). That is what the `chrome-devtools` row and
-`mcp.json` are — a registration, not a fourth capability file.
+**An MCP server is the ruled exception, and it DOES take a unit file in `mcp-servers/`.** `mcp-servers/chrome-devtools.json` is that unit (`web/browse#chrome-devtools`); the installer translates it into each harness's settings (`decisions.md#d-exposure-part-kind-plugin-mcp` +
+`#d-mcp-registration-is-config`, owner-ruled 2026-08-15). That is a registration, not a fourth capability file.
 
 ## The `defuddle` move (owner-ruled 2026-08-21)
 
@@ -88,7 +84,7 @@ orphaned when the `rbtv-studio` browser-automation workflow they belonged to was
 text still pointed at `{rbtv_path}/studio/workflows/browser-automation/data/references/`, a path
 that no longer exists.
 
-They are **reference material, so they carry no `exposure.csv` row** — a `references/` file is wired
+They are **reference material, so they are no unit — reached through `skills/browse.md`** — a `references/` file is wired
 in only by being pointed at from the routing body, exactly as `web/capture` does with
 `references/link-preview.md` and `meta/code` does with its four discipline files. `skills/browse.md`
 carries that pointer.
@@ -173,14 +169,10 @@ revision recorded the consequence as a prediction: *"any reader that walks
 `mirror/<module>/<component>/` will not find this component… this folder either moves under a module
 or that reader learns both depths."*
 
-**The reader arrived, and the prediction was exact.** A seat's prompt-card `exposes:` declaration
-resolves references by segment count — `part` = own component · `component/part` = sibling component,
-same module · `module/component/part` = another module's component — all anchored at
-`<tree>/<module>/<component>/` (`materialize-seats.py` `resolve_seat_exposes`). **No reference of any
-length could name a component sitting at module depth**, so no seat could be given this skill at all.
+**The reader arrived, and the prediction was exact.** A component is a folder inside a module
+(`<module>/<component>/`). **No unit names a component sitting at module depth.**
 The owner chose the move: `.rbtv/mirror/web/browse/`, under a new `web/` module.
 
 The KG membership tests still read component-hood for this folder — one skill, one interface, one
-function — and that is what it remains. The tension the move creates is the MODULE's, not this
-component's: `web/` today groups one component where the test asks for ≥2. It is recorded in
-`../module.md` rather than resolved, and the registry settles it (`PRIN-10`).
+function — and that is what it remains. `web/` is the module (`web/web.json`); the registry settles formal membership
+(`PRIN-10`).

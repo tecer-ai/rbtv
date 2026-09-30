@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""install.py — the exposure-manifest rbtv installer.
+"""install.py — the rbtv installer.
 
-Installs components into a workspace by reading their EXPOSURE MANIFESTS
-(`exposure.csv`) and realizing each row's canonical method per harness, at the
+Installs units into a workspace by reading each component's `<component>.json`
+and the folder that exposes each unit, and realizing that method per harness, at the
 INSTALL ROOT only. Python 3 stdlib only.
 
     rbtv install status                target, settings and installed counts

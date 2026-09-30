@@ -107,8 +107,8 @@ On a fresh workspace, run `configure --harness NAMES --guidance NAME` or supply 
 > that is their one home.
 >
 > A third installer, `core/capabilities/installer/tool/rbtv-install`, was **deleted on
-> 2026-08-22**. It had been built for a KG-shape component layout requiring `<module>/module.md`
-> and `prompts/cognitive-units/` pools, neither of which ever materialized on the live trees, so
+> 2026-08-22**. It had been built for a KG-shape component layout and `prompts/cognitive-units/`
+> pools, neither of which ever materialized on the live trees, so
 > nothing ran it. Its content lives in git history.
 
 1. Clone RBTV as a subfolder of your workspace:

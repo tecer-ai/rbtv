@@ -15,7 +15,7 @@ contains. Nothing here restates a framework, and nothing there states sequence, 
 |---|---|
 | `commands/innovate.md` (reference) | The trail: milestones, recommended framework order, concept-ownership maps, the memo state protocol, and the run protocol. Exposed as the `innovate` command — the human front door. |
 | `skills/innovation-mentor.md` (prompt) | The startup-mentor persona (Paul, Startup Lifecycle Guide) and its routing procedure: whole trail, or one framework standalone. Exposed as the `innovation-mentor` skill — the agent front door. |
-| `exposure.csv` (exposure manifest) | Two rows, one per front door above. Nothing else in this module is exposed on its own; every framework reference is reached through the persona's routing table. |
+| units | `innovate/trail#innovate` (`commands/innovate.md`) and `innovate/trail#innovation-mentor` (`skills/innovation-mentor.md`), one per front door above. Nothing else in this module is exposed on its own; every framework reference is no unit — reached through the persona's routing table. |
 
 ## Mapped but not yet migrated (preserved from the old module, 2026-08-21)
 

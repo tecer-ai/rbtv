@@ -1,13 +1,13 @@
 # functions
 
-A pool of conversational behaviors. Each function is ONE prompt file under
-`prompts/`, structured as a seat prompt (kind-named cognitive-unit sections),
-plus ONE `exposure.csv` row exposing it as a skill. A multi-mode function MAY
+A pool of conversational behaviors. Each function is ONE skill file under
+`skills/`, structured with kind-named cognitive-unit sections,
+exposed by that folder. A multi-mode function MAY
 additionally keep per-mode method cards under `references/` (see below). No
 seats, no workflow, no tools — a capability-only component in the `web/browse`
 shape.
 
-Adding a function = add `prompts/<id>.md` + one exposure row, then re-run the
+Adding a function = add `skills/<id>.md`, then re-run the
 installer.
 
 ## Functions
@@ -32,8 +32,8 @@ invocation, so a six-mode function costs the context of a one-mode one.
 Rules:
 
 - Reference paths in the prompt are component-relative (`references/<mode>.md`).
-- Reference files get NO `exposure.csv` row — they are read by the router
-  prompt, never exposed or invoked on their own.
+- Reference files are no unit — reached through the router
+  skill, never exposed or invoked on their own.
 - The single-prompt functions above are unaffected: a function with one method
   keeps that method in its prompt file and grows no `references/` folder.
 

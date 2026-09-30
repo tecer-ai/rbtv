@@ -5,7 +5,7 @@ description: "Use for office work: make or review a document, convert to Word, c
 
 # office
 
-Route by the requested result. A `module/component#part` ID names the `part-id` row in that component's `exposure.csv`; open its `entry-point` before running its CLI or workflow. Resolve paths from the rbtv repository that contains this file.
+Route by the requested result. The unit `module/component#unit` is the file of that name in the component's unit folders (`rbtv install show <unit>` gives its path); open that file before running its CLI or workflow. Resolve paths from the rbtv repository that contains this file.
 
 | Request | Child |
 |---|---|

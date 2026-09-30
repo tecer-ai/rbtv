@@ -26,7 +26,7 @@ break one belongs there.
 
 - `references/` — one file per framework, read on demand; the trail order and when to reach
   each one live in `../trail/references/innovation-trail.md`.
-- No `exposure.csv`: no part here is exposed on its own. Every reference is reached through
+- No unit — reached through
   the trail reference or the mentor prompt, which is the reference kind's default and a
   sanctioned state, not a gap.
 
