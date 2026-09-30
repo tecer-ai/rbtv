@@ -1,4 +1,0 @@
-{
-  "description": "Ignite 0.2 — a Slack message or a scheduled wake runs one primary-agent turn and the runtime delivers its replies. CLI is ignite-agent; operator steps are runbook.md.",
-  "dependencies": []
-}

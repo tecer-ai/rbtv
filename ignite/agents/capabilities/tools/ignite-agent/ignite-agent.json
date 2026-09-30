@@ -1,5 +1,0 @@
-{
-  "name": "ignite-agent",
-  "description": "ignite-agent command",
-  "entry": "../../../tool/cli.js"
-}
