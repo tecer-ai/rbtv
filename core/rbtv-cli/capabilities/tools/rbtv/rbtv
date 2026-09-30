@@ -19,6 +19,7 @@ const verbs = require('./lib/verbs');
 const { delegate, buildDelegateArgs } = require('./lib/delegate');
 const { table, blurb, json, refusal, suggest, paint } = require('./lib/render');
 const { runSelftest } = require('./lib/selftest');
+const { spark } = require('./lib/spark');
 
 const VERSION = '0.2.1';
 
@@ -33,6 +34,7 @@ function topHelp() {
     '',
     'ACT (delegates — no second implementation)',
     '  rbtv install <verb>        manage here: status|list|search|show|configure|add|remove|update|doctor',
+    '  rbtv spark <agent>         run an installed agent interactively',
     '',
     'ORIENT',
     '  rbtv doctor                can this tool work here? delegates present? substrate readable?',
@@ -92,6 +94,7 @@ function main(argvIn) {
   const head = argv[0];
   if (head === 'doctor') return doctor(opts);
   if (head === 'selftest') return runSelftest();
+  if (head === 'spark') return spark(argv.slice(1), opts);
   if (head === 'status') {
     const flagErr = consumeFlags(argv.slice(1), opts);
     if (flagErr !== 0) return flagErr;

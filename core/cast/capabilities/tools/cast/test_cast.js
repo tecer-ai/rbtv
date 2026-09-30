@@ -253,7 +253,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.strictEqual(out.stdin_preview, 'wake up');
 }
 
-// plain mode -s/-S: claude gets a real system-prompt flag; codex gets it prepended to the message
+// plain mode -s/-S: claude gets a real system-prompt flag; codex gets developer instructions; opencode gets it prepended to the message
 {
   const folder = mkFolder('plain-system');
   const out = dryRun(['claude', 'sonnet-5', '1', folder, '-p', 'hi', '-s', 'be terse']);
@@ -266,7 +266,11 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.ok(outFile.argv.includes('--append-system-prompt-file'));
 
   const codex = dryRun(['codex', 'gpt-5.5', '1', folder, '-p', 'hi', '-S', sysFile]);
-  assert.ok(codex.stdin_preview.startsWith('be VERY terse'), `expected prepended system text: ${codex.stdin_preview}`);
+  assert.ok(codex.argv.includes(`developer_instructions=${JSON.stringify('be VERY terse')}`), `expected developer instructions: ${codex.argv}`);
+  assert.strictEqual(codex.stdin_preview, 'hi');
+
+  const opencode = dryRun(['opencode', 'grok-4.7', '1', folder, '-p', 'hi', '-S', sysFile]);
+  assert.ok(opencode.stdin_preview.startsWith('be VERY terse'), `expected prepended system text: ${opencode.stdin_preview}`);
 }
 
 // cast seat, claude: frontmatter picks harness/model/effort; seat.md -> --append-system-prompt-file
@@ -282,7 +286,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.strictEqual(out.stdin_preview, 'wake up');
 }
 
-// cast seat, codex: no system-prompt flag — seat text rides the first message
+// cast seat, codex: the seat text rides Codex's developer instructions
 {
   const folder = mkFolder('seat-codex');
   const seatText = '---\nharness: codex\nmodel: gpt-5.5\neffort: high\n---\n# seat descriptor\nact as Y.';
@@ -291,7 +295,8 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.ok(out.argv[0] === 'codex' && out.argv.includes('model_reasoning_effort=high'));
   assert.ok(out.argv.includes('--skip-git-repo-check'), 'codex seat must run outside git repos');
   assert.ok(!out.argv.includes('--append-system-prompt-file'));
-  assert.ok(out.stdin_preview.startsWith(seatText), `stdin_preview did not start with seat text: ${out.stdin_preview}`);
+  assert.ok(out.argv.includes(`developer_instructions=${JSON.stringify(seatText)}`), `expected the seat as developer instructions: ${out.argv}`);
+  assert.strictEqual(out.stdin_preview, 'wake up');
 }
 
 // cast seat resolves short names and harness-native ids through the same catalog.

@@ -79,12 +79,16 @@ function launch({ harness, modelId, folder, effortWord, effortArgv, system, prom
     argv = [...argv, '--title', tag];
   }
 
-  // Claude gets a true system-prompt flag; every other harness rides the system text on the first message,
-  // ahead of the wake prompt, with the descriptor wrapper text below.
+  // Claude gets a true system-prompt flag and Codex its developer instructions; OpenCode has no such
+  // channel, so its system text rides the first message, ahead of the wake prompt, with the
+  // descriptor wrapper text below.
   if (system && harness === 'claude') {
     argv = [...argv, ...(system.file
       ? ['--append-system-prompt-file', system.file]
       : ['--append-system-prompt', system.text])];
+  } else if (system && harness === 'codex') {
+    const sysText = system.text ?? fs.readFileSync(system.file, 'utf8');
+    argv = [...argv, '-c', `developer_instructions=${JSON.stringify(sysText)}`];
   } else if (system) {
     const sysText = system.text ?? fs.readFileSync(system.file, 'utf8');
     stdinText = `${sysText}\n\n---\n\n${system.wrapper}\n\n${promptText ?? ''}`;

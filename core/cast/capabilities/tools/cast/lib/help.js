@@ -40,7 +40,7 @@ function printHelp() {
     '',
     "effort N picks the Nth rung, clamped to the model's top.",
     '[launch-folder] defaults to the current directory.',
-    '-s TEXT / -S FILE: system prompt — real for claude, prepended to the first message elsewhere.',
+    '-s TEXT / -S FILE: system prompt — real for claude, developer instructions for codex, prepended to the first message for opencode.',
     '',
     'cast seat      launch per seat.md frontmatter; the file body is the system prompt',
     'cast resume    one more turn into a session id, or `last` for the folder newest',

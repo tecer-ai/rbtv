@@ -296,6 +296,29 @@ const CHECKS = [
     }
   }],
 
+  ['spark finds an installed agent by its folder and builds the cast command from launch.json', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rbtv-spark-'));
+    try {
+      const home = path.join(dir, '.rbtv', 'agents', 'sara');
+      fs.mkdirSync(home, { recursive: true });
+      fs.writeFileSync(path.join(home, 'launch.json'), JSON.stringify({ harness: 'claude', model: 'sonnet-5', effort: 'high' }));
+      fs.writeFileSync(path.join(home, 'agent.md'), '# sara\n');
+      const r = runCli(['spark', 'sara', '--target', dir, '--dry-run', '--json']);
+      if (r.status !== 0) throw new Error(`spark --dry-run exited ${r.status}: ${r.stderr}`);
+      const out = JSON.parse(r.stdout);
+      const want = ['cast', 'claude', 'sonnet-5', '3', home, '--headed', '-S', path.join(home, 'agent.md')];
+      if (JSON.stringify(out.cast.slice(0, 8)) !== JSON.stringify(want)) {
+        throw new Error(`unexpected cast command: ${JSON.stringify(out.cast)}`);
+      }
+      const missing = runCli(['spark', 'nobody', '--target', dir]);
+      if (missing.status !== 1 || !/no installed agent/.test(missing.stderr)) {
+        throw new Error('an unknown agent did not refuse by name');
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }],
+
   ['an unresolvable rbtv root refuses with a teaching error, not a stack trace', () => {
     // Found by probing this CLI from a throwaway copy of itself: the root is
     // inferred from the script's own position, so a relocated tree crashed with an
