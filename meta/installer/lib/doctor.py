@@ -109,7 +109,7 @@ def _selected_path_rows(target: Path, catalog: dict, state: dict
         return {}, None
     try:
         _, _, _, report = plan_files(records, catalog, target)
-        desired, _owners = plan_path_links(_path_rows_from_report(report))
+        desired, _owners = plan_path_links(target, _path_rows_from_report(report))
     except Refuse as exc:
         return {}, exc
     return desired, None

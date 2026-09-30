@@ -21,6 +21,7 @@ from pathlib import Path
 from lib import frontmatter, schema
 
 
+WS_PREFIX = "ws:"
 HUB_DIR = "_hub"          # only the id prefix of whole-folder skills, `_hub/skills/<name>`
 SKILLS_DIR = "_skills"
 SKILL_FILE = "SKILL.md"
@@ -205,18 +206,28 @@ def unit_rows(comp: dict) -> list[dict]:
             raise Refuse("unit-invalid",
                          f"{record}: name {data['name']!r} is not its folder "
                          f"name {record.parent.name!r}", str(record))
-        entry = record.parent / data["entry"]
-        if Path(data["entry"]).is_absolute() or not entry.resolve().is_relative_to(
-                comp_dir.resolve()):
-            raise Refuse("entry-point-escape",
-                         f"{record}: entry {data['entry']!r} leaves the "
-                         "component's folder", str(record))
-        if not entry.is_file():
-            raise Refuse("unit-invalid",
-                         f"{record}: entry {data['entry']!r} is not a file",
-                         str(record))
+        if data["entry"].startswith(WS_PREFIX):
+            # From the installation root; resolved when the tool is placed on PATH.
+            wpath = Path(data["entry"][len(WS_PREFIX):])
+            if wpath.is_absolute() or ".." in wpath.parts:
+                raise Refuse("entry-point-escape",
+                             f"{record}: entry {data['entry']!r} must stay "
+                             "inside the installation root", str(record))
+            entry_rel = data["entry"]
+        else:
+            entry = record.parent / data["entry"]
+            if Path(data["entry"]).is_absolute() or not entry.resolve(
+                    ).is_relative_to(comp_dir.resolve()):
+                raise Refuse("entry-point-escape",
+                             f"{record}: entry {data['entry']!r} leaves the "
+                             "component's folder", str(record))
+            if not entry.is_file():
+                raise Refuse("unit-invalid",
+                             f"{record}: entry {data['entry']!r} is not a file",
+                             str(record))
+            entry_rel = entry.relative_to(comp_dir).as_posix()
         rows.append({"id": data["name"], "method": "tool",
-                     "entry": entry.relative_to(comp_dir).as_posix(),
+                     "entry": entry_rel,
                      "description": data["description"], "data": data})
     names = [r["id"] for r in rows]
     dups = sorted({n for n in names if names.count(n) > 1})

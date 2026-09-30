@@ -310,7 +310,7 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
         apply_state = {**state, "guidance_files": []}
     else:
         apply_state = state
-    desired, path_owners = plan_path_links(_path_rows_from_report(report))
+    desired, path_owners = plan_path_links(target, _path_rows_from_report(report))
     requested_parts = set(parts or ())
     selected_path_parts = sorted(
         f"{cid}#{pid}"
@@ -448,7 +448,7 @@ def _do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
             report, installed_harnesses(records))
         claims += instruction_claims
     report["guidance_sections"] = _section_paths(claims)
-    desired, path_owners = plan_path_links(_path_rows_from_report(report))
+    desired, path_owners = plan_path_links(target, _path_rows_from_report(report))
     booked = booked_path_names(state)
     keep_names = booked_path_names({"components": stranded})
     bindir = bin_dir()

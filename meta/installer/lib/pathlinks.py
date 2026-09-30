@@ -24,6 +24,7 @@ from .constants import (
     PATH_FENCE_END,
     PATH_FENCE_START,
     STATE_REL,
+    WS_PREFIX,
     _RUNTIME,
 )
 from .fsio import write_file
@@ -170,9 +171,22 @@ def _forbid_local_bin(bindir: Path) -> None:
         return
 
 
-def resolve_path_entry(comp_dir: Path, entry: str) -> Path:
-    """The program a tool places on PATH: its entry, relative to the component."""
-    dest = comp_dir / entry
+def workspace_root(start: Path) -> Path:
+    here = start.resolve()
+    for p in (here, *here.parents):
+        if (p / STATE_REL).is_file() or (
+                (p / ".rbtv" / "config").is_dir() and not is_user_home(p)):
+            return p
+    return here
+
+
+def resolve_path_entry(target: Path, comp_dir: Path, entry: str) -> Path:
+    """The program a tool places on PATH: its entry, relative to the component,
+    or `ws:` and a path from the installation root."""
+    if entry.startswith(WS_PREFIX):
+        dest = workspace_root(target) / entry[len(WS_PREFIX):]
+    else:
+        dest = comp_dir / entry
     if dest.exists():
         dest = dest.resolve()
     if not dest.is_file():
@@ -272,7 +286,8 @@ def unlink_one(bindir: Path, name: str, *, dry: bool) -> str:
     return "unlinked"
 
 
-def plan_path_links(rows: list[tuple[str, str, Path, str]]
+def plan_path_links(target: Path,
+                    rows: list[tuple[str, str, Path, str]]
                     ) -> tuple[dict[str, Path], dict[str, tuple[str, str]]]:
     """rows = (component_id, unit_id, comp_dir, entry). One name → one dest."""
     desired: dict[str, Path] = {}
@@ -280,7 +295,7 @@ def plan_path_links(rows: list[tuple[str, str, Path, str]]
     seen: dict[str, str] = {}
     for cid, pid, comp_dir, entry in rows:
         name = link_name(pid)
-        dest = resolve_path_entry(comp_dir, entry)
+        dest = resolve_path_entry(target, comp_dir, entry)
         if _WIN:
             _win_interp(dest)
         else:

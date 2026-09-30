@@ -16,6 +16,7 @@ from lib.constants import (
     PATH_FENCE_END,
     PATH_FENCE_START,
     STATE_REL,
+    WS_PREFIX,
     _RUNTIME,
 )
 from lib.pathlinks import (bin_dir, gate_path_links, link_path,
@@ -48,9 +49,10 @@ def path_links(ctx) -> None:
                body: str = "print(1)\n") -> dict[str, dict]:
         _component(root, mod, name)
         tool = root / mod / name / "capabilities" / "tools" / pid
-        dest = tool / entry
-        _w(dest, "#!/usr/bin/env python3\n" + body)
-        dest.chmod(0o755)
+        if not entry.startswith(WS_PREFIX):
+            dest = tool / entry
+            _w(dest, "#!/usr/bin/env python3\n" + body)
+            dest.chmod(0o755)
         _w(tool / f"{pid}.json", json.dumps(
             {"name": pid, "description": "a tool", "entry": entry}))
         cat, _ = scan_all(tmp / "no-mirror-l", root)
@@ -293,6 +295,21 @@ def path_links(ctx) -> None:
               and _lsnap(bin_dir()) == snap_nb
               and not (nws / STATE_REL).exists(),
               exc.code)
+
+    wsrc = tmp / "wsrc"
+    wws = tmp / "ws-path-ws"
+    wws.mkdir()
+    (wws / "tools").mkdir()
+    (wws / "tools" / "from-ws.py").write_text(
+        "#!/usr/bin/env python3\nprint('ws')\n", encoding="utf-8")
+    (wws / "tools" / "from-ws.py").chmod(0o755)
+    wcat = _lcomp(wsrc, "wmod", "wcomp", "wsbin", "ws:tools/from-ws.py")
+    wr = do_install(wws, wcat, ["wmod/wcomp"], ["claude"], dry_run=False)
+    check("L-ws — a ws: entry resolves from the installation root",
+          link_points_at(link_path(bin_dir(), "wsbin"),
+                         (wws / "tools/from-ws.py").resolve()),
+          str(wr["report"].get("path")))
+    do_uninstall(wws, wcat, ["wmod/wcomp"], dry_run=False)
 
     fws = tmp / "ws-path-flag"
     fws.mkdir()

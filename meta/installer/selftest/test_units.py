@@ -64,7 +64,9 @@ def schema_and_frontmatter(ctx) -> None:
     _w(comp / "tools/prog.py", "#!/usr/bin/env python3\n")
     for entry, code in (("../../../tools/prog.py", None),
                         ("../../../../outside.py", "entry-point-escape"),
-                        ("/abs/prog.py", "entry-point-escape")):
+                        ("/abs/prog.py", "entry-point-escape"),
+                        ("ws:tools/prog.py", None),
+                        ("ws:../secret.py", "entry-point-escape")):
         _w(tool / "t.json", json.dumps(
             {"name": "t", "description": "d", "entry": entry}))
         try:
