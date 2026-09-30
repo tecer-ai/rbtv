@@ -221,7 +221,7 @@ def test_green_control():
     out = expect_green("green control")
     for needle in ("census: ", "prompts=1", "tasks=2", "seats=2", "manifest-rows=2",
                    "exposure-rows=1", "carried-blocks=1", "dimensions=1", "guards=0",
-                   "12 check(s) run, 0 skipped"):
+                   "10 check(s) run, 0 skipped"):
         assert needle in out, f"green control: census missing {needle!r}\n{out}"
 
 
@@ -251,8 +251,7 @@ def test_list_checks():
     assert proc.returncode == 0
     for cid in ("exposure-canon", "seat-integrity", "task-no-context", "task-no-capabilities",
                 "kind-sections", "dimension-roster", "carried-blocks", "interactive-fallback",
-                "fork-discharge", "exposes-body-match",
-                "resources-coverage"):
+                "fork-discharge"):
         assert cid in proc.stdout, proc.stdout
 
 
@@ -263,7 +262,7 @@ def test_json_output():
         assert code == 0, out
         import json
         data = json.loads(out)
-        assert data["fail-count"] == 0 and len(data["checks-run"]) == 12, out
+        assert data["fail-count"] == 0 and len(data["checks-run"]) == 10, out
         assert data["census"]["prompts"] == 1, out
 
 
@@ -399,7 +398,7 @@ def test_green_relative_component_path_is_no_escape():
 
 
 def test_red_exposure_path_row_shape():
-    expect_red("M1 path row shape", "exposure-canon", "leaves rbtv-cli and description empty",
+    expect_red("M1 path row shape", "exposure-canon", "leaves rbtv-cli empty",
                {"exposure.csv": FILES["exposure.csv"] + "x,tool,path,exhibit,seats.csv,,\n"})
 
 
@@ -471,6 +470,13 @@ def test_red_skill_cli_points_at_a_non_path_row():
 def test_green_skill_cli_resolves():
     expect_green("W6 skill->CLI resolves",
                  {"exposure.csv": FILES["exposure.csv"] + "x,tool,path,,tool/demo.py,,\n",
+                  "tool/demo.py": "print('x')\n",
+                  "demo.md": "---\nexposes-cli:\n  - x\n---\n\n# demo\n"})
+
+
+def test_green_path_row_may_carry_description():
+    expect_green("path row with a description",
+                 {"exposure.csv": FILES["exposure.csv"] + "x,tool,path,,tool/demo.py,Runs demo reports.,\n",
                   "tool/demo.py": "print('x')\n",
                   "demo.md": "---\nexposes-cli:\n  - x\n---\n\n# demo\n"})
 
@@ -1083,171 +1089,6 @@ def test_unknown_check_id_is_exit_2():
         component, kg = build(tmp)
         code, _out, err = run(component, kg, "--check", "nonesuch")
         assert code == 2 and "unknown check id" in err, err
-
-
-# ------------------------------------------------------ exposes-body-match
-
-# The prompt exposes the fixture's one exposure row and names it in the body.
-# EXPOSING_PROMPT declares a skill: entry with no <resources> bullet, which is
-# ALSO a resources-coverage violation — these tests scope to their own check
-# (EBM_CHECK) so that unrelated FAIL never muddies the exposes-body-match read.
-EXPOSING_PROMPT = PROMPT.replace(
-    'description: "demo prompt"',
-    'description: "demo prompt"\nexposes:\n  skill: [demo-cap]'
-).replace("<role>\nr\n</role>", "<role>\nr — reach for demo-cap when stuck.\n</role>")
-
-EBM_CHECK = ("--check", "exposes-body-match")
-
-
-def test_green_exposes_body_match():
-    expect_green("exposes declared and used", {"prompts/pa.md": EXPOSING_PROMPT}, extra=EBM_CHECK)
-
-
-def test_red_exposes_declared_but_unused():
-    expect_red("declared but unused", "exposes-body-match", "a grant no procedure uses",
-               {"prompts/pa.md": EXPOSING_PROMPT.replace(
-                   "r — reach for demo-cap when stuck.", "r")}, extra=EBM_CHECK)
-
-
-def test_red_exposes_used_but_undeclared():
-    # Direction 2 reads method=path parts; the fixture ships a real tool file.
-    expect_red("used but undeclared", "exposes-body-match", "no exposes: group declares it",
-               {"exposure.csv": FILES["exposure.csv"] + "demo-tool,tool,path,,tool/demo.py,,\n",
-                "tool/demo.py": "#!/usr/bin/env python3\n",
-                "prompts/pa.md": PROMPT.replace("<role>\nr\n</role>",
-                                                "<role>\nr — run demo-tool.\n</role>")})
-
-
-def test_green_skill_prose_mention_is_not_a_use():
-    """A skill part-id named in prose ('demo-cap') is vocabulary, not an
-    invocation — direction 2 skips method=skill rows."""
-    expect_green("skill prose mention", {
-        "prompts/pa.md": PROMPT.replace("<role>\nr\n</role>",
-                                        "<role>\nr — run demo-cap.\n</role>")})
-
-
-SUBAGENT_FILES = {
-    "exposure.csv": FILES["exposure.csv"] + "ps,prompt,sub-agent,,prompts/ps.md,,\n",
-    "prompts/ps.md": PROMPT.replace("id: pa", "id: ps"),
-    "seats.csv": FILES["seats.csv"] + "s-ps,ps,ta,,\"Sub-agent fan-out definition\"\n",
-}
-
-
-def test_red_subagent_dispatch_line_fires():
-    expect_red("sub-agent dispatch undeclared", "exposes-body-match",
-               "no exposes: group declares it",
-               {**SUBAGENT_FILES,
-                "prompts/pa.md": PROMPT.replace(
-                    "<role>\nr\n</role>", "<role>\nr — sub-agent dispatch of ps.\n</role>")})
-
-
-def test_green_subagent_prose_mention_no_dispatch_context():
-    """The part-id on a line with no dispatch/fan wording is English, not a use."""
-    expect_green("sub-agent prose mention", {
-        **SUBAGENT_FILES,
-        "prompts/pa.md": PROMPT.replace(
-            "<role>\nr\n</role>", "<role>\nr — ps is the single writer here.\n</role>")})
-
-
-def test_exposes_body_match_without_a_prompts_pool():
-    """HALF-FED ARM — the live `web/browse` shape. `exposes-body-match` needs
-    ("prompts","exposure.csv"); an exposure.csv with NO prompts/ folder at all
-    (a sanctioned prompt-less component: `web/browse` mints no seats) starts the
-    check on the strength of exposure.csv alone, with c.prompts still None.
-    Nothing to check is not a census failure here. Red against the pre-fix code
-    with FAIL 'discovered 0 prompt files — nothing was checked'."""
-    with tempfile.TemporaryDirectory() as tmp:
-        component, kg = build(tmp, {"prompts/pa.md": None})
-        (component / "prompts").rmdir()
-        code, out, err = run(component, kg, *EBM_CHECK)
-        assert code == 0, f"expected exit 0, got {code}\n{out}\n{err}"
-        assert not [l for l in out.splitlines() if l.strip().startswith("FAIL")], out
-        assert "1 check(s) run" in out, f"the check must RUN, not be skipped\n{out}"
-
-
-def test_exposes_body_match_empty_prompts_folder_still_fails():
-    """The vacuity tripwire the guard must NOT swallow: a prompts/ folder that
-    EXISTS and holds nothing is a real census failure."""
-    with tempfile.TemporaryDirectory() as tmp:
-        component, kg = build(tmp, {"prompts/pa.md": None})
-        assert (component / "prompts").is_dir(), "the arm keeps the folder, empty"
-        code, out, err = run(component, kg, *EBM_CHECK)
-        assert code == 1, f"expected exit 1, got {code}\n{out}\n{err}"
-        assert any("[exposes-body-match]" in l and "discovered 0 prompt files" in l
-                   for l in out.splitlines()), out
-
-
-def test_ethos_block_mention_is_not_a_use():
-    """A name carried in verbatim from the ethos source is not this prompt's use."""
-    expect_green("ethos mention is not a use", {
-        "prompts/pa.md": PROMPT.replace("carried line one", "carried line one demo-cap"),
-        "references/ethos.md": FILES["references/ethos.md"].replace(
-            "carried line one", "carried line one demo-cap")})
-
-
-# ------------------------------------------------------ resources-coverage
-# Checklist §2: every exposes: path/skill/sub-agent entry gets its own
-# <resources> bullet, at most 280 characters. Scoped to its own check via
-# --check so an added exposes:/<resources> pair never trips an unrelated
-# check (kind-sections, exposes-body-match) and muddies the red/green read.
-
-RC_CHECK = ("--check", "resources-coverage")
-
-
-def with_exposes(exposes_yaml):
-    return PROMPT.replace('description: "demo prompt"',
-                          f'description: "demo prompt"\nexposes:\n{exposes_yaml}')
-
-
-def test_red_resources_section_absent():
-    expect_red("declared, no <resources> at all", "resources-coverage",
-               "carries no <resources> section at all",
-               {"prompts/pa.md": with_exposes("  skill: [demo-cap]")}, extra=RC_CHECK)
-
-
-def test_red_resources_entry_not_named():
-    prompt = with_exposes("  skill: [demo-cap]").replace(
-        "<io-spec>", "<resources>\n- unrelated bullet text.\n</resources>\n\n<io-spec>", 1)
-    expect_red("declared, bullet missing", "resources-coverage",
-               "no bullet inside <resources> names 'demo-cap'",
-               {"prompts/pa.md": prompt}, extra=RC_CHECK)
-
-
-def test_green_resources_entry_named():
-    prompt = with_exposes("  skill: [demo-cap]").replace(
-        "<io-spec>",
-        "<resources>\n- `demo-cap` — a demo capability, reach for it when stuck.\n"
-        "</resources>\n\n<io-spec>", 1)
-    expect_green("declared and named", {"prompts/pa.md": prompt}, extra=RC_CHECK)
-
-
-def test_green_command_entries_exempt():
-    """A command/rule/hook entry never needs a bullet — it is standing behaviour,
-    not a chosen instrument."""
-    prompt = with_exposes("  command: [some-command]")
-    assert "<resources>" not in prompt
-    expect_green("command exempt", {"prompts/pa.md": prompt}, extra=RC_CHECK)
-
-
-def test_red_resources_bullet_over_cap():
-    prompt = with_exposes("  skill: [demo-cap]").replace(
-        "<io-spec>", "<resources>\n- `demo-cap` — " + ("x" * 300) + "\n</resources>\n\n<io-spec>", 1)
-    expect_red("bullet over the ceiling", "resources-coverage", "ceiling",
-               {"prompts/pa.md": prompt}, extra=RC_CHECK)
-
-
-def test_green_long_bullet_naming_no_declared_instrument():
-    """The cap is the rule's cap: it measures the DESCRIPTION OF A DECLARED
-    INSTRUMENT. A <resources> bullet about a file, a folder, or a standing
-    output contract answers to no ceiling — measuring it would invent a rule
-    the checklist never states. No grandfather list exists; the scope is."""
-    prompt = with_exposes("  skill: [demo-cap]").replace(
-        "<io-spec>",
-        "<resources>\n- `demo-cap` — a demo capability, reach for it when stuck.\n"
-        "- `some-ledger.md` in the goal folder — " + ("y" * 720) + "\n"
-        "</resources>\n\n<io-spec>", 1)
-    expect_green("long non-instrument bullet is uncapped", {"prompts/pa.md": prompt},
-                 extra=RC_CHECK)
 
 
 def main():

@@ -462,9 +462,9 @@ def check_exposure_canon(c, out, census):
         if part_kind not in EXPOSURE_PART_KINDS:
             _fail(out, "exposure-canon", where, f"part-kind {part_kind!r} is outside {list(EXPOSURE_PART_KINDS)}")
         if method == "path":
-            if rbtv_cli.strip() or desc.strip():
+            if rbtv_cli.strip():
                 _fail(out, "exposure-canon", where,
-                      "a method=path row leaves rbtv-cli and description empty (the tool self-documents via -h)")
+                      "a method=path row leaves rbtv-cli empty")
             # `ws:` — the ONE sanctioned way an entry-point leaves its
             # component (owner-ruled 2026-08-11, IPH-6 / D33): a path from the
             # WORKSPACE root, not from the component. It is expanded BEFORE
@@ -1003,7 +1003,7 @@ def check_dimension_roster(c, out, census):
                   "check-* task files exist but 0 carry a dimension clause — nothing was checked")
         return
 
-    # Same multi-need hazard as exposes-body-match: needs ("tasks","seats.csv"),
+    # A multi-need hazard: this check needs ("tasks","seats.csv"),
     # so c.seats may be None (no seats.csv FILE) while tasks carry the run. The
     # roster's PAIRING half is then not applicable — the task-side kill-criteria
     # half below still runs. A seats.csv that EXISTS with no rows is not this
@@ -1230,197 +1230,6 @@ def check_fork_discharge(c, out, census):
               "manifest after-cells carry guard syntax but 0 guards parsed — nothing was checked")
 
 
-ETHOS_BLOCK = re.compile(r"<!--\s*ethos:start\s*-->.*?<!--\s*ethos:end\s*-->", re.S)
-# The exposure methods whose part-id is an instrument a prompt BODY would name.
-# Direction 1 (declared-but-unused) covers all three; direction 2
-# (used-but-undeclared) is scoped tighter — measured 2026-08-12 over the live
-# pool: workflow part-ids and skill-method parts match
-# ordinary prose vocabulary, not invocations, so direction 2 reads only
-# method=path parts (distinctive CLI names) and method=sub-agent parts on
-# lines that talk dispatch.
-BODY_METHODS = ("sub-agent", "skill", "path")
-D2_DISPATCH_CONTEXT = re.compile(r"\b(dispatch|fan)", re.I)
-
-
-def prompt_body(text):
-    """Everything below the frontmatter. The frontmatter is already validated by
-    the pool loader, so a missing terminator here means the whole file is body."""
-    end = text.find("\n---\n", 3) if text.startswith("---\n") else -1
-    return text[end + 5:] if end != -1 else text
-
-
-def check_exposes_body_match(c, out, census):
-    """`exposes:` and the prompt BODY name the same instruments, both ways.
-
-    Declared-but-unused: an entry nobody mentions is a grant that outlived the
-    procedure that needed it. Used-but-undeclared: a prompt that names an
-    instrument it never declared instructs a seat to use an unavailable means
-    reach (the measured unbound-CLI gap, 2026-08-10).
-
-    ponytail: substring / word-boundary heuristics, not a parser — this is a
-    drift tripwire. A name mentioned only inside a code fence, a URL, or an
-    unrelated English word ("path", "writer") reads as a mention and silences
-    direction 1; upgrade to a prose/code-fence split only if that measurably
-    hides real drift."""
-    census["exposes-entries"] = 0
-    # Multi-need check: run() starts it when ANY of ("prompts","exposure.csv")
-    # is present, so c.prompts may be None (no prompts/ FOLDER — the sanctioned
-    # prompt-less shape, web/browse) while exposure.csv carries the run. None is
-    # NOT applicable; {} is a present-but-empty pool and stays a census FAIL.
-    if c.prompts is None:
-        return
-    if not c.prompts:
-        _fail(out, "exposes-body-match", c.root / "prompts",
-              "discovered 0 prompt files — nothing was checked")
-        return
-    instruments = {r["fields"][0].strip(): r["fields"][2].strip()
-                   for r in (c.exposure["rows"] if c.exposure else [])
-                   if len(r["fields"]) == len(EXPOSURE_HEADER)}
-    kinds = {r["fields"][0].strip(): r["fields"][1].strip()
-             for r in (c.exposure["rows"] if c.exposure else [])
-             if len(r["fields"]) == len(EXPOSURE_HEADER)}
-    # ponytail: direction 2 skips method=skill and part-kind=workflow rows —
-    # their names double as prose vocabulary; direction 1 still covers them.
-    body_instruments = sorted(
-        p for p, m in instruments.items()
-        if p and m in ("path", "sub-agent") and kinds.get(p) != "workflow")
-
-    for stem, item in sorted(c.prompts.items()):
-        body = prompt_body(item["text"])
-        lowered = body.lower()
-        groups = item["fm"].get("exposes") or {}
-        if not isinstance(groups, dict):
-            _fail(out, "exposes-body-match", item["path"],
-                  f"exposes: is a {type(groups).__name__}, not a mapping of method -> part-ids")
-            continue
-        declared = set()
-        for key, entries in sorted(groups.items()):
-            for entry in (entries if isinstance(entries, list) else [entries]):
-                entry = str(entry).strip()
-                census["exposes-entries"] += 1
-                name = entry.rsplit("/", 1)[-1]
-                declared.add(name)
-                if name.lower() not in lowered:
-                    _fail(out, "exposes-body-match", item["path"],
-                          f"exposes.{key} declares {entry!r} but the body never names "
-                          f"{name!r} — a grant no procedure uses")
-
-        # Direction 2 reads the body MINUS the carried ethos block: the ethos is
-        # copied verbatim into every prompt, so a name it happens to carry is
-        # not this prompt's own use.
-        own = ETHOS_BLOCK.sub("", body)
-        for part in body_instruments:
-            if part == stem or part in declared:
-                continue
-            hits = [m for m in re.finditer(r"\b" + re.escape(part) + r"\b", own, re.I)]
-            if instruments[part] == "sub-agent":
-                # A sub-agent part-id ("writer") is also an English word; count
-                # only mentions on a line that talks dispatch/fan-out.
-                hits = [m for m in hits
-                        if D2_DISPATCH_CONTEXT.search(
-                            own[own.rfind("\n", 0, m.start()) + 1:
-                                (own.find("\n", m.end()) if own.find("\n", m.end()) != -1
-                                 else len(own))])]
-            if hits:
-                _fail(out, "exposes-body-match", item["path"],
-                      f"body names the instrument {part!r} (exposure.csv "
-                      f"method={instruments[part]}) but no exposes: group declares it — "
-                      "the prompt names a tool missing from its exposure declarations")
-
-
-RESOURCES_BULLET_CAP = 280
-RESOURCES_INSTRUMENT_METHODS = ("path", "skill", "sub-agent")
-# The optional `**` is not cosmetic tolerance: a bold-wrapped part-id is live
-# house style (office/meeting-summarizer), and a token regex blind to it reads
-# the bullet as naming no instrument — which silently lifts the 280-char cap on
-# exactly the bullets it should measure.
-BULLET_LEAD_TOKEN = re.compile(r"^\*{0,2}`([^`]+)`\*{0,2}")
-
-# Owner-ruled 2026-08-12 (references/workflow-authoring-checklist.md §2): two
-def resources_bullets(body):
-    """[(raw_chunk, leading_token_or_None, measured_text)] for each top-level
-    `- ` bullet in a <resources> section body. `measured_text` has the
-    leading `- ` and the leading backtick-wrapped token (if any) stripped,
-    per the checklist's bullet shape (`` - `<part-id>` <description> ``) —
-    prose before the first bullet (a section intro) is not a bullet."""
-    out = []
-    for chunk in re.split(r"^(?=- )", body, flags=re.M):
-        chunk = chunk.strip("\n")
-        if not chunk.startswith("- "):
-            continue
-        text = chunk[2:]
-        m = BULLET_LEAD_TOKEN.match(text)
-        token = m.group(1) if m else None
-        measured = text[m.end():] if m else text
-        out.append((chunk, token, measured.strip()))
-    return out
-
-
-def check_resources_coverage(c, out, census):
-    """Owner-ruled 2026-08-12 (workflow-authoring-checklist.md §2): every
-    `exposes:` entry of method path/skill/sub-agent ALSO gets its own bullet
-    inside the prompt's <resources> section, at most 280 characters — prose
-    an exposure declaration is not prose an occupant reads. Exempt: every
-    command/rule/hook entry (those arrive as standing behaviour, never a
-    chosen instrument) — same exemptions check_exposes_body_match carries."""
-    census["resources-entries"] = 0
-    census["resources-bullets"] = 0
-    if not c.prompts:
-        _fail(out, "resources-coverage", c.root / "prompts",
-              "discovered 0 prompt files — nothing was checked")
-        return
-    for stem, item in sorted(c.prompts.items()):
-        groups = item["fm"].get("exposes") or {}
-        if not isinstance(groups, dict):
-            continue  # exposes-body-match already indicts the malformed shape
-        declared = []
-        for key in RESOURCES_INSTRUMENT_METHODS:
-            for entry in groups.get(key) or []:
-                entry = str(entry).strip()
-                declared.append((key, entry, entry.rsplit("/", 1)[-1]))
-        census["resources-entries"] += len(declared)
-
-        section = next((b for tag, _a, _l, b in sections_of(item["text"]) if tag == "resources"), None)
-        if declared and section is None:
-            _fail(out, "resources-coverage", item["path"],
-                  f"exposes: declares {len(declared)} path/skill/sub-agent instrument(s) but "
-                  "the prompt carries no <resources> section at all — the occupant has no "
-                  "bullet telling it when or why to reach for any of them")
-            continue
-        if section is None:
-            continue
-
-        bullets = resources_bullets(section)
-        census["resources-bullets"] += len(bullets)
-        for key, entry, part_id in declared:
-            if not re.search(r"\b" + re.escape(part_id) + r"\b", section, re.I):
-                _fail(out, "resources-coverage", item["path"],
-                      f"exposes.{key} declares {entry!r} but no bullet inside <resources> "
-                      f"names {part_id!r} — the RESOURCES SECTION specifically (distinct from "
-                      "exposes-body-match, which reads the whole prompt body): the occupant "
-                      "has no prose on when or why to reach for it")
-
-        # The cap is the RULE's cap, and the rule caps the description of a
-        # DECLARED instrument — not every bullet a <resources> section carries.
-        # A section may also hold prose about a file, a folder, or a standing
-        # output contract; that prose answers to no ceiling, and measuring it
-        # here would invent a rule the checklist never states. No grandfather
-        # list exists, deliberately: an instrument bullet over the cap is
-        # trimmed, and a fact that cannot survive the trim moves to the
-        # <procedure> step or <restrictions> line that owns it.
-        declared_tokens = {part_id.lower() for _k, _e, part_id in declared}
-        for _raw, token, measured in bullets:
-            n = len(measured)
-            names_instrument = token is not None and (
-                token.rsplit("/", 1)[-1].lower() in declared_tokens)
-            if n <= RESOURCES_BULLET_CAP or not names_instrument:
-                continue
-            _fail(out, "resources-coverage", item["path"],
-                  f"<resources> bullet {(token or measured[:40])!r} measures {n} characters, "
-                  f"over the {RESOURCES_BULLET_CAP}-character ceiling (280 is a ceiling, not a "
-                  "target — trim it, don't grandfather it)")
-
-
 CHECKS = [
     ("exposure-canon", ("exposure.csv",), "M1 exposure-manifest canon + entry-point existence"),
     ("skill-discovery", ("exposure.csv",), "path tools have skill routes; router descriptions name requests"),
@@ -1433,11 +1242,6 @@ CHECKS = [
     ("interactive-fallback", ("prompts",), "M9 human-interactive <-> fallback: <-> interactive modality"),
     ("fork-discharge", ("workflows",),
      "M12 every manifest guard is served by its predecessor's declared ## Outputs"),
-    ("exposes-body-match", ("prompts", "exposure.csv"),
-     "exposes: entries and the prompt body name the same instruments, both ways"),
-    ("resources-coverage", ("prompts",),
-     "workflow-authoring-checklist §2: every exposes path/skill/sub-agent entry gets its own "
-     "<=280-char <resources> bullet"),
 ]
 
 RUNNERS = {
@@ -1447,8 +1251,6 @@ RUNNERS = {
     "dimension-roster": check_dimension_roster, "carried-blocks": check_carried_blocks,
     "interactive-fallback": check_interactive_fallback,
     "fork-discharge": check_fork_discharge,
-    "exposes-body-match": check_exposes_body_match,
-    "resources-coverage": check_resources_coverage,
 }
 
 

@@ -175,6 +175,6 @@ Add a `Makefile` target such as `make install-local` that installs the command o
 
 After the CLI works, catalog and expose it:
 
-- **rbtv inventory (mandatory):** add the first-party `path` row to the owning component's `exposure.csv` (`part-kind=tool`, `method=path`, entry-point = the invocable; `rbtv-cli`/`description` empty — the tool self-documents via `-h`).
+- **rbtv inventory (mandatory):** add the first-party `path` row to the owning component's `exposure.csv` (`part-kind=tool`, `method=path`, entry-point = the invocable; `rbtv-cli` empty; `description` may carry the tool's one-line use).
 - **Skill route (mandatory for rbtv):** name the CLI in a skill in its component or in a parent skill that routes to it, following `../../references/exposure.md` § Skills are the discovery route. Write the skill in the order a future agent session should use the CLI: first command, auth, discovery, safe read, intended write, and raw escape hatch. Keep API details in the CLI docs.
 - **Standalone companion skill:** for a CLI outside rbtv, create a small companion skill when harness exposure is warranted.
