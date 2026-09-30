@@ -58,7 +58,6 @@ function fail(msg) {
 
 const HARNESSES = Object.keys(SPECS);
 const USAGE = 'cast <harness> <model> <effort 1-5> [launch-folder] (-p TEXT | -f FILE) [-s TEXT | -S FILE | -ig AGENT [--target DIR] | -rg AGENT-FILE] [--headed] [--dry-run]';
-const SEAT_USAGE = 'cast seat [launch-folder] [-p TEXT | -f FILE] [--headed] [--dry-run]';
 const RESUME_USAGE = 'cast resume <harness> <session-id|last> [launch-folder] (-p TEXT | -f FILE) [--dry-run]';
 const SESSIONS_USAGE = 'cast sessions [harness] [launch-folder] [--json] [-n N]';
 const KNOWN_FLAGS = '-p, -f, -s, -S, -ig, -rg, --target, --headed, --dry-run, --detached, -h/--help';
@@ -203,8 +202,7 @@ function resolveEffort(spec, n) {
   return { word, argv: eff.flag(word) };
 }
 
-// Flags shared by both launch modes: -p/-f prompt, -s/-S system prompt, --headed, --dry-run.
-// Seat mode supplies the system prompt itself (seat.md), so its prompt is optional and -s/-S refused.
+// Launch flags: -p/-f prompt, -s/-S system prompt, --headed, --dry-run, --detached.
 function parseArgs(rawArgv, usage, requirePrompt) {
   let dryRun = false;
   let headed = false;
@@ -298,7 +296,7 @@ function resolveModel(harness, model) {
 
 module.exports = {
   CODEX_DOC_LIMIT, shortName, SHORT, baseArgv, promptArgv,
-  fail, HARNESSES, USAGE, SEAT_USAGE,
+  fail, HARNESSES, USAGE,
   RESUME_USAGE, SESSIONS_USAGE, KNOWN_FLAGS, detachMarks,
   refuseIfDetached, effortMap, modelTable, buildInventory,
   suggest, runDoctor, runList, resolveEffort,

@@ -114,30 +114,35 @@ Session identity is per harness, and it is never a folder-wide "last session" lo
 
 Machine-output flags (`--output-format json`, `--json`, `--format json`) are used only by this verb, so the captured stdout file can be parsed. Bare `cast` launches still inherit stdio and do not pass those flags.
 
-## seat.md descriptor behavior (`cast seat`)
+## Agent launches (`-ig`, `-rg`)
 
-`cast seat` reads `harness`/`model`/`effort` from `<launch-folder>/seat.md` frontmatter and treats
-the file's content as the seat's binding instruction set for the sitting (plain launches ignore a
-seat.md sitting in the folder):
+`cast <harness> <model> <1-5> -ig AGENT [--target DIR] (-p TEXT | -f FILE)` runs an installed
+agent: its folder `<installation>/.rbtv/agents/AGENT/` (found from the current folder upward, or
+under `--target DIR`) is the working folder, and its `agent.md` is the system prompt. An agent is
+installed when its folder holds `launch.json`. `-rg FILE` runs a one-off agent file that is not
+installed: the file's body, without its frontmatter, is the system prompt, and the launch folder
+is the usual one. Harness, model and effort are always given on the command line.
 
-- **claude** — has a real system-prompt flag: `--append-system-prompt-file <launch-folder>/seat.md` is appended to argv.
-- **codex / opencode** — no system-prompt flag exists, so the descriptor rides the first
-  stdin message instead, prepended ahead of the wake prompt with this wrapper text:
+The system prompt rides each harness's strongest channel, the same as `-s TEXT`/`-S FILE`:
+
+- **claude** — `--append-system-prompt(-file)`.
+- **codex** — `-c developer_instructions=<text>`.
+- **opencode** — no system-prompt channel, so the text is prepended to the first message with
+  this wrapper:
 
   ```
-  <seat.md content>
+  <system prompt>
 
   ---
 
-  The descriptor above is this seat's binding instruction set for this whole sitting — it rides
-  this first message because your harness carries no system prompt. Do not re-read seat.md; you
-  have just read it. The message that fired this sitting follows:
+  The text above is your system-prompt directive for this run — it rides this first message
+  because your harness carries no system prompt. The user's message follows:
 
   <prompt>
   ```
 
-No `seat.md` in the folder → `cast seat` refuses (exit 2). For plain launches, `-s TEXT`/`-S FILE`
-set a system prompt with the same carriage (real flag for claude, first-message prepend elsewhere).
+`-s`/`-S` cannot be combined with `-ig`/`-rg`. Every Codex launch also passes
+`-c project_doc_max_bytes=131072`, because rules reach Codex as full text in `AGENTS.md`.
 
 ## Execution
 
@@ -420,7 +425,8 @@ every stdout surface is byte-identical across the split (163-invocation corpus, 
 | `tool/lib/core.js` | shared primitives: argv parsing, model/effort/folder resolution, the model table, `doctor`, `list` |
 | `tool/lib/turn.js` | `cast turn` — exact session id, resume with the requested model/effort, result file |
 | `tool/lib/handles.js` | the launch-handle registry — the one observable a watcher uses to find a run again |
-| `tool/lib/launch.js` | spawn, `cast seat`, `cast resume` |
+| `tool/lib/launch.js` | spawn, `cast resume` |
+| `tool/lib/agent.js` | `-ig` / `-rg`: find the installed agent, read an agent file |
 | `tool/lib/sessions.js` | the per-harness session-store readers and `cast sessions` |
 | `tool/lib/monitor.js` | `cast monitor` — the freeze tripwire, its witness channel, roster and watch |
 | `tool/lib/route.js` | `cast route` — the selector |

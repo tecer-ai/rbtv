@@ -6,7 +6,7 @@
 // byte-identical across the split (163-invocation corpus, both self-check suites).
 
 const { API_USAGE } = require('./api');
-const { RESUME_USAGE, SEAT_USAGE, SESSIONS_USAGE, USAGE, modelTable } = require('./core');
+const { RESUME_USAGE, SESSIONS_USAGE, USAGE, modelTable } = require('./core');
 const { loadOptional } = require('./optional');
 const { ROUTE_FORMS, ROUTE_USAGE } = require('./route');
 const { USAGE: TURN_USAGE } = require('./turn');
@@ -24,7 +24,6 @@ function printHelp() {
     "--headed launches the harness's interactive TUI instead (prompt becomes the first message).",
     '',
     `Usage: cast ${USAGE.slice('cast '.length)}`,
-    `       ${SEAT_USAGE}`,
     `       ${RESUME_USAGE}`,
     `       ${SESSIONS_USAGE}`,
     `       ${TURN_USAGE}`,
@@ -42,7 +41,8 @@ function printHelp() {
     '[launch-folder] defaults to the current directory.',
     '-s TEXT / -S FILE: system prompt — real for claude, developer instructions for codex, prepended to the first message for opencode.',
     '',
-    'cast seat      launch per seat.md frontmatter; the file body is the system prompt',
+    '-ig AGENT      installed agent: runs in its folder, agent.md is the system prompt (--target DIR to find it)',
+    '-rg FILE       one-off agent: the body of the agent file is the system prompt',
     'cast resume    one more turn into a session id, or `last` for the folder newest',
     'cast sessions  what ran in a folder — harness, id, started, first-prompt label',
     'cast turn      structured turn with an exact per-conversation session ID and result file',
@@ -92,23 +92,6 @@ function verbHelpPages() {
       '(thread_id); opencode binds a unique --title tag to that store row. Resume passes',
       '--resume / exec resume <id> / run -s <id> plus the requested model and effort.',
     ],
-    seat: [
-      `usage: ${SEAT_USAGE}`,
-      '',
-      'Launch a seat: the folder\'s seat.md IS the run. Its frontmatter picks harness/model/effort',
-      'and its body becomes the system prompt, so nothing about the model is typed on the command',
-      'line. -p/-f is an optional wake message layered on top of the descriptor.',
-      '',
-      '  [launch-folder]  where seat.md lives and where the agent runs. Default: current directory.',
-      '  -p TEXT          wake message. Omitted -> "act per your seat descriptor."',
-      '  -f FILE          same, read from a file.',
-      '  --headed         open the harness TUI instead of running headless.',
-      '  --dry-run        print the argv/cwd it would spawn as JSON, launch nothing.',
-      '',
-      '  -s/-S is refused here: the system prompt is seat.md.',
-      '',
-      'example: cast seat 1-projects/my-project/build/plan/seats/writer -p "second pass, ship it"',
-    ],
     resume: [
       `usage: ${RESUME_USAGE}`,
       '',
@@ -139,7 +122,7 @@ function verbHelpPages() {
       '',
       'columns: harness, session id, started, first-prompt label.',
       '',
-      'example: cast sessions claude 1-projects/my-project/build/plan/seats/writer -n 3',
+      'example: cast sessions claude .rbtv/agents/writer -n 3',
     ],
     monitor: [
       `usage: ${MONITOR_USAGE}`,

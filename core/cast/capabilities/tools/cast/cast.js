@@ -11,7 +11,7 @@ const { agentLaunch, takeAgentFlags } = require('./lib/agent');
 const { runApi } = require('./lib/api');
 const { USAGE, fail, parseArgs, resolveEffort, resolveFolder, resolveModel, runDoctor, runList } = require('./lib/core');
 const { printHelp, verbHelpPages } = require('./lib/help');
-const { SYSTEM_WRAPPER, launch, runResume, runSeat } = require('./lib/launch');
+const { SYSTEM_WRAPPER, launch, runResume } = require('./lib/launch');
 const { loadOptional } = require('./lib/optional');
 const { runRoute } = require('./lib/route');
 const { runSessions } = require('./lib/sessions');
@@ -33,7 +33,6 @@ function main(rawArgv) {
   }
   if (rawArgv[0] === 'doctor') return runDoctor(rawArgv.slice(1));
   if (rawArgv[0] === 'list') return runList(rawArgv.slice(1));
-  if (rawArgv[0] === 'seat') return runSeat(rawArgv.slice(1));
   if (rawArgv[0] === 'resume') return runResume(rawArgv.slice(1));
   if (rawArgv[0] === 'sessions') return runSessions(rawArgv.slice(1));
   if (rawArgv[0] === 'turn') return runTurn(rawArgv.slice(1));

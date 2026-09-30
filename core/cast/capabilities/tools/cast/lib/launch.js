@@ -1,6 +1,6 @@
 'use strict';
 
-// cast — the launch path: spawn, `cast seat`, `cast resume`.
+// cast — the launch path: spawn, `cast resume`.
 // Split out of cast.js 2026-08-20 on the file's own section banners; the code below is
 // unchanged from that file. Every composed argv and every stdout surface stayed
 // byte-identical across the split (163-invocation corpus, both self-check suites).
@@ -12,7 +12,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { SPECS } = require('../catalog');
 
-const { CODEX_DOC_LIMIT, HARNESSES, RESUME_USAGE, SEAT_USAGE, baseArgv, fail, parseArgs, promptArgv, refuseIfDetached, resolveFolder, resolveModel, shortName } = require('./core');
+const { CODEX_DOC_LIMIT, HARNESSES, RESUME_USAGE, baseArgv, fail, parseArgs, promptArgv, refuseIfDetached, resolveFolder, resolveModel, shortName } = require('./core');
 const { claudeSlug, emitHandle, procStart, stdoutPath } = require('./handles');
 const { loadOptional } = require('./optional');
 const { spawnable } = require('./win-exec');
@@ -238,60 +238,8 @@ function opencodeTouched(folder, t0) {
   return rows.length ? rows[0].id : null;
 }
 
-// Minimal frontmatter scan — the three scalar keys seat.md carries that cast needs.
-// ponytail: line-regex parser, swap in a YAML lib if seat frontmatter ever nests these keys.
-function seatFrontmatter(text) {
-  const out = {};
-  const lines = text.split('\n');
-  if (lines[0].trim() !== '---') return out;
-  for (let i = 1; i < lines.length && lines[i].trim() !== '---'; i++) {
-    const m = lines[i].match(/^(harness|model|effort):\s*(\S+)\s*$/);
-    if (m) out[m[1]] = m[2];
-  }
-  return out;
-}
-
-const SEAT_WRAPPER = "The descriptor above is this seat's binding instruction set for this whole "
-  + 'sitting — it rides this first message because your harness carries no system prompt. '
-  + 'Do not re-read seat.md; you have just read it. The message that fired this sitting follows:';
 const SYSTEM_WRAPPER = 'The text above is your system-prompt directive for this run — it rides this '
   + "first message because your harness carries no system prompt. The user's message follows:";
-
-// cast seat: the seat.md frontmatter says which harness/model/effort to launch with, and its
-// body is the system prompt; -p/-f is an optional wake message on top of it.
-function runSeat(rawArgv) {
-  const { dryRun, headed, detached, promptText, system, positional } = parseArgs(rawArgv, SEAT_USAGE, false);
-  if (system) fail('refused: seat mode reads its system prompt from seat.md — drop -s/-S');
-  if (positional.length > 1) fail(`usage: ${SEAT_USAGE}\nrun cast -h for full help`);
-  const folder = resolveFolder(positional[0] ?? '.');
-
-  const descriptor = path.join(folder, 'seat.md');
-  if (!fs.existsSync(descriptor)) fail(`no seat.md in ${folder}`);
-  const fm = seatFrontmatter(fs.readFileSync(descriptor, 'utf8'));
-  for (const key of ['harness', 'model']) {
-    if (!fm[key]) fail(`seat.md frontmatter is missing '${key}': ${descriptor}`);
-  }
-
-  const { modelId, spec } = resolveModel(fm.harness, fm.model);
-
-  let effortWord = null;
-  let effortArgv = [];
-  const eff = spec.effort;
-  if (fm.effort && fm.effort !== 'inert' && eff && !eff.inert) {
-    if (!eff.rungs.includes(fm.effort)) {
-      fail(`refused: effort '${fm.effort}' is not a rung of ${fm.model}\nknown rungs: ${eff.rungs.join(', ')}`);
-    }
-    effortWord = fm.effort;
-    effortArgv = eff.flag(fm.effort);
-  }
-
-  launch({
-    harness: fm.harness, modelId, folder, effortWord, effortArgv,
-    system: { file: descriptor, wrapper: SEAT_WRAPPER },
-    promptText: promptText ?? 'No separate wake message — act per your seat descriptor.',
-    headed, dryRun, detached,
-  });
-}
 
 // cast resume: send one more turn into an existing headless session. `last` = the harness's own
 // "most recent session in this folder" affordance, so no id bookkeeping is needed for the common
@@ -358,6 +306,6 @@ function runResume(rawArgv) {
 
 module.exports = {
   launch, launchEnv, runOpencodeChecked, opencodeFinalMessage, opencodeTagged, opencodeTouched,
-  seatFrontmatter, SEAT_WRAPPER, SYSTEM_WRAPPER, runSeat,
+  SYSTEM_WRAPPER,
   resumeArgv, runResume,
 };

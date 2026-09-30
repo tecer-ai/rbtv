@@ -118,7 +118,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
 // --- lazy-load seam: an optional lib/ module is allowed to fail without taking `cast` down ----
 // `cast-resilience` (commit eaa62dbd) made a broken lib/monitor.js non-fatal one file at a time.
 // The very next module added to lib/ (provider-limit.js, commit e73d41de) went through no seam
-// at all and still killed `cast seat` outright on a broken top-level (filed #d/must, reproduced
+// at all and still killed a launch outright on a broken top-level (filed #d/must, reproduced
 // and reverted by the orchestrator). The seam is now ONE module, lib/optional.js, whose
 // OPTIONAL_MODULES list is what BOTH production code and this test read. This test enumerates
 // lib/ on disk at runtime and cross-checks it against that SAME list — a hardcoded copy of the
@@ -134,9 +134,8 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     assert.ok(filesOnDisk.includes(name), `optional.js names ${name}.js, not found under lib/`);
   }
 
-  const seatFolder = mkFolder('lazy-seam-fault');
-  fs.writeFileSync(path.join(seatFolder, 'seat.md'),
-    '---\nharness: claude\nmodel: claude-sonnet-5\neffort: high\n---\n# seat descriptor\nact as Z.');
+  const agentFile = path.join(mkFolder('lazy-seam-fault'), 'agent.md');
+  fs.writeFileSync(agentFile, '---\nname: z\ndescription: x\n---\nact as Z.');
 
   for (const name of OPTIONAL_MODULES) {
     const target = path.join(libDir, `${name}.js`);
@@ -146,11 +145,12 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     // caller re-throws unless routed through the seam.
     fs.writeFileSync(target, `${original}\nconst __INJECTED_FAULT__ = __UNDEFINED_SYMBOL__;\n`);
     try {
-      const seat = spawnSync('node', [TOOL, 'seat', seatFolder, '--dry-run'], { encoding: 'utf8' });
+      const seat = spawnSync('node', [TOOL, 'claude', 'sonnet-5', '2', '-rg', agentFile, '-p', 'go', '--dry-run'],
+        { encoding: 'utf8' });
       assert.strictEqual(seat.status, 0,
-        `cast seat --dry-run must survive a broken lib/${name}.js, got exit ${seat.status}: ${seat.stderr}`);
+        `cast -rg --dry-run must survive a broken lib/${name}.js, got exit ${seat.status}: ${seat.stderr}`);
       assert.ok(seat.stderr.includes(`lib/${name}.js failed to load`),
-        `cast seat must name the failed module lib/${name}.js in its degradation notice, got: ${seat.stderr}`);
+        `cast must name the failed module lib/${name}.js in its degradation notice, got: ${seat.stderr}`);
 
       // cast monitor genuinely needs lib/monitor.js (and, transitively, provider-limit.js) — it
       // must still fail loudly by name rather than silently no-op.
@@ -244,10 +244,10 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.deepStrictEqual(oc.argv.slice(-2), ['--prompt', 'hi']);
 }
 
-// plain mode ignores a seat.md sitting in the launch-folder — that carriage moved to `cast seat`
+// plain mode never reads an agent file sitting in the launch-folder — that is -ig / -rg
 {
-  const folder = mkFolder('plain-ignores-seat');
-  fs.writeFileSync(path.join(folder, 'seat.md'), '# seat descriptor\nact as X.');
+  const folder = mkFolder('plain-ignores-agent-file');
+  fs.writeFileSync(path.join(folder, 'agent.md'), '# agent\nact as X.');
   const out = dryRun(['claude', 'haiku-4-5', '1', folder, '-p', 'wake up']);
   assert.ok(!out.argv.includes('--append-system-prompt-file'));
   assert.strictEqual(out.stdin_preview, 'wake up');
@@ -271,77 +271,6 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
 
   const opencode = dryRun(['opencode', 'grok-4.7', '1', folder, '-p', 'hi', '-S', sysFile]);
   assert.ok(opencode.stdin_preview.startsWith('be VERY terse'), `expected prepended system text: ${opencode.stdin_preview}`);
-}
-
-// cast seat, claude: frontmatter picks harness/model/effort; seat.md -> --append-system-prompt-file
-{
-  const folder = mkFolder('seat-claude');
-  fs.writeFileSync(path.join(folder, 'seat.md'),
-    '---\nseat: x\nharness: claude\nmodel: claude-opus-5-5\neffort: xhigh\n---\n# seat descriptor\nact as X.');
-  const out = dryRun(['seat', folder, '-p', 'wake up']);
-  assert.ok(out.argv[0] === 'claude' && out.argv.includes('claude-opus-5-5'));
-  assert.deepStrictEqual(out.argv.slice(out.argv.indexOf('--effort'), out.argv.indexOf('--effort') + 2), ['--effort', 'xhigh']);
-  const idx = out.argv.indexOf('--append-system-prompt-file');
-  assert.strictEqual(out.argv[idx + 1], path.join(folder, 'seat.md'));
-  assert.strictEqual(out.stdin_preview, 'wake up');
-}
-
-// cast seat, codex: the seat text rides Codex's developer instructions
-{
-  const folder = mkFolder('seat-codex');
-  const seatText = '---\nharness: codex\nmodel: gpt-5.5\neffort: high\n---\n# seat descriptor\nact as Y.';
-  fs.writeFileSync(path.join(folder, 'seat.md'), seatText);
-  const out = dryRun(['seat', folder, '-p', 'wake up']);
-  assert.ok(out.argv[0] === 'codex' && out.argv.includes('model_reasoning_effort=high'));
-  assert.ok(out.argv.includes('--skip-git-repo-check'), 'codex seat must run outside git repos');
-  assert.ok(!out.argv.includes('--append-system-prompt-file'));
-  assert.ok(out.argv.includes(`developer_instructions=${JSON.stringify(seatText)}`), `expected the seat as developer instructions: ${out.argv}`);
-  assert.strictEqual(out.stdin_preview, 'wake up');
-}
-
-// cast seat resolves short names and harness-native ids through the same catalog.
-{
-  const folder = mkFolder('seat-alias-ok');
-  fs.writeFileSync(path.join(folder, 'seat.md'),
-    '---\nharness: opencode\nmodel: grok-4.7\neffort: high\n---\n# seat descriptor\nact as Z.');
-  const short = dryRun(['seat', folder, '-p', 'wake up']);
-  assert.ok(short.argv.includes('xai/grok-4.7'), `expected the resolved id on argv, got: ${short.argv}`);
-
-  const pinned = mkFolder('seat-pin-ok');
-  fs.writeFileSync(path.join(pinned, 'seat.md'),
-    '---\nharness: opencode\nmodel: xai/grok-4.7\neffort: high\n---\n# seat descriptor\nact as Z.');
-  const out = dryRun(['seat', pinned, '-p', 'wake up']);
-  assert.ok(out.argv.includes('xai/grok-4.7'), `expected the pin on argv, got: ${out.argv}`);
-  assert.strictEqual(short.argv[short.argv.indexOf('-m') + 1], out.argv[out.argv.indexOf('-m') + 1]);
-  assert.ok(short.argv.includes('high'), 'short name must keep the requested effort');
-}
-
-// cast seat without -p/-f: allowed, a default wake message stands in; -s/-S refused
-{
-  const folder = mkFolder('seat-no-prompt');
-  fs.writeFileSync(path.join(folder, 'seat.md'), '---\nharness: claude\nmodel: claude-opus-5-5\neffort: high\n---\nbody');
-  const out = dryRun(['seat', folder]);
-  assert.ok(out.stdin_preview.includes('act per your seat descriptor'), `unexpected default wake: ${out.stdin_preview}`);
-
-  const res = spawnSync('node', [TOOL, 'seat', folder, '-s', 'nope', '--dry-run']);
-  assert.strictEqual(res.status, 2, 'seat mode must refuse -s');
-}
-
-// cast seat, effort inert -> no effort argv; missing seat.md or bad rung -> exit 2
-{
-  const folder = mkFolder('seat-inert');
-  fs.writeFileSync(path.join(folder, 'seat.md'), '---\nharness: claude\nmodel: claude-haiku-4-5\neffort: inert\n---\nbody');
-  const out = dryRun(['seat', folder, '-p', 'hi']);
-  assert.strictEqual(out.effort_word, null);
-
-  const empty = mkFolder('seat-empty');
-  let res = spawnSync('node', [TOOL, 'seat', empty, '-p', 'hi', '--dry-run']);
-  assert.strictEqual(res.status, 2, 'missing seat.md must exit 2');
-
-  const bad = mkFolder('seat-bad-rung');
-  fs.writeFileSync(path.join(bad, 'seat.md'), '---\nharness: claude\nmodel: claude-opus-5-5\neffort: turbo\n---\nbody');
-  res = spawnSync('node', [TOOL, 'seat', bad, '-p', 'hi', '--dry-run']);
-  assert.strictEqual(res.status, 2, 'unknown effort rung must exit 2');
 }
 
 // -f FILE reads the prompt from a file
@@ -409,7 +338,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
 
 // per-verb --help: exit 0, prints that verb's usage; a prompt that is literally "-h" is not help
 {
-  for (const verb of ['route', 'monitor', 'sessions', 'doctor', 'list', 'seat', 'resume', 'api', 'turn']) {
+  for (const verb of ['route', 'monitor', 'sessions', 'doctor', 'list', 'resume', 'api', 'turn']) {
     for (const flag of ['-h', '--help']) {
       const res = spawnSync('node', [TOOL, verb, flag], { encoding: 'utf8' });
       assert.strictEqual(res.status, 0, `cast ${verb} ${flag} must exit 0: ${res.stderr}`);
@@ -418,8 +347,8 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     }
   }
   // not help: -h carried as a value alongside other args must still reach the verb
-  const res = spawnSync('node', [TOOL, 'seat', '.', '-p', '-h', '--dry-run'], { encoding: 'utf8' });
-  assert.ok(!/^usage: cast seat/.test(res.stdout), `"-h" as prompt text must not print usage: ${res.stdout}`);
+  const res = spawnSync('node', [TOOL, 'resume', 'claude', 'last', '.', '-p', '-h', '--dry-run'], { encoding: 'utf8' });
+  assert.ok(!/^usage: cast resume/.test(res.stdout), `"-h" as prompt text must not print usage: ${res.stdout}`);
 }
 
 // -h: exit 0, <=50 lines (one screen; raised from 40 for resume/sessions, from 44 for monitor, from 47 for route)

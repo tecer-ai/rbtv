@@ -28,14 +28,13 @@ never the fix. When one of them cannot express something, the interface is too n
 rather than teaching the tool a vendor's private shape.
 
 **RELOCATED 2026-08-21 from `meta/providers/` to `core/cast/`** (following `cast`'s own
-2026-08-20 move out of this component into `core/cast/`) — see `meta/module.md` § Components for
-the tombstone row. It holds no seats and no workflow — a capability-only component, the shape
+2026-08-20 move out of this component into `core/cast/`). It holds no seats and no workflow — a capability-only component, the shape
 `web/browse/` already established.
 
 ## Entry points
 
 - `cast` — **RELOCATED 2026-08-20 to `core/cast/`** (owner instruction, route-redesign
-  spec §8), now a component of its own — its exposure row lives in `core/cast/exposure.csv`.
+  spec §8), now a component of its own — its tool record is `core/cast/capabilities/tools/cast/cast.json`.
   There: `capabilities/component.md` (the manual) +
   `tool/cast.js`, `tool/catalog.js`, `core/cast/capabilities/tools/cast/models.csv`, `tool/test_cast.js`, `tool/test_route.js`,
   and the API runner at `tool/api/run.py` + `tool/api/clients/` + `tool/api/tests/`. On PATH as
@@ -49,8 +48,7 @@ the tombstone row. It holds no seats and no workflow — a capability-only compo
   print `all route tests passed`, and `python -m pytest tool/api/tests/ -q` must be green.
 - `capabilities/acct/` — `acct.md` (the manual) + `tool/acct.py`. On PATH as `acct`.
   `acct --selftest` must exit 0 after any edit.
-- `exposure.csv` — `acct` only, as the mandatory first-party tool inventory (`cast`'s row moved
-  with it to `core/cast/exposure.csv`).
+- `capabilities/tools/acct/acct.json` — the `acct` tool record (`cast`'s is `capabilities/tools/cast/cast.json`).
 
 Each tool orients with its own `doctor` verb: `cast doctor` reports which harness binaries are
 installed, which providers are enabled behind them, and what is left on each — by running
