@@ -257,7 +257,8 @@ def doctor_ownership(ctx) -> None:
             perm_ws.mkdir()
             do_install(perm_ws, catalog, ["fixmod/goodcomp"], ["claude"],
                       dry_run=False, parts=["fixskill", "fixtool"])
-            entry = tree / "fixmod" / "goodcomp" / "tool" / "thing.py"
+            entry = (tree / "fixmod" / "goodcomp" / "capabilities" / "tools"
+                     / "fixtool" / "thing.py")
             before_mode = entry.stat().st_mode
             entry.chmod(0o644)
             try:
