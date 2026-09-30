@@ -34,6 +34,7 @@ from .pathlinks import bin_dir
 from .shared_links import release_workspace_links, workspace_mutation_lock
 from .listing import (_short_description, build_list, build_show,
                       do_list, print_list, print_show)
+from .agents import add_agent, remove_agent, update_agent
 from .doctor import do_doctor, doctor_exit
 from .report import print_result
 from .recovery import shell_quote
@@ -807,6 +808,51 @@ def cmd_selftest(args, target: Path, catalog: dict, shadowed: list,
     return selftest()
 
 
+def _print_agent(data: dict, verb: str, target: Path, why: str | None) -> None:
+    dry = data["dry_run"]
+    lead = {"add": "Would install" if dry else "Installed",
+            "update": "Would refresh" if dry else "Refreshed",
+            "remove": "Would remove" if dry else "Removed"}[verb]
+    launch = data["launch"]
+    print(present.title(f"agent {verb}"))
+    print()
+    print(f"Target: {target} ({present.target_source_label(why)})")
+    print(f"{lead} agent {data['agent']} at {data['home']}")
+    print(f"Launch: {launch['harness']} · {launch['model']} · {launch['effort']}"
+          + ("  (kept in launch.json)" if verb != "remove" else ""))
+    if verb != "remove":
+        print(f"Units selected by its agent file ({len(data['units'])}): "
+              + (", ".join(data["units"]) or "none"))
+    if data.get("kept"):
+        print("Kept (the agent's own): " + ", ".join(data["kept"]))
+    print()
+    print("Next: " + data["next"])
+
+
+@mutation_locked
+def cmd_agent(args, target: Path, catalog: dict, shadowed: list,
+              *, ask=None) -> int:
+    del shadowed, ask
+    dry = bool(getattr(args, "dry_run", False))
+    verb = args.agent_verb
+    if verb == "add":
+        data = add_agent(target, Path(args.file), args.harness, args.model,
+                         args.effort, catalog, dry)
+        data["next"] = f"rbtv spark {data['agent']}"
+    elif verb == "update":
+        data = update_agent(target, args.name, catalog, dry)
+        data["next"] = f"rbtv spark {data['agent']}"
+    else:
+        data = remove_agent(target, args.name, catalog, dry)
+        data["next"] = "rbtv install status --target " + _quote(target)
+    why = getattr(args, "_why", "unknown")
+    if getattr(args, "json", False):
+        _emit(data, True, target, why)
+    else:
+        _print_agent(data, verb, target, why)
+    return 0
+
+
 _HANDLERS = {
     "add": cmd_add,
     "rm": cmd_rm,
@@ -821,6 +867,7 @@ _HANDLERS = {
     "update": cmd_update,
     "harness": cmd_harness,
     "artifact": cmd_artifact,
+    "agent": cmd_agent,
     "doctor": cmd_doctor,
     "interactive": cmd_interactive,
     "selftest": cmd_selftest,

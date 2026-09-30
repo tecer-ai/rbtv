@@ -71,6 +71,13 @@ COMMAND_GROUPS = (
         ("remove", "Remove selected installed items."),
         ("update", "Regenerate selected files from local RBTV source."),
     )),
+    ("Agents", (
+        ("agent add FILE", "Install an agent from its agent file."),
+        ("agent update NAME", "Regenerate an installed agent from its agent "
+                              "file."),
+        ("agent remove NAME", "Take back what the installer put in an "
+                              "agent's folder."),
+    )),
     ("Check and guided use", (
         ("doctor", "Check target files and selected shared command "
                     "shortcuts."),

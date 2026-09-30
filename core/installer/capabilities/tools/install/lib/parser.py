@@ -497,7 +497,66 @@ def build_parser() -> argparse.ArgumentParser:
         description="Start the guided menu. This is the only mode that asks questions. "
                     "For scripts or agents, use list, show, add and remove.")
 
+    s_agent = sub.add_parser(
+        "agent", help="install, refresh or remove an agent from its agent file",
+        description=(
+            "An agent is installed from its agent file into its own folder,\n"
+            "<workspace>/.rbtv/agents/<agent>/: the agent file (its one source\n"
+            "from then on), its launch values, settings, an ignore file for data\n"
+            "tied to one machine, the files of every skill, rule, command, hook\n"
+            "and MCP server its frontmatter selects, and a section in its folder\n"
+            "instructions that points to the agent file. Harness, model and effort\n"
+            "are chosen here and kept in launch.json, which stays the live source."),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=("Examples:\n"
+                "  rbtv install agent add sara.md --harness claude --model sonnet-5 --effort high\n"
+                "  rbtv install agent update sara\n"
+                "  rbtv install agent remove sara\n"
+                "Run the agent: rbtv spark sara"))
+    agent_sub = s_agent.add_subparsers(dest="agent_verb",
+                                       metavar="{add,update,remove}")
+    agent_sub.required = True
+    s_ag_add = agent_sub.add_parser(
+        "add", help="install an agent from its agent file",
+        description=(
+            "Install the agent FILE describes. Its name comes from the file's\n"
+            "frontmatter. Refuses when that agent is already installed (use\n"
+            "update). --model and --effort are checked against `cast list`;\n"
+            "an effort number 1-5 is stored as the model's own word for it."),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=("Example: rbtv install agent add sara.md --harness claude "
+                "--model sonnet-5 --effort high\nNext: rbtv spark sara"))
+    s_ag_add.add_argument("file", metavar="FILE", help="the agent file (agent.md)")
+    s_ag_add.add_argument("--harness", required=True,
+                          help="the AI tool that runs it: " + ", ".join(HARNESSES))
+    s_ag_add.add_argument("--model", required=True,
+                          help="a model name from `cast list`")
+    s_ag_add.add_argument("--effort", required=True,
+                          help="an effort word that model accepts, or 1-5")
+    s_ag_update = agent_sub.add_parser(
+        "update", help="regenerate an installed agent from its agent file",
+        description=(
+            "Re-read the agent's own agent.md and refresh everything generated\n"
+            "from it: the files of the units it selects (removing those it no\n"
+            "longer selects) and its folder-instructions section. Launch values,\n"
+            "settings and live data are kept."),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="Example: rbtv install agent update sara")
+    s_ag_update.add_argument("name", metavar="AGENT", help="the installed agent's name")
+    s_ag_remove = agent_sub.add_parser(
+        "remove", help="take back what the installer put in an agent's folder",
+        description=(
+            "Remove the units the installer placed in the agent's folder, its\n"
+            "folder-instructions section, launch.json and the ignore file. The\n"
+            "agent file, settings and everything the agent made stay: they are\n"
+            "the agent's. The result lists what remains."),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="Example: rbtv install agent remove sara --dry-run")
+    s_ag_remove.add_argument("name", metavar="AGENT", help="the installed agent's name")
+
     for sp, label in (
+        (s_agent, "agent"), (s_ag_add, "agent add"),
+        (s_ag_update, "agent update"), (s_ag_remove, "agent remove"),
         (s_list, "list"), (s_ls, "list"), (s_li, "list"),
         (s_search, "search"), (s_show, "show"), (s_status, "status"),
         (s_add, "add"), (s_rm, "remove"), (s_remove, "remove"),
@@ -511,6 +570,6 @@ def build_parser() -> argparse.ArgumentParser:
     for s in (s_add, s_rm, s_remove, s_set, s_search,
               s_ls, s_li, s_list, s_show,
               s_status, s_doc, s_inter,
-              s_h, s_art):
+              s_h, s_art, s_ag_add, s_ag_update, s_ag_remove):
         tree_flags(s, on_verb=True)
     return p
