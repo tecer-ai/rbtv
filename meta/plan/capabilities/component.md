@@ -8,8 +8,6 @@ reports, and uninstalls them when the plan closes. The plan folder keeps the age
 ## Entry points
 
 - `skills/plan.md` — the plan folder format, the sizing rules, and the coordinating agent's contract.
-- `skills/workflow-authoring-checklist.md` — checklist for reusable component workflows, which are
-  catalog entries, separate from a plan.
 
 The component has no resident planning runner. A plan's agent files, task files and reports live in
 the plan folder named by its caller. How to build any RBTV component is in the build documentation
