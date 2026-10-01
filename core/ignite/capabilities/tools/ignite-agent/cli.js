@@ -94,6 +94,7 @@ const REMEMBER_HELP = `ignite-agent remember — save an owner fact for every ag
 remember <text>
   Quote the text, or pass several words. Newlines become spaces: one append,
   one line, with today's UTC date, agent slug and current thread when available.
+  Empty or whitespace-only text fails before any files are written.
   Creates .rbtv/memory/inbox.md if missing. Never rejects text because of its
   length or existing inbox contents; never rewrites earlier lines or learned.md.
   Above 20 lines (including headings and blanks), queues an owner alert through the outbox.
@@ -108,7 +109,7 @@ Outside a turn, alerts use this agent's configured channel or owner DM.
 Success: exit 0, "remembered in <path>", then any warning.
 --json: {path, appended, lines, warning}; lines counts file lines, warning is null
 when none. Failure: exit 1, reason on stderr, or {path, error} on stdout with
---json. A missing text argument, installation root or filesystem write can fail.
+--json. Missing or empty text, an unresolved installation root or a filesystem write can fail.
 
 Example: ignite-agent remember "Prefers afternoon appointments"
 `;
@@ -647,6 +648,8 @@ function cmdRemember(rest, flags, deps) {
   try {
     const { opts, positionals } = parseOpts(rest);
     if (Object.keys(opts).length || !positionals.length) fail('remember requires <text>; use -- before option-like text');
+    const text = positionals.join(' ').replace(/[\r\n\u2028\u2029]+/g, ' ').trim();
+    if (!text) fail('remember requires non-empty text');
     const { home, slug, workspace } = resolveHome(flags, deps);
     if (!workspace) fail('remember requires an installation root; use --workspace <path>');
     file = path.join(workspace, '.rbtv', 'memory', 'inbox.md');
@@ -654,7 +657,7 @@ function cmdRemember(rest, flags, deps) {
     const key = env.IGNITE_CONVERSATION;
     const match = key?.match(/^[^:]+:([A-Z0-9]+):(\d+\.\d+)$/);
     const thread = match ? `[thread](https://app.slack.com/archives/${match[1]}/p${match[2].replace('.', '')})` : null;
-    const result = remember(workspace, positionals.join(' '), { agent: slug, thread, now: deps.now ? deps.now() : Date.now() });
+    const result = remember(workspace, text, { agent: slug, thread, now: deps.now ? deps.now() : Date.now() });
     // Append first. Missing config, a broken database or unavailable delivery
     // must never discard a remembered fact or make callers retry the append.
     if (result.warning) {

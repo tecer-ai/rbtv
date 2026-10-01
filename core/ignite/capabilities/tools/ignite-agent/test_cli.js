@@ -705,6 +705,52 @@ test('remember appends UTF-8 once with thread provenance and leaves learned rule
   } finally { fs.rmSync(workspace, { recursive: true, force: true }); }
 });
 
+test('remember rejects empty normalized text before setup or writes', () => {
+  const workspace = tempHome();
+  try {
+    const home = writeConfig(workspace, 'sample', { C9: 'sample' });
+    const memory = path.join(workspace, '.rbtv', 'memory');
+    const file = path.join(memory, 'inbox.md');
+    const before = '# Inbox\r\n- Keep this (2026-10-01 · sample)\r\n';
+    for (const existing of [false, true]) {
+      if (existing) {
+        fs.mkdirSync(memory);
+        fs.writeFileSync(file, before, 'utf8');
+      }
+      for (const text of [[''], [' \t '], ['\r\n\n\r'], ['\u2028\u2029'], ['', '\r\n', ' \t']]) {
+        for (const env of [{}, { IGNITE_AGENT_HOME: home }]) {
+          const plain = run(['remember', ...text], { env });
+          assert.equal(plain.code, 1);
+          assert.equal(plain.out, '');
+          assert.equal(plain.err, 'remember requires non-empty text\n');
+          const json = run(['remember', ...text, '--json'], { env });
+          assert.equal(json.code, 1);
+          assert.equal(json.err, '');
+          assert.deepEqual(JSON.parse(json.out), { path: null, error: 'remember requires non-empty text' });
+        }
+      }
+      if (existing) assert.equal(fs.readFileSync(file, 'utf8'), before);
+      else assert.equal(fs.existsSync(memory), false);
+      assert.equal(fs.existsSync(path.join(home, 'state.sqlite')), false);
+    }
+  } finally { fs.rmSync(workspace, { recursive: true, force: true }); }
+});
+
+test('remember accepts a real note surrounded by blank arguments and line breaks', () => {
+  const workspace = tempHome();
+  try {
+    const home = writeConfig(workspace, 'sample', { C9: 'sample' });
+    const result = run(['remember', '', '\r\nCafé\u2028after lunch\u2029', '\t', '--json'], {
+      env: { IGNITE_AGENT_HOME: home }, now: () => Date.parse('2026-10-01T12:00:00Z'),
+    });
+    assert.equal(result.code, 0);
+    assert.equal(result.err, '');
+    const file = path.join(workspace, '.rbtv', 'memory', 'inbox.md');
+    assert.deepEqual(JSON.parse(result.out), { path: file, appended: true, lines: 1, warning: null });
+    assert.equal(fs.readFileSync(file, 'utf8'), '- Café after lunch (2026-10-01 · sample)\n');
+  } finally { fs.rmSync(workspace, { recursive: true, force: true }); }
+});
+
 test('remember never refuses broken or overfull inboxes and queues owner alerts inside or outside a turn', () => {
   const workspace = tempHome();
   try {

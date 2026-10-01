@@ -184,11 +184,27 @@ test('channel-activated-thread-no-mention', async () => {
     assert.equal(result.key, 'T1:CCHAN:5.100000');
     assert.equal(store.getConversation('pending:post1'), null);
     assert.equal(store.getConversation(result.key).activated, true);
-    assert.equal(store.listHistory(result.key).length, 1);
-    assert.equal(store.listHistory(result.key)[0].text, 'thanks');
+    // Confirmed posts join history, alongside the one owner reply.
+    const rows = store.listHistory(result.key);
+    assert.equal(rows.length, 2);
+    const post = rows.find((row) => row.id === begun.outboxId);
+    assert.equal(post.role, 'assistant');
+    assert.equal(post.text, 'result');
+    assert.equal(post.ts, '5.100000');
+    const reply = rows.find((row) => row.id === 'T1:CCHAN:5.200000');
+    assert.equal(reply.role, 'owner');
+    assert.equal(reply.text, 'thanks');
     assert.equal(queueCount(store), 1);
     assert.equal(h.historyCalls.length, 0);
     assert.equal(store.getConversation('T1:CCHAN:5.200000'), null);
+    const again = await handleEvent(event({
+      channel: 'CCHAN', channelType: 'channel', ts: '5.200000', threadTs: '5.100000',
+      text: 'thanks', mentionsBot: false,
+    }), h.ctx);
+    assert.equal(again.ignored, 'duplicate');
+    assert.deepEqual(store.listHistory(result.key), rows);
+    assert.equal(queueCount(store), 1);
+    assert.equal(h.historyCalls.length, 0);
   } finally {
     h.close();
   }
