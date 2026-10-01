@@ -348,6 +348,105 @@ for (const ending of ['\n', '\r\n']) for (const thread of [null, `[thread](${lin
   });
 }
 
+for (const ending of ['\n', '\r\n']) for (const kind of ['inbox', 'watch-out']) {
+  test(`duplicate ${kind} is removed without a new record or unread owner evidence (${JSON.stringify(ending)})`, async (f) => {
+    const line = kind === 'inbox' ? '- Owner likes café. (2026-10-01 · master)' : '- Send one PDF. (2026-10-01 · master)';
+    const existing = fact(kind === 'inbox' ? 'Prefers café.' : '[correction] Send one PDF. Why: owner preference.', 'master', '2000.000001')
+      .replace(DATE, '2026-09-30');
+    const source = kind === 'inbox' ? `${ROOT}inbox.md` : boardPath();
+    const target = kind === 'inbox' ? `${ROOT}knowledge/facts.md` : learnedPath();
+    const destination = (kind === 'inbox' ? knowledge(existing) : `# Learned rules — master\n${existing}\n`).replaceAll('\n', ending);
+    const empty = kind === 'inbox' ? '# Inbox\n' : EMPTY_BOARD;
+    f.write(source, (kind === 'inbox' ? `# Inbox\n${line}\n` : board({ watch: [line] })).replaceAll('\n', ending));
+    f.write(target, destination);
+    f.git('add', '--', source, target); f.git('commit', '-qm', 'Existing memory');
+    const head = f.git('rev-parse', 'HEAD');
+    const result = await f.run((input) => {
+      assert.deepEqual(input.messages, []);
+      return proposal(operation(input, source, empty, { sources: kind === 'inbox' ? [line] : [],
+        reason: kind === 'inbox' ? 'file' : 'fold', explanation: 'The existing record states the same fact.',
+        removals: [{ text: line, to: target, replacement: existing, duplicate: true }] }));
+    });
+    assert.equal(result.ok, true, result.alert); assert.equal(result.alert, null); assert.equal(result.changed, true);
+    assert.equal(f.read(source), empty.replaceAll('\n', ending)); assert.equal(f.read(target), destination);
+    assert.equal(f.git('rev-list', '--count', `${head}..HEAD`), '1');
+    assert.equal(f.git('show', '--pretty=format:', '--name-only', 'HEAD'), source);
+    assert.ok(result.digest.text.includes(`already known: ${line} → ${target}`));
+    assert.deepEqual(result.digest.conflicts, []);
+    for (const record of [line, existing]) assert.ok(f.git('log', '-1', '--pretty=%B').includes(record));
+    assert.equal(getState(f.stores.get('master')).lastSuccessAt, NOW);
+    const again = await f.run(() => proposal());
+    assert.equal(again.ok, true, again.alert); assert.equal(again.changed, false); assert.equal(again.digest, null);
+  });
+}
+
+for (const kind of ['inbox', 'watch-out']) for (const mode of ['missing-file', 'missing-bullet', 'new-bullet', 'removed-bullet', ...(kind === 'inbox' ? ['new-file'] : [])]) {
+  test(`duplicate ${kind} refuses a ${mode} citation without writing or advancing state`, async (f) => {
+    f.message();
+    const line = fact(kind === 'inbox' ? 'Owner likes café.' : 'Send one PDF.');
+    const existing = kind === 'inbox' ? line : fact('[correction] Send one PDF. Why: owner preference.');
+    const source = kind === 'inbox' ? `${ROOT}inbox.md` : boardPath();
+    const target = kind === 'inbox' ? `${ROOT}knowledge/facts.md` : learnedPath();
+    const sourceText = kind === 'inbox' ? `# Inbox\n${line}\n` : board({ watch: [line] });
+    const destination = (body) => kind === 'inbox' ? knowledge(body) : `# Learned rules — master\n${body}\n`;
+    f.write(source, sourceText);
+    if (mode !== 'missing-file' && mode !== 'new-file') f.write(target, destination(mode === 'removed-bullet' ? existing : ''));
+    // learned.md must exist in every snapshot; a missing citation uses another path.
+    const cited = mode === 'missing-file' ? `${ROOT}knowledge/preferences.md` : target;
+    const before = fs.existsSync(path.join(f.workspace, target)) ? f.read(target) : null;
+    const head = f.git('rev-parse', 'HEAD');
+    const result = await f.run((input) => proposal(
+      operation(input, source, kind === 'inbox' ? '# Inbox\n' : EMPTY_BOARD, { sources: kind === 'inbox' ? [line] : [],
+        reason: kind === 'inbox' ? 'file' : 'fold', removals: [{ text: line, to: cited, replacement: existing, duplicate: true }] }),
+      ...(['new-file', 'new-bullet', 'removed-bullet'].includes(mode) ? [operation(input, target,
+        destination(mode === 'removed-bullet' ? '' : existing))] : []),
+    ));
+    assert.equal(result.ok, false); assert.equal(result.changed, false); assert.equal(result.commit, null); assert.equal(result.digest, null);
+    assert.match(result.alert, /removal destination missing|filed record missing at destination|duplicate record missing from snapshot/);
+    assert.equal(f.read(source), sourceText);
+    assert.equal(fs.existsSync(path.join(f.workspace, target)) ? f.read(target) : null, before);
+    assert.equal(f.git('rev-parse', 'HEAD'), head);
+    assert.equal(getState(f.stores.get('master')).cursor, 0); assert.equal(getState(f.stores.get('master')).lastSuccessAt, null);
+  });
+}
+
+test('one inbox operation can remove an already known fact and file a new fact', async (f) => {
+  const duplicate = '- Owner likes café. (2026-10-01 · master)'; const existing = fact('Prefers café.', 'another');
+  const fresh = '- Owner speaks French. (2026-10-01 · master)'; const target = `${ROOT}knowledge/facts.md`;
+  f.write(`${ROOT}inbox.md`, `# Inbox\n${duplicate}\n${fresh}\n`); f.write(target, knowledge(existing));
+  const result = await f.run((input) => proposal(
+    operation(input, target, knowledge(`${existing}\n${fresh}`), { sources: [fresh], reason: 'file' }),
+    operation(input, `${ROOT}inbox.md`, '# Inbox\n', { sources: [duplicate, fresh], reason: 'file', removals: [
+      { text: duplicate, to: target, replacement: existing, duplicate: true }, { text: fresh, to: target, replacement: fresh },
+    ] }),
+  ));
+  assert.equal(result.ok, true, result.alert); assert.equal(f.read(`${ROOT}inbox.md`), '# Inbox\n');
+  assert.equal(f.read(target), knowledge(`${existing}\n${fresh}`));
+  assert.ok(result.digest.text.includes(`already known: ${duplicate}`));
+  assert.ok(!result.digest.text.includes(`already known: ${fresh}`));
+});
+
+for (const mode of ['other-agent', 'missing-source']) test(`duplicate inbox removal refuses ${mode}`, async (f) => {
+  const line = fact('Owner likes café.', mode === 'other-agent' ? 'another' : 'master');
+  const target = `${ROOT}knowledge/facts.md`; f.write(target, knowledge(line));
+  f.write(`${ROOT}inbox.md`, `# Inbox\n${line}\n`);
+  const result = await f.run((input) => proposal(operation(input, `${ROOT}inbox.md`, '# Inbox\n', {
+    sources: [], reason: 'file', removals: [{ text: line, to: target, replacement: line, duplicate: true }],
+  })));
+  assert.equal(result.ok, false); assert.match(result.alert, /duplicate inbox removal requires its own source/);
+  assert.equal(f.read(`${ROOT}inbox.md`), `# Inbox\n${line}\n`); assert.equal(result.commit, null);
+});
+
+test('duplicate removal cannot discard a long-term memory record', async (f) => {
+  const line = fact('Owner likes café.'); const source = `${ROOT}knowledge/facts.md`;
+  const target = `${own()}memory/topic.md`; f.write(source, knowledge(line)); f.write(target, topic(line));
+  const result = await f.run((input) => proposal(operation(input, source, knowledge(), {
+    reason: 'merge', removals: [{ text: line, to: target, replacement: line, duplicate: true }],
+  })));
+  assert.equal(result.ok, false); assert.match(result.alert, /only inbox lines and watch-outs may be removed as duplicates/);
+  assert.equal(f.read(source), knowledge(line)); assert.equal(result.commit, null);
+});
+
 test('each agent files its own inbox sources even after its owner rows were consumed', async (f) => {
   const lines = ['alpha', 'master'].map((slug) => fact(`Fact from ${slug}.`, slug));
   for (const slug of ['alpha', 'master']) {
@@ -1021,6 +1120,11 @@ test('cast adapter defaults to codex gpt-6-sol effort 3 in a disposable folder a
     const prompt = fs.readFileSync(args[6], 'utf8'); assert.match(prompt, /Only owner messages and explicit remember lines in inbox.md are evidence/); assert.match(prompt, /never use tools or edit files/);
     assert.match(prompt, /cite its exact line in sources on both filing operations/);
     assert.match(prompt, /keep its date and attach this agent's Slack thread links backed by this operation's owner sources/);
+    assert.match(prompt, /DUPLICATE: If an inbox line or watch-out states the same fact as an existing record/);
+    assert.match(prompt, /removals \[\{text,to,replacement,duplicate:true\}\]/);
+    assert.match(prompt, /exact existing bullet, including provenance/);
+    assert.match(prompt, /must already exist in the input snapshot and remain in the result; write no new record/);
+    assert.match(prompt, /digest lists each duplicate as already known/);
     assert.match(prompt, /leave it unchanged and report a conflict/);
     assert.ok(!temp.startsWith(f.workspace)); return { stdout: '```json\n{"operations":[],"conflicts":[]}\n```' };
   } });
