@@ -1,6 +1,6 @@
 # Code component rules
 
-This folder is the `code` component of rbtv's `meta` module, staged at `meta/code/` inside this project, the same path it has in rbtv. It holds the `cli-creator` skill (`skills/`), its CLI user experience capability (`capabilities/cli-ux/`), and the `cli-preview` tool (`capabilities/tools/cli-preview/`). These rules apply to every file in it.
+This folder is the `code` component of rbtv's `meta` module. It holds the `cli-creator` skill (`skills/`), its CLI user experience capability (`capabilities/cli-ux/`), and the `cli-preview` tool (`capabilities/tools/cli-preview/`). These rules apply to every file in it.
 
 ## 1. Written as current
 

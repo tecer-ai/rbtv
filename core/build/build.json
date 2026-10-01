@@ -1,4 +1,4 @@
 {
-  "description": "How rbtv is built: its concepts, glossary, building guides, templates, and principles, and the skills that create rbtv parts.",
+  "description": "How rbtv is built: its concepts, glossary, building guides, templates, and principles, and the skill that routes agents to them whenever they build an rbtv unit.",
   "dependencies": []
 }

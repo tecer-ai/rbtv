@@ -1,61 +1,39 @@
-# CLAUDE.md
+# rbtv
 
-RBTV plugin source repo. Components here are installed into target workspaces via
-`rbtv install` — `core/installer/capabilities/tools/install/install.py`, which carried the name `install2.py`
-until 2026-08-23.
+This repository is rbtv's source: the modules and components that `rbtv install` (the installer, `core/installer/capabilities/tools/install/install.py`) installs into a target folder. To learn what rbtv is and how its folders are laid out, read `core/build/capabilities/rbtv.md`.
 
 ## Hard Rule — Build and Document Every Change
 
 Before creating, changing, renaming, or deleting anything in this repository — a skill, rule, command, agent, hook, MCP server, tool, component, module, template, schema, or a kind of thing nothing defines yet — read and follow `core/build/skills/build.md`, the `build` skill's entry file. Read it directly, whether or not the skill is installed. In the SAME change, document it as `core/build/capabilities/guides/documenting-a-change.md` says. A change without its documentation is incomplete.
 
-## Hard Rule — RBTV Content Must Be General
+## Hard Rule — rbtv Content Must Be General
 
-RBTV is a self-contained toolkit; any workspace it installs into is just ONE instance of it. Every component (spec, workflow, standard, rule, persona, task) MUST be usable by ANY user. It MUST NOT contain anything specific to a single instance: no hardcoded vault/workspace paths, no client or project names, no build-time task IDs or hypothesis/decision markers. Per-instance inputs (a project's reference set, output location) are resolved at runtime — never baked into the file.
+rbtv ships to any user; an installation is one instance of it. Every unit, capability, and tool here MUST be usable by any user and MUST NOT contain anything specific to one installation: no hardcoded installation, vault, or host paths, no client or project names, no build-time task IDs or hypothesis/decision markers. Per-installation inputs (a project's reference set, an output location, a Slack identity) are resolved at runtime from configuration — never written into the file. Content that belongs to one installation only is built in that installation's `.rbtv/mirror/`, never here (`core/build/capabilities/guides/choosing-what-to-build.md`).
 
-When carrying a file INTO this repo from an archive or an instance:
+When carrying a file INTO this repository from an archive or an installation:
 
-1. Read the original and CLASSIFY it: already general, or tweaked to one instance?
-2. **Already general** → copy it verbatim to its analogous home in this repo.
-3. **Tweaked to an instance** → NEVER generalize it silently or autonomously. Surface the instance-specific parts to the owner, propose how to generalize each (parameterize paths, drop build-history scaffolding, turn genuinely per-user inputs into a runtime fill-in), and build the generalized version together before writing it.
-
-Precedent: `studio/deck-loop-spec.md` (carried + generalized 2026-06-13).
+1. Read the original and CLASSIFY it: already general, or tweaked to one installation?
+2. **Already general** → carry its body over unchanged to its home in rbtv's layout; its frontmatter or record must pass its schema (the rule above).
+3. **Tweaked to an installation** → NEVER generalize it silently or autonomously. Show the owner the installation-specific parts, propose how to generalize each (parameterize paths, drop build-history scaffolding, turn per-user inputs into a runtime value), and build the general version together before writing it — or keep it in the mirror.
 
 ## Hard Rule — Linux AND Windows
 
-Every component MUST work on both Linux and Windows — rbtv runs on Linux servers and Windows desktops. When you can only run one, design for both and state in your done report which platform you actually verified. On a Windows machine, WSL (`wsl -d <distro>`) gives a real Linux run: clone the repo inside WSL rather than running over `/mnt/c`, so line endings and the home folder are Linux's. The installer selftest (`core/installer/capabilities/tools/install/install.py selftest`) MUST pass on both before an installer change is committed.
+Every component MUST work on both Linux and Windows — rbtv runs on Linux servers and Windows desktops. The one exception, by owner decision, is Ignite's waking program (`core/ignite/`'s service, its `deploy.sh`, and its systemd unit), which runs on Linux only; `ignite-agent install` and `update` still work on any machine. When you can only run one platform, design for both and state in your done report which platform you actually verified. On a Windows machine, WSL (Windows Subsystem for Linux, `wsl -d <distro>`) gives a real Linux run: clone the repository inside WSL rather than running over `/mnt/c`, so line endings and the home folder are Linux's. The installer selftest (`core/installer/capabilities/tools/install/install.py selftest`) MUST pass on both before an installer change is committed.
 
-The defects that have actually bitten (2026-09-28), each a rule:
+Defects that have actually happened, each a rule:
 
 1. **Text encoding is explicit.** Every text read/write passes `encoding="utf-8"` — Windows defaults to cp1252 and garbles any non-ASCII byte (`—` becomes `â€”`).
 2. **Line endings are CRLF-tolerant.** A Windows checkout (`core.autocrlf`) delivers `\r\n`. Parse with `\r?\n` (never `startswith("---\n")` alone); decide "unchanged" by comparing the exact bytes you would write, not decoded text.
-3. **A tool's `entry` names a runnable file** — a shebang or a known script extension. Windows needs an interpreter to build its `.cmd` shim, so a `.md` or extensionless data file refuses the whole install.
+3. **A tool's program runs on both systems.** The program a `<tool>.json` `entry` names starts with a shebang line and is committed executable (git mode `100755`): Linux refuses a program without both (`path-not-runnable`). Git on Windows records no executable bit, so a program created or moved there is committed as mode `100644` — observed 2026-10-01, when moving every tool on Windows broke the VPS cutover. Mark each new or moved program with `git update-index --chmod=+x <file>` and commit that staged change from the index: `git commit -- <paths>` re-reads the files and silently drops it. The installer selftest (check D3) fails on any file with a `#!` first line stored without the bit. Windows picks the interpreter for its `.cmd` launcher from the shebang or the `.py`/`.js`/`.sh` extension, and refuses the install without one.
 4. **No POSIX-only assumptions** — execute bits (`os.access X_OK` is always true on Windows), symlinks, `/tmp`, shell tools. Guard with `os.name` and give Windows its own path, or skip a POSIX-only selftest arm with `ctx.skip`, naming why.
 5. **Windows file attributes.** Re-creating a Hidden or System file fails with a misleading `PermissionError`; rewrite in place (the installer's `lib/fsio.write_file`).
-6. **`~/.rbtv/` is the per-user runtime** (`~/.rbtv/bin`), present on every machine — never a workspace marker. Walks that look for a workspace skip the home folder unless it holds a real install record (`.rbtv/config/install.json`).
+6. **`~/.rbtv/` is the rbtv home folder** (`~/.rbtv/bin`), present on every machine — never an installation marker. Code that walks up to find an installation root skips the home folder unless it holds a real install record (`.rbtv/config/install.json`).
 7. **File and folder names are Windows-valid** — no `: * ? " < > | \`, no trailing dot or space, no reserved device names (`CON`, `NUL`, `COM1`…). Code that builds a name from a timestamp or user text sanitizes it.
 
-## core/ignite/ — Runnable Service Code (convention)
+## Command-line tools
 
-`core/ignite/` is Ignite 0.2: runnable Node code. A Slack message or a scheduled wake selects an agent folder under the workspace `.rbtv/agents/<slug>/`, runs one non-interactive turn, and the runtime delivers that turn's replies. It is deployed, not copied into a harness tree: `core/ignite/capabilities/tools/ignite-agent/deploy.sh <commit>` (env `RBTV_DEPLOY`, `RBTV_WORKSPACE`) checks out the deploy worktree and restarts the user unit `rbtv-ignite-agents.service` (template `core/ignite/capabilities/tools/ignite-agent/units/rbtv-ignite-agents.service`). Operator steps are `core/ignite/capabilities/runbook.md`.
+Every new or edited rbtv command-line tool follows the `cli-creator` skill (`meta/code/skills/cli-creator.md`; read it directly whether or not the skill is installed); no edit lowers its standard.
 
-Rules for `core/ignite/`:
+## Installed is a subset
 
-1. **Not installed, deployed.** `install.py` does not install this service code into a workspace harness tree. What installs is the `create-agent` skill, the `agent-controls` skill, the `ignite-standing-instructions` rule, and the `ignite-agent` tool's PATH link (`capabilities/tools/ignite-agent/`). The process runs from the deploy worktree.
-2. **The General rule applies in full.** No hardcoded workspace, vault, or host paths. Every per-instance input (workspace root, Slack identity, token variable names, launch setting) is resolved at runtime from `<workspace>/.rbtv/agents/` or explicit configuration.
-3. **No runtime state in the repo.** Agent homes, `state.sqlite`, and conversation history live under the workspace `.rbtv/agents/`, never under `core/ignite/`.
-4. **Self-contained subtree.** `core/ignite/capabilities/tools/ignite-agent/` requires only its own files and Node built-ins. Other rbtv capabilities (`cast`, stools, audio) are runtime commands named in workspace config, never source imports.
-5. **Docs in sync.** When this component changes, the Build-and-Document rule above applies.
-
-## CLI Tool Placement (convention, owner-ruled 2026-07-26)
-
-The destination for every rbtv CLI tool is inside its owning COMPONENT, in its own folder `<module>/<component>/capabilities/tools/<tool>/` with its `<tool>.json`; the `entry` names the program, and may climb out of the tool folder but never out of the component (a component not yet migrated keeps its program where it was). NEVER create a new interim CLI home (a `cli/` folder or ad-hoc scripts location).
-
-## Module and component records
-
-A module is a folder with its own `<module>/<module>.json`; a component is a folder inside it with its own `<component>/<component>.json`. Each carries a one-line `description` (a component also lists its outside `dependencies`). When a component moves between modules, move its folder and update both modules' records.
-
-## Install Model — Just-in-Time
-
-Installing and uninstalling components is fast and idempotent (`install.py`). Users install components just-in-time — only when a workflow needs them — so any given workspace carries only a SUBSET of RBTV components at once. A component absent from a workspace's `.claude/` is NORMAL, not a defect; confirm what is actually installed there before treating a component as missing.
-
-> Codex mirror note: do not read the sibling `AGENTS.md`. It is an auto-generated mirror for Codex agents. This `CLAUDE.md` file is the source of truth.
+An installation carries only the items its user installed, chosen just in time, so a unit missing from an installation is normal, not a defect. Check what is installed with `rbtv install list --installed` before treating anything as missing.

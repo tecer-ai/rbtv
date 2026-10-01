@@ -1,4 +1,6 @@
 {
   "description": "cast: launches an agent on any harness and model, routes a task to the right model, and manages the provider accounts the harnesses run on.",
-  "dependencies": []
+  "dependencies": [
+    "node"
+  ]
 }
