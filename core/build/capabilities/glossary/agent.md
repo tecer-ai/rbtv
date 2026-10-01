@@ -26,7 +26,7 @@ The agent folder is self-contained: everything the agent is and has done lives i
 
 ## Ignite agent
 
-An installed agent that also receives the standard Ignite cognitive units, for Slack communication and Ignite's behaviour, and a Slack connection. Ignite's install step runs `rbtv install` for the agent and adds those units. Ignite's connect step, run on the machine where the agent will run, connects the agent to one Slack channel and records that connection in the machine's [`config/ignite/config.json`](ignite-config.md), never in the agent folder, so sharing an agent never connects it twice.
+An installed agent that also receives the standard Ignite cognitive units, for Slack communication and Ignite's behaviour, and a Slack connection. Ignite's install step runs `rbtv install` for the agent and adds those units. Its units come only from its agent file and Ignite's standard list: `ignite-agent update` removes any unit in the agent folder selected by neither, including one installed there by hand. To give the agent a unit, list it in its agent file. Ignite's connect step, run on the machine where the agent will run, connects the agent to one Slack channel and records that connection in the machine's [`config/ignite/config.json`](ignite-config.md), never in the agent folder, so sharing an agent never connects it twice.
 
 Ignite's waking program then runs one agent turn for each message in the agent's channel: a reply in a thread continues that thread's conversation, and a new message in the channel starts a new one. The agent can also set timers that wake it. The waking program runs on Linux only, a deliberate restriction that keeps Ignite simple, so an Ignite agent's Slack side runs on a Linux machine.
 

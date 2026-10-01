@@ -41,6 +41,7 @@
 - [runtime.md](runtime.md) — Before writing data created while a component runs.
 - [scaffolding.md](scaffolding.md) — Before naming the files the installer maintains in a target folder.
 - [schema.md](schema.md) — Before writing or checking the code-readable shape of a file.
+- [self-contained-skill.md](self-contained-skill.md) — Before importing or sharing a standard skill through the mirror's `_skills/` folder.
 - [scope.md](scope.md) — Before bounding what one task may examine or change.
 - [settings-json.md](settings-json.md) — Before giving an installed agent values specific to its job.
 - [skill.md](skill.md) — Before writing an ability an agent chooses from a description.

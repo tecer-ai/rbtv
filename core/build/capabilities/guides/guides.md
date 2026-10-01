@@ -32,6 +32,7 @@
 - [rule.md](rule.md) — Before writing an instruction that must reach every task of every agent that receives it.
 - [runtime.md](runtime.md) — Before a component writes data while it runs.
 - [schema.md](schema.md) — Before writing a file's code-readable shape.
+- [self-contained-skill.md](self-contained-skill.md) — Before importing or writing a shareable standard skill in the mirror.
 - [scope.md](scope.md) — Before stating what one task may examine or change.
 - [settings-json.md](settings-json.md) — Before giving an installed agent values its tasks use.
 - [skill.md](skill.md) — Before writing an ability an agent chooses when to read.

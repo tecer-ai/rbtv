@@ -27,7 +27,7 @@
       "type": "string"
     },
     "marker": {
-      "description": "The text the installer writes into every file it generates, `rbtv-managed`, so it can recognise its own files.",
+      "description": "The per-unit generated-file ownership marker, `rbtv-managed`. Shared files use booked keys or fenced sections; guidance copies use a generated banner. The install record tracks installed units and files.",
       "type": "string"
     },
     "installed_at": {
@@ -93,8 +93,9 @@
             "type": "string"
           },
           "tree": {
-            "description": "Where the component came from: `shipped` or `mirror`.",
-            "type": "string"
+            "description": "Where the component came from: `repo` for a component shipped in the rbtv repository, or `mirror` for a local component.",
+            "type": "string",
+            "enum": ["repo", "mirror"]
           },
           "tree_root": {
             "description": "The folder the component was read from.",
@@ -139,7 +140,7 @@
                   }
                 },
                 "claims": {
-                  "description": "Keys it owns inside harness files shared with other components, such as a hook's entry in a harness settings file.",
+                    "description": "Keys or fenced sections it owns inside files shared with other components, such as a hook's entry in a harness settings file or a rule's section in root AGENTS.md.",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -159,14 +160,14 @@
       }
     },
     "shared_files": {
-      "description": "Files several components write into, each in its own marked section.",
+      "description": "Files shared by components through booked keys or fenced sections.",
       "type": "array",
       "items": {
         "type": "string"
       }
     },
     "shared_claims": {
-      "description": "Which component owns which key inside a shared file, as path::key.",
+      "description": "Which component owns each booked key or fenced section inside a shared file, as path::key.",
       "type": "array",
       "items": {
         "type": "string"
