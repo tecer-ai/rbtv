@@ -728,6 +728,38 @@ for (const [diagnostic, cause] of [
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+for (const deliver of [false, true]) test(`cap refusal names only the path and sizes in the log and ${deliver ? 'delivered' : 'queued'} notice`, async () => {
+  const { dir, home } = workspace();
+  const { loadConfig } = require('./config.js');
+  const { runInstalledDreamer } = require('./daemon.js');
+  addOwnerMessage(home);
+  const previous = dreamerState(home);
+  const name = '.rbtv/memory/knowledge/facts.md';
+  const text = '---\ndescription: when reviewing facts\ntype: facts\naliases: []\n---\n# Facts\n' + 'private-fixture-content'.repeat(200);
+  const logs = []; const slack = fakeSlack();
+  try {
+    const result = await runInstalledDreamer({ config: loadConfig(dir), log: (row) => logs.push(row),
+      slack: deliver ? slack : null, depsFor: () => ({ slack, home }),
+      runDreamer: (options) => runDreamer({ ...options, model: (input) => ({ conflicts: [], operations: [{
+        op: 'add', path: name, text, sources: input.messages.map((row) => row.rowid),
+        reason: 'owner', explanation: 'private-fixture-explanation',
+      }] }) }),
+    });
+    const alert = `Dreamer failed: ${name}: knowledge cap exceeded (${[...text].length}/3000 characters).`;
+    assert.equal(result.ok, false); assert.equal(result.alert, alert);
+    assert.equal(result.noticeQueued, true); assert.equal(result.digestQueued, false); assert.equal(result.delivered, deliver);
+    assert.equal(logs.find((row) => row.event === 'dreamer').message, alert);
+    const store = new Store(path.join(home, 'state.sqlite'));
+    try {
+      const notice = deliver ? slack.posts[0].text : store.pendingOutbox()[0].payload.text;
+      assert.equal(notice, `Memory alert: ${alert}`);
+      assert.equal(JSON.stringify({ result, logs, notice, posts: slack.posts }).includes('private-fixture'), false);
+      assert.deepEqual(dreamerState(home), previous);
+      assert.equal(fs.existsSync(path.join(dir, name)), false);
+    } finally { store.close(); }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('dreamer digests reuse the direct-message thread', async () => {
   const { dir, home } = workspace();
   const firstNight = Date.parse('2026-10-01T06:00:00Z');

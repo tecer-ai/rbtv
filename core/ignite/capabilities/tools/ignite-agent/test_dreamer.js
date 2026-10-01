@@ -259,14 +259,46 @@ for (const [name, text, expected] of [
   [`${ROOT}profile.md`, `${profile}${fact('x'.repeat(4000))}\n`, /profile.*cap/],
   [learnedPath(), '# Learned rules — master\n' + Array.from({ length: 31 }, (_, i) => `${fact(`[correction] Rule ${i}. Why: owner correction.`)}\n`).join(''), /learned.*cap/],
   [`${own()}memory/topic.md`, topic(fact('x'.repeat(3000))), /3000/],
+  [`${ROOT}knowledge/facts.md`, knowledge(fact('x'.repeat(3000))), /3000/],
+  [`${ROOT}entities/people/person.md`, topic(fact('x'.repeat(3000)), 'person'), /3000/],
+  [`${ROOT}_artifacts/archive/notes.md`, topic(fact('x'.repeat(3000))), /3000/],
   [`${ROOT}workspaces/work.md`, topic(fact('x'.repeat(3000)), 'workspace').replace('aliases: [topic]', 'aliases: [topic]\npaths: [work]'), /workspace.*cap/],
   [boardPath(), board({ watch: Array.from({ length: 7 }, (_, i) => fact(`Watch ${i}.`)) }), /board.*cap/],
+  [boardPath(), board({ closed: Array.from({ length: 7 }, (_, i) => fact(`Subject ${i} — done.`)) }), /7\/6 closed entries/],
+  [boardPath(), EMPTY_BOARD.replace('## Watch-outs', `${Array.from({ length: 9 }, (_, i) => subject().replace('### Report', `### Report ${i}`)).join('\n')}\n## Watch-outs`), /9\/8 subjects/],
+  [boardPath(), board({ state: Array.from({ length: 90 }, () => 'State.').join('\n') }), /98\/90 nonempty lines outside Timers/],
   [`${ROOT}timeline/daily/${DATE}.md`, `---\ndescription: when asked about this date\n---\n# ${DATE}\n\n` + Array.from({ length: 40 }, (_, i) => `- Event ${i} — master/[thread](${link()})\n`).join(''), /40 lines/],
   [`${ROOT}timeline/weekly/2026-W39.md`, '---\ndescription: when asked about this week\n---\n# 2026-W39\n\n' + Array.from({ length: 25 }, (_, i) => `- Event ${i} — [${DATE}](../daily/${DATE}.md)\n`).join(''), /25 lines/],
 ]) test(`refuses the cap for ${name}`, async (f) => {
   f.message(); const head = f.git('rev-parse', 'HEAD');
   const result = await f.run((input) => proposal(operation(input, name, text)));
   assert.equal(result.ok, false); assert.match(result.alert, expected); assert.equal(f.git('rev-parse', 'HEAD'), head);
+  assert.ok(result.alert.includes(name));
+  assert.match(result.alert, /\(\d+\/\d+ [a-z -]+\)/i);
+  assert.equal(JSON.stringify(result).includes('Owner supplied this fact.'), false);
+  assert.equal(getState(f.stores.get('master')).cursor, 0);
+});
+
+for (const ending of ['\n', '\r\n']) test(`knowledge cap counts Unicode and preserved line endings (${JSON.stringify(ending)})`, async (f) => {
+  f.message();
+  const name = `${ROOT}knowledge/facts.md`;
+  const empty = knowledge().replaceAll('\n', ending);
+  f.write(name, empty);
+  const base = knowledge(fact('😀')).replaceAll('\n', ending);
+  const full = base.replace('😀', '😀' + 'é'.repeat(3000 - [...base].length));
+  const accepted = await f.run((input) => proposal(operation(input, name, full.replaceAll('\r\n', '\n'))));
+  assert.equal(accepted.ok, true, accepted.alert); assert.equal(f.read(name), full);
+  const state = getState(f.stores.get('master')); const head = f.git('rev-parse', 'HEAD');
+  f.message({ root: '2000.000001' });
+  const rejected = await f.run((input) => proposal(operation(input, name, `${full}😀`)));
+  assert.equal(rejected.alert, `Dreamer failed: ${name}: knowledge cap exceeded (3001/3000 characters).`);
+  assert.equal(f.read(name), full); assert.equal(f.git('rev-parse', 'HEAD'), head);
+  assert.deepEqual(getState(f.stores.get('master')), state);
+  const conflict = `${name}: new fact does not fit; file unchanged.`;
+  const deferred = await f.run(() => ({ operations: [], conflicts: [conflict] }));
+  assert.equal(deferred.ok, true, deferred.alert); assert.deepEqual(deferred.digest.conflicts, [conflict]);
+  assert.equal(f.read(name), full); assert.equal(f.git('rev-parse', 'HEAD'), head);
+  assert.equal(getState(f.stores.get('master')).cursor, state.cursor);
 });
 
 test('inbox lines are filed before removal and watch-outs become correction rules in the same commit', async (f) => {
@@ -906,6 +938,53 @@ test('a subject topic without mirrored thread metadata is refused', async (f) =>
   const text = topic(fact('Some state.'), 'subject').replace(`Threads: [thread](${link()})\n\n`, '');
   const result = await f.run((input) => proposal(operation(input, `${own()}memory/report.md`, text)));
   assert.equal(result.ok, false); assert.match(result.alert, /require Threads/);
+});
+
+for (const ending of ['\n', '\r\n']) test(`prompt lists every writable file budget and forbids cap-driven rewrites (${JSON.stringify(ending)})`, async () => {
+  const files = {
+    [`${ROOT}profile.md`]: profile,
+    [`${ROOT}knowledge/facts.md`]: knowledge(fact('Likes café 😀.')),
+    [`${ROOT}entities/people/person.md`]: topic('', 'person'),
+    [`${ROOT}workspaces/work.md`]: topic('', 'workspace'),
+    [`${ROOT}_artifacts/archive/notes.md`]: topic(),
+    [`${own()}memory/topic.md`]: topic(),
+    [`${own()}memory/archive/notes.md`]: topic(),
+    [learnedPath()]: `# Learned rules — master\n${fact('[correction] Check. Why: owner correction.')}\n`,
+    [boardPath()]: board({ state: 'Ready.', watch: [fact('Check.')], closed: [fact('Report — done.')],
+      timers: ['| Fires | Timer | For | Subject |', '|---|---|---|---|', '| 2026-10-01 12:00 UTC | check | Check | none |'] }),
+    [`${ROOT}timeline/daily/${DATE}.md`]: `---\ndescription: when reviewing today\n---\n# ${DATE}\n`,
+    [`${ROOT}timeline/weekly/2026-W40.md`]: '---\ndescription: when reviewing this week\n---\n# 2026-W40\n',
+    [`${ROOT}inbox.md`]: '# Inbox\n',
+    [`${ROOT}workstreams.md`]: '---\ndescription: when planning\n---\n# Workstreams\n',
+    [`${ROOT}_artifacts/index.md`]: '# Memory\n| Open | When |\n|---|---|\n',
+  };
+  for (const name of Object.keys(files)) files[name] = files[name].replaceAll('\n', ending);
+  await castProposal({ agent: 'master', files }, { run: async (_command, args) => {
+    const prompt = fs.readFileSync(args.at(-1), 'utf8');
+    const budgets = prompt.split('Current file sizes and remaining room (recomputed for each proposal):\n')[1].split('\nInput:')[0];
+    for (const [name, text] of Object.entries(files)) {
+      assert.ok(budgets.includes(`${name}: `), name);
+      if (name === `${ROOT}profile.md` || /\/(?:knowledge|entities|workspaces|archive)\//.test(name) || name.endsWith('/topic.md')) {
+        const cap = name === `${ROOT}profile.md` ? 4000 : 3000;
+        assert.ok(budgets.includes(`${name}: ${[...text].length}/${cap}, ${cap - [...text].length} left (characters)`), name);
+      }
+    }
+    assert.ok(budgets.includes(`${learnedPath()}: 1/30, 29 left (rules)`));
+    assert.ok(budgets.includes(`${boardPath()}: 11/90, 79 left (nonempty lines outside Timers); 1/8, 7 left (subjects); 1/6, 5 left (watch-outs); 1/6, 5 left (closed entries)`));
+    assert.ok(budgets.includes(`${ROOT}timeline/daily/${DATE}.md: 4/40, 36 left (lines)`));
+    assert.ok(budgets.includes(`${ROOT}timeline/weekly/2026-W40.md: 4/25, 21 left (lines)`));
+    for (const [name, count] of [['inbox.md', 1], ['workstreams.md', 4], ['_artifacts/index.md', 3]]) {
+      assert.ok(budgets.includes(`${ROOT}${name}: ${count} nonempty lines, no enforced cap`));
+    }
+    for (const name of ['preferences', 'decisions', 'self', 'health']) {
+      assert.ok(budgets.includes(`${ROOT}knowledge/${name}.md: 0/3000, 3000 left (characters)`));
+    }
+    assert.match(prompt, /Stay within every file's cap/);
+    assert.match(prompt, /Splitting files to evade a cap is not allowed/);
+    assert.match(prompt, /If a fact does not fit, leave the destination unchanged and report it in conflicts instead of rewriting/);
+    assert.match(budgets, /New files not listed above start at 0/);
+    return { stdout: JSON.stringify(proposal()) };
+  } });
 });
 
 test('cast adapter defaults to codex gpt-6-sol effort 3 in a disposable folder and parses JSON', async (f) => {

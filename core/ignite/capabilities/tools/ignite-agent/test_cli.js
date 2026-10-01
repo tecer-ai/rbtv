@@ -1131,6 +1131,39 @@ async function finishCli() {
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 
+  await testAsync('dreamer cap refusal JSON includes the file and proposed size without content', async () => {
+    const { dir, home } = dreamerInstall(false);
+    addOwner(home);
+    const name = '.rbtv/memory/knowledge/facts.md';
+    const text = '---\ndescription: when reviewing facts\ntype: facts\naliases: []\n---\n# Facts\n' + 'private-fixture-content'.repeat(200);
+    try {
+      fs.writeFileSync(path.join(dir, '.rbtv', 'memory', 'profile.md'), '# Profile — Sam\n\n## Who\n\n## Working with Sam\n\n## Now\n', 'utf8');
+      fs.mkdirSync(path.join(home, 'memory'), { recursive: true });
+      fs.writeFileSync(path.join(home, 'memory', 'learned.md'), '# Learned rules — master\n', 'utf8');
+      const output = { conflicts: [], operations: [{ op: 'add', path: name, text,
+        sources: [1], reason: 'owner', explanation: 'private-fixture-explanation' }] };
+      const cast = path.join(dir, 'fake cast.js');
+      fs.writeFileSync(cast, `process.stdout.write(${JSON.stringify(JSON.stringify(output))});\n`, 'utf8');
+      const file = path.join(dir, '.rbtv', 'config', 'ignite', 'config.json');
+      const config = JSON.parse(fs.readFileSync(file, 'utf8')); config.tools.cast = cast;
+      fs.writeFileSync(file, JSON.stringify(config), 'utf8');
+      const result = await runAsync(['--workspace', dir, 'dreamer', 'run']);
+      assert.equal(result.code, 1); assert.equal(result.err, '');
+      assert.equal(result.out.split('\n').length, 2);
+      const body = JSON.parse(result.out);
+      assert.equal(body.alert, `Dreamer failed: ${name}: knowledge cap exceeded (${[...text].length}/3000 characters).`);
+      assert.equal(body.ok, false); assert.equal(body.changed, false);
+      assert.equal(body.noticeQueued, true); assert.equal(body.digestQueued, false);
+      assert.equal(result.out.includes('private-fixture'), false);
+      assert.equal(fs.existsSync(path.join(dir, name)), false);
+      const store = new Store(path.join(home, 'state.sqlite'));
+      try {
+        assert.equal(store.pendingOutbox()[0].payload.text, `Memory alert: ${body.alert}`);
+        assert.equal(getState(store).cursor, 0);
+      } finally { store.close(); }
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
   await testAsync('quiet dreamer run reports neither a digest nor a notice queued', async () => {
     const { dir } = dreamerInstall(false);
     try {
