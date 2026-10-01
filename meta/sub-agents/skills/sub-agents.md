@@ -35,7 +35,7 @@ Before launching agents for a broad task with parallel investigation, open the [
   5. The manager reads that one page, and decides.
 
 - Staffing:
-  - Give each sub-agent a [task](../../../core/build/capabilities/glossary/task.md) with its scope and done contract. For several tasks with dependencies, write a `workflow.md` file following the [workflow template](../../../core/build/capabilities/templates/workflow.md).
+  - Give each sub-agent a [task](../../../core/build/capabilities/glossary/task.md) with its [scope](../capabilities/scope.md) and [done contract](../capabilities/done-contract.md). For several tasks with dependencies, write a `workflow.md` file following the [workflow guide](../capabilities/workflow.md) and [workflow template](../capabilities/templates/workflow.md).
   - Give each agent a bounded and small scope: keeps its context optimized (low context usage, better answers).
     - More critical on L2-level models and below; mandatory on L3 and L4 (model levels per `cast -h`: SOTA > L1 > L2 > L3 > L4).
     - The small-scope test — a scope is one agent's ONLY when ALL three hold; fail one and it is NOT one agent's scope:

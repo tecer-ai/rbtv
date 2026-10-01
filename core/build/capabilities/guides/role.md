@@ -12,7 +12,7 @@ It sets the remit that holds for every task of this agent. Without it, each task
 - Every sentence holds for every task of this agent. A sentence that names one task's files or result fails ([Progressive disclosure](../principles/progressive-disclosure.md)).
 - Deleting any sentence loses a decision about who the agent is. Otherwise delete it ([Keep it simple](../principles/kiss.md)).
 - No step, tool name, or done check appears ([Single source of truth](../principles/single-source-of-truth.md)).
-- [Scope](scope.md) does not repeat the standing remit ([Single source of truth](../principles/single-source-of-truth.md)).
+- [Scope](../../../../meta/sub-agents/capabilities/scope.md) does not repeat the standing remit ([Single source of truth](../principles/single-source-of-truth.md)).
 
 ## Making it good
 

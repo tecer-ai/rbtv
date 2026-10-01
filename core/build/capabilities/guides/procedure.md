@@ -24,7 +24,7 @@ Give each exact-answer step the tool that answers it. Leave interpretation to th
 
 When a step needs a skill or a [capability](capability.md), point to it at that step and name the moment to open it. Do not paste it.
 
-Put a condition that must hold for every task here, or in the skill or command that does that work. Do not copy it into each [done contract](done-contract.md).
+Put a condition that must hold for every task here, or in the skill or command that does that work. Do not copy it into each [done contract](../../../../meta/sub-agents/capabilities/done-contract.md).
 
 When another task uses a step's result, pass a file or record with fixed fields. Order steps that change the same file or record ([Micro agency](../principles/micro-agency.md)).
 

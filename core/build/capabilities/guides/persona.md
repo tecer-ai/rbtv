@@ -1,6 +1,6 @@
 # Building a persona
 
-A [persona](../glossary/persona.md) is who the agent is: the standpoint inside the [role](role.md) that shapes the choices the [procedure](procedure.md) and the task's [done contract](done-contract.md) leave open.
+A [persona](../glossary/persona.md) is who the agent is: the standpoint inside the [role](role.md) that shapes the choices the [procedure](procedure.md) and the task's [done contract](../../../../meta/sub-agents/capabilities/done-contract.md) leave open.
 
 ## Purpose
 

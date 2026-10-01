@@ -10,7 +10,7 @@
 - [config.md](config.md) — Before reading or changing installation records or component configuration under `.rbtv/config/`.
 - [constraints.md](constraints.md) — Before writing standing limits in an agent's prompt.
 - [documenting-a-change.md](documenting-a-change.md) — After adding, changing, renaming, or removing anything in rbtv, before calling the change done.
-- [done-contract.md](done-contract.md) — Before writing how one task's result is judged.
+- [done-contract.md](../../../../meta/sub-agents/capabilities/done-contract.md) — Before writing how one task's result is judged.
 - [folder-artifact.md](folder-artifact.md) — Before adding a standard file named after its folder.
 - [folder-instructions.md](folder-instructions.md) — Before writing text that should reach an agent when it works on files in a folder.
 - [ignite-config.md](ignite-config.md) — Before connecting an agent to a Slack channel on a machine.
@@ -33,11 +33,11 @@
 - [runtime.md](runtime.md) — Before a component writes data while it runs.
 - [schema.md](schema.md) — Before writing a file's code-readable shape.
 - [self-contained-skill.md](self-contained-skill.md) — Before importing or writing a shareable standard skill in the mirror.
-- [scope.md](scope.md) — Before stating what one task may examine or change.
+- [scope.md](../../../../meta/sub-agents/capabilities/scope.md) — Before stating what one task may examine or change.
 - [settings-json.md](settings-json.md) — Before giving an installed agent values its tasks use.
 - [skill.md](skill.md) — Before writing an ability an agent chooses when to read.
 - [template.md](template.md) — Before writing a file's agent-readable shape.
 - [thin-loader.md](thin-loader.md) — Before touching the installer's pointer to a skill or command.
 - [tool-json.md](tool-json.md) — Before writing a tool's `<tool>.json`.
 - [tool.md](tool.md) — Before adding an executable program a component supplies.
-- [workflow.md](workflow.md) — Before writing a `workflow.md` for sub-agents to run.
+- [workflow.md](../../../../meta/sub-agents/capabilities/workflow.md) — Before writing a `workflow.md` for sub-agents to run.
