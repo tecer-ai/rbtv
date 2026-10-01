@@ -11,7 +11,8 @@
 // settings.dreamer holds { cursor, lastSuccessAt, commit, reportedConflicts }.
 // New digest conflicts are saved only after confirmed delivery.
 // Snapshot reads and publication hold the installation lock; model calls never do.
-// Only a commit advances cursors, for agents with operations or no unread rows.
+// A commit or applied writes already matching HEAD advance cursors, for agents
+// with operations or no unread rows.
 // A no-op records success but retains unread rows for the next run.
 
 const fs = require('node:fs');
@@ -475,11 +476,19 @@ function modelFailure(error) {
   return `model failed (exit ${code})`;
 }
 
-function git(workspace, args, input) {
+function gitFailure(result) {
+  const text = stripVTControlCharacters(`${result.stderr || ''}\n${result.stdout || ''}`);
+  if (/index\.lock/i.test(text)) return 'index lock';
+  if (/nothing to commit|no changes added to commit/i.test(text)) return 'nothing to commit';
+  return 'other';
+}
+
+function git(workspace, args, input, statuses = [0]) {
   const result = spawnSync('git', ['--literal-pathspecs', '-C', workspace, ...args],
     { input, encoding: 'utf8', windowsHide: true, timeout: 30_000, maxBuffer: 8 * 1024 * 1024 });
-  requireThat(!result.error && result.status === 0, `git ${args[0]} failed`);
-  return result.stdout.trim();
+  requireThat(!result.error && statuses.includes(result.status),
+    `git ${args[0]} failed${args[0] === 'commit' ? ` (${gitFailure(result)})` : ''}`);
+  return result;
 }
 
 function writeText(file, text) {
@@ -559,7 +568,7 @@ async function runDreamer({ config, openStore, model, now = Date.now() }) {
           phase = 'write';
           const written = [];
           const addedToIndex = [];
-          let committed = false;
+          let published = false;
           try {
             for (const [name, text] of changed) {
               const file = safePath(workspace, name);
@@ -573,28 +582,32 @@ async function runDreamer({ config, openStore, model, now = Date.now() }) {
             }
             phase = 'commit';
             const paths = changed.map(([name]) => name);
-            const explanation = operations.map((op) => [
-              `${op.op} ${op.path}: ${op.reason} — ${op.explanation}`,
-              `Owner sources (${op.agent}): ${op.sources.join(', ') || 'preserved records / expiry'}`,
-              ...(op.removals || []).map((item) => `Removed record:\n${item.text}\n` +
-                (item.to ? `Destination: ${item.to}${item.replacement ? `\n${item.replacement}` : ''}` : 'Superseded in this file.')),
-            ].join('\n')).join('\n\n');
-            const tracked = new Set(git(workspace, ['ls-files', '-z', '--', ...paths]).split('\0'));
+            const tracked = new Set(git(workspace, ['ls-files', '-z', '--', ...paths]).stdout.split('\0'));
             const untracked = paths.filter((name) => !tracked.has(name));
-            if (untracked.length) {
-              git(workspace, ['add', '--intent-to-add', '--', ...untracked]);
-              addedToIndex.push(...untracked);
+            // Removing an uncommitted duplicate can restore HEAD exactly. Git's
+            // diff omits untracked files, which still need a commit.
+            if (untracked.length || git(workspace, ['diff', '--quiet', 'HEAD', '--', ...paths], undefined, [0, 1]).status !== 0) {
+              const explanation = operations.map((op) => [
+                `${op.op} ${op.path}: ${op.reason} — ${op.explanation}`,
+                `Owner sources (${op.agent}): ${op.sources.join(', ') || 'preserved records / expiry'}`,
+                ...(op.removals || []).map((item) => `Removed record:\n${item.text}\n` +
+                  (item.to ? `Destination: ${item.to}${item.replacement ? `\n${item.replacement}` : ''}` : 'Superseded in this file.')),
+              ].join('\n')).join('\n\n');
+              if (untracked.length) {
+                git(workspace, ['add', '--intent-to-add', '--', ...untracked]);
+                addedToIndex.push(...untracked);
+              }
+              // stdin avoids Windows' command-line length limit and retains removed
+              // records that the talking agent had not yet committed to Git.
+              git(workspace, ['commit', '-F', '-', '--', ...paths], `Consolidate memory\n\n${explanation}\n`);
             }
-            // stdin avoids Windows' command-line length limit and retains removed
-            // records that the talking agent had not yet committed to Git.
-            git(workspace, ['commit', '-F', '-', '--', ...paths], `Consolidate memory\n\n${explanation}\n`);
-            committed = true;
+            published = true;
             result.changed = true;
-            result.commit = git(workspace, ['rev-parse', 'HEAD']);
+            result.commit = git(workspace, ['rev-parse', 'HEAD']).stdout.trim();
           } catch (error) {
             // An ordinary failed run restores only bytes it wrote, never a racing
             // agent edit. Git is the history; publication still holds the installation lock.
-            if (!committed) {
+            if (!published) {
               for (const [name, bytes] of written) {
                 const file = safePath(workspace, name);
                 if (!fs.existsSync(file) || !fs.readFileSync(file).equals(bytes)) continue;

@@ -380,6 +380,66 @@ for (const ending of ['\n', '\r\n']) for (const kind of ['inbox', 'watch-out']) 
   });
 }
 
+for (const ending of ['\n', '\r\n']) for (const kind of ['inbox', 'watch-out']) {
+  test(`uncommitted duplicate ${kind} returning to HEAD succeeds without a commit (${JSON.stringify(ending)})`, async (f) => {
+    const line = '- Owner likes café. (2026-10-01 · master)';
+    const existing = fact(kind === 'inbox' ? 'Prefers café.' : '[correction] Offer café. Why: owner preference.');
+    const source = kind === 'inbox' ? `${ROOT}inbox.md` : boardPath();
+    const target = kind === 'inbox' ? `${ROOT}knowledge/facts.md` : learnedPath();
+    const empty = (kind === 'inbox' ? '# Inbox\n' : EMPTY_BOARD).replaceAll('\n', ending);
+    const destination = (kind === 'inbox' ? knowledge(existing) : `# Learned rules — master\n${existing}\n`).replaceAll('\n', ending);
+    f.write(source, empty); f.write(target, destination);
+    f.git('add', '--', source, target); f.git('commit', '-qm', 'Existing memory');
+    const head = f.git('rev-parse', 'HEAD');
+    f.write(source, (kind === 'inbox' ? `# Inbox\n${line}\n` : board({ watch: [line] })).replaceAll('\n', ending));
+    const consumed = f.message(); f.message({ slug: 'alpha' });
+    const idleCeiling = f.message({ slug: 'idle', role: 'assistant' });
+    f.write('unrelated.md', 'staged elsewhere\n'); f.git('add', '--', 'unrelated.md');
+    f.write('untracked.md', 'untracked elsewhere\n');
+    const staged = f.git('diff', '--cached');
+    const lock = path.join(f.workspace, '.git', 'index.lock');
+    if (ending === '\r\n') fs.writeFileSync(lock, 'held by fixture\n', 'utf8');
+    let result;
+    try {
+      result = await f.run((input) => input.agent === 'master' ? proposal(operation(input, source, empty, {
+        sources: kind === 'inbox' ? [line] : [], reason: kind === 'inbox' ? 'file' : 'fold',
+        explanation: 'The existing record states the same fact.',
+        removals: [{ text: line, to: target, replacement: existing, duplicate: true }],
+      })) : proposal());
+    } finally { if (ending === '\r\n') fs.unlinkSync(lock); }
+    assert.equal(result.ok, true, result.alert); assert.equal(result.alert, null); assert.equal(result.changed, true);
+    assert.equal(result.commit, head); assert.equal(f.git('rev-parse', 'HEAD'), head);
+    assert.equal(f.git('diff', '--cached'), staged);
+    assert.equal(f.read(source), empty); assert.equal(f.read(target), destination);
+    assert.equal(f.read('untracked.md'), 'untracked elsewhere\n');
+    assert.ok(result.digest.text.includes(`already known: ${line} → ${target}`));
+    assert.deepEqual(result.digest.conflicts, []);
+    assert.equal(getState(f.stores.get('master')).cursor, consumed);
+    assert.equal(getState(f.stores.get('alpha')).cursor, 0);
+    assert.equal(getState(f.stores.get('idle')).cursor, idleCeiling);
+    for (const store of f.stores.values()) {
+      assert.equal(getState(store).lastSuccessAt, NOW); assert.equal(getState(store).commit, head);
+    }
+  }, ['alpha', 'idle', 'master']);
+}
+
+test('writes returning tracked paths to HEAD still commit a new untracked destination', async (f) => {
+  const line = '- Owner likes café. (2026-10-01 · master)';
+  const source = `${ROOT}inbox.md`; const target = `${ROOT}knowledge/facts.md`;
+  const empty = f.read(source); const head = f.git('rev-parse', 'HEAD');
+  f.write(source, `${empty}${line}\n`);
+  const result = await f.run((input) => proposal(
+    operation(input, target, knowledge(line), { sources: [line], reason: 'file' }),
+    operation(input, source, empty, { sources: [line], reason: 'file',
+      removals: [{ text: line, to: target, replacement: line }] }),
+  ));
+  assert.equal(result.ok, true, result.alert); assert.equal(result.changed, true);
+  assert.notEqual(result.commit, head); assert.equal(f.git('rev-list', '--count', `${head}..HEAD`), '1');
+  assert.equal(f.git('show', '--pretty=format:', '--name-only', 'HEAD'), target);
+  assert.equal(f.read(source), empty); assert.equal(f.read(target), knowledge(line));
+  assert.equal(getState(f.stores.get('master')).lastSuccessAt, NOW);
+});
+
 for (const kind of ['inbox', 'watch-out']) for (const mode of ['missing-file', 'missing-bullet', 'new-bullet', 'removed-bullet', ...(kind === 'inbox' ? ['new-file'] : [])]) {
   test(`duplicate ${kind} refuses a ${mode} citation without writing or advancing state`, async (f) => {
     f.message();
@@ -845,13 +905,41 @@ test('validation failure in a later agent writes nothing for any agent', async (
   for (const store of f.stores.values()) assert.equal(getState(store).cursor, 0);
 }, ['alpha', 'master']);
 
-test('commit failure returns an alert, restores working bytes and never advances a cursor', async (f) => {
+test('commit failure names the index lock, restores working bytes and never advances state', async (f) => {
   f.message(); const original = f.read(`${ROOT}profile.md`); const head = f.git('rev-parse', 'HEAD');
+  const state = getState(f.stores.get('master'));
   fs.writeFileSync(path.join(f.workspace, '.git', 'index.lock'), 'held by fixture\n', 'utf8');
   const result = await f.run((input) => proposal(operation(input, `${ROOT}profile.md`, `${original}${fact('Owner fact.')}\n`)));
   fs.unlinkSync(path.join(f.workspace, '.git', 'index.lock'));
-  assert.equal(result.ok, false); assert.match(result.alert, /git/); assert.equal(f.read(`${ROOT}profile.md`), original);
-  assert.equal(f.git('rev-parse', 'HEAD'), head); assert.equal(getState(f.stores.get('master')).cursor, 0);
+  assert.equal(result.ok, false); assert.equal(result.alert, 'Dreamer failed: git commit failed (index lock).');
+  assert.equal(f.read(`${ROOT}profile.md`), original); assert.equal(f.git('rev-parse', 'HEAD'), head);
+  assert.deepEqual(getState(f.stores.get('master')), state);
+});
+
+test('commit failures expose only a fixed category from stdout or stderr', async (f) => {
+  f.message(); const state = getState(f.stores.get('master')); const head = f.git('rev-parse', 'HEAD');
+  const childProcess = require('node:child_process'); const originalSpawn = childProcess.spawnSync;
+  const modulePath = require.resolve('./dreamer.js'); const cached = require.cache[modulePath];
+  let output;
+  childProcess.spawnSync = (command, args, options) => command === 'git' && args.includes('commit') ?
+    { status: 1, stdout: '', stderr: '', ...output } : originalSpawn(command, args, options);
+  try {
+    delete require.cache[modulePath];
+    const { runDreamer: run } = require('./dreamer.js');
+    for (const [diagnostic, category] of [
+      ['NOTHING TO COMMIT', 'nothing to commit'], ['no changes added to commit', 'nothing to commit'],
+      ['fatal: unable to create .git/index.lock: File exists', 'index lock'], ['hook refused', 'other'],
+    ]) for (const stream of ['stdout', 'stderr']) {
+      output = { [stream]: `\x1b[31m${diagnostic}\x1b[0m\r\napi_key=synthetic-private-value\r\n` };
+      const result = await run({ config: f.config, openStore: (slug) => f.stores.get(slug), now: NOW,
+        model: (input) => proposal(operation(input, `${ROOT}profile.md`, `${profile}${fact('Owner fact.')}\n`)) });
+      assert.equal(result.ok, false); assert.equal(result.alert, `Dreamer failed: git commit failed (${category}).`);
+      assert.equal(JSON.stringify(result).includes('synthetic-private-value'), false);
+      assert.equal(result.changed, false); assert.equal(result.commit, null); assert.equal(result.digest, null);
+      assert.equal(f.read(`${ROOT}profile.md`), profile); assert.equal(f.git('rev-parse', 'HEAD'), head);
+      assert.deepEqual(getState(f.stores.get('master')), state);
+    }
+  } finally { childProcess.spawnSync = originalSpawn; require.cache[modulePath] = cached; }
 });
 
 for (const existing of [true, false]) for (const failure of ['write', 'truncate', 'close']) {
@@ -942,7 +1030,7 @@ test('rejected commit restores new files and index entries while retaining unrel
   f.write('unrelated.md', 'unrelated staged work\n'); f.git('add', '--', 'unrelated.md');
   f.git('config', 'user.name', '');
   const result = await f.run((input) => proposal(operation(input, `${ROOT}knowledge/facts.md`, knowledge(fact('New fact.')))));
-  assert.equal(result.ok, false); assert.match(result.alert, /git commit failed/);
+  assert.equal(result.ok, false); assert.equal(result.alert, 'Dreamer failed: git commit failed (other).');
   assert.equal(fs.existsSync(path.join(f.workspace, ROOT, 'knowledge/facts.md')), false);
   assert.equal(f.git('diff', '--cached', '--name-only'), 'unrelated.md');
   assert.equal(getState(f.stores.get('master')).cursor, 0);

@@ -151,7 +151,9 @@ An inbox line is the owner's explicit remember request and can be filed into pro
 
 A watch-out without a provenance link can become a learned correction when the dreamer has unread owner messages with Slack thread evidence. The learned rule retains the watch-out's date, includes `Why:`, and cites only this agent's threads supported by the fold operation's owner sources. Linked provenance stays unchanged and requires matching unread owner thread evidence. A watch-out without the required evidence stays on the board; during consolidation it produces a conflict only if that conflict was not reported before. Other valid work can still commit. A foldable watch-out left unfolded refuses the run.
 
-The dreamer advances an agent's cursor only after a successful commit and when that agent submitted an operation or had no unread owner rows. Another agent's commit does not consume unread rows for an agent that returned no operations. Those rows remain available for the next run. A run without a commit advances no cursors, even when it reports a conflict.
+The dreamer advances an agent's cursor after a successful commit or after applied writes already match HEAD, and when that agent submitted an operation or had no unread owner rows. Another agent's writes do not consume unread rows for an agent that returned no operations. Those rows remain available for the next run. A run without applied writes advances no cursors, even when it reports a conflict.
+
+Removing an uncommitted duplicate can leave no net change against HEAD. When all written paths match HEAD and none is untracked, the dreamer skips the commit, records success with the current HEAD, and keeps the digest, including `already known` entries. A real commit failure leaves cursors and success timestamps unchanged and reports a fixed category: `nothing to commit`, `index lock`, or `other`. Git output is never copied into the alert.
 
 ## Repair a hold
 
