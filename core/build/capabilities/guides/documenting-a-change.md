@@ -29,7 +29,7 @@ When one of these cannot be written because its design is not decided, raise it 
 
 ## 5. Removing or renaming
 
-Remove or rename every mention in the same change: glossary, guides, templates and schemas, `rbtv.md`, the README, the records, and every unit or description that names it. A link to something that no longer exists is a defect. Record the decision.
+Remove or rename every mention in the same change: glossary, guides, templates and schemas, `rbtv.md`, the README, the records, and every unit or description that names it. A link to something that no longer exists is a defect. Record the decision. For a rename, each installation that had the unit adds it under its new name ([installer](../rbtv.md#installer)).
 
 ## 6. Done when
 
