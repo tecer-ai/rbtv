@@ -38,3 +38,29 @@ def repo_root_is_the_repo(ctx) -> None:
             invalid.append(f"{cid}: {exc}")
     check("D2 — every component in this repo has valid unit records",
           not invalid, "; ".join(invalid))
+
+    # A program is linked and run only with the executable bit, which git keeps
+    # in its index. Git on Windows stores new and moved files without it, so a
+    # move made there silently breaks every Linux install (2026-10-01, the VPS).
+    import subprocess
+    try:
+        listed = subprocess.run(["git", "-C", str(REPO_ROOT), "ls-files", "-s", "-z"],
+                                capture_output=True, check=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        ctx.skip("D3 — every program with a shebang is executable in git",
+                 "the repo is not a git checkout here")
+        return
+    missing = []
+    for entry in listed.split(b"\0"):
+        if not entry.startswith(b"100644 "):
+            continue
+        rel = entry.split(b"\t", 1)[1].decode("utf-8")
+        try:
+            with open(REPO_ROOT / rel, "rb") as handle:
+                if handle.read(2) == b"#!":
+                    missing.append(rel)
+        except OSError:
+            continue
+    check("D3 — every program with a shebang is executable in git "
+          "(fix: git update-index --chmod=+x <file>)",
+          not missing, ", ".join(missing))
