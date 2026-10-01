@@ -1,8 +1,6 @@
----
-name: panel
-description: "Examine ONE subject through several independent points of view at once — parallel sub-agents with different perspectives, different models, or both, then a synthesis. Use when the user says 'panel', 'second opinion', 'multiple perspectives', 'have different models look at this', 'devil's advocate', 'independent review' — and on any judgment call important enough that a single viewpoint should not be trusted alone, even when they never say 'panel'. Carries the panel architecture and per-seat model routing via `cast route`, which your native sub-agent tool does not know. NOT for splitting a large task into parts — that is `swarm` or `sub-agents`."
----
 # Panel
+
+Open for a judgment that needs independent perspectives on one subject.
 
 A panel dispatches N sub-agents at the SAME subject, each contributing an independent point
 of view. Where swarm layers waves to cover breadth, a panel is FLAT: one round of peers whose
@@ -20,7 +18,7 @@ averaged away.
 - Trivial and settled by one read → one agent, no panel. Do not convene four lenses to confirm
   a value.
 
-Staffing and launch mechanics are the sub-agents skill's (`skills/sub-agents.md` — seats,
+Staffing and launch mechanics are the sub-agents skill's (`../skills/sub-agents.md` — seats,
 `cast` launches, output schemas, output location). This reference adds only what is
 panel-specific.
 

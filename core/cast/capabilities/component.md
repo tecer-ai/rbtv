@@ -322,7 +322,7 @@ change WHO competes and WHO wins without touching a score:
 | Column | Values | What it does |
 |---|---|---|
 | `use` | `route` (blank reads as this) | the normal state — the row competes for verdicts. |
-| | `panel` | no verdict may name it, but it stays in `cast route --catalog`, the roster a panel takes its seats from — every model at the class's level and the level below (`skills/panel.md`). For a model worth a second opinion and never worth being the single answer. |
+| | `panel` | no verdict may name it, but it stays in `cast route --catalog`, the roster a panel takes its seats from — every model at the class's level and the level below (the `sub-agents` skill's panel capability at `meta/sub-agents/capabilities/panel.md`). For a model worth a second opinion and never worth being the single answer. |
 | | `off` | routing ignores it entirely. Still launchable by hand (`cast <harness> <model> <n>`) and still listed by `--catalog` with its `use` value — taken out of routing, never hidden. |
 | `quality-override` | `Y` | inside ITS OWN LEVEL, this row wins a `--optimize quality` ranking whatever the scores say. |
 | `price-override` | `Y` | inside ITS OWN LEVEL, this row wins an `--optimize price` ranking whatever the costs say. |

@@ -1,8 +1,10 @@
 ---
 name: sub-agents
-description: "ALWAYS invoke BEFORE launching any sub-agent, worker, or parallel agent — even though your harness has a native sub-agent tool, and regardless of which tool you will launch with: your native tool does not know this workspace's model roster or routing. This skill carries the manager posture (delegate everything, verify, keep your own context small), seat-based staffing, and the `cast route` verdict that picks the model and harness for each task. Triggers: 'sub-agent', 'sub agents', 'subagent', 'delegate this', 'launch agents', 'parallel agents', 'workers', 'spawn agents' — and any task you are about to split across multiple agents, even when the user never names sub-agents."
+description: "Use before launching sub-agents for delegation, a swarm of parallel investigators, or a panel of independent perspectives. Triggers include 'sub-agent', 'sub agents', 'subagent', 'delegate this', 'launch agents', 'parallel agents', 'workers', 'spawn agents', 'swarm', 'panel', 'second opinion', 'multiple perspectives', 'have different models look at this', 'devil's advocate', and 'independent review' — even when a native sub-agent tool is available. For a task settled by one read without launching another agent, this skill is not needed."
 ---
 # Sub-agents
+
+Before launching agents for a broad task with parallel investigation, open the [swarm capability](../capabilities/swarm.md). Before seeking independent judgments on one subject, open the [panel capability](../capabilities/panel.md). The [capabilities index](../capabilities/capabilities.md) names when to open each page.
 
 - Your role is that of a MANAGER, never an executor. You coordinate others' work and verify it, or have some other agent verify it. Your work is to get the right models, to the right agents, to do the right job. You must enforce and ensure it.
 
@@ -37,7 +39,7 @@ description: "ALWAYS invoke BEFORE launching any sub-agent, worker, or parallel 
   - Give each agent a bounded and small scope: keeps its context optimized (low context usage, better answers).
     - More critical on L2-level models and below; mandatory on L3 and L4 (model levels per `cast -h`: SOTA > L1 > L2 > L3 > L4).
     - The small-scope test — a scope is one agent's ONLY when ALL three hold; fail one and it is NOT one agent's scope:
-      1. ONE question (or one artifact). The scope asks a single question whose answer does not wait on another question's answer. Two independently-answerable questions are two agents. A PROBLEM (an issue entry, a bug, a feature, "why does X happen") is never one agent's scope — it decomposes into questions, and that decomposition is a wave (`swarm.md`). Example: "why does the session list miss a turn" is a problem; its questions are (a) where the session id is recorded, (b) what the writer stores there, (c) how the reader filters it — three agents, not one.
+      1. ONE question (or one artifact). The scope asks a single question whose answer does not wait on another question's answer. Two independently-answerable questions are two agents. A PROBLEM (an issue entry, a bug, a feature, "why does X happen") is never one agent's scope — it decomposes into questions, and that decomposition is a wave (`../capabilities/swarm.md`). Example: "why does the session list miss a turn" is a problem; its questions are (a) where the session id is recorded, (b) what the writer stores there, (c) how the reader filters it — three agents, not one.
       2. A NAMED read-set. The prompt can list the files to read or the commands to run. "Find where X happens, then check it" is two scopes: locating is one agent's; checking is the next wave's, pointed at what the first found.
       3. ONE-PAGE output. The answer fits the output schema in one section. A report that needs a section per sub-finding was several scopes.
     - Too small is also wrong: a question one file read or one command answers is ONE agent — never a wave. Do not build a run folder and a synthesis pass to report one word.

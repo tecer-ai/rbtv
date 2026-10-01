@@ -34,4 +34,4 @@ The informed reviewer reconstructs, from each transcript alone, what a new user 
 - Real contradiction: the same conditions produced incompatible observations, with both transcripts retained.
 - Uncertainty: unrun commands, mocks, previews, or unisolated writes.
 
-Only after this synthesis, inspect implementation and caller contracts to locate the cause of material findings. A panel's agreement supports a usability conclusion, not a source-level diagnosis. Repair reproducible problems and give fresh reviewers new cold contexts for the final pass. Keep rounds bounded: if material confusion remains, report the remaining evidence and limit rather than declaring success.
+Only after this synthesis, inspect implementation and caller contracts to locate the cause of material findings. Agreement from reviewers using the `sub-agents` skill's panel capability supports a usability conclusion, not a source-level diagnosis. Repair reproducible problems and give fresh reviewers new cold contexts for the final pass. Keep rounds bounded: if material confusion remains, report the remaining evidence and limit rather than declaring success.

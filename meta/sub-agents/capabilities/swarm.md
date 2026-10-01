@@ -1,8 +1,6 @@
----
-name: swarm
-description: "Attack one large task with WAVES of parallel sub-agents: a wide base of cheap fast models does the broad work, and each wave above is smaller and stronger, building on the wave below — more breadth and depth at lower cost than one big agent. Use when the user says 'swarm', and on any task wide enough to benefit from many parallel investigators (sweep a codebase, audit many files, mass research, bulk classification) — even when they never say 'swarm'. Carries what your native sub-agent tool does not know: the wave architecture, per-wave model routing via `cast route`, depth rules, and the file-based handoff between waves. NOT for several viewpoints on one subject — that is `panel`."
----
 # Swarm
+
+Open for a broad task that needs waves of parallel investigators.
 
 A swarm dispatches structured WAVES of sub-agents at one task: a wide base of cheap, fast
 models does the broad work, and each wave above it is smaller and stronger, building on the
@@ -13,7 +11,7 @@ A swarm saves the coordinator's context (it reads one synthesis, not the evidenc
 results (a fresh focused context per question), and costs less (cheap models on the wide base,
 strong ones only at the top) — all three at once, or the shape is wrong.
 
-Staffing and launch mechanics are the sub-agents skill's (`skills/sub-agents.md` — seats,
+Staffing and launch mechanics are the sub-agents skill's (`../skills/sub-agents.md` — seats,
 `cast` launches, output schemas, output location). This reference adds only what is
 swarm-specific.
 

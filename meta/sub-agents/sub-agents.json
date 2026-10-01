@@ -1,4 +1,4 @@
 {
-  "description": "How an agent uses sub-agents: the sub-agents, swarm and panel skills, which tell it when and how to launch others through cast.",
+  "description": "How an agent launches sub-agents through cast: one sub-agents skill with swarm and panel capabilities inside it.",
   "dependencies": []
 }
