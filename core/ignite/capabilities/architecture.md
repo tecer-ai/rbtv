@@ -15,8 +15,9 @@ One line from each file's header. A file with no header comment is marked.
 | `config.js` | `loadConfig(workspace)` reads and validates `<workspace>/.rbtv/config/ignite/config.json` and returns it plus `workspace`. `envValue` and `slackToken` resolve named environment variables (process environment, then `.rbtv/config/env/.env`). `agentHome(config, slug)` and `storePath(config, slug)`. |
 | `connect.js` | `ignite-agent connect|disconnect`: Slack channel or direct messages, the route in `config.json`, an optional timer. Flags: see `ignite-agent -h`. |
 | `install.js` | `ignite-agent install|update`: `rbtv install agent add|update`, then Ignite's standard units into the agent folder, `board.md`, the database. Flags: see `ignite-agent -h`. |
-| `daemon.js` | No header comment. Exports `start`. Usage line: `daemon.js --workspace <path>`. Startup checks each agent's `launch.json` harness on PATH and resolves the app and bot tokens with `slackToken`. An unset variable refuses startup and names the variable. |
+| `daemon.js` | No header comment. Exports `start` and `expiredUntilDate`. Usage line: `daemon.js --workspace <path>`. Startup checks each agent's `launch.json` harness on PATH and resolves the app and bot tokens with `slackToken`. An unset variable refuses startup and names the variable. The same daemon checks the shared dreamer once per process in each 03:00 `America/Sao_Paulo` hour, directly records silent success on quiet nights, and watches for a success older than 48 hours. |
 | `deploy.sh` | `deploy.sh <commit>`. Requires `RBTV_DEPLOY` (deploy worktree) and `RBTV_WORKSPACE` (workspace root). |
+| `dreamer.js` | `runDreamer({ config, openStore?, model?, now? })` processes agents in sequence, validates memory proposals, commits changed files, and returns a digest or alert. `getState(store)` reads each agent's cursor, success and reported-conflict state; `saveState(store, state, now)` persists it, including the daemon's quiet-slot success. |
 | `history.js` | `historyPath(home, key)` is `<home>/conversations/<safe>/history.md`. `safe` is the key with Windows-forbidden characters replaced by `-`. A folder still named with the raw key is renamed on first access. `writeHistory` regenerates that file from the store. `DEFAULT_HISTORY_WINDOW` is the recent slice in every turn prompt. |
 | `ingress.js` | No header comment. Exports `handleEvent`. |
 | `outbox.js` | `deliverPending(store, deps)`. A board conversation (`root_ts` `board`) is posted as a new root and rekeyed. Reply text is posted once; file uploads have no caption. A confirmed post is kept on the pending row so a retry does not post it again. A row is marked delivered only after Slack confirms channel and ts. Transient delivery retries stop at `MAX_ATTEMPTS` (3); a permanent Slack error stops at once. One `hold:` notice. Harness stdout is never read here. |
@@ -30,6 +31,7 @@ One line from each file's header. A file with no header comment is marked.
 | `test_connect.js` | Suite for `connect.js` via `cli.js`. No API header. |
 | `test_install.js` | Suite for `install.js` via `cli.js`. No API header. |
 | `test_daemon.js` | Suite for `daemon.js`. No API header. |
+| `test_dreamer.js` | Fixture SQLite stores and disposable Git workspaces; no live model or Slack calls. |
 | `test_ingress.js` | Suite for `ingress.js`. No API header. |
 | `test_slack.js` | Suite for `slack.js`. No API header. |
 | `test_store.js` | Suite for `store.js`. No API header. |
@@ -72,6 +74,24 @@ General shape only. Instance ids, token paths, and launch pins are runtime confi
 A CAPABILITY — what an agent can do, reusable by other agents — is an rbtv skill component (skill + its tools) under `<module>/<component>/` in rbtv, installed into agent homes by the installer like any other skill. It carries no agent-specific value: no workspace path, no account name, no owner value. An agent's SPECIFIC settings — the values that make a reusable capability act for THIS agent — live in ONE file in its home, `settings.json`, referenced from the agent's instructions (`agent.md`). How install seeds that file: see `ignite-agent -h`. A capability's own tools take their settings and state paths as an explicit argument or environment variable — never a hardcoded relative path — so the same capability serves any agent that installs it. An agent home is never committed.
 
 **Conversation key.** `<teamId>:<channelId>:<rootTs>`, DM and channel alike. The mapping key → agent is persisted.
+
+### Dreamer watch-outs and cursors
+
+The dreamer folds watch-outs into `[correction]` rules with a `Why:` clause. A watch-out whose provenance has no link keeps its original date and gains this agent's Slack thread links, each backed by the fold operation's unread owner rows. Existing linked provenance must stay unchanged. A linked watch-out needs matching unread owner thread evidence; an unlinked one needs an unread owner thread to attach. Without that evidence, it stays on the board and consolidation reports the conflict once. Every foldable watch-out left on the board refuses the run.
+
+Inbox lines are explicit owner remember requests. For filing into profile, knowledge or entities, operation `sources` accepts this agent's exact inbox line as well as unread owner rowids. The destination record retains that line's provenance, even without a thread link, and the inbox removal names the destination and replacement. No unread owner row is needed. This exception does not turn other memory or inbox text into evidence for learned rules.
+
+Each agent's SQLite `settings.dreamer.cursor` advances to its run-start message-rowid ceiling only after a successful Git commit, and only if that agent submitted an operation or had no unread owner rows. An agent with unread owner rows and no operations keeps its cursor even when another agent caused the commit, so those rows return next run. A run with no commit advances no cursors.
+
+Before a commit, rollback compares exact bytes left by each write, including a failed write, truncate, or close. It restores existing files and removes newly created files only while those bytes still match, preserving later concurrent edits. Partial UTF-8 bytes are compared as buffers so a decoding failure cannot prevent restoration.
+
+### Dreamer scheduling and delivery
+
+`daemon.js` is the only Dreamer runner: it checks the 03:00 `America/Sao_Paulo` hour once per slot within the daemon process. An eligible owner message newer than an agent cursor, any inbox line, or an expired memory record selects Dreamer's fixed `cast opencode grok-4.7 3` proposal call. Agents run in sequence. Expiry takes the greedy body before the last dated provenance tail, then recognizes only a final valid `until YYYY-MM-DD` with an optional period; board state lines without provenance use the same rule. The date must be earlier than the Sao Paulo local date.
+
+A quiet slot has no unread owner row, no due expiry, an empty inbox, and no watch-out that can be folded with available owner thread evidence. The daemon directly updates every configured agent's `settings.dreamer.lastSuccessAt`, bypassing consolidation and the model, without changing cursors, commit references, memory bytes or reported conflicts. It makes no commit or digest. A deferred watch-out alone does not prevent quiet success.
+
+Consolidation returns new conflict strings in `digest.conflicts` without saving them as reported. Only after `deliverPending` confirms that digest delivered does the daemon add those strings to each configured agent's `settings.dreamer.reportedConflicts`; absent lists in older state start empty. If delivery is not confirmed, the conflicts remain unreported and are included again on the next consolidation that finds them. A quiet slot still bypasses consolidation. The model sees that history, and code removes previously reported or duplicate conflicts from the digest. A digest is returned only for changed files or new conflicts. A digest, failure, or 48-hour liveness warning goes through one persisted Slack thread on `dmAgent`; `settings.dreamer_digest` holds that thread's conversation key after its first confirmed delivery. No second systemd unit exists.
 
 ### Conversation and work state
 

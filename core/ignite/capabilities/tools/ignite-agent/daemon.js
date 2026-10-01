@@ -11,11 +11,20 @@ const { deliverPending } = require('./outbox.js');
 const { Slack } = require('./slack.js');
 const { Audio } = require('./audio.js');
 const { refreshBoard } = require('./board.js');
+const { runDreamer, getState, saveState } = require('./dreamer.js');
+const { checkMemory } = require('./memory.js');
 const cli = require('./cli.js');
 
 const TICK_MS = 30_000;
 const SWEEP_MS = 1_000;
+const DREAMER_HOUR = '03';
+const DREAMER_TIME_ZONE = 'America/Sao_Paulo';
+const DREAMER_WATCHDOG_MS = 48 * 60 * 60_000;
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const dreamerClock = new Intl.DateTimeFormat('en-CA', {
+  timeZone: DREAMER_TIME_ZONE,
+  year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23',
+});
 
 function log(fields) {
   process.stdout.write(`${JSON.stringify({ ts: new Date().toISOString(), ...fields })}\n`);
@@ -131,6 +140,47 @@ function agentSlugs(workspace) {
     });
 }
 
+function dreamerSlugs(config) {
+  return [...new Set([config.dmAgent, ...Object.values(config.routes || {})].filter(Boolean))].sort();
+}
+
+function dreamerSlot(now) {
+  const parts = Object.fromEntries(dreamerClock.formatToParts(new Date(now))
+    .filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+  return parts.hour === DREAMER_HOUR ? `${parts.year}-${parts.month}-${parts.day}` : null;
+}
+
+function expiredUntilDate(workspace, slugs, now) {
+  const parts = Object.fromEntries(dreamerClock.formatToParts(new Date(now))
+    .filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+  const today = `${parts.year}-${parts.month}-${parts.day}`;
+  const roots = [path.join(workspace, '.rbtv', 'memory')];
+  for (const slug of slugs) {
+    const home = path.join(workspace, '.rbtv', 'agents', slug);
+    roots.push(path.join(home, 'memory'), path.join(home, '_artifacts', 'board.md'));
+  }
+  const expired = (file) => fs.readFileSync(file, 'utf8').split(/\r?\n/).some((line) => {
+    const text = line.trimEnd();
+    const body = text.match(/^(.*) \(\d{4}-\d{2}-\d{2} · .+\)$/)?.[1] ?? text;
+    const until = body.match(/\buntil (\d{4}-\d{2}-\d{2})\.?$/)?.[1];
+    return until && Number.isFinite(Date.parse(`${until}T00:00:00Z`)) &&
+      new Date(`${until}T00:00:00Z`).toISOString().slice(0, 10) === until && until < today;
+  });
+  const visit = (file) => {
+    let stat;
+    try { stat = fs.lstatSync(file); } catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+    if (stat.isSymbolicLink()) return false;
+    if (stat.isFile()) return path.extname(file) === '.md' && expired(file);
+    if (!stat.isDirectory()) return false;
+    for (const entry of fs.readdirSync(file, { withFileTypes: true })) {
+      if (entry.name === '4-archives' || entry.name === 'archive') continue;
+      if (visit(path.join(file, entry.name))) return true;
+    }
+    return false;
+  };
+  return roots.some(visit);
+}
+
 function parseArgs(argv) {
   let workspace = null;
   for (let i = 0; i < argv.length; i++) {
@@ -167,6 +217,8 @@ async function startLocked(opts, workspace, held) {
   const stores = new Map();
   const inflight = new Set();
   let stopping = false;
+  let dreamerNight = null;
+  let watchdogAlertAt = null;
   let socket = opts.socket || null;
   const timers = [];
   let stop = (reason) => {
@@ -221,6 +273,143 @@ async function startLocked(opts, workspace, held) {
       now: opts.now,
       log(fields) { log({ slug, ...fields }); },
     };
+  }
+
+  async function notifyDreamer(text) {
+    const slug = config.dmAgent;
+    if (!slug) throw new Error('dreamer requires config.dmAgent for owner alerts');
+    const store = getStore(slug);
+    if (!store) throw new Error(`dreamer direct-message agent missing: ${slug}`);
+    let conversationKey = null;
+    try {
+      const saved = JSON.parse(store.db.prepare("SELECT value FROM settings WHERE key='dreamer_digest'").get()?.value || 'null');
+      if (typeof saved?.conversationKey === 'string' && store.getConversation(saved.conversationKey)) {
+        conversationKey = saved.conversationKey;
+      }
+    } catch { /* Start a new owner digest thread if its saved state is malformed. */ }
+    const id = `dreamer:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    let outboxId;
+    if (conversationKey) {
+      outboxId = id;
+      store.enqueueOutbox({ id: outboxId, conversationKey, payload: { text, audio: false, files: [] } });
+    } else {
+      const started = store.beginProactive({
+        id,
+        agent: slug,
+        workspace: config.slack.team,
+        channel: config.slack.ownerUserId,
+        payload: { text, audio: false, files: [], imUser: config.slack.ownerUserId },
+      });
+      outboxId = started.outboxId;
+    }
+    const delivered = await deliverPending(store, depsFor(slug, store));
+    const sent = delivered.find((row) => row.id === outboxId && row.delivered);
+    if (sent) {
+      store.db.prepare(`INSERT INTO settings(key,value,updated_at) VALUES ('dreamer_digest',?,?)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
+        .run(JSON.stringify({ conversationKey: sent.conversationKey }), clock());
+    }
+    return Boolean(sent);
+  }
+
+  function hasNewOwnerMessage() {
+    for (const slug of dreamerSlugs(config)) {
+      const store = getStore(slug);
+      if (!store) return true;
+      try {
+        const state = getState(store);
+        const rows = store.db.prepare("SELECT rowid, metadata FROM messages WHERE role='owner' AND rowid>? ORDER BY rowid").all(state.cursor);
+        if (rows.some((row) => {
+          const source = JSON.parse(row.metadata).source;
+          return !source || source === 'slack' || source === 'used-text';
+        })) return true;
+      } catch {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function lastDreamerSuccess() {
+    let last = Infinity;
+    for (const slug of dreamerSlugs(config)) {
+      const store = getStore(slug);
+      if (!store) return null;
+      try {
+        const value = getState(store).lastSuccessAt;
+        if (!Number.isFinite(value)) return null;
+        last = Math.min(last, value);
+      } catch {
+        return null;
+      }
+    }
+    return last === Infinity ? null : last;
+  }
+
+  function hasInboxWork() {
+    const text = fs.readFileSync(path.join(workspace, '.rbtv', 'memory', 'inbox.md'), 'utf8');
+    checkMemory('inbox', text);
+    return text.split(/\r?\n/).some((line) => line.startsWith('- '));
+  }
+
+  async function runNightDreamer() {
+    const now = clock();
+    const slot = dreamerSlot(now);
+    if (!slot || dreamerNight === slot) return;
+    let needed;
+    try {
+      // Folding also needs unread owner thread evidence; a watch-out alone is
+      // deferred, while every explicit remember line is work in its own right.
+      needed = hasNewOwnerMessage() || hasInboxWork() || expiredUntilDate(workspace, dreamerSlugs(config), now);
+    } catch (error) {
+      needed = true;
+      log({ event: 'dreamer-check', message: error.message });
+    }
+    dreamerNight = slot;
+    let result;
+    try {
+      if (needed) result = await (opts.runDreamer || runDreamer)({ config, openStore: getStore, now });
+      else {
+        for (const slug of dreamerSlugs(config)) {
+          const store = getStore(slug);
+          saveState(store, { ...getState(store), lastSuccessAt: now }, now);
+        }
+        result = { ok: true, changed: false, digest: null, alert: null };
+      }
+    } catch {
+      result = { ok: false, alert: 'Dreamer failed.' };
+    }
+    log({ event: 'dreamer', ok: Boolean(result?.ok), changed: Boolean(result?.changed), alert: Boolean(result?.alert) });
+    try {
+      if (!result?.ok || result.alert) await notifyDreamer(`Memory alert: ${result?.alert || 'Dreamer failed.'}`);
+      else if (result.digest?.text) {
+        const delivered = await notifyDreamer(result.digest.text);
+        if (delivered && result.digest.conflicts?.length) {
+          for (const slug of dreamerSlugs(config)) {
+            const store = getStore(slug);
+            const state = getState(store);
+            saveState(store, { ...state,
+              reportedConflicts: [...new Set([...(state.reportedConflicts || []), ...result.digest.conflicts])] }, now);
+          }
+        }
+      }
+    } catch (error) {
+      log({ event: 'dreamer-alert', message: error.message });
+    }
+  }
+
+  async function watchdogDreamer() {
+    const now = clock();
+    const last = lastDreamerSuccess();
+    if (last != null && now - last <= DREAMER_WATCHDOG_MS) return;
+    if (watchdogAlertAt != null && now - watchdogAlertAt < DREAMER_WATCHDOG_MS) return;
+    watchdogAlertAt = now;
+    try {
+      await notifyDreamer('Memory alert: Dreamer has not completed a successful run in 48 hours.');
+      log({ event: 'dreamer-watchdog', lastSuccessAt: last });
+    } catch (error) {
+      log({ event: 'dreamer-alert', message: error.message });
+    }
   }
 
   async function pump(slug) {
@@ -288,6 +477,8 @@ async function startLocked(opts, workspace, held) {
 
   async function tick() {
     if (stopping) return;
+    await runNightDreamer();
+    await watchdogDreamer();
     const iso = new Date(clock()).toISOString();
     for (const slug of agentSlugs(workspace)) {
       if (stopping) return;
@@ -386,4 +577,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { start };
+module.exports = { start, expiredUntilDate };

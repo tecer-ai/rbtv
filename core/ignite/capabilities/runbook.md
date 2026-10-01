@@ -32,6 +32,14 @@ Stop sends SIGTERM. The process stops claiming, logs any in-flight run (`turn-le
 
 Installing, updating, connecting, and disconnecting an agent: `ignite-agent install|update|connect|disconnect`. Flags: see `ignite-agent -h`.
 
+## Dreamer
+
+The existing `rbtv-ignite-agents.service` checks one shared Dreamer slot per daemon process in each 03:00 `America/Sao_Paulo` hour, never as a second service. An eligible owner message newer than its agent cursor, an inbox line, or an expired memory record triggers the `cast opencode grok-4.7 3` proposal call. Expiry requires a final valid `until YYYY-MM-DD` (with an optional period) in the body before the **last** dated provenance tail, or at the end of a board state line without provenance; the date must be earlier than today's Sao Paulo date.
+
+A slot is quiet when there is no unread owner row, no due expiry, the inbox is empty, and no watch-out can be folded with available owner thread evidence. The daemon directly updates every configured agent's `lastSuccessAt`, keeping its cursor, commit and reported conflicts unchanged. It calls no model, makes no commit, and posts no digest. Deferred watch-outs stay on the board. Consolidation posts a digest only when files changed or a new conflict appears; `settings.dreamer.reportedConflicts` retains conflicts only after the daemon confirms their digest delivered, so delivered conflicts are not repeated. Unconfirmed delivery leaves new conflicts unsaved; the next consolidation that finds them reports them again. A quiet slot does not retry consolidation. Digests, failures, and a watchdog warning when the last successful run is older than 48 hours are posted in one persisted thread for the configured direct-message agent. Ensure `dmAgent` remains configured and its home is present before enabling memory consolidation.
+
+Before a commit, a failed memory write restores the original bytes, including when writing, truncating, or closing changed bytes before throwing. Newly created files from the failed run are removed. Rollback preserves later concurrent edits whose bytes differ from those left by the run.
+
 ## Inspect
 
 ```
@@ -101,6 +109,14 @@ ignite-agent --agent <slug> --workspace <workspace> remember "Prefers afternoon 
 `remember` appends one UTF-8 line to `.rbtv/memory/inbox.md` with the UTC date, agent slug and current Slack thread link when available. Newlines in the supplied text become spaces. A single append write preserves concurrent agents' lines; an absent inbox starts as a headerless list. Existing bytes are never rewritten, even if the inbox is malformed or missing its final newline. The command never writes `learned.md` and never refuses for length or inbox format. Above 20 file lines (including headings and blanks), it queues an owner alert in the current conversation, or the agent's configured channel/DM outside a turn. Alert setup or delivery-queue failure leaves the append successful and produces a visible warning.
 
 Success prints `remembered in <path>` followed by any warning and exits 0. `--json` returns `{path, appended, lines, warning}`; `warning` is null when none, and `lines` is null if counting fails after append. Missing text, text empty after newline normalization and trimming, an unresolved installation root or a filesystem write failure exits 1, with an error on stderr or `{path, error}` on stdout in JSON mode. Empty text reports `remember requires non-empty text` before resolving the installation or writing files. `path` is null if no inbox path was resolved. `--help` works without configuration; use `--` before literal option-like text. Repeating the command appends another record.
+
+## Dreamer watch-outs and unread messages
+
+An inbox line is the owner's explicit remember request and can be filed into profile, knowledge or entities without an unread owner message. The proposal cites the exact inbox line as a source on the destination and inbox operations, preserves its provenance (including a bare agent name when no thread exists), and maps its removal to the filed record. Each agent files its own lines. Other existing memory is not evidence for new facts or learned rules.
+
+A watch-out without a provenance link can become a learned correction when the dreamer has unread owner messages with Slack thread evidence. The learned rule retains the watch-out's date, includes `Why:`, and cites only this agent's threads supported by the fold operation's owner sources. Linked provenance stays unchanged and requires matching unread owner thread evidence. A watch-out without the required evidence stays on the board; during consolidation it produces a conflict only if that conflict was not reported before. Other valid work can still commit. A foldable watch-out left unfolded refuses the run.
+
+The dreamer advances an agent's cursor only after a successful commit and when that agent submitted an operation or had no unread owner rows. Another agent's commit does not consume unread rows for an agent that returned no operations. Those rows remain available for the next run. A run without a commit advances no cursors, even when it reports a conflict.
 
 ## Repair a hold
 
