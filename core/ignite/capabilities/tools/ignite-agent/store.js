@@ -17,7 +17,8 @@
 // getWork(id) / listWork({ conversationKey })
 // enqueue({ id, conversationKey, payload, message, workId, availableAt }) — owner input only; reopens completed|stopped as a new work id; never unholds
 // wake({ workId, conversationKey, note }) — worker completion; false on completed|stopped|held|waiting_owner
-// enqueueScheduleWake({ id, conversationKey, scheduleId, payload, workId }) — ≤1 pending per agent; never reopens or unholds
+// enqueueScheduleWake({ id, conversationKey, scheduleId, workId }) — fresh threadless conversation;
+//   conversationKey supplies routing only, workId gates eligibility only. ≤1 pending per agent; never reopens or unholds
 // claimNext(now) — owner input before continuation; a pending owner row on completed|stopped work is reopened, then claimed
 // getActiveRun() — running row even if the process is dead; liveRun() — the row only when /proc/<pid>/stat field 22 equals pidStart (string compare)
 // procStart(pid) — /proc/<pid>/stat field 22, or null if the process is gone
@@ -29,6 +30,7 @@
 // getLaunchSetting() / setLaunchSetting({ harness, model, effort, voice }) — changedAt; does not rewrite the active snapshot
 // enqueueOutbox({ id, conversationKey, payload, asRoot, clientMsgId }) — client_msg_id defaults to id
 // pendingOutbox(now) / markDelivered(id, { channel, ts, asRoot? }) / markDeliveryFailed(id, error, { retryAt })
+//   Delivery binds a threadless conversation to its root; confirmed post: rows join the target's history once.
 // stopOutbox(id, error) — state failed on the existing column; pendingOutbox no longer returns it. No new column.
 // rememberPost(id, { channel, ts }) — text already confirmed; row stays pending so file uploads can retry. No new column.
 // beginProactive({ id, agent, workspace, channel, payload, clientMsgId }) — activated; Slack key bound in markDelivered
@@ -416,10 +418,11 @@ class Store {
         ORDER BY updated_at DESC, id DESC LIMIT 1`).get(conversationKeyValue));
   }
 
-  enqueueScheduleWake({ id, conversationKey: conversationKeyValue, scheduleId = null, payload = {}, workId = null }) {
+  enqueueScheduleWake({ id, conversationKey: conversationKeyValue, scheduleId = id, workId = null }) {
     if (!id || !conversationKeyValue) throw new Error('schedule wake id and conversation required');
     return this.transaction(() => {
-      if (!this.getConversation(conversationKeyValue)) throw new Error('unknown conversation');
+      const source = this.getConversation(conversationKeyValue);
+      if (!source) throw new Error('unknown conversation');
       if (this.agentHold()) return { inserted: false, reason: 'agent_hold' };
       if (workId) {
         const work = this.getWork(workId);
@@ -430,10 +433,14 @@ class Store {
       }
       const pending = this.db.prepare(`SELECT id FROM queue WHERE kind='schedule' AND state='pending'`).get();
       if (pending) return { inserted: false, reason: 'duplicate', id: pending.id };
+      const key = `schedule:${randomUUID()}`;
+      this.upsertConversation({
+        key, agent: source.agent, workspace: source.workspace, channel: source.channel, activated: true,
+      });
       this.db.prepare(`INSERT INTO queue
         (id, conversation_key, kind, payload, work_id, priority, available_at, created_at)
         VALUES (?, ?, 'schedule', ?, ?, ?, ?, ?)`).run(
-        id, conversationKeyValue, json({ ...payload, scheduleId }), workId, AUTO_PRIORITY, Date.now(), Date.now(),
+        id, key, json({ scheduleId }), null, AUTO_PRIORITY, Date.now(), Date.now(),
       );
       return { inserted: true, reason: 'queued', id };
     });
@@ -693,8 +700,8 @@ class Store {
         row.as_root = 1;
       }
       let conversationKeyValue = row.conversation_key;
-      if (row.as_root) {
-        const conv = this.db.prepare('SELECT * FROM conversations WHERE key=?').get(row.conversation_key);
+      const conv = this.getConversation(row.conversation_key);
+      if (row.as_root || !conv.root_ts) {
         const bound = conversationKey(conv.workspace, channel, ts);
         if (conv.key !== bound) {
           this._rekey(conv.key, bound);
@@ -705,6 +712,13 @@ class Store {
       }
       this.db.prepare(`UPDATE outbox SET state='delivered', channel=?, ts=?, delivered_at=? WHERE id=?`)
         .run(channel, ts, Date.now(), id);
+      if (row.id.startsWith('post:')) {
+        const payload = parse(row.payload);
+        this.recordMessage(conversationKeyValue, {
+          id: row.id, role: 'assistant', text: payload.text || '', files: payload.files || [],
+          team: conv.workspace, channel, ts,
+        });
+      }
       return { channel, ts, clientMsgId: row.client_msg_id, conversationKey: conversationKeyValue };
     });
   }
@@ -754,10 +768,12 @@ class Store {
     if (!row) throw new Error('unknown conversation');
     this.db.prepare(`INSERT INTO conversations(key, agent, workspace, channel, root_ts, activated, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)`).run(newKey, row.agent, row.workspace, row.channel, row.root_ts, row.activated, Date.now());
-    for (const table of ['messages', 'work', 'queue', 'outbox', 'schedules', 'conversation_sessions']) {
+    for (const table of ['messages', 'work', 'queue', 'outbox', 'conversation_sessions']) {
       this.db.prepare(`UPDATE ${table} SET conversation_key=? WHERE conversation_key=?`).run(newKey, oldKey);
     }
-    this.db.prepare('DELETE FROM conversations WHERE key=?').run(oldKey);
+    // Schedules keep their creation reference for routing; it must still satisfy the foreign key.
+    this.db.prepare(`DELETE FROM conversations WHERE key=?
+      AND NOT EXISTS (SELECT 1 FROM schedules WHERE conversation_key=?)`).run(oldKey, oldKey);
   }
 
   beginProactive({ id, agent, workspace, channel, payload, clientMsgId = null }) {

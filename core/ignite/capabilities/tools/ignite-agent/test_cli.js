@@ -5,9 +5,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { Store } = require('./store.js');
 const { main, HELP } = require('./cli.js');
 const { nextCron, FIXED_TZ } = require('./schedule.js');
+const { EMPTY_BOARD, parseBoard } = require('./board.js');
 
 const failures = [];
 
@@ -247,6 +249,45 @@ test('due-dedupe', () => {
   }
 });
 
+test('each recurring due starts fresh even after delivery rekeys the wake', () => {
+  const home = tempHome();
+  const store = new Store(path.join(home, 'state.sqlite'));
+  const key = 'T1:C1:1.1';
+  const env = { IGNITE_AGENT_HOME: home };
+  try {
+    store.upsertConversation({ key, agent: 'a', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
+    store.setSession(key, 'claude', 'old-session');
+    store.recordMessage(key, { id: 'old', role: 'owner', text: 'old history' });
+    store.upsertSchedule({
+      id: 'check', conversationKey: key, cadence: 'every:1h', timezone: FIXED_TZ,
+      nextAt: 1_000, note: 'details stay on the board', report: 'always',
+    });
+    const keys = new Set([key]);
+    for (const hour of ['00', '01']) {
+      const due = run(['schedules-due', '--now', `2026-01-01T${hour}:00:00Z`, '--json'], { env });
+      assert.equal(JSON.parse(due.out).results[0].inserted, true);
+      const claim = store.claimNext();
+      assert.equal(keys.has(claim.conversation_key), false);
+      keys.add(claim.conversation_key);
+      assert.deepEqual(claim.payload, { scheduleId: 'check' });
+      assert.equal(store.getConversation(claim.conversation_key).root_ts, null);
+      assert.equal(store.getSession(claim.conversation_key, 'claude'), null);
+      assert.deepEqual(store.listHistory(claim.conversation_key), []);
+      store.finishRun(claim.runId, claim.nonce, {
+        invocationNonce: claim.nonce, output: '{}', disposition: 'completed',
+        harness: 'claude', sessionId: `session-${hour}`, outbox: [{ text: 'result' }],
+      });
+      const row = store.pendingOutbox()[0];
+      store.markDelivered(row.id, { channel: 'C1', ts: `9.${hour}` });
+      assert.equal(store.getSchedule('check').conversation_key, key);
+    }
+    assert.equal(store.getSession(key, 'claude'), 'old-session');
+  } finally {
+    store.close();
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test('retry clears only the named hold', () => {
   const home = tempHome();
   const store = new Store(path.join(home, 'state.sqlite'));
@@ -316,6 +357,90 @@ test('post association', () => {
   }
 });
 
+test('post --thread selects stored channel and DM history without opening a new conversation', () => {
+  const workspace = tempHome();
+  try {
+    for (const [slug, channel] of [['sample', 'C9'], ['master', 'D1']]) {
+      const home = writeConfig(workspace, slug, { C9: 'sample' });
+      const store = new Store(path.join(home, 'state.sqlite'));
+      const key = `T1:${channel}:1.1`;
+      try {
+        store.upsertConversation({ key, agent: slug, workspace: 'T1', channel, rootTs: '1.1' });
+        store.recordMessage(key, { id: 'before', role: 'owner', text: 'earlier context' });
+        store.setSession(key, 'claude', 'keep-session');
+        const file = path.join(workspace, 'message text.txt');
+        fs.writeFileSync(file, 'Café check complete\r\n', 'utf8');
+        for (const thread of [key, '1.1']) {
+          const result = run(['post', '--thread', thread, '--text-file', file, '--file', 'report.pdf', '--audio', '--json'], {
+            env: { IGNITE_AGENT_HOME: home, IGNITE_CONVERSATION: 'unrelated-wake' },
+          });
+          assert.equal(result.code, 0);
+          assert.equal(result.err, '');
+          const body = JSON.parse(result.out);
+          assert.equal(body.conversationKey, key);
+          assert.equal(body.channel, channel);
+          assert.equal(body.activated, true);
+          const row = store.pendingOutbox().find((item) => item.id === body.outboxId);
+          assert.equal(row.as_root, false);
+          assert.equal(row.client_msg_id, body.clientMsgId);
+          assert.deepEqual(row.payload, { text: 'Café check complete\r\n', audio: true, files: ['report.pdf'] });
+        }
+        assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM conversations').get().n, 1);
+        assert.equal(store.getConversation(key).activated, true);
+        assert.equal(store.getSession(key, 'claude'), 'keep-session');
+        assert.deepEqual(store.listHistory(key).map((row) => row.text), ['earlier context']);
+        assert.equal(run(['post', '--thread', key, '--text', 'next'], { env: { IGNITE_AGENT_HOME: home } }).out,
+          `${key} activated\n`);
+      } finally {
+        store.close();
+      }
+    }
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test('post --thread refuses unknown, ambiguous and unbound targets without queueing', () => {
+  const workspace = tempHome();
+  const home = writeConfig(workspace, 'sample', { C9: 'sample' });
+  const store = new Store(path.join(home, 'state.sqlite'));
+  const env = { IGNITE_AGENT_HOME: home };
+  try {
+    for (const channel of ['C9', 'C8']) {
+      store.upsertConversation({ key: `T1:${channel}:1.1`, agent: 'sample', workspace: 'T1', channel, rootTs: '1.1' });
+    }
+    store.upsertConversation({ key: 'pending:other', agent: 'sample', workspace: 'T1', channel: 'C9' });
+    store.upsertConversation({ key: 'T1:C9:board', agent: 'sample', workspace: 'T1', channel: 'C9', rootTs: 'board' });
+    store.upsertConversation({ key: 'T1:C9:2.2', agent: 'other', workspace: 'T1', channel: 'C9', rootTs: '2.2' });
+    for (const thread of ['missing', 'pending:other', 'T1:C9:board', 'T1:C9:2.2']) {
+      assert.throws(() => run(['post', '--thread', thread, '--text', 'reply'], { env }), /unknown thread/);
+    }
+    assert.throws(() => run(['post', '--thread', '1.1', '--text', 'reply'], { env }),
+      /ambiguous thread: 1\.1; use a full conversation key: .*T1:C[89]:1\.1/);
+    assert.throws(() => run(['post', '--thread'], { env }), /requires a value/);
+    assert.throws(() => run(['post', '--thread', 'T1:C9:1.1'], { env }), /post requires --text/);
+    assert.throws(() => run(['post', '--thread', '1.1', '--thread', '1.1', '--text', 'reply'], { env }), /duplicate flag --thread/);
+    assert.deepEqual(store.pendingOutbox(), []);
+    assert.equal(store.getConversation('T1:C9:1.1').activated, false);
+  } finally {
+    store.close();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test('post help explains thread targeting without requiring a home', () => {
+  for (const flag of ['--help', '-h']) {
+    for (const args of [[flag, 'post'], ['post', flag], ['post', '--thread', 'T1:C9:1.1', flag]]) {
+      const result = run(args, { env: {} });
+      assert.equal(result.code, 0);
+      assert.match(result.out, /\[--thread <thread>\]/);
+      assert.match(result.out, /unique root timestamp/);
+      assert.match(result.out, /history after delivery/);
+      assert.equal(result.err, '');
+    }
+  }
+});
+
 test('help names the new verbs and not create', () => {
   const result = run(['--help']);
   assert.equal(result.code, 0);
@@ -329,6 +454,166 @@ test('help names the new verbs and not create', () => {
 
 test('create is not a command', () => {
   assert.throws(() => run(['create']), /unknown command: create/);
+});
+
+function boardFixture(fn) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite board cli-'));
+  const home = path.join(root, 'sample');
+  fs.mkdirSync(home);
+  const file = path.join(home, 'board.md');
+  const candidate = path.join(root, 'candidate board.md');
+  const text = EMPTY_BOARD.replace('## What matters now\n', `## What matters now
+
+### Printer toner reorder
+Owner chose toner café.
+- Threads: none
+- Detail: none
+- Flags: none
+`);
+  fs.writeFileSync(candidate, text, 'utf8');
+  const deps = { env: { IGNITE_AGENT_HOME: home }, now: () => Date.parse('2026-10-03T12:00:00Z') };
+  try { fn({ root, home, file, candidate, text, deps }); }
+  finally { fs.rmSync(root, { recursive: true, force: true }); }
+}
+
+test('board write uses the current path, reports unchanged, and opens no database', () => {
+  boardFixture(({ home, file, candidate, text, deps }) => {
+    const first = run(['board', 'write', '--file', candidate], deps);
+    assert.equal(first.code, 0);
+    assert.equal(first.out, `written ${file}\n`);
+    assert.equal(first.err, '');
+    assert.equal(fs.readFileSync(file, 'utf8'), text);
+    const repeat = run(['board', 'write', '--file', candidate, '--json'], deps);
+    assert.deepEqual(JSON.parse(repeat.out), { path: file, changed: false });
+    assert.equal(run(['board', 'write', '--file', candidate], deps).out, `unchanged ${file}\n`);
+    assert.equal(fs.existsSync(path.join(home, '_artifacts')), false);
+    assert.equal(fs.existsSync(path.join(home, 'state.sqlite')), false);
+  });
+});
+
+test('board close records outcome, date, agent and optional thread in JSON and text modes', () => {
+  boardFixture(({ file, candidate, deps }) => {
+    assert.equal(run(['board', 'write', '--file', candidate], deps).code, 0);
+    const result = run(['board', 'close', 'Printer toner reorder', 'Order confirmed', '[order](https://example.com/order)', '--json'], deps);
+    assert.equal(result.code, 0);
+    assert.deepEqual(JSON.parse(result.out), { path: file, changed: true, subject: 'Printer toner reorder' });
+    const parsed = parseBoard(fs.readFileSync(file, 'utf8'));
+    assert.equal(parsed.subjects.length, 0);
+    assert.equal(parsed.closed[0], '- Printer toner reorder — Order confirmed (2026-10-03 · sample/[order](https://example.com/order))');
+  });
+  boardFixture(({ file, candidate, deps }) => {
+    run(['board', 'write', '--file', candidate], deps);
+    const result = run(['board', 'close', 'Printer toner reorder', 'Order confirmed'], deps);
+    assert.equal(result.code, 0);
+    assert.equal(result.out, `closed Printer toner reorder in ${file}\n`);
+    assert.equal(result.err, '');
+  });
+});
+
+test('board failures report the reason and preserve existing bytes', () => {
+  boardFixture(({ file, candidate, text, deps }) => {
+    run(['board', 'write', '--file', candidate], deps);
+    const before = fs.readFileSync(file);
+    for (const candidateText of [text.replace('## Watch-outs', '## Notes'),
+      text.replace('## Watch-outs', `## Watch-outs\n${Array.from({ length: 7 }, () => '- Use one PDF. (2026-10-01 · sample)').join('\n')}`)]) {
+      fs.writeFileSync(candidate, candidateText, 'utf8');
+      const result = run(['board', 'write', '--file', candidate], deps);
+      assert.equal(result.code, 1);
+      assert.equal(result.out, '');
+      assert.match(result.err, /board refused/);
+      assert.deepEqual(fs.readFileSync(file), before);
+    }
+    const result = run(['board', 'close', 'Unknown', 'Done', '--json'], deps);
+    assert.equal(result.code, 1);
+    assert.match(JSON.parse(result.out).error, /subject not found/);
+    assert.equal(JSON.parse(result.out).path, file);
+    assert.equal(result.err, '');
+    assert.deepEqual(fs.readFileSync(file), before);
+  });
+});
+
+test('board rejects invalid arguments, missing input and missing home', () => {
+  boardFixture(({ home, candidate, deps }) => {
+    for (const args of [
+      ['write'], ['write', candidate], ['write', '--file', candidate, '--file', candidate],
+      ['write', '--file', candidate, '--unknown', 'x'], ['close'], ['close', 'Subject'],
+      ['close', 'Subject', 'Outcome', 'Thread', 'Extra'], ['close', 'Subject', 'Outcome', '--audio'],
+      ['erase'], ['write', '--file', path.join(home, 'missing.md')],
+    ]) {
+      const result = run(['board', ...args, '--json'], deps);
+      assert.equal(result.code, 1, args.join(' '));
+      assert.ok(JSON.parse(result.out).error);
+      assert.equal(result.err, '');
+    }
+    const missing = run(['board', 'write', '--file', candidate, '--json'], { env: {} });
+    assert.equal(missing.code, 1);
+    assert.deepEqual(JSON.parse(missing.out), { path: null, error: '--agent or IGNITE_AGENT_HOME required' });
+    assert.equal(fs.existsSync(path.join(home, 'board.md')), false);
+    assert.equal(fs.existsSync(path.join(home, 'state.sqlite')), false);
+  });
+});
+
+test('board help works before and after every command depth without context or writes', () => {
+  assert.match(run(['--help']).out, /board write --file/);
+  for (const args of [[], ['write'], ['close'], ['close', 'Subject', 'Outcome']]) {
+    for (const flag of ['--help', '-h']) {
+      for (const argv of [[flag, 'board', ...args], ['board', flag, ...args], ['board', ...args, flag]]) {
+        const result = run(argv, { env: {} });
+        assert.equal(result.code, 0);
+        assert.match(result.out, /board write --file <path>/);
+        assert.match(result.out, /board close <subject> <outcome>/);
+        assert.match(result.out, /90 non-empty lines/);
+        assert.equal(result.err, '');
+      }
+    }
+  }
+  assert.match(run(['board'], { env: {} }).out, /checked short-term memory/);
+  assert.equal(run(['board', 'unknown', '--help'], { env: {} }).code, 0);
+});
+
+test('board option terminator permits a literal help-like subject and outcome', () => {
+  boardFixture(({ candidate, text, file, deps }) => {
+    fs.writeFileSync(candidate, text.replace('Printer toner reorder', '--help'), 'utf8');
+    assert.equal(run(['board', 'write', '--file', candidate], deps).code, 0);
+    const result = run(['board', 'close', '--', '--help', '--json'], deps);
+    assert.equal(result.code, 0);
+    assert.equal(result.out, `closed --help in ${file}\n`);
+    assert.equal(parseBoard(fs.readFileSync(file, 'utf8')).closed[0], '- --help — --json (2026-10-03 · sample)');
+  });
+});
+
+test('board resolves explicit workspace and gives IGNITE_AGENT_HOME precedence', () => {
+  boardFixture(({ root, home, candidate, file, deps }) => {
+    const workspace = path.join(root, 'workspace');
+    const other = writeConfig(workspace, 'other', {});
+    const selected = run(['--agent', 'other', '--workspace', workspace, 'board', 'write', '--file', candidate], { env: {} });
+    assert.equal(selected.code, 0);
+    assert.ok(fs.existsSync(path.join(other, 'board.md')));
+    assert.equal(fs.existsSync(file), false);
+    const overridden = run(['--agent', 'other', '--workspace', workspace, 'board', 'write', '--file', candidate], deps);
+    assert.equal(overridden.code, 0);
+    assert.ok(fs.existsSync(file));
+    assert.equal(fs.existsSync(path.join(home, 'state.sqlite')), false);
+  });
+});
+
+test('board executable returns real exit codes and JSON from another directory', () => {
+  boardFixture(({ root, home, candidate, file }) => {
+    const env = { ...process.env, IGNITE_AGENT_HOME: home, NODE_NO_WARNINGS: '1' };
+    const invoke = (args) => spawnSync(process.execPath, [path.join(__dirname, 'cli.js'), ...args], { cwd: root, env, encoding: 'utf8' });
+    const written = invoke(['board', 'write', '--file', candidate, '--json']);
+    assert.equal(written.status, 0);
+    assert.deepEqual(JSON.parse(written.stdout), { path: file, changed: true });
+    assert.equal(written.stderr, '');
+    const failed = invoke(['board', 'close', 'Missing', 'Done', '--json']);
+    assert.equal(failed.status, 1);
+    assert.match(JSON.parse(failed.stdout).error, /subject not found/);
+    assert.equal(failed.stderr, '');
+    const plain = invoke(['board', 'close', 'Missing', 'Done']);
+    assert.equal(plain.status, 1);
+    assert.equal(plain.stdout, '');
+    assert.match(plain.stderr, /subject not found/);
+  });
 });
 
 if (failures.length) {

@@ -16,12 +16,13 @@ const { randomUUID } = require('node:crypto');
 const { Store } = require('./store.js');
 const { loadConfig, agentHome, configPath } = require('./config.js');
 const { cadenceSpec, nextOccurrence, FIXED_TZ } = require('./schedule.js');
+const { writeBoard, closeSubject } = require('./board.js');
 
 const APPLIES = 'applies from the next turn in every conversation';
-const COMMANDS = ['settings', 'schedule', 'schedules-due', 'work', 'wake', 'post'];
+const COMMANDS = ['settings', 'schedule', 'schedules-due', 'work', 'wake', 'post', 'board'];
 const REPORTS = new Set(['always', 'when-useful']);
 
-const HELP = `ignite-agent — install update connect disconnect settings schedule schedules-due work wake post
+const HELP = `ignite-agent — install update connect disconnect settings schedule schedules-due work wake post board
 
 install <agent file> --harness <name> --model <cast short name> --effort <rung or 1-5> [--workspace <path>] [--dry-run]
   Runs rbtv install agent add, then installs Ignite's standard units. No Slack.
@@ -53,7 +54,8 @@ schedule cancel <id>
   A recurring schedule requires a cadence (--cron or --every). An empty cadence is refused.
 
 schedules-due --now <ISO datetime>
-  Enqueue one board wake per due schedule. While one schedule wake is pending, further dues are de-duplicated. Never enqueues for a held or stopped item, and never clears a hold.
+  Enqueue a fresh conversation with no thread or resumed session; input is the schedule id only.
+  While one schedule wake is pending, further dues are de-duplicated. Never enqueues for a held or stopped item, and never clears a hold.
 
 work status [--conversation <key>]
 work retry|resume [<id>]
@@ -64,8 +66,56 @@ work stop <id>
 wake --conversation <key> --note <text> [--work <id>]
   Worker completion. Enqueues a continuation. Does not clear a hold.
 
-post (--text <text> | --text-file <path> | --file <path>)... [--audio]
-  Enqueues an outbox row that opens a new thread in the agent's channel (the DM agent uses the owner's user id as the IM target) and associates that conversation immediately, activated.
+post (--text <text> | --text-file <path> | --file <path>)... [--audio] [--thread <thread>]
+  Without --thread, opens a new thread in the agent's channel (the DM agent uses the owner's user id as the IM target).
+  --thread selects an existing conversation in this agent's stored history: its full
+  team:channel:root-ts key or a unique root timestamp. Unknown or ambiguous targets are refused.
+  The post joins that conversation's history after delivery; its session and prior history stay intact.
+  Enqueues delivery and activates the target. Prints "<conversation key> activated";
+  --json returns conversationKey, outboxId, clientMsgId, activated and channel. Exit 0 means queued;
+  errors go to stderr with exit 1. No Slack request or interactive prompt in this command.
+  Example: ignite-agent post --thread T1:C1:123.456 --text "Check complete"
+
+board write --file <path>
+board close <subject> <outcome> [thread]
+  Checked board edits and closures. See ignite-agent board --help for the form and caps.
+`;
+
+const BOARD_HELP = `ignite-agent board — checked short-term memory
+
+board write --file <path>
+  Read a complete UTF-8 Markdown candidate; create or update <home>/board.md.
+  Keep all four headings in order: ## What matters now, ## Watch-outs,
+  ## Timers, ## Recently closed. Empty sections keep their headings.
+  Each subject: a unique ### Title, 1–3 state lines, then these three lines:
+    - Threads: none OR [label](https://example.com/thread) links separated by " · "
+    - Detail: none OR a Markdown page path/link (agent detail: ../memory/<slug>.md)
+    - Flags: none OR answered YYYY-MM-DD OR idle since YYYY-MM-DD
+  Watch-outs: - Rule (YYYY-MM-DD · agent[/[label](URL)])
+  Temporary facts end with until YYYY-MM-DD, before any provenance tail.
+  Only subjects and watch-outs may change. Keep Timers, Recently closed and
+  existing Flags unchanged; new Flags must be none. Remove subjects with close.
+  Caps: 90 non-empty lines excluding the Timers table; 8 subjects, 6 watch-outs,
+  6 closed entries. Invalid or over-cap writes are refused, never truncated.
+
+board close <subject> <outcome> [thread]
+  Use the exact title; quote arguments containing spaces. Outcome is one line.
+  Optional thread is a "[label](URL)" link. Removes the subject and appends its
+  outcome with today's UTC date and agent slug to Recently closed.
+  A full closed section refuses the whole change; archive old entries first.
+  Nothing is pruned automatically.
+
+Home: IGNITE_AGENT_HOME, otherwise --agent <slug> --workspace <path>.
+Workspace may be discovered by walking up to .rbtv/config/ignite/config.json.
+No Slack or database access. --help/-h works without a home. -- ends options.
+Success: exit 0, "written <path>", "unchanged <path>" or "closed <subject> in <path>".
+Failure: exit 1, reason on stderr; fix the candidate and retry. Validation leaves
+the board unchanged. --json emits {path, changed, subject?} or {path, error} on
+stdout; path is null if home resolution failed. No interactive prompts.
+
+Examples:
+  ignite-agent board write --file "board candidate.md"
+  ignite-agent board close "Printer toner reorder" "Order confirmed"
 `;
 
 function take(argv, i, flag) {
@@ -79,6 +129,7 @@ function parseGlobal(argv) {
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
+    if (arg === '--') { rest.push(...argv.slice(i)); break; }
     if (arg === '--json') flags.json = true;
     else if (arg === '--help' || arg === '-h') flags.help = true;
     else if (arg === '--agent') flags.agent = take(argv, i, arg), i += 1;
@@ -93,6 +144,7 @@ function parseOpts(argv) {
   const positionals = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
+    if (arg === '--') { positionals.push(...argv.slice(i + 1)); break; }
     if (arg === '--audio') opts.audio = true;
     else if (arg.startsWith('--')) {
       const key = arg.slice(2);
@@ -408,7 +460,6 @@ function cmdDue(rest, ctx, flags, deps) {
       conversationKey: sched.conversation_key,
       scheduleId: sched.id,
       workId: sched.work_id,
-      payload: { note: sched.note, report: sched.report, cadence: sched.cadence },
     });
     if (!wake.inserted && wake.reason !== 'duplicate') {
       results.push({ id: sched.id, inserted: false, reason: wake.reason, nextAt: sched.next_at });
@@ -491,8 +542,26 @@ function cmdPost(rest, ctx, flags, deps) {
   if (opts['text-file']) text = fs.readFileSync(opts['text-file'], 'utf8');
   const files = opts.file || [];
   if (!text && !files.length) fail('post requires --text, --text-file, or --file');
-  const target = agentChannel(ctx.config, ctx.slug);
   const payload = { text, audio: Boolean(opts.audio), files };
+  if (opts.thread != null) {
+    if (!ctx.config) fail('post requires workspace config');
+    const matches = ctx.store.db.prepare(`SELECT * FROM conversations
+      WHERE agent=? AND workspace=? AND (key=? OR root_ts=?)
+      AND root_ts IS NOT NULL AND root_ts!='board'`).all(ctx.slug, ctx.config.slack.team, opts.thread, opts.thread);
+    if (!matches.length) fail(`unknown thread: ${opts.thread}; use an existing conversation key from this agent's history`);
+    if (matches.length > 1) fail(`ambiguous thread: ${opts.thread}; use a full conversation key: ${matches.map((row) => row.key).join(', ')}`);
+    const conv = matches[0];
+    const outboxId = `post:${randomUUID()}`;
+    ctx.store.transaction(() => {
+      ctx.store.activateConversation(conv.key);
+      ctx.store.enqueueOutbox({ id: outboxId, conversationKey: conv.key, payload });
+    });
+    emit(deps, flags, {
+      conversationKey: conv.key, outboxId, clientMsgId: outboxId, activated: true, channel: conv.channel,
+    }, `${conv.key} activated\n`);
+    return 0;
+  }
+  const target = agentChannel(ctx.config, ctx.slug);
   if (target.imUser) payload.imUser = target.imUser;
   const result = ctx.store.beginProactive({
     id: randomUUID(),
@@ -503,6 +572,37 @@ function cmdPost(rest, ctx, flags, deps) {
   });
   emit(deps, flags, { ...result, channel: target.channel }, `${result.conversationKey} activated\n`);
   return 0;
+}
+
+function cmdBoard(rest, flags, deps) {
+  if (flags.help || !rest.length) {
+    emit(deps, { json: false }, null, BOARD_HELP);
+    return 0;
+  }
+  let file = null;
+  try {
+    const [action, ...tail] = rest;
+    if (!['write', 'close'].includes(action)) fail('board requires write or close; see ignite-agent board --help');
+    const { opts, positionals } = parseOpts(tail);
+    if (Object.keys(opts).some((key) => action !== 'write' || key !== 'file')) fail('unsupported board option; see ignite-agent board --help');
+    if (action === 'write' && (opts.file?.length !== 1 || positionals.length)) fail('board write requires exactly one --file <path>');
+    if (action === 'close' && (positionals.length < 2 || positionals.length > 3)) fail('board close requires <subject> <outcome> [thread]');
+    const { home, slug } = resolveHome(flags, deps);
+    file = path.join(home, 'board.md');
+    const result = action === 'write'
+      ? writeBoard(file, fs.readFileSync(opts.file[0], 'utf8'))
+      : closeSubject(file, positionals[0], positionals[1], {
+        agent: slug, thread: positionals[2] ?? null, now: deps.now ? deps.now() : Date.now(),
+      });
+    emit(deps, flags, result, action === 'close'
+      ? `closed ${result.subject} in ${file}\n`
+      : `${result.changed ? 'written' : 'unchanged'} ${file}\n`);
+    return 0;
+  } catch (error) {
+    if (flags.json) emit(deps, flags, { path: file, error: error.message }, '');
+    else (deps.stderr || ((text) => process.stderr.write(text)))(`${error.message}\n`);
+    return 1;
+  }
 }
 
 function dispatch(command, rest, ctx, flags, deps) {
@@ -525,7 +625,12 @@ function main(argv, deps = {}) {
   const [command, ...tail] = rest;
   if (command === 'install' || command === 'update') return require('./install.js').run(command, tail, flags, deps);
   if (command === 'connect' || command === 'disconnect') return require('./connect.js').run(command, tail, flags, deps);
+  if (command === 'board') return cmdBoard(tail, flags, deps);
   if (!COMMANDS.includes(command)) fail(`unknown command: ${command}`);
+  if (flags.help && command === 'post') {
+    emit(deps, { json: false }, null, HELP);
+    return 0;
+  }
   const ctx = openContext(flags, deps);
   try {
     return dispatch(command, tail, ctx, flags, deps);

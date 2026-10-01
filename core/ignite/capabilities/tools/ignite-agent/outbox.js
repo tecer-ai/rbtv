@@ -5,6 +5,7 @@
 //   deps.slack.postMessage / uploadFile, deps.audio.speak when payload.audio.
 //   payload.imUser is posted as the channel (Slack accepts a user id; slack.js has no open-DM call).
 //   A board conversation (root ts "board") is posted as a new root and markDelivered rekeys it.
+//   Pending rows are reloaded before delivery so later replies follow the newly bound thread.
 //   The reply text is posted once (postMessage). Each file, including a synthesized voice file,
 //   is uploaded with no caption. A files-only reply skips the empty post and confirms from the
 //   upload ts. A confirmed post is rememberPost'd before uploads, so a retry does not post it again.
@@ -73,7 +74,11 @@ function giveUp(store, row, message) {
 }
 
 async function deliverOne(store, row, deps, now) {
-  const conv = store.getConversation(row.conversation_key);
+  let conv = store.getConversation(row.conversation_key);
+  if (!conv) {
+    row = store._outbox(store.db.prepare('SELECT * FROM outbox WHERE id=?').get(row.id)) || row;
+    conv = store.getConversation(row.conversation_key);
+  }
   if (!conv) {
     store.stopOutbox(row.id, 'unknown conversation');
     return { id: row.id, delivered: false, stopped: true, error: 'unknown conversation' };
@@ -133,7 +138,8 @@ async function deliverPending(store, deps = {}) {
   const rows = store.pendingOutbox(now);
   const results = [];
   for (const row of rows) {
-    results.push(await deliverOne(store, row, deps, now));
+    const current = store._outbox(store.db.prepare('SELECT * FROM outbox WHERE id=?').get(row.id));
+    results.push(await deliverOne(store, current, deps, now));
   }
   return results;
 }

@@ -40,6 +40,29 @@ ignite-agent --agent <slug> --workspace <workspace> work status
 
 Entry point, if the PATH link is not installed yet: `node <deploy>/core/ignite/capabilities/tools/ignite-agent/cli.js`.
 
+## Post into an existing thread
+
+Use a full conversation key from the agent's stored history, or its root timestamp when unique:
+
+```
+ignite-agent --agent <slug> --workspace <workspace> post --thread <team>:<channel>:<root-ts> --text "Check complete"
+```
+
+The command prints `<conversation key> activated` and queues delivery; `--json` returns `conversationKey`, `outboxId`, `clientMsgId`, `activated` and `channel`. Exit 0 means queued, not delivered. The confirmed post joins that thread's history. Unknown or ambiguous targets fail with exit 1 and an error on stderr; use the exact key in this agent's history to resolve ambiguity. Omitting `--thread` starts a new conversation. `--text-file`, `--file` and `--audio` also work with a thread target.
+
+Each timer wake starts with a new conversation key and harness session, with no thread or earlier conversation history. Its input is only the schedule id. A later wake stays fresh even after an earlier result opens a Slack thread; schedules are never moved during that binding.
+
+## Write or close a board subject
+
+Use `ignite-agent board --help` for the checked form. Copy `<home>/board.md` to a candidate file, edit its subjects or watch-outs, then submit it:
+
+```
+ignite-agent --agent <slug> --workspace <workspace> board write --file "board candidate.md"
+ignite-agent --agent <slug> --workspace <workspace> board close "Subject title" "One-line outcome" "[discussion](https://example.com/thread)"
+```
+
+The close thread is optional. All four sections must be present, even when empty. Keep Timers, Recently closed and existing Flags unchanged in a candidate. New subjects use Flags `none`. `write` reports the board path and whether bytes changed; `close` reports the title and path. `--json` returns `{path, changed, subject?}` on success or `{path, error}` with exit 1 on failure (`path` is null before a home is resolved). Validation refuses malformed or over-cap input without changing the board. Close records a dated outcome; when six closed entries already exist, archive old entries before trying again. No entry is truncated or automatically pruned. Legacy boards require reshaping before using the checked commands; these commands do not migrate them.
+
 ## Repair a hold
 
 A hold survives ticks and restarts. Set a launch setting that does not use the failed model, then retry. `work retry` with no id clears only an agent hold; with an id it clears only that work hold.

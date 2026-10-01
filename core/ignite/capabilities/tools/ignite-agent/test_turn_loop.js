@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { Store } = require('./store.js');
+const { main } = require('./cli.js');
 const { runOnce } = require('./turn-loop.js');
 const { deliverPending } = require('./outbox.js');
 const { historyPath, writeHistory } = require('./history.js');
@@ -394,6 +395,111 @@ test('harness change → new session with re-hydrated prompt', async (ctx) => {
   assert.equal(resumed.session.id, 'ses-migrated');
   assert.equal(resumed.prompt.includes('OLD_MSG'), false);
   assert.equal(resumed.prompt.includes('Stored thread context'), false);
+});
+
+test('successive schedule turns start new sessions with only the schedule id as input', async (ctx) => {
+  const box = harness(ctx);
+  const key = 'T1:C1:1.1';
+  box.store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
+  box.store.recordMessage(key, { id: 'old', role: 'owner', text: 'OLD_THREAD_CONTEXT' });
+  box.store.setSession(key, 'claude', 'old-session');
+  const keys = new Set([key]);
+  for (const id of ['wake-1', 'wake-2']) {
+    box.store.enqueueScheduleWake({ id, conversationKey: key, scheduleId: 'check-inbox' });
+    // Even a legacy payload carrying details must expose only the schedule id as input.
+    box.store.db.prepare('UPDATE queue SET payload=? WHERE id=?').run(JSON.stringify({
+      scheduleId: 'check-inbox', note: 'OLD_SCHEDULE_NOTE', report: 'always', cadence: 'every:1h',
+    }), id);
+    box.sync();
+    const result = await runOnce('master', box.deps);
+    assert.equal(result.failed, undefined);
+    const request = seen(box).at(-1);
+    assert.deepEqual(request.session, { mode: 'new' });
+    const freshKey = request.env.IGNITE_CONVERSATION;
+    assert.equal(keys.has(freshKey), false);
+    keys.add(freshKey);
+    assert.equal(box.store.getConversation(freshKey).root_ts, null);
+    assert.equal(request.prompt.split('Triggering input:\n')[1].split('\nRecent messages')[0], '[schedule] check-inbox');
+    assert.doesNotMatch(request.prompt, /OLD_THREAD_CONTEXT|OLD_SCHEDULE_NOTE|old-session|every:1h/);
+    const [delivered] = await deliverPending(box.store, { slack: box.slack });
+    assert.equal(delivered.delivered, true);
+    assert.equal(box.slack.posts.at(-1).threadTs, undefined);
+    assert.equal(box.store.getConversation(delivered.conversationKey).root_ts, delivered.ts);
+  }
+  assert.equal(box.store.getSession(key, 'claude'), 'old-session');
+});
+
+test('two replies from one schedule wake deliver in the same thread in one drain', async (ctx) => {
+  const box = harness(ctx);
+  const key = 'T1:C1:board';
+  box.store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs: 'board' });
+  const schedule = box.store.upsertSchedule({
+    id: 'check-inbox', conversationKey: key, cadence: 'every:1h', timezone: 'UTC',
+  });
+  box.store.enqueueScheduleWake({ id: 'wake-1', conversationKey: key, scheduleId: schedule.id });
+  box.writeControl({ agent: agentOf('completed', {
+    replies: [{ text: 'first reply' }, { text: 'second reply' }],
+  }) });
+  box.sync();
+  const result = await runOnce('master', box.deps);
+  assert.equal(result.disposition, 'completed');
+  const freshKey = seen(box)[0].env.IGNITE_CONVERSATION;
+  assert.equal(box.store.getConversation(freshKey).root_ts, null);
+  const rows = box.store.pendingOutbox();
+  assert.equal(rows.length, 2);
+  assert.ok(rows.every((row) => row.conversation_key === freshKey));
+
+  const delivered = await deliverPending(box.store, { slack: box.slack });
+  assert.deepEqual(delivered.map((row) => row.delivered), [true, true]);
+  assert.deepEqual(box.slack.posts.map((post) => post.text), ['first reply', 'second reply']);
+  assert.equal(box.slack.posts[0].threadTs, undefined);
+  assert.equal(box.slack.posts[1].threadTs, delivered[0].ts);
+  assert.equal(delivered[1].conversationKey, delivered[0].conversationKey);
+  assert.equal(box.store.getConversation(freshKey), null);
+  for (const row of rows) {
+    const saved = box.store.db.prepare('SELECT * FROM outbox WHERE id=?').get(row.id);
+    assert.equal(saved.state, 'delivered');
+    assert.equal(saved.last_error, null);
+    assert.equal(saved.conversation_key, delivered[0].conversationKey);
+  }
+  assert.deepEqual(box.store.pendingOutbox(), []);
+  assert.deepEqual(box.store.getSchedule(schedule.id), schedule);
+});
+
+test('post --thread delivers into the target and joins its next turn history', async (ctx) => {
+  const box = harness(ctx);
+  const workspace = path.join(ctx.dir, 'workspace');
+  const configDir = path.join(workspace, '.rbtv', 'config', 'ignite');
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({
+    slack: { team: 'T1', botUserId: 'UBOT', ownerUserId: 'UOWNER',
+      appTokenEnv: 'SLACK_APP_TOKEN', botTokenEnv: 'SLACK_BOT_TOKEN', ownerTokenEnv: 'SLACK_OWNER_TOKEN',
+      stoolsWorkspace: 'ignite' },
+    tools: { cast: 'cast', stools: 'stools', audio: 'audio' }, dmAgent: 'master', routes: { C1: 'master' },
+  }), 'utf8');
+  const key = 'T1:C1:1.1';
+  box.store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
+  box.store.recordMessage(key, { id: 'before', role: 'owner', text: 'EARLIER_THREAD_CONTEXT' });
+  box.store.setSession(key, 'claude', 'thread-session');
+  box.store.upsertConversation({ key: 'schedule:current', agent: 'master', workspace: 'T1', channel: 'C1' });
+  const code = main(['--agent', 'master', '--workspace', workspace, 'post', '--thread', key, '--text', 'CHECK_RESULT'], {
+    env: { IGNITE_AGENT_HOME: box.home, IGNITE_CONVERSATION: 'schedule:current' }, stdout() {},
+  });
+  assert.equal(code, 0);
+  const [delivered] = await deliverPending(box.store, { slack: box.slack });
+  assert.equal(delivered.delivered, true);
+  assert.equal(delivered.conversationKey, key);
+  assert.equal(box.slack.posts[0].threadTs, '1.1');
+  assert.equal(box.slack.posts[0].text, 'CHECK_RESULT');
+  assert.deepEqual(box.store.listHistory('schedule:current'), []);
+  seed(box.store, { id: '10.1', text: 'FOLLOW_UP', createdAt: Date.now() });
+  box.sync();
+  const result = await runOnce('master', box.deps);
+  assert.deepEqual(result.session, { mode: 'resume', id: 'thread-session' });
+  assert.match(result.prompt, /EARLIER_THREAD_CONTEXT/);
+  assert.match(result.prompt, /CHECK_RESULT/);
+  assert.match(result.prompt, /FOLLOW_UP/);
+  assert.match(fs.readFileSync(historyPath(box.home, key), 'utf8'), /CHECK_RESULT/);
 });
 
 test('queued owner input runs before a continue', async (ctx) => {

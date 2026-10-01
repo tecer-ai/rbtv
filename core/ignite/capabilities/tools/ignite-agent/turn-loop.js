@@ -57,7 +57,7 @@ function inputText(claim) {
   const payload = claim.payload || {};
   if (claim.kind === 'continue') return payload.nextStep || payload.summary || '';
   if (claim.kind === 'wake') return payload.note || 'worker completion';
-  if (claim.kind === 'schedule') return payload.note || 'scheduled board check';
+  if (claim.kind === 'schedule') return payload.scheduleId || '';
   return typeof payload.text === 'string' ? payload.text : '';
 }
 
