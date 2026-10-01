@@ -225,4 +225,5 @@ Working records behind these choices: the principles audit (terminology clashes,
 - `rbtv install list --type` lists harness sub-agent definitions (`sub-agent`) but not installed agents; decide how installed agents are discovered.
 - The installation's environment file, `.rbtv/config/env/.env`, has no glossary entry, although `config/` depends on it for secrets.
 - Decide which environment variables `cast` passes to a harness. Today it passes the whole environment, as in 0.2, so a model can read tokens it does not need (a Codex test printed one). After the migration is finished, the owner rotates the exposed token, `IGNITE_SENDER_TOKEN`.
+- Decide what happens when a general-memory knowledge file (`facts`, `preferences`, `decisions`) passes its cap. The Memory section says it splits into a folder; the ruled knowledge template says it never splits, and the dreamer refuses the write and alerts the owner.
 - Continue the owner's glossary review. Deleted entries stay deleted unless the owner explicitly restores one.
