@@ -976,7 +976,7 @@ test('manual run and the nightly slot share runInstalledDreamer without consumin
   }
 });
 
-test('runInstalledDreamer holds the installation lock and returns busy when it is held', async () => {
+test('runInstalledDreamer releases the installation lock before consolidation and returns busy on entry contention', async () => {
   const { dir, home } = workspace();
   const daemonApi = require('./daemon.js');
   const { loadConfig } = require('./config.js');
@@ -988,10 +988,10 @@ test('runInstalledDreamer holds the installation lock and returns busy when it i
     config: loadConfig(dir),
     runDreamer: async () => {
       held = fs.existsSync(lock);
-      return { ok: true, changed: true, digest: { text: 'Memory consolidation\nHeld the lock.', conflicts: ['Still open.'] }, alert: null };
+      return { ok: true, changed: true, digest: { text: 'Memory consolidation\nUpdated memory.', conflicts: ['Still open.'] }, alert: null };
     },
   });
-  assert.equal(held, true);
+  assert.equal(held, false);
   assert.equal(fs.existsSync(lock), false);
   assert.equal(ran.digestQueued, true);
   assert.equal(ran.noticeQueued, false);
@@ -1015,6 +1015,91 @@ test('runInstalledDreamer holds the installation lock and returns busy when it i
     assert.match(busy.error, /lock busy/);
   } finally {
     release();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+for (const ending of ['\n', '\r\n']) test(`board, remember and schedule checks succeed during a paused model call (${JSON.stringify(ending)})`, async () => {
+  const { dir, home } = workspace();
+  const { runInstalledDreamer } = require('./daemon.js');
+  const { loadConfig } = require('./config.js');
+  const now = Date.parse('2026-10-01T12:00:00Z');
+  const lock = path.join(dir, '.rbtv', 'runtime', 'ignite-memory.lock');
+  const inboxPath = '.rbtv/memory/inbox.md'; const profilePath = '.rbtv/memory/profile.md';
+  const relativeBoard = '.rbtv/agents/master/_artifacts/board.md';
+  const git = (...args) => {
+    const result = spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr); return result.stdout.trim();
+  };
+  const command = (...args) => {
+    const result = spawnSync(process.execPath, [path.join(__dirname, 'cli.js'), '--workspace', dir, '--agent', 'master', '--json', ...args], {
+      encoding: 'utf8', timeout: 15_000,
+      env: { ...process.env, IGNITE_AGENT_HOME: home, IGNITE_CONVERSATION: '' },
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.doesNotMatch(result.stdout + result.stderr, /lock busy/);
+    assert.equal(fs.existsSync(lock), false, 'each command releases its own write lock');
+    return JSON.parse(result.stdout);
+  };
+  let finishModel;
+  const paused = new Promise((resolve) => { finishModel = resolve; });
+  let calls = 0; let running; let currentBoard;
+  try {
+    addOwnerMessage(home);
+    fs.writeFileSync(boardPath(home), EMPTY_BOARD.replace(/\r?\n/g, ending), 'utf8');
+    fs.writeFileSync(path.join(dir, inboxPath), `# Inbox${ending}`, 'utf8');
+    git('init', '-q'); git('config', 'user.name', 'Memory test');
+    git('config', 'user.email', 'memory-test@example.invalid'); git('config', 'commit.gpgsign', 'false');
+    git('config', 'core.autocrlf', 'false');
+    git('add', '--', '.rbtv/memory', '.rbtv/agents/master/memory', relativeBoard);
+    git('commit', '-qm', 'Fixture');
+    const head = git('rev-parse', 'HEAD');
+    const store = new Store(path.join(home, 'state.sqlite'));
+    try {
+      store.upsertSchedule({ id: 'check-report', conversationKey: 'T1:D1:1.000000', cadence: 'every:1h',
+        timezone: FIXED_TZ, nextAt: now, note: 'Review the report.' });
+    } finally { store.close(); }
+    running = runInstalledDreamer({ config: loadConfig(dir), now,
+      runDreamer: (args) => runDreamer({ ...args, model: async (input) => {
+        if (++calls === 1) {
+          await paused;
+          return { operations: [], conflicts: [] };
+        }
+        assert.equal(fs.existsSync(lock), false, 'retry also releases the snapshot lock');
+        assert.equal(input.files[relativeBoard], currentBoard);
+        const lines = input.files[inboxPath].split(/\r?\n/).filter((line) => line.startsWith('- '));
+        assert.equal(lines.length, 1); assert.match(lines[0], /Prefers café/);
+        return { operations: [
+          { op: 'supersede', path: profilePath, text: `${input.files[profilePath]}${lines[0]}\n`, sources: lines, reason: 'file', explanation: 'Filed the request.' },
+          { op: 'supersede', path: inboxPath, text: '# Inbox\n', sources: lines, reason: 'file', explanation: 'Filed the request.',
+            removals: [{ text: lines[0], to: profilePath, replacement: lines[0] }] },
+        ], conflicts: [] };
+      } }),
+    });
+    await waitFor(() => calls === 1);
+    const candidate = path.join(dir, 'board candidate.md');
+    fs.writeFileSync(candidate, EMPTY_BOARD.replace('## Watch-outs', '### Report\nReview is pending.\n- Threads: none\n- Detail: none\n- Flags: none\n\n## Watch-outs').replace(/\r?\n/g, ending), 'utf8');
+    assert.equal(command('board', 'write', '--file', candidate).changed, true);
+    assert.equal(command('remember', 'Prefers café.').appended, true);
+    assert.equal(command('schedules-due', '--now', new Date(now).toISOString()).results[0].inserted, true);
+    assert.deepEqual(command('schedules-due', '--now', new Date(now).toISOString()).results, []);
+    currentBoard = fs.readFileSync(boardPath(home), 'utf8');
+    assert.equal(parseBoard(currentBoard).subjects[0].title, 'Report');
+    assert.match(currentBoard, /check-report/);
+    assert.equal(calls, 1, 'commands finish before the model is allowed to return');
+    finishModel();
+    const result = await running;
+    assert.equal(result.ok, true, result.alert || result.error);
+    assert.equal(result.changed, true); assert.equal(calls, 2);
+    assert.equal(fs.readFileSync(boardPath(home), 'utf8'), currentBoard);
+    assert.match(fs.readFileSync(path.join(dir, profilePath), 'utf8'), /Prefers café/);
+    assert.equal(fs.readFileSync(path.join(dir, inboxPath), 'utf8'), `# Inbox${ending}`);
+    assert.equal(dreamerState(home).cursor, 1);
+    assert.equal(git('rev-list', '--count', `${head}..HEAD`), '1');
+    assert.equal(fs.existsSync(lock), false);
+  } finally {
+    finishModel();
+    if (running) await running;
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });

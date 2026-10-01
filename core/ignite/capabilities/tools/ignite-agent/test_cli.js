@@ -1044,6 +1044,8 @@ async function finishCli() {
     assert.equal(help.code, 0);
     assert.match(help.out, /dreamer run/);
     assert.match(help.out, /dreamer.enabled is false/);
+    assert.match(help.out, /snapshot reads and publication/);
+    assert.match(help.out, /Releases it before every model call/);
     assert.match(help.out, /digestQueued/);
     assert.match(help.out, /noticeQueued/);
     await assert.rejects(() => runAsync(['dreamer']), /dreamer requires run/);

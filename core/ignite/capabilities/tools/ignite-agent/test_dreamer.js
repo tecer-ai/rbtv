@@ -608,6 +608,32 @@ for (const field of ['subject', 'timers', 'flags', 'threads']) test(`dreamer can
   assert.equal(result.ok, false); assert.match(result.alert, /runtime board/);
 });
 
+test('snapshot and publication reads hold the lock, with the model in between unlocked', async (f) => {
+  f.message();
+  const lock = path.join(f.workspace, '.rbtv', 'runtime', 'ignite-memory.lock');
+  const inbox = path.join(f.workspace, ROOT, 'inbox.md');
+  const read = fs.readFileSync;
+  let reads = 0; let calls = 0;
+  fs.readFileSync = (file, ...args) => {
+    if (file === inbox) {
+      assert.ok(fs.existsSync(lock), 'snapshot and comparison must be serialized with writers');
+      reads++;
+    }
+    return read(file, ...args);
+  };
+  let result;
+  try {
+    result = await f.run(() => {
+      calls++;
+      assert.equal(fs.existsSync(lock), false);
+      return proposal();
+    });
+  } finally { fs.readFileSync = read; }
+  assert.equal(result.ok, true, result.alert);
+  assert.equal(calls, 1); assert.equal(reads, 2);
+  assert.equal(fs.existsSync(lock), false);
+});
+
 for (const racing of ['board', 'inbox']) test(`unchanged-since-read retries ${racing} once using fresh bytes`, async (f) => {
   f.message(); const name = racing === 'board' ? boardPath() : `${ROOT}inbox.md`;
   let calls = 0;

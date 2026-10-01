@@ -9,7 +9,7 @@
 // Returns { ok, changed, commit, digest, alert, agents }. No Slack calls or logging.
 // settings.dreamer holds { cursor, lastSuccessAt, commit, reportedConflicts }.
 // New digest conflicts are saved only after confirmed delivery.
-// memoryLockHeld means the caller already holds the installation lock.
+// Snapshot reads and publication hold the installation lock; model calls never do.
 // Only a commit advances cursors, for agents with operations or no unread rows.
 // A no-op records success but retains unread rows for the next run.
 
@@ -22,7 +22,7 @@ const { Store } = require('./store.js');
 const { agentHome, storePath, DREAMER_MODEL } = require('./config.js');
 const { parseBoard, CAPS } = require('./board.js');
 const { checkMemory } = require('./memory.js');
-const { acquireMemoryLock } = require('./memory-write.js');
+const { acquireMemoryLock, withMemoryLock } = require('./memory-write.js');
 
 const execute = promisify(execFile);
 const GENERAL = '.rbtv/memory/';
@@ -496,7 +496,7 @@ function saveState(store, state, now) {
     ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`).run(JSON.stringify(state), now);
 }
 
-async function runDreamer({ config, openStore, model, now = Date.now(), memoryLockHeld = false }) {
+async function runDreamer({ config, openStore, model, now = Date.now() }) {
   const owned = [];
   const result = { ok: false, changed: false, commit: null, digest: null, alert: null, agents: [] };
   let phase = 'read';
@@ -520,7 +520,8 @@ async function runDreamer({ config, openStore, model, now = Date.now(), memoryLo
     const reported = new Set(agents.flatMap((agent) => agent.state.reportedConflicts || []));
     const propose = model || ((input) => castProposal(input, { command: config.tools.cast, model: config.dreamer?.model }));
     for (let attempt = 0; attempt < 2; attempt++) {
-      const original = snapshot(workspace, agents);
+      phase = 'read';
+      const original = withMemoryLock(workspace, () => snapshot(workspace, agents));
       const files = new Map(original);
       const operations = [];
       const conflicts = [];
@@ -535,7 +536,7 @@ async function runDreamer({ config, openStore, model, now = Date.now(), memoryLo
         conflicts.push(...validated.conflicts);
       }
       requireThat(records('inbox', files.get(`${GENERAL}inbox.md`)).length === 0, 'inbox contains unfiled lines');
-      const release = memoryLockHeld ? (() => {}) : acquireMemoryLock(workspace);
+      const release = acquireMemoryLock(workspace);
       try {
         // All snapshots, including unchanged boards/inbox, must still match exactly.
         phase = 'compare';

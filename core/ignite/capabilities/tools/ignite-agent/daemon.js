@@ -304,7 +304,10 @@ async function runInstalledDreamer(opts = {}) {
     let result;
     try {
       if (needed) {
-        result = await (opts.runDreamer || runDreamer)({ config, openStore, now, memoryLockHeld: true });
+        // Consolidation locks its snapshot and publication separately; models
+        // must leave the shared lock available to remember and board refreshes.
+        unlock();
+        result = await (opts.runDreamer || runDreamer)({ config, openStore, now });
       } else {
         for (const slug of dreamerSlugs(config)) {
           const store = openStore(slug);
