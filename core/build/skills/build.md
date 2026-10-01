@@ -11,5 +11,5 @@ The building documentation is this component's capabilities, in `../capabilities
 2. When the unit comes from a conversation that just happened, start with `../capabilities/guides/building-from-a-conversation.md`.
 3. Before writing a new unit, find what exists with `rbtv install list`, `search`, and `show`; build only what nothing listed covers.
 4. Every design choice meets the principles in `../capabilities/principles/`.
-5. The unit is done when `rbtv install add` or `rbtv install update` accepts it: the installer checks its frontmatter or record against its schema and refuses a mismatch.
+5. The unit is done when `rbtv install add` or `rbtv install update` accepts it — the installer checks its frontmatter or record against its schema and refuses a mismatch — and its documentation is updated as `../capabilities/guides/documenting-a-change.md` says.
 6. When the change is to this documentation itself, follow `../CLAUDE.md`.

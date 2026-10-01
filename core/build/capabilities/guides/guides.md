@@ -9,6 +9,7 @@
 - [component.md](component.md) — Before creating or renaming a component folder.
 - [config.md](config.md) — Before reading or changing installation records or component configuration under `.rbtv/config/`.
 - [constraints.md](constraints.md) — Before writing standing limits in an agent's prompt.
+- [documenting-a-change.md](documenting-a-change.md) — After adding, changing, renaming, or removing anything in rbtv, before calling the change done.
 - [done-contract.md](done-contract.md) — Before writing how one task's result is judged.
 - [folder-artifact.md](folder-artifact.md) — Before adding a standard file named after its folder.
 - [folder-instructions.md](folder-instructions.md) — Before writing text that should reach an agent when it works on files in a folder.

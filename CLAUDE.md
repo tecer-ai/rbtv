@@ -4,15 +4,9 @@ RBTV plugin source repo. Components here are installed into target workspaces vi
 `rbtv install` — `core/installer/capabilities/tools/install/install.py`, which carried the name `install2.py`
 until 2026-08-23.
 
-## Hard Rule — Keep Docs in Sync
+## Hard Rule — Build and Document Every Change
 
-When you create, rename, delete, or materially change ANY component in this repo (skill, command, rule, subagent, persona, workflow, task), you MUST in the SAME change:
-
-1. Update `README.md` if the change affects what the README documents (component inventory, usage, install steps, module list).
-2. Update the `description` in the owning `<module>/<module>.json` and `<component>/<component>.json` when it no longer says what the module or component is. Those records ARE what `rbtv` lists.
-3. Keep each unit in the folder that exposes it (`skills/`, `rules/`, `commands/`, `agents/`, `hooks/`, `mcp-servers/`, `capabilities/tools/<tool>/`, `folder-instructions/`), its frontmatter or record valid against the schema in `core/build/capabilities/templates/`. There is no central manifest: every inventory is read off the tree.
-
-A component change without a matching docs/module/manifest update is incomplete. Do not stop at the component edit.
+Before creating, changing, renaming, or deleting anything in this repository — a skill, rule, command, agent, hook, MCP server, tool, component, module, template, schema, or a kind of thing nothing defines yet — read and follow `core/build/skills/build.md`, the `build` skill's entry file. Read it directly, whether or not the skill is installed. In the SAME change, document it as `core/build/capabilities/guides/documenting-a-change.md` says. A change without its documentation is incomplete.
 
 ## Hard Rule — RBTV Content Must Be General
 
@@ -50,7 +44,7 @@ Rules for `core/ignite/`:
 2. **The General rule applies in full.** No hardcoded workspace, vault, or host paths. Every per-instance input (workspace root, Slack identity, token variable names, launch setting) is resolved at runtime from `<workspace>/.rbtv/agents/` or explicit configuration.
 3. **No runtime state in the repo.** Agent homes, `state.sqlite`, and conversation history live under the workspace `.rbtv/agents/`, never under `core/ignite/`.
 4. **Self-contained subtree.** `core/ignite/capabilities/tools/ignite-agent/` requires only its own files and Node built-ins. Other rbtv capabilities (`cast`, stools, audio) are runtime commands named in workspace config, never source imports.
-5. **Docs in sync.** When this component changes, the Keep-Docs-in-Sync rule above applies.
+5. **Docs in sync.** When this component changes, the Build-and-Document rule above applies.
 
 ## CLI Tool Placement (convention, owner-ruled 2026-07-26)
 
