@@ -14,7 +14,7 @@ const { spawnSync } = require('node:child_process');
 const { Store } = require('./store.js');
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
-const INSTALLER_ENTRY = path.resolve(__dirname, '../../../../..', 'core/installer/capabilities/tools/install/install.py');
+const INSTALLER_ENTRY = path.resolve(__dirname, '../../../../..', 'core/installer/capabilities/tools/rbtv-install/install.py');
 
 const STANDARD_UNITS = [
   'meta/communication#slack-message-format',

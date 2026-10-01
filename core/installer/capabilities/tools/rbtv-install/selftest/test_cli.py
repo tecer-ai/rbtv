@@ -43,6 +43,16 @@ def parser_selectors_index(ctx) -> None:
               and verb in _HANDLERS, ns.verb)
     empty = tmp / "ws-cli-empty"
     empty.mkdir()
+    shown = {}
+    for fmt in ("json", "text"):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            argv = ["show", "fixmod/goodcomp"] + (["--json"] if fmt == "json" else [])
+            _HANDLERS["show"](build_parser().parse_args(argv), empty, catalog, [])
+        shown[fmt] = out.getvalue()
+    check("CLI-show-component — a component's dependencies are shown, in JSON and text",
+          '"dependencies": []' in shown["json"]
+          and "Dependencies: none" in shown["text"], shown["text"][:300])
     with contextlib.redirect_stdout(io.StringIO()), \
          contextlib.redirect_stderr(io.StringIO()):
         rc_ls = cmd_ls(build_parser().parse_args(["ls"]), empty, catalog, [])

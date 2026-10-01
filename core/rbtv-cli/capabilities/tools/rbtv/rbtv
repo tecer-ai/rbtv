@@ -33,7 +33,10 @@ function topHelp() {
     '  rbtv <module> <component>  level 2 — the component\'s orientation text + its units',
     '',
     'ACT (delegates — no second implementation)',
-    '  rbtv install <verb>        manage here: status|list|search|show|configure|add|remove|update|doctor',
+    // Built from the route's own verb list so the two can never drift; selftest and
+    // interactive are left out of this one-line summary.
+    `  rbtv install <verb>        manage here: ${verbs.INSTALL_VERBS
+      .filter((v) => v !== 'interactive' && v !== 'selftest').join('|')}`,
     '  rbtv spark <agent>         run an installed agent interactively',
     '',
     'ORIENT',

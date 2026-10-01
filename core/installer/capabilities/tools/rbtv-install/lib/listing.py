@@ -369,6 +369,7 @@ def build_show(selection: dict, catalog: dict, state: dict) -> dict:
         source_path = Path(source_comp["path"]) if source_comp.get("path") else None
         description = _short_description(source_comp.get("description", ""))
         out.update(description=description,
+                   dependencies=list(source_comp.get("dependencies") or []),
                    source_entry=(str(source_path) if source_path else ""))
     return out
 
@@ -402,6 +403,7 @@ def print_show(data: dict) -> None:
         return
     if sel["scope"] == "component":
         _say(f"Description: {sel.get('description') or '(no catalog description)'}")
+        _say("Dependencies: " + (", ".join(sel.get("dependencies") or []) or "none"))
         if sel.get("source_entry"):
             print("Source entry (local RBTV source): " + sel['source_entry'])
         _say(f"Local source: {len(sel['units'])} item(s) in this component.")
