@@ -1,8 +1,8 @@
-# agents
+# Ignite architecture
 
-Ignite is one workspace process. A Slack message or a scheduled wake selects an agent folder under the workspace `.rbtv/agents/<slug>/`, runs one non-interactive turn of that agent, and delivers that turn's replies to the right Slack thread. The agent never posts into its own conversation thread. Deploy and the unit are `runbook.md`, not this file.
+What each Ignite file does, the commands and units Ignite exposes, and the configuration and turn contracts.
 
-Exposed entry points: `ignite-agent` (`capabilities/tools/ignite-agent/cli.js` — `ignite-agent -h` is the command surface), the `create-agent` skill, the `agent-controls` skill for an agent's own settings, schedules, work, wakes, and proactive posts, and the `ignite-standing-instructions` rule every Ignite agent receives.
+Exposed commands and units: `ignite-agent` (`capabilities/tools/ignite-agent/cli.js` — `ignite-agent -h` is the command surface), the `create-agent` skill, the `agent-controls` skill for an agent's own settings, schedules, work, wakes, and proactive posts, and the `ignite-standing-instructions` rule every Ignite agent receives.
 
 ## capabilities/tools/ignite-agent/
 
@@ -69,14 +69,7 @@ General shape only. Instance ids, token paths, and launch pins are runtime confi
 
 ## Capabilities vs settings
 
-A CAPABILITY — what an agent can do, reusable by other agents — is an rbtv skill component (skill + its tools)
-under `<module>/<component>/` in rbtv, installed into agent homes by the installer like any other skill. It
-carries no agent-specific value: no workspace path, no account name, no owner value. An agent's SPECIFIC
-settings — the values that make a reusable capability act for THIS agent — live in ONE file in its home,
-`settings.json`, referenced from the agent's instructions (`agent.md`). How install seeds that file: see
-`ignite-agent -h`. A capability's own tools take their settings and state paths as an explicit argument or
-environment variable — never a hardcoded relative path — so the same capability serves any agent that
-installs it. An agent home is never committed.
+A CAPABILITY — what an agent can do, reusable by other agents — is an rbtv skill component (skill + its tools) under `<module>/<component>/` in rbtv, installed into agent homes by the installer like any other skill. It carries no agent-specific value: no workspace path, no account name, no owner value. An agent's SPECIFIC settings — the values that make a reusable capability act for THIS agent — live in ONE file in its home, `settings.json`, referenced from the agent's instructions (`agent.md`). How install seeds that file: see `ignite-agent -h`. A capability's own tools take their settings and state paths as an explicit argument or environment variable — never a hardcoded relative path — so the same capability serves any agent that installs it. An agent home is never committed.
 
 **Conversation key.** `<teamId>:<channelId>:<rootTs>`, DM and channel alike. The mapping key → agent is persisted.
 

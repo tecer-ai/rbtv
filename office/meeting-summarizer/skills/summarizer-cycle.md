@@ -248,4 +248,10 @@ silently dropped, and never reported as a plain refusal.
   declared entity — leave it open and ask again as a clarification of the SAME question.
 - Never end the turn with a command still running in the background — a turn is one shot.
 - Never post a reply yourself; put it in `replies` and let the runtime deliver it.
+- A detection tick that fails with `ACCESS_TOKEN_SCOPE_INSUFFICIENT` means the Google token has no
+  Meet or Drive scope. Widening scope is the owner's call, never this cycle's. Do not report "no new
+  meetings" for that refusal.
+- Tactiq has no CLI. Detection reads Tactiq transcripts from its Drive auto-save folder, not an MCP
+  server. A harness with no Drive access cannot see Tactiq content and must say so rather than
+  reporting no new meetings.
 </restrictions>

@@ -13,9 +13,9 @@
 //     proven by executing a REAL subprocess whose exit code and output this file
 //     chooses, then reading back what the delegation layer produced —
 //     never by stubbing the layer being tested (p-green-harness-over-a-broken-mechanism).
-//  3. PROPERTIES ARE ASSERTED, NOT INFERRED FROM TODAY'S DATA. The namespace
-//     disjointness check is the one that matters: it holds today by accident of
-//     naming, and only an assertion catches the future module that breaks it (G-107).
+//  3. PROPERTIES ARE ASSERTED, NOT INFERRED FROM TODAY'S DATA. Retired verbs stay
+//     unrouted, and a removed catalog flag stays a refusal, because a later edit
+//     can put either back without meaning to.
 //
 // It creates a throwaway script in a temp dir and removes it. It never touches
 // the live daemon, never runs a delegate's write verb, and needs no network.
@@ -25,10 +25,8 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const catalog = require('./catalog');
 const verbs = require('./verbs');
 const { delegate, buildDelegateArgs, winShebang } = require('./delegate');
-const { suggest, blurb } = require('./render');
 
 const RBTV_BIN = path.join(__dirname, '..', 'rbtv');
 
@@ -41,40 +39,21 @@ function runCli(args, env) {
 
 // Each check returns nothing and throws on failure. The name is the report line.
 const CHECKS = [
-  ['component and verb names stay disjoint under every module (ASSERTED)', () => {
-    // The property, not today's data. `ignite` is deliberately both a module and a
-    // verb namespace — that is resolved by position. What is NOT resolvable is a
-    // component whose name equals a verb of its own module: `rbtv ignite inspect`
-    // would then mean two things. It holds today by accident of naming; a future
-    // capability called `status` or `inspect` breaks it, and only this assertion
-    // catches that the moment it lands rather than in an outage.
-    for (const mod of catalog.modules()) {
-      const route = verbs.ROUTES.find((r) => r.prefix.length === 1 && r.prefix[0] === mod.name);
-      if (!route) continue;
-      const componentNames = new Set((catalog.components(mod.name) || []).map((c) => c.name));
-      const nested = verbs.ROUTES
-        .filter((r) => r.prefix.length === 2 && r.prefix[0] === mod.name)
-        .map((r) => r.prefix[1]);
-      const clash = [...route.verbs, ...nested].filter((v) => componentNames.has(v));
-      if (clash.length) {
-        throw new Error(
-          `under module \`${mod.name}\`, ${clash.join(', ')} name(s) BOTH a component and an action verb — `
-          + `\`rbtv ${mod.name} ${clash[0]}\` is ambiguous. Rename one of the two.`,
-        );
-      }
-    }
+  ['a module name is not a command and points at rbtv install list', () => {
+    const r = runCli(['core']);
+    if (r.status !== 2) throw new Error(`\`rbtv core\` exited ${r.status}, expected 2`);
+    if (!/rbtv install list/.test(r.stderr)) throw new Error('`rbtv core` does not point at rbtv install list');
+    if (/component\(s\)/.test(r.stdout)) throw new Error('`rbtv core` still listed components');
   }],
 
-  ['a bare module token is the drill, never a delegated call', () => {
-    // The collision this suite caught during the build: routing action verbs ahead
-    // of the drill at position 1 made the ignite module's own level 1 and level 2
-    // UNREACHABLE — `rbtv ignite` reached the gateway client instead of listing
-    // components. Kept as a permanent check because the fix is a precedence rule,
-    // and precedence rules are exactly what a later route addition quietly changes.
-    const r = runCli(['core']);
-    if (r.status !== 0) throw new Error(`\`rbtv ignite\` exited ${r.status} — it is being delegated, not drilled`);
-    if (/Commands:/.test(r.stdout)) throw new Error('`rbtv ignite` printed the gateway client help — the drill is shadowed');
-    if (!/component\(s\)/.test(r.stdout)) throw new Error('`rbtv ignite` did not list components');
+  ['--rules is refused and points at rbtv install list', () => {
+    for (const args of [['--rules'], ['core', '--rules']]) {
+      const r = runCli(args);
+      if (r.status !== 2) throw new Error(`\`rbtv ${args.join(' ')}\` exited ${r.status}, expected 2`);
+      if (!/rbtv install list/.test(r.stderr)) {
+        throw new Error(`\`rbtv ${args.join(' ')}\` does not point at rbtv install list`);
+      }
+    }
   }],
 
   ['Ignite 0.1 verbs are not routed', () => {
@@ -160,44 +139,19 @@ const CHECKS = [
     }
   }],
 
-  ['drill levels 0, 1 and 2 resolve against a real module', () => {
-    const l0 = runCli([]);
-    if (l0.status !== 0) throw new Error(`level 0 exited ${l0.status}`);
-    if (!/\bcore\b/.test(l0.stdout)) throw new Error('level 0 does not list the core module');
-
-    const l1 = runCli(['core']);
-    if (l1.status !== 0) throw new Error(`level 1 exited ${l1.status}`);
-    if (!/^ignite\b/m.test(l1.stdout)) throw new Error('level 1 does not list ignite');
-    if (/rbtv ignite daemon/.test(l1.stdout)) throw new Error('level 1 still surfaces the retired ignite daemon verb');
-
-    const l2 = runCli(['core', 'ignite']);
-    if (l2.status !== 0) throw new Error(`level 2 exited ${l2.status}`);
-    if (!/entry point:/.test(l2.stdout) && !/units \(/.test(l2.stdout)) {
-      throw new Error('level 2 delivers neither an entry point nor units');
-    }
-    if (!/ignite-agent/.test(l2.stdout)) throw new Error('level 2 does not list the ignite-agent invocable');
-  }],
-
-  ['drill --json is parseable at every level', () => {
-    for (const args of [['--json'], ['--json', 'core'], ['--json', 'core', 'ignite'], ['--json', 'doctor']]) {
+  ['no arguments and -h print help that points at rbtv install list', () => {
+    for (const args of [[], ['-h'], ['--help']]) {
       const r = runCli(args);
-      if (r.status !== 0 && !(args.includes('doctor'))) throw new Error(`\`${args.join(' ')}\` exited ${r.status}`);
-      try {
-        JSON.parse(r.stdout);
-      } catch (err) {
-        throw new Error(`\`rbtv ${args.join(' ')}\` emitted unparseable JSON: ${err.message}`);
-      }
+      if (r.status !== 0) throw new Error(`\`rbtv ${args.join(' ')}\` exited ${r.status}`);
+      if (!/rbtv install list/.test(r.stdout)) throw new Error('help does not point at rbtv install list');
+      if (/--rules/.test(r.stdout)) throw new Error('help still advertises --rules');
     }
   }],
 
-  ['unknown references refuse with a closest-match suggestion', () => {
-    const r = runCli(['cor']);
-    if (r.status !== 1) throw new Error(`expected exit 1, got ${r.status}`);
-    if (!/core/.test(r.stderr)) throw new Error('no suggestion offered for a near-miss module');
-    const r2 = runCli(['core', 'ignit']);
-    if (r2.status !== 1) throw new Error(`unknown component exited ${r2.status}`);
-    if (!/ignite/.test(r2.stderr)) throw new Error('no suggestion offered for a near-miss component');
-    if (suggest('zzzzzzzz', ['ignite', 'core']) !== null) throw new Error('a far-miss produced a suggestion');
+  ['doctor --json is parseable', () => {
+    const r = runCli(['--json', 'doctor']);
+    if (r.status !== 0) throw new Error(`\`rbtv --json doctor\` exited ${r.status}`);
+    JSON.parse(r.stdout);
   }],
 
   ['bare status teaches the installer command without acting', () => {
@@ -227,15 +181,6 @@ const CHECKS = [
     }
   }],
 
-  ['the pretty mode is opt-in, never TTY-derived', () => {
-    const plain = runCli([]);
-    if (/\x1b\[/.test(plain.stdout)) throw new Error('default output carries colour');
-    const pretty = runCli(['--pretty']);
-    if (!/\x1b\[/.test(pretty.stdout)) throw new Error('--pretty produced no colour');
-    const viaEnv = runCli([], { RBTV_PRETTY: '1' });
-    if (!/\x1b\[/.test(viaEnv.stdout)) throw new Error('RBTV_PRETTY did not enable pretty mode');
-  }],
-
   ['doctor names every delegate individually', () => {
     const r = runCli(['--json', 'doctor']);
     const out = JSON.parse(r.stdout);
@@ -252,48 +197,6 @@ const CHECKS = [
       throw new Error('doctor printed the token VALUE — it may report presence only');
     }
     if (!/set in env/.test(r.stdout)) throw new Error('doctor does not report token presence at all');
-  }],
-
-  ['drill flags work AFTER the module token, the form the help teaches', () => {
-    // The defect this replaced: `rbtv core --rules` refused — only `rbtv --rules
-    // core` worked — while the top-level help taught "--rules with a drill level".
-    // A CLI whose own help teaches a failing command. Found by RUNNING --rules for
-    // the first time at close, not by re-reading the parser.
-    const after = runCli(['meta', '--rules']);
-    if (after.status !== 0) throw new Error(`\`rbtv core --rules\` exited ${after.status}`);
-    // Counted by the body HEADER, not by a path shape: the rules used to live at
-    // `core/rules/<name>.md` and now live inside the component that exposes them
-    // (`meta/behaviour/references/…`). Pinning the old folder made this check red
-    // on a move that broke nothing.
-    const bodies = (after.stdout.match(/^--- meta\//gm) || []).length;
-    if (bodies < 2) throw new Error(`--rules after the module delivered ${bodies} rule bodies`);
-
-    const before = runCli(['--rules', 'meta']);
-    const beforeBodies = (before.stdout.match(/^--- meta\//gm) || []).length;
-    if (beforeBodies !== bodies) throw new Error('flag position changes the result');
-
-    if (runCli(['core', '--json']).status !== 0) throw new Error('`rbtv core --json` refused');
-    if (runCli(['core', '--nonsense']).status !== 2) throw new Error('an unknown drill flag is not a usage error');
-  }],
-
-  ['every component on the tree resolves by name to exactly itself', () => {
-    let checked = 0;
-    for (const mod of catalog.modules()) {
-      for (const comp of catalog.components(mod.name) || []) {
-        const got = catalog.findComponent(mod.name, comp.name);
-        if (!got || got.name !== comp.name) {
-          throw new Error(`${mod.name} ${comp.name}: findComponent did not return it`);
-        }
-        checked += 1;
-      }
-    }
-    if (checked < 10) throw new Error(`only ${checked} names checked — the tree read is not delivering components`);
-    const r = runCli(['meta', 'code']);
-    if (r.status !== 0) throw new Error(`\`rbtv core coding\` exited ${r.status}`);
-    const j = JSON.parse(runCli(['--json', 'meta', 'code']).stdout);
-    if (j.units.length !== catalog.findComponent('meta', 'code').units.length) {
-      throw new Error('--json dropped a unit');
-    }
   }],
 
   ['spark finds an installed agent by its folder and builds the cast command from launch.json', () => {
@@ -323,7 +226,7 @@ const CHECKS = [
     // Found by probing this CLI from a throwaway copy of itself: the root is
     // inferred from the script's own position, so a relocated tree crashed with an
     // ENOENT stack. A caller cannot act on a stack trace.
-    const r = runCli(['core'], { RBTV_ROOT: '/nonexistent-rbtv-root' });
+    const r = runCli(['doctor'], { RBTV_ROOT: '/nonexistent-rbtv-root' });
     if (r.status !== 1) throw new Error(`expected refusal exit 1, got ${r.status}`);
     if (/INTERNAL:|at Module\._compile/.test(r.stderr)) throw new Error('a stack trace reached the caller');
     if (!/RBTV_ROOT=/.test(r.stderr)) throw new Error('the refusal does not name the override that fixes it');
@@ -332,58 +235,6 @@ const CHECKS = [
     }
   }],
 
-  ['blurb truncation never emits a partial escape or unbounded text', () => {
-    const long = `${'x'.repeat(400)}. tail`;
-    const out = blurb(long);
-    if (out.length > 110) throw new Error(`blurb returned ${out.length} chars, cap is 110`);
-    if (blurb('') !== '') throw new Error('blurb of empty text is not empty');
-    if (blurb(null) !== '') throw new Error('blurb of null is not empty');
-  }],
-
-  ['a component is listed at level 1 with its units read from its folders', () => {
-    const agents = catalog.findComponent('core', 'ignite');
-    if (!agents) throw new Error('`core` components() does not carry the ignite component');
-    if (!agents.units.some((u) => u.id === 'ignite-agent' && u.method === 'tool')) {
-      throw new Error('agents carries no ignite-agent tool unit');
-    }
-
-    const r = runCli(['core']);
-    if (r.status !== 0) throw new Error(`\`rbtv ignite\` exited ${r.status}`);
-    if (!/^ignite\b/m.test(r.stdout)) throw new Error('level 1 does not list ignite as a component');
-  }],
-
-  ['level 2 delivers the orientation body (frontmatter stripped) then the units', () => {
-    const r = runCli(['core', 'ignite']);
-    if (r.status !== 0) throw new Error(`\`rbtv core ignite\` exited ${r.status}`);
-    if (!/^\n?core ignite \(component\)/m.test(r.stdout)) throw new Error('no component header printed');
-    const bodyIdx = r.stdout.indexOf('--- core/ignite/capabilities/component.md ---');
-    if (bodyIdx === -1) throw new Error('the orientation body was not delivered');
-    if (/^description:/m.test(r.stdout.slice(bodyIdx))) throw new Error('frontmatter leaked into the printed body');
-    const unitsIdx = r.stdout.indexOf('units (');
-    if (unitsIdx === -1 || unitsIdx < bodyIdx) throw new Error('units did not follow the orientation body');
-    if (!/ignite-agent \(tool\)/.test(r.stdout)) throw new Error('the ignite-agent unit was not delivered');
-  }],
-
-  ['an unknown name under a module WITH component folders still refuses, and the known-list carries the new components', () => {
-    const r = runCli(['core', 'nosuchthing']);
-    if (r.status !== 1) throw new Error(`expected exit 1, got ${r.status}`);
-    if (!/ignite/.test(r.stderr)) throw new Error('refusal known-list does not carry ignite');
-  }],
-
-  ['a module built ENTIRELY of component folders lists all of them', () => {
-    // This check used to assert the opposite — that `core` carried NO component
-    // folders, so the folder reader could be seen not to disturb it. core was
-    // migrated to component folders and the check had been red on that stale
-    // assumption before the module manifest was retired. Every module is
-    // folder-built now, so the property worth holding is that none is dropped.
-    const folders = catalog.componentFolders('core');
-    if (folders.length < 3) throw new Error(`core carries ${folders.length} component folders — expected the whole module`);
-    const r = runCli(['core']);
-    if (r.status !== 0) throw new Error(`\`rbtv core\` exited ${r.status}`);
-    for (const f of folders) {
-      if (!r.stdout.includes(f.name)) throw new Error(`\`rbtv core\` did not list ${f.name}`);
-    }
-  }],
 ];
 
 function throwaway(body) {

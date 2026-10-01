@@ -35,7 +35,7 @@ rather than teaching the tool a vendor's private shape.
 
 - `cast` — **RELOCATED 2026-08-20 to `core/cast/`** (owner instruction, route-redesign
   spec §8), now a component of its own — its tool record is `core/cast/capabilities/tools/cast/cast.json`.
-  There: `capabilities/component.md` (the manual) +
+  There: `capabilities/cast.md` (the manual) +
   `tool/cast.js`, `tool/catalog.js`, `core/cast/capabilities/tools/cast/models.csv`, `tool/test_cast.js`, `tool/test_route.js`,
   and the API runner at `tool/api/run.py` + `tool/api/clients/` + `tool/api/tests/`. On PATH as
   `cast`. The catalog is now SPLIT by concern: `tool/catalog.js` holds LAUNCH mechanics (harness-

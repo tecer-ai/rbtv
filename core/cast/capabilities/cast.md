@@ -1,6 +1,4 @@
-# sub-agents
-
-The component is `sub-agents`; the CLI it ships is `cast`.
+# cast
 
 Launches ONE headless agent turn in any of three harnesses behind one CLI. The caller's
 process runs the launch (foreground, blocking). Sessions are
@@ -10,18 +8,18 @@ turn into an existing session.
 ## Usage
 
 ```
-tool/cast.js <harness> <model> <effort 1-5> [launch-folder] (-p TEXT | -f FILE) [-s TEXT | -S FILE | -ig AGENT [--target DIR] | -rg AGENT-FILE] [--headed] [--dry-run]
-tool/cast.js resume <harness> <session-id|last> [launch-folder] (-p TEXT | -f FILE) [--dry-run]
-tool/cast.js sessions [harness] [launch-folder] [--json] [-n N]
-tool/cast.js turn --request FILE --result FILE
-tool/cast.js api <model> <effort 1-5> (-p TEXT | -f FILE) --output-folder DIR [--image [--input-image PATH ...]] [--target-file PATH] [--timeout N] [--grounded] [--extra-params JSON] [--dry-run]
-tool/cast.js route --access open|bounded --type code|text --class planner|broad|bounded|mechanical --optimize price|quality [--caps image] [--explain]
-tool/cast.js route --caps image
-tool/cast.js route --batch <agents.json | -> [--explain]
-tool/cast.js route --catalog [--json]
-tool/cast.js doctor [--json]
-tool/cast.js list [--json]
-tool/cast.js -h | --help
+cast <harness> <model> <effort 1-5> [launch-folder] (-p TEXT | -f FILE) [-s TEXT | -S FILE | -ig AGENT [--target DIR] | -rg AGENT-FILE] [--headed] [--dry-run]
+cast resume <harness> <session-id|last> [launch-folder] (-p TEXT | -f FILE) [--dry-run]
+cast sessions [harness] [launch-folder] [--json] [-n N]
+cast turn --request FILE --result FILE
+cast api <model> <effort 1-5> (-p TEXT | -f FILE) --output-folder DIR [--image [--input-image PATH ...]] [--target-file PATH] [--timeout N] [--grounded] [--extra-params JSON] [--dry-run]
+cast route --access open|bounded --type code|text --class planner|broad|bounded|mechanical --optimize price|quality [--caps image] [--explain]
+cast route --caps image
+cast route --batch <agents.json | -> [--explain]
+cast route --catalog [--json]
+cast doctor [--json]
+cast list [--json]
+cast -h | --help
 ```
 
 | Arg | Meaning |
@@ -44,7 +42,7 @@ providers: {name: {enabled, via, slots, active}}, usage: [...]}`.
 
 ## Effort mapping (1-5 → the harness's own ladder)
 
-Each (harness, model) has its own rung ladder in `tool/catalog.js`. Rule:
+Each (harness, model) has its own rung ladder in `capabilities/tools/cast/catalog.js`. Rule:
 `rung = ladder[min(N, ladder.length) - 1]`
 — asking for 5 on a 3-rung ladder clamps to that ladder's top rung, never a refusal. An `inert`
 ladder (`haiku-4-5`) accepts any N and emits no effort argv at all. `cast -h` prints the
@@ -196,16 +194,16 @@ xai is authenticated via opencode oauth as of 2026-08-13 and both grok ladders a
 (`low,medium,high`). A model with no variants at all (`zai-coding-plan/glm-4.7`) is inert: any
 effort number, no `--variant` argv.
 
-The (harness, model) → argv/effort table lives in `tool/catalog.js`; `tool/models.csv` holds
+The (harness, model) → argv/effort table lives in `capabilities/tools/cast/catalog.js`; `capabilities/tools/cast/models.csv` holds
 the routing catalog. `cast -h` and `cast list --json` read the current launch table. Update
-`tool/catalog.js` when a harness model or effort ladder changes, then run `test_cast.js` and
+`capabilities/tools/cast/catalog.js` when a harness model or effort ladder changes, then run `test_cast.js` and
 `test_route.js`.
 
 ## `cast route`
 
 The deterministic worker selector, REDESIGNED 2026-08-20: you answer four questions about the job
 and route names ONE `(harness, model, mode, effort)`. It is a pure function of those flags,
-`tool/models.csv` and `tool/catalog.js` — no network, no clock, no randomness, so the same answers
+`capabilities/tools/cast/models.csv` and `capabilities/tools/cast/catalog.js` — no network, no clock, no randomness, so the same answers
 always give the same verdict. The old JSON-task-profile interface is DELETED with no back-compat
 path, and with it the boundedness bands, pinned roles, halt seams, stakes tier-up, the haiku
 clause, footprint/window gating and evidence ranking.
@@ -305,8 +303,8 @@ key — which is the honest answer, not a bug.
 
 ### The catalog: two files, joined
 
-Routing axes live in **`tool/models.csv`** — data the owner edits without touching code. It sits beside this tool so `cast route` keeps working when no other tree is present. A per-vault file still replaces it whole (below). Launch
-mechanics (harness-native id, effort ladder, auth) stay in **`tool/catalog.js`**. Route joins them
+Routing axes live in **`capabilities/tools/cast/models.csv`** — data the owner edits without touching code. It sits beside this tool so `cast route` keeps working when no other tree is present. A per-vault file still replaces it whole (below). Launch
+mechanics (harness-native id, effort ladder, auth) stay in **`capabilities/tools/cast/catalog.js`**. Route joins them
 on `harness`+`model`, and a CSV row with no `catalog.js` twin is excluded with a loud stderr
 warning: route must never name something cast cannot launch.
 
@@ -412,25 +410,21 @@ dotenv at `rbtv.json`'s `env_file`.
 
 ## Layout
 
-Split 2026-08-20 from one 2052-line `cast.js` into a front door plus one module per verb, cut on
-the section banners that file already carried. Nothing was rewritten: every composed argv and
-every stdout surface is byte-identical across the split (163-invocation corpus, both suites).
-
 | File | What it owns |
 |---|---|
-| `tool/cast.js` | the CLI front door — argv dispatch and the bare launch path, nothing else |
-| `tool/catalog.js` | LAUNCH mechanics only — harness-native id, effort ladder, auth (see Spec source) |
-| `tool/models.csv` | the routing table — level, scores, cost, image. Owner-editable; overridable per vault. Lives beside this tool so routing does not depend on any other tree |
-| `tool/lib/core.js` | shared primitives: argv parsing, model/effort/folder resolution, the model table, `doctor`, `list` |
-| `tool/lib/turn.js` | `cast turn` — exact session id, resume with the requested model/effort, result file |
-| `tool/lib/handles.js` | the launch-handle registry — the one observable a watcher uses to find a run again |
-| `tool/lib/launch.js` | spawn, `cast resume` |
-| `tool/lib/agent.js` | `-ig` / `-rg`: find the installed agent, read an agent file |
-| `tool/lib/sessions.js` | the per-harness session-store readers and `cast sessions` |
-| `tool/lib/monitor.js` | `cast monitor` — the freeze tripwire, its witness channel, roster and watch |
-| `tool/lib/route.js` | `cast route` — the selector |
-| `tool/lib/api.js` | `cast api` — the API-worker runner (Google only) |
-| `tool/lib/help.js` | `-h` output: the top-level page and the per-verb pages |
+| `capabilities/tools/cast/cast.js` | the CLI front door — argv dispatch and the bare launch path, nothing else |
+| `capabilities/tools/cast/catalog.js` | LAUNCH mechanics only — harness-native id, effort ladder, auth (see Spec source) |
+| `capabilities/tools/cast/models.csv` | the routing table — level, scores, cost, image. Owner-editable; overridable per vault. Lives beside this tool so routing does not depend on any other tree |
+| `capabilities/tools/cast/lib/core.js` | shared primitives: argv parsing, model/effort/folder resolution, the model table, `doctor`, `list` |
+| `capabilities/tools/cast/lib/turn.js` | `cast turn` — exact session id, resume with the requested model/effort, result file |
+| `capabilities/tools/cast/lib/handles.js` | the launch-handle registry — the one observable a watcher uses to find a run again |
+| `capabilities/tools/cast/lib/launch.js` | spawn, `cast resume` |
+| `capabilities/tools/cast/lib/agent.js` | `-ig` / `-rg`: find the installed agent, read an agent file |
+| `capabilities/tools/cast/lib/sessions.js` | the per-harness session-store readers and `cast sessions` |
+| `capabilities/tools/cast/lib/monitor.js` | `cast monitor` — the freeze tripwire, its witness channel, roster and watch |
+| `capabilities/tools/cast/lib/route.js` | `cast route` — the selector |
+| `capabilities/tools/cast/lib/api.js` | `cast api` — the API-worker runner (Google only) |
+| `capabilities/tools/cast/lib/help.js` | `-h` output: the top-level page and the per-verb pages |
 
 The require graph is a DAG and `test_cast.js` asserts that it stays one — a CommonJS cycle does
 not throw, it silently hands the cycle-closing module a half-built `{}` whose imported bindings
@@ -446,9 +440,9 @@ Every module exports its whole top-level surface, so the pure functions are dire
 ## Self-check
 
 ```
-node tool/test_cast.js       # -> all cast tests passed
-node tool/test_route.js      # -> all route tests passed
-python3 -m pytest tool/api/tests/ -q
+node capabilities/tools/cast/test_cast.js       # -> all cast tests passed
+node capabilities/tools/cast/test_route.js      # -> all route tests passed
+python3 -m pytest capabilities/tools/cast/api/tests/ -q
 ```
 
 `test_route.js` asserts EXACT verdicts against the shipped `models.csv`, so editing that file's

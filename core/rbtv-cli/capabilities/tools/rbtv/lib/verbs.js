@@ -10,7 +10,7 @@
 // are not routed. Their delegates live in the 0.1 tree and are deleted with it.
 
 const path = require('path');
-const { RBTV_ROOT } = require('./catalog');
+const { RBTV_ROOT } = require('./root');
 
 // Installing rbtv into a workspace is the installer's job; its own argparse prog is
 // already `rbtv install`, and this route makes that string true.
@@ -20,7 +20,7 @@ const INSTALLER = path.join(
 
 // Advertise the current installer commands. Every token after `install` is
 // delegated unchanged, so aliases and retired forms can still receive the
-// installer's own help or teaching refusal without appearing in the drill.
+// installer's own help or teaching refusal.
 const INSTALL_VERBS = ['status', 'list', 'search', 'show', 'configure',
   'add', 'remove', 'update', 'agent', 'doctor', 'interactive', 'selftest'];
 
@@ -36,10 +36,8 @@ const ROUTES = [
   },
 ];
 
-// The tokens that, at position 1, belong to the verb namespace rather than the
-// drill. A module name landing in this set would make `rbtv <module>` ambiguous —
-// selftest ASSERTS the sets are disjoint rather than inferring it from today's
-// data, because the failure would otherwise arrive silently with a future module.
+// The tokens that, at position 1, are this CLI's own commands rather than a
+// delegated route. selftest asserts retired names stay out of this set.
 function verbNamespaceTokens() {
   return [...new Set(ROUTES.map((r) => r.prefix[0]))];
 }
