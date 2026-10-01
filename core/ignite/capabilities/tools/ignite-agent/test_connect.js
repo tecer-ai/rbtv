@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { main } = require('./cli.js');
 const { Store } = require('./store.js');
+const { EMPTY_BOARD, boardPath, parseBoard } = require('./board.js');
 
 const failures = [];
 
@@ -51,6 +52,8 @@ function installAgent(dir, name = 'probe') {
   fs.writeFileSync(path.join(home, 'agent.md'), `---\nname: ${name}\ndescription: fixture\n---\n\n## Role\n\nFixture.\n`);
   fs.writeFileSync(path.join(home, 'launch.json'), '{"harness":"claude","model":"m","effort":"high"}\n');
   fs.writeFileSync(path.join(home, 'conversations', 'kept.md'), 'history\n');
+  fs.mkdirSync(path.dirname(boardPath(home)), { recursive: true });
+  fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
   return home;
 }
 
@@ -140,18 +143,46 @@ async function run(argv, extra = {}) {
     const slack = fakeSlack();
     const result = await run([
       'connect', 'probe', '--channel-name', 'probe', '--schedule-json', schedule, '--workspace', dir,
-    ], { slack });
+    ], { slack, now: () => Date.parse('2026-10-01T12:00:00Z') });
     assert.equal(result.code, 0, result.out + result.err);
-    assert.match(fs.readFileSync(path.join(home, 'board.md'), 'utf8'), /read the board/);
+    const board = fs.readFileSync(boardPath(home), 'utf8');
+    assert.equal(fs.existsSync(path.join(home, 'board.md')), false);
     const store = new Store(path.join(home, 'state.sqlite'));
     try {
       const rows = store.listSchedules();
       assert.equal(rows.length, 1);
       assert.equal(rows[0].note, 'read the board');
+      assert.deepEqual(parseBoard(board).timers, ['| Fires | Timer | For | Subject |', '|---|---|---|---|',
+        `| 2026-10-05 09:00 UTC | ${rows[0].id} | read the board | none |`]);
       assert.match(result.out, new RegExp(rows[0].id));
     } finally {
       store.close();
     }
+  });
+
+  await test('connect copies a legacy board once and rerenders a reused timer without replacing subjects', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const home = installAgent(dir);
+    fs.unlinkSync(boardPath(home));
+    const text = EMPTY_BOARD.replace('## What matters now\n', '## What matters now\n\n### Café\nReview it.\n- Threads: none\n- Detail: none\n- Flags: none\n');
+    fs.writeFileSync(path.join(home, 'board.md'), text.replace(/\n/g, '\r\n'), 'utf8');
+    const schedule = path.join(dir, 'schedule.json');
+    fs.writeFileSync(schedule, JSON.stringify({ every: '1h', tz: 'fixed', note: 'First check' }), 'utf8');
+    const args = ['connect', 'probe', '--dm', '--schedule-json', schedule, '--workspace', dir, '--json'];
+    const deps = { slack: fakeSlack(), now: () => Date.parse('2026-10-01T12:00:00Z') };
+    // Numeric intervals in connection files use the same elapsed-time cadence as the CLI.
+    const first = await run(args, deps);
+    const id = JSON.parse(first.out).scheduleId;
+    fs.writeFileSync(path.join(home, 'board.md'), 'obsolete', 'utf8');
+    fs.writeFileSync(schedule, JSON.stringify({ cron: '0 9 * * *', tz: 'Europe/Lisbon', note: 'Second check' }), 'utf8');
+    const second = await run(args, deps);
+    assert.equal(JSON.parse(second.out).scheduleId, id);
+    const board = parseBoard(fs.readFileSync(boardPath(home), 'utf8'));
+    assert.equal(board.subjects[0].title, 'Café');
+    assert.equal(board.timers.length, 3);
+    assert.match(board.timers[2], /2026-10-02 09:00 Europe\/Lisbon.*Second check \| none/);
+    assert.equal(fs.readFileSync(path.join(home, 'board.md'), 'utf8'), 'obsolete');
   });
 
   await test('connect re-run reuses a routed channel', async () => {
@@ -213,6 +244,7 @@ async function run(argv, extra = {}) {
     const store = new Store(path.join(home, 'state.sqlite'));
     try {
       assert.equal(store.listSchedules().length, 0);
+      assert.equal(parseBoard(fs.readFileSync(boardPath(home), 'utf8')).timers.length, 2);
     } finally {
       store.close();
     }

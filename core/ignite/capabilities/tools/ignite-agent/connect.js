@@ -16,6 +16,7 @@ const { loadConfig, updateConfig, agentHome, configPath, slackToken } = require(
 const { Slack } = require('./slack.js');
 const { Store, conversationKey } = require('./store.js');
 const { cadenceSpec, nextOccurrence, FIXED_TZ } = require('./schedule.js');
+const { migrateBoard, refreshBoard } = require('./board.js');
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const CHANNEL = /^[a-z0-9][a-z0-9_-]{0,79}$/;
@@ -149,31 +150,10 @@ function scheduleFrom(file, now) {
     at: body.at || undefined,
     cron: body.cron || undefined,
     every: body.every || undefined,
-    tz: body.tz || undefined,
+    tz: body.every != null ? undefined : body.tz || undefined,
   });
   const nextAt = spec.nextAt != null ? spec.nextAt : nextOccurrence(spec.cadence, spec.timezone, now);
   return { ...spec, nextAt, note: String(body.note).trim(), report };
-}
-
-function writeBoard(home, schedule) {
-  const file = path.join(home, 'board.md');
-  if (!fs.existsSync(file)) {
-    fs.copyFileSync(path.join(__dirname, 'templates', 'board.md.tmpl'), file);
-  }
-  if (!schedule) return;
-  const text = fs.readFileSync(file, 'utf8');
-  const block = [
-    '## Recurring checks',
-    '',
-    `- cadence: ${schedule.cadence}`,
-    `- timezone: ${schedule.timezone}`,
-    `- check: ${schedule.note}`,
-    `- report: ${schedule.report}`,
-    '',
-  ].join('\n');
-  const next = text.replace(/## Recurring checks\r?\n\r?\n[\s\S]*?\r?\n\r?\n## Open work/, `${block}\n## Open work`);
-  if (next === text) fail('board template has no recurring-checks section');
-  fs.writeFileSync(file, next, 'utf8');
 }
 
 function slackClient(config, deps) {
@@ -204,7 +184,10 @@ async function ensureChannel(ctx, slack, deps) {
 // One timer per connection: a re-run updates the timer already bound to the board conversation.
 async function bindSchedule(ctx) {
   const { config, opts, home, schedule, channel } = ctx;
-  if (!schedule) return null;
+  if (!schedule) {
+    migrateBoard(home);
+    return null;
+  }
   const channelId = opts.dm ? config.slack.ownerUserId : channel.id;
   const key = conversationKey(config.slack.team, channelId, BOARD_ROOT);
   const store = new Store(path.join(home, 'state.sqlite'));
@@ -223,8 +206,9 @@ async function bindSchedule(ctx) {
       enabled: true,
       note: schedule.note,
       report: schedule.report,
+      subject: bound?.subject ?? null,
     });
-    writeBoard(home, schedule);
+    refreshBoard(home, store);
     return id;
   } finally {
     store.close();
@@ -238,6 +222,7 @@ function cancelTimers(home) {
   try {
     const ids = store.listSchedules().map((row) => row.id);
     for (const id of ids) store.deleteSchedule(id);
+    refreshBoard(home, store);
     return ids;
   } finally {
     store.close();

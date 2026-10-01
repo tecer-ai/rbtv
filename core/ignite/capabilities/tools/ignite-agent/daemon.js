@@ -10,6 +10,7 @@ const { runOnce } = require('./turn-loop.js');
 const { deliverPending } = require('./outbox.js');
 const { Slack } = require('./slack.js');
 const { Audio } = require('./audio.js');
+const { refreshBoard } = require('./board.js');
 const cli = require('./cli.js');
 
 const TICK_MS = 30_000;
@@ -218,6 +219,7 @@ async function startLocked(opts, workspace, held) {
       castCmd: opts.castCmd || config.tools.cast,
       castEnv: opts.castEnv,
       now: opts.now,
+      log(fields) { log({ slug, ...fields }); },
     };
   }
 
@@ -272,7 +274,14 @@ async function startLocked(opts, workspace, held) {
           channelType: event?.channelType || null,
         });
       }
-      if (result?.agent) kick(result.agent);
+      if (result?.agent) {
+        try {
+          refreshBoard(agentHome(config, result.agent), getStore(result.agent), clock());
+        } catch (error) {
+          log({ event: 'board', slug: result.agent, message: error.message });
+        }
+        kick(result.agent);
+      }
       return result;
     });
   };

@@ -13,6 +13,7 @@
 // acceptOwnerInput({ key, agent, workspace, channel, rootTs, activated, message, queueId, payload })
 // recordMessage(key, { id, role, text, files, metadata, team, channel, ts, createdAt }) — false if duplicate Slack identity
 // listHistory(key, limit) — Slack identity on each row
+// lastOwnerReply(channel, rootTs, now?) — latest stored owner reply time, excluding roots and synthetic text
 // setSession(key, harness, sessionId) / getSession(key, harness) — per harness, never folder-last
 // getWork(id) / listWork({ conversationKey })
 // enqueue({ id, conversationKey, payload, message, workId, availableAt }) — owner input only; reopens completed|stopped as a new work id; never unholds
@@ -34,8 +35,9 @@
 // stopOutbox(id, error) — state failed on the existing column; pendingOutbox no longer returns it. No new column.
 // rememberPost(id, { channel, ts }) — text already confirmed; row stays pending so file uploads can retry. No new column.
 // beginProactive({ id, agent, workspace, channel, payload, clientMsgId }) — activated; Slack key bound in markDelivered
-// upsertSchedule({ id, conversationKey, workId, cadence, timezone, nextAt, enabled, note, report })
+// upsertSchedule({ id, conversationKey, workId, cadence, timezone, nextAt, enabled, note, report, subject })
 // getSchedule(id) / listSchedules() / dueSchedules(now) / deleteSchedule(id)
+// pendingScheduleIds() — ids of schedule wakes still pending or running, including spent one-shots
 // transaction(fn)
 
 const fs = require('node:fs');
@@ -183,6 +185,7 @@ class Store {
         enabled INTEGER NOT NULL,
         note TEXT,
         report TEXT,
+        subject TEXT,
         updated_at INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS settings (
@@ -191,6 +194,11 @@ class Store {
         updated_at INTEGER NOT NULL
       );
     `);
+    this.transaction(() => {
+      if (!this.db.prepare('PRAGMA table_info(schedules)').all().some((column) => column.name === 'subject')) {
+        this.db.exec('ALTER TABLE schedules ADD COLUMN subject TEXT');
+      }
+    });
   }
 
   close() { this.db.close(); }
@@ -292,6 +300,14 @@ class Store {
       ORDER BY created_at DESC, id DESC LIMIT ?) ORDER BY created_at, id`)
       .all(conversationKeyValue, limit)
       .map((row) => ({ ...row, files: parse(row.files), metadata: parse(row.metadata) }));
+  }
+
+  lastOwnerReply(channel, rootTs, now = Date.now()) {
+    return this.db.prepare(`SELECT MAX(m.created_at) AS latest FROM messages m
+      JOIN conversations c ON c.key=m.conversation_key
+      WHERE c.channel=? AND c.root_ts=? AND m.role='owner'
+        AND m.ts IS NOT NULL AND m.ts!=c.root_ts AND m.created_at<=?`)
+      .get(channel, rootTs, now).latest;
   }
 
   acceptOwnerInput({ key, agent, workspace, channel, rootTs = null, activated = false, message, queueId = null, payload = {} }) {
@@ -798,7 +814,7 @@ class Store {
     return { ...row, enabled: row.enabled === 1 };
   }
 
-  upsertSchedule({ id, conversationKey: conversationKeyValue, workId = null, cadence, timezone, nextAt = null, enabled = true, note = null, report = null }) {
+  upsertSchedule({ id, conversationKey: conversationKeyValue, workId = null, cadence, timezone, nextAt = null, enabled = true, note = null, report = null, subject = null }) {
     if (!id || !conversationKeyValue || !cadence || !timezone) {
       throw new Error('schedule id, conversation, cadence and timezone required');
     }
@@ -806,12 +822,12 @@ class Store {
       if (!this.getConversation(conversationKeyValue)) throw new Error('unknown conversation');
       if (workId && !this.getWork(workId)) throw new Error('unknown work');
       this.db.prepare(`INSERT INTO schedules
-        (id, conversation_key, work_id, cadence, timezone, next_at, enabled, note, report, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, conversation_key, work_id, cadence, timezone, next_at, enabled, note, report, subject, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET cadence=excluded.cadence, timezone=excluded.timezone,
           next_at=excluded.next_at, enabled=excluded.enabled, note=excluded.note, report=excluded.report,
-          work_id=excluded.work_id, updated_at=excluded.updated_at`).run(
-        id, conversationKeyValue, workId, cadence, timezone, nextAt, enabled ? 1 : 0, note, report, Date.now(),
+          work_id=excluded.work_id, subject=excluded.subject, updated_at=excluded.updated_at`).run(
+        id, conversationKeyValue, workId, cadence, timezone, nextAt, enabled ? 1 : 0, note, report, subject, Date.now(),
       );
       return this.getSchedule(id);
     });
@@ -823,6 +839,11 @@ class Store {
 
   listSchedules() {
     return this.db.prepare('SELECT * FROM schedules ORDER BY id').all().map((row) => this._schedule(row));
+  }
+
+  pendingScheduleIds() {
+    return this.db.prepare("SELECT payload FROM queue WHERE kind='schedule' AND state IN ('pending', 'running')")
+      .all().map((row) => parse(row.payload).scheduleId);
   }
 
   dueSchedules(now = Date.now()) {

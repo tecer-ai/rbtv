@@ -16,13 +16,14 @@ const { randomUUID } = require('node:crypto');
 const { Store } = require('./store.js');
 const { loadConfig, agentHome, configPath } = require('./config.js');
 const { cadenceSpec, nextOccurrence, FIXED_TZ } = require('./schedule.js');
-const { writeBoard, closeSubject } = require('./board.js');
+const { writeBoard, closeSubject, migrateBoard, refreshBoard } = require('./board.js');
+const { workspaceFromHome, remember } = require('./memory.js');
 
 const APPLIES = 'applies from the next turn in every conversation';
-const COMMANDS = ['settings', 'schedule', 'schedules-due', 'work', 'wake', 'post', 'board'];
+const COMMANDS = ['settings', 'schedule', 'schedules-due', 'work', 'wake', 'post', 'board', 'remember'];
 const REPORTS = new Set(['always', 'when-useful']);
 
-const HELP = `ignite-agent — install update connect disconnect settings schedule schedules-due work wake post board
+const HELP = `ignite-agent — install update connect disconnect settings schedule schedules-due work wake post board remember
 
 install <agent file> --harness <name> --model <cast short name> --effort <rung or 1-5> [--workspace <path>] [--dry-run]
   Runs rbtv install agent add, then installs Ignite's standard units. No Slack.
@@ -30,7 +31,7 @@ install <agent file> --harness <name> --model <cast short name> --effort <rung o
 update <agent> [--workspace <path>] [--dry-run]
   Runs rbtv install agent update, then re-installs Ignite's standard units and removes
   any it installed earlier that are no longer standard units.
-  Keeps launch.json, settings.json, board.md, the database, and conversations.
+  Keeps launch.json, settings.json, _artifacts/board.md, the database, and conversations.
 connect <agent> (--channel-name <name> | --dm) [--schedule-json <file>] [--workspace <path>] [--dry-run]
   On the machine that will run the agent. Needs .rbtv/config/ignite/config.json.
   See core/ignite/capabilities/runbook.md. Does not write that file.
@@ -45,13 +46,15 @@ settings show
 settings set --harness <name> --model <cast short name> --effort <rung or 1-5> [--voice <id>]
   Validates the combination through cast. ${APPLIES}.
 
-schedule add (--at <ISO datetime with offset> | --cron "<5-field>" --tz <IANA zone> | --every <duration>) --note <text> [--report always|when-useful] [--conversation <key>]
+schedule add (--at <ISO datetime with offset> | --cron "<5-field>" --tz <IANA zone> | --every <duration>) --note <text> [--subject <title>] [--report always|when-useful] [--conversation <key>]
 schedule list
 schedule change <id> [same cadence flags] [--note <text>] [--report always|when-useful] [--enabled true|false]
 schedule cancel <id>
   Cron requires an explicit --tz. Next occurrence is timezone-aware.
   --every is a fixed-interval: elapsed time, no timezone, DST does not move it.
   A recurring schedule requires a cadence (--cron or --every). An empty cadence is refused.
+  Timers on _artifacts/board.md show enabled schedules with a next fire and pending/running wakes.
+  --subject links the timer to a board subject; omitted means none. Changes keep this association.
 
 schedules-due --now <ISO datetime>
   Enqueue a fresh conversation with no thread or resumed session; input is the schedule id only.
@@ -79,12 +82,41 @@ post (--text <text> | --text-file <path> | --file <path>)... [--audio] [--thread
 board write --file <path>
 board close <subject> <outcome> [thread]
   Checked board edits and closures. See ignite-agent board --help for the form and caps.
+
+remember <text>
+  Atomically append one owner fact to the installation's .rbtv/memory/inbox.md.
+  Never refuses for format or length; alerts the owner past 20 lines.
+  See ignite-agent remember --help for provenance and output.
+`;
+
+const REMEMBER_HELP = `ignite-agent remember — save an owner fact for every agent
+
+remember <text>
+  Quote the text, or pass several words. Newlines become spaces: one append,
+  one line, with today's UTC date, agent slug and current thread when available.
+  Creates .rbtv/memory/inbox.md if missing. Never rejects text because of its
+  length or existing inbox contents; never rewrites earlier lines or learned.md.
+  Above 20 lines (including headings and blanks), queues an owner alert through the outbox.
+  No Slack request or interactive prompt. Missing alert configuration does not
+  undo the append; the result warns that the owner alert could not be queued.
+
+Home: IGNITE_AGENT_HOME, otherwise --agent <slug> --workspace <path>.
+Workspace: explicit --workspace, otherwise the installation containing the home.
+IGNITE_CONVERSATION supplies thread provenance and the alert target inside a turn.
+Outside a turn, alerts use this agent's configured channel or owner DM.
+--help/-h needs no home. Use -- before literal option-like text.
+Success: exit 0, "remembered in <path>", then any warning.
+--json: {path, appended, lines, warning}; lines counts file lines, warning is null
+when none. Failure: exit 1, reason on stderr, or {path, error} on stdout with
+--json. A missing text argument, installation root or filesystem write can fail.
+
+Example: ignite-agent remember "Prefers afternoon appointments"
 `;
 
 const BOARD_HELP = `ignite-agent board — checked short-term memory
 
 board write --file <path>
-  Read a complete UTF-8 Markdown candidate; create or update <home>/board.md.
+  Read a complete UTF-8 Markdown candidate; create or update <home>/_artifacts/board.md.
   Keep all four headings in order: ## What matters now, ## Watch-outs,
   ## Timers, ## Recently closed. Empty sections keep their headings.
   Each subject: a unique ### Title, 1–3 state lines, then these three lines:
@@ -174,13 +206,6 @@ function fail(message) {
   const error = new Error(message);
   error.exitCode = 1;
   throw error;
-}
-
-function workspaceFromHome(home) {
-  const agents = path.dirname(home);
-  const dot = path.dirname(agents);
-  if (path.basename(agents) === 'agents' && path.basename(dot) === '.rbtv') return path.dirname(dot);
-  return null;
 }
 
 function findWorkspace(start) {
@@ -366,6 +391,7 @@ function cmdSchedule(rest, ctx, flags, deps) {
   if (action === 'add') {
     const { opts } = parseOpts(rest.slice(1));
     const note = requireNote(opts);
+    if (opts.subject != null && (!opts.subject.trim() || /[\r\n]/.test(opts.subject))) fail('--subject requires a non-empty one-line title');
     const key = conversationOf(opts, deps);
     if (!ctx.store.getConversation(key)) fail(`unknown conversation: ${key}`);
     const now = deps.now ? deps.now() : Date.now();
@@ -379,7 +405,9 @@ function cmdSchedule(rest, ctx, flags, deps) {
       enabled: true,
       note,
       report: reportOf(opts),
+      subject: opts.subject?.trim() ?? null,
     });
+    refreshBoard(ctx.home, ctx.store, now);
     emit(deps, flags, { schedule: row }, `${row.id} ${row.cadence} ${row.timezone} next=${row.next_at}\n`);
     return 0;
   }
@@ -419,7 +447,9 @@ function cmdSchedule(rest, ctx, flags, deps) {
       enabled,
       note: opts.note ?? existing.note,
       report: reportOf(opts, existing.report),
+      subject: existing.subject,
     });
+    refreshBoard(ctx.home, ctx.store, now);
     emit(deps, flags, { schedule: row }, `${row.id} ${row.cadence} ${row.timezone} next=${row.next_at}\n`);
     return 0;
   }
@@ -428,6 +458,7 @@ function cmdSchedule(rest, ctx, flags, deps) {
     const id = positionals[0];
     if (!id) fail('schedule cancel requires an id');
     if (!ctx.store.deleteSchedule(id)) fail(`unknown schedule: ${id}`);
+    refreshBoard(ctx.home, ctx.store, deps.now ? deps.now() : Date.now());
     emit(deps, flags, { cancelled: id }, `cancelled ${id}\n`);
     return 0;
   }
@@ -477,9 +508,11 @@ function cmdDue(rest, ctx, flags, deps) {
       enabled: !oneShot,
       note: sched.note,
       report: sched.report,
+      subject: sched.subject,
     });
     results.push({ id: sched.id, inserted: wake.inserted, reason: wake.reason, nextAt: oneShot ? null : nextAt });
   }
+  refreshBoard(ctx.home, ctx.store, now);
   emit(deps, flags, { now, results }, results.map((row) => `${row.id} ${row.reason}`).join('\n') + (results.length ? '\n' : 'none due\n'));
   return 0;
 }
@@ -588,7 +621,7 @@ function cmdBoard(rest, flags, deps) {
     if (action === 'write' && (opts.file?.length !== 1 || positionals.length)) fail('board write requires exactly one --file <path>');
     if (action === 'close' && (positionals.length < 2 || positionals.length > 3)) fail('board close requires <subject> <outcome> [thread]');
     const { home, slug } = resolveHome(flags, deps);
-    file = path.join(home, 'board.md');
+    file = migrateBoard(home);
     const result = action === 'write'
       ? writeBoard(file, fs.readFileSync(opts.file[0], 'utf8'))
       : closeSubject(file, positionals[0], positionals[1], {
@@ -597,6 +630,54 @@ function cmdBoard(rest, flags, deps) {
     emit(deps, flags, result, action === 'close'
       ? `closed ${result.subject} in ${file}\n`
       : `${result.changed ? 'written' : 'unchanged'} ${file}\n`);
+    return 0;
+  } catch (error) {
+    if (flags.json) emit(deps, flags, { path: file, error: error.message }, '');
+    else (deps.stderr || ((text) => process.stderr.write(text)))(`${error.message}\n`);
+    return 1;
+  }
+}
+
+function cmdRemember(rest, flags, deps) {
+  if (flags.help) {
+    emit(deps, { json: false }, null, REMEMBER_HELP);
+    return 0;
+  }
+  let file = null;
+  try {
+    const { opts, positionals } = parseOpts(rest);
+    if (Object.keys(opts).length || !positionals.length) fail('remember requires <text>; use -- before option-like text');
+    const { home, slug, workspace } = resolveHome(flags, deps);
+    if (!workspace) fail('remember requires an installation root; use --workspace <path>');
+    file = path.join(workspace, '.rbtv', 'memory', 'inbox.md');
+    const env = deps.env || process.env;
+    const key = env.IGNITE_CONVERSATION;
+    const match = key?.match(/^[^:]+:([A-Z0-9]+):(\d+\.\d+)$/);
+    const thread = match ? `[thread](https://app.slack.com/archives/${match[1]}/p${match[2].replace('.', '')})` : null;
+    const result = remember(workspace, positionals.join(' '), { agent: slug, thread, now: deps.now ? deps.now() : Date.now() });
+    // Append first. Missing config, a broken database or unavailable delivery
+    // must never discard a remembered fact or make callers retry the append.
+    if (result.warning) {
+      let store;
+      try {
+        store = new Store(path.join(home, 'state.sqlite'));
+        const payload = { text: result.warning, audio: false, files: [] };
+        if (key && store.getConversation(key)) {
+          store.enqueueOutbox({ id: `memory:${randomUUID()}`, conversationKey: key, payload });
+        } else {
+          const config = loadConfig(workspace);
+          const target = agentChannel(config, slug);
+          if (target.imUser) payload.imUser = target.imUser;
+          store.beginProactive({ id: randomUUID(), agent: slug, workspace: config.slack.team, channel: target.channel, payload });
+        }
+      } catch { result.warning += ' Owner alert could not be queued; tell the owner.'; }
+      finally {
+        if (store) {
+          try { store.close(); } catch { /* The fact is already appended. */ }
+        }
+      }
+    }
+    emit(deps, flags, result, `remembered in ${file}\n${result.warning ? `${result.warning}\n` : ''}`);
     return 0;
   } catch (error) {
     if (flags.json) emit(deps, flags, { path: file, error: error.message }, '');
@@ -626,6 +707,7 @@ function main(argv, deps = {}) {
   if (command === 'install' || command === 'update') return require('./install.js').run(command, tail, flags, deps);
   if (command === 'connect' || command === 'disconnect') return require('./connect.js').run(command, tail, flags, deps);
   if (command === 'board') return cmdBoard(tail, flags, deps);
+  if (command === 'remember') return cmdRemember(tail, flags, deps);
   if (!COMMANDS.includes(command)) fail(`unknown command: ${command}`);
   if (flags.help && command === 'post') {
     emit(deps, { json: false }, null, HELP);

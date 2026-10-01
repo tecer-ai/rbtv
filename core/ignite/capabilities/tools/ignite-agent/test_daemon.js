@@ -9,6 +9,7 @@ const { spawn, spawnSync } = require('node:child_process');
 const { Store } = require('./store.js');
 const { start } = require('./daemon.js');
 const { FIXED_TZ } = require('./schedule.js');
+const { EMPTY_BOARD, boardPath, parseBoard } = require('./board.js');
 
 const daemonPath = __filename.replace(/test_daemon\.js$/, 'daemon.js');
 const failures = [];
@@ -65,7 +66,14 @@ function workspace() {
   fs.writeFileSync(path.join(home, 'launch.json'), JSON.stringify({
     harness: 'claude', model: 'sonnet-5', effort: 'low',
   }));
-  fs.writeFileSync(path.join(home, 'board.md'), 'board\n');
+  fs.writeFileSync(path.join(home, 'board.md'), EMPTY_BOARD, 'utf8');
+  fs.mkdirSync(path.join(home, 'memory'));
+  fs.writeFileSync(path.join(home, 'memory', 'learned.md'), '# Learned rules — master\n', 'utf8');
+  const memory = path.join(dir, '.rbtv', 'memory');
+  fs.mkdirSync(path.join(memory, '_artifacts'), { recursive: true });
+  fs.writeFileSync(path.join(memory, 'profile.md'), '# Profile — Sam\n\n## Who\n\n## Working with Sam\n\n## Now\n', 'utf8');
+  fs.writeFileSync(path.join(memory, 'inbox.md'), '# Inbox — waiting to be filed\n', 'utf8');
+  fs.writeFileSync(path.join(memory, '_artifacts', 'index.md'), '# Memory index\n| Open | When |\n|---|---|\n', 'utf8');
   return { dir, home };
 }
 
@@ -115,11 +123,13 @@ process.exit(0);
 function fakeSlack() {
   const slack = {
     posts: [],
+    downloads: [],
     async postMessage(args) {
       slack.posts.push(args);
       return { channel: args.channel, ts: `9.${slack.posts.length}` };
     },
     async addReaction() {},
+    async downloadFile() { return slack.downloads; },
   };
   return slack;
 }
@@ -219,6 +229,33 @@ test('dm-delivered-once', async () => {
     assert.equal(slack.posts.length, 1);
     assert.equal(slack.posts[0].text, 'reply-once');
     assert.equal(slack.posts[0].channel, 'D1');
+  } finally {
+    process.env.PATH = prevPath;
+    if (runtime) runtime.stop('test');
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('daemon ticks and ingress leave a missing board visible to recovery and owner delivery', async () => {
+  const { dir, home } = workspace();
+  fs.unlinkSync(path.join(home, 'board.md'));
+  const cast = fakeCast(dir);
+  const slack = fakeSlack();
+  const socket = fakeSocket();
+  const prevPath = process.env.PATH;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prevPath || ''}`;
+  let runtime;
+  try {
+    runtime = await start({ workspace: dir, slack, socket, castCmd: cast.stub, castEnv: cast.env,
+      signals: false, tickMs: 60_000, sweepMs: 60_000, drainMs: 50 });
+    assert.equal(fs.existsSync(boardPath(home)), false);
+    await socket.inject({ team: 'T1', channel: 'D1', channelType: 'im', ts: '1.100000', threadTs: '1.100000',
+      user: 'UOWNER', text: 'hello', files: [], isBotOrSelf: false, mentionsBot: false });
+    await waitFor(() => slack.posts.length === 2);
+    assert.ok(slack.posts.some((row) => row.text.includes('Memory alert:') && row.text.includes('board.md')));
+    assert.ok(slack.posts.some((row) => row.text === 'reply-once'));
+    assert.match(JSON.parse(fs.readFileSync(cast.seen, 'utf8').trim()).prompt, /MISSING MEMORY: .*board\.md/);
+    assert.equal(fs.existsSync(boardPath(home)), false);
   } finally {
     process.env.PATH = prevPath;
     if (runtime) runtime.stop('test');
@@ -500,27 +537,61 @@ function mention(channel, text = 'hello') {
   };
 }
 
-function started(dir) {
+function started(dir, overrides = {}) {
   const prev = process.env.PATH;
   process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prev || ''}`;
-  const socket = fakeSocket();
-  return start({
+  const socket = overrides.socket || fakeSocket();
+  const slack = overrides.slack || fakeSlack();
+  const options = {
     workspace: dir,
-    slack: fakeSlack(),
+    slack,
     socket,
     signals: false,
     tickMs: 60_000,
     sweepMs: 60_000,
     drainMs: 60_000,
-  }).then((runtime) => ({
+  };
+  if (overrides.audio) options.audio = overrides.audio;
+  return start(options).then((runtime) => ({
     runtime,
     socket,
+    slack,
     restore() {
       process.env.PATH = prev;
       runtime.stop('test');
     },
   }));
 }
+
+test('transcription detail is service-log-only', async () => {
+  const { dir, home } = workspace();
+  setRoutes(dir, { CAUDIO: 'master' });
+  const detail = 'audio keys file: /configured/audio-keys.json';
+  const audio = { async transcribe() { throw new Error(detail); } };
+  const box = await started(dir, { audio });
+  box.slack.downloads = [{ name: 'note.m4a', path: '/tmp/note.m4a' }];
+  const lines = [];
+  const write = process.stdout.write;
+  process.stdout.write = (chunk) => { lines.push(String(chunk)); return true; };
+  try {
+    const saved = await box.socket.inject({
+      ...mention('CAUDIO'),
+      files: [{ name: 'note.m4a', mimetype: 'audio/mp4', filetype: 'm4a' }],
+    });
+    assert.equal(saved.queued, true);
+    await waitFor(() => box.slack.posts.length === 1 && lines.some((line) => line.includes('transcription-failed')));
+    assert.equal(box.slack.posts[0].text, 'I could not transcribe that voice note; please send it as text.');
+    const logged = lines.filter((line) => line.includes('transcription-failed'));
+    assert.equal(logged.length, 1);
+    assert.match(logged[0], /audio-keys\.json/);
+    const history = fs.readFileSync(path.join(home, 'conversations', 'T1-CAUDIO-CAUDIO.1', 'history.md'), 'utf8');
+    assert.equal(history.includes('/configured/audio-keys.json'), false);
+  } finally {
+    process.stdout.write = write;
+    box.restore();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test('route-after-start', async () => {
   const { dir } = workspace();
@@ -578,6 +649,46 @@ test('half-written-config', async () => {
     assert.equal(again.agent, 'master');
   } finally {
     box.restore();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('daemon marks idle on ticks and answered on owner ingress even while held', async () => {
+  const { dir, home } = workspace();
+  const now = Date.parse('2026-10-03T12:00:00Z');
+  const rootTs = `${(now - 8 * 86_400_000) / 1000}.000000`;
+  const text = EMPTY_BOARD.replace('## What matters now\n', `## What matters now\n\n### Review\nWaiting.\n- Threads: [review](https://example.slack.com/archives/D1/p${rootTs.replace('.', '')})\n- Detail: none\n- Flags: none\n`);
+  fs.mkdirSync(path.dirname(boardPath(home)));
+  fs.writeFileSync(boardPath(home), text, 'utf8');
+  const store = new Store(path.join(home, 'state.sqlite'));
+  store.db.prepare('INSERT INTO settings(key, value, updated_at) VALUES (?, ?, ?)')
+    .run('agent_hold', JSON.stringify({ reason: 'test', at: now }), now);
+  store.close();
+  const socket = fakeSocket();
+  const prev = process.env.PATH;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prev || ''}`;
+  let runtime;
+  try {
+    runtime = await start({ workspace: dir, slack: fakeSlack(), socket, signals: false, now: () => now,
+      tickMs: 60_000, sweepMs: 60_000, drainMs: 60_000 });
+    const flags = () => parseBoard(fs.readFileSync(boardPath(home), 'utf8')).subjects[0].flags;
+    assert.equal(flags(), 'idle since 2026-09-25');
+    const input = { team: 'T1', channel: 'D1', channelType: 'im', threadTs: rootTs,
+      ts: `${now / 1000}.000000`, user: 'UOWNER', text: 'Reviewed', files: [], isBotOrSelf: false };
+    assert.equal((await socket.inject(input)).queued, true);
+    assert.equal(flags(), 'answered 2026-10-03');
+    assert.equal((await socket.inject(input)).ignored, 'duplicate');
+    assert.equal(flags(), 'answered 2026-10-03');
+    const check = new Store(path.join(home, 'state.sqlite'));
+    try { assert.equal(check.agentHold().reason, 'test'); assert.equal(check.getActiveRun(), null); }
+    finally { check.close(); }
+    // A malformed board must not lose owner ingress or modify the board's bytes.
+    fs.writeFileSync(boardPath(home), 'invalid café\r\n', 'utf8');
+    assert.equal((await socket.inject({ ...input, ts: `${now / 1000}.000001` })).queued, true);
+    assert.equal(fs.readFileSync(boardPath(home), 'utf8'), 'invalid café\r\n');
+  } finally {
+    process.env.PATH = prev;
+    runtime?.stop('test');
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });

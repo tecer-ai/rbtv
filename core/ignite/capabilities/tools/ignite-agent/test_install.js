@@ -8,6 +8,7 @@ const path = require('node:path');
 const { main } = require('./cli.js');
 const { spawnSync } = require('node:child_process');
 const { STANDARD_UNITS, INSTALLER_ENTRY } = require('./install.js');
+const { boardPath, parseBoard } = require('./board.js');
 
 const failures = [];
 
@@ -104,7 +105,7 @@ function stubInstall(calls) {
     assert.equal(fs.readFileSync(path.join(home, 'agent.md'), 'utf8'), 'already\n');
   });
 
-  await test('install writes board and sqlite without overwriting a board', async () => {
+  await test('install copies a legacy board without changing it and creates runtime files', async () => {
     const dir = workspace();
     const file = agentFile(dir);
     const home = path.join(dir, '.rbtv', 'agents', 'probe');
@@ -115,24 +116,40 @@ function stubInstall(calls) {
     ], { install: stubInstall([]) });
     assert.equal(result.code, 0, result.out + result.err);
     assert.equal(fs.readFileSync(path.join(home, 'board.md'), 'utf8'), '# Board\n\nkept\n');
-    assert.match(result.out, /board: kept/);
+    assert.equal(fs.readFileSync(boardPath(home), 'utf8'), '# Board\n\nkept\n');
+    assert.match(result.out, /board: written/);
     assert.equal(fs.existsSync(path.join(home, 'state.sqlite')), true);
     assert.equal(fs.existsSync(path.join(home, 'conversations')), true);
+  });
+
+  await test('new install writes a valid four-section board only under artifacts', async () => {
+    const dir = workspace();
+    const file = agentFile(dir);
+    const home = path.join(dir, '.rbtv', 'agents', 'probe');
+    const result = await run([
+      'install', file, '--workspace', dir, '--harness', 'claude', '--model', 'm', '--effort', 'high',
+    ], { install: stubInstall([]) });
+    assert.equal(result.code, 0);
+    assert.equal(parseBoard(fs.readFileSync(boardPath(home), 'utf8')).subjects.length, 0);
+    assert.equal(fs.existsSync(path.join(home, 'board.md')), false);
   });
 
   await test('update keeps board launch settings and conversations', async () => {
     const dir = workspace();
     const home = path.join(dir, '.rbtv', 'agents', 'probe');
     fs.mkdirSync(path.join(home, 'conversations'), { recursive: true });
+    fs.mkdirSync(path.dirname(boardPath(home)));
     fs.writeFileSync(path.join(home, 'agent.md'), '---\nname: probe\ndescription: fixture\n---\n\n## Role\n\nKeep.\n');
     fs.writeFileSync(path.join(home, 'launch.json'), '{"harness":"claude","model":"m","effort":"high"}\n');
     fs.writeFileSync(path.join(home, 'settings.json'), '{"kept":true}\n');
     fs.writeFileSync(path.join(home, 'board.md'), '# Board\n\nkept board\n');
+    fs.writeFileSync(boardPath(home), 'canonical café\r\n', 'utf8');
     fs.writeFileSync(path.join(home, 'conversations', 'kept.md'), 'history\n');
     const calls = [];
     const result = await run(['update', 'probe', '--workspace', dir], { install: stubInstall(calls) });
     assert.equal(result.code, 0, result.out + result.err);
     assert.equal(fs.readFileSync(path.join(home, 'board.md'), 'utf8'), '# Board\n\nkept board\n');
+    assert.equal(fs.readFileSync(boardPath(home), 'utf8'), 'canonical café\r\n');
     assert.equal(fs.readFileSync(path.join(home, 'launch.json'), 'utf8'), '{"harness":"claude","model":"m","effort":"high"}\n');
     assert.equal(fs.readFileSync(path.join(home, 'settings.json'), 'utf8'), '{"kept":true}\n');
     assert.equal(fs.readFileSync(path.join(home, 'conversations', 'kept.md'), 'utf8'), 'history\n');
@@ -142,7 +159,7 @@ function stubInstall(calls) {
     assert.equal(calls[1][0], 'add');
     assert.equal(calls[1][calls[1].indexOf('--harness') + 1], 'claude');
     assert.equal(calls[1].includes('--guidance'), true);
-    assert.match(result.out, /kept: launch.json, settings.json, board.md/);
+    assert.match(result.out, /kept: launch.json, settings.json, _artifacts\/board.md/);
   });
 
   await test('update removes a unit Ignite installed that is no longer a standard unit', async () => {

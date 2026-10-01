@@ -582,6 +582,50 @@ test('held owner input is retained and not an unhold', (store) => {
   assert.equal(next.kind, 'owner');
 });
 
+test('schedule subjects persist and older databases acquire a nullable subject column', (store, ctx) => {
+  conv(store);
+  store.upsertSchedule({ id: 'old', conversationKey: 'T1:C1:1.1', cadence: 'every:1h', timezone: 'fixed', note: 'kept', nextAt: 1000 });
+  store.db.exec('ALTER TABLE schedules DROP COLUMN subject');
+  let reopened = ctx.reopen();
+  assert.equal(reopened.getSchedule('old').subject, null);
+  assert.equal(reopened.getSchedule('old').note, 'kept');
+  assert.equal(reopened.getSchedule('old').next_at, 1000);
+  reopened.upsertSchedule({ id: 'new', conversationKey: 'T1:C1:1.1', cadence: 'every:1h', timezone: 'fixed', subject: 'Résumé review', nextAt: 2000 });
+  reopened = ctx.reopen();
+  assert.equal(reopened.getSchedule('new').subject, 'Résumé review');
+  assert.equal(reopened.listSchedules().find((row) => row.id === 'old').subject, null);
+  assert.equal(reopened.dueSchedules(3000).find((row) => row.id === 'new').subject, 'Résumé review');
+});
+
+test('lastOwnerReply excludes root, other threads, non-owner and synthetic rows', (store) => {
+  conv(store);
+  conv(store, 'T1:C2:1.1', { channel: 'C2' });
+  conv(store, 'T1:C1:3.3', { rootTs: '3.3' });
+  assert.equal(store.lastOwnerReply('C1', '1.1', 5000), null);
+  store.recordMessage('T1:C1:1.1', { id: 'root', role: 'owner', ts: '1.1', createdAt: 1000 });
+  store.recordMessage('T1:C1:1.1', { id: 'reply', role: 'owner', ts: '2.2', createdAt: 2000 });
+  for (const [id, role, ts, key] of [
+    ['assistant', 'assistant', '4.4', 'T1:C1:1.1'], ['other', 'user', '4.5', 'T1:C1:1.1'],
+    ['synthetic', 'owner', null, 'T1:C1:1.1'], ['channel', 'owner', '4.6', 'T1:C2:1.1'],
+    ['thread', 'owner', '4.7', 'T1:C1:3.3'],
+  ]) store.recordMessage(key, { id, role, ts, createdAt: 4000 });
+  store.recordMessage('T1:C1:1.1', { id: 'future', role: 'owner', ts: '6.6', createdAt: 6000 });
+  assert.equal(store.lastOwnerReply('C1', '1.1', 5000), 2000);
+  store.recordMessage('T1:C1:1.1', { id: 'latest', role: 'owner', ts: '5.5', createdAt: 5000 });
+  assert.equal(store.lastOwnerReply('C1', '1.1', 5000), 5000);
+});
+
+test('pendingScheduleIds retains a running wake and drops completed wakes', (store) => {
+  conv(store);
+  assert.deepEqual(store.pendingScheduleIds(), []);
+  store.enqueueScheduleWake({ id: 'wake', conversationKey: 'T1:C1:1.1', scheduleId: 'one-shot' });
+  assert.deepEqual(store.pendingScheduleIds(), ['one-shot']);
+  const claim = store.claimNext();
+  assert.deepEqual(store.pendingScheduleIds(), ['one-shot']);
+  finish(store, claim, 'completed');
+  assert.deepEqual(store.pendingScheduleIds(), []);
+});
+
 async function runAll() {
   for (const [name, fn] of pending) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-store-'));

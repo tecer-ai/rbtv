@@ -2,7 +2,7 @@
 
 // API
 // runOnce(slug, deps) → one claimed turn, or a refusal / empty claim.
-//   deps: { home, store, slack?, audio?, castCmd?, castEnv?, historyWindow?, now? }
+//   deps: { home, store, slack?, audio?, castCmd?, castEnv?, historyWindow?, now?, log? }
 //   Refuses when liveRun() matches a live pid. A running row that is not live is failRun'd
 //   (recovery) before the next claim. cast turn cwd is realpath(home). Same harness + stored
 //   session id resumes that id; a harness change or no id starts a new session and the prompt
@@ -15,11 +15,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { procStart } = require('./store.js');
-const { composeTurn, readBoard } = require('./prompt.js');
+const { composeTurn, readTurnMemory } = require('./prompt.js');
 const { DEFAULT_HISTORY_WINDOW, historyPath, listAll, writeHistory } = require('./history.js');
 
 const AUDIO_EXT = new Set(['mp3', 'm4a', 'wav', 'ogg', 'webm', 'flac', 'aac', 'mpeg', 'mp4', 'mpga']);
 const DISPOSITIONS = new Set(['completed', 'continue', 'waiting_owner', 'waiting_workers', 'stopped']);
+const TRANSCRIPTION_FAILURE_REPLY = 'I could not transcribe that voice note; please send it as text.';
 
 function clock(deps) {
   return deps.now ? deps.now() : Date.now();
@@ -171,7 +172,6 @@ async function preprocess(claim, deps, dir) {
   if (payload.text) parts.push(payload.text);
   if (transcripts.length) parts.push(transcripts.join('\n'));
   const transcriptError = failures.length ? `Transcription failed: ${failures.join('; ')}` : null;
-  if (transcriptError) parts.push(transcriptError);
   return {
     text: parts.join('\n').trim(),
     files: downloaded.map((item) => item.path).filter(Boolean),
@@ -179,6 +179,10 @@ async function preprocess(claim, deps, dir) {
     audioAttempted: audioMeta.length > 0,
     transcripts,
   };
+}
+
+function logTranscriptionFailure(deps, message) {
+  if (typeof deps.log === 'function') deps.log({ event: 'transcription-failed', message });
 }
 
 function waitClose(child) {
@@ -238,7 +242,7 @@ async function execute(slug, claim, deps) {
   fs.mkdirSync(dir, { recursive: true });
   const prepared = await preprocess(claim, deps, path.join(dir, 'files'));
   const conv = store.getConversation(claim.conversation_key);
-  if (prepared.transcripts?.length || prepared.transcriptError) {
+  if (prepared.transcripts?.length) {
     store.recordMessage(claim.conversation_key, {
       id: `used:${claim.runId}`,
       role: 'owner',
@@ -248,21 +252,23 @@ async function execute(slug, claim, deps) {
   }
   const noLaunch = prepared.audioAttempted && !prepared.transcripts?.length && !claim.payload?.text && prepared.transcriptError;
   if (noLaunch) {
+    logTranscriptionFailure(deps, prepared.transcriptError);
     await eyes(deps.slack, conv.channel, claim.payload?.ts);
     const work = commit(store, claim, {
-      output: prepared.transcriptError,
+      output: TRANSCRIPTION_FAILURE_REPLY,
       disposition: 'completed',
       summary: 'transcription failed',
-      outbox: [{ id: `transcript:${claim.id}`, text: prepared.transcriptError, audio: false, files: [] }],
+      outbox: [{ id: `transcript:${claim.id}`, text: TRANSCRIPTION_FAILURE_REPLY, audio: false, files: [] }],
     });
     writeHistory(home, store, claim.conversation_key);
     return { slug, claimed: true, launched: false, disposition: 'completed', work, runId: claim.runId };
   }
   if (prepared.transcriptError) {
+    logTranscriptionFailure(deps, prepared.transcriptError);
     store.enqueueOutbox({
       id: `transcript:${claim.id}`,
       conversationKey: claim.conversation_key,
-      payload: { text: prepared.transcriptError, audio: false, files: [] },
+      payload: { text: TRANSCRIPTION_FAILURE_REPLY, audio: false, files: [] },
     });
   }
 
@@ -276,8 +282,23 @@ async function execute(slug, claim, deps) {
   const requestPath = path.join(dir, 'request.json');
   const launcherPath = path.join(dir, 'launcher.json');
   writeHistory(home, store, claim.conversation_key);
+  const memory = readTurnMemory(home, home, store, clock(deps));
+  if (memory.alerts.length) {
+    const text = memory.alerts.join('\n');
+    try {
+      store.enqueueOutbox({ id: `memory:${claim.runId}`, conversationKey: claim.conversation_key,
+        payload: { text, audio: false, files: [] } });
+    } catch {
+      // Alert delivery must not turn a recoverable memory failure into a hold.
+      memory.memory.push({ path: 'Memory alerts', text: `${text}\nOwner alert could not be queued; tell the owner.` });
+      if (typeof deps.log === 'function') {
+        try { deps.log({ event: 'memory-alert-failed', message: text }); } catch { /* Keep the turn runnable. */ }
+      }
+    }
+  }
   const prompt = composeTurn({
-    board: readBoard(home),
+    board: memory.board,
+    memory: memory.memory,
     work: claim.work_id ? store.getWork(claim.work_id) : null,
     inputs: [{ role: claim.kind, text: prepared.text, files: prepared.files }],
     recent,

@@ -3,6 +3,8 @@
 // parseBoard(text) checks the four-section form and caps; throws on refusal.
 // writeBoard(file, text) changes subjects and watch-outs, preserving runtime fields.
 // closeSubject(file, title, outcome, { agent, thread?, now? }) records a closure.
+// boardPath(home) / migrateBoard(home) — canonical path; copy a legacy board only if absent.
+// refreshBoard(home, store, now?) regenerates Timers and linked-thread Flags.
 // All writes are checked before touching the file. No truncation or automatic pruning.
 
 const fs = require('node:fs');
@@ -139,6 +141,98 @@ function readBoard(file) {
   }
 }
 
+function boardPath(home) {
+  return path.join(home, '_artifacts', 'board.md');
+}
+
+function migrateBoard(home) {
+  const file = boardPath(home);
+  const legacy = path.join(home, 'board.md');
+  if (!fs.existsSync(file) && fs.existsSync(legacy)) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    try {
+      fs.copyFileSync(legacy, file, fs.constants.COPYFILE_EXCL);
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+    }
+  }
+  return file;
+}
+
+function timerCell(value) {
+  return String(value ?? '').replace(/&/g, '&amp;').replace(/\|/g, '&#124;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r?\n/g, '<br>').trim() || 'none';
+}
+
+function timerRows(schedules, pending) {
+  return ['| Fires | Timer | For | Subject |', '|---|---|---|---|', ...schedules
+    .filter((row) => (row.enabled || pending.has(row.id)) && row.next_at != null)
+    .sort((a, b) => a.next_at - b.next_at || a.id.localeCompare(b.id))
+    .map((row) => {
+      // Elapsed intervals and numeric offsets have no IANA zone; display their instant in UTC.
+      const zone = row.cadence.startsWith('cron:') ? row.timezone : 'UTC';
+      const parts = {};
+      for (const part of new Intl.DateTimeFormat('en-US', {
+        timeZone: zone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit',
+      }).formatToParts(new Date(row.next_at))) parts[part.type] = part.value;
+      const fire = `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute} ${zone}`;
+      return `| ${fire} | ${timerCell(row.id)} | ${timerCell(row.note)} | ${timerCell(row.subject)} |`;
+    })];
+}
+
+function threadFlags(subject, store, now) {
+  let latestReply = null;
+  let latestRoot = null;
+  if (subject.threads === 'none') return subject.flags;
+  for (const link of subject.threads.split(' · ')) {
+    const url = new URL(link.match(LINK)[1]);
+    if (url.hostname !== 'slack.com' && !url.hostname.endsWith('.slack.com')) continue;
+    const match = url.pathname.match(/^\/archives\/([A-Z0-9]+)\/p(\d+)$/);
+    if (!match || match[2].length <= 6) continue;
+    const rootTs = url.searchParams.get('thread_ts') || `${match[2].slice(0, -6)}.${match[2].slice(-6)}`;
+    if (!/^\d+\.\d+$/.test(rootTs)) continue;
+    const root = Math.round(Number(rootTs) * 1000);
+    if (!Number.isFinite(root) || root > now) continue;
+    latestRoot = Math.max(latestRoot ?? root, root);
+    const reply = store.lastOwnerReply(match[1], rootTs, now);
+    if (reply != null) latestReply = Math.max(latestReply ?? reply, reply);
+  }
+  const since = latestReply ?? latestRoot;
+  if (since == null) return subject.flags;
+  const date = new Date(since).toISOString().slice(0, 10);
+  if (now - since >= 7 * 86_400_000) return `idle since ${date}`;
+  return latestReply == null ? 'none' : `answered ${date}`;
+}
+
+function renderBoard(text, store, now = Date.now()) {
+  const board = parseBoard(text);
+  const lines = board.lines.slice();
+  for (const subject of board.subjects) {
+    const index = lines.findIndex((line, i) => i > subject.start && i < subject.end && line.startsWith('- Flags: '));
+    lines[index] = `- Flags: ${threadFlags(subject, store, now)}`;
+  }
+  const section = board.sections[2];
+  lines.splice(section.start + 1, section.end - section.start - 1, '',
+    ...timerRows(store.listSchedules(), new Set(store.pendingScheduleIds())), '');
+  const rendered = lines.join(text.includes('\r\n') ? '\r\n' : '\n');
+  parseBoard(rendered);
+  return rendered;
+}
+
+function refreshBoard(home, store, now = Date.now()) {
+  const file = migrateBoard(home);
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); }
+  catch (error) {
+    // Installation creates the board. A tick must not conceal a deleted board
+    // with an empty one before turn-start memory recovery can load HEAD/alert.
+    if (error.code === 'ENOENT') return { path: file, changed: false };
+    throw error;
+  }
+  return saveBoard(file, renderBoard(text, store, now));
+}
+
 function saveBoard(file, text) {
   parseBoard(text);
   const bytes = Buffer.from(text, 'utf8');
@@ -193,4 +287,4 @@ function closeSubject(file, title, outcome, { agent, thread = null, now = Date.n
   return { ...saveBoard(file, lines.join(text.includes('\r\n') ? '\r\n' : '\n')), subject: title };
 }
 
-module.exports = { CAPS, EMPTY_BOARD, parseBoard, writeBoard, closeSubject };
+module.exports = { CAPS, EMPTY_BOARD, parseBoard, writeBoard, closeSubject, boardPath, migrateBoard, refreshBoard, renderBoard };

@@ -4,7 +4,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { CAPS, EMPTY_BOARD, parseBoard, writeBoard, closeSubject } = require('./board.js');
+const { CAPS, EMPTY_BOARD, parseBoard, writeBoard, closeSubject, boardPath, migrateBoard, refreshBoard, renderBoard } = require('./board.js');
+const { Store } = require('./store.js');
 
 const failures = [];
 let passed = 0;
@@ -263,6 +264,160 @@ test('invalid close arguments and repeat closures leave the board unchanged', ()
     const closed = fs.readFileSync(file);
     assert.throws(() => closeSubject(file, 'Review', 'Done', { agent: 'sample', now: NOW }), /not found/);
     assert.deepEqual(fs.readFileSync(file), closed);
+  });
+});
+
+test('legacy copy preserves UTF-8 and CRLF bytes and never replaces the canonical board', () => {
+  withBoard('legacy café\r\n', (legacy) => {
+    const home = path.dirname(legacy);
+    const file = migrateBoard(home);
+    assert.equal(file, boardPath(home));
+    assert.deepEqual(fs.readFileSync(file), fs.readFileSync(legacy));
+    fs.writeFileSync(legacy, 'old path changed\n', 'utf8');
+    assert.equal(migrateBoard(home), file);
+    assert.equal(fs.readFileSync(file, 'utf8'), 'legacy café\r\n');
+    assert.equal(fs.readFileSync(legacy, 'utf8'), 'old path changed\n');
+  });
+});
+
+function runtimeBoard(text, fn) {
+  withBoard(null, (legacy) => {
+    const home = path.dirname(legacy);
+    const file = boardPath(home);
+    fs.mkdirSync(path.dirname(file));
+    fs.writeFileSync(file, text, 'utf8');
+    const store = new Store(path.join(home, 'state.sqlite'));
+    try { fn({ home, file, store }); } finally { store.close(); }
+  });
+}
+
+test('Timers reflect enabled schedules, IANA local time, UTC offsets, escaped notes and subject', () => {
+  runtimeBoard(FILLED_EXAMPLE.replace(/\n/g, '\r\n'), ({ home, file, store }) => {
+    const key = 'T1:C1:1.000000';
+    store.upsertConversation({ key, agent: 'sample', workspace: 'T1', channel: 'C1', rootTs: '1.000000' });
+    const put = (id, extra) => store.upsertSchedule({ id, conversationKey: key,
+      cadence: 'every:1h', timezone: 'fixed', nextAt: NOW, note: 'Review', ...extra });
+    put('cron', { cadence: 'cron:0 8 * * *', timezone: 'America/New_York', subject: 'Conference talk draft' });
+    put('once', { cadence: 'at:2026-10-03T09:00:00-03:00', timezone: '-03:00', note: 'café | résumé\r\nnext' });
+    put('interval', {});
+    put('disabled', { enabled: false });
+    put('no-next', { nextAt: null });
+    refreshBoard(home, store, NOW);
+    const text = fs.readFileSync(file, 'utf8');
+    const parsed = parseBoard(text);
+    assert.deepEqual(parsed.timers, ['| Fires | Timer | For | Subject |', '|---|---|---|---|',
+      '| 2026-10-03 08:00 America/New_York | cron | Review | Conference talk draft |',
+      '| 2026-10-03 12:00 UTC | interval | Review | none |',
+      '| 2026-10-03 12:00 UTC | once | café &#124; résumé<br>next | none |']);
+    assert.deepEqual(parsed.subjects, parseBoard(FILLED_EXAMPLE).subjects);
+    assert.deepEqual(parsed.watchOuts, parseBoard(FILLED_EXAMPLE).watchOuts);
+    assert.deepEqual(parsed.closed, parseBoard(FILLED_EXAMPLE).closed);
+    assert.doesNotMatch(text, /(?<!\r)\n/);
+    assert.equal(refreshBoard(home, store, NOW).changed, false);
+    store.deleteSchedule('cron');
+    refreshBoard(home, store, NOW);
+    assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /\| cron \|/);
+  });
+});
+
+test('runtime timers remain outside the cap and invalid refresh leaves every byte intact', () => {
+  runtimeBoard(EMPTY_BOARD, ({ home, file, store }) => {
+    store.upsertConversation({ key: 'k', agent: 'sample', workspace: 'T1', channel: 'C1' });
+    for (let i = 0; i < 100; i++) store.upsertSchedule({ id: `timer-${i}`, conversationKey: 'k',
+      cadence: 'every:1h', timezone: 'fixed', nextAt: NOW });
+    refreshBoard(home, store, NOW);
+    assert.equal(parseBoard(fs.readFileSync(file, 'utf8')).timers.length, 102);
+    fs.writeFileSync(file, 'malformed café\r\n', 'utf8');
+    const before = fs.readFileSync(file);
+    assert.throws(() => refreshBoard(home, store, NOW), /board refused/);
+    assert.deepEqual(fs.readFileSync(file), before);
+  });
+});
+
+test('spent one-shot stays on the board while its wake is pending or running', () => {
+  runtimeBoard(EMPTY_BOARD, ({ home, file, store }) => {
+    store.upsertConversation({ key: 'k', agent: 'sample', workspace: 'T1', channel: 'C1' });
+    store.upsertSchedule({ id: 'reminder', conversationKey: 'k', cadence: 'at:2026-10-03T12:00:00Z',
+      timezone: 'Z', nextAt: NOW, enabled: false, note: 'Send the draft' });
+    store.enqueueScheduleWake({ id: 'wake', conversationKey: 'k', scheduleId: 'reminder' });
+    refreshBoard(home, store, NOW);
+    assert.match(fs.readFileSync(file, 'utf8'), /reminder \| Send the draft/);
+    const claim = store.claimNext();
+    refreshBoard(home, store, NOW);
+    assert.match(fs.readFileSync(file, 'utf8'), /reminder \| Send the draft/);
+    store.finishRun(claim.runId, claim.nonce, { invocationNonce: claim.nonce, output: '{}', disposition: 'completed' });
+    refreshBoard(home, store, NOW);
+    assert.equal(parseBoard(fs.readFileSync(file, 'utf8')).timers.length, 2);
+  });
+});
+
+test('linked owner reply becomes answered then idle at seven days, and a new reply clears idle', () => {
+  const root = NOW - 10 * 86_400_000;
+  const rootTs = `${root / 1000}.000000`;
+  const link = `[review](https://example.slack.com/archives/C1/p${rootTs.replace('.', '')})`;
+  const initial = board({ subjects: [subject('Review').replace('Threads: none', `Threads: ${link}`), subject('Threadless')],
+    watchOuts: ['- Keep this. (2026-10-01 · sample)'], closed: closedRows(1) });
+  runtimeBoard(initial, ({ home, file, store }) => {
+    const key = `T1:C1:${rootTs}`;
+    store.upsertConversation({ key, agent: 'sample', workspace: 'T1', channel: 'C1', rootTs });
+    const reply = NOW - 86_400_000;
+    store.recordMessage(key, { id: 'reply', role: 'owner', ts: `${reply / 1000}.000000`, createdAt: reply });
+    const flags = () => parseBoard(fs.readFileSync(file, 'utf8')).subjects.map((row) => row.flags);
+    refreshBoard(home, store, NOW);
+    assert.deepEqual(flags(), ['answered 2026-10-02', 'none']);
+    refreshBoard(home, store, reply + 7 * 86_400_000 - 1);
+    assert.equal(flags()[0], 'answered 2026-10-02');
+    refreshBoard(home, store, reply + 7 * 86_400_000);
+    assert.equal(flags()[0], 'idle since 2026-10-02');
+    const later = reply + 8 * 86_400_000;
+    store.recordMessage(key, { id: 'reply2', role: 'owner', ts: `${later / 1000}.000000`, createdAt: later });
+    refreshBoard(home, store, later);
+    assert.equal(flags()[0], 'answered 2026-10-10');
+    const parsed = parseBoard(fs.readFileSync(file, 'utf8'));
+    assert.equal(parsed.subjects.length, 2);
+    assert.deepEqual(parsed.watchOuts, parseBoard(initial).watchOuts);
+    assert.deepEqual(parsed.closed, parseBoard(initial).closed);
+    assert.throws(() => writeBoard(file, fs.readFileSync(file, 'utf8').replace('answered 2026-10-10', 'none')), /Flags/);
+  });
+});
+
+test('without replies idle starts at the linked root; query links and multiple threads use the latest reply', () => {
+  const root = NOW - 8 * 86_400_000;
+  const rootTs = `${root / 1000}.000000`;
+  const recentRoot = `${(NOW - 86_400_000) / 1000}.000000`;
+  const initial = board({ subjects: [subject('Review').replace('Threads: none',
+    `Threads: [old](https://example.slack.com/archives/C1/p${rootTs.replace('.', '')}) · [reply](https://example.slack.com/archives/C2/p${recentRoot.replace('.', '')}?thread_ts=${rootTs})`)] });
+  runtimeBoard(initial, ({ home, file, store }) => {
+    for (const channel of ['C1', 'C2']) store.upsertConversation({ key: channel, agent: 'sample', workspace: 'T1', channel, rootTs });
+    store.recordMessage('C1', { id: 'root', role: 'owner', ts: rootTs, createdAt: root });
+    store.recordMessage('C1', { id: 'bot', role: 'assistant', ts: recentRoot, createdAt: NOW });
+    store.recordMessage('C1', { id: 'synthetic', role: 'owner', createdAt: NOW });
+    refreshBoard(home, store, NOW);
+    assert.equal(parseBoard(fs.readFileSync(file, 'utf8')).subjects[0].flags, 'idle since 2026-09-25');
+    store.recordMessage('C1', { id: 'old-reply', role: 'owner', ts: '2.000000', createdAt: NOW - 86_400_000 });
+    store.recordMessage('C2', { id: 'latest-reply', role: 'owner', ts: recentRoot, createdAt: NOW });
+    refreshBoard(home, store, NOW);
+    assert.equal(parseBoard(fs.readFileSync(file, 'utf8')).subjects[0].flags, 'answered 2026-10-03');
+  });
+});
+
+test('renderBoard refreshes checked recovered text without any filesystem write', () => {
+  runtimeBoard('broken working copy\r\n', ({ file, store }) => {
+    const before = fs.readFileSync(file);
+    const result = renderBoard(FILLED_EXAMPLE.replace(/\n/g, '\r\n'), store, NOW);
+    assert.equal(parseBoard(result).subjects.length, 2);
+    assert.equal(parseBoard(result).timers.length, 2);
+    assert.ok(result.includes('\r\n'));
+    assert.deepEqual(fs.readFileSync(file), before);
+    assert.throws(() => renderBoard('broken', store, NOW), /board refused/);
+  });
+});
+
+test('a runtime refresh leaves a missing board absent for turn-start HEAD recovery', () => {
+  runtimeBoard(EMPTY_BOARD, ({ home, file, store }) => {
+    fs.unlinkSync(file);
+    assert.deepEqual(refreshBoard(home, store, NOW), { path: file, changed: false });
+    assert.equal(fs.existsSync(file), false);
   });
 });
 
