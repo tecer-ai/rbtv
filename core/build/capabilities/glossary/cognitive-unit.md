@@ -6,5 +6,5 @@ Cognitive units may:
 
 - Form an agent's [prompt](prompt.md), such as a [role](role.md) or [procedure](procedure.md).
 - Be exposed as a [skill](skill.md), [rule](rule.md), or [command](command.md).
-- Be kept as a [capability](capability.md) when several of those use them.
+- Be kept as a [capability](capability.md) that a skill or command routes to.
 - Arrive with a task as its [scope](scope.md) and [done contract](done-contract.md).

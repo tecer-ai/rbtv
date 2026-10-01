@@ -4,7 +4,7 @@ A [skill](../glossary/skill.md) is a [cognitive unit](../glossary/cognitive-unit
 
 ## Purpose
 
-It holds instructions an agent should load only when it judges them relevant. Without that choice, the instructions are missing on the tasks that need them, or they crowd every task. Which kind of unit to build is in [Choosing what to build](choosing-what-to-build.md).
+It holds instructions an agent should load only when it judges them relevant. Without that choice, the instructions are missing on the tasks that need them, or they crowd every task. Follow the [entry point and capabilities shape](capability.md) and the choice in [Choosing what to build](choosing-what-to-build.md).
 
 ## What good looks like
 

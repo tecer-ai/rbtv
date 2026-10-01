@@ -27,7 +27,7 @@ Find the cognitive units it needs with the installer's non-interactive discovery
 
 Write the description next, naming the triggers and the near-miss.
 
-Write the prompt only as [role](role.md), with its [persona](persona.md) when needed, [procedure](procedure.md), and [constraints](constraints.md). Leave this task's goal, [scope](scope.md), and [done contract](done-contract.md) out; they arrive with each task.
+Write the prompt only as [role](role.md), with its [persona](persona.md) when needed, [procedure](procedure.md), and [constraints](constraints.md). The agent file holds no capabilities: it reaches knowledge through selected skills and commands, or, when its whole work is one domain, routes to that domain's capabilities. Leave this task's goal, [scope](scope.md), and [done contract](done-contract.md) out; they arrive with each task.
 
 ## Traps
 

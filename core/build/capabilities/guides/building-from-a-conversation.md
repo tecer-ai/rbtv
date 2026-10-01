@@ -13,7 +13,7 @@ Before asking anything, find in the conversation:
 
 ## 2. Choose the kind, and where it goes
 
-The user's word ("skill", "command") is a hint, not the choice. Find whether an existing unit already covers the process (`rbtv install list`, `search`, `show`); if one does, change it instead. Otherwise choose the kind of unit and its component, including rbtv or the mirror, with [Choosing what to build](choosing-what-to-build.md). Say which kind you chose and why.
+The user's word ("skill", "command") is a hint, not the choice. Find whether an existing unit already covers the process (`rbtv install list`, `search`, `show`); if one does, change it instead. Otherwise choose the kind of unit and its component, including rbtv or the mirror, with [Choosing what to build](choosing-what-to-build.md), and follow the [entry point and capabilities shape](capability.md) so lessons become capability pages, such as principles, rather than paragraphs in one large unit. Say which kind you chose and why.
 
 ## 3. Interview in rounds
 

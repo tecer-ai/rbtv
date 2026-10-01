@@ -20,7 +20,9 @@ Build in rbtv when the unit is general: any user could use it, and it contains n
 
 ## 3. Choose what to build and expose
 
-Build a [capability](../glossary/capability.md) when a second [skill](../glossary/skill.md), [rule](../glossary/rule.md), [command](../glossary/command.md), or [agent](../glossary/agent.md) needs the same content. If only one needs it, keep the content in that unit. A capability is never exposed itself. Expose an entry point when an agent or a human needs to discover or invoke it on its own.
+Build a [skill](../glossary/skill.md) or [command](../glossary/command.md) as an entry point plus [capabilities](../glossary/capability.md) by default: the entry point holds the procedure and routes to the substance. A unit whose whole content is one short procedure stays one file. See [Building a capability](capability.md) for the shape.
+
+Expose as few entry points as possible. Nest many capabilities, usually most or all of a component's, under one skill or command that routes to them; several short commands become capabilities under one skill. Use this whenever possible: the agent chooses among fewer entry points, then chooses what to open inside one, so it reads less up front ([Progressive disclosure](../principles/progressive-disclosure.md)). Updating one capability keeps every unit that routes to it current.
 
 Before any file uses a new rbtv term, write its glossary entry ([Terminology is king](../principles/terminology-is-king.md)).
 

@@ -22,7 +22,7 @@ It holds an instruction that applies on every task of every agent that receives 
 
 Write the description for the person choosing which rules an agent receives.
 
-The agent receives the full instruction, and there is no second load. Keep standing behavior only. Put detail one step needs in a file the rule points to, and name the moment to open it.
+The agent receives the full instruction, and there is no second load. Keep standing behavior only, with all its content in its body. A rule may route to capabilities only when an agent's whole work is that domain; the agent's own prompt may route instead.
 
 ## Traps
 
