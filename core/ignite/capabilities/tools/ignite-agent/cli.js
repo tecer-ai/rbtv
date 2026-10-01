@@ -132,6 +132,8 @@ dreamer run [--workspace <path>]
   same lock the nightly path takes. A held lock prints a busy result and does
   not start a second run.
   A digest or failure notice is queued on the direct-message agent's outbox.
+  digestQueued reports a queued digest; noticeQueued reports a queued failure
+  notice. Both are false for quiet, busy, or setup-failure results.
   The running daemon delivers it. Reported conflicts are saved only after
   delivery is confirmed. This command does not confirm delivery, so it leaves
   new conflicts unsaved, the same as an unconfirmed nightly digest.
@@ -711,7 +713,7 @@ async function cmdDreamer(rest, flags, deps) {
   } catch (error) {
     result = {
       ok: false, busy: false, quiet: false, changed: false, alert: null,
-      digestQueued: false, delivered: false, conflictsSaved: false, error: error.message,
+      digestQueued: false, noticeQueued: false, delivered: false, conflictsSaved: false, error: error.message,
     };
   }
   const payload = {

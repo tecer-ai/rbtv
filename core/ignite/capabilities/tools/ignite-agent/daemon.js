@@ -264,7 +264,7 @@ async function enqueueDreamerNotice({ config, openStore, text, now, slack, depsF
 function busyDreamer(error) {
   return {
     ok: false, busy: true, quiet: false, changed: false, alert: null,
-    digestQueued: false, delivered: false, conflictsSaved: false, error,
+    digestQueued: false, noticeQueued: false, delivered: false, conflictsSaved: false, error,
   };
 }
 
@@ -315,18 +315,22 @@ async function runInstalledDreamer(opts = {}) {
     } catch {
       result = { ok: false, alert: 'Dreamer failed.' };
     }
-    log({ event: 'dreamer', ok: Boolean(result?.ok), changed: Boolean(result?.changed), alert: Boolean(result?.alert) });
+    log({ event: 'dreamer', ok: Boolean(result?.ok), changed: Boolean(result?.changed), alert: Boolean(result?.alert),
+      ...(result?.alert ? { message: result.alert } : {}) });
     unlock();
     let digestQueued = false;
+    let noticeQueued = false;
     let delivered = false;
     let conflictsSaved = false;
     let notificationError = null;
     try {
       if (!result?.ok || result.alert) {
-        await enqueueDreamerNotice({
+        const sent = await enqueueDreamerNotice({
           config, openStore, text: `Memory alert: ${result?.alert || 'Dreamer failed.'}`,
           now: stamp(), slack: opts.slack, depsFor: opts.depsFor,
         });
+        noticeQueued = Boolean(sent.queued);
+        delivered = Boolean(sent.delivered);
       } else if (result.digest?.text) {
         const sent = await enqueueDreamerNotice({
           config, openStore, text: result.digest.text, now: stamp(), slack: opts.slack, depsFor: opts.depsFor,
@@ -351,7 +355,7 @@ async function runInstalledDreamer(opts = {}) {
       ok: Boolean(result?.ok && !notificationError), busy: false,
       quiet: Boolean(!needed && result?.ok && !result.alert),
       changed: Boolean(result?.changed), alert: result?.alert || null,
-      digestQueued, delivered, conflictsSaved, error: notificationError,
+      digestQueued, noticeQueued, delivered, conflictsSaved, error: notificationError,
     };
   } finally {
     unlock();
@@ -456,11 +460,10 @@ async function startLocked(opts, workspace, held) {
   }
 
   async function notifyDreamer(text) {
-    const sent = await enqueueDreamerNotice({
+    return enqueueDreamerNotice({
       config, openStore: getStore, text, now: clock(), slack,
       depsFor: (slug, store) => depsFor(slug, store),
     });
-    return sent.delivered;
   }
 
   function syncDreamerEnabled() {
@@ -511,8 +514,9 @@ async function startLocked(opts, workspace, held) {
     if (watchdogAlertAt != null && now - watchdogAlertAt < DREAMER_WATCHDOG_MS) return;
     watchdogAlertAt = now;
     try {
-      await notifyDreamer('Memory alert: Dreamer has not completed a successful run in 48 hours.');
-      log({ event: 'dreamer-watchdog', lastSuccessAt: last });
+      const sent = await notifyDreamer('Memory alert: Dreamer has not completed a successful run in 48 hours.');
+      log({ event: 'dreamer-watchdog', lastSuccessAt: last,
+        digestQueued: false, noticeQueued: Boolean(sent.queued), delivered: Boolean(sent.delivered) });
     } catch (error) {
       log({ event: 'dreamer-alert', message: error.message });
     }

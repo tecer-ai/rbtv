@@ -908,10 +908,10 @@ test('a subject topic without mirrored thread metadata is refused', async (f) =>
   assert.equal(result.ok, false); assert.match(result.alert, /require Threads/);
 });
 
-test('cast adapter uses opencode grok-4.7 effort 3 in a disposable folder and parses JSON', async (f) => {
+test('cast adapter defaults to codex gpt-6-sol effort 3 in a disposable folder and parses JSON', async (f) => {
   let temp;
   const result = await castProposal({ agent: 'master', messages: [], files: {} }, { command: 'cast-test.js', run: async (command, args, opts) => {
-    assert.equal(command, process.execPath); assert.deepEqual(args.slice(0, 4), [path.resolve('cast-test.js'), 'opencode', 'grok-4.7', '3']);
+    assert.equal(command, process.execPath); assert.deepEqual(args.slice(0, 4), [path.resolve('cast-test.js'), 'codex', 'gpt-6-sol', '3']);
     temp = args[4]; assert.equal(opts.cwd, temp); assert.equal(args[5], '-f'); assert.equal(opts.encoding, 'utf8');
     const prompt = fs.readFileSync(args[6], 'utf8'); assert.match(prompt, /Only owner messages and explicit remember lines in inbox.md are evidence/); assert.match(prompt, /never use tools or edit files/);
     assert.match(prompt, /cite its exact line in sources on both filing operations/);
@@ -943,7 +943,7 @@ test('Windows cast shim resolves to Node without shell parsing or losing path ar
   let launched = false;
   const result = await castProposal({}, { command: 'cast', platform: 'win32', env: { PATH: f.workspace }, run: async (command, args, opts) => {
     launched = true; assert.equal(command, process.execPath); assert.equal(args[0], entry);
-    assert.deepEqual(args.slice(1, 4), ['opencode', 'grok-4.7', '3']); assert.equal(opts.shell, undefined);
+    assert.deepEqual(args.slice(1, 4), ['codex', 'gpt-6-sol', '3']); assert.equal(opts.shell, undefined);
     return { stdout: JSON.stringify(proposal()) };
   } });
   assert.ok(launched); assert.deepEqual(result, proposal());
@@ -954,15 +954,64 @@ test('runner can open and close its own SQLite stores', async (f) => {
   assert.equal(result.ok, true, result.alert); assert.equal(getState(f.stores.get('master')).lastSuccessAt, NOW);
 });
 
-test('default runner executes configured cast command and applies its JSON through the real adapter', async (f) => {
+for (const model of [undefined, { harness: 'opencode', model: 'example/model-v1', effort: 2 }]) test(`runner executes configured cast and model (${model ? 'override' : 'default'}) through the real adapter`, async (f) => {
   f.message(); const name = `${ROOT}knowledge/facts.md`;
   const output = proposal({ op: 'add', path: name, text: knowledge(fact('Confirmed by owner.')),
     sources: [1], reason: 'owner', explanation: 'Owner confirmed this fact.' });
-  f.write('fake cast.js', `const assert = require('node:assert/strict');\nassert.deepEqual(process.argv.slice(2,5), ['opencode','grok-4.7','3']);\nprocess.stdout.write(${JSON.stringify(JSON.stringify(output))});\n`);
+  const args = model ? [model.harness, model.model, String(model.effort)] : ['codex', 'gpt-6-sol', '3'];
+  f.write('fake cast.js', `const assert = require('node:assert/strict');\nassert.deepEqual(process.argv.slice(2,5), ${JSON.stringify(args)});\nprocess.stdout.write(${JSON.stringify(JSON.stringify(output))});\n`);
   f.config.tools.cast = path.join(f.workspace, 'fake cast.js');
+  f.config.dreamer = { model };
   const result = await f.run(undefined);
   assert.equal(result.ok, true, result.alert); assert.equal(f.read(name), output.operations[0].text);
   assert.equal(f.git('show', '--pretty=format:', '--name-only', 'HEAD'), name);
+});
+
+test('failed cast reports only a category and keeps cursor, success and memory unchanged', async (f) => {
+  f.message(); const before = getState(f.stores.get('master')); const head = f.git('rev-parse', 'HEAD');
+  const stderr = 'old diagnostic\r\n'.repeat(20) + '\x1b[31mInsufficient credits — café\x1b[0m\r\n' + 'details '.repeat(60);
+  f.write('failed cast.js', `process.stderr.write(${JSON.stringify(stderr)}); process.exitCode = 1;\n`);
+  f.config.tools.cast = path.join(f.workspace, 'failed cast.js');
+  const result = await f.run();
+  assert.equal(result.ok, false);
+  assert.equal(result.alert, 'Dreamer failed: model out of credits or spending limit.');
+  assert.doesNotMatch(result.alert, /\x1b|\r|\n/);
+  assert.equal(result.digest, null); assert.equal(result.changed, false);
+  assert.deepEqual(getState(f.stores.get('master')), before);
+  assert.equal(f.git('rev-parse', 'HEAD'), head); assert.equal(f.git('diff', '--name-only'), '');
+});
+
+test('cast failure maps stderr to one fixed category without copying any credential shape', async (f) => {
+  const credentials = 'api_key synthetic-space-value; api_key=synthetic-equals-value; ' +
+    '"api_key": "synthetic-json-value"; Bearer synthetic-bearer-value; Basic synthetic-basic-value; ' +
+    'sk-synthetic-provider-value; xoxb-synthetic-slack-value; unlabelled-synthetic-value';
+  for (const [diagnostics, cause] of [
+    [['spending-limit', 'CREDITS', 'Insufficient balance', 'quota', 'quota 429 unauthorized'], 'model out of credits or spending limit'],
+    [['Rate limit', '429', '429 timed out 401'], 'model rate limited'],
+    [['Timed out', 'timeout', 'timed out unauthorized'], 'model timed out'],
+    [['401', '403', 'Unauthorized', 'Unauthorised', 'Invalid API key'], 'model authentication failed'],
+    [['Access denied', 'unrecognized failure'], 'model failed (exit 7)'],
+  ]) {
+    for (const diagnostic of diagnostics) {
+      const stderr = `\x1b[31m${diagnostic} — café\x1b[0m\r\n${credentials}\r\n`;
+      const result = await f.run(() => { throw Object.assign(new Error(`unsafe command ${credentials}`), { stderr, code: 7 }); });
+      assert.equal(result.ok, false);
+      assert.equal(result.alert, `Dreamer failed: ${cause}.`);
+      assert.equal(JSON.stringify(result).includes('synthetic'), false);
+    }
+  }
+});
+
+test('cast failure without stderr reports a safe exit or timeout cause', async (f) => {
+  for (const [error, cause] of [
+    [{ code: 'ENOENT' }, 'model failed (exit ENOENT)'], [{ code: 7 }, 'model failed (exit 7)'],
+    [{ killed: true, signal: 'SIGTERM' }, 'model timed out'],
+    [{ code: 'ETIMEDOUT' }, 'model timed out'],
+    [{}, 'model failed (exit unknown)'], [{ code: 'unsafe command' }, 'model failed (exit unknown)'],
+  ]) {
+    const result = await f.run(() => { throw Object.assign(new Error('unsafe command'), error); });
+    assert.equal(result.alert, `Dreamer failed: ${cause}.`);
+  }
 });
 
 (async () => {

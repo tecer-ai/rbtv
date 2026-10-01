@@ -18,6 +18,7 @@ const SLACK_KEYS = ['team', 'botUserId', 'ownerUserId', 'appTokenEnv', 'botToken
 const TOOL_KEYS = ['cast', 'stools', 'audio'];
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const DREAMER_MODEL = Object.freeze({ harness: 'codex', model: 'gpt-6-sol', effort: 3 });
 
 function configPath(workspace) {
   return path.join(workspace, '.rbtv', 'config', 'ignite', 'config.json');
@@ -68,8 +69,16 @@ function validate(raw) {
   rejectUnknown(raw.tools, TOOL_KEYS, 'tools');
   for (const key of TOOL_KEYS) reqString(raw.tools, key, `tools.${key}`);
   if (raw.dreamer !== undefined) {
-    rejectUnknown(raw.dreamer, ['enabled'], 'dreamer');
+    rejectUnknown(raw.dreamer, ['enabled', 'model'], 'dreamer');
     if (raw.dreamer.enabled !== undefined && typeof raw.dreamer.enabled !== 'boolean') throw new Error('dreamer.enabled must be a boolean');
+    if (raw.dreamer.model !== undefined) {
+      const model = raw.dreamer.model;
+      rejectUnknown(model, ['harness', 'model', 'effort'], 'dreamer.model');
+      if (!['codex', 'opencode', 'claude'].includes(model.harness)) throw new Error('dreamer.model.harness must be codex, opencode or claude');
+      const name = reqString(model, 'model', 'dreamer.model.model');
+      if (/\s/.test(name) || name.startsWith('-')) throw new Error('dreamer.model.model must be a cast model name');
+      if (!Number.isInteger(model.effort) || model.effort < 1 || model.effort > 5) throw new Error('dreamer.model.effort must be an integer 1-5');
+    }
   }
   if (raw.dmAgent !== undefined) reqSlug(raw.dmAgent, 'dmAgent');
   if (!raw.routes || typeof raw.routes !== 'object' || Array.isArray(raw.routes)) {
@@ -91,7 +100,7 @@ function loadConfig(workspace) {
     throw new Error(`cannot load Ignite config: ${error.message}`);
   }
   validate(raw);
-  return { ...raw, dreamer: { enabled: false, ...raw.dreamer }, workspace: path.resolve(workspace) };
+  return { ...raw, dreamer: { enabled: false, model: { ...DREAMER_MODEL }, ...raw.dreamer }, workspace: path.resolve(workspace) };
 }
 
 function updateConfig(workspace, change) {
@@ -102,7 +111,7 @@ function updateConfig(workspace, change) {
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
   fs.renameSync(tmp, file);
-  return { ...next, dreamer: { enabled: false, ...next.dreamer }, workspace: path.resolve(workspace) };
+  return { ...next, dreamer: { enabled: false, model: { ...DREAMER_MODEL }, ...next.dreamer }, workspace: path.resolve(workspace) };
 }
 
 function agentHome(config, slug) {
@@ -140,4 +149,4 @@ function slackToken(config, key) {
   return value;
 }
 
-module.exports = { configPath, loadConfig, updateConfig, agentHome, storePath, envValue, slackToken };
+module.exports = { configPath, loadConfig, updateConfig, agentHome, storePath, envValue, slackToken, DREAMER_MODEL };

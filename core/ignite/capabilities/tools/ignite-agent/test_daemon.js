@@ -658,6 +658,9 @@ test('a failed nightly run leaves success unchanged and a missed slot crosses th
   const prev = process.env.PATH;
   process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prev || ''}`;
   let runtime;
+  const logs = [];
+  const write = process.stdout.write;
+  process.stdout.write = (text) => { logs.push(JSON.parse(text)); return true; };
   try {
     runtime = await start({ workspace: dir, slack, socket: fakeSocket(), signals: false, now: () => now,
       tickMs: 20, sweepMs: 60_000, drainMs: 60_000,
@@ -675,12 +678,54 @@ test('a failed nightly run leaves success unchanged and a missed slot crosses th
     await new Promise((resolve) => setTimeout(resolve, 70));
     assert.equal(slack.posts.length, 2);
     assert.equal(slack.posts[1].threadTs, '9.1');
+    const watchdog = logs.find((row) => row.event === 'dreamer-watchdog');
+    assert.equal(watchdog.noticeQueued, true);
+    assert.equal(watchdog.digestQueued, false);
+    assert.equal(watchdog.delivered, true);
     assert.deepEqual(dreamerState(home), previous);
   } finally {
     process.env.PATH = prev;
     runtime?.stop('test');
+    process.stdout.write = write;
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+for (const [diagnostic, cause] of [
+  ['Insufficient credits', 'model out of credits or spending limit'],
+  ['Rate limit 429', 'model rate limited'],
+  ['Timed out', 'model timed out'],
+  ['Unauthorized 401', 'model authentication failed'],
+  ['Access denied', 'model failed (exit 1)'],
+]) for (const deliver of [false, true]) test(`cast failure (${diagnostic}) reaches the log and ${deliver ? 'delivered' : 'queued'} notice without stderr`, async () => {
+  const { dir, home } = workspace();
+  const { loadConfig } = require('./config.js');
+  const { runInstalledDreamer } = require('./daemon.js');
+  addOwnerMessage(home);
+  const previous = dreamerState(home);
+  const cast = path.join(dir, 'failed cast.js');
+  const stderr = `${diagnostic}\r\napi_key synthetic-space-value; api_key=synthetic-equals-value; ` +
+    '"api_key": "synthetic-json-value"; Bearer synthetic-bearer-value; Basic synthetic-basic-value; ' +
+    'sk-synthetic-provider-value; xoxb-synthetic-slack-value; unlabelled-synthetic-value\r\n';
+  fs.writeFileSync(cast, `process.stderr.write(${JSON.stringify(stderr)}); process.exitCode = 1;\n`, 'utf8');
+  const config = loadConfig(dir); config.tools.cast = cast;
+  const logs = []; const slack = fakeSlack();
+  try {
+    const result = await runInstalledDreamer({ config, log: (row) => logs.push(row),
+      slack: deliver ? slack : null, depsFor: () => ({ slack, home }) });
+    assert.equal(result.ok, false); assert.equal(result.digestQueued, false);
+    assert.equal(result.noticeQueued, true); assert.equal(result.delivered, deliver);
+    assert.equal(result.conflictsSaved, false); assert.equal(result.error, null);
+    assert.equal(result.alert, `Dreamer failed: ${cause}.`);
+    assert.equal(logs.find((row) => row.event === 'dreamer').message, result.alert);
+    const store = new Store(path.join(home, 'state.sqlite'));
+    try {
+      const notice = deliver ? slack.posts[0].text : store.pendingOutbox()[0].payload.text;
+      assert.equal(notice, `Memory alert: ${result.alert}`);
+      assert.equal(JSON.stringify({ result, logs, notice, posts: slack.posts }).includes('synthetic'), false);
+      assert.deepEqual(dreamerState(home), previous);
+    } finally { store.close(); }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('dreamer digests reuse the direct-message thread', async () => {
@@ -917,6 +962,7 @@ test('runInstalledDreamer holds the installation lock and returns busy when it i
   assert.equal(held, true);
   assert.equal(fs.existsSync(lock), false);
   assert.equal(ran.digestQueued, true);
+  assert.equal(ran.noticeQueued, false);
   assert.equal(ran.delivered, false);
   assert.equal(ran.conflictsSaved, false);
   const queued = new Store(path.join(home, 'state.sqlite'));
@@ -932,6 +978,8 @@ test('runInstalledDreamer holds the installation lock and returns busy when it i
     });
     assert.equal(busy.ok, false);
     assert.equal(busy.busy, true);
+    assert.equal(busy.digestQueued, false);
+    assert.equal(busy.noticeQueued, false);
     assert.match(busy.error, /lock busy/);
   } finally {
     release();

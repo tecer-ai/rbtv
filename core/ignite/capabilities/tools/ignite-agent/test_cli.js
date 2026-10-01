@@ -1044,6 +1044,8 @@ async function finishCli() {
     assert.equal(help.code, 0);
     assert.match(help.out, /dreamer run/);
     assert.match(help.out, /dreamer.enabled is false/);
+    assert.match(help.out, /digestQueued/);
+    assert.match(help.out, /noticeQueued/);
     await assert.rejects(() => runAsync(['dreamer']), /dreamer requires run/);
   });
 
@@ -1055,7 +1057,7 @@ async function finishCli() {
       calls += 1;
       assert.equal(opts.config.dmAgent, 'master');
       assert.equal(opts.slack, undefined);
-      return { ok: true, busy: false, quiet: true, changed: false, alert: null, digestQueued: false, delivered: false, conflictsSaved: false, error: null };
+      return { ok: true, busy: false, quiet: true, changed: false, alert: null, digestQueued: false, noticeQueued: false, delivered: false, conflictsSaved: false, error: null };
     };
     const disabled = dreamerInstall(false);
     const enabled = dreamerInstall(true);
@@ -1095,6 +1097,7 @@ async function finishCli() {
       assert.equal(body.enabled, false);
       assert.match(body.note, /dreamer.enabled is false/);
       assert.equal(body.digestQueued, true);
+      assert.equal(body.noticeQueued, false);
       assert.equal(body.delivered, false);
       assert.equal(body.conflictsSaved, false);
       assert.equal(body.busy, false);
@@ -1107,6 +1110,34 @@ async function finishCli() {
         assert.equal(store.db.prepare("SELECT value FROM settings WHERE key='dreamer_enabled_at'").get(), undefined);
         assert.equal(store.db.prepare("SELECT value FROM settings WHERE key='dreamer_slot'").get(), undefined);
       } finally { store.close(); }
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  await testAsync('dreamer run reports a queued failure notice separately from a digest', async () => {
+    const { dir, home } = dreamerInstall(false);
+    addOwner(home);
+    try {
+      const result = await runAsync(['--workspace', dir, 'dreamer', 'run'], {
+        runDreamer: async () => ({ ok: false, changed: false, digest: null, alert: 'Dreamer failed: model failed: Insufficient credits.' }),
+      });
+      assert.equal(result.code, 1); assert.equal(result.err, '');
+      assert.equal(result.out.split('\n').length, 2);
+      const body = JSON.parse(result.out);
+      assert.equal(body.digestQueued, false); assert.equal(body.noticeQueued, true);
+      assert.equal(body.delivered, false); assert.equal(body.conflictsSaved, false);
+      const store = new Store(path.join(home, 'state.sqlite'));
+      try { assert.equal(store.pendingOutbox()[0].payload.text, `Memory alert: ${body.alert}`); }
+      finally { store.close(); }
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  await testAsync('quiet dreamer run reports neither a digest nor a notice queued', async () => {
+    const { dir } = dreamerInstall(false);
+    try {
+      const result = await runAsync(['--workspace', dir, 'dreamer', 'run']);
+      const body = JSON.parse(result.out);
+      assert.equal(result.code, 0); assert.equal(body.quiet, true);
+      assert.equal(body.digestQueued, false); assert.equal(body.noticeQueued, false);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 
@@ -1126,6 +1157,8 @@ async function finishCli() {
       assert.equal(result.out.split('\n').length, 2);
       const body = JSON.parse(result.out);
       assert.equal(body.busy, true);
+      assert.equal(body.digestQueued, false);
+      assert.equal(body.noticeQueued, false);
       assert.equal(body.ok, false);
       assert.match(body.error, /lock busy/);
       assert.match(body.note, /dreamer.enabled is false/);
@@ -1171,6 +1204,7 @@ async function finishCli() {
         assert.equal(body.busy, false);
         assert.equal(body.changed, notice === 'digest');
         assert.equal(body.digestQueued, false);
+        assert.equal(body.noticeQueued, false);
         assert.equal(body.delivered, false);
         assert.equal(body.conflictsSaved, false);
         assert.match(body.error, missing === 'dmAgent' ? /requires config\.dmAgent/ : /direct-message agent missing/);
@@ -1199,6 +1233,7 @@ async function finishCli() {
         assert.equal(body.ok, false);
         assert.equal(body.busy, false);
         assert.equal(body.digestQueued, false);
+        assert.equal(body.noticeQueued, false);
         assert.equal(body.enabled, failure === 'lock' ? false : null);
         assert.ok(body.error);
       } finally { fs.rmSync(dir, { recursive: true, force: true }); }
