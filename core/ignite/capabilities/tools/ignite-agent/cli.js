@@ -2,7 +2,7 @@
 'use strict';
 
 // API — entry `ignite-agent`. Home from IGNITE_AGENT_HOME, or --agent <slug> + --workspace <path>.
-// main(argv, deps) → exit code, or a Promise for install/update/connect/disconnect.
+// main(argv, deps) → exit code, or a Promise for install/update/connect/disconnect/dreamer run.
 // deps.validateLaunch stubs cast. deps.install stubs the installer. deps.slack stubs Slack.
 // deps.stdout / deps.stderr / deps.env optional.
 // settings set validates through cast list --json (never a copied model list) and writes launch.json
@@ -20,10 +20,10 @@ const { writeBoard, closeSubject, boardPath, preflightBoard, refreshBoard, refre
 const { workspaceFromHome, remember } = require('./memory.js');
 
 const APPLIES = 'applies from the next turn in every conversation';
-const COMMANDS = ['settings', 'schedule', 'schedules-due', 'work', 'wake', 'post', 'board', 'remember'];
+const COMMANDS = ['settings', 'schedule', 'schedules-due', 'work', 'wake', 'post', 'board', 'remember', 'dreamer'];
 const REPORTS = new Set(['always', 'when-useful']);
 
-const HELP = `ignite-agent — install update connect disconnect settings schedule schedules-due work wake post board remember
+const HELP = `ignite-agent — install update connect disconnect settings schedule schedules-due work wake post board remember dreamer
 
 install <agent file> --harness <name> --model <cast short name> --effort <rung or 1-5> [--workspace <path>] [--dry-run]
   Runs rbtv install agent add, then installs Ignite's standard units. No Slack.
@@ -91,6 +91,10 @@ remember <text>
   Atomically append one owner fact to the installation's .rbtv/memory/inbox.md.
   Never refuses for format or length; alerts the owner past 20 bullet lines.
   See ignite-agent remember --help for provenance and output.
+
+dreamer run [--workspace <path>]
+  One consolidation, then exit. Same path as the nightly run. Does not mark the
+  03:00 slot. See ignite-agent dreamer --help.
 `;
 
 const REMEMBER_HELP = `ignite-agent remember — save an owner fact for every agent
@@ -116,6 +120,27 @@ when none. Failure: exit 1, reason on stderr, or {path, error} on stdout with
 --json. Missing or empty text, an unresolved installation root or a filesystem write can fail.
 
 Example: ignite-agent remember "Prefers afternoon appointments"
+`;
+
+const DREAMER_HELP = `ignite-agent dreamer run — one consolidation, then stop
+
+dreamer run [--workspace <path>]
+  Runs the nightly consolidation path once and exits. Never loops and never
+  waits for 03:00. Does not mark or consume that slot, so the daemon can still
+  run it the same night.
+  Takes the installation lock .rbtv/runtime/ignite-memory.lock for the run, the
+  same lock the nightly path takes. A held lock prints a busy result and does
+  not start a second run.
+  A digest or failure notice is queued on the direct-message agent's outbox.
+  The running daemon delivers it. Reported conflicts are saved only after
+  delivery is confirmed. This command does not confirm delivery, so it leaves
+  new conflicts unsaved, the same as an unconfirmed nightly digest.
+  Runs even when dreamer.enabled is false. The result says so.
+  Prints one JSON line and nothing else. Exit 0 when the run finished without
+  an alert. Exit 1 when the run failed or the lock was busy.
+
+Workspace: --workspace, otherwise the installation containing IGNITE_AGENT_HOME,
+or the walk up to .rbtv/config/ignite/config.json. No agent flag. No Slack call.
 `;
 
 const BOARD_HELP = `ignite-agent board — checked short-term memory
@@ -656,6 +681,49 @@ function cmdBoard(rest, flags, deps) {
   }
 }
 
+function resolveDreamerWorkspace(flags, deps) {
+  if (flags.workspace) return path.resolve(flags.workspace);
+  const env = deps.env || process.env;
+  if (env.IGNITE_AGENT_HOME) {
+    const found = workspaceFromHome(env.IGNITE_AGENT_HOME);
+    if (found) return found;
+  }
+  const found = findWorkspace(env.IGNITE_AGENT_HOME ? path.dirname(env.IGNITE_AGENT_HOME) : process.cwd());
+  if (!found) fail('--workspace required');
+  return found;
+}
+
+async function cmdDreamer(rest, flags, deps) {
+  if (flags.help) {
+    emit(deps, { json: false }, null, DREAMER_HELP);
+    return 0;
+  }
+  if (rest[0] !== 'run' || rest.length > 1) fail('dreamer requires run');
+  let enabled = null;
+  let result;
+  try {
+    const workspace = resolveDreamerWorkspace(flags, deps);
+    const config = loadConfig(workspace);
+    enabled = config.dreamer.enabled === true;
+    const daemon = require('./daemon.js');
+    const run = deps.runInstalledDreamer || daemon.runInstalledDreamer;
+    result = await run({ config, now: deps.now, runDreamer: deps.runDreamer });
+  } catch (error) {
+    result = {
+      ok: false, busy: false, quiet: false, changed: false, alert: null,
+      digestQueued: false, delivered: false, conflictsSaved: false, error: error.message,
+    };
+  }
+  const payload = {
+    ...result,
+    enabled,
+    note: enabled === false ? 'dreamer.enabled is false; ran because this command was called' : null,
+  };
+  const write = deps.stdout || ((text) => process.stdout.write(text));
+  write(`${JSON.stringify(payload)}\n`);
+  return payload.ok && !payload.busy && !payload.alert && !payload.error ? 0 : 1;
+}
+
 function cmdRemember(rest, flags, deps) {
   if (flags.help) {
     emit(deps, { json: false }, null, REMEMBER_HELP);
@@ -728,6 +796,7 @@ function main(argv, deps = {}) {
   if (command === 'connect' || command === 'disconnect') return require('./connect.js').run(command, tail, flags, deps);
   if (command === 'board') return cmdBoard(tail, flags, deps);
   if (command === 'remember') return cmdRemember(tail, flags, deps);
+  if (command === 'dreamer') return cmdDreamer(tail, flags, deps);
   if (!COMMANDS.includes(command)) fail(`unknown command: ${command}`);
   if (flags.help && command === 'post') {
     emit(deps, { json: false }, null, HELP);

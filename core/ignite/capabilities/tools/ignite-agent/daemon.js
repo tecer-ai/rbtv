@@ -13,6 +13,7 @@ const { Audio } = require('./audio.js');
 const { refreshBoard } = require('./board.js');
 const { runDreamer, getState, saveState } = require('./dreamer.js');
 const { checkMemory } = require('./memory.js');
+const { acquireMemoryLock } = require('./memory-write.js');
 const cli = require('./cli.js');
 
 const TICK_MS = 30_000;
@@ -181,6 +182,185 @@ function expiredUntilDate(workspace, slugs, now) {
   return roots.some(visit);
 }
 
+function dreamerStores(config, openStore, owned) {
+  if (openStore) return openStore;
+  return (slug) => {
+    const home = agentHome(config, slug);
+    if (!fs.existsSync(home)) return null;
+    const store = new Store(storePath(config, slug));
+    owned.push(store);
+    return store;
+  };
+}
+
+function hasNewOwnerMessage(config, openStore) {
+  for (const slug of dreamerSlugs(config)) {
+    const store = openStore(slug);
+    if (!store) return true;
+    try {
+      const state = getState(store);
+      const rows = store.db.prepare("SELECT rowid, metadata FROM messages WHERE role='owner' AND rowid>? ORDER BY rowid").all(state.cursor);
+      if (rows.some((row) => {
+        const source = JSON.parse(row.metadata).source;
+        return !source || source === 'slack' || source === 'used-text';
+      })) return true;
+    } catch {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasInboxWork(workspace) {
+  const text = fs.readFileSync(path.join(workspace, '.rbtv', 'memory', 'inbox.md'), 'utf8');
+  checkMemory('inbox', text);
+  return text.split(/\r?\n/).some((line) => line.startsWith('- '));
+}
+
+async function deliverOutbox(store, deps, now) {
+  const delivered = await deliverPending(store, deps);
+  for (const row of delivered) {
+    if (!row.delivered || !/^(?:post:)?dreamer:/.test(row.id)) continue;
+    store.db.prepare(`INSERT INTO settings(key,value,updated_at) VALUES ('dreamer_digest',?,?)
+      ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
+      .run(JSON.stringify({ conversationKey: row.conversationKey }), now);
+  }
+  return delivered;
+}
+
+async function enqueueDreamerNotice({ config, openStore, text, now, slack, depsFor }) {
+  const slug = config.dmAgent;
+  if (!slug) throw new Error('dreamer requires config.dmAgent for owner alerts');
+  const store = openStore(slug);
+  if (!store) throw new Error(`dreamer direct-message agent missing: ${slug}`);
+  let conversationKey = null;
+  try {
+    const saved = JSON.parse(store.db.prepare("SELECT value FROM settings WHERE key='dreamer_digest'").get()?.value || 'null');
+    if (typeof saved?.conversationKey === 'string' && store.getConversation(saved.conversationKey)) {
+      conversationKey = saved.conversationKey;
+    }
+  } catch { /* Start a new owner digest thread if its saved state is malformed. */ }
+  const id = `dreamer:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+  let outboxId;
+  if (conversationKey) {
+    outboxId = id;
+    store.enqueueOutbox({ id: outboxId, conversationKey, payload: { text, audio: false, files: [] } });
+  } else {
+    const started = store.beginProactive({
+      id,
+      agent: slug,
+      workspace: config.slack.team,
+      channel: config.slack.ownerUserId,
+      payload: { text, audio: false, files: [], imUser: config.slack.ownerUserId },
+    });
+    outboxId = started.outboxId;
+  }
+  if (!slack) return { queued: true, delivered: false, outboxId };
+  const delivered = await deliverOutbox(store, depsFor(slug, store), now);
+  const sent = delivered.find((row) => row.id === outboxId && row.delivered);
+  return { queued: true, delivered: Boolean(sent), outboxId };
+}
+
+function busyDreamer(error) {
+  return {
+    ok: false, busy: true, quiet: false, changed: false, alert: null,
+    digestQueued: false, delivered: false, conflictsSaved: false, error,
+  };
+}
+
+async function runInstalledDreamer(opts = {}) {
+  const config = opts.config;
+  if (!config?.workspace) throw new Error('workspace required');
+  const workspace = fs.realpathSync(config.workspace);
+  let release;
+  try {
+    release = acquireMemoryLock(workspace);
+  } catch (error) {
+    if (/lock busy/.test(error.message)) return busyDreamer(error.message);
+    throw error;
+  }
+  const owned = [];
+  const openStore = dreamerStores(config, opts.openStore, owned);
+  const log = opts.log || (() => {});
+  const now = typeof opts.now === 'function' ? opts.now() : (opts.now ?? Date.now());
+  const stamp = opts.stamp || (() => now);
+  let released = false;
+  const unlock = () => {
+    if (released) return;
+    released = true;
+    release();
+  };
+  try {
+    let needed;
+    try {
+      // Folding also needs unread owner thread evidence; a watch-out alone is
+      // deferred, while every explicit remember line is work in its own right.
+      needed = hasNewOwnerMessage(config, openStore) || hasInboxWork(config.workspace) ||
+        expiredUntilDate(config.workspace, dreamerSlugs(config), now);
+    } catch (error) {
+      needed = true;
+      log({ event: 'dreamer-check', message: error.message });
+    }
+    let result;
+    try {
+      if (needed) {
+        result = await (opts.runDreamer || runDreamer)({ config, openStore, now, memoryLockHeld: true });
+      } else {
+        for (const slug of dreamerSlugs(config)) {
+          const store = openStore(slug);
+          saveState(store, { ...getState(store), lastSuccessAt: now }, now);
+        }
+        result = { ok: true, changed: false, digest: null, alert: null };
+      }
+    } catch {
+      result = { ok: false, alert: 'Dreamer failed.' };
+    }
+    log({ event: 'dreamer', ok: Boolean(result?.ok), changed: Boolean(result?.changed), alert: Boolean(result?.alert) });
+    unlock();
+    let digestQueued = false;
+    let delivered = false;
+    let conflictsSaved = false;
+    let notificationError = null;
+    try {
+      if (!result?.ok || result.alert) {
+        await enqueueDreamerNotice({
+          config, openStore, text: `Memory alert: ${result?.alert || 'Dreamer failed.'}`,
+          now: stamp(), slack: opts.slack, depsFor: opts.depsFor,
+        });
+      } else if (result.digest?.text) {
+        const sent = await enqueueDreamerNotice({
+          config, openStore, text: result.digest.text, now: stamp(), slack: opts.slack, depsFor: opts.depsFor,
+        });
+        digestQueued = Boolean(sent.queued);
+        delivered = Boolean(sent.delivered);
+        if (delivered && result.digest.conflicts?.length) {
+          for (const slug of dreamerSlugs(config)) {
+            const store = openStore(slug);
+            const state = getState(store);
+            saveState(store, { ...state,
+              reportedConflicts: [...new Set([...(state.reportedConflicts || []), ...result.digest.conflicts])] }, now);
+          }
+          conflictsSaved = true;
+        }
+      }
+    } catch (error) {
+      notificationError = error.message;
+      log({ event: 'dreamer-alert', message: error.message });
+    }
+    return {
+      ok: Boolean(result?.ok && !notificationError), busy: false,
+      quiet: Boolean(!needed && result?.ok && !result.alert),
+      changed: Boolean(result?.changed), alert: result?.alert || null,
+      digestQueued, delivered, conflictsSaved, error: notificationError,
+    };
+  } finally {
+    unlock();
+    for (const store of owned) {
+      try { store.close(); } catch { /* caller-owned */ }
+    }
+  }
+}
+
 function parseArgs(argv) {
   let workspace = null;
   for (let i = 0; i < argv.length; i++) {
@@ -276,58 +456,11 @@ async function startLocked(opts, workspace, held) {
   }
 
   async function notifyDreamer(text) {
-    const slug = config.dmAgent;
-    if (!slug) throw new Error('dreamer requires config.dmAgent for owner alerts');
-    const store = getStore(slug);
-    if (!store) throw new Error(`dreamer direct-message agent missing: ${slug}`);
-    let conversationKey = null;
-    try {
-      const saved = JSON.parse(store.db.prepare("SELECT value FROM settings WHERE key='dreamer_digest'").get()?.value || 'null');
-      if (typeof saved?.conversationKey === 'string' && store.getConversation(saved.conversationKey)) {
-        conversationKey = saved.conversationKey;
-      }
-    } catch { /* Start a new owner digest thread if its saved state is malformed. */ }
-    const id = `dreamer:${Date.now()}:${Math.random().toString(36).slice(2)}`;
-    let outboxId;
-    if (conversationKey) {
-      outboxId = id;
-      store.enqueueOutbox({ id: outboxId, conversationKey, payload: { text, audio: false, files: [] } });
-    } else {
-      const started = store.beginProactive({
-        id,
-        agent: slug,
-        workspace: config.slack.team,
-        channel: config.slack.ownerUserId,
-        payload: { text, audio: false, files: [], imUser: config.slack.ownerUserId },
-      });
-      outboxId = started.outboxId;
-    }
-    const delivered = await deliverPending(store, depsFor(slug, store));
-    const sent = delivered.find((row) => row.id === outboxId && row.delivered);
-    if (sent) {
-      store.db.prepare(`INSERT INTO settings(key,value,updated_at) VALUES ('dreamer_digest',?,?)
-        ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
-        .run(JSON.stringify({ conversationKey: sent.conversationKey }), clock());
-    }
-    return Boolean(sent);
-  }
-
-  function hasNewOwnerMessage() {
-    for (const slug of dreamerSlugs(config)) {
-      const store = getStore(slug);
-      if (!store) return true;
-      try {
-        const state = getState(store);
-        const rows = store.db.prepare("SELECT rowid, metadata FROM messages WHERE role='owner' AND rowid>? ORDER BY rowid").all(state.cursor);
-        if (rows.some((row) => {
-          const source = JSON.parse(row.metadata).source;
-          return !source || source === 'slack' || source === 'used-text';
-        })) return true;
-      } catch {
-        return true;
-      }
-    }
-    return false;
+    const sent = await enqueueDreamerNotice({
+      config, openStore: getStore, text, now: clock(), slack,
+      depsFor: (slug, store) => depsFor(slug, store),
+    });
+    return sent.delivered;
   }
 
   function syncDreamerEnabled() {
@@ -359,56 +492,16 @@ async function startLocked(opts, workspace, held) {
     return last === Infinity ? null : last;
   }
 
-  function hasInboxWork() {
-    const text = fs.readFileSync(path.join(workspace, '.rbtv', 'memory', 'inbox.md'), 'utf8');
-    checkMemory('inbox', text);
-    return text.split(/\r?\n/).some((line) => line.startsWith('- '));
-  }
-
   async function runNightDreamer() {
     const now = clock();
     const slot = dreamerSlot(now);
     if (!slot || dreamerNight === slot) return;
-    let needed;
-    try {
-      // Folding also needs unread owner thread evidence; a watch-out alone is
-      // deferred, while every explicit remember line is work in its own right.
-      needed = hasNewOwnerMessage() || hasInboxWork() || expiredUntilDate(workspace, dreamerSlugs(config), now);
-    } catch (error) {
-      needed = true;
-      log({ event: 'dreamer-check', message: error.message });
-    }
     dreamerNight = slot;
-    let result;
-    try {
-      if (needed) result = await (opts.runDreamer || runDreamer)({ config, openStore: getStore, now });
-      else {
-        for (const slug of dreamerSlugs(config)) {
-          const store = getStore(slug);
-          saveState(store, { ...getState(store), lastSuccessAt: now }, now);
-        }
-        result = { ok: true, changed: false, digest: null, alert: null };
-      }
-    } catch {
-      result = { ok: false, alert: 'Dreamer failed.' };
-    }
-    log({ event: 'dreamer', ok: Boolean(result?.ok), changed: Boolean(result?.changed), alert: Boolean(result?.alert) });
-    try {
-      if (!result?.ok || result.alert) await notifyDreamer(`Memory alert: ${result?.alert || 'Dreamer failed.'}`);
-      else if (result.digest?.text) {
-        const delivered = await notifyDreamer(result.digest.text);
-        if (delivered && result.digest.conflicts?.length) {
-          for (const slug of dreamerSlugs(config)) {
-            const store = getStore(slug);
-            const state = getState(store);
-            saveState(store, { ...state,
-              reportedConflicts: [...new Set([...(state.reportedConflicts || []), ...result.digest.conflicts])] }, now);
-          }
-        }
-      }
-    } catch (error) {
-      log({ event: 'dreamer-alert', message: error.message });
-    }
+    const result = await module.exports.runInstalledDreamer({
+      config, openStore: getStore, now, runDreamer: opts.runDreamer, slack, log, stamp: clock,
+      depsFor: (slug, store) => depsFor(slug, store),
+    });
+    if (result.busy) dreamerNight = null;
   }
 
   async function watchdogDreamer() {
@@ -442,7 +535,7 @@ async function startLocked(opts, workspace, held) {
           disposition: result.disposition || null,
           failed: Boolean(result.failed),
         });
-        await deliverPending(store, depsFor(slug, store));
+        await deliverOutbox(store, depsFor(slug, store), clock());
       }
     } catch (error) {
       log({ event: 'turn-error', slug, message: error.message });
@@ -530,7 +623,7 @@ async function startLocked(opts, workspace, held) {
       const store = getStore(slug);
       if (!store) continue;
       try {
-        await deliverPending(store, depsFor(slug, store));
+        await deliverOutbox(store, depsFor(slug, store), clock());
       } catch (error) {
         log({ event: 'outbox', slug, message: error.message });
       }
@@ -597,4 +690,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { start, expiredUntilDate };
+module.exports = { start, expiredUntilDate, runInstalledDreamer };

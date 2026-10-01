@@ -8,6 +8,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { Store } = require('./store.js');
 const { main, HELP } = require('./cli.js');
+const { getState } = require('./dreamer.js');
 const { nextCron, FIXED_TZ } = require('./schedule.js');
 const { EMPTY_BOARD, parseBoard, boardPath } = require('./board.js');
 const { acquireMemoryLock, writeRoot } = require('./memory-write.js');
@@ -990,8 +991,225 @@ test('board commands ignore an invalid legacy board after canonical deletion', (
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-if (failures.length) {
-  console.log(`${failures.length} failed`);
-  process.exit(1);
+async function runAsync(argv, extra = {}) {
+  const out = [];
+  const err = [];
+  const code = await main(argv, {
+    stdout: (text) => out.push(text),
+    stderr: (text) => err.push(text),
+    ...extra,
+  });
+  return { code, out: out.join(''), err: err.join('') };
 }
-console.log('ok');
+
+function dreamerInstall(enabled = false) {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-dreamer-cli-')));
+  const home = writeConfig(dir, 'master', {});
+  const file = path.join(dir, '.rbtv', 'config', 'ignite', 'config.json');
+  const config = JSON.parse(fs.readFileSync(file, 'utf8'));
+  config.dreamer = { enabled };
+  fs.writeFileSync(file, JSON.stringify(config));
+  fs.mkdirSync(path.join(dir, '.rbtv', 'memory'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.rbtv', 'memory', 'inbox.md'), '# Inbox — waiting to be filed\n', 'utf8');
+  fs.mkdirSync(path.dirname(boardPath(home)), { recursive: true });
+  fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
+  const store = new Store(path.join(home, 'state.sqlite'));
+  store.close();
+  return { dir, home };
+}
+
+function addOwner(home) {
+  const store = new Store(path.join(home, 'state.sqlite'));
+  try {
+    store.upsertConversation({ key: 'T1:D1:1.000000', agent: 'master', workspace: 'T1', channel: 'D1', rootTs: '1.000000' });
+    store.recordMessage('T1:D1:1.000000', {
+      id: 'owner-1', role: 'owner', text: 'Please remember this.', metadata: { source: 'slack' },
+    });
+  } finally { store.close(); }
+}
+
+async function testAsync(name, fn) {
+  try {
+    await fn();
+    console.log(`PASS ${name}`);
+  } catch (error) {
+    failures.push(name);
+    console.log(`FAIL ${name}: ${error.stack || error.message}`);
+  }
+}
+
+async function finishCli() {
+  await testAsync('dreamer run help needs no home and rejects a missing subcommand', async () => {
+    const help = await runAsync(['dreamer', '--help']);
+    assert.equal(help.code, 0);
+    assert.match(help.out, /dreamer run/);
+    assert.match(help.out, /dreamer.enabled is false/);
+    await assert.rejects(() => runAsync(['dreamer']), /dreamer requires run/);
+  });
+
+  await testAsync('dreamer run uses the shared nightly function and says when dreamer is disabled', async () => {
+    const daemon = require('./daemon.js');
+    const original = daemon.runInstalledDreamer;
+    let calls = 0;
+    daemon.runInstalledDreamer = async (opts) => {
+      calls += 1;
+      assert.equal(opts.config.dmAgent, 'master');
+      assert.equal(opts.slack, undefined);
+      return { ok: true, busy: false, quiet: true, changed: false, alert: null, digestQueued: false, delivered: false, conflictsSaved: false, error: null };
+    };
+    const disabled = dreamerInstall(false);
+    const enabled = dreamerInstall(true);
+    try {
+      const off = await runAsync(['--workspace', disabled.dir, 'dreamer', 'run']);
+      assert.equal(calls, 1);
+      assert.equal(off.code, 0, off.err);
+      assert.equal(off.out.split('\n').length, 2);
+      const offBody = JSON.parse(off.out);
+      assert.equal(offBody.enabled, false);
+      assert.match(offBody.note, /dreamer.enabled is false; ran because this command was called/);
+      const on = await runAsync(['--workspace', enabled.dir, 'dreamer', 'run']);
+      assert.equal(calls, 2);
+      assert.equal(JSON.parse(on.out).note, null);
+      assert.equal(JSON.parse(on.out).enabled, true);
+    } finally {
+      daemon.runInstalledDreamer = original;
+      fs.rmSync(disabled.dir, { recursive: true, force: true });
+      fs.rmSync(enabled.dir, { recursive: true, force: true });
+    }
+  });
+
+  await testAsync('dreamer run queues the digest and leaves unconfirmed conflicts unsaved', async () => {
+    const { dir, home } = dreamerInstall(false);
+    addOwner(home);
+    try {
+      const result = await runAsync(['--workspace', dir, 'dreamer', 'run'], {
+        now: () => Date.parse('2026-10-01T12:00:00Z'),
+        runDreamer: async () => ({
+          ok: true, changed: true, alert: null,
+          digest: { text: 'Memory consolidation\nFiled the note.', conflicts: ['Clarify the preference.'] },
+        }),
+      });
+      assert.equal(result.code, 0, result.err + result.out);
+      assert.equal(result.out.split('\n').length, 2);
+      const body = JSON.parse(result.out);
+      assert.equal(body.enabled, false);
+      assert.match(body.note, /dreamer.enabled is false/);
+      assert.equal(body.digestQueued, true);
+      assert.equal(body.delivered, false);
+      assert.equal(body.conflictsSaved, false);
+      assert.equal(body.busy, false);
+      const store = new Store(path.join(home, 'state.sqlite'));
+      try {
+        const pending = store.pendingOutbox();
+        assert.equal(pending.length, 1);
+        assert.match(pending[0].payload.text, /^Memory consolidation\nFiled the note\./);
+        assert.equal(getState(store).reportedConflicts, undefined);
+        assert.equal(store.db.prepare("SELECT value FROM settings WHERE key='dreamer_enabled_at'").get(), undefined);
+        assert.equal(store.db.prepare("SELECT value FROM settings WHERE key='dreamer_slot'").get(), undefined);
+      } finally { store.close(); }
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  await testAsync('dreamer run returns busy when the installation lock is held', async () => {
+    const { dir, home } = dreamerInstall(false);
+    const previous = Date.parse('2026-10-01T00:00:00Z');
+    const store = new Store(path.join(home, 'state.sqlite'));
+    store.db.prepare("INSERT INTO settings(key, value, updated_at) VALUES ('dreamer', ?, ?)")
+      .run(JSON.stringify({ cursor: 0, lastSuccessAt: previous, commit: null }), previous);
+    store.close();
+    const release = acquireMemoryLock(dir);
+    try {
+      const result = await runAsync(['--workspace', dir, 'dreamer', 'run'], {
+        runDreamer: async () => { throw new Error('must not run'); },
+      });
+      assert.equal(result.code, 1);
+      assert.equal(result.out.split('\n').length, 2);
+      const body = JSON.parse(result.out);
+      assert.equal(body.busy, true);
+      assert.equal(body.ok, false);
+      assert.match(body.error, /lock busy/);
+      assert.match(body.note, /dreamer.enabled is false/);
+      const after = new Store(path.join(home, 'state.sqlite'));
+      try {
+        assert.equal(after.pendingOutbox().length, 0);
+        assert.equal(getState(after).lastSuccessAt, previous);
+      } finally { after.close(); }
+    } finally {
+      release();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  for (const missing of ['dmAgent', 'DM store']) for (const notice of ['digest', 'failure']) {
+    await testAsync(`dreamer run fails when ${notice} cannot be queued without ${missing}`, async () => {
+      const { dir, home } = dreamerInstall(false);
+      fs.appendFileSync(path.join(dir, '.rbtv', 'memory', 'inbox.md'), '- Prefers café. (2026-10-01 · master)\n', 'utf8');
+      if (missing === 'dmAgent') {
+        const file = path.join(dir, '.rbtv', 'config', 'ignite', 'config.json');
+        const config = JSON.parse(fs.readFileSync(file, 'utf8'));
+        delete config.dmAgent;
+        fs.writeFileSync(file, JSON.stringify(config), 'utf8');
+      } else {
+        fs.rmSync(home, { recursive: true, force: true });
+      }
+      let calls = 0;
+      try {
+        const result = await runAsync(['--workspace', dir, 'dreamer', 'run'], {
+          runDreamer: async () => {
+            calls++;
+            return notice === 'digest'
+              ? { ok: true, changed: true, digest: { text: 'Memory consolidation' }, alert: null }
+              : { ok: false, changed: false, digest: null, alert: 'Dreamer failed.' };
+          },
+        });
+        assert.equal(calls, 1);
+        assert.equal(result.code, 1);
+        assert.equal(result.out.split('\n').length, 2);
+        assert.equal(result.err, '');
+        const body = JSON.parse(result.out);
+        assert.equal(body.ok, false);
+        assert.equal(body.busy, false);
+        assert.equal(body.changed, notice === 'digest');
+        assert.equal(body.digestQueued, false);
+        assert.equal(body.delivered, false);
+        assert.equal(body.conflictsSaved, false);
+        assert.match(body.error, missing === 'dmAgent' ? /requires config\.dmAgent/ : /direct-message agent missing/);
+        assert.equal(fs.existsSync(path.join(dir, '.rbtv', 'runtime', 'ignite-memory.lock')), false);
+      } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    });
+  }
+
+  for (const failure of ['workspace', 'config', 'lock']) {
+    await testAsync(`dreamer run emits one JSON failure line for invalid ${failure}`, async () => {
+      const { dir } = dreamerInstall(false);
+      const target = failure === 'workspace' ? path.join(dir, 'missing workspace') : dir;
+      if (failure === 'config') {
+        fs.writeFileSync(path.join(dir, '.rbtv', 'config', 'ignite', 'config.json'), '{}\r\n', 'utf8');
+      } else if (failure === 'lock') {
+        fs.writeFileSync(path.join(dir, '.rbtv', 'runtime'), 'not a directory\n', 'utf8');
+      }
+      try {
+        const result = spawnSync(process.execPath, [path.join(__dirname, 'cli.js'), 'dreamer', 'run', '--workspace', target], {
+          encoding: 'utf8', env: { ...process.env, IGNITE_AGENT_HOME: '', NODE_NO_WARNINGS: '1' },
+        });
+        assert.equal(result.status, 1);
+        assert.equal(result.stdout.split('\n').length, 2);
+        assert.equal(result.stderr, '');
+        const body = JSON.parse(result.stdout);
+        assert.equal(body.ok, false);
+        assert.equal(body.busy, false);
+        assert.equal(body.digestQueued, false);
+        assert.equal(body.enabled, failure === 'lock' ? false : null);
+        assert.ok(body.error);
+      } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    });
+  }
+
+  if (failures.length) {
+    console.log(`${failures.length} failed`);
+    process.exit(1);
+  }
+  console.log('ok');
+}
+
+finishCli();

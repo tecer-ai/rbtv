@@ -715,6 +715,97 @@ test('dreamer digests reuse the direct-message thread', async () => {
   }
 });
 
+for (const delivery of ['drain', 'pump']) test(`manual digests reuse the thread confirmed by daemon ${delivery}`, async () => {
+  const { dir, home } = workspace();
+  const { loadConfig } = require('./config.js');
+  const { runInstalledDreamer } = require('./daemon.js');
+  const config = JSON.parse(fs.readFileSync(configFile(dir), 'utf8'));
+  config.dreamer.enabled = false;
+  fs.writeFileSync(configFile(dir), JSON.stringify(config), 'utf8');
+  addOwnerMessage(home);
+  const cast = fakeCast(dir);
+  const slack = fakeSlack();
+  const post = slack.postMessage;
+  slack.postMessage = (args) => post({ ...args, channel: 'D1' });
+  const socket = fakeSocket();
+  const prev = process.env.PATH;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prev || ''}`;
+  const store = new Store(path.join(home, 'state.sqlite'));
+  let runtime;
+  try {
+    runtime = await start({ workspace: dir, slack, socket, signals: false,
+      castCmd: cast.stub, castEnv: cast.env,
+      tickMs: 60_000, sweepMs: 60_000, drainMs: delivery === 'drain' ? 20 : 60_000,
+    });
+    for (let run = 1; run <= 2; run++) {
+      const result = await runInstalledDreamer({ config: loadConfig(dir),
+        runDreamer: async () => ({ ok: true, changed: false, alert: null,
+          digest: { text: `Memory consolidation ${run}`, conflicts: ['Clarify the preference.'] } }),
+      });
+      assert.equal(result.digestQueued, true);
+      assert.equal(result.delivered, false);
+      assert.equal(result.conflictsSaved, false);
+      const queued = store.pendingOutbox();
+      assert.equal(queued.length, 1);
+      if (run === 1) {
+        assert.match(queued[0].conversation_key, /^pending:dreamer:/);
+        assert.equal(store.db.prepare("SELECT value FROM settings WHERE key='dreamer_digest'").get(), undefined);
+      } else {
+        assert.equal(queued[0].conversation_key, 'T1:D1:9.1');
+      }
+      if (delivery === 'pump') {
+        await socket.inject({ team: 'T1', channel: 'D1', channelType: 'im', ts: `2.${run}00000`,
+          threadTs: '1.000000', user: 'UOWNER', text: 'hello', files: [], isBotOrSelf: false, mentionsBot: false });
+      }
+      await waitFor(() => store.db.prepare('SELECT state FROM outbox WHERE id=?').get(queued[0].id)?.state === 'delivered');
+      const saved = store.db.prepare("SELECT value FROM settings WHERE key='dreamer_digest'").get();
+      assert.ok(saved, 'daemon delivery must persist the Dreamer conversation');
+      assert.equal(JSON.parse(saved.value).conversationKey, 'T1:D1:9.1');
+      assert.equal(getState(store).reportedConflicts, undefined, 'ordinary delivery has no conflict metadata');
+    }
+    const digests = slack.posts.filter((row) => row.text.startsWith('Memory consolidation'));
+    assert.equal(digests.length, 2);
+    assert.equal(digests[0].threadTs, undefined);
+    assert.equal(digests[1].channel, 'D1');
+    assert.equal(digests[1].threadTs, '9.1');
+  } finally {
+    runtime?.stop('test');
+    store.close();
+    process.env.PATH = prev;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a busy nightly slot retries after the installation lock is released', async () => {
+  const { dir, home } = workspace();
+  const { acquireMemoryLock } = require('./memory-write.js');
+  addOwnerMessage(home);
+  const release = acquireMemoryLock(dir);
+  const prev = process.env.PATH;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prev || ''}`;
+  let runtime;
+  let calls = 0;
+  try {
+    runtime = await start({ workspace: dir, slack: fakeSlack(), socket: fakeSocket(), signals: false,
+      now: () => Date.parse('2026-10-01T06:00:00Z'), tickMs: 20, sweepMs: 60_000, drainMs: 60_000,
+      runDreamer: async () => {
+        calls++;
+        return { ok: true, changed: false, digest: null, alert: null };
+      },
+    });
+    assert.equal(calls, 0);
+    release();
+    await waitFor(() => calls === 1);
+    await new Promise((resolve) => setTimeout(resolve, 70));
+    assert.equal(calls, 1);
+  } finally {
+    release();
+    runtime?.stop('test');
+    process.env.PATH = prev;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('conflicts are saved only after delivery succeeds and the following run is silent', async () => {
   const { dir, home } = workspace();
   const night = Date.parse('2026-10-01T06:00:00Z');
@@ -762,6 +853,88 @@ test('conflicts are saved only after delivery succeeds and the following run is 
   } finally {
     process.env.PATH = prev;
     runtime?.stop('test');
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('manual run and the nightly slot share runInstalledDreamer without consuming the slot', async () => {
+  const { dir, home } = workspace();
+  const daemonApi = require('./daemon.js');
+  const { loadConfig } = require('./config.js');
+  const original = daemonApi.runInstalledDreamer;
+  let calls = 0;
+  daemonApi.runInstalledDreamer = async () => {
+    calls += 1;
+    return { ok: true, changed: false, digest: null, alert: null };
+  };
+  let now = Date.parse('2026-10-01T12:00:00Z');
+  const prev = process.env.PATH;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prev || ''}`;
+  let runtime;
+  try {
+    await original({
+      config: loadConfig(dir), now,
+      runDreamer: async () => { throw new Error('quiet night must not consolidate'); },
+    });
+    assert.equal(calls, 0);
+    assert.equal(dreamerState(home).lastSuccessAt, now);
+    runtime = await start({ workspace: dir, slack: fakeSlack(), socket: fakeSocket(), signals: false, now: () => now,
+      tickMs: 20, sweepMs: 60_000, drainMs: 60_000,
+      runDreamer: async () => { throw new Error('slot runner must be the shared function'); },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 70));
+    assert.equal(calls, 0);
+    now = Date.parse('2026-10-01T06:00:00Z');
+    await waitFor(() => calls === 1);
+    await new Promise((resolve) => setTimeout(resolve, 70));
+    assert.equal(calls, 1);
+    const store = new Store(path.join(home, 'state.sqlite'));
+    try { assert.equal(store.db.prepare("SELECT value FROM settings WHERE key='dreamer_slot'").get(), undefined); }
+    finally { store.close(); }
+  } finally {
+    daemonApi.runInstalledDreamer = original;
+    process.env.PATH = prev;
+    runtime?.stop('test');
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runInstalledDreamer holds the installation lock and returns busy when it is held', async () => {
+  const { dir, home } = workspace();
+  const daemonApi = require('./daemon.js');
+  const { loadConfig } = require('./config.js');
+  const { acquireMemoryLock } = require('./memory-write.js');
+  addOwnerMessage(home);
+  const lock = path.join(dir, '.rbtv', 'runtime', 'ignite-memory.lock');
+  let held = false;
+  const ran = await daemonApi.runInstalledDreamer({
+    config: loadConfig(dir),
+    runDreamer: async () => {
+      held = fs.existsSync(lock);
+      return { ok: true, changed: true, digest: { text: 'Memory consolidation\nHeld the lock.', conflicts: ['Still open.'] }, alert: null };
+    },
+  });
+  assert.equal(held, true);
+  assert.equal(fs.existsSync(lock), false);
+  assert.equal(ran.digestQueued, true);
+  assert.equal(ran.delivered, false);
+  assert.equal(ran.conflictsSaved, false);
+  const queued = new Store(path.join(home, 'state.sqlite'));
+  try {
+    assert.match(queued.pendingOutbox()[0].payload.text, /^Memory consolidation/);
+    assert.equal(getState(queued).reportedConflicts, undefined);
+  } finally { queued.close(); }
+  const release = acquireMemoryLock(dir);
+  try {
+    const busy = await daemonApi.runInstalledDreamer({
+      config: loadConfig(dir),
+      runDreamer: async () => { throw new Error('must not run'); },
+    });
+    assert.equal(busy.ok, false);
+    assert.equal(busy.busy, true);
+    assert.match(busy.error, /lock busy/);
+  } finally {
+    release();
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
