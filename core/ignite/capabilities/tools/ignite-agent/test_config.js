@@ -67,6 +67,17 @@ test('loads a valid config from the runtime path', (dir) => {
   assert.equal(Object.hasOwn(config, 'defaultLaunch'), false);
 });
 
+test('dreamer defaults off and accepts only a boolean enable setting', (dir) => {
+  for (const dreamer of [undefined, {}, { enabled: false }, { enabled: true }]) {
+    writeConfig(dir, { dreamer });
+    assert.equal(loadConfig(dir).dreamer.enabled, dreamer?.enabled ?? false);
+  }
+  for (const dreamer of [null, [], true, { enabled: 'true' }, { enabled: 1 }, { hour: 3 }]) {
+    writeConfig(dir, { dreamer });
+    assert.throws(() => loadConfig(dir), /dreamer/);
+  }
+});
+
 test('agentHome resolves under the given workspace', (dir) => {
   writeConfig(dir);
   const loaded = loadConfig(dir);

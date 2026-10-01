@@ -18,16 +18,21 @@ function test(name, fn) {
   finally { fs.rmSync(home, { recursive: true, force: true }); }
 }
 
-test('readBoard copies legacy UTF-8 CRLF once and reads only the new path thereafter', (home) => {
-  const legacy = path.join(home, 'board.md');
+test('a deleted canonical board loads HEAD and ignores an invalid legacy board', (home) => {
   const text = EMPTY_BOARD.replace(/\n/g, '\r\n');
-  fs.writeFileSync(legacy, text, 'utf8');
-  assert.equal(readBoard(home), text);
-  assert.equal(fs.readFileSync(boardPath(home), 'utf8'), text);
-  fs.writeFileSync(legacy, 'obsolete', 'utf8');
-  assert.equal(readBoard(home), text);
-  fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
-  assert.equal(readBoard(home), EMPTY_BOARD);
+  write(boardPath(home), text);
+  for (const args of [['init', '--quiet'], ['add', '.'], ['commit', '--quiet', '-m', 'board fixture']]) {
+    const result = spawnSync('git', ['-C', home, '-c', 'user.name=Memory Test', '-c', 'user.email=memory@example.invalid',
+      '-c', 'commit.gpgsign=false', '-c', 'core.autocrlf=false', ...args], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+  }
+  write(path.join(home, 'board.md'), 'invalid obsolete board');
+  fs.unlinkSync(boardPath(home));
+  const alerts = [];
+  assert.equal(readBoard(home, null, Date.now(), alerts), text);
+  assert.match(alerts[0], /Loaded checked HEAD/);
+  assert.equal(fs.existsSync(boardPath(home)), false);
+  assert.equal(fs.readFileSync(path.join(home, 'board.md'), 'utf8'), 'invalid obsolete board');
 });
 
 test('missing and unreadable boards are visible and never fall back over a new path', (home) => {

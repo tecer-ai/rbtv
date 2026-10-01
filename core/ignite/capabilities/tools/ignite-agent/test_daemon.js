@@ -60,6 +60,7 @@ function workspace() {
     },
     tools: { cast: 'cast', stools: 'stools', audio: 'audio' },
     dmAgent: 'master',
+    dreamer: { enabled: true },
     routes: {},
   };
   fs.writeFileSync(configFile(dir), JSON.stringify(body));
@@ -68,7 +69,8 @@ function workspace() {
   fs.writeFileSync(path.join(home, 'launch.json'), JSON.stringify({
     harness: 'claude', model: 'sonnet-5', effort: 'low',
   }));
-  fs.writeFileSync(path.join(home, 'board.md'), EMPTY_BOARD, 'utf8');
+  fs.mkdirSync(path.dirname(boardPath(home)), { recursive: true });
+  fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
   fs.mkdirSync(path.join(home, 'memory'));
   fs.writeFileSync(path.join(home, 'memory', 'learned.md'), '# Learned rules — master\n', 'utf8');
   const memory = path.join(dir, '.rbtv', 'memory');
@@ -244,7 +246,8 @@ test('dm-delivered-once', async () => {
 
 test('daemon ticks and ingress leave a missing board visible to recovery and owner delivery', async () => {
   const { dir, home } = workspace();
-  fs.unlinkSync(path.join(home, 'board.md'));
+  fs.unlinkSync(boardPath(home));
+  fs.writeFileSync(path.join(home, 'board.md'), 'invalid legacy board', 'utf8');
   const cast = fakeCast(dir);
   const slack = fakeSlack();
   const socket = fakeSocket();
@@ -342,6 +345,86 @@ function dreamerState(home) {
   const store = new Store(path.join(home, 'state.sqlite'));
   try { return getState(store); } finally { store.close(); }
 }
+
+for (const enabled of [undefined, false]) test(`disabled dreamer gates the startup slot and watchdog (${enabled})`, async () => {
+  const { dir, home } = workspace();
+  const config = JSON.parse(fs.readFileSync(configFile(dir), 'utf8'));
+  if (enabled === undefined) delete config.dreamer;
+  else config.dreamer = { enabled };
+  fs.writeFileSync(configFile(dir), JSON.stringify(config), 'utf8');
+  const previous = { cursor: 0, lastSuccessAt: null, commit: null };
+  setDreamerState(home, previous);
+  addOwnerMessage(home);
+  const slack = fakeSlack();
+  const prev = process.env.PATH;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prev || ''}`;
+  let runtime;
+  let calls = 0;
+  let now = Date.parse('2026-10-01T06:00:00Z');
+  try {
+    runtime = await start({ workspace: dir, slack, socket: fakeSocket(), signals: false, now: () => now,
+      tickMs: 20, sweepMs: 60_000, runDreamer: async () => { calls++; return { ok: true }; } });
+    now += 7 * 86400_000;
+    await new Promise((resolve) => setTimeout(resolve, 70));
+    assert.equal(calls, 0);
+    assert.equal(slack.posts.length, 0);
+    assert.deepEqual(dreamerState(home), previous);
+  } finally {
+    runtime?.stop('test'); process.env.PATH = prev;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('watchdog excludes disabled time, resets on re-enable and survives an enabled restart', async () => {
+  const { dir, home } = workspace();
+  const day = 86400_000;
+  let now = Date.parse('2026-10-01T12:00:00Z'); // Outside the nightly slot.
+  const config = JSON.parse(fs.readFileSync(configFile(dir), 'utf8'));
+  const enable = (enabled) => {
+    config.dreamer.enabled = enabled;
+    fs.writeFileSync(configFile(dir), JSON.stringify(config), 'utf8');
+  };
+  const since = () => {
+    const store = new Store(path.join(home, 'state.sqlite'));
+    try { return JSON.parse(store.db.prepare("SELECT value FROM settings WHERE key='dreamer_enabled_at'").get()?.value || 'null'); }
+    finally { store.close(); }
+  };
+  setDreamerState(home, { cursor: 0, lastSuccessAt: now - 10 * day, commit: null });
+  const slack = fakeSlack();
+  const prev = process.env.PATH;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prev || ''}`;
+  const opts = { workspace: dir, slack, socket: fakeSocket(), signals: false, now: () => now, tickMs: 20, sweepMs: 60_000 };
+  let runtime;
+  try {
+    runtime = await start(opts);
+    assert.equal(slack.posts.length, 0); // Old success cannot count disabled time.
+    now += day;
+    enable(false);
+    await waitFor(() => since() === null);
+    now += 10 * day;
+    enable(true);
+    await waitFor(() => since() === now);
+    const enabledAt = now;
+    now += day;
+    runtime.stop('restart');
+    runtime = await start(opts);
+    assert.equal(since(), enabledAt);
+    now = enabledAt + 2 * day;
+    await new Promise((resolve) => setTimeout(resolve, 70));
+    assert.equal(slack.posts.length, 0);
+    now++;
+    await waitFor(() => slack.posts.length === 1);
+    assert.match(slack.posts[0].text, /48 hours/);
+    enable(false);
+    await waitFor(() => since() === null);
+    now += 10 * day;
+    await new Promise((resolve) => setTimeout(resolve, 70));
+    assert.equal(slack.posts.length, 1);
+  } finally {
+    runtime?.stop('test'); process.env.PATH = prev;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test('dreamer runs once at 03:00 Sao Paulo for unread owner messages', async () => {
   const { dir, home } = workspace();
@@ -567,6 +650,10 @@ test('a failed nightly run leaves success unchanged and a missed slot crosses th
   addOwnerMessage(home);
   const previous = { cursor: 0, lastSuccessAt: night - 60 * 60_000, commit: null };
   setDreamerState(home, previous);
+  const enabledStore = new Store(path.join(home, 'state.sqlite'));
+  enabledStore.db.prepare("INSERT INTO settings(key,value,updated_at) VALUES ('dreamer_enabled_at',?,?)")
+    .run(JSON.stringify(previous.lastSuccessAt), now);
+  enabledStore.close();
   const slack = fakeSlack();
   const prev = process.env.PATH;
   process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prev || ''}`;
@@ -1023,7 +1110,7 @@ test('daemon marks idle on ticks and answered on owner ingress even while held',
   const now = Date.parse('2026-10-03T12:00:00Z');
   const rootTs = `${(now - 8 * 86_400_000) / 1000}.000000`;
   const text = EMPTY_BOARD.replace('## What matters now\n', `## What matters now\n\n### Review\nWaiting.\n- Threads: [review](https://example.slack.com/archives/D1/p${rootTs.replace('.', '')})\n- Detail: none\n- Flags: none\n`);
-  fs.mkdirSync(path.dirname(boardPath(home)));
+  fs.mkdirSync(path.dirname(boardPath(home)), { recursive: true });
   fs.writeFileSync(boardPath(home), text, 'utf8');
   const store = new Store(path.join(home, 'state.sqlite'));
   store.db.prepare('INSERT INTO settings(key, value, updated_at) VALUES (?, ?, ?)')

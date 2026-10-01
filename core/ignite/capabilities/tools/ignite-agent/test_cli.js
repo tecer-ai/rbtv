@@ -10,6 +10,7 @@ const { Store } = require('./store.js');
 const { main, HELP } = require('./cli.js');
 const { nextCron, FIXED_TZ } = require('./schedule.js');
 const { EMPTY_BOARD, parseBoard, boardPath } = require('./board.js');
+const { acquireMemoryLock, writeRoot } = require('./memory-write.js');
 
 const failures = [];
 
@@ -129,6 +130,8 @@ test('cron + tz next-occurrence across a DST change', () => {
   assert.equal(nextCron('30 1 * * *', 'America/New_York', betweenFold), Date.parse('2026-11-01T01:30:00-05:00'));
 
   const home = tempHome();
+  fs.mkdirSync(path.dirname(boardPath(home)));
+  fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
   const store = new Store(path.join(home, 'state.sqlite'));
   store.upsertConversation({ key: 'T1:C1:1.1', agent: 'a', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
   store.close();
@@ -159,6 +162,8 @@ test('cron + tz next-occurrence across a DST change', () => {
 test('--every without tz documented as fixed-interval', () => {
   assert.match(HELP, /fixed-interval/);
   const home = tempHome();
+  fs.mkdirSync(path.dirname(boardPath(home)));
+  fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
   const store = new Store(path.join(home, 'state.sqlite'));
   store.upsertConversation({ key: 'T1:C1:1.1', agent: 'a', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
   store.close();
@@ -761,15 +766,19 @@ test('remember never refuses broken or overfull inboxes and queues owner alerts 
         if (key) store.upsertConversation({ key, agent: slug, workspace: 'T1', channel: 'C9', rootTs: '1.1' });
         const file = path.join(workspace, '.rbtv', 'memory', 'inbox.md');
         fs.mkdirSync(path.dirname(file), { recursive: true });
-        const before = '# Inbox\r\n' + 'unfiled broken line\r\n'.repeat(19);
+        const before = '# Inbox\r\n\r\n' + '- unfiled broken line\r\n'.repeat(19);
         fs.writeFileSync(file, before, 'utf8');
+        const twentieth = run(['remember', 'Twentieth', '--json'], { env: { IGNITE_AGENT_HOME: home, IGNITE_CONVERSATION: key } });
+        assert.equal(JSON.parse(twentieth.out).lines, 20);
+        assert.equal(JSON.parse(twentieth.out).warning, null);
+        assert.deepEqual(store.pendingOutbox(), []);
         const result = run(['remember', 'x'.repeat(5000), '--json'], { env: { IGNITE_AGENT_HOME: home, IGNITE_CONVERSATION: key } });
         assert.equal(result.code, 0);
         assert.equal(JSON.parse(result.out).lines, 21);
         assert.match(JSON.parse(result.out).warning, /over 20/);
         assert.ok(fs.readFileSync(file, 'utf8').startsWith(before));
         const [alert] = store.pendingOutbox();
-        assert.match(alert.payload.text, /21 lines/);
+        assert.match(alert.payload.text, /21 bullet lines/);
         if (key) assert.equal(alert.conversation_key, key);
         else assert.equal(alert.payload.imUser, 'UOWNER');
       } finally { store.close(); }
@@ -784,7 +793,7 @@ test('remember succeeds after append even if the owner alert cannot be queued', 
     fs.mkdirSync(home, { recursive: true });
     const file = path.join(workspace, '.rbtv', 'memory', 'inbox.md');
     fs.mkdirSync(path.dirname(file));
-    fs.writeFileSync(file, 'broken\n'.repeat(20), 'utf8');
+    fs.writeFileSync(file, '- broken\n'.repeat(20), 'utf8');
     const result = run(['remember', 'Still save this', '--json'], { env: { IGNITE_AGENT_HOME: home } });
     assert.equal(result.code, 0);
     assert.match(JSON.parse(result.out).warning, /Owner alert could not be queued/);
@@ -798,7 +807,8 @@ test('remember help at every position needs no home; failures are structured and
     const result = run(args, { env: {} });
     assert.equal(result.code, 0);
     assert.match(result.out, /one append/);
-    assert.match(result.out, /20 lines \(including headings and blanks\)/);
+    assert.match(result.out, /20 bullet lines/);
+    assert.match(result.out, /Headings and blanks do not count/);
     assert.equal(result.err, '');
   }
   for (const args of [['remember'], ['remember', 'fact'], ['remember', '--unknown', 'value']]) {
@@ -835,6 +845,149 @@ test('remember executable resolves installation outside cwd and reports real wri
     assert.equal(selected.code, 0);
     assert.match(fs.readFileSync(file, 'utf8'), /Explicit selection/);
   } finally { fs.rmSync(workspace, { recursive: true, force: true }); }
+});
+
+for (const state of ['deleted', 'invalid']) {
+  for (const args of [['add', '--every', '1h', '--note', 'New'], ['change', 'existing', '--note', 'Changed'], ['cancel', 'existing']]) {
+    test(`${state} board refuses schedule ${args[0]} with SQLite unchanged`, () => {
+      const home = tempHome();
+      const db = path.join(home, 'state.sqlite');
+      const file = boardPath(home);
+      try {
+        const store = new Store(db);
+        try {
+          store.upsertConversation({ key: 'k', agent: 'sample', workspace: 'T1', channel: 'C1' });
+          store.upsertSchedule({ id: 'existing', conversationKey: 'k', cadence: 'every:1h', timezone: 'fixed', nextAt: 1000, note: 'Original' });
+        } finally { store.close(); }
+        fs.mkdirSync(path.dirname(file));
+        fs.writeFileSync(file, EMPTY_BOARD, 'utf8');
+        fs.writeFileSync(path.join(home, 'board.md'), EMPTY_BOARD, 'utf8');
+        if (state === 'deleted') fs.unlinkSync(file);
+        else fs.writeFileSync(file, 'invalid board café\r\n', 'utf8');
+        const before = fs.readFileSync(db);
+        const result = spawnSync(process.execPath, [path.join(__dirname, 'cli.js'), 'schedule', ...args], {
+          cwd: os.tmpdir(), encoding: 'utf8',
+          env: { ...process.env, IGNITE_AGENT_HOME: home, IGNITE_CONVERSATION: 'k', NODE_NO_WARNINGS: '1' },
+        });
+        assert.equal(result.status, 1, result.stderr);
+        assert.equal(result.stdout, '');
+        assert.ok(result.stderr.startsWith(`board refused: ${file}: `));
+        if (state === 'deleted') assert.equal(result.stderr, `board refused: ${file}: board is missing\n`);
+        assert.deepEqual(fs.readFileSync(db), before);
+        assert.deepEqual(fs.readdirSync(home).filter((name) => name.startsWith('state.sqlite')), ['state.sqlite']);
+        if (state === 'deleted') assert.equal(fs.existsSync(file), false);
+        else assert.equal(fs.readFileSync(file, 'utf8'), 'invalid board café\r\n');
+      } finally { fs.rmSync(home, { recursive: true, force: true }); }
+    });
+  }
+
+  test(`${state} board refuses schedule mutations before database creation`, () => {
+    const home = tempHome();
+    try {
+      const file = boardPath(home);
+      fs.mkdirSync(path.dirname(file));
+      fs.writeFileSync(file, EMPTY_BOARD, 'utf8');
+      if (state === 'deleted') fs.unlinkSync(file);
+      else fs.writeFileSync(file, 'invalid', 'utf8');
+      for (const args of [['add', '--every', '1h', '--note', 'New'], ['change', 'existing', '--note', 'Changed'], ['cancel', 'existing']]) {
+        assert.throws(() => run(['schedule', ...args], { env: { IGNITE_AGENT_HOME: home, IGNITE_CONVERSATION: 'k' } }),
+          (error) => error.message.startsWith(`board refused: ${file}: `));
+        assert.equal(fs.existsSync(path.join(home, 'state.sqlite')), false);
+      }
+    } finally { fs.rmSync(home, { recursive: true, force: true }); }
+  });
+}
+
+for (const json of [false, true]) {
+  for (const action of ['add', 'change', 'cancel']) test(`schedule ${action} reports committed with refresh pending in ${json ? 'JSON' : 'text'} mode`, () => {
+    boardFixture(({ home, file, candidate, text, deps }) => {
+      run(['board', 'write', '--file', candidate], deps);
+      const store = new Store(path.join(home, 'state.sqlite'));
+      const method = action === 'cancel' ? 'deleteSchedule' : 'upsertSchedule';
+      const original = Store.prototype[method];
+      let release;
+      try {
+        store.upsertConversation({ key: 'k', agent: 'sample', workspace: 'T1', channel: 'C1' });
+        if (action !== 'add') store.upsertSchedule({ id: 'existing', conversationKey: 'k', cadence: 'every:1h', timezone: 'fixed', nextAt: 1000, note: 'Original' });
+        // This runs after preflight and SQLite commit, before the board refresh.
+        Store.prototype[method] = function (...args) {
+          const result = original.apply(this, args);
+          if (json) release = acquireMemoryLock(writeRoot(file));
+          else fs.writeFileSync(file, 'changed to invalid after preflight', 'utf8');
+          return result;
+        };
+        const args = action === 'add' ? ['add', '--every', '1h', '--note', 'Changed']
+          : action === 'change' ? ['change', 'existing', '--note', 'Changed'] : ['cancel', 'existing'];
+        const result = run(['schedule', ...args, ...(json ? ['--json'] : [])], {
+          ...deps, env: { ...deps.env, IGNITE_CONVERSATION: 'k' },
+        });
+        assert.equal(result.code, 0);
+        assert.equal(result.err, '');
+        const rows = store.listSchedules();
+        assert.equal(rows.length, action === 'cancel' ? 0 : 1);
+        const id = action === 'cancel' ? 'existing' : rows[0].id;
+        if (action !== 'cancel') assert.equal(rows[0].note, 'Changed');
+        const warning = `${id} committed; board refresh pending`;
+        if (json) {
+          const body = JSON.parse(result.out);
+          assert.equal(body.warning, warning);
+          assert.equal(action === 'cancel' ? body.cancelled : body.schedule.id, id);
+          assert.equal(body.error, undefined);
+          assert.equal(fs.readFileSync(file, 'utf8'), text);
+        } else assert.ok(result.out.includes(warning));
+        if (release) { release(); release = null; }
+        Store.prototype[method] = original;
+        if (!json) fs.writeFileSync(file, text, 'utf8');
+        // The next board write/close refreshes from committed schedules without a retry.
+        const refreshed = run(action === 'change'
+          ? ['board', 'close', 'Printer toner reorder', 'Done']
+          : ['board', 'write', '--file', candidate], deps);
+        assert.equal(refreshed.code, 0, refreshed.err);
+        const timers = parseBoard(fs.readFileSync(file, 'utf8')).timers;
+        assert.equal(timers.length, action === 'cancel' ? 2 : 3);
+        if (action !== 'cancel') assert.ok(timers[2].includes(`| ${id} | Changed |`));
+      } finally {
+        Store.prototype[method] = original;
+        if (release) release();
+        store.close();
+      }
+    });
+  });
+}
+
+test('schedule executable exits zero after commit when a competing holder blocks board refresh', () => {
+  const workspace = tempHome();
+  const home = path.join(workspace, '.rbtv', 'agents', 'sample');
+  fs.mkdirSync(path.dirname(boardPath(home)), { recursive: true });
+  fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
+  const store = new Store(path.join(home, 'state.sqlite'));
+  const release = acquireMemoryLock(workspace);
+  try {
+    store.upsertConversation({ key: 'k', agent: 'sample', workspace: 'T1', channel: 'C1' });
+    const result = spawnSync(process.execPath, [path.join(__dirname, 'cli.js'), 'schedule', 'add', '--every', '1h', '--note', 'Check', '--json'], {
+      cwd: workspace, encoding: 'utf8', env: { ...process.env, IGNITE_AGENT_HOME: home, IGNITE_CONVERSATION: 'k' }, timeout: 10_000,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stderr, /lock busy/);
+    const [row] = store.listSchedules();
+    assert.equal(store.listSchedules().length, 1);
+    const body = JSON.parse(result.stdout);
+    assert.equal(body.schedule.id, row.id);
+    assert.equal(body.warning, `${row.id} committed; board refresh pending`);
+  } finally { release(); store.close(); fs.rmSync(workspace, { recursive: true, force: true }); }
+});
+
+test('board commands ignore an invalid legacy board after canonical deletion', () => {
+  const home = tempHome();
+  try {
+    fs.writeFileSync(path.join(home, 'board.md'), 'invalid legacy board', 'utf8');
+    const candidate = path.join(home, 'candidate.md');
+    fs.writeFileSync(candidate, EMPTY_BOARD, 'utf8');
+    const result = run(['board', 'write', '--file', candidate], { env: { IGNITE_AGENT_HOME: home } });
+    assert.equal(result.code, 0, result.err);
+    assert.equal(fs.readFileSync(boardPath(home), 'utf8'), EMPTY_BOARD);
+    assert.equal(fs.readFileSync(path.join(home, 'board.md'), 'utf8'), 'invalid legacy board');
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
 if (failures.length) {

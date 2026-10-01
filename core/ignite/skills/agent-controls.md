@@ -15,7 +15,7 @@ Use `settings set` when the owner asks to change them. It sets one launch settin
 
 ## Schedules and work
 
-Use `schedule list` to inspect reminders and checks; `schedule add|change|cancel` to maintain them. Add a schedule only when the owner asked for one. For a recurring request, resolve both cadence and timezone with the owner before adding it. Never invent either. A fixed interval (`--every`) runs by elapsed time and takes no timezone flag; a cron schedule needs an explicit timezone. Record the agreed timezone with a recurring check on `board.md`, along with what to check and when to report. An empty recurring-checks section does not authorize a schedule.
+Use `schedule list` to inspect reminders and checks; `schedule add|change|cancel` to maintain them. Add a schedule only when the owner asked for one. For a recurring request, resolve both cadence and timezone with the owner before adding it. Never invent either. A fixed interval (`--every`) runs by elapsed time and takes no timezone flag; a cron schedule needs an explicit timezone. Put what to check and when to report in the schedule's note. Ignite writes every timer into the Timers table of `_artifacts/board.md` from its schedule database; never write that table yourself. An empty Timers table does not authorize a schedule.
 
 Use `work status` to inspect an assignment or hold. Use `work retry|resume` for a held assignment or agent hold, and `work stop` when the owner stops an assignment. Stopping work does not cancel its schedule; change the schedule only if the same instruction calls for it.
 

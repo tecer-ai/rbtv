@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { CAPS, EMPTY_BOARD, parseBoard, writeBoard, closeSubject, boardPath, migrateBoard, refreshBoard, renderBoard } = require('./board.js');
+const { CAPS, EMPTY_BOARD, parseBoard, writeBoard, closeSubject, boardPath, migrateBoard, refreshBoard, refreshBoardAfterCommit, renderBoard, preflightBoard } = require('./board.js');
 const { Store } = require('./store.js');
 
 const failures = [];
@@ -416,10 +416,95 @@ test('renderBoard refreshes checked recovered text without any filesystem write'
 test('a runtime refresh leaves a missing board absent for turn-start HEAD recovery', () => {
   runtimeBoard(EMPTY_BOARD, ({ home, file, store }) => {
     fs.unlinkSync(file);
+    fs.writeFileSync(path.join(home, 'board.md'), 'invalid obsolete board', 'utf8');
     assert.deepEqual(refreshBoard(home, store, NOW), { path: file, changed: false });
     assert.equal(fs.existsSync(file), false);
   });
 });
+
+test('post-commit refresh returns a pending warning with all ids on failure and clears it on success', () => {
+  runtimeBoard('broken board', ({ home, file, store }) => {
+    assert.equal(refreshBoardAfterCommit(home, store, ['one', 'two'], NOW), 'one, two committed; board refresh pending');
+    assert.equal(fs.readFileSync(file, 'utf8'), 'broken board');
+    fs.writeFileSync(file, EMPTY_BOARD, 'utf8');
+    assert.equal(refreshBoardAfterCommit(home, store, ['one'], NOW), null);
+    assert.equal(parseBoard(fs.readFileSync(file, 'utf8')).timers.length, 2);
+  });
+});
+
+for (const action of ['write', 'close']) test(`board ${action} refreshes committed timers within the write and preserves CRLF`, () => {
+  const text = board({ subjects: [subject('Review')] }).replace(/\n/g, '\r\n');
+  runtimeBoard(text, ({ file, store }) => {
+    store.upsertConversation({ key: 'k', agent: 'sample', workspace: 'T1', channel: 'C1' });
+    store.upsertSchedule({ id: 'pending', conversationKey: 'k', cadence: 'every:1h', timezone: 'fixed', nextAt: NOW, note: 'Café check' });
+    const result = action === 'write' ? writeBoard(file, text, { store, now: NOW })
+      : closeSubject(file, 'Review', 'Done', { agent: 'sample', store, now: NOW });
+    assert.equal(result.changed, true);
+    const after = fs.readFileSync(file, 'utf8');
+    assert.ok(after.includes('\r\n'));
+    const parsed = parseBoard(after);
+    assert.match(parsed.timers[2], /\| pending \| Café check \| none \|/);
+    assert.equal(parsed.subjects.length, action === 'close' ? 0 : 1);
+    assert.equal(parsed.closed.length, action === 'close' ? 1 : 0);
+    const before = fs.readFileSync(file);
+    assert.throws(() => writeBoard(file, after.replace('Café check', 'forged timer'), { store }), /Timers is written by Ignite/);
+    assert.deepEqual(fs.readFileSync(file), before);
+  });
+});
+
+test('standing instructions name the canonical board and its four sections', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'rules', 'ignite-standing-instructions.md'), 'utf8');
+  assert.ok(text.includes('<home>/_artifacts/board.md'));
+  assert.doesNotMatch(text, /<home>\/board\.md|recurring-checks section/);
+  for (const heading of ['What matters now', 'Watch-outs', 'Timers', 'Recently closed']) assert.ok(text.includes(heading));
+});
+
+test('schedule preflight checks current board form without changing its bytes', () => {
+  runtimeBoard(EMPTY_BOARD, ({ home, file }) => {
+    preflightBoard(home);
+    assert.equal(fs.readFileSync(file, 'utf8'), EMPTY_BOARD);
+    fs.writeFileSync(file, 'broken café\r\n', 'utf8');
+    assert.throws(() => preflightBoard(home), (error) => error.message.startsWith(`board refused: ${file}: `));
+    assert.equal(fs.readFileSync(file, 'utf8'), 'broken café\r\n');
+  });
+});
+
+test('schedule preflight refuses a deleted canonical board without restoring the legacy board', () => {
+  runtimeBoard(EMPTY_BOARD, ({ home, file }) => {
+    fs.unlinkSync(file);
+    fs.writeFileSync(path.join(home, 'board.md'), EMPTY_BOARD, 'utf8');
+    assert.throws(() => preflightBoard(home), { message: `board refused: ${file}: board is missing` });
+    assert.equal(fs.existsSync(file), false);
+    assert.equal(fs.readFileSync(path.join(home, 'board.md'), 'utf8'), EMPTY_BOARD);
+  });
+});
+
+for (const component of ['board.md', '_artifacts', 'sample', 'agents', '.rbtv']) {
+  test(`board writers reject symlink/junction ${component}`, () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-board-path-'));
+    try {
+      const home = path.join(dir, 'workspace', '.rbtv', 'agents', 'sample');
+      const file = boardPath(home);
+      const parts = file.split(path.sep);
+      const link = parts.slice(0, parts.lastIndexOf(component) + 1).join(path.sep);
+      const outside = path.join(dir, 'outside');
+      fs.mkdirSync(path.dirname(link), { recursive: true });
+      fs.mkdirSync(outside);
+      const target = component === 'board.md' ? path.join(outside, 'board.md') : outside;
+      if (component === 'board.md') fs.writeFileSync(target, FILLED_EXAMPLE, 'utf8');
+      try { fs.symlinkSync(target, link, component === 'board.md' ? 'file' : (process.platform === 'win32' ? 'junction' : 'dir')); }
+      catch (error) {
+        if (process.platform !== 'win32' || !['EPERM', 'EACCES'].includes(error.code)) throw error;
+        console.log('SKIP symlink creation requires Windows privileges'); return;
+      }
+      for (const write of [() => writeBoard(file, EMPTY_BOARD),
+        () => closeSubject(file, 'Conference talk draft', 'Done', { agent: 'sample' }),
+        () => refreshBoard(home, {}), () => migrateBoard(home)]) assert.throws(write, /symlink|junction/);
+      if (component === 'board.md') assert.equal(fs.readFileSync(target, 'utf8'), FILLED_EXAMPLE);
+      else assert.deepEqual(fs.readdirSync(outside), []);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+}
 
 console.log(`${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

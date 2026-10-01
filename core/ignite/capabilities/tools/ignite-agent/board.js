@@ -1,14 +1,15 @@
 'use strict';
 
 // parseBoard(text) checks the four-section form and caps; throws on refusal.
-// writeBoard(file, text) changes subjects and watch-outs, preserving runtime fields.
-// closeSubject(file, title, outcome, { agent, thread?, now? }) records a closure.
-// boardPath(home) / migrateBoard(home) — canonical path; copy a legacy board only if absent.
+// writeBoard(file, text, { store?, now? }) changes subjects and watch-outs, then refreshes runtime fields when a store is supplied.
+// closeSubject(file, title, outcome, { agent, thread?, now?, store? }) records a closure.
+// boardPath(home) / migrateBoard(home) — canonical path; explicit install/update migration only.
 // refreshBoard(home, store, now?) regenerates Timers and linked-thread Flags.
 // All writes are checked before touching the file. No truncation or automatic pruning.
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { NOFOLLOW, safeWritePath, writeRoot, withMemoryLock } = require('./memory-write.js');
 
 const HEADINGS = ['What matters now', 'Watch-outs', 'Timers', 'Recently closed'];
 const CAPS = Object.freeze({ lines: 90, subjects: 8, watchOuts: 6, closed: 6 });
@@ -146,17 +147,30 @@ function boardPath(home) {
 }
 
 function migrateBoard(home) {
-  const file = boardPath(home);
-  const legacy = path.join(home, 'board.md');
-  if (!fs.existsSync(file) && fs.existsSync(legacy)) {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    try {
-      fs.copyFileSync(legacy, file, fs.constants.COPYFILE_EXCL);
-    } catch (error) {
-      if (error.code !== 'EEXIST') throw error;
+  return withMemoryLock(writeRoot(boardPath(home)), () => {
+    safeWritePath(writeRoot(boardPath(home)), boardPath(home));
+    const file = boardPath(home);
+    const legacy = path.join(home, 'board.md');
+    if (!fs.existsSync(file) && fs.existsSync(legacy)) {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      try {
+        fs.copyFileSync(legacy, file, fs.constants.COPYFILE_EXCL);
+      } catch (error) {
+        if (error.code !== 'EEXIST') throw error;
+      }
     }
+    return file;
+  });
+}
+
+function preflightBoard(home) {
+  const file = boardPath(home);
+  try {
+    safeWritePath(writeRoot(file), file);
+    parseBoard(fs.readFileSync(file, 'utf8'));
+  } catch (error) {
+    refuse(`${file}: ${error.code === 'ENOENT' ? 'board is missing' : error.message.replace(/^board refused: /, '')}`);
   }
-  return file;
 }
 
 function timerCell(value) {
@@ -221,16 +235,25 @@ function renderBoard(text, store, now = Date.now()) {
 }
 
 function refreshBoard(home, store, now = Date.now()) {
-  const file = migrateBoard(home);
-  let text;
-  try { text = fs.readFileSync(file, 'utf8'); }
-  catch (error) {
-    // Installation creates the board. A tick must not conceal a deleted board
-    // with an empty one before turn-start memory recovery can load HEAD/alert.
-    if (error.code === 'ENOENT') return { path: file, changed: false };
-    throw error;
-  }
-  return saveBoard(file, renderBoard(text, store, now));
+  return withMemoryLock(writeRoot(boardPath(home)), () => {
+    safeWritePath(writeRoot(boardPath(home)), boardPath(home));
+    const file = boardPath(home);
+    let text;
+    try { text = fs.readFileSync(file, 'utf8'); }
+    catch (error) {
+      // Installation creates the board. A tick must not conceal a deleted board
+      // with an empty one before turn-start memory recovery can load HEAD/alert.
+      if (error.code === 'ENOENT') return { path: file, changed: false };
+      throw error;
+    }
+    return saveBoard(file, renderBoard(text, store, now));
+  });
+}
+
+// SQLite has already committed. A failed projection must not invite a mutation retry.
+function refreshBoardAfterCommit(home, store, ids, now = Date.now()) {
+  try { refreshBoard(home, store, now); return null; }
+  catch { return `${ids.join(', ')} committed; board refresh pending`; }
 }
 
 function saveBoard(file, text) {
@@ -238,11 +261,13 @@ function saveBoard(file, text) {
   const bytes = Buffer.from(text, 'utf8');
   let fd;
   try {
-    fd = fs.openSync(file, 'r+');
+    safeWritePath(writeRoot(file), file);
+    fd = fs.openSync(file, fs.constants.O_RDWR | NOFOLLOW);
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fd = fs.openSync(file, 'wx');
+    safeWritePath(writeRoot(file), file);
+    fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | NOFOLLOW, 0o600);
   }
   try {
     // Compare exact bytes, and rewrite an existing file in place (Windows Hidden/System).
@@ -255,36 +280,43 @@ function saveBoard(file, text) {
   return { path: file, changed: true };
 }
 
-function writeBoard(file, text) {
-  const next = parseBoard(text);
-  const previous = parseBoard(readBoard(file));
-  if (JSON.stringify(next.timers) !== JSON.stringify(previous.timers)) refuse('Timers is written by Ignite; keep its current rows');
-  if (JSON.stringify(next.closed) !== JSON.stringify(previous.closed)) refuse('Recently closed is written by board close; keep its current rows');
-  for (const subject of previous.subjects) {
-    if (!next.subjects.some((row) => row.title === subject.title)) refuse('use board close to remove a subject');
-  }
-  for (const subject of next.subjects) {
-    const old = previous.subjects.find((row) => row.title === subject.title);
-    if (subject.flags !== (old?.flags ?? 'none')) refuse('Flags is written by Ignite; use none for new subjects and keep existing flags');
-  }
-  return saveBoard(file, text);
+function writeBoard(file, text, { store = null, now = Date.now() } = {}) {
+  return withMemoryLock(writeRoot(file), () => {
+    safeWritePath(writeRoot(file), file);
+    const next = parseBoard(text);
+    const previous = parseBoard(readBoard(file));
+    if (JSON.stringify(next.timers) !== JSON.stringify(previous.timers)) refuse('Timers is written by Ignite; keep its current rows');
+    if (JSON.stringify(next.closed) !== JSON.stringify(previous.closed)) refuse('Recently closed is written by board close; keep its current rows');
+    for (const subject of previous.subjects) {
+      if (!next.subjects.some((row) => row.title === subject.title)) refuse('use board close to remove a subject');
+    }
+    for (const subject of next.subjects) {
+      const old = previous.subjects.find((row) => row.title === subject.title);
+      if (subject.flags !== (old?.flags ?? 'none')) refuse('Flags is written by Ignite; use none for new subjects and keep existing flags');
+    }
+    return saveBoard(file, store ? renderBoard(text, store, now) : text);
+  });
 }
 
-function closeSubject(file, title, outcome, { agent, thread = null, now = Date.now() }) {
-  const text = readBoard(file);
-  const board = parseBoard(text);
-  const subject = board.subjects.find((row) => row.title === title);
-  if (!subject) refuse('subject not found; use its exact title from the board');
-  if (typeof outcome !== 'string' || !outcome.trim() || /[\r\n]/.test(outcome)) refuse('close requires a one-line outcome');
-  if (typeof agent !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(agent)) refuse('close requires an agent slug');
-  if (thread !== null && (typeof thread !== 'string' || !validLink(thread))) refuse('close thread must be a [label](URL) link');
-  const date = new Date(now).toISOString().slice(0, 10);
-  const entry = `- ${title} — ${outcome.trim()} (${date} · ${agent}${thread ? `/${thread}` : ''})`;
-  const lines = board.lines.slice();
-  while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
-  lines.push(entry, '');
-  lines.splice(subject.start, subject.end - subject.start);
-  return { ...saveBoard(file, lines.join(text.includes('\r\n') ? '\r\n' : '\n')), subject: title };
+function closeSubject(file, title, outcome, { agent, thread = null, now = Date.now(), store = null }) {
+  return withMemoryLock(writeRoot(file), () => {
+    safeWritePath(writeRoot(file), file);
+    const text = readBoard(file);
+    const board = parseBoard(text);
+    const subject = board.subjects.find((row) => row.title === title);
+    if (!subject) refuse('subject not found; use its exact title from the board');
+    if (typeof outcome !== 'string' || !outcome.trim() || /[\r\n]/.test(outcome)) refuse('close requires a one-line outcome');
+    if (typeof agent !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(agent)) refuse('close requires an agent slug');
+    if (thread !== null && (typeof thread !== 'string' || !validLink(thread))) refuse('close thread must be a [label](URL) link');
+    const date = new Date(now).toISOString().slice(0, 10);
+    const entry = `- ${title} — ${outcome.trim()} (${date} · ${agent}${thread ? `/${thread}` : ''})`;
+    const lines = board.lines.slice();
+    while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+    lines.push(entry, '');
+    lines.splice(subject.start, subject.end - subject.start);
+    const next = lines.join(text.includes('\r\n') ? '\r\n' : '\n');
+    return { ...saveBoard(file, store ? renderBoard(next, store, now) : next), subject: title };
+  });
 }
 
-module.exports = { CAPS, EMPTY_BOARD, parseBoard, writeBoard, closeSubject, boardPath, migrateBoard, refreshBoard, renderBoard };
+module.exports = { CAPS, EMPTY_BOARD, parseBoard, writeBoard, closeSubject, boardPath, migrateBoard, refreshBoard, refreshBoardAfterCommit, renderBoard, preflightBoard };

@@ -185,8 +185,10 @@ test('remember creates and appends one UTF-8 line, keeps broken bytes and never 
   assert.equal(first.appended, true);
   assert.equal(first.lines, 1);
   checkMemory('inbox', fs.readFileSync(first.path, 'utf8'));
-  write(first.path, '# Inbox — waiting to be filed\r\n\r\n' + '- Fact. (2026-10-01 · sample)\r\n'.repeat(17));
-  assert.equal(remember(dir, 'twentieth', options).warning, null);
+  write(first.path, '# Inbox — waiting to be filed\r\n\r\n' + '- Fact. (2026-10-01 · sample)\r\n'.repeat(19));
+  const twentieth = remember(dir, 'twentieth', options);
+  assert.equal(twentieth.lines, 20);
+  assert.equal(twentieth.warning, null);
   const full = remember(dir, 'twenty-first', options);
   assert.equal(full.lines, 21);
   assert.match(full.warning, /over 20/);
@@ -196,6 +198,40 @@ test('remember creates and appends one UTF-8 line, keeps broken bytes and never 
   const after = fs.readFileSync(first.path);
   assert.deepEqual(after.subarray(0, broken.length), broken);
   assert.match(after.toString('utf8'), /newline\n- a{5000}/);
+});
+
+test('inbox counts only bullet lines with or without a heading, in LF and CRLF', (dir) => {
+  const file = path.join(dir, '.rbtv', 'memory', 'inbox.md');
+  for (const newline of ['\n', '\r\n']) {
+    for (const heading of ['', `# Inbox — waiting to be filed${newline}${newline}`]) {
+      write(file, heading + `unfiled prose${newline}`.repeat(25) + `- Fact${newline}`.repeat(19));
+      const twenty = remember(dir, 'twentieth', { agent: 'sample' });
+      assert.equal(twenty.lines, 20);
+      assert.equal(twenty.warning, null);
+      const twentyOne = remember(dir, 'twenty-first', { agent: 'sample' });
+      assert.equal(twentyOne.lines, 21);
+      assert.match(twentyOne.warning, /21 bullet lines/);
+    }
+  }
+});
+
+for (const component of ['inbox.md', 'memory', '.rbtv']) test(`remember rejects symlink/junction ${component} without changing the target`, (dir) => {
+  const outside = path.join(dir, 'outside');
+  const workspace = path.join(dir, 'workspace');
+  const file = path.join(workspace, '.rbtv', 'memory', 'inbox.md');
+  const link = component === 'inbox.md' ? file : component === 'memory' ? path.dirname(file) : path.join(workspace, '.rbtv');
+  const target = component === 'inbox.md' ? path.join(outside, 'inbox.md') : outside;
+  fs.mkdirSync(path.dirname(link), { recursive: true });
+  fs.mkdirSync(outside, { recursive: true });
+  if (component === 'inbox.md') write(target, 'untouched café\r\n');
+  try { fs.symlinkSync(target, link, component === 'inbox.md' ? 'file' : (process.platform === 'win32' ? 'junction' : 'dir')); }
+  catch (error) {
+    if (process.platform !== 'win32' || !['EPERM', 'EACCES'].includes(error.code)) throw error;
+    console.log('SKIP symlink creation requires Windows privileges'); return;
+  }
+  assert.throws(() => remember(workspace, 'must not escape', { agent: 'sample' }), /symlink|junction/);
+  if (component === 'inbox.md') assert.equal(fs.readFileSync(target, 'utf8'), 'untouched café\r\n');
+  else assert.deepEqual(fs.readdirSync(outside), []);
 });
 
 test('simultaneous first appends from several processes preserve every complete line', async (dir) => {

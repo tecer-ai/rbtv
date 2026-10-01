@@ -132,6 +132,8 @@ function harness(ctx, setting = {}) {
   const launch = { harness: 'claude', model: 'sonnet-5', effort: 'low', voice: 'voice-a', ...setting };
   fs.writeFileSync(path.join(home, 'launch.json'), `${JSON.stringify(launch)}\n`);
   fs.writeFileSync(path.join(home, 'board.md'), TEST_BOARD, 'utf8');
+  fs.mkdirSync(path.dirname(boardPath(home)), { recursive: true });
+  fs.writeFileSync(boardPath(home), TEST_BOARD, 'utf8');
   fs.mkdirSync(path.join(home, 'memory'));
   fs.writeFileSync(path.join(home, 'memory', 'learned.md'), '# Learned rules — master\n', 'utf8');
   const memory = path.join(ctx.dir, '.rbtv', 'memory');
@@ -844,7 +846,7 @@ for (const trigger of ['owner', 'schedule']) {
     box.store.upsertSchedule({ id: 'review-timer', conversationKey: key, cadence: 'every:1h', timezone: 'fixed',
       nextAt: now + 3_600_000, note: 'Read the review', subject: 'Café review' });
     const text = EMPTY_BOARD.replace('## What matters now\n', `## What matters now\n\n### Café review\nWaiting.\n- Threads: [review](https://example.slack.com/archives/C1/p${rootTs.replace('.', '')})\n- Detail: none\n- Flags: none\n`);
-    fs.mkdirSync(path.dirname(boardPath(box.home)));
+    fs.mkdirSync(path.dirname(boardPath(box.home)), { recursive: true });
     fs.writeFileSync(boardPath(box.home), text, 'utf8');
     const result = await runOnce('master', box.deps);
     assert.equal(result.disposition, 'completed');
@@ -866,7 +868,7 @@ test('a due one-shot injects its note from the board after the schedule disables
   box.store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs: 'board' });
   box.store.upsertSchedule({ id: 'send-draft', conversationKey: key, cadence: `at:${new Date(now).toISOString()}`,
     timezone: 'Z', nextAt: now, note: 'Send the draft for review' });
-  fs.mkdirSync(path.dirname(boardPath(box.home)));
+  fs.mkdirSync(path.dirname(boardPath(box.home)), { recursive: true });
   fs.writeFileSync(boardPath(box.home), EMPTY_BOARD, 'utf8');
   assert.equal(main(['schedules-due', '--now', new Date(now).toISOString()], {
     env: { IGNITE_AGENT_HOME: box.home }, stdout() {},
@@ -888,13 +890,15 @@ for (const trigger of ['owner', 'schedule']) {
       box.store.enqueueScheduleWake({ id: 'missing-memory-wake', conversationKey: 'T1:C1:1.1', scheduleId: 'check-memory' });
     }
     fs.unlinkSync(path.join(ctx.dir, '.rbtv', 'memory', 'profile.md'));
-    fs.unlinkSync(path.join(box.home, 'board.md'));
+    fs.unlinkSync(boardPath(box.home));
+    fs.writeFileSync(path.join(box.home, 'board.md'), 'INVALID_LEGACY_BOARD', 'utf8');
     fs.writeFileSync(path.join(box.home, 'memory', 'learned.md'), 'BROKEN_LESSON', 'utf8');
     box.sync();
     const result = await runOnce('master', box.deps);
     assert.equal(result.disposition, 'completed');
     assert.match(result.prompt, /MISSING MEMORY/);
-    assert.doesNotMatch(result.prompt, /BROKEN_LESSON/);
+    assert.doesNotMatch(result.prompt, /BROKEN_LESSON|INVALID_LEGACY_BOARD/);
+    assert.equal(fs.existsSync(boardPath(box.home)), false);
     assert.equal(box.store.agentHold(), null);
     const alert = box.store.pendingOutbox().find((row) => row.id.startsWith('memory:'));
     assert.match(alert.payload.text, /profile\.md.*ENOENT/);

@@ -47,9 +47,9 @@ Text is the default reply. Set `replies[].audio` to true ONLY when the owner ask
 
 ## Board
 
-The board has four sections. What matters now is written by you, as subjects arise and change, through the board command; the dreamer shortens entries and moves detail out. Watch-outs holds the owner's corrections, recorded the same turn, written by you through the board command; the dreamer later folds them into the learned rules. Timers is written by Ignite from its schedule database. Recently closed is written by Ignite when you close a subject through the board command. Ignite also writes a subject's Flags line; do not change Flags yourself. A subject on the board names its thread or threads when it has any.
+The board at `<home>/_artifacts/board.md` has four sections. What matters now is written by you, as subjects arise and change, through the board command; the dreamer shortens entries and moves detail out. Watch-outs holds the owner's corrections, recorded the same turn, written by you through the board command; the dreamer later folds them into the learned rules. Timers is written by Ignite from its schedule database. Recently closed is written by Ignite when you close a subject through the board command. Ignite also writes a subject's Flags line; do not change Flags yourself. A subject on the board names its thread or threads when it has any.
 
-A scheduled wake names the check that fired; read the board for its details and do what it records. Keep it current: human-readable and minimal. It holds your open work and your recurring checks, nothing else. Each recurring check records cadence, timezone, what to check, and report policy. NEVER invent a cadence or a timezone. An empty recurring-checks section is not a schedule.
+A scheduled wake names the check that fired; read the board for its details and do what it records. Keep subjects and watch-outs current: human-readable and minimal. Create or change timers through `ignite-agent schedule`; Ignite generates the Timers table from the schedule database. NEVER invent a cadence or a timezone.
 
 ## Capabilities
 

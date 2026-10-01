@@ -13,7 +13,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const TOP_KEYS = ['slack', 'tools', 'dmAgent', 'routes'];
+const TOP_KEYS = ['slack', 'tools', 'dmAgent', 'routes', 'dreamer'];
 const SLACK_KEYS = ['team', 'botUserId', 'ownerUserId', 'appTokenEnv', 'botTokenEnv', 'ownerTokenEnv', 'stoolsWorkspace'];
 const TOOL_KEYS = ['cast', 'stools', 'audio'];
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -67,6 +67,10 @@ function validate(raw) {
   reqWorkspaceName(raw.slack.stoolsWorkspace);
   rejectUnknown(raw.tools, TOOL_KEYS, 'tools');
   for (const key of TOOL_KEYS) reqString(raw.tools, key, `tools.${key}`);
+  if (raw.dreamer !== undefined) {
+    rejectUnknown(raw.dreamer, ['enabled'], 'dreamer');
+    if (raw.dreamer.enabled !== undefined && typeof raw.dreamer.enabled !== 'boolean') throw new Error('dreamer.enabled must be a boolean');
+  }
   if (raw.dmAgent !== undefined) reqSlug(raw.dmAgent, 'dmAgent');
   if (!raw.routes || typeof raw.routes !== 'object' || Array.isArray(raw.routes)) {
     throw new Error('routes must be an object');
@@ -87,7 +91,7 @@ function loadConfig(workspace) {
     throw new Error(`cannot load Ignite config: ${error.message}`);
   }
   validate(raw);
-  return { ...raw, workspace: path.resolve(workspace) };
+  return { ...raw, dreamer: { enabled: false, ...raw.dreamer }, workspace: path.resolve(workspace) };
 }
 
 function updateConfig(workspace, change) {
@@ -98,7 +102,7 @@ function updateConfig(workspace, change) {
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
   fs.renameSync(tmp, file);
-  return { ...next, workspace: path.resolve(workspace) };
+  return { ...next, dreamer: { enabled: false, ...next.dreamer }, workspace: path.resolve(workspace) };
 }
 
 function agentHome(config, slug) {

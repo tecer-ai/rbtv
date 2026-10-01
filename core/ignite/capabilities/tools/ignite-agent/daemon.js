@@ -330,15 +330,28 @@ async function startLocked(opts, workspace, held) {
     return false;
   }
 
-  function lastDreamerSuccess() {
+  function syncDreamerEnabled() {
+    for (const slug of dreamerSlugs(config)) {
+      const store = getStore(slug);
+      if (!store) continue;
+      const row = store.db.prepare("SELECT value FROM settings WHERE key='dreamer_enabled_at'").get();
+      const since = row ? JSON.parse(row.value) : null;
+      const next = config.dreamer.enabled ? (since ?? clock()) : null;
+      if (next !== since) store.db.prepare(`INSERT INTO settings(key,value,updated_at) VALUES ('dreamer_enabled_at',?,?)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
+        .run(JSON.stringify(next), clock());
+    }
+  }
+
+  function dreamerWatchdogSince() {
     let last = Infinity;
     for (const slug of dreamerSlugs(config)) {
       const store = getStore(slug);
       if (!store) return null;
       try {
-        const value = getState(store).lastSuccessAt;
-        if (!Number.isFinite(value)) return null;
-        last = Math.min(last, value);
+        const enabledAt = JSON.parse(store.db.prepare("SELECT value FROM settings WHERE key='dreamer_enabled_at'").get()?.value || 'null');
+        if (!Number.isFinite(enabledAt)) return null;
+        last = Math.min(last, Math.max(enabledAt, getState(store).lastSuccessAt ?? enabledAt));
       } catch {
         return null;
       }
@@ -400,8 +413,8 @@ async function startLocked(opts, workspace, held) {
 
   async function watchdogDreamer() {
     const now = clock();
-    const last = lastDreamerSuccess();
-    if (last != null && now - last <= DREAMER_WATCHDOG_MS) return;
+    const last = dreamerWatchdogSince();
+    if (last == null || now - last <= DREAMER_WATCHDOG_MS) return;
     if (watchdogAlertAt != null && now - watchdogAlertAt < DREAMER_WATCHDOG_MS) return;
     watchdogAlertAt = now;
     try {
@@ -477,8 +490,15 @@ async function startLocked(opts, workspace, held) {
 
   async function tick() {
     if (stopping) return;
-    await runNightDreamer();
-    await watchdogDreamer();
+    refreshConfig();
+    syncDreamerEnabled();
+    if (config.dreamer.enabled) {
+      await runNightDreamer();
+      await watchdogDreamer();
+    } else {
+      dreamerNight = null;
+      watchdogAlertAt = null;
+    }
     const iso = new Date(clock()).toISOString();
     for (const slug of agentSlugs(workspace)) {
       if (stopping) return;

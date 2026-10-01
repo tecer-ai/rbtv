@@ -7,6 +7,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
 const { parseBoard } = require('./board.js');
+const { NOFOLLOW, safeWritePath, withMemoryLock } = require('./memory-write.js');
 
 function workspaceFromHome(home) {
   const agents = path.dirname(path.resolve(home));
@@ -189,37 +190,39 @@ function readMemory(file, kind, alerts) {
 }
 
 function remember(workspace, text, { agent, thread = null, now = Date.now() }) {
-  const file = path.join(workspace, '.rbtv', 'memory', 'inbox.md');
-  const fact = text.replace(/[\r\n\u2028\u2029]+/g, ' ').trim();
-  const line = `- ${fact} (${new Date(now).toISOString().slice(0, 10)} · ${agent}${thread ? `/${thread}` : ''})\n`;
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  let fd;
-  try { fd = fs.openSync(file, fs.constants.O_RDWR | fs.constants.O_APPEND); }
-  catch (error) {
-    if (error.code !== 'ENOENT') throw error;
-    try { fd = fs.openSync(file, fs.constants.O_RDWR | fs.constants.O_APPEND | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600); }
-    catch (race) {
-      if (race.code !== 'EEXIST') throw race;
-      fd = fs.openSync(file, fs.constants.O_RDWR | fs.constants.O_APPEND);
+  return withMemoryLock(workspace, () => {
+    const file = path.join(workspace, '.rbtv', 'memory', 'inbox.md');
+    const fact = text.replace(/[\r\n\u2028\u2029]+/g, ' ').trim();
+    const line = `- ${fact} (${new Date(now).toISOString().slice(0, 10)} · ${agent}${thread ? `/${thread}` : ''})\n`;
+    safeWritePath(workspace, file);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    let fd;
+    try { fd = fs.openSync(file, NOFOLLOW | fs.constants.O_RDWR | fs.constants.O_APPEND); }
+    catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      try { fd = fs.openSync(file, NOFOLLOW | fs.constants.O_RDWR | fs.constants.O_APPEND | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600); }
+      catch (race) {
+        if (race.code !== 'EEXIST') throw race;
+        fd = fs.openSync(file, NOFOLLOW | fs.constants.O_RDWR | fs.constants.O_APPEND);
+      }
     }
-  }
-  try {
-    const size = fs.fstatSync(fd).size;
-    const last = Buffer.alloc(1);
-    if (size) fs.readSync(fd, last, 0, 1, size - 1);
-    const bytes = Buffer.from(`${size && last[0] !== 10 ? '\n' : ''}${line}`, 'utf8');
-    // One O_APPEND write: simultaneous agents cannot overwrite each other's line.
-    if (fs.writeSync(fd, bytes) !== bytes.length) throw new Error('inbox append incomplete');
-  } finally { fs.closeSync(fd); }
-  let lines = null;
-  let warning = null;
-  try {
-    const rows = fs.readFileSync(file, 'utf8').split(/\r?\n/);
-    if (rows.at(-1) === '') rows.pop();
-    lines = rows.length;
-    if (lines > 20) warning = `Memory inbox has ${lines} lines (over 20); the dreamer needs to file them.`;
-  } catch { warning = 'Memory saved, but inbox length could not be checked.'; }
-  return { path: file, appended: true, lines, warning };
+    try {
+      const size = fs.fstatSync(fd).size;
+      const last = Buffer.alloc(1);
+      if (size) fs.readSync(fd, last, 0, 1, size - 1);
+      const bytes = Buffer.from(`${size && last[0] !== 10 ? '\n' : ''}${line}`, 'utf8');
+      // One O_APPEND write: simultaneous agents cannot overwrite each other's line.
+      if (fs.writeSync(fd, bytes) !== bytes.length) throw new Error('inbox append incomplete');
+    } finally { fs.closeSync(fd); }
+    let lines = null;
+    let warning = null;
+    try {
+      const rows = fs.readFileSync(file, 'utf8').split(/\r?\n/);
+      lines = rows.filter((row) => row.startsWith('- ')).length;
+      if (lines > 20) warning = `Memory inbox has ${lines} bullet lines (over 20); the dreamer needs to file them.`;
+    } catch { warning = 'Memory saved, but inbox length could not be checked.'; }
+    return { path: file, appended: true, lines, warning };
+  });
 }
 
 module.exports = { workspaceFromHome, workspacePaths, workspaceMatches, checkMemory, readMemory, workspaceFiles, remember };

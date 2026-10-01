@@ -21,6 +21,7 @@ const { Store } = require('./store.js');
 const { agentHome, storePath } = require('./config.js');
 const { parseBoard } = require('./board.js');
 const { checkMemory } = require('./memory.js');
+const { acquireMemoryLock } = require('./memory-write.js');
 
 const execute = promisify(execFile);
 const GENERAL = '.rbtv/memory/';
@@ -486,80 +487,83 @@ async function runDreamer({ config, openStore, model, now = Date.now() }) {
         conflicts.push(...validated.conflicts);
       }
       requireThat(records('inbox', files.get(`${GENERAL}inbox.md`)).length === 0, 'inbox contains unfiled lines');
-      // All snapshots, including unchanged boards/inbox, must still match exactly.
-      phase = 'compare';
-      if ([...files.keys()].some((name) => readText(safePath(workspace, name)) !== (original.get(name) ?? null))) {
-        requireThat(attempt === 0, 'memory changed again during retry');
-        continue;
-      }
-      const changed = [...files].filter(([name, text]) => text !== original.get(name));
-      if (changed.length) {
-        phase = 'write';
-        const written = [];
-        const addedToIndex = [];
-        let committed = false;
-        try {
-          for (const [name, text] of changed) {
-            const file = safePath(workspace, name);
-            try { writeText(file, text); }
-            catch (error) {
-              // A failed write/truncate/close can leave partial UTF-8 bytes.
-              if (fs.existsSync(file)) written.push([name, fs.readFileSync(file)]);
-              throw error;
-            }
-            written.push([name, Buffer.from(text, 'utf8')]);
-          }
-          phase = 'commit';
-          const paths = changed.map(([name]) => name);
-          const explanation = operations.map((op) => [
-            `${op.op} ${op.path}: ${op.reason} — ${op.explanation}`,
-            `Owner sources (${op.agent}): ${op.sources.join(', ') || 'preserved records / expiry'}`,
-            ...(op.removals || []).map((item) => `Removed record:\n${item.text}\n` +
-              (item.to ? `Destination: ${item.to}${item.replacement ? `\n${item.replacement}` : ''}` : 'Superseded in this file.')),
-          ].join('\n')).join('\n\n');
-          const tracked = new Set(git(workspace, ['ls-files', '-z', '--', ...paths]).split('\0'));
-          const untracked = paths.filter((name) => !tracked.has(name));
-          if (untracked.length) {
-            git(workspace, ['add', '--intent-to-add', '--', ...untracked]);
-            addedToIndex.push(...untracked);
-          }
-          // stdin avoids Windows' command-line length limit and retains removed
-          // records that the talking agent had not yet committed to Git.
-          git(workspace, ['commit', '-F', '-', '--', ...paths], `Consolidate memory\n\n${explanation}\n`);
-          committed = true;
-          result.changed = true;
-          result.commit = git(workspace, ['rev-parse', 'HEAD']);
-        } catch (error) {
-          // An ordinary failed run restores only bytes it wrote, never a racing
-          // agent edit. Git is the history; there is no second journal or lock.
-          if (!committed) {
-            for (const [name, bytes] of written) {
-              const file = safePath(workspace, name);
-              if (!fs.existsSync(file) || !fs.readFileSync(file).equals(bytes)) continue;
-              if (original.has(name)) writeText(file, original.get(name));
-              else fs.unlinkSync(file);
-            }
-            if (addedToIndex.length) git(workspace, ['reset', '--', ...addedToIndex]);
-          }
-          throw error;
+      const release = acquireMemoryLock(workspace);
+      try {
+        // All snapshots, including unchanged boards/inbox, must still match exactly.
+        phase = 'compare';
+        if ([...files.keys()].some((name) => readText(safePath(workspace, name)) !== (original.get(name) ?? null))) {
+          requireThat(attempt === 0, 'memory changed again during retry');
+          continue;
         }
-      }
-      phase = 'cursor';
-      const workstreams = files.get(`${GENERAL}workstreams.md`);
-      if (workstreams && nonempty(workstreams).length > 60) conflicts.push('Workstreams exceeds 60 lines; review the map.');
-      const newConflicts = [...new Set(conflicts)].filter((line) => !reported.has(line));
-      for (const agent of agents) {
-        const advance = result.commit && (operations.some((op) => op.agent === agent.slug) || agent.messages.length === 0);
-        const state = { cursor: advance ? agent.ceiling : agent.state.cursor, lastSuccessAt: now,
-          commit: result.commit || agent.state.commit, reportedConflicts: [...reported] };
-        saveState(agent.store, state, now);
-        result.agents.push({ agent: agent.slug, ...state });
-      }
-      if (result.changed || newConflicts.length) result.digest = { agent: config.dmAgent || null,
-        text: ['Memory consolidation', ...operations.map((op) => `${op.path}: ${op.explanation}`),
-          ...newConflicts.map((line) => `Conflict: ${line}`)].join('\n'), conflicts: newConflicts };
-      result.ok = true;
-      return result;
+        const changed = [...files].filter(([name, text]) => text !== original.get(name));
+        if (changed.length) {
+          phase = 'write';
+          const written = [];
+          const addedToIndex = [];
+          let committed = false;
+          try {
+            for (const [name, text] of changed) {
+              const file = safePath(workspace, name);
+              try { writeText(file, text); }
+              catch (error) {
+                // A failed write/truncate/close can leave partial UTF-8 bytes.
+                if (fs.existsSync(file)) written.push([name, fs.readFileSync(file)]);
+                throw error;
+              }
+              written.push([name, Buffer.from(text, 'utf8')]);
+            }
+            phase = 'commit';
+            const paths = changed.map(([name]) => name);
+            const explanation = operations.map((op) => [
+              `${op.op} ${op.path}: ${op.reason} — ${op.explanation}`,
+              `Owner sources (${op.agent}): ${op.sources.join(', ') || 'preserved records / expiry'}`,
+              ...(op.removals || []).map((item) => `Removed record:\n${item.text}\n` +
+                (item.to ? `Destination: ${item.to}${item.replacement ? `\n${item.replacement}` : ''}` : 'Superseded in this file.')),
+            ].join('\n')).join('\n\n');
+            const tracked = new Set(git(workspace, ['ls-files', '-z', '--', ...paths]).split('\0'));
+            const untracked = paths.filter((name) => !tracked.has(name));
+            if (untracked.length) {
+              git(workspace, ['add', '--intent-to-add', '--', ...untracked]);
+              addedToIndex.push(...untracked);
+            }
+            // stdin avoids Windows' command-line length limit and retains removed
+            // records that the talking agent had not yet committed to Git.
+            git(workspace, ['commit', '-F', '-', '--', ...paths], `Consolidate memory\n\n${explanation}\n`);
+            committed = true;
+            result.changed = true;
+            result.commit = git(workspace, ['rev-parse', 'HEAD']);
+          } catch (error) {
+            // An ordinary failed run restores only bytes it wrote, never a racing
+            // agent edit. Git is the history; publication still holds the installation lock.
+            if (!committed) {
+              for (const [name, bytes] of written) {
+                const file = safePath(workspace, name);
+                if (!fs.existsSync(file) || !fs.readFileSync(file).equals(bytes)) continue;
+                if (original.has(name)) writeText(file, original.get(name));
+                else fs.unlinkSync(file);
+              }
+              if (addedToIndex.length) git(workspace, ['reset', '--', ...addedToIndex]);
+            }
+            throw error;
+          }
+        }
+        phase = 'cursor';
+        const workstreams = files.get(`${GENERAL}workstreams.md`);
+        if (workstreams && nonempty(workstreams).length > 60) conflicts.push('Workstreams exceeds 60 lines; review the map.');
+        const newConflicts = [...new Set(conflicts)].filter((line) => !reported.has(line));
+        for (const agent of agents) {
+          const advance = result.commit && (operations.some((op) => op.agent === agent.slug) || agent.messages.length === 0);
+          const state = { cursor: advance ? agent.ceiling : agent.state.cursor, lastSuccessAt: now,
+            commit: result.commit || agent.state.commit, reportedConflicts: [...reported] };
+          saveState(agent.store, state, now);
+          result.agents.push({ agent: agent.slug, ...state });
+        }
+        if (result.changed || newConflicts.length) result.digest = { agent: config.dmAgent || null,
+          text: ['Memory consolidation', ...operations.map((op) => `${op.path}: ${op.explanation}`),
+            ...newConflicts.map((line) => `Conflict: ${line}`)].join('\n'), conflicts: newConflicts };
+        result.ok = true;
+        return result;
+      } finally { release(); }
     }
   } catch (error) {
     result.alert = `Dreamer failed: ${error instanceof Refusal ? error.message : `${phase} failed`}.`;

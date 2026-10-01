@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const { Store } = require('./store.js');
 const { EMPTY_BOARD, parseBoard } = require('./board.js');
 const { runDreamer, castProposal, getState, saveState } = require('./dreamer.js');
@@ -599,6 +599,75 @@ test('a racing inbox append is filed from the re-read, without dropping either l
   });
   assert.equal(result.ok, true, result.alert); assert.equal(calls, 2);
   assert.ok(f.read(`${ROOT}knowledge/facts.md`).includes(first)); assert.ok(f.read(`${ROOT}knowledge/facts.md`).includes(second));
+});
+
+for (const racing of ['inbox', 'board']) test(`a process writing ${racing} after comparison waits for publication and survives`, async (f) => {
+  f.message();
+  const first = fact('First fact.');
+  const nextBoard = board({ state: 'Review is pending.', detail: '../memory/report.md' });
+  if (racing === 'inbox') f.write(`${ROOT}inbox.md`, `# Inbox\n${first}\n`);
+  else f.write(boardPath(), board({ state: 'Draft is ready.\nReview is pending.' }));
+  const waiting = path.join(f.workspace, 'writer-waiting');
+  const finished = path.join(f.workspace, 'writer-finished');
+  const lock = path.join(f.workspace, '.rbtv', 'runtime', 'ignite-memory.lock');
+  const program = `
+    const fs = require('node:fs');
+    const [base, workspace, mode, lock, waiting, finished] = process.argv.slice(1);
+    const open = fs.openSync;
+    fs.openSync = (file, ...args) => {
+      try { return open(file, ...args); }
+      catch (error) {
+        if (file === lock && error.code === 'EEXIST') fs.writeFileSync(waiting, 'waiting', 'utf8');
+        throw error;
+      }
+    };
+    if (mode === 'inbox') require(base + '/memory.js').remember(workspace, 'Concurrent café fact', { agent: 'another' });
+    else require(base + '/board.js').closeSubject(workspace + '/.rbtv/agents/master/_artifacts/board.md', 'Report', 'Concurrent closure', { agent: 'master' });
+    fs.writeFileSync(finished, 'done', 'utf8');
+  `;
+  const write = fs.writeFileSync;
+  let child; let done; let injected = false;
+  fs.writeFileSync = (file, body, ...args) => {
+    if (!injected && typeof file === 'number' && body === (racing === 'inbox' ? '# Inbox\n' : nextBoard)) {
+      injected = true;
+      assert.ok(fs.existsSync(lock));
+      child = spawn(process.execPath, ['-e', program, __dirname, f.workspace, racing, lock, waiting, finished], { stdio: 'ignore' });
+      done = new Promise((resolve, reject) => {
+        child.once('error', reject);
+        child.once('exit', (code) => code === 0 ? resolve() : reject(new Error(`racing writer exit ${code}`)));
+      });
+      const deadline = Date.now() + 3000;
+      while (!fs.existsSync(waiting) && Date.now() < deadline) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+      assert.ok(fs.existsSync(waiting), 'writer attempted the held lock before Dreamer wrote');
+      assert.equal(fs.existsSync(finished), false);
+    }
+    return write(file, body, ...args);
+  };
+  let result;
+  try {
+    result = await f.run((input) => {
+      assert.equal(fs.existsSync(lock), false, 'model calls never hold the publication lock');
+      if (racing === 'inbox') return proposal(
+        operation(input, `${ROOT}knowledge/facts.md`, knowledge(first)),
+        operation(input, `${ROOT}inbox.md`, '# Inbox\n', { reason: 'file', removals: [{ text: first, to: `${ROOT}knowledge/facts.md`, replacement: first }] }));
+      const target = `${own()}memory/report.md`;
+      return proposal(operation(input, target, topic(`${fact('Draft is ready.')}
+${fact('Review is pending.')}`, 'subject')),
+        operation(input, boardPath(), nextBoard, { reason: 'detail', removals: [{ text: subject('Draft is ready.\nReview is pending.'), to: target }] }));
+    });
+  } finally { fs.writeFileSync = write; }
+  if (done) await done;
+  assert.ok(injected); assert.equal(result.ok, true, result.alert);
+  assert.equal(fs.existsSync(lock), false);
+  if (racing === 'inbox') {
+    assert.ok(f.read(`${ROOT}knowledge/facts.md`).includes(first));
+    assert.match(f.read(`${ROOT}inbox.md`), /Concurrent café fact/);
+  } else {
+    const current = parseBoard(f.read(boardPath()));
+    assert.equal(current.subjects.length, 0);
+    assert.match(current.closed[0], /Concurrent closure/);
+    assert.ok(f.read(`${own()}memory/report.md`).includes('Draft is ready.'));
+  }
 });
 
 test('second race alerts, leaves concurrent bytes and cursors untouched', async (f) => {

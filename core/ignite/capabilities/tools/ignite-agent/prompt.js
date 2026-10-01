@@ -8,7 +8,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { boardPath, migrateBoard, refreshBoard, renderBoard } = require('./board.js');
+const { boardPath, refreshBoard, renderBoard } = require('./board.js');
 const { workspaceFromHome, workspacePaths, workspaceMatches, workspaceFiles, readMemory } = require('./memory.js');
 
 const CONTRACT = [
@@ -20,8 +20,6 @@ const CONTRACT = [
 ].join(' ');
 
 function readBoard(home, store = null, now = Date.now(), alerts = []) {
-  try { migrateBoard(home); }
-  catch (error) { alerts.push(`Memory alert: board migration failed (${error.code || 'unreadable'}).`); }
   const loaded = readMemory(boardPath(home), 'board', alerts);
   if (!store || !loaded.source) return loaded.text;
   try {

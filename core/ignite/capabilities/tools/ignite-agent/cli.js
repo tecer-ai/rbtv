@@ -16,7 +16,7 @@ const { randomUUID } = require('node:crypto');
 const { Store } = require('./store.js');
 const { loadConfig, agentHome, configPath } = require('./config.js');
 const { cadenceSpec, nextOccurrence, FIXED_TZ } = require('./schedule.js');
-const { writeBoard, closeSubject, migrateBoard, refreshBoard } = require('./board.js');
+const { writeBoard, closeSubject, boardPath, preflightBoard, refreshBoard, refreshBoardAfterCommit } = require('./board.js');
 const { workspaceFromHome, remember } = require('./memory.js');
 
 const APPLIES = 'applies from the next turn in every conversation';
@@ -55,6 +55,10 @@ schedule cancel <id>
   A recurring schedule requires a cadence (--cron or --every). An empty cadence is refused.
   Timers on _artifacts/board.md show enabled schedules with a next fire and pending/running wakes.
   --subject links the timer to a board subject; omitted means none. Changes keep this association.
+  Add/change/cancel require a valid <home>/_artifacts/board.md before opening SQLite.
+  If SQLite commits but board refresh fails, exit 0 reports the id and
+  "committed; board refresh pending" (--json adds warning). Do not repeat the mutation.
+  The next board write or turn refreshes Timers from SQLite.
 
 schedules-due --now <ISO datetime>
   Enqueue a fresh conversation with no thread or resumed session; input is the schedule id only.
@@ -85,7 +89,7 @@ board close <subject> <outcome> [thread]
 
 remember <text>
   Atomically append one owner fact to the installation's .rbtv/memory/inbox.md.
-  Never refuses for format or length; alerts the owner past 20 lines.
+  Never refuses for format or length; alerts the owner past 20 bullet lines.
   See ignite-agent remember --help for provenance and output.
 `;
 
@@ -97,7 +101,7 @@ remember <text>
   Empty or whitespace-only text fails before any files are written.
   Creates .rbtv/memory/inbox.md if missing. Never rejects text because of its
   length or existing inbox contents; never rewrites earlier lines or learned.md.
-  Above 20 lines (including headings and blanks), queues an owner alert through the outbox.
+  Above 20 bullet lines, queues an owner alert through the outbox. Headings and blanks do not count.
   No Slack request or interactive prompt. Missing alert configuration does not
   undo the append; the result warns that the owner alert could not be queued.
 
@@ -107,7 +111,7 @@ IGNITE_CONVERSATION supplies thread provenance and the alert target inside a tur
 Outside a turn, alerts use this agent's configured channel or owner DM.
 --help/-h needs no home. Use -- before literal option-like text.
 Success: exit 0, "remembered in <path>", then any warning.
---json: {path, appended, lines, warning}; lines counts file lines, warning is null
+--json: {path, appended, lines, warning}; lines counts bullet lines, warning is null
 when none. Failure: exit 1, reason on stderr, or {path, error} on stdout with
 --json. Missing or empty text, an unresolved installation root or a filesystem write can fail.
 
@@ -140,7 +144,8 @@ board close <subject> <outcome> [thread]
 
 Home: IGNITE_AGENT_HOME, otherwise --agent <slug> --workspace <path>.
 Workspace may be discovered by walking up to .rbtv/config/ignite/config.json.
-No Slack or database access. --help/-h works without a home. -- ends options.
+No Slack access. Reads an existing state.sqlite to refresh Timers and Flags as
+part of the board write; never creates a database. --help/-h works without a home. -- ends options.
 Success: exit 0, "written <path>", "unchanged <path>" or "closed <subject> in <path>".
 Failure: exit 1, reason on stderr; fix the candidate and retry. Validation leaves
 the board unchanged. --json emits {path, changed, subject?} or {path, error} on
@@ -232,8 +237,9 @@ function resolveHome(flags, deps) {
   return { home: agentHome(config, flags.agent), slug: flags.agent, workspace, config };
 }
 
-function openContext(flags, deps) {
+function openContext(flags, deps, requireBoard = false) {
   const located = resolveHome(flags, deps);
+  if (requireBoard) preflightBoard(located.home);
   const config = located.config || (located.workspace && fs.existsSync(configPath(located.workspace))
     ? loadConfig(located.workspace)
     : null);
@@ -397,6 +403,7 @@ function cmdSchedule(rest, ctx, flags, deps) {
     if (!ctx.store.getConversation(key)) fail(`unknown conversation: ${key}`);
     const now = deps.now ? deps.now() : Date.now();
     const spec = addSpec(opts, now);
+    preflightBoard(ctx.home);
     const row = ctx.store.upsertSchedule({
       id: randomUUID(),
       conversationKey: key,
@@ -408,8 +415,9 @@ function cmdSchedule(rest, ctx, flags, deps) {
       report: reportOf(opts),
       subject: opts.subject?.trim() ?? null,
     });
-    refreshBoard(ctx.home, ctx.store, now);
-    emit(deps, flags, { schedule: row }, `${row.id} ${row.cadence} ${row.timezone} next=${row.next_at}\n`);
+    const warning = refreshBoardAfterCommit(ctx.home, ctx.store, [row.id], now);
+    emit(deps, flags, { schedule: row, ...(warning ? { warning } : {}) },
+      `${row.id} ${row.cadence} ${row.timezone} next=${row.next_at}\n${warning ? `${warning}\n` : ''}`);
     return 0;
   }
   if (action === 'change') {
@@ -438,6 +446,7 @@ function cmdSchedule(rest, ctx, flags, deps) {
     }
     const enabled = opts.enabled == null ? existing.enabled : opts.enabled === 'true';
     if (opts.enabled != null && opts.enabled !== 'true' && opts.enabled !== 'false') fail('--enabled must be true or false');
+    preflightBoard(ctx.home);
     const row = ctx.store.upsertSchedule({
       id,
       conversationKey: existing.conversation_key,
@@ -450,17 +459,19 @@ function cmdSchedule(rest, ctx, flags, deps) {
       report: reportOf(opts, existing.report),
       subject: existing.subject,
     });
-    refreshBoard(ctx.home, ctx.store, now);
-    emit(deps, flags, { schedule: row }, `${row.id} ${row.cadence} ${row.timezone} next=${row.next_at}\n`);
+    const warning = refreshBoardAfterCommit(ctx.home, ctx.store, [row.id], now);
+    emit(deps, flags, { schedule: row, ...(warning ? { warning } : {}) },
+      `${row.id} ${row.cadence} ${row.timezone} next=${row.next_at}\n${warning ? `${warning}\n` : ''}`);
     return 0;
   }
   if (action === 'cancel') {
     const { positionals } = parseOpts(rest.slice(1));
     const id = positionals[0];
     if (!id) fail('schedule cancel requires an id');
+    preflightBoard(ctx.home);
     if (!ctx.store.deleteSchedule(id)) fail(`unknown schedule: ${id}`);
-    refreshBoard(ctx.home, ctx.store, deps.now ? deps.now() : Date.now());
-    emit(deps, flags, { cancelled: id }, `cancelled ${id}\n`);
+    const warning = refreshBoardAfterCommit(ctx.home, ctx.store, [id], deps.now ? deps.now() : Date.now());
+    emit(deps, flags, { cancelled: id, ...(warning ? { warning } : {}) }, `cancelled ${id}\n${warning ? `${warning}\n` : ''}`);
     return 0;
   }
   fail('schedule requires add, list, change, or cancel');
@@ -614,6 +625,7 @@ function cmdBoard(rest, flags, deps) {
     return 0;
   }
   let file = null;
+  let store;
   try {
     const [action, ...tail] = rest;
     if (!['write', 'close'].includes(action)) fail('board requires write or close; see ignite-agent board --help');
@@ -622,11 +634,14 @@ function cmdBoard(rest, flags, deps) {
     if (action === 'write' && (opts.file?.length !== 1 || positionals.length)) fail('board write requires exactly one --file <path>');
     if (action === 'close' && (positionals.length < 2 || positionals.length > 3)) fail('board close requires <subject> <outcome> [thread]');
     const { home, slug } = resolveHome(flags, deps);
-    file = migrateBoard(home);
+    file = boardPath(home);
+    const db = path.join(home, 'state.sqlite');
+    if (fs.existsSync(db)) store = new Store(db);
+    const now = deps.now ? deps.now() : Date.now();
     const result = action === 'write'
-      ? writeBoard(file, fs.readFileSync(opts.file[0], 'utf8'))
+      ? writeBoard(file, fs.readFileSync(opts.file[0], 'utf8'), { store, now })
       : closeSubject(file, positionals[0], positionals[1], {
-        agent: slug, thread: positionals[2] ?? null, now: deps.now ? deps.now() : Date.now(),
+        agent: slug, thread: positionals[2] ?? null, now, store,
       });
     emit(deps, flags, result, action === 'close'
       ? `closed ${result.subject} in ${file}\n`
@@ -636,6 +651,8 @@ function cmdBoard(rest, flags, deps) {
     if (flags.json) emit(deps, flags, { path: file, error: error.message }, '');
     else (deps.stderr || ((text) => process.stderr.write(text)))(`${error.message}\n`);
     return 1;
+  } finally {
+    if (store) store.close();
   }
 }
 
@@ -716,7 +733,7 @@ function main(argv, deps = {}) {
     emit(deps, { json: false }, null, HELP);
     return 0;
   }
-  const ctx = openContext(flags, deps);
+  const ctx = openContext(flags, deps, command === 'schedule' && ['add', 'change', 'cancel'].includes(tail[0]));
   try {
     return dispatch(command, tail, ctx, flags, deps);
   } finally {
