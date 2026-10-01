@@ -4,7 +4,7 @@ Rules 1 and 3 apply to every file in this component. Rule 2 applies only to rbtv
 
 ## Where this folder is going
 
-This folder is the `build` component of rbtv's `core` module, staged at `core/build/` inside this project, the same path it has in rbtv. Its capabilities are in `capabilities/`: the reader pages, glossary, building guides, templates, and principles. They exist so that the `build` skill (`skills/build.md`) can teach agents to read and navigate them whenever they build skills, rules, commands, agents, tools, or other rbtv units; write every page so that skill can lead an agent through it. Other cognitive units that use these capabilities may move in later.
+This folder is the `build` component of rbtv's `core` module. Its capabilities are in `capabilities/`: the reader pages, glossary, building guides, templates, and principles. They exist so that the `build` skill (`skills/build.md`) can teach agents to read and navigate them whenever they build skills, rules, commands, agents, tools, or other rbtv units; write every page so that skill can lead an agent through it. Other cognitive units that use these capabilities may move in later.
 
 ## 1. Written as current
 

@@ -16,7 +16,7 @@ Create a module when none of the existing modules describes the new subject with
 
 Keep cognitive units and capabilities in an existing component when they serve its one coherent purpose. Create a component when the new purpose can be stated separately and its skills, rules, commands, capabilities, and tools belong together for that purpose. A different exposure method alone does not justify another component.
 
-To supply a component rbtv does not ship, or to replace a shipped component entirely, add it under [`mirror/`](../glossary/mirror.md). The same module and component name replaces the shipped component as a whole. Do not add a partial copy in order to patch one.
+Build in rbtv when the unit is general: any user could use it, and it contains no value belonging to one installation; it ships through the rbtv repository. Build in [`mirror/`](../glossary/mirror.md) when it belongs to this installation only: a personal workflow, an installation-specific path or setting, an experiment, or an outside skill imported as it is; it never enters the rbtv repository. To supply a component rbtv does not ship, or to replace a shipped component entirely, add it under `mirror/`. The same module and component name replaces the shipped component as a whole. Do not add a partial copy in order to patch one.
 
 ## 3. Choose what to build and expose
 

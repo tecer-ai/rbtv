@@ -1,6 +1,7 @@
 # guides
 
 - [agent.md](agent.md) — Before writing an agent's prompt or choosing the cognitive units it uses.
+- [building-from-a-conversation.md](building-from-a-conversation.md) — Before turning a conversation that just happened into a skill, command, rule, agent, or other unit.
 - [capability.md](capability.md) — Before adding shared instructions or knowledge, or an executable tool.
 - [choosing-what-to-build.md](choosing-what-to-build.md) — Before choosing a module, component, or kind of unit, when that choice is not made.
 - [command.md](command.md) — Before writing a command a human invokes.
