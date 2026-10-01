@@ -1,6 +1,6 @@
 # rbtv
 
-This repository is rbtv's source: the modules and components that `rbtv install` (the installer, `core/installer/capabilities/tools/install/install.py`) installs into a target folder. To learn what rbtv is and how its folders are laid out, read `core/build/capabilities/rbtv.md`.
+This repository is rbtv's source: the modules and components that `rbtv install` (the installer, `core/installer/capabilities/tools/rbtv-install/install.py`) installs into a target folder. To learn what rbtv is and how its folders are laid out, read `core/build/capabilities/rbtv.md`.
 
 ## Hard Rule — Build and Document Every Change
 
@@ -18,7 +18,7 @@ When carrying a file INTO this repository from an archive or an installation:
 
 ## Hard Rule — Linux AND Windows
 
-Every component MUST work on both Linux and Windows — rbtv runs on Linux servers and Windows desktops. The one exception, by owner decision, is Ignite's waking program (`core/ignite/`'s service, its `deploy.sh`, and its systemd unit), which runs on Linux only; `ignite-agent install` and `update` still work on any machine. When you can only run one platform, design for both and state in your done report which platform you actually verified. On a Windows machine, WSL (Windows Subsystem for Linux, `wsl -d <distro>`) gives a real Linux run: clone the repository inside WSL rather than running over `/mnt/c`, so line endings and the home folder are Linux's. The installer selftest (`core/installer/capabilities/tools/install/install.py selftest`) MUST pass on both before an installer change is committed.
+Every component MUST work on both Linux and Windows — rbtv runs on Linux servers and Windows desktops. The one exception, by owner decision, is Ignite's waking program (`core/ignite/`'s service, its `deploy.sh`, and its systemd unit), which runs on Linux only; `ignite-agent install` and `update` still work on any machine. When you can only run one platform, design for both and state in your done report which platform you actually verified. On a Windows machine, WSL (Windows Subsystem for Linux, `wsl -d <distro>`) gives a real Linux run: clone the repository inside WSL rather than running over `/mnt/c`, so line endings and the home folder are Linux's. The installer selftest (`core/installer/capabilities/tools/rbtv-install/install.py selftest`) MUST pass on both before an installer change is committed.
 
 Defects that have actually happened, each a rule:
 

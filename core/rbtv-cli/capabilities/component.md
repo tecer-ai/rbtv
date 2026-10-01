@@ -9,7 +9,7 @@ rbtv                        level 0 — the installed modules
 rbtv <module>               level 1 — that module's components, blurb-first, + its rules and action verbs
 rbtv <module> <component>   level 2 — the component's entry point body + its invocable entry points
 
-rbtv install <verb>         status|list|search|show|configure|add|remove|update|doctor → core/installer/capabilities/tools/install/install.py
+rbtv install <verb>         status|list|search|show|configure|add|remove|update|doctor → core/installer/capabilities/tools/rbtv-install/install.py
 rbtv control-panel <verb>   update|status                 → meta/control-panel
 
 rbtv doctor                 can this tool work here?
@@ -40,11 +40,7 @@ A delegated call's exit code is the delegate's. The selftest asserts that with a
 delegate that reports an unhealthy subject on a successful read — health is never
 re-collapsed into the exit status.
 
-`rbtv install` delegates to **`core/installer/capabilities/tools/install/install.py`** (named `install2.py` until
-2026-08-23, when the file was split into `core/installer/lib/` and took the plain name). The installer is homed in the `meta`
-module because `meta/` hosts what operates on the rbtv SYSTEM itself rather than on a user goal's
-content, and installing rbtv into a workspace is exactly that (owner ruling, 2026-08-22 — `core/`
-was the wrong home). Its own `argparse` program name has always been `rbtv install`; this route is
+`rbtv install` delegates to **`core/installer/capabilities/tools/rbtv-install/install.py`**, the `core/installer` component's program. Its own `argparse` program name has always been `rbtv install`; this route is
 what makes that string true at a shell. Its two workspace settings —
 `harness` (which AI coding tools get files written for them) and `guidance` (which root guidance
 file the human authors) — can be set by `configure` before the first `add`, or supplied together on
@@ -104,7 +100,7 @@ CLI produces. Rules ride the result as **names + descriptions + paths always**, 
 On a new machine, bootstrap the installer directly from the cloned repo once:
 
 ```
-python3 <rbtv_path>/core/installer/capabilities/tools/install/install.py add core/rbtv-cli --target <workspace> --harness claude,codex,opencode --guidance none
+python3 <rbtv_path>/core/installer/capabilities/tools/rbtv-install/install.py add core/rbtv-cli --target <workspace> --harness claude,codex,opencode --guidance none
 ```
 
 Open a new shell, then run `rbtv doctor` from any directory. The installer
