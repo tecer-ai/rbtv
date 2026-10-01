@@ -18,7 +18,7 @@ averaged away.
 - Trivial and settled by one read → one agent, no panel. Do not convene four lenses to confirm
   a value.
 
-Staffing and launch mechanics are the sub-agents skill's (`../skills/sub-agents.md` — seats,
+Staffing and launch mechanics are the sub-agents skill's (`../skills/sub-agents.md` — tasks,
 `cast` launches, output schemas, output location). This reference adds only what is
 panel-specific.
 
@@ -36,17 +36,17 @@ panel-specific.
 - Panelists are ALWAYS sub-agents — the manager never takes an angle itself. A viewpoint
   produced inside the coordinator's context is not independent.
 - Each panelist gets the same subject, a bounded scope, and ONE viewpoint stated in its
-  prompt. Output schema is REQUIRED — panel outputs are always piped into synthesis.
+  task. Output schema is REQUIRED — panel outputs are always piped into synthesis.
 - Diversity axes:
   - **Perspective** — same model, different roles/angles.
-  - **Model** — same brief, different models (ideally different providers).
+  - **Model** — same task, different models (ideally different providers).
   - **Both** — the strongest form when the subject warrants the spend.
 
-## Routing — the panel's seats are fixed by the class (owner ruling 2026-09-24)
+## Routing — the panel's models are fixed by the class (owner ruling 2026-09-24)
 
 One `cast route` call for the task sets the CLASS and EFFORT for the whole panel. When model
-diversity is a chosen axis, the top-verdict-only rule is deliberately relaxed, and the seats are
-NOT chosen: the panel ALWAYS seats every model at the class's level PLUS every model at the level
+diversity is a chosen axis, the top-verdict-only rule is deliberately relaxed, and the models are
+NOT chosen: the panel ALWAYS includes every model at the class's level PLUS every model at the level
 directly below it. Read them from `cast route --catalog --json`.
 
 | Class (its level) | Panel levels |
@@ -54,12 +54,12 @@ directly below it. Read them from `cast route --catalog --json`.
 | planner (SOTA) | SOTA + L1 |
 | broad (L1) | L1 + L2 |
 | bounded (L2) | L2 + L3 |
-| mechanical (L3) | L3 only — L4 is the image tier, never a panel seat |
+| mechanical (L3) | L3 only — L4 is the image tier, never used in a panel |
 
 - Eligible rows: `use` reads `route` or `panel` — a `panel` row is in the roster FOR this, a
   model the owner wants heard in a panel but never named as a single verdict. A `use: off` row
   is out: routing and panels both ignore it.
-- A model listed at both panel levels takes ONE seat.
+- A model listed at both panel levels is used once.
 - A row that cannot run the job drops, and the drop is named in the synthesis: `--access open`
   drops api rows, and a row whose credential does not resolve cannot launch.
 - Never above the class's own level. The route verdict's effort applies to every panelist.
@@ -68,9 +68,8 @@ directly below it. Read them from `cast route --catalog --json`.
 
 One run folder per panel (location per the sub-agents skill's output-location rule); every
 panelist's raw output file is KEPT there — synthesis condenses, the raw files preserve.
-A SYNTHESIS SEAT synthesizes — the manager reading N panelist outputs to combine them is the
-violation the sub-agents skill's tripwire names. The manager synthesizes only a 2-panelist
-panel it can hold in one page. Either way the synthesis is:
+A synthesis task goes to a sub-agent when the panel has more than two panelists. The
+manager synthesizes a 2-panelist panel only when it can hold the outputs in one page. Either way the synthesis is:
 
 - **Convergence** — what multiple viewpoints independently agree on (the strongest findings).
 - **Divergence** — where viewpoints conflict, with EACH side's argument. Never silently
@@ -84,7 +83,7 @@ The mode is whatever the subject needs; compose viewpoints freely. Two worked sh
 - **Review panel** — panelists review one artifact, each through a different lens. Example
   lenses: adversarial (try to break it), consistency, bug hunt, design quality, root cause,
   first principles, customer/user, investor, completeness (edge cases, states), references
-  (do the cited things exist and say what's claimed). The planning module's check seats
+  (do the cited things exist and say what's claimed). The planning module's checks
   (clarity, consistency, edges, permissions, resources, scope) are ready-made lenses to
   reuse when the subject is a plan.
 - **Design panel** — after the deep interview, 2+ panelists each produce an independent

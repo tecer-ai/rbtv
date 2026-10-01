@@ -2,7 +2,7 @@
 
 Open for a broad task that needs waves of parallel investigators.
 
-A swarm dispatches structured WAVES of sub-agents at one task: a wide base of cheap, fast
+A swarm dispatches structured WAVES of sub-agents for one problem: a wide base of cheap, fast
 models does the broad work, and each wave above it is smaller and stronger, building on the
 wave below. The point: optimal breadth and depth at lower cost, with every agent's context
 kept small.
@@ -11,7 +11,7 @@ A swarm saves the coordinator's context (it reads one synthesis, not the evidenc
 results (a fresh focused context per question), and costs less (cheap models on the wide base,
 strong ones only at the top) — all three at once, or the shape is wrong.
 
-Staffing and launch mechanics are the sub-agents skill's (`../skills/sub-agents.md` — seats,
+Staffing and launch mechanics are the sub-agents skill's (`../skills/sub-agents.md` — tasks,
 `cast` launches, output schemas, output location). This reference adds only what is
 swarm-specific.
 
@@ -28,7 +28,7 @@ waves (count and size), `cast route` model suggestion for each wave, and depth. 
   agents each hold a whole problem.
 - Lane membership: **ONE LANE = ONE FACET, never one problem.** A lane's scope is a single
   independently-answerable question about the problem — where a value is written, what a reader
-  parses, which callers exist. If a lane's prompt names a problem ("investigate issue 3"),
+  parses, which callers exist. If a lane's task names a problem ("investigate issue 3"),
   it is not a lane; decompose it into facets and those ARE the wave. Inverse guard: a question
   one file read or one command answers is ONE agent — do not build a wave, a run folder and a
   synthesis pass around it.
@@ -61,7 +61,7 @@ waves (count and size), `cast route` model suggestion for each wave, and depth. 
 ## Handoff between waves
 
 One run folder per swarm (location per the sub-agents skill's output-location rule). Every
-agent writes its findings to a file there; the next wave's prompts point at the previous
-wave's files — the coordinator composes prompts, it does not relay findings through its own
-context. Give same-wave agents a shared prompt prefix (same seat structure, per-agent scope
+agent writes its findings to a file there; the next wave's tasks point at the previous
+wave's files — the coordinator composes tasks, it does not relay findings through its own
+context. Give same-wave agents task text with a shared prefix (same structure, per-agent scope
 at the end) to optimize KV cache.
