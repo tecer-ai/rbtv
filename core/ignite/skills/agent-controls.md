@@ -21,6 +21,12 @@ Use `work status` to inspect an assignment or hold. Use `work retry|resume` for 
 
 When a worker completes, use `wake` with its conversation and work reference to queue continuation. Keep outstanding worker references in the turn result so that continuation can find them. A wake does not clear a hold.
 
+## Board and memory
+
+Use `ignite-agent board write --file <path>` to update your board's subjects or Watch-outs. Supply the complete candidate board; the checked command preserves Timers, Recently closed, and existing Flags, and refuses an invalid or over-cap write. Use `ignite-agent board close <subject> <outcome> [thread]` when a subject is done; it removes that subject and writes its outcome in Recently closed. Never edit the board file directly.
+
+When the owner corrects your behaviour, record the correction in the board's Watch-outs in the same turn. Do not write `memory/learned.md`: the dreamer folds Watch-outs into learned rules on its next run. When the owner asks to remember a fact, use `ignite-agent remember <text>` instead. It appends one line to shared `.rbtv/memory/inbox.md` and does not rewrite earlier memory.
+
 ## Proactive posts
 
-Use `ignite-agent post` only to open a **new** proactive thread, such as a scheduled check result with no existing conversation. It associates the thread immediately so the owner's reply continues there. It accepts audio and files; check help for flags. If the check belongs to an existing conversation, continue there through `RESULT_FILE.replies`. Put ordinary replies there too. Never post into your current conversation yourself or send a second copy.
+Use `ignite-agent post --thread <thread>` from a scheduled wake to continue the subject in that existing thread. It accepts the stored full conversation key or a unique root timestamp and joins that thread's history. Without `--thread`, use `ignite-agent post` only to open a **new** proactive thread, such as a scheduled check result for a new subject. It associates the thread immediately so the owner's reply continues there. It accepts audio and files; check help for flags. If the check belongs to the current conversation, continue there through `RESULT_FILE.replies`. Put ordinary replies there too. Never post into your current conversation yourself or send a second copy.
