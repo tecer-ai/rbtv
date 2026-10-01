@@ -1,9 +1,9 @@
 'use strict';
 
 // Exported API — other seats treat this file as read-only.
-// Audio({ script, python?, voice?, spawn? })
-// transcribe(file) → { text }   audio.py transcribe FILE. Empty or failed → throw, never { text: '' }.
-// speak(text, { voice?, out? }) → file path   audio.py tts --file - --out PATH [--voice ID]
+// Audio({ command, voice?, spawn? })   command: the audio tool's name on PATH (config.json tools.audio), run directly
+// transcribe(file) → { text }   <command> transcribe FILE. Empty or failed → throw, never { text: '' }.
+// speak(text, { voice?, out? }) → file path   <command> tts --file - --out PATH [--voice ID]
 
 const os = require('node:os');
 const path = require('node:path');
@@ -11,17 +11,16 @@ const { spawn } = require('node:child_process');
 const { randomBytes } = require('node:crypto');
 
 class Audio {
-  constructor({ script, python = 'python3', voice, spawn: spawnImpl } = {}) {
-    if (!script) throw new Error('Audio requires script path');
-    this.script = script;
-    this.python = python;
+  constructor({ command, voice, spawn: spawnImpl } = {}) {
+    if (!command) throw new Error('Audio requires the audio command');
+    this.command = command;
     this.voice = voice || null;
     this.spawn = spawnImpl || spawn;
   }
 
   call(args, input) {
     return new Promise((resolve, reject) => {
-      const child = this.spawn(this.python, [this.script, ...args], { stdio: ['pipe', 'pipe', 'pipe'] });
+      const child = this.spawn(this.command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
       let stdout = '';
       let stderr = '';
       child.stdout.setEncoding('utf8').on('data', (chunk) => { stdout += chunk; });

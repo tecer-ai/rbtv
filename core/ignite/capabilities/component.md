@@ -10,7 +10,7 @@ One line from each file's header. A file with no header comment is marked.
 
 | File | Header |
 |---|---|
-| `audio.js` | `Audio({ script, python?, voice?, spawn? })`. `transcribe(file)` runs `audio.py transcribe` and throws on empty or failed output. `speak(text, { voice?, out? })` runs `audio.py tts`. |
+| `audio.js` | `Audio({ command, voice?, spawn? })`, `command` being the audio tool's name on PATH (config `tools.audio`), run directly. `transcribe(file)` runs `<command> transcribe` and throws on empty or failed output. `speak(text, { voice?, out? })` runs `<command> tts`. |
 | `cli.js` | Entry `ignite-agent`. Home from `IGNITE_AGENT_HOME`, or `--agent <slug>` plus `--workspace <path>`. `settings set` validates through `cast list --json` and never a copied model list. Install, update, connect, and disconnect: see `ignite-agent -h`. |
 | `config.js` | `loadConfig(workspace)` reads and validates `<workspace>/.rbtv/config/ignite/config.json` and returns it plus `workspace`. `envValue` and `slackToken` resolve named environment variables (process environment, then `.rbtv/config/env/.env`). `agentHome(config, slug)` and `storePath(config, slug)`. |
 | `connect.js` | `ignite-agent connect|disconnect`: Slack channel or direct messages, the route in `config.json`, an optional timer. Flags: see `ignite-agent -h`. |

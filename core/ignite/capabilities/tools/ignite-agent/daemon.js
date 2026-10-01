@@ -194,7 +194,7 @@ async function startLocked(opts, workspace, held) {
   let config = loadConfig(workspace);
   const fake = process.env.IGNITE_DAEMON_FAKE === '1' && !opts.slack;
   let slack = opts.slack || null;
-  const audio = opts.audio || (fake ? null : new Audio({ script: config.tools.audio }));
+  const audio = opts.audio || (fake ? null : new Audio({ command: config.tools.audio }));
   if (!socket && fake) socket = { async connect() {}, stop() {} };
 
   const ctx = {
@@ -347,7 +347,7 @@ async function startLocked(opts, workspace, held) {
         botToken,
         appToken,
         stoolsWorkspace: config.slack.stoolsWorkspace,
-        toolsWrapper: config.tools.stools,
+        stools: config.tools.stools,
         log: (level, message) => log({ event: 'slack', level, message }),
       });
       await slack.auth();

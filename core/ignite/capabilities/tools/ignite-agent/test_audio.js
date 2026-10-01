@@ -32,16 +32,17 @@ function finish(child, { code = 0, stdout = '', stderr = '' } = {}) {
 
 test('transcribe', async () => {
   const fake = fakeSpawn();
-  const audio = new Audio({ script: 'audio.py', spawn: fake.spawn });
+  const audio = new Audio({ command: 'audio', spawn: fake.spawn });
   const pending = audio.transcribe('clip.mp3');
-  assert.deepEqual(fake.calls[0].args, ['audio.py', 'transcribe', 'clip.mp3']);
+  assert.equal(fake.calls[0].cmd, 'audio', 'the audio command runs directly, never through python3');
+  assert.deepEqual(fake.calls[0].args, ['transcribe', 'clip.mp3']);
   finish(fake.calls[0].child, { stdout: JSON.stringify({ text: '  hello  ', language: 'pt' }) });
   assert.deepEqual(await pending, { text: 'hello' });
 });
 
 test('transcribe-empty-errors', async () => {
   const fake = fakeSpawn();
-  const audio = new Audio({ script: 'audio.py', spawn: fake.spawn });
+  const audio = new Audio({ command: 'audio', spawn: fake.spawn });
   const pending = audio.transcribe('clip.mp3');
   finish(fake.calls[0].child, { stdout: JSON.stringify({ text: '   ' }) });
   await assert.rejects(pending, /no transcript/);
@@ -49,7 +50,7 @@ test('transcribe-empty-errors', async () => {
 
 test('transcribe-nonzero-errors', async () => {
   const fake = fakeSpawn();
-  const audio = new Audio({ script: 'audio.py', spawn: fake.spawn });
+  const audio = new Audio({ command: 'audio', spawn: fake.spawn });
   const pending = audio.transcribe('clip.mp3');
   finish(fake.calls[0].child, { code: 1, stderr: 'audio: empty' });
   await assert.rejects(pending, /exited 1/);
@@ -57,7 +58,7 @@ test('transcribe-nonzero-errors', async () => {
 
 test('transcribe-invalid-json-errors', async () => {
   const fake = fakeSpawn();
-  const audio = new Audio({ script: 'audio.py', spawn: fake.spawn });
+  const audio = new Audio({ command: 'audio', spawn: fake.spawn });
   const pending = audio.transcribe('clip.mp3');
   finish(fake.calls[0].child, { stdout: 'not-json' });
   await assert.rejects(pending, /invalid JSON/);
@@ -65,9 +66,9 @@ test('transcribe-invalid-json-errors', async () => {
 
 test('speak', async () => {
   const fake = fakeSpawn();
-  const audio = new Audio({ script: 'audio.py', voice: 'default-voice', spawn: fake.spawn });
+  const audio = new Audio({ command: 'audio', voice: 'default-voice', spawn: fake.spawn });
   const pending = audio.speak('ola', { voice: 'V1', out: 'out.mp3' });
-  assert.deepEqual(fake.calls[0].args, ['audio.py', 'tts', '--file', '-', '--out', 'out.mp3', '--voice', 'V1']);
+  assert.deepEqual(fake.calls[0].args, ['tts', '--file', '-', '--out', 'out.mp3', '--voice', 'V1']);
   assert.equal(fake.calls[0].child.stdin.ended, 'ola');
   finish(fake.calls[0].child, { stdout: JSON.stringify({ path: 'out.mp3', bytes: 4 }) });
   assert.equal(await pending, 'out.mp3');
@@ -75,7 +76,7 @@ test('speak', async () => {
 
 test('speak-default-voice', async () => {
   const fake = fakeSpawn();
-  const audio = new Audio({ script: 'audio.py', voice: 'V0', spawn: fake.spawn });
+  const audio = new Audio({ command: 'audio', voice: 'V0', spawn: fake.spawn });
   const pending = audio.speak('ola', { out: 'out.mp3' });
   assert.equal(fake.calls[0].args.at(-1), 'V0');
   finish(fake.calls[0].child, { stdout: JSON.stringify({ path: 'out.mp3' }) });

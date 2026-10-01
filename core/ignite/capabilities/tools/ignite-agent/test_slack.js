@@ -108,7 +108,7 @@ function harness(routes, { run } = {}) {
     botToken: 'xoxb-test',
     appToken: 'xapp-test',
     stoolsWorkspace: 'ignite',
-    toolsWrapper: 'stools.py',
+    stools: 'stools',
     fetch,
     WebSocket: FakeWS,
     run: run || (async () => ({ stdout: '' })),
@@ -243,12 +243,13 @@ test('uploadFile', async () => {
 test('downloadFile', async () => {
   const argv = [];
   const { slack } = harness({}, {
-    run: async (_cmd, args) => {
-      argv.push(args);
+    run: async (cmd, args) => {
+      argv.push([cmd, ...args]);
       return { stdout: '[1/1] voice note.mp3  (1.0 KB)\n' };
     },
   });
   const files = await slack.downloadFile({ channel: 'C1', ts: '4.4', threadTs: '1.1', dir: path.join(os.tmpdir(), 'ignite-dl') });
+  assert.equal(argv[0][0], 'stools', 'the stools command runs directly, never through python3');
   assert.equal(argv[0][1], 'download');
   assert.deepEqual(argv[0].slice(2, 8), ['--channel', 'C1', '--ts', '4.4', '--thread-ts', '1.1']);
   assert.equal(argv[0][8], '--output');
@@ -263,7 +264,7 @@ test('download-refuses-vault-path', async () => {
   const slack = new Slack({
     botToken: 'xoxb-test',
     stoolsWorkspace: '/tmp/vault',
-    toolsWrapper: 'stools.py',
+    stools: 'stools',
     run: async () => { throw new Error('stools must not be called'); },
   });
   await assert.rejects(
