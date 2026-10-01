@@ -12,7 +12,8 @@ The installer reads each module's [`<module>.json`](glossary/module-json.md) and
 
 ### Running agents
 
-- An [Ignite agent](glossary/agent.md#ignite-agent) is an installed agent with Ignite's standard cognitive units and a Slack connection; each message in its channel, or a timer, runs it.
+- An [Ignite agent](glossary/agent.md#ignite-agent) is an installed agent with Ignite's standard cognitive units and a Slack connection; each message in its channel, or a timer, runs it. A scheduled wake starts a fresh conversation with no thread. The [board](glossary/board.md) holds the check's details. `ignite-agent post --thread` continues an existing thread.
+- Every turn, including a scheduled wake, injects the [profile](glossary/profile.md), that agent's [learned rules](glossary/learned-rules.md), its [board](glossary/board.md), the general-memory [index](glossary/memory-index.md), and the [inbox](glossary/inbox.md). [Workspace memory](glossary/workspace-memory.md) is added only when the working directory matches its declared paths. A missing or invalid injected file falls back to the last good git version and alerts, without blocking the turn ([memory](glossary/memory.md)). `ignite-agent remember` appends to the inbox.
 - `rbtv spark <agent>` runs an installed agent interactively.
 - `cast -ig` lets another agent launch an installed agent, passing its harness, model, and effort; `cast -rg` launches a one-off agent that is not installed ([running an agent](glossary/agent.md#running-an-agent)). An agent launched by another agent is a [sub-agent](glossary/agent.md#sub-agent).
 
@@ -49,25 +50,35 @@ The installer creates [`.rbtv/`](glossary/rbtv-folder.md) inside the target fold
     |-- agents/
     |   `-- <agent>/     (one self-contained agent folder)
     |-- runtime/
-    `-- memory/          (to be defined)
+    `-- memory/          (general memory: one fixed root)
+        |-- profile.md
+        |-- inbox.md
+        |-- workstreams.md
+        |-- _artifacts/index.md
+        |-- entities/
+        |-- knowledge/
+        |-- workspaces/
+        `-- timeline/
 ```
 
 The installer also keeps [`~/.rbtv/`](glossary/rbtv-home-folder.md) in the user's home, for the commands it places on `PATH` and [`path-owners.json`](glossary/path-owners-json.md), its record of them.
 
-Terms: [`mirror/`](glossary/mirror.md), [`config/`](glossary/config.md), [`install.json`](glossary/install-json.md), [`ignite/config.json`](glossary/ignite-config.md), [`agents/<agent>/`](glossary/agent.md#installed-agent), [`runtime/`](glossary/runtime.md), and [`memory/`](glossary/memory.md). An agent folder's own layout, with [`launch.json`](glossary/launch-json.md) and [`settings.json`](glossary/settings-json.md), is in [agent](glossary/agent.md#installed-agent).
+Terms: [`mirror/`](glossary/mirror.md), [`config/`](glossary/config.md), [`install.json`](glossary/install-json.md), [`ignite/config.json`](glossary/ignite-config.md), [`agents/<agent>/`](glossary/agent.md#installed-agent), [`runtime/`](glossary/runtime.md), and [`memory/`](glossary/memory.md). An agent folder's own layout, with [`launch.json`](glossary/launch-json.md), [`settings.json`](glossary/settings-json.md), [`memory/learned.md`](glossary/learned-rules.md) ([template](templates/learned-rules.md)), and [`_artifacts/board.md`](glossary/board.md) ([template](templates/board.md)), is in [agent](glossary/agent.md#installed-agent). General-memory files, one line each: [`profile.md`](glossary/profile.md) ([template](templates/profile.md)), [`inbox.md`](glossary/inbox.md) ([template](templates/inbox.md)), [`workstreams.md`](glossary/workstreams.md) ([template](templates/workstreams.md)), [`_artifacts/index.md`](glossary/memory-index.md) ([template](templates/memory-index.md)), [`entities/`](glossary/entity.md) ([template](templates/entity.md)), [`knowledge/`](glossary/knowledge.md) ([template](templates/knowledge.md)), [`workspaces/<slug>.md`](glossary/workspace-memory.md) ([template](templates/workspace-memory.md)), [`timeline/daily/`](glossary/timeline-daily.md) ([template](templates/timeline-daily.md)), [`timeline/weekly/`](glossary/timeline-weekly.md) ([template](templates/timeline-weekly.md)). Agent topics: [`<agent>/memory/<slug>.md`](glossary/agent-topic.md) ([template](templates/agent-topic.md)). The [dreamer](glossary/dreamer.md) writes long-term memory.
 
 ## Folder artifacts
 
-Any folder can hold [folder artifacts](glossary/folder-artifact.md): standard files named after the folder, each with one fixed purpose.
+A folder an agent maintains can hold [folder artifacts](glossary/folder-artifact.md) in `_artifacts/`, under plain names, each with one fixed purpose. `_artifacts/` does not replace rbtv's `capabilities/` folders. A wiki keeps its own index names.
 
 ```text
 <folder>/
-|-- <folder>.md       (index file: each item and when to open it)
-|-- <folder>.json     (the folder's record: in a module, component, or tool folder)
-`-- <items>
+|-- <folder instructions>
+`-- _artifacts/
+    |-- index.md       (content index: when to open each item that is not an artifact)
+    |-- board.md       (short-term memory, on an agent, project, or area folder)
+    `-- <other artifacts>
 ```
 
-Terms: [index file](glossary/index-file.md), [`<module>.json`](glossary/module-json.md), [`<component>.json`](glossary/component-json.md), and [`<tool>.json`](glossary/tool-json.md). A module, component, or tool folder has its JSON record and no index file.
+Terms: [index file](glossary/index-file.md) ([template](templates/index-file.md)), [board](glossary/board.md) ([template](templates/board.md)), and [task file](glossary/task-file.md) at `_artifacts/<folder>-tasks.md`, the one plain-name exception. rbtv's JSON records stay beside their folder, not in `_artifacts/`: [`<module>.json`](glossary/module-json.md), [`<component>.json`](glossary/component-json.md), and [`<tool>.json`](glossary/tool-json.md). A module, component, or tool folder has its JSON record and no index file.
 
 ## Folder instructions
 
@@ -77,9 +88,9 @@ Any folder can hold [folder instructions](glossary/folder-instructions.md), mean
 
 - [Role](glossary/role.md), [persona](glossary/persona.md), [procedure](glossary/procedure.md), and [constraints](glossary/constraints.md) are sections of the agent file, not separate files. [Scope](glossary/scope.md) and a [done contract](glossary/done-contract.md) are written with the [task](glossary/task.md), not in the prompt.
 - An agent file's selected units and key folders are frontmatter fields, not prompt prose; each name there resolves to exactly one unit, and a missing or ambiguous name is an installer error. Its harness, model, and effort are not in the file: they are chosen at install, in [`launch.json`](glossary/launch-json.md), or at launch ([agent](glossary/agent.md)).
-- Do not hand-write a [thin loader](glossary/thin-loader.md), [`.rbtv/`](glossary/rbtv-folder.md), [`config/`](glossary/config.md), or [`runtime/`](glossary/runtime.md), and do not edit a generated copy. Change the source and run the installer. The hand-written pieces of `.rbtv/` are [`mirror/`](glossary/mirror.md) and each installed agent's `agent.md` and [`settings.json`](glossary/settings-json.md). A mirror component uses the same layout as a shipped component; a [self-contained skill](glossary/self-contained-skill.md) uses the mirror’s `_skills/` folder.
+- Do not hand-write a [thin loader](glossary/thin-loader.md), [`.rbtv/`](glossary/rbtv-folder.md), [`config/`](glossary/config.md), or [`runtime/`](glossary/runtime.md), and do not edit a generated copy. Change the source and run the installer. The hand-written pieces of `.rbtv/` are [`mirror/`](glossary/mirror.md) and each installed agent's `agent.md` and [`settings.json`](glossary/settings-json.md). A mirror component uses the same layout as a shipped component; a [self-contained skill](glossary/self-contained-skill.md) uses the mirror’s `_skills/` folder. Do not hand-edit files the [dreamer](glossary/dreamer.md) writes. Append a fact about the owner with `ignite-agent remember`. Write board subjects and watch-outs with `ignite-agent board`.
 - A component folder without [`<component>.json`](glossary/component-json.md) is an installer error. Outside software a tool needs is listed there, not in [`<tool>.json`](glossary/tool-json.md), which names the program the installer places on `PATH`.
 - Each exposed unit carries its own name and a short description, so the installer can present it without a separate list: skills, commands, rules, and agents in frontmatter, hooks, MCP servers, and tools in their JSON record ([Progressive disclosure](principles/progressive-disclosure.md)). The installer checks each against its [schema](glossary/schema.md) and refuses one that does not match.
 - A file that agents and programs both read follows a [template](glossary/template.md) for what agents read and a [schema](glossary/schema.md) for what programs read, such as an agent file's body and its frontmatter. Both are listed in [templates/templates.md](templates/templates.md).
-- Data created while a component runs goes under [`.rbtv/runtime/`](glossary/runtime.md), not in source and not in `mirror/`; an installed agent's live data stays in its own agent folder. Renaming a folder renames its folder artifacts in the same change.
+- Data created while a component runs goes under [`.rbtv/runtime/`](glossary/runtime.md), not in source and not in `mirror/`; an installed agent's live data stays in its own agent folder. An artifact keeps its plain name when its folder is renamed. The [task file](glossary/task-file.md) is the exception: its name follows the folder, because the task tool matches the `-tasks.md` ending.
 - Choosing which kind to build is [choosing what to build](guides/choosing-what-to-build.md). Guides are listed in [guides/guides.md](guides/guides.md). Templates are listed in [templates/templates.md](templates/templates.md).

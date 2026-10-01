@@ -18,6 +18,9 @@ It gives one standing prompt, and the cognitive units it selects, a different [t
 - An agent whose [role](role.md), [persona](persona.md), [procedure](procedure.md), and [constraints](constraints.md) match an existing agent is not created ([Keep it simple](../principles/kiss.md)).
 - No channel id, absolute path, account, host, or credential is typed into it: these belong to one installation and are read at run time from its configuration, settings, or task ([Single source of truth](../principles/single-source-of-truth.md)).
 - Where the agent runs without a person present (through Slack, a timer, or `cast`), the prompt never has it wait after its turn ends: each run is one turn, nothing wakes it with a result, and any check its conclusion depends on runs to completion inside the turn.
+- The prompt does not paste memory. Every turn, including a scheduled wake, receives the always-loaded memory from the runtime: the profile, this agent's learned rules, this agent's board, the general-memory index, and the inbox. Workspace memory arrives only when the working directory matches its paths ([Progressive disclosure](../principles/progressive-disclosure.md)).
+- The agent keeps the board current. It does not write learned rules or other long-term memory. The dreamer does ([Single source of truth](../principles/single-source-of-truth.md)).
+- A scheduled wake starts with no thread. The board holds the check's details. Continuing a subject uses `ignite-agent post --thread`.
 
 ## Making it good
 
@@ -28,6 +31,8 @@ Find the cognitive units it needs with the installer's non-interactive discovery
 Write the description next, naming the triggers and the near-miss.
 
 Write the prompt only as [role](role.md), with its [persona](persona.md) when needed, [procedure](procedure.md), and [constraints](constraints.md). The agent file holds no capabilities: it reaches knowledge through selected skills and commands, or, when its whole work is one domain, routes to that domain's capabilities. Leave this task's goal, [scope](../../../../meta/sub-agents/capabilities/scope.md), and [done contract](../../../../meta/sub-agents/capabilities/done-contract.md) out; they arrive with each task.
+
+Teach the memory split in the prompt only as a standing limit: maintain the board through the board command, append a fact about the owner with `ignite-agent remember`, and never write learned rules. Do not paste the injected files into the prompt.
 
 ## Traps
 

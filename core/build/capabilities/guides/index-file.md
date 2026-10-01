@@ -1,6 +1,6 @@
 # Building an index file
 
-An [index file](../glossary/index-file.md) lists a folder's items and the moment to open each.
+An [index file](../glossary/index-file.md) lists a folder's content and the moment to open each item.
 
 ## Purpose
 
@@ -8,12 +8,14 @@ It lets an agent open the one item a task needs, when the folder's items are nee
 
 ## What good looks like
 
-- From each line alone, a reviewer can say whether a given task should open that item ([Progressive disclosure](../principles/progressive-disclosure.md)).
-- Each item has one line: its name, a link, and the moment to open it. Not a summary of its contents.
+- Rows are an `| Open | When |` table. From the When cell alone, a reviewer can say whether a given task should open that item ([Progressive disclosure](../principles/progressive-disclosure.md)).
+- Each item has one row: a link and the moment. Not a summary of its contents. "See X" is not a row.
 - The file holds the list only. Each item's content stays in the item ([Single source of truth](../principles/single-source-of-truth.md)).
-- After an add, rename, or removal, every item in the folder is listed once, under its current name.
-- If the folder has [folder instructions](folder-instructions.md), they point at this file and do not copy the list ([Single source of truth](../principles/single-source-of-truth.md)).
+- `_artifacts/` items are not listed here. Folder instructions list those. No item appears in both ([Single source of truth](../principles/single-source-of-truth.md)).
+- After an add, rename, or removal, every covered item is listed once, under its current name, in the same change.
+- A generated index lists every file of its folder, one row built from that file's description, and is not hand-edited. It has no row cap.
+- A wiki keeps its own index names.
 
 ## Making it good
 
-Write the moment as a when, not a description of the item ("before adding a tool, read …"). Update the list in the same change that adds, renames, or removes an item.
+Write When as a trigger: BEFORE, WHEN, ALWAYS, or ONLY. Update the list in the same change that adds, renames, or removes an item. Do not copy the folder-instructions table into this file, and do not copy this list into the folder instructions. For a generated index, change the file's description; do not edit the generated table by hand.

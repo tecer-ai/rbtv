@@ -10,10 +10,12 @@ They carry instructions that apply only while working on files in that folder, a
 
 - A task that reads or changes a file here needs this file. A task that does not touch this folder does not.
 - Every line is about this folder's own files: it would be false or pointless if the same agent worked in another target folder. A line that would still hold there is a [rule](rule.md). A line true only in one subfolder belongs in that subfolder's file, unless it is a trigger plus a pointer to it.
-- Read after each parent file, no line contradicts a parent, and no line is true only if a parent is dropped or ignored. The file stays right if it arrives late, early, or stacked with parent files ([Progressive disclosure](../principles/progressive-disclosure.md)).
 - Each pointer names the moment and the target, not a path alone ([Progressive disclosure](../principles/progressive-disclosure.md)).
 - A one-line warning for a mistake the agent would make before opening the target may stay; the rest is in the target.
-- In the highest folder of a tree, only instructions about that folder's own files, plus pointers. If the folder has an [index file](index-file.md), this file points to it and does not copy its list ([Single source of truth](../principles/single-source-of-truth.md)).
+- The `| Open | When |` table lists this folder's `_artifacts/` items, each row a moment: BEFORE, WHEN, ALWAYS, or ONLY. "See X" is not a row. `_artifacts/index.md` lists the folder's other content. No item appears in both ([Single source of truth](../principles/single-source-of-truth.md)).
+- Besides the table: one line on what the folder is, the folder's own rules, and one-line tripwires. Facts, state, history, tasks, and full procedures are not copied in ([Progressive disclosure](../principles/progressive-disclosure.md)).
+- Read after each parent file, a subfolder's file only adds to them. An override names the parent rule it replaces and its reason. The file stays right if it arrives late, early, or stacked with parent files ([Progressive disclosure](../principles/progressive-disclosure.md)).
+- About 150 lines. Longer content is an artifact the table points to.
 - A step with an exact answer names a [tool](tool.md). The sentence is not the check ([Deterministic first](../principles/deterministic-first.md)).
 - The file does not hold a procedure, or text a [skill](skill.md), [command](command.md), or [capability](capability.md) already owns. It points.
 - Deleting any line would make the agent wrong on a task this file covers ([Keep it simple](../principles/kiss.md)).
@@ -22,7 +24,7 @@ They carry instructions that apply only while working on files in that folder, a
 
 ## Making it good
 
-Write each pointer as the moment plus the target ("before adding a tool, read …"), and check every line by reading it after its parents' files.
+Write the table first: one row per `_artifacts/` item, the moment in When. Then one identity line, the folder's rules, and tripwires that start with BEFORE. Point at procedures. Do not copy them. A child file adds. An override names the parent rule and the reason. A write-time rule lives here; a hook only reinforces it, and only fires when the harness was started in this folder. A folder that contains `build/` states that every file there goes in a named subfolder, one per run or topic.
 
 ## Traps
 

@@ -16,13 +16,21 @@ An agent is defined by its agent file, `agent.md`: its prompt, with frontmatter 
 |-- launch.json       (harness, model, and effort)
 |-- settings.json     (agent-specific values the agent reads)
 |-- .rbtv/config/install.json   (what the installer installed here)
+|-- memory/
+|   `-- learned.md    (learned rules; the dreamer writes this)
+|-- _artifacts/
+|   `-- board.md      (short-term memory)
 |-- <harness files>   (generated: folder instructions, loaders for selected units)
 `-- <live data>       (conversations and their history, written while the agent runs)
 ```
 
 Terms: [`launch.json`](launch-json.md), [`settings.json`](settings-json.md), [`install.json`](install-json.md), and [folder instructions](folder-instructions.md), where the installer writes the agent section: a pointer to `agent.md` and the agent's key folders. A shipped agent file is copied into the folder on install; from then on, the copy in the folder is the source. Running the installer again regenerates everything else from it. The agent reads a conversation's history when the recent messages are not enough, so that history is a [cognitive unit](cognitive-unit.md) too.
 
-The agent folder is self-contained: everything the agent is and has done lives in it, so it can be its own git repository and be shared between installations. The installation root is always three folders above it, so nothing inside stores that path. Files the installer generates are rebuilt by running the installer in each installation, never shared as they are. The installer writes an ignore file, `.gitignore`, that keeps data tied to one machine, such as the harness sessions an agent resumes, out of git; the user can override it, which is safe only when one machine runs the agent at a time.
+The agent folder is self-contained: everything the agent is and has done lives in it, so it can be its own git repository and be shared between installations. The installation root is always three folders above it, so nothing inside stores that path. Files the installer generates are rebuilt by running the installer in each installation, never shared as they are. The agent's `memory/` folder and `_artifacts/board.md` are tracked in git. The installer writes an ignore file, `.gitignore`, that keeps data tied to one machine, such as the harness sessions an agent resumes, out of git; the user can override it, which is safe only when one machine runs the agent at a time.
+
+## Memory on a turn
+
+Every turn, including a scheduled wake, receives the shared general-memory [profile](profile.md), this agent's [learned rules](learned-rules.md), this agent's [board](board.md), the general-memory [index](memory-index.md), and the [inbox](inbox.md). [Workspace memory](workspace-memory.md) is added only when the working directory is under that file's declared paths. The agent maintains the board. It never writes learned rules. The [dreamer](dreamer.md) writes those, and the agent's topic files. A scheduled wake starts a fresh conversation bound to no thread. The board holds the check's details. `ignite-agent post --thread` continues an existing thread and joins that thread's history.
 
 ## Ignite agent
 

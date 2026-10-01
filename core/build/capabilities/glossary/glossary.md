@@ -1,6 +1,8 @@
 # glossary
 
 - [agent.md](agent.md) — Before treating a prompt given through a harness as an agent, before writing an agent file, before installing, running, or connecting an agent to Slack, or before one agent launches another as a sub-agent.
+- [agent-topic.md](agent-topic.md) — Before reading or changing one agent's topic detail.
+- [board.md](board.md) — Before writing what matters on a board, or before closing a subject.
 - [capability.md](capability.md) — Before putting shared content in `capabilities/`, or before exposing that content.
 - [cognitive-unit.md](cognitive-unit.md) — Before deciding whether text or a folder shapes an agent's cognition, or whether instructions are a cognitive unit of a prompt, an exposure, a capability, or a cognitive unit a task carries.
 - [command.md](command.md) — Before calling something a command, or before a human-invoked exposure.
@@ -11,18 +13,24 @@
 - [constraints.md](constraints.md) — Before writing a standing limit in a prompt, or before turning that limit into steps.
 - [core.md](core.md) — Before placing work in the `core` module.
 - [done-contract.md](done-contract.md) — Before stating the conditions that judge one task's result.
+- [dreamer.md](dreamer.md) — Before changing long-term memory, or before expecting a turn to file a lesson.
+- [entity.md](entity.md) — Before recording a person, organisation, place, or device in general memory.
 - [exposure-method.md](exposure-method.md) — Before choosing how a skill, rule, command, or agent is exposed.
-- [folder-artifact.md](folder-artifact.md) — Before adding a file named after its folder.
+- [folder-artifact.md](folder-artifact.md) — Before adding a file under `_artifacts/`.
 - [folder-instructions.md](folder-instructions.md) — Before writing text that reaches an agent working on files in a folder.
 - [guide.md](guide.md) — Before writing a file under `guides/`, to confirm what a guide is.
 - [harness.md](harness.md) — Before naming the program that runs an agent.
 - [ignite-config.md](ignite-config.md) — Before connecting an agent to Slack, or before reading Ignite's configuration on a machine.
 - [hook.md](hook.md) — Before adding a command a harness runs on an event.
-- [index-file.md](index-file.md) — Before adding `<folder>.md`, or before putting item content in the list.
+- [inbox.md](inbox.md) — Before saving an explicit request to remember a fact about the owner.
+- [index-file.md](index-file.md) — Before adding `_artifacts/index.md`, or before putting item content in the list.
 - [install-json.md](install-json.md) — Before reading what the installer installed in a target folder.
+- [knowledge.md](knowledge.md) — Before recording a durable fact, preference, decision, self-model line, or health constraint about the owner.
 - [launch-json.md](launch-json.md) — Before choosing or changing an installed agent's harness, model, or effort.
+- [learned-rules.md](learned-rules.md) — Before changing how one agent must behave from experience.
 - [mcp-server.md](mcp-server.md) — Before registering a program that offers agents extra actions.
-- [memory.md](memory.md) — Before writing anything under `.rbtv/memory/`.
+- [memory.md](memory.md) — Before writing general memory or agent memory.
+- [memory-index.md](memory-index.md) — Before routing an agent through general memory.
 - [meta.md](meta.md) — Before placing general agent work in the `meta` module.
 - [mirror.md](mirror.md) — Before adding a local component, or before expecting a local file to patch a shipped one.
 - [module-json.md](module-json.md) — Before writing or reading a module's record.
@@ -31,6 +39,7 @@
 - [path-owners-json.md](path-owners-json.md) — Before reading which installations own a command on `PATH`.
 - [persona.md](persona.md) — Before writing an agent's standpoint inside a role.
 - [principle.md](principle.md) — Before writing a standing design choice, or before writing agent conduct as a principle.
+- [profile.md](profile.md) — Before changing facts that should shape nearly every answer.
 - [procedure.md](procedure.md) — Before writing a reusable method in a prompt.
 - [prompt.md](prompt.md) — Before composing an agent's instruction text from cognitive units.
 - [rbtv-folder.md](rbtv-folder.md) — Before creating `.rbtv/` in a target folder.
@@ -46,8 +55,13 @@
 - [settings-json.md](settings-json.md) — Before giving an installed agent values specific to its job.
 - [skill.md](skill.md) — Before writing an ability an agent chooses from a description.
 - [task.md](task.md) — Before calling a piece of work a task, or before attaching scope and a done contract.
+- [task-file.md](task-file.md) — Before adding or moving a project or area task list.
 - [template.md](template.md) — Before writing or following the agent-readable shape of a file.
 - [thin-loader.md](thin-loader.md) — Before editing a harness pointer to a skill or command.
+- [timeline-daily.md](timeline-daily.md) — Before recording what happened on a day.
+- [timeline-weekly.md](timeline-weekly.md) — Before recording what still matters from a week.
 - [tool-json.md](tool-json.md) — Before writing a tool's record.
 - [tool.md](tool.md) — Before adding an executable program, or before treating a tool as a cognitive unit.
 - [workflow.md](workflow.md) — Before arranging tasks for sub-agents to run, or before reading a `workflow.md`.
+- [workspace-memory.md](workspace-memory.md) — Before recording private notes about a shared repository or workspace.
+- [workstreams.md](workstreams.md) — Before mapping active projects, areas, and agent subjects.
