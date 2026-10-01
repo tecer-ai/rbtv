@@ -1,91 +1,94 @@
-"""Whole-folder skills: a `_skills/<name>/` folder is a component without a record."""
+"""Whole-folder skills: a mirror `_skills/<name>/` folder is a component without a record."""
 from __future__ import annotations
 
 import json
 
-from discovery import HUB_DIR, Refuse, SKILLS_DIR, SKILL_FILE
+from discovery import HUB_DIR, Refuse, SKILLS_DIR, SKILL_FILE, scan_tree
 
 from lib.constants import MANAGED_BANNER, MANAGED_MARK, STATE_REL
 from lib.catalog import module_id
-from lib.content import _is_ours
 from lib.state import read_state, rec_files
 from lib.selection import _sel, resolve_selection, unit_key
 from lib.operations import do_install, do_uninstall
 
 
-def skills_folder_copied_whole(ctx) -> None:
+def skills_folder_thin_loaded(ctx) -> None:
     check, skip, tmp, tree, target, shadowed = (
         ctx.check, ctx.skip, ctx.tmp, ctx.tree, ctx.target, ctx.shadowed)
     (catalog, data, legacy, expect, basis_body, mirrors_on_disk, mtr,
      _mk, rf, pws) = ctx.frame()
 
-    print("\nS — D15: a _skills/ folder is copied WHOLE, not thin-loaded")
+    print("\nS — D15: a _skills/ skill installs as a thin loader to its source")
     sk = tmp / "ws-skill-folder"
     sk.mkdir()
-    rsk = do_install(sk, catalog, ["_hub/skills/vendored"],
-                     ["claude", "codex"], dry_run=False)
-    src = tree / SKILLS_DIR / "vendored"
-    want_sk = {f"{root}/{member}"
-               for root in (".claude/skills/vendored",
-                            ".agents/skills/vendored")
-               for member in ("SKILL.md", "LICENSE.txt",
-                              "references/deep.md", "logo.png")}
+    do_install(sk, catalog, ["_hub/skills/vendored"],
+               ["claude", "codex"], dry_run=False)
+    src = ctx.mirror / SKILLS_DIR / "vendored"
+    want_sk = {".claude/skills/vendored/SKILL.md", ".agents/skills/vendored/SKILL.md"}
     on_disk = {q.relative_to(sk).as_posix()
                for q in sk.rglob("*") if q.is_file()} - {STATE_REL.as_posix(),
                                                           ".codex/config.toml"}
-    check("S1 — every member lands under every harness's skills dir",
+    check("S1 — one loader per harness skills dir; nothing of the folder is copied",
           on_disk == want_sk,
           f"missing={sorted(want_sk - on_disk)} extra={sorted(on_disk - want_sk)}")
-    check("S1 — __pycache__ (and its junk) is never copied",
-          not any("__pycache__" in rel for rel in on_disk), str(on_disk))
-    check("S2 — non-SKILL.md members are BYTE-IDENTICAL to the source",
-          (sk / ".claude/skills/vendored/logo.png").read_bytes()
-          == (src / "logo.png").read_bytes()
-          and (sk / ".claude/skills/vendored/references/deep.md").read_text(encoding="utf-8")
-          == (src / "references/deep.md").read_text(encoding="utf-8"),
-          "a verbatim copy is not verbatim")
-    check("S2 — the copied SKILL.md is the ONE file we stamp",
-          MANAGED_MARK in (sk / ".claude/skills/vendored/SKILL.md").read_text(encoding="utf-8")
-          and (sk / ".claude/skills/vendored/SKILL.md").read_text(encoding="utf-8")
-          .startswith("---\nname: vendored\n")
-          and MANAGED_MARK not in (sk / ".claude/skills/vendored/"
-                                   "references/deep.md").read_text(encoding="utf-8"))
-    check("S3 — the whole folder is OURS through that one marker",
-          all(_is_ours(sk, rel) for rel in want_sk),
-          str(sorted(rel for rel in want_sk if not _is_ours(sk, rel))))
+    loader = (sk / ".claude/skills/vendored/SKILL.md").read_text(encoding="utf-8")
+    check("S2 — the loader carries the skill's own frontmatter verbatim and points "
+          "at the source SKILL.md and folder",
+          loader.startswith("---\nname: vendored\ndescription: A vendored skill\n---\n")
+          and MANAGED_MARK in loader
+          and str((src / SKILL_FILE).resolve()) in loader
+          and str(src.resolve()) in loader
+          and "Relative paths in it resolve from its own folder" in loader,
+          loader[:400])
     check("S3 — the source folder is never modified",
           MANAGED_MARK not in (src / SKILL_FILE).read_text(encoding="utf-8"))
-    check("S4 — it is booked and reported like any other unit",
-          rec_files(read_state(sk)["components"]["_hub/skills/vendored"])
-          == want_sk
-          and rsk["report"]["skill_folders"][0]["files"] == 4
-          and "vendored" in read_state(sk)["components"]
-          ["_hub/skills/vendored"]["units"],
-          str(rsk["report"]["skill_folders"]))
-    check("S5 — a re-install is idempotent, binary and all",
+    check("S4 — it is booked like any other unit",
+          rec_files(read_state(sk)["components"]["_hub/skills/vendored"]) == want_sk
+          and "vendored" in read_state(sk)["components"]["_hub/skills/vendored"]["units"],
+          str(rec_files(read_state(sk)["components"]["_hub/skills/vendored"])))
+    check("S5 — a re-install is idempotent",
           do_install(sk, catalog, ["_hub/skills/vendored"],
                      ["claude", "codex"], dry_run=False)["written"] == [])
+    # Migration from the 0.2 whole-folder copy: an earlier install booked the
+    # copied members too; the next run deletes them and keeps only the loader.
+    old = sk / ".claude/skills/vendored/references/deep.md"
+    old.parent.mkdir(parents=True, exist_ok=True)
+    old.write_text("# deep reference\n", encoding="utf-8")
+    book = json.loads((sk / STATE_REL).read_text(encoding="utf-8"))
+    book["components"]["_hub/skills/vendored"]["units"]["vendored"]["files"].append(
+        ".claude/skills/vendored/references/deep.md")
+    (sk / STATE_REL).write_text(json.dumps(book), encoding="utf-8")
+    rmig = do_install(sk, catalog, ["_hub/skills/vendored"],
+                      ["claude", "codex"], dry_run=False)
+    check("S8 — a copied member from the 0.2 install is deleted on the next run",
+          not old.exists()
+          and ".claude/skills/vendored/references/deep.md" in rmig["deleted"],
+          str(rmig["deleted"]))
     rsk2 = do_uninstall(sk, catalog, ["_hub/skills/vendored"], dry_run=False)
-    check("S6 — uninstall takes the WHOLE folder and prunes the dirs",
+    check("S6 — uninstall takes the loaders and prunes the dirs",
           set(rsk2["deleted"]) == want_sk
           and not (sk / ".claude/skills/vendored").exists()
           and not (sk / ".agents/skills/vendored").exists(),
           str(sorted(set(rsk2["deleted"]) ^ want_sk)))
-    # RELEASE, folder-wide: strip the one marker and the whole copy is the
-    # human's — uninstall must not delete any of it.
-    do_install(sk, catalog, ["_hub/skills/vendored"], ["claude"],
-               dry_run=False)
+    # RELEASE: strip the marker and the loader is the human's.
+    do_install(sk, catalog, ["_hub/skills/vendored"], ["claude"], dry_run=False)
     taken = (sk / ".claude/skills/vendored/SKILL.md").read_text(encoding="utf-8").replace(
         MANAGED_BANNER, "")
-    (sk / ".claude/skills/vendored/SKILL.md").write_text(taken,
-                                                         encoding="utf-8")
+    (sk / ".claude/skills/vendored/SKILL.md").write_text(taken, encoding="utf-8")
     rsk3 = do_uninstall(sk, catalog, ["_hub/skills/vendored"], dry_run=False)
-    check("S7 — stripping the one marker RELEASES the whole folder",
+    check("S7 — stripping the marker RELEASES the loader",
           rsk3["deleted"] == []
-          and sorted(rsk3["released"]) == sorted(
-              rel for rel in want_sk if rel.startswith(".claude/"))
-          and (sk / ".claude/skills/vendored/logo.png").exists(),
+          and rsk3["released"] == [".claude/skills/vendored/SKILL.md"]
+          and (sk / ".claude/skills/vendored/SKILL.md").exists(),
           str(rsk3["released"]))
+    # J0: a _skills/ folder counts only in an installation's mirror.
+    jtree = tmp / "j0-tree"
+    (jtree / SKILLS_DIR / "stray").mkdir(parents=True)
+    (jtree / SKILLS_DIR / "stray" / SKILL_FILE).write_text(
+        "---\nname: stray\ndescription: x\n---\nbody\n", encoding="utf-8")
+    check("S-J0 — a _skills/ folder in the rbtv tree is ignored; in a mirror it counts",
+          "_hub/skills/stray" not in scan_tree(jtree, "repo")
+          and "_hub/skills/stray" in scan_tree(jtree, "mirror"))
     ctx.keep(locals())
 
 

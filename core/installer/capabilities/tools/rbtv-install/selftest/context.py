@@ -24,6 +24,7 @@ class Ctx:
         self.tmp = None
         self.tree = None
         self.target = None
+        self.mirror = None
         self.shadowed: list = []
         self._carried: dict = {}
 

@@ -224,6 +224,16 @@ def _units_for_cid(cid: str, parts: list[str] | None) -> list[str] | None:
     return bare + keyed if (bare or keyed or not any("#" in p for p in parts)) else []
 
 
+def _scaffold_rbtv(target: Path) -> None:
+    """An installation's `.rbtv/` holds its mirror, runtime data and memory
+    folders, created empty on the first real run. An installed agent's folder
+    (agent.md beside launch.json) is not an installation and gets none."""
+    if (target / "agent.md").is_file() and (target / "launch.json").is_file():
+        return
+    for name in ("mirror", "runtime", "memory"):
+        (target / ".rbtv" / name).mkdir(parents=True, exist_ok=True)
+
+
 def _select_units(comp: dict, existing_parts, requested: list[str] | None
                   ) -> tuple[dict, list[str]]:
     """The component's selected units, and the booked ones whose source no
@@ -355,6 +365,7 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
             if guidance_excludes is not None:
                 state["guidance_excludes"] = list(guidance_excludes)
             write_state(target, state)
+            _scaffold_rbtv(target)
             report["path"] = (reconcile_shared(
                 bindir, desired, booked, target, dry=False, locked=True)
                 if path_active else {"linked": [], "relinked": [], "ok": [],

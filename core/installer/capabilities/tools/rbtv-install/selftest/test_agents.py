@@ -74,6 +74,9 @@ def installed_agents(ctx) -> None:
               "key folders",
               "<!-- rbtv:start agent -->" in section
               and "`agent.md`" in section and "- `notes`" in section, section)
+        check("A-add — an agent folder is not an installation: no mirror/, runtime/ or memory/",
+              not any((home / ".rbtv" / name).exists()
+                      for name in ("mirror", "runtime", "memory")))
         check("A-add — the agent folder keeps its own install record",
               set(read_state(home)["components"]["moda/comp"]["units"])
               == {"alpha", "law"})

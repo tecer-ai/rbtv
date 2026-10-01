@@ -79,9 +79,11 @@ def path_links(ctx) -> None:
             code = "no refusal"
         except Refuse as exc:
             code = exc.code
+        # A missing shebang refuses on every system; a missing execute bit
+        # only where the system has one.
+        refuses = kind == "no-shebang" or os.name != "nt"
         check(f"L-{kind} — invalid PATH target refuses during planning",
-              (code == "path-not-runnable" if os.name != "nt" else
-               code == "no refusal")
+              (code == "path-not-runnable" if refuses else code == "no refusal")
               and before == (set(badws.iterdir()), set(bin_dir().iterdir())),
               code)
     badtool.write_text("# reference\n", encoding="utf-8")

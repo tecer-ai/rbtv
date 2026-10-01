@@ -35,7 +35,7 @@ def _component(root: Path, module: str, comp: str) -> Path:
     return root / module / comp
 
 
-def _fixture(root: Path) -> None:
+def _fixture(root: Path, mirror: Path) -> None:
     """A throwaway tree covering every method: a tool, a folder-instructions
     file, a whole-folder skill, an invalid unit, a component with no record."""
     good = _component(root, "fixmod", "goodcomp")
@@ -86,7 +86,8 @@ def _fixture(root: Path) -> None:
 
     # D15 — a whole skill folder: SKILL.md + a nested reference + a binary
     # asset + a directory the copier must skip.
-    vend = root / SKILLS_DIR / "vendored"
+    # Whole-folder skills live only in an installation's mirror (owner ruling J0).
+    vend = mirror / SKILLS_DIR / "vendored"
     (vend / "references").mkdir(parents=True)
     (vend / "__pycache__").mkdir()
     (vend / SKILL_FILE).write_text(

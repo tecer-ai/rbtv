@@ -28,7 +28,7 @@ def ls_li_doctor(ctx) -> None:
 
     print("\nSURF — ls / li / doctor / --pretty / --json")
 
-    vend_files = sum(1 for q in (tree / SKILLS_DIR / "vendored").rglob("*")
+    vend_files = sum(1 for q in (ctx.mirror / SKILLS_DIR / "vendored").rglob("*")
                      if q.is_file())
     ls_data = build_ls(catalog, [
         {"id": "fixmod/goodcomp",

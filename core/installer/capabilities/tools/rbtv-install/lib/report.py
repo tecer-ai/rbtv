@@ -273,13 +273,6 @@ def _report_rows(out: _Out, report: dict, planned: bool) -> None:
     for (harness, kind), keys in unused.items():
         out.bullet("Warnings", f"{harness} cannot use {len(keys)} selected "
                    f"{kind} item(s) — {tail} for: " + ", ".join(keys))
-    folders = report.get("skill_folders") or []
-    copy = "would copy" if planned else "copied"
-    out.group([f"{copy} skill folder {row['component']} whole — "
-               f"{row['files']} file(s) into " + ", ".join(row["roots"])
-               for row in folders],
-              f"{copy} {len(folders)} skill folder(s) whole "
-              f"({sum(row['files'] for row in folders)} files)")
     gone = report.get("source_gone") or []
     if gone:
         out.bullet("Notes", f"{'would remove' if planned else 'removed'} "

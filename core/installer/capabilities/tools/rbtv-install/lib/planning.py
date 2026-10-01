@@ -3,6 +3,7 @@ would write.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from discovery import Refuse, SKILL_FILE, unit_rows
@@ -16,7 +17,6 @@ from .constants import (
     MATRIX,
     RULE_SECTION_HARNESSES,
     CODEX_PROJECT_DOC_MAX_BYTES,
-    SKILL_FOLDER_SKIP,
 )
 from .catalog import _unit_specs
 from .content import (
@@ -48,7 +48,7 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
     hook_harnesses: set[str] = set()
     hook_owners: dict[str, list] = {}
     sections: list[dict] = []
-    report: dict = {"no_realization": [], "skill_folders": [], "path_rows": []}
+    report: dict = {"no_realization": [], "path_rows": []}
     codex_used = False
 
     def claim_file(rel: str, content: str, cid: str, pid: str) -> None:
@@ -66,12 +66,11 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
         owners.setdefault(rel, []).append((cid, pid))
 
     def claim_skill_folder(comp: dict, cid: str, harnesses: list[str]) -> None:
-        """D15 — copy the whole folder into each harness's skills directory.
-
-        The root `SKILL.md` is the ONE file we stamp (`_mark`); everything else
-        is copied byte-for-byte, so a reference, a licence or a binary asset
-        arrives unchanged. Paths shared by several harnesses dedupe on the
-        template, exactly as the thin-loader `skill` row already does."""
+        """D15 — a `_skills/<name>/` skill installs as a thin loader per harness:
+        the skill's own frontmatter, verbatim (harness-specific keys survive),
+        and a body pointing at the source `SKILL.md`. The folder stays where it
+        is, so its relative files resolve from it and a `git pull` there takes
+        effect at once (owner ruling J1)."""
         comp_dir = Path(comp["path"])
         named = comp["component"]
         if named.startswith("rbtv-"):
@@ -81,30 +80,19 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                 "`rbtv-*`, which the OLD installer sweeps out of "
                 "`.claude/skills/` on every run — rename the folder (D12)",
                 str(comp_dir))
-        members: list[tuple[str, str | bytes]] = []
-        for path in sorted(comp_dir.rglob("*")):
-            if path.is_symlink() or not path.is_file():
-                continue
-            member = path.relative_to(comp_dir)
-            if any(part in SKILL_FOLDER_SKIP for part in member.parts):
-                continue
-            raw = path.read_bytes()
-            if member.as_posix() == SKILL_FILE:
-                body: str | bytes = _mark(raw.decode("utf-8"))
-            else:
-                try:
-                    body = raw.decode("utf-8")
-                except UnicodeDecodeError:
-                    body = raw               # a binary asset rides along whole
-            members.append((member.as_posix(), body))
-        roots = {MATRIX["skill"][h].rsplit("/", 1)[0].format(name=named)
-                 for h in harnesses if MATRIX["skill"].get(h)}
-        for root_rel in sorted(roots):
-            for member, body in members:
-                claim_file(f"{root_rel}/{member}", body, cid, named)
-        report["skill_folders"].append(
-            {"component": cid, "files": len(members),
-             "roots": sorted(roots)})
+        source = comp_dir / SKILL_FILE
+        text = source.read_text(encoding="utf-8")
+        head = re.match(r"---\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|$)", text, re.S)
+        if head is None:
+            raise Refuse("unit-invalid", f"{source}: no frontmatter", str(source))
+        body = (f"---\n{head.group(1)}\n---\n\n"
+                f"Read `{source.resolve()}` NOW and follow it as this skill's full "
+                "instructions. Relative paths in it resolve from its own folder, "
+                f"`{comp_dir.resolve()}`.\n")
+        rels = {MATRIX["skill"][h].format(name=named)
+                for h in harnesses if MATRIX["skill"].get(h)}
+        for rel in sorted(rels):
+            claim_file(rel, _mark(body), cid, named)
 
     for cid in sorted(records):
         rec = records[cid]

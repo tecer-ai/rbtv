@@ -168,6 +168,9 @@ def green_arm_all_harnesses(ctx) -> None:
     check("install.json books the source tree + harnesses",
           rec["tree"] == "repo" and rec["tree_root"] == str(tree)
           and rec["harnesses"] == list(HARNESSES))
+    check("the installation's .rbtv/ holds mirror/, runtime/ and memory/",
+          all((target / ".rbtv" / name).is_dir()
+              for name in ("mirror", "runtime", "memory")))
     check("re-install is idempotent",
           do_install(target, catalog, ["fixmod/goodcomp"], list(HARNESSES),
                      dry_run=False)["written"] == [])

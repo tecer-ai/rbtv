@@ -44,7 +44,7 @@ In a target with a `.git/` folder, the installer maintains its artifact list as 
 
 ## D15 — Whole-folder skills
 
-The installer reads `_skills/<name>/` folders with `SKILL.md` in either scanned tree as whole-folder skills and identifies them as `_hub/skills/<name>`. It copies their files to each selected harness's skills folder, omitting symlinks, `.git`, `node_modules`, and `__pycache__`. It stamps only the copied `SKILL.md` with an ownership marker; that marker governs the copied folder. This preserves supporting and binary files byte for byte and gives the whole copy one ownership signal.
+A skill in the standard shareable format — a `_skills/<name>/` folder with `SKILL.md` and its own files — is read only from an installation's `.rbtv/mirror/`, never from the rbtv repository, and is identified as `_hub/skills/<name>`. It installs as a thin loader in each selected harness's skills folder: the skill's own frontmatter, verbatim so harness-specific keys survive, and a body that points at the source `SKILL.md` and its folder, from which its relative files resolve. The loader is booked in the install record and updated and removed like every other unit. The source folder is never copied or changed, so a skill kept current with `git pull` takes effect at once; a folder copied by an earlier installer is deleted on the next run.
 
 ## D16 — Workspace settings
 
@@ -60,7 +60,7 @@ Set-valued settings use `add harness`, `remove harness`, `add guidance exclude`,
 
 ## D9 — Tools on PATH
 
-A selected tool creates a shortcut in `~/.rbtv/bin` under its tool name and creates no tool copy under the target. Planning checks the program before writing: POSIX requires a shebang and execute permission; Windows requires an interpreter from a shebang or supported script extension. This gives each installation a checked, runnable entry point while keeping the program in its source location. The tool record and source folder belong to the [tool glossary](../../build/capabilities/glossary/tool.md).
+A selected tool creates a shortcut in `~/.rbtv/bin` under its tool name and creates no tool copy under the target. Planning checks the program before writing: every system requires a shebang (`#!`) first line, so a program that would not run on Linux is refused on Windows too; POSIX also requires execute permission, and Windows takes its interpreter from the shebang or the script extension. This gives each installation a checked, runnable entry point while keeping the program in its source location. The tool record and source folder belong to the [tool glossary](../../build/capabilities/glossary/tool.md).
 
 ## D9b — Windows shortcuts
 

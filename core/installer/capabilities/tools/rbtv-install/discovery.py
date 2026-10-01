@@ -105,7 +105,9 @@ def scan_tree(root: Path, tree: str) -> dict[str, dict]:
     found: dict[str, dict] = {}
     if not root.is_dir():
         return found
-    found.update(discover_skill_folders(root, tree))
+    if tree == "mirror":
+        # Whole-folder skills belong to one installation, so only its mirror holds them.
+        found.update(discover_skill_folders(root, tree))
     for top in sorted(root.iterdir()):
         if not top.is_dir() or top.name.startswith(".") \
                 or top.name in {HUB_DIR, SKILLS_DIR}:

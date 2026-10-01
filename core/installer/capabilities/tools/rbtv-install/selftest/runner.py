@@ -58,7 +58,7 @@ ORDER = [
     test_interactive.guided_flow,
     test_interactive.fumbled_answers_reask,
     test_interactive.zero_width_terminal,
-    test_hub.skills_folder_copied_whole,
+    test_hub.skills_folder_thin_loaded,
     test_hub.hub_alias,
     test_hub.hub_book_key_rewrite,
     test_ownership.the_marker_is_ownership,
@@ -120,12 +120,14 @@ def selftest() -> int:
                       exc.code == "path-forbidden", exc.code)
         tree = tmp / "tree"
         tree.mkdir()
-        _fixture(tree)
+        mirror = tmp / "mirror"
+        _fixture(tree, mirror)
         target = tmp / "workspace"
         target.mkdir()
-        catalog, shadowed = scan_all(tmp / "no-mirror", tree)
+        catalog, shadowed = scan_all(mirror, tree)
 
         ctx.tmp, ctx.tree, ctx.target = tmp, tree, target
+        ctx.mirror = mirror
         ctx.shadowed = shadowed
         ctx.keep({"catalog": catalog})
         for section in ORDER:
