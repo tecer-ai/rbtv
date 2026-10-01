@@ -212,6 +212,23 @@ def vanished_component_part_rm(ctx) -> None:
           in pvst["shared_claims"],
           str(pvst["shared_claims"]))
 
+    # G1 — a unit whose source is gone leaves the record on the next run, and
+    # the run says so; the files and the record then always match.
+    from discovery import unit_rows
+    g1 = tmp / "ws-source-gone"
+    g1.mkdir()
+    do_install(g1, catalog, ["fixmod/goodcomp"], ["claude"], dry_run=False)
+    shrunk = dict(catalog["fixmod/goodcomp"])
+    shrunk["rows"] = [r for r in unit_rows(shrunk) if r["id"] != "fixskill"]
+    res_g1 = do_install(g1, {**catalog, "fixmod/goodcomp": shrunk},
+                        ["fixmod/goodcomp"], ["claude"], dry_run=False)
+    g1units = read_state(g1)["components"]["fixmod/goodcomp"]["units"]
+    check("SG1 — a unit whose source is gone leaves the record and the run reports it",
+          "fixskill" not in g1units and "fixrule" in g1units
+          and res_g1["report"]["source_gone"] == ["fixmod/goodcomp#fixskill"]
+          and not (g1 / ".claude/skills/fixskill/SKILL.md").exists(),
+          str(sorted(g1units)) + " " + str(res_g1["report"].get("source_gone")))
+
     vu = tmp / "ws-v1-part"
     vu.mkdir()
     do_install(vu, catalog, ["fixmod/goodcomp"], ["claude"], dry_run=False)

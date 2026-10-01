@@ -225,14 +225,20 @@ def _units_for_cid(cid: str, parts: list[str] | None) -> list[str] | None:
 
 
 def _select_units(comp: dict, existing_parts, requested: list[str] | None
-                  ) -> dict:
+                  ) -> tuple[dict, list[str]]:
+    """The component's selected units, and the booked ones whose source no
+    longer exists. Those leave the record, so it always matches the files the
+    plan keeps (owner ruling G1)."""
     specs = {r["id"]: r["method"] for r in _unit_specs(comp)}
+    gone = sorted(pid for pid in (existing_parts or {}) if pid not in specs)
+    kept = {pid: dict(p) for pid, p in (existing_parts or {}).items()
+            if pid in specs}
     if requested is None:
         if existing_parts is not None:
-            return {pid: dict(p) for pid, p in existing_parts.items()}
+            return kept, gone
         return {pid: {"method": method, "files": []}
-                for pid, method in specs.items()}
-    out = {pid: dict(p) for pid, p in (existing_parts or {}).items()}
+                for pid, method in specs.items()}, gone
+    out = kept
     for pid in requested:
         if pid not in specs:
             raise Refuse(
@@ -242,7 +248,7 @@ def _select_units(comp: dict, existing_parts, requested: list[str] | None
                 str(comp["path"]))
         if pid not in out:
             out[pid] = {"method": specs[pid], "files": []}
-    return out
+    return out, gone
 
 
 def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
@@ -271,18 +277,22 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
         return {"ok": True, "scope": scope, "installed": picked,
                 "harnesses": harnesses, "files": sorted(mirror_files),
                 **result, "report": report}
+    source_gone: list[str] = []
     for cid in picked:
         c = catalog[cid]
         existing = records.get(cid) or {}
+        units, gone = _select_units(c, existing.get("units"),
+                                    _units_for_cid(cid, parts))
+        source_gone += [f"{cid}#{pid}" for pid in gone]
         rec = {"tree": c["tree"], "tree_root": c["tree_root"],
                "module": c["module"], "component": c["component"],
                "harnesses": [h for h in HARNESSES if h in harnesses],
-                "units": _select_units(c, existing.get("units"),
-                                       _units_for_cid(cid, parts))}
+                "units": units}
         if "files" in existing:
             rec["files"] = list(existing["files"])
         records[cid] = rec
     files, owners, claims, report = plan_files(records, catalog, target)
+    report["source_gone"] = source_gone
     saved_guidance = list(state.get("guidance_files") or [])
     report["guidance_sections"] = _section_paths(claims)
     if scope == "scaffolding":

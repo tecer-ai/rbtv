@@ -27,7 +27,8 @@ install <agent file> --harness <name> --model <cast short name> --effort <rung o
   Runs rbtv install agent add, then installs Ignite's standard units. No Slack.
   Refuses when the agent is already installed; use update.
 update <agent> [--workspace <path>] [--dry-run]
-  Runs rbtv install agent update, then re-installs Ignite's standard units.
+  Runs rbtv install agent update, then re-installs Ignite's standard units and removes
+  any it installed earlier that are no longer standard units.
   Keeps launch.json, settings.json, board.md, the database, and conversations.
 connect <agent> (--channel-name <name> | --dm) [--schedule-json <file>] [--workspace <path>] [--dry-run]
   On the machine that will run the agent. Needs .rbtv/config/ignite/config.json.

@@ -280,6 +280,10 @@ def _report_rows(out: _Out, report: dict, planned: bool) -> None:
                for row in folders],
               f"{copy} {len(folders)} skill folder(s) whole "
               f"({sum(row['files'] for row in folders)} files)")
+    gone = report.get("source_gone") or []
+    if gone:
+        out.bullet("Notes", f"{'would remove' if planned else 'removed'} "
+                   "(source no longer exists): " + ", ".join(gone))
     pathrep = report.get("path") or {}
     for key, verb in (("linked", "link"), ("relinked", "relink"),
                       ("unlinked", "unlink")):

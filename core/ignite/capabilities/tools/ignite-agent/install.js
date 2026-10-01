@@ -45,7 +45,8 @@ install <agent file> --harness <name> --model <cast short name> --effort <rung o
 
 update <agent> [--workspace <path>] [--dry-run] [--json]
 
-  Runs rbtv install agent update <agent>, then re-installs the standard units.
+  Runs rbtv install agent update <agent>, then re-installs the standard units and
+  removes any unit Ignite installed earlier that is no longer a standard unit.
   Keeps launch.json, settings.json, board.md, state.sqlite, and conversations.
 `;
 
@@ -257,17 +258,43 @@ async function updateAgent(opts, positionals, flags, deps) {
   const installed = await runInstaller(units, deps);
   const unitsError = installerError(installed);
   if (unitsError) fail(unitsError);
+  const dropped = droppedStandardUnits(home);
+  if (dropped.length && !opts.dryRun) {
+    const removed = await runInstaller(['remove', ...dropped, '--target', home, '--json'], deps);
+    const removedError = installerError(removed);
+    if (removedError) fail(removedError);
+  }
   const kept = ['launch.json', 'settings.json', 'board.md', 'state.sqlite', 'conversations'];
   if (opts.dryRun) {
     emit(deps, flags, {
-      dryRun: true, verb: 'update', agent: name, home, launch, units: STANDARD_UNITS, kept, writes: 'none',
-    }, planText({ dryRun: true, verb: 'update', agent: name, home, launch, units: STANDARD_UNITS }));
+      dryRun: true, verb: 'update', agent: name, home, launch, units: STANDARD_UNITS, removes: dropped, kept, writes: 'none',
+    }, planText({ dryRun: true, verb: 'update', agent: name, home, launch, units: STANDARD_UNITS })
+      + (dropped.length ? `would remove (no longer a standard unit): ${dropped.join(', ')}\n` : ''));
     return 0;
   }
   ensureRuntime(home);
-  emit(deps, flags, { updated: name, home, units: STANDARD_UNITS, kept },
-    `updated ${name}\nhome: ${home}\nunits: ${STANDARD_UNITS.join(', ')}\nkept: ${kept.join(', ')}\n`);
+  emit(deps, flags, { updated: name, home, units: STANDARD_UNITS, removed: dropped, kept },
+    `updated ${name}\nhome: ${home}\nunits: ${STANDARD_UNITS.join(', ')}\n`
+    + (dropped.length ? `removed (no longer a standard unit): ${dropped.join(', ')}\n` : '')
+    + `kept: ${kept.join(', ')}\n`);
   return 0;
+}
+
+// Units Ignite installed earlier that are no longer in STANDARD_UNITS. In the agent folder's
+// install record, every booked unit the agent file did not select (`agent_units`) is Ignite's.
+function droppedStandardUnits(home) {
+  const file = path.join(home, '.rbtv', 'config', 'install.json');
+  if (!fs.existsSync(file)) return [];
+  let record;
+  try {
+    record = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (error) {
+    fail(`cannot read ${file}: ${error.message}`);
+  }
+  const own = new Set(record.agent_units || []);
+  const booked = Object.entries(record.components || {})
+    .flatMap(([cid, rec]) => Object.keys(rec.units || {}).map((unit) => `${cid}#${unit}`));
+  return booked.filter((key) => !own.has(key) && !STANDARD_UNITS.includes(key)).sort();
 }
 
 async function run(command, argv, flags, deps = {}) {

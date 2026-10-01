@@ -145,6 +145,29 @@ function stubInstall(calls) {
     assert.match(result.out, /kept: launch.json, settings.json, board.md/);
   });
 
+  await test('update removes a unit Ignite installed that is no longer a standard unit', async () => {
+    const dir = workspace();
+    const home = path.join(dir, '.rbtv', 'agents', 'probe');
+    fs.mkdirSync(path.join(home, '.rbtv', 'config'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'agent.md'), '---\nname: probe\ndescription: fixture\n---\n');
+    fs.writeFileSync(path.join(home, 'launch.json'), '{"harness":"codex","model":"m","effort":"low"}\n');
+    fs.writeFileSync(path.join(home, '.rbtv', 'config', 'install.json'), JSON.stringify({
+      agent_units: ['office/meeting-summarizer#summarizer-cycle'],
+      components: {
+        'meta/sub-agents': { units: { 'sub-agents': {}, swarm: {} } },
+        'office/meeting-summarizer': { units: { 'summarizer-cycle': {} } },
+      },
+    }));
+    const calls = [];
+    const result = await run(['update', 'probe', '--workspace', dir], { install: stubInstall(calls) });
+    assert.equal(result.code, 0, result.out + result.err);
+    const remove = calls.find((args) => args[0] === 'remove');
+    assert.ok(remove, `expected a remove call: ${JSON.stringify(calls)}`);
+    assert.deepEqual(remove.slice(1, remove.indexOf('--target')), ['meta/sub-agents#swarm'],
+      'only the dropped standard unit goes; the agent file\'s own unit and current standard units stay');
+    assert.match(result.out, /removed \(no longer a standard unit\): meta\/sub-agents#swarm/);
+  });
+
   await test('update dry-run writes nothing', async () => {
     const dir = workspace();
     const home = path.join(dir, '.rbtv', 'agents', 'probe');
