@@ -336,6 +336,9 @@ def print_list(data: dict) -> None:
     lines = present.render_table(headers, rows)
     for line in lines:
         print(line)
+    if not items and not data.get("searching"):  # search says "0 matches"
+        print("No installed items in this target." if data.get("installed_only")
+              else "No matching items.")
     if items:
         print()
         if data["scope"] == "items":
@@ -370,6 +373,11 @@ def build_show(selection: dict, catalog: dict, state: dict) -> dict:
     return out
 
 
+def _say(text: str) -> None:
+    """One `Label: prose` line, wrapped under a two-space hang."""
+    print("\n".join(present.wrap(text, hang="  ")))
+
+
 def print_show(data: dict) -> None:
     """Human-readable rendering of `build_show`'s envelope: description,
     included items or installation details, source entry path (D9 §4)."""
@@ -379,8 +387,8 @@ def print_show(data: dict) -> None:
     print(f"Target: {data['target']} "
           f"({present.target_source_label(data.get('source'))})")
     if sel["scope"] == "module":
-        print(f"Description: {sel['description'] or '(no catalog description)'}")
-        print(f"Local source: {sel['source_items']} items; "
+        _say(f"Description: {sel['description'] or '(no catalog description)'}")
+        _say(f"Local source: {sel['source_items']} items; "
               f"installed here: {sel['installed_items']} saved selections. "
               "Files not checked.")
         print()
@@ -393,10 +401,10 @@ def print_show(data: dict) -> None:
         print("Next: " + data["next"])
         return
     if sel["scope"] == "component":
-        print(f"Description: {sel.get('description') or '(no catalog description)'}")
+        _say(f"Description: {sel.get('description') or '(no catalog description)'}")
         if sel.get("source_entry"):
-            print(f"Source entry: {sel['source_entry']} (local RBTV source)")
-        print(f"Local source: {len(sel['units'])} item(s) in this component.")
+            print("Source entry (local RBTV source): " + sel['source_entry'])
+        _say(f"Local source: {len(sel['units'])} item(s) in this component.")
         print()
         headers = ["ID", "Type", "State", "Description"]
         rows = [[p["key"], p["type"],
@@ -411,11 +419,11 @@ def print_show(data: dict) -> None:
     meaning = present.TYPE_MEANING.get(part["type"], "")
     print(f"Type: {part['type']}" + (f" ({meaning})" if meaning else ""))
     if part["description"]:
-        print(f"Description: {part['description']}")
+        _say(f"Description: {part['description']}")
     if part.get("source_path"):
-        print(f"Source entry: {part['source_path']} (local RBTV source)")
+        print("Source entry (local RBTV source): " + part['source_path'])
     elif part["entry_point"]:
-        print(f"Source entry: {part['entry_point']} (local RBTV source)")
+        print("Source entry (local RBTV source): " + part['entry_point'])
     print()
     print("Installation in this target")
     print(f"  Selection: {'installed' if part['installed'] else 'not installed'} "

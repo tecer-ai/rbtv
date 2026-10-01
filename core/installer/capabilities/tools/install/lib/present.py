@@ -7,7 +7,9 @@ vocabulary or table shape three ways.
 from __future__ import annotations
 
 import os
+import re
 import shutil
+import textwrap
 
 from .constants import CANONICAL_METHODS, HARNESSES
 from .target import DISCOVER_FLAG
@@ -100,8 +102,8 @@ def root_help() -> str:
         lines.extend(f"  {name.ljust(width)}  {desc}" for name, desc in rows)
         lines.append("")
     lines.append("Shared options: --target PATH  --json  -h, --help")
-    lines.append("Non-interactive changes also accept --dry-run. "
-                 "Only interactive asks questions.")
+    lines.append("Non-interactive changes also accept --dry-run and --details.")
+    lines.append("Only interactive asks questions.")
     lines.append("Target order: --target, then IGNITE_AGENT_HOME, "
                  "then current-folder discovery.")
     lines.append("Aliases: ls=list; li=list --installed; rm=remove.")
@@ -140,6 +142,62 @@ def terminal_width(default: int = 100) -> int:
     return shutil.get_terminal_size(fallback=(default, 24)).columns or default
 
 
+class Whole(str):
+    """A value printed on one line and never wrapped — a path or command
+    that may contain spaces and must stay copyable."""
+
+
+# A `backticked span`, or an `rbtv …` command introduced by a colon
+# ("Example: rbtv …", "run: rbtv …") and running to the end of its
+# sentence: each is kept on one line so it stays copyable. A command named
+# mid-sentence in prose is ordinary words.
+_UNBROKEN = re.compile(r"`[^`]*`|(?<=: )rbtv [^`\n]*?(?=\.\s|\.?$|;\s)")
+
+
+def wrap(text: str, *, indent: str = "", hang: str | None = None,
+         width: int | None = None) -> list[str]:
+    """Prose word-wrapped to the terminal, one paragraph per input line.
+    Never splits a word, ID or path, an `rbtv …` command, or a backticked
+    span; a `Whole` value is never wrapped at all."""
+    hang = indent if hang is None else hang
+    if isinstance(text, Whole):
+        return [indent + text]
+    width = terminal_width() if width is None else width
+    lines: list[str] = []
+    for n, para in enumerate(text.split("\n")):
+        kept = _UNBROKEN.sub(lambda m: m.group(0).replace(" ", "\0"), para)
+        lines.extend(line.replace("\0", " ") for line in textwrap.wrap(
+            kept, width=max(width, len(hang) + 20),
+            initial_indent=indent if n == 0 else hang, subsequent_indent=hang,
+            break_long_words=False, break_on_hyphens=False))
+    return lines or [indent.rstrip()]
+
+
+def fields(rows: list[tuple[str, str]], *, indent: str = "",
+           width: int | None = None) -> list[str]:
+    """`Label:  value` rows with every value aligned after the longest label
+    and wrapped under itself. When fewer than 20 columns would remain for
+    the values, each value moves to its own indented line under its label."""
+    if not rows:
+        return []
+    width = terminal_width() if width is None else width
+    label_w = max(len(label) for label, _ in rows) + 1
+    lines: list[str] = []
+    if width - len(indent) - label_w - 2 < 20:
+        for label, value in rows:
+            lines.append(f"{indent}{label}:")
+            lines.extend(wrap(value, indent=indent + "  ", width=width))
+        return lines
+    hang = indent + " " * (label_w + 2)
+    for label, value in rows:
+        head = f"{indent}{(label + ':').ljust(label_w)}  "
+        if isinstance(value, Whole) and len(head) + len(value) > width:
+            lines.extend((head.rstrip(), indent + "  " + value))
+        else:
+            lines.extend(wrap(value, indent=head, hang=hang, width=width))
+    return lines
+
+
 def _shorten(text: str, budget: int) -> str:
     if budget <= 0:
         return ""
@@ -172,17 +230,21 @@ def render_table(headers: list[str], rows: list[list[str]], *,
         for i, cell in enumerate(row):
             widths[i] = max(widths[i], len(str(cell)))
     gap = 2
+    # Everything before the last column, including the gap in front of it.
     essential = sum(widths[:-1]) + gap * (len(widths) - 1)
-    if essential + gap > width and len(headers) > 1:
-        return render_blocks(headers, rows, paint=paint)
+    budget = width - essential if len(headers) > 1 else width
+    # The last column needs its own header plus room for useful prose; a
+    # column that is short anyway (doctor's Result) needs only its width.
+    if budget < min(widths[-1], max(20, len(headers[-1]))):
+        return render_blocks(headers, rows, paint=paint, width=width)
 
     def fmt(row_index: int, row: list[str]) -> str:
         cells = []
         for i, cell in enumerate(row):
             cell = str(cell)
             if i == len(row) - 1:
-                budget = width - essential - gap if len(headers) > 1 else width
-                shown = _shorten(cell, budget) if budget < len(cell) else cell
+                shown = (_shorten(cell, budget)
+                         if row_index >= 0 and budget < len(cell) else cell)
                 cells.append(paint(row_index, shown) if paint and row_index >= 0
                              else shown)
             else:
@@ -193,14 +255,19 @@ def render_table(headers: list[str], rows: list[list[str]], *,
 
 
 def render_blocks(headers: list[str], rows: list[list[str]], *,
-                  paint=None) -> list[str]:
+                  paint=None, width: int | None = None) -> list[str]:
     """One item per labeled block — the narrow-terminal fallback. Never
-    truncates a value; each row's fields sit on their own line instead."""
+    truncates a value; each row's fields sit on their own line instead, and
+    the last (prose) field wraps under a two-space hang."""
     lines: list[str] = []
     for row_index, row in enumerate(rows):
         for i, (label, value) in enumerate(zip(headers, row)):
-            shown = paint(row_index, value) if paint and i == len(row) - 1 else value
-            lines.append(f"{label}: {shown}")
+            if i < len(row) - 1:
+                lines.append(f"{label}: {value}")
+            elif paint:
+                lines.append(f"{label}: {paint(row_index, value)}")
+            else:
+                lines.extend(wrap(f"{label}: {value}", hang="  ", width=width))
         lines.append("")
     if lines and lines[-1] == "":
         lines.pop()

@@ -52,6 +52,10 @@ def installed_agents(ctx) -> None:
               and dry["units"] == ["moda/comp#alpha", "moda/comp#law"]
               and dry["launch"] == {"harness": "claude", "model": "m1",
                                     "effort": "high"}, str(dry))
+        check("A-add — a dry run reports the unit files it would write",
+              {".claude/skills/alpha/SKILL.md", ".claude/rules/law.md"}
+              <= set(dry["unit_files"]["planned_changes"]["write_files"])
+              and dry["units_removed"] == [], str(dry.get("unit_files")))
         add_agent(ws, src, "claude", "m1", "3", cat, False)
         files = {p.relative_to(home).as_posix()
                  for p in home.rglob("*") if p.is_file()}
@@ -86,12 +90,30 @@ def installed_agents(ctx) -> None:
         (home / "launch.json").write_text(json.dumps(
             {"harness": "claude", "model": "m1", "effort": "low"}),
             encoding="utf-8")
+        planned = update_agent(ws, "sara", cat, True)
+        check("A-update — a dry run names the unit it takes back and its file",
+              planned["units_removed"] == ["moda/comp#law"]
+              and ".claude/rules/law.md"
+              in planned["unit_files"]["planned_changes"]["delete_files"]
+              and (home / ".claude/rules/law.md").is_file(),
+              str(planned.get("unit_files")))
         update_agent(ws, "sara", cat, False)
         check("A-update — a unit the agent file dropped goes; launch values stay",
               not (home / ".claude/rules/law.md").exists()
               and (home / ".claude/skills/alpha/SKILL.md").is_file()
               and json.loads((home / "launch.json").read_text(encoding="utf-8"))
               ["effort"] == "low", str(sorted(p.name for p in home.rglob("*"))))
+
+        (home / ".gitignore").unlink()
+        ignored = update_agent(ws, "sara", cat, True)
+        check("A-update — recreating a missing .gitignore is planned and then "
+              "reported, in preview and real alike",
+              ignored["written"] == [".gitignore", "CLAUDE.md"]
+              and not (home / ".gitignore").exists()
+              and update_agent(ws, "sara", cat, False)["written"]
+              == [".gitignore", "CLAUDE.md"]
+              and (home / ".gitignore").is_file(),
+              str(ignored["written"]))
 
         do_install(home, cat, ["moda/comp"], ["claude"], False,
                    guidance_basis="none", parts=["moda/comp#extra"])
@@ -104,12 +126,19 @@ def installed_agents(ctx) -> None:
               str(read_state(home).get("agent_units")))
 
         (home / "notes.md").write_text("the agent's own\n", encoding="utf-8")
+        preview = remove_agent(ws, "sara", cat, True)
         gone = remove_agent(ws, "sara", cat, False)
         check("A-remove — the installer's files go; the agent's own stay",
               sorted(p.name for p in home.iterdir())
               == ["agent.md", "notes.md", "settings.json"]
               and gone["kept"] == ["agent.md", "notes.md", "settings.json"],
               str(gone["kept"]))
+        check("A-remove — the dry run's kept list is what the real run keeps",
+              preview["kept"] == gone["kept"]
+              and preview["units_removed"] == gone["units_removed"]
+              == ["moda/comp#alpha", "moda/comp#extra"],
+              f"preview={preview['kept']} {preview['units_removed']} "
+              f"real={gone['kept']} {gone['units_removed']}")
         add_agent(ws, src, "claude", "m1", "3", cat, False)
         check("A-remove — a removed agent can be installed again",
               (home / "launch.json").is_file()

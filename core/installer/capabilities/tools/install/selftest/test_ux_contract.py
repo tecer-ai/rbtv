@@ -4,12 +4,14 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import re
 import shlex
 from unittest.mock import patch
 
 from lib import commands
 from lib.constants import STATE_REL, _RUNTIME
 from lib.recovery import shell_quote
+from lib.report import print_result
 from lib.shared_links import owner_file
 
 
@@ -245,6 +247,8 @@ def public_contract(ctx) -> None:
     ctx.check("UX-IO-error-is-JSON", code == 1
               and failed["error"]["code"] == "io-error"
               and "doctor" in failed["next"])
+    ctx.check("UX-IO-error-changed-is-unknown-not-false",
+              failed.get("changed", False) is None, str(failed))
 
     target = ctx.tmp / "deleted owner workspace"
     bindir = ctx.tmp / "public ownership" / "bin"
@@ -262,3 +266,131 @@ def public_contract(ctx) -> None:
     ctx.check("UX-orphan-claim-released-even-with-shortcut-gone", code == 0
               and released["report"]["path"]["released"] == ["missing-shortcut"]
               and not registry.exists() and not target.exists())
+
+
+def result_screens(ctx) -> None:
+    """Human result screens through the public command path: empty labels,
+    exact-ID next steps, a failure that never claims nothing changed, and
+    the owner's large-batch case (compact by default, --details complete,
+    every warning kept)."""
+    catalog = ctx.frame()[0]
+    target = ctx.tmp / "result screens"
+    target.mkdir()
+
+    def text(*argv, columns="100"):
+        out, err = io.StringIO(), io.StringIO()
+        with patch.object(commands, "scan_all", return_value=(catalog, [])), \
+                patch.dict("os.environ", {"COLUMNS": columns}), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = commands.main([*argv, "--target", str(target)])
+        return code, out.getvalue(), err.getvalue()
+
+    print("\nRESULT — human result screens")
+    _, empty, _ = text("list", "--installed")
+    ctx.check("RESULT-empty-installed-list-says-so",
+              "No installed items in this target." in empty, empty)
+    _, found, _ = text("search", "fixture")
+    next_line = found.rstrip().splitlines()[-1]
+    ctx.check("RESULT-search-next-is-a-returned-exact-id",
+              next_line.startswith("Next: rbtv install show 'fixmod/goodcomp#")
+              and "'fixture'" not in next_line, next_line)
+    _, modules, _ = text("list")
+    ctx.check("RESULT-list-next-is-never-a-placeholder",
+              "MODULE" not in modules and "Next: rbtv install show " in modules,
+              modules)
+    with patch.dict(commands._HANDLERS, {
+            "status": lambda *a, **k: (_ for _ in ()).throw(
+                PermissionError("fixture write refused"))}):
+        code, _, failed = text("status")
+    ctx.check("RESULT-io-failure-is-titled-failed-not-refused",
+              code == 1 and failed.startswith("RBTV install — failed\n\nFAILED [io-error]")
+              and "may have applied" in " ".join(failed.split()), failed)
+
+    agent_src = ctx.tmp / "result-agent.md"
+    agent_src.write_text("---\nname: resultagent\ndescription: Result check.\n"
+                         "skills: [fixskill]\n---\n\n## Role\n\nCheck.\n",
+                         encoding="utf-8")
+    add = ["agent", "add", str(agent_src), "--harness", "claude",
+           "--model", "m1", "--effort", "high", "--dry-run"]
+    with patch("lib.agents.cast_catalog",
+               return_value={"claude": {"m1": ["low", "high"]}}):
+        _, agent_default, _ = text(*add)
+        _, agent_full, _ = text(*add, "--details")
+    skill = ".claude/skills/fixskill/SKILL.md"
+    ctx.check("RESULT-agent-preview-reports-unit-files-default-and-details",
+              "Unit files:" in agent_default and "would write 1" in agent_default
+              and "Agent files:" in agent_default and skill not in agent_default
+              and f"\n    {skill}\n" in agent_full
+              and "fixmod/goodcomp#fixskill" in agent_full
+              and "guidance copies" not in agent_full,
+              agent_default + "\n=====\n" + agent_full)
+    ctx.check("RESULT-agent-preview-writes-nothing",
+              not (target / ".rbtv" / "agents").exists())
+
+    # The owner's removal example (owner-example.txt): 40 items, dozens of
+    # unchanged files, 25 shortcuts kept for uncertain ownership.
+    items = [f"core/mod{n // 5}#item{n:02d}" for n in range(40)]
+    kept = [f"tool-{n:02d}" for n in range(25)]
+    unchanged = [f".agents/skills/s{n:02d}/SKILL.md" for n in range(60)]
+    big = {"_verb": "remove", "dry_run": False, "target": str(target),
+           "source": "--target", "selected_items": items,
+           "uninstalled": ["core/mod0"],
+           "written": [".claude/skills/a/SKILL.md"],
+           "deleted": [f".agents/behavior-rules/r{n:02d}.md" for n in range(30)],
+           "skipped": unchanged, "shared_written": [".codex/config.toml"],
+           "shared_deleted": [], "shared_skipped": [],
+           "shared_removed": [f".mcp.json::[\"mcpServers\", \"m{n}\"]" for n in range(5)],
+           "report": {"skill_folders": [{"component": f"_hub/skills/p{n}",
+                                         "files": 1, "roots": [".agents/skills"]}
+                                        for n in range(5)],
+                      "no_realization": [{"harness": "codex", "type": "reference",
+                                          "component": "office/meeting", "part": f"r{n}"}
+                                         for n in range(12)],
+                      "path": {"legacy_preserved": kept},
+                      "gitignore": {"claimed": True, "count": 71},
+                      "guidance_mirror": {"basis": None, "targets": []}},
+           "next": "rbtv install status"}
+
+    def render(columns: str, **extra) -> str:
+        out = io.StringIO()
+        with patch.dict("os.environ", {"COLUMNS": columns}), \
+                contextlib.redirect_stdout(out):
+            print_result({**big, **extra})
+        return out.getvalue()
+
+    compact = render("100")
+    flat = " ".join(compact.split())
+    full = render("100", _details=True)
+    ctx.check("RESULT-large-batch-default-is-compact",
+              len(compact.splitlines()) * 3 < len(full.splitlines())
+              and "Removed: 40 items" in flat
+              and items[-1] not in compact and unchanged[0] not in compact
+              and "--details" in compact, compact)
+    ctx.check("RESULT-large-batch-default-keeps-every-warning",
+              "Warnings" in compact and all(name in compact for name in kept),
+              compact)
+    ctx.check("RESULT-large-batch-counts-match-data",
+              "Files: wrote 1, deleted 30, 60 already up to date" in flat
+              and "Shared files: changed 1, deleted 0, 0 already up to date"
+              in flat, flat)
+    ctx.check("RESULT-unusable-items-are-always-named-warnings",
+              all(f"office/meeting#r{n}" in compact for n in range(12))
+              and compact.index("cannot use") < compact.index("\nNotes"),
+              compact)
+    ctx.check("RESULT-routine-lists-are-counts-by-default",
+              "File list" not in compact and "Items" not in compact.split("\n")
+              and "released 5 claim(s)" in flat
+              and "copied 5 skill folder(s) whole" in flat
+              and "--dry-run --details" in flat, compact)
+    ctx.check("RESULT-details-lists-every-item-and-file",
+              all(f"\n  {i}\n" in full for i in items)
+              and all(f"\n    {u}\n" in full for u in unchanged)
+              and "\n\n  Already up to date (60)\n" in full
+              and "Lists are counted" not in full, full[-800:])
+    narrow = render("40")
+    wide = [ln for ln in narrow.splitlines()
+            if len(ln) > 40  # a lone ID, path or `command` may not fit
+            and " " in re.sub(r"`[^`]*`", "X", ln.strip().lstrip("· "))
+            and not ln.startswith(("Target:", "Next:"))]
+    ctx.check("RESULT-narrow-prose-wraps-and-never-splits-ids",
+              not wide and all(name in narrow for name in kept), "\n".join(wide))

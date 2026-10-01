@@ -111,13 +111,19 @@ def build_parser() -> argparse.ArgumentParser:
             default=(sup if on_verb else False),
             help=("use colour in doctor output" if not on_verb
                   or dest.prog.endswith(" doctor") else sup))
+        changes = not on_verb or dest.prog.rsplit(" ", 1)[-1] in (
+            "add", "remove", "rm", "configure", "update",
+            "guidance", "scaffolding", "all")
         dest.add_argument(
             "--dry-run", action="store_true",
             default=(sup if on_verb else False),
-            help=("preview changes without writing or removing files" if not on_verb
-                  or dest.prog.rsplit(" ", 1)[-1] in
-                  ("add", "remove", "rm", "configure", "update",
-                   "guidance", "scaffolding", "all") else sup))
+            help=("preview changes without writing or removing files"
+                  if changes else sup))
+        dest.add_argument(
+            "--details", action="store_true",
+            default=(sup if on_verb else False),
+            help=("list every item and file instead of counting long lists"
+                  if changes else sup))
 
     class ListAction(argparse.Action):
         """One selector token per comma, appended across repeats.

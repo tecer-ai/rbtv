@@ -13,6 +13,7 @@ from . import present
 from .constants import (
     ANSI,
     BASIS_NONE,
+    GUIDANCE_FILE,
     GUIDANCE_NAMES,
     HARNESSES,
     REPO_ROOT,
@@ -57,7 +58,8 @@ def _parse_harnesses(raw: str) -> list[str]:
 
 
 def _emit(data: dict, as_json: bool, target: Path | None = None,
-          source: str | None = None, *, verb: str = "") -> None:
+          source: str | None = None, *, verb: str = "",
+          details: bool = False) -> None:
     if target is not None:
         data = {**data, "target": str(target.resolve()), "source": source}
     data.setdefault("next", "rbtv install status --target " + _quote(target)
@@ -65,20 +67,30 @@ def _emit(data: dict, as_json: bool, target: Path | None = None,
     if as_json:
         print(json.dumps(data, indent=2))
     else:
-        # `verb` picks the title (D9 §1); never part of the JSON contract.
-        print_result({**data, "_verb": verb} if verb else data)
+        # `verb` picks the title (D9 §1) and `details` lifts the list
+        # shortening; neither is part of the JSON contract.
+        print_result({**data, "_verb": verb, "_details": details})
 
 
-def _print_refused(code: str, message: str) -> None:
+def _prose(text: str, *, indent: str = "") -> None:
+    """Explanatory prose wrapped to the terminal under a two-space hang;
+    commands, IDs and paths inside it are never split."""
+    print("\n".join(present.wrap(text, indent=indent, hang=indent + "  ")))
+
+
+def _print_refused(code: str, message: str, *, outcome: str = "refused") -> None:
     """The ONE place a plain-text refusal begins: the shared title, then a
     blank line, then the `REFUSED [code] message` line every refusal path
     already prints. Every non-JSON stderr refusal — a parser validation
     error, a retired form, a target/OSError, or a command `Refuse` — calls
     this first so none of them can print `REFUSED …` bare. JSON's single
-    undecorated value never goes through this — only the human-text path."""
-    print(present.title("refused"), file=sys.stderr)
+    undecorated value never goes through this — only the human-text path.
+    `outcome` is the title word: a failure part-way through a run is
+    "failed", never "refused", because writes before it may have applied."""
+    print(present.title(outcome), file=sys.stderr)
     print(file=sys.stderr)
-    print(f"REFUSED [{code}] {message}", file=sys.stderr)
+    print("\n".join(present.wrap(f"{outcome.upper()} [{code}] {message}",
+                                  hang="  ")), file=sys.stderr)
 
 
 def _error_data(exc: Refuse, target: Path | None = None,
@@ -154,11 +166,10 @@ def cmd_list(args, target: Path, catalog: dict, shadowed: list,
         command.extend((f"--limit {limit}", f"--offset {offset + data['returned']}"))
     elif not data["total"]:
         command = ["rbtv install list --target " + _quote(target)]
-    elif data["scope"] == "items" and data["returned"] == 1:
-        command = ["rbtv install show " + _quote(data["items"][0]["id"])
-                   + " --target " + _quote(target)]
     else:
-        command = ["rbtv install show " + _quote(data["query"] or "MODULE")
+        # Always a returned exact ID: a search query or a placeholder is
+        # not something `show` accepts.
+        command = ["rbtv install show " + _quote(data["items"][0]["id"])
                    + " --target " + _quote(target)]
     data["next"] = " ".join(command)
     if args.json:
@@ -286,8 +297,8 @@ def cmd_status(args, target: Path, catalog: dict, shadowed: list,
                 for h in settings["harnesses"])
             print("Saved receiving tools: " + harnesses)
             print("Maintained guidance: " + (settings["artifact"] or "none"))
-            print("Guidance folders excluded from copying: "
-                  + (", ".join(settings["guidance_excludes"]) or "none"))
+            _prose("Guidance folders excluded from copying: "
+                   + (", ".join(settings["guidance_excludes"]) or "none"))
             print()
             print("Recorded installation in this target")
             print(f"  Components with selected items: {len(comps)}")
@@ -299,12 +310,13 @@ def cmd_status(args, target: Path, catalog: dict, shadowed: list,
             print("First use: choose receiving tools and a maintained guidance file.")
             print("  " + "; ".join(f"{h} = {present.HARNESS_MEANING[h]}"
                                     for h in HARNESSES))
-            print("  CLAUDE.md or AGENTS.md must exist in this target; "
-                  "none disables copying.")
+            _prose("CLAUDE.md or AGENTS.md must exist in this target; "
+                   "none disables copying.", indent="  ")
         print()
         print("Local source catalog on this machine")
-        print(f"  {len(modules)} modules, {data['source_catalog']['items']} items; "
-              "source availability does not mean installed here.")
+        _prose(f"{len(modules)} modules, {data['source_catalog']['items']} "
+               "items; source availability does not mean installed here.",
+               indent="  ")
         print()
         print("File and shortcut health: not checked by status.")
         print("Next: " + data["next"])
@@ -425,12 +437,12 @@ def _apply_harness(args, target: Path, catalog: dict, op: str,
         _emit({"ok": True, "changed": False, "dry_run": bool(args.dry_run),
                "message": f"this workspace already targets {', '.join(new)}"},
               bool(args.json), target, getattr(args, "_why", "unknown"),
-              verb="configure")
+              verb="configure", details=getattr(args, "details", False))
         return 0
     data = _replan_all(target, catalog, new,
                        bool(getattr(args, "dry_run", False)))
     _emit(data, bool(getattr(args, "json", False)),
-          target, getattr(args, "_why", "unknown"), verb="configure")
+          target, getattr(args, "_why", "unknown"), verb="configure", details=getattr(args, "details", False))
     return 0
 
 
@@ -447,13 +459,13 @@ def _apply_artifact(args, target: Path, catalog: dict, value: str) -> int:
         _emit({"ok": True, "changed": False, "dry_run": bool(args.dry_run),
                "message": f"guidance is already {value}"},
               bool(args.json), target, getattr(args, "_why", "unknown"),
-              verb="configure")
+              verb="configure", details=getattr(args, "details", False))
         return 0
     data = _replan_all(target, catalog, harnesses,
                        bool(getattr(args, "dry_run", False)),
                        guidance_basis=value)
     _emit(data, bool(getattr(args, "json", False)),
-          target, getattr(args, "_why", "unknown"), verb="configure")
+          target, getattr(args, "_why", "unknown"), verb="configure", details=getattr(args, "details", False))
     return 0
 
 
@@ -480,13 +492,13 @@ def _apply_exclude(args, target: Path, catalog: dict, op: str,
         _emit({"ok": True, "changed": False, "dry_run": bool(args.dry_run),
                "message": (", ".join(new) or "nothing") + " excluded"},
               bool(args.json), target, getattr(args, "_why", "unknown"),
-              verb="configure")
+              verb="configure", details=getattr(args, "details", False))
         return 0
     data = _replan_all(target, catalog, harnesses,
                        bool(getattr(args, "dry_run", False)),
                        guidance_excludes=new)
     _emit(data, bool(getattr(args, "json", False)),
-          target, getattr(args, "_why", "unknown"), verb="configure")
+          target, getattr(args, "_why", "unknown"), verb="configure", details=getattr(args, "details", False))
     return 0
 
 
@@ -579,7 +591,7 @@ def cmd_configure(args, target: Path, catalog: dict, shadowed: list,
             data = _replan_all(target, catalog, wanted_h, bool(args.dry_run),
                                guidance_basis=wanted_g)
         _emit(data, bool(args.json), target, getattr(args, "_why", "unknown"),
-              verb="configure")
+              verb="configure", details=getattr(args, "details", False))
         return 0
     raise Refuse("noun-missing", "configure needs --harness, --guidance, or both")
 
@@ -615,7 +627,7 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
         parts=parts)
     data["selected_items"] = parts
     _emit(data, bool(getattr(args, "json", False)),
-          target, getattr(args, "_why", "unknown"), verb="add")
+          target, getattr(args, "_why", "unknown"), verb="add", details=getattr(args, "details", False))
     return 0
 
 
@@ -643,7 +655,7 @@ def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
         _emit({"ok": True, "uninstalled": [], "dry_run": dry,
                "message": "no installed items matched this request"},
               bool(args.json), target, getattr(args, "_why", "unknown"),
-              verb="remove")
+              verb="remove", details=getattr(args, "details", False))
         return 0
     broad = bool(args.all or args.module or args.method or _has_negative(args))
     if broad and not (dry or getattr(args, "yes", False)):
@@ -676,13 +688,13 @@ def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
                "report": report,
                "message": "released shared shortcut claims for this target"},
               bool(args.json), target, getattr(args, "_why", "unknown"),
-              verb="remove")
+              verb="remove", details=getattr(args, "details", False))
         return 0
     picked, parts = _split_part_keys(keys)
     data = do_uninstall(target, catalog, picked, dry, parts=parts)
     data["selected_items"] = parts
     _emit(data, bool(getattr(args, "json", False)),
-          target, getattr(args, "_why", "unknown"), verb="remove")
+          target, getattr(args, "_why", "unknown"), verb="remove", details=getattr(args, "details", False))
     return 0
 
 
@@ -699,7 +711,7 @@ def cmd_update(args, target: Path, catalog: dict, shadowed: list,
     data["recorded_items"] = len(iter_booked_units(catalog, records))
     data["source_missing"] = sorted(cid for cid in records if cid not in catalog)
     _emit(data, bool(getattr(args, "json", False)),
-          target, getattr(args, "_why", "unknown"), verb="update")
+          target, getattr(args, "_why", "unknown"), verb="update", details=getattr(args, "details", False))
     return 0
 
 
@@ -724,7 +736,7 @@ def _print_doctor_section(checks: list[dict], *, color: bool) -> None:
     if notable:
         print()
         for c in notable:
-            print(f"{_RESULT_LABEL[c['level']]} — {c['name']}: {c['detail']}")
+            _prose(f"{_RESULT_LABEL[c['level']]} — {c['name']}: {c['detail']}")
 
 
 def _print_doctor(data: dict, *, color: bool) -> None:
@@ -758,18 +770,19 @@ def _print_doctor(data: dict, *, color: bool) -> None:
         discovery = "Selected command discovery FAILED for at least one shortcut."
     else:
         discovery = "Selected command discovery verified."
-    print(f"{len(main)} checks: {counts}. {discovery} "
-          "Runtime dependencies and arbitrary command execution were not tested.")
+    _prose(f"{len(main)} checks: {counts}. {discovery} Runtime dependencies "
+           "and arbitrary command execution were not tested.")
     if audit:
         print()
         print("Optional cleanup audit")
         _print_doctor_section(audit, color=color)
         n_audit_warn = sum(1 for c in audit if c["level"] != "ok")
         print()
-        print(f"Optional audit: {n_audit_warn} warning(s). No cleanup was performed.")
+        _prose(f"Optional audit: {n_audit_warn} warning(s). No cleanup was "
+               "performed.")
     print()
     if n_fail:
-        print("Repair: follow the FAIL recovery text above, then rerun doctor.")
+        _prose("Repair: follow the FAIL recovery text above, then rerun doctor.")
     else:
         print("Next: rbtv install list --installed --target " + _quote(data["target"]))
 
@@ -808,25 +821,45 @@ def cmd_selftest(args, target: Path, catalog: dict, shadowed: list,
     return selftest()
 
 
-def _print_agent(data: dict, verb: str, target: Path, why: str | None) -> None:
+def _print_agent(data: dict, verb: str, target: Path, why: str | None,
+                 details: bool = False) -> None:
     dry = data["dry_run"]
     lead = {"add": "Would install" if dry else "Installed",
             "update": "Would refresh" if dry else "Refreshed",
             "remove": "Would remove" if dry else "Removed"}[verb]
     launch = data["launch"]
-    print(present.title(f"agent {verb}"))
-    print()
-    print(f"Target: {target} ({present.target_source_label(why)})")
-    print(f"{lead} agent {data['agent']} at {data['home']}")
-    print(f"Launch: {launch['harness']} · {launch['model']} · {launch['effort']}"
-          + ("  (kept in launch.json)" if verb != "remove" else ""))
-    if verb != "remove":
-        print(f"Units selected by its agent file ({len(data['units'])}): "
-              + (", ".join(data["units"]) or "none"))
-    if data.get("kept"):
-        print("Kept (the agent's own): " + ", ".join(data["kept"]))
-    print()
-    print("Next: " + data["next"])
+    rows = [(f"{lead} agent", data["agent"]),
+            ("Agent folder", present.Whole(data["home"])),
+            ("Launch", f"{launch['harness']} · {launch['model']} · "
+                       f"{launch['effort']}"
+                       + (" (kept in launch.json)" if verb != "remove" else ""))]
+    if data["written"]:
+        rows.append(("Agent files", ("would write " if dry else "wrote ")
+                     + ", ".join(data["written"])))
+    if verb == "remove":
+        rows.append(("Agent files", ("would take back" if dry else "took back")
+                     + " launch.json, .gitignore and the agent section of "
+                     + GUIDANCE_FILE[launch["harness"]]))
+    elif data["units_removed"]:
+        rows.append(("Units taken back", ", ".join(data["units_removed"])))
+    if verb == "remove" or data.get("kept"):
+        rows.append(("Would keep" if dry else "Kept",
+                     (", ".join(data.get("kept") or []) or "nothing")
+                     + " (the agent's own)"))
+    # Unit files go through the shared result renderer, so an agent shows
+    # the same counts, warnings and --details lists as add/remove.
+    units = data["unit_files"]
+    # An agent folder never mirrors guidance (it installs with guidance
+    # "none"), so the workspace tip to configure guidance does not apply.
+    report = {k: v for k, v in (units.get("report") or {}).items()
+              if k != "guidance_mirror"}
+    print_result({**units, "report": report, "_title": f"agent {verb}",
+                  "_files_label": "Unit files",
+                  "_details": details, "_fields": rows, "dry_run": dry,
+                  "target": str(target), "source": why, "next": data["next"],
+                  "selected_items": (data["units_removed"] if verb == "remove"
+                                     else data["units"]),
+                  "uninstalled": verb == "remove"})
 
 
 @mutation_locked
@@ -849,7 +882,7 @@ def cmd_agent(args, target: Path, catalog: dict, shadowed: list,
     if getattr(args, "json", False):
         _emit(data, True, target, why)
     else:
-        _print_agent(data, verb, target, why)
+        _print_agent(data, verb, target, why, getattr(args, "details", False))
     return 0
 
 
@@ -1016,13 +1049,15 @@ def main(argv: list[str] | None = None, *, ask=None) -> int:
                    "may have applied; inspect the target before retrying")
         next_cmd = "rbtv install doctor --target " + _quote(where)
         if as_json:
+            # `changed` is null, not false: the failure can land after some
+            # writes, so whether the workspace changed is unknown.
             print(json.dumps({"ok": False, "error": {
                 "code": "io-error", "message": message,
                 "path": getattr(exc, "filename", None) or where,
-                }, "target": where, "changed": False,
+                }, "target": where, "changed": None,
                 "next": next_cmd}, indent=2))
         else:
-            _print_refused("io-error", message)
+            _print_refused("io-error", message, outcome="failed")
             print(f"next: {next_cmd}", file=sys.stderr)
         return 1
     except SystemExit as exc:

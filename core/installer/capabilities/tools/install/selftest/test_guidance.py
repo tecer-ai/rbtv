@@ -55,10 +55,18 @@ def the_guidance_mirror(ctx) -> None:
           res4["written"] == ["AGENTS.md"]
           and "A new line." in (mt / "AGENTS.md").read_text(encoding="utf-8"),
           str(res4["written"]))
+    gone_preview = do_uninstall(mt, catalog, ["fixmod/goodcomp"], True)
+    gone = do_uninstall(mt, catalog, ["fixmod/goodcomp"], False)
     check("full uninstall takes the mirror, leaves the basis",
-          do_uninstall(mt, catalog, ["fixmod/goodcomp"], dry_run=False)
-          and not (mt / "AGENTS.md").exists()
+          gone["ok"] and not (mt / "AGENTS.md").exists()
           and (mt / "CLAUDE.md").is_file())
+    check("the deleted mirror is never also reported as an unchanged shared "
+          "file, in preview or real receipt",
+          "AGENTS.md" in gone_preview["planned_changes"]["delete_files"]
+          and gone_preview["planned_changes"]["unchanged_shared_files"] == []
+          and "AGENTS.md" in gone["deleted"]
+          and gone["shared_skipped"] == [],
+          f"preview={gone_preview['planned_changes']} real={gone}")
     ctx.keep(locals())
 
 

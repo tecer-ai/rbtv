@@ -44,6 +44,12 @@ rbtv install remove brainstorm --target /path/to/workspace
 
 On a fresh workspace, run `configure --harness NAMES --guidance NAME` or supply both settings on the first `add`. A short name selects one exposed item such as a skill or rule when unique; a full `module/component` name selects a component. `list NAME` opens that exact scope, while `search WORDS` looks across names and descriptions. For another agent, set `--target` to its home directory on each command. Use `--dry-run` to preview a change and `--json` for a machine-readable result. Bare `rbtv install` prints help; `rbtv install interactive` starts the guided flow.
 
+Change results show a compact summary and important warnings by default. Add `--details` to include the complete grouped item and file lists; combine it with `--dry-run` to inspect a plan before applying it. `--json` retains the full structured result regardless of text verbosity. A file-operation failure reports `changed: null` when earlier writes may have applied; inspect the target before retrying.
+
+Agent results also include `unit_files` (file outcomes from installing or removing the agent's skills and rules) and `units_removed` (their full identifiers). These supplement the existing agent fields. An agent-removal preview's `kept` list predicts what remains after removal.
+
+The `cli-creator` skill in `meta/code` covers both help and actual command results. Its output review checks tables, spacing, wrapping, bulk-result summaries, structured output, and real outcomes against observed state; help coverage alone is insufficient.
+
 > **The installer is `core/installer/capabilities/tools/install/install.py`, reachable as `rbtv install`.**
 > It carried the name `install2.py` from its first commit until 2026-08-23, while a
 > PREDECESSOR installer held the plain name at the repo root. On that date it was split

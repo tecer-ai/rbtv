@@ -115,6 +115,7 @@ def interactive(target: Path, catalog: dict[str, dict]) -> int:
     if not tui.confirm("\nProceed?", default=False):
         print("Cancelled.")
         return 0
+    print()
     print_result(do_install(target, catalog, picked, harnesses, dry_run=False,
                             guidance_basis=basis))
     return 0

@@ -277,6 +277,12 @@ def _render_shared(target: Path, claims: list[dict], stale_claims: list[str],
 
 def _shared_delta(rendered: dict[str, str], bases: dict[str, str | None]
                   ) -> tuple[list[str], list[str], list[str]]:
+    """Sort the rendered shared files into the receipt's lists: to write, to
+    delete, or an EXISTING file already up to date. A rendering that came up
+    empty over an absent base is no remaining shared action — post-file-plan,
+    the file plan itself already removes that file and no section survives —
+    so it belongs to no list: reporting it "unchanged" would put the same
+    name in one receipt under both deleted and unchanged."""
     write, delete, unchanged = [], [], []
     for rel, text in rendered.items():
         base = bases[rel]
@@ -284,8 +290,6 @@ def _shared_delta(rendered: dict[str, str], bases: dict[str, str | None]
             (unchanged if base is not None and base == text else write).append(rel)
         elif base is not None:
             delete.append(rel)
-        else:
-            unchanged.append(rel)
     return sorted(write), sorted(delete), sorted(unchanged)
 
 

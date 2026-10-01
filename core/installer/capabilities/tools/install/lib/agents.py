@@ -158,35 +158,68 @@ def _drop_section(home: Path, harness: str) -> None:
         path.unlink()
 
 
+_FILE_KEYS = ("written", "skipped", "deleted", "shared_written",
+              "shared_deleted", "shared_skipped", "shared_removed",
+              "adopted", "adopted_sections", "released")
+
+
+def _merge(results: list[dict]) -> dict:
+    """The file outcome of several install/uninstall runs on one agent
+    folder, in the same shape one run reports: each list is the runs' lists
+    joined, and `planned_changes` and `report` are joined the same way."""
+    def join(parts: list[dict]) -> dict:
+        out: dict = {}
+        for part in parts:
+            for key, value in (part or {}).items():
+                if isinstance(value, list):
+                    out[key] = out.get(key, []) + value
+                elif isinstance(value, dict):
+                    out[key] = join([out.get(key) or {}, value])
+                else:
+                    out[key] = value
+        return out
+    if not results:
+        return {}
+    merged = join([{k: r.get(k) or [] for k in _FILE_KEYS} for r in results])
+    for key in ("planned_changes", "report"):
+        if any(key in r for r in results):
+            merged[key] = join([r.get(key) or {} for r in results])
+    return merged
+
+
 def _install_units(home: Path, catalog: dict, keys: list[str], harness: str,
-                   dry_run: bool, *, everything: bool = False) -> dict | None:
+                   dry_run: bool, *, everything: bool = False) -> dict:
     """Install the units the agent file selects into the agent folder. Units an
     earlier call selected that it no longer does go (`agent_units` in the folder's
     install record says which were the agent file's); units installed on the side,
-    such as Ignite's standard ones, stay. `everything` takes back every booked unit."""
+    such as Ignite's standard ones, stay. `everything` takes back every booked unit.
+    Returns the units taken back and the joined file outcome of every run."""
     state = read_state(home)
     booked = {f"{cid}#{u}": cid
               for cid, rec in (state.get("components") or {}).items()
               for u in (rec.get("units") or {})}
     gone = set(booked) if everything else set(state.get("agent_units") or []) & set(booked) - set(keys)
-    for cid in sorted({booked[k] for k in gone}):
-        do_uninstall(home, catalog, [cid], dry_run,
-                     parts=[k for k in sorted(gone) if booked[k] == cid])
-    result = None
+    runs = [do_uninstall(home, catalog, [cid], dry_run,
+                         parts=[k for k in sorted(gone) if booked[k] == cid])
+            for cid in sorted({booked[k] for k in gone})]
     if keys:
-        result = do_install(home, catalog, sorted({k.split("#")[0] for k in keys}),
-                            [harness], dry_run, guidance_basis="none", parts=keys)
+        runs.append(do_install(home, catalog, sorted({k.split("#")[0] for k in keys}),
+                               [harness], dry_run, guidance_basis="none", parts=keys))
     if not dry_run and (home / STATE_REL).is_file():
         state = read_state(home)
         state["agent_units"] = [] if everything else keys
         write_state(home, state)
-    return result
+    return {"units_removed": sorted(gone), "unit_files": _merge(runs)}
 
 
 def _result(name: str, home: Path, launch: dict, keys: list[str], dry_run: bool,
-            written: list[str]) -> dict:
+            written: list[str], units: dict) -> dict:
+    """`written` is the agent's own top-level files (planned, on a dry run);
+    `unit_files` is what installing or taking back its units did to files,
+    in the shape one install run reports; `units_removed` are units taken
+    back."""
     return {"ok": True, "agent": name, "home": str(home), "launch": launch,
-            "units": keys, "written": written, "dry_run": dry_run}
+            "units": keys, "written": written, "dry_run": dry_run, **units}
 
 
 def add_agent(root: Path, file: Path, harness: str, model: str, effort: str,
@@ -216,8 +249,8 @@ def add_agent(root: Path, file: Path, harness: str, model: str, effort: str,
             write_file(home / "settings.json", "{}\n", newline="\n")
         write_file(home / ".gitignore", IGNORE_TEXT, newline="\n")
         _write_section(home, harness, front.get("folders") or [])
-    _install_units(home, catalog, keys, harness, dry_run)
-    return _result(name, home, launch, keys, dry_run, written)
+    units = _install_units(home, catalog, keys, harness, dry_run)
+    return _result(name, home, launch, keys, dry_run, written, units)
 
 
 def _existing(root: Path, name: str) -> tuple[Path, dict, dict]:
@@ -240,23 +273,55 @@ def update_agent(root: Path, name: str, catalog: dict, dry_run: bool) -> dict:
     values, settings and live data."""
     home, launch, front = _existing(root, name)
     keys = resolve_units(catalog, front)
+    # What this run (re)creates at the top of the folder, derived BEFORE any
+    # write so the dry run's plan and the real run's receipt name the same
+    # files: the guidance section always, `.gitignore` when it is missing.
+    written = ([] if (home / ".gitignore").exists() else [".gitignore"]) \
+        + [GUIDANCE_FILE[launch["harness"]]]
     if not dry_run:
         _write_section(home, launch["harness"], front.get("folders") or [])
-        if not (home / ".gitignore").exists():
+        if ".gitignore" in written:
             write_file(home / ".gitignore", IGNORE_TEXT, newline="\n")
-    _install_units(home, catalog, keys, launch["harness"], dry_run)
-    return _result(name, home, launch, keys, dry_run, [GUIDANCE_FILE[launch["harness"]]])
+    units = _install_units(home, catalog, keys, launch["harness"], dry_run)
+    return _result(name, home, launch, keys, dry_run, written, units)
 
 
 def remove_agent(root: Path, name: str, catalog: dict, dry_run: bool) -> dict:
     """Take back what the installer put in the folder. The agent file, the
     settings and everything the agent made stay: they are the agent's, not ours."""
     home, launch, _front = _existing(root, name)
-    _install_units(home, catalog, [], launch["harness"], dry_run, everything=True)
+    units = _install_units(home, catalog, [], launch["harness"], dry_run,
+                           everything=True)
     if not dry_run:
         _drop_section(home, launch["harness"])
         for generated in ("launch.json", ".gitignore"):
             (home / generated).unlink(missing_ok=True)
-    result = _result(name, home, launch, [], dry_run, [])
-    result["kept"] = sorted(p.name for p in home.iterdir()) if home.is_dir() else []
+    result = _result(name, home, launch, [], dry_run, [], units)
+    result["kept"] = (_would_keep(home, launch["harness"], units["unit_files"])
+                      if dry_run else
+                      sorted(p.name for p in home.iterdir()) if home.is_dir() else [])
     return result
+
+
+def _would_keep(home: Path, harness: str, unit_files: dict) -> list[str]:
+    """What a real remove would leave in the agent folder, read off the
+    plan: launch.json and .gitignore go, the guidance file goes when the
+    agent section was all it held, and a folder goes when every file in it
+    is planned for deletion or is the folder's install record."""
+    planned = unit_files.get("planned_changes") or {}
+    going = {home / rel for rel in (planned.get("delete_files") or [])
+             + (planned.get("delete_shared_files") or [])}
+    going.add(home / STATE_REL)
+    guidance = home / GUIDANCE_FILE[harness]
+    if guidance.is_file() and not _block_del(
+            guidance.read_text(encoding="utf-8"), "<!--",
+            preserve_outside=True, label="agent").strip():
+        going.add(guidance)
+    kept = []
+    for entry in sorted(home.iterdir()) if home.is_dir() else []:
+        if entry.name in ("launch.json", ".gitignore"):
+            continue
+        files = [p for p in entry.rglob("*") if p.is_file()] if entry.is_dir() else [entry]
+        if not files or any(p not in going for p in files):
+            kept.append(entry.name)
+    return kept

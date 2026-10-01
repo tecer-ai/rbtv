@@ -16,6 +16,18 @@ Record every root command, group, leaf, alias, positional, and option. For each 
 
 Use a coverage matrix with a row per documented command path and columns for help positions, argument/value classes, ordinary/empty/failure output, structured mode, mutation, and applicable contexts. A command group has its own row. Pairwise or risk-based tests cover interacting options; a full cross-product is rarely useful. A coverage cell marked “not applicable” needs the reason.
 
+## Cover every result, not only help
+
+A command is used for what it prints when it runs, not only for its help. Alongside the coverage matrix, keep a separate finite result matrix: one row per verb — a leaf command that performs one operation — or per group of verbs sharing a result shape, and one column per outcome class. Read verbs cover success and a valid empty result. Mutation verbs cover success, no-op, and dry-run or preview where the product offers it. Any verb can meet partial completion, refusal, and failure. Each applicable cell specifies:
+
+- The selected target and the exact identifiers the result names, so a reader can tell what was acted on.
+- Summary, details, and recovery: what happened or would happen, where to see more, and the next step; a refusal or failure adds a concrete recovery route.
+- The stream that carries it (standard output or standard error) and the exit status.
+- Rendered forms: normal and narrow width, no-color, and redirected output.
+- The structured value for that outcome, covering structured success and structured failure where a structured mode exists.
+
+A cell marked “not applicable” needs the reason. The matrix demands coverage of what the product already does; it never mandates a new feature, an outcome the product cannot produce, or a universal structured envelope. An interactive command’s settled result — what it shows once its interaction completes — is in scope; the route through prompts may stay interactive.
+
 ## Help is a working interface
 
 Design help to work at every command depth: root, groups, and leaves. Support `-h` and `--help` before and after command tokens, global options, and positionals wherever those tokens are options. A request for help succeeds without required arguments, credentials, saved configuration, network, or side effects, and shows the deepest command context the parser can identify. Define how ambiguous help mixed with an invalid token is resolved, then implement and test that policy. Respect the `--` option terminator and literal values such as `--name=-h`; raw token scanning that mistakes values for help breaks commands.
@@ -39,6 +51,8 @@ Distinguish a source catalog from a selected target and a saved selection from c
 ## Default text and structured output
 
 Default text is readable to people and agents without a special pretty flag. Terminal output is plain text: Markdown table pipes or headings will not render as a page. Use a short command title and whitespace between sections or consecutive command results, with compact aligned tables when they aid scanning. Keep full copyable identifiers, item type and state; shorten descriptions first. At narrow widths, switch to labeled per-item blocks if essential columns cannot fit. Never split or truncate an identifier. Avoid decorative lines that consume space without carrying information.
+
+A bulk result — one command acting on many items — leads with its outcome: success, partial success, or failure, with the counts behind it: changed, unchanged, failed. Warnings and partial-success conditions stay in that leading summary, never demoted behind a detail view; complete per-item detail remains reachable in the same result or through a stated follow-up where the product offers one. Choose the split deliberately for the product's jobs: a compact summary with details accessible is one valid shape, not a flag every command must offer.
 
 Color is optional emphasis, never the sole state signal. Honor `NO_COLOR` and redirected output. Use deterministic ordering, a bounded default for collections, and a real continuation mechanism such as cursor or offset. State the limit and next page in usable terms. An empty collection succeeds when it is a valid result; label it clearly and distinguish it from a failed query.
 

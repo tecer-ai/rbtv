@@ -239,7 +239,9 @@ def ls_li_doctor(ctx) -> None:
         _print_doctor(fail_data, color=False)
     doctor_plain = buf.getvalue()
     check("SURF-doctor-detail-not-truncated-at-width100 — full recovery text survives",
-          fail_data["checks"][1]["detail"] in doctor_plain,
+          fail_data["checks"][1]["detail"] in " ".join(doctor_plain.split())
+          and "\n  rbtv install update scaffolding --dry-run --target 'X';"
+          in doctor_plain,
           doctor_plain)
     check("SURF-doctor-truthful-discovery-claim — FAIL never reads 'verified'",
           "Selected command discovery verified" not in doctor_plain
@@ -291,15 +293,23 @@ def ls_li_doctor(ctx) -> None:
     with contextlib.redirect_stdout(buf):
         print_result(fresh_preview)
     fresh_text = buf.getvalue()
+    fresh_flat = " ".join(fresh_text.split())  # wrapping is presentation
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        print_result({**fresh_preview, "_details": True})
+    fresh_details = buf.getvalue()
     check("SURF-fresh-add-preview-shows-real-planned-changes-in-text",
-          "would write 1 file(s)" in fresh_text
-          and "would write 1 shared file(s)" in fresh_text
-          and "  + .agents/skills/fixskill/SKILL.md" in fresh_text
-          and "  ~ AGENTS.md" in fresh_text,
-          fresh_text)
+          "Files: would write 1, would delete 0, 0 already up to date" in fresh_flat
+          and "Shared files: would change 1, would delete 0, 0 already up to date"
+          in fresh_flat
+          and "File list" not in fresh_text and "--details" in fresh_text
+          and "  Would write (1)\n    .agents/skills/fixskill/SKILL.md\n"
+          in fresh_details
+          and "\n\n  Shared, would change (1)\n    AGENTS.md\n" in fresh_details,
+          fresh_text + "\n=====\n" + fresh_details)
     check("SURF-preview-reports-automatic-owned-section-no-manual-paste",
           "will regenerate the automatically managed instruction section "
-          "in: AGENTS.md" in fresh_text
+          "in: AGENTS.md" in fresh_flat
           and "D8" not in fresh_text and "Add this block to" not in fresh_text
           and "paste" not in fresh_text.lower(),
           fresh_text)
@@ -315,11 +325,11 @@ def ls_li_doctor(ctx) -> None:
         print_result(reinstall_preview)
     reinstall_text = buf.getvalue()
     check("SURF-identical-reinstall-preview-shows-zero-changes-in-text",
-          "would write 0 file(s), would delete 0 file(s)" in reinstall_text
-          and "would write 0 shared file(s), would delete 0 shared file(s)"
-          in reinstall_text
-          and "2 file(s) already match and stay untouched" in reinstall_text
-          and "  + " not in reinstall_text and "  ~ " not in reinstall_text,
+          "Files: would write 0, would delete 0, 1 already up to date"
+          in " ".join(reinstall_text.split())
+          and "Shared files: would change 0, would delete 0, 1 already up to "
+          "date" in " ".join(reinstall_text.split())
+          and "File list" not in reinstall_text,
           reinstall_text)
 
     # Preview adoption wording MUST be prospective — a dry run adopts
@@ -495,7 +505,7 @@ def ls_li_doctor(ctx) -> None:
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         print_result(all_scope_data)
-    all_scope_text = buf.getvalue()
+    all_scope_text = " ".join(buf.getvalue().split())
     check("SURF-all-scope-guidance-mirror-never-claims-whole-file-copy-or-preserved",
           "maintained text" in all_scope_text
           and "generated sections are not copied from the basis" in all_scope_text
@@ -520,7 +530,7 @@ def ls_li_doctor(ctx) -> None:
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         print_result(guidance_only_data)
-    guidance_only_text = buf.getvalue()
+    guidance_only_text = " ".join(buf.getvalue().split())
     check("SURF-guidance-only-scope-states-destination-section-is-preserved",
           "generated sections are not copied from the basis" in guidance_only_text
           and "each destination's own existing generated instruction "

@@ -74,6 +74,7 @@ ORDER = [
     test_doctor_ownership.doctor_ownership,
     test_surface.ls_li_doctor,
     test_ux_contract.public_contract,
+    test_ux_contract.result_screens,
     test_install.uninstall,
 ]
 
