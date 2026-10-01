@@ -1,516 +1,89 @@
 # Installer design decisions
 
-The one home for the decisions `install.py` was built to. Each `Dn` is cited by
-name from the code that implements it; the module that owns a decision names it
-in its own docstring. Delegated to the builder and recorded here — this file is
-documentation, nothing reads it at runtime.
-
-## D26 — CURRENT PUBLIC COMMANDS AND LOCAL UPDATE (2026-09-29)
-
-The approved CLI redesign supersedes the public spellings and display semantics
-in D16–D16c while keeping their persisted workspace-setting rationale. `configure`
-initializes a target or replaces supplied `harness` and `guidance` settings; a
-first `add` may still supply both settings directly. Public item classification is
-`type` (`--type`, `--exclude-type`, and JSON `type`); source exposure rows and
-saved installation records still use their internal `method` field. Structured
-`show` output keeps a `selection` object and stable `id`, uses `scope` for
-module/component/item, and uses `type` for an item. `list` follows exact named
-scope through module, component, and item; `search` matches names and
-descriptions broadly. Short names act only when unique.
-
-`update guidance` copies maintained human text into the configured counterpart
-instruction files while preserving each destination's generated sections.
-`update scaffolding` regenerates selected installer-owned files and the generated
-sections in EVERY configured instruction file, including guidance counterparts.
-It preserves human text outside those sections and does not copy maintained
-human text. `update all` validates both phases before writing and runs both.
-This content-based split is the owner's 2026-09-29 override of the preview's
-whole-counterpart-unchanged wording. Neither scope expands selected items or
-downloads a newer source version. `dupe-artifacts` is replaced by `update
-guidance`; guidance-folder exclusions are edited with `add|remove guidance
-exclude FOLDER`. The prior manual-placement description in D8 is historical.
-
-Saved `install.json` records retain their supported schema. Named removal needs
-no blanket confirmation; a broad nonempty removal needs explicit confirmation.
-Dry runs change nothing. The installer exposes saved selection separately from
-the `doctor` check of files and selected shared command shortcuts.
-
-## D25 — SHARED PATH SHORTCUT OWNERSHIP
-
-PATH SHORTCUT OWNERSHIP — `~/.rbtv/path-owners.json` is a machine-local record
-beside `~/.rbtv/bin`. For every shortcut created under this rule it records the
-resolved tool target and every workspace that currently needs it. The shortcut
-remains until its last recorded workspace owner removes it. The record and the
-shortcut update share a bounded cross-platform lock; a busy lock refuses before
-either workspace or user-runtime files change. A source conflict between two
-workspaces refuses before target writes. Old shortcuts with no record are
-legacy and uncertain: they are preserved and reported, never adopted or
-deleted. The installer persists the user's PATH only when the resulting
-workspace set has real PATH tools. That persistence is auxiliary: a failure is
-reported as a warning after the workspace install succeeds.
-
-Workspace mutation locks are persistent hash-named files under the operating
-system temporary directory's `rbtv-installer-locks/` folder. They key only the
-resolved target path, so competing installer processes serialize before reading
-the book without creating `.rbtv/` content in a target that is missing, dry-run,
-or refused. The shared shortcut lock remains beside the machine-local ownership
-record because it protects that record and its links.
-
-Lifted out of `install2.py`'s module docstring on 2026-08-23, when that file was
-split into `lib/` and renamed `install.py`; the text below is unchanged except
-where a decision was itself superseded, which is stated in the decision.
-
-## D1 — PLACEMENT
-
-PLACEMENT — the component is `core/installer/`, and since 2026-08-23 the tool
-inside it is a PACKAGE, not one file (owner ruling; supersedes the original
-"ONE FILE, no package" of this decision — 7,418 lines in one file had stopped
-being readable, and the `coding` skill's one-responsibility-per-file rule is
-what the split answers).
-
-The layout:
-
-- `install.py` — the entry point. Puts its own directory on the import path
-  and calls `lib.commands.main()`. Nothing else. Named `install.py` since
-  2026-08-23; it was `install2.py` from its first commit until then, while a
-  predecessor of that name still existed at the repo root.
-- `lib/` — one module per responsibility, each named by the responsibility it
-  holds; the import graph is strictly forward (`constants` → … → `commands`),
-  so there is no import cycle to reason about. `lib/__init__.py` is what puts
-  `core/installer/` on the import path, so any module of the package can
-  `import discovery` however it was reached.
-- `selftest/` — the runnable check, one module per subject, driven by
-  `selftest/runner.py`. Reached only by `rbtv install selftest`.
-- `discovery.py` — deliberately NOT inside `lib/`. This directory is on
-  `sys.path` and the package imports it by bare name (`from discovery import`).
-  That is an internal layout. The Ignite 0.1 seat materializer used to import
-  it the same way; that contract is retired with 0.1 and is not a reason to
-  keep the materializer.
-- `design-decisions.md` — this file.
-- `exposure.csv` — the component's own manifest (D2).
-
-The owner ruling that put the component under `meta` (2026-08-22) stands:
-`meta/` hosts what operates on the rbtv SYSTEM itself rather than on a user
-goal's content, and installing rbtv into a workspace is exactly that; the
-module's capability-only extension (2026-08-14) is what admits a component
-holding no seats and no workflow. The folder is a component-first one —
-`exposure.csv` at depth 2 IS the component (D2) — so this installer discovers
-ITSELF the way it discovers everything else, on the same rule, with no special
-case.
-
-THE REPO ROOT IS COUNTED, AND THE COUNT MOVED. `REPO_ROOT` is defined once, in
-`lib/constants.py`, as `Path(__file__).resolve().parents[3]` — lib → installer
-→ meta → repo. It was `parents[2]` while the code lived one level higher. Every
-tree scan and every fixture reads `REPO_ROOT`; a reader who reaches for
-`Path(__file__).parent` gets a directory holding no modules and scans up empty,
-which is a wrong-but-silent result, not an error. `selftest/test_layout.py`
-fails the run if `REPO_ROOT` ever stops being the repo, so a future move that
-forgets the count is caught by the suite rather than by a user.
-
-## D2 — WHAT A COMPONENT IS
-
-WHAT A COMPONENT IS — DEPTH-2 + exposure.csv (owner ruling, 2026-08-22)
-— a directory at EXACTLY depth 2 of a scanned tree that contains
-`exposure.csv`. Identity is `<module>/<component>` (two segments), so
-depth 2 is forced by the id scheme. `capabilities/component.md` is not read, not
-checked, not a marker. A depth-1 manifest (the module-root files of the
-old standard) is invisible here; a depth-3 file is not a component.
-A malformed manifest (columns other than the seven) refuses by name —
-it is never skipped. A directory without `exposure.csv` is not a
-component; there is no no-manifest report. Hub units (`_hub/`) are a
-separate branch (D15) and are untouched by this rule. The two
-installers stayed separate: the PREDECESSOR installer — the repo-root
-`install.py` entry plus its `admin/install/` package, unrelated to the
-`install.py` of D1 — kept the old-standard tree.
-
-## D3 — TREES + PRECEDENCE
-
-TREES + PRECEDENCE — two roots, scanned together: `mirror` =
-`{target}/.rbtv/mirror`, `repo` = the directory holding this file, which
-is NOT overridable — the file and its tree ship together, so a flag
-pointing one at another's tree only ever named a broken pair (owner
-ruling, 2026-08-21). `--mirror-tree` stays. On the same id in both, the
-MIRROR WINS (workspace-local staging is the newer copy by construction) and
-the shadowing is reported, never silent.
-
-## D4 — HARNESSES
-
-HARNESSES — the three launchable ones (claude, codex, opencode). The set is
-WORKSPACE-WIDE, not per component (D16). The standalone kimi CLI was
-retired 2026-08-14 and
-its models moved under opencode; `cast` lists only these three. Kimi
-models remain reachable as opencode models. CON-2's three-harness bound
-and this tool now agree. A live book that still lists `kimi` is stripped
-on load (kept others, never an empty list) and persisted on the next write.
-
-## D5 — STATE
-
-STATE — `{target}/.rbtv/config/install.json`, recording per component: source
-tree, module, component, harnesses, every whole file written, and every
-shared-file CLAIM held. Uninstall removes exactly that set and nothing else.
-
-## D6 — COLLISIONS
-
-COLLISIONS — one rule, at two granularities. A planned WHOLE FILE that
-exists on disk and is not in our book refuses the run, pre-write, zero
-files. A planned KEY inside a shared config file that exists and is not in
-our book refuses the same way. A path or key that IS in our book is ours to
-rewrite (byte-identical → skipped; loaders are derived). This is what
-"tolerate what we did not write" means operationally: we never overwrite a
-stranger's file or key, and we never assume our book is the whole truth.
-
-## D7 — SHARED FILES
-
-SHARED FILES — `.mcp.json`, `.claude/settings.json`, `.codex/config.toml`,
-`.codex/hooks.json` and `opencode.json` belong to the whole installed set
-AND may already carry foreign content, so they are never written or deleted
-wholesale (D12). They are recomputed from the whole installed set on every
-install and uninstall; install and uninstall are the same operation on a
-set, followed by one emit.
-
-## D8 — `agents.md` AND THE GUIDANCE SURFACE
-
-`agents.md` AND THE GUIDANCE SURFACE (rewritten 2026-08-10 to conform to
-CMP-12, the ONE form authority; the registry is never edited from here) —
-CMP-12's `agents.md` row IS this method's realization: a per-folder guidance
-file whose NAME is keyed by harness (claude `CLAUDE.md`, codex `AGENTS.md`,
-qwen `QWEN.md`, opencode `AGENTS.md`-or-`CLAUDE.md`).
-There is no index file: the earlier `.agents/rbtv2-exposure.md` was an
-invented artifact in no CMP-12 cell, auto-loaded by no harness, and is
-RETIRED — an existing one is removed by the ordinary booked-file machinery
-on the next install or uninstall. Every `agents.md` row is carried inside
-one fenced `rbtv2:start … rbtv2:end` block at the head of every root
-guidance file, and every forced rule read in the guidance files its
-harnesses read (D13). That block is a shared claim regenerated into every
-configured root guidance file — the basis included — preserving everything
-outside the fence; the human authors the rest of the file.
-
-THE FORCED READ (CMP-12 § Fallback mechanics) is for the harnesses that
-auto-inject no rule folder — Codex and Qwen ONLY. It is emitted into a
-guidance file only when an installed harness of that set reads that file's
-name, and it enumerates the paths those harnesses' rule copies were ACTUALLY
-written to — a rule whose component was installed claude-only exists at
-`.claude/rules/` and is never named to codex, whose MANDATORY Step 0 would
-otherwise point at a file that was never created.
-NEVER for claude (`.claude/rules/` auto-injects), and never for
-opencode, which CMP-12 gives no separate rule type because it reads
-`.claude/` natively — so opencode's `rule` realization in MATRIX is claude's
-own `.claude/rules/` file, deduped by path exactly as its `skill` row
-already is.
-
-## D13 — THE GUIDANCE MIRROR
-
-THE GUIDANCE MIRROR (owner ruling 9, 2026-08-10; harness-keyed per CMP-12
-2026-08-10) — the BASIS is the guidance file the human authors (`CLAUDE.md`
-or `AGENTS.md`), NEVER written by this installer. The mirror targets are
-derived, never hardcoded:
-
-    targets = { CMP-12 guidance filename of each INSTALLED harness }
-              − { the basis }
-
-so a claude-only install with basis `CLAUDE.md` writes NO mirror at all
-(empty set → nothing rendered, nothing booked), and several harnesses that
-share a filename (codex + opencode both read `AGENTS.md`) get ONE
-file. "Installed harnesses" is the union of the `harnesses` recorded for
-every component in our own book — the same set uninstall shrinks.
-
-The basis is answered once — on the first `add` via `--artifact`, or in
-`interactive` — persisted as `guidance_basis`, and thereafter owned by
-`rbtv install set artifact` (D16). It is never re-asked and never
-defaulted: since D16 the first `add` REQUIRES an explicit answer, because
-unset silently meant "generate nothing". A basis value outside the known
-guidance names refuses. Each generated mirror is a
-normal installer-owned file — booked, collision-gated (a mirror file that
-exists and is not in our book, e.g. one the old installer's `model_mirror`
-renders, refuses the run pre-write) and removed on full uninstall.
-
-WHEN THE TARGET SET GOES EMPTY (a basis flip that leaves every installed
-harness reading the basis), yesterday's generated file is today's authored
-one: it is kept, never booked, and its stale `GENERATED — DO NOT EDIT`
-banner and fenced block are cleaned off IN PLACE — the one write this
-installer makes to a basis name, guarded by the machine-readable banner, so
-a hand-authored file is never touched. Leaving the banner would tell the
-human their own file must not be edited.
-
-SCOPE — RECURSIVE (owner ruling d-s17-agents-md-handover-to-install2,
-2026-08-10; amends A6's root-only scope). A mirror is rendered beside EVERY
-basis file in the tree, each generated from THAT directory's own basis, at
-parity with the old installer's `model_mirror` driver
-(`orchestration/models/mirror/driver/guidance.py`). The walk skips: any
-directory named in `GUIDANCE_SKIP_DIRS`; any NESTED GIT REPO (a directory
-below the root holding `.git` — its guidance files belong to that repo and
-are never touched); the `GUIDANCE_ALWAYS_EXCLUDED` prefixes (`.rbtv/goals`,
-whose BOTH routers are scaffold-owned — a structural collision in every
-workspace rbtv serves, so a driver default and not a per-workspace entry);
-and whatever `rbtv install add|rm artifact exclude` records (persisted as
-`guidance_excludes`; the verb edits the list as a SET — the old driver's
-`--exclude` replaced it wholesale, which is why asking to skip one more
-folder used to silently un-skip every other). `protect` covers EVERY directory's basis, not just the root's.
-A basis that is itself somebody's generated mirror has its banner STRIPPED
-before mirroring, and the strip is reported — the old driver's banner-over-
-banner accumulation (task 7.623 item (a)) is a defect and is NOT ported.
-Strip rather than refuse, because the ruled recovery from a deleted basis is
-to repoint at the surviving GENERATED file: a refusal would break it.
-
-ADOPTION (owner ruling, 2026-08-10, unblocking the same handover). A planned
-MIRROR path that exists outside our book is ADOPTED — overwritten and booked
-— when the file itself PROVES it is generated, by carrying a machine-
-readable DO-NOT-EDIT banner (ours or `mirror.py`'s). Without that proof it
-still refuses with `guidance-mirror-collision`. That boundary is the whole
-point: the refusal protects HAND-AUTHORED guidance, and a file whose own
-header says a tool wrote it is not that. Adoption is what let install2 take
-the mirror over from `install.py`'s `model_mirror` on the maintainer's vault
-without a human hand-deleting another tool's artifact.
-
-A PARTIAL UNINSTALL CAN UN-MANAGE A MIRROR, briefly (task 7.623(c)).
-Removing a component must NEVER be blocked by a mirror problem, so when the
-replan refuses (a deleted basis, a hand-edited book) the mirror is SKIPPED
-and every guidance file the book holds is held off the delete set: the file
-STAYS ON DISK BUT LEAVES THE BOOK. In that window it is an unbooked file
-under a mirror name, so an install carrying a DIFFERENT basis refuses
-`guidance-mirror-collision` on it unless its own banner lets ADOPTION take
-it. The next successful install re-books it. Correct — un-managed beats
-deleted — and surprising enough to say here rather than only at the code.
-
-THE EXPOSURE BLOCK is rendered at the ROOT only (the installer exposes
-components at the install root — see BOUNDARY above), inside the fenced
-`rbtv2:` block D8 describes. A nested mirror is a pure per-folder guidance
-mirror: banner + that folder's basis body, nothing else. The fence is what
-makes the basis FLIP safe: a generated file that later becomes the basis has
-both its banner and its fenced block stripped before it is re-mirrored, so
-neither can stack across runs.
-
-## D14 — THE IGNORE BLOCK (`.git/info/exclude` since 2026-09-27)
-
-THE IGNORE BLOCK (owner ruling, 2026-08-21) — every per-component
-artifact and the state file are MACHINE-LOCAL: a loader bakes an ABSOLUTE
-entry-point path (D10) and the book records an absolute target, so a
-committed copy is wrong on every other machine
-(`decisions.md#d-s15-installer2-artifacts-machine-local`). Until 2026-08-21
-the workspace enforced that with name patterns (`.claude/skills/rbtv2-*/`);
-D12 retired the prefix, and git cannot match an in-file marker — so the
-installer, which is the one thing that knows exactly what it wrote, carries
-the list itself. It is an ORDINARY D7/D12 shared-file claim: one fenced
-`# rbtv2:start … # rbtv2:end` block in `{target}/.git/info/exclude` (PER CLONE, below), recomputed
-from the whole installed set on every install and uninstall, removed with
-the last component, gated by the same collision rule as every other claim.
-Bounds: only when the target is a GIT REPO (nothing mints an ignore file
-in a workspace that has no git); the GUIDANCE MIRROR is never listed (it
-carries no absolute path and is authored-adjacent content the workspace
-commits — install.py's mirrors always were); and an ignore file that
-already carries a fence we do not own refuses, like any other claim.
-A file ALREADY TRACKED by git is not covered — no ignore file
-reaches one, and untracking it is the workspace owner's call, not ours; the
-report names any such file so the human sees it.
-
-PER CLONE (owner ruling, 2026-09-27) — the block lives in
-`{target}/.git/info/exclude`, NOT the committed `.gitignore`. The list is
-machine-local, but `.gitignore` is shared: two machines on one repo each
-rewrote the block with THEIR install set and whichever committed last won —
-the other machine's loaders then surfaced for commit (observed: a 2026-09-26
-commit from the second machine dropped `audio-io`/`generate-image`, booked on
-the first). `.git/info/exclude` is git's own per-clone ignore file, read like
-`.gitignore` and never committed. A block an older run claimed in `.gitignore`
-is an ordinary stale claim: the next run releases it, their lines kept (G9).
-Bound: a `.git` FILE (linked worktree, submodule) is not claimed — its exclude
-lives in another directory.
-
-STRAYS (owner ruling, 2026-09-27) — the book is not the only source. A
-marked artifact on disk that the book does not know (an earlier run's output
-whose record entry was lost — 12 such files in one workspace, among them
-loaders git had tracked) is still machine-local, yet a book-only block left
-it out. So every run also globs the MATRIX destinations for files carrying
-`MANAGED_MARK` that the book does not list, and adds them — a skill as its
-FOLDER (D15). Booked files stay the book's business: this run either
-re-plans or prunes them, so a narrowing still shrinks the block (G3).
-
-## D15 — `_hub/`
-
-`_hub/` — METHOD-FIRST UNITS, NO MANIFEST (generalises the 2026-08-21
-`_skills/` ruling) — `_hub/<method>/<name>` is an installable unit with no
-`capabilities/component.md` and no `exposure.csv`. The parent folder names the method.
-A hub skill folder is still copied VERBATIM (the original D15 rule). Legacy
-`_skills/<name>/` is discovered as `_hub/skills/<name>`; book keys rewrite
-the same way on load (R6). `-m hub` reaches module `_hub`. pool, and a
-directory-shaped path, refuse by name (R4).
-
-INSTALL copies the folder VERBATIM (bytes, so a binary reference survives)
-into `MATRIX["skill"]`'s directory for each installed harness, skipping
-`.git`, `node_modules` and `__pycache__`. UNINSTALL deletes every file it
-copied and prunes the emptied directories — the folder goes as a whole.
-
-OWNERSHIP is stamped ONCE, on the copied `SKILL.md` (`_mark`); the files
-beside it stay byte-identical to the source, which is the point of a
-verbatim copy. `_is_ours` therefore reads a file's OWN marker first and then
-the marker of any ancestor directory's `SKILL.md` — so every file under a
-marked skill folder is ours, and stripping the marker from that one
-`SKILL.md` releases the WHOLE folder from the book (D12's release arm),
-which is the human's way of taking a vendored skill over.
-
-## D16 — HARNESS AND ARTIFACT ARE WORKSPACE SETTINGS, SET ONCE, MANAGED BY THEIR
-
-HARNESS AND ARTIFACT ARE WORKSPACE SETTINGS, SET ONCE, MANAGED BY THEIR
-OWN VERBS (owner ruling, 2026-08-22). Both used to ride on `add`, and both
-were silent when they did nothing: `--harness` DEFAULTED to all three, and
-a narrower list on a later run MERGED into the record instead of narrowing
-it, so a human asking for fewer harnesses got a successful run that changed
-nothing. `--artifact` was worse — unset was a third state meaning "generate
-no guidance at all", reachable by simply not passing the flag.
-
-    the FIRST `add` on a workspace REQUIRES both `--harness` and
-    `--artifact` (`--artifact none` is the explicit author-nothing answer)
-    and records them in the book at TOP LEVEL, outside `components`;
-
-    every LATER `add` REFUSES either flag (`setting-locked`), naming the
-    verb that owns it — `add` decides which components are installed and
-    nothing else;
-
-    the ACTION-FIRST settings forms own them thereafter —
-    `add|rm harness`, `set artifact`, `add|rm artifact exclude` (D16b).
-    A harness change REPLANS EVERY BOOKED COMPONENT, so `rm harness
-    codex` really deletes codex's files through the same book-diff
-    `apply` uses for everything else — never a no-op.
-
-Each component record still carries a `harnesses` list, now a projection of
-the workspace set (every record holds the same one), because `plan_files`
-reads it per record. `upgrade_book`/`read_state` migrate a pre-D16 book by
-taking the UNION across its records — the widest set any component had, so
-a migration never silently deletes an installed file.
-
-## D16b — THE ACTION WORD COMES FIRST
-
-THE ACTION WORD COMES FIRST (owner ruling, 2026-08-22, amends D16's
-SPELLING only — every rule above about WHEN a setting may change is
-untouched). D16 gave each setting its own noun-led verb, so the same
-action was spelled two ways depending on what it acted on: `add -c
-<component>` but `harness add <harness>`. Now one grammar covers both:
-
-    rbtv install add harness codex        rbtv install rm harness codex
-    rbtv install set artifact CLAUDE.md
-    rbtv install add artifact exclude D   rbtv install rm artifact exclude D
-    rbtv install harness                  rbtv install artifact   (show)
-
-`set` exists rather than folding the basis into `add` because the basis
-holds ONE value: choosing a new one REPLACES the old. Spelling a replace
-as an "add" is the silent-overwrite shape D16 was written to kill, so the
-grammar names the third action instead of lying about the second.
-
-The noun-led spelling is GONE, not aliased — `harness add codex` refuses
-with `verb-moved` naming the new form. Two spellings of one action is the
-shape that drifts: one gets maintained and the other quietly rots.
-
-## D16c — THE SETTINGS ARE READ IN `li`
-
-THE SETTINGS ARE READ IN `li` (owner ruling, 2026-08-22, completes D16b).
-With their edit forms moved to `add`/`rm`/`set`, `harness` and `artifact`
-were verbs that only PRINTED three lines — menu entries a reader has to
-step past to reach a verb that does something. Those three lines are a
-description of THIS workspace, which is exactly what `li` reports, so
-they head its listing (and ride its `--json` under `settings`).
-
-Both verbs stay in the parser, HIDDEN and refusing. That is not an alias:
-the whole point is that `rbtv install harness` — the thing a reader's
-fingers already know — lands on a sentence naming where it went, instead
-of on argparse's `invalid choice: 'harness'`, which names nothing.
-
-## D9 — `path` ROWS MINT NOTHING UNDER THE INSTALL TARGET
-
-`path` ROWS MINT NOTHING UNDER THE INSTALL TARGET
-(`decisions.md#d-tool-inventory-exposure-rows`). `pool` stays inventory.
-A `path` part is linked into `~/.rbtv/bin` under its part-id (human PATH);
-that reverse does not write under `{target}`.
-Planning refuses a POSIX target without both a shebang and execute permission
-before any install write. Windows planning requires a shebang or known script
-extension so the `.cmd` shim has an interpreter; Windows execute bits are ignored.
-
-## D9b — WINDOWS PATH LINKS ARE `.cmd` SHIMS, NOT SYMLINKS
-
-On Windows a D9 link is a generated `<part-id>.cmd` shim in `~/.rbtv/bin`
-instead of a bare symlink: symlink creation needs a privilege most accounts
-lack (WinError 1314), and a bare name is not executable there anyway —
-Windows has no shebang layer. The shim's first line 
-(`@rem rbtv-shim -> <target>`) is the D12 ownership marker AND the recorded
-target; its second line spawns the interpreter the target's shebang names,
-with the resolutions the cli memory entry
-`20260824-i-rbtv-direct-delegates-unrunnab` settled: `python3` spawns as
-`python`, and `bash` is git's own (`where git` → `../bin/bash.exe`, script
-path forward-slashed), never PATH bash, which is usually WSL's and cannot
-see `C:` paths. POSIX link behaviour is byte-identical to before. The
-PATH setup is governed by D9c below.
-
-Beside every `.cmd` shim sits an extensionless twin, `<part-id>`: a
-`#!/bin/sh` launcher (LF endings, line 2 `# rbtv-shim -> <target>` as its
-ownership marker) that `exec`s the same interpreter and target. Git bash —
-the shell agents run on Windows — resolves only the exact name, never
-`<name>.cmd`, so without the twin every PATH tool was PowerShell-only. The
-twin is written, checked, and removed together with its `.cmd`; a missing
-twin reads as stale, so pre-twin installs heal on the next run.
-
-## D9c — THE INSTALLER PUTS ITS BIN DIRECTORY ON USER PATH
-
-Owner ruling, 2026-09-28: every installed `path` tool is reachable from the
-owner's shells as well as agent services. Every real install keeps
-`~/.rbtv/bin` on the user PATH. On Linux, `lib/pathlinks.py` writes one
-idempotent `# rbtv2:start path` block to the active shell's interactive and
-login profiles (`.bashrc` and the first Bash login profile, or `.zshrc` and
-`.zprofile`). The block avoids repeated PATH entries in nested shells. On
-Windows it appends the directory once to the user `Environment\Path` registry
-value and broadcasts `WM_SETTINGCHANGE`, so new PowerShell, cmd and Git Bash
-sessions inherit it. It does not use `setx`, which can truncate long values.
-Uninstalling the last workspace component leaves the user PATH setup in place:
-that PATH belongs to the machine and can serve other workspaces. The installer
-never manages `~/.local/bin`.
-
-## D10 — BAKED PATHS ARE ABSOLUTE
-
-BAKED PATHS ARE ABSOLUTE — a loader points at its entry point by resolved
-absolute path (the `materialize-seats.py` precedent). Loaders are derived;
-re-running the installer is how a relocated target is fixed.
-
-## D11 — NO CATALOG ASSEMBLY
-
-NO CATALOG ASSEMBLY — an entry-point of the form `prompts.csv#row-id` is a
-catalog reference. This tool checks the FILE half exists and names the whole
-reference in the guidance index; assembling catalog rows is the assembler's
-and the materializer's job, not the installer's.
-
-## D12 — OWNERSHIP IS MARKED IN THE FILE, NOT IN ITS NAME
-
-OWNERSHIP IS MARKED IN THE FILE, NOT IN ITS NAME (owner amendment,
-2026-08-21; supersedes the `rbtv2-` prefix of 2026-08-09) — a part is
-realized under its OWN id (`.claude/skills/planning/SKILL.md`), and what
-makes the file ours is the machine-readable `rbtv2-managed` marker its head
-carries (`MANAGED_BANNER`, placed after any YAML frontmatter so a loader's
-`---` block still parses). The book stays the primary record; the marker is
-what lets the installer answer "may I edit this?" from the FILE, which the
-book cannot do for a file the book never saw. Two consequences:
-
-  · ADOPTION — a planned path that exists outside our book but carries the
-    marker is overwritten and booked, exactly as a banner-carrying guidance
-    mirror already was (D13). Without the marker it still refuses (D6):
-    the collision gate protects hand-authored files, and a file whose own
-    head says this tool wrote it is not one.
-  · RELEASE — a booked file whose marker is GONE (a human took it over) is
-    never deleted. It is dropped from the book and reported instead.
-
-NAME COLLISION WITH THE PREDECESSOR INSTALLER — the repo-root `install.py`
-entry plus its `admin/install/` package, which is NOT the `install.py` of D1.
-It sweeps `.claude/{rules,commands,agents,skills}` for names starting `rbtv-`
-(`admin/install/installer/generator.py::clear_previous_install`). Bare part
-ids do not start with `rbtv-`, so that sweep still cannot reach our work —
-and a manifest that DOES declare a `rbtv-*` part id is refused
-(`part-id-reserved`) rather than minting a file the other installer would
-delete behind our back.
-
-LEGACY NAMES. Files earlier runs minted under the `rbtv2-` prefix carry no
-marker (rules were verbatim copies). `LEGACY_PREFIX` keeps them recognized
-as ours by the ownership test ALONE, so the first unprefixed run deletes
-yesterday's prefixed files as stale instead of orphaning them. Nothing
-mints that prefix any more.
-
-Files that can carry neither a name nor a marker — the shared config files
-of D7 — translate ownership to key/block ownership: a JSON file is edited at
-the exact key paths the book records (`mcpServers.<name>`, `hooks.<event>`,
-…) and a text file through a fenced `rbtv2:start … rbtv2:end` block;
-uninstall removes exactly those keys or that block and deletes the file ONLY
-when nothing at all is left in it.
+These are the installer decisions in force. The installer code is the authority for behavior. The [building decisions](../../build/decisions.md) own decisions about rbtv as a whole; the [overview](../../build/capabilities/rbtv.md), glossary, and schemas own the source and record formats.
+
+## D1 — Installer placement
+
+The installer is the `core/installer` component. Its tool has a small `install.py` entry point, responsibility-specific modules in `lib/`, `discovery.py` beside the entry point, and checks in `selftest/`. `REPO_ROOT` is defined once in `lib/constants.py` as `Path(__file__).resolve().parents[6]`; the layout selftest checks it. This keeps imports and repository scans anchored to one location while the code stays readable by responsibility. The reason `core` owns the installer is in the [building decisions](../../build/decisions.md#module-and-component-placement).
+
+## D2 — Component source shape
+
+The installer discovers modules and components through their named JSON records and reads units from their folders. The definition and layout belong to the [overview](../../build/capabilities/rbtv.md#folder-structure), [component glossary](../../build/capabilities/glossary/component.md), and [component schema](../../build/capabilities/templates/component-json.schema.json).
+
+## D3 — Source trees and precedence
+
+The installer scans its fixed repository root and the target's `.rbtv/mirror/` together. A mirror component with the same id replaces the shipped component as a whole, and the installer reports what it shadows. This lets a workspace supply its own component without mixing two sources under one id. The selftest also checks that shipped programs with shebangs have executable git modes, so a tool accepted on Windows remains runnable on POSIX.
+
+## D4 — Receiving harnesses
+
+The installer accepts `claude`, `codex`, and `opencode` as receiving harnesses. CLI changes require a nonempty supported set; a saved component record with no supported harness refuses on load. One supported set keeps the installed files and guidance copies consistent. The product's harness choice belongs to the [overview](../../build/capabilities/rbtv.md).
+
+## D5 — Install record
+
+The shape of `.rbtv/config/install.json` belongs to the [install record schema](../../build/capabilities/templates/install-json.schema.json) and [glossary](../../build/capabilities/glossary/install-json.md).
+
+## D6 — Collision gate
+
+Before writing, the installer refuses a planned whole-file path or shared-file key held by someone else. A booked path or claim can be updated; a marked generated file can be adopted. This protects authored content while allowing installer output to be refreshed.
+
+## D7 — Shared files
+
+The installer recomputes claims in harness settings and instruction files from the selected installed units. It edits only its JSON keys or fenced sections and removes a shared file only when nothing else remains. This lets multiple components and authored content use the same file without either owning the whole file.
+
+## D8 — Rules and folder instructions
+
+Claude Code receives a marked full rule file in `.claude/rules/`; Codex and OpenCode receive each rule's full body in a labeled section of root `AGENTS.md`. A component's `folder-instructions/` file becomes a labeled section in the target folder's guidance file for each selected harness. The installer also raises Codex's project document limit in `.codex/config.toml` when an installed component targets Codex. These forms keep rules present and let several components contribute to one guidance file while preserving authored text. The source kinds and folders belong to the [overview](../../build/capabilities/rbtv.md#folder-structure).
+
+## D13 — Guidance copies
+
+The recorded basis is `CLAUDE.md`, `AGENTS.md`, or `none`. For each basis file found in the target tree, the installer generates the other filenames read by selected harnesses, deduplicated by name. It skips symlinks, nested git repositories, built-in skip folders, and configured exclusions. The basis is protected from deletion. Generated copies carry a banner; the installer can adopt a banner-bearing copy, strips a generated banner before copying from it, and keeps a copy unbooked if a partial removal cannot safely replan it. This gives each folder one authored source and avoids deleting guidance during recovery. The role of folder instructions belongs to the [glossary](../../build/capabilities/glossary/folder-instructions.md).
+
+## D14 — Clone-local ignore block
+
+In a target with a `.git/` folder, the installer maintains its artifact list as a fenced claim in `.git/info/exclude`. It lists planned component files, the install record, and unbooked marked artifacts found in harness destinations; guidance copies stay committable. It reports files git already tracks. This keeps machine-specific paths out of commits without making one machine's ignore list overwrite another's.
+
+## D15 — Whole-folder skills
+
+The installer reads `_skills/<name>/` folders with `SKILL.md` in either scanned tree as whole-folder skills and identifies them as `_hub/skills/<name>`. It copies their files to each selected harness's skills folder, omitting symlinks, `.git`, `node_modules`, and `__pycache__`. It stamps only the copied `SKILL.md` with an ownership marker; that marker governs the copied folder. This preserves supporting and binary files byte for byte and gives the whole copy one ownership signal.
+
+## D16 — Workspace settings
+
+The first `add` requires an explicit harness set and guidance basis, unless `configure` has recorded both. Each component uses the workspace harness set. A change through `configure`, `add|remove harness`, or `add|remove guidance exclude` replans every selected installed component. This makes a narrower setting remove the files it no longer calls for, and keeps settings separate from item selection.
+
+## D16b — Settings grammar
+
+Set-valued settings use `add harness`, `remove harness`, `add guidance exclude`, and `remove guidance exclude`; `configure --guidance` replaces the single basis value. Named item selection uses `add` and `remove`. The action leads each command so adding to a set and replacing one value have distinct, readable forms.
+
+## D16c — Saved settings in inspection
+
+`status` and `list --installed` show the saved harnesses, guidance basis, and guidance exclusions; their JSON output carries those values under `installation` and `settings`, respectively. These values describe the installation and belong beside its recorded selections.
+
+## D9 — Tools on PATH
+
+A selected tool creates a shortcut in `~/.rbtv/bin` under its tool name and creates no tool copy under the target. Planning checks the program before writing: POSIX requires a shebang and execute permission; Windows requires an interpreter from a shebang or supported script extension. This gives each installation a checked, runnable entry point while keeping the program in its source location. The tool record and source folder belong to the [tool glossary](../../build/capabilities/glossary/tool.md).
+
+## D9b — Windows shortcuts
+
+On Windows, each PATH tool gets a marked `<name>.cmd` shim and an extensionless shell launcher beside it; POSIX uses a symlink. The Windows shim chooses an interpreter from the program, maps Python shebangs to `python`, and prefers Git Bash for shell scripts. The pair serves native terminals and Git Bash without requiring Windows symlink privilege.
+
+## D9c — User PATH
+
+A real install that selects a PATH tool adds `~/.rbtv/bin` to the user's shell startup profiles on POSIX or user PATH on Windows. It leaves that PATH setup in place when a workspace removes its tools. This lets new shells find installed commands and lets the same bin folder serve other workspaces.
+
+## D10 — Absolute loader paths
+
+The installer writes resolved absolute source paths into thin loaders. The [building decisions](../../build/decisions.md#system-and-installation-decisions) own this choice and its machine-local rationale.
+
+## D12 — Proof of ownership
+
+Per-unit harness files use an `rbtv-managed` marker in the file, after YAML frontmatter when present. A marked generated file can be adopted into the book; a stale booked file whose marker is removed is released without deletion when no other ownership proof applies. Shared files use booked keys or fenced sections instead, and a copied skill folder uses its marked `SKILL.md`. These signals allow repair and handover without treating every file at a familiar path as installer-owned.
+
+## D25 — Shared shortcut ownership and locks
+
+`~/.rbtv/path-owners.json` records each shortcut's resolved target and the workspaces that need it. The installer removes a shortcut only after its last owner leaves, preserves unrecorded shortcuts, and refuses conflicting targets before target writes. Bounded locks serialize workspace mutation and the shared shortcut record; workspace lock names derive from resolved target paths in the system temporary folder. This prevents concurrent runs and different workspaces from silently taking over one command. An OS error while persisting PATH is reported as a warning after the workspace install succeeds.
+
+## D26 — Public commands and local updates
+
+`configure` records or changes harness and guidance settings; `add` and `remove` change selected items. Public item filters and JSON use `type`; `list` follows exact named scope, `search` matches names and descriptions broadly, and short names resolve only when unique. `show` keeps a stable id and selection, with `scope` for module, component, or item and `type` for an item. These forms make selection inspectable and unambiguous.
+
+`update guidance` copies maintained human guidance while preserving generated destination sections. `update scaffolding` regenerates selected installer-owned files and generated instruction sections while preserving human text. `update all` validates both phases before writing. Updates use local source and do not expand the saved selection. Named removal needs no blanket confirmation; broad nonempty removal requires `--yes`, and dry runs write nothing. `status` shows saved selection without claiming to check health; `doctor` checks files and selected shared shortcuts. These boundaries keep refreshing, inspecting, and checking separate and make broad deletion deliberate.
