@@ -4,7 +4,7 @@ A [`<module>.json`](../glossary/module-json.md) is the [folder artifact](../glos
 
 ## Purpose
 
-The installer and the `rbtv` command read it to show what the module is for. Without it, the module is listed with no description. Whether to create a module is in [Choosing what to build](choosing-what-to-build.md#1-choose-a-module).
+The installer reads it to show what the module is for. Without it, the module is listed with no description. Whether to create a module is in [Choosing what to build](choosing-what-to-build.md#1-choose-a-module).
 
 ## What good looks like
 
