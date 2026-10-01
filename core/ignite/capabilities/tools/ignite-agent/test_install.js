@@ -6,7 +6,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { main } = require('./cli.js');
-const { STANDARD_UNITS } = require('./install.js');
+const { spawnSync } = require('node:child_process');
+const { STANDARD_UNITS, INSTALLER_ENTRY } = require('./install.js');
 
 const failures = [];
 
@@ -175,6 +176,17 @@ function stubInstall(calls) {
     assert.match(result.out, /launch: claude fable-5 high/);
     assert.equal(fs.existsSync(path.join(dir, '.rbtv', 'agents', 'probe')), false);
     assert.deepEqual(tree(dir), before);
+  });
+
+  // A standard unit removed or renamed in rbtv would otherwise fail only at install time on a live
+  // machine; the real installer resolves every listed key here (a dry run writes nothing).
+  await test('every standard unit exists in the rbtv source', async () => {
+    const dir = workspace();
+    const python = process.platform === 'win32' ? 'python' : 'python3';
+    const result = spawnSync(python, [INSTALLER_ENTRY, 'add', ...STANDARD_UNITS,
+      '--harness', 'claude', '--guidance', 'none', '--target', dir, '--dry-run'], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.equal(STANDARD_UNITS.includes('meta/sub-agents#swarm'), false, 'swarm is a capability of sub-agents now');
   });
 
   await test('create is not a command', async () => {

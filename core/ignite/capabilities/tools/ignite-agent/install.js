@@ -20,7 +20,6 @@ const STANDARD_UNITS = [
   'meta/communication#slack-message-format',
   'meta/communication#audio-aware',
   'meta/sub-agents#sub-agents',
-  'meta/sub-agents#swarm',
   'meta/functions#investignosis',
   'core/ignite#agent-controls',
   'web/browse#web',
@@ -283,4 +282,4 @@ async function run(command, argv, flags, deps = {}) {
   fail(`unknown command: ${command}`);
 }
 
-module.exports = { run, HELP, STANDARD_UNITS };
+module.exports = { run, HELP, STANDARD_UNITS, INSTALLER_ENTRY };
