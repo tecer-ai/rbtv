@@ -6,7 +6,7 @@
 // byte-identical across the split (163-invocation corpus, both self-check suites).
 
 const { API_USAGE } = require('./api');
-const { RESUME_USAGE, SESSIONS_USAGE, USAGE, modelTable } = require('./core');
+const { RESUME_USAGE, SESSIONS_USAGE, USAGE, EFFORT_RULE, modelTable } = require('./core');
 const { loadOptional } = require('./optional');
 const { ROUTE_FORMS, ROUTE_USAGE } = require('./route');
 const { USAGE: TURN_USAGE } = require('./turn');
@@ -34,10 +34,10 @@ function printHelp() {
     ...ROUTE_FORMS.filter((f) => f.includes('--batch')).map((f) => `       ${f}`),
     '       cast api <model> …   |   cast doctor [--json]   |   cast list [--json]   |   cast -h',
     '',
-    'Models (harness, model, what each effort number means):',
+    "Models (harness, model, what each effort number means):",
     ...modelTable(),
     '',
-    "effort N picks the Nth rung, clamped to the model's top.",
+    EFFORT_RULE,
     '[launch-folder] defaults to the current directory.',
     '-s TEXT / -S FILE: system prompt — real for claude, developer instructions for codex, prepended to the first message for opencode.',
     '',
@@ -325,10 +325,14 @@ function verbHelpPages() {
       'usage: cast list [--json]',
       '',
       'The model inventory: every harness/model cast can launch and what each effort number 1-5',
-      'means on that model\'s ladder. Same table as the middle of `cast -h`, without the rest.',
+      'means on that model\'s ladder. Same table as the middle of `cast -h`, plus the effort rule',
+      'under it. Effort is an integer 1-5 — the rung words are labels only, pass the number.',
       '',
-      '  --json  {harness: {model: [rung, ...]}} — an empty array means the model has no effort',
-      '          dial, so any number is accepted and no flag is emitted.',
+      '  --json  {harness: {model: [rung, ...]}} (unchanged) plus two top-level keys:',
+      '          effort_numbers {harness: {model: {word: number}}} — for each word, the smallest',
+      '            number that selects it (e.g. glm-5.3: {"high":1,"max":2}). An empty {} means the',
+      '            model has no effort dial: any number is accepted.',
+      '          usage — pass the NUMBER as <effort>; the words are labels only.',
       '',
       'example: cast list --json',
     ],

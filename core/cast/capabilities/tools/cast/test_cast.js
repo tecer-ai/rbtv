@@ -357,9 +357,11 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.strictEqual(res.status, 0, 'cast -h must exit 0');
   const lines = res.stdout.split('\n').filter((l) => l.length > 0);
   assert.ok(lines.length <= 50, `help must be <=50 lines, got ${lines.length}`);
-  // enumerate models from the tool's own inventory, never by re-parsing its source
+  // enumerate models from the tool's own inventory, never by re-parsing its source.
+  // list --json also carries non-harness top-level keys (effort_numbers, usage), so the
+  // three harnesses are read BY NAME — Object.values() would flatten the new keys too.
   const inv = JSON.parse(spawnSync('node', [TOOL, 'list', '--json'], { encoding: 'utf8' }).stdout);
-  const shorts = Object.values(inv).flatMap((models) => Object.keys(models));
+  const shorts = ['claude', 'codex', 'opencode'].flatMap((h) => Object.keys(inv[h]));
   assert.ok(shorts.length > 10, `sanity: expected the full inventory, got ${shorts.length}`);
   for (const short of shorts) {
     assert.ok(res.stdout.includes(` ${short} `), `help text missing model: ${short}`);
@@ -371,6 +373,9 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.ok(res.stdout.includes('1=low 2=medium 3=high 4=xhigh 5=max'), 'claude effort map missing');
   assert.ok(res.stdout.includes('1=high 2-5=max'), 'glm-5.2 clamped effort map missing');
   assert.ok(/haiku-4-5 +\(no dial/.test(res.stdout), 'inert ladder must say so');
+  // -h says the dial takes a number and the words are labels
+  assert.match(res.stdout, /pass the number/i, 'help must say to pass the number');
+  assert.match(res.stdout, /words are labels/i, 'help must say the words are labels only');
 }
 
 // doctor: exits 0, --json parses
@@ -388,14 +393,42 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.ok(parsed.providers && 'claude' in parsed.providers);
 }
 
-// list --json: parses and matches SPECS keys
+// list --json: parses, matches SPECS keys, and carries effort_numbers + usage (additive)
 {
   const res = spawnSync('node', [TOOL, 'list', '--json'], { encoding: 'utf8' });
   assert.strictEqual(res.status, 0, 'list --json must exit 0');
   const parsed = JSON.parse(res.stdout);
-  assert.deepStrictEqual(Object.keys(parsed).sort(), ['claude', 'codex', 'opencode'].sort());
+  assert.deepStrictEqual(Object.keys(parsed).sort(),
+    ['claude', 'codex', 'effort_numbers', 'opencode', 'usage'].sort());
   assert.ok(Array.isArray(parsed.claude['sonnet-5']));
   assert.deepStrictEqual(parsed.claude['haiku-4-5'], []);
+  // the pre-existing harness keys are byte-for-byte what buildInventory() serializes, first
+  const { buildInventory } = require('./lib/core');
+  const oldBody = JSON.stringify(buildInventory()).slice(1, -1); // strip the outer braces
+  assert.ok(res.stdout.trim().startsWith(`{${oldBody},"effort_numbers"`),
+    'list --json must keep the old harness keys unchanged, in place');
+  // effort_numbers: each word -> the smallest number that selects it (resolveEffort's mapping)
+  assert.deepStrictEqual(parsed.effort_numbers.opencode['glm-5.3'], { high: 1, max: 2 },
+    'two-rung ladder folds to its unique numbers');
+  assert.deepStrictEqual(parsed.effort_numbers.opencode.k3, { low: 1, high: 2, max: 3 },
+    'three-rung ladder maps low:1 high:2 max:3');
+  assert.deepStrictEqual(parsed.effort_numbers.codex['gpt-5.5'],
+    { low: 1, medium: 2, high: 3, xhigh: 4 }, 'four-rung ladder maps 1..4');
+  assert.deepStrictEqual(parsed.effort_numbers.claude['haiku-4-5'], {},
+    'no dial -> no numbers (any number accepted)');
+  // usage says: pass the number, words are labels only, with one complete example
+  assert.match(parsed.usage, /pass the number/i, 'usage must say to pass the number');
+  assert.match(parsed.usage, /labels only/i, 'usage must say the words are labels only');
+  assert.match(parsed.usage, /cast \S+ \S+ \d/, 'usage must carry a complete example command');
+}
+
+// plain-text list: the same table plus the pass-the-number rule under it
+{
+  const res = spawnSync('node', [TOOL, 'list'], { encoding: 'utf8' });
+  assert.strictEqual(res.status, 0, 'cast list must exit 0');
+  assert.ok(res.stdout.includes('1=high 2-5=max'), 'plain list shows each word\'s number');
+  assert.match(res.stdout, /pass the number/i, 'plain list must say to pass the number');
+  assert.match(res.stdout, /words are labels/i, 'plain list must say the words are labels only');
 }
 
 // a model opencode gives no variants for (k2.7) is inert: any effort, no --variant argv

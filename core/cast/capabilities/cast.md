@@ -33,7 +33,11 @@ cast -h | --help
 | `--dry-run` | print the composed argv as JSON and exit 0 without launching |
 
 Run `cast -h` for the live model/effort table (generated from the tool's own spec), or
-`cast list --json` for a machine-readable `{harness: {model: [rungs...]}}` inventory.
+`cast list --json` for a machine-readable `{harness: {model: [rungs...]}}` inventory plus two
+top-level keys: `effort_numbers` — `{harness: {model: {word: number}}}`, each word mapped to the
+smallest number that selects it (`glm-5.3` → `{"high":1,"max":2}`; a model with no dial → `{}`) —
+and `usage`, which says to pass the NUMBER as `<effort>` because the launch path accepts only the
+integer. The rung words are labels, never values a bare launch takes.
 `cast doctor` is the pre-launch view: which harness binaries are on `PATH`, which providers are
 enabled behind them, and what is left on each. It runs `acct doctor` + `acct usage`, which own
 those answers, so it needs `acct` on `PATH` — and it hits the network for the usage half.
@@ -47,7 +51,11 @@ Each (harness, model) has its own rung ladder in `capabilities/tools/cast/catalo
 — asking for 5 on a 3-rung ladder clamps to that ladder's top rung, never a refusal. An `inert`
 ladder (`haiku-4-5`) accepts any N and emits no effort argv at all. `cast -h` prints the
 resolved mapping per model with the clamping folded in (e.g. `glm-5.2  1=high 2-5=max`), so the
-number-to-rung answer is never inferred.
+number-to-rung answer is never inferred. The positional `<effort>` a bare launch takes is an
+integer 1-5 only — a rung word is refused at exit 2 — so `cast list --json` also reports
+`effort_numbers` (the same mapping inverted: each word to the smallest number that selects it)
+and a `usage` line telling agents to pass the number, because the words in the inventory look
+like passable values but are labels.
 
 ## Messaging a session — `sessions` and `resume`
 

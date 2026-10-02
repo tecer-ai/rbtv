@@ -146,6 +146,28 @@ function buildInventory() {
   return inv;
 }
 
+// The one sentence every effort-facing surface says: the dial takes a NUMBER, the words are
+// labels. Agents kept passing rung words to the launch path, which only ever accepted 1-5.
+const EFFORT_RULE = "effort is an integer 1-5: N picks the Nth rung, clamped to the model's top — pass the number, the words are labels only.";
+
+// word -> the SMALLEST number that selects it, read off resolveEffort itself (never a second
+// copy of the ladder walk): walk N 1..5, keep each word's first N. Inert ladder -> {}.
+function effortNumbers() {
+  const out = {};
+  for (const harness of HARNESSES) {
+    out[harness] = {};
+    for (const id of Object.keys(SPECS[harness])) {
+      const numbers = {};
+      for (let n = 1; n <= 5; n++) {
+        const word = resolveEffort(SPECS[harness][id], n).word;
+        if (word && !(word in numbers)) numbers[word] = n;
+      }
+      out[harness][shortName(harness, id)] = numbers;
+    }
+  }
+  return out;
+}
+
 // naive scoring: longest common prefix length, +100 if either string contains the other
 function suggest(input, candidates) {
   let best = null;
@@ -187,9 +209,15 @@ function runDoctor(args) {
 
 function runList(args) {
   if (args.includes('--json')) {
-    process.stdout.write(`${JSON.stringify(buildInventory())}\n`);
+    // Additive: the three harness keys stay byte-identical (first, unchanged); the two new
+    // keys ride after them, so name-based lookups (`inv[harness]`) and array indexing keep working.
+    const usage = 'Pass the NUMBER (integer 1-5) as <effort>, not the word — example: '
+      + 'cast opencode glm-5.3 2 -p "hello". The rung words are labels only; '
+      + 'effort_numbers maps each word to the number that selects it.';
+    process.stdout.write(`${JSON.stringify({ ...buildInventory(), effort_numbers: effortNumbers(), usage })}\n`);
   } else {
     for (const line of modelTable()) process.stdout.write(`${line}\n`);
+    process.stdout.write(`${EFFORT_RULE}\n`);
   }
   process.exit(0);
 }
@@ -298,7 +326,7 @@ module.exports = {
   CODEX_DOC_LIMIT, shortName, SHORT, baseArgv, promptArgv,
   fail, HARNESSES, USAGE,
   RESUME_USAGE, SESSIONS_USAGE, KNOWN_FLAGS, detachMarks,
-  refuseIfDetached, effortMap, modelTable, buildInventory,
+  refuseIfDetached, effortMap, modelTable, buildInventory, EFFORT_RULE, effortNumbers,
   suggest, runDoctor, runList, resolveEffort,
   parseArgs, resolveFolder, refuseIfNotLaunchable, lookupModel, resolveModel,
 };
