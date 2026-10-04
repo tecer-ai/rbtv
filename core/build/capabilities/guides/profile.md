@@ -17,7 +17,7 @@ It keeps those facts in the window on every turn, so an agent does not rediscove
 
 ## Making it good
 
-Use `ignite-agent remember` for a fact about the owner. Do not edit the profile by hand. The dreamer files the inbox line, and merges or moves a fact out when the cap would break.
+Use `ignite remember` for a fact about the owner. Do not edit the profile by hand. The dreamer files the inbox line, and merges or moves a fact out when the cap would break.
 
 ## Traps
 

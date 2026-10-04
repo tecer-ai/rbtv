@@ -31,4 +31,4 @@ Write the table first: one row per `_artifacts/` item, the moment in When. Then 
 - The same fact written here and in a parent, a rule, or the file a pointer names, other than a one-line warning.
 - A file tree, or a document copied in.
 - A generated starter left unedited.
-- A hand edit inside a marked section, the installer's or a shipped component's, is lost on the next install. A basis edit with no installer run leaves a generated copy old.
+- A hand edit inside a marked section, rbtv's or a shipped component's, is lost on the next `rbtv update all`. A basis edit with no `rbtv update all` run leaves a generated copy old.

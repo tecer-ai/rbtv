@@ -18,7 +18,7 @@ It turns transcripts into durable memory after the conversation, so a lesson doe
 
 ## Making it good
 
-Do not invoke it from a turn, and do not edit the files it owns. Change long-term memory by what the transcripts and the inbox show: `ignite-agent remember` for a fact about the owner, a board watch-out for a correction of behaviour. Undo a bad run in git: each run is one commit of general memory plus each agent's memory folder and board.
+Do not invoke it from a turn, and do not edit the files it owns. Change long-term memory by what the transcripts and the inbox show: `ignite remember` for a fact about the owner, a board watch-out for a correction of behaviour. Undo a bad run in git: each run is one commit of general memory plus each agent's memory folder and board.
 
 ## Traps
 

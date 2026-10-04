@@ -8,3 +8,5 @@ Cognitive units may:
 - Be exposed as a [skill](skill.md), [rule](rule.md), or [command](command.md).
 - Be kept as a [capability](capability.md) that a skill or command routes to.
 - Arrive with a task as its [scope](scope.md) and [done contract](done-contract.md).
+
+An agent's cognitive units, with its hooks, MCP servers and tools, make up its [scaffolding](scaffolding.md).

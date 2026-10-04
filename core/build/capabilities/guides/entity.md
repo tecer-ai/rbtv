@@ -16,7 +16,7 @@ It gives every agent one pointer for that entity, without copying the note that 
 
 ## Making it good
 
-Use `ignite-agent remember` and name the person, organisation, place, or device. Do not edit the entity file by hand. The dreamer files the inbox line and writes aliases once.
+Use `ignite remember` and name the person, organisation, place, or device. Do not edit the entity file by hand. The dreamer files the inbox line and writes aliases once.
 
 ## Traps
 

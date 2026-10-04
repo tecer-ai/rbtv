@@ -16,7 +16,7 @@ It keeps topical facts, preferences, decisions, the self-model, and behaviour-ch
 
 ## Making it good
 
-Use `ignite-agent remember` and name the kind of fact. Do not edit the knowledge file by hand. The dreamer files the inbox line. `facts`, `preferences`, and `decisions` start as one file each and split into a folder when over their cap; do not split them by hand.
+Use `ignite remember` and name the kind of fact. Do not edit the knowledge file by hand. The dreamer files the inbox line. `facts`, `preferences`, and `decisions` start as one file each and split into a folder when over their cap; do not split them by hand.
 
 ## Traps
 

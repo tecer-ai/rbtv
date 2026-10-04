@@ -1,6 +1,6 @@
 # Building an MCP server record
 
-An [MCP server](../glossary/mcp-server.md) record tells the installer how a harness reaches one MCP server.
+An [MCP server](../glossary/mcp-server.md) record tells rbtv how a harness reaches one MCP server.
 
 ## Purpose
 

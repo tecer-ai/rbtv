@@ -4,7 +4,7 @@
 
 ## Purpose
 
-The installer reads it to learn what the component is for and which outside programs it needs. Without it, the installer reports the component folder as an error. Which folder artifact to add is in [Choosing what to build](choosing-what-to-build.md).
+rbtv reads it to learn what the component is for and which outside programs it needs. Without it, rbtv reports the component folder as an error. Which folder artifact to add is in [Choosing what to build](choosing-what-to-build.md).
 
 ## What good looks like
 

@@ -18,7 +18,7 @@ It tells a wake what matters and where to resume or answer. Without it, a wake w
 
 ## Making it good
 
-Copy the board, edit subjects or watch-outs, and submit the whole candidate with `ignite-agent board write --file <path>`. Keep Timers, Recently closed, and existing Flags unchanged. Close with `ignite-agent board close <subject> <outcome> [thread]`. Do not edit the board file directly. When six closed lines already exist, archive old lines before closing another. A refused watch-out is still followed in the conversation; say so. The dreamer still receives it from the transcript.
+Copy the board, edit subjects or watch-outs, and submit the whole candidate with `ignite board write --file <path>`. Keep Timers, Recently closed, and existing Flags unchanged. Close with `ignite board close <subject> <outcome> [thread]`. Do not edit the board file directly. When six closed lines already exist, archive old lines before closing another. A refused watch-out is still followed in the conversation; say so. The dreamer still receives it from the transcript.
 
 ## Traps
 

@@ -1,6 +1,7 @@
 # glossary
 
-- [agent.md](agent.md) — Before treating a prompt given through a harness as an agent, before writing an agent file, before installing, running, or connecting an agent to Slack, or before one agent launches another as a sub-agent.
+- [agent.md](agent.md) — Before treating a prompt given through a harness as an agent, before writing an agent file, before adding, running, or connecting an agent to Slack, or before one agent launches another as a sub-agent.
+- [agent-json.md](agent-json.md) — Before writing or reading an rbtv agent's record, or before changing its harness, model, effort, units, or packs.
 - [agent-topic.md](agent-topic.md) — Before reading or changing one agent's topic detail.
 - [board.md](board.md) — Before writing what matters on a board, or before closing a subject.
 - [capability.md](capability.md) — Before putting shared content in `capabilities/`, or before exposing that content.
@@ -15,7 +16,7 @@
 - [done-contract.md](done-contract.md) — Before stating the conditions that judge one task's result.
 - [dreamer.md](dreamer.md) — Before changing long-term memory, or before expecting a turn to file a lesson.
 - [entity.md](entity.md) — Before recording a person, organisation, place, or device in general memory.
-- [exposure-method.md](exposure-method.md) — Before choosing how a skill, rule, command, or agent is exposed.
+- [exposure-method.md](exposure-method.md) — Before choosing how a skill, rule, command, or harness-native sub-agent is exposed.
 - [folder-artifact.md](folder-artifact.md) — Before adding a file under `_artifacts/`.
 - [folder-instructions.md](folder-instructions.md) — Before writing text that reaches an agent working on files in a folder.
 - [guide.md](guide.md) — Before writing a file under `guides/`, to confirm what a guide is.
@@ -24,9 +25,8 @@
 - [hook.md](hook.md) — Before adding a command a harness runs on an event.
 - [inbox.md](inbox.md) — Before saving an explicit request to remember a fact about the owner.
 - [index-file.md](index-file.md) — Before adding `_artifacts/index.md`, or before putting item content in the list.
-- [install-json.md](install-json.md) — Before reading what the installer installed in a target folder.
+- [install-json.md](install-json.md) — Before reading or changing the installation root's record.
 - [knowledge.md](knowledge.md) — Before recording a durable fact, preference, decision, self-model line, or health constraint about the owner.
-- [launch-json.md](launch-json.md) — Before choosing or changing an installed agent's harness, model, or effort.
 - [learned-rules.md](learned-rules.md) — Before changing how one agent must behave from experience.
 - [mcp-server.md](mcp-server.md) — Before registering a program that offers agents extra actions.
 - [memory.md](memory.md) — Before writing general memory or agent memory.
@@ -35,6 +35,7 @@
 - [mirror.md](mirror.md) — Before adding a local component, or before expecting a local file to patch a shipped one.
 - [module-json.md](module-json.md) — Before writing or reading a module's record.
 - [module.md](module.md) — Before creating a top-level group of components.
+- [pack.md](pack.md) — Before naming a set of units a component declares, or before turning a pack on or off.
 - [path.md](path.md) — Before deciding how a tool becomes runnable on a machine.
 - [path-owners-json.md](path-owners-json.md) — Before reading which installations own a command on `PATH`.
 - [persona.md](persona.md) — Before writing an agent's standpoint inside a role.
@@ -42,17 +43,17 @@
 - [profile.md](profile.md) — Before changing facts that should shape nearly every answer.
 - [procedure.md](procedure.md) — Before writing a reusable method in a prompt.
 - [prompt.md](prompt.md) — Before composing an agent's instruction text from cognitive units.
+- [rbtv-command.md](rbtv-command.md) — Before describing what `rbtv` does, or before running it.
 - [rbtv-folder.md](rbtv-folder.md) — Before creating `.rbtv/` in a target folder.
-- [rbtv-installer.md](rbtv-installer.md) — Before describing what install does, or before running it.
 - [rbtv-home-folder.md](rbtv-home-folder.md) — Before relying on the user's `~/.rbtv/` folder.
 - [role.md](role.md) — Before writing who an agent is across tasks.
 - [rule.md](rule.md) — Before writing an instruction presented on every task, with no choice to load it.
 - [runtime.md](runtime.md) — Before writing data created while a component runs.
-- [scaffolding.md](scaffolding.md) — Before naming the files the installer maintains in a target folder.
+- [scaffolding.md](scaffolding.md) — Before naming what an agent is exposed to besides its prompt, or the files rbtv generates for it.
 - [schema.md](schema.md) — Before writing or checking the code-readable shape of a file.
 - [self-contained-skill.md](self-contained-skill.md) — Before importing or sharing a standard skill through the mirror's `_skills/` folder.
 - [scope.md](scope.md) — Before bounding what one task may examine or change.
-- [settings-json.md](settings-json.md) — Before giving an installed agent values specific to its job.
+- [settings-json.md](settings-json.md) — Before giving an rbtv agent values specific to its job.
 - [skill.md](skill.md) — Before writing an ability an agent chooses from a description.
 - [task.md](task.md) — Before calling a piece of work a task, or before attaching scope and a done contract.
 - [task-file.md](task-file.md) — Before adding or moving a project or area task list.

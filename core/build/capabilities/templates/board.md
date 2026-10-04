@@ -1,7 +1,7 @@
 <!--
 Shape of a board. Copy the skeleton into the instance. Do not copy this comment.
-The agent writes subjects and watch-outs with ignite-agent board write. Ignite writes Timers and flags.
-Close with ignite-agent board close. Caps: 90 non-empty lines outside Timers, 8 subjects, 6 watch-outs, 6 closed lines.
+The agent writes subjects and watch-outs with ignite board write. Ignite writes Timers and flags.
+Close with ignite board close. Caps: 90 non-empty lines outside Timers, 8 subjects, 6 watch-outs, 6 closed lines.
 -->
 
 ## Skeleton

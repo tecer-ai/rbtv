@@ -15,7 +15,7 @@ It lets every agent see a fact the owner just stated, without an agent rewriting
 
 ## Making it good
 
-Use `ignite-agent remember <text>`. Do not edit the inbox by hand. The dreamer files the line and removes it. If the command warns that the inbox is over 20 lines, the append still stands; say so to the owner.
+Use `ignite remember <text>`. Do not edit the inbox by hand. The dreamer files the line and removes it. If the command warns that the inbox is over 20 lines, the append still stands; say so to the owner.
 
 ## Traps
 

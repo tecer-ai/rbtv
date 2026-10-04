@@ -16,7 +16,7 @@ It gives recall the runtime can supply, so an agent does not hunt for a fact it 
 
 ## Making it good
 
-Record a fact about the owner with `ignite-agent remember`. Record a correction of this agent's behaviour on the board in the same turn. Do not edit learned rules, the profile, knowledge, entities, workspace notes, workstreams, timeline files, or topic files by hand. The dreamer files and folds them on its next run.
+Record a fact about the owner with `ignite remember`. Record a correction of this agent's behaviour on the board in the same turn. Do not edit learned rules, the profile, knowledge, entities, workspace notes, workstreams, timeline files, or topic files by hand. The dreamer files and folds them on its next run.
 
 ## Traps
 

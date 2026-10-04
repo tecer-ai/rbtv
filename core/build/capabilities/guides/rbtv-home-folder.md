@@ -1,6 +1,6 @@
 # Building `~/.rbtv/`
 
-[`~/.rbtv/`](../glossary/rbtv-home-folder.md) is the folder in the user's home where the installer keeps what serves every installation.
+[`~/.rbtv/`](../glossary/rbtv-home-folder.md) is the folder in the user's home where rbtv keeps what serves every installation.
 
 ## Purpose
 

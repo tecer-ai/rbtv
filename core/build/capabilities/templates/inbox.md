@@ -1,6 +1,6 @@
 <!--
 Shape of the inbox. Copy the skeleton into the instance. Do not copy this comment.
-Any agent appends with ignite-agent remember. Never rewrite a line. The dreamer files and removes filed lines.
+Any agent appends with ignite remember. Never rewrite a line. The dreamer files and removes filed lines.
 Past 20 lines the owner is alerted. The append is not refused. No frontmatter required; a heading is allowed.
 -->
 

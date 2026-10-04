@@ -60,7 +60,7 @@ Relaunch of the company website on a new theme; the brand assets stay in the mar
 - BEFORE cancelling the old host: the 14-day fallback decision in the decisions file must have passed.
 ```
 
-<!-- A source file in a component's folder-instructions/ folder. The installer removes the frontmatter and writes the body into the target's marked section. -->
+<!-- A source file in a component's folder-instructions/ folder. rbtv removes the frontmatter and writes the body into the target's marked section. -->
 
 ```markdown
 ---
@@ -78,15 +78,11 @@ target: <target folder, relative to the installation root; . for the root>
 <!-- rbtv:end <module>/<component> -->
 ```
 
-<!-- The agent section, in an installed agent's folder only. -->
+<!-- The agent section, in an rbtv agent's folder only. -->
 
 ```markdown
 <!-- rbtv:start agent -->
 Your instructions are in `agent.md` in this folder. Follow them.
-
-Key folders, relative to the installation root:
-
-- `<folder>`
 <!-- rbtv:end agent -->
 ```
 

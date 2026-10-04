@@ -17,7 +17,7 @@ It holds the detail a board subject, a repeated procedure, or a private referenc
 
 ## Making it good
 
-Do not create or edit the file by hand. Keep the board entry lean through `ignite-agent board write`. The dreamer moves detail here and leaves the detail link. To undo a bad move, revert the dreamer's commit.
+Do not create or edit the file by hand. Keep the board entry lean through `ignite board write`. The dreamer moves detail here and leaves the detail link. To undo a bad move, revert the dreamer's commit.
 
 ## Traps
 

@@ -16,7 +16,7 @@ It gives those notes one home that a shared repository cannot hold. Without it, 
 
 ## Making it good
 
-Use `ignite-agent remember` for a private fact about a shared repository, and name the repository in the text. Do not edit the workspace file by hand, and do not commit the note into the shared repository. The dreamer files it.
+Use `ignite remember` for a private fact about a shared repository, and name the repository in the text. Do not edit the workspace file by hand, and do not commit the note into the shared repository. The dreamer files it.
 
 ## Traps
 

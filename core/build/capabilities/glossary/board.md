@@ -6,10 +6,10 @@ The board points to threads. A thread does not point to the board. Ignite never 
 
 ## Sections and writers
 
-- **What matters now** — one entry per subject: a title, one to three lines of state, related threads, a link to detail, and flags. The agent writes it through `ignite-agent board write`. An over-long or over-cap entry is refused, never truncated.
+- **What matters now** — one entry per subject: a title, one to three lines of state, related threads, a link to detail, and flags. The agent writes it through `ignite board write`. An over-long or over-cap entry is refused, never truncated.
 - **Watch-outs** — the owner's corrections of this agent's behaviour, recorded by the agent in the same turn. The dreamer later folds each one into [learned rules](learned-rules.md) and removes it in that same run. A fact about the owner goes to the [inbox](inbox.md) instead. A correction that is both goes to both.
 - **Timers** — written by Ignite from its schedule database, never copied by hand. The table is outside the line cap. A schedule without a subject renders `none`.
-- **Recently closed** — written when the agent closes a subject with `ignite-agent board close`. Lines pruned from it are archived, never deleted.
+- **Recently closed** — written when the agent closes a subject with `ignite board close`. Lines pruned from it are archived, never deleted.
 
 Ignite sets flags: `answered <date>` when the owner replies in a linked thread, `idle since <date>` after seven days without an owner reply. The agent does not edit flags. Nothing is closed or deleted on a timer.
 

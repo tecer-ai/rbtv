@@ -1,6 +1,7 @@
 # templates
 
-- [agent.md](agent.md) — Before writing an agent file.
+- [agent.md](agent.md) — Before writing an rbtv agent's `agent.md`.
+- [agent-json.schema.json](agent-json.schema.json) — Before writing or checking an rbtv agent's `agent.json`.
 - [agent-topic.md](agent-topic.md) — Before writing an agent topic file.
 - [agent.schema.json](agent.schema.json) — Before writing or checking an agent file's frontmatter.
 - [board.md](board.md) — Before writing a board.
@@ -8,7 +9,7 @@
 - [command.schema.json](command.schema.json) — Before writing or checking a command file's frontmatter.
 - [component-json.schema.json](component-json.schema.json) — Before writing `<component>.json`.
 - [entity.md](entity.md) — Before writing an entity file.
-- [folder-instructions.md](folder-instructions.md) — Before writing a folder instructions file, including the installer's marked sections.
+- [folder-instructions.md](folder-instructions.md) — Before writing a folder instructions file, including rbtv's marked sections.
 - [folder-instructions.schema.json](folder-instructions.schema.json) — Before writing a file in a component's `folder-instructions/` folder.
 - [guide.md](guide.md) — Before writing a file under `guides/`: the full shape, or the short shape for a file a program creates.
 - [hook.schema.json](hook.schema.json) — Before writing a hook.
@@ -18,18 +19,18 @@
 - [knowledge.md](knowledge.md) — Before writing a knowledge file.
 - [learned-rules.md](learned-rules.md) — Before writing learned rules.
 - [install-json.schema.json](install-json.schema.json) — Before writing or reading an install record, `install.json`.
-- [launch-json.schema.json](launch-json.schema.json) — Before writing an installed agent's `launch.json`.
 - [mcp-server.schema.json](mcp-server.schema.json) — Before writing an MCP server's record.
 - [memory-index.md](memory-index.md) — Before writing the general-memory root index.
 - [module-json.schema.json](module-json.schema.json) — Before writing `<module>.json`.
-- [path-owners-json.schema.json](path-owners-json.schema.json) — Before reading the installer's record of commands on `PATH`.
+- [pack.schema.json](pack.schema.json) — Before writing or checking a pack's `packs/<name>.json`.
+- [path-owners-json.schema.json](path-owners-json.schema.json) — Before reading rbtv's record of commands on `PATH`.
 - [principle.md](principle.md) — Before writing a principle file.
 - [profile.md](profile.md) — Before writing a profile.
 - [rule.md](rule.md) — Before writing a rule file.
 - [rule.schema.json](rule.schema.json) — Before writing or checking a rule file's frontmatter.
 - [skill.md](skill.md) — Before writing a skill file.
 - [skill.schema.json](skill.schema.json) — Before writing or checking a skill file's frontmatter.
-- [thin-loader.md](thin-loader.md) — Before reading or changing what the installer writes as a thin loader.
+- [thin-loader.md](thin-loader.md) — Before reading or changing what rbtv writes as a thin loader.
 - [timeline-daily.md](timeline-daily.md) — Before writing a daily timeline file.
 - [timeline-weekly.md](timeline-weekly.md) — Before writing a weekly timeline file.
 - [tool-json.schema.json](tool-json.schema.json) — Before writing `<tool>.json`.

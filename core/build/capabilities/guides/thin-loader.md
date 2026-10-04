@@ -1,6 +1,6 @@
 # Building a thin loader
 
-A [thin loader](../glossary/thin-loader.md) is the installer's pointer from a harness to a [skill](../glossary/skill.md) or [command](../glossary/command.md) in its component.
+A [thin loader](../glossary/thin-loader.md) is rbtv's pointer from a harness to a [skill](../glossary/skill.md) or [command](../glossary/command.md) in its component.
 
 ## Purpose
 
@@ -12,8 +12,8 @@ It lets an agent choose a skill, or a human invoke a command, without copying th
 
 ## Making it good
 
-Write the skill or command in its component. The installer creates the loader.
+Write the skill or command in its component. rbtv creates the loader.
 
 ## Traps
 
-- Editing the loader by hand. The next install rewrites it.
+- Editing the loader by hand. The next `rbtv update all` rewrites it.
