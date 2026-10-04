@@ -7,6 +7,7 @@ from unittest.mock import patch
 from discovery import Refuse, scan_all
 from lib.agents import (add_agent, configure_agent, list_agents, remove_agent,
                         update_agent)
+from lib.doctor import do_doctor
 from lib.state import read_state
 from lib.target import resolve_target
 
@@ -26,6 +27,7 @@ def installed_agents(ctx) -> None:
     root = tmp / "agent-source"
     comp = _component(root, "moda", "comp")
     _unit_md(comp / "rules/kiss.md", "kiss", "Kiss", "body\n")
+    _unit_md(comp / "rules/other.md", "other", "Other", "body\n")
     _w(comp / "agents/research/agent.md", "---\nname: research\n---\n\nResearch.\n")
     _w(comp / "agents/research/agent.json", json.dumps({
         "name": "research", "description": "Research.", "harness": "claude",
@@ -66,6 +68,26 @@ def installed_agents(ctx) -> None:
           and state["effort"] == "high" and not (home / ".claude/rules/kiss.md").exists()
           and not (home / "CLAUDE.md").exists() and (home / "AGENTS.md").is_file()
           and switched["harness_changed"], str(switched))
+    with patch("lib.agents.cast_catalog", return_value=known):
+        updated = update_agent(ws, "scout", "all", catalog, False)
+        added = add_agent(ws, "scout", ["other"], set(), catalog, False)
+        removed = remove_agent(ws, "scout", ["other"], set(), False, False,
+                               catalog, False)
+        lifecycle_state = read_state(home)
+        lifecycle_health = do_doctor(home, "fixture", catalog, [], root,
+                                     home / ".rbtv/mirror")["ok"]
+        restored = configure_agent(ws, "scout", "claude", "m1", "2", None,
+                                   catalog, False)
+        restored_update = update_agent(ws, "scout", "all", catalog, False)
+    state = read_state(home)
+    check("A-configure — a harness flip keeps ownership through update, add, remove and doctor",
+          updated["ok"] and added["ok"] and removed["ok"]
+          and lifecycle_health and lifecycle_state["shared_claims"]
+          and lifecycle_state.get("shared_files"), str(lifecycle_state))
+    check("A-configure — changing back removes Codex files and remains updateable",
+          restored["ok"] and restored_update["ok"]
+          and state["harness"] == "claude" and not (home / "AGENTS.md").exists(),
+          str(restored))
     before_bad = (home / "agent.json").read_bytes()
     with patch("lib.agents.cast_catalog", return_value=known):
         try:

@@ -238,7 +238,12 @@ def configure_agent(root: Path, raw: str, harness: str | None,
                 unit_files["deleted"] = sorted(set(unit_files.get("deleted", [])) | set(released))
         written += _agent_files(home, after, dry)
     if not dry and before != after:
-        write_state(home, after)
+        # `do_install` has already booked every generated file and shared claim.
+        # Keep that record and change only the authored launch values.
+        saved = read_state(home) if changed_harness else after
+        for key in ("harness", "model", "effort", "voice"):
+            saved[key] = after.get(key)
+        write_state(home, saved)
     return {"ok": True, "agent": after["name"], "home": str(home),
             "launch": _launch(after), "before": _launch(before),
             "packs": list(after["packs"]), "written": written,
@@ -339,7 +344,17 @@ def remove_agent(root: Path, raw: str, names: list[str], packs: set[str], all_un
                      f"rbtv agent remove {raw} --all --yes")
     check_packs(catalog, packs, "rbtv list --type pack")
     before = _keys(list(state["units"]), catalog, state.get("components")) | pack_units(catalog, set(state["packs"]))
-    removed = set(state["units"]) if all_units else _keys(names, catalog, state.get("components"))
+    try:
+        removed = (set(state["units"]) if all_units else
+                   _keys(names, catalog, state.get("components")))
+    except Refuse as exc:
+        if exc.code != "name-unknown":
+            raise
+        unknown = names[0] if names else ""
+        refusal = _refuse("name-unknown", f"unknown unit {unknown!r}",
+                          "rbtv list")
+        refusal.candidates = getattr(exc, "candidates", [])
+        raise refusal from exc
     enabled = set() if all_units else set(state["packs"]) - packs
     explicit = set() if all_units else set(state["units"]) - removed
     wanted = explicit | pack_units(catalog, enabled)

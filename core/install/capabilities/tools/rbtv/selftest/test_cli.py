@@ -530,11 +530,16 @@ def cli_defects(ctx) -> None:
     check("D4-state — the record was left as the agent wrote it",
           read_state(home)["units"] == ["moda/comp#kiss"], "")
 
+    record = json.loads((home / "agent.json").read_text(encoding="utf-8"))
+    record["units"] = ["moda/comp#other"]
+    (home / "agent.json").write_text(json.dumps(record) + "\n", encoding="utf-8")
     code, out, _err, escaped = run(["agent", "remove", str(home), "nosuchunit", "--json", "--dry-run"])
-    nxt = json.loads(out).get("next", "") if escaped is None and out.strip() else ""
-    check("D3-agent-next — an agent refusal's next command carries no --target",
-          escaped is None and code == 1 and nxt and "--target" not in nxt,
-          f"{escaped} / {code} / next={nxt!r}")
+    refusal = json.loads(out) if escaped is None and out.strip() else {}
+    check("D3-agent-next — an agent removal refusal names an unknown unit and offers an agent-safe next command",
+          escaped is None and code == 1
+          and refusal.get("error", {}).get("message") == "unknown unit 'nosuchunit'"
+          and refusal.get("next") == "rbtv list",
+          f"{escaped} / {code} / refusal={refusal!r}")
 
     gone = tmp / "d-remove-ws"
     gone.mkdir()

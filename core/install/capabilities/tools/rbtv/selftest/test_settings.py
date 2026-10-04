@@ -146,6 +146,19 @@ def installation_settings(ctx) -> None:
           == "noun-with-selectors"
           and (fresh / STATE_REL).read_bytes() == stable_book)
 
+    lifecycle = installation("ws-configure-lifecycle")
+    check("W21a — root harness changes retain ownership through update, add, remove and doctor",
+          run(lifecycle, "add", "fixmod/goodcomp#fixskill", "--harness", "claude",
+              "--guidance", "none")[0] == 0
+          and run(lifecycle, "configure", "--harness", "codex")[0] == 0
+          and run(lifecycle, "update", "all")[0] == 0
+          and run(lifecycle, "add", "fixmod/goodcomp#fixrule")[0] == 0
+          and run(lifecycle, "remove", "fixmod/goodcomp#fixrule")[0] == 0
+          and bool(read_state(lifecycle)["shared_claims"])
+          and do_doctor(lifecycle, "fixture", catalog, [], ctx.tree,
+                        lifecycle / ".rbtv/mirror")["ok"],
+          str(read_state(lifecycle)))
+
     flip = installation("ws-configure-flip")
     (flip / "AGENTS.md").write_text("hand-authored\n", encoding="utf-8")
     check("W22 — basis flip cannot overwrite an owner-authored counterpart",
