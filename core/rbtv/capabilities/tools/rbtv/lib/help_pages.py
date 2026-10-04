@@ -618,7 +618,7 @@ agent.md and agent.json.
 To write a new agent, create a folder with agent.md (its prompt) and
 agent.json (its description, units and packs), then run rbtv agent add
 AGENT --harness HARNESS --model MODEL --effort EFFORT to apply it. Guide:
-core/build/capabilities/guides/agent.md in the rbtv source.
+core/rbtv/capabilities/guides/agent.md in the rbtv source.
 
   add AGENT [NAME...]   Apply agent.json, then add named units or a pack.
   remove AGENT NAME...  Remove units or a pack. The agent folder stays.

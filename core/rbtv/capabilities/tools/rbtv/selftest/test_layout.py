@@ -16,14 +16,14 @@ def repo_root_is_the_repo(ctx) -> None:
     """
     check = ctx.check
     check("D1 — REPO_ROOT holds the repo, not a folder inside it",
-          (REPO_ROOT / "core" / "install" / "capabilities" / "tools"
+          (REPO_ROOT / "core" / "rbtv" / "capabilities" / "tools"
            / "rbtv" / "install.py").is_file()
-          and (REPO_ROOT / "core" / "install" / "capabilities" / "tools"
+          and (REPO_ROOT / "core" / "rbtv" / "capabilities" / "tools"
                / "rbtv" / "lib" / "constants.py").is_file()
           and (REPO_ROOT / "core").is_dir(),
           f"REPO_ROOT={REPO_ROOT}")
     check("D1 — the repo root is not the component folder",
-          REPO_ROOT.name not in ("install", "lib"),
+          REPO_ROOT.name not in ("core", "lib"),
           f"REPO_ROOT={REPO_ROOT}")
 
     # The catalog maps a component with an invalid unit record to no units, so

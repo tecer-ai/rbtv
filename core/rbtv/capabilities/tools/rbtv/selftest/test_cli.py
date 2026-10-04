@@ -420,12 +420,12 @@ def result_classes(ctx) -> None:
     with contextlib.redirect_stdout(out):
         print_result({"dry_run": True, "_verb": "update", "scope": "all",
                       "target": str(ws), "added": [], "removed": ["meta/b#kiss"],
-                      "installed": ["core/install"], "_details": True,
+                      "installed": ["core/rbtv"], "_details": True,
                       "planned_changes": {}, "selected_units": [],
                       "_facts": {"units": (2, 1)}})
     lines = out.getvalue().splitlines()
     check("RC-update-units — a preview's Units lists units, not components",
-          "  meta/b#kiss" in lines and "  core/install" not in lines,
+          "  meta/b#kiss" in lines and "  core/rbtv" not in lines,
           out.getvalue())
 
 

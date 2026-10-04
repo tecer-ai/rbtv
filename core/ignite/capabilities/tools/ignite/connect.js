@@ -23,7 +23,7 @@ const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const CHANNEL = /^[a-z0-9][a-z0-9_-]{0,79}$/;
 const BOARD_ROOT = 'board';
 const RUNBOOK = 'core/ignite/capabilities/runbook.md';
-const INSTALLER_ENTRY = path.resolve(__dirname, '../../../../..', 'core/install/capabilities/tools/rbtv/install.py');
+const INSTALLER_ENTRY = path.resolve(__dirname, '../../../../..', 'core/rbtv/capabilities/tools/rbtv/install.py');
 
 const HELP = {
   connect: `ignite — connect help

@@ -49,7 +49,7 @@ AGENT_RECORD = Path("agent.json")
 # so one machine's artifact list never overwrites another's.
 EXCLUDE_REL = ".git/info/exclude"
 
-# D1 — this file sits at `<repo>/core/install/capabilities/tools/rbtv/lib/constants.py`, so the repo
+# D1 — this file sits at `<repo>/core/rbtv/capabilities/tools/rbtv/lib/constants.py`, so the repo
 # tree it scans is SIX directories up. Named once: every caller reads THIS,
 # never `__file__`, because the difference between the two is a silently empty
 # scan. `selftest/test_layout.py` fails the run if this stops being the repo.

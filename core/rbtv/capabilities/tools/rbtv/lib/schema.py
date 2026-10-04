@@ -1,4 +1,4 @@
-"""Checking a value against one of the JSON Schemas in `core/build/capabilities/
+"""Checking a value against one of the JSON Schemas in `core/rbtv/capabilities/
 templates/`. The installer is standard-library only, so this covers exactly the
 keywords those schemas use: type, required, properties, additionalProperties,
 units, enum, const, pattern, minLength, minimum, minItems, uniqueItems, oneOf,
@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .constants import REPO_ROOT
 
-SCHEMA_DIR = REPO_ROOT / "core" / "build" / "capabilities" / "templates"
+SCHEMA_DIR = REPO_ROOT / "core" / "rbtv" / "capabilities" / "templates"
 
 _TYPES = {
     "object": dict, "array": list, "string": str,

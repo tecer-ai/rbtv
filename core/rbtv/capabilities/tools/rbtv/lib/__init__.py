@@ -1,8 +1,9 @@
 """The installer's modules. Importing the package makes `discovery` reachable.
 
-`core/install/` goes on the import path here, once, so every module of this
-package can `import discovery` no matter which entry reached it — the entry
-script, the selftest, or a direct `import lib.x` from this directory.
+This folder, `core/rbtv/capabilities/tools/rbtv/`, goes on the import path
+here, once, so every module of this package can `import discovery` no matter
+which entry reached it — the entry script, the selftest, or a direct
+`import lib.x` from this directory.
 """
 from __future__ import annotations
 

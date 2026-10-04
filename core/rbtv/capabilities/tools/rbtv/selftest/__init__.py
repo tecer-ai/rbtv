@@ -1,7 +1,7 @@
 """The installer's runnable check — `rbtv selftest`.
 
 One module per subject; `runner.py` owns the order they run in and the shared
-frame they run against. Importing `lib` first is what puts `core/install/`
+frame they run against. Importing `lib` first is what puts `core/rbtv/capabilities/tools/rbtv/`
 on the import path, so `discovery` and `lib.*` resolve however this package
 was reached.
 """

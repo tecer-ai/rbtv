@@ -1445,7 +1445,7 @@ else {
         console.log(JSON.stringify({ ok: false, error: { code: 'agent-record-invalid', message: 'agent.json is missing units' } }));
         process.exit(1);
       }
-      const rows = [['pack', 'ignite'], ['skill', 'core/build#build'], ['skill', 'meta/functions#interview'],
+      const rows = [['pack', 'ignite'], ['skill', 'core/rbtv#framework'], ['skill', 'meta/functions#interview'],
         ['skill', 'web/browse#web'], ['rule', 'core/ignite#ignite-standing-instructions']].map(([type, id]) => ({ type, id }));
       rows[0].units = ['web/browse#web', 'core/ignite#ignite-standing-instructions', 'core/ignite#agent-controls'];
       const offset = Number(argv[argv.indexOf('--offset') + 1]);
@@ -1502,7 +1502,7 @@ else {
       '    Skills: web/browse#web',
       '    Rules: core/ignite#ignite-standing-instructions',
       'Outside a pack:',
-      '  Skills: core/build#build, meta/functions#interview',
+      '  Skills: core/rbtv#framework, meta/functions#interview',
       '  Rules: none',
       '  Commands: none',
       '  MCP servers: none',
@@ -1518,7 +1518,7 @@ else {
     assert.strictEqual(list(['--agent', 'tess', '--full']).stdout, list(['--agent', 'tess']).stdout, 'one agent is in full with or without --full');
     const installed = {
       pack: [{ name: 'ignite', skill: ['web/browse#web'], rule: ['core/ignite#ignite-standing-instructions'], command: [], 'mcp-server': [], hook: [] }],
-      skill: ['core/build#build', 'meta/functions#interview'], rule: [], command: [], 'mcp-server': [], hook: [],
+      skill: ['core/rbtv#framework', 'meta/functions#interview'], rule: [], command: [], 'mcp-server': [], hook: [],
     };
 
     const tessRow = { name: 'tess', description: TESS_SAYS, harness: 'codex', model: 'gpt-6-luna', effort: 'high', ignite: true, home: tess };
