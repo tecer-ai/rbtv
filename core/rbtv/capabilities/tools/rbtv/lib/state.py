@@ -168,6 +168,74 @@ def migrate_install_component_ids(state: dict) -> None:
                          if not key.startswith("core/rbtv-cli#")]
 
 
+# The two components that became `core/rbtv`, and what each of their units is
+# called there. `None` marks a unit with no successor.
+_MERGED_INTO_RBTV = ("core/build", "core/install")
+_RBTV_UNIT_NAMES = {"core/build#build": "framework",
+                    "core/install#manage-components": None}
+
+
+def _merge_component_record(into: dict, rec: dict) -> None:
+    """Fold one booked component into another: lists are joined without
+    repeats, units are folded name by name, and any other field keeps the
+    value it already has."""
+    for name, value in rec.items():
+        if name == "units":
+            units = into.setdefault("units", {})
+            for uid, unit in value.items():
+                if uid in units:
+                    _merge_component_record(units[uid], unit)
+                else:
+                    units[uid] = unit
+        elif isinstance(value, list) and isinstance(into.get(name), list):
+            into[name] = into[name] + [item for item in value
+                                       if item not in into[name]]
+        else:
+            into.setdefault(name, value)
+
+
+def migrate_rbtv_component_ids(state: dict) -> None:
+    """Schema 8 booked rbtv's own units under `core/build` and `core/install`;
+    schema 9 books them under the one component `core/rbtv`.
+
+    Both records fold into one. The skill `build` is `framework`. The
+    skill `manage-components` has no successor: it leaves the selection here
+    and keeps its booking, so the next update deletes its files and names it
+    as removed. Generated files are not renamed here either; that same update
+    replaces them. A record that holds neither old component is left as it is.
+    """
+    components = state.get("components") or {}
+    merged = components.get("core/rbtv")
+    for old in _MERGED_INTO_RBTV:
+        rec = components.pop(old, None)
+        if rec is None:
+            continue
+        units = rec.get("units") or {}
+        for uid in list(units):
+            name = _RBTV_UNIT_NAMES.get(f"{old}#{uid}")
+            if name is not None:
+                units[name] = units.pop(uid)
+        rec["component"] = "rbtv"
+        if merged is None:
+            merged = rec
+        else:
+            _merge_component_record(merged, rec)
+    if merged is not None:
+        components["core/rbtv"] = merged
+    selected: list[str] = []
+    for key in state.get("units") or []:
+        cid, _, uid = key.partition("#")
+        if cid in _MERGED_INTO_RBTV:
+            name = _RBTV_UNIT_NAMES.get(key, uid)
+            if name is None:
+                continue
+            key = f"core/rbtv#{name}"
+        if key not in selected:
+            selected.append(key)
+    if "units" in state:
+        state["units"] = selected
+
+
 def read_state(target: Path) -> dict:
     path = state_path(target)
     if not path.is_file():
@@ -191,6 +259,7 @@ def read_state(target: Path) -> dict:
     migrate_selected_units(state)
     migrate_selected_packs(state)
     _validate_state(state, path)
+    migrate_rbtv_component_ids(state)
     rewrite_legacy_skill_ids(state)
     strip_retired_harnesses(state)
     migrate_installation_harnesses(state)

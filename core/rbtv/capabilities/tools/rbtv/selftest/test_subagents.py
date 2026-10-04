@@ -87,7 +87,7 @@ def sub_agents(ctx) -> None:
           "the effort, per harness, and nothing tied to this machine",
           unit()["sub_agent"] == {"claude": {"model": "m1", "model_id": "id/m1",
                                              "effort": "high"}}
-          and read_state(ws)["schema"] == SCHEMA == 8
+          and read_state(ws)["schema"] == SCHEMA == 9
           and str(tmp) not in json.dumps(unit()["sub_agent"]), str(unit()))
 
     code, two, _err = run("add", "fixagent", "--on", "codex:c1:medium", "--on", "claude:m1:1")
@@ -307,7 +307,7 @@ def sub_agents(ctx) -> None:
     check("SA-migrate — a schema 7 record is read, its sub-agent unit becomes the agent "
           "unit, and the record written is valid",
           before["components"]["fixmod/goodcomp"]["units"]["fixagent"]["method"] == "agent"
-          and code == 0 and after["schema"] == 8
+          and code == 0 and after["schema"] == 9
           and after["components"]["fixmod/goodcomp"]["units"]["fixagent"]
           == {"method": "agent", "files": []}
           and not schema.errors(after, schema.load("install-json"))

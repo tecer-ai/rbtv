@@ -21,7 +21,7 @@ from . import (test_agents, test_cli, test_discovery, test_doctor_ownership, tes
                test_hub, test_install, test_interactive, test_layout,
                test_ownership, test_parts, test_pathlinks, test_settings,
                test_surface, test_units, test_ux_contract, test_packs,
-               test_subagents)
+               test_subagents, test_component_merge)
 
 ORDER = [
     test_layout.repo_root_is_the_repo,
@@ -79,6 +79,8 @@ ORDER = [
     test_cli.result_classes,
     test_cli.cli_defects,
     test_pathlinks.path_links,
+    test_component_merge.record_rewrite,
+    test_component_merge.update_after_rewrite,
     test_doctor_ownership.doctor_ownership,
     test_surface.ls_li_doctor,
     test_ux_contract.public_contract,
