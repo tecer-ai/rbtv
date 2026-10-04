@@ -17,16 +17,17 @@ Result: one folder with `timeline.md` at its root and one folder per agent/sessi
 
 ## Sub-agents
 
-Session records are too large to read in the collecting session: reading them there uses up its context before the timeline is written. The collector keeps the boundary (step 1), the roster (step 2), the root timeline and the merged manifest (step 4), and the reconciliation (step 5). It gives step 3 to sub-agents, launched as the `sub-agents` skill says:
+Session records are too large to read in the collecting session: reading them there uses up its context before the collection is checked. The collector keeps the boundary (step 1), the roster (step 2), and the reconciliation (step 5). It gives step 3 and step 4 to sub-agents, launched as the `sub-agents` skill says:
 
 - One sub-agent per session on the roster; small sessions, or sessions whose records share one format, may share a sub-agent. They run in parallel. The collector's own session goes to a sub-agent too, with the collection cutoff as its end.
 - Each sub-agent's task carries the agreed scope, exclusions and cutoff; its roster entries, each with its record's location; its destination folders; the whole of step 3; and the path of the return it must write.
 - Each sub-agent writes only inside its sessions' folders and its return. The return is one JSON document with, per session: the files written, as manifest entries with the fields step 3 lists; the dated events for the timeline (time, activity, evidence link); child sessions found that are not on the roster; redactions; and gaps.
 - A child session that a return reports goes on the roster and to a sub-agent, until no return reports a new one.
-- The collector reads the returns, not the records. Before merging a return it checks, with the tools of step 5, that every file the return lists exists and matches its hash.
-- The fidelity check of step 5 (representative transcripts against their source events) goes to a sub-agent that wrote none of those transcripts.
+- The collector reads the returns, not the records. It checks each return with the tools of step 5: every file the return lists exists and matches its hash.
+- When every return is in and checked, one sub-agent that wrote none of the transcripts does step 4. Its task carries the boundary, the roster, the paths of the returns, the whole of step 4, and the manifest fields of step 3. It merges the returns into `manifest.json` and writes the roster, the timeline and the coverage section into the root timeline, with a program and from the returns alone; it opens a transcript only to settle a conflict between returns.
+- The fidelity check of step 5 (representative transcripts against their source events) goes to another sub-agent that wrote none of those transcripts and did not do step 4.
 
-Where no sub-agent can be launched, the collector does step 3 itself, one session at a time.
+Where no sub-agent can be launched, the collector does steps 3 and 4 itself, one session at a time.
 
 ## Procedure
 
