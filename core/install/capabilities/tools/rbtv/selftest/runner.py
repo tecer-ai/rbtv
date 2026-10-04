@@ -33,6 +33,7 @@ ORDER = [
     test_units.legacy_names,
     test_units.translations,
     test_agents.installed_agents,
+    test_agents.agent_ignore_file,
     test_install.green_arm_all_harnesses,
     test_install.red_unknown_method,
     test_install.red_foreign_collision,

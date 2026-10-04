@@ -103,6 +103,22 @@ GUIDANCE_FILE = {"claude": "CLAUDE.md", "codex": "AGENTS.md",
 # values, and the only filenames the mirror collision/adoption gates apply to.
 GUIDANCE_NAMES = tuple(sorted(set(GUIDANCE_FILE.values())))
 
+# Shared files are built from several unit types, rather than copied directly
+# from one unit template.  Their destinations are named here so planning and
+# an agent folder's fixed ignore file cannot diverge.
+CODEX_CONFIG_FILE = ".codex/config.toml"
+CLAUDE_MCP_FILE = ".mcp.json"
+CLAUDE_SETTINGS_FILE = ".claude/settings.json"
+OPENCODE_CONFIG_FILE = "opencode.json"
+CODEX_HOOKS_FILE = ".codex/hooks.json"
+SHARED_FILE_DESTINATIONS = (
+    CODEX_CONFIG_FILE,
+    CLAUDE_MCP_FILE,
+    CLAUDE_SETTINGS_FILE,
+    OPENCODE_CONFIG_FILE,
+    CODEX_HOOKS_FILE,
+)
+
 # The harnesses that read no rules folder: each installed rule reaches them as
 # its full text in its own marked section of their instructions file
 # (`<!-- rbtv:start rule <module>/<component>#<rule> -->`), which they load

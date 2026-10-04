@@ -11,15 +11,32 @@ from discovery import Refuse
 from . import frontmatter, schema
 from .catalog import check_packs, pack_units
 from .claims import _block_del
-from .constants import AGENT_RECORD, GUIDANCE_FILE, HARNESSES
+from .constants import (AGENT_RECORD, GUIDANCE_FILE, HARNESSES, MATRIX,
+                        SHARED_FILE_DESTINATIONS)
 from .fsio import write_file
 from .operations import do_install, do_uninstall
 from .selection import _split_part_keys, iter_booked_units, iter_catalog_parts, resolve_name
 from .state import read_state, unit_membership, write_state
 
 AGENTS_REL = Path(".rbtv") / "agents"
-IGNORE_TEXT = ("# rbtv: generated files and machine data\n*\n!agent.md\n!agent.json\n"
-               "!settings.json\n!memory/\n!memory/**\n!_artifacts/\n!_artifacts/**\n")
+
+
+def _ignore_text() -> str:
+    """The agent-local ignores, derived from every harness's output paths."""
+    folders = {
+        path.partition("{name}")[0].rstrip("/") + "/"
+        for paths in MATRIX.values()
+        for path in paths.values()
+        if path is not None
+    }
+    generated = (sorted(folders | set(SHARED_FILE_DESTINATIONS))
+                 + sorted(set(GUIDANCE_FILE.values())))
+    machine_data = ("state.sqlite*", "turns/", "conversations/*/session*")
+    return ("# rbtv: generated files and machine data\n"
+            + "\n".join((*generated, ".gitignore", *machine_data)) + "\n")
+
+
+IGNORE_TEXT = _ignore_text()
 # The folder's own files, created when missing; the result lists them.
 OWN_BODIES = {"settings.json": "{}\n", ".gitignore": IGNORE_TEXT}
 OWN_FILES = tuple(OWN_BODIES)

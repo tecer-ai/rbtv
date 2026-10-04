@@ -11,10 +11,15 @@ from discovery import Refuse, SKILL_FILE, unit_rows
 from . import frontmatter
 from .constants import (
     CANONICAL_METHODS,
+    CLAUDE_MCP_FILE,
+    CLAUDE_SETTINGS_FILE,
+    CODEX_CONFIG_FILE,
+    CODEX_HOOKS_FILE,
     GUIDANCE_FILE,
     HARNESSES,
     HOOK_HARNESSES,
     MATRIX,
+    OPENCODE_CONFIG_FILE,
     RULE_SECTION_HARNESSES,
     CODEX_PROJECT_DOC_MAX_BYTES,
 )
@@ -231,7 +236,7 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
         return seen
 
     if codex_used:
-        claims.append({"path": ".codex/config.toml", "fmt": "text",
+        claims.append({"path": CODEX_CONFIG_FILE, "fmt": "text",
                        "comment": "#", "key": None, "label": "codex-limits",
                        "value": f"project_doc_max_bytes = {CODEX_PROJECT_DOC_MAX_BYTES}",
                        "first": True})
@@ -239,16 +244,16 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
         if "claude" in server_harnesses:
             for name in sorted(servers):
                 for owner in _owners_of(server_owners, name) or [None]:
-                    claim_json(".mcp.json", ["mcpServers", name],
+                    claim_json(CLAUDE_MCP_FILE, ["mcpServers", name],
                                _claude_mcp_entry(servers[name]), owner)
             # measured 2026-08-08, claude 2.1.226: without the flag every
             # project server sits "Pending approval".
             for owner in _all_owners(server_owners) or [None]:
-                claim_json(".claude/settings.json",
+                claim_json(CLAUDE_SETTINGS_FILE,
                            ["enableAllProjectMcpServers"], True, owner)
         if "codex" in server_harnesses:
             for owner in _all_owners(server_owners) or [None]:
-                rec = {"path": ".codex/config.toml", "fmt": "text",
+                rec = {"path": CODEX_CONFIG_FILE, "fmt": "text",
                        "comment": "#", "key": None,
                        "value": _codex_mcp_toml_block(servers)}
                 if owner is not None:
@@ -257,20 +262,20 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
         if "opencode" in server_harnesses:
             for name in sorted(servers):
                 for owner in _owners_of(server_owners, name) or [None]:
-                    claim_json("opencode.json", ["mcp", name],
+                    claim_json(OPENCODE_CONFIG_FILE, ["mcp", name],
                                _opencode_mcp_entry(servers[name]), owner)
     if hooks:
         for event in sorted(hooks):
             ev_owners = _owners_of(hook_owners, event) or [None]
             if "claude" in hook_harnesses:
                 for owner in ev_owners:
-                    claim_json(".claude/settings.json", ["hooks", event],
+                    claim_json(CLAUDE_SETTINGS_FILE, ["hooks", event],
                                hooks[event], owner)
             if "codex" in hook_harnesses:
                 # codex 0.144.5 measured shape: the claude `hooks` object
                 # verbatim (d-seat-exposes-frontmatter measurement amendment).
                 for owner in ev_owners:
-                    claim_json(".codex/hooks.json", ["hooks", event],
+                    claim_json(CODEX_HOOKS_FILE, ["hooks", event],
                                hooks[event], owner)
         # opencode has no hooks surface — nothing is minted for it.
 

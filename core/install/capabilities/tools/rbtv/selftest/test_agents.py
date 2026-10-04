@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
+from pathlib import Path
 from unittest.mock import patch
 
 from discovery import Refuse, scan_all
-from lib.agents import (add_agent, configure_agent, list_agents, remove_agent,
-                        update_agent)
+from lib.agents import (IGNORE_TEXT, add_agent, configure_agent, list_agents,
+                        remove_agent, update_agent)
 from lib.doctor import do_doctor
+from lib.planning import plan_files
 from lib.state import read_state
 from lib.target import resolve_target
 
@@ -20,6 +24,100 @@ def _agent(home, *, name="scout", units=None, packs=None):
     _w(home / "agent.json", json.dumps({"name": name, "description": "Scout.",
         "harness": "claude", "model": "m1", "effort": "high",
         "units": units or [], "packs": packs or []}) + "\n")
+
+
+def _git_status(repo: Path) -> set[str]:
+    done = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"],
+                          cwd=repo, check=True, capture_output=True, text=True,
+                          encoding="utf-8")
+    return {line[3:] for line in done.stdout.splitlines()}
+
+
+def _ignored_agent(home: Path, harness: str) -> None:
+    model, effort = {
+        "claude": ("m1", "high"),
+        "codex": ("c1", "high"),
+        "opencode": ("glm-5.3", "high"),
+    }[harness]
+    name = home.name
+    _w(home / "agent.md", f"---\nname: {name}\n---\n\nAgent.\n")
+    _w(home / "agent.json", json.dumps({
+        "name": name, "description": "Agent.", "harness": harness,
+        "model": model, "effort": effort, "units": [], "packs": []}) + "\n")
+    _w(home / "agent.pre-split.md", "Author file.\n")
+    _w(home / "notes/own.md", "Author note.\n")
+
+
+def agent_ignore_file(ctx) -> None:
+    check, skip, tmp, catalog = ctx.check, ctx.skip, ctx.tmp, ctx.frame()[0]
+    if shutil.which("git") is None:
+        skip("A-ignore — git status preserves authored files", "git is unavailable")
+        return
+    known = {"claude": {"m1": ["low", "high"]},
+             "codex": {"c1": ["low", "medium", "high"]},
+             "opencode": {"glm-5.3": ["low", "high"]}}
+    every_destination = [
+        "fixskill", "fixrule", "fixcmd", "fixagent", "fixhook", "fixmcp",
+    ]
+
+    def add(repo: Path, agent: Path, harness: str) -> tuple[set[str], set[str]]:
+        _ignored_agent(agent, harness)
+        state = json.loads((agent / "agent.json").read_text(encoding="utf-8"))
+        state["units"] = every_destination
+        _w(agent / "agent.json", json.dumps(state) + "\n")
+        with patch("lib.agents.cast_catalog", return_value=known):
+            add_agent(repo, str(agent), [], set(), catalog, False)
+        _w(agent / "state.sqlite", "machine data\n")
+        _w(agent / "turns/t1/x", "machine data\n")
+        _w(agent / "conversations/c1/session.json", "{}\n")
+        prefix = agent.relative_to(repo).as_posix() + "/"
+        status = {path for path in _git_status(repo) if path.startswith(prefix)}
+        state = read_state(agent)
+        files, _owners, claims, _report = plan_files(state["components"], catalog,
+                                                     agent)
+        planned = set(files) | {claim["path"] for claim in claims}
+        ignored = {
+            rel for rel in planned
+            if subprocess.run(["git", "check-ignore", "--quiet", "--no-index",
+                               "--", str(agent / rel)],
+                              cwd=repo, check=False).returncode == 0
+        }
+        return status, planned - ignored
+
+    expected_a = {
+        ".rbtv/agents/a1/agent.md", ".rbtv/agents/a1/agent.json",
+        ".rbtv/agents/a1/settings.json", ".rbtv/agents/a1/agent.pre-split.md",
+        ".rbtv/agents/a1/notes/own.md",
+    }
+    for harness in ("codex", "claude", "opencode"):
+        repo = tmp / f"agent-ignore-{harness}"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+        agent = repo / ".rbtv/agents/a1"
+        status_a, uncovered = add(repo, agent, harness)
+        check(f"A-ignore — {harness} agent folder preserves authored files",
+              status_a == expected_a, repr(sorted(status_a)))
+        check(f"A-ignore — {harness} ignores every destination in its plan",
+              not uncovered, repr(sorted(uncovered)))
+        _w(repo / ".gitignore", ".rbtv/agents/*/*\n!.rbtv/agents/*/agent.md\n"
+                              "!.rbtv/agents/*/agent.json\n")
+        prefix = agent.relative_to(repo).as_posix() + "/"
+        status_b = {path for path in _git_status(repo) if path.startswith(prefix)}
+        check(f"A-ignore — {harness} agent folder keeps root ignore rules",
+              status_b == {".rbtv/agents/a1/agent.md", ".rbtv/agents/a1/agent.json"},
+              repr(sorted(status_b)))
+
+    repo = tmp / "agent-ignore-outside"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    outside = repo / "plans/launch/agents/launch-drafter"
+    status_c, uncovered_c = add(repo, outside, "codex")
+    expected_c = {path.replace(".rbtv/agents/a1", "plans/launch/agents/launch-drafter")
+                  for path in expected_a}
+    check("A-ignore — an agent outside .rbtv preserves authored files",
+          status_c == expected_c, repr(sorted(status_c)))
+    check("A-ignore — an outside agent ignores every destination in its plan",
+          not uncovered_c, repr(sorted(uncovered_c)))
 
 
 def installed_agents(ctx) -> None:
@@ -125,7 +223,14 @@ def installed_agents(ctx) -> None:
           selected == home and source == "RBTV_AGENT_HOME" and legacy == ws
           and legacy_source != retired_name, f"{selected} / {legacy}")
     remove_agent(ws, "scout", ["kiss"], set(), False, False, catalog, False)
-    check("A-remove — removes generated files but preserves the two authored files", (home / "agent.md").is_file() and (home / "agent.json").is_file() and not (home / ".agents/behavior-rules/kiss.md").exists(), "")
+    check("A-remove — removes generated files but preserves authored files",
+          (home / "agent.md").is_file() and (home / "agent.json").is_file()
+          and (home / ".gitignore").read_text(encoding="utf-8") == IGNORE_TEXT
+          and not (home / ".agents/behavior-rules/kiss.md").exists(), "")
+    _w(home / ".gitignore", "# author edited\n")
+    remove_agent(ws, "scout", [], set(), True, True, catalog, False)
+    check("A-remove — leaves an edited agent ignore file",
+          (home / ".gitignore").read_text(encoding="utf-8") == "# author edited\n", "")
     for mutate, code in ((lambda: _agent(ws / ".rbtv/agents/bad", name="wrong"), "agent-name-mismatch"),):
         try:
             mutate(); add_agent(ws, "bad", [], set(), catalog, True)
