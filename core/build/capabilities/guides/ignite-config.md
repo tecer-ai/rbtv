@@ -4,7 +4,7 @@
 
 ## Purpose
 
-It tells Ignite which Slack workspace to use and which agent answers each channel. Without it, a message has no agent to wake. It is not hand-written.
+It tells Ignite which Slack workspace to use and which agent answers each channel. Without it, a message has no agent to wake. No command writes it: the author writes it by hand, and `ignite connect` needs it.
 
 ## What good looks like
 

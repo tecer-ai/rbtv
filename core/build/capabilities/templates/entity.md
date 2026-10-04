@@ -16,7 +16,7 @@ aliases: [<other names>, <nicknames>, <misheard spellings>]
 - <relation to the owner / what it is>. (<YYYY-MM-DD> · <agent>/<thread link>)
 - <a fact an agent needs>. (<YYYY-MM-DD> · <agent>/<thread link>)
 - Vault: [<path of the vault note or folder holding the content>](<relative link>)
-- Glossary: [row "<Name>"](<relative link to .user/docs/glossary.md>)   (people and orgs only)
+- Glossary: [row "<Name>"](<relative link to the installation's name glossary>)   (people and orgs only)
 ```
 
 ## Example (fictional — never copy)
@@ -34,5 +34,5 @@ aliases: [Lea, Léa, Moreau, accountant, "Leah Moro"]
 - Prefers email to calls. (2026-10-02 · master/[t-2230](https://example.slack.com/archives/C0000/p2230))
 - On parental leave — reach her colleague [nina-roux](nina-roux.md) instead, until 2026-11-30. (2026-10-02 · master/[t-2230](https://example.slack.com/archives/C0000/p2230))
 - Vault: [2-areas/finance/](../../../../2-areas/finance/)
-- Glossary: [row "Lea Moreau"](../../../../.user/docs/glossary.md)
+- Glossary: [row "Lea Moreau"](<relative link to the installation's name glossary>)
 ```

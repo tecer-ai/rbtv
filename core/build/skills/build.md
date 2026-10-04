@@ -1,6 +1,6 @@
 ---
 name: build
-description: "Use before creating, changing, or reviewing any rbtv unit — a skill, rule, command, agent, hook, MCP server, tool, component, module, folder instructions file, or one of their records — so the result is what the installer recognises and follows the principles. Situations: 'create a skill', 'add a rule', 'write an agent file', 'new component', 'review this skill', 'turn this conversation into a skill or command', 'save what we just did as a skill', or any edit inside an rbtv component folder or the mirror. Not for using an existing unit without changing it."
+description: "Use before creating, changing, or reviewing any rbtv unit — a skill, rule, command, agent, hook, MCP server, tool, component, module, folder instructions file, or one of their records — so the result is what rbtv recognises and follows the principles. Situations: 'create a skill', 'add a rule', 'write an agent file', 'new component', 'review this skill', 'turn this conversation into a skill or command', 'save what we just did as a skill', or any edit inside an rbtv component folder or the mirror. Not for using an existing unit without changing it."
 ---
 
 # Build

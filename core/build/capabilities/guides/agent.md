@@ -36,7 +36,7 @@ Resolve what is missing before writing anything. Take the purpose, the name, the
 
 Find the cognitive units it needs with the non-interactive discovery commands, `rbtv list`, `rbtv search WORDS`, and `rbtv show NAME`, and select the ones that fit. Build a new unit only for what nothing listed covers; which kind to build is in [Choosing what to build](choosing-what-to-build.md).
 
-Write the agent folder with two files. `agent.md` holds the prompt, and its frontmatter is only the name. `agent.json` holds the description, the harness, model, and effort, and the units the agent chose; its fields are in [Building `agent.json`](agent-json.md). Write the description first in `agent.json`, naming the triggers and the near-miss.
+Write the agent folder with two files, in the place that [rbtv agent](../glossary/agent.md#rbtv-agent) gives. `agent.md` holds the prompt, and its frontmatter is only the name. `agent.json` holds the description, the harness, model, and effort, and the units the agent chose; its fields are in [Building `agent.json`](agent-json.md). Write the description first in `agent.json`, naming the triggers and the near-miss.
 
 Write the prompt only as [role](role.md), with its [persona](persona.md) when needed, [procedure](procedure.md), and [constraints](constraints.md), then the Navigation section. The agent file holds no capabilities: it reaches knowledge through selected skills and commands, or, when its whole work is one domain, routes to that domain's capabilities. Leave this task's goal, [scope](../../../../meta/sub-agents/capabilities/scope.md), and [done contract](../../../../meta/sub-agents/capabilities/done-contract.md) out; they arrive with each task.
 
@@ -47,9 +47,11 @@ Values that only this agent's tasks use go in its [`settings.json`](settings-jso
 Then run the commands, in this order:
 
 1. `rbtv agent add AGENT`, where AGENT is the agent's name under `.rbtv/agents/` or the path to its folder. It applies `agent.json`: the units and packs it lists, with the harness, model, and effort checked against `cast list`. Name an extra unit after AGENT only when the purpose needs it and the owner named it.
-2. Only when the agent must answer on Slack: `ignite connect AGENT --channel-name NAME`, or `--dm` for direct messages. Add `--schedule-json FILE` only when the owner asked for a schedule and named both a cadence and a timezone. Ignite connects only agents under `.rbtv/agents/`.
+2. Only when the agent must answer on Slack: `ignite connect AGENT --channel-name NAME`, or `--dm` for direct messages. Add `--schedule-json FILE` only when the owner asked for a schedule: `cron` with a timezone, `every`, or `at` with an ISO datetime and offset. Ignite connects only agents under `.rbtv/agents/`.
 
-If a command is refused because the agent already exists, run `rbtv agent update AGENT all` for its units, and `ignite connect` again to finish a partial connection. Never start a second agent to work around a partial one.
+Do not pass harness, model or effort on any command; change them with `rbtv agent configure AGENT`. To run the agent, follow [running an agent](../glossary/agent.md#running-an-agent): `spark AGENT` for a person, or `cast -rbtv AGENT -p TEXT` for another agent.
+
+If a command is refused, fix the cause it names and run the same command again. `rbtv agent add` and `ignite connect` are safe to re-run. Never start a second agent to work around a partial one.
 
 Report what the commands confirmed. Give the `link:` line that `ignite connect` printed, if it printed one; a direct-message agent has no channel link, so say so. A schedule created at connection time is stored on the agent's board until a real Slack thread exists, so say so too. Never say the agent is ready when a command exited non-zero, and never claim a unit, channel, or route that a command did not confirm.
 

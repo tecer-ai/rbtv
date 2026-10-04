@@ -13,7 +13,7 @@ It holds this installation's mirror, configuration, agents found by name, and ru
 
 ## Making it good
 
-Run `rbtv update all`. Add local components only as mirror components. Repair a broken folder by running `rbtv update all` again.
+Run `rbtv update all` once the record exists ([install.json](../glossary/install-json.md)). Add local components only as mirror components. Repair a broken folder by running `rbtv update all` again.
 
 ## Traps
 

@@ -11,7 +11,7 @@ It gives the agent values its tasks use but its prompt should not carry, such as
 - Each value is one some task of this agent uses; a value with no use today is not added ([Keep it simple](../principles/kiss.md)).
 - No value repeats something the agent file, [`agent.json`](agent-json.md), or another file already holds ([Single source of truth](../principles/single-source-of-truth.md)).
 - Keys are grouped by tool or concern: one top-level key for each, so a reader finds a tool's values in one place.
-- Every path is written relative to the installation root, so the same file works on any machine where the installation has the same layout.
+- Every path is written relative to the installation root, so values work on each machine. The file is per machine and not shared through git.
 - No secret is written in it: it names the environment variable that holds one.
 
 ## Making it good

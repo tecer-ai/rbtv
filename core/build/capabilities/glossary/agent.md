@@ -38,7 +38,7 @@ Every turn, including a scheduled wake, receives the shared general-memory [prof
 
 ## Ignite agent
 
-An rbtv agent connected to Ignite: the Ignite [pack](pack.md) is on and a Slack channel wakes it. The pack holds the standard units of an Ignite agent, for Slack communication and Ignite's behaviour. `ignite connect` turns the pack on through `rbtv` and connects the agent to one Slack channel. It records that connection in the machine's [`config/ignite/config.json`](ignite-config.md), never in the agent folder, so sharing an agent never connects it twice. It also creates the agent's board, its database and its `conversations/` folder. Ignite connects only agents that live under `.rbtv/agents/`. `ignite disconnect` removes the Slack route and turns the pack off.
+An rbtv agent connected to Ignite: the Ignite [pack](pack.md) is on and a Slack channel or a direct message wakes it. The pack holds the standard units of an Ignite agent, for Slack communication and Ignite's behaviour. `ignite connect` turns the pack on through `rbtv` and connects the agent to one Slack channel or to direct messages (`--dm`). It records that connection in the machine's [`config/ignite/config.json`](ignite-config.md), never in the agent folder, so sharing an agent never connects it twice. It also creates the agent's board, its database and its `conversations/` folder. Ignite connects only agents that live under `.rbtv/agents/`. `ignite disconnect` removes the Slack route and turns the pack off. An Ignite agent changes itself with `ignite manage add|remove|configure|update`, which runs `rbtv agent` for it; it reads the catalog with `ignite manage models|list|search|show`. Outside a turn the change verbs are refused.
 
 Ignite's waking program then runs one agent turn for each message in the agent's channel: a reply in a thread continues that thread's conversation, and a new message in the channel starts a new one. The agent can also set timers that wake it. The waking program runs on Linux only, a deliberate restriction that keeps Ignite simple, so an Ignite agent's Slack side runs on a Linux machine.
 
@@ -51,7 +51,7 @@ Whoever launches an agent hands it its `agent.md` prompt as its instructions, th
 - **`cast -rbtv AGENT`**: launched by another agent, which passes the task.
 - **`cast -rogue FILE`**: a rogue agent: a prompt file with no folder that is not an rbtv agent, launched with `cast`'s inline arguments for harness, model, and effort.
 
-Ignite, `cast -rbtv` and `spark` all use the agent's own harness, model, and effort, as recorded in its `agent.json`. `rbtv agent configure` is the only command that changes them.
+Ignite, `cast -rbtv` and `spark` all use the agent's own harness, model, and effort, as recorded in its `agent.json`. `rbtv agent configure` is the only command that changes them. `spark`, `cast -rbtv` and Ignite set `RBTV_AGENT_HOME` to the agent's folder; the Ignite commands that act for an agent, such as `ignite board`, `ignite remember` and `ignite manage`, use it.
 
 ## Sub-agent
 

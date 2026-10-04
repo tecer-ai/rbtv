@@ -1,6 +1,6 @@
 # Prompt
 
-The instruction text formed from the cognitive units selected for an agent. It tells the model how to act through a harness. Its reusable cognitive units are:
+The instruction text formed from the cognitive units selected for an agent. It tells the model how to act through a harness. For an rbtv agent the prompt is the body of its `agent.md`; the frontmatter is not sent to the model. Its reusable cognitive units are:
 
 - [Role](role.md): who the agent is and its standing function.
 - [Persona](persona.md): the agent's standpoint within that role, when the work leaves judgment open.

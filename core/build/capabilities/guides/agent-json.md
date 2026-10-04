@@ -15,7 +15,7 @@ It is the one file that says what an agent is set up with. The author writes wha
 
 ## Making it good
 
-Write the author's fields first, with the description as one line that tells a caller when to choose this agent. Check the harness, model, and effort with `cast list`. Then run `rbtv agent add AGENT`, and read the record it adds.
+Write the author's fields first, with the description as one line that tells a caller when to choose this agent. Check the harness, model, and effort with `cast list`. Then run `rbtv agent add AGENT`, and read the record it adds. Fields: [agent-json](../glossary/agent-json.md). Location: [rbtv agent](../glossary/agent.md#rbtv-agent).
 
 ## Traps
 

@@ -63,6 +63,7 @@
 - [timeline-weekly.md](timeline-weekly.md) — Before recording what still matters from a week.
 - [tool-json.md](tool-json.md) — Before writing a tool's record.
 - [tool.md](tool.md) — Before adding an executable program, or before treating a tool as a cognitive unit.
+- [unit.md](unit.md) — Before naming an item rbtv adds to an installation or agent, or before using the word "unit" in a document.
 - [workflow.md](workflow.md) — Before arranging tasks for sub-agents to run, or before reading a `workflow.md`.
 - [workspace-memory.md](workspace-memory.md) — Before recording private notes about a shared repository or workspace.
 - [workstreams.md](workstreams.md) — Before mapping active projects, areas, and agent subjects.

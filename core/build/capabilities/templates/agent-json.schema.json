@@ -1,16 +1,90 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "agent.json",
+  "description": "The record of an rbtv agent, in its folder beside agent.md. The author writes name, description, harness, model and effort, and may write units and packs. rbtv writes voice through rbtv agent configure, units and packs through rbtv agent add and remove, and the record of generated files. Programs read it, and the agent's own commands read it too.",
   "type": "object",
-  "required": ["name", "description", "harness", "model", "effort", "units", "packs"],
+  "required": ["name", "description", "harness", "model", "effort"],
   "properties": {
-    "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
-    "description": {"type": "string", "minLength": 1},
-    "harness": {"type": "string", "enum": ["claude", "codex", "opencode"]},
-    "model": {"type": "string", "minLength": 1},
-    "effort": {"type": "string", "minLength": 1},
-    "voice": {"type": "string"},
-    "units": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
-    "packs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+    "name": {
+      "description": "The agent's name. It equals the agent folder's name and the name in agent.md.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "description": {
+      "description": "One line that tells a caller when to choose this agent.",
+      "type": "string",
+      "minLength": 1
+    },
+    "harness": {
+      "description": "The harness that runs the agent. Checked against cast list.",
+      "type": "string",
+      "enum": ["claude", "codex", "opencode"]
+    },
+    "model": {
+      "description": "The model. Checked against cast list.",
+      "type": "string",
+      "minLength": 1
+    },
+    "effort": {
+      "description": "The effort word that the model accepts. Checked against cast list.",
+      "type": "string",
+      "minLength": 1
+    },
+    "voice": {
+      "description": "Optional voice, written by rbtv agent configure. Not checked.",
+      "type": "string"
+    },
+    "units": {
+      "description": "The units chosen on their own, as full ids <module>/<component>#<unit>. A short name is accepted on input when it is unique in the catalog.",
+      "type": "array",
+      "items": {"type": "string"},
+      "uniqueItems": true
+    },
+    "packs": {
+      "description": "The names of packs enabled for this agent.",
+      "type": "array",
+      "items": {"type": "string"},
+      "uniqueItems": true
+    },
+    "schema": {
+      "description": "The version of this record's format.",
+      "type": "integer"
+    },
+    "version": {
+      "description": "rbtv's version.",
+      "type": "string"
+    },
+    "marker": {
+      "description": "The per-unit generated-file ownership marker, `rbtv-managed`.",
+      "type": "string"
+    },
+    "components": {
+      "description": "Each component that generated files for this agent, keyed by its id.",
+      "type": "object"
+    },
+    "shared_files": {
+      "description": "Files shared by components through booked keys or fenced sections.",
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "shared_claims": {
+      "description": "Which component owns each booked key or fenced section inside a shared file, as path::key.",
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "guidance_basis": {
+      "description": "The folder instructions file the author writes: CLAUDE.md or AGENTS.md.",
+      "type": "string"
+    },
+    "guidance_excludes": {
+      "description": "Paths rbtv does not walk when it writes folder instructions copies.",
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "guidance_files": {
+      "description": "Folder instructions copies rbtv generated.",
+      "type": "array",
+      "items": {"type": "string"}
+    }
   }
 }

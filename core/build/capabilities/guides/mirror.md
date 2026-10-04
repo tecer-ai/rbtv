@@ -15,7 +15,7 @@ It supplies a component rbtv does not ship, or replaces a shipped component enti
 
 ## Making it good
 
-To add a component rbtv does not ship, use a module and component name no shipped component has. To replace one, use that module and component name and include every unit its users rely on. A file left out is not installed. To stop a replacement, remove that mirror component and run rbtv again.
+To add a component rbtv does not ship, use a module and component name no shipped component has. To replace one, use that module and component name and include every unit its users rely on. A file left out is not installed. To stop a replacement, remove that mirror component, then run `rbtv update all`. Where the mirror is kept is in [mirror](../glossary/mirror.md).
 
 ## Traps
 

@@ -9,7 +9,7 @@
     "name": {
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9-]*$",
-      "description": "The agent's name: the file name without `.md` in a component's `agents/` folder, and the agent folder's name once installed."
+      "description": "The agent's name. It equals the agent folder's name and the `name` in `agent.json`; for an agent a component ships, it is the folder name under the component's `agents/` folder."
     }
   }
 }

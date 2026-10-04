@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "harness-native sub-agent frontmatter",
-  "description": "The frontmatter of a harness-native sub-agent file a component ships in its agents folder.",
+  "description": "The frontmatter of a harness-native sub-agent file a component ships in its `sub-agents/` folder.",
   "type": "object",
   "required": ["name", "description"],
   "additionalProperties": false,
