@@ -35,29 +35,42 @@ writeAgent(scout, { name: 'scout', harness: 'codex', model: 'gpt-6.1-sol', effor
 writeAgent(drafter, { name: 'drafter', harness: 'claude', model: 'sonnet-5-5', effort: 'medium' });
 writeAgent(half, null);
 
-// A `cast` on PATH that records its own argv. Launches go through it; nothing reaches a harness.
+// A program on PATH under `name` that runs `script` with node, on POSIX and on Windows.
 const shimDir = mkFolder('shim');
+function writeShim(name, script) {
+  fs.writeFileSync(path.join(shimDir, `${name}.js`), script);
+  fs.writeFileSync(path.join(shimDir, name), `#!/bin/sh\nexec "${process.execPath}" "$(dirname "$0")/${name}.js" "$@"\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(shimDir, `${name}.cmd`), `@"${process.execPath}" "%~dp0${name}.js" %*\r\n`);
+}
+// A `cast` that records its own argv. Launches go through it; nothing reaches a harness.
 const shimOut = path.join(shimDir, 'argv.json');
-fs.writeFileSync(path.join(shimDir, 'cast.js'),
-  "require('fs').writeFileSync(process.env.SHIM_OUT, JSON.stringify(process.argv.slice(2)));\n");
-fs.writeFileSync(path.join(shimDir, 'cast'), `#!/bin/sh\nexec "${process.execPath}" "$(dirname "$0")/cast.js" "$@"\n`, { mode: 0o755 });
-fs.writeFileSync(path.join(shimDir, 'cast.cmd'), `@"${process.execPath}" "%~dp0cast.js" %*\r\n`);
+writeShim('cast', "require('fs').writeFileSync(process.env.SHIM_OUT, JSON.stringify(process.argv.slice(2)));\n");
+// An `rbtv` that records its own argv, prints one line and exits with RBTV_EXIT. No list is read.
+const rbtvOut = path.join(shimDir, 'rbtv-argv.json');
+writeShim('rbtv', "require('fs').writeFileSync(process.env.RBTV_OUT, JSON.stringify(process.argv.slice(2)));\n"
+  + "process.stdout.write('the list\\n');\nprocess.exitCode = Number(process.env.RBTV_EXIT || 0);\n");
 const fullPath = `${shimDir}${path.delimiter}${process.env.PATH}`;
 
 function spark(args, { env = {}, cwd = root } = {}) {
   return spawnSync(process.execPath, [TOOL, ...args], {
     cwd,
     encoding: 'utf8',
-    env: { ...process.env, PATH: fullPath, SHIM_OUT: shimOut, ...env },
+    env: { ...process.env, PATH: fullPath, SHIM_OUT: shimOut, RBTV_OUT: rbtvOut, ...env },
   });
 }
 
-// -h: exit 0, the help names the cast form it uses
+// -h: exit 0, the help names the cast form it uses and the list form; after `list` it is the same page
 {
   const res = spark(['-h']);
   assert.strictEqual(res.status, 0, res.stderr);
   assert.ok(res.stdout.startsWith('spark — help'), res.stdout);
   assert.ok(res.stdout.includes('cast -rbtv'), 'help names cast -rbtv');
+  assert.ok(res.stdout.includes('       spark list [FOLDER] [--json] [-h]\n'), 'help names the list form');
+
+  const afterList = spark(['list', '--help']);
+  assert.strictEqual(afterList.status, 0, afterList.stderr);
+  assert.strictEqual(afterList.stdout, res.stdout);
+  assert.ok(!fs.existsSync(rbtvOut), 'help runs nothing');
 }
 
 // --dry-run: one line, the cast command, nothing launched
@@ -88,12 +101,49 @@ function spark(args, { env = {}, cwd = root } = {}) {
   assert.deepStrictEqual(out.cast.slice(0, 3), ['cast', '-rbtv', 'plans/x/agents/drafter']);
 }
 
+// list: `rbtv agent list` runs with the same folder and --json; its output and exit status pass through
+{
+  const res = spark(['list']);
+  assert.strictEqual(res.status, 0, res.stderr);
+  assert.strictEqual(res.stdout, 'the list\n');
+  assert.strictEqual(res.stderr, '');
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(rbtvOut, 'utf8')), ['agent', 'list']);
+
+  const folder = spark(['--json', 'list', 'plans/x'], { env: { RBTV_EXIT: '1' } });
+  assert.strictEqual(folder.status, 1, 'the exit status of rbtv agent list passes through');
+  assert.strictEqual(folder.stdout, 'the list\n');
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(rbtvOut, 'utf8')), ['agent', 'list', 'plans/x', '--json']);
+  assert.ok(!fs.existsSync(shimOut), 'list launches nothing');
+}
+
+// list refusals: --dry-run, a second folder, an unknown option, no rbtv; none of them runs rbtv
+{
+  fs.rmSync(rbtvOut);
+  const dryList = spark(['list', '--dry-run']);
+  assert.strictEqual(dryList.status, 1);
+  assert.ok(dryList.stderr.includes('`--dry-run` is not a spark list option'), dryList.stderr);
+
+  const two = spark(['list', 'plans/x', 'plans/y']);
+  assert.strictEqual(two.status, 1);
+  assert.ok(two.stderr.includes('spark list takes at most one folder'), two.stderr);
+
+  const listFlag = spark(['list', '--target', root]);
+  assert.strictEqual(listFlag.status, 1);
+  assert.ok(listFlag.stderr.includes('`--target` is not a spark list option'), listFlag.stderr);
+
+  const noRbtv = spark(['list', '--json'], { env: { PATH: os.tmpdir() } });
+  assert.strictEqual(noRbtv.status, 1);
+  assert.ok(noRbtv.stderr.includes('rbtv is not on PATH'), noRbtv.stderr);
+  assert.strictEqual(noRbtv.stdout, '', '--json does not change a refusal by spark: stdout stays empty');
+  assert.ok(!fs.existsSync(rbtvOut), 'a refused list runs nothing');
+}
+
 // refusals: no agent by name or path, unreadable agent.json, an unknown option, no agent, no cast
 {
   const nosuch = spark(['nosuch', '--dry-run']);
   assert.strictEqual(nosuch.status, 1);
   assert.ok(nosuch.stderr.includes('no rbtv agent `nosuch` was found'), nosuch.stderr);
-  assert.ok(nosuch.stderr.includes('rbtv agent list'), nosuch.stderr);
+  assert.ok(nosuch.stderr.includes('`spark list`, or pass the folder.'), nosuch.stderr);
 
   const nosuchJson = spark(['nosuch', '--json']);
   assert.strictEqual(nosuchJson.status, 1);

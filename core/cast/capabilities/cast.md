@@ -136,6 +136,16 @@ It needs `cast` on PATH and finds the agent the same way cast does: a name or a 
 - Refusals, exit 1: no agent by that name or path, `agent.json` unreadable or missing, `agent.md`
   missing, `cast` not on PATH, or an unknown option.
 
+`spark list [FOLDER]` shows the agents spark can open. It runs `rbtv agent list` with the same
+FOLDER and `--json`, and passes its output and exit status through, so spark keeps no listing of
+its own. It needs `rbtv` on PATH and opens nothing. The first argument that is not an option
+decides the form, so `list` is never taken as an agent name: an agent whose name is `list` is
+opened by its path.
+
+- Refusals by spark, exit 1: `--dry-run`, more than one folder, `rbtv` not on PATH, or an unknown
+  option. A refusal by spark is text on standard error and leaves standard output empty, with or
+  without `--json`.
+
 ## Execution
 
 The child is spawned with `cwd = <launch-folder>` for every harness (the `--cd`/`--work-dir` flags
@@ -415,7 +425,7 @@ dotenv at `rbtv.json`'s `env_file`.
 | `capabilities/tools/cast/lib/handles.js` | the launch-handle registry — the one observable a watcher uses to find a run again |
 | `capabilities/tools/cast/lib/launch.js` | spawn, `cast resume` |
 | `capabilities/tools/cast/lib/agent.js` | `-rbtv` / `-rogue`: find the agent folder, read `agent.json` and `agent.md`; the readers spark also uses |
-| `capabilities/tools/spark/spark.js` | `spark AGENT`: the terminal handoff, a thin layer over `cast -rbtv` (its tests: `test_spark.js`) |
+| `capabilities/tools/spark/spark.js` | `spark AGENT`: the terminal handoff, a thin layer over `cast -rbtv`; `spark list`: a thin layer over `rbtv agent list` (its tests: `test_spark.js`) |
 | `capabilities/tools/cast/lib/sessions.js` | the per-harness session-store readers and `cast sessions` |
 | `capabilities/tools/cast/lib/monitor.js` | `cast monitor` — the freeze tripwire, its witness channel, roster and watch |
 | `capabilities/tools/cast/lib/route.js` | `cast route` — the selector |

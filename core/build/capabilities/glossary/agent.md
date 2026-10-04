@@ -47,7 +47,7 @@ Ignite's waking program then runs one agent turn for each message in the agent's
 Whoever launches an agent hands it its `agent.md` prompt as its instructions, through the harness's strongest channel: a system prompt in Claude Code, developer instructions in Codex, and the first message in OpenCode. The agent section of the agent folder's folder instructions points to `agent.md` as well, so the agent finds its instructions again after the harness shortens a long conversation.
 
 - **Through Slack**, when it is an Ignite agent: each message, or a timer, supplies the task.
-- **`spark AGENT`**: interactively, a person opens the agent. `spark` is a tool of the `cast` component.
+- **`spark AGENT`**: interactively, a person opens the agent. `spark list` shows the agents it can open. `spark` is a tool of the `cast` component.
 - **`cast -rbtv AGENT`**: launched by another agent, which passes the task.
 - **`cast -rogue FILE`**: a rogue agent: a prompt file with no folder that is not an rbtv agent, launched with `cast`'s inline arguments for harness, model, and effort.
 
