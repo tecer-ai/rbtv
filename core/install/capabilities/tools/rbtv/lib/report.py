@@ -321,6 +321,11 @@ def _warnings(out: _Out, data: dict, preview: bool) -> None:
         out.bullet("Warnings", f"{len(missing)} recorded component(s) are "
                    "missing from local RBTV source and were not refreshed: "
                    + ", ".join(missing))
+    stale = data.get("recorded_source_gone") or []
+    if stale:
+        out.bullet("Warnings", "the record lists unit(s) whose source is gone: "
+                   + ", ".join(stale)
+                   + ". Run `rbtv update all` to remove them.")
     report = data.get("report") or {}
     legacy = (report.get("path") or {}).get("legacy_preserved") or []
     if legacy:

@@ -95,6 +95,14 @@ def depth_two_is_the_marker(ctx) -> None:
               exc.code == "component-record-missing" and "c.json" in exc.message,
               f"{exc.code}: {exc.message}")
 
+    cache = tmp / "cache-leftover"
+    _w(cache / "m" / "m.json", json.dumps({"description": "m"}))
+    _w(cache / "m" / "former" / "capabilities" / "tools" / "old" /
+       "lib" / "__pycache__" / "old.cpython-314.pyc", "bytecode")
+    cached = scan_tree(cache, "repo")
+    check("a removed component left with only bytecode caches is ignored",
+          cached == {}, str(cached))
+
     nomod = tmp / "no-module-record"
     _w(nomod / "m" / "c" / "c.json",
        json.dumps({"description": "c", "dependencies": []}))

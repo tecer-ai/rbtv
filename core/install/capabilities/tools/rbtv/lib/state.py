@@ -146,14 +146,9 @@ def migrate_install_component_ids(state: dict) -> None:
         units = old.get("units")
         if isinstance(units, dict) and "rbtv-install" in units:
             units["rbtv"] = units.pop("rbtv-install")
-        if isinstance(units, dict):
-            for part in units.values():
-                if isinstance(part, dict) and "links" in part:
-                    part["links"] = ["rbtv" if name == "rbtv-install" else name
-                                     for name in part["links"]]
-        if "path_links" in old:
-            old["path_links"] = ["rbtv" if name == "rbtv-install" else name
-                                 for name in old["path_links"]]
+        # Keep the old shortcut booking until reconciliation removes it.  If
+        # it were renamed here, `reconcile_shared` would no longer know to
+        # release rbtv-install from ~/.rbtv/bin or path-owners.json.
         components["core/install"] = old
     components.pop("core/rbtv-cli", None)
     state["components"] = components

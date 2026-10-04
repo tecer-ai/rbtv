@@ -220,11 +220,9 @@ def public_contract(ctx) -> None:
     ctx.check("UX-source-missing-does-not-block-guidance-copy",
               code == 0 and guidance["scope"] == "guidance")
     code, scaffold = run("update", "scaffolding", selected_catalog=gone_catalog)
-    ctx.check("UX-source-missing-blocks-scaffolding",
-              code == 1 and scaffold["error"]["code"] == "component-vanished")
-    code, removed = run("remove", "fixmod/goodcomp#fixskill",
-                        selected_catalog=gone_catalog)
-    ctx.check("UX-vanished-item-removable", code == 0 and removed["ok"]
+    ctx.check("UX-source-missing-scaffolding-removes-selection",
+              code == 0 and scaffold["ok"]
+              and scaffold["removed"] == ["fixmod/goodcomp#fixskill"]
               and not (target / ".agents/skills/fixskill/SKILL.md").exists())
     code, repeat = run("remove", "fixskill")
     ctx.check("UX-repeat-removal-is-no-op", code == 0 and repeat["ok"])

@@ -194,9 +194,10 @@ def installation_settings(ctx) -> None:
           code == 0 and "New owner guidance" in
           (gone / "AGENTS.md").read_text(encoding="utf-8")
           and "fixmod/goodcomp" in read_state(gone)["components"])
-    check("W27 — vanished source blocks scaffolding regeneration",
-          run(gone, "update", "scaffolding", source=absent_source)[0]
-          == "component-vanished")
+    code, _ = run(gone, "update", "scaffolding", source=absent_source)
+    check("W27 — scaffolding removes a vanished source selection",
+          code == 0 and "fixmod/goodcomp" not in read_state(gone)["components"]
+          and not (gone / ".claude/skills/fixskill/SKILL.md").exists())
 
     rule_start = f"<!-- {FENCE_ID}:start rule fixmod/codexcomp#codexrule -->"
     rule_end = f"<!-- {FENCE_ID}:end rule fixmod/codexcomp#codexrule -->"

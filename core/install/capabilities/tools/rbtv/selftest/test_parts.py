@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import contextlib
+import io
 from pathlib import Path
 
 from discovery import HUB_DIR, Refuse, scan_all
@@ -29,6 +31,16 @@ from lib.state import (
 from lib.planning import plan_files
 from lib.selection import _sel, resolve_selection
 from lib.operations import _select_units, do_install, do_uninstall
+from lib.commands import cmd_update
+from lib.parser import build_parser
+from lib.pathlinks import bin_dir, link_path
+from lib.shared_links import owner_file
+
+
+def _args(tokens):
+    parsed = build_parser().parse_args(tokens)
+    parsed._why = "selftest"
+    return parsed
 
 
 def vanished_component_removable(ctx) -> None:
@@ -228,6 +240,46 @@ def vanished_component_part_rm(ctx) -> None:
           and res_g1["report"]["source_gone"] == ["fixmod/goodcomp#fixskill"]
           and not (g1 / ".claude/skills/fixskill/SKILL.md").exists(),
           str(sorted(g1units)) + " " + str(res_g1["report"].get("source_gone")))
+
+    # An update must reconcile a selection after its source has disappeared:
+    # delete its generated file, its record entry and its PATH shortcut.
+    source = tmp / "selection-source"
+    component = source / "gone" / "selected"
+    component.mkdir(parents=True)
+    (source / "gone" / "gone.json").write_text(
+        json.dumps({"description": "gone"}), encoding="utf-8")
+    (component / "selected.json").write_text(
+        json.dumps({"description": "selected", "dependencies": []}), encoding="utf-8")
+    tool = component / "capabilities" / "tools" / "old-tool"
+    tool.mkdir(parents=True)
+    (tool / "old-tool.json").write_text(json.dumps({
+        "name": "old-tool", "description": "old", "entry": "old.py"}),
+        encoding="utf-8")
+    program = tool / "old.py"
+    program.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    program.chmod(0o755)
+    selected_catalog, _ = scan_all(tmp / "no-mirror-selected", source)
+    selected_ws = tmp / "ws-selection-source-gone"
+    selected_ws.mkdir()
+    do_install(selected_ws, selected_catalog, ["gone/selected"], ["claude"],
+               dry_run=False, parts=["gone/selected#old-tool"])
+    before_link = link_path(bin_dir(), "old-tool").exists()
+    old_state = read_state(selected_ws)
+    old_state["units"] = ["gone/selected#old-tool"]
+    write_state(selected_ws, old_state)
+    unavailable_catalog = {**selected_catalog,
+                           "gone/selected": {**selected_catalog["gone/selected"],
+                                             "rows": []}}
+    with contextlib.redirect_stdout(io.StringIO()):
+        cmd_update(_args(["update", "all"]), selected_ws,
+                   unavailable_catalog, [])
+    reconciled = read_state(selected_ws)
+    owners = json.loads(owner_file(bin_dir()).read_text(encoding="utf-8"))
+    check("SG2 — update removes a selected unit whose source is gone, including its shortcut",
+          before_link and reconciled["units"] == []
+          and "gone/selected" not in reconciled["components"]
+          and not link_path(bin_dir(), "old-tool").exists()
+          and "old-tool" not in owners["links"], str(reconciled))
 
     vu = tmp / "ws-v1-part"
     vu.mkdir()

@@ -22,6 +22,8 @@ The installer accepts `claude`, `codex`, and `opencode` as receiving harnesses. 
 
 The shape of `.rbtv/config/install.json` belongs to the [install record schema](../../build/capabilities/templates/install-json.schema.json) and [glossary](../../build/capabilities/glossary/install-json.md).
 
+When a selected unit, pack, or component is absent from the local source after an update, `rbtv update scaffolding` and `rbtv update all` remove its generated files, record entry, and command shortcut. Other add and remove operations continue, warn about the stale selection, and direct the user to `rbtv update all` for reconciliation.
+
 ## D6 — Collision gate
 
 Before writing, the installer refuses a planned whole-file path or shared-file key held by someone else. A booked path or claim can be updated; a marked generated file can be adopted. This protects authored content while allowing installer output to be refreshed.

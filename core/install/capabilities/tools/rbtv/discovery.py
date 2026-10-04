@@ -74,8 +74,25 @@ def _record(path: Path, template: str) -> dict:
 
 
 def _is_component_dir(path: Path) -> bool:
+    # `git pull` cannot remove ignored Python bytecode.  A renamed component
+    # can therefore leave an otherwise empty folder behind, but that remnant
+    # is not source and must not trigger the missing-record safety gate.
+    if _cache_only(path):
+        return False
     return (path / f"{path.name}.json").is_file() or any(
         (path / folder).is_dir() for folder in COMPONENT_FOLDERS)
+
+
+def _cache_only(path: Path) -> bool:
+    """Whether a leftover folder contains only Python bytecode caches."""
+    try:
+        entries = list(path.iterdir())
+    except OSError:
+        return False
+    return bool(entries) and all(
+        _cache_only(entry) if entry.is_dir()
+        else entry.is_file() and entry.suffix == ".pyc"
+        for entry in entries)
 
 
 def discover_skill_folders(root: Path, tree: str) -> dict[str, dict]:

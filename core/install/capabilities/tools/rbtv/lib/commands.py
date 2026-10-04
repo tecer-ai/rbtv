@@ -524,6 +524,18 @@ def _pack_facts(catalog: dict, names: set[str], *, on: bool) -> list[tuple[str, 
     return [(name, packs[name]["component"], on) for name in sorted(names)]
 
 
+def _available_selection(catalog: dict, state: dict) -> tuple[set[str], set[str], list[str]]:
+    """Return source-backed selections and the recorded selections now gone."""
+    available = {row["key"] for row in iter_catalog_parts(catalog)}
+    packs = catalog_packs(catalog)
+    units = selected_units(state)
+    enabled_packs = selected_packs(state)
+    missing_units = sorted(units - available)
+    missing_packs = sorted(enabled_packs - set(packs))
+    missing = missing_units + [f"pack {name}" for name in missing_packs]
+    return units & available, enabled_packs & set(packs), missing
+
+
 def _save_selected_units(target: Path, add: set[str] | None = None,
                          remove: set[str] | None = None,
                          add_packs: set[str] | None = None,
@@ -764,6 +776,7 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
         refusal.next = f"rbtv agent add {name}"
         raise refusal
     state = read_state(target)
+    _available_units, _available_packs, stale = _available_selection(catalog, state)
     if not is_agent_target(target) and book_harnesses(state) is None and (
             getattr(args, "harness", None) is None
             or getattr(args, "artifact", None) is None):
@@ -789,6 +802,7 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
         _save_selected_units(target, add=set(parts), add_packs=requested_packs)
     data["selected_units"] = all_parts
     data["skipped_agents"] = skipped_agents
+    data["recorded_source_gone"] = stale
     before = _unit_keys(catalog, state)
     facts = {"units": (len(before), len(before | set(all_parts))),
              "harnesses_before": book_harnesses(state),
@@ -803,7 +817,7 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
 
 
 def _remove_not_installed(args, target: Path, catalog: dict, state: dict,
-                          noun: list[str], dry: bool) -> int:
+                          noun: list[str], dry: bool, stale: list[str]) -> int:
     """`remove NAME` where NAME is a known unit that is not installed: there is
     nothing to take away, so the result names it and changes no file. A name
     the catalog does not know was refused before this point."""
@@ -814,12 +828,14 @@ def _remove_not_installed(args, target: Path, catalog: dict, state: dict,
                    - installed)
     if not named:
         _emit({"ok": True, "uninstalled": [], "dry_run": dry,
+               "recorded_source_gone": stale,
                "message": "no installed units matched this request"},
               bool(args.json), target, getattr(args, "_why", "unknown"),
               verb="remove", details=getattr(args, "details", False))
         return 0
     count = len(installed)
     _emit({"ok": True, "uninstalled": [], "not_installed": named,
+           "recorded_source_gone": stale,
            "dry_run": dry, "written": [], "deleted": [], "skipped": []},
           bool(args.json), target, getattr(args, "_why", "unknown"),
           verb="remove", details=getattr(args, "details", False),
@@ -842,6 +858,7 @@ def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
         raise SystemExit(2)
     args.names = noun
     state = read_state(target)
+    _available_units, available_packs, stale = _available_selection(catalog, state)
     book = state.get("components")
     keys = resolve_selection(args, catalog, book) if (_has_selectors(args) or noun) else set()
     dry = bool(getattr(args, "dry_run", False))
@@ -852,7 +869,7 @@ def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
     shared_count = len(set(preview_links.get("released") or [])
                        | set(preview_links.get("unlinked") or [])
                        | set(preview_links.get("kept_shared") or []))
-    current_packs = selected_packs(state)
+    current_packs = available_packs
     removed_parts = set(keys)
     wanted_units = (selected_units(state) - removed_parts) | pack_units(
         catalog, current_packs - requested_packs)
@@ -862,7 +879,7 @@ def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
     # contradict an enabled pack, and update must not immediately add it back.
     keys = booked_units - wanted_units
     if not keys and not shared_count and not requested_packs:
-        return _remove_not_installed(args, target, catalog, state, noun, dry)
+        return _remove_not_installed(args, target, catalog, state, noun, dry, stale)
     broad = bool(args.all or args.module or args.method or _has_negative(args))
     if broad and not requested_packs and not (dry or getattr(args, "yes", False)):
         flags = ["--all"] if args.all else []
@@ -908,6 +925,7 @@ def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
         _save_selected_units(target, remove=removed_parts,
                              remove_packs=requested_packs)
     data["selected_units"] = parts
+    data["recorded_source_gone"] = stale
     _emit(data, bool(getattr(args, "json", False)),
           target, getattr(args, "_why", "unknown"), verb="remove",
           details=getattr(args, "details", False), facts=facts)
@@ -922,12 +940,19 @@ def cmd_update(args, target: Path, catalog: dict, shadowed: list,
         agent_state(target)
     state = read_state(target)
     hs = _require_recorded(target, state)
-    chosen = selected_units(state) | pack_units(catalog, selected_packs(state))
+    selected, packs, unavailable = _available_selection(catalog, state)
+    chosen = selected | pack_units(catalog, packs)
     members = unit_membership(target, catalog, state, chosen)
     data = _replan_all(target, catalog, hs,
                        bool(getattr(args, "dry_run", False)),
                        scope=args.scope,
                        selected=sorted(chosen) if args.scope in ("scaffolding", "all") else None)
+    data["report"]["source_gone"] = unavailable
+    if not bool(getattr(args, "dry_run", False)) and args.scope in ("scaffolding", "all"):
+        saved = read_state(target)
+        saved["units"] = sorted(selected)
+        saved["packs"] = sorted(packs)
+        write_state(target, saved)
     records = state.get("components") or {}
     data["recorded_units"] = len(iter_booked_units(catalog, records))
     data["source_missing"] = sorted(cid for cid in records if cid not in catalog)
