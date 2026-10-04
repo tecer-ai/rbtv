@@ -4,6 +4,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import subprocess
 from pathlib import Path
 
 from discovery import Refuse
@@ -14,6 +15,7 @@ from lib.operations import do_install, do_uninstall
 from lib.parser import build_parser
 from lib.commands import _HANDLERS, main
 from lib.doctor import do_doctor
+from lib.agents import update_agent
 
 
 def installation_settings(ctx) -> None:
@@ -473,3 +475,65 @@ def unit_selection_sync(ctx) -> None:
           and (not (fence_b / "AGENTS.md").exists() or
                "rule fixmod/codexcomp#codexrule" not in
                (fence_b / "AGENTS.md").read_text(encoding="utf-8")))
+
+    def foreign_fences(home: Path) -> dict[Path, bytes]:
+        label = "rule fixmod/codexcomp#codexrule"
+        quoted = (f"quoted text\n<!-- rbtv:start {label} -->\nquoted\n"
+                  f"<!-- rbtv:end {label} -->\nmore text\n")
+        docs = home / "docs/deep/transcript.md"
+        nested = home / "tools/repo/template.md"
+        docs.parent.mkdir(parents=True)
+        nested.parent.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(nested.parent)], check=True,
+                       capture_output=True)
+        docs.write_text(quoted, encoding="utf-8")
+        nested.write_text(quoted, encoding="utf-8")
+        backup = home / "backup/AGENTS.md"
+        backup.parent.mkdir(parents=True)
+        backup.write_bytes((home / "AGENTS.md").read_bytes())
+        return {path: path.read_bytes() for path in (docs, backup, nested)}
+
+    bounded = home("ws-units-fence-bounded")
+    do_install(bounded, catalog, ["fixmod/codexcomp"], ["codex"],
+               dry_run=False, guidance_basis="none", parts=["codexrule"])
+    root_foreign = foreign_fences(bounded)
+    state = read_state(bounded)
+    state["units"] = []
+    write_state(bounded, state)
+    root_preview = run(bounded, "update", "all", "--dry-run", "--details")
+    root_real = run(bounded, "update", "all")
+    root_stale_released = not (bounded / "AGENTS.md").exists()
+
+    agent_root = home("ws-units-fence-agent-root")
+    agent = agent_root / ".rbtv/agents/scout"
+    agent.mkdir(parents=True)
+    (agent / "agent.md").write_text("---\nname: scout\n---\n\nScout.\n",
+                                     encoding="utf-8")
+    (agent / "agent.json").write_text(json.dumps({
+        "name": "scout", "description": "Scout.", "harness": "codex",
+        "model": "c1", "effort": "high",
+        "units": ["fixmod/codexcomp#codexrule"], "packs": []}) + "\n",
+                                     encoding="utf-8")
+    update_agent(agent_root, "scout", "all", catalog, False)
+    agent_foreign = foreign_fences(agent)
+    state = read_state(agent)
+    state["units"] = []
+    write_state(agent, state)
+    agent_preview = update_agent(agent_root, "scout", "all", catalog, True)
+    agent_real = update_agent(agent_root, "scout", "all", catalog, False)
+    agent_stale_released = ("rule fixmod/codexcomp#codexrule" not in
+                            (agent / "AGENTS.md").read_text(encoding="utf-8"))
+    foreign_names = [path.relative_to(bounded).as_posix() for path in root_foreign]
+    check("W50 — update releases only stale shared sections, never quoted or copied documents",
+          all(path.read_bytes() == before for path, before in root_foreign.items())
+          and all(path.read_bytes() == before for path, before in agent_foreign.items())
+          and all(name not in root_preview[1] and name not in root_real[1]
+                  for name in foreign_names)
+          and root_stale_released and agent_stale_released
+          and "AGENTS.md::#block:rule fixmod/codexcomp#codexrule" in
+          agent_preview["unit_files"]["shared_removed"]
+          and "AGENTS.md::#block:rule fixmod/codexcomp#codexrule" in
+          agent_real["unit_files"]["shared_removed"],
+          str((root_preview, root_real,
+               agent_preview["unit_files"].get("shared_removed"),
+               agent_real["unit_files"].get("shared_removed"))))

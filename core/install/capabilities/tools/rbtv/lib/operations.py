@@ -388,7 +388,7 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
                        if selected is not None else set())
         planned_claims = {_claim_id(c["path"], c["key"], c.get("label"))
                           for c in claims}
-        extra_claims = (owned_fence_claims(target, planned_claims)
+        extra_claims = (owned_fence_claims(target, planned_claims, state, harnesses)
                         if selected is not None else set())
         result = apply(target, files, claims, apply_state, dry_run, protect,
                        extra_files=extra_files, extra_claims=extra_claims)

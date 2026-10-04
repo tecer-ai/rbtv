@@ -9,7 +9,7 @@ from pathlib import Path
 
 from discovery import Refuse
 
-from .constants import FENCE_ID, LEGACY_FENCE_ID
+from .constants import FENCE_ID, GUIDANCE_FILE, LEGACY_FENCE_ID
 
 
 # The end line of a block this installer wrote, now or under the 0.2 fence.
@@ -107,22 +107,30 @@ def _instruction_block_valid(text: str, rel: str, path: Path) -> bool:
     return True
 
 
-def owned_fence_claims(target: Path, planned: set[str]) -> set[str]:
-    """Labelled rbtv fences on disk that the current plan does not retain.
+def owned_fence_claims(target: Path, planned: set[str], state: dict,
+                       harnesses: list[str]) -> set[str]:
+    """Stale labelled fences in shared destinations this target can own.
 
-    Fences are the shared-file ownership marker.  Reading them here lets an
-    installation copied without its former record release stale sections
-    without treating any unfenced author text as generated.
+    A fence alone does not establish ownership: ordinary documents can quote
+    one.  The plan and book identify destinations this installation has used;
+    `GUIDANCE_FILE` supplies each receiving harness's fixed root destination,
+    so a lost book can still release a stale root instruction section.
     """
+    paths = {cid.partition("::")[0] for cid in planned}
+    paths.update(state.get("shared_files") or [])
+    paths.update(cid.partition("::")[0]
+                 for cid in state.get("shared_claims") or [])
+    paths.update(GUIDANCE_FILE[harness] for harness in harnesses
+                 if harness in GUIDANCE_FILE)
     found: set[str] = set()
-    for path in target.rglob("*.md"):
-        if ".rbtv" in path.parts:
+    for rel in paths:
+        path = target / rel
+        if path.suffix != ".md" or not path.is_file():
             continue
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        rel = path.relative_to(target).as_posix()
         for label in _OWNED_LABELS.findall(text):
             cid = _claim_id(rel, None, label)
             if cid not in planned and _located(text, "<!--", label):
