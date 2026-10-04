@@ -351,12 +351,13 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.ok(!/^usage: cast resume/.test(res.stdout), `"-h" as prompt text must not print usage: ${res.stdout}`);
 }
 
-// -h: exit 0, <=50 lines (one screen; raised from 40 for resume/sessions, from 44 for monitor, from 47 for route)
+// -h: exit 0, <=60 lines (raised from 50 on 2026-10-04 for the -ig usage block: the approved help
+// screen, build/screens/review/40-cast-spark.md screen 400, runs to about 70 lines)
 {
   const res = spawnSync('node', [TOOL, '-h'], { encoding: 'utf8' });
   assert.strictEqual(res.status, 0, 'cast -h must exit 0');
   const lines = res.stdout.split('\n').filter((l) => l.length > 0);
-  assert.ok(lines.length <= 50, `help must be <=50 lines, got ${lines.length}`);
+  assert.ok(lines.length <= 60, `help must be <=60 lines, got ${lines.length}`);
   // enumerate models from the tool's own inventory, never by re-parsing its source.
   // list --json also carries non-harness top-level keys (effort_numbers, usage), so the
   // three harnesses are read BY NAME — Object.values() would flatten the new keys too.
@@ -1381,32 +1382,61 @@ else {
   }
 }
 
-// -ig launches an installed agent from its folder with agent.md as the system prompt; -rg launches an
-// agent file that is not installed, its body (frontmatter ignored) as the system prompt.
+// -ig launches an installed agent from its agent folder: harness, model and effort come from its
+// agent.json, agent.md (frontmatter removed) is the system prompt, RBTV_AGENT_HOME names the folder.
+// -rg launches an agent file that is not installed, its body (frontmatter ignored) as the system prompt.
 {
   const root = mkFolder('ig-root');
   const home = path.join(root, '.rbtv', 'agents', 'sara');
   fs.mkdirSync(home, { recursive: true });
-  fs.writeFileSync(path.join(home, 'agent.md'), '---\nname: sara\ndescription: x\n---\nYou are Sara.');
-  fs.writeFileSync(path.join(home, 'launch.json'), '{"harness":"claude","model":"sonnet-5","effort":"medium"}\n');
-  const ig = dryRun(['claude', 'sonnet-5', '2', '-ig', 'sara', '--target', root, '-p', 'go']);
+  fs.writeFileSync(path.join(home, 'agent.md'), '---\nname: sara\n---\nYou are Sara.');
+  fs.writeFileSync(path.join(home, 'agent.json'), '{"name":"sara","harness":"claude","model":"sonnet-5","effort":"medium"}\n');
+  const igRun = (args) => {
+    const res = spawnSync('node', [TOOL, ...args, '--dry-run'], { cwd: root, encoding: 'utf8' });
+    assert.strictEqual(res.status, 0, `expected exit 0, got ${res.status}, stderr: ${res.stderr}`);
+    return JSON.parse(res.stdout);
+  };
+  const ig = igRun(['-ig', 'sara', '-p', 'go']);
   assert.strictEqual(ig.cwd, home);
-  assert.strictEqual(ig.argv[ig.argv.indexOf('--append-system-prompt-file') + 1], path.join(home, 'agent.md'));
+  assert.strictEqual(ig.RBTV_AGENT_HOME, home);
+  assert.strictEqual(ig.effort_word, 'medium');
+  assert.strictEqual(ig.argv[ig.argv.indexOf('--effort') + 1], 'medium', `effort is the agent's word: ${ig.argv}`);
+  assert.strictEqual(ig.argv[ig.argv.indexOf('--append-system-prompt') + 1], 'You are Sara.', 'frontmatter must not reach the model');
+  assert.ok(!ig.argv.some((a) => a.includes('name: sara')), `frontmatter leaked into argv: ${ig.argv}`);
   assert.strictEqual(ig.stdin_preview, 'go');
+
+  const byPath = spawnSync('node', [TOOL, '-ig', '.rbtv/agents/sara', '-p', 'go', '--dry-run'], { cwd: root, encoding: 'utf8' });
+  assert.strictEqual(byPath.status, 0, byPath.stderr);
+  assert.strictEqual(JSON.parse(byPath.stdout).cwd, home, 'a path names the agent folder');
 
   const rg = dryRun(['codex', 'gpt-5.5', '2', '-rg', path.join(home, 'agent.md'), '-p', 'go']);
   assert.ok(rg.argv.includes(`developer_instructions=${JSON.stringify('You are Sara.')}`), `frontmatter must not reach the prompt: ${rg.argv}`);
   assert.ok(rg.argv.includes('project_doc_max_bytes=131072'), `every Codex launch raises the AGENTS.md limit: ${rg.argv}`);
+  assert.ok(!('RBTV_AGENT_HOME' in rg), '-rg is not an installed agent: no RBTV_AGENT_HOME');
 
-  for (const args of [
-    ['claude', 'sonnet-5', '2', '-ig', 'nobody', '--target', root, '-p', 'go'],
-    ['claude', 'sonnet-5', '2', '-ig', 'sara', '-rg', 'x.md', '-p', 'go'],
-    ['claude', 'sonnet-5', '2', '-ig', 'sara', '--target', root, '-s', 'x', '-p', 'go'],
-    ['claude', 'sonnet-5', '2', '--target', root, '-p', 'go'],
-  ]) {
-    const res = spawnSync('node', [TOOL, ...args, '--dry-run']);
+  const halfHome = path.join(root, '.rbtv', 'agents', 'half');
+  fs.mkdirSync(halfHome, { recursive: true });
+  fs.writeFileSync(path.join(halfHome, 'agent.md'), 'You are half.');
+
+  const refusals = [
+    [['claude', 'sonnet-5', '2', '-ig', 'sara', '-p', 'go'], 'does not take a harness, model or effort'],
+    [['codex', 'gpt-6-sol', '3', '-ig', 'sara', '-p', 'go'], 'does not take a harness, model or effort'],
+    [['-ig', 'nobody', '-p', 'go'], "no installed agent 'nobody'"],
+    [['-ig', 'plans/launch/agents/missing', '-p', 'go'], 'no installed agent'],
+    [['-ig', 'half', '-p', 'go'], 'agent.json is missing'],
+    [['-ig', 'sara', '-rg', 'x.md', '-p', 'go'], 'mutually exclusive'],
+    [['-ig', 'sara', '-s', 'x', '-p', 'go'], 'cannot be combined'],
+    [['-ig', 'sara', '--target', root, '-p', 'go'], "unknown flag '--target'"],
+    [['claude', 'sonnet-5', '2', '--target', root, '-p', 'go'], "unknown flag '--target'"],
+  ];
+  for (const [args, text] of refusals) {
+    const res = spawnSync('node', [TOOL, ...args, '--dry-run'], { cwd: root, encoding: 'utf8' });
     assert.strictEqual(res.status, 2, `expected a refusal for: ${args.join(' ')}`);
+    assert.ok(res.stderr.includes(text), `refusal for ${args.join(' ')} must say '${text}', got: ${res.stderr}`);
   }
+  const help = spawnSync('node', [TOOL, '-h'], { encoding: 'utf8' }).stdout;
+  assert.ok(help.includes('rbtv agent configure AGENT') && !help.includes('--target'),
+    'help names rbtv agent configure and no longer mentions --target');
 }
 
 console.log('all cast tests passed');

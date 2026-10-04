@@ -6,7 +6,7 @@
 // byte-identical across the split (163-invocation corpus, both self-check suites).
 
 const { API_USAGE } = require('./api');
-const { RESUME_USAGE, SESSIONS_USAGE, USAGE, EFFORT_RULE, modelTable } = require('./core');
+const { RESUME_USAGE, SESSIONS_USAGE, USAGE, USAGE_IG, EFFORT_RULE, modelTable } = require('./core');
 const { loadOptional } = require('./optional');
 const { ROUTE_FORMS, ROUTE_USAGE } = require('./route');
 const { USAGE: TURN_USAGE } = require('./turn');
@@ -23,16 +23,22 @@ function printHelp() {
     "Prints the child's stdout/stderr and exits with its exit code.",
     "--headed launches the harness's interactive TUI instead (prompt becomes the first message).",
     '',
-    `Usage: cast ${USAGE.slice('cast '.length)}`,
-    `       ${RESUME_USAGE}`,
-    `       ${SESSIONS_USAGE}`,
-    `       ${TURN_USAGE}`,
-    `       ${MONITOR_USAGE}`,
-    `       ${ROUTE_USAGE}`,
+    'Usage:',
+    '  cast <harness> <model> <effort 1-5> [launch-folder]',
+    '      (-p TEXT | -f FILE)',
+    '      [-s TEXT | -S FILE | -rg AGENT-FILE]',
+    '      [--headed] [--dry-run]',
+    `  ${USAGE_IG}`,
+    '',
+    `  ${RESUME_USAGE}`,
+    `  ${SESSIONS_USAGE}`,
+    `  ${TURN_USAGE}`,
+    `  ${MONITOR_USAGE}`,
+    `  ${ROUTE_USAGE}`,
     // The batch form is the one route surface a caller cannot guess from the interview line;
     // taken from ROUTE_FORMS so this line can never drift from the route help page.
-    ...ROUTE_FORMS.filter((f) => f.includes('--batch')).map((f) => `       ${f}`),
-    '       cast api <model> …   |   cast doctor [--json]   |   cast list [--json]   |   cast -h',
+    ...ROUTE_FORMS.filter((f) => f.includes('--batch')).map((f) => `  ${f}`),
+    '  cast api <model> …   |   cast doctor [--json]   |   cast list [--json]   |   cast -h',
     '',
     "Models (harness, model, what each effort number means):",
     ...modelTable(),
@@ -41,7 +47,9 @@ function printHelp() {
     '[launch-folder] defaults to the current directory.',
     '-s TEXT / -S FILE: system prompt — real for claude, developer instructions for codex, prepended to the first message for opencode.',
     '',
-    '-ig AGENT      installed agent: runs in its folder, agent.md is the system prompt (--target DIR to find it)',
+    '-ig AGENT      rbtv agent, with its own harness, model and effort, read from agent.json. A name is under <installation>/.rbtv/agents/.',
+    '               A path is the agent folder. Do not pass harness, model or effort. To change them: rbtv agent configure AGENT',
+    '               Sets RBTV_AGENT_HOME. Hands agent.md to the model without its frontmatter.',
     '-rg FILE       one-off agent: the body of the agent file is the system prompt',
     'cast resume    one more turn into a session id, or `last` for the folder newest',
     'cast sessions  what ran in a folder — harness, id, started, first-prompt label',
@@ -50,7 +58,8 @@ function printHelp() {
     'cast monitor   live cast jobs; --watch exits 3 on stall, 4 on ENDED.',
     '',
     'Example: cast claude sonnet-5 3 -p "reply with exactly: ok"',
-    '         cast resume claude last -p "now say it in Portuguese"',
+    '         cast -ig scout -p "reply with exactly: ok"',
+    '         cast -ig plans/launch/agents/drafter -p "reply with exactly: ok"',
     '',
     'next: cast <verb> -h   # every flag of one verb, with examples',
   ];

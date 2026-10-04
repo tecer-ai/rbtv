@@ -1,5 +1,5 @@
 {
-  "description": "The rbtv command: spark, doctor, selftest, and rbtv install. Modules, components, and units are browsed with rbtv install list.",
+  "description": "The rbtv command: doctor, selftest, and rbtv install. Modules, components, and units are browsed with rbtv install list.",
   "dependencies": [
     "node"
   ]

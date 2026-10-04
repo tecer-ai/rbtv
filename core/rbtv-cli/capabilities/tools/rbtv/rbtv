@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// rbtv — the system command. It runs spark, doctor, and selftest, and delegates
+// rbtv — the system command. It runs doctor and selftest, and delegates
 // `rbtv install <verb>` to the installer. It does not browse modules or components:
 // that is `rbtv install list`. Every action verb delegates; this CLI owns no second
 // implementation of a surface that already ships.
@@ -11,7 +11,6 @@ const verbs = require('./lib/verbs');
 const { delegate, buildDelegateArgs } = require('./lib/delegate');
 const { json, refusal } = require('./lib/render');
 const { runSelftest } = require('./lib/selftest');
-const { spark } = require('./lib/spark');
 const { RBTV_ROOT, rel } = require('./lib/root');
 
 const VERSION = '0.2.1';
@@ -24,7 +23,6 @@ function topHelp() {
     'ACT (delegates — no second implementation)',
     `  rbtv install <verb>   manage units here: ${verbs.INSTALL_VERBS
       .filter((v) => v !== 'interactive' && v !== 'selftest').join('|')}`,
-    '  rbtv spark <agent>    run an installed agent interactively',
     '',
     'ORIENT',
     '  rbtv doctor           can this tool work here? delegates present?',
@@ -85,7 +83,6 @@ function main(argvIn) {
   const head = argv[0];
   if (head === 'doctor') return doctor(opts);
   if (head === 'selftest') return runSelftest();
-  if (head === 'spark') return spark(argv.slice(1), opts);
   if (head === 'status') {
     consumeFlags(argv.slice(1).filter((t) => t.startsWith('-')), opts);
     if (opts.rules) return invalid('`--rules` is not an rbtv flag.', opts, 'unknown-flag');

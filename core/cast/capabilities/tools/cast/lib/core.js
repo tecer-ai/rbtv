@@ -57,10 +57,11 @@ function fail(msg) {
 }
 
 const HARNESSES = Object.keys(SPECS);
-const USAGE = 'cast <harness> <model> <effort 1-5> [launch-folder] (-p TEXT | -f FILE) [-s TEXT | -S FILE | -ig AGENT [--target DIR] | -rg AGENT-FILE] [--headed] [--dry-run]';
+const USAGE = 'cast <harness> <model> <effort 1-5> [launch-folder] (-p TEXT | -f FILE) [-s TEXT | -S FILE | -rg AGENT-FILE] [--headed] [--dry-run]';
+const USAGE_IG = 'cast -ig AGENT (-p TEXT | -f FILE) [--headed] [--dry-run]';
 const RESUME_USAGE = 'cast resume <harness> <session-id|last> [launch-folder] (-p TEXT | -f FILE) [--dry-run]';
 const SESSIONS_USAGE = 'cast sessions [harness] [launch-folder] [--json] [-n N]';
-const KNOWN_FLAGS = '-p, -f, -s, -S, -ig, -rg, --target, --headed, --dry-run, --detached, -h/--help';
+const KNOWN_FLAGS = '-p, -f, -s, -S, -ig, -rg, --headed, --dry-run, --detached, -h/--help';
 
 // Detached launches lose the caller's tracking: the orchestrator never hears the exit
 // (issue I-1 / ruling D, 2026-08-18). Measured discriminators: under `… &` and nohup-
@@ -230,6 +231,19 @@ function resolveEffort(spec, n) {
   return { word, argv: eff.flag(word) };
 }
 
+// An effort given as a number 1-5 (the rung mapping above) or as the model's own rung word (what
+// an agent.json stores). A model with no dial takes neither. Anything else is unsupported.
+function resolveEffortValue(spec, effort, harness, model) {
+  if (spec.effort?.inert && (effort === null || effort === 'inert' || (Number.isInteger(effort) && effort >= 1 && effort <= 5))) {
+    return { word: null, argv: [] };
+  }
+  if (Number.isInteger(effort) && effort >= 1 && effort <= 5) return resolveEffort(spec, effort);
+  if (typeof effort === 'string' && spec.effort && !spec.effort.inert && spec.effort.rungs.includes(effort)) {
+    return { word: effort, argv: spec.effort.flag(effort) };
+  }
+  throw new Error(`unsupported effort for ${harness}/${model}: ${effort}`);
+}
+
 // Launch flags: -p/-f prompt, -s/-S system prompt, --headed, --dry-run, --detached.
 function parseArgs(rawArgv, usage, requirePrompt) {
   let dryRun = false;
@@ -324,9 +338,9 @@ function resolveModel(harness, model) {
 
 module.exports = {
   CODEX_DOC_LIMIT, shortName, SHORT, baseArgv, promptArgv,
-  fail, HARNESSES, USAGE,
+  fail, HARNESSES, USAGE, USAGE_IG,
   RESUME_USAGE, SESSIONS_USAGE, KNOWN_FLAGS, detachMarks,
   refuseIfDetached, effortMap, modelTable, buildInventory, EFFORT_RULE, effortNumbers,
-  suggest, runDoctor, runList, resolveEffort,
+  suggest, runDoctor, runList, resolveEffort, resolveEffortValue,
   parseArgs, resolveFolder, refuseIfNotLaunchable, lookupModel, resolveModel,
 };

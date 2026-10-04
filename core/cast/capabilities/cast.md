@@ -8,7 +8,8 @@ turn into an existing session.
 ## Usage
 
 ```
-cast <harness> <model> <effort 1-5> [launch-folder] (-p TEXT | -f FILE) [-s TEXT | -S FILE | -ig AGENT [--target DIR] | -rg AGENT-FILE] [--headed] [--dry-run]
+cast <harness> <model> <effort 1-5> [launch-folder] (-p TEXT | -f FILE) [-s TEXT | -S FILE | -rg AGENT-FILE] [--headed] [--dry-run]
+cast -ig AGENT (-p TEXT | -f FILE) [--headed] [--dry-run]
 cast resume <harness> <session-id|last> [launch-folder] (-p TEXT | -f FILE) [--dry-run]
 cast sessions [harness] [launch-folder] [--json] [-n N]
 cast turn --request FILE --result FILE
@@ -121,16 +122,23 @@ Machine-output flags (`--output-format json`, `--json`, `--format json`) are use
 
 ## Agent launches (`-ig`, `-rg`)
 
-`cast <harness> <model> <1-5> -ig AGENT [--target DIR] (-p TEXT | -f FILE)` runs an installed
-agent: its folder `<installation>/.rbtv/agents/AGENT/` (found from the current folder upward, or
-under `--target DIR`) is the working folder, and its `agent.md` is the system prompt. An agent is
-installed when its folder holds `launch.json`. `-rg FILE` runs a one-off agent file that is not
-installed: the file's body, without its frontmatter, is the system prompt, and the launch folder
-is the usual one. Harness, model and effort are always given on the command line.
+`cast -ig AGENT (-p TEXT | -f FILE)` runs an agent folder: a folder holding both `agent.md` and
+`agent.json`. AGENT is a name, looked up as `<installation>/.rbtv/agents/AGENT/` from the current
+folder upward, or a path to the folder (a value containing `/`, or `.` or `..`, relative to the
+current folder). The folder is the working folder. `agent.json` gives the harness, model and effort
+(effort as the model's own word, such as `high`); none of them may be given on the command line:
+that is refused, and the refusal names `rbtv agent configure AGENT` as the way to change them.
+`agent.md` is the system prompt, handed to the model without its frontmatter. The launch sets
+`RBTV_AGENT_HOME` to the agent folder for the harness process. A folder holding only one of the two
+files is refused by name, so a broken agent is never launched half-read. `--target` is gone.
+
+`-rg FILE` runs a one-off agent file that is not an agent folder: the file's body, without its
+frontmatter, is the system prompt, and the launch folder is the usual one. It sets no
+`RBTV_AGENT_HOME`. Harness, model and effort are always given on the command line for `-rg`.
 
 The system prompt rides each harness's strongest channel, the same as `-s TEXT`/`-S FILE`:
 
-- **claude** — `--append-system-prompt(-file)`.
+- **claude** — `--append-system-prompt <text>`.
 - **codex** — `-c developer_instructions=<text>`.
 - **opencode** — no system-prompt channel, so the text is prepended to the first message with
   this wrapper:
@@ -148,6 +156,21 @@ The system prompt rides each harness's strongest channel, the same as `-s TEXT`/
 
 `-s`/`-S` cannot be combined with `-ig`/`-rg`. Every Codex launch also passes
 `-c project_doc_max_bytes=131072`, because rules reach Codex as full text in `AGENTS.md`.
+
+`cast turn` takes its standing prompt the same way: the `systemPromptFile` in its request is read
+with its frontmatter removed, and the model receives the body only.
+
+## spark — open an agent for a person
+
+`spark AGENT` (`capabilities/tools/spark/spark.js`) opens an agent in this terminal, for a person.
+It prints the agent's folder, harness, model and effort, then starts `cast -ig AGENT --headed` with
+a one-line greeting. It passes no harness, model or effort, so cast reads them from `agent.json`.
+It needs `cast` on PATH and finds the agent the same way cast does: a name or a path.
+
+- `--dry-run` prints the cast command and launches nothing; `--dry-run --json` prints one JSON value
+  with `agent`, `home` and `cast`. A real launch ignores `--json`.
+- Refusals, exit 1: no agent by that name or path, `agent.json` unreadable or missing, `agent.md`
+  missing, `cast` not on PATH, or an unknown option.
 
 ## Execution
 
@@ -427,7 +450,8 @@ dotenv at `rbtv.json`'s `env_file`.
 | `capabilities/tools/cast/lib/turn.js` | `cast turn` — exact session id, resume with the requested model/effort, result file |
 | `capabilities/tools/cast/lib/handles.js` | the launch-handle registry — the one observable a watcher uses to find a run again |
 | `capabilities/tools/cast/lib/launch.js` | spawn, `cast resume` |
-| `capabilities/tools/cast/lib/agent.js` | `-ig` / `-rg`: find the installed agent, read an agent file |
+| `capabilities/tools/cast/lib/agent.js` | `-ig` / `-rg`: find the agent folder, read `agent.json` and `agent.md`; the readers spark also uses |
+| `capabilities/tools/spark/spark.js` | `spark AGENT`: the terminal handoff, a thin layer over `cast -ig` (its tests: `test_spark.js`) |
 | `capabilities/tools/cast/lib/sessions.js` | the per-harness session-store readers and `cast sessions` |
 | `capabilities/tools/cast/lib/monitor.js` | `cast monitor` — the freeze tripwire, its witness channel, roster and watch |
 | `capabilities/tools/cast/lib/route.js` | `cast route` — the selector |

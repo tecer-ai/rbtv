@@ -384,9 +384,13 @@ process.exit(0);
   const sys = (over) => validate({ ...base(), systemPromptFile: file, ...over });
 
   const fresh = argvFor(sys(), '11111111-1111-4111-8111-111111111111', null);
-  assert.ok(fresh.includes('--append-system-prompt-file') && fresh.includes(file));
+  assert.strictEqual(fresh[fresh.indexOf('--append-system-prompt') + 1], '# Role\nYou are the agent.\n', 'claude gets the prompt text');
   const resumed = argvFor(sys({ session: { mode: 'resume', id: 'ses-1' } }), null, null);
-  assert.ok(!resumed.includes('--append-system-prompt-file'), 'claude keeps its system prompt across resume');
+  assert.ok(!resumed.includes('--append-system-prompt'), 'claude keeps its system prompt across resume');
+  const withFrontmatter = path.join(cwd, 'agent-frontmatter.md');
+  fs.writeFileSync(withFrontmatter, '---\nname: writer\n---\n# Role\nYou are the agent.\n');
+  const framed = argvFor(validate({ ...base(), systemPromptFile: withFrontmatter }), '11111111-1111-4111-8111-111111111111', null);
+  assert.strictEqual(framed[framed.indexOf('--append-system-prompt') + 1], '# Role\nYou are the agent.\n', 'frontmatter never reaches the model');
   assert.strictEqual(stdinFor(sys()), 'hello');
 
   const codex = { harness: 'codex', model: 'gpt-5.5', effort: 2 };

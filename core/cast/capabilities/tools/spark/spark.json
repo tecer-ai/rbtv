@@ -1,0 +1,5 @@
+{
+  "name": "spark",
+  "description": "Opens an rbtv agent in this terminal, for a person, with that agent's own harness, model and effort through cast.",
+  "entry": "spark.js"
+}

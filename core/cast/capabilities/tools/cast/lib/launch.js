@@ -45,7 +45,7 @@ function spawnWithDeadline(cmd, args, opts, failLabel) {
   process.exit(res.status === null ? 1 : res.status);
 }
 
-function launch({ harness, modelId, folder, effortWord, effortArgv, system, promptText, headed, dryRun, detached }) {
+function launch({ harness, modelId, folder, effortWord, effortArgv, system, promptText, headed, dryRun, detached, agentHome }) {
   if (headed && harness === 'opencode' && effortArgv.length) {
     // measured 2026-08-14: --variant exists only on `opencode run`, not the TUI
     process.stderr.write('cast: note: opencode TUI has no --variant flag — effort ignored in headed mode\n');
@@ -55,6 +55,8 @@ function launch({ harness, modelId, folder, effortWord, effortArgv, system, prom
 
   let argv = baseArgv(harness, modelId, folder, headed);
   let stdinText = promptText;
+  // An installed agent's folder is announced to the harness's process as RBTV_AGENT_HOME.
+  const agentEnv = agentHome ? { RBTV_AGENT_HOME: agentHome } : null;
 
   // Mint claude's session id instead of resolving it post-hoc: the id names the transcript file
   // exactly, so no folder->session guessing (measured: 373/900 slug dirs hold >1 transcript).
@@ -109,6 +111,7 @@ function launch({ harness, modelId, folder, effortWord, effortArgv, system, prom
       stdin_preview: stdinText === null ? null : stdinText.slice(0, 200),
       effort_word: effortWord,
       headed,
+      ...agentEnv,
     })}\n`);
     process.exit(0);
   }
@@ -132,15 +135,15 @@ function launch({ harness, modelId, folder, effortWord, effortArgv, system, prom
   });
 
   if (harness === 'opencode' && !headed) {
-    return runOpencodeChecked(argv, { cwd: folder, stdinText, t0,
+    return runOpencodeChecked(argv, { cwd: folder, env: agentEnv, stdinText, t0,
       model: shortName(harness, modelId),
       bind: () => opencodeTagged(folder, tag) });
   }
 
   const [cmd, ...args] = argv;
   return spawnWithDeadline(cmd, args, stdinText === null
-    ? { cwd: folder, stdio: 'inherit' }
-    : { cwd: folder, input: stdinText, stdio: ['pipe', 'inherit', 'inherit'] }, 'launch failed');
+    ? { cwd: folder, env: agentEnv, stdio: 'inherit' }
+    : { cwd: folder, env: agentEnv, input: stdinText, stdio: ['pipe', 'inherit', 'inherit'] }, 'launch failed');
 }
 
 // opencode/grok sometimes swallows the run's final message: the child exits 0 with stdout ending
@@ -149,13 +152,13 @@ function launch({ harness, modelId, folder, effortWord, effortArgv, system, prom
 // headless run gets stdout tee'd through a capture and reconciled against the store after exit:
 // a final message absent from stdout is appended from the store; a run whose store holds NO final
 // message exits non-zero with an explicit no-report marker.
-function runOpencodeChecked(argv, { cwd, stdinText, t0, bind, model }) {
+function runOpencodeChecked(argv, { cwd, env, stdinText, t0, bind, model }) {
   const { spawn } = require('child_process');
   const [cmd, ...args] = argv;
   const win = spawnable(cmd, args);
   const child = spawn(win.cmd, win.args, {
     cwd,
-    env: launchEnv(cwd),
+    env: launchEnv(cwd, env),
     stdio: [stdinText === null ? 'inherit' : 'pipe', 'pipe', 'inherit'],
     ...win.opts,
   });

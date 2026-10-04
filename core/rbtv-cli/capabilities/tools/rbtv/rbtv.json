@@ -1,5 +1,5 @@
 {
   "name": "rbtv",
-  "description": "The rbtv command: spark, doctor, selftest, and rbtv install. Browse with rbtv install list.",
+  "description": "The rbtv command: doctor, selftest, and rbtv install. Browse with rbtv install list.",
   "entry": "rbtv"
 }

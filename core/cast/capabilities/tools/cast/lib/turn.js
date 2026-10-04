@@ -6,7 +6,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const { CODEX_DOC_LIMIT, lookupModel, shortName, resolveEffort } = require('./core');
+const { CODEX_DOC_LIMIT, lookupModel, shortName, resolveEffortValue } = require('./core');
+const { agentBody } = require('./agent');
 const { procStart, emitHandle } = require('./handles');
 const { launchEnv, opencodeTagged, SYSTEM_WRAPPER } = require('./launch');
 const { loadOptional } = require('./optional');
@@ -35,17 +36,6 @@ function existingDir(cwd) {
   if (!st.isDirectory()) throw new Error('cwd must be an existing absolute directory');
 }
 
-function resolveTurnEffort(spec, effort, harness, model) {
-  if (spec.effort?.inert && (effort === null || effort === 'inert' || (Number.isInteger(effort) && effort >= 1 && effort <= 5))) {
-    return { word: null, argv: [] };
-  }
-  if (Number.isInteger(effort) && effort >= 1 && effort <= 5) return resolveEffort(spec, effort);
-  if (typeof effort === 'string' && spec.effort && !spec.effort.inert && spec.effort.rungs.includes(effort)) {
-    return { word: effort, argv: spec.effort.flag(effort) };
-  }
-  throw new Error(`unsupported effort for ${harness}/${model}: ${effort}`);
-}
-
 function readPrompt(request) {
   const hasPrompt = Object.prototype.hasOwnProperty.call(request, 'prompt');
   const hasFile = Object.prototype.hasOwnProperty.call(request, 'promptFile');
@@ -63,8 +53,8 @@ function readPrompt(request) {
   return request.prompt;
 }
 
-// The agent's standing prompt (`agent.md`), handed over as a file. Claude reads the file
-// itself; Codex and OpenCode receive its text (see systemPromptRoute).
+// The agent's standing prompt (`agent.md`) as the model receives it: its body, without the
+// frontmatter. Every harness gets the text, so the file's frontmatter never reaches the model.
 function readSystemPrompt(request) {
   if (!Object.prototype.hasOwnProperty.call(request, 'systemPromptFile')) return null;
   const file = request.systemPromptFile;
@@ -73,12 +63,13 @@ function readSystemPrompt(request) {
   try { text = fs.readFileSync(file, 'utf8'); } catch (e) {
     throw new Error(`cannot read systemPromptFile: ${e.message}`);
   }
-  if (!text.trim()) throw new Error('systemPromptFile must hold nonempty text');
-  return { file, text };
+  const body = agentBody(text);
+  if (!body.trim()) throw new Error('systemPromptFile must hold nonempty text');
+  return { text: body };
 }
 
 // How each harness receives the standing prompt, by its strongest channel:
-//   claude   a real system prompt (`--append-system-prompt-file`), on a NEW session only —
+//   claude   a real system prompt (`--append-system-prompt`), on a NEW session only —
 //            the harness keeps it across resume and compaction;
 //   codex    developer instructions (`-c developer_instructions=…`), on every turn — a run
 //            rebuilds its context, so the prompt is re-passed (on Windows cast starts Codex's
@@ -129,7 +120,7 @@ function validate(request) {
   const systemPrompt = readSystemPrompt(request);
   const { mode, sessionId } = readSession(request.session);
   const env = readEnv(request.env);
-  const resolved = resolveTurnEffort(spec, request.effort, request.harness, request.model);
+  const resolved = resolveEffortValue(spec, request.effort, request.harness, request.model);
   return {
     harness: request.harness,
     modelId,
@@ -152,7 +143,7 @@ function argvFor(v, freshId, tag) {
     case 'claude':
       return ['claude', '-p', '--model', v.modelId, '--permission-mode', 'bypassPermissions', ...effort,
         '--output-format', 'json',
-        ...(route === 'flag' ? ['--append-system-prompt-file', v.systemPrompt.file] : []),
+        ...(route === 'flag' ? ['--append-system-prompt', v.systemPrompt.text] : []),
         ...(v.mode === 'resume' ? ['--resume', v.sessionId] : ['--session-id', freshId])];
     case 'codex': {
       const developer = route === 'developer'

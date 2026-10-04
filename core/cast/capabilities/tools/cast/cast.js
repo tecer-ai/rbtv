@@ -7,9 +7,9 @@
 // in its own module under lib/, split out 2026-08-20 along the section banners this file used
 // to carry. Read lib/<verb>.js for a verb; read here only for how argv reaches it.
 
-const { agentLaunch, takeAgentFlags } = require('./lib/agent');
+const { agentFilePrompt, installedAgent, takeAgentFlags } = require('./lib/agent');
 const { runApi } = require('./lib/api');
-const { USAGE, fail, parseArgs, resolveEffort, resolveFolder, resolveModel, runDoctor, runList } = require('./lib/core');
+const { USAGE, USAGE_IG, fail, parseArgs, resolveEffort, resolveEffortValue, resolveFolder, resolveModel, runDoctor, runList } = require('./lib/core');
 const { printHelp, verbHelpPages } = require('./lib/help');
 const { SYSTEM_WRAPPER, launch, runResume } = require('./lib/launch');
 const { loadOptional } = require('./lib/optional');
@@ -53,26 +53,40 @@ function main(rawArgv) {
   const parsed = parseArgs(agentFlags.argv, USAGE, true);
   const { dryRun, headed, detached, promptText, positional } = parsed;
   let { system } = parsed;
-  const agent = agentFlags.installed || agentFlags.file ? agentLaunch(agentFlags, fail) : null;
-  if (agent) {
-    if (system) fail('refused: -s/-S cannot be combined with -ig or -rg — the agent file is the system prompt');
-    system = agent.system;
+  if (agentFlags.installed && positional.length) {
+    fail('refused: -ig does not take a harness, model or effort\n'
+      + "with -ig, those values come from the agent's agent.json\n"
+      + 'Nothing changed.\n'
+      + `cast -ig ${agentFlags.installed} (-p TEXT | -f FILE)\n`
+      + `to change them: rbtv agent configure ${agentFlags.installed}`);
   }
+  if ((agentFlags.installed || agentFlags.file) && system) {
+    fail('refused: -s/-S cannot be combined with -ig or -rg — the agent file is the system prompt');
+  }
+  if (agentFlags.file) system = agentFilePrompt(agentFlags.file, fail);
+  const agent = agentFlags.installed ? installedAgent(agentFlags.installed, fail) : null;
+  if (agent) system = { text: agent.prompt };
   if (system) system.wrapper = SYSTEM_WRAPPER;
-  if (positional.length < 3 || positional.length > 4 || (agent && agent.folder && positional.length === 4)) {
-    fail(`usage: ${USAGE}\nrun cast -h for full help`);
+  if (!agent && (positional.length < 3 || positional.length > 4)) {
+    fail(`usage: ${USAGE}\n       ${USAGE_IG}\nrun cast -h for full help`);
   }
-  const [harness, model, effortStr, folderArg = '.'] = positional;
+  const [harness, model, effortArg, folderArg = '.'] = agent ? [agent.harness, agent.model] : positional;
 
   const { modelId, spec } = resolveModel(harness, model);
 
-  const n = Number(effortStr);
-  if (!Number.isInteger(n) || n < 1 || n > 5) fail(`effort must be an integer 1-5, got: ${effortStr}`);
+  let effort;
+  if (agent) {
+    try { effort = resolveEffortValue(spec, agent.effort, harness, model); } catch (e) { fail(e.message); }
+  } else {
+    const n = Number(effortArg);
+    if (!Number.isInteger(n) || n < 1 || n > 5) fail(`effort must be an integer 1-5, got: ${effortArg}`);
+    effort = resolveEffort(spec, n);
+  }
 
-  const folder = agent && agent.folder ? agent.folder : resolveFolder(folderArg);
-  const { word: effortWord, argv: effortArgv } = resolveEffort(spec, n);
+  const folder = agent ? agent.home : resolveFolder(folderArg);
 
-  launch({ harness, modelId, folder, effortWord, effortArgv, system, promptText, headed, dryRun, detached });
+  launch({ harness, modelId, folder, effortWord: effort.word, effortArgv: effort.argv, system, promptText, headed, dryRun, detached,
+    agentHome: agent ? agent.home : null });
 }
 
 main(process.argv.slice(2));
