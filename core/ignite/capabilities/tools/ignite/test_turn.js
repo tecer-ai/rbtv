@@ -13,7 +13,7 @@ const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-turn-'));
 
 function base(over = {}) {
   return {
-    harness: 'claude', model: 'sonnet-5', effort: 3, cwd,
+    harness: 'claude', model: 'sonnet-5-5', effort: 3, cwd,
     prompt: 'hello', session: { mode: 'new' }, ...over,
   };
 }
@@ -26,8 +26,8 @@ function rejects(request, needle) {
 {
   const v = validate(base());
   assert.strictEqual(v.harness, 'claude');
-  assert.strictEqual(v.modelId, 'claude-sonnet-5');
-  assert.strictEqual(v.model, 'sonnet-5');
+  assert.strictEqual(v.modelId, 'claude-sonnet-5-5');
+  assert.strictEqual(v.model, 'sonnet-5-5');
   assert.strictEqual(v.effort, 'high');
   assert.deepStrictEqual(v.effortArgv, ['--effort', 'high']);
   assert.strictEqual(v.mode, 'new');
@@ -35,8 +35,8 @@ function rejects(request, needle) {
 }
 
 {
-  const v = validate(base({ model: 'claude-sonnet-5', effort: 'high' }));
-  assert.strictEqual(v.modelId, 'claude-sonnet-5');
+  const v = validate(base({ model: 'claude-sonnet-5-5', effort: 'high' }));
+  assert.strictEqual(v.modelId, 'claude-sonnet-5-5');
   assert.strictEqual(v.effort, 'high');
 }
 
@@ -50,9 +50,9 @@ function rejects(request, needle) {
 }
 
 {
-  const codex = validate({ harness: 'codex', model: 'gpt-5.5', effort: 5, cwd,
+  const codex = validate({ harness: 'codex', model: 'gpt-6-luna', effort: 5, cwd,
     prompt: 'x', session: { mode: 'resume', id: 'tid-1' } });
-  assert.strictEqual(codex.effort, 'xhigh');
+  assert.strictEqual(codex.effort, 'max');
   assert.strictEqual(codex.sessionId, 'tid-1');
   assert.deepStrictEqual(codex.env, null);
 }
@@ -85,7 +85,7 @@ rejects(base({ env: { A: 1 } }), 'must be a string');
   const freshArgv = argvFor(claude, fresh, null);
   assert.ok(freshArgv.includes('--session-id') && freshArgv.includes(fresh));
   assert.ok(!freshArgv.includes('--resume'));
-  assert.ok(freshArgv.includes('--model') && freshArgv.includes('claude-sonnet-5'));
+  assert.ok(freshArgv.includes('--model') && freshArgv.includes('claude-sonnet-5-5'));
   assert.ok(freshArgv.includes('--effort') && freshArgv.includes('high'));
   assert.ok(!freshArgv.includes('last'));
 
@@ -98,11 +98,11 @@ rejects(base({ env: { A: 1 } }), 'must be a string');
 }
 
 {
-  const codex = validate({ harness: 'codex', model: 'gpt-5.5', effort: 'high', cwd,
+  const codex = validate({ harness: 'codex', model: 'gpt-6-luna', effort: 'high', cwd,
     prompt: 'x', session: { mode: 'new' } });
   const argv = argvFor(codex, null, null);
   assert.deepStrictEqual(argv.slice(0, 3), ['codex', 'exec', '--cd']);
-  assert.ok(argv.includes('-m') && argv.includes('gpt-5.5'));
+  assert.ok(argv.includes('-m') && argv.includes('gpt-6-luna'));
   assert.ok(argv.includes('model_reasoning_effort=high'));
   assert.ok(argv.includes('--skip-git-repo-check'), 'codex turn must run outside git repos');
   assert.ok(argv.includes('project_doc_max_bytes=131072'), 'codex turn must raise the AGENTS.md limit');
@@ -110,11 +110,11 @@ rejects(base({ env: { A: 1 } }), 'must be a string');
   assert.ok(!argv.includes('resume'));
   assert.ok(!argv.includes('last'));
 
-  const back = validate({ harness: 'codex', model: 'gpt-5.5', effort: 2, cwd,
+  const back = validate({ harness: 'codex', model: 'gpt-6-luna', effort: 2, cwd,
     prompt: 'x', session: { mode: 'resume', id: 'tid-2' } });
   const resume = argvFor(back, null, null);
   assert.ok(resume.includes('resume') && resume.includes('tid-2'));
-  assert.ok(resume.includes('-m') && resume.includes('gpt-5.5'));
+  assert.ok(resume.includes('-m') && resume.includes('gpt-6-luna'));
   assert.ok(resume.includes('model_reasoning_effort=medium'));
   assert.ok(!resume.includes('--last'));
   assert.ok(!resume.includes('last'));
@@ -178,7 +178,7 @@ rejects(base({ env: { A: 1 } }), 'must be a string');
   assert.strictEqual(mismatch.sessionId, null);
   assert.strictEqual(mismatch.error, 'session_identity_mismatch');
 
-  const codex = validate({ harness: 'codex', model: 'gpt-5.5', effort: 1, cwd,
+  const codex = validate({ harness: 'codex', model: 'gpt-6-luna', effort: 1, cwd,
     prompt: 'x', session: { mode: 'new' } });
   const missing = buildResult(codex, {
     exitCode: 0, spawnError: null, minted: null, claudeId: null, codexId: null, boundId: null,
@@ -188,7 +188,7 @@ rejects(base({ env: { A: 1 } }), 'must be a string');
   assert.strictEqual(missing.error, 'session_identity_missing');
 
   const echoed = buildResult(
-    validate({ harness: 'codex', model: 'gpt-5.5', effort: 1, cwd,
+    validate({ harness: 'codex', model: 'gpt-6-luna', effort: 1, cwd,
       prompt: 'x', session: { mode: 'resume', id: 'tid-keep' } }),
     {
       exitCode: 0, spawnError: null, minted: null, claudeId: null, codexId: 'tid-other', boundId: null,
@@ -283,14 +283,14 @@ function runTurn(request, env) {
     PATH: [bin, path.dirname(process.execPath)].join(path.delimiter),
   };
   const { res, written } = runTurn({
-    harness: 'codex', model: 'gpt-5.5', effort: 'medium', cwd,
+    harness: 'codex', model: 'gpt-6-luna', effort: 'medium', cwd,
     prompt: 'ping', session: { mode: 'resume', id: '019fecad-4ff4-7761-a2eb-46d2b4172db3' },
   }, env);
   assert.strictEqual(res.status, 0, res.stderr);
   assert.strictEqual(written.sessionId, '019fecad-4ff4-7761-a2eb-46d2b4172db3');
   const argv = JSON.parse(fs.readFileSync(argvFile, 'utf8'));
   assert.ok(argv.includes('resume') && argv.includes(written.sessionId));
-  assert.ok(argv.includes('-m') && argv.includes('gpt-5.5'));
+  assert.ok(argv.includes('-m') && argv.includes('gpt-6-luna'));
   assert.ok(argv.includes('model_reasoning_effort=medium'));
   assert.ok(!argv.includes('--last'));
 }
@@ -371,9 +371,9 @@ process.exit(0);
 // F2: one throwing lookup. validate must not exit the process on an unknown model.
 {
   const { lookupModel } = require('../../../../cast/capabilities/tools/cast/lib/core');
-  assert.strictEqual(lookupModel('claude', 'sonnet-5').modelId, 'claude-sonnet-5');
+  assert.strictEqual(lookupModel('claude', 'sonnet-5-5').modelId, 'claude-sonnet-5-5');
   assert.throws(() => lookupModel('claude', 'no-such'), /unknown claude model/);
-  assert.throws(() => lookupModel('nope', 'sonnet-5'), /unknown harness/);
+  assert.throws(() => lookupModel('nope', 'sonnet-5-5'), /unknown harness/);
 }
 
 // The agent's standing prompt rides each harness's strongest channel.
@@ -393,7 +393,7 @@ process.exit(0);
   assert.strictEqual(framed[framed.indexOf('--append-system-prompt') + 1], '# Role\nYou are the agent.\n', 'frontmatter never reaches the model');
   assert.strictEqual(stdinFor(sys()), 'hello');
 
-  const codex = { harness: 'codex', model: 'gpt-5.5', effort: 2 };
+  const codex = { harness: 'codex', model: 'gpt-6-luna', effort: 2 };
   const cx = argvFor(sys(codex), null, null);
   const cxResumed = argvFor(sys({ ...codex, session: { mode: 'resume', id: 'tid-1' } }), null, null);
   for (const argv of [cx, cxResumed]) {

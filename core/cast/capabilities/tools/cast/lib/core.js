@@ -12,7 +12,7 @@ const { SPECS, ROWS } = require('../catalog');
 const { spawnable } = require('./win-exec');
 
 // CLI model names are short: the provider prefix and the `claude-` prefix are dropped
-// (`zai-coding-plan/glm-5.2` -> `glm-5.2`, `claude-opus-5-5` -> `opus-5-5`). SPECS stays keyed by
+// (`zai-coding-plan/glm-5.3` -> `glm-5.3`, `claude-opus-5-5` -> `opus-5-5`). SPECS stays keyed by
 // the id the harness itself wants; this maps short name -> that id, per harness.
 function shortName(harness, id) {
   return SPECS[harness][id].short || id.split('/').pop().replace(/^claude-/, '');

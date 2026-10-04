@@ -18,7 +18,7 @@ const SLACK_KEYS = ['team', 'botUserId', 'ownerUserId', 'appTokenEnv', 'botToken
 const TOOL_KEYS = ['cast', 'stools', 'audio'];
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const DREAMER_MODEL = Object.freeze({ harness: 'codex', model: 'gpt-6-sol', effort: 3 });
+const DREAMER_MODEL = Object.freeze({ harness: 'codex', model: 'gpt-6.1-sol', effort: 3 });
 
 function configPath(workspace) {
   return path.join(workspace, '.rbtv', 'config', 'ignite', 'config.json');

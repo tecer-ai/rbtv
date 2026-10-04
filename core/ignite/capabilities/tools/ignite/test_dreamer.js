@@ -1200,10 +1200,10 @@ for (const ending of ['\n', '\r\n']) test(`prompt lists every writable file budg
   } });
 });
 
-test('cast adapter defaults to codex gpt-6-sol effort 3 in a disposable folder and parses JSON', async (f) => {
+test('cast adapter defaults to codex gpt-6.1-sol effort 3 in a disposable folder and parses JSON', async (f) => {
   let temp;
   const result = await castProposal({ agent: 'master', messages: [], files: {} }, { command: 'cast-test.js', run: async (command, args, opts) => {
-    assert.equal(command, process.execPath); assert.deepEqual(args.slice(0, 4), [path.resolve('cast-test.js'), 'codex', 'gpt-6-sol', '3']);
+    assert.equal(command, process.execPath); assert.deepEqual(args.slice(0, 4), [path.resolve('cast-test.js'), 'codex', 'gpt-6.1-sol', '3']);
     temp = args[4]; assert.equal(opts.cwd, temp); assert.equal(args[5], '-f'); assert.equal(opts.encoding, 'utf8');
     const prompt = fs.readFileSync(args[6], 'utf8'); assert.match(prompt, /Only owner messages and explicit remember lines in inbox.md are evidence/); assert.match(prompt, /never use tools or edit files/);
     assert.match(prompt, /cite its exact line in sources on both filing operations/);
@@ -1240,7 +1240,7 @@ test('Windows cast shim resolves to Node without shell parsing or losing path ar
   let launched = false;
   const result = await castProposal({}, { command: 'cast', platform: 'win32', env: { PATH: f.workspace }, run: async (command, args, opts) => {
     launched = true; assert.equal(command, process.execPath); assert.equal(args[0], entry);
-    assert.deepEqual(args.slice(1, 4), ['codex', 'gpt-6-sol', '3']); assert.equal(opts.shell, undefined);
+    assert.deepEqual(args.slice(1, 4), ['codex', 'gpt-6.1-sol', '3']); assert.equal(opts.shell, undefined);
     return { stdout: JSON.stringify(proposal()) };
   } });
   assert.ok(launched); assert.deepEqual(result, proposal());
@@ -1255,7 +1255,7 @@ for (const model of [undefined, { harness: 'opencode', model: 'example/model-v1'
   f.message(); const name = `${ROOT}knowledge/facts.md`;
   const output = proposal({ op: 'add', path: name, text: knowledge(fact('Confirmed by owner.')),
     sources: [1], reason: 'owner', explanation: 'Owner confirmed this fact.' });
-  const args = model ? [model.harness, model.model, String(model.effort)] : ['codex', 'gpt-6-sol', '3'];
+  const args = model ? [model.harness, model.model, String(model.effort)] : ['codex', 'gpt-6.1-sol', '3'];
   f.write('fake cast.js', `const assert = require('node:assert/strict');\nassert.deepEqual(process.argv.slice(2,5), ${JSON.stringify(args)});\nprocess.stdout.write(${JSON.stringify(JSON.stringify(output))});\n`);
   f.config.tools.cast = path.join(f.workspace, 'fake cast.js');
   f.config.dreamer = { model };

@@ -129,7 +129,7 @@ function fakeAudio() {
 function harness(ctx, setting = {}) {
   const home = path.join(ctx.dir, '.rbtv', 'agents', 'master');
   fs.mkdirSync(home, { recursive: true });
-  const launch = { harness: 'claude', model: 'sonnet-5', effort: 'low', voice: 'voice-a', ...setting };
+  const launch = { harness: 'claude', model: 'sonnet-5-5', effort: 'low', voice: 'voice-a', ...setting };
   fs.writeFileSync(path.join(home, 'agent.json'), `${JSON.stringify(launch)}\n`);
   fs.writeFileSync(path.join(home, 'agent.md'), '---\nname: master\n---\n', 'utf8');
   fs.writeFileSync(path.join(home, 'board.md'), TEST_BOARD, 'utf8');
@@ -363,7 +363,7 @@ test('settings changed between turns → next run snapshots the new setting', as
   assert.equal(first.session.mode, 'new');
   const saved = JSON.parse(box.store.db.prepare('SELECT launch_snapshot FROM runs WHERE id=?').get(first.runId).launch_snapshot);
   assert.equal(saved.effort, 'low');
-  const next = { harness: 'claude', model: 'sonnet-5', effort: 'high', voice: 'voice-a' };
+  const next = { harness: 'claude', model: 'sonnet-5-5', effort: 'high', voice: 'voice-a' };
   fs.writeFileSync(path.join(box.home, 'agent.json'), `${JSON.stringify(next)}\n`);
   seed(box.store, { id: '3.3', text: 'second', createdAt: 30 });
   box.sync();

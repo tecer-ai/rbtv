@@ -61,7 +61,7 @@ function printHelp() {
     'cast route     answer 4 questions about the job, get (harness, model, mode, effort)',
     'cast monitor   live cast jobs; --watch exits 3 on stall, 4 on ENDED.',
     '',
-    'Example: cast claude sonnet-5 3 -p "reply with exactly: ok"',
+    'Example: cast claude sonnet-5-5 3 -p "reply with exactly: ok"',
     '         cast -rbtv scout -p "reply with exactly: ok"',
     '         cast -rbtv plans/launch/agents/drafter -p "reply with exactly: ok"',
     '',

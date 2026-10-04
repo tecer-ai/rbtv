@@ -15,7 +15,7 @@ Who writes which field:
   "name": "researcher",
   "description": "Investigates a defined question and reports evidence.",
   "harness": "claude",
-  "model": "sonnet-5",
+  "model": "sonnet-5-5",
   "effort": "medium",
   "units": ["meta/functions#investignosis"],
   "packs": ["ignite"]

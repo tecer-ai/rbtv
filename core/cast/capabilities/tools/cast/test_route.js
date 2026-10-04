@@ -51,11 +51,11 @@ const FIXTURE_CSV = path.join(FIXTURE, '.rbtv', 'config', 'modules', 'core', 'su
 fs.mkdirSync(path.dirname(FIXTURE_CSV), { recursive: true });
 fs.writeFileSync(FIXTURE_CSV, [
   'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override',
-  'cli,claude,fable-5,5,N,SOTA,7,7,50,route,N,N',
+  'cli,claude,fable-5-1,5,N,SOTA,7,7,50,route,N,N',
   'cli,codex,gpt-6-astra,5,N,SOTA,7,7,50,route,Y,Y',
   'cli,claude,opus-5-5,5,N,L1,6,6,25,route,N,N',
-  'cli,codex,gpt-6-sol,5,N,L1,5,5,20,route,N,N',
-  'cli,claude,sonnet-5,5,N,L2,5,5,10,route,N,N',
+  'cli,codex,gpt-6.1-sol,5,N,L1,5,5,20,route,N,N',
+  'cli,claude,sonnet-5-5,5,N,L2,5,5,10,route,N,N',
   'cli,codex,gpt-5.6-terra,5,N,L2,4,4,5,route,N,N',
   'cli,opencode,k3,3,N,L2,5,5,15,route,N,N',
   'cli,codex,gpt-6-luna,5,N,L3,3,2,1.2,route,N,N',
@@ -149,7 +149,7 @@ const dropped = (v, stage) => (v.explain || [])
   const bounded = route(['--access', 'bounded', '--type', 'code', '--class', 'bounded', '--explain']);
   assert.strictEqual(pair(bounded), 'codex/gpt-5.6-terra/cli', 'bounded default = cheapest L2');
   for (const v of [planner, bounded]) {
-    assert.ok(dropped(v, 'class').includes('codex/gpt-6-sol'), `the cheaper L1 row must drop at the class stage: ${JSON.stringify(dropped(v, 'class'))}`);
+    assert.ok(dropped(v, 'class').includes('codex/gpt-6.1-sol'), `the cheaper L1 row must drop at the class stage: ${JSON.stringify(dropped(v, 'class'))}`);
   }
 
   // Batch: an omitted optimize on an agent takes the same default as the flag form.
@@ -159,15 +159,15 @@ const dropped = (v, stage) => (v.explain || [])
 }
 
 // --- max quality NEVER leaves the class's own levels --------------------------------------------
-// class=bounded is L2 only. fable-5 (SOTA) and opus-5-5 (L1) are available and score higher, and
-// neither may be picked: a bounded executor at max quality gets the best L2 (sonnet-5).
+// class=bounded is L2 only. fable-5-1 (SOTA) and opus-5-5 (L1) are available and score higher, and
+// neither may be picked: a bounded executor at max quality gets the best L2 (sonnet-5-5).
 {
   const v = route(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'quality', '--explain']);
-  assert.strictEqual(pair(v), 'claude/sonnet-5/cli');
+  assert.strictEqual(pair(v), 'claude/sonnet-5-5/cli');
   assert.ok(dropped(v, 'class').includes('claude/opus-5-5'), JSON.stringify(dropped(v, 'class')));
   assert.strictEqual(v.effort, 2);
-  assert.ok(dropped(v, 'class').includes('claude/fable-5'),
-    `fable-5 (SOTA) must be dropped at the class filter: ${JSON.stringify(dropped(v, 'class'))}`);
+  assert.ok(dropped(v, 'class').includes('claude/fable-5-1'),
+    `fable-5-1 (SOTA) must be dropped at the class filter: ${JSON.stringify(dropped(v, 'class'))}`);
 }
 
 // --- planner floors the effort -----------------------------------------------------------------
@@ -237,7 +237,7 @@ const dropped = (v, stage) => (v.explain || [])
 }
 
 // --- price vs quality pull the bounded class apart ---------------------------------------------
-// class=bounded is L2: the cheapest row is terra (cost 5), the best is sonnet-5 (reasoning 5).
+// class=bounded is L2: the cheapest row is terra (cost 5), the best is sonnet-5-5 (reasoning 5).
 // One class, two optimizers, two different answers.
 {
   const cheap = route(['--access', 'bounded', '--type', 'code', '--class', 'bounded', '--optimize', 'price']);
@@ -245,7 +245,7 @@ const dropped = (v, stage) => (v.explain || [])
   assert.strictEqual(cheap.effort, 2, 'bounded is effort 2 on code');
 
   const best = route(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'quality']);
-  assert.strictEqual(pair(best), 'claude/sonnet-5/cli');
+  assert.strictEqual(pair(best), 'claude/sonnet-5-5/cli');
   assert.strictEqual(best.effort, 2, 'bounded is effort 2 on text');
   const broadCode = route(['--access', 'bounded', '--type', 'code', '--class', 'broad', '--optimize', 'price']);
   assert.strictEqual(broadCode.effort, 2, 'broad is effort 2 on code');
@@ -266,7 +266,7 @@ const dropped = (v, stage) => (v.explain || [])
   // shipped CSV leaking through.
   fs.writeFileSync(overrideFile, [
     'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override',
-    'cli,claude,sonnet-5,5,N,L2,6,5,3,route,N,N',
+    'cli,claude,sonnet-5-5,5,N,L2,6,5,3,route,N,N',
     'cli,claude,haiku-4-5,0,N,L2,3,2,9,route,N,N',
     // A SHORT row on purpose: the three columns added 2026-08-22 are absent, which is what a CSV
     // written before them looks like. Missing cells must read as use=route with neither override.
@@ -276,7 +276,7 @@ const dropped = (v, stage) => (v.explain || [])
   ].join('\n'));
 
   const cheap = route(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'price', '--explain'], vault);
-  assert.strictEqual(pair(cheap), 'claude/sonnet-5/cli', 'the override IS the catalog — cost 3 beats cost 9');
+  assert.strictEqual(pair(cheap), 'claude/sonnet-5-5/cli', 'the override IS the catalog — cost 3 beats cost 9');
   assert.ok(/no catalog\.js row for opencode\/not-a-real-model/.test(cheap._stderr),
     `an unjoinable CSV row must warn LOUDLY on stderr: ${cheap._stderr}`);
   // A blank cost sits OUT of every price pick — unknown is not cheap. It stays eligible for
@@ -290,7 +290,7 @@ const dropped = (v, stage) => (v.explain || [])
   const roster = spawnSync('node', [TOOL, 'route', '--catalog'], { encoding: 'utf8', env: ENV, cwd: vault });
   assert.ok(roster.stdout.startsWith(`catalog: ${overrideFile}`),
     `--catalog must name the file it actually read: ${roster.stdout.split('\n')[0]}`);
-  assert.ok(!roster.stdout.includes('fable-5'), 'the shipped CSV must not leak into an overridden run');
+  assert.ok(!roster.stdout.includes('fable-5-1'), 'the shipped CSV must not leak into an overridden run');
   assert.ok(/not-a-real-model .* no /.test(roster.stdout.replace(/ +/g, ' ')),
     'the roster must SHOW an unjoinable row as launchable=no, not hide it');
 }
@@ -311,8 +311,8 @@ const dropped = (v, stage) => (v.explain || [])
   //   L2: terra cost 5 (score 4) · sonnet cost 10 (score 5) -> price picks terra, quality picks sonnet
   const BASE = {
     'opus-5-5': 'cli,claude,opus-5-5,5,N,L1,6,6,25',
-    'gpt-6-sol': 'cli,codex,gpt-6-sol,5,N,L1,5,5,20',
-    'sonnet-5': 'cli,claude,sonnet-5,5,N,L2,5,5,10',
+    'gpt-6.1-sol': 'cli,codex,gpt-6.1-sol,5,N,L1,5,5,20',
+    'sonnet-5-5': 'cli,claude,sonnet-5-5,5,N,L2,5,5,10',
     'gpt-5.6-terra': 'cli,codex,gpt-5.6-terra,5,N,L2,4,4,5',
   };
   // tweak: {model: [use, quality-override, price-override]}; anything unnamed stays route,N,N.
@@ -330,19 +330,19 @@ const dropped = (v, stage) => (v.explain || [])
   // 1. the columns are INERT until set: the plain ranking is the pre-2026-08-22 one.
   write();
   assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'price'])), 'codex/gpt-5.6-terra/cli');
-  assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'quality'])), 'claude/sonnet-5/cli');
+  assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'quality'])), 'claude/sonnet-5-5/cli');
 
   // 2. price-override wins its OWN level: sonnet (10) jumps ahead of terra (5) inside L2, so the
   //    cheapest-first ranking now heads with sonnet.
-  write({ 'sonnet-5': ['route', 'N', 'Y'] });
+  write({ 'sonnet-5-5': ['route', 'N', 'Y'] });
   const priced = at(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'price', '--explain']);
-  assert.strictEqual(pair(priced), 'claude/sonnet-5/cli', 'price-override must beat a cheaper row of its own level');
-  assert.ok(ranking(priced).indexOf('claude/sonnet-5') < ranking(priced).indexOf('codex/gpt-5.6-terra'), JSON.stringify(ranking(priced)));
+  assert.strictEqual(pair(priced), 'claude/sonnet-5-5/cli', 'price-override must beat a cheaper row of its own level');
+  assert.ok(ranking(priced).indexOf('claude/sonnet-5-5') < ranking(priced).indexOf('codex/gpt-5.6-terra'), JSON.stringify(ranking(priced)));
 
   // 3. quality-override wins its level against a higher score: terra (4) jumps sonnet (5).
   write({ 'gpt-5.6-terra': ['route', 'Y', 'N'] });
   const q = at(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'quality', '--explain']);
-  assert.deepStrictEqual(ranking(q), ['codex/gpt-5.6-terra', 'claude/sonnet-5'], JSON.stringify(ranking(q)));
+  assert.deepStrictEqual(ranking(q), ['codex/gpt-5.6-terra', 'claude/sonnet-5-5'], JSON.stringify(ranking(q)));
 
   // 4. each override fires only in the ranking it names — the quality one is silent under --optimize price.
   assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'price'])), 'codex/gpt-5.6-terra/cli');
@@ -350,15 +350,15 @@ const dropped = (v, stage) => (v.explain || [])
   // 5. the default is a price ranking (owner ruling 2026-08-22), so price-override is the one
   //    that fires there — for every class, at every level.
   write();
-  assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'broad'])), 'codex/gpt-6-sol/cli', 'default = cheapest L1');
+  assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'broad'])), 'codex/gpt-6.1-sol/cli', 'default = cheapest L1');
   write({ 'opus-5-5': ['route', 'N', 'Y'] });
   assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'broad'])), 'claude/opus-5-5/cli', 'price-override fires in the default');
-  write({ 'sonnet-5': ['route', 'N', 'Y'] });
-  assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'bounded'])), 'claude/sonnet-5/cli', 'price-override fires in the default at the low levels too');
+  write({ 'sonnet-5-5': ['route', 'N', 'Y'] });
+  assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'bounded'])), 'claude/sonnet-5-5/cli', 'price-override fires in the default at the low levels too');
 
   // 6. quality-override, by the same rule, fires in NEITHER — the default no longer ranks anything
   //    on quality, so it takes an explicit --optimize quality to make one bite.
-  write({ 'sonnet-5': ['route', 'Y', 'N'] });
+  write({ 'sonnet-5-5': ['route', 'Y', 'N'] });
   assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'bounded'])), 'codex/gpt-5.6-terra/cli', 'quality-override must NOT fire in the default');
   write({ 'gpt-5.6-terra': ['route', 'Y', 'N'] });
   assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'quality'])), 'codex/gpt-5.6-terra/cli', 'the flag DOES bite under --optimize quality');
@@ -366,7 +366,7 @@ const dropped = (v, stage) => (v.explain || [])
   // 7. use=panel — no verdict may name it, and it drops at its own stage with its own reason...
   write({ 'opus-5-5': ['panel', 'N', 'N'] });
   const panel = at(['--access', 'bounded', '--type', 'text', '--class', 'broad', '--optimize', 'quality', '--explain']);
-  assert.strictEqual(pair(panel), 'codex/gpt-6-sol/cli', 'a use=panel row must never be a verdict');
+  assert.strictEqual(pair(panel), 'codex/gpt-6.1-sol/cli', 'a use=panel row must never be a verdict');
   assert.ok(dropped(panel, 'use').includes('claude/opus-5-5'), JSON.stringify(dropped(panel, 'use')));
   //    ...but it stays in the roster, which is the surface a panel spreads its seats across.
   const roster = spawnSync('node', [TOOL, 'route', '--catalog', '--json'], { encoding: 'utf8', env: ENV, cwd: vault });
@@ -374,7 +374,7 @@ const dropped = (v, stage) => (v.explain || [])
   assert.strictEqual(rows.find((r) => r.model === 'opus-5-5').use, 'panel', 'the roster must SHOW a panel row with its use value');
 
   // 8. use=off — same invisibility to routing; with both L1 rows gone, class broad has nothing left.
-  write({ 'opus-5-5': ['panel', 'N', 'N'], 'gpt-6-sol': ['off', 'N', 'N'] });
+  write({ 'opus-5-5': ['panel', 'N', 'N'], 'gpt-6.1-sol': ['off', 'N', 'N'] });
   const none = at(['--access', 'bounded', '--type', 'text', '--class', 'broad', '--optimize', 'quality']);
   assert.strictEqual(none.error, 'zero_candidates', JSON.stringify(none));
   assert.strictEqual(none._status, 1);
@@ -382,7 +382,7 @@ const dropped = (v, stage) => (v.explain || [])
   // 9. an unrecognised use value is never guessed: loud warning, row out of routing.
   write({ 'opus-5-5': ['maybe', 'N', 'N'] });
   const bad = at(['--access', 'bounded', '--type', 'text', '--class', 'broad', '--optimize', 'quality', '--explain']);
-  assert.strictEqual(pair(bad), 'codex/gpt-6-sol/cli');
+  assert.strictEqual(pair(bad), 'codex/gpt-6.1-sol/cli');
   assert.ok(/use='maybe'/.test(bad._stderr), `an unrecognised use must warn on stderr: ${bad._stderr}`);
   assert.ok(dropped(bad, 'use').includes('claude/opus-5-5'), JSON.stringify(dropped(bad, 'use')));
 
@@ -536,7 +536,7 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
 
   const LEVELS = ['SOTA', 'L1', 'L2', 'L3', 'L4'];
   // Every axis a multi-level twin must agree on — the CSV columns minus `level` and the two
-  // override columns, which are per level by definition (sonnet-5 wins L3 on both, L2 on neither).
+  // override columns, which are per level by definition (sonnet-5-5 wins L3 on both, L2 on neither).
   const AXES = ['mode', 'harness', 'model', 'efforts', 'image', 'reasoning', 'coding', 'cost', 'use'];
   const YN = ['Y', 'N'];
   const seen = new Map();
@@ -562,7 +562,7 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
     assert.ok(r.cost === '' || Number.isFinite(Number(r.cost)),
       `${at}: cost is '${r.cost}' — a number, or blank for unknown (a decimal comma shifts the whole row)`);
     // A model MAY appear on more than one line, once per level it is admitted at (owner ruling
-    // 2026-08-23: claude/sonnet-5 sits at L2 and L3 so `bounded` and `mechanical` can both reach
+    // 2026-08-23: claude/sonnet-5-5 sits at L2 and L3 so `bounded` and `mechanical` can both reach
     // it, its subscription making the L3 list price misleading). The join onto catalog.js is on
     // harness+model and both copies resolve to the same launch spec, so this is unambiguous where
     // it matters. What stays forbidden is the ACCIDENTAL duplicate: two lines for one model that

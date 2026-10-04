@@ -39,11 +39,11 @@ The proposal model is configured in the existing `.rbtv/config/ignite/config.jso
 ```json
 "dreamer": {
   "enabled": false,
-  "model": { "harness": "codex", "model": "gpt-6-sol", "effort": 3 }
+  "model": { "harness": "codex", "model": "gpt-6.1-sol", "effort": 3 }
 }
 ```
 
-Omitting `dreamer.model` selects `codex gpt-6-sol 3`. An override must supply all three fields: `harness` is `codex`, `opencode` or `claude`; `model` is a nonempty cast model name without whitespace or a leading dash; `effort` is a JSON integer from 1 to 5. Unknown fields and invalid values are refused. Cast checks model availability and its supported effort mapping when called. Manual and nightly runs use the same setting; the daemon reloads it on each tick. Agent `agent.json` settings are independent.
+Omitting `dreamer.model` selects `codex gpt-6.1-sol 3`. An override must supply all three fields: `harness` is `codex`, `opencode` or `claude`; `model` is a nonempty cast model name without whitespace or a leading dash; `effort` is a JSON integer from 1 to 5. Unknown fields and invalid values are refused. Cast checks model availability and its supported effort mapping when called. Manual and nightly runs use the same setting; the daemon reloads it on each tick. Agent `agent.json` settings are independent.
 
 Dreamer ships disabled: omit `dreamer` or keep `"dreamer": { "enabled": false }` in `.rbtv/config/ignite/config.json` for the initial deploy. Both nightly consolidation and the 48-hour watchdog stay off. After `ready`, verify one fresh timer wake has a new threadless conversation and harness session, input equal to its schedule id, and all five checked memory files in its prompt. Only after that proof, with the owner present for the first consolidation, set `"dreamer": { "enabled": true }` in the existing config. The daemon reloads it on the next tick (normally within 30 seconds); enabling during the 03:00 hour can run consolidation immediately. Otherwise attend the next nightly slot. Set it back to false to disable both calls.
 

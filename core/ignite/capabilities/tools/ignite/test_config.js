@@ -71,7 +71,7 @@ test('dreamer defaults off and accepts only a boolean enable setting', (dir) => 
   for (const dreamer of [undefined, {}, { enabled: false }, { enabled: true }]) {
     writeConfig(dir, { dreamer });
     assert.equal(loadConfig(dir).dreamer.enabled, dreamer?.enabled ?? false);
-    assert.deepEqual(loadConfig(dir).dreamer.model, { harness: 'codex', model: 'gpt-6-sol', effort: 3 });
+    assert.deepEqual(loadConfig(dir).dreamer.model, { harness: 'codex', model: 'gpt-6.1-sol', effort: 3 });
   }
   for (const dreamer of [null, [], true, { enabled: 'true' }, { enabled: 1 }, { hour: 3 }]) {
     writeConfig(dir, { dreamer });
@@ -88,7 +88,7 @@ test('dreamer model accepts a complete override and survives config updates', (d
     assert.deepEqual(loadConfig(dir).dreamer.model, model);
   }
   const reset = updateConfig(dir, (config) => { delete config.dreamer.model; });
-  assert.deepEqual(reset.dreamer.model, { harness: 'codex', model: 'gpt-6-sol', effort: 3 });
+  assert.deepEqual(reset.dreamer.model, { harness: 'codex', model: 'gpt-6.1-sol', effort: 3 });
   assert.deepEqual(loadConfig(dir).dreamer.model, reset.dreamer.model);
 });
 

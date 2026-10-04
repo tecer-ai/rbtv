@@ -44,14 +44,14 @@ async function captures(argv, flags, deps) {
   const installation = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-manage-'));
   const agent = path.join(installation, '.rbtv', 'agents', 'probe');
   fs.mkdirSync(agent, { recursive: true });
-  fs.writeFileSync(path.join(agent, 'agent.json'), JSON.stringify({ name: 'probe', description: 'Probe.', harness: 'codex', model: 'gpt-6-sol', effort: 'high', units: [], packs: [] }), 'utf8');
+  fs.writeFileSync(path.join(agent, 'agent.json'), JSON.stringify({ name: 'probe', description: 'Probe.', harness: 'codex', model: 'gpt-6.1-sol', effort: 'high', units: [], packs: [] }), 'utf8');
   fs.writeFileSync(path.join(agent, 'agent.md'), '---\nname: probe\n---\n', 'utf8');
   // The installer checks the model against `cast list`, so a stand-in cast answers for this one model.
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-manage-bin-'));
   const cast = path.join(bin, process.platform === 'win32' ? 'cast.cmd' : 'cast');
   fs.writeFileSync(cast, process.platform === 'win32'
-    ? '@echo {"codex":{"gpt-6-sol":["low","medium","high"]}}\r\n'
-    : '#!/bin/sh\nprintf \'{"codex":{"gpt-6-sol":["low","medium","high"]}}\\n\'\n');
+    ? '@echo {"codex":{"gpt-6.1-sol":["low","medium","high"]}}\r\n'
+    : '#!/bin/sh\nprintf \'{"codex":{"gpt-6.1-sol":["low","medium","high"]}}\\n\'\n');
   if (process.platform !== 'win32') fs.chmodSync(cast, 0o755);
   const oldPath = process.env.PATH;
   process.env.PATH = `${bin}${path.delimiter}${oldPath}`;

@@ -145,7 +145,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     // caller re-throws unless routed through the seam.
     fs.writeFileSync(target, `${original}\nconst __INJECTED_FAULT__ = __UNDEFINED_SYMBOL__;\n`);
     try {
-      const seat = spawnSync('node', [TOOL, 'claude', 'sonnet-5', '2', '-rogue', agentFile, '-p', 'go', '--dry-run'],
+      const seat = spawnSync('node', [TOOL, 'claude', 'sonnet-5-5', '2', '-rogue', agentFile, '-p', 'go', '--dry-run'],
         { encoding: 'utf8' });
       assert.strictEqual(seat.status, 0,
         `cast -rogue --dry-run must survive a broken lib/${name}.js, got exit ${seat.status}: ${seat.stderr}`);
@@ -167,18 +167,18 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
 // claude + sonnet effort 5 -> top rung "max"
 {
   const folder = mkFolder('claude-sonnet');
-  const out = dryRun(['claude', 'sonnet-5', '5', folder, '-p', 'hello']);
+  const out = dryRun(['claude', 'sonnet-5-5', '5', folder, '-p', 'hello']);
   assert.deepStrictEqual(out.argv.slice(-2), ['--effort', 'max']);
   assert.strictEqual(out.effort_word, 'max');
 }
 
-// codex effort 5 -> clamped to gpt-5.5's top rung (4 rungs: low,medium,high,xhigh)
+// codex effort 5 -> the top rung of gpt-6-luna's five-rung ladder
 {
   const folder = mkFolder('codex');
-  const out = dryRun(['codex', 'gpt-5.5', '5', folder, '-p', 'hello']);
-  assert.ok(out.argv.includes('model_reasoning_effort=xhigh'));
+  const out = dryRun(['codex', 'gpt-6-luna', '5', folder, '-p', 'hello']);
+  assert.ok(out.argv.includes('model_reasoning_effort=max'));
   assert.ok(out.argv.includes('--skip-git-repo-check'), 'codex launch must run outside git repos');
-  assert.strictEqual(out.effort_word, 'xhigh');
+  assert.strictEqual(out.effort_word, 'max');
 }
 
 // codex astra is launchable and uses the five-rung ladder.
@@ -190,7 +190,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.strictEqual(out.effort_word, 'max');
 }
 
-// kimi now rides opencode: k3 effort 1 -> its lowest rung, K2.7 carries no dial at all
+// kimi now rides opencode: k3 effort 1 -> its lowest rung, effort 5 -> clamped to its top rung
 {
   const folder = mkFolder('kimi');
   const out = dryRun(['opencode', 'k3', '1', folder, '-p', 'hello']);
@@ -203,39 +203,38 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.notStrictEqual(other.argv[other.argv.indexOf('--title') + 1], title,
     'two launches must not share a title tag');
   assert.strictEqual(out.effort_word, 'low');
-  const k27 = dryRun(['opencode', 'k2.7', '5', folder, '-p', 'hello']);
-  assert.ok(!k27.argv.includes('--variant'), 'inert K2.7 must emit no --variant');
-  assert.ok(k27.argv.includes('kimi-for-coding/kimi-for-coding'), 'short name must map to the id');
+  const top = dryRun(['opencode', 'k3', '5', folder, '-p', 'hello']);
+  assert.strictEqual(top.effort_word, 'max', 'effort above a three-rung ladder clamps to its top rung');
 }
 
-// opencode glm-5.2 effort 1 -> its lowest rung ("high", ladder has no low/medium)
+// opencode glm-5.3 effort 1 -> its lowest rung ("high", ladder has no low/medium)
 {
   const folder = mkFolder('opencode');
-  const out = dryRun(['opencode', 'glm-5.2', '1', folder, '-p', 'hello']);
+  const out = dryRun(['opencode', 'glm-5.3', '1', folder, '-p', 'hello']);
   assert.deepStrictEqual(out.argv.slice(-2), ['--variant', 'high']);
   assert.strictEqual(out.effort_word, 'high');
 }
 
 // launch-folder omitted -> cwd of the caller
 {
-  const out = dryRun(['claude', 'sonnet-5', '1', '-p', 'hi']);
+  const out = dryRun(['claude', 'sonnet-5-5', '1', '-p', 'hi']);
   assert.strictEqual(out.cwd, process.cwd());
 }
 
 // --headed: interactive forms — no print-mode flag, prompt rides argv, stdin freed for the TTY
 {
   const folder = mkFolder('headed');
-  const claude = dryRun(['claude', 'sonnet-5', '3', folder, '-p', 'hi', '--headed']);
+  const claude = dryRun(['claude', 'sonnet-5-5', '3', folder, '-p', 'hi', '--headed']);
   assert.ok(!claude.argv.includes('-p'), 'headed claude must drop -p');
   assert.strictEqual(claude.argv[claude.argv.length - 1], 'hi');
   assert.strictEqual(claude.stdin_preview, null);
   assert.strictEqual(claude.headed, true);
 
-  const codex = dryRun(['codex', 'gpt-5.5', '3', folder, '-p', 'hi', '--headed']);
+  const codex = dryRun(['codex', 'gpt-6-luna', '3', folder, '-p', 'hi', '--headed']);
   assert.ok(!codex.argv.includes('exec'), 'headed codex must drop exec');
   assert.strictEqual(codex.argv[codex.argv.length - 1], 'hi');
 
-  const oc = dryRun(['opencode', 'glm-5.2', '3', folder, '-p', 'hi', '--headed']);
+  const oc = dryRun(['opencode', 'glm-5.3', '3', folder, '-p', 'hi', '--headed']);
   assert.ok(!oc.argv.includes('run'), 'headed opencode must drop run');
   assert.ok(!oc.argv.includes('--auto'), 'headed opencode leaves permission asks to the human');
   assert.ok(!oc.argv.includes('--variant'), 'headed opencode TUI has no --variant');
@@ -256,16 +255,16 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
 // plain mode -s/-S: claude gets a real system-prompt flag; codex gets developer instructions; opencode gets it prepended to the message
 {
   const folder = mkFolder('plain-system');
-  const out = dryRun(['claude', 'sonnet-5', '1', folder, '-p', 'hi', '-s', 'be terse']);
+  const out = dryRun(['claude', 'sonnet-5-5', '1', folder, '-p', 'hi', '-s', 'be terse']);
   assert.deepStrictEqual(out.argv.slice(out.argv.indexOf('--append-system-prompt'), out.argv.indexOf('--append-system-prompt') + 2), ['--append-system-prompt', 'be terse']);
   assert.strictEqual(out.stdin_preview, 'hi');
 
   const sysFile = path.join(folder, 'sys.md');
   fs.writeFileSync(sysFile, 'be VERY terse');
-  const outFile = dryRun(['claude', 'sonnet-5', '1', folder, '-p', 'hi', '-S', sysFile]);
+  const outFile = dryRun(['claude', 'sonnet-5-5', '1', folder, '-p', 'hi', '-S', sysFile]);
   assert.ok(outFile.argv.includes('--append-system-prompt-file'));
 
-  const codex = dryRun(['codex', 'gpt-5.5', '1', folder, '-p', 'hi', '-S', sysFile]);
+  const codex = dryRun(['codex', 'gpt-6-luna', '1', folder, '-p', 'hi', '-S', sysFile]);
   assert.ok(codex.argv.includes(`developer_instructions=${JSON.stringify('be VERY terse')}`), `expected developer instructions: ${codex.argv}`);
   assert.strictEqual(codex.stdin_preview, 'hi');
 
@@ -278,14 +277,14 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   const folder = mkFolder('file-prompt');
   const promptFile = path.join(folder, 'prompt.txt');
   fs.writeFileSync(promptFile, 'from a file');
-  const out = dryRun(['claude', 'sonnet-5', '1', folder, '-f', promptFile]);
+  const out = dryRun(['claude', 'sonnet-5-5', '1', folder, '-f', promptFile]);
   assert.strictEqual(out.stdin_preview, 'from a file');
 }
 
 // -f - reads the prompt from stdin
 {
   const folder = mkFolder('stdin-prompt');
-  const res = spawnSync('node', [TOOL, 'claude', 'sonnet-5', '1', folder, '-f', '-', '--dry-run'], {
+  const res = spawnSync('node', [TOOL, 'claude', 'sonnet-5-5', '1', folder, '-f', '-', '--dry-run'], {
     encoding: 'utf8',
     input: 'piped in',
   });
@@ -300,30 +299,30 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.strictEqual(res.status, 2, 'unknown harness must exit 2');
 }
 {
-  const res = spawnSync('node', [TOOL, 'claude', 'sonnet-5', '9', BASE, '-p', 'hi', '--dry-run']);
+  const res = spawnSync('node', [TOOL, 'claude', 'sonnet-5-5', '9', BASE, '-p', 'hi', '--dry-run']);
   assert.strictEqual(res.status, 2, 'out-of-range effort must exit 2');
 }
 {
   const missing = path.join(BASE, 'cast-test-does-not-exist');
-  const res = spawnSync('node', [TOOL, 'claude', 'sonnet-5', '1', missing, '-p', 'hi', '--dry-run']);
+  const res = spawnSync('node', [TOOL, 'claude', 'sonnet-5-5', '1', missing, '-p', 'hi', '--dry-run']);
   assert.strictEqual(res.status, 2, 'missing launch-folder must exit 2');
 }
 
 // -p and -f together: refused
 {
-  const res = spawnSync('node', [TOOL, 'claude', 'sonnet-5', '1', BASE, '-p', 'hi', '-f', '/dev/null', '--dry-run']);
+  const res = spawnSync('node', [TOOL, 'claude', 'sonnet-5-5', '1', BASE, '-p', 'hi', '-f', '/dev/null', '--dry-run']);
   assert.strictEqual(res.status, 2, '-p and -f together must exit 2');
 }
 
 // neither -p nor -f: refused
 {
-  const res = spawnSync('node', [TOOL, 'claude', 'sonnet-5', '1', BASE, '--dry-run']);
+  const res = spawnSync('node', [TOOL, 'claude', 'sonnet-5-5', '1', BASE, '--dry-run']);
   assert.strictEqual(res.status, 2, 'no prompt source must exit 2');
 }
 
 // unknown flag: refused, names the flag
 {
-  const res = spawnSync('node', [TOOL, 'claude', 'sonnet-5', '1', BASE, '-p', 'hi', '--bogus'], { encoding: 'utf8' });
+  const res = spawnSync('node', [TOOL, 'claude', 'sonnet-5-5', '1', BASE, '-p', 'hi', '--bogus'], { encoding: 'utf8' });
   assert.strictEqual(res.status, 2, 'unknown flag must exit 2');
   assert.ok(res.stderr.includes('--bogus'), `error should name the unknown flag: ${res.stderr}`);
 }
@@ -333,7 +332,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   const res = spawnSync('node', [TOOL, 'claude', 'claude-sonet-5', '1', BASE, '-p', 'hi', '--dry-run'], { encoding: 'utf8' });
   assert.strictEqual(res.status, 2, 'unknown model must exit 2');
   assert.ok(res.stderr.includes('did you mean'), `error should suggest a model: ${res.stderr}`);
-  assert.ok(res.stderr.includes('sonnet-5'), `suggestion should name the close model: ${res.stderr}`);
+  assert.ok(res.stderr.includes('sonnet-5-5'), `suggestion should name the close model: ${res.stderr}`);
 }
 
 // per-verb --help: exit 0, prints that verb's usage; a prompt that is literally "-h" is not help
@@ -367,12 +366,12 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   for (const short of shorts) {
     assert.ok(res.stdout.includes(` ${short} `), `help text missing model: ${short}`);
   }
-  for (const id of ['claude-opus-5-5', 'zai-coding-plan/glm-5.2', 'kimi-for-coding/k3']) {
+  for (const id of ['claude-opus-5-5', 'zai-coding-plan/glm-5.3', 'kimi-for-coding/k3']) {
     assert.ok(!res.stdout.includes(id), `help text must print short names only, found long id: ${id}`);
   }
   // every model row names what each effort number resolves to, clamping included
   assert.ok(res.stdout.includes('1=low 2=medium 3=high 4=xhigh 5=max'), 'claude effort map missing');
-  assert.ok(res.stdout.includes('1=high 2-5=max'), 'glm-5.2 clamped effort map missing');
+  assert.ok(res.stdout.includes('1=high 2-5=max'), 'glm-5.3 clamped effort map missing');
   assert.ok(/haiku-4-5 +\(no dial/.test(res.stdout), 'inert ladder must say so');
   // -h says the dial takes a number and the words are labels
   assert.match(res.stdout, /pass the number/i, 'help must say to pass the number');
@@ -403,7 +402,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   const parsed = JSON.parse(res.stdout);
   assert.deepStrictEqual(Object.keys(parsed).sort(),
     ['claude', 'codex', 'effort_numbers', 'opencode', 'usage'].sort());
-  assert.ok(Array.isArray(parsed.claude['sonnet-5']));
+  assert.ok(Array.isArray(parsed.claude['sonnet-5-5']));
   assert.deepStrictEqual(parsed.claude['haiku-4-5'], []);
   // the pre-existing harness keys are byte-for-byte what buildInventory() serializes, first
   const { buildInventory } = require('./lib/core');
@@ -415,8 +414,8 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     'two-rung ladder folds to its unique numbers');
   assert.deepStrictEqual(parsed.effort_numbers.opencode.k3, { low: 1, high: 2, max: 3 },
     'three-rung ladder maps low:1 high:2 max:3');
-  assert.deepStrictEqual(parsed.effort_numbers.codex['gpt-5.5'],
-    { low: 1, medium: 2, high: 3, xhigh: 4 }, 'four-rung ladder maps 1..4');
+  assert.deepStrictEqual(parsed.effort_numbers.codex['gpt-6-luna'],
+    { low: 1, medium: 2, high: 3, xhigh: 4, max: 5 }, 'five-rung ladder maps 1..5');
   assert.deepStrictEqual(parsed.effort_numbers.claude['haiku-4-5'], {},
     'no dial -> no numbers (any number accepted)');
   // usage says: pass the number, words are labels only, with one complete example
@@ -434,11 +433,11 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.match(res.stdout, /words are labels/i, 'plain list must say the words are labels only');
 }
 
-// a model opencode gives no variants for (k2.7) is inert: any effort, no --variant argv
+// a model with no effort ladder (haiku-4-5) is inert: any effort, no --effort argv
 {
-  const folder = mkFolder('opencode-inert');
-  const out = dryRun(['opencode', 'k2.7', '5', folder, '-p', 'hello']);
-  assert.ok(!out.argv.includes('--variant'), `inert model must emit no --variant: ${out.argv}`);
+  const folder = mkFolder('claude-inert');
+  const out = dryRun(['claude', 'haiku-4-5', '5', folder, '-p', 'hello']);
+  assert.ok(!out.argv.includes('--effort'), `inert model must emit no --effort: ${out.argv}`);
   assert.strictEqual(out.effort_word, null);
 }
 
@@ -575,8 +574,8 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.ok(!dry.stderr.includes('cast: handle'), `dry-run must emit no handle: ${dry.stderr}`);
   assert.ok(JSON.parse(dry.stdout).argv.includes('--session-id'), 'claude launch must mint --session-id');
   // headed claude and the other harnesses carry no minted session
-  assert.ok(!dryRun(['claude', 'sonnet-5', '1', folder, '-p', 'hi', '--headed']).argv.includes('--session-id'));
-  assert.ok(!dryRun(['codex', 'gpt-5.5', '1', folder, '-p', 'hi']).argv.includes('--session-id'));
+  assert.ok(!dryRun(['claude', 'sonnet-5-5', '1', folder, '-p', 'hi', '--headed']).argv.includes('--session-id'));
+  assert.ok(!dryRun(['codex', 'gpt-6-luna', '1', folder, '-p', 'hi']).argv.includes('--session-id'));
 }
 
 // codex reader drops subagent rollouts; opencode reader returns [] on an absent store
@@ -783,7 +782,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     const tagB = 'b [cast:bbbbbbbb]';
     const tagC = 'c [cast:cccccccc]';
     const handle = (job, folder, t0, tag) => JSON.stringify({
-      pid: job.pid, start: job.start, harness: 'opencode', model: 'glm-5.2', session: null,
+      pid: job.pid, start: job.start, harness: 'opencode', model: 'glm-5.3', session: null,
       tag, folder, transcript: null, t0,
     });
     fs.mkdirSync(path.join(home, '.cast'), { recursive: true });
@@ -1020,7 +1019,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     const { start } = sleeper;
     fs.mkdirSync(path.join(home, '.cast'), { recursive: true });
     fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'), `${JSON.stringify({
-      pid: sleeper.pid, start, harness: 'opencode', model: 'glm-5.2', session: null,
+      pid: sleeper.pid, start, harness: 'opencode', model: 'glm-5.3', session: null,
       folder, transcript: null, t0: Date.now() - 120_000, ...(IS_WIN ? { out: outFile } : {}),
     })}\n`);
     const rows = JSON.parse(monitor(['--json']).stdout);
@@ -1030,7 +1029,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     const watch = monitor(['--watch', '--poll', '1', '--grace', '600', '--stall', '600']);
     assert.strictEqual(watch.status, 3, `provider-limit must exit 3, got ${watch.status}: ${watch.stdout}`);
     assert.ok(watch.stdout.includes('PROVIDER-LIMIT'), `event line: ${watch.stdout}`);
-    assert.ok(watch.stdout.includes('provider-limit: glm-5.2 resets 2026-08-22 11:10:16'),
+    assert.ok(watch.stdout.includes('provider-limit: glm-5.3 resets 2026-08-22 11:10:16'),
       `named reason: ${watch.stdout}`);
     assert.ok(watch.stdout.includes('ADVISORY, not authority'), `advisory: ${watch.stdout}`);
   } finally {
@@ -1128,7 +1127,7 @@ db.close();
     if (withFinalText) say('msg_1', 'ses_r', withFinalText);
     db.close();
   };
-  const cast = () => spawnSync('node', [TOOL, 'opencode', 'glm-5.2', '1', folder, '-p', 'hi'],
+  const cast = () => spawnSync('node', [TOOL, 'opencode', 'glm-5.3', '1', folder, '-p', 'hi'],
     { encoding: 'utf8', env });
   const noSibling = (res, arm) => assert.ok(!res.stdout.includes(SIBLING),
     `${arm}: a sibling session's report must never be recovered as this run's: ${res.stdout}`);
@@ -1171,7 +1170,7 @@ db.close();
   seedDb(null);
   res = cast();
   assert.notStrictEqual(res.status, 0, `limit run must be non-zero: ${res.stdout}`);
-  assert.ok(res.stdout.includes('provider-limit: glm-5.2 resets 2026-08-22 11:10:16'),
+  assert.ok(res.stdout.includes('provider-limit: glm-5.3 resets 2026-08-22 11:10:16'),
     `must name the limit instead of no-report: ${res.stdout}`);
   assert.ok(!res.stdout.includes('cast: no-report'), `limit must not print no-report: ${res.stdout}`);
   noSibling(res, 'provider-limit');
@@ -1185,7 +1184,7 @@ db.close();
   installFake(bin, 'opencode', `${drainStdin}setTimeout(() => process.exit(0), 5000);\n`);
   const env = { ...process.env, ...homeEnv(home), XDG_DATA_HOME: xdg,
     PATH: pathEnv(bin), CAST_DEADLINE_MS: '400' };
-  const res = spawnSync('node', [TOOL, 'opencode', 'glm-5.2', '1', folder, '-p', 'hi'],
+  const res = spawnSync('node', [TOOL, 'opencode', 'glm-5.3', '1', folder, '-p', 'hi'],
     { encoding: 'utf8', env, timeout: 8000 });
   assert.notStrictEqual(res.status, 0, `deadline must be non-zero: ${res.stderr}`);
   assert.ok(res.stderr.includes('cast: deadline'), `must print deadline: ${res.stderr}`);
@@ -1270,13 +1269,13 @@ db.close();
 
     // shared log: ONLY job B's session hit the limit
     fs.writeFileSync(logPath, `timestamp=${new Date(t0 + 2000).toISOString()} level=ERROR run=xxxx`
-      + ' message="stream error" providerID=zai-coding-plan modelID=glm-5.2 session.id=ses_b'
+      + ' message="stream error" providerID=zai-coding-plan modelID=glm-5.3 session.id=ses_b'
       + ' small=false agent=build mode=primary error.error="AI_APICallError: Usage limit reached'
       + ' for 5 hour. Your limit will reset at 2026-08-31 20:00:00"\n');
 
     fs.mkdirSync(path.join(home, '.cast'), { recursive: true });
     const handle = (job, tag) => JSON.stringify({
-      pid: job.pid, start: job.start, harness: 'opencode', model: 'glm-5.2', session: null,
+      pid: job.pid, start: job.start, harness: 'opencode', model: 'glm-5.3', session: null,
       tag, folder, transcript: null, t0,
     });
     fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'),
@@ -1302,7 +1301,7 @@ db.close();
 if (IS_WIN) console.log('skip: setsid detached-launch gate (session leader) is Linux-only');
 else {
   const setsidLaunch = (extra = []) => require('child_process').spawnSync('setsid',
-    ['node', path.join(__dirname, 'cast.js'), 'claude', 'sonnet-5', '1', os.tmpdir(), ...extra, '-p', 'never runs'],
+    ['node', path.join(__dirname, 'cast.js'), 'claude', 'sonnet-5-5', '1', os.tmpdir(), ...extra, '-p', 'never runs'],
     { encoding: 'utf8' });
   const refused = setsidLaunch();
   assert.strictEqual(refused.status, 2, `detached launch must exit 2, got ${refused.status}`);
@@ -1392,7 +1391,7 @@ else {
   const home = path.join(root, '.rbtv', 'agents', 'sara');
   fs.mkdirSync(home, { recursive: true });
   fs.writeFileSync(path.join(home, 'agent.md'), '---\nname: sara\n---\nYou are Sara.');
-  fs.writeFileSync(path.join(home, 'agent.json'), '{"name":"sara","harness":"claude","model":"sonnet-5","effort":"medium"}\n');
+  fs.writeFileSync(path.join(home, 'agent.json'), '{"name":"sara","harness":"claude","model":"sonnet-5-5","effort":"medium"}\n');
   const igRun = (args) => {
     const res = spawnSync('node', [TOOL, ...args, '--dry-run'], { cwd: root, encoding: 'utf8' });
     assert.strictEqual(res.status, 0, `expected exit 0, got ${res.status}, stderr: ${res.stderr}`);
@@ -1411,7 +1410,7 @@ else {
   assert.strictEqual(byPath.status, 0, byPath.stderr);
   assert.strictEqual(JSON.parse(byPath.stdout).cwd, home, 'a path names the agent folder');
 
-  const rg = dryRun(['codex', 'gpt-5.5', '2', '-rogue', path.join(home, 'agent.md'), '-p', 'go']);
+  const rg = dryRun(['codex', 'gpt-6-luna', '2', '-rogue', path.join(home, 'agent.md'), '-p', 'go']);
   assert.ok(rg.argv.includes(`developer_instructions=${JSON.stringify('You are Sara.')}`), `frontmatter must not reach the prompt: ${rg.argv}`);
   assert.ok(rg.argv.includes('project_doc_max_bytes=131072'), `every Codex launch raises the AGENTS.md limit: ${rg.argv}`);
   assert.ok(!('RBTV_AGENT_HOME' in rg), '-rogue is not an rbtv agent: no RBTV_AGENT_HOME');
@@ -1421,15 +1420,15 @@ else {
   fs.writeFileSync(path.join(halfHome, 'agent.md'), 'You are half.');
 
   const refusals = [
-    [['claude', 'sonnet-5', '2', '-rbtv', 'sara', '-p', 'go'], 'does not take a harness, model or effort'],
-    [['codex', 'gpt-6-sol', '3', '-rbtv', 'sara', '-p', 'go'], 'does not take a harness, model or effort'],
+    [['claude', 'sonnet-5-5', '2', '-rbtv', 'sara', '-p', 'go'], 'does not take a harness, model or effort'],
+    [['codex', 'gpt-6.1-sol', '3', '-rbtv', 'sara', '-p', 'go'], 'does not take a harness, model or effort'],
     [['-rbtv', 'nobody', '-p', 'go'], "no rbtv agent 'nobody'"],
     [['-rbtv', 'plans/launch/agents/missing', '-p', 'go'], 'no rbtv agent'],
     [['-rbtv', 'half', '-p', 'go'], 'agent.json is missing'],
     [['-rbtv', 'sara', '-rogue', 'x.md', '-p', 'go'], 'mutually exclusive'],
     [['-rbtv', 'sara', '-s', 'x', '-p', 'go'], 'cannot be combined'],
     [['-rbtv', 'sara', '--target', root, '-p', 'go'], "unknown flag '--target'"],
-    [['claude', 'sonnet-5', '2', '--target', root, '-p', 'go'], "unknown flag '--target'"],
+    [['claude', 'sonnet-5-5', '2', '--target', root, '-p', 'go'], "unknown flag '--target'"],
   ];
   for (const [args, text] of refusals) {
     const res = spawnSync('node', [TOOL, ...args, '--dry-run'], { cwd: root, encoding: 'utf8' });

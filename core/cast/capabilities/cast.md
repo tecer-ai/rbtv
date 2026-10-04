@@ -26,7 +26,7 @@ cast -h | --help
 | Arg | Meaning |
 |---|---|
 | `harness` | `claude` \| `codex` \| `opencode` |
-| `model` | that harness's model, SHORT name — the provider prefix and the `claude-` prefix are dropped: `opus-5-5` (not `claude-opus-5-5`), `glm-5.2` (not `zai-coding-plan/glm-5.2`). The two K2.7 kimi models are the exception: their ids (`kimi-for-coding`, `kimi-for-coding-highspeed`) name no generation, so they carry the display short names `k2.7`, `k2.7-highspeed` (`k3` and `k3-256k` derive normally). See `cast -h` or `cast list` for the current inventory; a long id is refused with the short one suggested |
+| `model` | that harness's model, SHORT name — the provider prefix and the `claude-` prefix are dropped: `opus-5-5` (not `claude-opus-5-5`), `glm-5.3` (not `zai-coding-plan/glm-5.3`). See `cast -h` or `cast list` for the current inventory; a long id is refused with the short one suggested |
 | `effort` | integer 1-5, the universal dial |
 | `launch-folder` | working directory for the agent, resolved relative to the caller's CWD; MUST already exist |
 | `-p TEXT` | literal prompt text |
@@ -51,7 +51,7 @@ Each (harness, model) has its own rung ladder in `capabilities/tools/cast/catalo
 `rung = ladder[min(N, ladder.length) - 1]`
 — asking for 5 on a 3-rung ladder clamps to that ladder's top rung, never a refusal. An `inert`
 ladder (`haiku-4-5`) accepts any N and emits no effort argv at all. `cast -h` prints the
-resolved mapping per model with the clamping folded in (e.g. `glm-5.2  1=high 2-5=max`), so the
+resolved mapping per model with the clamping folded in (e.g. `glm-5.3  1=high 2-5=max`), so the
 number-to-rung answer is never inferred. The positional `<effort>` a bare launch takes is an
 integer 1-5 only — a rung word is refused at exit 2 — so `cast list --json` also reports
 `effort_numbers` (the same mapping inverted: each word to the smallest number that selects it)
@@ -336,7 +336,7 @@ for. Three values, three outcomes, no contradiction possible.
 **A model MAY sit at more than one level** — one CSV line per level, identical in every other
 cell (owner ruling 2026-08-23). `level` is normally the model's single quality tier, and a second
 line is the deliberate exception for a model whose list price misrepresents what it actually costs
-this vault: `claude/sonnet-5` carries a Claude subscription that makes its $10 list cost effectively
+this vault: `claude/sonnet-5-5` carries a Claude subscription that makes its $10 list cost effectively
 ~5x lower, so it sits at **L2 and L3** and is reachable by both `bounded` and `mechanical`, winning
 each on its `price-override=Y`. The join onto `catalog.js` is on harness+model and every copy
 resolves to the same launch spec, so nothing about launching is ambiguous. What remains forbidden
@@ -349,7 +349,7 @@ it is an owner decision, never a fix applied in passing.
 If that file exists it IS the catalog and the shipped CSV is ignored entirely.
 
 The CSV carries **the latest models only, per provider**. Pruning it does NOT remove launch
-support — `cast codex gpt-5.5 3` still launches, it just stops being an answer route can give.
+support — `cast claude haiku-4-5 1` still launches, it just stops being an answer route can give.
 `cast route --catalog` shows every CSV row with its axes, whether it is launchable (has a
 `catalog.js` twin) and whether its credential resolves right now.
 

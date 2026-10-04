@@ -23,21 +23,25 @@
 //   claude   — measured 2026-08-12.
 //   codex    — each model's `supported_reasoning_levels` in the model manifest embedded in the
 //              codex binary (0.147.0), spot-checked against live `codex exec` runs 2026-08-12.
-//              gpt-5.5 has xhigh. Excluded and why: gpt-5.2 — live 400, "not supported when using
+//              Excluded and why: gpt-5.2 — live 400, "not supported when using
 //              Codex with a ChatGPT account"; gpt-5.4, gpt-5.4-mini, codex-auto-review — manifest
 //              visibility "hide". sol/terra also list an `ultra` rung above max; a 1-5 dial can
 //              never reach a 6th rung, so it is left out rather than sitting here unreachable.
+//              gpt-6.1-sol read from the 0.159.3 manifest 2026-10-04 (same ladder as gpt-6-sol).
 //   opencode — the `variants` keys in `opencode models <provider> --verbose` (what `--variant`
 //              validates against), re-measured 2026-08-12/13/14. NOT ~/.cache/opencode/models.json,
-//              whose `reasoning_options` disagrees. A model with no variants (glm-4.7, K2.7) is
-//              inert. kimi rides opencode since 2026-08-14 (the `kimi` CLI is gone) — its ids are
-//              opaque ("kimi-for-coding" IS K2.7 Coding), so `model` carries the generation. The k3
+//              whose `reasoning_options` disagrees. A model with no variants is
+//              inert. kimi rides opencode since 2026-08-14 (the `kimi` CLI is gone). The k3
 //              rows are the one place `--verbose` UNDER-reports: it lists high,max, but a live
 //              `opencode run --variant low` on both returns normally (2026-08-14).
 //
-// PRUNING vs ROUTING: rows kept here that models.csv omits (gpt-5.5, glm-4.7, k2.7, k3-256k, the
-// gemini/grok legacy rows) stay LAUNCHABLE — `cast codex gpt-5.5 3` still works. They just stop
-// being answers `cast route` can give.
+// PRUNING vs ROUTING: a row kept here that models.csv omits (haiku-4-5, sakana-namazu) stays
+// LAUNCHABLE — `cast claude haiku-4-5 1` still works. It just stops being an answer `cast route`
+// can give.
+//
+// SUPERSEDED VERSIONS are deleted, not kept (owner direction 2026-10-04): one row per model line,
+// the latest. gpt-6-sol, gpt-5.5, glm-5.2(-highspeed), k2.7(-highspeed) and grok-4.6-fast went;
+// fable-5 and sonnet-5 became fable-5-1 and sonnet-5-5.
 
 const EFFORT_FLAG = {
   claude: (e) => ['--effort', e],
@@ -78,26 +82,20 @@ const GOOGLE_API_AUTH = { method: 'api-key', required: true, env_var: 'GEMINI_AP
 // · depths (an api model's own reasoning-mode ladder; [] = single-mode; cli rows do not use it).
 const ROWS = [
   // --- claude, cli -----------------------------------------------------------------------------
-  { harness: 'claude', model: 'fable-5', mode: 'cli', id: 'claude-fable-5', rungs: CLAUDE_LADDER, auth: CLI_LOGIN },
+  { harness: 'claude', model: 'fable-5-1', mode: 'cli', id: 'claude-fable-5-1', rungs: CLAUDE_LADDER, auth: CLI_LOGIN },
   { harness: 'claude', model: 'opus-5-5', mode: 'cli', id: 'claude-opus-5-5', rungs: CLAUDE_LADDER, auth: CLI_LOGIN },
-  { harness: 'claude', model: 'sonnet-5', mode: 'cli', id: 'claude-sonnet-5', rungs: CLAUDE_LADDER, auth: CLI_LOGIN },
+  { harness: 'claude', model: 'sonnet-5-5', mode: 'cli', id: 'claude-sonnet-5-5', rungs: CLAUDE_LADDER, auth: CLI_LOGIN },
   { harness: 'claude', model: 'haiku-4-5', mode: 'cli', id: 'claude-haiku-4-5', rungs: [], auth: CLI_LOGIN },
 
   // --- codex, cli ------------------------------------------------------------------------------
   { harness: 'codex', model: 'gpt-6-astra', mode: 'cli', id: 'gpt-6-astra', rungs: CLAUDE_LADDER, auth: CLI_LOGIN },
-  { harness: 'codex', model: 'gpt-6-sol', mode: 'cli', id: 'gpt-6-sol', rungs: CLAUDE_LADDER, auth: CLI_LOGIN },
+  { harness: 'codex', model: 'gpt-6.1-sol', mode: 'cli', id: 'gpt-6.1-sol', rungs: CLAUDE_LADDER, auth: CLI_LOGIN },
   { harness: 'codex', model: 'gpt-5.6-terra', mode: 'cli', id: 'gpt-5.6-terra', rungs: CLAUDE_LADDER, auth: CLI_LOGIN },
   { harness: 'codex', model: 'gpt-6-luna', mode: 'cli', id: 'gpt-6-luna', rungs: CLAUDE_LADDER, auth: CLI_LOGIN },
-  { harness: 'codex', model: 'gpt-5.5', mode: 'cli', id: 'gpt-5.5',
-    rungs: ['low', 'medium', 'high', 'xhigh'], auth: CLI_LOGIN },
 
   // --- opencode, cli ---------------------------------------------------------------------------
   { harness: 'opencode', model: 'glm-5.3', mode: 'cli', id: 'zai-coding-plan/glm-5.3',
     rungs: ['high', 'max'], auth: ZAI_AUTH},
-  { harness: 'opencode', model: 'glm-5.2', mode: 'cli', id: 'zai-coding-plan/glm-5.2',
-    rungs: ['high', 'max'], auth: ZAI_AUTH },
-  { harness: 'opencode', model: 'glm-5.2-highspeed', mode: 'cli', id: 'zai-coding-plan/glm-5.2-highspeed',
-    rungs: ['high', 'max'], auth: ZAI_AUTH },
   { harness: 'opencode', model: 'deepseek-v4-flash', mode: 'cli', id: 'deepseek/deepseek-v4-flash',
     rungs: ['low', 'medium', 'high', 'max'], auth: DEEPSEEK_OC_AUTH },
   { harness: 'opencode', model: 'deepseek-v4-pro', mode: 'cli', id: 'deepseek/deepseek-v4-pro',
@@ -119,10 +117,6 @@ const ROWS = [
     rungs: ['low', 'high'], auth: GOOGLE_OC_AUTH },
   { harness: 'opencode', model: 'grok-4.7', mode: 'cli', id: 'xai/grok-4.7',
     rungs: ['low', 'medium', 'high'], auth: XAI_OC_AUTH },
-  { harness: 'opencode', model: 'grok-4.6-fast', mode: 'cli', id: 'xai/grok-4.6-fast',
-    rungs: ['low', 'medium', 'high'], auth: XAI_OC_AUTH },
-  { harness: 'opencode', model: 'k2.7', mode: 'cli', id: 'kimi-for-coding/kimi-for-coding', rungs: [], auth: KIMI_OC_AUTH },
-  { harness: 'opencode', model: 'k2.7-highspeed', mode: 'cli', id: 'kimi-for-coding/kimi-for-coding-highspeed', rungs: [], auth: KIMI_OC_AUTH },
   { harness: 'opencode', model: 'k3', mode: 'cli', id: 'kimi-for-coding/k3',
     rungs: ['low', 'high', 'max'], auth: KIMI_OC_AUTH },
   { harness: 'opencode', model: 'k3-256k', mode: 'cli', id: 'kimi-for-coding/k3-256k',

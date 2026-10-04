@@ -732,7 +732,7 @@ options:
 
 Examples:
   rbtv agent configure scout --model gpt-6-astra --effort medium
-  rbtv agent configure plans/launch/agents/drafter --harness codex --model gpt-6-sol --effort high
+  rbtv agent configure plans/launch/agents/drafter --harness codex --model gpt-6.1-sol --effort high
 
 Next: rbtv agent list
 Exit codes: 0 success; 1 refused or failed; 2 invalid arguments.

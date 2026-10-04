@@ -67,7 +67,7 @@ function workspace() {
   const home = path.join(agents, 'master');
   fs.mkdirSync(home, { recursive: true });
   fs.writeFileSync(path.join(home, 'agent.json'), JSON.stringify({
-    harness: 'claude', model: 'sonnet-5', effort: 'low',
+    harness: 'claude', model: 'sonnet-5-5', effort: 'low',
   }));
   fs.writeFileSync(path.join(home, 'agent.md'), '---\nname: master\n---\n', 'utf8');
   fs.mkdirSync(path.dirname(boardPath(home)), { recursive: true });
@@ -1393,7 +1393,7 @@ test('route-after-start', async () => {
     const home = path.join(dir, '.rbtv', 'agents', 'probe');
     fs.mkdirSync(home, { recursive: true });
     fs.writeFileSync(path.join(home, 'agent.json'), JSON.stringify({
-      harness: 'claude', model: 'sonnet-5', effort: 'low',
+      harness: 'claude', model: 'sonnet-5-5', effort: 'low',
     }));
     fs.writeFileSync(path.join(home, 'agent.md'), '---\nname: probe\n---\n', 'utf8');
     setRoutes(dir, { CNEW: 'probe' });

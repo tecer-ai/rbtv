@@ -31,8 +31,8 @@ function writeAgent(folder, values) {
 const scout = path.join(root, '.rbtv', 'agents', 'scout');
 const drafter = path.join(root, 'plans', 'x', 'agents', 'drafter');
 const half = path.join(root, '.rbtv', 'agents', 'half');
-writeAgent(scout, { name: 'scout', harness: 'codex', model: 'gpt-6-sol', effort: 'high' });
-writeAgent(drafter, { name: 'drafter', harness: 'claude', model: 'sonnet-5', effort: 'medium' });
+writeAgent(scout, { name: 'scout', harness: 'codex', model: 'gpt-6.1-sol', effort: 'high' });
+writeAgent(drafter, { name: 'drafter', harness: 'claude', model: 'sonnet-5-5', effort: 'medium' });
 writeAgent(half, null);
 
 // A `cast` on PATH that records its own argv. Launches go through it; nothing reaches a harness.
@@ -129,7 +129,7 @@ if (process.platform !== 'win32') {
     `agent    scout`,
     `folder   ${scout}`,
     'harness  codex',
-    'model    gpt-6-sol',
+    'model    gpt-6.1-sol',
     'effort   high',
     '',
   ].join('\n'));
