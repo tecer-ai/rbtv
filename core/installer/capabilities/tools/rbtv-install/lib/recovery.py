@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import os
 import shlex
+from pathlib import Path
+
+from .constants import REPO_ROOT
 
 
 def shell_quote(value: object) -> str:
@@ -12,11 +15,17 @@ def shell_quote(value: object) -> str:
     return shlex.quote(text)
 
 
-def vanished_component_message(cid: str, tree_root: object,
-                              target: object | None = None) -> str:
+def source_tree_root(tree: object, target: object) -> Path:
+    """Derive a component's current source root instead of booking a path."""
+    if tree == "mirror":
+        return Path(target) / ".rbtv" / "mirror"
+    return REPO_ROOT
+
+
+def vanished_component_message(cid: str, tree: object, target: object) -> str:
+    tree_root = source_tree_root(tree, target)
     remove = "rbtv install remove " + shell_quote(cid)
-    if target is not None:
-        remove += " --target " + shell_quote(target)
+    remove += " --target " + shell_quote(target)
     return (
         f"component {cid!r} is recorded as installed but no longer exists under "
         f"{str(tree_root)!r} (renamed or deleted upstream). Every run at this "

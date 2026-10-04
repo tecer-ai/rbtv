@@ -69,6 +69,7 @@ ORDER = [
     test_parts.part_level_claim_release,
     test_parts.vanished_component_part_rm,
     test_parts.v1_to_v2_upgrade,
+    test_parts.schema_three_becomes_portable_on_write,
     test_cli.parser_selectors_index,
     test_pathlinks.path_links,
     test_doctor_ownership.doctor_ownership,

@@ -8,13 +8,10 @@ from pathlib import Path
 
 
 VERSION = "0.2.1"
-# The installer's own filename, recorded in the book so a reader of
-# install.json can tell which tool wrote it. Informational: nothing branches
-# on it. Books written before the 2026-08-23 rename carry "install2.py" and
-# are simply overwritten on the next write.
+# The program name is used in generated guidance banners. It is deliberately
+# not part of the portable install record.
 INSTALLER_NAME = "install.py"
-
-SCHEMA = 3
+SCHEMA = 4
 
 # D12 — ownership is a marker in the file, never a prefix on its name.
 MANAGED_MARK = "rbtv-managed"

@@ -5,11 +5,8 @@
   "type": "object",
   "required": [
     "schema",
-    "installer",
     "version",
     "marker",
-    "installed_at",
-    "target",
     "harnesses",
     "components"
   ],
@@ -18,25 +15,12 @@
       "description": "The version of this record's format.",
       "type": "integer"
     },
-    "installer": {
-      "description": "The installer program that wrote the record.",
-      "type": "string"
-    },
     "version": {
       "description": "The installer's version.",
       "type": "string"
     },
     "marker": {
       "description": "The per-unit generated-file ownership marker, `rbtv-managed`. Shared files use booked keys or fenced sections; guidance copies use a generated banner. The install record tracks installed units and files.",
-      "type": "string"
-    },
-    "installed_at": {
-      "description": "When the last install ran.",
-      "type": "string",
-      "format": "date-time"
-    },
-    "target": {
-      "description": "The target folder this record belongs to.",
       "type": "string"
     },
     "harnesses": {
@@ -79,7 +63,6 @@
           "module",
           "component",
           "tree",
-          "tree_root",
           "harnesses",
           "units"
         ],
@@ -96,10 +79,6 @@
             "description": "Where the component came from: `repo` for a component shipped in the rbtv repository, or `mirror` for a local component.",
             "type": "string",
             "enum": ["repo", "mirror"]
-          },
-          "tree_root": {
-            "description": "The folder the component was read from.",
-            "type": "string"
           },
           "harnesses": {
             "description": "The harnesses this component was installed for.",

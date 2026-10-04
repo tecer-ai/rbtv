@@ -294,8 +294,8 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
         units, gone = _select_units(c, existing.get("units"),
                                     _units_for_cid(cid, parts))
         source_gone += [f"{cid}#{pid}" for pid in gone]
-        rec = {"tree": c["tree"], "tree_root": c["tree_root"],
-               "module": c["module"], "component": c["component"],
+        rec = {"tree": c["tree"], "module": c["module"],
+               "component": c["component"],
                "harnesses": [h for h in HARNESSES if h in harnesses],
                 "units": units}
         if "files" in existing:
@@ -440,9 +440,8 @@ def _do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
         rec0 = stranded[blockers[0]]
         raise Refuse(
             "component-vanished",
-            vanished_component_message(blockers[0], rec0.get("tree_root"),
-                                       target),
-            str(rec0.get("tree_root", "")))
+            vanished_component_message(blockers[0], rec0.get("tree"), target),
+            str(target))
     files, owners, claims, report = plan_files(live, catalog, target)
     report["guidance_sections"] = _section_paths(claims)
     desired, path_owners = plan_path_links(target, _path_rows_from_report(report))

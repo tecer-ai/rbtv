@@ -100,8 +100,8 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
         if comp is None:
             raise Refuse(
                 "component-vanished",
-                vanished_component_message(cid, rec.get("tree_root"), target),
-                str(rec.get("tree_root", "")))
+                vanished_component_message(cid, rec.get("tree"), target),
+                str(target))
         comp_dir = Path(comp["path"])
         harnesses = [h for h in HARNESSES if h in rec["harnesses"]]
         codex_used = codex_used or "codex" in harnesses

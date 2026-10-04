@@ -46,7 +46,7 @@ def vanished_component_removable(ctx) -> None:
                                encoding="utf-8")
     stv = read_state(vn)
     stv["components"]["gonemod/gonecomp"] = {
-        "tree": "mirror", "tree_root": str(vn / ".rbtv/mirror"),
+        "tree": "mirror",
         "module": "gonemod", "component": "gonecomp",
         "harnesses": ["claude"], "files": [gone_rel]}
     write_state(vn, stv)
@@ -354,4 +354,38 @@ def v1_to_v2_upgrade(ctx) -> None:
     else:
         skip("U-live — upgrade against a real book",
              f"no installed workspace at or above {Path.cwd()}")
+    ctx.keep(locals())
+
+
+def schema_three_becomes_portable_on_write(ctx) -> None:
+    check, skip, tmp, tree, target, shadowed = (
+        ctx.check, ctx.skip, ctx.tmp, ctx.tree, ctx.target, ctx.shadowed)
+    (catalog, data, legacy, expect, basis_body, mirrors_on_disk, mtr,
+     _mk, rf, pws) = ctx.frame()
+
+    print("\nU-portable — schema 3 records migrate at their next write")
+    old = tmp / "ws-schema-three"
+    old.mkdir()
+    do_install(old, catalog, ["fixmod/goodcomp"], ["claude"], dry_run=False)
+    state_path = old / STATE_REL
+    old_record = json.loads(state_path.read_text(encoding="utf-8"))
+    old_record["schema"] = SCHEMA - 1
+    old_record["installer"] = "install.py"
+    old_record["installed_at"] = "2000-01-01T00:00:00"
+    old_record["target"] = str(old.resolve())
+    old_record["components"]["fixmod/goodcomp"]["tree_root"] = str(tree)
+    state_path.write_text(json.dumps(old_record), encoding="utf-8")
+    read = read_state(old)
+    check("U-portable — schema 3 reads without its machine-local fields",
+          read["schema"] == SCHEMA - 1
+          and not {"installer", "installed_at", "target"} & set(read)
+          and "tree_root" not in read["components"]["fixmod/goodcomp"])
+    write_state(old, read)
+    persisted = json.loads(state_path.read_text(encoding="utf-8"))
+    check("U-portable — next write has schema 4 and no machine-local fields",
+          persisted["schema"] == SCHEMA
+          and not {"installer", "installed_at", "target"} & set(persisted)
+          and all("tree_root" not in rec
+                  for rec in persisted["components"].values()),
+          str(persisted))
     ctx.keep(locals())

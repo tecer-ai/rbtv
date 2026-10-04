@@ -3,14 +3,12 @@ write, query.
 """
 from __future__ import annotations
 
-import datetime as _dt
 import json
 from pathlib import Path
 
 from discovery import HUB_DIR, Refuse, SKILLS_DIR
 
-from .constants import (HARNESSES, INSTALLER_NAME, MANAGED_MARK, SCHEMA,
-                        STATE_REL, VERSION)
+from .constants import (HARNESSES, MANAGED_MARK, SCHEMA, STATE_REL, VERSION)
 from .claims import _jget, _located
 from .fsio import write_file
 
@@ -85,11 +83,23 @@ def migrate_legacy_record(state: dict) -> None:
                 unit["method"] = _LEGACY_METHODS[unit["method"]]
 
 
+def migrate_portable_record(state: dict) -> None:
+    """Read schema 3 records as schema 4 records without machine-local data.
+
+    The migration stays in memory until the next state write, like the other
+    record migrations in this module.
+    """
+    for name in ("installed_at", "target", "installer"):
+        state.pop(name, None)
+    for rec in (state.get("components") or {}).values():
+        if isinstance(rec, dict):
+            rec.pop("tree_root", None)
+
+
 def read_state(target: Path) -> dict:
     path = target / STATE_REL
     if not path.is_file():
-        return {"schema": SCHEMA, "installer": INSTALLER_NAME, "components": {},
-                "shared_claims": []}
+        return {"schema": SCHEMA, "components": {}, "shared_claims": []}
     try:
         state = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -100,6 +110,7 @@ def read_state(target: Path) -> dict:
         raise Refuse("state-unreadable",
                      f"installer state must be a JSON object: {path}", str(path))
     migrate_legacy_record(state)
+    migrate_portable_record(state)
     _validate_state(state, path)
     rewrite_legacy_skill_ids(state)
     strip_retired_harnesses(state)
@@ -110,12 +121,13 @@ def read_state(target: Path) -> dict:
 def write_state(target: Path, state: dict) -> None:
     path = target / STATE_REL
     state["schema"] = SCHEMA
-    state["installer"] = INSTALLER_NAME
     state["version"] = VERSION
     state["marker"] = MANAGED_MARK
-    state["installed_at"] = _dt.datetime.now().isoformat(timespec="seconds")
-    state["target"] = str(target.resolve())
-    state.pop("prefix", None)
+    for name in ("prefix", "installed_at", "target", "installer"):
+        state.pop(name, None)
+    for rec in (state.get("components") or {}).values():
+        if isinstance(rec, dict):
+            rec.pop("tree_root", None)
     path.parent.mkdir(parents=True, exist_ok=True)
     write_file(path, json.dumps(state, indent=2, sort_keys=True) + "\n")
 
@@ -263,6 +275,7 @@ def upgrade_book(state: dict, catalog_parts: dict[str, list[dict]]) -> dict:
         rec["units"] = {r["id"]: {"method": r["method"], "files": []}
                         for r in catalog_parts[cid]}
     out["components"] = comps
+    migrate_portable_record(out)
     out.pop("prefix", None)
     return out
 

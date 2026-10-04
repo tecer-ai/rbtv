@@ -165,8 +165,8 @@ def green_arm_all_harnesses(ctx) -> None:
               _claim_id("AGENTS.md", None, "fixmod/goodcomp"),
               _claim_id("CLAUDE.md", None, "fixmod/goodcomp"),
           ]), str(sorted(state["shared_claims"])))
-    check("install.json books the source tree + harnesses",
-          rec["tree"] == "repo" and rec["tree_root"] == str(tree)
+    check("install.json books the portable source kind + harnesses",
+          rec["tree"] == "repo" and "tree_root" not in rec
           and rec["harnesses"] == list(HARNESSES))
     check("the installation's .rbtv/ holds mirror/, runtime/ and memory/",
           all((target / ".rbtv" / name).is_dir()
