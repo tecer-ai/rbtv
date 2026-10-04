@@ -11,6 +11,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
 const { loadConfig, updateConfig, agentHome, configPath, slackToken } = require('./config.js');
 const { Slack } = require('./slack.js');
@@ -22,6 +23,7 @@ const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const CHANNEL = /^[a-z0-9][a-z0-9_-]{0,79}$/;
 const BOARD_ROOT = 'board';
 const RUNBOOK = 'core/ignite/capabilities/runbook.md';
+const INSTALLER_ENTRY = path.resolve(__dirname, '../../../../..', 'core/installer/capabilities/tools/rbtv-install/install.py');
 
 const HELP = `ignite-agent connect — connect or disconnect an installed agent
 
@@ -29,7 +31,8 @@ connect <agent> (--channel-name <name> | --dm) [--schedule-json <file>]
         [--workspace <path>] [--dry-run] [--json]
 
   Run on the machine that will run the agent. The agent must already be installed
-  (agent.md and agent.json in <workspace>/.rbtv/agents/<agent>/).
+  (agent.md and agent.json in <workspace>/.rbtv/agents/<agent>/). connect turns
+  on the ignite pack, creates missing working files, then connects Slack.
   Needs <workspace>/.rbtv/config/ignite/config.json. This command does not write that
   file. See ${RUNBOOK}.
   --channel-name: create the Slack channel, the bot joins, the owner is invited,
@@ -53,8 +56,9 @@ connect <agent> (--channel-name <name> | --dm) [--schedule-json <file>]
 disconnect <agent> [--archive-channel] [--workspace <path>] [--dry-run] [--json]
 
   Removes the agent's route(s) and dmAgent from the config, cancels its timers,
-  and archives its channel when asked. Does not delete the agent folder.
-  Uninstalling is: rbtv install agent remove <agent>
+  and archives its channel when asked, then turns off the ignite pack. Does not
+  delete the agent folder or its working files.
+  Pack off runs: rbtv agent remove <agent> --pack ignite
 `;
 
 function fail(message) {
@@ -132,12 +136,80 @@ function requireConfig(workspace) {
   }
 }
 
-function requireInstalled(config, agent) {
-  const home = agentHome(config, agent);
+function agentOutsideMessage(raw, home, agents, command) {
+  return `agent ${JSON.stringify(raw)} is not under\n${agents}${path.sep}.\nignite-agent ${command}s only an agent that lives there. ignite-agent does not copy an agent.\nNothing changed.\nPlace it under ${agents}${path.sep}, then ${command} that name.`;
+}
+
+function isInside(folder, parent) {
+  const relative = path.relative(parent, folder);
+  return relative !== '' && !relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative);
+}
+
+function resolveAgent(config, raw, command) {
+  const agents = path.join(config.workspace, '.rbtv', 'agents');
+  const pathish = raw.includes('/') || raw.includes('\\') || raw === '.' || raw === '..';
+  const home = pathish ? path.resolve(raw) : agentHome(config, raw);
+  if (!isInside(home, agents)) fail(agentOutsideMessage(raw, home, agents, command));
+  const agent = path.basename(home);
+  if (!SLUG.test(agent)) fail(`agent name must match [a-z0-9][a-z0-9-]{0,63}`);
+  return { agent, home, agents };
+}
+
+function requireInstalled(config, raw, command) {
+  const resolved = resolveAgent(config, raw, command);
+  const { agent, home } = resolved;
+  if (!fs.existsSync(home)) {
+    fail(`agent ${agent} is not installed (no folder at ${home}).\nAdd it with: rbtv agent add ${agent}\nNothing changed.`);
+  }
   if (!fs.existsSync(path.join(home, 'agent.md')) || !fs.existsSync(path.join(home, 'agent.json'))) {
     fail(`agent ${agent} is not installed (needs agent.md and agent.json at ${home})`);
   }
-  return home;
+  return resolved;
+}
+
+function installerCommand(args, workspace) {
+  const python = process.platform === 'win32' ? 'python' : 'python3';
+  return spawnSync(python, [INSTALLER_ENTRY, ...args], {
+    cwd: workspace,
+    encoding: 'utf8',
+    maxBuffer: 10 * 1024 * 1024,
+  });
+}
+
+async function runInstaller(args, workspace, deps) {
+  if (deps.install) {
+    const result = await deps.install(args);
+    return { status: result?.status ?? 0, stdout: result?.stdout || '', stderr: result?.stderr || '' };
+  }
+  const result = installerCommand(args, workspace);
+  if (result.error) fail(`rbtv agent failed: ${result.error.message}`);
+  return { status: result.status ?? 1, stdout: result.stdout || '', stderr: result.stderr || '' };
+}
+
+function installerResult(result) {
+  if (result.status === 0) {
+    try { return JSON.parse(result.stdout); } catch { return {}; }
+  }
+  try {
+    const body = JSON.parse(result.stdout);
+    if (body.error?.message) fail(body.error.message);
+  } catch (error) {
+    if (error.exitCode) throw error;
+  }
+  fail((result.stderr || result.stdout || 'rbtv agent failed').trim());
+}
+
+function unitCount(home) {
+  const state = readJson(path.join(home, 'agent.json'), 'agent.json');
+  return Array.isArray(state.units) ? state.units.length : 0;
+}
+
+async function setIgnitePack(verb, home, workspace, dryRun, deps) {
+  const before = unitCount(home);
+  const args = ['agent', verb, home, '--pack', 'ignite', '--json'];
+  if (dryRun) args.push('--dry-run');
+  const body = installerResult(await runInstaller(args, workspace, deps));
+  return { before, after: Array.isArray(body.units) ? body.units.length : unitCount(home) };
 }
 
 function ensureRuntime(home) {
@@ -151,6 +223,13 @@ function ensureRuntime(home) {
     const store = new Store(db);
     store.close();
   }
+}
+
+function runtimeChanges(home) {
+  const paths = [boardPath(home), path.join(home, 'state.sqlite'), path.join(home, 'conversations')];
+  const missing = paths.filter((file) => !fs.existsSync(file));
+  ensureRuntime(home);
+  return missing;
 }
 
 function scheduleFrom(file, now) {
@@ -247,11 +326,14 @@ function cancelTimers(home) {
   }
 }
 
-function connectPlan(opts, home, schedule) {
+function connectPlan(opts, home, schedule, pack) {
   return [
     'dry-run',
     `connect: ${opts.agent}`,
     `home: ${home}`,
+    'pack: ignite',
+    `units: ${pack.before}${pack.after === pack.before ? '' : ` -> ${pack.after}`}`,
+    'working files: would create',
     opts.dm ? 'channel: none (dm)' : `channel: ${opts['channel-name']}`,
     `schedule: ${schedule ? `${schedule.cadence} ${schedule.timezone}` : 'none'}`,
     'writes: none',
@@ -262,7 +344,9 @@ function connectPlan(opts, home, schedule) {
 async function connectAgent(opts, flags, deps) {
   const workspace = workspaceOf(flags);
   const config = requireConfig(workspace);
-  const home = requireInstalled(config, opts.agent);
+  const resolved = requireInstalled(config, opts.agent, 'connect');
+  const { home, agent } = resolved;
+  opts.agent = agent;
   if (opts.dm && opts['channel-name']) fail('pass either --channel-name or --dm, not both');
   if (!opts.dm && !opts['channel-name']) fail('--channel-name or --dm required');
   if (opts['channel-name'] && !CHANNEL.test(opts['channel-name'])) {
@@ -277,6 +361,7 @@ async function connectAgent(opts, flags, deps) {
   }
   const now = deps.now ? deps.now() : Date.now();
   const schedule = opts['schedule-json'] ? scheduleFrom(opts['schedule-json'], now) : null;
+  const pack = await setIgnitePack('add', home, workspace, opts.dryRun, deps);
   if (opts.dryRun) {
     emit(deps, flags, {
       dryRun: true,
@@ -286,27 +371,38 @@ async function connectAgent(opts, flags, deps) {
       channelName: opts['channel-name'] || null,
       schedule: schedule ? { cadence: schedule.cadence, timezone: schedule.timezone } : null,
       writes: 'none',
-    }, connectPlan(opts, home, schedule));
+    }, connectPlan(opts, home, schedule, pack));
     return 0;
   }
+  const created = runtimeChanges(home);
   let channel = null;
   let joined = false;
   let invited = false;
-  if (!opts.dm) {
-    const slack = slackClient(config, deps);
-    channel = await ensureChannel({ opts, routes, workspace }, slack, deps);
-    await slack.joinChannel(channel.id);
-    joined = true;
-    await slack.inviteUser(channel.id, config.slack.ownerUserId);
-    invited = true;
-  } else {
-    updateConfig(workspace, (raw) => {
-      raw.dmAgent = opts.agent;
-    });
+  let scheduleId;
+  let warning;
+  try {
+    if (!opts.dm) {
+      const slack = slackClient(config, deps);
+      channel = await ensureChannel({ opts, routes, workspace }, slack, deps);
+      await slack.joinChannel(channel.id);
+      joined = true;
+      await slack.inviteUser(channel.id, config.slack.ownerUserId);
+      invited = true;
+    } else {
+      updateConfig(workspace, (raw) => {
+        raw.dmAgent = opts.agent;
+      });
+    }
+    ({ scheduleId, warning } = await bindSchedule({ config, opts, home, schedule, channel }));
+  } catch (error) {
+    const details = [`failed: Slack, after the pack and the working files`, `units: ${pack.before}${pack.after === pack.before ? '' : ` -> ${pack.after}`}`, 'pack: ignite', runtimeText(created)];
+    details.push(`Slack failed: ${error.message}`, 'The pack and the working files stay.',
+      channel ? `The route ${channel.id} stays and will be reused.` : 'No route was written.',
+      `Rerun: ignite-agent connect ${agent}${opts.dm ? ' --dm' : ` --channel-name ${opts['channel-name']}`}`);
+    fail(details.join('\n'));
   }
-  const { scheduleId, warning } = await bindSchedule({ config, opts, home, schedule, channel });
   const link = channel ? `https://slack.com/app_redirect?channel=${channel.id}&team=${config.slack.team}` : null;
-  const lines = [`connected ${opts.agent}`];
+  const lines = [`connected ${opts.agent}`, 'pack: ignite', `units: ${pack.before}${pack.after === pack.before ? '' : ` -> ${pack.after}`}`, runtimeText(created)];
   if (opts.dm) {
     lines.push('channel: none (dm)', `dmAgent: ${opts.agent}`);
   } else {
@@ -326,14 +422,17 @@ async function connectAgent(opts, flags, deps) {
 async function disconnectAgent(opts, flags, deps) {
   const workspace = workspaceOf(flags);
   const config = requireConfig(workspace);
-  const home = agentHome(config, opts.agent);
+  const resolved = requireInstalled(config, opts.agent, 'disconnect');
+  const { home, agent } = resolved;
+  opts.agent = agent;
   const routes = routesFor(config, opts.agent).map(([id]) => id);
   const dm = config.dmAgent === opts.agent;
   const channelIds = routes;
   if (opts.dryRun) {
+    const pack = await setIgnitePack('remove', home, workspace, true, deps);
     emit(deps, flags, {
       dryRun: true, agent: opts.agent, home, routes, dm, archive: opts.archiveChannel, writes: 'none',
-    }, `dry-run\ndisconnect: ${opts.agent}\nhome: ${home}\nroutes: ${routes.join(', ') || 'none'}\ndm: ${dm}\narchive: ${opts.archiveChannel}\nwrites: none\n`);
+    }, `dry-run\ndisconnect: ${opts.agent}\nhome: ${home}\nroutes: ${routes.join(', ') || 'none'}\ndm: ${dm}\narchive: ${opts.archiveChannel}\npack: ignite\nunits: ${pack.before}${pack.after === pack.before ? '' : ` -> ${pack.after}`}\nwrites: none\n`);
     return 0;
   }
   const archived = [];
@@ -351,17 +450,21 @@ async function disconnectAgent(opts, flags, deps) {
     if (raw.dmAgent === opts.agent) delete raw.dmAgent;
   });
   const { timers, warning } = fs.existsSync(home) ? cancelTimers(home) : { timers: [], warning: null };
+  const pack = await setIgnitePack('remove', home, workspace, false, deps);
   emit(deps, flags, {
     disconnected: opts.agent, archived, timers, home, kept: true, ...(warning ? { warning } : {}),
-  }, `disconnected ${opts.agent}\nroutes: ${routes.length ? `removed ${routes.join(', ')}` : 'none'}\ndmAgent: ${dm ? 'cleared' : 'unchanged'}\narchived: ${opts.archiveChannel ? archived.join(', ') || 'none' : 'no'}\ntimers: ${timers.join(', ') || 'none'}\nhome: kept\n${warning ? `${warning}\n` : ''}`);
+  }, `disconnected ${opts.agent}\nroutes: ${routes.length ? `removed ${routes.join(', ')}` : 'none'}\ndmAgent: ${dm ? 'cleared' : 'unchanged'}\narchived: ${opts.archiveChannel ? archived.join(', ') || 'none' : 'no'}\ntimers: ${timers.join(', ') || 'none'}\npack: ignite ${pack.before === pack.after ? 'already off' : 'off'}\nunits: ${pack.before}${pack.after === pack.before ? '' : ` -> ${pack.after}`}\nhome: kept\n${warning ? `${warning}\n` : ''}`);
   return 0;
+}
+
+function runtimeText(created) {
+  return created.length ? `working files: created\n${created.map((file) => `  ${file}`).join('\n')}` : 'working files: present';
 }
 
 function agentOf(positionals) {
   const agent = positionals[0];
   if (!agent) fail('an agent name is required');
   if (positionals.length > 1) fail(`unexpected argument: ${positionals[1]}`);
-  if (!SLUG.test(agent)) fail('agent name must match [a-z0-9][a-z0-9-]{0,63}');
   return agent;
 }
 

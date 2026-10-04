@@ -50,12 +50,38 @@ function writeConfig(dir, extra = {}) {
 function installAgent(dir, name = 'probe') {
   const home = path.join(dir, '.rbtv', 'agents', name);
   fs.mkdirSync(path.join(home, 'conversations'), { recursive: true });
-  fs.writeFileSync(path.join(home, 'agent.md'), `---\nname: ${name}\ndescription: fixture\n---\n\n## Role\n\nFixture.\n`);
-  fs.writeFileSync(path.join(home, 'agent.json'), '{"harness":"claude","model":"m","effort":"high"}\n');
+  fs.writeFileSync(path.join(home, 'agent.md'), `---\nname: ${name}\n---\n\n## Role\n\nFixture.\n`);
+  fs.writeFileSync(path.join(home, 'agent.json'), JSON.stringify({
+    name, description: 'fixture', harness: 'claude', model: 'm', effort: 'high',
+    units: ['fixture/a#one', 'fixture/a#two', 'fixture/a#web'], packs: ['research-kit'],
+  }) + '\n');
   fs.writeFileSync(path.join(home, 'conversations', 'kept.md'), 'history\n');
   fs.mkdirSync(path.dirname(boardPath(home)), { recursive: true });
   fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
   return home;
+}
+
+const IGNITE_UNITS = ['core/ignite#a', 'core/ignite#b', 'core/ignite#c', 'core/ignite#d', 'core/ignite#e', 'core/ignite#f', 'core/ignite#g', 'core/ignite#h'];
+
+function fakeInstaller(calls = []) {
+  return (args) => {
+    calls.push(args);
+    const home = args[2];
+    const dryRun = args.includes('--dry-run');
+    const state = JSON.parse(fs.readFileSync(path.join(home, 'agent.json'), 'utf8'));
+    const packs = new Set(state.packs);
+    const units = new Set(state.units);
+    if (args[1] === 'add') {
+      packs.add('ignite');
+      for (const unit of IGNITE_UNITS) units.add(unit);
+    } else {
+      packs.delete('ignite');
+      for (const unit of IGNITE_UNITS) units.delete(unit);
+    }
+    const next = { ...state, packs: [...packs].sort(), units: [...units].sort() };
+    if (!dryRun) fs.writeFileSync(path.join(home, 'agent.json'), `${JSON.stringify(next)}\n`);
+    return { status: 0, stdout: JSON.stringify({ units: next.units, packs: next.packs }) };
+  };
 }
 
 function readConfig(dir) {
@@ -91,6 +117,7 @@ async function run(argv, extra = {}) {
   const code = await main(argv, {
     stdout: (text) => out.push(text),
     stderr: (text) => err.push(text),
+    ...(extra.realInstaller ? {} : { install: fakeInstaller() }),
     ...extra,
   });
   return { code, out: out.join(''), err: err.join('') };
@@ -186,7 +213,7 @@ async function run(argv, extra = {}) {
     assert.equal(fs.readFileSync(path.join(home, 'board.md'), 'utf8'), 'obsolete');
   });
 
-  await test('connect without a schedule never recreates a deleted canonical board', async () => {
+  await test('connect creates a missing canonical board without a schedule', async () => {
     const dir = workspace();
     writeConfig(dir);
     const home = installAgent(dir);
@@ -194,11 +221,11 @@ async function run(argv, extra = {}) {
     fs.writeFileSync(path.join(home, 'board.md'), 'invalid legacy board', 'utf8');
     const result = await run(['connect', 'probe', '--dm', '--workspace', dir], { slack: fakeSlack() });
     assert.equal(result.code, 0);
-    assert.equal(fs.existsSync(boardPath(home)), false);
+    assert.equal(fs.existsSync(boardPath(home)), true);
   });
 
   for (const state of ['deleted', 'invalid']) {
-    for (const existing of [false, true]) await test(`connection timer refuses a ${state} board with ${existing ? 'existing' : 'absent'} SQLite unchanged`, async () => {
+    for (const existing of [false, true]) await test(`connection timer ${state === 'deleted' ? 'creates' : 'refuses'} a ${state} board with ${existing ? 'existing' : 'absent'} SQLite`, async () => {
       const dir = workspace();
       writeConfig(dir);
       const home = installAgent(dir);
@@ -218,18 +245,21 @@ async function run(argv, extra = {}) {
         else fs.writeFileSync(file, 'invalid board café\r\n', 'utf8');
         const schedule = path.join(dir, 'schedule.json');
         fs.writeFileSync(schedule, JSON.stringify({ every: '2h', tz: 'fixed', note: 'Changed' }), 'utf8');
-        await assert.rejects(() => run(['connect', 'probe', '--dm', '--schedule-json', schedule, '--workspace', dir], { slack: fakeSlack() }),
-          (error) => error.message.startsWith(`board refused: ${file}: `)
-            && (state !== 'deleted' || error.message === `board refused: ${file}: board is missing`));
-        if (existing) assert.deepEqual(fs.readFileSync(db), before);
-        assert.deepEqual(fs.readdirSync(home).filter((name) => name.startsWith('state.sqlite')), existing ? ['state.sqlite'] : []);
-        if (state === 'deleted') assert.equal(fs.existsSync(file), false);
-        else assert.equal(fs.readFileSync(file, 'utf8'), 'invalid board café\r\n');
+        if (state === 'deleted') {
+          const result = await run(['connect', 'probe', '--dm', '--schedule-json', schedule, '--workspace', dir], { slack: fakeSlack() });
+          assert.equal(result.code, 0, result.out + result.err);
+          assert.equal(fs.existsSync(file), true);
+        } else {
+          await assert.rejects(() => run(['connect', 'probe', '--dm', '--schedule-json', schedule, '--workspace', dir], { slack: fakeSlack() }),
+            (error) => error.message.includes(`board refused: ${file}: `));
+          if (existing) assert.deepEqual(fs.readFileSync(db), before);
+          assert.equal(fs.readFileSync(file, 'utf8'), 'invalid board café\r\n');
+        }
       } finally { fs.rmSync(dir, { recursive: true, force: true }); }
     });
   }
 
-  for (const state of ['invalid', 'deleted']) await test(`connect and disconnect refuse a ${state} board before changing schedules`, async () => {
+  for (const state of ['invalid', 'deleted']) await test(`disconnect refuses a ${state} board before changing schedules`, async () => {
     const dir = workspace();
     writeConfig(dir, { dmAgent: 'probe' });
     const home = installAgent(dir);
@@ -242,10 +272,8 @@ async function run(argv, extra = {}) {
       else fs.writeFileSync(boardPath(home), 'invalid board', 'utf8');
       const schedule = path.join(dir, 'schedule.json');
       fs.writeFileSync(schedule, JSON.stringify({ every: '1h', tz: 'fixed', note: 'Check' }), 'utf8');
-      for (const args of [['connect', 'probe', '--dm', '--schedule-json', schedule], ['disconnect', 'probe']]) {
-        await assert.rejects(() => run([...args, '--workspace', dir], { slack: fakeSlack() }), /board refused/);
-        assert.deepEqual(store.listSchedules(), before);
-      }
+      await assert.rejects(() => run(['disconnect', 'probe', '--workspace', dir], { slack: fakeSlack() }), /board refused/);
+      assert.deepEqual(store.listSchedules(), before);
     } finally { store.close(); fs.rmSync(dir, { recursive: true, force: true }); }
   });
 
@@ -340,7 +368,7 @@ async function run(argv, extra = {}) {
         throw error;
       },
     }).catch((error) => error);
-    assert.equal(first.message, 'injected');
+    assert.match(first.message, /Slack failed: injected/);
     assert.deepEqual(readConfig(dir).routes, { CNEW: 'probe' });
     assert.equal(fs.existsSync(path.join(dir, '.rbtv', 'agents', 'probe', 'setup.json')), false);
     assert.equal(slack.calls.filter((call) => call[0] === 'create').length, 1);
@@ -393,6 +421,67 @@ async function run(argv, extra = {}) {
     assert.equal(fs.existsSync(path.join(dir, '.rbtv', 'agents', 'probe', 'agent.md')), true);
   });
 
+  await test('connect dry-run calls the real installer with the ignite pack and writes nothing', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const home = installAgent(dir);
+    const statePath = path.join(home, 'agent.json');
+    const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    fs.writeFileSync(statePath, `${JSON.stringify({ ...state, units: [], packs: [] })}\n`);
+    const bin = path.join(dir, 'bin');
+    fs.mkdirSync(bin);
+    const cast = path.join(bin, process.platform === 'win32' ? 'cast.cmd' : 'cast');
+    fs.writeFileSync(cast, process.platform === 'win32'
+      ? '@echo {"claude":{"m":["high"]}}\r\n'
+      : '#!/bin/sh\nprintf \'{"claude":{"m":["high"]}}\\n\'\n');
+    if (process.platform !== 'win32') fs.chmodSync(cast, 0o755);
+    const before = fs.readFileSync(statePath, 'utf8');
+    const oldPath = process.env.PATH;
+    process.env.PATH = `${bin}${path.delimiter}${oldPath}`;
+    try {
+      const result = await run(['connect', 'probe', '--dm', '--workspace', dir, '--dry-run'], { realInstaller: true });
+      assert.equal(result.code, 0, result.out + result.err);
+      assert.match(result.out, /pack: ignite/);
+      assert.match(result.out, /units: 0 -> 9/);
+      assert.equal(fs.readFileSync(statePath, 'utf8'), before);
+      assert.equal(fs.existsSync(path.join(home, 'state.sqlite')), false);
+    } finally {
+      process.env.PATH = oldPath;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  await test('connect dry-run passes --dry-run to the installer and makes no Slack request', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const home = installAgent(dir);
+    const calls = [];
+    const slack = fakeSlack();
+    const before = fs.readFileSync(path.join(home, 'agent.json'), 'utf8');
+    const result = await run(['connect', 'probe', '--channel-name', 'probe', '--workspace', dir, '--dry-run'], {
+      install: fakeInstaller(calls), slack,
+    });
+    assert.equal(result.code, 0, result.out + result.err);
+    assert.deepEqual(calls[0], ['agent', 'add', home, '--pack', 'ignite', '--json', '--dry-run']);
+    assert.equal(slack.calls.length, 0);
+    assert.equal(fs.readFileSync(path.join(home, 'agent.json'), 'utf8'), before);
+  });
+
+  for (const command of ['connect', 'disconnect']) await test(`${command} refuses an agent folder outside the installation`, async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const outside = path.join(dir, 'plans', 'agent');
+    fs.mkdirSync(outside, { recursive: true });
+    fs.writeFileSync(path.join(outside, 'agent.md'), '---\nname: agent\n---\n');
+    fs.writeFileSync(path.join(outside, 'agent.json'), '{}\n');
+    const args = command === 'connect'
+      ? [command, outside, '--dm', '--workspace', dir]
+      : [command, outside, '--workspace', dir];
+    const error = await run(args).catch((caught) => caught);
+    assert.match(error.message, /not under/);
+    assert.match(error.message, /Nothing changed/);
+  });
+
   await test('connect refuses a missing config and does not create it', async () => {
     const dir = workspace();
     installAgent(dir);
@@ -408,8 +497,8 @@ async function run(argv, extra = {}) {
     writeConfig(dir);
     const result = await run(['connect', 'probe', '--dm', '--workspace', dir]).catch((error) => error);
     assert.match(result.message, /not installed/);
-    assert.match(result.message, /agent\.md and agent\.json/);
-    assert.match(result.message, /agent\.md and agent\.json/);
+    assert.match(result.message, /no folder/);
+    assert.match(result.message, /rbtv agent add probe/);
     assert.equal(readConfig(dir).dmAgent, undefined);
   });
 
