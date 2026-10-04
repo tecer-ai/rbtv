@@ -1,4 +1,4 @@
 {
-  "description": "The functions component — small standalone cognitive functions: single-prompt behaviors (interview, investignosis, digest, …) exposed as skills and invoked conversationally from any session.",
+  "description": "Standalone skills for brainstorming, interviewing, investigation, handoff, work-history preservation, and backlog triage.",
   "dependencies": []
 }
