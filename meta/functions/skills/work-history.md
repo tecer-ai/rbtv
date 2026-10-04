@@ -15,6 +15,19 @@ Inputs: the user's requested scope, starting project/plan/session identifiers or
 
 Result: one folder with `timeline.md` at its root and one folder per agent/session, containing its readable transcript, recovered intermediate and final outputs, and saved working notes where available. A machine-readable manifest records provenance; missing evidence remains visible. Use the user's established equivalent layout when extending an existing collection.
 
+## Sub-agents
+
+Session records are too large to read in the collecting session: reading them there uses up its context before the timeline is written. The collector keeps the boundary (step 1), the roster (step 2), the root timeline and the merged manifest (step 4), and the reconciliation (step 5). It gives step 3 to sub-agents, launched as the `sub-agents` skill says:
+
+- One sub-agent per session on the roster; small sessions, or sessions whose records share one format, may share a sub-agent. They run in parallel. The collector's own session goes to a sub-agent too, with the collection cutoff as its end.
+- Each sub-agent's task carries the agreed scope, exclusions and cutoff; its roster entries, each with its record's location; its destination folders; the whole of step 3; and the path of the return it must write.
+- Each sub-agent writes only inside its sessions' folders and its return. The return is one JSON document with, per session: the files written, as manifest entries with the fields step 3 lists; the dated events for the timeline (time, activity, evidence link); child sessions found that are not on the roster; redactions; and gaps.
+- A child session that a return reports goes on the roster and to a sub-agent, until no return reports a new one.
+- The collector reads the returns, not the records. Before merging a return it checks, with the tools of step 5, that every file the return lists exists and matches its hash.
+- The fidelity check of step 5 (representative transcripts against their source events) goes to a sub-agent that wrote none of those transcripts.
+
+Where no sub-agent can be launched, the collector does step 3 itself, one session at a time.
+
 ## Procedure
 
 ### 1. Agree the boundary before collecting
