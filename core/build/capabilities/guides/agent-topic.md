@@ -4,7 +4,7 @@ An [agent topic](../glossary/agent-topic.md) is on-demand detail of one agent's 
 
 ## Purpose
 
-It holds the detail a board subject, a repeated procedure, or a private reference needs, so the board stays short. Without it, that detail stays on the board or is lost when the subject is shortened. Which kind of unit to build is in [Choosing what to build](choosing-what-to-build.md). Do not put owner facts here.
+It holds the detail a board subject, a repeated procedure, or a private reference needs, so the board stays short. Without it, that detail stays on the board or is lost when the subject is shortened. Which kind of unit to build is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>). Do not put owner facts here.
 
 ## What good looks like
 

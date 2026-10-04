@@ -4,7 +4,7 @@ A [role](../glossary/role.md) states who the agent is and its standing function.
 
 ## Purpose
 
-It sets the remit that holds for every task of this agent. Without it, each task invents who the agent is, and the next task keeps no standing function. The choice of unit is [Choosing what to build](choosing-what-to-build.md).
+It sets the remit that holds for every task of this agent. Without it, each task invents who the agent is, and the next task keeps no standing function. The choice of unit is [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>).
 
 ## What good looks like
 

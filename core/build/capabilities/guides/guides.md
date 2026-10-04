@@ -4,24 +4,24 @@
 - [agent-json.md](agent-json.md) — Before writing an rbtv agent's `agent.json`, or changing its harness, model, effort, units, or packs.
 - [agent-topic.md](agent-topic.md) — Before changing one agent's topic detail. The dreamer writes it.
 - [board.md](board.md) — Before writing a board subject or watch-out, or before closing a subject.
-- [building-from-a-conversation.md](building-from-a-conversation.md) — Before turning a conversation that just happened into a skill, command, rule, agent, or other unit.
+- [building-from-a-conversation.md](<../_under-evaluation/guides/procedure documents/building-from-a-conversation.md>) — Before turning a conversation that just happened into a skill, command, rule, agent, or other unit.
 - [capability.md](capability.md) — Before adding shared instructions or knowledge, or an executable tool.
-- [choosing-what-to-build.md](choosing-what-to-build.md) — Before choosing a module, component, or kind of unit, when that choice is not made.
+- [choosing-what-to-build.md](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>) — Before choosing a module, component, or kind of unit, when that choice is not made.
 - [command.md](command.md) — Before writing a command a human invokes.
 - [component-json.md](component-json.md) — Before writing a component's `<component>.json`.
 - [component.md](component.md) — Before creating or renaming a component folder.
 - [config.md](config.md) — Before reading or changing installation records or component configuration under `.rbtv/config/`.
 - [constraints.md](constraints.md) — Before writing standing limits in an agent's prompt.
-- [documenting-a-change.md](documenting-a-change.md) — After adding, changing, renaming, or removing anything in rbtv, before calling the change done.
+- [documenting-a-change.md](<../_under-evaluation/guides/procedure documents/documenting-a-change.md>) — After adding, changing, renaming, or removing anything in rbtv, before calling the change done.
 - [dreamer.md](dreamer.md) — Before changing long-term memory, or before treating a turn as the writer of a lesson.
 - [entity.md](entity.md) — Before recording a person, organisation, place, or device. The dreamer writes the file.
 - [done-contract.md](../../../../meta/sub-agents/capabilities/done-contract.md) — Before writing how one task's result is judged.
-- [folder-artifact.md](folder-artifact.md) — Before adding a standard file under `_artifacts/`.
+- [folder-artifact.md](<../_under-evaluation/guides/folder artifacts/folder-artifact.md>) — Before adding a standard file under `_artifacts/`.
 - [folder-instructions.md](folder-instructions.md) — Before writing text that should reach an agent when it works on files in a folder.
 - [ignite-config.md](ignite-config.md) — Before connecting an agent to a Slack channel on a machine.
 - [hook.md](hook.md) — Before adding a command a harness runs when an event happens.
 - [inbox.md](inbox.md) — Before saving a fact the owner asked to remember. Use `ignite remember`.
-- [index-file.md](index-file.md) — Before adding a folder's list of when to open each item.
+- [index-file.md](<../_under-evaluation/guides/folder artifacts/index-file.md>) — Before adding a folder's list of when to open each item.
 - [install-json.md](install-json.md) — Before relying on the record of an installation root.
 - [knowledge.md](knowledge.md) — Before recording durable knowledge about the owner. The dreamer writes the file.
 - [learned-rules.md](learned-rules.md) — Before changing how one agent must behave from experience. Never edit the file by hand.
@@ -50,10 +50,10 @@
 - [task-file.md](task-file.md) — Before adding or moving a project or area task list.
 - [template.md](template.md) — Before writing a file's agent-readable shape.
 - [thin-loader.md](thin-loader.md) — Before touching the pointer rbtv writes to a skill or command.
-- [timeline-daily.md](timeline-daily.md) — Before recording what happened on a day. The dreamer writes the file.
-- [timeline-weekly.md](timeline-weekly.md) — Before recording what still matters from a week. The dreamer writes the file.
+- [timeline-daily.md](../templates/timeline-daily.md) — Before recording what happened on a day. The dreamer writes the file.
+- [timeline-weekly.md](../templates/timeline-weekly.md) — Before recording what still matters from a week. The dreamer writes the file.
 - [tool-json.md](tool-json.md) — Before writing a tool's `<tool>.json`.
-- [tool.md](tool.md) — Before adding an executable program a component supplies.
+- [tool.md](../glossary/tool.md) — Before adding an executable program a component supplies.
 - [workflow.md](../../../../meta/sub-agents/capabilities/workflow.md) — Before writing a `workflow.md` for sub-agents to run.
 - [workspace-memory.md](workspace-memory.md) — Before recording private notes about a shared repository. The dreamer writes the file.
 - [workstreams.md](workstreams.md) — Before mapping active projects, areas, and agent subjects. The dreamer writes the file.

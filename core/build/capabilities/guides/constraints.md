@@ -4,7 +4,7 @@
 
 ## Purpose
 
-They bound conduct on every task of this agent, where honoring the limit takes judgment; without them, that conduct has no standing limit. If nothing fails without the limit, do not write it ([Keep it simple](../principles/kiss.md)); where a one-step or tool-checkable limit belongs instead is in [Choosing what to build](choosing-what-to-build.md).
+They bound conduct on every task of this agent, where honoring the limit takes judgment; without them, that conduct has no standing limit. If nothing fails without the limit, do not write it ([Keep it simple](../principles/kiss.md)); where a one-step or tool-checkable limit belongs instead is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>).
 
 ## What good looks like
 

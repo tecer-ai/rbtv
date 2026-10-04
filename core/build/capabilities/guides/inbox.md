@@ -4,7 +4,7 @@ The [inbox](../glossary/inbox.md) holds an explicit "remember X" about the owner
 
 ## Purpose
 
-It lets every agent see a fact the owner just stated, without an agent rewriting the file that will hold it. Without the append, the next agent asks again, or a rewrite drops another agent's line. Which kind of unit to build is in [Choosing what to build](choosing-what-to-build.md). Do not build another holding file.
+It lets every agent see a fact the owner just stated, without an agent rewriting the file that will hold it. Without the append, the next agent asks again, or a rewrite drops another agent's line. Which kind of unit to build is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>). Do not build another holding file.
 
 ## What good looks like
 

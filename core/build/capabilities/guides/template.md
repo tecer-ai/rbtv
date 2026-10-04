@@ -4,7 +4,7 @@ A [template](../glossary/template.md) is the agent-readable shape of a standard 
 
 ## Purpose
 
-It gives every file of one kind the same sections, so an agent writing one knows what to fill and a reviewer knows what to check. Without it, each author invents a shape and readers cannot find what they need. Which kind of unit to build is in [Choosing what to build](choosing-what-to-build.md).
+It gives every file of one kind the same sections, so an agent writing one knows what to fill and a reviewer knows what to check. Without it, each author invents a shape and readers cannot find what they need. Which kind of unit to build is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>).
 
 ## What good looks like
 

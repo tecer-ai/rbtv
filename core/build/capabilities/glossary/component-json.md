@@ -1,6 +1,6 @@
 # `<component>.json`
 
-The [folder artifact](folder-artifact.md) holding each component's structured record, named after the component: `<module>/<component>/<component>.json`. The `rbtv` command reads it for:
+The [folder artifact](<../_under-evaluation/guides/folder artifacts/glossary/folder-artifact.md>) holding each component's structured record, named after the component: `<module>/<component>/<component>.json`. The `rbtv` command reads it for:
 
 - The component's description.
 - The outside software it requires.

@@ -4,7 +4,7 @@ A [skill](../glossary/skill.md) is a [cognitive unit](../glossary/cognitive-unit
 
 ## Purpose
 
-It holds instructions an agent should load only when it judges them relevant. Without that choice, the instructions are missing on the tasks that need them, or they crowd every task. Follow the [entry point and capabilities shape](capability.md) and the choice in [Choosing what to build](choosing-what-to-build.md).
+It holds instructions an agent should load only when it judges them relevant. Without that choice, the instructions are missing on the tasks that need them, or they crowd every task. Follow the [entry point and capabilities shape](capability.md) and the choice in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>).
 
 ## What good looks like
 
@@ -14,7 +14,7 @@ It holds instructions an agent should load only when it judges them relevant. Wi
 - A judgment step states the criterion and the reason.
 - A check every run of this skill must pass is a step in the body, not a [done contract](../glossary/done-contract.md).
 - No sentence repeats instructions that already have a home. Each shared instruction is a pointer that names the moment; a one-line warning for a mistake made before opening the file a pointer names may stay ([Single source of truth](../principles/single-source-of-truth.md)).
-- Every exact-answer step names a [tool](tool.md). No exact answer is left to the agent ([Deterministic first](../principles/deterministic-first.md)).
+- Every exact-answer step names a [tool](../glossary/tool.md). No exact answer is left to the agent ([Deterministic first](../principles/deterministic-first.md)).
 - Removing any sentence loses a requirement or a decision ([Keep it simple](../principles/kiss.md)).
 
 ## Making it good

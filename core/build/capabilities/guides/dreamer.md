@@ -4,7 +4,7 @@ The [dreamer](../glossary/dreamer.md) is the program that writes long-term memor
 
 ## Purpose
 
-It turns transcripts into durable memory after the conversation, so a lesson does not depend on a note taken mid-turn. Without it, learned rules and general memory do not update, and a stopped run is silent. Which kind of unit to build is in [Choosing what to build](choosing-what-to-build.md). Do not build a second writer.
+It turns transcripts into durable memory after the conversation, so a lesson does not depend on a note taken mid-turn. Without it, learned rules and general memory do not update, and a stopped run is silent. Which kind of unit to build is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>). Do not build a second writer.
 
 ## What good looks like
 

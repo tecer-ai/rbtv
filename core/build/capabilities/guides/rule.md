@@ -4,7 +4,7 @@ A [rule](../glossary/rule.md) is a [cognitive unit](../glossary/cognitive-unit.m
 
 ## Purpose
 
-It holds an instruction that applies on every task of every agent that receives it. Without it, that instruction is missed, or it is loaded only sometimes and the tasks that needed it go wrong. Which kind of unit to build is in [Choosing what to build](choosing-what-to-build.md).
+It holds an instruction that applies on every task of every agent that receives it. Without it, that instruction is missed, or it is loaded only sometimes and the tasks that needed it go wrong. Which kind of unit to build is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>).
 
 ## What good looks like
 
@@ -13,7 +13,7 @@ It holds an instruction that applies on every task of every agent that receives 
 - For each line, a reviewer can name evidence of following it and evidence of violating it on a task record. A line with neither is rewritten.
 - Two rules the same agent receives do not give different answers for the same behavior.
 - One purpose. An unrelated "and also" is a second rule ([Micro agency](../principles/micro-agency.md)).
-- An exact-answer step names the [tool](tool.md) and when to call it. The sentence is not the check ([Deterministic first](../principles/deterministic-first.md)).
+- An exact-answer step names the [tool](../glossary/tool.md) and when to call it. The sentence is not the check ([Deterministic first](../principles/deterministic-first.md)).
 - No fact is copied from a home it already has. A command the agent will not find without searching may be named ([Single source of truth](../principles/single-source-of-truth.md)).
 - At most one line is emphasized.
 - Removing any sentence would make the agent do the wrong thing on a task the rule covers ([Keep it simple](../principles/kiss.md)).

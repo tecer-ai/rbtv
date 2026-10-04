@@ -4,7 +4,7 @@ An [MCP server](../glossary/mcp-server.md) record tells rbtv how a harness reach
 
 ## Purpose
 
-It gives the agent the server's actions on every harness that supports MCP servers, from one record. Without it, each harness's settings are edited by hand and drift apart. Which kind of unit to build is in [Choosing what to build](choosing-what-to-build.md).
+It gives the agent the server's actions on every harness that supports MCP servers, from one record. Without it, each harness's settings are edited by hand and drift apart. Which kind of unit to build is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>).
 
 ## What good looks like
 

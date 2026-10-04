@@ -4,7 +4,7 @@
 
 ## Purpose
 
-They carry instructions that apply only while working on files in that folder, and route the agent to the right file then. Without them, that folder's work has no route, or instructions that do not belong there ride on every task. Which kind of unit to build is in [Choosing what to build](choosing-what-to-build.md).
+They carry instructions that apply only while working on files in that folder, and route the agent to the right file then. Without them, that folder's work has no route, or instructions that do not belong there ride on every task. Which kind of unit to build is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>).
 
 ## What good looks like
 
@@ -16,7 +16,7 @@ They carry instructions that apply only while working on files in that folder, a
 - Besides the table: one line on what the folder is, the folder's own rules, and one-line tripwires. Facts, state, history, tasks, and full procedures are not copied in ([Progressive disclosure](../principles/progressive-disclosure.md)).
 - Read after each parent file, a subfolder's file only adds to them. An override names the parent rule it replaces and its reason. The file stays right if it arrives late, early, or stacked with parent files ([Progressive disclosure](../principles/progressive-disclosure.md)).
 - About 150 lines. Longer content is an artifact the table points to.
-- A step with an exact answer names a [tool](tool.md). The sentence is not the check ([Deterministic first](../principles/deterministic-first.md)).
+- A step with an exact answer names a [tool](../glossary/tool.md). The sentence is not the check ([Deterministic first](../principles/deterministic-first.md)).
 - The file does not hold a procedure, or text a [skill](skill.md), [command](command.md), or [capability](capability.md) already owns. It points.
 - Deleting any line would make the agent wrong on a task this file covers ([Keep it simple](../principles/kiss.md)).
 - A file a component ships holds for every target folder it can be installed in: no line assumes what the target folder contains, and every line stays about that folder's files, not the component's own source.

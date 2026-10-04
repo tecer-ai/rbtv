@@ -4,7 +4,7 @@ A [task file](../glossary/task-file.md) is the task list a project or area keeps
 
 ## Purpose
 
-The task tool depends on it. Without it, that tool cannot find the folder's tasks. The board does not replace it. Which kind of unit to build is in [Choosing what to build](choosing-what-to-build.md).
+The task tool depends on it. Without it, that tool cannot find the folder's tasks. The board does not replace it. Which kind of unit to build is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>).
 
 ## What good looks like
 

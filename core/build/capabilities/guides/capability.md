@@ -1,10 +1,10 @@
 # Building a capability
 
-A [capability](../glossary/capability.md) is reusable instructions, knowledge, a template, or a [tool](tool.md) in a component.
+A [capability](../glossary/capability.md) is reusable instructions, knowledge, a template, or a [tool](../glossary/tool.md) in a component.
 
 ## Purpose
 
-It holds the substance behind a skill or command. The entry point holds the procedure and routes in plain prose to the component's capabilities index, which says when to open each page. Several entry points can route to the same capabilities. The choice of unit is [Choosing what to build](choosing-what-to-build.md).
+It holds the substance behind a skill or command. The entry point holds the procedure and routes in plain prose to the component's capabilities index, which says when to open each page. Several entry points can route to the same capabilities. The choice of unit is [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>).
 
 ## What good looks like
 

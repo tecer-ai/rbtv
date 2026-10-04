@@ -4,7 +4,7 @@ A [workflow](../../../core/build/capabilities/glossary/workflow.md) is a set of 
 
 ## Purpose
 
-It lets independent work run at the same time and dependent work wait for exactly what it needs. Without it, the coordinating agent reorders the work in its head each time, and tasks that could run together run one after another. Which kind of unit to build is in [Choosing what to build](../../../core/build/capabilities/guides/choosing-what-to-build.md).
+It lets independent work run at the same time and dependent work wait for exactly what it needs. Without it, the coordinating agent reorders the work in its head each time, and tasks that could run together run one after another. Which kind of unit to build is in [Choosing what to build](<../../../core/build/capabilities/_under-evaluation/guides/procedure documents/choosing-what-to-build.md>).
 
 ## What good looks like
 

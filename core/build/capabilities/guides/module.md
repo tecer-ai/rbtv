@@ -4,7 +4,7 @@ A [module](../glossary/module.md) is a top-level folder of related [components](
 
 ## Purpose
 
-It groups components that share one subject area. Without a module whose purpose fits, a component has no honest home. Whether to create one is in [Choosing what to build](choosing-what-to-build.md#1-choose-a-module).
+It groups components that share one subject area. Without a module whose purpose fits, a component has no honest home. Whether to create one is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md#1-choose-a-module>).
 
 ## What good looks like
 

@@ -13,4 +13,4 @@
 - Keep a folder instructions file correct beside each parent file's instructions: no line contradicts a parent, and no line relies on a parent being dropped or ignored.
 - The highest folder instructions file in a tree holds only that folder's own lines, plus pointers to files deeper in the tree.
 - Give every unit chosen from its description before it is read (a skill, command, or agent) a name and a short description. The first sentence is enough to decide whether to open it for a given task. The rest names the triggers and one near-miss: a case that looks close but should not open it. Keep the detail behind that description.
-- Give a folder whose items are needed at different moments an [index file](../glossary/index-file.md). An index line, and a record's description field, stay one line: the moment to open the item, or the sentence that decides — no near-miss.
+- Give a folder whose items are needed at different moments an [index file](<../_under-evaluation/guides/folder artifacts/glossary/index-file.md>). An index line, and a record's description field, stay one line: the moment to open the item, or the sentence that decides — no near-miss.

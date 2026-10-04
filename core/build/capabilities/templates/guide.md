@@ -4,7 +4,7 @@
 
 ## Purpose
 
-<What the unit is for, and what fails without it, in a few lines. For the choice between kinds of unit, link [choosing what to build](../guides/choosing-what-to-build.md). Do not compare kinds here.>
+<What the unit is for, and what fails without it, in a few lines. For the choice between kinds of unit, link [choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>). Do not compare kinds here.>
 
 ## What good looks like
 

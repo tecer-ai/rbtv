@@ -4,7 +4,7 @@ A [hook](../glossary/hook.md) is a command a harness runs when an event happens.
 
 ## Purpose
 
-It makes something happen at a fixed moment, such as a check before a tool runs, without an agent having to remember it. Without it, that step depends on the agent's attention. Which kind of unit to build is in [Choosing what to build](choosing-what-to-build.md).
+It makes something happen at a fixed moment, such as a check before a tool runs, without an agent having to remember it. Without it, that step depends on the agent's attention. Which kind of unit to build is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>).
 
 ## What good looks like
 

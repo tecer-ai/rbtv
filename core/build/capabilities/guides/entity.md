@@ -4,7 +4,7 @@ An [entity](../glossary/entity.md) is thin facts about one person, organisation,
 
 ## Purpose
 
-It gives every agent one pointer for that entity, without copying the note that holds the content. Without it, aliases and the relation to the owner are rediscovered, or the note is pasted into the window. Which kind of unit to build is in [Choosing what to build](choosing-what-to-build.md). Do not add a second file for the same entity.
+It gives every agent one pointer for that entity, without copying the note that holds the content. Without it, aliases and the relation to the owner are rediscovered, or the note is pasted into the window. Which kind of unit to build is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>). Do not add a second file for the same entity.
 
 ## What good looks like
 

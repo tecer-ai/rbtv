@@ -4,7 +4,7 @@ A [command](../glossary/command.md) is a [cognitive unit](../glossary/cognitive-
 
 ## Purpose
 
-It lets a human choose the moment an action runs, and names what that action needs. Without it, the human has no way to invoke the action, or the agent chooses the moment. Follow the [entry point and capabilities shape](capability.md) and the choice in [Choosing what to build](choosing-what-to-build.md).
+It lets a human choose the moment an action runs, and names what that action needs. Without it, the human has no way to invoke the action, or the agent chooses the moment. Follow the [entry point and capabilities shape](capability.md) and the choice in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>).
 
 ## What good looks like
 
@@ -13,7 +13,7 @@ It lets a human choose the moment an action runs, and names what that action nee
 - Every required input is named. A missing input has a stated result. The body asks no question the invocation could have answered ([Agent parity](../principles/agent-parity.md)).
 - One invocation, one judgeable result ([Micro agency](../principles/micro-agency.md)).
 - If an agent must perform the same action, the method is not only in this command ([Single source of truth](../principles/single-source-of-truth.md), [Agent parity](../principles/agent-parity.md)).
-- Every exact-answer step names a [tool](tool.md) ([Deterministic first](../principles/deterministic-first.md)).
+- Every exact-answer step names a [tool](../glossary/tool.md) ([Deterministic first](../principles/deterministic-first.md)).
 - Removing any sentence loses a requirement ([Keep it simple](../principles/kiss.md)).
 
 ## Making it good

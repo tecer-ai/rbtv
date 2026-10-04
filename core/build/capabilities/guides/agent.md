@@ -4,7 +4,7 @@ An [agent](../glossary/agent.md) is a [prompt](../glossary/prompt.md) given to a
 
 ## Purpose
 
-It gives one standing prompt, and the cognitive units it selects, a different [task](../glossary/task.md) each time, when no existing agent's purpose covers that prompt. Without it, that work has no prompt that stays the same while the task changes. Where the work belongs instead is in [Choosing what to build](choosing-what-to-build.md); if nothing fails without a new agent, do not build one ([Keep it simple](../principles/kiss.md)).
+It gives one standing prompt, and the cognitive units it selects, a different [task](../glossary/task.md) each time, when no existing agent's purpose covers that prompt. Without it, that work has no prompt that stays the same while the task changes. Where the work belongs instead is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>); if nothing fails without a new agent, do not build one ([Keep it simple](../principles/kiss.md)).
 
 ## What good looks like
 
@@ -34,7 +34,7 @@ Resolve what is missing before writing anything. Take the purpose, the name, the
 - The channel is a channel name or direct messages, as the owner chose. Never make one up.
 - A reference path is one the owner named and that exists.
 
-Find the cognitive units it needs with the non-interactive discovery commands, `rbtv list`, `rbtv search WORDS`, and `rbtv show NAME`, and select the ones that fit. Build a new unit only for what nothing listed covers; which kind to build is in [Choosing what to build](choosing-what-to-build.md).
+Find the cognitive units it needs with the non-interactive discovery commands, `rbtv list`, `rbtv search WORDS`, and `rbtv show NAME`, and select the ones that fit. Build a new unit only for what nothing listed covers; which kind to build is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>).
 
 Write the agent folder with two files, in the place that [rbtv agent](../glossary/agent.md#rbtv-agent) gives. `agent.md` holds the prompt, and its frontmatter is only the name. `agent.json` holds the description, the harness, model, and effort, and the units the agent chose; its fields are in [Building `agent.json`](agent-json.md). Write the description first in `agent.json`, naming the triggers and the near-miss.
 

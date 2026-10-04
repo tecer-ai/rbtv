@@ -4,7 +4,7 @@ A [persona](../glossary/persona.md) is who the agent is: the standpoint inside t
 
 ## Purpose
 
-It fixes those open choices — when to stop, how broadly to explore, how to weigh risk, how to break a tie — so they come out under this standpoint; without it, those choices have no standpoint and vary. Write one only when a different standpoint would change them; a mostly mechanical agent gets a thin persona or none, and when no judgment is left open, do not write one. Where that work belongs instead is in [Choosing what to build](choosing-what-to-build.md).
+It fixes those open choices — when to stop, how broadly to explore, how to weigh risk, how to break a tie — so they come out under this standpoint; without it, those choices have no standpoint and vary. Write one only when a different standpoint would change them; a mostly mechanical agent gets a thin persona or none, and when no judgment is left open, do not write one. Where that work belongs instead is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>).
 
 ## What good looks like
 

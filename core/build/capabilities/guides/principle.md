@@ -4,7 +4,7 @@ A [principle](../glossary/principle.md) is a standing design choice that shapes 
 
 ## Purpose
 
-It fixes one trade-off a builder applies to every structure, including one not yet designed. Without it, that choice is remade each time; if you cannot name what a builder does wrong without it, do not create it ([Keep it simple](../principles/kiss.md)). The choice of unit is [Choosing what to build](choosing-what-to-build.md).
+It fixes one trade-off a builder applies to every structure, including one not yet designed. Without it, that choice is remade each time; if you cannot name what a builder does wrong without it, do not create it ([Keep it simple](../principles/kiss.md)). The choice of unit is [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>).
 
 ## What good looks like
 

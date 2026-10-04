@@ -4,7 +4,7 @@ A [procedure](../glossary/procedure.md) is the reusable method for the agent's w
 
 ## Purpose
 
-It is the method that holds across this agent's tasks. Without it, each task improvises its own method, and the results differ run to run. The choice of unit is [Choosing what to build](choosing-what-to-build.md).
+It is the method that holds across this agent's tasks. Without it, each task improvises its own method, and the results differ run to run. The choice of unit is [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>).
 
 ## What good looks like
 

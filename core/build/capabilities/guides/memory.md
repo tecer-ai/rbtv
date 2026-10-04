@@ -4,7 +4,7 @@
 
 ## Purpose
 
-It gives recall the runtime can supply, so an agent does not hunt for a fact it must not miss. Without it, a fact the owner stated has no home that every later turn can see. Which kind of unit to build is in [Choosing what to build](choosing-what-to-build.md). Memory is not one of those units.
+It gives recall the runtime can supply, so an agent does not hunt for a fact it must not miss. Without it, a fact the owner stated has no home that every later turn can see. Which kind of unit to build is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>). Memory is not one of those units.
 
 ## What good looks like
 

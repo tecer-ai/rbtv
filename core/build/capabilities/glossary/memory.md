@@ -10,7 +10,7 @@ Two homes. The runtime supplies both. The agent does not discover them.
 
 Every turn, including a scheduled wake, injects the [profile](profile.md), that agent's learned rules, that agent's [board](board.md), the general-memory [index](memory-index.md), and the [inbox](inbox.md). [Workspace memory](workspace-memory.md) is injected only when the working directory is under its declared paths.
 
-Read on demand: topic files, [knowledge](knowledge.md), [entities](entity.md), [workstreams](workstreams.md), and the [daily](timeline-daily.md) and [weekly](timeline-weekly.md) timeline. Nested generated indexes are read on demand. The root index is not: it is injected.
+Read on demand: topic files, [knowledge](knowledge.md), [entities](entity.md), [workstreams](workstreams.md), and the [daily](../templates/timeline-daily.md) and [weekly](../templates/timeline-weekly.md) timeline. Nested generated indexes are read on demand. The root index is not: it is injected.
 
 ## Who writes
 

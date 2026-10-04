@@ -1,6 +1,6 @@
 # Documentation decisions
 
-The standing choices and comparisons behind the 0.2.1 reader pages. The [overview](capabilities/rbtv.md), `glossary/`, [Building guides](capabilities/guides/choosing-what-to-build.md), and `principles/` state the chosen design directly.
+The standing choices and comparisons behind the 0.2.1 reader pages. The [overview](capabilities/rbtv.md), `glossary/`, [Building guides](<capabilities/_under-evaluation/guides/procedure documents/choosing-what-to-build.md>), and `principles/` state the chosen design directly.
 
 ## Editorial decisions
 

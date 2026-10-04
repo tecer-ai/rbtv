@@ -4,7 +4,7 @@ A [done contract](../../../core/build/capabilities/glossary/done-contract.md) st
 
 ## Purpose
 
-It is the standard a second reader uses to pass or fail this task's result. Without it, the agent stops when the work looks done, and the author asserts success. The choice of unit is [Choosing what to build](../../../core/build/capabilities/guides/choosing-what-to-build.md).
+It is the standard a second reader uses to pass or fail this task's result. Without it, the agent stops when the work looks done, and the author asserts success. The choice of unit is [Choosing what to build](<../../../core/build/capabilities/_under-evaluation/guides/procedure documents/choosing-what-to-build.md>).
 
 ## What good looks like
 

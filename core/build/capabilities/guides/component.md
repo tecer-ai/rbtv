@@ -4,7 +4,7 @@ A [component](../glossary/component.md) is the named folder inside a [module](..
 
 ## Purpose
 
-It gives one purpose a home rbtv can read. Without that home, those units are not grouped as a component. Whether the purpose needs its own component is in [Choosing what to build](choosing-what-to-build.md#2-choose-a-component).
+It gives one purpose a home rbtv can read. Without that home, those units are not grouped as a component. Whether the purpose needs its own component is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md#2-choose-a-component>).
 
 ## What good looks like
 

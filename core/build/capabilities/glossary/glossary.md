@@ -17,14 +17,14 @@
 - [dreamer.md](dreamer.md) — Before changing long-term memory, or before expecting a turn to file a lesson.
 - [entity.md](entity.md) — Before recording a person, organisation, place, or device in general memory.
 - [exposure-method.md](exposure-method.md) — Before choosing how a skill, rule, command, or harness-native sub-agent is exposed.
-- [folder-artifact.md](folder-artifact.md) — Before adding a file under `_artifacts/`.
+- [folder-artifact.md](<../_under-evaluation/guides/folder artifacts/glossary/folder-artifact.md>) — Before adding a file under `_artifacts/`.
 - [folder-instructions.md](folder-instructions.md) — Before writing text that reaches an agent working on files in a folder.
 - [guide.md](guide.md) — Before writing a file under `guides/`, to confirm what a guide is.
 - [harness.md](harness.md) — Before naming the program that runs an agent.
 - [ignite-config.md](ignite-config.md) — Before connecting an agent to Slack, or before reading Ignite's configuration on a machine.
 - [hook.md](hook.md) — Before adding a command a harness runs on an event.
 - [inbox.md](inbox.md) — Before saving an explicit request to remember a fact about the owner.
-- [index-file.md](index-file.md) — Before adding `_artifacts/index.md`, or before putting item content in the list.
+- [index-file.md](<../_under-evaluation/guides/folder artifacts/glossary/index-file.md>) — Before adding `_artifacts/index.md`, or before putting item content in the list.
 - [install-json.md](install-json.md) — Before reading or changing the installation root's record.
 - [knowledge.md](knowledge.md) — Before recording a durable fact, preference, decision, self-model line, or health constraint about the owner.
 - [learned-rules.md](learned-rules.md) — Before changing how one agent must behave from experience.
@@ -59,8 +59,8 @@
 - [task-file.md](task-file.md) — Before adding or moving a project or area task list.
 - [template.md](template.md) — Before writing or following the agent-readable shape of a file.
 - [thin-loader.md](thin-loader.md) — Before editing a harness pointer to a skill or command.
-- [timeline-daily.md](timeline-daily.md) — Before recording what happened on a day.
-- [timeline-weekly.md](timeline-weekly.md) — Before recording what still matters from a week.
+- [timeline-daily.md](../templates/timeline-daily.md) — Before recording what happened on a day.
+- [timeline-weekly.md](../templates/timeline-weekly.md) — Before recording what still matters from a week.
 - [tool-json.md](tool-json.md) — Before writing a tool's record.
 - [tool.md](tool.md) — Before adding an executable program, or before treating a tool as a cognitive unit.
 - [unit.md](unit.md) — Before naming an item rbtv adds to an installation or agent, or before using the word "unit" in a document.

@@ -4,7 +4,7 @@ A [knowledge](../glossary/knowledge.md) file holds durable knowledge about the o
 
 ## Purpose
 
-It keeps topical facts, preferences, decisions, the self-model, and behaviour-changing health lines where an agent can open them when they matter. Without it, those facts are either injected every turn or lost. Which kind of unit to build is in [Choosing what to build](choosing-what-to-build.md). Do not add a sixth kind.
+It keeps topical facts, preferences, decisions, the self-model, and behaviour-changing health lines where an agent can open them when they matter. Without it, those facts are either injected every turn or lost. Which kind of unit to build is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>). Do not add a sixth kind.
 
 ## What good looks like
 
