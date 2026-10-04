@@ -35,7 +35,8 @@ Before launching agents for a broad task with parallel investigation, open the [
   5. The manager reads that one page, and decides.
 
 - Receiving — delegating means you read LESS, never the same reading one step later:
-  - Every task names its output file and caps the answer at one page; the sub-agent's final message is that file's path plus its findings in a few lines. That page is what you read.
+  - Every task names its main output file and caps it at one page; the sub-agent's final message is that file's path plus its findings in a few lines. That page is what you read.
+  - The sub-agent may write more files (evidence, full tables, detail per finding). The main output file routes to each one: a link plus the moment to open it ("open when you doubt finding 2"), never a bare list of files. The one page must carry the answer on its own; a linked file is opened only when its stated moment arrives.
   - NEVER pull a sub-agent's evidence into your own context: not its log or transcript, not the rows of its tables, not the files it read. When a report runs past one page, or you would open more than one report to compare or combine them, that reading is the next agent's task — a synthesis task pointed at those files.
   - Tripwire — before you read a second file, report, or log for the same question, or run a command whose output you expect to pass one page: STOP and delegate that read. A manager who reads the base itself has delegated nothing.
   - What you do read yourself, cap by rows as well as by width. A width cut on an uncapped number of rows is still a dump.
