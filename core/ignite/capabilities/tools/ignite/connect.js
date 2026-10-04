@@ -13,7 +13,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
-const { loadConfig, updateConfig, agentHome, configPath, slackToken } = require('./config.js');
+const { loadConfig, updateConfig, agentHome, configPath, findWorkspace, slackToken } = require('./config.js');
 const { Slack } = require('./slack.js');
 const { Store, conversationKey } = require('./store.js');
 const { cadenceSpec, nextOccurrence, FIXED_TZ } = require('./schedule.js');
@@ -25,41 +25,124 @@ const BOARD_ROOT = 'board';
 const RUNBOOK = 'core/ignite/capabilities/runbook.md';
 const INSTALLER_ENTRY = path.resolve(__dirname, '../../../../..', 'core/install/capabilities/tools/rbtv/install.py');
 
-const HELP = `ignite — connect help
+const HELP = {
+  connect: `ignite — connect help
 
-connect <agent> (--channel-name <name> | --dm) [--schedule-json <file>]
-        [--installation <path>] [--dry-run] [--json]
+usage: ignite connect [-h] (--channel-name NAME | --dm)
+                      [--schedule-json FILE] [--installation PATH]
+                      [--dry-run] [--json]
+                      AGENT
 
-  Run on the machine that will run the agent. The agent must already be installed
-  (agent.md and agent.json in <installation>/.rbtv/agents/<agent>/). connect turns
-  on the ignite pack, creates missing working files, then connects Slack.
-  Needs <installation>/.rbtv/config/ignite/config.json. This command does not write that
-  file. See ${RUNBOOK}.
-  --channel-name: create the Slack channel, the bot joins, the owner is invited,
-  routes[channelId] = agent. A re-run reuses a channel already routed.
-  --dm: set dmAgent to the agent. Pass either --channel-name or --dm, not both.
-  --schedule-json binds a timer the way a creation-time schedule was bound.
-  --dry-run validates and prints the plan. It writes nothing.
-  Slack tokens are read from the environment variables the config names. They are never printed.
+Turn the ignite pack on, create Ignite's working files, and connect
+Slack. Three steps, each reported. Run on the machine that will run
+the agent.
 
-  --schedule-json object, exactly one of cron, every, at:
-    { "cron": "<5-field>", "tz": "<IANA zone>", "note": "<check>", "report": "always|when-useful" }
-    { "every": "<duration>", "tz": "fixed", "note": "<check>" }
-    { "at": "<ISO datetime with offset>", "note": "<check>" }
-  report defaults to when-useful. A missing cadence or timezone is refused.
-  Binding a timer requires a valid <home>/_artifacts/board.md before opening SQLite.
-  A committed timer whose board refresh fails still exits 0, with its id and
-  "committed; board refresh pending" (--json adds warning). Do not repeat the mutation.
-  The next board write or turn refreshes Timers from SQLite. This also applies
-  to timers cancelled by disconnect.
+AGENT is a name under <installation>/.rbtv/agents/, or a path to an
+agent folder there. A path outside .rbtv/agents/ is refused. ignite
+does not copy an agent. A name that is not there is refused, even
+when a component ships an agent of that name. Add it first:
+  rbtv agent add AGENT
 
-disconnect <agent> [--archive-channel] [--installation <path>] [--dry-run] [--json]
+The installation is found by walking up from the current folder to
+.rbtv/config/ignite/config.json, or from --installation PATH.
+The agent must already be installed (agent.json in
+<installation>/.rbtv/agents/<agent>/).
+Needs <installation>/.rbtv/config/ignite/config.json. This command
+does not write that file. See ${RUNBOOK}.
 
-  Removes the agent's route(s) and dmAgent from the config, cancels its timers,
-  and archives its channel when asked, then turns off the ignite pack. Does not
-  delete the agent folder or its working files.
-  Pack off runs: rbtv agent remove <agent> --pack ignite
-`;
+Steps, in order:
+  1. rbtv agent add AGENT --pack ignite
+     Turns the pack on. Units already recorded stay. A unit listed
+     by two packs counts once.
+  2. Create working files if missing. An existing board is not
+     overwritten.
+       <agent>/_artifacts/board.md
+       <agent>/state.sqlite
+       <agent>/conversations/
+  3. Connect Slack. --channel-name creates the channel, the bot
+     joins, the owner is invited, and the route is written. A re-run
+     reuses a channel already routed and finishes a partial
+     connection. It is not refused. --dm sets the direct-message
+     agent and creates no channel. Pass one of the two, not both.
+
+Slack tokens are read from the environment variables the config
+names. They are never printed.
+
+--schedule-json binds one timer after the working files exist.
+Object, exactly one of cron, every, at:
+  { "cron": "<5-field>", "tz": "<IANA zone>", "note": "<check>", "report": "always|when-useful" }
+  { "every": "<duration>", "tz": "fixed", "note": "<check>" }
+  { "at": "<ISO datetime with offset>", "note": "<check>" }
+report defaults to when-useful. A missing cadence or timezone is refused.
+Binding a timer requires a valid <home>/_artifacts/board.md before opening SQLite.
+A committed timer whose board refresh fails still exits 0, with its id and
+"committed; board refresh pending" (--json adds warning). Do not repeat the mutation.
+The next board write or turn refreshes Timers from SQLite. This also applies
+to timers cancelled by disconnect.
+
+--dry-run validates and prints the plan. It writes nothing.
+--json selects JSON on stdout for a success. A refusal is a message
+on stderr, exit 1, with or without --json.
+
+options:
+  -h, --help            show this help message and exit
+  --channel-name NAME   Slack channel to create and route to this agent
+  --dm                  route the owner's direct messages to this agent
+  --schedule-json FILE  bind one timer from this file
+  --installation PATH   installation folder; overrides the walk up
+  --dry-run             print the plan; write nothing
+  --json                JSON on stdout for a success
+  AGENT                 name, or a path under .rbtv/agents/
+
+Example: ignite connect research --channel-name research
+Next: ignite disconnect research
+Exit codes: 0 success or dry-run; 1 refused, failed, or invalid arguments.
+`,
+  disconnect: `ignite — disconnect help
+
+usage: ignite disconnect [-h] [--archive-channel]
+                         [--installation PATH] [--dry-run] [--json]
+                         AGENT
+
+Removes the agent's route(s) and direct-message assignment, turns the
+ignite pack off, cancels its timers, and archives its channel when
+asked. Does not delete the agent folder or its working files.
+
+AGENT is a name under <installation>/.rbtv/agents/, or a path to an
+agent folder there. A path outside .rbtv/agents/ is refused, the same
+rule as connect. ignite does not copy an agent.
+
+Pack off runs:
+  rbtv agent remove AGENT --pack ignite
+This command does not remove the agent. To remove units by name:
+  rbtv agent remove AGENT NAME
+
+The installation is found by walking up from the current folder to
+.rbtv/config/ignite/config.json, or from --installation PATH.
+
+--archive-channel archives the Slack channel when asked.
+--dry-run validates and prints the plan. It writes nothing.
+--json selects JSON on stdout for a success. A refusal is a message
+on stderr, exit 1, with or without --json.
+
+A committed timer cancel whose board refresh fails still exits 0,
+with its id and "committed; board refresh pending" (--json adds
+warning). Do not repeat the mutation. The next board write or turn
+refreshes Timers from SQLite.
+
+options:
+  -h, --help            show this help message and exit
+  --archive-channel     archive the Slack channel when asked
+  --installation PATH   installation folder; overrides the walk up
+  --dry-run             print the plan; write nothing
+  --json                JSON on stdout for a success
+  AGENT                 name, or a path under .rbtv/agents/
+
+Example: ignite disconnect research
+Next: ignite connect research --channel-name research
+Exit codes: 0 success or dry-run; 1 refused, failed, or invalid arguments.
+`,
+};
 
 function fail(message) {
   const error = new Error(message);
@@ -108,8 +191,10 @@ function parseArgs(argv, known) {
 }
 
 function workspaceOf(flags) {
-  if (!flags.installation) fail('--installation required');
-  return path.resolve(flags.installation);
+  if (flags.installation) return path.resolve(flags.installation);
+  const workspace = findWorkspace(process.cwd());
+  if (!workspace) fail(`no installation found: ${configPath(process.cwd())} is not in this folder or above.\nRun from inside an installation, or pass --installation PATH.\nNothing changed.`);
+  return workspace;
 }
 
 function readJson(file, label) {
@@ -127,7 +212,7 @@ function routesFor(config, agent) {
 function requireConfig(workspace) {
   const file = configPath(workspace);
   if (!fs.existsSync(file)) {
-    fail(`Ignite config not found: ${file}\nCreate that file before connect. See ${RUNBOOK}`);
+    fail(`Ignite config not found: ${file}\nCreate that file before connect. See ${RUNBOOK}\nNothing changed.`);
   }
   try {
     return loadConfig(workspace);
@@ -199,17 +284,19 @@ function installerResult(result) {
   fail((result.stderr || result.stdout || 'rbtv agent failed').trim());
 }
 
-function unitCount(home) {
-  const state = readJson(path.join(home, 'agent.json'), 'agent.json');
-  return Array.isArray(state.units) ? state.units.length : 0;
-}
-
+// The installer's JSON carries the units after the change and the units it added or removed; the
+// count before it is the difference. Every unit is counted once, packs' units included.
 async function setIgnitePack(verb, home, workspace, dryRun, deps) {
-  const before = unitCount(home);
   const args = ['agent', verb, home, '--pack', 'ignite', '--json'];
   if (dryRun) args.push('--dry-run');
   const body = installerResult(await runInstaller(args, workspace, deps));
-  return { before, after: Array.isArray(body.units) ? body.units.length : unitCount(home) };
+  const after = body.units.length;
+  return { before: verb === 'add' ? after - body.added.length : after + body.units_removed.length, after };
+}
+
+function packIsOn(home) {
+  const state = readJson(path.join(home, 'agent.json'), 'agent.json');
+  return Array.isArray(state.packs) && state.packs.includes('ignite');
 }
 
 function ensureRuntime(home) {
@@ -450,10 +537,11 @@ async function disconnectAgent(opts, flags, deps) {
     if (raw.dmAgent === opts.agent) delete raw.dmAgent;
   });
   const { timers, warning } = fs.existsSync(home) ? cancelTimers(home) : { timers: [], warning: null };
+  const wasOn = packIsOn(home);
   const pack = await setIgnitePack('remove', home, workspace, false, deps);
   emit(deps, flags, {
     disconnected: opts.agent, archived, timers, home, kept: true, ...(warning ? { warning } : {}),
-  }, `disconnected ${opts.agent}\nroutes: ${routes.length ? `removed ${routes.join(', ')}` : 'none'}\ndmAgent: ${dm ? 'cleared' : 'unchanged'}\narchived: ${opts.archiveChannel ? archived.join(', ') || 'none' : 'no'}\ntimers: ${timers.join(', ') || 'none'}\npack: ignite ${pack.before === pack.after ? 'already off' : 'off'}\nunits: ${pack.before}${pack.after === pack.before ? '' : ` -> ${pack.after}`}\nhome: kept\n${warning ? `${warning}\n` : ''}`);
+  }, `disconnected ${opts.agent}\nroutes: ${routes.length ? `removed ${routes.join(', ')}` : 'none'}\ndmAgent: ${dm ? 'cleared' : 'unchanged'}\narchived: ${opts.archiveChannel ? archived.join(', ') || 'none' : 'no'}\ntimers: ${timers.join(', ') || 'none'}\npack: ignite ${wasOn ? 'off' : 'already off'}\nunits: ${pack.before}${pack.after === pack.before ? '' : ` -> ${pack.after}`}\nhome: kept\n${warning ? `${warning}\n` : ''}`);
   return 0;
 }
 
@@ -470,7 +558,7 @@ function agentOf(positionals) {
 
 async function run(command, argv, flags, deps = {}) {
   if (flags.help) {
-    emit(deps, { json: false }, { help: command }, HELP);
+    emit(deps, { json: false }, { help: command }, HELP[command]);
     return 0;
   }
   const known = command === 'connect'

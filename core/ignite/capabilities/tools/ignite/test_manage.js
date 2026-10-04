@@ -35,16 +35,63 @@ async function captures(argv, flags, deps) {
   const installation = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-manage-'));
   const agent = path.join(installation, '.rbtv', 'agents', 'probe');
   fs.mkdirSync(agent, { recursive: true });
-  fs.writeFileSync(path.join(agent, 'agent.json'), JSON.stringify({ name: 'probe', harness: 'codex', model: 'gpt-6-sol', effort: 'high', units: [], packs: [] }), 'utf8');
+  fs.writeFileSync(path.join(agent, 'agent.json'), JSON.stringify({ name: 'probe', description: 'Probe.', harness: 'codex', model: 'gpt-6-sol', effort: 'high', units: [], packs: [] }), 'utf8');
   fs.writeFileSync(path.join(agent, 'agent.md'), '---\nname: probe\n---\n', 'utf8');
+  // The installer checks the model against `cast list`, so a stand-in cast answers for this one model.
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-manage-bin-'));
+  const cast = path.join(bin, process.platform === 'win32' ? 'cast.cmd' : 'cast');
+  fs.writeFileSync(cast, process.platform === 'win32'
+    ? '@echo {"codex":{"gpt-6-sol":["low","medium","high"]}}\r\n'
+    : '#!/bin/sh\nprintf \'{"codex":{"gpt-6-sol":["low","medium","high"]}}\\n\'\n');
+  if (process.platform !== 'win32') fs.chmodSync(cast, 0o755);
+  const oldPath = process.env.PATH;
+  process.env.PATH = `${bin}${path.delimiter}${oldPath}`;
   try {
-    const expected = spawnSync('python3', [INSTALLER_ENTRY, 'agent', 'configure', agent, '--effort', '2', '--dry-run'], { cwd: installation, encoding: 'utf8' });
+    // Through the installation, by name: the installer's own output for that form (screen 330).
+    const expected = spawnSync('python3', [INSTALLER_ENTRY, 'agent', 'configure', 'probe', '--effort', '2', '--dry-run'], { cwd: installation, encoding: 'utf8' });
+    assert.equal(expected.status, 0, expected.stdout + expected.stderr);
     const actual = await captures(['configure', '--effort', '2', '--dry-run'], {}, { env: { RBTV_AGENT_HOME: agent } });
     assert.equal(actual.code, expected.status);
     assert.equal(actual.stdout, expected.stdout);
     assert.equal(actual.stderr, expected.stderr);
   } finally {
+    process.env.PATH = oldPath;
+    fs.rmSync(bin, { recursive: true, force: true });
     fs.rmSync(installation, { recursive: true, force: true });
   }
+  const unknown = await run(['settings'], {}, { env: {} }).catch((error) => error);
+  assert.equal(unknown.exitCode, 1);
+  assert.equal(unknown.message, 'unknown command: settings\nchoose from add, remove, configure, update, models, list, search, show\nNothing changed.\nignite manage -h');
+
+  const help = await captures(['add', '-h'], {}, {
+    env: {},
+    install: async (args) => {
+      assert.deepEqual(args, ['agent', 'add', '-h']);
+      return { status: 0, stdout: 'rbtv — agent add help\n', stderr: '' };
+    },
+  });
+  assert.equal(help.stdout, 'ignite manage add — runs rbtv agent add <this agent>.\n'
+    + '<this agent> is RBTV_AGENT_HOME, or --agent NAME --installation PATH.\n'
+    + 'Outside a turn this is refused. Use: rbtv agent add AGENT\n\nrbtv — agent add help\n');
+
+  const named = await captures(['configure', '--effort', '2', '--dry-run'], {}, {
+    env: { RBTV_AGENT_HOME: '/tmp/rbtv-no-such-installation/.rbtv/agents/probe' },
+    install: async (args) => {
+      // Named, so the installer's "Next:" line names no path (screen 330).
+      assert.deepEqual(args, ['agent', 'configure', 'probe', '--effort', '2', '--dry-run']);
+      return { status: 0, stdout: '', stderr: '' };
+    },
+  });
+  assert.equal(named.code, 0);
+
+  const outside = '/tmp/rbtv-no-such-installation/plans/probe';
+  await captures(['configure', '--dry-run'], {}, {
+    env: { RBTV_AGENT_HOME: outside },
+    install: async (args) => {
+      assert.deepEqual(args, ['agent', 'configure', outside, '--dry-run']);
+      return { status: 0, stdout: '', stderr: '' };
+    },
+  });
+
   console.log('PASS manage');
 })().catch((error) => { console.error(error.stack || error.message); process.exit(1); });

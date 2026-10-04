@@ -417,4 +417,22 @@ rejects(base({ systemPromptFile: path.join(cwd, 'missing.md') }), 'cannot read s
   rejects(base({ systemPromptFile: empty }), 'nonempty');
 }
 
+{
+  // A request that cannot be read is a message on stderr and exit 1; the result file still records why.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-turn-missing-'));
+  const resultFile = path.join(dir, 'result.json');
+  const res = spawnSync('node', [TOOL, 'turn', '--request', path.join(dir, 'absent.json'), '--result', resultFile], { encoding: 'utf8' });
+  assert.strictEqual(res.status, 1, res.stderr);
+  assert.match(res.stderr, /ENOENT/);
+  assert.strictEqual(res.stdout, '');
+  assert.strictEqual(JSON.parse(fs.readFileSync(resultFile, 'utf8')).ok, false);
+}
+
+{
+  // Wrong usage exits 1, the convention of every other ignite verb (not 2).
+  const res = spawnSync('node', [TOOL, 'turn', '--request', 'request.json'], { encoding: 'utf8' });
+  assert.strictEqual(res.status, 1, res.stderr);
+  assert.match(res.stderr, /usage: ignite turn --request FILE --result FILE/);
+}
+
 console.log('test_turn: ok');

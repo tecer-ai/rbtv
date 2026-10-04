@@ -63,6 +63,8 @@ function installAgent(dir, name = 'probe') {
 
 const IGNITE_UNITS = ['core/ignite#a', 'core/ignite#b', 'core/ignite#c', 'core/ignite#d', 'core/ignite#e', 'core/ignite#f', 'core/ignite#g', 'core/ignite#h'];
 
+// Mirrors the installer's JSON for a pack change: the units after it, and the units it added (add)
+// or removed (remove). The count before the change is not in that JSON; ignite derives it.
 function fakeInstaller(calls = []) {
   return (args) => {
     calls.push(args);
@@ -71,7 +73,9 @@ function fakeInstaller(calls = []) {
     const state = JSON.parse(fs.readFileSync(path.join(home, 'agent.json'), 'utf8'));
     const packs = new Set(state.packs);
     const units = new Set(state.units);
-    if (args[1] === 'add') {
+    const adding = args[1] === 'add';
+    const changed = IGNITE_UNITS.filter((unit) => units.has(unit) !== adding);
+    if (adding) {
       packs.add('ignite');
       for (const unit of IGNITE_UNITS) units.add(unit);
     } else {
@@ -80,7 +84,8 @@ function fakeInstaller(calls = []) {
     }
     const next = { ...state, packs: [...packs].sort(), units: [...units].sort() };
     if (!dryRun) fs.writeFileSync(path.join(home, 'agent.json'), `${JSON.stringify(next)}\n`);
-    return { status: 0, stdout: JSON.stringify({ units: next.units, packs: next.packs }) };
+    const change = adding ? { added: changed } : { units_removed: changed };
+    return { status: 0, stdout: JSON.stringify({ units: next.units, packs: next.packs, ...change }) };
   };
 }
 
@@ -489,6 +494,7 @@ async function run(argv, extra = {}) {
     const result = await run(['connect', 'probe', '--dm', '--installation', dir]).catch((error) => error);
     assert.match(result.message, /config[/\\]ignite[/\\]config\.json/);
     assert.match(result.message, /core\/ignite\/capabilities\/runbook\.md/);
+    assert.match(result.message, /Nothing changed\.$/);
     assert.equal(fs.existsSync(file), false);
   });
 
@@ -512,6 +518,72 @@ async function run(argv, extra = {}) {
     assert.match(result.message, /channel name/);
     assert.equal(slack.calls.length, 0);
     assert.equal(fs.readFileSync(path.join(dir, '.rbtv', 'config', 'ignite', 'config.json'), 'utf8'), before);
+  });
+
+  await test('connect and disconnect find the installation from the current folder', async () => {
+    const dir = fs.realpathSync(workspace());
+    writeConfig(dir);
+    installAgent(dir);
+    fs.mkdirSync(path.join(dir, 'plans'));
+    const here = process.cwd();
+    process.chdir(path.join(dir, 'plans'));
+    try {
+      const connected = await run(['connect', 'probe', '--dm'], { slack: fakeSlack() });
+      assert.equal(connected.code, 0, connected.out + connected.err);
+      assert.equal(readConfig(dir).dmAgent, 'probe');
+      const removed = await run(['disconnect', 'probe'], { slack: fakeSlack() });
+      assert.equal(removed.code, 0, removed.out + removed.err);
+      assert.equal(readConfig(dir).dmAgent, undefined);
+    } finally {
+      process.chdir(here);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  await test('connect refuses with no installation above the current folder', async () => {
+    const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-no-install-')));
+    const here = process.cwd();
+    process.chdir(outside);
+    try {
+      const result = await run(['connect', 'probe', '--dm']).catch((error) => error);
+      assert.match(result.message, /no installation found/);
+      assert.match(result.message, /--installation PATH/);
+      assert.match(result.message, /Nothing changed\.$/);
+    } finally {
+      process.chdir(here);
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  await test('connect and disconnect help print only their own page', async () => {
+    for (const command of ['connect', 'disconnect']) {
+      const out = [];
+      const code = await main([command, '-h'], { stdout: (text) => out.push(text) });
+      const text = out.join('');
+      const other = command === 'connect' ? 'disconnect' : 'connect';
+      assert.equal(code, 0);
+      assert.equal(text.split('\n')[0], `ignite — ${command} help`);
+      assert.doesNotMatch(text, new RegExp(`ignite — ${other} help`));
+    }
+  });
+
+  await test('connect and disconnect count every unit the agent has, once, and say already off when the pack was off', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    installAgent(dir);
+    const install = fakeInstaller();
+    const connected = await run(['connect', 'probe', '--dm', '--installation', dir], { install, slack: fakeSlack() });
+    assert.equal(connected.code, 0, connected.out + connected.err);
+    assert.match(connected.out, /units: 3 -> 11\n/);
+    const again = await run(['connect', 'probe', '--dm', '--installation', dir], { install, slack: fakeSlack() });
+    assert.match(again.out, /units: 11\n/);
+    const removed = await run(['disconnect', 'probe', '--installation', dir], { install, slack: fakeSlack() });
+    assert.match(removed.out, /pack: ignite off\n/);
+    assert.match(removed.out, /units: 11 -> 3\n/);
+    const off = await run(['disconnect', 'probe', '--installation', dir], { install, slack: fakeSlack() });
+    assert.match(off.out, /pack: ignite already off\n/);
+    assert.match(off.out, /units: 3\n/);
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 
   await test('create is not a command', async () => {

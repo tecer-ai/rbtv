@@ -12,7 +12,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { Store } = require('./store.js');
-const { loadConfig, agentHome, configPath } = require('./config.js');
+const { loadConfig, agentHome, configPath, findWorkspace } = require('./config.js');
 const { cadenceSpec, nextOccurrence, FIXED_TZ } = require('./schedule.js');
 const { writeBoard, closeSubject, boardPath, preflightBoard, refreshBoard, refreshBoardAfterCommit } = require('./board.js');
 const { workspaceFromHome, remember } = require('./memory.js');
@@ -22,7 +22,8 @@ const REPORTS = new Set(['always', 'when-useful']);
 
 const HELP = `ignite — help
 
-Connect an agent to Slack, run one turn, or let the calling agent manage itself.
+Connect an agent to Slack, run one turn, or let the calling agent
+manage itself.
 
 Connect
   connect        Turn the ignite pack on, create working files, connect Slack.
@@ -31,6 +32,7 @@ Connect
 Manage and turn
   manage         The calling agent manages itself.
   turn           One turn with an exact session id. Writes a result file.
+                 Prints nothing.
 
 Timers, work, messages and memory
   schedule       Add, list, change, or cancel a timer.
@@ -64,8 +66,47 @@ connect and disconnect also take --dry-run and --installation.
 --json selects JSON on stdout for a success.
 A refusal is a message on stderr, exit 1, with or without --json.
 -h and --help work before or after the verb, with no setup.
+
 Start: ignite connect AGENT --channel-name NAME
 More:  ignite COMMAND -h
+Exit codes: 0 success; 1 refused, failed, or invalid arguments.
+`;
+const TURN_HELP = `ignite — turn help
+
+usage: ignite turn --request FILE --result FILE
+
+One foreground turn for a caller that keeps many conversations in one folder.
+Never resolves \`last\` and never picks the newest session in the folder.
+Resume passes the requested model and effort on that invocation.
+The waking program calls this. A person may run it by hand.
+This command prints nothing. The result file is the structured value.
+It does not take --json.
+
+Request JSON:
+  harness          claude | codex | opencode
+  model            short name or harness-native id
+  effort           integer 1-5, or a native rung word
+  cwd              existing absolute directory
+  prompt|promptFile  exactly one
+  session          {"mode":"new"} or {"mode":"resume","id":"<exact id>"}
+  env              optional string map merged over the process environment
+
+Result JSON (written even on failure):
+  ok, harness, model, effort, sessionId, exitCode,
+  startedAt, endedAt, pid, pidStart, stdoutPath, stderrPath, error?
+pid + pidStart (starttime from /proc/<pid>/stat, read while alive) distinguish a
+live run from a reused pid. stdout/stderr are captured to files, not inherited.
+
+Session id: claude mints a UUID and passes --session-id; codex parses thread.started
+(thread_id); opencode binds a unique --title tag to that store row. Resume passes
+--resume / exec resume <id> / run -s <id> plus the requested model and effort.
+
+An invalid request is a message on stderr, exit 1. If the result path was
+never resolved, no result file is written. If the turn fails after the path
+is resolved, the result file is still written and this command exits 1.
+The child exit code is exitCode in the file.
+
+Example: ignite turn --request request.json --result result.json
 Exit codes: 0 success; 1 refused, failed, or invalid arguments.
 `;
 const REMEMBER_HELP = `ignite remember — save an owner fact for every agent
@@ -262,16 +303,6 @@ function fail(message) {
   const error = new Error(message);
   error.exitCode = 1;
   throw error;
-}
-
-function findWorkspace(start) {
-  let dir = path.resolve(start);
-  for (;;) {
-    if (fs.existsSync(configPath(dir))) return dir;
-    const parent = path.dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
-  }
 }
 
 function resolveHome(flags, deps) {
@@ -712,37 +743,10 @@ function main(argv, deps = {}) {
   if (command === 'connect' || command === 'disconnect') return require('./connect.js').run(command, tail, flags, deps);
   if (command === 'manage') return require('./manage.js').run(tail, flags, deps);
   if (command === 'turn') {
-    if (flags.help) { (deps.stdout || ((text) => process.stdout.write(text)))(`ignite — turn help
-
-usage: ignite turn --request FILE --result FILE
-
-One foreground turn for a caller that keeps many conversations in one folder.
-Never resolves last and never picks the newest session in the folder.
-Resume passes the requested model and effort on that invocation.
-The waking program calls this. A person may run it by hand.
-This command prints nothing. The result file is the structured value.
-It does not take --json.
-
-Request JSON:
-  harness          claude | codex | opencode
-  model            short name or harness-native id
-  effort           integer 1-5, or a native rung word
-  cwd              existing absolute directory
-  prompt|promptFile  exactly one
-  session          {"mode":"new"} or {"mode":"resume","id":"<exact id>"}
-  env              optional string map merged over the process environment
-
-Result JSON (written even on failure):
-  ok, harness, model, effort, sessionId, exitCode,
-  startedAt, endedAt, pid, pidStart, stdoutPath, stderrPath, error?
-pid + pidStart distinguish a live run from a reused pid. stdout/stderr are captured to files, not inherited.
-
-An invalid request is a message on stderr, exit 1. If the result path was never resolved, no result file is written. If the turn fails after the path is resolved, the result file is still written and this command exits 1.
-The child exit code is exitCode in the file.
-
-Example: ignite turn --request request.json --result result.json
-Exit codes: 0 success; 1 refused, failed, or invalid arguments.
-`); return 0; }
+    if (flags.help) {
+      (deps.stdout || ((text) => process.stdout.write(text)))(TURN_HELP);
+      return 0;
+    }
     return require('./turn.js').runTurnAsync(tail);
   }
   if (command === 'board') return cmdBoard(tail, flags, deps);

@@ -351,13 +351,13 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.ok(!/^usage: cast resume/.test(res.stdout), `"-h" as prompt text must not print usage: ${res.stdout}`);
 }
 
-// -h: exit 0, <=60 lines (raised from 50 on 2026-10-04 for the -rbtv usage block: the approved help
-// screen, build/screens/review/40-cast-spark.md screen 400, runs to about 70 lines)
+// -h: exit 0, no longer than the approved help screen. Screen 400 (build/screens/review/40-cast-spark.md)
+// has 66 non-empty lines; the -h page must print exactly those, so the cap is that count.
 {
   const res = spawnSync('node', [TOOL, '-h'], { encoding: 'utf8' });
   assert.strictEqual(res.status, 0, 'cast -h must exit 0');
   const lines = res.stdout.split('\n').filter((l) => l.length > 0);
-  assert.ok(lines.length <= 60, `help must be <=60 lines, got ${lines.length}`);
+  assert.ok(lines.length <= 66, `help must be <=66 lines (approved screen 400), got ${lines.length}`);
   // enumerate models from the tool's own inventory, never by re-parsing its source.
   // list --json also carries non-harness top-level keys (effort_numbers, usage), so the
   // three harnesses are read BY NAME — Object.values() would flatten the new keys too.

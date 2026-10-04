@@ -6,7 +6,7 @@
 // byte-identical across the split (163-invocation corpus, both self-check suites).
 
 const { API_USAGE } = require('./api');
-const { RESUME_USAGE, SESSIONS_USAGE, USAGE, USAGE_IG, EFFORT_RULE, modelTable } = require('./core');
+const { RESUME_USAGE, SESSIONS_USAGE, USAGE, USAGE_IG, modelTable } = require('./core');
 const { loadOptional } = require('./optional');
 const { ROUTE_FORMS, ROUTE_USAGE } = require('./route');
 
@@ -18,7 +18,7 @@ const MONITOR_USAGE = monitorMod
 
 function printHelp() {
   const lines = [
-    "cast — launch one headless sub-agent turn in a chosen harness/model/effort.",
+    "cast — launch one headless sub-agent turn in a harness, model and effort.",
     "Prints the child's stdout/stderr and exits with its exit code.",
     "--headed launches the harness's interactive TUI instead (prompt becomes the first message).",
     '',
@@ -29,25 +29,32 @@ function printHelp() {
     '      [--headed] [--dry-run]',
     `  ${USAGE_IG}`,
     '',
-    `  ${RESUME_USAGE}`,
+    '  cast resume <harness> <session-id|last> [launch-folder]',
+    '      (-p TEXT | -f FILE) [--dry-run]',
     `  ${SESSIONS_USAGE}`,
-    `  ${MONITOR_USAGE}`,
-    `  ${ROUTE_USAGE}`,
-    // The batch form is the one route surface a caller cannot guess from the interview line;
-    // taken from ROUTE_FORMS so this line can never drift from the route help page.
-    ...ROUTE_FORMS.filter((f) => f.includes('--batch')).map((f) => `  ${f}`),
-    '  cast api <model> …   |   cast doctor [--json]   |   cast list [--json]   |   cast -h',
+    '  cast monitor [--watch] [--stall SECONDS] [--grace SECONDS]',
+    '      [--poll SECONDS] [--deadline SECONDS] [--folder PREFIX] [--json]',
+    '  cast route --access open|bounded --type code|text',
+    '      --class planner|broad|bounded|mechanical',
+    '      [--optimize price|quality] [--caps image] [--explain]',
+    '  cast route --batch agents.json',
+    '  cast api <model> ...   |   cast doctor [--json]   |   cast list [--json]   |   cast -h',
     '',
     "Models (harness, model, what each effort number means):",
     ...modelTable(),
     '',
-    EFFORT_RULE,
+    'effort is an integer 1-5: N picks the Nth rung, clamped to the model\'s',
+    'top — pass the number, the words are labels only.',
     '[launch-folder] defaults to the current directory.',
-    '-s TEXT / -S FILE: system prompt — real for claude, developer instructions for codex, prepended to the first message for opencode.',
+    '-s TEXT / -S FILE: system prompt — real for claude, developer instructions',
+    'for codex, prepended to the first message for opencode.',
     '',
-    '-rbtv AGENT      rbtv agent, with its own harness, model and effort, read from agent.json. A name is under <installation>/.rbtv/agents/.',
-    '               A path is the agent folder. Do not pass harness, model or effort. To change them: rbtv agent configure AGENT',
-    '               Sets RBTV_AGENT_HOME. Hands agent.md to the model without its frontmatter.',
+    '-rbtv AGENT      rbtv agent, with its own harness, model and effort, read',
+    '               from agent.json. A name is under <installation>/.rbtv/agents/.',
+    '               A path is the agent folder. Do not pass harness, model or',
+    '               effort. To change them: rbtv agent configure AGENT',
+    '               Sets RBTV_AGENT_HOME. Hands agent.md to the model without',
+    '               its frontmatter.',
     '-rogue FILE       rogue agent: the body of the agent file is the system prompt',
     'cast resume    one more turn into a session id, or `last` for the folder newest',
     'cast sessions  what ran in a folder — harness, id, started, first-prompt label',
@@ -59,6 +66,7 @@ function printHelp() {
     '         cast -rbtv plans/launch/agents/drafter -p "reply with exactly: ok"',
     '',
     'next: cast <verb> -h   # every flag of one verb, with examples',
+    'Exit codes: the child\'s code on a launch; 2 refused or invalid arguments.',
   ];
   process.stdout.write(lines.join('\n') + '\n');
 }

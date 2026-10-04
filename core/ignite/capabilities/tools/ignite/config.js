@@ -24,6 +24,17 @@ function configPath(workspace) {
   return path.join(workspace, '.rbtv', 'config', 'ignite', 'config.json');
 }
 
+// The installation a folder belongs to: the nearest folder, from start upward, holding ignite's config.
+function findWorkspace(start) {
+  let dir = path.resolve(start);
+  for (;;) {
+    if (fs.existsSync(configPath(dir))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
 function rejectUnknown(obj, allowed, label) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) throw new Error(`${label} must be an object`);
   for (const key of Object.keys(obj)) {
@@ -149,4 +160,4 @@ function slackToken(config, key) {
   return value;
 }
 
-module.exports = { configPath, loadConfig, updateConfig, agentHome, storePath, envValue, slackToken, DREAMER_MODEL };
+module.exports = { configPath, findWorkspace, loadConfig, updateConfig, agentHome, storePath, envValue, slackToken, DREAMER_MODEL };

@@ -58,7 +58,7 @@ function main(rawArgv) {
     fail('refused: -rbtv does not take a harness, model or effort\n'
       + "with -rbtv, those values come from the agent's agent.json\n"
       + 'Nothing changed.\n'
-      + `cast -rbtv ${agentFlags.rbtv} (-p TEXT | -f FILE)\n`
+      + `cast -rbtv ${agentFlags.rbtv} -p "reply with exactly: ok"\n`
       + `to change them: rbtv agent configure ${agentFlags.rbtv}`);
   }
   if ((agentFlags.rbtv || agentFlags.file) && system) {

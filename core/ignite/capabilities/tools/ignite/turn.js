@@ -334,17 +334,13 @@ async function runTurnAsync(args) {
     process.exitCode = result.ok ? 0 : 1;
     return process.exitCode;
   } catch (e) {
-    if (!resultFile) {
-      process.stderr.write(`ignite turn: ${e.message}\n`);
-      process.exitCode = 2;
-      return 2;
-    }
-    try {
-      writeResult(resultFile, blankResult(e.message));
-    } catch (w) {
-      process.stderr.write(`ignite turn: ${e.message}\nignite turn: cannot write result: ${w.message}\n`);
-      process.exitCode = 2;
-      return 2;
+    process.stderr.write(`ignite turn: ${e.message}\n`);
+    if (resultFile) {
+      try {
+        writeResult(resultFile, blankResult(e.message));
+      } catch (w) {
+        process.stderr.write(`ignite turn: cannot write result: ${w.message}\n`);
+      }
     }
     process.exitCode = 1;
     return 1;
