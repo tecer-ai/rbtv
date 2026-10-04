@@ -357,39 +357,47 @@ def v1_to_v2_upgrade(ctx) -> None:
     ctx.keep(locals())
 
 
-def schema_four_gains_selected_units_on_write(ctx) -> None:
+def legacy_records_gain_selection_fields_on_write(ctx) -> None:
     check, skip, tmp, tree, target, shadowed = (
         ctx.check, ctx.skip, ctx.tmp, ctx.tree, ctx.target, ctx.shadowed)
     (catalog, data, legacy, expect, basis_body, mirrors_on_disk, mtr,
      _mk, rf, pws) = ctx.frame()
 
-    print("\nU-selection — schema 4 records gain selected units on their next write")
-    old = tmp / "ws-schema-three"
-    old.mkdir()
-    do_install(old, catalog, ["fixmod/goodcomp"], ["claude"], dry_run=False)
-    state_path = old / STATE_REL
-    old_record = json.loads(state_path.read_text(encoding="utf-8"))
-    old_record["schema"] = SCHEMA - 1
-    old_record["installer"] = "install.py"
-    old_record["installed_at"] = "2000-01-01T00:00:00"
-    old_record["target"] = str(old.resolve())
-    old_record["components"]["fixmod/goodcomp"]["tree_root"] = str(tree)
-    state_path.write_text(json.dumps(old_record), encoding="utf-8")
-    read = read_state(old)
-    check("U-selection — schema 4 reads with selected units derived from its record",
-          read["schema"] == SCHEMA - 1
-          and not {"installer", "installed_at", "target"} & set(read)
-          and "tree_root" not in read["components"]["fixmod/goodcomp"]
-          and set(read["units"]) == set(
-              f"fixmod/goodcomp#{pid}" for pid in
-              read["components"]["fixmod/goodcomp"]["units"]))
-    write_state(old, read)
-    persisted = json.loads(state_path.read_text(encoding="utf-8"))
-    check("U-selection — next write has schema 5, selected units, and no machine-local fields",
-          persisted["schema"] == SCHEMA
-          and not {"installer", "installed_at", "target"} & set(persisted)
-          and persisted["units"] == sorted(read["units"])
-          and all("tree_root" not in rec
-                  for rec in persisted["components"].values()),
-          str(persisted))
+    print("\nU-selection — legacy records gain selections on their next write")
+    for schema, without_units in ((3, True), (5, False)):
+        old = tmp / f"ws-schema-{schema}"
+        old.mkdir()
+        do_install(old, catalog, ["fixmod/goodcomp"], ["claude"], dry_run=False)
+        state_path = old / STATE_REL
+        old_record = json.loads(state_path.read_text(encoding="utf-8"))
+        old_record["schema"] = schema
+        old_record["installer"] = "install.py"
+        old_record["installed_at"] = "2000-01-01T00:00:00"
+        old_record["target"] = str(old.resolve())
+        old_record.pop("packs", None)
+        if without_units:
+            old_record.pop("units", None)
+        else:
+            old_record["units"] = sorted(
+                f"fixmod/goodcomp#{pid}" for pid in
+                old_record["components"]["fixmod/goodcomp"]["units"])
+        old_record["components"]["fixmod/goodcomp"]["tree_root"] = str(tree)
+        state_path.write_text(json.dumps(old_record), encoding="utf-8")
+        read = read_state(old)
+        expected = {f"fixmod/goodcomp#{pid}" for pid in
+                    read["components"]["fixmod/goodcomp"]["units"]}
+        check(f"U-selection-{schema} — reads with units and empty packs derived",
+              not {"installer", "installed_at", "target"} & set(read)
+              and "tree_root" not in read["components"]["fixmod/goodcomp"]
+              and set(read["units"]) == expected and read["packs"] == [])
+        write_state(old, read)
+        persisted = json.loads(state_path.read_text(encoding="utf-8"))
+        check(f"U-selection-{schema} — next write is current and portable",
+              persisted["schema"] == SCHEMA
+              and not {"installer", "installed_at", "target"} & set(persisted)
+              and persisted["units"] == sorted(expected)
+              and persisted["packs"] == []
+              and all("tree_root" not in rec
+                      for rec in persisted["components"].values()),
+              str(persisted))
     ctx.keep(locals())

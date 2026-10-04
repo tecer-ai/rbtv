@@ -51,7 +51,7 @@ def _validate_state(state: dict, path: Path) -> None:
                 if name in part:
                     _string_list(part[name],
                                  f"components.{cid}.units.{pid}.{name}", path)
-    for name in ("harnesses", "guidance_files", "shared_claims", "units"):
+    for name in ("harnesses", "guidance_files", "shared_claims", "units", "packs"):
         if name in state:
             _string_list(state[name], name, path)
     if "guidance_basis" in state and state["guidance_basis"] is not None and \
@@ -111,10 +111,19 @@ def migrate_selected_units(state: dict) -> None:
     )
 
 
+def migrate_selected_packs(state: dict) -> None:
+    """Schema 6 adds pack selection; older records selected no packs."""
+    state.setdefault("packs", [])
+
+
 def read_state(target: Path) -> dict:
     path = target / STATE_REL
     if not path.is_file():
-        return {"schema": SCHEMA, "components": {}, "shared_claims": []}
+        # A fresh target has made no explicit choice.  Without these fields,
+        # the next read mistakes units generated for a newly enabled pack as
+        # the schema-4 migration input and records them as explicit choices.
+        return {"schema": SCHEMA, "components": {}, "shared_claims": [],
+                "units": [], "packs": []}
     try:
         state = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -127,6 +136,7 @@ def read_state(target: Path) -> dict:
     migrate_legacy_record(state)
     migrate_portable_record(state)
     migrate_selected_units(state)
+    migrate_selected_packs(state)
     _validate_state(state, path)
     rewrite_legacy_skill_ids(state)
     strip_retired_harnesses(state)
@@ -255,6 +265,11 @@ def known_claims(state: dict) -> set[str]:
 def selected_units(state: dict) -> set[str]:
     """The root's explicit unit selection, as full catalog ids."""
     return set(state.get("units") or [])
+
+
+def selected_packs(state: dict) -> set[str]:
+    """The root's enabled pack names."""
+    return set(state.get("packs") or [])
 
 
 def _unit_in(state: dict, cid: str, pid: str) -> bool:

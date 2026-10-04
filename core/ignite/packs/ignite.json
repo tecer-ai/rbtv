@@ -1,0 +1,14 @@
+{
+  "description": "The standard units for an Ignite agent.",
+  "units": [
+    "meta/communication#slack-message-format",
+    "meta/communication#audio-aware",
+    "meta/sub-agents#sub-agents",
+    "meta/functions#investignosis",
+    "core/ignite#agent-controls",
+    "web/browse#web",
+    "office/document#office",
+    "meta/communication#google-workspace",
+    "core/ignite#ignite-standing-instructions"
+  ]
+}

@@ -11,7 +11,7 @@ VERSION = "0.2.1"
 # The program name is used in generated guidance banners. It is deliberately
 # not part of the portable install record.
 INSTALLER_NAME = "install.py"
-SCHEMA = 5
+SCHEMA = 6
 
 # D12 — ownership is a marker in the file, never a prefix on its name.
 MANAGED_MARK = "rbtv-managed"
@@ -136,6 +136,9 @@ CANONICAL_METHODS = (
     "skill", "rule", "command", "agent", "hook", "mcp-server", "tool",
     "folder-instructions",
 )
+
+# `pack` is a catalog view, not an exposure method: it never reaches planning.
+CATALOG_TYPES = (*CANONICAL_METHODS, "pack")
 
 # Methods realized as ONE file per part, per harness. Target templates are
 # install-root-relative; `{name}` is the bare part-id (D12). None = this

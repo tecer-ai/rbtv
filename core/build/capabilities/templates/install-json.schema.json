@@ -9,6 +9,7 @@
     "marker",
     "harnesses",
     "units",
+    "packs",
     "components"
   ],
   "properties": {
@@ -39,6 +40,14 @@
     },
     "units": {
       "description": "The units chosen on their own, as full <module>/<component>#<unit> ids. This is the root selection; component records separately report what was generated.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "packs": {
+      "description": "The names of packs enabled for this root installation.",
       "type": "array",
       "items": {
         "type": "string"

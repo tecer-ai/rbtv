@@ -157,7 +157,47 @@ def scan_all(mirror_root: Path, repo_root: Path) -> tuple[dict[str, dict], list[
     ]
     merged = dict(repo)
     merged.update(mirror)
+    pack_rows(merged)
     return merged, shadowed
+
+
+def pack_rows(catalog: dict[str, dict]) -> list[dict]:
+    """Validated pack declarations in the merged catalog, one name globally.
+
+    This is deliberately derived from component folders each time: a mirror
+    component replaces both its units and its packs, and update sees edits to
+    a declaration without a second cache to invalidate.
+    """
+    provided: set[str] = set()
+    for cid, comp in catalog.items():
+        try:
+            provided.update(f"{cid}#{row['id']}" for row in unit_rows(comp))
+        except Refuse:
+            # An unrelated invalid component already remains discoverable and
+            # blocks only its own install; packs keep that same boundary.
+            continue
+    rows: list[dict] = []
+    names: dict[str, Path] = {}
+    for cid, comp in sorted(catalog.items()):
+        packs = Path(comp["path"]) / "packs"
+        for path in sorted(packs.glob("*.json")):
+            data = _read_json(path, "pack-invalid")
+            _checked(data, "pack", path, "pack-invalid")
+            if path.stem in names:
+                raise Refuse("pack-duplicate",
+                             f"pack {path.stem!r} is declared by both {names[path.stem]} and {path}",
+                             str(path))
+            names[path.stem] = path
+            missing = sorted(set(data["units"]) - provided)
+            if missing:
+                raise Refuse("pack-unit-unknown",
+                             f"pack {path.stem!r} names unavailable unit(s): {', '.join(missing)}",
+                             str(path))
+            rows.append({"name": path.stem, "component": cid,
+                         "module": comp["module"], "tree": comp["tree"],
+                         "path": str(path), "description": data["description"],
+                         "units": list(data["units"])})
+    return rows
 
 
 def _unit(comp: dict, method: str, path: Path, template: str) -> dict:

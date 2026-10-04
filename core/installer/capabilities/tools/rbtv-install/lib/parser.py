@@ -9,7 +9,8 @@ import difflib
 from discovery import Refuse
 
 from . import present
-from .constants import BASIS_NONE, CANONICAL_METHODS, GUIDANCE_NAMES, HARNESSES
+from .constants import (BASIS_NONE, CANONICAL_METHODS, CATALOG_TYPES,
+                        GUIDANCE_NAMES, HARNESSES)
 from .recovery import shell_quote
 
 
@@ -156,7 +157,7 @@ def build_parser() -> argparse.ArgumentParser:
             setattr(namespace, self.dest, cur)
 
     class MethodsAction(ListAction):
-        VALID = CANONICAL_METHODS
+        VALID = CATALOG_TYPES
         NOUN = "type"
 
     def selectors(dest) -> None:
@@ -274,10 +275,13 @@ def build_parser() -> argparse.ArgumentParser:
                      "  rbtv install show meta/functions#brainstorm\n"
                      "  rbtv install show meta/functions"),
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    s_show.add_argument("name", help="unique item name, full item ID, or module/component")
+    s_show.add_argument("name", nargs="?", default="",
+                        help="unique item name, full item ID, or module/component")
     s_show.add_argument("--type", "-x", action=MethodsAction, default=[],
                         dest="method",
                         metavar="TYPE", help="require this item type, such as skill")
+    s_show.add_argument("--pack", action=ListAction, default=[], metavar="PACK",
+                        help="show a named pack")
     s_status = sub.add_parser(
         "status", help="see the selected workspace, saved settings and installed counts",
         description="Show which workspace will be changed and its saved settings. "
@@ -320,6 +324,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=argparse.SUPPRESS,
         choices=(*GUIDANCE_NAMES, BASIS_NONE),
         help="instruction file you maintain, or none to disable copying; required on first add")
+    s_add.add_argument("--pack", action=ListAction, default=[], metavar="PACK",
+                       help="turn this pack on; its units are added")
     selection_names(s_add)
 
     removal_help = (
@@ -343,6 +349,8 @@ def build_parser() -> argparse.ArgumentParser:
     selectors(s_rm)
     s_rm.add_argument("--yes", action="store_true",
                       help="confirm removal selected by module, type, all, or exclusions")
+    s_rm.add_argument("--pack", action=ListAction, default=[], metavar="PACK",
+                      help="turn this pack off")
     selection_names(s_rm)
 
     s_remove = sub.add_parser(
@@ -352,6 +360,8 @@ def build_parser() -> argparse.ArgumentParser:
     selectors(s_remove)
     s_remove.add_argument("--yes", action="store_true",
                           help="confirm removal selected by module, type, all, or exclusions")
+    s_remove.add_argument("--pack", action=ListAction, default=[], metavar="PACK",
+                          help="turn this pack off")
     selection_names(s_remove)
 
     s_set = sub.add_parser(

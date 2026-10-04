@@ -11,9 +11,11 @@ from . import present
 from .constants import BASIS_NONE, MANAGED_MARK, STATE_REL
 from .catalog import (
     _unit_specs,
+    catalog_packs,
     catalog_units_map,
 )
-from .state import _unit_in, book_harnesses, read_state, upgrade_book
+from .state import (_unit_in, book_harnesses, read_state, selected_packs,
+                    upgrade_book)
 from .selection import (component_keys, iter_booked_units, module_names,
                         unit_key, resolve_name)
 
@@ -207,6 +209,16 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
                      "component_description": "", "module_description": "",
                      "installed": True, "source_available": False,
                      "tree": "missing"})
+    if "pack" in want_x:
+        for pack in catalog_packs(catalog).values():
+            rows.append({"id": pack["name"], "component": pack["component"],
+                         "module": pack["module"], "type": "pack",
+                         "description": _short_description(pack["description"]),
+                         "component_description": "", "module_description": "",
+                         "_search": pack["description"],
+                         "installed": pack["name"] in selected_packs(state),
+                         "source_available": True, "tree": pack["tree"],
+                         "unit_count": len(pack["units"])})
     matched = []
     for row in sorted(rows, key=lambda item: item["id"]):
         if want_m and row["module"] not in want_m:
@@ -323,12 +335,18 @@ def print_list(data: dict) -> None:
     print()
     items = data["items"]
     if data["scope"] == "items":
-        headers = ["ID", "Type", "State", "Description"]
-        rows = [[row["id"], row["type"],
-                 "installed" if row["installed"] else "not installed",
-                 row["description"] + ("" if row["source_available"]
-                                        else " (source missing)")]
-                for row in items]
+        if items and all(row["type"] == "pack" for row in items):
+            headers = ["Pack", "Component", "Units", "State", "Description"]
+            rows = [[row["id"], row["component"], str(row["unit_count"]),
+                     "on" if row["installed"] else "off", row["description"]]
+                    for row in items]
+        else:
+            headers = ["ID", "Type", "State", "Description"]
+            rows = [[row["id"], row["type"],
+                     "installed" if row["installed"] else "not installed",
+                     row["description"] + ("" if row["source_available"]
+                                            else " (source missing)")]
+                    for row in items]
     else:
         headers = ["ID", "Installed items", "Description"]
         rows = [[row["id"], f"{row['installed_items']}/{row['source_items']}",
@@ -387,6 +405,17 @@ def print_show(data: dict) -> None:
     print()
     print(f"Target: {data['target']} "
           f"({present.target_source_label(data.get('source'))})")
+    if sel["scope"] == "pack":
+        _say(f"Description: {sel['description']}")
+        print("Component: " + sel["component"])
+        print("Declaration: " + sel["path"])
+        print("Selection: " + ("on" if sel["enabled"] else "off"))
+        print("Units:")
+        for unit in sel["units"]:
+            print("  " + unit)
+        print()
+        print("Next: " + data["next"])
+        return
     if sel["scope"] == "module":
         _say(f"Description: {sel['description'] or '(no catalog description)'}")
         _say(f"Local source: {sel['source_items']} items; "

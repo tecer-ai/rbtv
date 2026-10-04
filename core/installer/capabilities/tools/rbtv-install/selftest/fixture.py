@@ -61,6 +61,14 @@ def _fixture(root: Path, mirror: Path) -> None:
         "entry": "thing.py"}))
     _w(tool / "thing.py", "#!/usr/bin/env python3\nprint('inventory only')\n")
     (tool / "thing.py").chmod(0o755)
+    _w(good / "packs/starter.json", json.dumps({
+        "description": "The fixture starter pack",
+        "units": ["fixmod/goodcomp#fixskill", "fixmod/goodcomp#fixrule"],
+    }))
+    _w(good / "packs/second.json", json.dumps({
+        "description": "The fixture overlapping pack",
+        "units": ["fixmod/goodcomp#fixrule"],
+    }))
 
     codexc = _component(root, "fixmod", "codexcomp")
     _unit_md(codexc / "rules/codexrule.md", "codexrule", "the codex-side rule",

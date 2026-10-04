@@ -21,7 +21,9 @@ from .constants import (
 )
 from .guidance import _norm_prefix
 from .target import DISCOVER_CWD, resolve_target
-from .state import book_harnesses, read_state, selected_units, write_state
+from .state import (book_harnesses, read_state, selected_packs,
+                    selected_units, write_state)
+from .catalog import catalog_packs, pack_units
 from .selection import (
     _has_negative,
     _split_part_keys,
@@ -170,7 +172,9 @@ def cmd_list(args, target: Path, catalog: dict, shadowed: list,
     else:
         # Always a returned exact ID: a search query or a placeholder is
         # not something `show` accepts.
-        command = ["rbtv install show " + _quote(data["items"][0]["id"])
+        first = data["items"][0]
+        show_arg = ("--pack " if first.get("type") == "pack" else "") + _quote(first["id"])
+        command = ["rbtv install show " + show_arg
                    + " --target " + _quote(target)]
     data["next"] = " ".join(command)
     if args.json:
@@ -205,6 +209,30 @@ def cmd_show(args, target: Path, catalog: dict, shadowed: list,
              *, ask=None) -> int:
     del ask, shadowed
     state = read_state(target)
+    requested_packs = set(args.pack)
+    if requested_packs:
+        if args.name or len(requested_packs) != 1:
+            raise Refuse("usage", "show --pack needs exactly one pack name and no NAME")
+        packs = catalog_packs(catalog)
+        name = next(iter(requested_packs))
+        if name not in packs:
+            pack_units(catalog, {name})
+        pack = packs[name]
+        data = {"ok": True, "target": str(target.resolve()),
+                "source": getattr(args, "_why", "unknown"),
+                "selection": {"scope": "pack", "id": name,
+                              "description": pack["description"],
+                              "component": pack["component"],
+                              "units": pack["units"], "path": pack["path"],
+                              "enabled": name in selected_packs(state)},
+                "next": f"rbtv install list --type pack --target {_quote(target)}"}
+        if args.json:
+            print(json.dumps(data, indent=2))
+        else:
+            print_show(data)
+        return 0
+    if not args.name:
+        raise Refuse("usage", "show needs NAME or --pack PACK")
     known_modules = {part["module"] for part in iter_catalog_parts(catalog)}
     named_module = ("_hub" if args.name == "hub" else args.name)
     if named_module in known_modules:
@@ -394,11 +422,15 @@ def _replan_all(target: Path, catalog: dict, harnesses: list[str],
 
 
 def _save_selected_units(target: Path, add: set[str] | None = None,
-                         remove: set[str] | None = None) -> None:
+                         remove: set[str] | None = None,
+                         add_packs: set[str] | None = None,
+                         remove_packs: set[str] | None = None) -> None:
     """Persist the root's independent unit selection after a real mutation."""
     state = read_state(target)
     state["units"] = sorted((selected_units(state) | set(add or ()))
                             - set(remove or ()))
+    state["packs"] = sorted((selected_packs(state) | set(add_packs or ()))
+                            - set(remove_packs or ()))
     write_state(target, state)
 
 
@@ -626,10 +658,11 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
     noun = list(getattr(args, "noun", None) or [])
     if noun and noun[0] in ("harness", "guidance", "artifact"):
         return _settings_form(args, target, catalog, "add", noun)
-    if not (_has_selectors(args) or noun):
+    requested_packs = set(args.pack)
+    if not (_has_selectors(args) or noun or requested_packs):
         raise SystemExit(2)
     args.names = noun
-    keys = resolve_selection(args, catalog, None)
+    keys = resolve_selection(args, catalog, None) if (_has_selectors(args) or noun) else set()
     picked, parts = _split_part_keys(keys)
     state = read_state(target)
     if book_harnesses(state) is None and (
@@ -639,18 +672,21 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
             "setup-required",
             "first add needs both --harness (which AI tools receive items) "
             "and --guidance (CLAUDE.md, AGENTS.md, or none). Example: "
-            "rbtv install add " + parts[0]
+            "rbtv install add " + (parts[0] if parts else "--pack <name>")
             + " --harness codex --guidance none --target " + _quote(target))
     harnesses = _gate_add_harness(target, state, getattr(args, "harness", None))
     basis = _gate_add_artifact(target, state, getattr(args, "artifact", None))
+    pack_parts = pack_units(catalog, requested_packs)
+    all_parts = sorted(set(parts) | pack_parts)
+    picked, _unused = _split_part_keys(all_parts)
     data = do_install(
         target, catalog, picked, harnesses,
         bool(getattr(args, "dry_run", False)),
         guidance_basis=basis,
-        parts=parts)
+        parts=all_parts)
     if not bool(getattr(args, "dry_run", False)):
-        _save_selected_units(target, add=set(parts))
-    data["selected_items"] = parts
+        _save_selected_units(target, add=set(parts), add_packs=requested_packs)
+    data["selected_items"] = all_parts
     _emit(data, bool(getattr(args, "json", False)),
           target, getattr(args, "_why", "unknown"), verb="add", details=getattr(args, "details", False))
     return 0
@@ -663,11 +699,13 @@ def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
     noun = list(getattr(args, "noun", None) or [])
     if noun and noun[0] in ("harness", "guidance", "artifact"):
         return _settings_form(args, target, catalog, "rm", noun)
-    if not (_has_selectors(args) or noun):
+    requested_packs = set(args.pack)
+    if not (_has_selectors(args) or noun or requested_packs):
         raise SystemExit(2)
     args.names = noun
-    book = read_state(target).get("components")
-    keys = resolve_selection(args, catalog, book)
+    state = read_state(target)
+    book = state.get("components")
+    keys = resolve_selection(args, catalog, book) if (_has_selectors(args) or noun) else set()
     dry = bool(getattr(args, "dry_run", False))
     path_release = bool(args.all and getattr(args, "_why", None) == "--target"
                         and not (target / STATE_REL).is_file())
@@ -676,14 +714,23 @@ def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
     shared_count = len(set(preview_links.get("released") or [])
                        | set(preview_links.get("unlinked") or [])
                        | set(preview_links.get("kept_shared") or []))
-    if not keys and not shared_count:
+    current_packs = selected_packs(state)
+    removed_parts = set(keys)
+    wanted_units = (selected_units(state) - removed_parts) | pack_units(
+        catalog, current_packs - requested_packs)
+    booked_units = {row["key"] for row in iter_booked_units(catalog, book or {})}
+    # A pack remains an active selection until `--pack` turns it off.  This
+    # applies even to broad unit selectors: removing a unit cannot silently
+    # contradict an enabled pack, and update must not immediately add it back.
+    keys = booked_units - wanted_units
+    if not keys and not shared_count and not requested_packs:
         _emit({"ok": True, "uninstalled": [], "dry_run": dry,
                "message": "no installed items matched this request"},
               bool(args.json), target, getattr(args, "_why", "unknown"),
               verb="remove", details=getattr(args, "details", False))
         return 0
     broad = bool(args.all or args.module or args.method or _has_negative(args))
-    if broad and not (dry or getattr(args, "yes", False)):
+    if broad and not requested_packs and not (dry or getattr(args, "yes", False)):
         flags = ["--all"] if args.all else []
         flags += [f"--module {_quote(m)}" for m in args.module]
         flags += [f"--component {_quote(c)}" for c in args.component]
@@ -709,6 +756,9 @@ def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
     if not keys:
         report = {"path": (preview_links if dry else
                            release_workspace_links(bin_dir(), target, dry=False))}
+        if not dry and (target / STATE_REL).is_file():
+            _save_selected_units(target, remove=removed_parts,
+                                 remove_packs=requested_packs)
         _emit({"ok": True, "uninstalled": [], "dry_run": dry,
                "report": report,
                "message": "released shared shortcut claims for this target"},
@@ -718,7 +768,8 @@ def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
     picked, parts = _split_part_keys(keys)
     data = do_uninstall(target, catalog, picked, dry, parts=parts)
     if not dry and (target / STATE_REL).is_file():
-        _save_selected_units(target, remove=set(parts))
+        _save_selected_units(target, remove=removed_parts,
+                             remove_packs=requested_packs)
     data["selected_items"] = parts
     _emit(data, bool(getattr(args, "json", False)),
           target, getattr(args, "_why", "unknown"), verb="remove", details=getattr(args, "details", False))
@@ -731,7 +782,7 @@ def cmd_update(args, target: Path, catalog: dict, shadowed: list,
     del ask, shadowed
     state = read_state(target)
     hs = _require_recorded(target, state)
-    chosen = sorted(selected_units(state))
+    chosen = sorted(selected_units(state) | pack_units(catalog, selected_packs(state)))
     booked = {row["key"] for row in iter_booked_units(
         catalog, state.get("components") or {})}
     missing = _missing_generated_units(target, state)
@@ -1060,10 +1111,11 @@ def main(argv: list[str] | None = None, *, ask=None) -> int:
         # died here as a usage error before the dispatch ever saw it.
         if (args.verb in ("add", "rm", "remove")
                 and not getattr(args, "noun", None)
-                and not _has_selectors(args)):
+                and not _has_selectors(args)
+                and not getattr(args, "pack", None)):
             parser.error(
                 f"{args.verb} needs a name, --all, --module, --component "
-                "or --type")
+                "--type, or --pack")
         return handler(args, target, catalog, shadowed, ask=ask)
     except Refuse as exc:
         if as_json:
