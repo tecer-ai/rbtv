@@ -1,6 +1,6 @@
 ---
 name: sub-agents
-description: "Use before launching sub-agents for delegation, a swarm of parallel investigators, or a panel of independent perspectives. Triggers include 'sub-agent', 'sub agents', 'subagent', 'delegate this', 'launch agents', 'parallel agents', 'workers', 'spawn agents', 'swarm', 'panel', 'second opinion', 'multiple perspectives', 'have different models look at this', 'devil's advocate', and 'independent review' — even when a native sub-agent tool is available. For a task settled by one read without launching another agent, this skill is not needed."
+description: "Use before launching sub-agents for delegation, a swarm of parallel investigators, or a panel of independent perspectives. Triggers include 'sub-agent', 'sub agents', 'subagent', 'delegate this', 'launch agents', 'parallel agents', 'workers', 'spawn agents', 'swarm', 'panel', 'second opinion', 'multiple perspectives', 'have different models look at this', 'devil's advocate', and 'independent review' — even when a native sub-agent tool is available. Also use before reading several files, reports, or logs yourself to answer one question, and before reading back what sub-agents produced. For a task settled by one read without launching another agent, this skill is not needed."
 ---
 # Sub-agents
 
@@ -33,6 +33,14 @@ Before launching agents for a broad task with parallel investigation, open the [
   3. One cross-cutting panel over those pages — 4 lenses, different models.
   4. One synthesis task over the panel.
   5. The manager reads that one page, and decides.
+
+- Receiving — delegating means you read LESS, never the same reading one step later:
+  - Every task names its output file and caps the answer at one page; the sub-agent's final message is that file's path plus its findings in a few lines. That page is what you read.
+  - NEVER pull a sub-agent's evidence into your own context: not its log or transcript, not the rows of its tables, not the files it read. When a report runs past one page, or you would open more than one report to compare or combine them, that reading is the next agent's task — a synthesis task pointed at those files.
+  - Tripwire — before you read a second file, report, or log for the same question, or run a command whose output you expect to pass one page: STOP and delegate that read. A manager who reads the base itself has delegated nothing.
+  - What you do read yourself, cap by rows as well as by width. A width cut on an uncapped number of rows is still a dump.
+  - A report arrives equally confident whether it is right or wrong. Each claim your decision rests on gets the cheapest direct check (run the command, try it in a throwaway folder) or a second agent, BEFORE you act on it or relay it.
+  - Ask for checkable reports in the task itself: numbers come from a tool or script, never an estimate; each factual claim names its source; anything the sub-agent did not verify is marked UNVERIFIED.
 
 - Staffing:
   - Give each sub-agent a [task](../../../core/build/capabilities/glossary/task.md) with its [scope](../capabilities/scope.md) and [done contract](../capabilities/done-contract.md). For several tasks with dependencies, write a `workflow.md` file following the [workflow guide](../capabilities/workflow.md) and [workflow template](../capabilities/templates/workflow.md). If the tasks run as rbtv agents, write the workflow with the `plan` skill instead (its format carries the Install line for each agent).
