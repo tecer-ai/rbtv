@@ -56,7 +56,7 @@ def scan(ctx) -> None:
     check("a component's units are read from its folders, one method each",
           {uid: r["method"] for uid, r in good.items()}
           == {"fixskill": "skill", "fixcmd": "command", "fixrule": "rule",
-              "fixagent": "sub-agent", "research": "agent", "fixhook": "hook", "fixmcp": "mcp-server",
+              "fixagent": "agent", "research": "agent", "fixhook": "hook", "fixmcp": "mcp-server",
               "fixguide": "folder-instructions", "fixtool": "tool"},
           str({u: r["method"] for u, r in good.items()}))
     check("a unit's entry is relative to its component; a tool's is its program",

@@ -20,7 +20,8 @@ from .fixture import _fixture
 from . import (test_agents, test_cli, test_discovery, test_doctor_ownership, test_guidance, test_guidance_walk,
                test_hub, test_install, test_interactive, test_layout,
                test_ownership, test_parts, test_pathlinks, test_settings,
-               test_surface, test_units, test_ux_contract, test_packs)
+               test_surface, test_units, test_ux_contract, test_packs,
+               test_subagents)
 
 ORDER = [
     test_layout.repo_root_is_the_repo,
@@ -73,6 +74,7 @@ ORDER = [
     test_parts.v1_to_v2_upgrade,
     test_parts.legacy_records_gain_selection_fields_on_write,
     test_packs.packs,
+    test_subagents.sub_agents,
     test_cli.parser_selectors_index,
     test_cli.result_classes,
     test_cli.cli_defects,

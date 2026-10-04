@@ -53,7 +53,8 @@ Show the selected installation or agent and its saved settings. The target is --
   RBTV_AGENT_HOME, then discovery from the current folder. The result names the target and why it
   was selected. An agent result shows harness, model, effort, voice, packs and installed units.
   It does not show a Slack connection. A root result shows none of name, description, harness,
-  model or effort.
+  model or effort. Both results name each agent installed as a harness-native sub-agent, with the
+  model and the effort of every harness it is written for.
 
 options:
   -h, --help            show this help message and exit
@@ -75,7 +76,8 @@ Browse the local source catalog. No NAME shows modules; a module shows its compo
   shows its units and any pack it declares; an exact unit name shows only that unit. A pack is
   named only with --pack. NAME never searches descriptions. Use search for broad discovery.
   Installed means recorded for this installation; use doctor to check the files. --installed shows
-  installed units, and packs that are on.
+  installed units, and packs that are on. Under the table, an installed agent is named with the
+  harnesses it is written for as a harness-native sub-agent, and the model and effort of each.
 
 A unit id is module/component#name. A pack is a name. The listing names the component that declares
   it. Turn a pack on or off with add --pack and remove --pack. --type pack lists packs; it does not
@@ -85,8 +87,7 @@ Types (--type; comma-separated or repeatable):
   skill                Ability an agent can invoke for a task.
   rule                 Standing instruction applied to an agent.
   command              Explicit command an operator or agent can invoke.
-  agent                An rbtv agent a component ships as a folder.
-  sub-agent            A harness-native file, called only through that harness.
+  agent                Agent a component ships; an rbtv agent or a harness-native sub-agent.
   hook                 Action triggered by a tool event.
   mcp-server           Server an agent tool connects to for extra tools.
   tool                 Runnable program exposed through a command shortcut.
@@ -138,8 +139,7 @@ Types (--type; comma-separated or repeatable):
   skill                Ability an agent can invoke for a task.
   rule                 Standing instruction applied to an agent.
   command              Explicit command an operator or agent can invoke.
-  agent                An rbtv agent a component ships as a folder.
-  sub-agent            A harness-native file, called only through that harness.
+  agent                Agent a component ships; an rbtv agent or a harness-native sub-agent.
   hook                 Action triggered by a tool event.
   mcp-server           Server an agent tool connects to for extra tools.
   tool                 Runnable program exposed through a command shortcut.
@@ -175,14 +175,15 @@ usage: rbtv show [-h] [--type TYPE] [--pack PACK]
 Show the catalog description, included units or component summaries, and the saved selection for one
   unit, pack, component, or module. It does not print source-file contents. A short name must be
   unique. A bare name never resolves to a pack. show --pack NAME shows that pack and prints the
-  declaration file, <component>/packs/<pack>.json in the rbtv source.
+  declaration file, <component>/packs/<pack>.json in the rbtv source. For an agent a component
+  ships, it shows the harnesses it is written for as a harness-native sub-agent, whether it is
+  placed as an rbtv agent, and the command that adds it in each form.
 
 Types (--type; comma-separated or repeatable):
   skill                Ability an agent can invoke for a task.
   rule                 Standing instruction applied to an agent.
   command              Explicit command an operator or agent can invoke.
-  agent                An rbtv agent a component ships as a folder.
-  sub-agent            A harness-native file, called only through that harness.
+  agent                Agent a component ships; an rbtv agent or a harness-native sub-agent.
   hook                 Action triggered by a tool event.
   mcp-server           Server an agent tool connects to for extra tools.
   tool                 Runnable program exposed through a command shortcut.
@@ -236,7 +237,10 @@ rbtv — interactive help
 usage: rbtv interactive [-h] [--target TARGET]
 
 Start the guided menu. This is the only command that asks questions. For scripts or agents, use
-  list, show, add and remove. --json is refused: a script cannot answer the menu.
+  list, show, add and remove. --json is refused: a script cannot answer the menu. The menu installs
+  whole components and never guesses a model or an effort: an agent a component ships gets no
+  harness-native sub-agent file, and the result names the command that adds it,
+  rbtv add NAME --on HARNESS:MODEL:EFFORT.
 
 options:
   -h, --help            show this help message and exit
@@ -275,6 +279,12 @@ option you omit stays as it is.
 opencode.
 --guidance names the instruction file you maintain. none turns copies off.
 
+An agent installed as a harness-native sub-agent has a model and an effort
+for each harness. A harness you add gets no sub-agent file: rbtv cannot
+choose its model and effort. The result names each such agent and the
+command that adds it, rbtv add NAME --on HARNESS:MODEL:EFFORT. A harness
+you drop loses its sub-agent files and their model and effort.
+
 Examples:
   rbtv configure --harness claude,codex --guidance none
   rbtv configure --harness claude,opencode
@@ -309,7 +319,8 @@ rbtv — add help
 usage: rbtv add [-h] [--all] [--module MODULE] [--component COMPONENT]
                 [--type TYPE] [--exclude-type TYPE]
                 [--exclude-module MODULE] [--exclude-component COMPONENT]
-                [--pack PACK] [--harness HARNESS]
+                [--pack PACK] [--on HARNESS:MODEL:EFFORT]
+                [--harness HARNESS]
                 [--guidance {AGENTS.md,CLAUDE.md,none}] [--target TARGET]
                 [--json] [--dry-run] [--details]
                 [NAME ...]
@@ -320,16 +331,26 @@ to a pack: rbtv add ignite is the tool core/ignite#ignite. Name a pack
 with --pack. A short name must match one unit. --pack adds that pack's
 units and combines with named units. Filters narrow together, including a
 pack; values inside one filter are alternatives. An empty result is
-refused and nothing is written. Nothing fetches a newer source. A unit of
-type agent is refused here. rbtv add research names rbtv agent add research.
+refused and nothing is written. Nothing fetches a newer source.
+
+An agent a component ships, named here, is written as a harness-native
+sub-agent: the harness's own sub-agent file, for the harnesses given with
+--on HARNESS:MODEL:EFFORT. --on repeats, once per harness, and is required
+when an agent is among the names. Each harness must be one this target
+receives. Model and effort are checked with cast list, so cast must be on
+PATH. Running it again for a harness replaces that harness's model and
+effort. The agent's own units and packs are not applied: a harness-native
+sub-agent sees what its target has. A component given as a NAME names
+its agents too. A selection by --all, --module, --component or --type
+skips agents and says so. To place the agent as an rbtv agent in its own
+folder instead, use rbtv agent add.
 
 Types (--type; comma-separated or repeatable):
   skill                 Ability an agent can invoke for a task.
   rule                  Standing instruction applied to an agent.
   command               Explicit command an operator or agent can invoke.
-  agent                 An rbtv agent a component ships as a folder. Refused
-                        at the root; use rbtv agent add.
-  sub-agent             A harness-native sub-agent file; only that harness calls it.
+  agent                 An agent a component ships. Named here with --on, it
+                        is written as a harness-native sub-agent.
   hook                  Action triggered by a tool event.
   mcp-server            Server an agent tool connects to for extra tools.
   tool                  Runnable program exposed through a command shortcut.
@@ -361,6 +382,11 @@ options:
   --exclude-component, -nc COMPONENT
                         leave these components out
   --pack PACK           turn this pack on; its units are added like names
+  --on HARNESS:MODEL:EFFORT
+                        for an agent among the names: write it as a
+                        harness-native sub-agent for this harness, with
+                        this model and effort; repeatable, one harness
+                        each; see cast list
   --harness HARNESS     AI tools receiving files; required on first add:
                         claude,codex,opencode (comma-separated)
   --guidance {AGENTS.md,CLAUDE.md,none}
@@ -378,6 +404,7 @@ Examples:
   rbtv add brainstorm
   rbtv add --pack research-kit
   rbtv add meta/functions#brainstorm --dry-run --details
+  rbtv add fact-checker --on claude:sonnet-5:high --on codex:gpt-6-sol:medium
 
 Different filters narrow together. --module web --type skill chooses only
 skills in web. --pack research-kit --type rule matches nothing in that
@@ -411,8 +438,8 @@ Types (--type; comma-separated or repeatable):
   skill                 Ability an agent can invoke for a task.
   rule                  Standing instruction applied to an agent.
   command               Explicit command an operator or agent can invoke.
-  agent                 An rbtv agent a component ships as a folder.
-  sub-agent             A harness-native sub-agent file; only that harness calls it.
+  agent                 An agent a component ships, installed here as a
+                        harness-native sub-agent.
   hook                  Action triggered by a tool event.
   mcp-server            Server an agent tool connects to for extra tools.
   tool                  Runnable program exposed through a command shortcut.
@@ -583,9 +610,9 @@ walking up from the current folder, or a path to a folder that holds
 agent.md and agent.json.
 
 To write a new agent, create a folder with agent.md (its prompt) and
-agent.json (its description, harness, model, effort, units and packs), then
-run rbtv agent add AGENT to apply it. Guide: core/build/capabilities/guides/
-agent.md in the rbtv source.
+agent.json (its description, units and packs), then run rbtv agent add
+AGENT --harness HARNESS --model MODEL --effort EFFORT to apply it. Guide:
+core/build/capabilities/guides/agent.md in the rbtv source.
 
   add AGENT [NAME...]   Apply agent.json, then add named units or a pack.
   remove AGENT NAME...  Remove units or a pack. The agent folder stays.
@@ -608,8 +635,10 @@ Exit codes: 0 success; 1 refused or failed; 2 invalid arguments.
     "agent add": """\
 rbtv — agent add help
 
-usage: rbtv agent add [-h] [--pack PACK] [--json] [--dry-run]
-                      [--details]
+usage: rbtv agent add [-h] [--pack PACK]
+                      [--harness {claude,codex,opencode}] [--model MODEL]
+                      [--effort EFFORT] [--on HARNESS:MODEL:EFFORT]
+                      [--json] [--dry-run] [--details]
                       AGENT [NAME ...]
 
 Apply what AGENT's agent.json declares, the first time or again, then add
@@ -624,11 +653,17 @@ component ships. A shipped agent with no folder there is placed in
 copied. The folder name, the name in agent.md, and the name in agent.json
 must agree.
 
-Harness, model and effort are not changed here. Use rbtv agent configure.
-The declared model and effort are checked with cast list, so cast must be
-on PATH. A short unit name must be unique; otherwise pass the full id,
+--harness, --model and --effort are required, all three, when agent.json
+has none: always the case for an agent a component ships. They are checked
+with cast list, so cast must be on PATH, and written into the agent's
+agent.json. When agent.json already has them, giving one is refused:
+change them with rbtv agent configure.
+
+A short unit name must be unique; otherwise pass the full id,
 <module>/<component>#<unit>. A pack is named only with --pack, for example
---pack research-kit. A bare name is always a unit, never a pack.
+--pack research-kit. A bare name is always a unit, never a pack. A NAME
+that is an agent a component ships is written for AGENT as a
+harness-native sub-agent and needs --on with AGENT's own harness.
 This verb takes no --target. See rbtv list and rbtv show.
 
 positional arguments:
@@ -639,6 +674,16 @@ options:
   -h, --help            show this help message and exit
   --pack PACK           turn this pack on and record it in agent.json.
                         A pack is never a bare NAME
+  --harness {claude,codex,opencode}
+                        the harness that runs AGENT; with --model and
+                        --effort, only for an agent whose agent.json has
+                        none
+  --model MODEL         a model cast list shows for that harness
+  --effort EFFORT       1 to 5, or the model's own effort word
+  --on HARNESS:MODEL:EFFORT
+                        for an agent among the NAME units: the model and
+                        effort of its harness-native sub-agent; HARNESS
+                        is AGENT's own harness
   --json                one JSON value on standard output, success or
                         failure
   --dry-run             preview changes without writing or removing files
@@ -646,7 +691,7 @@ options:
 
 Examples:
   rbtv agent add plans/launch/agents/drafter
-  rbtv agent add research
+  rbtv agent add research --harness opencode --model glm-5.3 --effort high
   rbtv agent add plans/launch/agents/drafter investignosis
   rbtv agent add plans/launch/agents/drafter --pack research-kit --dry-run
 
@@ -708,6 +753,8 @@ with cast list, so cast must be on PATH. --voice is the voice the agent
 speaks with; cast list does not check it.
 
 Changing --harness regenerates generated files for the new harness.
+A harness-native sub-agent written for the old harness is deleted with its
+model and effort; the result names the command that adds it for the new one.
 Changing model, effort or voice updates agent.json only.
 This verb takes no --target. It never changes units or packs.
 

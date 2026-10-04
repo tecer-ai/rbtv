@@ -5,7 +5,7 @@ One scan, one merge (mirror wins), one unit reader.
 
 A module is a folder holding `<module>/<module>.json`; a component is a folder
 inside it holding `<component>/<component>.json`. The folder a file sits in
-decides how it is exposed: `skills/`, `rules/`, `commands/`, `agents/<name>/`, `sub-agents/`,
+decides how it is exposed: `skills/`, `rules/`, `commands/`, `agents/<name>/`,
 `hooks/`, `mcp-servers/`, `capabilities/tools/<tool>/`, `folder-instructions/`.
 Whole-folder skills live only in the mirror, under `_skills/<name>/`.
 
@@ -27,10 +27,14 @@ SKILLS_DIR = "_skills"
 SKILL_FILE = "SKILL.md"
 
 # Folder -> method, for the units that are one `<name>.md` or `<name>.json` file.
-MD_FOLDERS = {"skills": "skill", "rules": "rule",
-              "commands": "command", "sub-agents": "sub-agent"}
+MD_FOLDERS = {"skills": "skill", "rules": "rule", "commands": "command"}
 JSON_FOLDERS = {"hooks": "hook", "mcp-servers": "mcp-server"}
 FOLDER_INSTRUCTIONS = "folder-instructions"
+# The former second source format of an agent, one file per agent. A component
+# that still holds one is refused and told the one format, `agents/<name>/`.
+RETIRED_AGENT_FOLDER = "sub-agents"
+# Values an agent has only in an installation, never in a component's source.
+LAUNCH_FIELDS = ("harness", "model", "effort")
 TOOLS_DIR = Path("capabilities") / "tools"
 COMPONENT_FOLDERS = (*MD_FOLDERS, *JSON_FOLDERS, "capabilities",
                      FOLDER_INSTRUCTIONS)
@@ -186,13 +190,15 @@ def pack_rows(catalog: dict[str, dict]) -> list[dict]:
     a declaration without a second cache to invalidate.
     """
     provided: set[str] = set()
+    unreadable: dict[str, Refuse] = {}
     for cid, comp in catalog.items():
         try:
             provided.update(f"{cid}#{row['id']}" for row in unit_rows(comp))
-        except Refuse:
+        except Refuse as exc:
             # An unrelated invalid component already remains discoverable and
-            # blocks only its own install; packs keep that same boundary.
-            continue
+            # blocks only its own install; packs keep that same boundary. Its
+            # refusal is kept: a pack that names its units fails for that reason.
+            unreadable[cid] = exc
     rows: list[dict] = []
     names: dict[str, Path] = {}
     for cid, comp in sorted(catalog.items()):
@@ -206,6 +212,9 @@ def pack_rows(catalog: dict[str, dict]) -> list[dict]:
                              str(path))
             names[path.stem] = path
             missing = sorted(set(data["units"]) - provided)
+            for unit in missing:
+                if unit.split("#", 1)[0] in unreadable:
+                    raise unreadable[unit.split("#", 1)[0]]
             if missing:
                 raise Refuse("pack-unit-unknown",
                              f"pack {path.stem!r} names unavailable unit(s): {', '.join(missing)}",
@@ -251,7 +260,13 @@ def unit_rows(comp: dict) -> list[dict]:
     for folder, method in MD_FOLDERS.items():
         for path in sorted((comp_dir / folder).glob("*.md")):
             if path.stem != folder:
-                rows.append(_unit(comp, method, path, "sub-agent" if method == "sub-agent" else method))
+                rows.append(_unit(comp, method, path, method))
+    for path in sorted((comp_dir / RETIRED_AGENT_FOLDER).glob("*.md")):
+        raise Refuse("agent-source-retired",
+                     f"{path}: an agent is no longer shipped as one file in "
+                     f"{RETIRED_AGENT_FOLDER}/. Ship it as the folder "
+                     f"agents/{path.stem}/ with agent.md and agent.json",
+                     str(path))
     for home in sorted((comp_dir / "agents").glob("*/")):
         prompt, record = home / "agent.md", home / "agent.json"
         if not (prompt.is_file() and record.is_file()):
@@ -260,6 +275,12 @@ def unit_rows(comp: dict) -> list[dict]:
         _checked(front or {}, "agent", prompt, "unit-invalid")
         data = _read_json(record, "unit-invalid")
         _checked(data, "agent-json", record, "unit-invalid")
+        launch = [name for name in LAUNCH_FIELDS if name in data]
+        if launch:
+            raise Refuse("agent-source-launch",
+                         f"{record}: an agent a component ships names no harness, "
+                         "model or effort; they exist only in an installation. "
+                         "Remove: " + ", ".join(launch), str(record))
         if home.name != front["name"] or home.name != data["name"]:
             raise Refuse("unit-invalid", f"{home}: folder, agent.md and agent.json names must agree", str(home))
         rows.append({"id": home.name, "method": "agent",

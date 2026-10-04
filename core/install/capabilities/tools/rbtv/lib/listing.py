@@ -7,7 +7,7 @@ from pathlib import Path
 
 from discovery import Refuse, unit_rows
 
-from . import present
+from . import present, subagents
 from .constants import BASIS_NONE, MANAGED_MARK, STATE_REL
 from .catalog import (
     _unit_specs,
@@ -181,6 +181,7 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
     """Browse exact hierarchy, or search the same unit pool broadly."""
     view = build_ls(catalog, [], state)
     book = state.get("components") or {}
+    sub_agents = subagents.recorded(state)
     want_m = module_names(modules or [], catalog, book)
     want_c = component_keys(components or [], catalog, book) if components else set()
     want_x = set(methods or [])
@@ -198,7 +199,9 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
                          "module_description": mod_desc,
                          "_search": part["description"],
                          "installed": part["in"], "source_available": True,
-                         "tree": comp["tree"]})
+                         "tree": comp["tree"],
+                         **({"sub_agent": sub_agents.get(part["id"], {})}
+                            if part["method"] == "agent" else {})})
     seen = {row["id"] for row in rows}
     for part in iter_booked_units(catalog, book):
         if part["key"] in seen:
@@ -383,6 +386,9 @@ def print_list(data: dict) -> None:
             text = ("State is the saved selection for this target; "
                     "run doctor to check files.")
         print("\n".join(present.wrap(text)))
+        for line in subagents.installed_lines(
+                {row["id"]: row["sub_agent"] for row in units if row.get("sub_agent")}):
+            print("\n".join(present.wrap(line, hang="  ")))
     print()
     label = "More" if data.get("has_more") else "Next"
     print(f"{label}: {data['next']}")
@@ -420,6 +426,8 @@ def json_view(data: dict, *, searching: bool) -> dict:
                      "module": row["module"], "type": row["type"],
                      "installed": row["installed"], "description": row["description"],
                      "tree": row["tree"], "source_available": row["source_available"]}
+        if "sub_agent" in row:
+            shape["sub_agent"] = row["sub_agent"]
         shaped.append(shape)
     return {**data, "units": shaped}
 
@@ -450,9 +458,14 @@ def build_show(selection: dict, catalog: dict, state: dict) -> dict:
         if parts[0]["type"] == "agent":
             row = _unit_row(catalog[parts[0]["component"]], parts[0]["unit_id"])
             home = Path(state.get("_target", "")) / ".rbtv" / "agents" / parts[0]["unit_id"]
-            out["agent"] = {"launch": {key: row["data"][key] for key in ("harness", "model", "effort")},
-                            "packs": row["data"]["packs"], "units": row["data"]["units"],
-                            "placed": home.is_dir(), "home": str(home)}
+            name = parts[0]["unit_id"]
+            out["agent"] = {"packs": row["data"].get("packs", []),
+                            "units": row["data"].get("units", []),
+                            "placed": home.is_dir(), "home": str(home),
+                            "sub_agent": subagents.recorded(state).get(selection["id"], {}),
+                            "add": {"rbtv_agent": f"rbtv agent add {name} --harness HARNESS "
+                                                  "--model MODEL --effort EFFORT",
+                                    "sub_agent": f"rbtv add {name} --on {subagents.ON_FORM}"}}
     elif selection["kind"] == "component":
         source_comp = catalog.get(selection["id"]) or {}
         source_path = Path(source_comp["path"]) if source_comp.get("path") else None
@@ -538,9 +551,6 @@ def print_show(data: dict) -> None:
         agent = sel["agent"]
         print()
         print("Declared in its agent.json")
-        print("  Harness: " + agent["launch"]["harness"] + " (" + present.HARNESS_MEANING[agent["launch"]["harness"]] + ")")
-        print("  Model: " + agent["launch"]["model"])
-        print("  Effort: " + str(agent["launch"]["effort"]))
         print("  Packs: " + (", ".join(agent["packs"]) or "none"))
         print("  Other units: " + (", ".join(agent["units"]) or "none"))
     print()
@@ -552,9 +562,19 @@ def print_show(data: dict) -> None:
             f"{h} ({present.HARNESS_MEANING.get(h, h)})" for h in sel["harnesses"]))
     if part["type"] == "agent":
         agent = sel["agent"]
-        print("  Placed: " + ("yes" if agent["placed"] else "no folder at " + agent["home"] + "/"))
+        written = "; ".join(f"{h} ({subagents.text(v)})"
+                            for h, v in agent["sub_agent"].items())
+        print("  Harness-native sub-agent: " + (written or "not written for any harness"))
+        print("  rbtv agent: " + ("placed at " if agent["placed"] else "no folder at ")
+              + agent["home"] + "/")
     if not part["source_available"]:
         print("  Source: no longer present in the local catalog")
+    if part["type"] == "agent":
+        print()
+        print("Add it in either form, or both")
+        print("  As a harness-native sub-agent: " + sel["agent"]["add"]["sub_agent"])
+        print("  As an rbtv agent: " + sel["agent"]["add"]["rbtv_agent"])
+        print("  Harnesses, models and efforts: cast list")
     print()
     print("Next: " + data["next"])
 

@@ -276,12 +276,30 @@ def _select_units(comp: dict, existing_parts, requested: list[str] | None
     return out, gone
 
 
+def _record_sub_agents(records: dict, given: dict[str, dict]) -> None:
+    """Keep, per agent unit, the model and effort of each harness its
+    component is installed for: the recorded values, replaced by the ones this
+    run gives (`given`, by unit id then harness). A harness the component no
+    longer receives loses its values, so adding it back later generates
+    nothing until a model and an effort are given again."""
+    for cid, rec in records.items():
+        for pid, unit in (rec.get("units") or {}).items():
+            values = {**(unit.get("sub_agent") or {}),
+                      **(given.get(f"{cid}#{pid}") or {})}
+            values = {h: values[h] for h in rec.get("harnesses") or [] if h in values}
+            if values:
+                unit["sub_agent"] = values
+            else:
+                unit.pop("sub_agent", None)
+
+
 def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
                harnesses: list[str], dry_run: bool,
                guidance_basis: str | None = None,
                guidance_excludes: list[str] | None = None,
                parts: list[str] | None = None,
-               scope: str = "all", selected: list[str] | None = None) -> dict:
+               scope: str = "all", selected: list[str] | None = None,
+               sub_agents: dict[str, dict] | None = None) -> dict:
     state = upgrade_book(read_state(target), catalog_units_map(catalog))
     records = dict(state.get("components") or {})
     if scope == "guidance":
@@ -333,6 +351,7 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
         if "files" in existing:
             rec["files"] = list(existing["files"])
         records[cid] = rec
+    _record_sub_agents(records, sub_agents or {})
     files, owners, claims, report = plan_files(records, catalog, target)
     report["source_gone"] = source_gone
     saved_guidance = list(state.get("guidance_files") or [])
@@ -563,14 +582,17 @@ def do_install(target: Path, catalog: dict[str, dict], picked: list[str],
                guidance_basis: str | None = None,
                guidance_excludes: list[str] | None = None,
                parts: list[str] | None = None,
-               scope: str = "all", selected: list[str] | None = None) -> dict:
+               scope: str = "all", selected: list[str] | None = None,
+               sub_agents: dict[str, dict] | None = None) -> dict:
     """Serialize target state before building a plan from it."""
     if dry_run:
         return _do_install(target, catalog, picked, harnesses, dry_run,
-                           guidance_basis, guidance_excludes, parts, scope, selected)
+                           guidance_basis, guidance_excludes, parts, scope, selected,
+                           sub_agents)
     with installation_mutation_lock(target):
         return _do_install(target, catalog, picked, harnesses, dry_run,
-                           guidance_basis, guidance_excludes, parts, scope, selected)
+                           guidance_basis, guidance_excludes, parts, scope, selected,
+                           sub_agents)
 
 
 def do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],

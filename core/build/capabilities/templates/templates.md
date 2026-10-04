@@ -1,7 +1,7 @@
 # templates
 
 - [agent.md](agent.md) — Before writing an rbtv agent's `agent.md`.
-- [agent-json.schema.json](agent-json.schema.json) — Before writing or checking an rbtv agent's `agent.json`.
+- [agent-json.schema.json](agent-json.schema.json) — Before writing or checking an agent's `agent.json`, in a component or in an installation.
 - [agent-topic.md](agent-topic.md) — Before writing an agent topic file.
 - [agent.schema.json](agent.schema.json) — Before writing or checking an agent file's frontmatter.
 - [board.md](board.md) — Before writing a board.
@@ -31,7 +31,6 @@
 - [settings-json.md](settings-json.md) — Before writing an rbtv agent's `settings.json`.
 - [skill.md](skill.md) — Before writing a skill file.
 - [skill.schema.json](skill.schema.json) — Before writing or checking a skill file's frontmatter.
-- [sub-agent.schema.json](sub-agent.schema.json) — Before writing or checking a harness-native sub-agent's frontmatter.
 - [thin-loader.md](thin-loader.md) — Before reading or changing what rbtv writes as a thin loader.
 - [timeline-daily.md](timeline-daily.md) — Before writing a daily timeline file.
 - [timeline-weekly.md](timeline-weekly.md) — Before writing a weekly timeline file.

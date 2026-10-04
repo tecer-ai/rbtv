@@ -264,23 +264,14 @@ def parser_selectors_index(ctx) -> None:
     check("SEL-ambiguous-direct-name",
           ambiguous == "name-ambiguous", ambiguous)
 
-    # An agent a component ships is placed by `rbtv agent add`, never at the root.
+    # A selection by component skips an agent the component ships (naming it
+    # needs --on; test_subagents.py covers that).
     agent_cat = dict(SEL_CAT)
     agent_cat["web/research"] = {
         "module": "web", "component": "research", "manifest": True,
         "kind": "component", "rows": [{"id": "research", "method": "agent"}]}
     agent_root = tmp / "ws-agent-root"
     agent_root.mkdir()
-    refusal = None
-    try:
-        cmd_add(_sel(verb="add", noun=["research"], pack=[], dry_run=True,
-                     json=False), agent_root, agent_cat, [])
-    except Refuse as exc:
-        refusal = exc
-    check("ADD-agent-at-root — an agent a component ships is refused at the root",
-          refusal is not None and refusal.code == "agent-at-root"
-          and refusal.next == "rbtv agent add research",
-          str(refusal and (refusal.code, refusal.message)))
 
     # Pack discovery reads each component's folder; these have none to read.
     agent_cat = {cid: {"path": str(tmp / "no-such-folder"), **comp}

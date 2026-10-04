@@ -25,6 +25,8 @@ from lib.state import read_state, rec_files
 from lib.operations import do_install, do_uninstall
 from lib.report import print_result
 
+from .fixture import FIXAGENT_ON
+
 
 def green_arm_all_harnesses(ctx) -> None:
     check, skip, tmp, tree, target, shadowed = (
@@ -34,7 +36,7 @@ def green_arm_all_harnesses(ctx) -> None:
 
     print("\ngreen arm — install all three harnesses")
     res = do_install(target, catalog, ["fixmod/goodcomp"], list(HARNESSES),
-                     dry_run=False)
+                     dry_run=False, sub_agents=FIXAGENT_ON)
     expect = {
         ".claude/skills/fixskill/SKILL.md",
         ".agents/skills/fixskill/SKILL.md",
@@ -94,8 +96,22 @@ def green_arm_all_harnesses(ctx) -> None:
           toml.startswith("# rbtv-managed")
           and 'name = "fixagent"' in toml
           and 'description = "The fixture agent"' in toml
-          and "fixagent.md" in toml
+          and "agents/fixagent/agent.md" in toml
           and "developer_instructions = " in toml, toml)
+    claude_agent = (target / ".claude/agents/fixagent.md").read_text(encoding="utf-8")
+    opencode_agent = (target / ".opencode/agents/fixagent.md").read_text(encoding="utf-8")
+    check("SA-notation — each harness's sub-agent file names the model and the "
+          "effort in that harness's own setting",
+          'model = "id/codex-m"\n' in toml and 'model_reasoning_effort = "high"\n' in toml
+          and 'model: "id/claude-m"\n' in claude_agent and 'effort: "high"\n' in claude_agent
+          and 'model: "id/opencode-m"\n' in opencode_agent
+          and 'variant: "high"\n' in opencode_agent
+          and claude_agent.startswith("---\nname: fixagent\n"),
+          toml + claude_agent + opencode_agent)
+    check("SA-unset — an agent chosen with no model and effort writes no file and is reported",
+          res["report"]["sub_agents_unset"] == ["fixmod/goodcomp#research"]
+          and not (target / ".claude/agents/research.md").exists(),
+          str(res["report"]["sub_agents_unset"]))
     check("skill loader carries a YAML-safe description",
           '"A fixture skill: with a colon"'
           in (target / ".claude/skills/fixskill/SKILL.md").read_text(encoding="utf-8"))

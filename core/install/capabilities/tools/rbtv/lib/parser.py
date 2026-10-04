@@ -12,6 +12,7 @@ from discovery import Refuse
 from . import present
 from .constants import BASIS_NONE, CATALOG_TYPES, GUIDANCE_NAMES, HARNESSES, VERSION
 from .help_pages import PAGES
+from .subagents import ON_FORM
 
 
 class InstallerParser(argparse.ArgumentParser):
@@ -152,6 +153,7 @@ def build_parser() -> argparse.ArgumentParser:
     s_add = sub.add_parser("add")
     selectors(s_add)
     s_add.add_argument("--pack", action=ListAction, default=[], metavar="PACK")
+    s_add.add_argument("--on", action="append", default=[], metavar=ON_FORM)
     s_add.add_argument("--harness", default=argparse.SUPPRESS)
     s_add.add_argument("--guidance", dest="artifact", default=argparse.SUPPRESS,
                        choices=(*GUIDANCE_NAMES, BASIS_NONE))
@@ -215,6 +217,10 @@ def build_parser() -> argparse.ArgumentParser:
     s_ag_add.add_argument("agent", metavar="AGENT")
     s_ag_add.add_argument("name", nargs="*", metavar="NAME")
     s_ag_add.add_argument("--pack", action=ListAction, default=[], metavar="PACK")
+    s_ag_add.add_argument("--harness", choices=HARNESSES)
+    s_ag_add.add_argument("--model")
+    s_ag_add.add_argument("--effort")
+    s_ag_add.add_argument("--on", action="append", default=[], metavar=ON_FORM)
     page(s_ag_add, "agent add")
     s_ag_remove = agent_sub.add_parser("remove")
     s_ag_remove.add_argument("agent", metavar="AGENT")

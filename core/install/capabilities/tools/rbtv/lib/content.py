@@ -10,10 +10,12 @@ from pathlib import Path
 from discovery import Refuse, SKILL_FILE
 
 from .constants import (
+    EFFORT_INERT,
     GENERATED_MARKERS,
     LEGACY_MARKS,
     LEGACY_PREFIX,
     MANAGED_BANNER,
+    SUB_AGENT_SETTINGS,
     TOML_BANNER,
     MANAGED_MARK,
 )
@@ -25,11 +27,54 @@ def _yq(text: str) -> str:
     return json.dumps(str(text), ensure_ascii=False)
 
 
-def _loader(part: str, desc: str, entry: str, what: str, named: bool) -> str:
+def _loader(part: str, desc: str, entry: str, what: str, named: bool,
+            settings: dict[str, str] | None = None) -> str:
     name_line = f"name: {part}\n" if named else ""
-    return (f"---\n{name_line}description: {_yq(desc)}\n---\n\n"
+    extra = "".join(f"{key}: {_yq(value)}\n"
+                    for key, value in (settings or {}).items())
+    return (f"---\n{name_line}description: {_yq(desc)}\n{extra}---\n\n"
             f"Read `{entry}` NOW and follow it as this {what}'s full "
             "instructions.\n")
+
+
+def sub_agent_settings(harness: str, values: dict) -> tuple[dict[str, str], list[dict]]:
+    """One harness's model and effort as its own sub-agent file names them,
+    and the values that file cannot carry: [{setting, value, reason}]. The
+    model is the harness's own id for it; a model with no effort dial has no
+    effort to write."""
+    applied: dict[str, str] = {}
+    unapplied: list[dict] = []
+    for setting, value in (("model", values["model_id"]), ("effort", values["effort"])):
+        key = SUB_AGENT_SETTINGS[harness][setting]
+        if setting == "effort" and value == EFFORT_INERT:
+            unapplied.append({"setting": setting, "value": value,
+                              "reason": f"{values['model']} has no effort setting"})
+        elif key is None:
+            unapplied.append({"setting": setting, "value": values[setting],
+                              "reason": f"a {harness} sub-agent file has no "
+                                        f"setting for {setting}"})
+        else:
+            applied[key] = value
+    return applied, unapplied
+
+
+def sub_agent_content(rel: str, harness: str, part: str, desc: str, entry: str,
+                      values: dict) -> str:
+    """An agent written as one harness's own sub-agent file: its name, its
+    description, the instruction to read its prompt, and that harness's model
+    and effort."""
+    settings, _unapplied = sub_agent_settings(harness, values)
+    if rel.endswith(".toml"):
+        # Codex's own sub-agent definition.
+        return TOML_BANNER + (
+            f"name = {json.dumps(part)}\n"
+            f"description = {json.dumps(desc, ensure_ascii=False)}\n"
+            + "".join(f"{key} = {json.dumps(value)}\n"
+                      for key, value in settings.items())
+            + "developer_instructions = "
+            + json.dumps(f"Read `{entry}` NOW and follow it as this "
+                         "agent's full instructions.") + "\n")
+    return _mark(_loader(part, desc, entry, "agent", named=True, settings=settings))
 
 
 _FRONTMATTER = re.compile(r"---\r?\n(?:.*?\r?\n)?---\r?\n", re.S)
@@ -76,8 +121,7 @@ def _is_ours(target: Path, rel: str) -> bool:
 
 def _content_for(rel: str, method: str, part: str, desc: str, entry: str,
                  comp_dir: Path, entry_rel: str) -> str:
-    body = _body_for(rel, method, part, desc, entry, comp_dir, entry_rel)
-    return TOML_BANNER + body if rel.endswith(".toml") else _mark(body)
+    return _mark(_body_for(rel, method, part, desc, entry, comp_dir, entry_rel))
 
 
 def _body_for(rel: str, method: str, part: str, desc: str, entry: str,
@@ -88,16 +132,6 @@ def _body_for(rel: str, method: str, part: str, desc: str, entry: str,
         return (comp_dir / entry_rel).read_text(encoding="utf-8")
     if method == "skill":
         return _loader(part, desc, entry, "skill", named=True)
-    if method == "sub-agent":
-        if rel.endswith(".toml"):
-            # Codex's own sub-agent definition: a name, a description, and the
-            # instruction to read the agent file.
-            return (f"name = {json.dumps(part)}\n"
-                    f"description = {json.dumps(desc, ensure_ascii=False)}\n"
-                    "developer_instructions = "
-                    + json.dumps(f"Read `{entry}` NOW and follow it as this "
-                                 "agent's full instructions.") + "\n")
-        return _loader(part, desc, entry, "agent", named=True)
     if method == "command":
         if rel.startswith(".codex/prompts/"):
             # codex prompt files are plain markdown — no frontmatter.

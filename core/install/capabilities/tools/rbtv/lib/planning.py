@@ -30,6 +30,7 @@ from .content import (
     _content_for,
     _mark,
     _opencode_mcp_entry,
+    sub_agent_content,
 )
 from .state import _wanted_units
 from .recovery import vanished_component_message
@@ -53,7 +54,7 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
     hook_harnesses: set[str] = set()
     hook_owners: dict[str, list] = {}
     sections: list[dict] = []
-    report: dict = {"no_realization": [], "path_rows": []}
+    report: dict = {"no_realization": [], "path_rows": [], "sub_agents_unset": []}
     codex_used = False
 
     def claim_file(rel: str, content: str, cid: str, pid: str) -> None:
@@ -130,9 +131,6 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                     f"{cid}: unit {pid!r} has method {method!r}, which is "
                     f"outside the vocabulary ({' · '.join(CANONICAL_METHODS)}) "
                     "— refusing before any write", str(comp_dir / entry_rel))
-            if method == "agent":
-                # Shipped agents are placed and applied only by `rbtv agent add`.
-                continue
             if method == "tool":
                 report["path_rows"].append(
                     {"component": cid, "part": pid, "type": method,
@@ -150,6 +148,20 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                     str(comp_dir / entry_rel))
             entry_abs = str((comp_dir / entry_rel).resolve())
             data = row["data"]
+
+            if method == "agent":
+                # An agent chosen as a unit is a harness-native sub-agent, written
+                # only for the harnesses its record holds a model and an effort for.
+                values = ((rec.get("units") or {}).get(pid) or {}).get("sub_agent") or {}
+                written = [h for h in harnesses if h in values]
+                if not written:
+                    report["sub_agents_unset"].append(f"{cid}#{pid}")
+                for harness in written:
+                    rel = MATRIX[method][harness].format(name=pid)
+                    claim_file(rel, sub_agent_content(
+                        rel, harness, pid, desc, entry_abs, values[harness]),
+                        cid, pid)
+                continue
 
             if method == "folder-instructions":
                 _front, body = frontmatter.split(

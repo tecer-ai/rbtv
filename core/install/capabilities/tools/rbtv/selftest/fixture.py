@@ -45,12 +45,12 @@ def _fixture(root: Path, mirror: Path) -> None:
              "# the command\n")
     _unit_md(good / "rules/fixrule.md", "fixrule", "the fixture rule",
              "# THE RULE\n\nAlways do the thing.\n")
-    _unit_md(good / "sub-agents/fixagent.md", "fixagent", "The fixture agent",
-             "## Role\n\nthe agent\n")
+    _w(good / "agents/fixagent/agent.md", "---\nname: fixagent\n---\n\n## Role\n\nthe agent\n")
+    _w(good / "agents/fixagent/agent.json", json.dumps({
+        "name": "fixagent", "description": "The fixture agent"}) + "\n")
     _w(good / "agents/research/agent.md", "---\nname: research\n---\n\nResearch.\n")
     _w(good / "agents/research/agent.json", json.dumps({
         "name": "research", "description": "The fixture research agent",
-        "harness": "claude", "model": "m1", "effort": "high",
         "units": ["fixskill"], "packs": []}) + "\n")
     _w(good / "hooks/fixhook.json", json.dumps({
         "name": "fixhook", "description": "The fixture hook",
@@ -120,6 +120,14 @@ def _fixture(root: Path, mirror: Path) -> None:
     dup = _component(root, "fixmod", "dupcomp")
     _unit_md(dup / "skills/same.md", "same", "a skill", "a\n")
     _unit_md(dup / "rules/same.md", "same", "a rule", "b\n")
+
+
+# The model and effort the fixture agent `fixagent` is installed with as a
+# harness-native sub-agent, for every harness, and the unit id that keys them.
+FIXAGENT = "fixmod/goodcomp#fixagent"
+FIXAGENT_ON = {FIXAGENT: {
+    harness: {"model": f"{harness}-m", "model_id": f"id/{harness}-m", "effort": "high"}
+    for harness in HARNESSES}}
 
 
 def _reserved_id_refuses(tmp: Path, catalog: dict[str, dict]) -> bool:

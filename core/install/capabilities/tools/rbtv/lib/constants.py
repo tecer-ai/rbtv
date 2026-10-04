@@ -11,7 +11,7 @@ VERSION = "0.2.1"
 # The program name is used in generated guidance banners. It is deliberately
 # not part of the portable install record.
 INSTALLER_NAME = "install.py"
-SCHEMA = 7
+SCHEMA = 8
 
 # D12 — ownership is a marker in the file, never a prefix on its name.
 MANAGED_MARK = "rbtv-managed"
@@ -147,12 +147,13 @@ HARNESSES = ("claude", "codex", "opencode")
 UPDATE_SCOPES = ("guidance", "scaffolding", "all")
 
 # The exposure methods a component's folders give its units: skill, rule,
-# command and agent are harness files; hook and mcp-server are translated into
+# command and agent are harness files (an agent added as a unit is written as a
+# harness-native sub-agent); hook and mcp-server are translated into
 # harness settings; tool is placed on PATH; folder-instructions become a marked
 # section in the target folder's instructions file. A method outside this set
 # refuses.
 CANONICAL_METHODS = (
-    "skill", "rule", "command", "agent", "sub-agent", "hook", "mcp-server", "tool",
+    "skill", "rule", "command", "agent", "hook", "mcp-server", "tool",
     "folder-instructions",
 )
 
@@ -190,12 +191,28 @@ MATRIX: dict[str, dict[str, str | None]] = {
         "codex": None,
         "opencode": None,
     },
-    "sub-agent": {
+    # An agent added as a unit: the harness's own sub-agent file. It is written
+    # only for the harnesses the unit's record holds a model and an effort for.
+    "agent": {
         "claude": ".claude/agents/{name}.md",
         "opencode": ".opencode/agents/{name}.md",
         "codex": ".codex/agents/{name}.toml",
     },
 }
+
+# The setting each harness's own sub-agent file has for a model and for an
+# effort. None = that file has no such setting: the value is recorded and not
+# applied. Read 2026-10-04 from claude 2.1.289 (its agent frontmatter fields),
+# opencode 1.17.18 (its documented agent frontmatter fields) and codex 0.159.3
+# (`codex doctor` accepts both keys in an agent role file and refuses an
+# unknown one).
+SUB_AGENT_SETTINGS: dict[str, dict[str, str | None]] = {
+    "claude": {"model": "model", "effort": "effort"},
+    "opencode": {"model": "model", "effort": "variant"},
+    "codex": {"model": "model", "effort": "model_reasoning_effort"},
+}
+# The effort `cast list` gives a model that has no effort dial.
+EFFORT_INERT = "inert"
 
 
 ANSI = {"ok": "\033[32m", "part": "\033[33m", "warn": "\033[33m",

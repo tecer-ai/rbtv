@@ -8,9 +8,9 @@ import sys
 from functools import wraps
 from pathlib import Path
 
-from discovery import Refuse, scan_all
+from discovery import LAUNCH_FIELDS, Refuse, scan_all
 
-from . import present
+from . import present, subagents
 from .constants import (
     AGENT_RECORD,
     ANSI,
@@ -41,7 +41,7 @@ from .shared_links import release_installation_links, installation_mutation_lock
 from .listing import (_short_description, build_list, build_show,
                       do_list, json_view, pack_members, print_list, print_show)
 from .agents import (OWN_FILES, add_agent, agent_state, configure_agent, is_path,
-                     list_agents, remove_agent, update_agent)
+                     list_agents, on_values, remove_agent, update_agent)
 from .doctor import do_doctor, doctor_exit
 from .report import LIST_LIMIT, print_result
 from .recovery import shell_quote
@@ -233,6 +233,7 @@ def cmd_show(args, target: Path, catalog: dict, shadowed: list,
              *, ask=None) -> int:
     del ask, shadowed
     state = read_state(target)
+    state["_target"] = str(target.resolve())
     requested_packs = set(args.pack)
     if requested_packs:
         if args.name or len(requested_packs) != 1:
@@ -299,8 +300,7 @@ def cmd_show(args, target: Path, catalog: dict, shadowed: list,
         # check, never a removal suggestion just because it happens to be
         # installed. An uninstalled unit's next step is the setup that
         # would install it.
-        data["next"] = (f"rbtv agent add {parts[0]['unit_id']}"
-                        if parts[0]["type"] == "agent" else
+        data["next"] = ("cast list" if parts[0]["type"] == "agent" else
                         f"rbtv doctor --target {_quote(target)}" if parts[0]["installed"] else
                         f"rbtv add {selected['id']} --target {_quote(target)}")
     else:
@@ -333,6 +333,13 @@ def _print_catalog(counts: dict) -> None:
            "does not mean installed here.", indent="  ")
 
 
+def _print_sub_agents(recorded: dict) -> None:
+    """The agents installed as harness-native sub-agents: one line each, naming
+    the harnesses it is written for and the model and effort of each."""
+    for line in subagents.installed_lines(recorded):
+        _prose(line)
+
+
 def _status_agent(args, target: Path, catalog: dict) -> int:
     """Status of an agent folder: its own record, not the installation's."""
     record = agent_state(target)
@@ -350,7 +357,8 @@ def _status_agent(args, target: Path, catalog: dict) -> int:
             "agent": {"name": record["name"], "harness": harness,
                       "model": record["model"], "effort": record["effort"],
                       "voice": record.get("voice"),
-                      "packs": sorted(record["packs"]), "installed_units": sorted(seen)},
+                      "packs": sorted(record["packs"]), "installed_units": sorted(seen),
+                      "sub_agents": subagents.recorded(record)},
             "source_catalog": counts,
             "next": f"rbtv doctor --target {_quote(target)}"}
     if args.json:
@@ -366,6 +374,7 @@ def _status_agent(args, target: Path, catalog: dict) -> int:
     print("Effort: " + str(record["effort"]))
     print("Voice: " + (record.get("voice") or "not set"))
     print("Packs on: " + (", ".join(sorted(record["packs"])) or "none"))
+    _print_sub_agents(data["agent"]["sub_agents"])
     print(f"Installed units: {len(seen)}")
     if record["packs"]:
         print("  Named: " + (", ".join(sorted(named)) or "none"))
@@ -401,6 +410,7 @@ def cmd_status(args, target: Path, catalog: dict, shadowed: list,
                              "guidance": settings["artifact"],
                              "guidance_excludes": settings["guidance_excludes"],
                              "packs": settings["packs"],
+                             "sub_agents": subagents.recorded(read_state(target)),
                              "installed_components": len(comps),
                              "installed_units": count,
                              "health": "not_checked"},
@@ -423,6 +433,7 @@ def cmd_status(args, target: Path, catalog: dict, shadowed: list,
             _prose("Guidance folders excluded from copying: "
                    + (", ".join(settings["guidance_excludes"]) or "none"))
             print("Packs on: " + (", ".join(settings["packs"]) or "none"))
+            _print_sub_agents(data["installation"]["sub_agents"])
             print()
             print("Recorded installation in this target")
             print(f"  Components with selected units: {len(comps)}")
@@ -563,6 +574,13 @@ def _require_recorded(target: Path, state: dict) -> list[str]:
     return booked
 
 
+def _joined_harness_gaps(state: dict, before: list[str] | None, after: list[str],
+                         target: Path) -> list[dict]:
+    """The sub-agents a harness that just joined the target does not have."""
+    joined = [h for h in after if h not in (before or [])]
+    return subagents.missing_for(state, joined, after, target)
+
+
 def _apply_harness(args, target: Path, catalog: dict, op: str,
                    raw: str) -> int:
     state = read_state(target)
@@ -587,6 +605,7 @@ def _apply_harness(args, target: Path, catalog: dict, op: str,
         return 0
     data = _replan_all(target, catalog, new,
                        bool(getattr(args, "dry_run", False)))
+    data["sub_agents_missing"] = _joined_harness_gaps(state, current, new, target)
     _emit(data, bool(getattr(args, "json", False)),
           target, getattr(args, "_why", "unknown"), verb="configure", details=getattr(args, "details", False))
     return 0
@@ -736,6 +755,8 @@ def cmd_configure(args, target: Path, catalog: dict, shadowed: list,
         else:
             data = _replan_all(target, catalog, wanted_h, bool(args.dry_run),
                                guidance_basis=wanted_g)
+            data["sub_agents_missing"] = _joined_harness_gaps(
+                state, current, wanted_h, target)
         count = len(_unit_keys(catalog, state))
         _emit(data, bool(args.json), target, getattr(args, "_why", "unknown"),
               verb="configure", details=getattr(args, "details", False),
@@ -758,23 +779,13 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
         raise SystemExit(2)
     args.names = noun
     keys = resolve_selection(args, catalog, None) if (_has_selectors(args) or noun) else set()
-    # Naming an agent a component ships places it only through `rbtv agent add`.
-    # A selection by component, module or type skips such an agent and says so.
-    agent_keys = {row["key"] for row in iter_catalog_parts(catalog)
-                  if row["key"] in keys and row["method"] == "agent"}
-    shipped = [row for row in iter_catalog_parts(catalog)
-               if noun and row["key"] in agent_keys]
-    skipped_agents = sorted(agent_keys - {row["key"] for row in shipped})
+    # An agent named here is added as a harness-native sub-agent, with --on.
+    # A selection by component, module or type skips an agent and says so.
+    named = subagents.named_agents(catalog, keys) if noun else []
+    skipped_agents = sorted({row["key"] for row in subagents.named_agents(catalog, keys)}
+                            - {row["key"] for row in named})
     keys -= set(skipped_agents)
     picked, parts = _split_part_keys(keys)
-    if shipped:
-        name = shipped[0]["unit_id"]
-        refusal = Refuse(
-            "agent-at-root",
-            f"adding {name!r} at the root was refused: it is an agent a "
-            "component ships.")
-        refusal.next = f"rbtv agent add {name}"
-        raise refusal
     state = read_state(target)
     _available_units, _available_packs, stale = _available_selection(catalog, state)
     if not is_agent_target(target) and book_harnesses(state) is None and (
@@ -790,6 +801,10 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
                  else _gate_add_harness(target, state, getattr(args, "harness", None)))
     basis = ("none" if is_agent_target(target)
              else _gate_add_artifact(target, state, getattr(args, "artifact", None)))
+    sub_agents = on_values(
+        list(getattr(args, "on", None) or []), named, harnesses, target,
+        "rbtv agent configure -h" if is_agent_target(target) else
+        "rbtv configure --harness " + ",".join(HARNESSES) + " --target " + _quote(target))
     pack_parts = pack_units(catalog, requested_packs)
     all_parts = sorted(set(parts) | pack_parts)
     picked, _unused = _split_part_keys(all_parts)
@@ -797,10 +812,12 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
         target, catalog, picked, harnesses,
         bool(getattr(args, "dry_run", False)),
         guidance_basis=basis,
-        parts=all_parts)
+        parts=all_parts, sub_agents=sub_agents)
     if not bool(getattr(args, "dry_run", False)):
         _save_selected_units(target, add=set(parts), add_packs=requested_packs)
     data["selected_units"] = all_parts
+    data["sub_agents"] = subagents.describe(
+        named, sub_agents, subagents.recorded(state), harnesses, catalog, target)
     data["skipped_agents"] = skipped_agents
     data["recorded_source_gone"] = stale
     before = _unit_keys(catalog, state)
@@ -1178,6 +1195,7 @@ def _print_agent(data: dict, verb: str, target: Path, why: str | None,
             rows.append(("Packs", ", ".join(data["packs"]) + ", already on"))
         else:
             rows.append(("Packs", ", ".join(data["packs"]) or "none"))
+        rows += subagents.rows(data["sub_agents"])
         if touched or dry:
             rows.append(("Harness", f"{launch['harness']} ({present.HARNESS_MEANING[launch['harness']]})"))
         if touched and not dry and not added:
@@ -1251,6 +1269,8 @@ def _print_agent(data: dict, verb: str, target: Path, why: str | None,
     detail_blocks = _agent_details(write, delete, dry) if details else []
     if verb in ("add", "update") and details and units:
         detail_blocks.insert(0, ["Units"] + [f"  {u}" for u in units])
+    if verb == "add":
+        detail_blocks += [present.wrap(note) for note in subagents.notes(data["sub_agents"])]
     keep_note = verb == "remove" and touched and not dry
     _print_agent_blocks(_agent_tail(write, delete, dry, details, detail_blocks, keep_note),
                         data["next"])
@@ -1287,6 +1307,10 @@ def _print_agent_configure(data: dict, target: Path, why: str | None,
     print()
     print("\n".join(present.fields(rows)))
     detail_blocks = _agent_details(write, delete, dry) if details else []
+    detail_blocks += [present.wrap(
+        f"{gap['name']} is not written as a harness-native sub-agent for "
+        f"{gap['harness']}: a model and an effort are needed. "
+        f"Add it with: {gap['command']}") for gap in data["sub_agents_missing"]]
     _print_agent_blocks(_agent_tail(write, delete, dry, details, detail_blocks, False),
                         data["next"])
 
@@ -1364,6 +1388,10 @@ def _agent_repeat(args, scope: str | None = None) -> str:
         words.append(scope or args.scope)
     else:
         words += list(args.name) + [f"--pack {pack}" for pack in args.pack]
+        if args.agent_verb == "add":
+            words += [f"--{key} {getattr(args, key)}" for key in LAUNCH_FIELDS
+                      if getattr(args, key) is not None]
+            words += [f"--on {value}" for value in args.on]
         if args.agent_verb == "remove":
             words += ["--all"] * bool(args.all) + ["--yes"] * bool(args.yes)
     return " ".join(words)
@@ -1395,7 +1423,8 @@ def cmd_agent(args, target: Path, catalog: dict, shadowed: list,
         exc.next = "rbtv agent update -h"
         raise exc
     if verb == "add":
-        data = add_agent(target, args.agent, list(args.name), set(args.pack), catalog, dry)
+        data = add_agent(target, args.agent, list(args.name), set(args.pack), catalog, dry,
+                         {key: getattr(args, key) for key in LAUNCH_FIELDS}, tuple(args.on))
     elif verb == "update":
         data = update_agent(target, args.agent, args.scope, catalog, dry)
     elif verb == "configure":

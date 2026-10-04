@@ -53,6 +53,14 @@ def _validate_state(state: dict, path: Path) -> None:
                 if name in part:
                     _string_list(part[name],
                                  f"components.{cid}.units.{pid}.{name}", path)
+            values = part.get("sub_agent", {})
+            if not isinstance(values, dict) or not all(
+                    harness in HARNESSES and isinstance(entry, dict)
+                    and all(isinstance(entry.get(key), str)
+                            for key in ("model", "model_id", "effort"))
+                    for harness, entry in values.items()):
+                _state_refuse(path, f"components.{cid}.units.{pid}.sub_agent must map "
+                              "a harness to its model, model_id and effort")
     for name in ("harnesses", "guidance_files", "shared_claims", "units", "packs"):
         if name in state:
             _string_list(state[name], name, path)
@@ -71,7 +79,9 @@ def state_path(target: Path) -> Path:
     return target / (AGENT_RECORD if is_agent_target(target) else STATE_REL)
 
 
-# How the 0.2 installer named what it booked, and what 0.2.1 calls it.
+# How earlier records named what they booked, and the name read today. A
+# record up to schema 7 booked an agent's harness-native file as `sub-agent`;
+# it is read as the unit `agent`, which holds no model and no effort yet.
 _LEGACY_METHODS = {"sub-agent": "agent", "config": "mcp-server",
                    "path": "tool", "agents.md": "folder-instructions"}
 

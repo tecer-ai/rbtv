@@ -10,7 +10,7 @@ full, one entry per line. `--json` always carries the full data either way.
 """
 from __future__ import annotations
 
-from . import present
+from . import present, subagents
 
 _UPDATE_LABEL = {"guidance": "guidance", "scaffolding": "scaffolding",
                  "all": "all selected files"}
@@ -155,6 +155,7 @@ def print_result(data: dict) -> None:
         out.summary.append(("Receiving tools",
                             _receiving(data["harnesses"], facts, preview)))
     _units_row(out, facts, data)
+    out.summary.extend(subagents.rows(data.get("sub_agents") or []))
     for name, component, on in facts.get("packs") or []:
         out.summary.append(("Pack", f"{name} ({component}) "
                             + ("on" if on else "off")))
@@ -167,9 +168,15 @@ def print_result(data: dict) -> None:
               f"{release} {len(claims)} claim(s) inside shared files")
     skipped = data.get("skipped_agents") or []
     if skipped:
-        out.bullet("Notes", "skipped agent(s) a component ships, which are placed "
-                   "only by `rbtv agent add NAME`: " + ", ".join(skipped))
-    _report_rows(out, report, preview)
+        out.bullet("Notes", "skipped agent(s) a component ships: " + ", ".join(skipped)
+                   + f". Add one by name with --on {subagents.ON_FORM}, or place "
+                   "it with `rbtv agent add NAME`.")
+    for text in subagents.notes(data.get("sub_agents") or []):
+        out.bullet("Notes", text)
+    for gap in data.get("sub_agents_missing") or []:
+        out.bullet("Notes", subagents.missing_note(
+            gap["name"], gap["written_for"], gap["harness"], gap["command"]))
+    _report_rows(out, report, preview, data.get("target") or "")
     _gitignore(out, report, preview)
     _guidance(out, report, preview, scope=data.get("scope"))
     _guidance_sections(out, report, preview)
@@ -349,7 +356,7 @@ def _warnings(out: _Out, data: dict, preview: bool) -> None:
                    "still be written.")
 
 
-def _report_rows(out: _Out, report: dict, planned: bool) -> None:
+def _report_rows(out: _Out, report: dict, planned: bool, target: str) -> None:
     """Why a unit minted nothing, and the PATH shortcut changes. Printed on
     DRY RUNS TOO, marked as planned (task 7.622): the SAME data a real run
     prints; only the tense moves."""
@@ -364,6 +371,8 @@ def _report_rows(out: _Out, report: dict, planned: bool) -> None:
     for (harness, kind), keys in unused.items():
         out.bullet("Warnings", f"{harness} cannot use {len(keys)} selected "
                    f"{kind} unit(s) — {tail} for: " + ", ".join(keys))
+    for key in report.get("sub_agents_unset") or []:
+        out.bullet("Warnings", subagents.unset_note(key, target))
     gone = report.get("source_gone") or []
     if gone:
         out.bullet("Notes", f"{'would remove' if planned else 'removed'} "

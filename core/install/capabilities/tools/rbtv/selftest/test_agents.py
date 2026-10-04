@@ -10,6 +10,7 @@ from unittest.mock import patch
 from discovery import Refuse, scan_all
 from lib.agents import (IGNORE_TEXT, add_agent, configure_agent, list_agents,
                         remove_agent, update_agent)
+from lib.constants import MATRIX
 from lib.doctor import do_doctor
 from lib.planning import plan_files
 from lib.state import read_state
@@ -48,6 +49,15 @@ def _ignored_agent(home: Path, harness: str) -> None:
     _w(home / "notes/own.md", "Author note.\n")
 
 
+def _refused(call) -> tuple[str | None, str | None]:
+    """The code and the next command of the refusal a call raises."""
+    try:
+        call()
+    except Refuse as exc:
+        return exc.code, getattr(exc, "next", None)
+    return None, None
+
+
 def agent_ignore_file(ctx) -> None:
     check, skip, tmp, catalog = ctx.check, ctx.skip, ctx.tmp, ctx.frame()[0]
     if shutil.which("git") is None:
@@ -56,17 +66,21 @@ def agent_ignore_file(ctx) -> None:
     known = {"claude": {"m1": ["low", "high"]},
              "codex": {"c1": ["low", "medium", "high"]},
              "opencode": {"glm-5.3": ["low", "high"]}}
-    every_destination = [
-        "fixskill", "fixrule", "fixcmd", "fixagent", "fixhook", "fixmcp",
-    ]
+    every_destination = ["fixskill", "fixrule", "fixcmd", "fixhook", "fixmcp"]
+
+    check = ctx.check
 
     def add(repo: Path, agent: Path, harness: str) -> tuple[set[str], set[str]]:
         _ignored_agent(agent, harness)
         state = json.loads((agent / "agent.json").read_text(encoding="utf-8"))
         state["units"] = every_destination
         _w(agent / "agent.json", json.dumps(state) + "\n")
-        with patch("lib.agents.cast_catalog", return_value=known):
-            add_agent(repo, str(agent), [], set(), catalog, False)
+        # The fixture agent is added by name as a harness-native sub-agent, so the
+        # plan holds that harness's sub-agent file too.
+        with patch("lib.agents.cast_catalog", return_value=known), \
+                patch("lib.agents.cast_model_id", return_value="native-id"):
+            add_agent(repo, str(agent), ["fixagent"], set(), catalog, False,
+                      on=(f"{harness}:{state['model']}:{state['effort']}",))
         _w(agent / "state.sqlite", "machine data\n")
         _w(agent / "turns/t1/x", "machine data\n")
         _w(agent / "conversations/c1/session.json", "{}\n")
@@ -76,6 +90,10 @@ def agent_ignore_file(ctx) -> None:
         files, _owners, claims, _report = plan_files(state["components"], catalog,
                                                      agent)
         planned = set(files) | {claim["path"] for claim in claims}
+        sub_agent_file = MATRIX["agent"][harness].format(name="fixagent")
+        check(f"SA-agent-target — {harness} agent gets the sub-agent file of its own harness",
+              sub_agent_file in files and "native-id" in files[sub_agent_file],
+              repr(sorted(files)))
         ignored = {
             rel for rel in planned
             if subprocess.run(["git", "check-ignore", "--quiet", "--no-index",
@@ -128,8 +146,7 @@ def installed_agents(ctx) -> None:
     _unit_md(comp / "rules/other.md", "other", "Other", "body\n")
     _w(comp / "agents/research/agent.md", "---\nname: research\n---\n\nResearch.\n")
     _w(comp / "agents/research/agent.json", json.dumps({
-        "name": "research", "description": "Research.", "harness": "claude",
-        "model": "m1", "effort": "high", "units": ["kiss"], "packs": []}) + "\n")
+        "name": "research", "description": "Research.", "units": ["kiss"], "packs": []}) + "\n")
     catalog, _ = scan_all(tmp / "agent-mirror", root)
     ws = tmp / "agent-installation"; ws.mkdir()
     home = ws / ".rbtv/agents/scout"
@@ -141,11 +158,52 @@ def installed_agents(ctx) -> None:
         planned = add_agent(ws, "scout", [], set(), catalog, True)
         check("A-add — dry run writes no agent file", (home / "agent.json").read_bytes() == before and planned["dry_run"], str(planned))
         add_agent(ws, "scout", [], set(), catalog, False)
-        placed = add_agent(ws, "research", [], set(), catalog, False)
+        launch = {"harness": "claude", "model": "m1", "effort": "2"}
+        research = ws / ".rbtv/agents/research"
+        check("A-add-flags — a shipped agent without the three flags is refused and not placed",
+              _refused(lambda: add_agent(ws, "research", [], set(), catalog, False))
+              == ("launch-required", "cast list")
+              and _refused(lambda: add_agent(ws, "research", [], set(), catalog, False,
+                                             {"harness": "claude", "model": None,
+                                              "effort": None}))[0] == "launch-required"
+              and not research.exists(), "")
+        check("A-add-flags — a model cast does not list is refused before placing",
+              _refused(lambda: add_agent(ws, "research", [], set(), catalog, False,
+                                         {**launch, "model": "nosuch"}))[0] == "launch-invalid"
+              and not research.exists(), "")
+        preview = add_agent(ws, "research", [], set(), catalog, True, launch)
+        check("A-add-flags — a preview of placing a shipped agent writes nothing",
+              preview["dry_run"] and preview["placed"]["id"] == "moda/comp#research"
+              and preview["launch"]["effort"] == "high" and not research.exists(),
+              str(preview))
+        placed = add_agent(ws, "research", [], set(), catalog, False, launch)
+        placed_record = json.loads((research / "agent.json").read_text(encoding="utf-8"))
+        check("A-add-flags — the three flags are checked as configure checks them and "
+              "written into the placed agent.json",
+              (placed_record["harness"], placed_record["model"], placed_record["effort"])
+              == ("claude", "m1", "high") and placed["launch"]["model"] == "m1",
+              str(placed_record))
+        check("A-add-flags — a flag for an agent that has the values is refused and "
+              "names rbtv agent configure",
+              _refused(lambda: add_agent(ws, "research", [], set(), catalog, False,
+                                         {"harness": None, "model": "m1", "effort": None}))
+              == ("launch-already-set", "rbtv agent configure research --model m1")
+              and _refused(lambda: add_agent(ws, "scout", [], set(), catalog, False, launch))[0]
+              == "launch-already-set", "")
+        bare = ws / ".rbtv/agents/bare"
+        _w(bare / "agent.md", "---\nname: bare\n---\n\nBare.\n")
+        _w(bare / "agent.json", json.dumps({"name": "bare", "description": "Bare."}) + "\n")
+        check("A-add-flags — a hand-written agent without the values needs the flags too",
+              _refused(lambda: add_agent(ws, "bare", [], set(), catalog, False))[0]
+              == "launch-required", "")
+        add_agent(ws, "bare", [], set(), catalog, False, launch)
+        check("A-add-flags — and the flags are written into its agent.json",
+              read_state(bare)["model"] == "m1" and read_state(bare)["effort"] == "high",
+              str(read_state(bare)))
+        shutil.rmtree(bare)
     state = read_state(home)
     check("A-add — agent.json is the sole record and normalizes units", state["units"] == ["moda/comp#kiss"] and not (home / "launch.json").exists() and not (home / ".rbtv/config/install.json").exists(), str(state))
     check("A-add — generated files, settings and ignore file are present", (home / ".claude/rules/kiss.md").is_file() and (home / "settings.json").is_file() and (home / ".gitignore").is_file(), "")
-    research = ws / ".rbtv/agents/research"
     check("A-add — a shipped agent is placed then applied",
           placed["placed"]["id"] == "moda/comp#research"
           and (research / "agent.md").is_file() and (research / "agent.json").is_file()
@@ -209,6 +267,12 @@ def installed_agents(ctx) -> None:
           and [row["name"] for row in listed_folder["agents"]] == ["research", "scout", "second"], str(listed))
     empty = ws / "empty"; empty.mkdir()
     check("A-list — no agent is successful", not list_agents(ws, empty)["agents"], "")
+    _w(empty / "turn" / "agent.json", "{}\n")
+    check("A-list — a folder with agent.json and no agent.md is not an agent",
+          not list_agents(ws, empty)["agents"], "")
+    check("A-list — a supplied folder that is an agent folder lists itself",
+          [row["name"] for row in list_agents(ws, ws / ".rbtv/agents/second")["agents"]] == ["second"], "")
+    _w(empty / "broken" / "agent.md", "---\nname: broken\n---\n")
     _w(empty / "broken" / "agent.json", "{not json\n")
     unreadable = list_agents(ws, empty)["agents"]
     check("A-list — an unreadable record is reported without stopping the list",
@@ -245,12 +309,7 @@ def installed_agents(ctx) -> None:
         got = exc.code
     check("A-refusal — --all requires --yes", got == "confirm-required", str(got))
 
-    def refused(call) -> tuple[str | None, str | None]:
-        try:
-            call()
-        except Refuse as exc:
-            return exc.code, getattr(exc, "next", None)
-        return None, None
+    refused = _refused
 
     no_record = ws / ".rbtv/agents/norecord"
     _w(no_record / "agent.md", "---\nname: norecord\n---\n\nNo record.\n")
