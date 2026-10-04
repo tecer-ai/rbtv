@@ -28,6 +28,7 @@
 - [profile.md](profile.md) — Before writing a profile.
 - [rule.md](rule.md) — Before writing a rule file.
 - [rule.schema.json](rule.schema.json) — Before writing or checking a rule file's frontmatter.
+- [settings-json.md](settings-json.md) — Before writing an rbtv agent's `settings.json`.
 - [skill.md](skill.md) — Before writing a skill file.
 - [skill.schema.json](skill.schema.json) — Before writing or checking a skill file's frontmatter.
 - [thin-loader.md](thin-loader.md) — Before reading or changing what rbtv writes as a thin loader.
