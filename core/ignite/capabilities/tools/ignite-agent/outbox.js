@@ -29,15 +29,12 @@ const PERMANENT = new Set([
 ]);
 
 function voiceOf(store, home) {
-  if (home) {
-    try {
-      const body = JSON.parse(fs.readFileSync(path.join(home, 'launch.json'), 'utf8'));
-      if (body.voice) return body.voice;
-    } catch {
-      return store.getLaunchSetting()?.voice || null;
-    }
+  if (!home) return null;
+  try {
+    return JSON.parse(fs.readFileSync(path.join(home, 'agent.json'), 'utf8')).voice || null;
+  } catch {
+    return null;
   }
-  return store.getLaunchSetting()?.voice || null;
 }
 
 function isBoard(conv) {

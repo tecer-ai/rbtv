@@ -130,7 +130,8 @@ function harness(ctx, setting = {}) {
   const home = path.join(ctx.dir, '.rbtv', 'agents', 'master');
   fs.mkdirSync(home, { recursive: true });
   const launch = { harness: 'claude', model: 'sonnet-5', effort: 'low', voice: 'voice-a', ...setting };
-  fs.writeFileSync(path.join(home, 'launch.json'), `${JSON.stringify(launch)}\n`);
+  fs.writeFileSync(path.join(home, 'agent.json'), `${JSON.stringify(launch)}\n`);
+  fs.writeFileSync(path.join(home, 'agent.md'), '---\nname: master\n---\n', 'utf8');
   fs.writeFileSync(path.join(home, 'board.md'), TEST_BOARD, 'utf8');
   fs.mkdirSync(path.dirname(boardPath(home)), { recursive: true });
   fs.writeFileSync(boardPath(home), TEST_BOARD, 'utf8');
@@ -142,7 +143,6 @@ function harness(ctx, setting = {}) {
   fs.writeFileSync(path.join(memory, 'inbox.md'), '# Inbox — waiting to be filed\n- INBOX_TOKEN. (2026-10-01 · master)\n', 'utf8');
   fs.writeFileSync(path.join(memory, '_artifacts', 'index.md'), '# Memory index\n| Open | When |\n|---|---|\n| [../knowledge/](../knowledge/) | WHEN needed. |\n', 'utf8');
   const store = ctx.track(new Store(path.join(home, 'state.sqlite')));
-  store.setLaunchSetting(launch);
   const controlPath = path.join(ctx.dir, 'control.json');
   const seenPath = path.join(ctx.dir, 'seen.jsonl');
   fs.writeFileSync(seenPath, '');
@@ -312,7 +312,7 @@ test('live-PID refusal', async (ctx) => {
   const child = ctx.trackPid(spawn('sleep', ['60']));
   const stat = fs.readFileSync(`/proc/${child.pid}/stat`, 'utf8');
   const pidStart = stat.slice(stat.lastIndexOf(')') + 1).trim().split(/\s+/)[19];
-  box.store.attachProcess(claim.runId, { pid: child.pid, pidStart, setting: box.store.getLaunchSetting() });
+  box.store.attachProcess(claim.runId, { pid: child.pid, pidStart, setting: box.launch });
   const result = await runOnce('master', box.deps);
   assert.equal(result.refused, 'live');
   assert.equal(seen(box).length, 0);
@@ -364,7 +364,7 @@ test('settings changed between turns → next run snapshots the new setting', as
   const saved = JSON.parse(box.store.db.prepare('SELECT launch_snapshot FROM runs WHERE id=?').get(first.runId).launch_snapshot);
   assert.equal(saved.effort, 'low');
   const next = { harness: 'claude', model: 'sonnet-5', effort: 'high', voice: 'voice-a' };
-  fs.writeFileSync(path.join(box.home, 'launch.json'), `${JSON.stringify(next)}\n`);
+  fs.writeFileSync(path.join(box.home, 'agent.json'), `${JSON.stringify(next)}\n`);
   seed(box.store, { id: '3.3', text: 'second', createdAt: 30 });
   box.sync();
   const second = await runOnce('master', box.deps);
@@ -384,7 +384,7 @@ test('harness change → new session with re-hydrated prompt', async (ctx) => {
   box.store.recordMessage('T1:C1:1.1', { id: 'mid', role: 'owner', text: 'MID_MSG', createdAt: 2 });
   box.store.setSession('T1:C1:1.1', 'claude', 'claude-session-1');
   box.store.db.prepare('UPDATE work SET summary=? WHERE conversation_key=?').run('WORKSUM', 'T1:C1:1.1');
-  fs.writeFileSync(path.join(box.home, 'launch.json'), `${JSON.stringify({
+  fs.writeFileSync(path.join(box.home, 'agent.json'), `${JSON.stringify({
     harness: 'opencode', model: 'glm-5.3', effort: 'high', voice: 'voice-a',
   })}\n`);
   box.deps.historyWindow = 1;
@@ -496,7 +496,7 @@ test('post --thread delivers into the target and joins its next turn history', a
   box.store.setSession(key, 'claude', 'thread-session');
   box.store.upsertConversation({ key: 'schedule:current', agent: 'master', workspace: 'T1', channel: 'C1' });
   const code = main(['--agent', 'master', '--workspace', workspace, 'post', '--thread', key, '--text', 'CHECK_RESULT'], {
-    env: { IGNITE_AGENT_HOME: box.home, IGNITE_CONVERSATION: 'schedule:current' }, stdout() {},
+    env: { RBTV_AGENT_HOME: box.home, IGNITE_CONVERSATION: 'schedule:current' }, stdout() {},
   });
   assert.equal(code, 0);
   const [delivered] = await deliverPending(box.store, { slack: box.slack });
@@ -785,7 +785,7 @@ test('launch failure holds the agent', async (ctx) => {
   assert.ok(box.store.agentHold());
   const outbox = box.store.pendingOutbox(box.now() + 1);
   assert.equal(outbox.length, 1);
-  assert.match(outbox[0].payload.text, /settings set/);
+  assert.match(outbox[0].payload.text, /rbtv agent configure/);
   assert.match(outbox[0].payload.text, /cast exit 2/);
 });
 
@@ -826,7 +826,8 @@ test('cwd is symlink-resolved', async (ctx) => {
   box.sync();
   await runOnce('master', box.deps);
   assert.equal(seen(box)[0].cwd, fs.realpathSync(box.home));
-  assert.equal(seen(box)[0].env.IGNITE_AGENT_HOME, fs.realpathSync(box.home));
+  assert.equal(seen(box)[0].env.RBTV_AGENT_HOME, fs.realpathSync(box.home));
+  assert.match(seen(box)[0].prompt, /RESULT_FILE: .*agent-result\.json/);
 });
 
 for (const trigger of ['owner', 'schedule']) {
@@ -871,7 +872,7 @@ test('a due one-shot injects its note from the board after the schedule disables
   fs.mkdirSync(path.dirname(boardPath(box.home)), { recursive: true });
   fs.writeFileSync(boardPath(box.home), EMPTY_BOARD, 'utf8');
   assert.equal(main(['schedules-due', '--now', new Date(now).toISOString()], {
-    env: { IGNITE_AGENT_HOME: box.home }, stdout() {},
+    env: { RBTV_AGENT_HOME: box.home }, stdout() {},
   }), 0);
   assert.equal(box.store.getSchedule('send-draft').enabled, false);
   const result = await runOnce('master', box.deps);

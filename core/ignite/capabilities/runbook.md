@@ -30,7 +30,7 @@ Stop sends SIGTERM. The process stops claiming, logs any in-flight run (`turn-le
 
 ## Agents
 
-Installing, updating, connecting, and disconnecting an agent: `ignite-agent install|update|connect|disconnect`. Flags: see `ignite-agent -h`.
+Managing an agent's files and launch values uses `rbtv agent`; connecting and disconnecting it uses `ignite-agent connect|disconnect`. Flags: see `ignite-agent -h`.
 
 ## Dreamer
 
@@ -43,7 +43,7 @@ The proposal model is configured in the existing `.rbtv/config/ignite/config.jso
 }
 ```
 
-Omitting `dreamer.model` selects `codex gpt-6-sol 3`. An override must supply all three fields: `harness` is `codex`, `opencode` or `claude`; `model` is a nonempty cast model name without whitespace or a leading dash; `effort` is a JSON integer from 1 to 5. Unknown fields and invalid values are refused. Cast checks model availability and its supported effort mapping when called. Manual and nightly runs use the same setting; the daemon reloads it on each tick. Agent `launch.json` settings are independent.
+Omitting `dreamer.model` selects `codex gpt-6-sol 3`. An override must supply all three fields: `harness` is `codex`, `opencode` or `claude`; `model` is a nonempty cast model name without whitespace or a leading dash; `effort` is a JSON integer from 1 to 5. Unknown fields and invalid values are refused. Cast checks model availability and its supported effort mapping when called. Manual and nightly runs use the same setting; the daemon reloads it on each tick. Agent `agent.json` settings are independent.
 
 Dreamer ships disabled: omit `dreamer` or keep `"dreamer": { "enabled": false }` in `.rbtv/config/ignite/config.json` for the initial deploy. Both nightly consolidation and the 48-hour watchdog stay off. After `ready`, verify one fresh timer wake has a new threadless conversation and harness session, input equal to its schedule id, and all five checked memory files in its prompt. Only after that proof, with the owner present for the first consolidation, set `"dreamer": { "enabled": true }` in the existing config. The daemon reloads it on the next tick (normally within 30 seconds); enabling during the 03:00 hour can run consolidation immediately. Otherwise attend the next nightly slot. Set it back to false to disable both calls.
 
@@ -102,9 +102,9 @@ ignite-agent --agent <slug> --workspace <workspace> board write --file "board ca
 ignite-agent --agent <slug> --workspace <workspace> board close "Subject title" "One-line outcome" "[discussion](https://example.com/thread)"
 ```
 
-The close thread is optional. All four sections must be present, even when empty. Keep Timers, Recently closed and existing Flags unchanged in a candidate. New subjects use Flags `none`. `write` reports the board path and whether bytes changed; `close` reports the title and path. `--json` returns `{path, changed, subject?}` on success or `{path, error}` with exit 1 on failure (`path` is null before a home is resolved). Validation refuses malformed or over-cap input without changing the board. Close records a dated outcome; when six closed entries already exist, archive old entries before trying again. No entry is truncated or automatically pruned. Legacy boards require reshaping before using the checked commands. `install`/`update` copy but do not reshape a legacy board; `board write|close` never read or copy the legacy path.
+The close thread is optional. All four sections must be present, even when empty. Keep Timers, Recently closed and existing Flags unchanged in a candidate. New subjects use Flags `none`. `write` reports the board path and whether bytes changed; `close` reports the title and path. `--json` returns `{path, changed, subject?}` on success or `{path, error}` with exit 1 on failure (`path` is null before a home is resolved). Validation refuses malformed or over-cap input without changing the board. Close records a dated outcome; when six closed entries already exist, archive old entries before trying again. No entry is truncated or automatically pruned. Legacy boards require reshaping before using the checked commands; runtime board commands never read or copy the legacy path.
 
-Install creates the four-section board at `<home>/_artifacts/board.md`; update preserves it. Only during explicit `ignite-agent install`/`update`, a missing new path is filled by copying `<home>/board.md` once, preserving its bytes and leaving the old file untouched. Once the new path exists, Ignite reads and writes only that path. Copying does not reshape an old board. Runtime refresh always leaves a missing board absent, even when a legacy board exists, so turn-start memory recovery can load HEAD or report its absence.
+`connect` creates the four-section board at `<home>/_artifacts/board.md` when it is missing. Its working-file setup may copy `<home>/board.md` once, preserving its bytes and leaving the old file untouched. Once the new path exists, Ignite reads and writes only that path. Copying does not reshape an old board. Runtime refresh always leaves a missing board absent, even when a legacy board exists, so turn-start memory recovery can load HEAD or report its absence.
 
 Schedule add/change/cancel and connection timer binding require an existing, valid `<home>/_artifacts/board.md` and safe write path before opening SQLite. A missing or invalid board refuses with a message naming that path; SQLite remains unchanged, and an absent database is not created. Disconnect timer changes use the same board check before changing schedules. If SQLite commits but the subsequent board refresh fails (including lock contention), the command still exits 0 and reports `<id> committed; board refresh pending`. Disconnect lists all cancelled timer ids. JSON retains the normal success fields (`schedule`, `cancelled`, `scheduleId` or `timers`) and adds `warning` with the same message and id(s). Do not repeat the mutation: the next successful board write/close, schedule tick or turn refreshes from SQLite.
 
@@ -160,7 +160,7 @@ Removing an uncommitted duplicate can leave no net change against HEAD. When all
 A hold survives ticks and restarts. Set a launch setting that does not use the failed model, then retry. `work retry` with no id clears only an agent hold; with an id it clears only that work hold.
 
 ```
-ignite-agent --agent <slug> --workspace <workspace> settings set --harness <harness> --model <cast short name> --effort <rung word>
+rbtv agent configure <slug> --harness <harness> --model <cast short name> --effort <rung word>
 ignite-agent --agent <slug> --workspace <workspace> work retry
 ignite-agent --agent <slug> --workspace <workspace> work retry <work-id>
 ```

@@ -1,17 +1,15 @@
 #!/usr/bin/env node
 'use strict';
 
-// API — entry `ignite-agent`. Home from IGNITE_AGENT_HOME, or --agent <slug> + --workspace <path>.
-// main(argv, deps) → exit code, or a Promise for install/update/connect/disconnect/dreamer run.
-// deps.validateLaunch stubs cast. deps.install stubs the installer. deps.slack stubs Slack.
+// API — entry `ignite-agent`. Home from RBTV_AGENT_HOME, or --agent <slug> + --workspace <path>.
+// main(argv, deps) → exit code, or a Promise for connect/disconnect/dreamer run.
+// deps.slack stubs Slack.
 // deps.stdout / deps.stderr / deps.env optional.
-// settings set validates through cast list --json (never a copied model list) and writes launch.json
-// plus the store row together. schedule next-occurrence lives in schedule.js.
-// install, update, connect, and disconnect run before a home is opened. There is no create command.
+// schedule next-occurrence lives in schedule.js.
+// connect and disconnect run before a home is opened. There is no create command.
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
 const { Store } = require('./store.js');
 const { loadConfig, agentHome, configPath } = require('./config.js');
@@ -19,32 +17,19 @@ const { cadenceSpec, nextOccurrence, FIXED_TZ } = require('./schedule.js');
 const { writeBoard, closeSubject, boardPath, preflightBoard, refreshBoard, refreshBoardAfterCommit } = require('./board.js');
 const { workspaceFromHome, remember } = require('./memory.js');
 
-const APPLIES = 'applies from the next turn in every conversation';
-const COMMANDS = ['settings', 'schedule', 'schedules-due', 'work', 'wake', 'post', 'board', 'remember', 'dreamer'];
+const COMMANDS = ['schedule', 'schedules-due', 'work', 'wake', 'post', 'board', 'remember', 'dreamer'];
 const REPORTS = new Set(['always', 'when-useful']);
 
-const HELP = `ignite-agent — install update connect disconnect settings schedule schedules-due work wake post board remember dreamer
-
-install <agent file> --harness <name> --model <cast short name> --effort <rung or 1-5> [--workspace <path>] [--dry-run]
-  Runs rbtv install agent add, then installs Ignite's standard units. No Slack.
-  Refuses when the agent is already installed; use update.
-update <agent> [--workspace <path>] [--dry-run]
-  Runs rbtv install agent update, then re-installs Ignite's standard units and removes
-  any it installed earlier that are no longer standard units.
-  Keeps launch.json, settings.json, _artifacts/board.md, the database, and conversations.
+const HELP = `ignite-agent — connect disconnect schedule schedules-due work wake post board remember dreamer
 connect <agent> (--channel-name <name> | --dm) [--schedule-json <file>] [--workspace <path>] [--dry-run]
   On the machine that will run the agent. Needs .rbtv/config/ignite/config.json.
   See core/ignite/capabilities/runbook.md. Does not write that file.
 disconnect <agent> [--archive-channel] [--workspace <path>] [--dry-run]
   Removes the route and direct-message assignment. Does not delete the agent folder.
 
-Home: IGNITE_AGENT_HOME, or --agent <slug> --workspace <path>
+Home: RBTV_AGENT_HOME, or --agent <slug> --workspace <path>
       (workspace defaults to the directory walk that finds .rbtv/config/ignite/config.json).
 --json selects JSON on stdout. Inside a turn the runtime also sets IGNITE_CONVERSATION.
-
-settings show
-settings set --harness <name> --model <cast short name> --effort <rung or 1-5> [--voice <id>]
-  Validates the combination through cast. ${APPLIES}.
 
 schedule add (--at <ISO datetime with offset> | --cron "<5-field>" --tz <IANA zone> | --every <duration>) --note <text> [--subject <title>] [--report always|when-useful] [--conversation <key>]
 schedule list
@@ -109,7 +94,7 @@ remember <text>
   No Slack request or interactive prompt. Missing alert configuration does not
   undo the append; the result warns that the owner alert could not be queued.
 
-Home: IGNITE_AGENT_HOME, otherwise --agent <slug> --workspace <path>.
+Home: RBTV_AGENT_HOME, otherwise --agent <slug> --workspace <path>.
 Workspace: explicit --workspace, otherwise the installation containing the home.
 IGNITE_CONVERSATION supplies thread provenance and the alert target inside a turn.
 Outside a turn, alerts use this agent's configured channel or owner DM.
@@ -141,7 +126,7 @@ dreamer run [--workspace <path>]
   Prints one JSON line and nothing else. Exit 0 when the run finished without
   an alert. Exit 1 when the run failed or the lock was busy.
 
-Workspace: --workspace, otherwise the installation containing IGNITE_AGENT_HOME,
+Workspace: --workspace, otherwise the installation containing RBTV_AGENT_HOME,
 or the walk up to .rbtv/config/ignite/config.json. No agent flag. No Slack call.
 `;
 
@@ -169,7 +154,7 @@ board close <subject> <outcome> [thread]
   A full closed section refuses the whole change; archive old entries first.
   Nothing is pruned automatically.
 
-Home: IGNITE_AGENT_HOME, otherwise --agent <slug> --workspace <path>.
+Home: RBTV_AGENT_HOME, otherwise --agent <slug> --workspace <path>.
 Workspace may be discovered by walking up to .rbtv/config/ignite/config.json.
 No Slack access. Reads an existing state.sqlite to refresh Timers and Flags as
 part of the board write; never creates a database. --help/-h works without a home. -- ends options.
@@ -253,11 +238,11 @@ function findWorkspace(start) {
 
 function resolveHome(flags, deps) {
   const env = deps.env || process.env;
-  if (env.IGNITE_AGENT_HOME) {
-    const home = env.IGNITE_AGENT_HOME;
+  if (env.RBTV_AGENT_HOME) {
+    const home = env.RBTV_AGENT_HOME;
     return { home, slug: flags.agent || path.basename(home), workspace: flags.workspace || workspaceFromHome(home) };
   }
-  if (!flags.agent) fail('--agent or IGNITE_AGENT_HOME required');
+  if (!flags.agent) fail('--agent or RBTV_AGENT_HOME required');
   const workspace = flags.workspace || findWorkspace(process.cwd());
   if (!workspace) fail('--workspace required with --agent');
   const config = loadConfig(workspace);
@@ -278,76 +263,6 @@ function openContext(flags, deps, requireBoard = false) {
   };
 }
 
-function resolveEffort(rungs, effort, harness, model) {
-  if (!rungs.length) {
-    if (effort === 'inert') return 'inert';
-    const n = Number(effort);
-    if (String(n) === String(effort) && Number.isInteger(n) && n >= 1 && n <= 5) return 'inert';
-    throw new Error(`unsupported effort for ${harness}/${model}: ${effort}`);
-  }
-  if (rungs.includes(effort)) return effort;
-  const n = Number(effort);
-  if (String(n) === String(effort) && Number.isInteger(n) && n >= 1 && n <= 5) {
-    return rungs[Math.min(n, rungs.length) - 1];
-  }
-  throw new Error(`unsupported effort for ${harness}/${model}: ${effort}`);
-}
-
-function validateLaunch(castCmd, setting) {
-  const res = spawnSync(castCmd, ['list', '--json'], { encoding: 'utf8' });
-  if (res.error) throw new Error(`cannot run cast: ${res.error.message}`);
-  if (res.status !== 0) throw new Error((res.stderr || res.stdout || 'cast list failed').trim());
-  let inventory;
-  try {
-    inventory = JSON.parse(res.stdout);
-  } catch {
-    throw new Error('cast list --json did not return JSON');
-  }
-  const models = inventory[setting.harness];
-  if (!models || typeof models !== 'object') throw new Error(`unknown harness: ${setting.harness}`);
-  if (!Object.prototype.hasOwnProperty.call(models, setting.model)) {
-    throw new Error(`unknown model for ${setting.harness}: ${setting.model}`);
-  }
-  return {
-    harness: setting.harness,
-    model: setting.model,
-    effort: resolveEffort(models[setting.model], setting.effort, setting.harness, setting.model),
-    voice: setting.voice ?? null,
-  };
-}
-
-function launchBody(setting) {
-  const body = { harness: setting.harness, model: setting.model, effort: setting.effort };
-  if (setting.voice) body.voice = setting.voice;
-  return body;
-}
-
-function readLaunch(home) {
-  const file = path.join(home, 'launch.json');
-  if (!fs.existsSync(file)) return null;
-  return JSON.parse(fs.readFileSync(file, 'utf8'));
-}
-
-function applySetting(store, home, setting) {
-  const file = path.join(home, 'launch.json');
-  const backup = fs.existsSync(file) ? fs.readFileSync(file) : null;
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.mkdirSync(home, { recursive: true });
-  fs.writeFileSync(tmp, `${JSON.stringify(launchBody(setting), null, 2)}\n`);
-  try {
-    return store.transaction(() => {
-      const row = store.setLaunchSetting(setting);
-      fs.renameSync(tmp, file);
-      return row;
-    });
-  } catch (error) {
-    fs.rmSync(tmp, { force: true });
-    if (backup == null) fs.rmSync(file, { force: true });
-    else fs.writeFileSync(file, backup);
-    throw error;
-  }
-}
-
 function requireNote(opts) {
   if (!opts.note || !opts.note.trim()) fail('--note is required');
   return opts.note;
@@ -364,43 +279,6 @@ function conversationOf(opts, deps) {
   const key = opts.conversation || env.IGNITE_CONVERSATION;
   if (!key) fail('schedule requires IGNITE_CONVERSATION or --conversation');
   return key;
-}
-
-function settingFrom(opts, previous) {
-  return {
-    harness: opts.harness,
-    model: opts.model,
-    effort: opts.effort,
-    voice: opts.voice !== undefined ? opts.voice : (previous?.voice ?? null),
-  };
-}
-
-function cmdSettings(rest, ctx, flags, deps) {
-  const action = rest[0];
-  if (!action || action === '--help') {
-    emit(deps, flags, { help: 'settings' }, HELP);
-    return 0;
-  }
-  if (action === 'show') {
-    const storeRow = ctx.store.getLaunchSetting();
-    const file = readLaunch(ctx.home);
-    emit(deps, flags, { store: storeRow, file }, storeRow
-      ? `${storeRow.harness} ${storeRow.model} ${storeRow.effort}${storeRow.voice ? ` voice=${storeRow.voice}` : ''}\n`
-      : 'no launch setting\n');
-    return 0;
-  }
-  if (action !== 'set') fail('settings requires show or set');
-  const { opts } = parseOpts(rest.slice(1));
-  if (!opts.harness || !opts.model || !opts.effort) fail('settings set requires --harness, --model and --effort');
-  const previous = ctx.store.getLaunchSetting() || readLaunch(ctx.home);
-  const requested = settingFrom(opts, previous);
-  const setting = deps.validateLaunch
-    ? deps.validateLaunch(requested)
-    : validateLaunch(ctx.castCmd, requested);
-  if (setting.voice === undefined) setting.voice = requested.voice;
-  const row = applySetting(ctx.store, ctx.home, setting);
-  emit(deps, flags, { setting: row, notice: APPLIES }, `${APPLIES}\n`);
-  return 0;
 }
 
 function addSpec(opts, fromMs) {
@@ -686,11 +564,11 @@ function cmdBoard(rest, flags, deps) {
 function resolveDreamerWorkspace(flags, deps) {
   if (flags.workspace) return path.resolve(flags.workspace);
   const env = deps.env || process.env;
-  if (env.IGNITE_AGENT_HOME) {
-    const found = workspaceFromHome(env.IGNITE_AGENT_HOME);
+  if (env.RBTV_AGENT_HOME) {
+    const found = workspaceFromHome(env.RBTV_AGENT_HOME);
     if (found) return found;
   }
-  const found = findWorkspace(env.IGNITE_AGENT_HOME ? path.dirname(env.IGNITE_AGENT_HOME) : process.cwd());
+  const found = findWorkspace(env.RBTV_AGENT_HOME ? path.dirname(env.RBTV_AGENT_HOME) : process.cwd());
   if (!found) fail('--workspace required');
   return found;
 }
@@ -777,7 +655,6 @@ function cmdRemember(rest, flags, deps) {
 }
 
 function dispatch(command, rest, ctx, flags, deps) {
-  if (command === 'settings') return cmdSettings(rest, ctx, flags, deps);
   if (command === 'schedule') return cmdSchedule(rest, ctx, flags, deps);
   if (command === 'schedules-due') return cmdDue(rest, ctx, flags, deps);
   if (command === 'work') return cmdWork(rest, ctx, flags, deps);
@@ -792,9 +669,8 @@ function main(argv, deps = {}) {
     emit(deps, { json: false }, { help: COMMANDS }, HELP);
     return 0;
   }
-  if (rest.length === 0) fail(`usage: ignite-agent ${['install', 'update', 'connect', 'disconnect', ...COMMANDS].join('|')}`);
+  if (rest.length === 0) fail(`usage: ignite-agent ${['connect', 'disconnect', ...COMMANDS].join('|')}`);
   const [command, ...tail] = rest;
-  if (command === 'install' || command === 'update') return require('./install.js').run(command, tail, flags, deps);
   if (command === 'connect' || command === 'disconnect') return require('./connect.js').run(command, tail, flags, deps);
   if (command === 'board') return cmdBoard(tail, flags, deps);
   if (command === 'remember') return cmdRemember(tail, flags, deps);
@@ -822,4 +698,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { main, validateLaunch, applySetting, HELP };
+module.exports = { main, HELP };

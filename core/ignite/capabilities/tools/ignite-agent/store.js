@@ -28,7 +28,6 @@
 // failRun(runId, reason, { scope, now }) — retry then hold; enqueues the one blocker; callers must not enqueue another
 // agentHold() / clearHold({ workId }) — owner retry/repair only; wakes and ticks never call it
 // stopWork(id) — stops continuation; does not delete schedules or clear an agent hold
-// getLaunchSetting() / setLaunchSetting({ harness, model, effort, voice }) — changedAt; does not rewrite the active snapshot
 // enqueueOutbox({ id, conversationKey, payload, asRoot, clientMsgId }) — client_msg_id defaults to id
 // pendingOutbox(now) / markDelivered(id, { channel, ts, asRoot? }) / markDeliveryFailed(id, error, { retryAt })
 //   Delivery binds a threadless conversation to its root; confirmed post: rows join the target's history once.
@@ -521,9 +520,9 @@ class Store {
     return run;
   }
 
-  attachProcess(runId, { pid, pidStart, setting = null }) {
+  attachProcess(runId, { pid, pidStart, setting }) {
     if (!Number.isInteger(pid) || pid <= 0 || !pidStart) throw new Error('pid and pidStart required');
-    const snapshot = setting || this.getLaunchSetting();
+    const snapshot = setting;
     if (!snapshot?.harness || !snapshot.model || !snapshot.effort) throw new Error('launch setting required to attach a process');
     const frozen = {
       harness: snapshot.harness,
@@ -616,7 +615,7 @@ class Store {
         this.db.prepare("UPDATE work SET state='held', error=?, updated_at=? WHERE id=?").run(String(reason), now, run.work_id);
       }
       const repair = holdAgent
-        ? 'ignite-agent settings set, then ignite-agent work retry'
+        ? 'rbtv agent configure, then ignite-agent work retry'
         : `ignite-agent work retry ${run.work_id}`;
       this._enqueueOutbox({
         id: `hold:${run.queue_id}`,
@@ -661,23 +660,6 @@ class Store {
       this.db.prepare(`UPDATE queue SET state='cancelled'
         WHERE work_id=? AND state='pending' AND kind IN ('continue', 'wake', 'schedule')`).run(id);
       return this.getWork(id);
-    });
-  }
-
-  getLaunchSetting() {
-    return parse(this.db.prepare("SELECT value FROM settings WHERE key='launch'").get()?.value);
-  }
-
-  setLaunchSetting({ harness, model, effort, voice = null }) {
-    if (!harness || !model || !effort) throw new Error('harness, model and effort required');
-    return this.transaction(() => {
-      const prev = this.getLaunchSetting();
-      const changedAt = Math.max(Date.now(), (prev?.changedAt ?? 0) + 1);
-      const value = { harness, model, effort, voice: voice ?? null, changedAt };
-      this.db.prepare(`INSERT INTO settings(key, value, updated_at) VALUES ('launch', ?, ?)
-        ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`)
-        .run(json(value), changedAt);
-      return this.getLaunchSetting();
     });
   }
 

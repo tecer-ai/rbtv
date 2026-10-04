@@ -66,9 +66,10 @@ function workspace() {
   fs.writeFileSync(configFile(dir), JSON.stringify(body));
   const home = path.join(agents, 'master');
   fs.mkdirSync(home, { recursive: true });
-  fs.writeFileSync(path.join(home, 'launch.json'), JSON.stringify({
+  fs.writeFileSync(path.join(home, 'agent.json'), JSON.stringify({
     harness: 'claude', model: 'sonnet-5', effort: 'low',
   }));
+  fs.writeFileSync(path.join(home, 'agent.md'), '---\nname: master\n---\n', 'utf8');
   fs.mkdirSync(path.dirname(boardPath(home)), { recursive: true });
   fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
   fs.mkdirSync(path.join(home, 'memory'));
@@ -1034,7 +1035,7 @@ for (const ending of ['\n', '\r\n']) test(`board, remember and schedule checks s
   const command = (...args) => {
     const result = spawnSync(process.execPath, [path.join(__dirname, 'cli.js'), '--workspace', dir, '--agent', 'master', '--json', ...args], {
       encoding: 'utf8', timeout: 15_000,
-      env: { ...process.env, IGNITE_AGENT_HOME: home, IGNITE_CONVERSATION: '' },
+      env: { ...process.env, RBTV_AGENT_HOME: home, IGNITE_CONVERSATION: '' },
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.doesNotMatch(result.stdout + result.stderr, /lock busy/);
@@ -1171,15 +1172,16 @@ test('unit-path-has-link-bin', () => {
 
 test('launch-json-drives-preflight', async () => {
   const { dir, home } = workspace();
-  const launchPath = path.join(home, 'launch.json');
+  const launchPath = path.join(home, 'agent.json');
   const launch = JSON.parse(fs.readFileSync(launchPath, 'utf8'));
   launch.harness = 'missing-home';
   fs.writeFileSync(launchPath, JSON.stringify(launch));
   const side = path.join(dir, '.rbtv', 'agents', 'side');
   fs.mkdirSync(side, { recursive: true });
-  fs.writeFileSync(path.join(side, 'launch.json'), JSON.stringify({
+  fs.writeFileSync(path.join(side, 'agent.json'), JSON.stringify({
     harness: 'missing-side', model: 'm', effort: 'low',
   }));
+  fs.writeFileSync(path.join(side, 'agent.md'), '---\nname: side\n---\n', 'utf8');
   const empty = fs.mkdtempSync(path.join(dir, 'empty-'));
   const child = spawn(process.execPath, [daemonPath, '--workspace', dir], {
     env: { ...process.env, IGNITE_DAEMON_FAKE: '1', PATH: empty },
@@ -1389,9 +1391,10 @@ test('route-after-start', async () => {
   try {
     const home = path.join(dir, '.rbtv', 'agents', 'probe');
     fs.mkdirSync(home, { recursive: true });
-    fs.writeFileSync(path.join(home, 'launch.json'), JSON.stringify({
+    fs.writeFileSync(path.join(home, 'agent.json'), JSON.stringify({
       harness: 'claude', model: 'sonnet-5', effort: 'low',
     }));
+    fs.writeFileSync(path.join(home, 'agent.md'), '---\nname: probe\n---\n', 'utf8');
     setRoutes(dir, { CNEW: 'probe' });
     const saved = await box.socket.inject(mention('CNEW'));
     assert.equal(saved.queued, true);

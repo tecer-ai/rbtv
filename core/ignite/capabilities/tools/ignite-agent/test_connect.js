@@ -51,7 +51,7 @@ function installAgent(dir, name = 'probe') {
   const home = path.join(dir, '.rbtv', 'agents', name);
   fs.mkdirSync(path.join(home, 'conversations'), { recursive: true });
   fs.writeFileSync(path.join(home, 'agent.md'), `---\nname: ${name}\ndescription: fixture\n---\n\n## Role\n\nFixture.\n`);
-  fs.writeFileSync(path.join(home, 'launch.json'), '{"harness":"claude","model":"m","effort":"high"}\n');
+  fs.writeFileSync(path.join(home, 'agent.json'), '{"harness":"claude","model":"m","effort":"high"}\n');
   fs.writeFileSync(path.join(home, 'conversations', 'kept.md'), 'history\n');
   fs.mkdirSync(path.dirname(boardPath(home)), { recursive: true });
   fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
@@ -299,7 +299,7 @@ async function run(argv, extra = {}) {
         if (!json) fs.writeFileSync(boardPath(home), before, 'utf8');
         const candidate = path.join(dir, 'candidate.md');
         fs.writeFileSync(candidate, before, 'utf8');
-        const next = await run(['board', 'write', '--file', candidate], { env: { IGNITE_AGENT_HOME: home } });
+        const next = await run(['board', 'write', '--file', candidate], { env: { RBTV_AGENT_HOME: home } });
         assert.equal(next.code, 0, next.err);
         const timers = parseBoard(fs.readFileSync(boardPath(home), 'utf8')).timers;
         assert.equal(timers.length, action === 'cancel' ? 2 : 3);
@@ -408,8 +408,8 @@ async function run(argv, extra = {}) {
     writeConfig(dir);
     const result = await run(['connect', 'probe', '--dm', '--workspace', dir]).catch((error) => error);
     assert.match(result.message, /not installed/);
-    assert.match(result.message, /launch\.json/);
-    assert.match(result.message, /ignite-agent install/);
+    assert.match(result.message, /agent\.md and agent\.json/);
+    assert.match(result.message, /agent\.md and agent\.json/);
     assert.equal(readConfig(dir).dmAgent, undefined);
   });
 

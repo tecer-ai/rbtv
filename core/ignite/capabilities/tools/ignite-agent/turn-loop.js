@@ -39,18 +39,18 @@ function isAudio(file) {
   return AUDIO_EXT.has(ext);
 }
 
-function readLaunch(home) {
-  const file = path.join(home, 'launch.json');
+function readAgent(home) {
+  const file = path.join(home, 'agent.json');
   let raw;
   try {
     raw = JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch (error) {
-    throw fail(`launch.json: ${error.message}`, 'agent');
+    throw fail(`agent.json: ${error.message}`, 'agent');
   }
   if (!raw?.harness || !raw.model || typeof raw.effort !== 'string' || !raw.effort.trim()) {
-    throw fail('launch.json requires harness, model and an effort word', 'agent');
+    throw fail('agent.json requires harness, model and an effort word', 'agent');
   }
-  if (/^\d+$/.test(raw.effort)) throw fail(`launch.json effort must be a rung word, not ${raw.effort}`, 'agent');
+  if (/^\d+$/.test(raw.effort)) throw fail(`agent.json effort must be a rung word, not ${raw.effort}`, 'agent');
   return { harness: raw.harness, model: raw.model, effort: raw.effort, voice: raw.voice ?? null };
 }
 
@@ -272,13 +272,13 @@ async function execute(slug, claim, deps) {
     });
   }
 
-  const setting = readLaunch(home);
+  const setting = readAgent(home);
   const known = store.getSession(claim.conversation_key, setting.harness);
   const session = known ? { mode: 'resume', id: known } : { mode: 'new' };
   const window = deps.historyWindow ?? DEFAULT_HISTORY_WINDOW;
   const stored = listAll(store, claim.conversation_key);
   const recent = store.listHistory(claim.conversation_key, window);
-  const resultPath = path.join(dir, 'agent.json');
+  const resultPath = path.join(dir, 'agent-result.json');
   const requestPath = path.join(dir, 'request.json');
   const launcherPath = path.join(dir, 'launcher.json');
   writeHistory(home, store, claim.conversation_key);
@@ -317,7 +317,7 @@ async function execute(slug, claim, deps) {
     systemPromptFile: path.join(home, 'agent.md'),
     session,
     env: {
-      IGNITE_AGENT_HOME: home,
+      RBTV_AGENT_HOME: home,
       IGNITE_CONVERSATION: claim.conversation_key,
     },
   };

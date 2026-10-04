@@ -29,8 +29,8 @@ function ownerMessage(id, text = 'hello') {
   return { id, role: 'owner', text, team: 'T1', channel: 'C1', ts: id };
 }
 
-function launch(store) {
-  return store.setLaunchSetting({ harness: 'claude', model: 'm', effort: 'high' });
+function launch() {
+  return { harness: 'claude', model: 'm', effort: 'high' };
 }
 
 function finish(store, claim, disposition, extra = {}) {
@@ -78,18 +78,18 @@ test('2a owner input reopens completed work; wake does not', (store) => {
 
 test('2b liveRun returns pid and pidStart', (store) => {
   conv(store);
-  launch(store);
+  const setting = launch();
   store.enqueue({ id: 'q1', conversationKey: 'T1:C1:1.1', availableAt: 1_000 });
   const claim = store.claimNext(1_000);
   assert.equal(store.liveRun(), null);
   assert.equal(store.getActiveRun().id, claim.runId);
-  store.attachProcess(claim.runId, { pid: 4242, pidStart: 'start-9' });
+  store.attachProcess(claim.runId, { pid: 4242, pidStart: 'start-9', setting });
   const active = store.getActiveRun();
   assert.equal(active.pid, 4242);
   assert.equal(active.pidStart, 'start-9');
   assert.equal(store.liveRun(), null);
   assert.equal(store.claimNext(2_000), null);
-  assert.throws(() => store.attachProcess(claim.runId, { pid: 1, pidStart: 'other' }));
+  assert.throws(() => store.attachProcess(claim.runId, { pid: 1, pidStart: 'other', setting }));
 });
 
 test('2b liveRun matches proc start and refuses a dead or reused pid', async (store, ctx) => {
@@ -103,10 +103,10 @@ test('2b liveRun matches proc start and refuses a dead or reused pid', async (st
     const start = procStart(child.pid);
     assert.ok(start);
     conv(store);
-    launch(store);
+    const setting = launch();
     store.enqueue({ id: 'q-live', conversationKey: 'T1:C1:1.1', availableAt: 1_000 });
     const claim = store.claimNext(1_000);
-    store.attachProcess(claim.runId, { pid: child.pid, pidStart: Number(start) });
+    store.attachProcess(claim.runId, { pid: child.pid, pidStart: Number(start), setting });
     const restarted = ctx.reopen();
     const live = restarted.liveRun();
     assert.ok(live);
@@ -163,7 +163,6 @@ test('2d one pending scheduled wake per agent', (store) => {
   assert.equal(second.inserted, false);
   assert.equal(second.reason, 'duplicate');
   assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM conversations').get().n, 3);
-  store.setLaunchSetting({ harness: 'claude', model: 'm', effort: 'low' });
   const claim = store.claimNext();
   assert.equal(claim.kind, 'schedule');
   const third = store.enqueueScheduleWake({ id: 'sw3', conversationKey: 'T1:C1:1.1' });
@@ -306,21 +305,16 @@ test('2h session id is per harness', (store) => {
   assert.equal(store.getSession('T1:C1:1.1', 'codex'), 'ses-codex-2');
 });
 
-test('2i launch setting timestamp and run snapshot', (store) => {
+test('2i run snapshot comes from the turn setting', (store) => {
   conv(store);
-  const first = launch(store);
-  assert.equal(typeof first.changedAt, 'number');
+  const setting = launch();
   store.enqueue({ id: 'q1', conversationKey: 'T1:C1:1.1', availableAt: 1_000 });
   const claim = store.claimNext(1_000);
-  store.attachProcess(claim.runId, { pid: 7, pidStart: 'p' });
-  const second = store.setLaunchSetting({ harness: 'codex', model: 'other', effort: 'max', voice: 'v' });
-  assert.ok(second.changedAt > first.changedAt);
+  store.attachProcess(claim.runId, { pid: 7, pidStart: 'p', setting });
   assert.equal(store.agentHold(), null);
   const active = store.getActiveRun();
   assert.equal(active.launch_snapshot.harness, 'claude');
   assert.equal(active.launch_snapshot.model, 'm');
-  assert.equal(store.getLaunchSetting().harness, 'codex');
-  assert.equal(store.getLaunchSetting().voice, 'v');
 });
 
 test('retry delays are 5s then 30s then work hold', (store) => {

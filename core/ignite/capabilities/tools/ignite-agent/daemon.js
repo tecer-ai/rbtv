@@ -104,7 +104,7 @@ function resolveHarness(name, pathEnv) {
 function namedHarnesses(config) {
   const names = new Set();
   for (const slug of agentSlugs(config.workspace)) {
-    const file = path.join(agentHome(config, slug), 'launch.json');
+    const file = path.join(agentHome(config, slug), 'agent.json');
     if (!fs.existsSync(file)) continue;
     const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (typeof raw.harness === 'string' && raw.harness.trim()) names.add(raw.harness.trim());
@@ -137,7 +137,7 @@ function agentSlugs(workspace) {
     .map((ent) => ent.name)
     .filter((name) => {
       const home = path.join(dir, name);
-      return fs.existsSync(path.join(home, 'state.sqlite')) || fs.existsSync(path.join(home, 'launch.json'));
+      return fs.existsSync(path.join(home, 'agent.md')) && fs.existsSync(path.join(home, 'agent.json'));
     });
 }
 
@@ -612,7 +612,7 @@ async function startLocked(opts, workspace, held) {
           '--now', iso,
         ], {
           stdout: (text) => out.push(text),
-          env: { ...process.env, IGNITE_AGENT_HOME: '' },
+          env: { ...process.env, RBTV_AGENT_HOME: '' },
         });
         const body = JSON.parse(out.join('') || '{}');
         if (body.results?.length) log({ event: 'schedules-due', slug, results: body.results });

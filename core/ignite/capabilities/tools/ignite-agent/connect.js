@@ -3,7 +3,7 @@
 // API — ignite-agent connect | disconnect. run(command, argv, flags, deps) → Promise<exit code>.
 // flags.workspace / flags.json / flags.help come from cli.js parseGlobal.
 // deps.slack stubs Slack. deps.afterChannel() runs after the route write and before the bot joins.
-// The agent must already be installed (launch.json). Config must already exist; this does not create it.
+// The agent must already be installed (agent.md and agent.json). Config must already exist; this does not create it.
 // Slack tokens come from slackToken(config, …) and are never printed.
 // A re-run reuses the channel already routed; config.json is the only record of a connection.
 // disconnect removes routes and dmAgent, optionally archives the channel, and cancels timers.
@@ -16,7 +16,7 @@ const { loadConfig, updateConfig, agentHome, configPath, slackToken } = require(
 const { Slack } = require('./slack.js');
 const { Store, conversationKey } = require('./store.js');
 const { cadenceSpec, nextOccurrence, FIXED_TZ } = require('./schedule.js');
-const { preflightBoard, refreshBoard, refreshBoardAfterCommit } = require('./board.js');
+const { boardPath, migrateBoard, preflightBoard, refreshBoard, refreshBoardAfterCommit, writeBoard } = require('./board.js');
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const CHANNEL = /^[a-z0-9][a-z0-9_-]{0,79}$/;
@@ -29,7 +29,7 @@ connect <agent> (--channel-name <name> | --dm) [--schedule-json <file>]
         [--workspace <path>] [--dry-run] [--json]
 
   Run on the machine that will run the agent. The agent must already be installed
-  (agent.md in <workspace>/.rbtv/agents/<agent>/).
+  (agent.md and agent.json in <workspace>/.rbtv/agents/<agent>/).
   Needs <workspace>/.rbtv/config/ignite/config.json. This command does not write that
   file. See ${RUNBOOK}.
   --channel-name: create the Slack channel, the bot joins, the owner is invited,
@@ -134,10 +134,23 @@ function requireConfig(workspace) {
 
 function requireInstalled(config, agent) {
   const home = agentHome(config, agent);
-  if (!fs.existsSync(path.join(home, 'launch.json'))) {
-    fail(`agent ${agent} is not installed (no launch.json at ${home}). Install it with: ignite-agent install <agent file> --harness … --model … --effort …`);
+  if (!fs.existsSync(path.join(home, 'agent.md')) || !fs.existsSync(path.join(home, 'agent.json'))) {
+    fail(`agent ${agent} is not installed (needs agent.md and agent.json at ${home})`);
   }
   return home;
+}
+
+function ensureRuntime(home) {
+  fs.mkdirSync(path.join(home, 'conversations'), { recursive: true });
+  const board = migrateBoard(home);
+  if (!fs.existsSync(board)) {
+    writeBoard(board, fs.readFileSync(path.join(__dirname, 'templates', 'board.md.tmpl'), 'utf8'));
+  }
+  const db = path.join(home, 'state.sqlite');
+  if (!fs.existsSync(db)) {
+    const store = new Store(db);
+    store.close();
+  }
 }
 
 function scheduleFrom(file, now) {
@@ -367,4 +380,4 @@ async function run(command, argv, flags, deps = {}) {
   fail(`unknown command: ${command}`);
 }
 
-module.exports = { run, HELP };
+module.exports = { run, HELP, ensureRuntime };
