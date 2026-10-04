@@ -12,4 +12,4 @@ When you find an inconsistency in any file of this component while working here,
 
 ## 3. Where this folder is going
 
-The `cli-creator` skill is the anticipated migration of rbtv's command-line work into a skill, an early test of how the `core/build` documentation works in use; other cognitive units may follow. Its standard comes from the `rbtv install` command-line experience. Every new or edited rbtv command-line tool follows `cli-creator`, and no edit to this component lowers its standards.
+The `cli-creator` skill is the anticipated migration of rbtv's command-line work into a skill, an early test of how the `core/build` documentation works in use; other cognitive units may follow. Its standard comes from the `rbtv` command-line experience. Every new or edited rbtv command-line tool follows `cli-creator`, and no edit to this component lowers its standards.

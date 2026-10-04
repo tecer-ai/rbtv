@@ -10,4 +10,4 @@
 - When a second cognitive unit or tool needs content that another one holds, move that content to one shared home and point both to it: a [capability](../glossary/capability.md): a document for instructions, a [tool](../glossary/tool.md) for an executable operation.
 - Give each operation one implementation. Every way to perform it, whether for a human or an agent, calls that implementation.
 - Keep each kind of state, such as installation settings in [`config/`](../glossary/config.md), in one store with one format. Every view or summary of that state reads the store; none is maintained by hand as a second copy.
-- When a boundary requires a copy, such as the files the [installer](../glossary/rbtv-installer.md) writes for a harness or under `.rbtv/agents/`, change the source and regenerate the copy; never edit the copy.
+- When a boundary requires a copy, such as the files the [rbtv command](../glossary/rbtv-command.md) writes for a harness or under `.rbtv/agents/`, change the source and regenerate the copy; never edit the copy.

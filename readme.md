@@ -21,7 +21,7 @@ Each module is documented in detail in [`modules/`](modules). The doc covers the
 | **coding** | The done-gate rule — done on coding tasks requires an owner-confirmed outcome contract, real-input exercise of each criterion, and weight-graded evidence (a disk sheet for substantial work, inline proof in the done message for trivial tasks); the done gate also carries a Contract-time drivability check (merged in from the former build-for-agent-testability rule) so surfaces the agent can't drive (native dialogs, isolated-run config, fused output) get a test seam built into the feature (plain-language code communication moved to the new **communication** module; git commits moved to core; the coding-discipline guardrails were generalized into the always-on reasoning rule — see [Retired components](#retired-components)). The done gate is split into a thin always-on trigger rule (≈420 words) plus an on-fire protocol body (≈2,200 words) loaded via a skill loader only when a coding task starts; a workspace that does no coding omits this module at install (see [modules/coding.md](modules/coding.md) § Scoping) | [modules/coding.md](modules/coding.md) |
 | **communication** | Audience-adapted communication, electable independent of coding — a general plain-language rule (define terms, no jargon, no analogies, no bare name-drops, explain plan phases) plus the non-technical-user code-communication overlay (translate code identifiers, frame decisions as behavior changes, no raw output dumps). Both MECE with core's chat-discipline | [modules/communication.md](modules/communication.md) |
 | **caveman** | Optional ultra-compressed caveman communication mode (the linguistic transform; behavioral bans deferred to chat-discipline). Parody commit voice ships but is off by default — token savings and fun, based on JuliusBrussee/caveman | [modules/caveman.md](modules/caveman.md) |
-| **ignite** | Ignite 0.2 is `core/ignite/`: runnable Node code — a Slack message or a scheduled wake runs one agent turn, deployed by `core/ignite/capabilities/tools/ignite-agent/deploy.sh` and unit `rbtv-ignite-agents.service`, state in the workspace `.rbtv/agents/`, reached through `ignite-agent` and the `create-primary-agent` skill. | [ignite/ignite.json](ignite/ignite.json) |
+| **ignite** | Ignite is `core/ignite/`: runnable Node code — a Slack message or a scheduled wake runs one agent turn, deployed by `core/ignite/capabilities/tools/ignite-agent/deploy.sh` and unit `rbtv-ignite-agents.service`, state in the workspace `.rbtv/agents/`, reached through `ignite` and the agent guide (`core/build/capabilities/guides/agent.md`). | [ignite/ignite.json](ignite/ignite.json) |
 
 ## Requirements
 
@@ -34,15 +34,15 @@ Each module is documented in detail in [`modules/`](modules). The doc covers the
 For a first run, point the installer at an existing workspace directory. `status` shows which directory it selected and which harnesses are configured. `list` opens the exact module, component, or item hierarchy; `search` finds names and descriptions broadly; `show` explains one choice; `add` installs its stable name; `remove` takes that same name.
 
 ```bash
-rbtv install status --target /path/to/workspace
-rbtv install list brainstorm --target /path/to/workspace
-rbtv install show brainstorm --target /path/to/workspace
-rbtv install add brainstorm --target /path/to/workspace --harness claude,codex --guidance CLAUDE.md
-rbtv install status --target /path/to/workspace
-rbtv install remove brainstorm --target /path/to/workspace
+rbtv status --target /path/to/workspace
+rbtv list brainstorm --target /path/to/workspace
+rbtv show brainstorm --target /path/to/workspace
+rbtv add brainstorm --target /path/to/workspace --harness claude,codex --guidance CLAUDE.md
+rbtv status --target /path/to/workspace
+rbtv remove brainstorm --target /path/to/workspace
 ```
 
-On a fresh workspace, run `configure --harness NAMES --guidance NAME` or supply both settings on the first `add`. A short name selects one exposed item such as a skill or rule when unique; a full `module/component` name selects a component. `list NAME` opens that exact scope, while `search WORDS` looks across names and descriptions. For another agent, set `--target` to its home directory on each command. Use `--dry-run` to preview a change and `--json` for a machine-readable result. Bare `rbtv install` prints help; `rbtv install interactive` starts the guided flow.
+On a fresh workspace, run `configure --harness NAMES --guidance NAME` or supply both settings on the first `add`. A short name selects one exposed item such as a skill or rule when unique; a full `module/component` name selects a component. `list NAME` opens that exact scope, while `search WORDS` looks across names and descriptions. For another agent, set `--target` to its home directory on each command. Use `--dry-run` to preview a change and `--json` for a machine-readable result. Bare `rbtv install` prints help; `rbtv interactive` starts the guided flow.
 
 Change results show a compact summary and important warnings by default. Add `--details` to include the complete grouped item and file lists; combine it with `--dry-run` to inspect a plan before applying it. `--json` retains the full structured result regardless of text verbosity. A file-operation failure reports `changed: null` when earlier writes may have applied; inspect the target before retrying.
 
@@ -50,9 +50,9 @@ Agent results also include `unit_files` (file outcomes from installing or removi
 
 The `cli-creator` skill in `meta/code` covers both help and actual command results. Its output review checks tables, spacing, wrapping, bulk-result summaries, structured output, and real outcomes against observed state; help coverage alone is insufficient.
 
-The `work-history` skill in `meta/functions` reconstructs a user-agreed project, plan, or session history. It preserves visible transcripts, intermediate and final outputs, and saved working notes in one folder per agent/session, with a linked root timeline, provenance manifest, and explicit recovery gaps. It researches historical evidence; `handoff` transfers current session knowledge for continuation. Install it with `rbtv install add work-history` in a configured workspace.
+The `work-history` skill in `meta/functions` reconstructs a user-agreed project, plan, or session history. It preserves visible transcripts, intermediate and final outputs, and saved working notes in one folder per agent/session, with a linked root timeline, provenance manifest, and explicit recovery gaps. It researches historical evidence; `handoff` transfers current session knowledge for continuation. Install it with `rbtv add work-history` in a configured workspace.
 
-> **The installer is `core/installer/capabilities/tools/install/install.py`, reachable as `rbtv install`.**
+> **The installer is `core/installer/capabilities/tools/install/install.py`, reachable as `rbtv`.**
 > It carried the name `install2.py` from its first commit until 2026-08-23, while a
 > PREDECESSOR installer held the plain name at the repo root. On that date it was split
 > into one module per responsibility under `core/installer/lib/` (checks under
@@ -77,28 +77,28 @@ The `work-history` skill in `meta/functions` reconstructs a user-agreed project,
 > Other generated artifacts are named after their bare unit name and marked as installer-owned.
 > Installation state lives at
 > `{target}/.rbtv/config/install.json`, recording every file and every shared-config key it
-> wrote; `rbtv install remove` releases exactly those claims. It exposes at the
+> wrote; `rbtv remove` releases exactly those claims. It exposes at the
 > INSTALL ROOT only and never writes under `.rbtv/goals/`.
 >
-> It is reachable as **`rbtv install`** — the system CLI routes that namespace straight to it,
+> It is reachable as **`rbtv`** — the system CLI routes that name straight to it,
 > and the commands below are the same tool either way:
 >
 > ```bash
-> rbtv install --target W status                                # target and saved settings
-> rbtv install --target W list meta/plan                    # exact component scope
-> rbtv install --target W search planning                      # broad discovery
-> rbtv install --target W show meta/plan                    # component detail
-> rbtv install --target W configure --harness claude,codex --guidance CLAUDE.md
-> rbtv install --target W add meta/plan                     # select the component
-> rbtv install --target W add --module office                   # a whole module
-> rbtv install --target W remove meta/plan                  # one component
-> rbtv install --target W remove web/browse web/capture         # several components
-> rbtv install --target W configure --harness claude,codex      # replace receiving tools
-> rbtv install --target W configure --guidance CLAUDE.md        # replace maintained guidance
-> rbtv install --target W add guidance exclude vendor           # skip a guidance folder
-> rbtv install --target W update all                             # regenerate locally
-> rbtv install interactive                                       # guided flow
-> rbtv install selftest                                          # its runnable check
+> rbtv status --target W                                # target and saved settings
+> rbtv list meta/plan --target W                    # exact component scope
+> rbtv search planning --target W                      # broad discovery
+> rbtv show meta/plan --target W                    # component detail
+> rbtv configure --harness claude,codex --guidance CLAUDE.md --target W
+> rbtv add meta/plan --target W                     # select the component
+> rbtv add --module office --target W                   # a whole module
+> rbtv remove meta/plan --target W                  # one component
+> rbtv remove web/browse web/capture --target W         # several components
+> rbtv configure --harness claude,codex --target W      # replace receiving tools
+> rbtv configure --guidance CLAUDE.md --target W        # replace maintained guidance
+> rbtv add guidance exclude vendor --target W           # skip a guidance folder
+> rbtv update all --target W                             # regenerate locally
+> rbtv interactive                                       # guided flow
+> rbtv selftest                                          # its runnable check
 > ```
 >
 > **The two workspace settings are explicit.** `--harness` chooses which AI coding tools receive
@@ -131,10 +131,10 @@ The `work-history` skill in `meta/functions` reconstructs a user-agreed project,
 2. Run the installer:
 
    ```bash
-   rbtv install status          # or: python rbtv/core/installer/capabilities/tools/install/install.py status
+   rbtv status          # or: python rbtv/core/installer/capabilities/tools/install/install.py status
    ```
 
-   For a guided flow, run `rbtv install interactive`: choose the workspace, tick the
+   For a guided flow, run `rbtv interactive`: choose the workspace, tick the
    components with the arrow keys (space toggles, `i` shows what a component
    installs, `a` ticks everything), tick which AI tools get files written for
    them, choose which root guidance file you author, then confirm. Piped or
@@ -235,17 +235,17 @@ cd /path/to/your/workspace/rbtv
 git pull
 ```
 
-Content changes behind thin loaders appear live. Run `rbtv install update scaffolding` when an
+Content changes behind thin loaders appear live. Run `rbtv update scaffolding` when an
 unit file, loader, or generated instruction section changes. This
 refreshes generated sections in every configured instruction file, including counterpart files,
-while preserving human text outside them. Use `rbtv install update guidance` when maintained
+while preserving human text outside them. Use `rbtv update guidance` when maintained
 human instructions change; it copies that text to configured counterparts while preserving
-their generated sections. `rbtv install update all` does both from local source. Use `add` or
+their generated sections. `rbtv update all` does both from local source. Use `add` or
 `remove` when you want to change the selected items.
 
 ## Source of truth
 
-Installed files under `.claude/skills/`, `.claude/commands/`, `.claude/rules/` and `.claude/agents/` that carry the `rbtv-managed` marker (or the earlier `rbtv2-managed`) are regenerated on every `rbtv install` run. **Do not edit them in your workspace** — edit the source in this repo and re-install. This section is the canonical statement of that principle for installs without the **builder** module; workspaces that install builder also get the always-on `rbtv-source-of-truth` rule enforcing it (recovered from retirement — see [modules/builder.md](modules/builder.md)).
+Installed files under `.claude/skills/`, `.claude/commands/`, `.claude/rules/` and `.claude/agents/` that carry the `rbtv-managed` marker (or the earlier `rbtv2-managed`) are regenerated on every `rbtv update` run. **Do not edit them in your workspace** — edit the source in this repo and re-install. This section is the canonical statement of that principle for installs without the **builder** module; workspaces that install builder also get the always-on `rbtv-source-of-truth` rule enforcing it (recovered from retirement — see [modules/builder.md](modules/builder.md)).
 
 ## Retired components
 

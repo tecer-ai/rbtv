@@ -29,7 +29,7 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
 - **Tools directory** — this capability's own `tools/` folder. Find it by reading `rbtv_path` from
   the workspace's `rbtv.json` (at the workspace root) and joining `office/meeting-summarizer/tools`.
   Call this `<tools>` below.
-- **State directory** — `<agent-home>/state/` (`<agent-home>` is `$IGNITE_AGENT_HOME` inside a turn;
+- **State directory** — `<agent-home>/state/` (`<agent-home>` is `$RBTV_AGENT_HOME` inside a turn;
   starts empty on a new agent, nothing migrates from a prior instance). `doubts.jsonl`,
   `outcomes.jsonl`, `resolved-doubts.jsonl`, `asked-doubts.jsonl`, `processed-transcripts.jsonl`,
   `asked-routing.jsonl`, `resolved-routing.jsonl` all live directly under it — call this `<state>`
@@ -157,7 +157,7 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
      and step 1 already tried to resolve them from this turn's history).
 
 7. **Compose the report.** ONE grouped reply, in the SAME conversation this wake arrived on — never
-   open a new thread for it (`ignite-agent post` is for a proactive check that belongs to NO existing
+   open a new thread for it (`ignite post` is for a proactive check that belongs to NO existing
    conversation; a scheduled wake of an already-created agent always continues its own conversation).
    - Nothing filed, nothing applied, nothing newly open: `replies: []`, `disposition: completed`.
      A quiet cycle is a correct cycle — never manufacture a status update.
@@ -192,7 +192,7 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
   meeting. Reads the latest `content-entity` row in `outcomes.jsonl` per meeting — a routing answer
   you settle there (step 1b) is what a retried `precheck` resolves against.
 - `doubt-answer` (`doubt_answer.py`) — this agent's own glossary-doubt ledger: `list-open`,
-  `mark-asked`, `apply`. Talks to no chat surface — that is your `replies`/`ignite-agent post`.
+  `mark-asked`, `apply`. Talks to no chat surface — that is your `replies`/`ignite post`.
   Routing questions follow the same pattern with no CLI of their own (steps 1b, 5, 6).
 - `verify-access` (`verify_access.py`) — reached only when a tick refuses at the account boundary:
   says which watched folder or account grounding is missing.

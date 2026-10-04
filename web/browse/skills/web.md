@@ -5,7 +5,7 @@ description: "Use for web requests: read or save a page or PDF, preview a link, 
 
 # web
 
-Route the request to one child. The unit `module/component#unit` is the file of that name in the component's unit folders (`rbtv install show <unit>` gives its path); open that file before using its tools. Resolve paths from the rbtv repository that contains this file.
+Route the request to one child. The unit `module/component#unit` is the file of that name in the component's unit folders (`rbtv show <unit>` gives its path); open that file before using its tools. Resolve paths from the rbtv repository that contains this file.
 
 | Request | Child |
 |---|---|

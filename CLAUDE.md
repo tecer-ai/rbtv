@@ -1,6 +1,6 @@
 # rbtv
 
-This repository is rbtv's source: the modules and components that `rbtv install` (the installer, `core/installer/capabilities/tools/rbtv-install/install.py`) installs into a target folder. To learn what rbtv is and how its folders are laid out, read `core/build/capabilities/rbtv.md`.
+This repository is rbtv's source: the modules and components that `rbtv` (the rbtv command, `core/installer/capabilities/tools/rbtv-install/install.py`) exposes to a target folder by managing its units. To learn what rbtv is and how its folders are laid out, read `core/build/capabilities/rbtv.md`.
 
 ## Hard Rule — Build and Document Every Change
 
@@ -36,4 +36,4 @@ Every new or edited rbtv command-line tool follows the `cli-creator` skill (`met
 
 ## Installed is a subset
 
-An installation carries only the items its user installed, chosen just in time, so a unit missing from an installation is normal, not a defect. Check what is installed with `rbtv install list --installed` before treating anything as missing.
+An installation carries only the items its user installed, chosen just in time, so a unit missing from an installation is normal, not a defect. Check what is installed with `rbtv list --installed` before treating anything as missing.
