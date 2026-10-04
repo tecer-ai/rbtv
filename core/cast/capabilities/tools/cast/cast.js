@@ -8,6 +8,7 @@
 // to carry. Read lib/<verb>.js for a verb; read here only for how argv reaches it.
 
 const { agentFilePrompt, rbtvAgent, takeAgentFlags } = require('./lib/agent');
+const { runAgentList } = require('./lib/agent-list');
 const { runApi } = require('./lib/api');
 const { USAGE, USAGE_IG, fail, parseArgs, resolveEffort, resolveEffortValue, resolveFolder, resolveModel, runDoctor, runList } = require('./lib/core');
 const { printHelp, verbHelpPages } = require('./lib/help');
@@ -31,7 +32,12 @@ function main(rawArgv) {
     process.exit(0);
   }
   if (rawArgv[0] === 'doctor') return runDoctor(rawArgv.slice(1));
-  if (rawArgv[0] === 'list') return runList(rawArgv.slice(1));
+  if (rawArgv[0] === 'list') {
+    // -rbtv lists the rbtv agents; every other form is the model inventory, which -models names.
+    const rest = rawArgv.slice(1);
+    if (rest.includes('-rbtv')) return runAgentList(rest, fail, PAGES.list);
+    return runList(rest.filter((a) => a !== '-models'));
+  }
   if (rawArgv[0] === 'resume') return runResume(rawArgv.slice(1));
   if (rawArgv[0] === 'sessions') return runSessions(rawArgv.slice(1));
   if (rawArgv[0] === 'monitor') {

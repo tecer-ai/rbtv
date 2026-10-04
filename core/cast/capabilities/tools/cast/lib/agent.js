@@ -7,7 +7,8 @@
 //               the system prompt; the folder is the working folder.
 //   -rogue FILE    a rogue agent with no folder: the body of FILE (frontmatter ignored) is
 //               the system prompt, and the launch folder is the usual one.
-// Both ride the ordinary launch. spark reads the same files through the readers below.
+// Both ride the ordinary launch. spark reads the same files through the readers below, and
+// lib/agent-list.js lists the agents a name can reach.
 
 const fs = require('fs');
 const path = require('path');
@@ -26,23 +27,44 @@ function isPath(value) {
   return value.includes('/') || value === '.' || value === '..';
 }
 
-// The agent folder a value names, or null when neither agent file is there. A path is taken as
-// given; a name is looked up under `.rbtv/agents/` from `from` upward. A folder holding either file
-// counts, so a folder with one file missing is named as broken rather than skipped.
-function findAgentHome(value, from) {
-  const holds = (home) => fs.existsSync(path.join(home, AGENT_MD)) || fs.existsSync(path.join(home, AGENT_JSON));
-  if (isPath(value)) {
-    const home = path.resolve(from, value);
-    return holds(home) ? home : null;
-  }
+// A folder holding either agent file counts as an agent folder, so a folder with one file missing
+// is named as broken rather than skipped.
+function holdsAgentFile(home) {
+  return fs.existsSync(path.join(home, AGENT_MD)) || fs.existsSync(path.join(home, AGENT_JSON));
+}
+
+// The first value `pick` returns for a folder, from `from` upward, or null.
+function upward(from, pick) {
   for (let dir = path.resolve(from); ; dir = path.dirname(dir)) {
-    const home = path.join(dir, '.rbtv', 'agents', value);
-    if (holds(home)) return home;
+    const found = pick(dir);
+    if (found) return found;
     if (path.dirname(dir) === dir) return null;
   }
 }
 
-// The agent in `home`: its launch values and standing prompt, or the problem that stops a launch.
+// The agent folder a value names, or null when neither agent file is there. A path is taken as
+// given; a name is looked up under `.rbtv/agents/` from `from` upward.
+function findAgentHome(value, from) {
+  if (isPath(value)) {
+    const home = path.resolve(from, value);
+    return holdsAgentFile(home) ? home : null;
+  }
+  return upward(from, (dir) => {
+    const home = path.join(dir, '.rbtv', 'agents', value);
+    return holdsAgentFile(home) ? home : null;
+  });
+}
+
+// The nearest `.rbtv/agents/` folder from `from` upward, or null: the folder a list shows.
+function findAgentsFolder(from) {
+  return upward(from, (dir) => {
+    const folder = path.join(dir, '.rbtv', 'agents');
+    return fs.existsSync(folder) && fs.statSync(folder).isDirectory() ? folder : null;
+  });
+}
+
+// The agent in `home`: its launch values, standing prompt, description and whether it is an Ignite
+// agent (its `ignite` pack is on, which `ignite connect` does), or the problem that stops a launch.
 // problem 'launch' = agent.json is missing, unreadable or names no harness or model;
 // problem 'prompt' = agent.md is missing.
 function readAgent(home) {
@@ -62,6 +84,8 @@ function readAgent(home) {
     harness: values.harness,
     model: values.model,
     effort: values.effort ?? null,
+    description: typeof values.description === 'string' ? values.description : '',
+    ignite: Array.isArray(values.packs) && values.packs.includes('ignite'),
     prompt: agentBody(fs.readFileSync(mdPath, 'utf8')),
   };
   return { agent };
@@ -72,8 +96,8 @@ function rbtvAgent(value, fail) {
   const home = findAgentHome(value, process.cwd());
   if (!home) {
     const looked = isPath(value)
-      ? `looked for ${path.join(path.resolve(value), AGENT_JSON)}\nNothing changed.\ncheck the path, or look up a name: rbtv agent list`
-      : `looked for .rbtv/agents/${value}/agent.json from the current folder upward\nNothing changed.\nlook up a name: rbtv agent list`;
+      ? `looked for ${path.join(path.resolve(value), AGENT_JSON)}\nNothing changed.\ncheck the path, or look up a name: cast list -rbtv`
+      : `looked for .rbtv/agents/${value}/agent.json from the current folder upward\nNothing changed.\nlook up a name: cast list -rbtv`;
     fail(`refused: no rbtv agent '${value}' was found\n${looked}`);
   }
   const read = readAgent(home);
@@ -112,4 +136,7 @@ function agentFilePrompt(flag, fail) {
   return { text: agentBody(text) };
 }
 
-module.exports = { agentBody, isPath, findAgentHome, readAgent, rbtvAgent, takeAgentFlags, agentFilePrompt };
+module.exports = {
+  agentBody, isPath, holdsAgentFile, findAgentHome, findAgentsFolder, readAgent, rbtvAgent, takeAgentFlags,
+  agentFilePrompt,
+};

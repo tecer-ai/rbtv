@@ -19,7 +19,7 @@ cast route --caps image
 cast route --batch <agents.json | -> [--explain]
 cast route --catalog [--json]
 cast doctor [--json]
-cast list [--json]
+cast list [-models | -rbtv [AGENT]] [--json]
 cast -h | --help
 ```
 
@@ -124,6 +124,21 @@ The system prompt rides each harness's strongest channel, the same as `-s TEXT`/
 `ignite turn` takes its standing prompt the same way: the `systemPromptFile` in its request is read
 with its frontmatter removed, and the model receives the body only.
 
+### Finding the agents: `cast list -rbtv`
+
+`cast list -rbtv` shows the rbtv agents `cast -rbtv NAME` can launch from the current folder: the
+agents in the nearest `.rbtv/agents/` folder above it. For each agent it prints the name, harness,
+model, effort, Ignite (`yes` when the agent's `ignite` pack is on, which `ignite connect` does) and
+the description from `agent.json`. The description is shortened to fit the line; on a terminal too
+narrow for the table each agent is a labeled block with its whole description. An agent that cannot
+be launched is named with the reason. `cast list -rbtv AGENT` shows one agent in full, with its
+folder; AGENT is a name or a path. `--json` prints `{folder, agents}` or that one agent. Both only
+read. `cast list` and `cast list -models` print the model inventory.
+
+`lib/agent-list.js` holds the list: `cast list -rbtv` shows it to an agent and `spark list` shows
+the same list to a person, each with its own wording for the command that shows one agent in full
+and for a refusal.
+
 ## spark — open an agent for a person
 
 `spark AGENT` (`capabilities/tools/spark/spark.js`) opens an agent in this terminal, for a person.
@@ -136,15 +151,14 @@ It needs `cast` on PATH and finds the agent the same way cast does: a name or a 
 - Refusals, exit 1: no agent by that name or path, `agent.json` unreadable or missing, `agent.md`
   missing, `cast` not on PATH, or an unknown option.
 
-`spark list [FOLDER]` shows the agents spark can open. It runs `rbtv agent list` with the same
-FOLDER and `--json`, and passes its output and exit status through, so spark keeps no listing of
-its own. It needs `rbtv` on PATH and opens nothing. The first argument that is not an option
-decides the form, so `list` is never taken as an agent name: an agent whose name is `list` is
-opened by its path.
+`spark list [AGENT]` shows the agents spark can open by name, or one of them in full: the list of
+`cast list -rbtv`, read in the same process, so it needs nothing on PATH and opens nothing. The
+first argument that is not an option decides the form, so `list` is never taken as an agent name:
+an agent whose name is `list` is opened by its path.
 
-- Refusals by spark, exit 1: `--dry-run`, more than one folder, `rbtv` not on PATH, or an unknown
-  option. A refusal by spark is text on standard error and leaves standard output empty, with or
-  without `--json`.
+- Refusals, exit 1: `--dry-run`, more than one agent, an agent that is not found or cannot be
+  launched, or an unknown option. A refusal is text on standard error and leaves standard output
+  empty, with or without `--json`.
 
 ## Execution
 
@@ -425,7 +439,8 @@ dotenv at `rbtv.json`'s `env_file`.
 | `capabilities/tools/cast/lib/handles.js` | the launch-handle registry — the one observable a watcher uses to find a run again |
 | `capabilities/tools/cast/lib/launch.js` | spawn, `cast resume` |
 | `capabilities/tools/cast/lib/agent.js` | `-rbtv` / `-rogue`: find the agent folder, read `agent.json` and `agent.md`; the readers spark also uses |
-| `capabilities/tools/spark/spark.js` | `spark AGENT`: the terminal handoff, a thin layer over `cast -rbtv`; `spark list`: a thin layer over `rbtv agent list` (its tests: `test_spark.js`) |
+| `capabilities/tools/cast/lib/agent-list.js` | `cast list -rbtv`: the agents a name can reach, as a table, labeled blocks, or JSON; the list spark also shows |
+| `capabilities/tools/spark/spark.js` | `spark AGENT`: the terminal handoff, a thin layer over `cast -rbtv`; `spark list`: the list of `lib/agent-list.js` (its tests: `test_spark.js`) |
 | `capabilities/tools/cast/lib/sessions.js` | the per-harness session-store readers and `cast sessions` |
 | `capabilities/tools/cast/lib/monitor.js` | `cast monitor` — the freeze tripwire, its witness channel, roster and watch |
 | `capabilities/tools/cast/lib/route.js` | `cast route` — the selector |

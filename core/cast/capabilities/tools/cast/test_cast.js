@@ -1419,6 +1419,87 @@ else {
   fs.mkdirSync(halfHome, { recursive: true });
   fs.writeFileSync(path.join(halfHome, 'agent.md'), 'You are half.');
 
+  // cast list -rbtv: the agents `cast -rbtv NAME` can launch from here; -rbtv AGENT is one in full;
+  // -models is the name of the list `cast list` has always printed
+  {
+    const TESS_SAYS = 'Tests a change before it ships and reports each failure with the command that shows it. '
+      + 'Triggered by a request to check a change. Not for writing the change.';
+    const tess = path.join(root, '.rbtv', 'agents', 'tess');
+    fs.mkdirSync(tess, { recursive: true });
+    fs.writeFileSync(path.join(tess, 'agent.md'), '---\nname: tess\n---\nYou are Tess.');
+    fs.writeFileSync(path.join(tess, 'agent.json'), JSON.stringify({
+      name: 'tess', description: TESS_SAYS, harness: 'codex', model: 'gpt-6-luna', effort: 'high', packs: ['ignite'],
+    }));
+    const list = (args, columns = '100') => spawnSync('node', [TOOL, 'list', ...args],
+      { cwd: root, encoding: 'utf8', env: { ...process.env, COLUMNS: columns } });
+    const agents = path.join(root, '.rbtv', 'agents');
+
+    const all = list(['-rbtv']);
+    assert.strictEqual(all.status, 0, all.stderr);
+    assert.strictEqual(all.stderr, '');
+    const lines = all.stdout.split('\n');
+    assert.deepStrictEqual(lines.slice(0, 3), ['rbtv agents: 3', `Folder: ${agents}`, '']);
+    assert.ok(lines.includes(`half: cannot be launched: ${path.join(halfHome, 'agent.json')} is missing`), all.stdout);
+    assert.ok(lines.includes('Name  Harness  Model       Effort  Ignite  Description'), all.stdout);
+    assert.ok(lines.includes('sara  claude   sonnet-5-5  medium  no'), `an agent with no description and no pack: ${all.stdout}`);
+    const row = lines.find((line) => line.startsWith('tess '));
+    assert.match(row, /^tess  codex    gpt-6-luna  high    yes     Tests a change .*…$/, 'the description is shortened');
+    assert.ok(row.length <= 100, `a row fits the terminal: ${row.length}`);
+    assert.strictEqual(lines[lines.length - 2], 'Full description of one agent: cast list -rbtv AGENT');
+
+    const narrow = list(['-rbtv'], '60');
+    assert.ok(narrow.stdout.includes('Name: tess\nHarness: codex\nModel: gpt-6-luna\nEffort: high\nIgnite: yes\nDescription: Tests'), narrow.stdout);
+    assert.ok(narrow.stdout.replace(/\n {2}/g, ' ').includes(`Description: ${TESS_SAYS}`), 'a narrow terminal shows the whole description');
+    assert.ok(narrow.stdout.split('\n').filter((line) => /^(Description:| {2})/.test(line)).every((line) => line.length <= 60),
+      'a description is wrapped to the terminal');
+
+    const one = list(['-rbtv', 'tess']);
+    assert.strictEqual(one.status, 0, one.stderr);
+    assert.ok(one.stdout.startsWith(`Name: tess\nHarness: codex\nModel: gpt-6-luna\nEffort: high\nIgnite: yes\nFolder: ${tess}\nDescription: `), one.stdout);
+    assert.ok(one.stdout.replace(/\n {2}/g, ' ').includes(TESS_SAYS), 'one agent is shown in full');
+
+    const tessRow = { name: 'tess', description: TESS_SAYS, harness: 'codex', model: 'gpt-6-luna', effort: 'high', ignite: true, home: tess };
+    const json = JSON.parse(list(['--json', '-rbtv']).stdout);
+    assert.strictEqual(json.folder, agents);
+    assert.deepStrictEqual(json.agents, [
+      { name: 'half', home: halfHome, problem: `${path.join(halfHome, 'agent.json')} is missing` },
+      { name: 'sara', description: '', harness: 'claude', model: 'sonnet-5-5', effort: 'medium', ignite: false, home },
+      tessRow,
+    ]);
+    assert.deepStrictEqual(JSON.parse(list(['-rbtv', '.rbtv/agents/tess', '--json']).stdout), tessRow, 'a path names the agent');
+
+    const help = list(['-rbtv', '-h']);
+    assert.strictEqual(help.status, 0);
+    assert.ok(help.stdout.startsWith('usage: cast list [-models | -rbtv [AGENT]] [--json]'), help.stdout);
+
+    for (const form of [[], ['--json']]) {
+      assert.strictEqual(list(['-models', ...form]).stdout, list(form).stdout, `-models is the list cast list prints: ${form}`);
+    }
+
+    for (const [args, text] of [
+      [['-rbtv', '-models'], 'two different lists'],
+      [['-rbtv', '--target', root], "'--target' is not a cast list option"],
+      [['-rbtv', 'sara', 'tess'], 'takes at most one agent, got 2'],
+      [['-rbtv', 'nobody'], 'look up a name: cast list -rbtv'],
+      [['-rbtv', 'half', '--json'], 'agent.json is missing'],
+    ]) {
+      const res = list(args);
+      assert.strictEqual(res.status, 2, `expected a refusal for: cast list ${args.join(' ')}`);
+      assert.strictEqual(res.stdout, '', 'a refusal prints nothing on standard output');
+      assert.ok(res.stderr.includes(text), `refusal for cast list ${args.join(' ')} must say '${text}', got: ${res.stderr}`);
+    }
+
+    // the two results that name no agent
+    const { listLines } = require('./lib/agent-list');
+    assert.deepStrictEqual(listLines({ folder: null, agents: [] }, 'x'),
+      ['rbtv agents: 0', '', 'No .rbtv/agents/ folder was found from the current folder upward.']);
+    assert.deepStrictEqual(listLines({ folder: agents, agents: [] }, 'x'),
+      ['rbtv agents: 0', `Folder: ${agents}`, '', 'No agent found. An agent folder holds agent.md and agent.json.']);
+    // a description that fits is not shortened, and then nothing points to the full form
+    assert.deepStrictEqual(listLines({ folder: agents, agents: [tessRow] }, 'x', 400).slice(-2),
+      ['Name  Harness  Model       Effort  Ignite  Description', `tess  codex    gpt-6-luna  high    yes     ${TESS_SAYS}`]);
+  }
+
   const refusals = [
     [['claude', 'sonnet-5-5', '2', '-rbtv', 'sara', '-p', 'go'], 'does not take a harness, model or effort'],
     [['codex', 'gpt-6.1-sol', '3', '-rbtv', 'sara', '-p', 'go'], 'does not take a harness, model or effort'],
