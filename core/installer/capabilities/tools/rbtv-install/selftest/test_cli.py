@@ -15,7 +15,9 @@ from lib.operations import do_install
 from lib.parser import build_parser
 from lib.commands import (
     _HANDLERS,
+    _text_refusal,
     cmd_add,
+    cmd_agent,
     cmd_doctor,
     cmd_update,
     cmd_li,
@@ -23,6 +25,7 @@ from lib.commands import (
     cmd_rm,
     main,
 )
+from lib.report import print_result
 
 
 def parser_selectors_index(ctx) -> None:
@@ -274,6 +277,19 @@ def parser_selectors_index(ctx) -> None:
           and refusal.next == "rbtv agent add research",
           str(refusal and (refusal.code, refusal.message)))
 
+    # Pack discovery reads each component's folder; these have none to read.
+    agent_cat = {cid: {"path": str(tmp / "no-such-folder"), **comp}
+                 for cid, comp in agent_cat.items()}
+    by_component = io.StringIO()
+    with contextlib.redirect_stdout(by_component):
+        cmd_add(_sel(verb="add", component=["research"], pack=[], dry_run=True,
+                     json=False, harness="claude", artifact="none"),
+                agent_root, agent_cat, [])
+    check("ADD-agent-by-component-skipped — a component selection skips its agent and says so",
+          "skipped agent(s) a component ships" in by_component.getvalue()
+          and "web/research#research" in by_component.getvalue(),
+          by_component.getvalue())
+
     nws = tmp / "ws-nconfirm"
     nws.mkdir()
     do_install(nws, catalog, ["fixmod/goodcomp"], ["claude"], dry_run=False)
@@ -325,3 +341,90 @@ def parser_selectors_index(ctx) -> None:
     check("CLI-usage-exit-2", rc_usage == 2, str(rc_usage))
     check("CLI-refuse-exit-1", rc_refuse == 1, str(rc_refuse))
     ctx.keep(locals())
+
+
+def result_classes(ctx) -> None:
+    """The result and refusal texts of this round: the refusal sentence, the
+    pack refusal of `remove`, the scope refusals of `agent update`, the own
+    files of `agent add`, and the Units rows of an update preview."""
+    check, tmp = ctx.check, ctx.tmp
+    (catalog, _data, _legacy, _expect, _basis, _mirrors, _mtr,
+     _mk, _rf, _pws) = ctx.frame()
+
+    print("\nCLI — refusal sentence, pack refusal, agent scope, result rows")
+    text = _text_refusal(Refuse("name-unknown", "unknown name 'x'"))
+    check("RC-sentence — the text refusal ends with 'Nothing was changed.'",
+          text == "unknown name 'x'. Nothing was changed.", text)
+    listing = Refuse("not-a-folder", "no folder at /x")
+    listing.unchanged = "Nothing was listed."
+    check("RC-sentence — a listing refusal says it listed nothing",
+          _text_refusal(listing) == "no folder at /x. Nothing was listed.",
+          _text_refusal(listing))
+
+    ws = tmp / "ws-result-classes"
+    ws.mkdir()
+    refusal = None
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            cmd_rm(build_parser().parse_args(["remove", "--pack", "nosuchpack"]),
+                   ws, catalog, [])
+    except Refuse as exc:
+        refusal = exc
+    check("RC-pack-remove — remove --pack of an unknown pack is pack-unknown",
+          refusal is not None and refusal.code == "pack-unknown"
+          and refusal.message == "unknown pack 'nosuchpack'. Run `rbtv list --type pack` to see packs.",
+          str(refusal and (refusal.code, refusal.message)))
+
+    gone = ws / "ws-not-installed"
+    gone.mkdir()
+    shown = io.StringIO()
+    with contextlib.redirect_stdout(shown):
+        code = cmd_rm(build_parser().parse_args(["remove", "fixskill"]),
+                      gone, catalog, [])
+    check("RC-remove-not-installed — a known unit not installed is a result, exit 0",
+          code == 0 and "units removed" in shown.getvalue()
+          and "Removed:" in shown.getvalue() and "Installed units:  0 (unchanged)"
+          in shown.getvalue() and not any(gone.iterdir()), shown.getvalue())
+
+    usage = None
+    try:
+        build_parser().parse_args(["agent", "install"])
+    except Refuse as exc:
+        usage = exc
+    check("RC-agent-verb — an unknown agent sub-verb is named COMMAND",
+          usage is not None and usage.message.startswith(
+              "argument COMMAND: invalid choice: 'install'"),
+          str(usage and usage.message))
+
+    scope = None
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            cmd_agent(build_parser().parse_args(["agent", "update", "plans/x"]),
+                      ws, catalog, [])
+    except Refuse as exc:
+        scope = exc
+    check("RC-agent-scope — agent update without a scope is refused before any lookup",
+          scope is not None and scope.code == "usage"
+          and scope.message == "the scope is required: choose guidance, scaffolding or all"
+          and scope.next == "rbtv agent update -h",
+          str(scope and (scope.code, scope.message)))
+
+    from lib.agents import _agent_files
+    home = tmp / "ws-result-classes-agent"
+    home.mkdir()
+    own = _agent_files(home, {"harness": "claude"}, True)
+    check("RC-own-files — agent add names settings.json and .gitignore when missing",
+          "settings.json" in own and ".gitignore" in own, str(own))
+
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        print_result({"dry_run": True, "_verb": "update", "scope": "all",
+                      "target": str(ws), "added": [], "removed": ["meta/b#kiss"],
+                      "installed": ["core/rbtv-cli"], "_details": True,
+                      "planned_changes": {}, "selected_units": [],
+                      "_facts": {"units": (2, 1)}})
+    lines = out.getvalue().splitlines()
+    check("RC-update-units — a preview's Units lists units, not components",
+          "  meta/b#kiss" in lines and "  core/rbtv-cli" not in lines,
+          out.getvalue())
+

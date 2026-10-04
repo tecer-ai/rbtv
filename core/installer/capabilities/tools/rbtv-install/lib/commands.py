@@ -20,12 +20,13 @@ from .constants import (
     HARNESSES,
     REPO_ROOT,
     STATE_REL,
+    UPDATE_SCOPES,
 )
 from .guidance import _norm_prefix
 from .target import DISCOVER_CWD, discover_installation, resolve_target
 from .state import (book_harnesses, is_agent_target, read_state, selected_packs,
                     selected_units, state_path, write_state)
-from .catalog import catalog_packs, pack_units
+from .catalog import catalog_packs, check_packs, pack_units
 from .selection import (
     _has_negative,
     _split_part_keys,
@@ -39,7 +40,7 @@ from .pathlinks import bin_dir
 from .shared_links import release_installation_links, installation_mutation_lock
 from .listing import (_short_description, build_list, build_show,
                       do_list, json_view, pack_members, print_list, print_show)
-from .agents import (add_agent, agent_state, configure_agent, is_path,
+from .agents import (OWN_FILES, add_agent, agent_state, configure_agent, is_path,
                      list_agents, remove_agent, update_agent)
 from .content import _is_ours
 from .doctor import do_doctor, doctor_exit
@@ -86,6 +87,17 @@ def _prose(text: str, *, indent: str = "") -> None:
     print("\n".join(present.wrap(text, indent=indent, hang=indent + "  ")))
 
 
+def _text_refusal(exc: Refuse) -> str:
+    """The text refusal's message: the refusal's message, then the sentence
+    saying nothing was done (`exc.unchanged`, "Nothing was changed." unless the
+    refusal sets another). The message itself, which JSON carries as
+    `message`, never holds that sentence."""
+    text = exc.message.rstrip()
+    if not text.endswith("."):
+        text += "."
+    return text + " " + getattr(exc, "unchanged", "Nothing was changed.")
+
+
 def _print_refused(code: str, message: str, *, outcome: str = "refused") -> None:
     """The ONE place a plain-text refusal begins: the shared title, then a
     blank line, then the `REFUSED [code] message` line every refusal path
@@ -123,6 +135,9 @@ def _error_data(exc: Refuse, target: Path | None = None,
                        + (" --target " + _quote(target) if target is not None else ""))
     elif exc.code in {"name-unknown", "unit-unknown", "component-unknown"}:
         out["next"] = ("rbtv list"
+                       + (" --target " + _quote(target) if target is not None else ""))
+    elif exc.code == "pack-unknown":
+        out["next"] = ("rbtv list --type pack"
                        + (" --target " + _quote(target) if target is not None else ""))
     return out
 
@@ -203,7 +218,7 @@ def cmd_search(args, target: Path, catalog: dict, shadowed: list,
                *, ask=None) -> int:
     if not args.query:
         refusal = Refuse("query-required", "search needs words to match against "
-                         "unit names and descriptions. Nothing was changed.")
+                         "unit names and descriptions.")
         refusal.next = "rbtv search -h"
         raise refusal
     return cmd_list(args, target, catalog, shadowed, ask=ask)
@@ -742,16 +757,21 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
         raise SystemExit(2)
     args.names = noun
     keys = resolve_selection(args, catalog, None) if (_has_selectors(args) or noun) else set()
-    picked, parts = _split_part_keys(keys)
     # Naming an agent a component ships places it only through `rbtv agent add`.
+    # A selection by component, module or type skips such an agent and says so.
+    agent_keys = {row["key"] for row in iter_catalog_parts(catalog)
+                  if row["key"] in keys and row["method"] == "agent"}
     shipped = [row for row in iter_catalog_parts(catalog)
-               if noun and row["key"] in keys and row["method"] == "agent"]
+               if noun and row["key"] in agent_keys]
+    skipped_agents = sorted(agent_keys - {row["key"] for row in shipped})
+    keys -= set(skipped_agents)
+    picked, parts = _split_part_keys(keys)
     if shipped:
         name = shipped[0]["unit_id"]
         refusal = Refuse(
             "agent-at-root",
             f"adding {name!r} at the root was refused: it is an agent a "
-            "component ships. Nothing was changed.")
+            "component ships.")
         refusal.next = f"rbtv agent add {name}"
         raise refusal
     state = read_state(target)
@@ -779,6 +799,7 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
     if not bool(getattr(args, "dry_run", False)):
         _save_selected_units(target, add=set(parts), add_packs=requested_packs)
     data["selected_units"] = all_parts
+    data["skipped_agents"] = skipped_agents
     before = _unit_keys(catalog, state)
     facts = {"units": (len(before), len(before | set(all_parts))),
              "harnesses_before": book_harnesses(state),
@@ -792,6 +813,31 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
     return 0
 
 
+def _remove_not_installed(args, target: Path, catalog: dict, state: dict,
+                          noun: list[str], dry: bool) -> int:
+    """`remove NAME` where NAME is a known unit that is not installed: there is
+    nothing to take away, so the result names it and changes no file. A name
+    the catalog does not know was refused before this point."""
+    book = state.get("components")
+    installed = _unit_keys(catalog, state)
+    named = sorted({part["key"] for name in noun
+                    for part in resolve_name(name, catalog, book)["units"]}
+                   - installed)
+    if not named:
+        _emit({"ok": True, "uninstalled": [], "dry_run": dry,
+               "message": "no installed units matched this request"},
+              bool(args.json), target, getattr(args, "_why", "unknown"),
+              verb="remove", details=getattr(args, "details", False))
+        return 0
+    count = len(installed)
+    _emit({"ok": True, "uninstalled": [], "selected_units": named,
+           "dry_run": dry, "written": [], "deleted": [], "skipped": []},
+          bool(args.json), target, getattr(args, "_why", "unknown"),
+          verb="remove", details=getattr(args, "details", False),
+          facts={"units": (count, count)})
+    return 0
+
+
 @mutation_locked
 def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
            *, ask=None) -> int:
@@ -802,6 +848,7 @@ def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
     if noun and noun[0] in ("harness", "guidance", "artifact"):
         return _settings_form(args, target, catalog, "rm", noun)
     requested_packs = set(args.pack)
+    check_packs(catalog, requested_packs)
     if not (_has_selectors(args) or noun or requested_packs):
         raise SystemExit(2)
     args.names = noun
@@ -826,11 +873,7 @@ def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
     # contradict an enabled pack, and update must not immediately add it back.
     keys = booked_units - wanted_units
     if not keys and not shared_count and not requested_packs:
-        _emit({"ok": True, "uninstalled": [], "dry_run": dry,
-               "message": "no installed units matched this request"},
-              bool(args.json), target, getattr(args, "_why", "unknown"),
-              verb="remove", details=getattr(args, "details", False))
-        return 0
+        return _remove_not_installed(args, target, catalog, state, noun, dry)
     broad = bool(args.all or args.module or args.method or _has_negative(args))
     if broad and not requested_packs and not (dry or getattr(args, "yes", False)):
         flags = ["--all"] if args.all else []
@@ -1096,7 +1139,9 @@ def _print_agent(data: dict, verb: str, target: Path, why: str | None,
                  *, path_arg: bool, details: bool) -> None:
     """The add, update and remove results (approved screens 207 to 257)."""
     dry = data["dry_run"]
-    guidance = [name for name in data["written"] if name != AGENT_RECORD.name]
+    own = [name for name in data["written"] if name in OWN_FILES]
+    guidance = [name for name in data["written"]
+                if name not in OWN_FILES and name != AGENT_RECORD.name]
     write, delete, same = _agent_files(data["unit_files"], guidance, dry)
     touched = bool(write or delete or data.get("added") or data.get("packs_on")
                    or data.get("units_removed") or data["written"])
@@ -1129,6 +1174,9 @@ def _print_agent(data: dict, verb: str, target: Path, why: str | None,
         if not dry:
             rows.append(("Record", "agent.json updated" if touched else "agent.json already matches"))
         rows.append(("Generated files", _agent_generated(write, delete, same, dry)))
+        if own:
+            rows.append(("Own files", (f"would write {', '.join(own)}" if dry
+                                       else f"wrote {', '.join(own)}")))
     elif verb == "update":
         title = ("update preview" if dry else "agent updated" if touched
                  else "agent update, nothing to do")
@@ -1183,7 +1231,9 @@ def _print_agent_configure(data: dict, target: Path, why: str | None,
     """The configure result (approved screens 228 to 233)."""
     dry = data["dry_run"]
     before, after = data["before"], data["launch"]
-    guidance = [name for name in data["written"] if name != AGENT_RECORD.name]
+    own = [name for name in data["written"] if name in OWN_FILES]
+    guidance = [name for name in data["written"]
+                if name not in OWN_FILES and name != AGENT_RECORD.name]
     write, delete, same = _agent_files(data["unit_files"], guidance, dry)
     changed = bool(data["written"])
     title = ("configure preview" if dry else "agent configured" if changed
@@ -1303,6 +1353,12 @@ def cmd_agent(args, target: Path, catalog: dict, shadowed: list,
             _print_agent_list(data, target, why, searched=folder is not None)
         return 0
     path_arg = is_path(args.agent)
+    if verb == "update" and args.scope not in UPDATE_SCOPES:
+        exc = Refuse("usage", "the scope is required: choose guidance, scaffolding or all"
+                     if args.scope is None else
+                     f"scope {args.scope!r} is not guidance, scaffolding or all")
+        exc.next = "rbtv agent update -h"
+        raise exc
     if verb == "add":
         data = add_agent(target, args.agent, list(args.name), set(args.pack), catalog, dry)
     elif verb == "update":
@@ -1353,9 +1409,9 @@ def main(argv: list[str] | None = None, *, ask=None) -> int:
         args = parser.parse_args(raw)
     except Refuse as exc:
         if as_json:
-            print(json.dumps(_error_data(exc)))
+            print(json.dumps(_error_data(exc), indent=2))
         else:
-            _print_refused(exc.code, exc.message)
+            _print_refused(exc.code, _text_refusal(exc))
             print(f"next: {exc.next}", file=sys.stderr)
         return 2
     except SystemExit as exc:
@@ -1409,7 +1465,7 @@ def main(argv: list[str] | None = None, *, ask=None) -> int:
             print(json.dumps(_error_data(exc, locals().get("target"),
                                          locals().get("catalog")), indent=2))
         else:
-            _print_refused(exc.code, exc.message)
+            _print_refused(exc.code, _text_refusal(exc))
             if exc.path:
                 print(f"  at: {exc.path}", file=sys.stderr)
             next_cmd = _error_data(exc, locals().get("target"),

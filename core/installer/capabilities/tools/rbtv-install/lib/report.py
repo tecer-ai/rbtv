@@ -56,11 +56,12 @@ class _Out:
         self.sections: dict[str, list[str]] = {
             "Warnings": [], "Units": [], "File list": [], "Notes": []}
 
-    def ids(self, values: list[str], noun: str) -> str:
+    def ids(self, values: list[str], noun: str, *, listed: bool = True) -> str:
         """A selection by name, inline. A long one (more than `LIST_LIMIT`)
         prints as its count unless --details is given; with --details the
-        full selection is also listed one ID per line under Units."""
-        if self.full:
+        full selection is also listed one ID per line under Units. A
+        component row passes `listed=False`: its components are not units."""
+        if listed and self.full:
             self.sections["Units"].extend(f"  {value}" for value in values)
         if self.full or len(values) <= LIST_LIMIT:
             return ", ".join(values)
@@ -142,10 +143,10 @@ def print_result(data: dict) -> None:
         out.summary.append((label, out.ids(selected, "units")))
     elif data.get("installed"):
         out.summary.append(("Would refresh" if preview else "Refreshed",
-                            out.ids(data["installed"], "components")))
+                            out.ids(data["installed"], "components", listed=False)))
     elif data.get("uninstalled"):
         out.summary.append(("Would remove" if preview else "Removed",
-                            out.ids(data["uninstalled"], "components")))
+                            out.ids(data["uninstalled"], "components", listed=False)))
     if data.get("harnesses"):
         out.summary.append(("Receiving tools",
                             _receiving(data["harnesses"], facts, preview)))
@@ -160,6 +161,10 @@ def print_result(data: dict) -> None:
     release = "would release" if preview else "released"
     out.group([f"{release} claim {cid}" for cid in claims],
               f"{release} {len(claims)} claim(s) inside shared files")
+    skipped = data.get("skipped_agents") or []
+    if skipped:
+        out.bullet("Notes", "skipped agent(s) a component ships, which are placed "
+                   "only by `rbtv agent add NAME`: " + ", ".join(skipped))
     _report_rows(out, report, preview)
     _gitignore(out, report, preview)
     _guidance(out, report, preview, scope=data.get("scope"))

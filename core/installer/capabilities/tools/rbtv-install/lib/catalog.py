@@ -37,12 +37,21 @@ def catalog_packs(catalog: dict[str, dict]) -> dict[str, dict]:
     return {row["name"]: row for row in pack_rows(catalog)}
 
 
+def check_packs(catalog: dict[str, dict], names: set[str],
+                next_cmd: str | None = None) -> None:
+    """Refuse, naming every pack in `names` that the catalog does not hold."""
+    unknown = sorted(set(names) - set(catalog_packs(catalog)))
+    if unknown:
+        exc = Refuse("pack-unknown", "unknown pack "
+                     + ", ".join(repr(name) for name in unknown)
+                     + ". Run `rbtv list --type pack` to see packs.")
+        if next_cmd:
+            exc.next = next_cmd
+        raise exc
+
+
 def pack_units(catalog: dict[str, dict], names: set[str]) -> set[str]:
     """Expand enabled pack names to their unit ids, refusing unknown names."""
+    check_packs(catalog, names)
     packs = catalog_packs(catalog)
-    unknown = sorted(names - set(packs))
-    if unknown:
-        raise Refuse("pack-unknown",
-                     "unknown pack(s): " + ", ".join(unknown)
-                     + ". Run `rbtv list --type pack` to list packs")
     return {unit for name in names for unit in packs[name]["units"]}

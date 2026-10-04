@@ -20,7 +20,7 @@ class InstallerParser(argparse.ArgumentParser):
     def error(self, message: str) -> None:
         # The parser that failed names its own command: `rbtv update -h` for
         # `rbtv update`, `rbtv -h` for an unknown verb.
-        exc = Refuse("usage", f"{message}. Nothing was changed.")
+        exc = Refuse("usage", message)
         exc.next = f"{self.prog} -h"
         raise exc
 
@@ -205,8 +205,7 @@ def build_parser() -> argparse.ArgumentParser:
     page(s_selftest, "selftest")
 
     s_agent = sub.add_parser("agent")
-    agent_sub = s_agent.add_subparsers(dest="agent_verb",
-                                       metavar="{add,remove,configure,update,list}")
+    agent_sub = s_agent.add_subparsers(dest="agent_verb", metavar="COMMAND")
     agent_sub.required = True
     page(s_agent, "agent")
     s_ag_add = agent_sub.add_parser("add")
@@ -230,7 +229,8 @@ def build_parser() -> argparse.ArgumentParser:
     page(s_ag_configure, "agent configure")
     s_ag_update = agent_sub.add_parser("update")
     s_ag_update.add_argument("agent", metavar="AGENT")
-    s_ag_update.add_argument("scope", choices=("guidance", "scaffolding", "all"))
+    # The scope is checked by cmd_agent, which words the refusal (screens 238, 239).
+    s_ag_update.add_argument("scope", nargs="?")
     page(s_ag_update, "agent update")
     s_ag_list = agent_sub.add_parser("list")
     s_ag_list.add_argument("folder", nargs="?", metavar="FOLDER")

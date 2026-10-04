@@ -9,7 +9,7 @@ from pathlib import Path
 from discovery import Refuse
 
 from . import frontmatter, schema
-from .catalog import catalog_packs, pack_units
+from .catalog import check_packs, pack_units
 from .claims import _block_del
 from .constants import AGENT_RECORD, GUIDANCE_FILE, HARNESSES
 from .fsio import write_file
@@ -20,6 +20,9 @@ from .state import read_state, write_state
 AGENTS_REL = Path(".rbtv") / "agents"
 IGNORE_TEXT = ("# rbtv: generated files and machine data\n*\n!agent.md\n!agent.json\n"
                "!settings.json\n!memory/\n!memory/**\n!_artifacts/\n!_artifacts/**\n")
+# The folder's own files, created when missing; the result lists them.
+OWN_BODIES = {"settings.json": "{}\n", ".gitignore": IGNORE_TEXT}
+OWN_FILES = tuple(OWN_BODIES)
 
 
 def agent_home(root: Path, name: str) -> Path:
@@ -37,31 +40,24 @@ def _refuse(code: str, message: str, next_cmd: str, path: str = "") -> Refuse:
     return exc
 
 
-def _unknown_packs(catalog: dict, names: set[str]) -> None:
-    unknown = sorted(set(names) - set(catalog_packs(catalog)))
-    if unknown:
-        raise _refuse("pack-unknown", "unknown pack " + ", ".join(repr(n) for n in unknown)
-                      + ". Nothing was changed.", "rbtv list --type pack")
-
-
 def resolve_agent(root: Path, raw: str) -> Path:
     """Resolve a named agent below an installation or a path managed in place."""
     home = Path(raw).expanduser().resolve() if is_path(raw) else agent_home(root, raw)
     if not home.exists():
         if is_path(raw):
-            raise _refuse("agent-unknown", f"no agent folder at {home}. Nothing was changed.",
+            raise _refuse("agent-unknown", f"no agent folder at {home}.",
                           "rbtv agent list", str(home))
         raise _refuse("agent-unknown", f"no agent named {raw!r} under {root / AGENTS_REL}/, "
-                      "and no component ships an agent of that name. Nothing was changed.",
+                      "and no component ships an agent of that name.",
                       "rbtv list --type agent")
     if not home.is_dir():
         raise Refuse("agent-folder-invalid", f"{home} is not an agent folder")
     if not (home / AGENT_RECORD).is_file():
         raise _refuse("agent-json-missing", f"no agent.json in {home}. An agent folder holds "
-                      "agent.md and agent.json. Nothing was changed.", "rbtv agent add -h", str(home))
+                      "agent.md and agent.json.", "rbtv agent add -h", str(home))
     if not (home / "agent.md").is_file():
         raise _refuse("agent-md-missing", f"no agent.md in {home}. An agent folder holds "
-                      "agent.md and agent.json. Nothing was changed.", "rbtv agent add -h", str(home))
+                      "agent.md and agent.json.", "rbtv agent add -h", str(home))
     return home
 
 
@@ -84,7 +80,7 @@ def agent_state(home: Path) -> dict:
         json.loads(record.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise _refuse("agent-json-invalid", f"agent.json is not valid JSON (line {exc.lineno}, "
-                      f"{exc.msg}). Nothing was changed.", "rbtv agent add -h", str(record)) from exc
+                      f"{exc.msg}).", "rbtv agent add -h", str(record)) from exc
     try:
         state = read_state(home)
     except Refuse as exc:
@@ -99,7 +95,7 @@ def agent_state(home: Path) -> dict:
     front = _agent_front(home)
     names = {"folder": home.name, "agent.md": front["name"], "agent.json": state["name"]}
     if len(set(names.values())) != 1:
-        raise _refuse("agent-name-mismatch", "the three names disagree. Nothing was changed.\n"
+        raise _refuse("agent-name-mismatch", "the three names disagree.\n"
                       f"folder name:  {names['folder']}\nagent.md:     {names['agent.md']}\n"
                       f"agent.json:   {names['agent.json']}",
                       "make the three names the same, then retry the same command", str(home))
@@ -114,7 +110,7 @@ def cast_catalog() -> dict[str, dict[str, list[str]]]:
     exe = shutil.which("cast")
     if exe is None:
         raise _refuse("cast-missing", "cast is not on PATH, so model and effort cannot be checked "
-                      "against cast list. Nothing was changed.", "rbtv doctor")
+                      "against cast list.", "rbtv doctor")
     done = subprocess.run([exe, "list", "--json"], capture_output=True, text=True, encoding="utf-8")
     try:
         return json.loads(done.stdout)
@@ -124,7 +120,7 @@ def cast_catalog() -> dict[str, dict[str, list[str]]]:
 
 def launch_values(harness: str, model: str, effort: str, known: dict) -> dict:
     if harness not in HARNESSES or model not in (known.get(harness) or {}):
-        raise _refuse("launch-invalid", f"{harness} has no model {model!r}. Nothing was changed. "
+        raise _refuse("launch-invalid", f"{harness} has no model {model!r}. "
                       "See `cast list`", "cast list")
     rungs = known[harness][model]
     if not rungs:
@@ -133,7 +129,7 @@ def launch_values(harness: str, model: str, effort: str, known: dict) -> dict:
         effort = rungs[min(int(effort), len(rungs)) - 1]
     if effort not in rungs:
         raise _refuse("launch-invalid", f"{model} does not accept effort {effort!r}. "
-                      "Nothing was changed. See `cast list`", "cast list")
+                      "See `cast list`", "cast list")
     return {"harness": harness, "model": model, "effort": effort}
 
 
@@ -153,13 +149,17 @@ def _agent_section(home: Path, harness: str, dry: bool) -> list[str]:
 
 def _agent_files(home: Path, state: dict, dry: bool) -> list[str]:
     """Create the folder's own settings and ignore files when missing, then write
-    the harness instruction section. Returns only the instruction file names: the
-    two own files are not generated files and are not reported as written."""
-    for name, body in (("settings.json", "{}\n"), (".gitignore", IGNORE_TEXT)):
+    the harness instruction section. Returns the names written: the own files
+    that were missing, then the instruction file. Own files are not generated
+    files; the result lists them apart (see commands._print_agent)."""
+    created = []
+    for name, body in OWN_BODIES.items():
         path = home / name
-        if not path.exists() and not dry:
-            write_file(path, body, newline="\n")
-    return _agent_section(home, state["harness"], dry)
+        if not path.exists():
+            created.append(name)
+            if not dry:
+                write_file(path, body, newline="\n")
+    return created + _agent_section(home, state["harness"], dry)
 
 
 def _remove_agent_section(home: Path, harness: str, dry: bool) -> list[str]:
@@ -189,8 +189,8 @@ def configure_agent(root: Path, raw: str, harness: str | None,
                     catalog: dict, dry: bool) -> dict:
     """Change an agent's authored launch settings and replan only a harness flip."""
     if all(value is None for value in (harness, model, effort, voice)):
-        raise _refuse("usage", "at least one of --harness, --model, --effort, --voice is required. "
-                      "Nothing was changed.", "rbtv agent configure -h")
+        raise _refuse("usage", "at least one of --harness, --model, --effort, --voice is required",
+                      "rbtv agent configure -h")
     home = resolve_agent(root, raw)
     before = agent_state(home)
     after = dict(before)
@@ -232,8 +232,10 @@ def list_agents(root: Path, folder: Path | None) -> dict:
     if not search.is_dir():
         if folder is None:
             return {"ok": True, "folder": str(search), "total": 0, "returned": 0, "agents": []}
-        raise _refuse("not-a-folder", f"no folder at {search}. Nothing was listed.",
+        exc = _refuse("not-a-folder", f"no folder at {search}",
                       "rbtv agent list", str(search))
+        exc.unchanged = "Nothing was listed."
+        raise exc
     homes = ([search] if (search / AGENT_RECORD).is_file() else []) + sorted(
         path.parent for path in search.rglob(AGENT_RECORD.name))
     rows = []
@@ -258,7 +260,7 @@ def list_agents(root: Path, folder: Path | None) -> dict:
 def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: dict, dry: bool) -> dict:
     home = resolve_agent(root, raw)
     state = agent_state(home)
-    _unknown_packs(catalog, packs)
+    check_packs(catalog, packs, "rbtv list --type pack")
     launch_values(state["harness"], state["model"], str(state["effort"]), cast_catalog())
     explicit = _keys(names, catalog)
     declared = _keys(list(state["units"]), catalog)
@@ -302,9 +304,9 @@ def remove_agent(root: Path, raw: str, names: list[str], packs: set[str], all_un
         before = _keys(list(state["units"]), catalog, state.get("components")) | pack_units(catalog, set(state["packs"]))
         count = f"{len(before)} unit{'' if len(before) == 1 else 's'}"
         raise Refuse("confirm-required", f"--all removes every unit from {state['name']} "
-                     f"({count}{pack_part}). Nothing was changed. Re-run with --yes:\n"
+                     f"({count}{pack_part}). Re-run with --yes:\n"
                      f"rbtv agent remove {raw} --all --yes")
-    _unknown_packs(catalog, packs)
+    check_packs(catalog, packs, "rbtv list --type pack")
     before = _keys(list(state["units"]), catalog, state.get("components")) | pack_units(catalog, set(state["packs"]))
     removed = set(state["units"]) if all_units else _keys(names, catalog, state.get("components"))
     enabled = set() if all_units else set(state["packs"]) - packs
