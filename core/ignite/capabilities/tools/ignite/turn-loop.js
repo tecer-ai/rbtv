@@ -175,6 +175,7 @@ async function preprocess(claim, deps, dir) {
   return {
     text: parts.join('\n').trim(),
     files: downloaded.map((item) => item.path).filter(Boolean),
+    missingFiles: Math.max(0, listed.length - downloaded.length),
     transcriptError,
     audioAttempted: audioMeta.length > 0,
     transcripts,
@@ -300,7 +301,7 @@ async function execute(slug, claim, deps) {
     board: memory.board,
     memory: memory.memory,
     work: claim.work_id ? store.getWork(claim.work_id) : null,
-    inputs: [{ role: claim.kind, text: prepared.text, files: prepared.files }],
+    inputs: [{ role: claim.kind, text: prepared.text, files: prepared.files, missingFiles: prepared.missingFiles }],
     recent,
     stored,
     historyPath: historyPath(home, claim.conversation_key),

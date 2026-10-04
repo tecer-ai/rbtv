@@ -175,6 +175,8 @@ Steering between turns. There is no mid-turn interruption. An owner message that
 
 Voice notes. If transcription fails, Ignite replies: `I could not transcribe that voice note; please send it as text.` The technical error is written only to the service log.
 
+Attachments. When a file attached to an owner message is not downloaded, the turn still runs: the turn message lists the files that were saved and states how many were not, so the agent tells the owner.
+
 Long threads. The prompt carries a bounded recent window (20 messages) plus the path of the full history file under the agent home. The folder name is the conversation key with colons replaced by hyphens. A folder left under the raw key is renamed on first access. The file is regenerated from the store. The store is authoritative.
 
 The unit starts at boot when user lingering is on. Check with `systemctl --user is-enabled rbtv-ignite-agents.service`.

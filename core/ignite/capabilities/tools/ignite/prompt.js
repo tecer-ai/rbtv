@@ -89,7 +89,9 @@ function composeTurn({ board, memory = [], work, inputs, recent, stored, history
     'Triggering input:',
     ...inputs.map((input) => {
       const files = input.files?.length ? `\nattachments: ${input.files.join(', ')}` : '';
-      return `[${input.role}] ${input.text}${files}`;
+      const missing = input.missingFiles
+        ? `\n${input.missingFiles} attached file(s) could not be downloaded; tell the owner.` : '';
+      return `[${input.role}] ${input.text}${files}${missing}`;
     }),
     'Recent messages of this conversation:',
     ...(recent.length ? linesOf(recent) : ['(none)']),

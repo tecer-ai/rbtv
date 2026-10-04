@@ -42,7 +42,7 @@ One line from each file's header. A file with no header comment is marked.
 | `test_slack.js` | Suite for `slack.js`. No API header. |
 | `test_store.js` | Suite for `store.js`. No API header. |
 | `test_turn_loop.js` | Suite for `turn-loop.js`. No API header. |
-| `turn-loop.js` | `runOnce(slug, deps)` is one claimed turn, or a refusal or an empty claim. Refuses when `liveRun()` matches a live pid. `ignite turn` cwd is `realpath(home)`. Every request includes `systemPromptFile` `<home>/agent.md`. |
+| `turn-loop.js` | `runOnce(slug, deps)` is one claimed turn, or a refusal or an empty claim. Refuses when `liveRun()` matches a live pid. `ignite turn` cwd is `realpath(home)`. Every request includes `systemPromptFile` `<home>/agent.md`. An owner message's attachments that were not downloaded are counted and passed to `composeTurn`, never a failure. |
 
 In the tool folder, next to the code: `templates/` and `units/rbtv-ignite-agents.service`. Outside it, in this component: the skill `skills/agent-controls.md`, and the rule `rules/ignite-standing-instructions.md`.
 

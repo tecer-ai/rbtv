@@ -768,6 +768,20 @@ test('transcription failure replies plainly and logs its detail', async (ctx) =>
   assert.equal(history.includes('/configured/audio-keys.json'), false);
 });
 
+test('an attachment that was not downloaded still delivers the message with a warning', async (ctx) => {
+  const box = harness(ctx);
+  seed(box.store, {
+    text: 'see attached',
+    files: [{ name: 'a.pdf', mimetype: 'application/pdf' }, { name: 'b.pdf', mimetype: 'application/pdf' }],
+  });
+  box.slack.downloads = [{ name: 'a.pdf', path: '/tmp/a.pdf' }];
+  box.sync();
+  const result = await runOnce('master', box.deps);
+  assert.equal(result.launched, true);
+  const [turn] = seen(box);
+  assert.match(turn.prompt, /see attached\nattachments: \/tmp\/a\.pdf\n1 attached file\(s\) could not be downloaded; tell the owner\./);
+});
+
 test('launch failure holds the agent', async (ctx) => {
   const box = harness(ctx);
   seed(box.store);
