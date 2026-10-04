@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "<tool>.json",
-  "description": "A tool's record, read by the rbtv installer.",
+  "description": "A tool's record, read by rbtv.",
   "type": "object",
   "required": [
     "name",
@@ -19,7 +19,7 @@
       "type": "string"
     },
     "entry": {
-      "description": "The program file the installer places on PATH, written with forward slashes, relative to the tool's folder and inside its component; or, with the prefix `ws:`, a program in another repository of the installation, relative to the installation root. It starts with a shebang line and is committed executable, which Linux requires; Windows picks its interpreter from the shebang or the .py, .js, or .sh extension. The command's name on PATH is the tool's name.",
+      "description": "The program file rbtv places on PATH, written with forward slashes, relative to the tool's folder and inside its component; or, with the prefix `ws:`, a program in another repository of the installation, relative to the installation root. It starts with a shebang line and is committed executable, which Linux requires; Windows picks its interpreter from the shebang or the .py, .js, or .sh extension. The command's name on PATH is the tool's name.",
       "type": "string",
       "minLength": 1
     }

@@ -187,6 +187,7 @@ test('lock-refusal', async () => {
   const holder = spawnDaemon(dir);
   try {
     await waitFor(() => holder.stdout().includes('"event":"ready"') && holder.child.exitCode == null);
+    assert.match(holder.stdout(), /"event":"ready".*"installation":/);
     const second = spawnDaemon(dir);
     const code = await new Promise((resolve) => second.child.once('exit', resolve));
     assert.notEqual(code, 0);

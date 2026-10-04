@@ -1,13 +1,13 @@
 'use strict';
 
 // API
-// configPath(workspace)        — <workspace>/.rbtv/config/ignite/config.json
+// configPath(workspace)        — <installation>/.rbtv/config/ignite/config.json
 // loadConfig(workspace)        — read and validate that file (schema: core/build templates/ignite-config.schema.json);
 //                                returns the parsed object plus `workspace` (the absolute path it was read for)
 // updateConfig(workspace, fn)  — read, let fn(config) change it, validate, write atomically; returns the new config
-// agentHome(config, slug)      — <workspace>/.rbtv/agents/<slug>
+// agentHome(config, slug)      — <installation>/.rbtv/agents/<slug>
 // storePath(config, slug)      — <agentHome>/state.sqlite
-// envValue(workspace, name)    — a variable's value: the OS environment first, then <workspace>/.rbtv/config/env/.env; null when unset
+// envValue(workspace, name)    — a variable's value: the OS environment first, then <installation>/.rbtv/config/env/.env; null when unset
 // slackToken(config, key)      — the token the config names under slack.<key>Env ('app' | 'bot' | 'owner'); throws when unset
 
 const fs = require('node:fs');
@@ -103,7 +103,7 @@ function validate(raw) {
 }
 
 function loadConfig(workspace) {
-  if (!workspace || typeof workspace !== 'string') throw new Error('workspace path required');
+  if (!workspace || typeof workspace !== 'string') throw new Error('installation path required');
   let raw;
   try {
     raw = JSON.parse(fs.readFileSync(configPath(workspace), 'utf8'));

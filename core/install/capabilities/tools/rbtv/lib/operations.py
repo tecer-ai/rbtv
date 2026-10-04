@@ -139,7 +139,7 @@ GITIGNORE_NOTE = (
     "target, so a committed copy\nis wrong on every other machine "
     "(d-s15-installer2-artifacts-machine-local). Generated from\nthe book and "
     "the marked files on disk on every install and uninstall — edit nothing\n"
-    "between the fences; re-run the installer instead. This file is per clone "
+    "between the fences; re-run rbtv instead. This file is per clone "
     "(D14),\nso each machine keeps its own list.")
 
 
@@ -242,7 +242,7 @@ def _units_for_cid(cid: str, parts: list[str] | None) -> list[str] | None:
 def _scaffold_rbtv(target: Path) -> None:
     """An installation's `.rbtv/` holds its mirror, runtime data and memory
     folders, created empty on the first real run. An installed agent's folder
-    (agent.md beside launch.json) is not an installation and gets none."""
+    (agent.md beside agent.json) is not an installation and gets none."""
     if is_agent_target(target):
         return
     for name in ("mirror", "runtime", "memory"):

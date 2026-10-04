@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "<hook>.json",
-  "description": "One hook, in rbtv's format, read by the rbtv installer and written into the hook settings of Claude Code and Codex. OpenCode receives no hooks.",
+  "description": "One hook, in rbtv's format, read by rbtv and written into the hook settings of Claude Code and Codex. OpenCode receives no hooks.",
   "type": "object",
   "required": [
     "name",

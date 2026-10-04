@@ -270,7 +270,7 @@ function busyDreamer(error) {
 
 async function runInstalledDreamer(opts = {}) {
   const config = opts.config;
-  if (!config?.workspace) throw new Error('workspace required');
+  if (!config?.workspace) throw new Error('installation required');
   const workspace = fs.realpathSync(config.workspace);
   let release;
   try {
@@ -682,7 +682,7 @@ async function startLocked(opts, workspace, held) {
       for (const slug of agentSlugs(workspace)) kick(slug);
     }, opts.sweepMs ?? SWEEP_MS));
     timers.push(setInterval(() => { drain().catch((error) => log({ event: 'outbox', message: error.message })); }, opts.drainMs ?? SWEEP_MS));
-    log({ event: 'ready', pid: process.pid, workspace });
+    log({ event: 'ready', pid: process.pid, installation: workspace });
     return { stop, config, onEvent };
   } catch (error) {
     releaseLock(held);

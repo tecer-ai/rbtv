@@ -14,7 +14,7 @@ them without re-logging-in, and read each account's plan limits.
                                     enabled (`cast doctor` prints the same view)
 
 A slot is a snapshot of that harness's credential files, at
-`{workspace}/.rbtv/config/acct/<provider>/<name>.json` (mode 600, gitignored). Which slot is
+`{installation}/.rbtv/config/acct/<provider>/<name>.json` (mode 600, gitignored). Which slot is
 ACTIVE is DERIVED from the live login's own account id — never a marker file, which drifts.
 
 Tokens ROTATE — `use` writes the live credentials back to the outgoing slot before swapping,
@@ -44,7 +44,7 @@ CYAN, GREEN, YELLOW, RED = "\033[36m", "\033[32m", "\033[33m", "\033[31m"
 
 
 def workspace_root():
-    """The workspace this CLI is installed into — the nearest ancestor holding `rbtv.json`."""
+    """The installation this CLI is installed into — the nearest ancestor holding `rbtv.json`."""
     if env := os.environ.get("RBTV_INSTALLATION"):
         return Path(env)
     for p in Path(__file__).resolve().parents:
@@ -153,7 +153,7 @@ def prov_or_die(name):
 # ---------- slots ----------
 
 def slot_dir(prov):
-    """`{workspace}/.rbtv/config/acct/{provider}/` — the CMP-1-ruled credential home. Moved
+    """`{installation}/.rbtv/config/acct/{provider}/` — the CMP-1-ruled credential home. Moved
     here from `.rbtv/env/{provider}-accts/` on 2026-08-07. ⚠ `.rbtv/config/` is NOT ignored
     wholesale (its siblings are listed file by file); `.rbtv/config/acct/` has its OWN
     `.gitignore` directory rule, and that rule is the only thing keeping real refresh tokens
@@ -729,7 +729,7 @@ def doctor_report():
     for p in USAGE_PROVIDERS:  # a known provider with no credential is a fact, not an absence
         provs.setdefault(p, {"enabled": False, "via": "no credential",
                              "slots": [], "active": None})
-    return {"workspace": str(workspace_root()), "harnesses": harnesses(), "providers": provs}
+    return {"installation": str(workspace_root()), "harnesses": harnesses(), "providers": provs}
 
 
 def doctor_lines():
@@ -748,7 +748,7 @@ def doctor_lines():
             tail = f" · no slot saved — run `acct {name} add <name>`"
         out.append(f"  {'✓' if r['enabled'] else '·'} {name:<9} "
                    f"{r['via'] if r['enabled'] else 'not logged in / no key'}{tail}")
-    out += ["", f"workspace   {rep['workspace']}", f"slots       {slot_dir('')}"]
+    out += ["", f"installation {rep['installation']}", f"slots        {slot_dir('')}"]
     return out
 
 

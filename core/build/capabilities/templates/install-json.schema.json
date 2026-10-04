@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "install.json",
-  "description": "The install record at .rbtv/config/install.json: what the rbtv installer installed in one target folder. Written and read only by the installer.",
+  "description": "The install record at .rbtv/config/install.json: what rbtv installed in one target folder. Written and read only by rbtv.",
   "type": "object",
   "required": [
     "schema",
@@ -18,7 +18,7 @@
       "type": "integer"
     },
     "version": {
-      "description": "The installer's version.",
+      "description": "rbtv's version.",
       "type": "string"
     },
     "marker": {
@@ -59,14 +59,14 @@
       "type": "string"
     },
     "guidance_excludes": {
-      "description": "Paths the installer does not walk when it writes folder instructions copies.",
+      "description": "Paths rbtv does not walk when it writes folder instructions copies.",
       "type": "array",
       "items": {
         "type": "string"
       }
     },
     "guidance_files": {
-      "description": "Folder instructions copies the installer generated.",
+      "description": "Folder instructions copies rbtv generated.",
       "type": "array",
       "items": {
         "type": "string"
@@ -130,7 +130,7 @@
                   ]
                 },
                 "files": {
-                  "description": "The files the installer wrote for it.",
+                  "description": "The files rbtv wrote for it.",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -144,7 +144,7 @@
                   }
                 },
                 "links": {
-                  "description": "Commands the installer placed on PATH for it.",
+                  "description": "Commands rbtv placed on PATH for it.",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -171,7 +171,7 @@
       }
     },
     "path_links": {
-      "description": "Links the installer placed on PATH for tools.",
+      "description": "Links rbtv placed on PATH for tools.",
       "type": "array",
       "items": {
         "type": "string"

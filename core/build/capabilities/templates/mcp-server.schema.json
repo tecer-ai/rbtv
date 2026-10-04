@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "<mcp-server>.json",
-  "description": "One MCP server, in rbtv's format, read by the rbtv installer and translated into each harness's own MCP server settings.",
+  "description": "One MCP server, in rbtv's format, read by rbtv and translated into each harness's own MCP server settings.",
   "type": "object",
   "required": [
     "name",

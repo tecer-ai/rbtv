@@ -42,7 +42,7 @@ integer. The rung words are labels, never values a bare launch takes.
 `cast doctor` is the pre-launch view: which harness binaries are on `PATH`, which providers are
 enabled behind them, and what is left on each. It runs `acct doctor` + `acct usage`, which own
 those answers, so it needs `acct` on `PATH` — and it hits the network for the usage half.
-`cast doctor --json` merges both: `{workspace, harnesses: {name: {ok, path}},
+`cast doctor --json` merges both: `{installation, harnesses: {name: {ok, path}},
 providers: {name: {enabled, via, slots, active}}, usage: [...]}`.
 
 ## Effort mapping (1-5 → the harness's own ladder)

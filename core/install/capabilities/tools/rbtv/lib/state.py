@@ -17,7 +17,7 @@ from .selection import iter_booked_units
 
 def _state_refuse(path: Path, detail: str) -> None:
     raise Refuse("state-unreadable",
-                 f"installer state has an invalid structure: {detail} ({path})",
+                 f"rbtv state has an invalid structure: {detail} ({path})",
                  str(path))
 
 
@@ -170,11 +170,11 @@ def read_state(target: Path) -> dict:
         state = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise Refuse("state-unreadable",
-                     f"cannot read installer state; repair or restore {path} before changing this installation ({exc})",
+                     f"cannot read rbtv state; repair or restore {path} before changing this installation ({exc})",
                      str(path)) from exc
     if not isinstance(state, dict):
         raise Refuse("state-unreadable",
-                     f"installer state must be a JSON object: {path}", str(path))
+                     f"rbtv state must be a JSON object: {path}", str(path))
     migrate_legacy_record(state)
     migrate_portable_record(state)
     migrate_install_component_ids(state)

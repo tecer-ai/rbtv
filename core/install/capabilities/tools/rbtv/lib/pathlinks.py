@@ -165,7 +165,7 @@ def _forbid_local_bin(bindir: Path) -> None:
     try:
         if bindir.resolve() == (Path.home() / ".local" / "bin").resolve():
             raise Refuse("path-forbidden",
-                         "this installer never touches ~/.local/bin",
+                         "rbtv never touches ~/.local/bin",
                          str(bindir))
     except OSError:
         return
@@ -277,7 +277,7 @@ def unlink_one(bindir: Path, name: str, *, dry: bool) -> str:
     if not _owned(path):
         raise Refuse("path-collision",
                      f"{path} is not ours — refusing to delete a file "
-                     "this installer did not create", str(path))
+                     "rbtv did not create", str(path))
     if not dry:
         path.unlink()
         twin = _sh_twin(path)
@@ -353,7 +353,7 @@ def gate_path_links(bindir: Path, desired: dict[str, Path],
         if (path.exists() or path.is_symlink()) and not _owned(path):
             raise Refuse("path-collision",
                          f"{path} is not ours — refusing to delete a file "
-                         "this installer did not create", str(path))
+                         "rbtv did not create", str(path))
 
 
 def reconcile(bindir: Path, desired: dict[str, Path], booked: set[str],

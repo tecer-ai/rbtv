@@ -82,7 +82,7 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
             raise Refuse(
                 "unit-name-reserved",
                 f"{cid}: a skill folder named {named!r} would land under "
-                "`rbtv-*`, which the OLD installer sweeps out of "
+                "`rbtv-*`, which the prior rbtv program sweeps out of "
                 "`.claude/skills/` on every run — rename the folder (D12)",
                 str(comp_dir))
         source = comp_dir / SKILL_FILE
@@ -142,10 +142,10 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                 raise Refuse(
                     "unit-name-reserved",
                     f"{cid}: unit {pid!r} starts with `rbtv-`, the "
-                    "prefix the OLD installer sweeps out of "
+                    "prefix the prior rbtv program sweeps out of "
                     "`.claude/{rules,commands,agents,skills}` on every run "
                     "(generator.py::clear_previous_install) — a file minted "
-                    "under that name would be deleted behind this installer's "
+                    "under that name would be deleted behind rbtv's "
                     "back. Rename the unit (D12)",
                     str(comp_dir / entry_rel))
             entry_abs = str((comp_dir / entry_rel).resolve())

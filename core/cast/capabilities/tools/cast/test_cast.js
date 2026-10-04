@@ -392,6 +392,8 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   const h = parsed.harnesses;
   assert.ok(h && 'claude' in h && 'codex' in h && 'opencode' in h);
   assert.ok(parsed.providers && 'claude' in parsed.providers);
+  assert.ok(parsed.installation, 'doctor --json names the installation');
+  assert.equal('workspace' in parsed, false);
 }
 
 // list --json: parses, matches SPECS keys, and carries effort_numbers + usage (additive)

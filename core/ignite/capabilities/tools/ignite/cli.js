@@ -219,7 +219,7 @@ The next board write or turn refreshes Timers from SQLite.
 usage: ignite schedules-due --now <ISO datetime>
 
 Enqueue a fresh conversation with no thread or resumed session; input is the schedule id only.
-While one schedule wake is pending, further dues are de-duplicated. Never enqueues for a held or stopped item, and never clears a hold.
+While one schedule wake is pending, further dues are de-duplicated. Never enqueues for a held or stopped schedule, and never clears a hold.
 `,
   work: `ignite — work help
 
@@ -547,7 +547,7 @@ function cmdWake(rest, ctx, flags, deps) {
 }
 
 function agentChannel(config, slug) {
-  if (!config) fail('post requires workspace config');
+  if (!config) fail('post requires installation config');
   const channels = Object.entries(config.routes).filter(([, agent]) => agent === slug).map(([id]) => id);
   if (channels.length > 1) fail(`agent ${slug} has more than one channel route`);
   if (channels.length === 1) return { channel: channels[0], imUser: null };
@@ -563,7 +563,7 @@ function cmdPost(rest, ctx, flags, deps) {
   if (!text && !files.length) fail('post requires --text, --text-file, or --file');
   const payload = { text, audio: Boolean(opts.audio), files };
   if (opts.thread != null) {
-    if (!ctx.config) fail('post requires workspace config');
+    if (!ctx.config) fail('post requires installation config');
     const matches = ctx.store.db.prepare(`SELECT * FROM conversations
       WHERE agent=? AND workspace=? AND (key=? OR root_ts=?)
       AND root_ts IS NOT NULL AND root_ts!='board'`).all(ctx.slug, ctx.config.slack.team, opts.thread, opts.thread);

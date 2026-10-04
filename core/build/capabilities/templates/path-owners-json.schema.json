@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "path-owners.json",
-  "description": "The rbtv installer's per-user record of the commands it placed on PATH, at ~/.rbtv/path-owners.json, and which installations own each one. Written and read only by the installer.",
+  "description": "rbtv's per-user record of the commands it placed on PATH, at ~/.rbtv/path-owners.json, and which installations own each one. Written and read only by rbtv.",
   "type": "object",
   "required": [
     "schema",

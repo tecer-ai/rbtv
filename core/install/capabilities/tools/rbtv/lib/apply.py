@@ -89,7 +89,7 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
                     "shared-file-unparseable",
                     f"{claim['path']} exists but is not readable JSON ({exc}) "
                     "— refusing before any write rather than replacing a file "
-                    "this installer did not create",
+                    "rbtv did not create",
                     str(path)) from exc
             if _jget(doc, claim["key"])[1]:
                 collisions.append(f"{claim['path']}::"
@@ -117,7 +117,7 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
             raise Refuse(
                 "guidance-mirror-collision",
                 f"{', '.join(mirrors)} already exists and "
-                "this installer did not write it — it is either hand-authored "
+                "rbtv did not write it — it is either hand-authored "
                 "guidance or a mirror rendered by another tool (install.py's "
                 "`model_mirror` renders one beside every CLAUDE.md). This run "
                 f"would generate it from the basis. DO NOT delete it: either "
@@ -130,7 +130,7 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
         raise Refuse(
             "collision",
             "the install root already carries content this run would write and "
-            "this installer did not write it (the old installer's, or "
+            "rbtv did not write it (the previous rbtv program's, or "
             "hand-placed): " + ", ".join(collisions) + " — refusing before any "
             "write; move or remove it, or narrow --component/--harness",
             collisions[0])

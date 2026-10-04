@@ -97,7 +97,7 @@ def doctor_ownership(ctx) -> None:
         bad_book = _checks(bad_target, {}, tree)
         check("DO-corrupt-book — doctor reports structured state refusal",
               bad_book["Saved selection"]["level"] == "fail"
-              and "cannot read installer state" in bad_book["Saved selection"]["detail"],
+              and "cannot read rbtv state" in bad_book["Saved selection"]["detail"],
               bad_book["Saved selection"]["detail"])
 
         (bad_target / STATE_REL).write_text(

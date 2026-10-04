@@ -1,6 +1,6 @@
 # providers
 
-Every agent this workspace runs is somebody else's compute, reached through somebody else's
+Every agent this installation runs is somebody else's compute, reached through somebody else's
 software. This component owns the seam: the two capabilities that let the rest of the system treat
 that seam as uniform.
 
@@ -58,7 +58,7 @@ implementation; `cast` keeps no second harness list and no second usage reader.
 
 ## Credentials never live here
 
-`acct`'s slots are written to `{workspace}/.rbtv/config/acct/<provider>/<name>.json`, mode 600,
+`acct`'s slots are written to `{installation}/.rbtv/config/acct/<provider>/<name>.json`, mode 600,
 gitignored by that directory's own rule — the CMP-1-ruled credential home, resolved by walking up
 from the tool's real path to the nearest `rbtv.json`. Nothing under this component holds a
 credential, and relocating either tool does not move the store.

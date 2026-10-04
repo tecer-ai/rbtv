@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "folder-instructions file frontmatter",
-  "description": "The frontmatter of a file in a component's `folder-instructions/` folder, which the rbtv installer reads; the installer removes it and writes the file's body into the target folder's folder instructions, in that component's marked section.",
+  "description": "The frontmatter of a file in a component's `folder-instructions/` folder, which rbtv reads; rbtv removes it and writes the file's body into the target folder's folder instructions, in that component's marked section.",
   "type": "object",
   "required": [
     "target"

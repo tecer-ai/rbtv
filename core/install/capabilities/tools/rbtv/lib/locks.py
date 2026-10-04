@@ -33,7 +33,7 @@ def mutation_lock(path: Path, *, timeout: float = 2.0):
                 if time.monotonic() >= deadline:
                     raise Refuse(
                         "mutation-busy",
-                        f"another installer mutation holds {path}; retry shortly",
+                        f"another rbtv change holds {path}; retry shortly",
                         str(path),
                     )
                 time.sleep(0.05)

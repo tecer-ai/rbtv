@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "<module>.json",
-  "description": "A module's record, read by the rbtv installer and the rbtv command.",
+  "description": "A module's record, read by rbtv.",
   "type": "object",
   "required": [
     "description"

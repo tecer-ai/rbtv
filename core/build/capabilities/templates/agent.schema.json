@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "agent frontmatter",
-  "description": "The frontmatter of an agent file, which the rbtv installer reads and validates. The file's body, the agent's prompt, follows the template agent.md.",
+  "description": "The frontmatter of an agent file, which rbtv reads and validates. The file's body, the agent's prompt, follows the template agent.md.",
   "type": "object",
   "required": ["name"],
   "additionalProperties": false,
