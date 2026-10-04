@@ -74,6 +74,7 @@ ORDER = [
     test_packs.packs,
     test_cli.parser_selectors_index,
     test_cli.result_classes,
+    test_cli.cli_defects,
     test_pathlinks.path_links,
     test_doctor_ownership.doctor_ownership,
     test_surface.ls_li_doctor,

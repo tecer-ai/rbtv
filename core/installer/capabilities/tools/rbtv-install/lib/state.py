@@ -10,7 +10,9 @@ from discovery import HUB_DIR, Refuse, SKILLS_DIR
 
 from .constants import (AGENT_RECORD, HARNESSES, MANAGED_MARK, SCHEMA, STATE_REL, VERSION)
 from .claims import _jget, _located
+from .content import _is_ours
 from .fsio import write_file
+from .selection import iter_booked_units
 
 
 def _state_refuse(path: Path, detail: str) -> None:
@@ -362,3 +364,27 @@ def _rebuild_claim(target: Path, claim_id: str, owner: tuple) -> dict | None:
         return None
     return {"path": rel, "fmt": "json", "key": key, "value": value,
             "owner": owner}
+
+
+def _missing_generated_units(target: Path, state: dict) -> set[str]:
+    """Recorded units whose generated files are absent or released."""
+    missing: set[str] = set()
+    for cid, rec in (state.get("components") or {}).items():
+        for pid, unit in (rec.get("units") or {}).items():
+            files = unit.get("files") or []
+            if any(not (target / rel).is_file() or not _is_ours(target, rel)
+                   for rel in files):
+                missing.add(f"{cid}#{pid}")
+    return missing
+
+
+def unit_membership(target: Path, catalog: dict, state: dict, chosen: set[str]) -> dict:
+    """An update's reconciliation: the units the record lists (`chosen`) against
+    the units booked on disk. Read it before the update writes anything. A
+    listed unit whose generated files are gone counts as added."""
+    booked = {row["key"] for row in iter_booked_units(catalog, state.get("components") or {})}
+    missing = _missing_generated_units(target, state)
+    return {"booked": booked, "listed_missing": chosen - booked,
+            "on_disk_unlisted": booked - chosen,
+            "added": (chosen - booked) | (chosen & missing),
+            "removed": booked - chosen}

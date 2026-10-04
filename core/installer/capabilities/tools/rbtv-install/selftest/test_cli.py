@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 
-from discovery import Refuse
+from discovery import Refuse, scan_all
 
-from lib.constants import STATE_REL
+from lib.constants import CATALOG_TYPES, STATE_REL
 from lib.selection import (
     _sel,
     resolve_selection,
@@ -26,6 +27,10 @@ from lib.commands import (
     main,
 )
 from lib.report import print_result
+from lib.state import read_state
+
+from .fixture import _component, _unit_md
+from .test_agents import _agent
 
 
 def parser_selectors_index(ctx) -> None:
@@ -382,8 +387,8 @@ def result_classes(ctx) -> None:
         code = cmd_rm(build_parser().parse_args(["remove", "fixskill"]),
                       gone, catalog, [])
     check("RC-remove-not-installed — a known unit not installed is a result, exit 0",
-          code == 0 and "units removed" in shown.getvalue()
-          and "Removed:" in shown.getvalue() and "Installed units:  0 (unchanged)"
+          code == 0 and "nothing to remove" in shown.getvalue()
+          and "Not installed:" in shown.getvalue() and "Installed units:  0 (unchanged)"
           in shown.getvalue() and not any(gone.iterdir()), shown.getvalue())
 
     usage = None
@@ -428,3 +433,115 @@ def result_classes(ctx) -> None:
           "  meta/b#kiss" in lines and "  core/rbtv-cli" not in lines,
           out.getvalue())
 
+
+def cli_defects(ctx) -> None:
+    """Task 3a4: the list traceback, bare update with --target, agent refusals
+    without --target, agent update membership and guidance mismatch, and
+    remove of a unit that is not installed."""
+    check, tmp = ctx.check, ctx.tmp
+    (catalog, _data, _legacy, _expect, _basis, _mirrors, _mtr,
+     _mk, _rf, _pws) = ctx.frame()
+
+    print("\nCLI — 3a4 defects: list types, update scope, agent refusals, membership")
+
+    def run(argv: list[str], cwd_target=None) -> tuple[int | None, str, str, str | None]:
+        """main() with output captured: exit code, stdout, stderr, and any
+        exception that escaped main() (a traceback is one of those)."""
+        out, err = io.StringIO(), io.StringIO()
+        code, escaped = None, None
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = main(argv)
+        except Exception as exc:  # the defect under test: a command that crashes
+            escaped = f"{type(exc).__name__}: {exc}"
+        return code, out.getvalue(), err.getvalue(), escaped
+
+    inst = tmp / "d-installation"
+    inst.mkdir()
+    code, _out, err, escaped = run(["list", "--type", "unit", "--installed", "--target", str(inst)])
+    check("D1-type — an unknown --type is a usage refusal, never a traceback",
+          escaped is None and code == 2 and "'unit' is unknown" in err,
+          f"{escaped} / {code} / {err[:200]}")
+    crashed = []
+    for verb in ("list", "li", "ls"):
+        for kind in CATALOG_TYPES:
+            code, _out, _err, escaped = run([verb, "--type", kind, "--installed", "--target", str(inst)])
+            if escaped or code != 0:
+                crashed.append(f"{verb} --type {kind}: {escaped or code}")
+    check("D1-types — every --type value lists with --installed, exit 0",
+          not crashed, "; ".join(crashed))
+
+    bare_code, _o, bare_err, _e = run(["update"])
+    for argv in (["update", "--target", str(inst)], ["--target", str(inst), "update"]):
+        code, _out, err, escaped = run(argv)
+        check(f"D2-scope — {' '.join(argv[:-1]) or argv[0]} with no scope answers as bare update",
+              escaped is None and code == 2 and "invalid choice" not in err
+              and "the following arguments are required: {guidance,scaffolding,all}" in err
+              and err == bare_err, f"{code} {err[:200]}")
+
+    ws = tmp / "d-agent-ws"
+    ws.mkdir()
+    # Agent update reconciles the membership the agent.json lists against the
+    # units booked on disk, and names what it added and removed.
+    src = tmp / "d-agent-source"
+    comp = _component(src, "moda", "comp")
+    _unit_md(comp / "rules/kiss.md", "kiss", "Kiss", "body\n")
+    _unit_md(comp / "rules/other.md", "other", "Other", "body\n")
+    d_catalog, _ = scan_all(tmp / "d-agent-mirror", src)
+    home = ws / ".rbtv/agents/scout"
+    known = {"claude": {"m1": ["low", "high"]}, "codex": {"c1": ["low", "high"]}}
+    from unittest.mock import patch
+    from lib.agents import add_agent
+    _agent(home, units=["moda/comp#kiss"])
+    with patch("lib.agents.cast_catalog", return_value=known):
+        add_agent(ws, "scout", [], set(), d_catalog, False)
+    record = json.loads((home / "agent.json").read_text(encoding="utf-8"))
+    record["units"] = ["moda/comp#other"]
+    (home / "agent.json").write_text(json.dumps(record) + "\n", encoding="utf-8")
+    shown = io.StringIO()
+    with contextlib.redirect_stdout(shown):
+        cmd_agent(build_parser().parse_args(["agent", "update", str(home), "all", "--dry-run"]),
+                  ws, d_catalog, [])
+    text = shown.getvalue()
+    check("D4-membership-preview — a preview names the units it would add and remove",
+          "Would add:" in text and "moda/comp#other" in text
+          and "Would remove:" in text and "moda/comp#kiss" in text, text)
+    shown = io.StringIO()
+    with contextlib.redirect_stdout(shown):
+        cmd_agent(build_parser().parse_args(["agent", "update", str(home), "all"]),
+                  ws, d_catalog, [])
+    text = shown.getvalue()
+    check("D4-membership — the result names the units added and removed",
+          "Added:" in text and "moda/comp#other" in text
+          and "Removed:" in text and "moda/comp#kiss" in text
+          and "(membership changed)" in text and "Was:" in text, text)
+    record = json.loads((home / "agent.json").read_text(encoding="utf-8"))
+    record["units"] = ["moda/comp#kiss"]
+    (home / "agent.json").write_text(json.dumps(record) + "\n", encoding="utf-8")
+    shown = io.StringIO()
+    with contextlib.redirect_stdout(shown):
+        cmd_agent(build_parser().parse_args(["agent", "update", str(home), "guidance"]),
+                  ws, d_catalog, [])
+    text = shown.getvalue()
+    check("D4-guidance-mismatch — guidance scope names the mismatch and the fixing command",
+          "does not match agent.json" in text and "On disk:" in text
+          and "agent.json:" in text and "Next: rbtv agent update " in text
+          and text.rstrip().endswith("scaffolding"), text)
+    check("D4-state — the record was left as the agent wrote it",
+          read_state(home)["units"] == ["moda/comp#kiss"], "")
+
+    code, out, _err, escaped = run(["agent", "remove", str(home), "nosuchunit", "--json", "--dry-run"])
+    nxt = json.loads(out).get("next", "") if escaped is None and out.strip() else ""
+    check("D3-agent-next — an agent refusal's next command carries no --target",
+          escaped is None and code == 1 and nxt and "--target" not in nxt,
+          f"{escaped} / {code} / next={nxt!r}")
+
+    gone = tmp / "d-remove-ws"
+    gone.mkdir()
+    shown = io.StringIO()
+    with contextlib.redirect_stdout(shown):
+        code = cmd_rm(build_parser().parse_args(["remove", "fixskill"]), gone, catalog, [])
+    text = shown.getvalue()
+    check("D5-not-installed — remove of an uninstalled unit says nothing to remove and names it",
+          code == 0 and "nothing to remove" in text and "Not installed:" in text
+          and "units removed" not in text and "Removed:" not in text, text)

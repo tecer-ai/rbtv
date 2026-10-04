@@ -15,7 +15,7 @@ from .constants import AGENT_RECORD, GUIDANCE_FILE, HARNESSES
 from .fsio import write_file
 from .operations import do_install, do_uninstall
 from .selection import _split_part_keys, iter_booked_units, resolve_name
-from .state import read_state, write_state
+from .state import read_state, unit_membership, write_state
 
 AGENTS_REL = Path(".rbtv") / "agents"
 IGNORE_TEXT = ("# rbtv: generated files and machine data\n*\n!agent.md\n!agent.json\n"
@@ -283,15 +283,25 @@ def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: 
 
 
 def update_agent(root: Path, raw: str, scope: str, catalog: dict, dry: bool) -> dict:
+    """Reconcile the folder with agent.json. The membership is read before the
+    install writes; `guidance` adds and removes nothing, so it only reports a
+    mismatch (listed_missing, on_disk_unlisted) for the caller to name."""
     home = resolve_agent(root, raw)
     state = agent_state(home)
     wanted = _keys(list(state["units"]), catalog) | pack_units(catalog, set(state["packs"]))
+    members = unit_membership(home, catalog, state, wanted)
     picked, parts = _split_part_keys(wanted)
     result = do_install(home, catalog, picked, [state["harness"]], dry, guidance_basis="none", parts=parts, scope=scope, selected=parts if scope in ("scaffolding", "all") else None)
     written = _agent_files(home, state, dry) if scope != "guidance" else []
+    guidance = scope == "guidance"
     return {"ok": True, "agent": state["name"], "home": str(home), "launch": _launch(state),
             "packs": list(state["packs"]), "scope": scope, "written": written,
-            "units": sorted(wanted), "units_removed": [], "unit_files": result, "dry_run": dry}
+            "units": sorted(wanted), "units_removed": [], "unit_files": result, "dry_run": dry,
+            "added": [] if guidance else sorted(members["added"]),
+            "removed": [] if guidance else sorted(members["removed"]),
+            "on_disk": sorted(members["booked"]),
+            "listed_missing": sorted(members["listed_missing"]),
+            "on_disk_unlisted": sorted(members["on_disk_unlisted"])}
 
 
 def remove_agent(root: Path, raw: str, names: list[str], packs: set[str], all_units: bool, yes: bool, catalog: dict, dry: bool) -> dict:

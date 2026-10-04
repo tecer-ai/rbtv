@@ -183,6 +183,9 @@ def build_parser() -> argparse.ArgumentParser:
     page(s_set, "configure")
 
     s_update = sub.add_parser("update")
+    # The shared flags stand here too, so `update --target DIR` with no scope
+    # is the same refusal as `update` alone, not a scope of DIR.
+    tree_flags(s_update, on_verb=True)
     update_sub = s_update.add_subparsers(dest="scope", metavar="{guidance,scaffolding,all}")
     update_sub.required = True
     page(s_update, "update")

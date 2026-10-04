@@ -25,7 +25,7 @@ from .constants import (
 from .guidance import _norm_prefix
 from .target import DISCOVER_CWD, discover_installation, resolve_target
 from .state import (book_harnesses, is_agent_target, read_state, selected_packs,
-                    selected_units, state_path, write_state)
+                    selected_units, state_path, unit_membership, write_state)
 from .catalog import catalog_packs, check_packs, pack_units
 from .selection import (
     _has_negative,
@@ -42,7 +42,6 @@ from .listing import (_short_description, build_list, build_show,
                       do_list, json_view, pack_members, print_list, print_show)
 from .agents import (OWN_FILES, add_agent, agent_state, configure_agent, is_path,
                      list_agents, remove_agent, update_agent)
-from .content import _is_ours
 from .doctor import do_doctor, doctor_exit
 from .report import LIST_LIMIT, print_result
 from .recovery import shell_quote
@@ -114,7 +113,10 @@ def _print_refused(code: str, message: str, *, outcome: str = "refused") -> None
 
 
 def _error_data(exc: Refuse, target: Path | None = None,
-                catalog: dict | None = None) -> dict:
+                catalog: dict | None = None, *, takes_target: bool = True) -> dict:
+    """The refusal's JSON body. `takes_target` is False for the agent verbs,
+    which take no --target: their suggested commands then carry none."""
+    flag = " --target " + _quote(target) if target is not None and takes_target else ""
     error = {"code": exc.code, "message": exc.message}
     if exc.path:
         error["path"] = exc.path
@@ -131,14 +133,11 @@ def _error_data(exc: Refuse, target: Path | None = None,
     if hasattr(exc, "next"):
         out["next"] = exc.next
     elif error.get("suggestions"):
-        out["next"] = ("rbtv show " + _quote(error["suggestions"][0]["id"])
-                       + (" --target " + _quote(target) if target is not None else ""))
+        out["next"] = "rbtv show " + _quote(error["suggestions"][0]["id"]) + flag
     elif exc.code in {"name-unknown", "unit-unknown", "component-unknown"}:
-        out["next"] = ("rbtv list"
-                       + (" --target " + _quote(target) if target is not None else ""))
+        out["next"] = "rbtv list" + flag
     elif exc.code == "pack-unknown":
-        out["next"] = ("rbtv list --type pack"
-                       + (" --target " + _quote(target) if target is not None else ""))
+        out["next"] = "rbtv list --type pack" + flag
     return out
 
 
@@ -536,18 +535,6 @@ def _save_selected_units(target: Path, add: set[str] | None = None,
     write_state(target, state)
 
 
-def _missing_generated_units(target: Path, state: dict) -> set[str]:
-    """Selected units whose recorded generated files are absent or released."""
-    missing: set[str] = set()
-    for cid, rec in (state.get("components") or {}).items():
-        for pid, unit in (rec.get("units") or {}).items():
-            files = unit.get("files") or []
-            if any(not (target / rel).is_file() or not _is_ours(target, rel)
-                   for rel in files):
-                missing.add(f"{cid}#{pid}")
-    return missing
-
-
 def _require_recorded(target: Path, state: dict) -> list[str]:
     if is_agent_target(target):
         return [state["harness"]]
@@ -830,7 +817,7 @@ def _remove_not_installed(args, target: Path, catalog: dict, state: dict,
               verb="remove", details=getattr(args, "details", False))
         return 0
     count = len(installed)
-    _emit({"ok": True, "uninstalled": [], "selected_units": named,
+    _emit({"ok": True, "uninstalled": [], "not_installed": named,
            "dry_run": dry, "written": [], "deleted": [], "skipped": []},
           bool(args.json), target, getattr(args, "_why", "unknown"),
           verb="remove", details=getattr(args, "details", False),
@@ -933,23 +920,20 @@ def cmd_update(args, target: Path, catalog: dict, shadowed: list,
         agent_state(target)
     state = read_state(target)
     hs = _require_recorded(target, state)
-    chosen = sorted(selected_units(state) | pack_units(catalog, selected_packs(state)))
-    booked = {row["key"] for row in iter_booked_units(
-        catalog, state.get("components") or {})}
-    missing = _missing_generated_units(target, state)
+    chosen = selected_units(state) | pack_units(catalog, selected_packs(state))
+    members = unit_membership(target, catalog, state, chosen)
     data = _replan_all(target, catalog, hs,
                        bool(getattr(args, "dry_run", False)),
                        scope=args.scope,
-                       selected=chosen if args.scope in ("scaffolding", "all") else None)
+                       selected=sorted(chosen) if args.scope in ("scaffolding", "all") else None)
     records = state.get("components") or {}
     data["recorded_units"] = len(iter_booked_units(catalog, records))
     data["source_missing"] = sorted(cid for cid in records if cid not in catalog)
-    data["added"] = sorted((set(chosen) - booked) | (set(chosen) & missing)) \
-        if args.scope != "guidance" else []
-    data["removed"] = sorted(booked - set(chosen)) if args.scope != "guidance" else []
-    facts = {"units": (len(booked), len(chosen)),
-             "listed_missing": sorted(set(chosen) - booked),
-             "on_disk_unlisted": sorted(booked - set(chosen))}
+    data["added"] = sorted(members["added"]) if args.scope != "guidance" else []
+    data["removed"] = sorted(members["removed"]) if args.scope != "guidance" else []
+    facts = {"units": (len(members["booked"]), len(chosen)),
+             "listed_missing": sorted(members["listed_missing"]),
+             "on_disk_unlisted": sorted(members["on_disk_unlisted"])}
     _emit(data, bool(getattr(args, "json", False)),
           target, getattr(args, "_why", "unknown"), verb="update",
           details=getattr(args, "details", False), facts=facts)
@@ -1065,8 +1049,8 @@ def cmd_selftest(args, target: Path, catalog: dict, shadowed: list,
 
 
 # Facts the agent printers need for their rows; the JSON contract does not carry them.
-_AGENT_TEXT_ONLY = ("added", "was", "packs_on", "packs_off", "absent_packs", "all",
-                    "harness_changed")
+_AGENT_TEXT_ONLY = ("was", "packs_on", "packs_off", "absent_packs", "all",
+                    "harness_changed", "on_disk", "listed_missing", "on_disk_unlisted")
 # The approved wording, broken where the approved screens break it.
 AGENT_LIST_HINT = ["Lists are counted, not printed. To list every unit and file, preview the",
                    "next change with --dry-run --details. --json always carries the full lists."]
@@ -1183,7 +1167,21 @@ def _print_agent(data: dict, verb: str, target: Path, why: str | None,
         if data["scope"] == "guidance":
             title = "agent update"
         rows.append(("Scope", data["scope"]))
-        rows.append(("Units", f"{len(units)}" if touched else f"{len(units)}, already match agent.json"))
+        added, removed = data["added"], data["removed"]
+        if added:
+            rows.append(("Would add" if dry else "Added", _agent_ids(added, details)))
+        if removed:
+            rows.append(("Would remove" if dry else "Removed", _agent_ids(removed, details)))
+        if (added or removed) and dry:
+            rows.append(("Units", f"{len(units)} (would be {_agent_ids(units, details)})"))
+        elif added or removed:
+            rows.append(("Units", f"{len(units)} (membership changed)"))
+            rows.append(("  Was", _agent_ids(data["on_disk"], details)))
+            rows.append(("  Now", _agent_ids(units, details)))
+        elif touched or _agent_mismatch(data):
+            rows.append(("Units", f"{len(units)}"))
+        else:
+            rows.append(("Units", f"{len(units)}, already match agent.json"))
         if not touched and not dry:
             rows.append(("Packs", ", ".join(data["packs"]) or "none"))
         rows.append(("Guidance", "nothing to copy (no guidance file is set)"))
@@ -1215,8 +1213,13 @@ def _print_agent(data: dict, verb: str, target: Path, why: str | None,
     print()
     print("\n".join(present.fields(rows)))
     if verb == "update" and data["scope"] == "guidance":
-        _print_agent_blocks([["Nothing to copy. No guidance file is set for this agent."]],
-                            data["next"])
+        blocks = [["Nothing to copy. No guidance file is set for this agent."]]
+        if _agent_mismatch(data):
+            blocks.append(present.wrap("Warning: the folder does not match agent.json. "
+                                       "This scope does not add or remove units.")
+                          + [f"  On disk:     {_agent_ids(data['on_disk'], details)}",
+                             f"  agent.json:  {_agent_ids(units, details)}"])
+        _print_agent_blocks(blocks, data["next"])
         return
     detail_blocks = _agent_details(write, delete, dry) if details else []
     if verb in ("add", "update") and details and units:
@@ -1317,16 +1320,21 @@ def _agent_next_text(data: dict, path_arg: bool) -> str:
     return "rbtv agent list"
 
 
-def _agent_repeat(args) -> str:
+def _agent_mismatch(data: dict) -> bool:
+    """True when the folder's units and agent.json's units differ."""
+    return bool(data["listed_missing"] or data["on_disk_unlisted"])
+
+
+def _agent_repeat(args, scope: str | None = None) -> str:
     """The command a preview is followed by: the same change, without the
-    preview flags."""
+    preview flags. `scope` replaces an update's scope."""
     words = ["rbtv agent", args.agent_verb, _quote(args.agent)]
     if args.agent_verb == "configure":
         words += [f"--{key} {value}" for key, value in
                   (("harness", args.harness), ("model", args.model),
                    ("effort", args.effort), ("voice", args.voice)) if value is not None]
     elif args.agent_verb == "update":
-        words.append(args.scope)
+        words.append(scope or args.scope)
     else:
         words += list(args.name) + [f"--pack {pack}" for pack in args.pack]
         if args.agent_verb == "remove":
@@ -1370,6 +1378,9 @@ def cmd_agent(args, target: Path, catalog: dict, shadowed: list,
         data = remove_agent(target, args.agent, list(args.name), set(args.pack),
                             bool(args.all), bool(args.yes), catalog, dry)
     data["next"] = _agent_repeat(args) if dry else _agent_next_text(data, path_arg)
+    if verb == "update" and args.scope == "guidance" and _agent_mismatch(data):
+        # Guidance copies cannot fix a folder that does not match agent.json.
+        data["next"] = _agent_repeat(args, scope="scaffolding")
     if as_json:
         _emit({k: v for k, v in data.items() if k not in _AGENT_TEXT_ONLY}, True, target, why)
     elif verb == "configure":
@@ -1461,15 +1472,18 @@ def main(argv: list[str] | None = None, *, ask=None) -> int:
                 "--type, or --pack")
         return handler(args, target, catalog, shadowed, ask=ask)
     except Refuse as exc:
+        takes_target = args.verb != "agent"
         if as_json:
             print(json.dumps(_error_data(exc, locals().get("target"),
-                                         locals().get("catalog")), indent=2))
+                                         locals().get("catalog"),
+                                         takes_target=takes_target), indent=2))
         else:
             _print_refused(exc.code, _text_refusal(exc))
             if exc.path:
                 print(f"  at: {exc.path}", file=sys.stderr)
             next_cmd = _error_data(exc, locals().get("target"),
-                                   locals().get("catalog")).get("next")
+                                   locals().get("catalog"),
+                                   takes_target=takes_target).get("next")
             if next_cmd:
                 print(f"next: {next_cmd}", file=sys.stderr)
         return 2 if exc.code == "usage" else 1

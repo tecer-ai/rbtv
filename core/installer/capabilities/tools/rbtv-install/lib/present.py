@@ -11,7 +11,7 @@ import re
 import shutil
 import textwrap
 
-from .constants import CANONICAL_METHODS, HARNESSES
+from .constants import CATALOG_TYPES, HARNESSES
 from .target import DISCOVER_FLAG
 
 # --type / --exclude-type value -> short meaning, in the one order every
@@ -25,8 +25,9 @@ TYPE_MEANING = {
     "mcp-server": "Server an agent tool connects to for extra tools.",
     "tool": "Runnable program exposed through a command shortcut.",
     "folder-instructions": "Text added to a folder's instructions file.",
+    "pack": "A named list of units a component declares.",
 }
-assert set(TYPE_MEANING) == set(CANONICAL_METHODS)
+assert set(TYPE_MEANING) == set(CATALOG_TYPES)
 
 HARNESS_MEANING = {"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode"}
 assert set(HARNESS_MEANING) == set(HARNESSES)
@@ -37,7 +38,7 @@ GUIDANCE_MEANING = {
 }
 
 
-def types_block(values=CANONICAL_METHODS, *, indent: str = "  ") -> str:
+def types_block(values=CATALOG_TYPES, *, indent: str = "  ") -> str:
     """The accepted --type values with their meanings, one per line."""
     width = max(len(v) for v in values)
     return "\n".join(f"{indent}{v.ljust(width)}  {TYPE_MEANING[v]}" for v in values)

@@ -33,6 +33,8 @@ def _title(data: dict) -> str:
     if verb == "add":
         return "add preview" if dry else "units added"
     if verb == "remove":
+        if data.get("not_installed"):
+            return "nothing to remove"
         if not data.get("uninstalled") and not data.get("selected_units"):
             if "report" in data:
                 return "shared shortcut claims released"
@@ -147,6 +149,8 @@ def print_result(data: dict) -> None:
     elif data.get("uninstalled"):
         out.summary.append(("Would remove" if preview else "Removed",
                             out.ids(data["uninstalled"], "components", listed=False)))
+    elif data.get("not_installed"):
+        out.summary.append(("Not installed", out.ids(data["not_installed"], "units")))
     if data.get("harnesses"):
         out.summary.append(("Receiving tools",
                             _receiving(data["harnesses"], facts, preview)))
