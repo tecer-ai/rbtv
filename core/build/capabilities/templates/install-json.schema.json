@@ -8,6 +8,7 @@
     "version",
     "marker",
     "harnesses",
+    "units",
     "components"
   ],
   "properties": {
@@ -33,6 +34,14 @@
           "codex",
           "opencode"
         ]
+      },
+      "uniqueItems": true
+    },
+    "units": {
+      "description": "The units chosen on their own, as full <module>/<component>#<unit> ids. This is the root selection; component records separately report what was generated.",
+      "type": "array",
+      "items": {
+        "type": "string"
       },
       "uniqueItems": true
     },

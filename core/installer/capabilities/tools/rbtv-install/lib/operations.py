@@ -17,7 +17,7 @@ from .constants import (
     STATE_REL,
 )
 from .catalog import _unit_specs, catalog_units_map
-from .claims import _block_set, _claim_id
+from .claims import _block_set, _claim_id, owned_fence_claims
 from .guidance import plan_mirror, resolve_basis
 from .pathlinks import (
     _path_rows_from_report,
@@ -197,6 +197,19 @@ def _stray_artifacts(target: Path, booked: set[str]) -> set[str]:
     return out
 
 
+def _stray_artifact_files(target: Path, booked: set[str]) -> set[str]:
+    """Expand the established marker audit into files `apply` can release."""
+    files: set[str] = set()
+    for rel in _stray_artifacts(target, booked):
+        path = target / rel
+        if path.is_dir():
+            files.update(p.relative_to(target).as_posix()
+                         for p in path.rglob("*") if p.is_file())
+        elif path.is_file():
+            files.add(rel)
+    return files
+
+
 def _tracked(target: Path, paths: list[str]) -> list[str]:
     """The listed paths git already tracks — no ignore file reaches those.
     Empty when git is unavailable; this is a report, never a gate."""
@@ -266,7 +279,7 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
                guidance_basis: str | None = None,
                guidance_excludes: list[str] | None = None,
                parts: list[str] | None = None,
-               scope: str = "all") -> dict:
+               scope: str = "all", selected: list[str] | None = None) -> dict:
     state = upgrade_book(read_state(target), catalog_units_map(catalog))
     records = dict(state.get("components") or {})
     if scope == "guidance":
@@ -287,10 +300,27 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
         return {"ok": True, "scope": scope, "installed": picked,
                 "harnesses": harnesses, "files": sorted(mirror_files),
                 **result, "report": report}
+    if selected is not None:
+        chosen: dict[str, list[str]] = {}
+        for key in selected:
+            cid, sep, pid = key.partition("#")
+            if not sep or cid not in catalog:
+                raise Refuse("component-vanished",
+                             f"selected unit is unavailable from local source: {key}")
+            chosen.setdefault(cid, []).append(pid)
+        picked = sorted(chosen)
+        parts = sorted(selected)
+        old_records = records
+        records = {}
     source_gone: list[str] = []
     for cid in picked:
         c = catalog[cid]
-        existing = records.get(cid) or {}
+        existing = (old_records if selected is not None else records).get(cid) or {}
+        if selected is not None:
+            wanted = set(_units_for_cid(cid, parts) or [])
+            existing = {**existing, "units": {
+                pid: part for pid, part in (existing.get("units") or {}).items()
+                if pid in wanted}}
         units, gone = _select_units(c, existing.get("units"),
                                     _units_for_cid(cid, parts))
         source_gone += [f"{cid}#{pid}" for pid in gone]
@@ -352,7 +382,14 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
                                              apply_state.get("shared_claims") or []
                                              if cid.partition("::")[0] not in copied]}
         _add_gitignore(target, owners, claims, report, known_files(state))
-        result = apply(target, files, claims, apply_state, dry_run, protect)
+        extra_files = (_stray_artifact_files(target, known_files(state) | set(files))
+                       if selected is not None else set())
+        planned_claims = {_claim_id(c["path"], c["key"], c.get("label"))
+                          for c in claims}
+        extra_claims = (owned_fence_claims(target, planned_claims)
+                        if selected is not None else set())
+        result = apply(target, files, claims, apply_state, dry_run, protect,
+                       extra_files=extra_files, extra_claims=extra_claims)
         _clean_bases(target, report, dry_run)
         if not dry_run:
             _rebook(state, records, files, owners, claims, report,
@@ -518,14 +555,14 @@ def do_install(target: Path, catalog: dict[str, dict], picked: list[str],
                guidance_basis: str | None = None,
                guidance_excludes: list[str] | None = None,
                parts: list[str] | None = None,
-               scope: str = "all") -> dict:
+               scope: str = "all", selected: list[str] | None = None) -> dict:
     """Serialize target state before building a plan from it."""
     if dry_run:
         return _do_install(target, catalog, picked, harnesses, dry_run,
-                           guidance_basis, guidance_excludes, parts, scope)
+                           guidance_basis, guidance_excludes, parts, scope, selected)
     with workspace_mutation_lock(target):
         return _do_install(target, catalog, picked, harnesses, dry_run,
-                           guidance_basis, guidance_excludes, parts, scope)
+                           guidance_basis, guidance_excludes, parts, scope, selected)
 
 
 def do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],

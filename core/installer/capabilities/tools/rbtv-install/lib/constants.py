@@ -11,7 +11,7 @@ VERSION = "0.2.1"
 # The program name is used in generated guidance banners. It is deliberately
 # not part of the portable install record.
 INSTALLER_NAME = "install.py"
-SCHEMA = 4
+SCHEMA = 5
 
 # D12 — ownership is a marker in the file, never a prefix on its name.
 MANAGED_MARK = "rbtv-managed"

@@ -14,6 +14,7 @@ from .constants import FENCE_ID, LEGACY_FENCE_ID
 
 # The end line of a block this installer wrote, now or under the 0.2 fence.
 _OWN_END = re.compile(r"<!-- rbtv2?:end[^>]*-->\Z")
+_OWNED_LABELS = re.compile(r"<!-- rbtv2?:start (.+?) -->")
 
 
 def _claim_id(rel: str, key: list[str] | None, label: str | None = None) -> str:
@@ -104,6 +105,29 @@ def _instruction_block_valid(text: str, rel: str, path: Path) -> bool:
             "Nothing was written",
             str(path))
     return True
+
+
+def owned_fence_claims(target: Path, planned: set[str]) -> set[str]:
+    """Labelled rbtv fences on disk that the current plan does not retain.
+
+    Fences are the shared-file ownership marker.  Reading them here lets an
+    installation copied without its former record release stale sections
+    without treating any unfenced author text as generated.
+    """
+    found: set[str] = set()
+    for path in target.rglob("*.md"):
+        if ".rbtv" in path.parts:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        rel = path.relative_to(target).as_posix()
+        for label in _OWNED_LABELS.findall(text):
+            cid = _claim_id(rel, None, label)
+            if cid not in planned and _located(text, "<!--", label):
+                found.add(cid)
+    return found
 
 
 def _block_set(text: str, body: str, comment: str,

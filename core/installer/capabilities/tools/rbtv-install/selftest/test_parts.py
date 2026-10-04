@@ -357,13 +357,13 @@ def v1_to_v2_upgrade(ctx) -> None:
     ctx.keep(locals())
 
 
-def schema_three_becomes_portable_on_write(ctx) -> None:
+def schema_four_gains_selected_units_on_write(ctx) -> None:
     check, skip, tmp, tree, target, shadowed = (
         ctx.check, ctx.skip, ctx.tmp, ctx.tree, ctx.target, ctx.shadowed)
     (catalog, data, legacy, expect, basis_body, mirrors_on_disk, mtr,
      _mk, rf, pws) = ctx.frame()
 
-    print("\nU-portable — schema 3 records migrate at their next write")
+    print("\nU-selection — schema 4 records gain selected units on their next write")
     old = tmp / "ws-schema-three"
     old.mkdir()
     do_install(old, catalog, ["fixmod/goodcomp"], ["claude"], dry_run=False)
@@ -376,15 +376,19 @@ def schema_three_becomes_portable_on_write(ctx) -> None:
     old_record["components"]["fixmod/goodcomp"]["tree_root"] = str(tree)
     state_path.write_text(json.dumps(old_record), encoding="utf-8")
     read = read_state(old)
-    check("U-portable — schema 3 reads without its machine-local fields",
+    check("U-selection — schema 4 reads with selected units derived from its record",
           read["schema"] == SCHEMA - 1
           and not {"installer", "installed_at", "target"} & set(read)
-          and "tree_root" not in read["components"]["fixmod/goodcomp"])
+          and "tree_root" not in read["components"]["fixmod/goodcomp"]
+          and set(read["units"]) == set(
+              f"fixmod/goodcomp#{pid}" for pid in
+              read["components"]["fixmod/goodcomp"]["units"]))
     write_state(old, read)
     persisted = json.loads(state_path.read_text(encoding="utf-8"))
-    check("U-portable — next write has schema 4 and no machine-local fields",
+    check("U-selection — next write has schema 5, selected units, and no machine-local fields",
           persisted["schema"] == SCHEMA
           and not {"installer", "installed_at", "target"} & set(persisted)
+          and persisted["units"] == sorted(read["units"])
           and all("tree_root" not in rec
                   for rec in persisted["components"].values()),
           str(persisted))

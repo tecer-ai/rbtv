@@ -33,7 +33,9 @@ def _instruction_fence(path: Path, rel: str) -> bool:
 
 
 def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
-          dry_run: bool, protect: frozenset[str] = frozenset()) -> dict:
+          dry_run: bool, protect: frozenset[str] = frozenset(),
+          extra_files: set[str] | None = None,
+          extra_claims: set[str] | None = None) -> dict:
     """Write the planned set and remove what the previous book held but the plan
     no longer does. Every collision (D6) refuses BEFORE the first write.
 
@@ -136,13 +138,13 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
     # D12 RELEASE — a booked file whose marker is gone was taken over by a
     # human between runs. It leaves the book (`_rebook` recomputes from the
     # plan) but is NEVER deleted; the caller reports it instead.
-    stale = sorted(ours_files - set(files) - protect)
+    stale = sorted((ours_files | set(extra_files or ())) - set(files) - protect)
     released = [rel for rel in stale
                 if (target / rel).is_file() and not _is_ours(target, rel)]
     stale_files = [rel for rel in stale if rel not in released]
     planned_claims = {_claim_id(c["path"], c["key"], c.get("label"))
                       for c in claims}
-    stale_claims = sorted(ours_claims - planned_claims)
+    stale_claims = sorted((ours_claims | set(extra_claims or ())) - planned_claims)
     for cid in stale_claims:
         rel, _, key = cid.partition("::")
         if rel in GUIDANCE_NAMES and key == "#block":

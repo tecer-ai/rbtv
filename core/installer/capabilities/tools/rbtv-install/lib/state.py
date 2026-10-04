@@ -51,7 +51,7 @@ def _validate_state(state: dict, path: Path) -> None:
                 if name in part:
                     _string_list(part[name],
                                  f"components.{cid}.units.{pid}.{name}", path)
-    for name in ("harnesses", "guidance_files", "shared_claims"):
+    for name in ("harnesses", "guidance_files", "shared_claims", "units"):
         if name in state:
             _string_list(state[name], name, path)
     if "guidance_basis" in state and state["guidance_basis"] is not None and \
@@ -96,6 +96,21 @@ def migrate_portable_record(state: dict) -> None:
             rec.pop("tree_root", None)
 
 
+def migrate_selected_units(state: dict) -> None:
+    """Schema 4 chose every unit it had generated; schema 5 says so plainly.
+
+    The old per-component map remains the generated-file ledger.  `units` is
+    the independent, portable selection that later updates reconcile against.
+    """
+    if "units" in state:
+        return
+    state["units"] = sorted(
+        f"{cid}#{pid}"
+        for cid, rec in (state.get("components") or {}).items()
+        for pid in (rec.get("units") or {})
+    )
+
+
 def read_state(target: Path) -> dict:
     path = target / STATE_REL
     if not path.is_file():
@@ -111,6 +126,7 @@ def read_state(target: Path) -> dict:
                      f"installer state must be a JSON object: {path}", str(path))
     migrate_legacy_record(state)
     migrate_portable_record(state)
+    migrate_selected_units(state)
     _validate_state(state, path)
     rewrite_legacy_skill_ids(state)
     strip_retired_harnesses(state)
@@ -234,6 +250,11 @@ def known_files(state: dict) -> set[str]:
 
 def known_claims(state: dict) -> set[str]:
     return set(state.get("shared_claims") or [])
+
+
+def selected_units(state: dict) -> set[str]:
+    """The root's explicit unit selection, as full catalog ids."""
+    return set(state.get("units") or [])
 
 
 def _unit_in(state: dict, cid: str, pid: str) -> bool:

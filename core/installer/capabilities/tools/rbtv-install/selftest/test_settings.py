@@ -9,10 +9,11 @@ from pathlib import Path
 from discovery import Refuse
 
 from lib.constants import FENCE_ID, STATE_REL
-from lib.state import read_state
+from lib.state import read_state, write_state
 from lib.operations import do_install, do_uninstall
 from lib.parser import build_parser
 from lib.commands import _HANDLERS, main
+from lib.doctor import do_doctor
 
 
 def workspace_settings(ctx) -> None:
@@ -368,3 +369,93 @@ def workspace_settings(ctx) -> None:
           and (split / STATE_REL).read_bytes() == malformed_before
           and (split / "AGENTS.md").read_text(encoding="utf-8")
           == "Owner\n" + start + "\nBroken\n")
+
+
+def unit_selection_sync(ctx) -> None:
+    """A portable selected-unit list reconciles root folders, not agents."""
+    check, tmp, tree = ctx.check, ctx.tmp, ctx.tree
+    catalog = ctx.frame()[0]
+    print("\nW44 — selected units reconcile copied and hand-edited records")
+
+    def home(name: str) -> Path:
+        path = tmp / name
+        path.mkdir()
+        return path
+
+    def run(target: Path, *argv: str) -> tuple[int | str, str]:
+        args = build_parser().parse_args(list(argv))
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            try:
+                return _HANDLERS[args.verb](args, target, catalog, []), output.getvalue()
+            except Refuse as exc:
+                return exc.code, exc.message
+
+    a, b, c = home("ws-units-a"), home("ws-units-b"), home("ws-units-c")
+    for target in (a, b):
+        run(target, "add", "fixskill", "fixrule", "--harness", "claude",
+            "--guidance", "none")
+    check("W44 — add and remove maintain full selected ids",
+          run(a, "remove", "fixrule")[0] == 0
+          and read_state(a)["units"] == ["fixmod/goodcomp#fixskill"])
+    book = (a / STATE_REL).read_bytes()
+    (b / STATE_REL).write_bytes(book)
+    preview = run(b, "update", "all", "--dry-run", "--details")
+    check("W44 — copied record previews and removes a stray marked file",
+          preview[0] == 0 and ".claude/rules/fixrule.md" in preview[1]
+          and run(b, "update", "all")[0] == 0
+          and not (b / ".claude/rules/fixrule.md").exists()
+          and do_doctor(b, "fixture", catalog, [], tree, b / ".rbtv/mirror")["ok"])
+    (c / STATE_REL).parent.mkdir(parents=True)
+    (c / STATE_REL).write_bytes(book)
+    check("W45 — copied record generates into an empty folder",
+          run(c, "update", "all")[0] == 0
+          and (c / ".claude/skills/fixskill/SKILL.md").is_file()
+          and do_doctor(c, "fixture", catalog, [], tree, c / ".rbtv/mirror")["ok"])
+
+    hand = home("ws-units-hand")
+    run(hand, "add", "fixskill", "fixrule", "--harness", "claude", "--guidance", "none")
+    state = read_state(hand)
+    state["units"] = ["fixmod/goodcomp#fixskill"]
+    write_state(hand, state)
+    check("W46 — a hand deletion from units removes its generated files",
+          run(hand, "update", "all")[0] == 0
+          and not (hand / ".claude/rules/fixrule.md").exists())
+    state = read_state(hand)
+    state["units"].append("fixmod/goodcomp#fixrule")
+    write_state(hand, state)
+    check("W46 — a valid hand-added unit is generated",
+          run(hand, "update", "all")[0] == 0
+          and (hand / ".claude/rules/fixrule.md").is_file())
+    user_file = hand / ".claude/rules/user.md"
+    user_file.write_text("author text\n", encoding="utf-8")
+    run(hand, "remove", "fixrule")
+    check("W47 — an unmarked neighbouring file is never removed",
+          run(hand, "update", "all")[0] == 0
+          and user_file.read_text(encoding="utf-8") == "author text\n")
+
+    guidance = home("ws-units-guidance")
+    run(guidance, "add", "fixskill", "fixrule", "--harness", "claude", "--guidance", "none")
+    state = read_state(guidance)
+    state["units"] = ["fixmod/goodcomp#fixskill"]
+    write_state(guidance, state)
+    check("W48 — update guidance does not reconcile unit files",
+          run(guidance, "update", "guidance")[0] == 0
+          and (guidance / ".claude/rules/fixrule.md").is_file())
+
+    fence_a, fence_b = home("ws-units-fence-a"), home("ws-units-fence-b")
+    for target in (fence_a, fence_b):
+        do_install(target, catalog, ["fixmod/codexcomp"], ["codex"],
+                   dry_run=False, guidance_basis="none", parts=["codexrule"])
+        state = read_state(target)
+        state["units"] = ["fixmod/codexcomp#codexrule"]
+        write_state(target, state)
+    state = read_state(fence_a)
+    state["units"] = []
+    write_state(fence_a, state)
+    (fence_b / STATE_REL).write_bytes((fence_a / STATE_REL).read_bytes())
+    check("W49 — copied record removes an unbooked fenced shared section",
+          run(fence_b, "update", "all")[0] == 0
+          and (not (fence_b / "AGENTS.md").exists() or
+               "rule fixmod/codexcomp#codexrule" not in
+               (fence_b / "AGENTS.md").read_text(encoding="utf-8")))

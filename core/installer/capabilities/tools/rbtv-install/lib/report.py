@@ -117,6 +117,12 @@ def print_result(data: dict) -> None:
 
     out.summary.extend(data.get("_fields") or [])
     selected = data.get("selected_items") or []
+    added, removed = data.get("added") or [], data.get("removed") or []
+    if data.get("_verb") == "update":
+        out.summary.append(("Would add" if preview else "Added",
+                            out.ids(added, "items") if added else "none"))
+        out.summary.append(("Would remove" if preview else "Removed",
+                            out.ids(removed, "items") if removed else "none"))
     removing = bool(data.get("uninstalled"))
     if selected:
         label = ("Would remove" if removing else "Would install") if preview \

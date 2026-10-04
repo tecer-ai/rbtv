@@ -21,7 +21,7 @@ from .constants import (
 )
 from .guidance import _norm_prefix
 from .target import DISCOVER_CWD, resolve_target
-from .state import book_harnesses, read_state
+from .state import book_harnesses, read_state, selected_units, write_state
 from .selection import (
     _has_negative,
     _split_part_keys,
@@ -36,6 +36,7 @@ from .shared_links import release_workspace_links, workspace_mutation_lock
 from .listing import (_short_description, build_list, build_show,
                       do_list, print_list, print_show)
 from .agents import add_agent, remove_agent, update_agent
+from .content import _is_ours
 from .doctor import do_doctor, doctor_exit
 from .report import print_result
 from .recovery import shell_quote
@@ -378,7 +379,7 @@ def _gate_add_artifact(target: Path, state: dict, raw: str | None) -> str | None
 def _replan_all(target: Path, catalog: dict, harnesses: list[str],
                 dry_run: bool, *, guidance_basis: str | None = None,
                 guidance_excludes: list[str] | None = None,
-                scope: str = "all") -> dict:
+                scope: str = "all", selected: list[str] | None = None) -> dict:
     """D16 — re-plan EVERY booked component under a changed workspace setting.
     `apply` removes what the old book held and the new plan does not, so a
     dropped harness really loses its files. A component whose folder vanished
@@ -388,7 +389,29 @@ def _replan_all(target: Path, catalog: dict, harnesses: list[str],
     picked = [cid for cid in sorted(records) if cid in catalog]
     return do_install(target, catalog, picked, harnesses, dry_run,
                       guidance_basis=guidance_basis,
-                      guidance_excludes=guidance_excludes, scope=scope)
+                      guidance_excludes=guidance_excludes, scope=scope,
+                      selected=selected)
+
+
+def _save_selected_units(target: Path, add: set[str] | None = None,
+                         remove: set[str] | None = None) -> None:
+    """Persist the root's independent unit selection after a real mutation."""
+    state = read_state(target)
+    state["units"] = sorted((selected_units(state) | set(add or ()))
+                            - set(remove or ()))
+    write_state(target, state)
+
+
+def _missing_generated_units(target: Path, state: dict) -> set[str]:
+    """Selected units whose recorded generated files are absent or released."""
+    missing: set[str] = set()
+    for cid, rec in (state.get("components") or {}).items():
+        for pid, unit in (rec.get("units") or {}).items():
+            files = unit.get("files") or []
+            if any(not (target / rel).is_file() or not _is_ours(target, rel)
+                   for rel in files):
+                missing.add(f"{cid}#{pid}")
+    return missing
 
 
 def _require_recorded(target: Path, state: dict) -> list[str]:
@@ -625,6 +648,8 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
         bool(getattr(args, "dry_run", False)),
         guidance_basis=basis,
         parts=parts)
+    if not bool(getattr(args, "dry_run", False)):
+        _save_selected_units(target, add=set(parts))
     data["selected_items"] = parts
     _emit(data, bool(getattr(args, "json", False)),
           target, getattr(args, "_why", "unknown"), verb="add", details=getattr(args, "details", False))
@@ -692,6 +717,8 @@ def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
         return 0
     picked, parts = _split_part_keys(keys)
     data = do_uninstall(target, catalog, picked, dry, parts=parts)
+    if not dry and (target / STATE_REL).is_file():
+        _save_selected_units(target, remove=set(parts))
     data["selected_items"] = parts
     _emit(data, bool(getattr(args, "json", False)),
           target, getattr(args, "_why", "unknown"), verb="remove", details=getattr(args, "details", False))
@@ -704,12 +731,20 @@ def cmd_update(args, target: Path, catalog: dict, shadowed: list,
     del ask, shadowed
     state = read_state(target)
     hs = _require_recorded(target, state)
+    chosen = sorted(selected_units(state))
+    booked = {row["key"] for row in iter_booked_units(
+        catalog, state.get("components") or {})}
+    missing = _missing_generated_units(target, state)
     data = _replan_all(target, catalog, hs,
                        bool(getattr(args, "dry_run", False)),
-                       scope=args.scope)
+                       scope=args.scope,
+                       selected=chosen if args.scope in ("scaffolding", "all") else None)
     records = state.get("components") or {}
     data["recorded_items"] = len(iter_booked_units(catalog, records))
     data["source_missing"] = sorted(cid for cid in records if cid not in catalog)
+    data["added"] = sorted((set(chosen) - booked) | (set(chosen) & missing)) \
+        if args.scope != "guidance" else []
+    data["removed"] = sorted(booked - set(chosen)) if args.scope != "guidance" else []
     _emit(data, bool(getattr(args, "json", False)),
           target, getattr(args, "_why", "unknown"), verb="update", details=getattr(args, "details", False))
     return 0
