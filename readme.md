@@ -52,11 +52,11 @@ The `cli-creator` skill in `meta/code` covers both help and actual command resul
 
 The `work-history` skill in `meta/functions` reconstructs a user-agreed project, plan, or session history. It preserves visible transcripts, intermediate and final outputs, and saved working notes in one folder per agent/session, with a linked root timeline, provenance manifest, and explicit recovery gaps. It researches historical evidence; `handoff` transfers current session knowledge for continuation. Install it with `rbtv add work-history` in a configured workspace.
 
-> **The installer is `core/installer/capabilities/tools/install/install.py`, reachable as `rbtv`.**
+> **The installer is `core/install/capabilities/tools/rbtv/install.py`, reachable as `rbtv`.**
 > It carried the name `install2.py` from its first commit until 2026-08-23, while a
 > PREDECESSOR installer held the plain name at the repo root. On that date it was split
-> into one module per responsibility under `core/installer/lib/` (checks under
-> `core/installer/selftest/`, decisions in `core/installer/capabilities/design-decisions.md`) and took
+> into one module per responsibility under `core/install/capabilities/tools/rbtv/lib/` (checks under
+> `core/install/capabilities/tools/rbtv/selftest/`, decisions in `core/install/capabilities/design-decisions.md`) and took
 > the plain name; the predecessor — repo-root `install.py` plus its `admin/install/`
 > package, which installed flat module components into `.claude/` and kept state in
 > `rbtv.json` — was DELETED on 2026-08-24. Its content lives in git history, and the
@@ -65,7 +65,7 @@ The `work-history` skill in `meta/functions` reconstructs a user-agreed project,
 > The installer manages **components**: a `<module>/<component>/` folder holding its own
 > `<component>.json`, inside a `<module>/` folder holding its own `<module>.json`, on BOTH the
 > workspace mirror (`{target}/.rbtv/mirror`) and this repo. It finds a component's units by the
-> folder each sits in (`skills/`, `rules/`, `commands/`, `agents/`, `hooks/`, `mcp-servers/`,
+> folder each sits in (`skills/`, `rules/`, `commands/`, `agents/<name>/`, `sub-agents/`, `hooks/`, `mcp-servers/`,
 > `capabilities/tools/<tool>/`, `folder-instructions/`), checks each file's frontmatter or record
 > against the schemas in `core/build/capabilities/templates/`, and realizes the units for
 > **three harnesses** (claude, codex, opencode). A component's folder instructions become a
@@ -106,18 +106,14 @@ The `work-history` skill in `meta/functions` reconstructs a user-agreed project,
 > both with `configure` or on the first `add`. A later `configure` replaces only the settings
 > supplied; `status` displays them. `--type` filters item types; `--exclude-type` excludes them.
 > Numeric catalog positions are not identifiers. The setting rationale and current command names
-> are recorded in `core/installer/capabilities/design-decisions.md`.
+> are recorded in `core/install/capabilities/design-decisions.md`.
 >
 > `configure`, `add`, `remove`, and `update` accept `--dry-run`. The read and change commands
 > accept `--json`; `interactive` and `selftest` accept neither flag. Exit codes are `0` success / `1` refusal /
 > `2` usage. Its design decisions (tree precedence, the new-standard scope, the ownership marker, the collision
-> rule, the workspace settings) are documented in `core/installer/capabilities/design-decisions.md` —
+> rule, the workspace settings) are documented in `core/install/capabilities/design-decisions.md` —
 > that is their one home.
 >
-> A third installer, `core/capabilities/installer/tool/rbtv-install`, was **deleted on
-> 2026-08-22**. It had been built for a KG-shape component layout and `prompts/cognitive-units/`
-> pools, neither of which ever materialized on the live trees, so
-> nothing ran it. Its content lives in git history.
 
 1. Clone RBTV as a subfolder of your workspace:
 
@@ -131,7 +127,7 @@ The `work-history` skill in `meta/functions` reconstructs a user-agreed project,
 2. Run the installer:
 
    ```bash
-   rbtv status          # or: python rbtv/core/installer/capabilities/tools/install/install.py status
+   rbtv status          # or: python rbtv/core/install/capabilities/tools/rbtv/install.py status
    ```
 
    For a guided flow, run `rbtv interactive`: choose the workspace, tick the

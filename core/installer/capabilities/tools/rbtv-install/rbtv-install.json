@@ -1,5 +1,0 @@
-{
-  "name": "rbtv-install",
-  "description": "Installs, lists and removes rbtv components in a workspace, and keeps their generated files current.",
-  "entry": "install.py"
-}

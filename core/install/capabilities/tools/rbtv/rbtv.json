@@ -1,0 +1,5 @@
+{
+  "name": "rbtv",
+  "description": "Manages the units an agent is exposed to.",
+  "entry": "install.py"
+}
