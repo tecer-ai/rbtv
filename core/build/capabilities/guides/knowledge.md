@@ -16,7 +16,7 @@ It keeps topical facts, preferences, decisions, the self-model, and behaviour-ch
 
 ## Making it good
 
-Use `ignite remember` and name the kind of fact. Do not edit the knowledge file by hand. The dreamer files the inbox line. `facts`, `preferences`, and `decisions` start as one file each and split into a folder when over their cap; do not split them by hand.
+Use `ignite remember` and name the kind of fact. Do not edit the knowledge file by hand. The dreamer files the inbox line. `facts`, `preferences`, and `decisions` are one file each. A write that would pass a file's cap is refused and reported; do not split a file by hand.
 
 ## Traps
 

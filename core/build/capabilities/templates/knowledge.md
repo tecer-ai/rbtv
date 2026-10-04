@@ -1,7 +1,7 @@
 <!--
 Shape of one knowledge file. Copy the skeleton into the instance. Do not copy this comment.
 The dreamer writes the instance. Kinds: facts, preferences, decisions, self, health.
-facts, preferences, and decisions start as one file and split into a folder when over their cap.
+facts, preferences, and decisions are one file each. A write that would pass a file's cap is refused and reported; the file does not split.
 -->
 
 ## Skeleton
