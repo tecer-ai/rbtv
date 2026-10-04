@@ -566,7 +566,7 @@ def print_show(data: dict) -> None:
                             for h, v in agent["sub_agent"].items())
         print("  Harness-native sub-agent: " + (written or "not written for any harness"))
         print("  rbtv agent: " + ("placed at " if agent["placed"] else "no folder at ")
-              + agent["home"] + "/")
+              + agent["home"])
     if not part["source_available"]:
         print("  Source: no longer present in the local catalog")
     if part["type"] == "agent":

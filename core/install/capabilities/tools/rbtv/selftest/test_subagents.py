@@ -11,6 +11,7 @@ from discovery import Refuse, scan_all, unit_rows
 from lib import commands, constants, schema
 from lib.constants import SCHEMA, STATE_REL
 from lib.help_pages import PAGES
+from lib.recovery import shell_quote
 from lib.state import read_state
 
 from .fixture import FIXAGENT, _component, _unit_md, _w
@@ -80,7 +81,8 @@ def sub_agents(ctx) -> None:
               "  codex:          not written\n" in one
           and "· fixagent is a harness-native sub-agent for claude, not for codex. rbtv "
               "cannot add it by itself: a model and an effort are needed. Add it with: "
-              f"rbtv add fixagent --on codex:MODEL:EFFORT --target {ws} " in flat(one), one)
+              "rbtv add fixagent --on codex:MODEL:EFFORT --target "
+              f"{shell_quote(ws)} " in flat(one), one)
     check("SA-record — the unit's record holds the model, the harness's own model id and "
           "the effort, per harness, and nothing tied to this machine",
           unit()["sub_agent"] == {"claude": {"model": "m1", "model_id": "id/m1",
@@ -157,7 +159,7 @@ def sub_agents(ctx) -> None:
     check("SA-show — show names the sub-agent's harnesses, the rbtv agent folder and "
           "the command of each form",
           "  Harness-native sub-agent: claude (m1, effort low); codex (c1, effort medium)\n"
-          f"  rbtv agent: no folder at {ws.resolve()}/.rbtv/agents/fixagent/\n" in shown
+          f"  rbtv agent: no folder at {ws / '.rbtv/agents/fixagent'}\n" in shown
           and "  As a harness-native sub-agent: rbtv add fixagent --on HARNESS:MODEL:EFFORT\n"
               "  As an rbtv agent: rbtv agent add fixagent --harness HARNESS --model MODEL "
               "--effort EFFORT\n" in shown
@@ -182,7 +184,8 @@ def sub_agents(ctx) -> None:
           and "· fixagent is a harness-native sub-agent for claude and codex, not for "
               "opencode. rbtv cannot add it by itself: a model and an effort are "
               "needed. Add it with: "
-              f"rbtv add fixagent --on opencode:MODEL:EFFORT --target {ws} " in flat(grown),
+              "rbtv add fixagent --on opencode:MODEL:EFFORT --target "
+              f"{shell_quote(ws)} " in flat(grown),
           grown)
     code, _out, _err = run("add", "fixagent", "--on", "opencode:o1:1")
     check("SA-opencode — OpenCode's file names the model and the effort as its variant",
@@ -314,5 +317,6 @@ def sub_agents(ctx) -> None:
           not (legacy / ".claude/agents/fixagent.md").exists()
           and f"{FIXAGENT} is chosen and has no model and effort for a receiving harness"
           in " ".join(out.getvalue().split())
-          and f"rbtv add fixagent --on HARNESS:MODEL:EFFORT --target {legacy}" in out.getvalue(),
+          and "rbtv add fixagent --on HARNESS:MODEL:EFFORT --target "
+          + shell_quote(legacy) in out.getvalue(),
           out.getvalue())

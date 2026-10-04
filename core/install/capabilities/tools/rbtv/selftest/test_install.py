@@ -92,11 +92,13 @@ def green_arm_all_harnesses(ctx) -> None:
           .get("path_links") == ["fixtool"],
           str(list(bin_dir().iterdir()) if bin_dir().is_dir() else None))
     toml = (target / ".codex/agents/fixagent.toml").read_text(encoding="utf-8")
+    agent_source = str((tree / "fixmod/goodcomp/agents/fixagent/agent.md").resolve())
+    agent_source_toml = json.dumps(agent_source)[1:-1]
     check("Codex's agent definition is TOML, marked, and points at the agent file",
           toml.startswith("# rbtv-managed")
           and 'name = "fixagent"' in toml
           and 'description = "The fixture agent"' in toml
-          and "agents/fixagent/agent.md" in toml
+          and agent_source_toml in toml
           and "developer_instructions = " in toml, toml)
     claude_agent = (target / ".claude/agents/fixagent.md").read_text(encoding="utf-8")
     opencode_agent = (target / ".opencode/agents/fixagent.md").read_text(encoding="utf-8")
