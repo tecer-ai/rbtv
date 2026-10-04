@@ -266,8 +266,10 @@ usage: rbtv configure [-h] [--harness HARNESS]
 Initialize a fresh target or change saved receiving tools and guidance.
 This command selects no catalog units. Changing settings regenerates
 generated files for units already selected; it does not add new units.
-On first setup, give both --harness and --guidance. Later, each supplied
-option replaces its saved setting; an option you omit stays as it is.
+On first setup, give both --harness and --guidance. A named guidance file
+must already exist at the installation root; choose none when you maintain
+no such file. Later, each supplied option replaces its saved setting; an
+option you omit stays as it is.
 
 --harness replaces the complete list of receiving AI tools: claude, codex,
 opencode.
@@ -580,6 +582,11 @@ effort. AGENT is a name under the installation's .rbtv/agents/, found by
 walking up from the current folder, or a path to a folder that holds
 agent.md and agent.json.
 
+To write a new agent, create a folder with agent.md (its prompt) and
+agent.json (its description, harness, model, effort, units and packs), then
+run rbtv agent add AGENT to apply it. Guide: core/build/capabilities/guides/
+agent.md in the rbtv source.
+
   add AGENT [NAME...]   Apply agent.json, then add named units or a pack.
   remove AGENT NAME...  Remove units or a pack. The agent folder stays.
   configure AGENT       Change harness, model, effort or voice.
@@ -609,6 +616,7 @@ Apply what AGENT's agent.json declares, the first time or again, then add
 any NAME units and record them in agent.json. --pack turns a pack on and
 records it. Declared units are applied first; a unit already on disk is
 left as it is. A second run that finds nothing missing changes nothing.
+To write a new agent first, see the new-agent passage in rbtv agent -h.
 
 A name is looked up in <installation>/.rbtv/agents/, then among agents a
 component ships. A shipped agent with no folder there is placed in

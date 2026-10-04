@@ -35,7 +35,7 @@ from .pathlinks import (
 )
 from .planning import plan_files
 from .shared_links import _read_owners, _installation_key, path_ownership_status
-from .state import known_claims, known_files, read_state, upgrade_book
+from .state import is_agent_target, known_claims, known_files, read_state, upgrade_book
 from .recovery import shell_quote
 
 _WIN = os.name == "nt"
@@ -143,24 +143,25 @@ def do_doctor(target: Path, why: str, catalog: dict, shadowed: list,
     del shadowed  # unrelated to a single installation's selected-scope health
     checks: list[dict] = []
     state: dict = {"schema": SCHEMA, "components": {}}
+    target_scope = "Agent" if is_agent_target(target) else "Installation"
 
     if not target.is_dir():
-        checks.append(_check("Saved selection", "fail", "Installation",
+        checks.append(_check("Saved selection", "fail", target_scope,
                              f"{target} is not a directory"))
     else:
         book_path = target / STATE_REL
         if not book_path.is_file():
-            checks.append(_check("Saved selection", "ok", "Installation",
+            checks.append(_check("Saved selection", "ok", target_scope,
                                  "no saved selection (never installed)"))
         else:
             try:
                 state = upgrade_book(read_state(target), catalog_units_map(catalog))
                 n = len(state.get("components") or {})
                 checks.append(_check(
-                    "Saved selection", "ok", "Installation",
+                    "Saved selection", "ok", target_scope,
                     f"{n} component{'s' if n != 1 else ''}; record readable"))
             except (ValueError, OSError, json.JSONDecodeError, Refuse) as exc:
-                checks.append(_check("Saved selection", "fail", "Installation",
+                checks.append(_check("Saved selection", "fail", target_scope,
                                      f"unreadable: {exc}"))
                 state = {"schema": SCHEMA, "components": {}}
 
@@ -179,33 +180,33 @@ def do_doctor(target: Path, why: str, catalog: dict, shadowed: list,
             if rel:
                 expected.add(rel)
         if not expected:
-            checks.append(_check("Selected files", "ok", "Installation",
+            checks.append(_check("Selected files", "ok", target_scope,
                                  "no selection — nothing to check"))
         else:
             missing = sorted(rel for rel in expected
                              if not (target / rel).is_file())
             if missing:
-                checks.append({**_check("Selected files", "fail", "Installation",
+                checks.append({**_check("Selected files", "fail", target_scope,
                                         f"missing: {', '.join(missing)}"),
                                "repair": f"rbtv update scaffolding --target {_quote_target(target)}"})
             else:
-                checks.append(_check("Selected files", "ok", "Installation",
+                checks.append(_check("Selected files", "ok", target_scope,
                                      "Expected files present"))
 
         basis = state.get("guidance_basis")
         if basis is None or basis == BASIS_NONE:
-            checks.append(_check("Maintained guidance", "ok", "Installation",
+            checks.append(_check("Maintained guidance", "ok", target_scope,
                                  "none (no mirror)"))
         elif basis in GUIDANCE_NAMES:
             if (target / basis).is_file():
-                checks.append(_check("Maintained guidance", "ok", "Installation",
+                checks.append(_check("Maintained guidance", "ok", target_scope,
                                      f"{basis} present"))
             else:
-                checks.append(_check("Maintained guidance", "fail", "Installation",
+                checks.append(_check("Maintained guidance", "fail", target_scope,
                                      f"{basis} missing"))
         else:
             checks.append(_check(
-                "Maintained guidance", "fail", "Installation",
+                "Maintained guidance", "fail", target_scope,
                 f"{basis!r} is neither none nor {' · '.join(GUIDANCE_NAMES)}"))
 
     repo_found = scan_tree(repo_tree, "repo")

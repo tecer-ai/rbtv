@@ -10,6 +10,18 @@ Who writes which field:
 
 `units` lists the units chosen on their own, as full ids `<module>/<component>#<unit>`. rbtv saves the full id even when the author wrote a short name that is unique in the catalog. The record of generated files lists what rbtv wrote for the agent, so that `rbtv agent update` can rebuild or remove it on any machine.
 
+```json
+{
+  "name": "researcher",
+  "description": "Investigates a defined question and reports evidence.",
+  "harness": "claude",
+  "model": "sonnet-5",
+  "effort": "medium",
+  "units": ["meta/functions#investignosis"],
+  "packs": ["ignite"]
+}
+```
+
 The file is shared through git, so it contains nothing tied to one machine: no absolute path and no timestamp. The agent's harness sessions, its Slack connection and the files themselves are not in it. The Slack connection is recorded in the machine's [Ignite configuration](ignite-config.md).
 
 The root of an installation has no `agent.json`: its record is [`install.json`](install-json.md).

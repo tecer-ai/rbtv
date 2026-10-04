@@ -12,7 +12,7 @@ Each module is documented in detail in [`modules/`](modules). The doc covers the
 
 | Module | What it does | Doc |
 |---|---|---|
-| **core** (always installed) | Powering up AI use — guided git commits, web research, safe file/folder moves with automatic reference-fixing (`rbtv-safe-move`), session close, and the always-on behavioral rules | [modules/core.md](modules/core.md) |
+| **core** (available; units install when selected) | Powering up AI use — guided git commits, web research, safe file/folder moves with automatic reference-fixing (`rbtv-safe-move`), session close, and the always-on behavioral rules | [modules/core.md](modules/core.md) |
 | **office** | Daily knowledge work — narrative and audience strategy (`storytelling/`: narrative-lock, visual-strategist, research briefs), visual-system extraction, image generation, design-system creation, and style checking (`design/`: design-tokens, subtle-refs, vision-to-json, screenshot-capture, generate-image, design-system, visual-check), and deliverable production (`document/`: HTML standards library, html-review, deck production, document conversion, email voice, meeting-prep and presentation workflows); meeting summarization is referenced via `office/meeting-summarizer`, not owned here (formerly `productivity`; the structured-thinking persona was retired — it lives on as the `brainstorm` function, Dom Cobb, in the mirror-format `meta/functions` component) | [modules/office.md](modules/office.md) |
 | **studio** | Design and communication module — the studio loop entry (`/rbtv-strategist` — opens the Strategist for message-lock, then hands off to design); the four-beat studio loop (message-lock · art-direction · generate · human-gate) covering deck, site, and app artifacts — every authored deck is role-token-conformant (library-ready + theme-switchable, no manual tokenization; convention-spec § 10.6); artifact forks for sites (`forks/site.md` — structure beat + responsive multi-page HTML contract) and apps (`forks/app.md` — goals/user-flow/UX discovery beats + plain-HTML designed-screens contract + coding-agent handoff package); the Strategist persona (four audience modes: investor · client · site-marketing · app-product); Vivian the Designer (`rbtv-designing`); the `rbtv-hypresent-comments` skill (a thin router over two self-contained procedures — respond to existing hypresent comments without deleting them — reconciling the pass and weighing each change against the whole deck (propagate entailed facts, surface the rest as new comments), reply inline and never resolve the human's thread; or author a new comment from scratch via `hypresent.py add-comment`, which drives the real runtime headlessly to anchor and save the comment — the agent passes only a CSS selector + text, never reading runtime code or hand-editing the comment island); standards bundle (ban-list + flaw-checklist + UX companion-docs contract); v1.1 comparative taxonomy-driven critic (never gates — improver + stopping rule, optional loop wiring via `critic: on`); design-state schema; reference-set scaffold; design-token extraction from live sites; reference-image forensics into regeneration prompts (`/rbtv-vision-to-json`); browser automation; AI image generation; exemplar-screenshot capture; motion/interaction reference extraction; the hypresent presentation engine; the slide-library engine (manifest with optional `status` column; multi-theme + role-token contract v2.0 support — per-theme contracts plus a generic no-literal-skin lint, engine v1.2); and in-app deck→library export (slide selection → `<section>`-only fragments + `status: to-review` rows) | [modules/studio.md](modules/studio.md) |
 | **orchestration** | Long-horizon work — general multi-agent orchestration (route tasks to the right worker, dispatch self-contained artifacts, verify every return against disk, recover from halts; single front door incl. CLI-model dispatch via `cast`), the cast catalog + `cast route` selector (task profile → route/self_execute/halt_seam; algorithm authority is the routing card), a deterministic context-window monitor (a `PostToolUse` hook wired in when orchestration is elected) that emits tiered refresh advisories during a run, structured planning, plan execution via tiered sub-agents, and long-source mining | [modules/orchestration.md](modules/orchestration.md) |
@@ -37,12 +37,12 @@ For a first run, point rbtv at an existing installation directory. `status` show
 rbtv status --target /path/to/installation
 rbtv list brainstorm --target /path/to/installation
 rbtv show brainstorm --target /path/to/installation
-rbtv add brainstorm --target /path/to/installation --harness claude,codex --guidance CLAUDE.md
+rbtv add brainstorm --target /path/to/installation --harness claude,codex --guidance none
 rbtv status --target /path/to/installation
 rbtv remove brainstorm --target /path/to/installation
 ```
 
-On a fresh installation, run `configure --harness NAMES --guidance NAME` or supply both settings on the first `add`. A short name selects one exposed unit such as a skill or rule when unique; a full `module/component` name selects a component. `list NAME` opens that exact scope, while `search WORDS` looks across names and descriptions. For another agent, set `--target` to its home directory on each command. Use `--dry-run` to preview a change and `--json` for a machine-readable result. Bare `rbtv` prints help; `rbtv interactive` starts the guided flow.
+On a fresh installation, run `configure --harness NAMES --guidance NAME` or supply both settings on the first `add`. A named guidance file must already exist at the installation root; use `none` when no such file is maintained. A short name selects one exposed unit such as a skill or rule when unique; a full `module/component` name selects a component. `list NAME` opens that exact scope, while `search WORDS` looks across names and descriptions. For another agent, set `--target` to its home directory on each command. Use `--dry-run` to preview a change and `--json` for a machine-readable result. Bare `rbtv` prints help; `rbtv interactive` starts the guided flow.
 
 Change results show a compact summary and important warnings by default. Add `--details` to include the complete grouped unit and file lists; combine it with `--dry-run` to inspect a plan before applying it. `--json` retains the full structured result regardless of text verbosity. A file-operation failure reports `changed: null` when earlier writes may have applied; inspect the target before retrying.
 
@@ -62,9 +62,9 @@ The `work-history` skill in `meta/functions` reconstructs a user-agreed project,
 > against the schemas in `core/build/capabilities/templates/`, and realizes the units for
 > **three harnesses** (claude, codex, opencode). A component's folder instructions become a
 > marked section of the target folder's instructions file. The one unit shaped as a folder is a
-> whole skill in the installation mirror, `{target}/.rbtv/mirror/_skills/<name>/`: it is **copied
-> verbatim** into each installed harness's skills directory rather than thin-loaded, and its
-> copied `SKILL.md` carries the `rbtv-managed` ownership marker (files written by an earlier
+> whole skill in the installation mirror, `{target}/.rbtv/mirror/_skills/<name>/`: it is exposed
+> through a thin loader in each installed harness's skills directory, and the generated loader
+> carries the `rbtv-managed` ownership marker (files written by an earlier
 > rbtv carry `rbtv2-managed` and are still recognised).
 > Other generated artifacts are named after their bare unit name and marked as rbtv-owned.
 > Installation state lives at
@@ -80,7 +80,7 @@ The `work-history` skill in `meta/functions` reconstructs a user-agreed project,
 > rbtv list meta/plan --target W                    # exact component scope
 > rbtv search planning --target W                      # broad discovery
 > rbtv show meta/plan --target W                    # component detail
-> rbtv configure --harness claude,codex --guidance CLAUDE.md --target W
+> rbtv configure --harness claude,codex --guidance none --target W
 > rbtv add meta/plan --target W                     # select the component
 > rbtv add --module office --target W                   # a whole module
 > rbtv remove meta/plan --target W                  # one component
@@ -95,7 +95,8 @@ The `work-history` skill in `meta/functions` reconstructs a user-agreed project,
 >
 > **The two installation settings are explicit.** `--harness` chooses which AI coding tools receive
 > files, and `--guidance` chooses the root instruction file you maintain. On a fresh target, set
-> both with `configure` or on the first `add`. A later `configure` replaces only the settings
+> both with `configure` or on the first `add`. A named guidance file must already exist at the
+> installation root; choose `none` when no such file is maintained. A later `configure` replaces only the settings
 > supplied; `status` displays them. `--type` filters unit types; `--exclude-type` excludes them.
 > Numeric catalog positions are not identifiers. The setting rationale and current command names
 > are recorded in `core/install/capabilities/design-decisions.md`.
@@ -107,14 +108,13 @@ The `work-history` skill in `meta/functions` reconstructs a user-agreed project,
 > that is their one home.
 >
 
-1. Clone RBTV as a subfolder of your installation:
+1. Clone rbtv where you will keep its source available:
 
    ```bash
-   cd /path/to/your/installation
-   git clone <rbtv-repo-url> rbtv
+   git clone <rbtv-repo-url> /path/to/rbtv
    ```
 
-   RBTV must live INSIDE the installation that will use it.
+   rbtv may live anywhere on the machine. The generated loaders name its files by full path, so every agent that uses the installation must be able to read that folder; keeping rbtv inside the installation guarantees it.
 
 2. Run rbtv:
 
@@ -137,7 +137,7 @@ The `work-history` skill in `meta/functions` reconstructs a user-agreed project,
    - `.rbtv/config/install.json` — the book: every file and every shared-config
      key rbtv wrote, and the only thing an uninstall removes
 
-   Names are the bare part id; ownership is a `rbtv2-managed` marker inside each
+   Names are the bare part id; ownership is a `rbtv-managed` marker inside each
    file, never a prefix on its name.
 
    Output paths are resolved at runtime by the `rbtv-output-resolution` rule, which uses conversation context and installation CLAUDE.md conventions to propose paths.
@@ -219,7 +219,7 @@ RBTV uses Claude Code plugins for extended functionality. Install them from insi
 RBTV content (agents, workflows, tasks) stays in this repo — thin loaders in your installation reference it by path. To get new content:
 
 ```bash
-cd /path/to/your/installation/rbtv
+cd /path/to/rbtv
 git pull
 ```
 

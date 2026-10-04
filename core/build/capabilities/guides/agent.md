@@ -30,7 +30,7 @@ Resolve what is missing before writing anything. Take the purpose, the name, the
 
 - The purpose is the owner's words.
 - The name is one legal slug, `[a-z0-9][a-z0-9-]{0,63}`. Derive it from the purpose when that is unambiguous; ask only when it is not.
-- The model is a name the owner gave, checked with `cast list`. The effort is a word that model accepts, never a number.
+- The model is a name the owner gave, checked with `cast list`. The effort is a word that model accepts, never a number. When the owner asks the agent to choose, choose a harness, model, and effort combination that `cast list` offers.
 - The channel is a channel name or direct messages, as the owner chose. Never make one up.
 - A reference path is one the owner named and that exists.
 

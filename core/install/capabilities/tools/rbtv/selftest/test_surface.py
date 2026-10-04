@@ -106,6 +106,21 @@ def ls_li_doctor(ctx) -> None:
           and "fixmod" not in by_name["Source catalog"]["detail"],
           str(doctor_data["checks"]))
 
+    agent = tmp / "ws-surf-agent"
+    agent.mkdir()
+    (agent / "agent.md").write_text("---\nname: ws-surf-agent\n---\n\nPrompt.\n",
+                                     encoding="utf-8")
+    (agent / "agent.json").write_text("{}\n", encoding="utf-8")
+    write_state(agent, {"name": "ws-surf-agent", "description": "Checks scope labels.",
+                        "harness": "claude", "model": "sonnet", "effort": "medium",
+                        "units": [], "packs": [], "components": {}, "shared_claims": []})
+    agent_doctor = do_doctor(agent, DISCOVER_FLAG, catalog, [], tree,
+                             agent / ".rbtv" / "mirror")
+    check("SURF-doctor-agent-scope — agent target labels its own checks",
+          all(row["scope"] == "Agent" for row in agent_doctor["checks"]
+              if row["name"] in {"Saved selection", "Selected files", "Maintained guidance"}),
+          str(agent_doctor["checks"]))
+
     notdir = tmp / "ws-doc-notdir"
     notdir.write_text("x\n", encoding="utf-8")
     tfail = do_doctor(notdir, DISCOVER_FLAG, {}, [], tree,
