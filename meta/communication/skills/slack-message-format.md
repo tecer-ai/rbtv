@@ -81,15 +81,23 @@ For manual file transfers, use the installed `stools` command, whose source is
 `3-resources/tools/stools/stools.py` directly; the wrapper enforces the send-identity rule below.
 An Ignite agent replying in its current conversation attaches file paths through `replies[].files`.
 
-**Every `stools` verb needs `--workspace`. Default to `--workspace ignite` (the bot) — every
-example in this reference uses it.** `--workspace ignite-owner` sends as Henrique himself (the
-owner's own Slack user token) and is REFUSED by the wrapper on every write verb (`send`,
-`upload`, `react`, `canvas`) unless this sitting's `read-first` / `decisions.md` names a live
-as-owner grant (owner ruling `d-slack-identity-a`, 2026-08-31 — e.g. this plan's own
-`d-test-as-owner-via-stools`). Reads (`read`, `search`, `download`) on `ignite-owner` stay
-available without a grant — `search:read` has no bot-token equivalent. A refused write exits 2
-naming `as-owner-write-refused` and makes no Slack API call; `--dry-run` still previews
-regardless of grant.
+`--workspace` selects a configured account (`--account` is its alias). It is required
+when two or more accounts are configured; the only account is the default when there is one.
+This Ignite installation uses `ignite` for its bot and `ignite-owner` for the owner's account;
+a configured account label alone does not verify the actual Slack identity.
+
+Write verbs (`send`, `upload`, `react`, `canvas`) on an account configured with `writes: false`
+require an active grant in `.rbtv/config/stools-as-owner-grants.yaml` covering the effective
+account, verb and current working folder. A plan's `read-first` or `decisions.md` may cite the
+approval, but those documents do not substitute for a matching record. Reads remain ungated.
+A refused write exits 2 with `as-owner-write-refused` and does not contact Slack.
+
+Follow the [STools Write Approval rule](../../../../stools/CLAUDE.md#write-approval). After
+explicit owner approval, an agent may append exactly the approved grant, preserving existing
+records and the approved folder and verbs. `stools send --help` locates the grant-format guide,
+including what the matcher enforces and what it does not. A grant is not itself consent.
+`--yes` skips only recipient confirmation; `--dry-run` previews without posting, may contact
+Slack, and does not establish grant coverage or permission.
 
 ### Inbound — get the file onto disk
 

@@ -4,25 +4,44 @@
 Owner ruling `d-slack-identity-a` (2026-08-31, design in
 `1-projects/build-ignite/build/redesign-continue-1/slack-send-identity-design.md` — deleted 2026-09-28; in git history): sending to
 Slack as the BOT is unrestricted; sending AS THE OWNER (`--workspace ignite-owner`, the xoxp
-user token) is refused unless a live, owner-recorded grant matches this sitting. This module is
-that gate. It is not a stools source edit — stools stays third-party-managed and unaware of
-grants; this wrapper execs the real `stools.py` unchanged once (or if) it decides to allow the
-call through.
+user token) is refused unless a live grant matches this sitting. A grant is recorded only
+after the owner's explicit approval, and an agent may record exactly that approved grant.
+This module is that gate. It is not a stools source edit — stools stays third-party-managed and unaware of
+grants; this wrapper execs the real `stools.py` once (or if) it decides to allow the
+call through. stools.py itself is not modified.
 
 Gate logic (write verbs only — send/upload/react/canvas; every read verb passes straight through,
 by design: `search:read` has no bot-token equivalent, so reads are never gated):
-  1. `--dry-run` always passes through — it makes no Slack API call either way, so an ungranted
-     agent may still preview what a real send would have done.
-  2. The target workspace's `config.yaml` entry is checked for `writes: false`. Absent that key
-     (e.g. workspace `ignite`, the bot), the call passes through ungated. When the stools venv or
-     config cannot be read or parsed, the write is still refused — fail closed — but as
-     `config-unavailable`, naming the path and the read/parse error: an UNKNOWN config state is
-     never reported as a known `writes: false` setting and gets no grant advice.
+  1. A write loads workspace metadata once (`load_workspaces`). If the venv or config cannot
+     be read or parsed, the write is refused as `config-unavailable` before parsing — including
+     argv that looks like help or dry-run. Unknown config is never treated as ungated and is
+     never reported as a known `writes: false`.
+  2. The account is the one selected by the same parser the command executes
+     (`scripts/write_args.py`), not a scan of argv. Help that parser treats as help, including
+     qualified help, exits 0 with that parser's native text and prog and does not consult
+     grants. `--help` as an option value is not help. Malformed arguments exit 2 with the
+     parser's own error and do not write. A parsed `--dry-run` (including an unambiguous
+     abbreviation) forwards the original argv with no grant check: it does not post, it may
+     contact Slack, and it does not check grant coverage.
   3. On a `writes: false` workspace, `.rbtv/config/stools-as-owner-grants.yaml` is checked for an
      `active` grant naming that workspace and verb, scoped to cover this sitting's cwd. A match
-     execs the real stools.py; no match exits 2 with a named refusal and makes NO exec, NO
-     subprocess call, and NO import of anything Slack-API-facing — the refusal is structurally
-     incapable of reaching the network.
+     execs the real stools.py; no match exits 2 with a named refusal that launches no FINAL
+     executor, no Slack client, and no Slack SDK import. One local subprocess does run before the
+     decision: the step-1 metadata read (`load_workspaces` launches stools.py's venv python to
+     read config.yaml). After that read, the refusal path launches nothing further and is
+     structurally incapable of reaching the network.
+  4. An allowed parsed write is forwarded as the original argv plus a single trailing
+     `--workspace=<effective account>` argument (equals form), after canvas subcommand
+     arguments. The equals form is load-bearing: a configured account name may itself
+     begin with a dash (for example `-owner`) or even be the literal `--help`, and a
+     separate two-token `--workspace VALUE` tail would let the executor's parser read
+     such a value as an option. Help and dry-run keep the original argv. The trailing
+     option binds the gated account if the command re-reads config and the default has
+     changed; a removed account fails in that parser instead of switching identity.
+
+Declared precedence for write verbs: config-unavailable, then native help (exit 0) or native
+parser error (exit 2), then dry-run pass-through, then grant match, then refusal. Post-parse
+content errors inside the command are reached only after the gate allows the exec.
 """
 
 import os
@@ -54,8 +73,10 @@ def die_refused(workspace, verb):
     print("stools: as-owner-write-refused", file=sys.stderr)
     print(f"  why: --workspace {workspace} is an owner-identity write (writes: false) "
           f"and no active grant covers '{verb}' for this sitting", file=sys.stderr)
-    print("  fix: get an owner-recorded grant in .rbtv/config/stools-as-owner-grants.yaml, "
-          "or send as the bot with --workspace ignite, or preview with --dry-run", file=sys.stderr)
+    print("  fix: get the owner's explicit approval for the account, verb, working folder and purpose.\n"
+          "       After approval, an agent may append exactly that grant to .rbtv/config/stools-as-owner-grants.yaml.\n"
+          "       Preserve existing grants; do not broaden the approved folder or verbs.\n"
+          "       Run stools send --help for the grant format and scope guidance.", file=sys.stderr)
     sys.exit(2)
 
 
@@ -74,15 +95,6 @@ def exec_real(argv):
         # run the real script under this interpreter and pass its exit code through.
         sys.exit(subprocess.call([sys.executable, str(REAL_STOOLS)] + argv))
     os.execv(str(REAL_STOOLS), [str(REAL_STOOLS)] + argv)
-
-
-def extract_workspace(args):
-    for i, a in enumerate(args):
-        if a == "--workspace" and i + 1 < len(args):
-            return args[i + 1]
-        if a.startswith("--workspace="):
-            return a.split("=", 1)[1]
-    return None
 
 
 def load_workspaces():
@@ -107,16 +119,14 @@ def load_workspaces():
     return workspaces, None
 
 
-def workspace_gated(workspace):
-    """`(gated, reason)`: gated is True only when the PARSED config shows `writes: false` for
-    the workspace, False when it clearly does not, and None when the venv/config could not be
-    read or parsed — unknown is still default deny, but the caller must report it as
-    config-unavailable, not as a writes:false refusal."""
-    workspaces, error = load_workspaces()
-    if workspaces is None:
-        return None, error
+def workspace_gated(workspaces, workspace):
+    """True only when the already-loaded config shows `writes: false`.
+
+    Any other value, including a missing key, is not gated. Unknown config never
+    reaches here: the caller fails closed before parsing.
+    """
     entry = workspaces.get(workspace) or {}
-    return entry.get("writes") is False, None
+    return entry.get("writes") is False
 
 
 def sitting_in_scope(scope):
@@ -149,33 +159,43 @@ def matching_grant(workspace, verb):
     return None
 
 
+def load_write_args():
+    scripts = str(STOOLS_ROOT / "scripts")
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    import write_args
+    return write_args
+
+
+def command_prog(verb):
+    root = str(STOOLS_ROOT)
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    import stools as stools_cli
+    return f"{stools_cli.PROG} {verb}"
+
+
 def main(argv):
     if not argv or argv[0] not in WRITE_VERBS:
         exec_real(argv)
         return
 
     verb, rest = argv[0], argv[1:]
-    if "--dry-run" in rest:
+    workspaces, error = load_workspaces()
+    if workspaces is None:
+        die_config_unavailable("unresolved", error)
+        return
+
+    args = load_write_args().parse_write_context(verb, rest, workspaces, command_prog(verb))
+    if args.dry_run:
         exec_real(argv)
         return
 
-    workspace = extract_workspace(rest)
-    if workspace is None:
-        exec_real(argv)
+    workspace = args.workspace
+    if workspace_gated(workspaces, workspace) and matching_grant(workspace, verb) is None:
+        die_refused(workspace, verb)
         return
-
-    gated, config_error = workspace_gated(workspace)
-    if gated is None:
-        die_config_unavailable(workspace, config_error)
-    if not gated:
-        exec_real(argv)
-        return
-
-    if matching_grant(workspace, verb) is not None:
-        exec_real(argv)
-        return
-
-    die_refused(workspace, verb)
+    exec_real(argv + [f"--workspace={workspace}"])
 
 
 if __name__ == "__main__":
