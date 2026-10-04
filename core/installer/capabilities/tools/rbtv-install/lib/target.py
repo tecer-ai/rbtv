@@ -6,7 +6,7 @@ import os
 
 from discovery import Refuse
 
-from .constants import STATE_REL
+from .constants import AGENT_RECORD, STATE_REL
 
 
 DISCOVER_STATE = "state file"
@@ -29,9 +29,22 @@ def discover_target(start: Path) -> tuple[Path, str]:
     here = start.resolve()
     chain = [here, *here.parents]
     for cand in chain:
-        if (cand / STATE_REL).is_file():
+        if (cand / STATE_REL).is_file() or ((cand / "agent.md").is_file()
+                                            and (cand / AGENT_RECORD).is_file()):
             return cand, DISCOVER_STATE
     for cand in chain:
+        if (cand / ".rbtv").is_dir() and not is_user_home(cand):
+            return cand, DISCOVER_RBTV
+    return here, DISCOVER_CWD
+
+
+def discover_installation(start: Path) -> tuple[Path, str]:
+    """Find an installation for an agent verb, never an agent folder itself."""
+    here = start.resolve()
+    for cand in (here, *here.parents):
+        if (cand / STATE_REL).is_file():
+            return cand, DISCOVER_STATE
+    for cand in (here, *here.parents):
         if (cand / ".rbtv").is_dir() and not is_user_home(cand):
             return cand, DISCOVER_RBTV
     return here, DISCOVER_CWD
@@ -43,17 +56,17 @@ def resolve_target(explicit: str | None, start: Path,
     if explicit is not None:
         return Path(explicit).expanduser().resolve(), DISCOVER_FLAG
     env = os.environ if environ is None else environ
-    raw = env.get("IGNITE_AGENT_HOME")
+    raw = env.get("RBTV_AGENT_HOME")
     if raw is not None:
         if not raw.strip():
             raise Refuse("agent-home-invalid",
-                         "IGNITE_AGENT_HOME is empty. Set it to an existing "
+                         "RBTV_AGENT_HOME is empty. Set it to an existing "
                          "agent directory or pass --target explicitly")
         home = Path(raw).expanduser()
         if not home.is_dir():
             raise Refuse(
                 "agent-home-invalid",
-                f"IGNITE_AGENT_HOME={raw!r} is not an existing directory. "
+                f"RBTV_AGENT_HOME={raw!r} is not an existing directory. "
                 "Set it to the agent home or pass --target explicitly")
-        return home.resolve(), "IGNITE_AGENT_HOME"
+        return home.resolve(), "RBTV_AGENT_HOME"
     return discover_target(start)

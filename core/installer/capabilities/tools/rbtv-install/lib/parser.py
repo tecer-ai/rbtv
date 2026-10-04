@@ -101,7 +101,7 @@ def build_parser() -> argparse.ArgumentParser:
         sup = argparse.SUPPRESS
         dest.add_argument(
             "--target", default=(sup if on_verb else None),
-            help="workspace or agent-home folder; overrides IGNITE_AGENT_HOME "
+            help="installation or agent-home folder; overrides RBTV_AGENT_HOME "
                  "and discovery from the current folder")
         dest.add_argument(
             "--json", action="store_true",
@@ -530,7 +530,7 @@ def build_parser() -> argparse.ArgumentParser:
                 "  rbtv install agent remove sara\n"
                 "Run the agent: rbtv spark sara"))
     agent_sub = s_agent.add_subparsers(dest="agent_verb",
-                                       metavar="{add,update,remove}")
+                                       metavar="{add,remove,configure,update,list}")
     agent_sub.required = True
     s_ag_add = agent_sub.add_parser(
         "add", help="install an agent from its agent file",
@@ -542,13 +542,9 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=("Example: rbtv install agent add sara.md --harness claude "
                 "--model sonnet-5 --effort high\nNext: rbtv spark sara"))
-    s_ag_add.add_argument("file", metavar="FILE", help="the agent file (agent.md)")
-    s_ag_add.add_argument("--harness", required=True,
-                          help="the AI tool that runs it: " + ", ".join(HARNESSES))
-    s_ag_add.add_argument("--model", required=True,
-                          help="a model name from `cast list`")
-    s_ag_add.add_argument("--effort", required=True,
-                          help="an effort word that model accepts, or 1-5")
+    s_ag_add.add_argument("agent", metavar="AGENT", help="agent name or folder path")
+    s_ag_add.add_argument("name", nargs="*", metavar="NAME", help="unit to add")
+    s_ag_add.add_argument("--pack", action=ListAction, default=[], metavar="PACK")
     s_ag_update = agent_sub.add_parser(
         "update", help="regenerate an installed agent from its agent file",
         description=(
@@ -558,7 +554,28 @@ def build_parser() -> argparse.ArgumentParser:
             "settings and live data are kept."),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="Example: rbtv install agent update sara")
-    s_ag_update.add_argument("name", metavar="AGENT", help="the installed agent's name")
+    s_ag_update.add_argument("agent", metavar="AGENT", help="agent name or folder path")
+    s_ag_update.add_argument("scope", choices=("guidance", "scaffolding", "all"))
+    s_ag_configure = agent_sub.add_parser(
+        "configure", help="change harness, model, effort or voice",
+        description=("Change harness, model, effort or voice. At least one option is required.\n"
+                     "A harness change regenerates generated files; the other options update\n"
+                     "agent.json only. Model and effort are checked with `cast list`."),
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    s_ag_configure.add_argument("agent", metavar="AGENT", help="agent name or folder path")
+    s_ag_configure.add_argument("--harness", choices=HARNESSES,
+                                help="claude, codex or opencode")
+    s_ag_configure.add_argument("--model", help="a model name from cast list")
+    s_ag_configure.add_argument("--effort", help="an effort word the model accepts, or 1-5")
+    s_ag_configure.add_argument("--voice", help="voice the agent speaks with; any text")
+    s_ag_list = agent_sub.add_parser(
+        "list", help="list agent records",
+        description=("List agent records. With no FOLDER, lists the installation's .rbtv/agents/.\n"
+                     "With FOLDER, lists every agent record below it. Reads agent.json only and\n"
+                     "does not check generated files."),
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    s_ag_list.add_argument("folder", nargs="?", metavar="FOLDER",
+                           help="folder to search; default is the installation's .rbtv/agents/")
     s_ag_remove = agent_sub.add_parser(
         "remove", help="take back what the installer put in an agent's folder",
         description=(
@@ -568,11 +585,21 @@ def build_parser() -> argparse.ArgumentParser:
             "the agent's. The result lists what remains."),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="Example: rbtv install agent remove sara --dry-run")
-    s_ag_remove.add_argument("name", metavar="AGENT", help="the installed agent's name")
+    s_ag_remove.add_argument("agent", metavar="AGENT", help="agent name or folder path")
+    s_ag_remove.add_argument("name", nargs="*", metavar="NAME", help="unit to remove")
+    s_ag_remove.add_argument("--pack", action=ListAction, default=[], metavar="PACK")
+    s_ag_remove.add_argument("--all", action="store_true")
+    s_ag_remove.add_argument("--yes", action="store_true")
+    for s in (s_ag_add, s_ag_update, s_ag_remove, s_ag_configure):
+        s.add_argument("--json", action="store_true")
+        s.add_argument("--dry-run", action="store_true")
+        s.add_argument("--details", action="store_true")
+    s_ag_list.add_argument("--json", action="store_true")
 
     for sp, label in (
         (s_agent, "agent"), (s_ag_add, "agent add"),
         (s_ag_update, "agent update"), (s_ag_remove, "agent remove"),
+        (s_ag_configure, "agent configure"), (s_ag_list, "agent list"),
         (s_list, "list"), (s_ls, "list"), (s_li, "list"),
         (s_search, "search"), (s_show, "show"), (s_status, "status"),
         (s_add, "add"), (s_rm, "remove"), (s_remove, "remove"),
@@ -586,6 +613,6 @@ def build_parser() -> argparse.ArgumentParser:
     for s in (s_add, s_rm, s_remove, s_set, s_search,
               s_ls, s_li, s_list, s_show,
               s_status, s_doc, s_inter,
-              s_h, s_art, s_ag_add, s_ag_update, s_ag_remove):
+              s_h, s_art):
         tree_flags(s, on_verb=True)
     return p

@@ -234,7 +234,7 @@ def public_contract(ctx) -> None:
               and not (target / ".agents/skills/fixskill/SKILL.md").exists())
     code, repeat = run("remove", "fixskill")
     ctx.check("UX-repeat-removal-is-no-op", code == 0 and repeat["ok"])
-    with patch.dict("os.environ", {"IGNITE_AGENT_HOME": ""}):
+    with patch.dict("os.environ", {"RBTV_AGENT_HOME": ""}):
         code, invalid = run("status", explicit=False)
         override, _ = run("status")
     ctx.check("UX-invalid-agent-home-never-falls-back", code == 1
@@ -285,6 +285,15 @@ def result_screens(ctx) -> None:
             code = commands.main([*argv, "--target", str(target)])
         return code, out.getvalue(), err.getvalue()
 
+    def agent_text(*argv, columns="100"):
+        out, err = io.StringIO(), io.StringIO()
+        with patch.object(commands, "scan_all", return_value=(catalog, [])), \
+                patch.dict("os.environ", {"COLUMNS": columns}), \
+                patch("lib.commands.Path.cwd", return_value=target), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = commands.main(argv)
+        return code, out.getvalue(), err.getvalue()
+
     print("\nRESULT — human result screens")
     _, empty, _ = text("list", "--installed")
     ctx.check("RESULT-empty-installed-list-says-so",
@@ -306,16 +315,19 @@ def result_screens(ctx) -> None:
               code == 1 and failed.startswith("RBTV install — failed\n\nFAILED [io-error]")
               and "may have applied" in " ".join(failed.split()), failed)
 
-    agent_src = ctx.tmp / "result-agent.md"
-    agent_src.write_text("---\nname: resultagent\ndescription: Result check.\n"
-                         "skills: [fixskill]\n---\n\n## Role\n\nCheck.\n",
-                         encoding="utf-8")
-    add = ["agent", "add", str(agent_src), "--harness", "claude",
-           "--model", "m1", "--effort", "high", "--dry-run"]
+    agent_home = target / ".rbtv" / "agents" / "resultagent"
+    agent_home.mkdir(parents=True)
+    (agent_home / "agent.md").write_text("---\nname: resultagent\n---\n\nCheck.\n",
+                                            encoding="utf-8")
+    (agent_home / "agent.json").write_text(
+        '{"name":"resultagent","description":"Result check.",'
+        '"harness":"claude","model":"m1","effort":"high",'
+        '"units":["fixskill"],"packs":[]}\n', encoding="utf-8")
+    add = ["agent", "add", "resultagent", "--dry-run"]
     with patch("lib.agents.cast_catalog",
                return_value={"claude": {"m1": ["low", "high"]}}):
-        _, agent_default, _ = text(*add)
-        _, agent_full, _ = text(*add, "--details")
+        _, agent_default, _ = agent_text(*add)
+        _, agent_full, _ = agent_text(*add, "--details")
     skill = ".claude/skills/fixskill/SKILL.md"
     ctx.check("RESULT-agent-preview-reports-unit-files-default-and-details",
               "Unit files:" in agent_default and "would write 1" in agent_default
@@ -325,7 +337,7 @@ def result_screens(ctx) -> None:
               and "guidance copies" not in agent_full,
               agent_default + "\n=====\n" + agent_full)
     ctx.check("RESULT-agent-preview-writes-nothing",
-              not (target / ".rbtv" / "agents").exists())
+              not (agent_home / ".claude").exists())
 
     # The owner's removal example (owner-example.txt): 40 items, dozens of
     # unchanged files, 25 shortcuts kept for uncertain ownership.

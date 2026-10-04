@@ -1,12 +1,4 @@
-"""Installing an agent: its agent file becomes `<root>/.rbtv/agents/<agent>/`.
-
-The folder holds the agent file itself (`agent.md`, the one source from then on),
-its launch values (`launch.json`), its settings, an ignore file for data tied to
-one machine, the harness files of the units its frontmatter selects (installed
-with the same machinery as any other target, recorded in the folder's own
-`.rbtv/config/install.json`), and a marked "agent" section in its folder
-instructions that points to `agent.md`.
-"""
+"""Agent-folder resolution and the small agent-only boundary around root verbs."""
 from __future__ import annotations
 
 import json
@@ -17,311 +9,269 @@ from pathlib import Path
 from discovery import Refuse
 
 from . import frontmatter, schema
-from .catalog import catalog_units_map
-from .claims import _block_del, _block_set
-from .constants import GUIDANCE_FILE, HARNESSES, STATE_REL
+from .catalog import pack_units
+from .claims import _block_del
+from .constants import AGENT_RECORD, GUIDANCE_FILE, HARNESSES
 from .fsio import write_file
 from .operations import do_install, do_uninstall
+from .selection import _split_part_keys, iter_booked_units, resolve_name
 from .state import read_state, write_state
 
 AGENTS_REL = Path(".rbtv") / "agents"
-
-# Data tied to the machine that made it: harness session ids, the work queue,
-# and the turn files. The user may edit this file to share them.
-IGNORE_TEXT = (
-    "# rbtv: data tied to one machine. Edit this file to share it.\n"
-    "state.sqlite*\n"
-    "turns/\n"
-    "conversations/*/session*\n")
-
-# frontmatter field -> the method of the units it selects
-UNIT_FIELDS = (("skills", "skill"), ("rules", "rule"), ("commands", "command"),
-               ("hooks", "hook"), ("mcp-servers", "mcp-server"))
+IGNORE_TEXT = ("# rbtv: generated files and machine data\n*\n!agent.md\n!agent.json\n"
+               "!settings.json\n!memory/\n!memory/**\n!_artifacts/\n!_artifacts/**\n")
 
 
 def agent_home(root: Path, name: str) -> Path:
     return root / AGENTS_REL / name
 
 
-def read_agent_file(path: Path) -> tuple[dict, bytes]:
-    """The agent file's frontmatter, checked against its schema, and its bytes."""
+def resolve_agent(root: Path, raw: str) -> Path:
+    """Resolve a named agent below an installation or a path managed in place."""
+    pathish = "/" in raw or raw in (".", "..")
+    home = Path(raw).expanduser().resolve() if pathish else agent_home(root, raw)
+    if not home.exists():
+        kind = "path" if pathish else "name"
+        raise Refuse("agent-unknown", f"no agent folder for {kind} {raw!r}. "
+                     f"Create its agent.md and agent.json, then run `rbtv install agent add {raw}`")
+    if not home.is_dir():
+        raise Refuse("agent-folder-invalid", f"{home} is not an agent folder")
+    if not (home / "agent.md").is_file():
+        raise Refuse("agent-folder-invalid", f"{home} has no agent.md. Add agent.md and agent.json, then retry", str(home))
+    if not (home / AGENT_RECORD).is_file():
+        raise Refuse("agent-record-missing", f"{home} has no agent.json. Add the agent record, then retry", str(home))
+    return home
+
+
+def _agent_front(home: Path) -> dict:
+    path = home / "agent.md"
     try:
-        raw = path.read_bytes()
-        front, _body = frontmatter.split(raw.decode("utf-8"))
+        front, _body = frontmatter.split(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError) as exc:
-        raise Refuse("agent-file-unreadable", f"{path}: {exc}", str(path)) from exc
-    if front is None:
-        raise Refuse("agent-file-invalid", f"{path}: no frontmatter", str(path))
-    problems = schema.errors(front, schema.load("agent"))
+        raise Refuse("agent-file-unreadable", f"cannot read {path}: {exc}", str(path)) from exc
+    problems = schema.errors(front or {}, schema.load("agent"))
     if problems:
-        raise Refuse("agent-file-invalid", f"{path}: " + "; ".join(problems),
-                     str(path))
-    return front, raw
+        raise Refuse("agent-file-invalid", f"{path}: " + "; ".join(problems), str(path))
+    return front
+
+
+def agent_state(home: Path) -> dict:
+    """Read and validate an authored agent record before any operation."""
+    try:
+        state = read_state(home)
+    except Refuse as exc:
+        if exc.code == "state-unreadable":
+            raise Refuse("agent-record-invalid", exc.message + "; repair agent.json, then retry", exc.path) from exc
+        raise
+    required = ("name", "description", "harness", "model", "effort", "units", "packs")
+    missing = [name for name in required if name not in state]
+    if missing:
+        raise Refuse("agent-record-invalid", "agent.json is missing " + ", ".join(missing)
+                     + ". Add those fields, then retry", str(home / AGENT_RECORD))
+    front = _agent_front(home)
+    names = {"folder": home.name, "agent.md": front["name"], "agent.json": state["name"]}
+    if len(set(names.values())) != 1:
+        raise Refuse("agent-name-mismatch", "agent names disagree: "
+                     + ", ".join(f"{where}={value!r}" for where, value in names.items())
+                     + ". Make all three match, then retry", str(home))
+    problems = schema.errors({key: state[key] for key in required}, schema.load("agent-json"))
+    if problems:
+        raise Refuse("agent-record-invalid", f"{home / AGENT_RECORD}: " + "; ".join(problems)
+                     + ". Repair it, then retry", str(home / AGENT_RECORD))
+    return state
 
 
 def cast_catalog() -> dict[str, dict[str, list[str]]]:
-    """What `cast` launches: {harness: {model: [effort words]}}."""
     exe = shutil.which("cast")
     if exe is None:
-        raise Refuse("cast-missing",
-                     "the `cast` command is not on PATH, so the harness, model "
-                     "and effort cannot be checked. Install it: "
-                     "rbtv install add cast --harness claude --guidance none")
-    done = subprocess.run([exe, "list", "--json"], capture_output=True,
-                          text=True, encoding="utf-8")
+        raise Refuse("cast-missing", "the `cast` command is not on PATH. Install cast, then run `rbtv install agent add`")
+    done = subprocess.run([exe, "list", "--json"], capture_output=True, text=True, encoding="utf-8")
     try:
         return json.loads(done.stdout)
     except ValueError as exc:
-        raise Refuse("cast-unreadable",
-                     f"`cast list --json` did not answer with JSON ({exc})") from exc
+        raise Refuse("cast-unreadable", "`cast list --json` did not return JSON; repair cast, then retry") from exc
 
 
-def launch_values(harness: str, model: str, effort: str,
-                  known: dict[str, dict[str, list[str]]]) -> dict:
-    """The harness, model and effort the agent runs with, as `launch.json` holds
-    them. An effort number 1-5 becomes the model's own word for that step."""
-    if harness not in HARNESSES:
-        raise Refuse("launch-invalid",
-                     f"harness {harness!r} is not one of {', '.join(HARNESSES)}")
-    models = known.get(harness) or {}
-    if model not in models:
-        raise Refuse("launch-invalid",
-                     f"{harness} has no model {model!r}. Known: "
-                     + ", ".join(sorted(models))
-                     + ". See `cast list`")
-    rungs = models[model]
+def launch_values(harness: str, model: str, effort: str, known: dict) -> dict:
+    if harness not in HARNESSES or model not in (known.get(harness) or {}):
+        raise Refuse("launch-invalid", f"{harness} has no model {model!r}. See `cast list`")
+    rungs = known[harness][model]
     if not rungs:
         return {"harness": harness, "model": model, "effort": "inert"}
     if effort.isdigit() and 1 <= int(effort) <= 5:
         effort = rungs[min(int(effort), len(rungs)) - 1]
     if effort not in rungs:
-        raise Refuse("launch-invalid",
-                     f"{model} accepts the efforts {', '.join(rungs)} (or 1-5), "
-                     f"not {effort!r}")
+        raise Refuse("launch-invalid", f"{model} does not accept effort {effort!r}; see `cast list`")
     return {"harness": harness, "model": model, "effort": effort}
 
 
-def resolve_units(catalog: dict[str, dict], front: dict) -> list[str]:
-    """The `<component>#<unit>` key of every unit the frontmatter names. A name is
-    the unit's own, or `<module>/<component>/<name>` when several share it."""
-    units = catalog_units_map(catalog)
-    keys: list[str] = []
-    for field, method in UNIT_FIELDS:
-        for name in front.get(field) or []:
-            want = name.rsplit("/", 1)[-1]
-            scope = name.rsplit("/", 1)[0] if "/" in name else None
-            hits = sorted(f"{cid}#{u['id']}" for cid, specs in units.items()
-                          for u in specs
-                          if u["id"] == want and u["method"] == method
-                          and (scope is None or cid == scope))
-            if not hits:
-                raise Refuse("unit-unknown",
-                             f"the agent file selects the {method} "
-                             f"{name!r}, which no component provides. "
-                             f"Find it: rbtv install search {want}")
-            if len(hits) > 1:
-                raise Refuse("unit-ambiguous",
-                             f"{name!r} names more than one {method}: "
-                             + ", ".join(hits)
-                             + ". Write it as <module>/<component>/<name>")
-            keys.append(hits[0])
-    return sorted(set(keys))
+def _keys(names: list[str], catalog: dict, book: dict | None = None) -> set[str]:
+    return {unit["key"] for name in names for unit in resolve_name(name, catalog, book)["units"]}
 
 
-def section_body(folders: list[str]) -> str:
-    lines = ["Your instructions are in `agent.md` in this folder. Follow them."]
-    if folders:
-        lines += ["", "Key folders, relative to the installation root:", ""]
-        lines += [f"- `{f}`" for f in folders]
-    return "\n".join(lines)
-
-
-def _write_section(home: Path, harness: str, folders: list[str]) -> str:
-    rel = GUIDANCE_FILE[harness]
-    path = home / rel
+def _agent_section(home: Path, harness: str, dry: bool) -> list[str]:
+    path = home / GUIDANCE_FILE[harness]
+    from .claims import _block_set
     text = path.read_text(encoding="utf-8") if path.is_file() else ""
-    write_file(path, _block_set(text, section_body(folders), "<!--",
-                                preserve_outside=True, label="agent"),
-               newline="\n")
-    return rel
+    wanted = _block_set(text, "Your instructions are in `agent.md` in this folder. Follow them.", "<!--", preserve_outside=True, label="agent")
+    if not dry and wanted != text:
+        write_file(path, wanted, newline="\n")
+    return [path.name] if wanted != text else []
 
 
-def _drop_section(home: Path, harness: str) -> None:
+def _agent_files(home: Path, state: dict, dry: bool) -> list[str]:
+    written: list[str] = []
+    for name, body in (("settings.json", "{}\n"), (".gitignore", IGNORE_TEXT)):
+        path = home / name
+        if not path.exists():
+            written.append(name)
+            if not dry:
+                write_file(path, body, newline="\n")
+    return written + _agent_section(home, state["harness"], dry)
+
+
+def _remove_agent_section(home: Path, harness: str, dry: bool) -> list[str]:
+    """Release only the generated agent section from a former harness file."""
     path = home / GUIDANCE_FILE[harness]
     if not path.is_file():
-        return
-    text = _block_del(path.read_text(encoding="utf-8"), "<!--",
-                      preserve_outside=True, label="agent")
-    if text.strip():
-        write_file(path, text, newline="\n")
-    else:
-        path.unlink()
+        return []
+    text = path.read_text(encoding="utf-8")
+    wanted = _block_del(text, "<!--", preserve_outside=True, label="agent")
+    if wanted == text:
+        return []
+    if not dry:
+        if wanted.strip():
+            write_file(path, wanted, newline="\n")
+        else:
+            path.unlink()
+    return [path.name]
 
 
-_FILE_KEYS = ("written", "skipped", "deleted", "shared_written",
-              "shared_deleted", "shared_skipped", "shared_removed",
-              "adopted", "adopted_sections", "released")
+def _launch(state: dict) -> dict:
+    return {key: state[key] for key in ("harness", "model", "effort")} | {
+        "voice": state.get("voice")}
 
 
-def _merge(results: list[dict]) -> dict:
-    """The file outcome of several install/uninstall runs on one agent
-    folder, in the same shape one run reports: each list is the runs' lists
-    joined, and `planned_changes` and `report` are joined the same way."""
-    def join(parts: list[dict]) -> dict:
-        out: dict = {}
-        for part in parts:
-            for key, value in (part or {}).items():
-                if isinstance(value, list):
-                    out[key] = out.get(key, []) + value
-                elif isinstance(value, dict):
-                    out[key] = join([out.get(key) or {}, value])
-                else:
-                    out[key] = value
-        return out
-    if not results:
-        return {}
-    merged = join([{k: r.get(k) or [] for k in _FILE_KEYS} for r in results])
-    for key in ("planned_changes", "report"):
-        if any(key in r for r in results):
-            merged[key] = join([r.get(key) or {} for r in results])
-    return merged
+def configure_agent(root: Path, raw: str, harness: str | None,
+                    model: str | None, effort: str | None, voice: str | None,
+                    catalog: dict, dry: bool) -> dict:
+    """Change an agent's authored launch settings and replan only a harness flip."""
+    if all(value is None for value in (harness, model, effort, voice)):
+        exc = Refuse("usage", "at least one of --harness, --model, --effort, --voice is required")
+        exc.next = "rbtv install agent configure -h"
+        raise exc
+    home = resolve_agent(root, raw)
+    before = agent_state(home)
+    after = dict(before)
+    for key, value in (("harness", harness), ("model", model),
+                       ("effort", effort), ("voice", voice)):
+        if value is not None:
+            after[key] = value
+    launch = launch_values(after["harness"], after["model"],
+                           str(after["effort"]), cast_catalog())
+    after.update(launch)
+    changed_harness = before["harness"] != after["harness"]
+    wanted = _keys(list(after["units"]), catalog) | pack_units(catalog, set(after["packs"]))
+    picked, parts = _split_part_keys(wanted)
+    unit_files = (do_install(home, catalog, picked, [after["harness"]], dry,
+                             guidance_basis="none", parts=parts,
+                             selected=parts) if changed_harness else {
+                                 "harnesses": [after["harness"]], "written": [],
+                                 "deleted": [], "skipped": [], "selected_units": []})
+    written = ["agent.json"] if before != after else []
+    if changed_harness:
+        if GUIDANCE_FILE[before["harness"]] != GUIDANCE_FILE[after["harness"]]:
+            released = _remove_agent_section(home, before["harness"], dry)
+            if released:
+                unit_files["deleted"] = sorted(set(unit_files.get("deleted", [])) | set(released))
+        written += _agent_files(home, after, dry)
+    if not dry and before != after:
+        write_state(home, after)
+    return {"ok": True, "agent": after["name"], "home": str(home),
+            "launch": _launch(after), "before": _launch(before),
+            "packs": list(after["packs"]), "written": written,
+            "units": sorted(wanted), "units_removed": [],
+            "unit_files": unit_files, "dry_run": dry,
+            "harness_changed": changed_harness}
 
 
-def _install_units(home: Path, catalog: dict, keys: list[str], harness: str,
-                   dry_run: bool, *, everything: bool = False) -> dict:
-    """Install the units the agent file selects into the agent folder. Units an
-    earlier call selected that it no longer does go (`agent_units` in the folder's
-    install record says which were the agent file's); units installed on the side,
-    such as Ignite's standard ones, stay. `everything` takes back every booked unit.
-    Returns the units taken back and the joined file outcome of every run."""
-    state = read_state(home)
-    booked = {f"{cid}#{u}": cid
-              for cid, rec in (state.get("components") or {}).items()
-              for u in (rec.get("units") or {})}
-    gone = set(booked) if everything else set(state.get("agent_units") or []) & set(booked) - set(keys)
-    runs = [do_uninstall(home, catalog, [cid], dry_run,
-                         parts=[k for k in sorted(gone) if booked[k] == cid])
-            for cid in sorted({booked[k] for k in gone})]
-    if keys:
-        runs.append(do_install(home, catalog, sorted({k.split("#")[0] for k in keys}),
-                               [harness], dry_run, guidance_basis="none", parts=keys))
-    if not dry_run and (home / STATE_REL).is_file():
-        state = read_state(home)
-        state["agent_units"] = [] if everything else keys
-        write_state(home, state)
-    return {"units_removed": sorted(gone), "unit_files": _merge(runs)}
+def list_agents(root: Path, folder: Path | None) -> dict:
+    """Read agent records below one folder without validating their generated files."""
+    search = folder if folder is not None else root / AGENTS_REL
+    if not search.is_dir():
+        if folder is None:
+            return {"ok": True, "folder": str(search), "agents": []}
+        raise Refuse("not-a-folder", f"no folder at {search}", str(search))
+    homes = ([search] if (search / AGENT_RECORD).is_file() else []) + sorted(
+        path.parent for path in search.rglob(AGENT_RECORD.name))
+    rows = []
+    for home in dict.fromkeys(homes):
+        record = home / AGENT_RECORD
+        try:
+            data = json.loads(record.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("the JSON value is not an object")
+            row = {"name": data.get("name", home.name), "folder": str(home),
+                   "harness": data.get("harness"), "model": data.get("model"),
+                   "effort": data.get("effort"), "voice": data.get("voice"),
+                   "packs": data.get("packs", []), "units": data.get("units", [])}
+            if not isinstance(row["packs"], list) or not isinstance(row["units"], list):
+                raise ValueError("packs and units must be lists")
+        except (OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
+            row = {"name": home.name, "folder": str(home), "unreadable": str(exc)}
+        rows.append(row)
+    rows.sort(key=lambda row: (str(row["name"]), row["folder"]))
+    return {"ok": True, "folder": str(search), "agents": rows}
 
 
-def _result(name: str, home: Path, launch: dict, keys: list[str], dry_run: bool,
-            written: list[str], units: dict) -> dict:
-    """`written` is the agent's own top-level files (planned, on a dry run);
-    `unit_files` is what installing or taking back its units did to files,
-    in the shape one install run reports; `units_removed` are units taken
-    back."""
-    return {"ok": True, "agent": name, "home": str(home), "launch": launch,
-            "units": keys, "written": written, "dry_run": dry_run, **units}
+def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: dict, dry: bool) -> dict:
+    home = resolve_agent(root, raw)
+    state = agent_state(home)
+    launch_values(state["harness"], state["model"], str(state["effort"]), cast_catalog())
+    explicit = _keys(names, catalog)
+    declared = _keys(list(state["units"]), catalog)
+    enabled = set(state["packs"]) | packs
+    wanted = declared | explicit | pack_units(catalog, enabled)
+    written = _agent_files(home, state, dry)
+    picked, parts = _split_part_keys(wanted)
+    result = do_install(home, catalog, picked, [state["harness"]], dry, guidance_basis="none", parts=parts)
+    if not dry:
+        after = read_state(home)
+        after["units"], after["packs"] = sorted(declared | explicit), sorted(enabled)
+        write_state(home, after)
+    return {"ok": True, "agent": state["name"], "home": str(home), "launch": _launch(state), "written": written, "units": sorted(wanted), "units_removed": [], "unit_files": result, "dry_run": dry}
 
 
-def add_agent(root: Path, file: Path, harness: str, model: str, effort: str,
-              catalog: dict, dry_run: bool) -> dict:
-    front, raw = read_agent_file(file)
-    name = front["name"]
-    home = agent_home(root, name)
-    # Installed means launch.json exists: the installer writes it and remove takes
-    # it back, while agent.md is the agent's own and stays after a remove.
-    if (home / "launch.json").exists():
-        raise Refuse("agent-exists",
-                     f"agent {name!r} is already installed at {home}. Refresh it "
-                     f"with: rbtv install agent update {name}", str(home))
-    launch = launch_values(harness, model, effort, cast_catalog())
-    keys = resolve_units(catalog, front)
-    # settings.json belongs to the agent: an existing one (a folder converted
-    # from an earlier install) is kept, and only a missing one is created.
-    fresh_settings = not (home / "settings.json").exists()
-    written = ["agent.md", "launch.json"] + (["settings.json"] if fresh_settings else []) \
-        + [".gitignore", GUIDANCE_FILE[harness]]
-    if not dry_run:
-        home.mkdir(parents=True, exist_ok=True)
-        (home / "agent.md").write_bytes(raw)
-        write_file(home / "launch.json", json.dumps(launch, indent=2) + "\n",
-                   newline="\n")
-        if fresh_settings:
-            write_file(home / "settings.json", "{}\n", newline="\n")
-        write_file(home / ".gitignore", IGNORE_TEXT, newline="\n")
-        _write_section(home, harness, front.get("folders") or [])
-    units = _install_units(home, catalog, keys, harness, dry_run)
-    return _result(name, home, launch, keys, dry_run, written, units)
+def update_agent(root: Path, raw: str, scope: str, catalog: dict, dry: bool) -> dict:
+    home = resolve_agent(root, raw)
+    state = agent_state(home)
+    wanted = _keys(list(state["units"]), catalog) | pack_units(catalog, set(state["packs"]))
+    picked, parts = _split_part_keys(wanted)
+    result = do_install(home, catalog, picked, [state["harness"]], dry, guidance_basis="none", parts=parts, scope=scope, selected=parts if scope in ("scaffolding", "all") else None)
+    written = _agent_files(home, state, dry) if scope != "guidance" else []
+    return {"ok": True, "agent": state["name"], "home": str(home), "launch": _launch(state), "written": written, "units": sorted(wanted), "units_removed": [], "unit_files": result, "dry_run": dry}
 
 
-def _existing(root: Path, name: str) -> tuple[Path, dict, dict]:
-    home = agent_home(root, name)
-    if not (home / "agent.md").is_file() or not (home / "launch.json").exists():
-        raise Refuse("agent-unknown",
-                     f"no agent {name!r} is installed under {root / AGENTS_REL}. "
-                     f"Install it with: rbtv install agent add <agent file> "
-                     f"--harness … --model … --effort …", str(home))
-    try:
-        launch = json.loads((home / "launch.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        raise Refuse("agent-launch-unreadable",
-                     f"{home / 'launch.json'}: {exc}", str(home)) from exc
-    return home, launch, read_agent_file(home / "agent.md")[0]
-
-
-def update_agent(root: Path, name: str, catalog: dict, dry_run: bool) -> dict:
-    """Regenerate everything from the agent's own `agent.md`, keeping its launch
-    values, settings and live data."""
-    home, launch, front = _existing(root, name)
-    keys = resolve_units(catalog, front)
-    # What this run (re)creates at the top of the folder, derived BEFORE any
-    # write so the dry run's plan and the real run's receipt name the same
-    # files: the guidance section always, `.gitignore` when it is missing.
-    written = ([] if (home / ".gitignore").exists() else [".gitignore"]) \
-        + [GUIDANCE_FILE[launch["harness"]]]
-    if not dry_run:
-        _write_section(home, launch["harness"], front.get("folders") or [])
-        if ".gitignore" in written:
-            write_file(home / ".gitignore", IGNORE_TEXT, newline="\n")
-    units = _install_units(home, catalog, keys, launch["harness"], dry_run)
-    return _result(name, home, launch, keys, dry_run, written, units)
-
-
-def remove_agent(root: Path, name: str, catalog: dict, dry_run: bool) -> dict:
-    """Take back what the installer put in the folder. The agent file, the
-    settings and everything the agent made stay: they are the agent's, not ours."""
-    home, launch, _front = _existing(root, name)
-    units = _install_units(home, catalog, [], launch["harness"], dry_run,
-                           everything=True)
-    if not dry_run:
-        _drop_section(home, launch["harness"])
-        for generated in ("launch.json", ".gitignore"):
-            (home / generated).unlink(missing_ok=True)
-    result = _result(name, home, launch, [], dry_run, [], units)
-    result["kept"] = (_would_keep(home, launch["harness"], units["unit_files"])
-                      if dry_run else
-                      sorted(p.name for p in home.iterdir()) if home.is_dir() else [])
-    return result
-
-
-def _would_keep(home: Path, harness: str, unit_files: dict) -> list[str]:
-    """What a real remove would leave in the agent folder, read off the
-    plan: launch.json and .gitignore go, the guidance file goes when the
-    agent section was all it held, and a folder goes when every file in it
-    is planned for deletion or is the folder's install record."""
-    planned = unit_files.get("planned_changes") or {}
-    going = {home / rel for rel in (planned.get("delete_files") or [])
-             + (planned.get("delete_shared_files") or [])}
-    going.add(home / STATE_REL)
-    guidance = home / GUIDANCE_FILE[harness]
-    if guidance.is_file() and not _block_del(
-            guidance.read_text(encoding="utf-8"), "<!--",
-            preserve_outside=True, label="agent").strip():
-        going.add(guidance)
-    kept = []
-    for entry in sorted(home.iterdir()) if home.is_dir() else []:
-        if entry.name in ("launch.json", ".gitignore"):
-            continue
-        files = [p for p in entry.rglob("*") if p.is_file()] if entry.is_dir() else [entry]
-        if not files or any(p not in going for p in files):
-            kept.append(entry.name)
-    return kept
+def remove_agent(root: Path, raw: str, names: list[str], packs: set[str], all_units: bool, yes: bool, catalog: dict, dry: bool) -> dict:
+    if all_units and not yes:
+        raise Refuse("confirmation-required", "agent remove --all requires --yes. Review with --dry-run, then run `rbtv install agent remove " + raw + " --all --yes`")
+    if not (names or packs or all_units):
+        raise Refuse("usage", "agent remove needs a NAME, --pack, or --all")
+    home = resolve_agent(root, raw)
+    state = agent_state(home)
+    # Validate even a pack being turned off: a typo must not be a silent no-op.
+    pack_units(catalog, packs)
+    removed = set(state["units"]) if all_units else _keys(names, catalog, state.get("components"))
+    enabled = set() if all_units else set(state["packs"]) - packs
+    explicit = set() if all_units else set(state["units"]) - removed
+    wanted = explicit | pack_units(catalog, enabled)
+    booked = {row["key"] for row in iter_booked_units(catalog, state.get("components") or {})}
+    gone = booked - wanted
+    picked, parts = _split_part_keys(gone)
+    result = do_uninstall(home, catalog, picked, dry, parts=parts) if parts else {"ok": True, "uninstalled": [], "dry_run": dry, "report": {}}
+    if not dry:
+        after = read_state(home)
+        after["units"], after["packs"] = sorted(explicit), sorted(enabled)
+        write_state(home, after)
+    kept = sorted(path.name for path in home.iterdir()) if not dry else ["agent.md", "agent.json", "settings.json", ".gitignore"]
+    return {"ok": True, "agent": state["name"], "home": str(home), "launch": _launch(state), "written": [], "units": sorted(wanted), "units_removed": sorted(gone), "unit_files": result, "kept": kept, "dry_run": dry}

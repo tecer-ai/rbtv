@@ -3,76 +3,13 @@
   "title": "agent frontmatter",
   "description": "The frontmatter of an agent file, which the rbtv installer reads and validates. The file's body, the agent's prompt, follows the template agent.md.",
   "type": "object",
-  "required": [
-    "name",
-    "description"
-  ],
+  "required": ["name"],
   "additionalProperties": false,
   "properties": {
     "name": {
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9-]*$",
       "description": "The agent's name: the file name without `.md` in a component's `agents/` folder, and the agent folder's name once installed."
-    },
-    "description": {
-      "type": "string",
-      "minLength": 1,
-      "description": "First sentence enough to decide whether to invoke the agent; then the triggers and one near-miss."
-    },
-    "skills": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "pattern": "^([a-z0-9][a-z0-9-]*/){0,2}[a-z0-9][a-z0-9-]*$"
-      },
-      "uniqueItems": true,
-      "description": "The skills this agent uses, by name; each name resolves to exactly one installed or installable skills, qualified as <module>/<component>/<name> when a bare name is ambiguous."
-    },
-    "rules": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "pattern": "^([a-z0-9][a-z0-9-]*/){0,2}[a-z0-9][a-z0-9-]*$"
-      },
-      "uniqueItems": true,
-      "description": "The rules this agent uses, by name; each name resolves to exactly one installed or installable rules, qualified as <module>/<component>/<name> when a bare name is ambiguous."
-    },
-    "commands": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "pattern": "^([a-z0-9][a-z0-9-]*/){0,2}[a-z0-9][a-z0-9-]*$"
-      },
-      "uniqueItems": true,
-      "description": "The commands this agent uses, by name; each name resolves to exactly one installed or installable commands, qualified as <module>/<component>/<name> when a bare name is ambiguous."
-    },
-    "hooks": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "pattern": "^([a-z0-9][a-z0-9-]*/){0,2}[a-z0-9][a-z0-9-]*$"
-      },
-      "uniqueItems": true,
-      "description": "The hooks this agent uses, by name; each name resolves to exactly one installed or installable hooks, qualified as <module>/<component>/<name> when a bare name is ambiguous."
-    },
-    "mcp-servers": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "pattern": "^([a-z0-9][a-z0-9-]*/){0,2}[a-z0-9][a-z0-9-]*$"
-      },
-      "uniqueItems": true,
-      "description": "The MCP servers this agent uses, by name; each name resolves to exactly one installed or installable MCP servers, qualified as <module>/<component>/<name> when a bare name is ambiguous."
-    },
-    "folders": {
-      "type": "array",
-      "uniqueItems": true,
-      "description": "The agent's key folders: the folders it is expected to work in and navigate, relative to the installation root and written with forward slashes.",
-      "items": {
-        "type": "string",
-        "minLength": 1,
-        "pattern": "^(?!/)(?!(.*/)?[.][.](/|$)).+$"
-      }
     }
   }
 }

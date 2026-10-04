@@ -104,7 +104,7 @@ def root_help() -> str:
     lines.append("Shared options: --target PATH  --json  -h, --help")
     lines.append("Non-interactive changes also accept --dry-run and --details.")
     lines.append("Only interactive asks questions.")
-    lines.append("Target order: --target, then IGNITE_AGENT_HOME, "
+    lines.append("Target order: --target, then RBTV_AGENT_HOME, "
                  "then current-folder discovery.")
     lines.append("Aliases: ls=list; li=list --installed; rm=remove.")
     lines.append("Renamed: set -> configure; dupe-artifacts -> update "
@@ -125,8 +125,8 @@ def target_source_label(why: str | None) -> str:
     guess at the wording."""
     if why == DISCOVER_FLAG:
         return "explicit --target"
-    if why == "IGNITE_AGENT_HOME":
-        return "IGNITE_AGENT_HOME"
+    if why == "RBTV_AGENT_HOME":
+        return "RBTV_AGENT_HOME"
     return "discovered from current folder"
 
 

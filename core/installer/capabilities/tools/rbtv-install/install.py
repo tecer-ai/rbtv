@@ -31,7 +31,7 @@ INSTALL ROOT only. Python 3 stdlib only.
     Exit codes: 0 success · 1 refusal · 2 usage.
 
     THE TARGET. `--target D` is explicit and always wins. Without it the
-    existing IGNITE_AGENT_HOME is used when set; invalid values refuse.
+    existing RBTV_AGENT_HOME is used when set; invalid values refuse.
     Otherwise the install root is discovered from the current directory —
     first ancestor holding `.rbtv/config/install.json`, else first ancestor
     holding a `.rbtv/` directory, else the cwd (D24). So a run from anywhere

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from discovery import HUB_DIR, Refuse, SKILLS_DIR
 
-from .constants import (HARNESSES, MANAGED_MARK, SCHEMA, STATE_REL, VERSION)
+from .constants import (AGENT_RECORD, HARNESSES, MANAGED_MARK, SCHEMA, STATE_REL, VERSION)
 from .claims import _jget, _located
 from .fsio import write_file
 
@@ -57,6 +57,16 @@ def _validate_state(state: dict, path: Path) -> None:
     if "guidance_basis" in state and state["guidance_basis"] is not None and \
             not isinstance(state["guidance_basis"], str):
         _state_refuse(path, "guidance_basis must be a string or null")
+
+
+def is_agent_target(target: Path) -> bool:
+    """An agent is identified by its two neighbouring authored files."""
+    return (target / "agent.md").is_file() and (target / AGENT_RECORD).is_file()
+
+
+def state_path(target: Path) -> Path:
+    """Return the sole record path for a root or an agent folder."""
+    return target / (AGENT_RECORD if is_agent_target(target) else STATE_REL)
 
 
 # How the 0.2 installer named what it booked, and what 0.2.1 calls it.
@@ -117,7 +127,7 @@ def migrate_selected_packs(state: dict) -> None:
 
 
 def read_state(target: Path) -> dict:
-    path = target / STATE_REL
+    path = state_path(target)
     if not path.is_file():
         # A fresh target has made no explicit choice.  Without these fields,
         # the next read mistakes units generated for a newly enabled pack as
@@ -145,12 +155,14 @@ def read_state(target: Path) -> dict:
 
 
 def write_state(target: Path, state: dict) -> None:
-    path = target / STATE_REL
+    path = state_path(target)
     state["schema"] = SCHEMA
     state["version"] = VERSION
     state["marker"] = MANAGED_MARK
     for name in ("prefix", "installed_at", "target", "installer"):
         state.pop(name, None)
+    if is_agent_target(target):
+        state.pop("harnesses", None)
     for rec in (state.get("components") or {}).values():
         if isinstance(rec, dict):
             rec.pop("tree_root", None)

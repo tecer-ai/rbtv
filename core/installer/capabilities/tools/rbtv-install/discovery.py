@@ -234,7 +234,11 @@ def unit_rows(comp: dict) -> list[dict]:
     for folder, method in MD_FOLDERS.items():
         for path in sorted((comp_dir / folder).glob("*.md")):
             if path.stem != folder:
-                rows.append(_unit(comp, method, path, method))
+                # Component `agents/` files remain the existing `agent` unit
+                # type in this stage, but their harness-native file contract
+                # needs description unlike an rbtv agent's agent.md.
+                template = "sub-agent" if folder == "agents" else method
+                rows.append(_unit(comp, method, path, template))
     for folder, method in JSON_FOLDERS.items():
         for path in sorted((comp_dir / folder).glob("*.json")):
             if path.stem != folder:

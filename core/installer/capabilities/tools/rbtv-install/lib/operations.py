@@ -39,6 +39,8 @@ from .state import (
     read_state,
     upgrade_book,
     write_state,
+    is_agent_target,
+    state_path,
 )
 from .planning import plan_files
 from .recovery import shell_quote, vanished_component_message
@@ -241,7 +243,7 @@ def _scaffold_rbtv(target: Path) -> None:
     """An installation's `.rbtv/` holds its mirror, runtime data and memory
     folders, created empty on the first real run. An installed agent's folder
     (agent.md beside launch.json) is not an installation and gets none."""
-    if (target / "agent.md").is_file() and (target / "launch.json").is_file():
+    if is_agent_target(target):
         return
     for name in ("mirror", "runtime", "memory"):
         (target / ".rbtv" / name).mkdir(parents=True, exist_ok=True)
@@ -396,7 +398,8 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
                     path_owners=path_owners)
             if scope == "scaffolding":
                 state["guidance_files"] = saved_guidance
-            state["harnesses"] = [h for h in HARNESSES if h in harnesses]
+            if not is_agent_target(target):
+                state["harnesses"] = [h for h in HARNESSES if h in harnesses]
             if guidance_basis is not None:
                 state["guidance_basis"] = guidance_basis
             if guidance_excludes is not None:
@@ -526,9 +529,14 @@ def _do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
                 _rebook(state, records, files, owners, claims, report,
                         path_owners=path_owners, keep_cids=set(stranded))
                 write_state(target, state)
+            elif is_agent_target(target):
+                # The authored agent record survives an empty selection.
+                _rebook(state, records, files, owners, claims, report,
+                        path_owners=path_owners)
+                write_state(target, state)
             else:
                 # Nothing left of ours — take the book away too.
-                path = target / STATE_REL
+                path = state_path(target)
                 if path.is_file():
                     path.unlink()
                 _prune(target, path.parent)

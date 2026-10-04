@@ -20,9 +20,9 @@ from .constants import (
     STATE_REL,
 )
 from .guidance import _norm_prefix
-from .target import DISCOVER_CWD, resolve_target
-from .state import (book_harnesses, read_state, selected_packs,
-                    selected_units, write_state)
+from .target import DISCOVER_CWD, discover_installation, resolve_target
+from .state import (book_harnesses, is_agent_target, read_state, selected_packs,
+                    selected_units, state_path, write_state)
 from .catalog import catalog_packs, pack_units
 from .selection import (
     _has_negative,
@@ -37,7 +37,8 @@ from .pathlinks import bin_dir
 from .shared_links import release_workspace_links, workspace_mutation_lock
 from .listing import (_short_description, build_list, build_show,
                       do_list, print_list, print_show)
-from .agents import add_agent, remove_agent, update_agent
+from .agents import (add_agent, agent_state, configure_agent, list_agents,
+                     remove_agent, update_agent)
 from .content import _is_ours
 from .doctor import do_doctor, doctor_exit
 from .report import print_result
@@ -447,6 +448,8 @@ def _missing_generated_units(target: Path, state: dict) -> set[str]:
 
 
 def _require_recorded(target: Path, state: dict) -> list[str]:
+    if is_agent_target(target):
+        return [state["harness"]]
     booked = book_harnesses(state)
     if booked is None:
         raise Refuse(
@@ -656,6 +659,8 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
             *, ask=None) -> int:
     del ask, shadowed
     noun = list(getattr(args, "noun", None) or [])
+    if is_agent_target(target):
+        agent_state(target)
     if noun and noun[0] in ("harness", "guidance", "artifact"):
         return _settings_form(args, target, catalog, "add", noun)
     requested_packs = set(args.pack)
@@ -665,7 +670,7 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
     keys = resolve_selection(args, catalog, None) if (_has_selectors(args) or noun) else set()
     picked, parts = _split_part_keys(keys)
     state = read_state(target)
-    if book_harnesses(state) is None and (
+    if not is_agent_target(target) and book_harnesses(state) is None and (
             getattr(args, "harness", None) is None
             or getattr(args, "artifact", None) is None):
         raise Refuse(
@@ -674,8 +679,10 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
             "and --guidance (CLAUDE.md, AGENTS.md, or none). Example: "
             "rbtv install add " + (parts[0] if parts else "--pack <name>")
             + " --harness codex --guidance none --target " + _quote(target))
-    harnesses = _gate_add_harness(target, state, getattr(args, "harness", None))
-    basis = _gate_add_artifact(target, state, getattr(args, "artifact", None))
+    harnesses = ([state["harness"]] if is_agent_target(target)
+                 else _gate_add_harness(target, state, getattr(args, "harness", None)))
+    basis = ("none" if is_agent_target(target)
+             else _gate_add_artifact(target, state, getattr(args, "artifact", None)))
     pack_parts = pack_units(catalog, requested_packs)
     all_parts = sorted(set(parts) | pack_parts)
     picked, _unused = _split_part_keys(all_parts)
@@ -697,6 +704,8 @@ def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
            *, ask=None) -> int:
     del shadowed, ask
     noun = list(getattr(args, "noun", None) or [])
+    if is_agent_target(target):
+        agent_state(target)
     if noun and noun[0] in ("harness", "guidance", "artifact"):
         return _settings_form(args, target, catalog, "rm", noun)
     requested_packs = set(args.pack)
@@ -708,7 +717,7 @@ def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
     keys = resolve_selection(args, catalog, book) if (_has_selectors(args) or noun) else set()
     dry = bool(getattr(args, "dry_run", False))
     path_release = bool(args.all and getattr(args, "_why", None) == "--target"
-                        and not (target / STATE_REL).is_file())
+                        and not state_path(target).is_file())
     preview_links = (release_workspace_links(bin_dir(), target, dry=True)
                      if path_release else {})
     shared_count = len(set(preview_links.get("released") or [])
@@ -756,7 +765,7 @@ def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
     if not keys:
         report = {"path": (preview_links if dry else
                            release_workspace_links(bin_dir(), target, dry=False))}
-        if not dry and (target / STATE_REL).is_file():
+        if not dry and state_path(target).is_file():
             _save_selected_units(target, remove=removed_parts,
                                  remove_packs=requested_packs)
         _emit({"ok": True, "uninstalled": [], "dry_run": dry,
@@ -767,7 +776,7 @@ def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
         return 0
     picked, parts = _split_part_keys(keys)
     data = do_uninstall(target, catalog, picked, dry, parts=parts)
-    if not dry and (target / STATE_REL).is_file():
+    if not dry and state_path(target).is_file():
         _save_selected_units(target, remove=removed_parts,
                              remove_packs=requested_packs)
     data["selected_items"] = parts
@@ -780,6 +789,8 @@ def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
 def cmd_update(args, target: Path, catalog: dict, shadowed: list,
                *, ask=None) -> int:
     del ask, shadowed
+    if is_agent_target(target):
+        agent_state(target)
     state = read_state(target)
     hs = _require_recorded(target, state)
     chosen = sorted(selected_units(state) | pack_units(catalog, selected_packs(state)))
@@ -918,14 +929,12 @@ def _print_agent(data: dict, verb: str, target: Path, why: str | None,
             ("Agent folder", present.Whole(data["home"])),
             ("Launch", f"{launch['harness']} · {launch['model']} · "
                        f"{launch['effort']}"
-                       + (" (kept in launch.json)" if verb != "remove" else ""))]
+                       + (" (kept in agent.json)" if verb != "remove" else ""))]
     if data["written"]:
         rows.append(("Agent files", ("would write " if dry else "wrote ")
                      + ", ".join(data["written"])))
     if verb == "remove":
-        rows.append(("Agent files", ("would take back" if dry else "took back")
-                     + " launch.json, .gitignore and the agent section of "
-                     + GUIDANCE_FILE[launch["harness"]]))
+        rows.append(("Agent files", "kept agent.md, agent.json, settings.json and .gitignore"))
     elif data["units_removed"]:
         rows.append(("Units taken back", ", ".join(data["units_removed"])))
     if verb == "remove" or data.get("kept"):
@@ -945,7 +954,39 @@ def _print_agent(data: dict, verb: str, target: Path, why: str | None,
                   "target": str(target), "source": why, "next": data["next"],
                   "selected_items": (data["units_removed"] if verb == "remove"
                                      else data["units"]),
-                  "uninstalled": verb == "remove"})
+                  "uninstalled": units.get("uninstalled", []) if verb == "remove" else []})
+
+
+def _print_agent_configure(data: dict, target: Path, why: str | None) -> None:
+    before, after = data["before"], data["launch"]
+    title = "agent configure, nothing to do" if not data["written"] else "agent configured"
+    print(present.title(title))
+    print()
+    rows = [("Target", data["home"]), ("Installation", str(target)),
+            ("Harness", f"{before['harness']} -> {after['harness']}"),
+            ("Model", f"{before['model']} -> {after['model']}"),
+            ("Effort", f"{before['effort']} -> {after['effort']}"),
+            ("Voice", f"{before['voice'] or 'not set'} -> {after['voice'] or 'not set'}"),
+            ("Record", "agent.json updated" if data["written"] else "agent.json already has these values"),
+            ("Generated files", "regenerated" if data["harness_changed"] else "none (harness unchanged)")]
+    print("\n".join(present.fields(rows)))
+    print("\nNext: rbtv install agent list")
+
+
+def _print_agent_list(data: dict) -> None:
+    rows = data["agents"]
+    if not rows:
+        print(present.title("no agent found"))
+        print(f"\nSearched: {data['folder']}\nAgents: 0\n\nNo agent found under this folder. That is a valid result, not an error.")
+        return
+    print(present.title("agents"))
+    print(f"\nFolder: {data['folder']}\nAgents: {len(rows)}\n")
+    for row in rows:
+        if "unreadable" in row:
+            print(f"{row['name']}: agent.json unreadable: {row['unreadable']}")
+            continue
+        packs = ",".join(row["packs"]) or "none"
+        print(f"{row['name']}  {row['folder']}  {row['harness']}  {row['model']}  {row['effort']}  {packs}  {len(row['units'])}")
 
 
 @mutation_locked
@@ -954,17 +995,35 @@ def cmd_agent(args, target: Path, catalog: dict, shadowed: list,
     del shadowed, ask
     dry = bool(getattr(args, "dry_run", False))
     verb = args.agent_verb
+    why = getattr(args, "_why", "unknown")
+    if verb == "list":
+        folder = Path(args.folder).expanduser().resolve() if args.folder else None
+        data = list_agents(target, folder)
+        data["next"] = "rbtv install agent list"
+        if getattr(args, "json", False):
+            _emit(data, True, target, why)
+        else:
+            _print_agent_list(data)
+        return 0
     if verb == "add":
-        data = add_agent(target, Path(args.file), args.harness, args.model,
-                         args.effort, catalog, dry)
+        data = add_agent(target, args.agent, list(args.name), set(args.pack), catalog, dry)
         data["next"] = f"rbtv spark {data['agent']}"
     elif verb == "update":
-        data = update_agent(target, args.name, catalog, dry)
+        data = update_agent(target, args.agent, args.scope, catalog, dry)
         data["next"] = f"rbtv spark {data['agent']}"
+    elif verb == "configure":
+        data = configure_agent(target, args.agent, args.harness, args.model,
+                               args.effort, args.voice, catalog, dry)
+        data["next"] = "rbtv install agent list"
+        if getattr(args, "json", False):
+            _emit(data, True, target, why)
+        else:
+            _print_agent_configure(data, target, why)
+        return 0
     else:
-        data = remove_agent(target, args.name, catalog, dry)
+        data = remove_agent(target, args.agent, list(args.name), set(args.pack),
+                            bool(args.all), bool(args.yes), catalog, dry)
         data["next"] = "rbtv install status --target " + _quote(target)
-    why = getattr(args, "_why", "unknown")
     if getattr(args, "json", False):
         _emit(data, True, target, why)
     else:
@@ -1091,7 +1150,12 @@ def main(argv: list[str] | None = None, *, ask=None) -> int:
         return selftest()
 
     try:
-        target, why = resolve_target(getattr(args, "target", None), Path.cwd())
+        if args.verb == "agent":
+            if getattr(args, "target", None) is not None:
+                raise Refuse("usage", "agent verbs take no --target")
+            target, why = discover_installation(Path.cwd())
+        else:
+            target, why = resolve_target(getattr(args, "target", None), Path.cwd())
         args._why = why
         repo_tree = REPO_ROOT
         mirror_tree = target / ".rbtv" / "mirror"

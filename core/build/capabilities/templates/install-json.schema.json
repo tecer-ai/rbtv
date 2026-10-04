@@ -176,14 +176,6 @@
       "items": {
         "type": "string"
       }
-    },
-    "agent_units": {
-      "description": "In an installed agent's folder only: the units its agent file selected at the last install or update, as <module>/<component>#<unit>. An update removes only the units that left this list; units installed by other means, such as Ignite's standard units, stay.",
-      "type": "array",
-      "items": {
-        "type": "string"
-      },
-      "uniqueItems": true
     }
   }
 }

@@ -11,7 +11,7 @@ VERSION = "0.2.1"
 # The program name is used in generated guidance banners. It is deliberately
 # not part of the portable install record.
 INSTALLER_NAME = "install.py"
-SCHEMA = 6
+SCHEMA = 7
 
 # D12 — ownership is a marker in the file, never a prefix on its name.
 MANAGED_MARK = "rbtv-managed"
@@ -44,6 +44,7 @@ LEGACY_PREFIX = "rbtv2-"
 WS_PREFIX = "ws:"
 
 STATE_REL = Path(".rbtv") / "config" / "install.json"
+AGENT_RECORD = Path("agent.json")
 # D14: the per-clone ignore file git reads beside .gitignore - never committed,
 # so one machine's artifact list never overwrites another's.
 EXCLUDE_REL = ".git/info/exclude"

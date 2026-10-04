@@ -1,206 +1,109 @@
-"""`rbtv install agent add|update|remove`: an agent file becomes an installed agent."""
+"""The portable two-file agent record and its shared-operation lifecycle."""
 from __future__ import annotations
 
 import json
 from unittest.mock import patch
 
 from discovery import Refuse, scan_all
-
-from lib.operations import do_install
-from lib.agents import add_agent, launch_values, remove_agent, update_agent
+from lib.agents import (add_agent, configure_agent, list_agents, remove_agent,
+                        update_agent)
 from lib.state import read_state
+from lib.target import resolve_target
 
 from .fixture import _component, _unit_md, _w
 
-CAST = {"claude": {"m1": ["low", "high"], "plain": []},
-        "codex": {"m2": ["low", "medium", "high"]}}
 
-
-def _agent_file(path, skills=(), rules=(), folders=("notes",)):
-    body = "---\nname: sara\ndescription: A test agent.\n"
-    for key, values in (("skills", skills), ("rules", rules),
-                        ("folders", folders)):
-        if values:
-            body += f"{key}: [{', '.join(values)}]\n"
-    _w(path, body + "---\n\n## Role\n\nYou are Sara.\n")
-    return path
+def _agent(home, *, name="scout", units=None, packs=None):
+    home.mkdir(parents=True, exist_ok=True)
+    _w(home / "agent.md", f"---\nname: {name}\n---\n\nScout.\n")
+    _w(home / "agent.json", json.dumps({"name": name, "description": "Scout.",
+        "harness": "claude", "model": "m1", "effort": "high",
+        "units": units or [], "packs": packs or []}) + "\n")
 
 
 def installed_agents(ctx) -> None:
     check, tmp = ctx.check, ctx.tmp
-
-    print("\nA — an agent file becomes an installed agent")
-    root = tmp / "agents-src"
-    a = _component(root, "moda", "comp")
-    _unit_md(a / "skills/alpha.md", "alpha", "Alpha skill", "alpha\n")
-    _unit_md(a / "skills/shared.md", "shared", "Shared in A", "a\n")
-    _unit_md(a / "rules/law.md", "law", "A rule", "law\n")
-    _unit_md(a / "skills/extra.md", "extra", "Installed on the side", "x\n")
-    b = _component(root, "modb", "comp")
-    _unit_md(b / "skills/shared.md", "shared", "Shared in B", "b\n")
-    cat, _ = scan_all(tmp / "no-mirror-a", root)
-    ws = tmp / "ws-agents"
-    ws.mkdir()
-    home = ws / ".rbtv/agents/sara"
-    src = _agent_file(tmp / "sara.md", skills=["alpha"], rules=["law"])
-
-    with patch("lib.agents.cast_catalog", return_value=CAST):
-        before = sorted(p.name for p in ws.rglob("*"))
-        dry = add_agent(ws, src, "claude", "m1", "3", cat, True)
-        check("A-add — a dry run writes nothing",
-              sorted(p.name for p in ws.rglob("*")) == before
-              and dry["units"] == ["moda/comp#alpha", "moda/comp#law"]
-              and dry["launch"] == {"harness": "claude", "model": "m1",
-                                    "effort": "high"}, str(dry))
-        check("A-add — a dry run reports the unit files it would write",
-              {".claude/skills/alpha/SKILL.md", ".claude/rules/law.md"}
-              <= set(dry["unit_files"]["planned_changes"]["write_files"])
-              and dry["units_removed"] == [], str(dry.get("unit_files")))
-        add_agent(ws, src, "claude", "m1", "3", cat, False)
-        files = {p.relative_to(home).as_posix()
-                 for p in home.rglob("*") if p.is_file()}
-        check("A-add — the folder holds the agent file, launch values, settings, "
-              "ignore file, units and instructions",
-              {"agent.md", "launch.json", "settings.json", ".gitignore",
-               "CLAUDE.md", ".claude/skills/alpha/SKILL.md",
-               ".claude/rules/law.md", ".rbtv/config/install.json"} <= files
-              and (home / "agent.md").read_bytes() == src.read_bytes()
-              and json.loads((home / "launch.json").read_text(encoding="utf-8"))
-              == {"harness": "claude", "model": "m1", "effort": "high"}
-              and "state.sqlite*" in (home / ".gitignore").read_text(encoding="utf-8"),
-              str(sorted(files)))
-        section = (home / "CLAUDE.md").read_text(encoding="utf-8")
-        check("A-add — its folder instructions point to agent.md and list the "
-              "key folders",
-              "<!-- rbtv:start agent -->" in section
-              and "`agent.md`" in section and "- `notes`" in section, section)
-        check("A-add — an agent folder is not an installation: no mirror/, runtime/ or memory/",
-              not any((home / ".rbtv" / name).exists()
-                      for name in ("mirror", "runtime", "memory")))
-        check("A-add — the agent folder keeps its own install record",
-              set(read_state(home)["components"]["moda/comp"]["units"])
-              == {"alpha", "law"})
+    root = tmp / "agent-source"
+    comp = _component(root, "moda", "comp")
+    _unit_md(comp / "rules/kiss.md", "kiss", "Kiss", "body\n")
+    catalog, _ = scan_all(tmp / "agent-mirror", root)
+    ws = tmp / "agent-workspace"; ws.mkdir()
+    home = ws / ".rbtv/agents/scout"
+    _agent(home, units=["kiss"])
+    known = {"claude": {"m1": ["low", "high"]},
+             "codex": {"c1": ["low", "medium", "high"]}}
+    with patch("lib.agents.cast_catalog", return_value=known):
+        before = (home / "agent.json").read_bytes()
+        planned = add_agent(ws, "scout", [], set(), catalog, True)
+        check("A-add — dry run writes no agent file", (home / "agent.json").read_bytes() == before and planned["dry_run"], str(planned))
+        add_agent(ws, "scout", [], set(), catalog, False)
+    state = read_state(home)
+    check("A-add — agent.json is the sole record and normalizes units", state["units"] == ["moda/comp#kiss"] and not (home / "launch.json").exists() and not (home / ".rbtv/config/install.json").exists(), str(state))
+    check("A-add — generated files, settings and ignore file are present", (home / ".claude/rules/kiss.md").is_file() and (home / "settings.json").is_file() and (home / ".gitignore").is_file(), "")
+    update_agent(ws, "scout", "all", catalog, False)
+    check("A-update — shared update keeps the authored record", (home / "agent.json").is_file() and (home / ".claude/rules/kiss.md").is_file(), "")
+    with patch("lib.agents.cast_catalog", return_value=known):
+        files_before = {path.relative_to(home) for path in home.rglob("*") if path.is_file()}
+        configured = configure_agent(ws, "scout", None, None, "2", None, catalog, False)
+        files_after = {path.relative_to(home) for path in home.rglob("*") if path.is_file()}
+        check("A-configure — numeric effort changes only agent.json when harness stays",
+              configured["launch"]["effort"] == "high" and files_before == files_after,
+              str(configured))
+        switched = configure_agent(ws, "scout", "codex", "c1", "3", None, catalog, False)
+    state = read_state(home)
+    check("A-configure — harness flip replaces generated harness files",
+          state["harness"] == "codex" and state["model"] == "c1"
+          and state["effort"] == "high" and not (home / ".claude/rules/kiss.md").exists()
+          and not (home / "CLAUDE.md").exists() and (home / "AGENTS.md").is_file()
+          and switched["harness_changed"], str(switched))
+    before_bad = (home / "agent.json").read_bytes()
+    with patch("lib.agents.cast_catalog", return_value=known):
         try:
-            add_agent(ws, src, "claude", "m1", "3", cat, False)
-            again = None
+            configure_agent(ws, "scout", None, "nosuchmodel", None, None, catalog, False)
+            got = None
         except Refuse as exc:
-            again = exc.code
-        check("A-add — a second add refuses and points to update",
-              again == "agent-exists", str(again))
-
-        _agent_file(tmp / "sara2.md", skills=["alpha"], rules=[])
-        (home / "agent.md").write_bytes((tmp / "sara2.md").read_bytes())
-        (home / "launch.json").write_text(json.dumps(
-            {"harness": "claude", "model": "m1", "effort": "low"}),
-            encoding="utf-8")
-        planned = update_agent(ws, "sara", cat, True)
-        check("A-update — a dry run names the unit it takes back and its file",
-              planned["units_removed"] == ["moda/comp#law"]
-              and ".claude/rules/law.md"
-              in planned["unit_files"]["planned_changes"]["delete_files"]
-              and (home / ".claude/rules/law.md").is_file(),
-              str(planned.get("unit_files")))
-        update_agent(ws, "sara", cat, False)
-        check("A-update — a unit the agent file dropped goes; launch values stay",
-              not (home / ".claude/rules/law.md").exists()
-              and (home / ".claude/skills/alpha/SKILL.md").is_file()
-              and json.loads((home / "launch.json").read_text(encoding="utf-8"))
-              ["effort"] == "low", str(sorted(p.name for p in home.rglob("*"))))
-
-        (home / ".gitignore").unlink()
-        ignored = update_agent(ws, "sara", cat, True)
-        check("A-update — recreating a missing .gitignore is planned and then "
-              "reported, in preview and real alike",
-              ignored["written"] == [".gitignore", "CLAUDE.md"]
-              and not (home / ".gitignore").exists()
-              and update_agent(ws, "sara", cat, False)["written"]
-              == [".gitignore", "CLAUDE.md"]
-              and (home / ".gitignore").is_file(),
-              str(ignored["written"]))
-
-        do_install(home, cat, ["moda/comp"], ["claude"], False,
-                   guidance_basis="none", parts=["moda/comp#extra"])
-        update_agent(ws, "sara", cat, False)
-        check("A-update — a unit installed on the side stays when the agent file "
-              "does not select it",
-              (home / ".claude/skills/extra/SKILL.md").is_file()
-              and (home / ".claude/skills/alpha/SKILL.md").is_file()
-              and read_state(home)["agent_units"] == ["moda/comp#alpha"],
-              str(read_state(home).get("agent_units")))
-
-        (home / "notes.md").write_text("the agent's own\n", encoding="utf-8")
-        preview = remove_agent(ws, "sara", cat, True)
-        gone = remove_agent(ws, "sara", cat, False)
-        check("A-remove — the installer's files go; the agent's own stay",
-              sorted(p.name for p in home.iterdir())
-              == ["agent.md", "notes.md", "settings.json"]
-              and gone["kept"] == ["agent.md", "notes.md", "settings.json"],
-              str(gone["kept"]))
-        check("A-remove — the dry run's kept list is what the real run keeps",
-              preview["kept"] == gone["kept"]
-              and preview["units_removed"] == gone["units_removed"]
-              == ["moda/comp#alpha", "moda/comp#extra"],
-              f"preview={preview['kept']} {preview['units_removed']} "
-              f"real={gone['kept']} {gone['units_removed']}")
-        add_agent(ws, src, "claude", "m1", "3", cat, False)
-        check("A-remove — a removed agent can be installed again",
-              (home / "launch.json").is_file()
-              and (home / ".claude/skills/alpha/SKILL.md").is_file())
-        remove_agent(ws, "sara", cat, False)
+            got = exc.code
+    check("A-configure — unknown model refuses before writing",
+          got == "launch-invalid" and (home / "agent.json").read_bytes() == before_bad, str(got))
+    try:
+        configure_agent(ws, "scout", None, None, None, None, catalog, False)
+        got = None
+    except Refuse as exc:
+        got = exc.code
+    check("A-configure — no option is usage", got == "usage", str(got))
+    _agent(ws / ".rbtv/agents/second", name="second")
+    listed = list_agents(ws, None)
+    listed_folder = list_agents(ws, ws / ".rbtv")
+    check("A-list — reads two agents below the default folder and a supplied folder",
+          [row["name"] for row in listed["agents"]] == ["scout", "second"]
+          and [row["name"] for row in listed_folder["agents"]] == ["scout", "second"], str(listed))
+    empty = ws / "empty"; empty.mkdir()
+    check("A-list — no agent is successful", not list_agents(ws, empty)["agents"], "")
+    _w(empty / "broken" / "agent.json", "{not json\n")
+    unreadable = list_agents(ws, empty)["agents"]
+    check("A-list — an unreadable record is reported without stopping the list",
+          len(unreadable) == 1 and "unreadable" in unreadable[0], str(unreadable))
+    bare = tmp / "agent-list-empty"; bare.mkdir()
+    check("A-list — a missing default agent folder is successful",
+          not list_agents(bare, None)["agents"], "")
+    selected, source = resolve_target(None, ws, {"RBTV_AGENT_HOME": str(home)})
+    retired_name = "IGNITE" + "_AGENT_HOME"
+    legacy, legacy_source = resolve_target(None, ws, {retired_name: str(home)})
+    check("A-agent-home — RBTV_AGENT_HOME selects an agent and the retired name does not",
+          selected == home and source == "RBTV_AGENT_HOME" and legacy == ws
+          and legacy_source != retired_name, f"{selected} / {legacy}")
+    remove_agent(ws, "scout", ["kiss"], set(), False, False, catalog, False)
+    check("A-remove — removes generated files but preserves the two authored files", (home / "agent.md").is_file() and (home / "agent.json").is_file() and not (home / ".agents/behavior-rules/kiss.md").exists(), "")
+    for mutate, code in ((lambda: _agent(ws / ".rbtv/agents/bad", name="wrong"), "agent-name-mismatch"),):
         try:
-            update_agent(ws, "sara", cat, False)
-            removed = None
+            mutate(); add_agent(ws, "bad", [], set(), catalog, True)
+            got = None
         except Refuse as exc:
-            removed = exc.code
-        check("A-remove — update of a removed agent refuses as not installed",
-              removed == "agent-unknown", str(removed))
-        try:
-            update_agent(ws, "nobody", cat, False)
-            unknown = None
-        except Refuse as exc:
-            unknown = exc.code
-        check("A-remove — an unknown agent refuses by name",
-              unknown == "agent-unknown", str(unknown))
-
-        kept = ws / ".rbtv/agents/kept"
-        kept.mkdir(parents=True)
-        (kept / "settings.json").write_text('{"accounts": ["a"]}\n', encoding="utf-8")
-        _agent_file(tmp / "kept.md", skills=["alpha"])
-        (tmp / "kept.md").write_text((tmp / "kept.md").read_text(encoding="utf-8")
-                                     .replace("name: sara", "name: kept"),
-                                     encoding="utf-8")
-        add_agent(ws, tmp / "kept.md", "claude", "m1", "3", cat, False)
-        check("A-add — an existing settings.json is kept, never replaced",
-              (kept / "settings.json").read_text(encoding="utf-8")
-              == '{"accounts": ["a"]}\n' and (kept / "agent.md").is_file(),
-              (kept / "settings.json").read_text(encoding="utf-8"))
-
-        for names, code in ((["shared"], "unit-ambiguous"),
-                            (["nothing"], "unit-unknown"),
-                            (["modb/comp/shared"], None)):
-            _agent_file(tmp / "pick.md", skills=names)
-            try:
-                add_agent(tmp / "ws-pick", tmp / "pick.md", "claude", "m1",
-                          "high", cat, True)
-                got = None
-            except Refuse as exc:
-                got = exc.code
-            check(f"A-units — {names[0]!r}: a name must resolve to exactly one "
-                  "unit", got == code, str(got))
-
-    check("A-launch — an effort number becomes the model's word; a model with "
-          "no dial is inert; a bad value refuses",
-          launch_values("claude", "m1", "1", CAST)["effort"] == "low"
-          and launch_values("claude", "m1", "5", CAST)["effort"] == "high"
-          and launch_values("claude", "plain", "high", CAST)["effort"] == "inert"
-          and launch_values("codex", "m2", "medium", CAST)["effort"] == "medium",
-          "")
-    for args in (("kimi", "m1", "low"), ("claude", "nope", "low"),
-                 ("claude", "m1", "turbo")):
-        try:
-            launch_values(*args, CAST)
-            code = None
-        except Refuse as exc:
-            code = exc.code
-        check(f"A-launch — {args} refuses", code == "launch-invalid", str(code))
-    ctx.keep(locals())
+            got = exc.code
+        check("A-refusal — names must agree", got == code, str(got))
+    try:
+        remove_agent(ws, "scout", [], set(), True, False, catalog, True)
+        got = None
+    except Refuse as exc:
+        got = exc.code
+    check("A-refusal — --all requires --yes", got == "confirmation-required", str(got))
