@@ -21,7 +21,7 @@ skills. Never look for a channel id, a workspace flag or an upload verb here: no
 ## How you reach it
 
 After installing `meta/communication`, run `audio` by name from a new shell:
-the installer links it into `~/.rbtv/bin` and puts that directory on PATH.
+rbtv links it into `~/.rbtv/bin` and puts that directory on PATH.
 The full script path below also works without an install.
 
 `link-tools --check` inspects the older `~/.local/bin/audio` link. Run `link-tools`
@@ -30,7 +30,7 @@ to repair that link only when the task is to maintain the older local link.
 | What | Where |
 |---|---|
 | the CLI | `3-resources/tools/rbtv/meta/communication/capabilities/tools/audio/audio.py` |
-| the ElevenLabs key | `ELEVENLABS_API_KEY` in the workspace env file (`env_file` in `rbtv.json`) |
+| the ElevenLabs key | `ELEVENLABS_API_KEY` in the installation env file (`env_file` in `rbtv.json`) |
 | the language, for both directions | `3-resources/tools/rbtv/meta/communication/capabilities/tools/audio/config.json` |
 
 Every verb prints ONE JSON object on stdout; refusals print `what / why / fix` on stderr and exit

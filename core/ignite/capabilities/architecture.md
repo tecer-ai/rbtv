@@ -2,7 +2,7 @@
 
 What each Ignite file does, the commands and units Ignite exposes, and the configuration and turn contracts.
 
-Exposed commands and units: `ignite` (`capabilities/tools/ignite/cli.js` — `ignite -h` is the command surface), the `create-agent` skill, the `agent-controls` skill for an agent's own settings, schedules, work, wakes, proactive posts, board edits, and remembered facts, and the `ignite-standing-instructions` rule every Ignite agent receives.
+Exposed commands and units: `ignite` (`capabilities/tools/ignite/cli.js` — `ignite -h` is the command surface), the `build` skill (guide: `core/build/capabilities/guides/agent.md`), the `agent-controls` skill for an agent's own settings, schedules, work, wakes, proactive posts, board edits, and remembered facts, and the `ignite-standing-instructions` rule every Ignite agent receives.
 
 ## capabilities/tools/ignite/
 
@@ -13,10 +13,10 @@ One line from each file's header. A file with no header comment is marked.
 | `audio.js` | `Audio({ command, voice?, spawn? })`, `command` being the audio tool's name on PATH (config `tools.audio`), run directly. `transcribe(file)` runs `<command> transcribe` and throws on empty or failed output. `speak(text, { voice?, out? })` runs `<command> tts`. |
 | `board.js` | Checks the four-section board, writes subjects and watch-outs, closes subjects, and refreshes Timers and Flags. |
 | `cli.js` | Entry `ignite`. Home from `RBTV_AGENT_HOME`, or `--agent <slug>` plus `--installation <path>`. Connect, disconnect, and `dreamer run`: see `ignite -h`. |
-| `config.js` | `loadConfig(workspace)` reads and validates `<workspace>/.rbtv/config/ignite/config.json` and returns it plus `workspace`. `envValue` and `slackToken` resolve named environment variables (process environment, then `.rbtv/config/env/.env`). `agentHome(config, slug)` and `storePath(config, slug)`. |
-| `connect.js` | `ignite connect|disconnect`: turns the `ignite` pack on or off through the source installer, creates working files before connecting Slack, and manages the route in `config.json` and an optional timer. It accepts only agents below the installation's `.rbtv/agents/`. Flags: see `ignite -h`. |
+| `config.js` | `loadConfig(workspace)` reads and validates `<installation>/.rbtv/config/ignite/config.json` and returns it plus `workspace`. `envValue` and `slackToken` resolve named environment variables (process environment, then `.rbtv/config/env/.env`). `agentHome(config, slug)` and `storePath(config, slug)`. |
+| `connect.js` | `ignite connect|disconnect`: turns the `ignite` pack on or off through `rbtv`, creates working files before connecting Slack, and manages the route in `config.json` and an optional timer. It accepts only agents below the installation's `.rbtv/agents/`. Flags: see `ignite -h`. |
 | `daemon.js` | No header comment. Exports `start`, `expiredUntilDate`, and `runInstalledDreamer`. Usage line: `daemon.js --installation <path>`. Startup checks each agent's `agent.json` harness on PATH and resolves the app and bot tokens with `slackToken`. An unset variable refuses startup and names the variable. When `dreamer.enabled` is true, the same daemon calls `runInstalledDreamer` for one slot per process in each 03:00 `America/Sao_Paulo` hour. Busy attempts retry on later ticks. The daemon watches for a success older than 48 hours. |
-| `deploy.sh` | `deploy.sh <commit>`. Requires `RBTV_DEPLOY` (deploy worktree) and `RBTV_INSTALLATION` (workspace root). |
+| `deploy.sh` | `deploy.sh <commit>`. Requires `RBTV_DEPLOY` (deploy worktree) and `RBTV_INSTALLATION` (installation root). |
 | `dreamer.js` | `runDreamer({ config, openStore?, model?, now? })` processes agents in sequence, validates memory proposals, applies writes, commits net changes, and returns a digest or alert. It locks snapshot reads and publication separately, releasing the lock before every model call. `getState(store)` reads each agent's cursor, success and reported-conflict state; `saveState(store, state, now)` persists it, including a quiet run's success. |
 | `history.js` | `historyPath(home, key)` is `<home>/conversations/<safe>/history.md`. `safe` is the key with Windows-forbidden characters replaced by `-`. A folder still named with the raw key is renamed on first access. `writeHistory` regenerates that file from the store. `DEFAULT_HISTORY_WINDOW` is the recent slice in every turn prompt. |
 | `ingress.js` | No header comment. Exports `handleEvent`. |
@@ -44,13 +44,13 @@ One line from each file's header. A file with no header comment is marked.
 | `test_turn_loop.js` | Suite for `turn-loop.js`. No API header. |
 | `turn-loop.js` | `runOnce(slug, deps)` is one claimed turn, or a refusal or an empty claim. Refuses when `liveRun()` matches a live pid. `ignite turn` cwd is `realpath(home)`. Every request includes `systemPromptFile` `<home>/agent.md`. |
 
-In the tool folder, next to the code: `templates/` and `units/rbtv-ignite-agents.service`. Outside it, in this component: the skills `skills/create-agent.md` and `skills/agent-controls.md`, and the rule `rules/ignite-standing-instructions.md`.
+In the tool folder, next to the code: `templates/` and `units/rbtv-ignite-agents.service`. Outside it, in this component: the skill `skills/agent-controls.md`, and the rule `rules/ignite-standing-instructions.md`.
 
 ## Contracts
 
 General shape only. Instance ids, token paths, and launch pins are runtime config, never source.
 
-**Workspace config.** `<workspace>/.rbtv/config/ignite/config.json`, loaded by `capabilities/tools/ignite/config.js`. `loadConfig` adds `workspace` (the absolute path it was read for); that field is not stored in the file.
+**Installation config.** `<installation>/.rbtv/config/ignite/config.json`, loaded by `capabilities/tools/ignite/config.js`. `loadConfig` adds `workspace` (the absolute path it was read for); that field is not stored in the file.
 
 ```
 { "slack": { "team": "<team id>", "botUserId": "<bot user id>", "ownerUserId": "<owner user id>",
@@ -63,15 +63,15 @@ General shape only. Instance ids, token paths, and launch pins are runtime confi
   "routes": { "<channel id>": "<agent slug>" } }
 ```
 
-`dreamer.enabled` is an optional boolean, default false; unknown Dreamer settings are refused. Both the nightly runner and watchdog remain off until it is true. `dmAgent` may be absent. A direct message with none configured is refused (`config.dmAgent required`). Tokens are not in this file. `slackToken` reads the named variable from the process environment, then from `<workspace>/.rbtv/config/env/.env`. An unset variable the daemon needs refuses startup and names the variable; the value is never logged. Each agent's harness, model, and effort live in that agent's `agent.json`, not here. Source MUST NEVER hardcode them.
+`dreamer.enabled` is an optional boolean, default false; unknown Dreamer settings are refused. Both the nightly runner and watchdog remain off until it is true. `dmAgent` may be absent. A direct message with none configured is refused (`config.dmAgent required`). Tokens are not in this file. `slackToken` reads the named variable from the process environment, then from `<installation>/.rbtv/config/env/.env`. An unset variable the daemon needs refuses startup and names the variable; the value is never logged. Each agent's harness, model, and effort live in that agent's `agent.json`, not here. Source MUST NEVER hardcode them.
 
 `dreamer.model` is optional and defaults to `{ "harness": "codex", "model": "gpt-6-sol", "effort": 3 }`. A supplied object requires exactly those three fields: harness `codex`, `opencode` or `claude`, a nonempty model name without whitespace or a leading dash, and integer effort 1–5 (cast's numeric rung). Invalid and unknown fields fail config validation; cast resolves model availability and effort support at invocation. Both manual and nightly consolidation pass these settings to `castProposal`, independently of agent launch settings.
 
-**Agent home.** `<workspace>/.rbtv/agents/<slug>/`:
+**Agent home.** `<installation>/.rbtv/agents/<slug>/`:
 
 | File | Content |
 |---|---|
-| `agent.md` | The agent's instructions. Every turn passes this absolute path as `systemPromptFile` on the `ignite turn` request. Ignite does not write a standing-instructions `CLAUDE.md`. The installer's marked `agent` section and installed units are the instruction files. |
+| `agent.md` | The agent's instructions. Every turn passes this absolute path as `systemPromptFile` on the `ignite turn` request. Ignite does not write a standing-instructions `CLAUDE.md`. rbtv's marked `agent` section and installed units are the instruction files. |
 | `agent.json` | `{ "name", "harness", "model", "effort", "voice"?, "units", "packs" }` — the one agent-wide configuration record. Startup's harness check reads this file, per agent. |
 | `settings.json` | This agent's own settings — see "Capabilities vs settings" below. How install seeds it: see `ignite -h`. |
 | `_artifacts/board.md` | Tracked short-term memory: subjects, watch-outs, generated Timers and Recently closed |
@@ -82,7 +82,7 @@ General shape only. Instance ids, token paths, and launch pins are runtime confi
 
 ## Capabilities vs settings
 
-A CAPABILITY — what an agent can do, reusable by other agents — is an rbtv skill component (skill + its tools) under `<module>/<component>/` in rbtv, installed into agent homes by the installer like any other skill. It carries no agent-specific value: no workspace path, no account name, no owner value. An agent's SPECIFIC settings — the values that make a reusable capability act for THIS agent — live in ONE file in its home, `settings.json`, referenced from the agent's instructions (`agent.md`). How install seeds that file: see `ignite -h`. A capability's own tools take their settings and state paths as an explicit argument or environment variable — never a hardcoded relative path — so the same capability serves any agent that installs it. Track only each agent's `memory/` and `_artifacts/board.md`; its other home files, SQLite state, conversations and turns stay untracked.
+A CAPABILITY — what an agent can do, reusable by other agents — is an rbtv skill component (skill + its tools) under `<module>/<component>/` in rbtv, installed into agent homes by rbtv like any other skill. It carries no agent-specific value: no installation path, no account name, no owner value. An agent's SPECIFIC settings — the values that make a reusable capability act for THIS agent — live in ONE file in its home, `settings.json`, referenced from the agent's instructions (`agent.md`). How install seeds that file: see `ignite -h`. A capability's own tools take their settings and state paths as an explicit argument or environment variable — never a hardcoded relative path — so the same capability serves any agent that installs it. Track only each agent's `memory/` and `_artifacts/board.md`; its other home files, SQLite state, conversations and turns stay untracked.
 
 **Conversation key.** `<teamId>:<channelId>:<rootTs>`, DM and channel alike. The mapping key → agent is persisted.
 

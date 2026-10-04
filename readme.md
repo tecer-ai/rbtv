@@ -1,6 +1,6 @@
 # RBTV
 
-Short for Robotville, RBTV is a toolkit for Claude Code, Codex, and OpenCode workspaces.
+Short for Robotville, RBTV is a toolkit for Claude Code, Codex, and OpenCode installations.
 
 ## What is RBTV?
 
@@ -18,10 +18,10 @@ Each module is documented in detail in [`modules/`](modules). The doc covers the
 | **orchestration** | Long-horizon work — general multi-agent orchestration (route tasks to the right worker, dispatch self-contained artifacts, verify every return against disk, recover from halts; single front door incl. CLI-model dispatch via `cast`), the cast catalog + `cast route` selector (task profile → route/self_execute/halt_seam; algorithm authority is the routing card), a deterministic context-window monitor (a `PostToolUse` hook wired in when orchestration is elected) that emits tiered refresh advisories during a run, structured planning, plan execution via tiered sub-agents, and long-source mining | [modules/orchestration.md](modules/orchestration.md) |
 | **builder** | Building RBTV itself — component creation (with a build-time efficiency gate), component token- and cognitive-load review, and the source-of-truth rule | [modules/builder.md](modules/builder.md) |
 | **writing** | Long-form writing via the writer persona, tone extraction | [modules/writing.md](modules/writing.md) |
-| **coding** | The done-gate rule — done on coding tasks requires an owner-confirmed outcome contract, real-input exercise of each criterion, and weight-graded evidence (a disk sheet for substantial work, inline proof in the done message for trivial tasks); the done gate also carries a Contract-time drivability check (merged in from the former build-for-agent-testability rule) so surfaces the agent can't drive (native dialogs, isolated-run config, fused output) get a test seam built into the feature (plain-language code communication moved to the new **communication** module; git commits moved to core; the coding-discipline guardrails were generalized into the always-on reasoning rule — see [Retired components](#retired-components)). The done gate is split into a thin always-on trigger rule (≈420 words) plus an on-fire protocol body (≈2,200 words) loaded via a skill loader only when a coding task starts; a workspace that does no coding omits this module at install (see [modules/coding.md](modules/coding.md) § Scoping) | [modules/coding.md](modules/coding.md) |
+| **coding** | The done-gate rule — done on coding tasks requires an owner-confirmed outcome contract, real-input exercise of each criterion, and weight-graded evidence (a disk sheet for substantial work, inline proof in the done message for trivial tasks); the done gate also carries a Contract-time drivability check (merged in from the former build-for-agent-testability rule) so surfaces the agent can't drive (native dialogs, isolated-run config, fused output) get a test seam built into the feature (plain-language code communication moved to the new **communication** module; git commits moved to core; the coding-discipline guardrails were generalized into the always-on reasoning rule — see [Retired components](#retired-components)). The done gate is split into a thin always-on trigger rule (≈420 words) plus an on-fire protocol body (≈2,200 words) loaded via a skill loader only when a coding task starts; an installation that does no coding omits this module at install (see [modules/coding.md](modules/coding.md) § Scoping) | [modules/coding.md](modules/coding.md) |
 | **communication** | Audience-adapted communication, electable independent of coding — a general plain-language rule (define terms, no jargon, no analogies, no bare name-drops, explain plan phases) plus the non-technical-user code-communication overlay (translate code identifiers, frame decisions as behavior changes, no raw output dumps). Both MECE with core's chat-discipline | [modules/communication.md](modules/communication.md) |
 | **caveman** | Optional ultra-compressed caveman communication mode (the linguistic transform; behavioral bans deferred to chat-discipline). Parody commit voice ships but is off by default — token savings and fun, based on JuliusBrussee/caveman | [modules/caveman.md](modules/caveman.md) |
-| **ignite** | Ignite is `core/ignite/`: runnable Node code — a Slack message or a scheduled wake runs one agent turn, deployed by `core/ignite/capabilities/tools/ignite-agent/deploy.sh` and unit `rbtv-ignite-agents.service`, state in the workspace `.rbtv/agents/`, reached through `ignite` and the agent guide (`core/build/capabilities/guides/agent.md`). | [ignite/ignite.json](ignite/ignite.json) |
+| **ignite** | Ignite is `core/ignite/`: runnable Node code — a Slack message or a scheduled wake runs one agent turn, deployed by `core/ignite/capabilities/tools/ignite/deploy.sh` and unit `rbtv-ignite-agents.service`, state in the installation `.rbtv/agents/`, reached through `ignite` and the agent guide (`core/build/capabilities/guides/agent.md`). | [ignite/ignite.json](ignite/ignite.json) |
 
 ## Requirements
 
@@ -31,50 +31,42 @@ Each module is documented in detail in [`modules/`](modules). The doc covers the
 
 ## Install
 
-For a first run, point the installer at an existing workspace directory. `status` shows which directory it selected and which harnesses are configured. `list` opens the exact module, component, or item hierarchy; `search` finds names and descriptions broadly; `show` explains one choice; `add` installs its stable name; `remove` takes that same name.
+For a first run, point rbtv at an existing installation directory. `status` shows which directory it selected and which harnesses are configured. `list` opens the exact module, component, or unit hierarchy; `search` finds names and descriptions broadly; `show` explains one choice; `add` installs its stable name; `remove` takes that same name.
 
 ```bash
-rbtv status --target /path/to/workspace
-rbtv list brainstorm --target /path/to/workspace
-rbtv show brainstorm --target /path/to/workspace
-rbtv add brainstorm --target /path/to/workspace --harness claude,codex --guidance CLAUDE.md
-rbtv status --target /path/to/workspace
-rbtv remove brainstorm --target /path/to/workspace
+rbtv status --target /path/to/installation
+rbtv list brainstorm --target /path/to/installation
+rbtv show brainstorm --target /path/to/installation
+rbtv add brainstorm --target /path/to/installation --harness claude,codex --guidance CLAUDE.md
+rbtv status --target /path/to/installation
+rbtv remove brainstorm --target /path/to/installation
 ```
 
-On a fresh workspace, run `configure --harness NAMES --guidance NAME` or supply both settings on the first `add`. A short name selects one exposed item such as a skill or rule when unique; a full `module/component` name selects a component. `list NAME` opens that exact scope, while `search WORDS` looks across names and descriptions. For another agent, set `--target` to its home directory on each command. Use `--dry-run` to preview a change and `--json` for a machine-readable result. Bare `rbtv install` prints help; `rbtv interactive` starts the guided flow.
+On a fresh installation, run `configure --harness NAMES --guidance NAME` or supply both settings on the first `add`. A short name selects one exposed unit such as a skill or rule when unique; a full `module/component` name selects a component. `list NAME` opens that exact scope, while `search WORDS` looks across names and descriptions. For another agent, set `--target` to its home directory on each command. Use `--dry-run` to preview a change and `--json` for a machine-readable result. Bare `rbtv` prints help; `rbtv interactive` starts the guided flow.
 
-Change results show a compact summary and important warnings by default. Add `--details` to include the complete grouped item and file lists; combine it with `--dry-run` to inspect a plan before applying it. `--json` retains the full structured result regardless of text verbosity. A file-operation failure reports `changed: null` when earlier writes may have applied; inspect the target before retrying.
+Change results show a compact summary and important warnings by default. Add `--details` to include the complete grouped unit and file lists; combine it with `--dry-run` to inspect a plan before applying it. `--json` retains the full structured result regardless of text verbosity. A file-operation failure reports `changed: null` when earlier writes may have applied; inspect the target before retrying.
 
 Agent results also include `unit_files` (file outcomes from installing or removing the agent's skills and rules) and `units_removed` (their full identifiers). These supplement the existing agent fields. An agent-removal preview's `kept` list predicts what remains after removal.
 
 The `cli-creator` skill in `meta/code` covers both help and actual command results. Its output review checks tables, spacing, wrapping, bulk-result summaries, structured output, and real outcomes against observed state; help coverage alone is insufficient.
 
-The `work-history` skill in `meta/functions` reconstructs a user-agreed project, plan, or session history. It preserves visible transcripts, intermediate and final outputs, and saved working notes in one folder per agent/session, with a linked root timeline, provenance manifest, and explicit recovery gaps. It researches historical evidence; `handoff` transfers current session knowledge for continuation. Install it with `rbtv add work-history` in a configured workspace.
+The `work-history` skill in `meta/functions` reconstructs a user-agreed project, plan, or session history. It preserves visible transcripts, intermediate and final outputs, and saved working notes in one folder per agent/session, with a linked root timeline, provenance manifest, and explicit recovery gaps. It researches historical evidence; `handoff` transfers current session knowledge for continuation. Install it with `rbtv add work-history` in a configured installation.
 
-> **The installer is `core/install/capabilities/tools/rbtv/install.py`, reachable as `rbtv`.**
-> It carried the name `install2.py` from its first commit until 2026-08-23, while a
-> PREDECESSOR installer held the plain name at the repo root. On that date it was split
-> into one module per responsibility under `core/install/capabilities/tools/rbtv/lib/` (checks under
-> `core/install/capabilities/tools/rbtv/selftest/`, decisions in `core/install/capabilities/design-decisions.md`) and took
-> the plain name; the predecessor — repo-root `install.py` plus its `admin/install/`
-> package, which installed flat module components into `.claude/` and kept state in
-> `rbtv.json` — was DELETED on 2026-08-24. Its content lives in git history, and the
-> `rbtv.json` it wrote in a workspace is not read by anything any more.
+> **rbtv is `core/install/capabilities/tools/rbtv/install.py`, run as `rbtv`.**
 >
-> The installer manages **components**: a `<module>/<component>/` folder holding its own
+> rbtv manages **components**: a `<module>/<component>/` folder holding its own
 > `<component>.json`, inside a `<module>/` folder holding its own `<module>.json`, on BOTH the
-> workspace mirror (`{target}/.rbtv/mirror`) and this repo. It finds a component's units by the
+> installation mirror (`{target}/.rbtv/mirror`) and this repo. It finds a component's units by the
 > folder each sits in (`skills/`, `rules/`, `commands/`, `agents/<name>/`, `sub-agents/`, `hooks/`, `mcp-servers/`,
 > `capabilities/tools/<tool>/`, `folder-instructions/`), checks each file's frontmatter or record
 > against the schemas in `core/build/capabilities/templates/`, and realizes the units for
 > **three harnesses** (claude, codex, opencode). A component's folder instructions become a
 > marked section of the target folder's instructions file. The one unit shaped as a folder is a
-> whole skill in the workspace mirror, `{target}/.rbtv/mirror/_skills/<name>/`: it is **copied
+> whole skill in the installation mirror, `{target}/.rbtv/mirror/_skills/<name>/`: it is **copied
 > verbatim** into each installed harness's skills directory rather than thin-loaded, and its
-> copied `SKILL.md` carries the `rbtv-managed` ownership marker (files written by the earlier
-> installer carry `rbtv2-managed` and are still recognised).
-> Other generated artifacts are named after their bare unit name and marked as installer-owned.
+> copied `SKILL.md` carries the `rbtv-managed` ownership marker (files written by an earlier
+> rbtv carry `rbtv2-managed` and are still recognised).
+> Other generated artifacts are named after their bare unit name and marked as rbtv-owned.
 > Installation state lives at
 > `{target}/.rbtv/config/install.json`, recording every file and every shared-config key it
 > wrote; `rbtv remove` releases exactly those claims. It exposes at the
@@ -101,54 +93,54 @@ The `work-history` skill in `meta/functions` reconstructs a user-agreed project,
 > rbtv selftest                                          # its runnable check
 > ```
 >
-> **The two workspace settings are explicit.** `--harness` chooses which AI coding tools receive
+> **The two installation settings are explicit.** `--harness` chooses which AI coding tools receive
 > files, and `--guidance` chooses the root instruction file you maintain. On a fresh target, set
 > both with `configure` or on the first `add`. A later `configure` replaces only the settings
-> supplied; `status` displays them. `--type` filters item types; `--exclude-type` excludes them.
+> supplied; `status` displays them. `--type` filters unit types; `--exclude-type` excludes them.
 > Numeric catalog positions are not identifiers. The setting rationale and current command names
 > are recorded in `core/install/capabilities/design-decisions.md`.
 >
 > `configure`, `add`, `remove`, and `update` accept `--dry-run`. The read and change commands
 > accept `--json`; `interactive` and `selftest` accept neither flag. Exit codes are `0` success / `1` refusal /
 > `2` usage. Its design decisions (tree precedence, the new-standard scope, the ownership marker, the collision
-> rule, the workspace settings) are documented in `core/install/capabilities/design-decisions.md` —
+> rule, the installation settings) are documented in `core/install/capabilities/design-decisions.md` —
 > that is their one home.
 >
 
-1. Clone RBTV as a subfolder of your workspace:
+1. Clone RBTV as a subfolder of your installation:
 
    ```bash
-   cd /path/to/your/workspace
+   cd /path/to/your/installation
    git clone <rbtv-repo-url> rbtv
    ```
 
-   RBTV must live INSIDE the workspace that will use it.
+   RBTV must live INSIDE the installation that will use it.
 
-2. Run the installer:
+2. Run rbtv:
 
    ```bash
    rbtv status          # or: python rbtv/core/install/capabilities/tools/rbtv/install.py status
    ```
 
-   For a guided flow, run `rbtv interactive`: choose the workspace, tick the
+   For a guided flow, run `rbtv interactive`: choose the installation, tick the
    components with the arrow keys (space toggles, `i` shows what a component
    installs, `a` ticks everything), tick which AI tools get files written for
    them, choose which root guidance file you author, then confirm. Piped or
    scripted, every question falls back to a numbered list. The scripted verbs
    are in the callout at the top of this section.
 
-3. After install, your workspace has:
+3. After install, your installation has:
    - `.claude/skills/<name>/SKILL.md` — thin loaders for skills
    - `.claude/commands/<name>.md` — slash commands
    - `.claude/rules/<name>.md` — rules
    - `.claude/agents/<name>.md` — sub-agents
    - `.rbtv/config/install.json` — the book: every file and every shared-config
-     key the installer wrote, and the only thing an uninstall removes
+     key rbtv wrote, and the only thing an uninstall removes
 
    Names are the bare part id; ownership is a `rbtv2-managed` marker inside each
    file, never a prefix on its name.
 
-   Output paths are resolved at runtime by the `rbtv-output-resolution` rule, which uses conversation context and workspace CLAUDE.md conventions to propose paths.
+   Output paths are resolved at runtime by the `rbtv-output-resolution` rule, which uses conversation context and installation CLAUDE.md conventions to propose paths.
 
 ### Optional dependencies (per module)
 
@@ -224,10 +216,10 @@ RBTV uses Claude Code plugins for extended functionality. Install them from insi
 
 ## Updating RBTV
 
-RBTV content (agents, workflows, tasks) stays in this repo — thin loaders in your workspace reference it by path. To get new content:
+RBTV content (agents, workflows, tasks) stays in this repo — thin loaders in your installation reference it by path. To get new content:
 
 ```bash
-cd /path/to/your/workspace/rbtv
+cd /path/to/your/installation/rbtv
 git pull
 ```
 
@@ -241,11 +233,11 @@ their generated sections. `rbtv update all` does both from local source. Use `ad
 
 ## Source of truth
 
-Installed files under `.claude/skills/`, `.claude/commands/`, `.claude/rules/` and `.claude/agents/` that carry the `rbtv-managed` marker (or the earlier `rbtv2-managed`) are regenerated on every `rbtv update` run. **Do not edit them in your workspace** — edit the source in this repo and re-install. This section is the canonical statement of that principle for installs without the **builder** module; workspaces that install builder also get the always-on `rbtv-source-of-truth` rule enforcing it (recovered from retirement — see [modules/builder.md](modules/builder.md)).
+Installed files under `.claude/skills/`, `.claude/commands/`, `.claude/rules/` and `.claude/agents/` that carry the `rbtv-managed` marker (or the earlier `rbtv2-managed`) are regenerated on every `rbtv update` run. **Do not edit them in your installation** — edit the source in this repo and re-install. This section is the canonical statement of that principle for installs without the **builder** module; installations that install builder also get the always-on `rbtv-source-of-truth` rule enforcing it (recovered from retirement — see [modules/builder.md](modules/builder.md)).
 
 ## Retired components
 
-The table below records retired components from earlier layouts. The current installer discovers
+The table below records retired components from earlier layouts. The current rbtv discovers
 installable content from each component's folders, not from a central manifest.
 
 | Component | Module | Why retired |
@@ -267,7 +259,7 @@ installable content from each component's folders, not from a central manifest.
 - **Thin loaders:** installed skill and command loaders point back to this repo by resolved source path. Their installed copies are generated.
 - **Rule exception:** rule files are copied as content (not loaders), because rules load passively into Claude's context and indirection is unreliable.
 - **Subagent exception:** installed subagent files are copied as content too — they are dispatched in fresh context and must be self-contained.
-- **Overwrite scope:** the installer records owned files and shared settings in `.rbtv/config/install.json`; removal releases those claims while preserving unowned workspace content.
+- **Overwrite scope:** rbtv records owned files and shared settings in `.rbtv/config/install.json`; removal releases those claims while preserving unowned installation content.
 
 ## Extending RBTV
 

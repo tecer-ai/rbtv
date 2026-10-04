@@ -45,7 +45,7 @@ Renamed from `claude-acct` (2026-08-07) when the provider argument and the usage
 ln -s "$(pwd)/3-resources/tools/rbtv/core/cast/capabilities/tools/acct/acct.py" ~/.local/bin/acct
 ```
 
-Run from the workspace root. The CLI resolves its workspace by walking up from its own real path
+Run from the installation root. The CLI resolves its installation by walking up from its own real path
 to the nearest `rbtv.json`, so the symlink works from any cwd; `RBTV_INSTALLATION` overrides.
 
 ## Which providers can do what
@@ -84,11 +84,11 @@ acct claude add work   # captures whatever is now live
 ## What a slot is
 
 A slot is a snapshot of the credential locations that make up ONE login, at
-`{workspace}/.rbtv/config/acct/<provider>/<name>.json`, mode `600` — the CMP-1-ruled credential
+`{installation}/.rbtv/config/acct/<provider>/<name>.json`, mode `600` — the CMP-1-ruled credential
 home (moved there from `.rbtv/env/{provider}-accts/` on 2026-08-07).
 
 ⚠ **`.rbtv/config/` is NOT gitignored wholesale** — its siblings (`.env`, the chat-bridge config)
-are listed file by file. `.rbtv/config/acct/` carries its own DIRECTORY rule in the workspace
+are listed file by file. `.rbtv/config/acct/` carries its own DIRECTORY rule in the installation
 `.gitignore`, and that one line is all that keeps real refresh tokens out of a commit. It covers
 the whole tree so a provider folder created later is ignored the moment it exists. Relocating
 these files means moving that rule in the same change — never afterwards.

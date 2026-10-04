@@ -1,14 +1,14 @@
 # Ignite agents — operator runbook
 
-One process per workspace, unit `rbtv-ignite-agents.service`. It runs from the deploy worktree named by `RBTV_DEPLOY`, not from a working tree other sessions edit. Config is `<workspace>/.rbtv/config/ignite/config.json`. It names the environment variables that hold Slack's tokens (`appTokenEnv`, `botTokenEnv`, `ownerTokenEnv`); the values live in the process environment or `<workspace>/.rbtv/config/env/.env`, never in the config file. An unset variable the daemon needs refuses startup and names the variable; the value is never printed. Nothing under `.rbtv/modules/ignite/` is read or created.
+One process per installation, unit `rbtv-ignite-agents.service`. It runs from the deploy worktree named by `RBTV_DEPLOY`, not from a working tree other sessions edit. Config is `<installation>/.rbtv/config/ignite/config.json`. It names the environment variables that hold Slack's tokens (`appTokenEnv`, `botTokenEnv`, `ownerTokenEnv`); the values live in the process environment or `<installation>/.rbtv/config/env/.env`, never in the config file. An unset variable the daemon needs refuses startup and names the variable; the value is never printed. Nothing under `.rbtv/modules/ignite/` is read or created.
 
 ## Deploy
 
 ```
-RBTV_DEPLOY=<worktree> RBTV_INSTALLATION=<workspace> deploy.sh <commit>
+RBTV_DEPLOY=<worktree> RBTV_INSTALLATION=<installation> deploy.sh <commit>
 ```
 
-`deploy.sh` is `core/ignite/capabilities/tools/ignite/deploy.sh` in the repo that owns the worktree. It checks the worktree out detached at `<commit>`, fills the unit template (`EnvironmentFile` is `<workspace>/.rbtv/config/env/.env`), `systemctl --user daemon-reload`, restarts `rbtv-ignite-agents.service`, and prints the running commit. Running it again at the same commit is safe. The env file must exist or deploy refuses.
+`deploy.sh` is `core/ignite/capabilities/tools/ignite/deploy.sh` in the repo that owns the worktree. It checks the worktree out detached at `<commit>`, fills the unit template (`EnvironmentFile` is `<installation>/.rbtv/config/env/.env`), `systemctl --user daemon-reload`, restarts `rbtv-ignite-agents.service`, and prints the running commit. Running it again at the same commit is safe. The env file must exist or deploy refuses.
 
 ## Status
 
@@ -50,7 +50,7 @@ Dreamer ships disabled: omit `dreamer` or keep `"dreamer": { "enabled": false }`
 To consolidate once without waiting for 03:00, and without marking that slot consumed, run:
 
 ```
-ignite dreamer run --installation <workspace>
+ignite dreamer run --installation <installation>
 ```
 
 It is one shot: it runs the same quiet-or-consolidation path as the nightly pass, then exits. It does not loop. It takes `.rbtv/runtime/ignite-memory.lock` for the initial work check, each snapshot read and publication, releasing it before every model call. Contention during the initial check prints a busy result and does not start a run. It runs even when `dreamer.enabled` is false, and the result says so. Use it for the owner-present first consolidation, or for a deliberate catch-up, including while the nightly runner is still off. It queues a digest or failure notice on the direct-message agent's outbox; the running daemon delivers that row. It does not confirm delivery itself, so it does not save new reported conflicts. Ordinary daemon outbox delivery saves the thread key but has no conflict metadata. Only a later consolidation whose own digest delivery is confirmed saves those conflicts. The result is one JSON line, including workspace, config, and run-setup failures. Exit 0 means the run finished without an alert or error. A required digest or failure notice that cannot be queued returns `ok: false`, a non-null `error`, and exit 1; this includes a missing `dmAgent` or DM agent store. See `ignite dreamer --help`.
@@ -76,7 +76,7 @@ Before a commit, a failed memory write restores the original bytes, including wh
 ## Inspect
 
 ```
-ignite --agent <slug> --installation <workspace> work status
+ignite --agent <slug> --installation <installation> work status
 ```
 
 Entry point, if the PATH link is not installed yet: `node <deploy>/core/ignite/capabilities/tools/ignite/cli.js`.
@@ -86,7 +86,7 @@ Entry point, if the PATH link is not installed yet: `node <deploy>/core/ignite/c
 Use a full conversation key from the agent's stored history, or its root timestamp when unique:
 
 ```
-ignite --agent <slug> --installation <workspace> post --thread <team>:<channel>:<root-ts> --text "Check complete"
+ignite --agent <slug> --installation <installation> post --thread <team>:<channel>:<root-ts> --text "Check complete"
 ```
 
 The command prints `<conversation key> activated` and queues delivery; `--json` returns `conversationKey`, `outboxId`, `clientMsgId`, `activated` and `channel`. Exit 0 means queued, not delivered. The confirmed post joins that thread's history. Unknown or ambiguous targets fail with exit 1 and an error on stderr; use the exact key in this agent's history to resolve ambiguity. Omitting `--thread` starts a new conversation. `--text-file`, `--file` and `--audio` also work with a thread target.
@@ -98,8 +98,8 @@ Each timer wake starts with a new conversation key and harness session, with no 
 Use `ignite board --help` for the checked form. Copy `<home>/_artifacts/board.md` to a candidate file, edit its subjects or watch-outs, then submit it:
 
 ```
-ignite --agent <slug> --installation <workspace> board write --file "board candidate.md"
-ignite --agent <slug> --installation <workspace> board close "Subject title" "One-line outcome" "[discussion](https://example.com/thread)"
+ignite --agent <slug> --installation <installation> board write --file "board candidate.md"
+ignite --agent <slug> --installation <installation> board close "Subject title" "One-line outcome" "[discussion](https://example.com/thread)"
 ```
 
 The close thread is optional. All four sections must be present, even when empty. Keep Timers, Recently closed and existing Flags unchanged in a candidate. New subjects use Flags `none`. `write` reports the board path and whether bytes changed; `close` reports the title and path. `--json` returns `{path, changed, subject?}` on success or `{path, error}` with exit 1 on failure (`path` is null before a home is resolved). Validation refuses malformed or over-cap input without changing the board. Close records a dated outcome; when six closed entries already exist, archive old entries before trying again. No entry is truncated or automatically pruned. Legacy boards require reshaping before using the checked commands; runtime board commands never read or copy the legacy path.
@@ -122,13 +122,13 @@ The runtime sets subject Flags through `board.js`, using owner replies stored fo
 
 Every turn, including a timer wake and a resumed harness session, rereads and injects:
 
-- `<workspace>/.rbtv/memory/profile.md`
+- `<installation>/.rbtv/memory/profile.md`
 - `<home>/memory/learned.md`
 - `<home>/_artifacts/board.md`
-- `<workspace>/.rbtv/memory/_artifacts/index.md`
-- `<workspace>/.rbtv/memory/inbox.md`
+- `<installation>/.rbtv/memory/_artifacts/index.md`
+- `<installation>/.rbtv/memory/inbox.md`
 
-Here workspace means the rbtv installation folder containing `.rbtv/agents/<slug>`, resolved from the agent home, never the deploy checkout or the shell's current directory. General memory has one fixed location per installation. A file at `.rbtv/memory/workspaces/<slug>.md` is injected only when the turn's working directory equals or is below one of its installation-relative `paths:`. Paths accept a YAML inline list or indented string list, including quoted paths with spaces; absolute paths and `..` are refused. Prefix siblings do not match. Turns currently start in the resolved agent home. A matching file deleted from the working tree can still be discovered in HEAD.
+Here installation means the rbtv installation folder containing `.rbtv/agents/<slug>`, resolved from the agent home, never the deploy checkout or the shell's current directory. General memory has one fixed location per installation. A file at `.rbtv/memory/workspaces/<slug>.md` is injected only when the turn's working directory equals or is below one of its installation-relative `paths:`. Paths accept a YAML inline list or indented string list, including quoted paths with spaces; absolute paths and `..` are refused. Prefix siblings do not match. Turns currently start in the resolved agent home. A matching file deleted from the working tree can still be discovered in HEAD.
 
 The check in `memory.js` accepts UTF-8 with LF or CRLF. Profile uses `Who`, `Working with <owner>` and `Now` sections, dated fact bullets, and at most 4,000 characters. Learned rules have at most 30 bullets, each starting with `[correction]` or `[inferred]`, a `Why:` clause and dated provenance; inferred rules need two distinct conversation links. Workspace notes require their frontmatter, dated bullets and at most 3,000 characters. The root index requires an `Open | When` table with no row cap. Inbox records have dated provenance, with an optional heading and no enforced length cap. The board uses `board.js`'s checked form.
 
@@ -138,7 +138,7 @@ When a file is missing, unreadable or fails its check, Ignite saves readable rej
 
 ```
 ignite remember "Prefers afternoon appointments"
-ignite --agent <slug> --installation <workspace> remember "Prefers afternoon appointments"
+ignite --agent <slug> --installation <installation> remember "Prefers afternoon appointments"
 ```
 
 `remember` appends one UTF-8 line to `.rbtv/memory/inbox.md` with the UTC date, agent slug and current Slack thread link when available. Newlines in the supplied text become spaces. The shared installation lock and a single append write preserve concurrent agents' lines; an absent inbox starts as a headerless list. Existing bytes are never rewritten, even if the inbox is malformed or missing its final newline. The command never writes `learned.md` and never refuses for length or inbox format. Above 20 bullet lines (lines starting with `- `; headings, blanks and other prose do not count), it queues an owner alert in the current conversation, or the agent's configured channel/DM outside a turn. Alert setup or delivery-queue failure leaves the append successful and produces a visible warning.
@@ -161,8 +161,8 @@ A hold survives ticks and restarts. Set a launch setting that does not use the f
 
 ```
 rbtv agent configure <slug> --harness <harness> --model <cast short name> --effort <rung word>
-ignite --agent <slug> --installation <workspace> work retry
-ignite --agent <slug> --installation <workspace> work retry <work-id>
+ignite --agent <slug> --installation <installation> work retry
+ignite --agent <slug> --installation <installation> work retry <work-id>
 ```
 
 The setting applies from the next turn in every conversation of that agent.
@@ -179,4 +179,4 @@ Long threads. The prompt carries a bounded recent window (20 messages) plus the 
 
 The unit starts at boot when user lingering is on. Check with `systemctl --user is-enabled rbtv-ignite-agents.service`.
 
-The installer puts `~/.rbtv/bin` on the user shell PATH. `deploy.sh` also keeps its conditional prepend for the service unit, since a boot-time user service may not source a shell profile; it adds the directory only when absent. The installer links `ignite` there. After installing a harness or a tool in a new location, redeploy. Startup refuses to go ready if `ignite` is not on that PATH.
+rbtv puts `~/.rbtv/bin` on the user shell PATH. `deploy.sh` also keeps its conditional prepend for the service unit, since a boot-time user service may not source a shell profile; it adds the directory only when absent. rbtv links `ignite` there. After installing a harness or a tool in a new location, redeploy. Startup refuses to go ready if `ignite` is not on that PATH.
