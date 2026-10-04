@@ -65,7 +65,7 @@ def walk_bases(target: Path, basis: str,
     """Every basis file the recursive mirror covers, root first, sorted (D13).
 
     Skips `GUIDANCE_SKIP_DIRS`, nested git repos, the always-excluded prefixes
-    and the workspace's configured excludes. Symlinks are never followed."""
+    and the installation's configured excludes. Symlinks are never followed."""
     prefixes = [p for p in
                 (_norm_prefix(x) for x in (*excludes, *GUIDANCE_ALWAYS_EXCLUDED))
                 if p]
@@ -154,8 +154,8 @@ def plan_mirror(target: Path, basis: str | None, harnesses,
             "guidance-basis-missing",
             f"the recorded guidance basis {basis!r} does not exist at the "
             "install root, so there is nothing to mirror. Recover with ONE of: "
-            f"restore {basis}; or `rbtv install configure --guidance {other}` to make "
-            f"the file you do have the basis; or `rbtv install configure --guidance "
+            f"restore {basis}; or `rbtv configure --guidance {other}` to make "
+            f"the file you do have the basis; or `rbtv configure --guidance "
             f"{BASIS_NONE}` to turn the mirror off. Nothing was written",
             str(root_source))
     files: dict[str, str] = {}
@@ -192,9 +192,9 @@ def plan_mirror(target: Path, basis: str | None, harnesses,
                 "guidance-basis-unreadable",
                 f"the guidance basis {rel!r} is not readable as UTF-8 text "
                 f"({exc}) — a mirror of it would be garbage; refusing before "
-                f"any write. Turn the mirror off with `rbtv install configure "
+                f"any write. Turn the mirror off with `rbtv configure "
                 f"--guidance {BASIS_NONE}` if this file is not meant to be "
-                "guidance, or skip its directory with `rbtv install add "
+                "guidance, or skip its directory with `rbtv add "
                 "guidance exclude <dir>`",
                 str(source)) from exc
         body, stripped_banner = strip_generated_banner(body)

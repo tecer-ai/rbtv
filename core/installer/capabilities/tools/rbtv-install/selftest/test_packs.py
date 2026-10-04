@@ -149,7 +149,7 @@ def packs(ctx) -> None:
         cmd_list(args(["list", "--type", "pack"]), target, catalog, [])
         cmd_show(args(["show", "--pack", "starter"]), target, catalog, [])
     text = rendered.getvalue()
-    words = ("starter", "fixmod/goodcomp", "2", "Selection:", "Declaration:",
+    words = ("starter", "fixmod/goodcomp", "2", "Pack: on for this target", "Declaration:",
              "fixskill", "fixrule")
     check("PK-discover-views — list and show expose component, count, state, path and units",
           all(word in text for word in words), text)

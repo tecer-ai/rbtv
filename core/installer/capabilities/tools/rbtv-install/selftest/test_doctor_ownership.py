@@ -1,4 +1,4 @@
-"""Read-only doctor coverage for a selected workspace's shared shortcuts."""
+"""Read-only doctor coverage for a selected installation's shared shortcuts."""
 from __future__ import annotations
 
 import json
@@ -66,8 +66,8 @@ def _restore_shortcut(bindir: Path, name: str, saved: dict) -> None:
 
 
 def doctor_ownership(ctx) -> None:
-    """The selected workspace's shared shortcuts diagnose safely, name the
-    exact failure, and never mix in another workspace's inventory unasked."""
+    """The selected installation's shared shortcuts diagnose safely, name the
+    exact failure, and never mix in another installation's inventory unasked."""
     check, skip, tmp, tree = ctx.check, ctx.skip, ctx.tmp, ctx.tree
     catalog = ctx.frame()[0]
 
@@ -118,7 +118,7 @@ def doctor_ownership(ctx) -> None:
     finally:
         _RUNTIME["bin"] = saved_bin
 
-    # ---- a real selected workspace, with one real PATH-exposed shortcut ----
+    # ---- a real selected installation, with one real PATH-exposed shortcut ----
     real_root = tmp / "doctor-real"
     ws = tmp / "doctor-ws"
     ws.mkdir()
@@ -144,7 +144,7 @@ def doctor_ownership(ctx) -> None:
               _snapshot(real_root, ws) == before, "fixture changed")
 
         # DO-missing-selected-link — the shim itself is gone (owner record
-        # still names this workspace as its owner).
+        # still names this installation as its owner).
         saved_shortcut = _capture_shortcut(bin_dir(), "fixtool")
         shim = link_path(bin_dir(), "fixtool")
         shim.unlink()
@@ -216,9 +216,9 @@ def doctor_ownership(ctx) -> None:
         shim.unlink()
         _restore_shortcut(bin_dir(), "fixtool", saved_shortcut)
 
-        # DO-ownership-not-this-workspace — the link and the file are both
-        # fine, but the shared registry does not list THIS workspace as an
-        # owner: a different workspace's removal could delete it out from
+        # DO-ownership-not-this-installation — the link and the file are both
+        # fine, but the shared registry does not list THIS installation as an
+        # owner: a different installation's removal could delete it out from
         # under this one with no warning today, so "some entry exists" must
         # not read as healthy.
         owners_doc = json.loads(owner_file(bin_dir()).read_text(encoding="utf-8"))
@@ -227,8 +227,8 @@ def doctor_ownership(ctx) -> None:
         owners_doc["links"]["fixtool"]["owners"] = [str(other_ws)]
         owner_file(bin_dir()).write_text(json.dumps(owners_doc), encoding="utf-8")
         unowned = _checks(ws, catalog, tree)
-        check("DO-ownership-not-this-workspace — an entry owned only by "
-              "another workspace does not prove THIS workspace is tracked",
+        check("DO-ownership-not-this-installation — an entry owned only by "
+              "another installation does not prove THIS installation is tracked",
               unowned["Shared shortcut ownership"]["level"] == "fail"
               and "not this one" in unowned["Shared shortcut ownership"]["detail"]
               and "update scaffolding" in
@@ -330,7 +330,7 @@ def doctor_ownership(ctx) -> None:
               str(sorted(skill_names)))
 
         # DO-cleanup-audit — off by default; opt-in names a safe two-step
-        # recovery (preview, then release) for an absent workspace, as a
+        # recovery (preview, then release) for an absent installation, as a
         # warning that never fails a healthy target.
         missing_owner = tmp / "doctor-missing-owner-ws"
         elsewhere_tool = tmp / "doctor-elsewhere-tool.py"
@@ -345,9 +345,9 @@ def doctor_ownership(ctx) -> None:
 
         default_run = do_doctor(ws, "fixture", catalog, [], tree,
                                 ws / ".rbtv" / "mirror")
-        check("DO-cleanup-audit-off-by-default — no unrelated-workspace rows "
+        check("DO-cleanup-audit-off-by-default — no unrelated-installation rows "
               "without --cleanup-audit",
-              not any(c["scope"] == "Other workspace"
+              not any(c["scope"] == "Other installation"
                      for c in default_run["checks"])
               and default_run["ok"],
               str([c["name"] for c in default_run["checks"]]))
@@ -358,10 +358,10 @@ def doctor_ownership(ctx) -> None:
                      if c["name"] == "Stale owner claim"
                      and str(missing_owner) in c["detail"]]
         check("DO-cleanup-audit — names a safe dry-run then a release "
-              "command for the absent workspace, as a warning only",
+              "command for the absent installation, as a warning only",
               len(stale_rows) == 1
               and stale_rows[0]["level"] == "warn"
-              and stale_rows[0]["scope"] == "Other workspace"
+              and stale_rows[0]["scope"] == "Other installation"
               and "--dry-run" in stale_rows[0]["detail"]
               and "--yes" in stale_rows[0]["detail"]
               and stale_rows[0]["detail"].index("--dry-run")
@@ -457,7 +457,7 @@ def doctor_ownership(ctx) -> None:
               broken_cfg["Selected files"]["detail"])
 
         # DO-truthful-count-labels — a component count is labelled
-        # "components", not the item-classification word "items" (D8's
+        # "components", not the item-classification word "units" (D8's
         # module/component/item vocabulary is not interchangeable).
         labelled = _checks(ws, catalog, tree)
         check("DO-truthful-count-labels — Saved selection and Source "

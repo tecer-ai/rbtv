@@ -1,7 +1,7 @@
 """Printing what a run planned or did, in the form a human reads.
 
 Layout: title, target, a summary of aligned fields (what was selected, the
-receiving tools, file counts), then the sections Warnings, Items, File list
+receiving tools, file counts), then the sections Warnings, Units, File list
 and Notes.
 Owner-ruled compact default: every warning prints in full, routine lists
 (files, claims, copied folders) print as counts, and a selection longer
@@ -20,7 +20,7 @@ LIST_LIMIT = 10
 
 
 def _title(data: dict) -> str:
-    """The `RBTV install — <outcome>` line — one authored place so
+    """The `rbtv — <outcome>` line — one authored place so
     configure/add/remove/update never spell their own title separately."""
     if data.get("_title"):
         return data["_title"]
@@ -31,13 +31,13 @@ def _title(data: dict) -> str:
             return "configuration unchanged"
         return "configuration preview" if dry else "configuration saved"
     if verb == "add":
-        return "add preview" if dry else "items added"
+        return "add preview" if dry else "units added"
     if verb == "remove":
-        if not data.get("uninstalled") and "report" in data:
-            return "shared shortcut claims released"
-        if not data.get("uninstalled") and not data.get("selected_items"):
+        if not data.get("uninstalled") and not data.get("selected_units"):
+            if "report" in data:
+                return "shared shortcut claims released"
             return "nothing removed"
-        return "removal preview" if dry else "items removed"
+        return "removal preview" if dry else "units removed"
     if verb == "update":
         label = _UPDATE_LABEL.get(data.get("scope", ""), data.get("scope", "update"))
         return f"{label} update preview" if dry else f"{label} updated"
@@ -54,17 +54,17 @@ class _Out:
         self.hidden = False
         self.summary: list[tuple[str, str]] = []
         self.sections: dict[str, list[str]] = {
-            "Warnings": [], "Items": [], "File list": [], "Notes": []}
+            "Warnings": [], "Units": [], "File list": [], "Notes": []}
 
     def ids(self, values: list[str], noun: str) -> str:
-        """A short selection by name; a long one by count. With --details
-        the full selection is listed one ID per line under Items."""
+        """A selection by name, inline. A long one (more than `LIST_LIMIT`)
+        prints as its count unless --details is given; with --details the
+        full selection is also listed one ID per line under Units."""
         if self.full:
-            self.sections["Items"].extend(f"  {value}" for value in values)
-        elif len(values) > LIST_LIMIT:
-            self.hidden = True
-        else:
+            self.sections["Units"].extend(f"  {value}" for value in values)
+        if self.full or len(values) <= LIST_LIMIT:
             return ", ".join(values)
+        self.hidden = True
         return f"{len(values)} {noun if len(values) != 1 else noun[:-1]}"
 
     def bullet(self, section: str, text: str) -> None:
@@ -105,6 +105,7 @@ class _Out:
 
 def print_result(data: dict) -> None:
     preview = bool(data.get("dry_run"))
+    facts = data.get("_facts") or {}
     out = _Out(bool(data.get("_details")))
     print(present.title(_title(data)))
     print()
@@ -114,28 +115,44 @@ def print_result(data: dict) -> None:
     if data.get("message"):
         for line in present.wrap(data["message"]):
             print(line)
+    if data.get("_verb") == "update" and data.get("scope") == "guidance":
+        print()
+        print("\n".join(_guidance_lines(data, facts, preview)))
+        print()
+        print("Next: " + data.get("next", "rbtv status"))
+        return
+    if facts.get("changed") is not None:
+        print()
+        print(f"Changed {_count(facts['changed'], 'unit')}, unchanged "
+              f"{_count(facts['unchanged'], 'unit')}, failed "
+              f"{len(_failed_units(data))}.")
 
     out.summary.extend(data.get("_fields") or [])
-    selected = data.get("selected_items") or []
+    selected = data.get("selected_units") or []
     added, removed = data.get("added") or [], data.get("removed") or []
     if data.get("_verb") == "update":
         out.summary.append(("Would add" if preview else "Added",
-                            out.ids(added, "items") if added else "none"))
+                            out.ids(added, "units") if added else "none"))
         out.summary.append(("Would remove" if preview else "Removed",
-                            out.ids(removed, "items") if removed else "none"))
-    removing = bool(data.get("uninstalled"))
+                            out.ids(removed, "units") if removed else "none"))
+    removing = data.get("_verb") == "remove"
     if selected:
-        label = ("Would remove" if removing else "Would install") if preview \
+        label = ("Would remove" if removing else "Would add") if preview \
             else ("Removed" if removing else "Installed")
-        out.summary.append((label, out.ids(selected, "items")))
+        out.summary.append((label, out.ids(selected, "units")))
     elif data.get("installed"):
         out.summary.append(("Would refresh" if preview else "Refreshed",
                             out.ids(data["installed"], "components")))
-    elif removing:
+    elif data.get("uninstalled"):
         out.summary.append(("Would remove" if preview else "Removed",
                             out.ids(data["uninstalled"], "components")))
     if data.get("harnesses"):
-        out.summary.append(("Receiving tools", ", ".join(data["harnesses"])))
+        out.summary.append(("Receiving tools",
+                            _receiving(data["harnesses"], facts, preview)))
+    _units_row(out, facts, data)
+    for name, component, on in facts.get("packs") or []:
+        out.summary.append(("Pack", f"{name} ({component}) "
+                            + ("on" if on else "off")))
     _changes(out, data, preview)
     _warnings(out, data, preview)
     report = data.get("report") or {}
@@ -160,14 +177,72 @@ def print_result(data: dict) -> None:
     print()
     if out.hidden:
         # Never suggests repeating a change that already ran.
-        hint = ("Add --details to this preview to list every item and file."
+        hint = ("Add --details to this preview to list every unit and file."
                 if preview else
-                "Lists are counted, not printed. To list every item and "
+                "Lists are counted, not printed. To list every unit and "
                 "file, preview the next change with --dry-run --details.")
         for line in present.wrap(hint + " --json always carries the full lists."):
             print(line)
         print()
-    print("Next: " + data.get("next", "rbtv install status"))
+    print("Next: " + data.get("next", "rbtv status"))
+
+
+def _count(n: int, noun: str) -> str:
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
+def _failed_units(data: dict) -> set[tuple[str, str]]:
+    """Selected units a receiving tool cannot use: the run's failures."""
+    return {(row["component"], row["part"])
+            for row in (data.get("report") or {}).get("no_realization") or []}
+
+
+def _receiving(now: list[str], facts: dict, preview: bool) -> str:
+    """The receiving tools, with what they were when the harnesses changed."""
+    text = ", ".join(now)
+    before = facts.get("harnesses_before")
+    if before is None or before == now:
+        return text
+    return f"{text} ({'would replace' if preview else 'was'} {', '.join(before)})"
+
+
+def _units_row(out: _Out, facts: dict, data: dict) -> None:
+    """`Installed units: N (was M)`, or `(unchanged)`. An update that added or
+    removed units prints the count alone (the Added and Removed rows say it)."""
+    if "units" not in facts:
+        return
+    before, after = facts["units"]
+    if data.get("_verb") == "update" and (data.get("added") or data.get("removed")):
+        text = str(after)
+    elif before == after:
+        text = f"{after} (unchanged)"
+    else:
+        text = f"{after} (was {before})"
+    out.summary.append(("Installed units", text))
+
+
+def _guidance_lines(data: dict, facts: dict, preview: bool) -> list[str]:
+    """`update guidance`: whether the guidance copies were made and whether the
+    folder matches the file. It never adds or removes a unit."""
+    mirror = (data.get("report") or {}).get("guidance_mirror") or {}
+    if mirror.get("basis"):
+        copied = "would copy" if preview else "copied"
+        lines = [f"Guidance copies {copied} maintained text from "
+                 f"{mirror['basis']} to {len(mirror.get('targets') or [])} file(s)."]
+    else:
+        lines = ["Guidance copies are off. No maintained text to copy."]
+    listed = facts.get("listed_missing") or []
+    unlisted = facts.get("on_disk_unlisted") or []
+    if listed or unlisted:
+        sentences = ([f"{unit} is listed and missing." for unit in listed]
+                     + [f"{unit} is on disk and is not listed." for unit in unlisted])
+        lines.append("The folder does not match install.json. "
+                     + " ".join(sentences) + " Added none. Removed none.")
+        lines.append(f"Fix: rbtv update scaffolding --target {data['target']}")
+    else:
+        lines.append("The folder matches the file. Added none. Removed none. "
+                     f"Installed units stay {facts['units'][1]}.")
+    return [line for text in lines for line in present.wrap(text)]
 
 
 def _changes(out: _Out, data: dict, preview: bool) -> None:
@@ -205,10 +280,6 @@ def _changes(out: _Out, data: dict, preview: bool) -> None:
         out.summary.append(("Shared files", f"{sw} {len(s_write)}, "
                                             f"{d} {len(s_delete)}, "
                                             f"{len(s_same)} already up to date"))
-    if s_delete:
-        out.bullet("Notes", "Shared-file deletions remove the whole file. "
-                   "Released claims identify the managed sections or keys "
-                   "taken back.")
     out.files("Would write" if preview else "Written", write)
     out.files("Would delete" if preview else "Deleted", delete)
     out.files("Already up to date", same)
@@ -269,8 +340,8 @@ def _report_rows(out: _Out, report: dict, planned: bool) -> None:
     DRY RUNS TOO, marked as planned (task 7.622): the SAME data a real run
     prints; only the tense moves."""
     tail = "no file would be written" if planned else "no file was written"
-    # A selected item a receiving tool cannot use is an exception, never
-    # routine: always under Warnings, every item named, one bullet per
+    # A selected unit a receiving tool cannot use is an exception, never
+    # routine: always under Warnings, every unit named, one bullet per
     # tool and type so a long run stays readable.
     unused: dict[tuple[str, str], list[str]] = {}
     for row in report.get("no_realization") or []:
@@ -278,7 +349,7 @@ def _report_rows(out: _Out, report: dict, planned: bool) -> None:
             f"{row['component']}#{row['part']}")
     for (harness, kind), keys in unused.items():
         out.bullet("Warnings", f"{harness} cannot use {len(keys)} selected "
-                   f"{kind} item(s) — {tail} for: " + ", ".join(keys))
+                   f"{kind} unit(s) — {tail} for: " + ", ".join(keys))
     gone = report.get("source_gone") or []
     if gone:
         out.bullet("Notes", f"{'would remove' if planned else 'removed'} "
@@ -292,7 +363,7 @@ def _report_rows(out: _Out, report: dict, planned: bool) -> None:
             out.bullet("Notes", f"{done} PATH shortcut(s): " + ", ".join(names))
     shared = pathrep.get("kept_shared") or []
     if shared:
-        out.bullet("Notes", "kept shared shortcut(s) for another workspace: "
+        out.bullet("Notes", "kept shared shortcut(s) for another installation: "
                    + ", ".join(shared))
     setup = report.get("path_setup") or {}
     if planned and any(pathrep.get(k) for k in ("linked", "relinked", "ok")):
@@ -309,7 +380,7 @@ def _gitignore(out: _Out, report: dict, planned: bool) -> None:
     if not gi:
         return
     if not gi.get("claimed"):
-        out.bullet("Notes", f"git exclude: not claimed ({gi.get('reason')})")
+        out.bullet("Notes", f"Git ignore list not claimed ({gi.get('reason')})")
         return
     out.bullet("Notes", f"Git ignore list {'would keep' if planned else 'keeps'} "
                f"{gi['count']} generated path(s) out of commits")
@@ -348,8 +419,8 @@ def _guidance(out: _Out, report: dict, planned: bool, *,
                        + ", ".join(mirror["banner_stripped"]))
     else:
         out.bullet("Notes", "guidance copies: off. To choose an authored file, "
-                   "run `rbtv install configure --guidance CLAUDE.md` or "
-                   "`rbtv install configure --guidance AGENTS.md`.")
+                   "run `rbtv configure --guidance CLAUDE.md` or "
+                   "`rbtv configure --guidance AGENTS.md`.")
     if report.get("guidance_debannered"):
         out.bullet("Notes", f"{'would clean' if planned else 'cleaned'} a stale "
                    "GENERATED banner off the file(s) you now author: "

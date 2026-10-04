@@ -64,7 +64,7 @@ def guided_flow(ctx) -> None:
     check("I — a blank answer to the guidance question means `none`",
           read_state(ws).get("guidance_basis") == BASIS_NONE,
           str(read_state(ws).get("guidance_basis")))
-    # Re-run: the two workspace settings are recorded now, so D16 says they are
+    # Re-run: the two installation settings are recorded now, so D16 says they are
     # NOT asked again. Only the path, the components and the confirmation.
     out2 = io.StringIO()
     with _typed([str(ws), str(pick), "y"]):
@@ -75,7 +75,7 @@ def guided_flow(ctx) -> None:
           code2 == 0
           and "Which AI tools get files written for them?" not in said2
           and "Root guidance file" not in said2
-          and "recorded for this workspace" in said2, said2[:300])
+          and "recorded for this installation" in said2, said2[:300])
     picked_row = [line for line in said2.splitlines()
                   if "fixmod/goodcomp" in line
                   and line.strip().startswith(str(pick) + ".")]
@@ -98,12 +98,12 @@ def fumbled_answers_reask(ctx) -> None:
     check = ctx.check
 
     print("\nI2 — a fumbled answer costs one re-ask, never the whole run")
-    items = [{"label": "AGENTS.md"}, {"label": "CLAUDE.md"},
+    units = [{"label": "AGENTS.md"}, {"label": "CLAUDE.md"},
              {"label": BASIS_NONE}]
     out = io.StringIO()
     with _typed(["9", "2"]):
         with contextlib.redirect_stdout(out):
-            picked = tui.select_one("basis", items, default_index=2)
+            picked = tui.select_one("basis", units, default_index=2)
     check("I2 — an out-of-range choice re-asks and the next answer lands",
           picked == 1 and "no such option: '9'" in out.getvalue(),
           f"{picked}; {out.getvalue()[-120:]!r}")
@@ -111,7 +111,7 @@ def fumbled_answers_reask(ctx) -> None:
     out = io.StringIO()
     with _typed([""]):
         with contextlib.redirect_stdout(out):
-            picked = tui.select_one("basis", items, default_index=2)
+            picked = tui.select_one("basis", units, default_index=2)
     check("I2 — a blank answer takes the default, it does not refuse",
           picked == 2, str(picked))
 
@@ -119,18 +119,18 @@ def fumbled_answers_reask(ctx) -> None:
     with _typed(["x", "y", "z"]):
         try:
             with contextlib.redirect_stdout(out):
-                tui.select_one("basis", items, default_index=2)
+                tui.select_one("basis", units, default_index=2)
             bounded = "no error"
         except ValueError as exc:
             bounded = str(exc)
     check("I2 — the re-ask is BOUNDED: three bad answers stop the question",
           "z" in bounded, bounded)
 
-    items = [{"label": h, "selected": h == "claude"} for h in HARNESSES]
+    units = [{"label": h, "selected": h == "claude"} for h in HARNESSES]
     out = io.StringIO()
     with _typed([""]):
         with contextlib.redirect_stdout(out):
-            kept = tui.checkbox("tools", items)
+            kept = tui.checkbox("tools", units)
     check("I2 — a blank answer to a multi-select keeps what was pre-ticked",
           kept == [0], str(kept))
 

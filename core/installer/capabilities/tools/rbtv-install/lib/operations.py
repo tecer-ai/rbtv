@@ -30,7 +30,7 @@ from .shared_links import (
     preflight_shared_links,
     reconcile_shared,
     shared_mutation_lock,
-    workspace_mutation_lock,
+    installation_mutation_lock,
 )
 from .state import (
     _rebuild_claim,
@@ -150,7 +150,7 @@ def _add_gitignore(target: Path, owners: dict[str, list], claims: list[dict],
     overwrite each other's lists.
 
     Listed: every per-component file (the `<aggregate>` owner is the guidance
-    mirror, which is workspace content and stays committable), the book, and
+    mirror, which is installation content and stays committable), the book, and
     every STRAY artifact on disk (`_stray_artifacts`). Skipped entirely off a
     git repo, and when `.git` is a FILE (a linked worktree or submodule keeps
     its exclude elsewhere). Files git ALREADY TRACKS are reported, because no
@@ -421,7 +421,7 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
                 except OSError as exc:
                     warning = {
                         "code": "path-persist-failed", "message": str(exc),
-                        "recovery": "rbtv install add "
+                        "recovery": "rbtv add "
                         + selected_path_parts[0]
                         + " --target " + shell_quote(target),
                     }
@@ -568,7 +568,7 @@ def do_install(target: Path, catalog: dict[str, dict], picked: list[str],
     if dry_run:
         return _do_install(target, catalog, picked, harnesses, dry_run,
                            guidance_basis, guidance_excludes, parts, scope, selected)
-    with workspace_mutation_lock(target):
+    with installation_mutation_lock(target):
         return _do_install(target, catalog, picked, harnesses, dry_run,
                            guidance_basis, guidance_excludes, parts, scope, selected)
 
@@ -578,5 +578,5 @@ def do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
     """Serialize target state before deciding which booked parts to release."""
     if dry_run:
         return _do_uninstall(target, catalog, picked, dry_run, parts)
-    with workspace_mutation_lock(target):
+    with installation_mutation_lock(target):
         return _do_uninstall(target, catalog, picked, dry_run, parts)

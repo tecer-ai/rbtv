@@ -1,4 +1,4 @@
-"""Workspace settings and local update scopes."""
+"""Installation settings and local update scopes."""
 from __future__ import annotations
 
 import contextlib
@@ -16,12 +16,12 @@ from lib.commands import _HANDLERS, main
 from lib.doctor import do_doctor
 
 
-def workspace_settings(ctx) -> None:
+def installation_settings(ctx) -> None:
     check, tmp = ctx.check, ctx.tmp
     catalog, _, _, _, basis_body, *_ = ctx.frame()
-    print("\nW — workspace setup and scoped local updates")
+    print("\nW — installation setup and scoped local updates")
 
-    def workspace(name: str) -> Path:
+    def installation(name: str) -> Path:
         target = tmp / name
         target.mkdir()
         (target / "CLAUDE.md").write_text(basis_body, encoding="utf-8")
@@ -39,7 +39,7 @@ def workspace_settings(ctx) -> None:
             except Refuse as exc:
                 return exc.code, exc.message
 
-    fresh = workspace("ws-configure-fresh")
+    fresh = installation("ws-configure-fresh")
     check("W1 — first configure requires both settings",
           run(fresh, "configure", "--harness", "codex")[0] == "setup-required"
           and not (fresh / STATE_REL).exists())
@@ -89,7 +89,7 @@ def workspace_settings(ctx) -> None:
           and skill.read_bytes() == correct_skill
           and mirror.read_bytes() == correct_mirror)
 
-    missing = workspace("ws-update-missing-basis")
+    missing = installation("ws-update-missing-basis")
     check("W10 — direct first add accepts setup flags",
           run(missing, "add", "fixmod/goodcomp#fixskill", "--harness", "codex",
               "--guidance", "CLAUDE.md")[0] == 0)
@@ -111,9 +111,9 @@ def workspace_settings(ctx) -> None:
           and read_state(fresh)["guidance_excludes"] == []
           and (fresh / "skipme/AGENTS.md").exists())
 
-    virgin = workspace("ws-configure-virgin")
+    virgin = installation("ws-configure-virgin")
     check("W14 — update requires configuration",
-          run(virgin, "update", "all")[0] == "workspace-unrecorded")
+          run(virgin, "update", "all")[0] == "installation-unrecorded")
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         retired = [main([name, "--target", str(fresh)])
                    for name in ("set", "dupe-artifacts")]
@@ -146,7 +146,7 @@ def workspace_settings(ctx) -> None:
           == "noun-with-selectors"
           and (fresh / STATE_REL).read_bytes() == stable_book)
 
-    flip = workspace("ws-configure-flip")
+    flip = installation("ws-configure-flip")
     (flip / "AGENTS.md").write_text("hand-authored\n", encoding="utf-8")
     check("W22 — basis flip cannot overwrite an owner-authored counterpart",
           run(flip, "configure", "--harness", "claude,codex",
@@ -155,7 +155,7 @@ def workspace_settings(ctx) -> None:
           == "hand-authored\n"
           and not (flip / STATE_REL).exists())
 
-    exclude = workspace("ws-configure-exclusions")
+    exclude = installation("ws-configure-exclusions")
     run(exclude, "configure", "--harness", "claude,codex",
         "--guidance", "CLAUDE.md")
     for name in ("first", "second"):
@@ -172,7 +172,7 @@ def workspace_settings(ctx) -> None:
           and (exclude / "first/AGENTS.md").exists()
           and not (exclude / "second/AGENTS.md").exists())
 
-    legacy = workspace("ws-configure-legacy")
+    legacy = installation("ws-configure-legacy")
     do_install(legacy, catalog, ["fixmod/goodcomp", "fixmod/codexcomp"],
                ["claude", "codex"], dry_run=False, guidance_basis="CLAUDE.md")
     old = json.loads((legacy / STATE_REL).read_text(encoding="utf-8"))
@@ -183,7 +183,7 @@ def workspace_settings(ctx) -> None:
     check("W25 — old per-component settings migrate by union",
           read_state(legacy)["harnesses"] == ["claude", "codex"])
 
-    gone = workspace("ws-guidance-source-missing")
+    gone = installation("ws-guidance-source-missing")
     run(gone, "add", "fixmod/goodcomp#fixskill", "--harness", "claude,codex",
         "--guidance", "CLAUDE.md")
     (gone / "CLAUDE.md").write_text("New owner guidance\n", encoding="utf-8")
@@ -201,7 +201,7 @@ def workspace_settings(ctx) -> None:
     rule_start = f"<!-- {FENCE_ID}:start rule fixmod/codexcomp#codexrule -->"
     rule_end = f"<!-- {FENCE_ID}:end rule fixmod/codexcomp#codexrule -->"
 
-    no_copy = workspace("ws-guidance-none-rule")
+    no_copy = installation("ws-guidance-none-rule")
     (no_copy / "AGENTS.md").write_text("Owner instructions\n", encoding="utf-8")
     check("W28 — no guidance copying still installs the Codex rule section",
           run(no_copy, "add", "fixmod/codexcomp#codexrule",
@@ -220,7 +220,7 @@ def workspace_settings(ctx) -> None:
                   f"<!-- {FENCE_ID}:end -->")
     # A 0.2 install booked an unlabeled section (the Codex "Step 0" rule list).
     # Nothing writes it any more, so the next install takes it back.
-    legacy_section = workspace("ws-legacy-step0")
+    legacy_section = installation("ws-legacy-step0")
     owner_prefix = b"# Owner start\r\n\r\n"
     owner_suffix = b"\r\n\r\nOwner end\r\n"
     do_install(legacy_section, catalog, ["fixmod/codexcomp"], ["codex"],
@@ -247,7 +247,7 @@ def workspace_settings(ctx) -> None:
                      ["codex"], dry_run=False)["shared_written"] == []
           and (legacy_section / "AGENTS.md").read_bytes() == updated)
 
-    whitespace = workspace("ws-owner-whitespace")
+    whitespace = installation("ws-owner-whitespace")
     owner_bytes = b"# Owner\r\nKeep two spaces  \r\n\r\n"
     (whitespace / "AGENTS.md").write_bytes(owner_bytes)
     do_install(whitespace, catalog, ["fixmod/codexcomp"], ["codex"],
@@ -264,7 +264,7 @@ def workspace_settings(ctx) -> None:
           (whitespace / "AGENTS.md").read_bytes() == owner_bytes,
           repr((whitespace / "AGENTS.md").read_bytes()))
 
-    only_space = workspace("ws-whitespace-only-owner")
+    only_space = installation("ws-whitespace-only-owner")
     whitespace_bytes = b"\r\n  \r\n"
     (only_space / "AGENTS.md").write_bytes(whitespace_bytes)
     do_install(only_space, catalog, ["fixmod/codexcomp"], ["codex"],
@@ -275,7 +275,7 @@ def workspace_settings(ctx) -> None:
     check("W36 — whitespace-only owner file survives final section removal",
           (only_space / "AGENTS.md").read_bytes() == whitespace_bytes)
 
-    split = workspace("ws-content-split")
+    split = installation("ws-content-split")
     (split / "nested").mkdir()
     (split / "nested/CLAUDE.md").write_text("Nested source v1\n", encoding="utf-8")
     check("W37 — fresh add puts the rule section in AGENTS.md only",

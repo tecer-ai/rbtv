@@ -218,7 +218,7 @@ def _disabled_note(radio: bool) -> str:
 
 def _rich_menu(
     title: str,
-    items: list[dict[str, Any]],
+    entries: list[dict[str, Any]],
     *,
     radio: bool,
     selected: list[bool],
@@ -238,7 +238,7 @@ def _rich_menu(
 
     def build() -> str:
         if radio:
-            for i in range(len(items)):
+            for i in range(len(entries)):
                 selected[i] = i == cursor
         keys = "up/down move | "
         keys += "enter choose" if radio else "space toggle | enter confirm"
@@ -248,9 +248,9 @@ def _rich_menu(
             keys += " | a all"
 
         lines = [_style(title, BOLD), _style(f"  {keys}", DIM)]
-        for i, item in enumerate(items):
+        for i, entry in enumerate(entries):
             prefix = _style(">", CYAN) + " " if i == cursor else "  "
-            label = item["label"]
+            label = entry["label"]
             if radio:
                 box = "(o)" if selected[i] else "( )"
             else:
@@ -260,7 +260,7 @@ def _rich_menu(
             if disabled[i]:
                 box = _style("[x]" if not radio else "( )", DIM)
                 label = _style(label + _disabled_note(radio), DIM)
-            hint = "  " + _style(item["hint"], DIM) if item.get("hint") else ""
+            hint = "  " + _style(entry["hint"], DIM) if entry.get("hint") else ""
             lines.append(f"{prefix}{box} {label}{hint}")
         return "\n".join(lines)
 
@@ -270,9 +270,9 @@ def _rich_menu(
         while True:
             key = _read_key()
             if key == KEY_UP:
-                cursor = (cursor - 1) % len(items)
+                cursor = (cursor - 1) % len(entries)
             elif key == KEY_DOWN:
-                cursor = (cursor + 1) % len(items)
+                cursor = (cursor + 1) % len(entries)
             elif key == KEY_SPACE and not radio:
                 if not disabled[cursor]:
                     selected[cursor] = not selected[cursor]
@@ -281,9 +281,9 @@ def _rich_menu(
                             + _style("  Press any key to return...", DIM))
                 _read_key()
             elif key == "a" and not radio:
-                all_on = all(selected[i] for i in range(len(items))
+                all_on = all(selected[i] for i in range(len(entries))
                              if not disabled[i])
-                for i in range(len(items)):
+                for i in range(len(entries)):
                     if not disabled[i]:
                         selected[i] = not all_on
             elif key == KEY_ENTER:
@@ -308,21 +308,21 @@ def _rich_menu(
 
 def _plain_list(
     title: str,
-    items: list[dict[str, Any]],
+    entries: list[dict[str, Any]],
     selected: list[bool],
     disabled: list[bool],
     radio: bool,
 ) -> None:
     print(title)
-    for i, item in enumerate(items):
+    for i, entry in enumerate(entries):
         if radio:
             box = "(o)" if selected[i] else "( )"
         else:
             box = "[x]" if selected[i] else "[ ]"
-        label = item["label"]
+        label = entry["label"]
         if disabled[i]:
             label += _disabled_note(radio)
-        hint = f"  {item['hint']}" if item.get("hint") else ""
+        hint = f"  {entry['hint']}" if entry.get("hint") else ""
         print(f" {i + 1:>3}. {box} {label}{hint}")
 
 
@@ -353,7 +353,7 @@ def _parse_picks(
 
 def _plain_menu(
     title: str,
-    items: list[dict[str, Any]],
+    entries: list[dict[str, Any]],
     *,
     radio: bool,
     selected: list[bool],
@@ -367,7 +367,7 @@ def _plain_menu(
     human cannot learn, so an endless loop would hang the caller forever.
     """
     for attempt in range(1, _MAX_ATTEMPTS + 1):
-        _plain_list(title, items, selected, disabled, radio)
+        _plain_list(title, entries, selected, disabled, radio)
         if radio:
             prompt = f"Select one number [blank = {default_index + 1}]: "
         else:
@@ -386,7 +386,7 @@ def _plain_menu(
             return [i for i, s in enumerate(selected) if s]
 
         try:
-            picks = _parse_picks(raw, len(items), radio, disabled)
+            picks = _parse_picks(raw, len(entries), radio, disabled)
         except ValueError as exc:
             if attempt == _MAX_ATTEMPTS:
                 raise
@@ -395,7 +395,7 @@ def _plain_menu(
         if radio:
             return picks
 
-        # A disabled item is installed whatever the human typed.
+        # A disabled entry is installed whatever the human typed.
         chosen = sorted(set(picks) | {i for i, d in enumerate(disabled) if d})
         if len(chosen) < min_selected:
             message = f"select at least {min_selected} option(s)"
@@ -411,14 +411,14 @@ def _plain_menu(
 
 def checkbox(
     title: str,
-    items: list[dict[str, Any]],
+    entries: list[dict[str, Any]],
     *,
     min_selected: int = 0,
     detail_callback: Callable[[int], str] | None = None,
 ) -> list[int]:
     """Multi-select. Returns the selected indices.
 
-    Each item in `items` is a dict:
+    Each entry in `entries` is a dict:
         label       — display text (required)
         selected    — initial state (default False)
         disabled    — cannot be toggled, always returned (default False)
@@ -428,54 +428,54 @@ def checkbox(
         UP/DOWN   navigate
         SPACE     toggle
         ENTER     confirm (if >= min_selected checked)
-        a         toggle all non-disabled items
+        a         toggle all non-disabled entries
         i / ?     show details (if detail_callback provided)
 
     Without a terminal the same question is asked as a numbered list
     read from stdin, and Ctrl-C is left to propagate untouched.
     """
-    disabled = [bool(item.get("disabled", False)) for item in items]
-    selected = [bool(item.get("selected", False)) or disabled[i]
-                for i, item in enumerate(items)]
+    disabled = [bool(entry.get("disabled", False)) for entry in entries]
+    selected = [bool(entry.get("selected", False)) or disabled[i]
+                for i, entry in enumerate(entries)]
     if rich_mode():
         try:
             _, selected = _rich_menu(
-                title, items, radio=False, selected=selected,
+                title, entries, radio=False, selected=selected,
                 disabled=disabled, cursor=0, min_selected=min_selected,
                 detail_callback=detail_callback)
             return [i for i, s in enumerate(selected) if s]
         except _KEY_ERRORS:
             pass
-    return _plain_menu(title, items, radio=False, selected=selected,
+    return _plain_menu(title, entries, radio=False, selected=selected,
                        disabled=disabled, min_selected=min_selected,
                        default_index=0)
 
 
 def select_one(
     title: str,
-    items: list[dict[str, Any]],
+    entries: list[dict[str, Any]],
     *,
     default_index: int = 0,
     detail_callback: Callable[[int], str] | None = None,
 ) -> int:
     """Single choice. Returns the chosen index.
 
-    Same `items` shape as `checkbox`; `selected` is ignored — `default_index`
+    Same `entries` shape as `checkbox`; `selected` is ignored — `default_index`
     is where the cursor starts and what a blank typed answer means. A disabled
-    item is shown but cannot be chosen.
+    entry is shown but cannot be chosen.
     """
-    disabled = [bool(item.get("disabled", False)) for item in items]
-    selected = [i == default_index for i in range(len(items))]
+    disabled = [bool(entry.get("disabled", False)) for entry in entries]
+    selected = [i == default_index for i in range(len(entries))]
     if rich_mode():
         try:
             cursor, _ = _rich_menu(
-                title, items, radio=True, selected=selected,
+                title, entries, radio=True, selected=selected,
                 disabled=disabled, cursor=default_index, min_selected=1,
                 detail_callback=detail_callback)
             return cursor
         except _KEY_ERRORS:
             pass
-    return _plain_menu(title, items, radio=True, selected=selected,
+    return _plain_menu(title, entries, radio=True, selected=selected,
                        disabled=disabled, min_selected=1,
                        default_index=default_index)[0]
 

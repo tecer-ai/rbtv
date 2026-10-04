@@ -174,7 +174,7 @@ def path_links(ctx) -> None:
         conflict_code = "no refusal"
     except Refuse as exc:
         conflict_code = exc.code
-    check("L-shared-conflict — another workspace cannot replace a live shortcut",
+    check("L-shared-conflict — another installation cannot replace a live shortcut",
           conflict_code == "path-owner-conflict"
           and not (conflict_ws / STATE_REL).exists(), conflict_code)
     do_uninstall(left, lcat, ["lmod/ladd"], dry_run=False)

@@ -44,5 +44,5 @@ def pack_units(catalog: dict[str, dict], names: set[str]) -> set[str]:
     if unknown:
         raise Refuse("pack-unknown",
                      "unknown pack(s): " + ", ".join(unknown)
-                     + ". Run `rbtv install list --type pack` to list packs")
+                     + ". Run `rbtv list --type pack` to list packs")
     return {unit for name in names for unit in packs[name]["units"]}

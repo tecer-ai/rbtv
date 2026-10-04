@@ -1,6 +1,6 @@
 """Installer discovery — modules, components and their units, read from the
 folder layout. Roots are ARGUMENTS. The installer keeps `REPO_ROOT` (the repo
-that ships install.py); the caller passes the workspace mirror and that root.
+that ships install.py); the caller passes the installation mirror and that root.
 One scan, one merge (mirror wins), one unit reader.
 
 A module is a folder holding `<module>/<module>.json`; a component is a folder

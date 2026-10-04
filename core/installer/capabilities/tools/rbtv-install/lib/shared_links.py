@@ -24,7 +24,7 @@ from .pathlinks import (
 )
 
 _OWNER_SCHEMA = 1
-_WORKSPACE_LOCKS = threading.local()
+_INSTALLATION_LOCKS = threading.local()
 
 
 def owner_file(bindir: Path) -> Path:
@@ -40,10 +40,10 @@ def shared_mutation_lock(bindir: Path):
 
 
 @contextmanager
-def workspace_mutation_lock(target: Path):
-    """Serialize one workspace mutation from its first state read onward."""
+def installation_mutation_lock(target: Path):
+    """Serialize one installation mutation from its first state read onward."""
     key = str(target.resolve())
-    held = getattr(_WORKSPACE_LOCKS, "held", {})
+    held = getattr(_INSTALLATION_LOCKS, "held", {})
     if held.get(key, 0):
         held[key] += 1
         try:
@@ -52,7 +52,7 @@ def workspace_mutation_lock(target: Path):
             held[key] -= 1
         return
     held[key] = 1
-    _WORKSPACE_LOCKS.held = held
+    _INSTALLATION_LOCKS.held = held
     try:
         digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
         path = Path(tempfile.gettempdir()) / "rbtv-installer-locks" / \
@@ -141,7 +141,7 @@ def path_ownership_status(bindir: Path) -> dict:
             "names": sorted(data["links"])}
 
 
-def _workspace_key(target: Path) -> str:
+def _installation_key(target: Path) -> str:
     return str(target.resolve())
 
 
@@ -155,13 +155,13 @@ def preflight_shared_links(bindir: Path, desired: dict[str, Path],
     """Refuse shared shortcut conflicts before target files are touched."""
     _forbid_local_bin(bindir)
     data = _read_owners(bindir)
-    workspace = _workspace_key(target)
+    installation = _installation_key(target)
     for name, dest in sorted(desired.items()):
         entry = data["links"].get(name)
         path = link_path(bindir, name)
         if entry and entry["target"] != str(dest):
-            if set(entry["owners"]) != {workspace}:
-                owners = ", ".join(entry["owners"]) or "an unknown workspace"
+            if set(entry["owners"]) != {installation}:
+                owners = ", ".join(entry["owners"]) or "an unknown installation"
                 raise Refuse("path-owner-conflict",
                              f"PATH shortcut {name} already serves {entry['target']} for {owners}; it cannot also serve {dest}",
                              str(path))
@@ -181,7 +181,7 @@ def reconcile_shared(bindir: Path, desired: dict[str, Path], booked: set[str],
     report = {"linked": [], "relinked": [], "ok": [], "unlinked": [],
               "unbooked": [], "dangling": [], "kept_shared": [],
               "legacy_preserved": []}
-    workspace = _workspace_key(target)
+    installation = _installation_key(target)
     @contextmanager
     def held():
         if dry or locked:
@@ -206,11 +206,11 @@ def reconcile_shared(bindir: Path, desired: dict[str, Path], booked: set[str],
             status = link_one(bindir, name, dest, dry=dry)
             report[status].append(name)
             if entry is None:
-                links[name] = {"target": str(dest), "owners": [workspace]}
+                links[name] = {"target": str(dest), "owners": [installation]}
             elif entry["target"] != str(dest):
                 entry["target"] = str(dest)
-            elif workspace not in entry["owners"]:
-                entry["owners"].append(workspace)
+            elif installation not in entry["owners"]:
+                entry["owners"].append(installation)
                 entry["owners"].sort()
         for name in sorted(booked - set(desired)):
             entry = links.get(name)
@@ -219,7 +219,7 @@ def reconcile_shared(bindir: Path, desired: dict[str, Path], booked: set[str],
                 if path.exists() or path.is_symlink():
                     report["legacy_preserved"].append(name)
                 continue
-            owners = [owner for owner in entry["owners"] if owner != workspace]
+            owners = [owner for owner in entry["owners"] if owner != installation]
             if owners:
                 entry["owners"] = owners
                 report["kept_shared"].append(name)
@@ -240,19 +240,19 @@ def reconcile_shared(bindir: Path, desired: dict[str, Path], booked: set[str],
     return report
 
 
-def release_workspace_links(bindir: Path, target: Path, *, dry: bool) -> dict:
-    """Release only an explicitly named missing workspace's D25 link claims."""
+def release_installation_links(bindir: Path, target: Path, *, dry: bool) -> dict:
+    """Release only an explicitly named missing installation's D25 link claims."""
     report = {"released": [], "unlinked": [], "kept_shared": [],
               "legacy_preserved": []}
-    workspace = _workspace_key(target)
+    installation = _installation_key(target)
     locked = nullcontext() if dry else shared_mutation_lock(bindir)
     with locked:
         data = _read_owners(bindir)
         for name, entry in list(data["links"].items()):
-            if workspace not in entry["owners"]:
+            if installation not in entry["owners"]:
                 continue
             report["released"].append(name)
-            owners = [owner for owner in entry["owners"] if owner != workspace]
+            owners = [owner for owner in entry["owners"] if owner != installation]
             if owners:
                 entry["owners"] = owners
                 report["kept_shared"].append(name)

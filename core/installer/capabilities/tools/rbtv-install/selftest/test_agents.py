@@ -27,7 +27,7 @@ def installed_agents(ctx) -> None:
     comp = _component(root, "moda", "comp")
     _unit_md(comp / "rules/kiss.md", "kiss", "Kiss", "body\n")
     catalog, _ = scan_all(tmp / "agent-mirror", root)
-    ws = tmp / "agent-workspace"; ws.mkdir()
+    ws = tmp / "agent-installation"; ws.mkdir()
     home = ws / ".rbtv/agents/scout"
     _agent(home, units=["kiss"])
     known = {"claude": {"m1": ["low", "high"]},
@@ -106,4 +106,28 @@ def installed_agents(ctx) -> None:
         got = None
     except Refuse as exc:
         got = exc.code
-    check("A-refusal — --all requires --yes", got == "confirmation-required", str(got))
+    check("A-refusal — --all requires --yes", got == "confirm-required", str(got))
+
+    def refused(call) -> tuple[str | None, str | None]:
+        try:
+            call()
+        except Refuse as exc:
+            return exc.code, getattr(exc, "next", None)
+        return None, None
+
+    no_record = ws / ".rbtv/agents/norecord"
+    _w(no_record / "agent.md", "---\nname: norecord\n---\n\nNo record.\n")
+    check("A-refusal — a folder without agent.json is agent-json-missing",
+          refused(lambda: add_agent(ws, "norecord", [], set(), catalog, True))
+          == ("agent-json-missing", "rbtv agent add -h"), "")
+    broken = ws / ".rbtv/agents/brokenjson"
+    _w(broken / "agent.md", "---\nname: brokenjson\n---\n\nBroken.\n")
+    _w(broken / "agent.json", '{"name": "brokenjson",\n}\n')
+    code, nxt = refused(lambda: add_agent(ws, "brokenjson", [], set(), catalog, True))
+    check("A-refusal — invalid agent.json is agent-json-invalid with its line",
+          code == "agent-json-invalid" and nxt == "rbtv agent add -h", str((code, nxt)))
+    check("A-refusal — an unknown pack is pack-unknown",
+          refused(lambda: add_agent(ws, "scout", [], {"nosuchpack"}, catalog, True))
+          == ("pack-unknown", "rbtv list --type pack"), "")
+    check("A-refusal — listing a missing folder is not-a-folder",
+          refused(lambda: list_agents(ws, ws / "missing"))[0] == "not-a-folder", "")

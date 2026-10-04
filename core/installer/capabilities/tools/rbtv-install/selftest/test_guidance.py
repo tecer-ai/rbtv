@@ -25,7 +25,7 @@ def the_guidance_mirror(ctx) -> None:
 
     mt = tmp / "workspace4"
     mt.mkdir()
-    basis_body = "# The workspace\n\nHand-authored guidance.\n"
+    basis_body = "# The installation\n\nHand-authored guidance.\n"
     (mt / "CLAUDE.md").write_text(basis_body, encoding="utf-8")
     do_install(mt, catalog, ["fixmod/goodcomp"], list(HARNESSES),
                dry_run=False, guidance_basis="CLAUDE.md")
@@ -193,8 +193,8 @@ def f2_missing_basis_names_recovery(ctx) -> None:
         check("a missing basis refuses",
               exc.code == "guidance-basis-missing", exc.code)
         check("the refusal names BOTH recoveries, in verbs that EXIST",
-              "rbtv install configure --guidance AGENTS.md" in exc.message
-              and f"rbtv install configure --guidance {BASIS_NONE}" in exc.message,
+              "rbtv configure --guidance AGENTS.md" in exc.message
+              and f"rbtv configure --guidance {BASIS_NONE}" in exc.message,
               exc.message)
     res6 = do_install(mt6, catalog, ["fixmod/goodcomp"], list(HARNESSES),
                       dry_run=False, guidance_basis="AGENTS.md")

@@ -171,10 +171,10 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                 handler = {"type": "command", "command": data["command"]}
                 if "timeout" in data:
                     handler["timeout"] = data["timeout"]
-                item = {"hooks": [handler]}
+                unit = {"hooks": [handler]}
                 if "matcher" in data:
-                    item = {"matcher": data["matcher"], **item}
-                hooks.setdefault(data["event"], []).append(item)
+                    unit = {"matcher": data["matcher"], **unit}
+                hooks.setdefault(data["event"], []).append(unit)
                 if (cid, pid) not in hook_owners.setdefault(data["event"], []):
                     hook_owners[data["event"]].append((cid, pid))
                 hook_harnesses |= set(harnesses)

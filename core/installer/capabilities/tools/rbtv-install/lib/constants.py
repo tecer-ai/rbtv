@@ -88,7 +88,7 @@ PATH_FENCE_END = f"# {FENCE_ID}:end path"
 LEGACY_PATH_FENCE = (f"# {LEGACY_FENCE_ID}:start path",
                      f"# {LEGACY_FENCE_ID}:end path")
 
-# Selftest rebinds these to a temp workspace. Production: None → $HOME.
+# Selftest rebinds these to a temp installation. Production: None → $HOME.
 _RUNTIME: dict = {"bin": None, "rc": None, "local": None}
 
 # D8/D13 — CMP-12's `agents.md` row: each harness's per-folder guidance
@@ -114,8 +114,8 @@ BASIS_NONE = "none"
 # Directory names the recursive mirror walk never descends into.
 GUIDANCE_SKIP_DIRS = frozenset({".git", "node_modules"})
 
-# Prefixes excluded however the workspace is configured: `.rbtv/goals` routers
-# (BOTH names) are written by the goals-tree scaffold, in every workspace.
+# Prefixes excluded however the installation is configured: `.rbtv/goals` routers
+# (BOTH names) are written by the goals-tree scaffold, in every installation.
 GUIDANCE_ALWAYS_EXCLUDED = (".rbtv/goals",)
 
 # A file whose head carries one of these is somebody's GENERATED mirror, not

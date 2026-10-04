@@ -20,7 +20,7 @@ DISCOVER_FLAG = "--target"
 
 def is_user_home(cand: Path) -> bool:
     """Home's `.rbtv/` is the per-user runtime (`~/.rbtv/bin`), present on every
-    machine that ran the installer — it never marks a workspace by itself."""
+    machine that ran the installer — it never marks a installation by itself."""
     return cand == Path.home().resolve()
 
 
@@ -52,7 +52,7 @@ def discover_installation(start: Path) -> tuple[Path, str]:
 
 def resolve_target(explicit: str | None, start: Path,
                    environ: dict[str, str] | None = None) -> tuple[Path, str]:
-    """Resolve one target for every command: flag, agent home, workspace."""
+    """Resolve one target for every command: flag, agent home, installation."""
     if explicit is not None:
         return Path(explicit).expanduser().resolve(), DISCOVER_FLAG
     env = os.environ if environ is None else environ

@@ -29,7 +29,7 @@ def the_marker_is_ownership(ctx) -> None:
     rule_rel = ".claude/rules/fixrule.md"
     (mk / rule_rel).parent.mkdir(parents=True)
     # An UNBOOKED file at a planned path, carrying OUR marker: provably a
-    # run of ours (a lost book, a copied workspace) — adopted, not refused.
+    # run of ours (a lost book, a copied installation) — adopted, not refused.
     (mk / rule_rel).write_text(MANAGED_BANNER + "# a stale body\n",
                                encoding="utf-8")
     resm = do_install(mk, catalog, ["fixmod/goodcomp"], ["claude"],
@@ -109,7 +109,7 @@ def gitignore_block(ctx) -> None:
           and STATE_REL.as_posix() in body
           and rgi["report"]["gitignore"]["count"] == len(booked) + 1,
           str(rgi["report"]["gitignore"]))
-    check("G1 — the guidance mirror is NOT listed (workspace content)",
+    check("G1 — the guidance mirror is NOT listed (installation content)",
           "\nAGENTS.md" not in body, body)
     check("G1 — the foreign lines survive, and the block is fenced",
           "node_modules/" in body and f"# {FENCE_ID}:start" in body

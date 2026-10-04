@@ -1,4 +1,4 @@
-"""The guided flow: ask for the workspace, the components, the AI tools and the
+"""The guided flow: ask for the installation, the components, the AI tools and the
 guidance file, then install.
 """
 from __future__ import annotations
@@ -39,8 +39,8 @@ def _target_error(value: str) -> str | None:
 
 
 def interactive(target: Path, catalog: dict[str, dict]) -> int:
-    print("rbtv installer — interactive\n")
-    answer = tui.text_input("Installation path (target workspace)",
+    print("rbtv — interactive\n")
+    answer = tui.text_input("Installation path (target installation)",
                             default=str(target), validator=_target_error)
     chosen = Path(answer).expanduser()
     if chosen.resolve() != target.resolve():
@@ -57,7 +57,7 @@ def interactive(target: Path, catalog: dict[str, dict]) -> int:
 
     installed = set(read_state(target).get("components") or {})
     parts = catalog_units_map(catalog)
-    items = [{"label": cid,
+    units = [{"label": cid,
               "selected": cid in installed,
               "hint": f"{len(parts[cid])} part(s) · {catalog[cid]['tree']}"
                       + (" · installed" if cid in installed else "")}
@@ -71,7 +71,7 @@ def interactive(target: Path, catalog: dict[str, dict]) -> int:
         return "\n".join(rows)
 
     picked = [installable[i] for i in
-              tui.checkbox("Components to install", items,
+              tui.checkbox("Components to install", units,
                            detail_callback=_detail)]
     if not picked:
         print("Nothing selected — cancelled.")
@@ -91,7 +91,7 @@ def interactive(target: Path, catalog: dict[str, dict]) -> int:
     else:
         harnesses = recorded
         print(f"\nHarnesses: {', '.join(harnesses)} — recorded for this "
-              "workspace. Change it with `rbtv install add|rm harness`.")
+              "installation. Change it with `rbtv add|rm harness`.")
 
     # D13 — asked ONCE per target; a recorded answer (incl. `none`) is not
     # re-asked, and every non-interactive path skips this entirely.

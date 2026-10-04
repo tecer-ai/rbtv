@@ -1,4 +1,4 @@
-"""Builds the throwaway workspace, then runs every check section in order.
+"""Builds the throwaway installation, then runs every check section in order.
 
 The order below IS the suite: sections are not independent — one installs what
 the next one reads — so it is written out here rather than discovered, and a
@@ -63,7 +63,7 @@ ORDER = [
     test_hub.hub_book_key_rewrite,
     test_ownership.the_marker_is_ownership,
     test_ownership.gitignore_block,
-    test_settings.workspace_settings,
+    test_settings.installation_settings,
     test_settings.unit_selection_sync,
     test_parts.vanished_component_removable,
     test_parts.part_level_install_remove,
@@ -125,7 +125,7 @@ def selftest() -> int:
         tree.mkdir()
         mirror = tmp / "mirror"
         _fixture(tree, mirror)
-        target = tmp / "workspace"
+        target = tmp / "installation"
         target.mkdir()
         catalog, shadowed = scan_all(mirror, tree)
 

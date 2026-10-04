@@ -24,7 +24,7 @@ def source_tree_root(tree: object, target: object) -> Path:
 
 def vanished_component_message(cid: str, tree: object, target: object) -> str:
     tree_root = source_tree_root(tree, target)
-    remove = "rbtv install remove " + shell_quote(cid)
+    remove = "rbtv remove " + shell_quote(cid)
     remove += " --target " + shell_quote(target)
     return (
         f"component {cid!r} is recorded as installed but no longer exists under "

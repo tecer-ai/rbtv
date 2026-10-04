@@ -121,7 +121,7 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
                 "guidance or a mirror rendered by another tool (install.py's "
                 "`model_mirror` renders one beside every CLAUDE.md). This run "
                 f"would generate it from the basis. DO NOT delete it: either "
-                f"`rbtv install configure --guidance {BASIS_NONE}` to leave both root "
+                f"`rbtv configure --guidance {BASIS_NONE}` to leave both root "
                 "guidance files alone, or point the basis at the file you "
                 "author and retire the other tool's copy of the one it "
                 "generates. "

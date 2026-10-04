@@ -48,74 +48,58 @@ def harness_block(*, indent: str = "  ") -> str:
 
 
 def title(command: str) -> str:
-    """The `RBTV install — <command>` line every screen opens with."""
-    return f"RBTV install — {command}"
+    """The `rbtv — <command>` line every screen opens with."""
+    return f"rbtv — {command}"
 
 
-# The root command inventory, grouped by what a reader is trying to DO —
-# argparse's own subparsers listing is one flat alphabetical block with no
-# such grouping (and, separately, cannot hide a retired verb's help text via
-# `help=SUPPRESS` on a subaction — https://bugs.python.org/issue22848-style
-# gap). `root_help()` below is the one place that owns the full `-h` /
-# bare-command screen text; argparse still owns every per-command `-h`.
+# The root command inventory, grouped by what a reader is trying to DO.
+# `root_help()` owns the full root `-h` / bare-command screen; argparse
+# owns every per-command `-h`.
 COMMAND_GROUPS = (
     ("Discover", (
         ("status", "Show target, saved settings, and recorded selections."),
-        ("list [NAME]", "Browse exact module, component, or item scope."),
+        ("list [NAME]", "Browse exact module, component, or unit scope."),
         ("search WORDS", "Search catalog names and descriptions broadly."),
-        ("show NAME", "Show description, included items, and installation "
-                       "details."),
+        ("show NAME", "Show description, included units, and installation details."),
     )),
-    ("Change this workspace", (
-        ("configure", "Initialize or change receiving tools and guidance "
-                       "settings."),
-        ("add [NAME...]", "Select and install named or filtered items."),
-        ("remove", "Remove selected installed items."),
-        ("update", "Regenerate selected files from local RBTV source."),
+    ("Change this installation", (
+        ("configure", "Initialize or change receiving tools and guidance settings."),
+        ("add [NAME...]", "Add named or filtered units, or turn a pack on."),
+        ("remove [NAME...]", "Remove installed units, or turn a pack off."),
+        ("update SCOPE", "Make the folder match the file. The scope is required."),
     )),
     ("Agents", (
-        ("agent add FILE", "Install an agent from its agent file."),
-        ("agent update NAME", "Regenerate an installed agent from its agent "
-                              "file."),
-        ("agent remove NAME", "Take back what the installer put in an "
-                              "agent's folder."),
+        ("agent VERB", "Act on one agent instead of this installation: create it, change its\n"
+                       "                units, harness, model or effort, or list the agents. See: rbtv agent -h"),
     )),
     ("Check and guided use", (
-        ("doctor", "Check target files and selected shared command "
-                    "shortcuts."),
-        ("interactive", "Choose items through a guided menu (asks "
-                         "questions)."),
-        ("selftest", "Run installer checks in isolated temporary "
-                      "workspaces."),
+        ("doctor", "Check generated files and selected command shortcuts."),
+        ("interactive", "Choose units through a guided menu (asks questions)."),
+        ("selftest", "Run checks in isolated temporary installations."),
     )),
 )
 
 
 def root_help() -> str:
-    """The full `rbtv install -h` / bare-command screen (approved screen 01):
-    commands grouped by intent, shared options, renamed/aliased forms, and a
-    concrete next step — never argparse's flat, ungrouped default."""
+    """The full `rbtv -h` / bare-command screen (approved screen 100)."""
     lines = [title("help"), ""]
     for heading, rows in COMMAND_GROUPS:
-        width = max(len(name) for name, _ in rows)
+        width = max(max(len(name) for name, _ in rows), 12 if heading == "Agents" else 0)
         lines.append(heading)
         lines.extend(f"  {name.ljust(width)}  {desc}" for name, desc in rows)
         lines.append("")
-    lines.append("Shared options: --target PATH  --json  -h, --help")
+    lines.append("Shared options: --target PATH  --json  -h, --help  --version")
     lines.append("Non-interactive changes also accept --dry-run and --details.")
     lines.append("Only interactive asks questions.")
-    lines.append("Target order: --target, then RBTV_AGENT_HOME, "
-                 "then current-folder discovery.")
+    lines.append("Target order: --target, then RBTV_AGENT_HOME, then discovery from the current folder.")
     lines.append("Aliases: ls=list; li=list --installed; rm=remove.")
-    lines.append("Renamed: set -> configure; dupe-artifacts -> update "
-                 "guidance;")
-    lines.append("         --kind -> --type; --exclude-kind -> "
-                 "--exclude-type.")
+    lines.append("A unit id is module/component#name. A pack is named only with --pack.")
+    lines.append("A bare name never resolves to a pack.")
+    lines.append("With no command, this page is printed.")
     lines.append("")
-    lines.append("Start: rbtv install status")
-    lines.append("More:  rbtv install COMMAND -h")
-    lines.append("Exit codes: 0 success; 1 refused or check failed; "
-                 "2 invalid arguments.")
+    lines.append("Start: rbtv status")
+    lines.append("More:  rbtv COMMAND -h")
+    lines.append("Exit codes: 0 success; 1 refused or check failed; 2 invalid arguments.")
     return "\n".join(lines) + "\n"
 
 
@@ -256,7 +240,7 @@ def render_table(headers: list[str], rows: list[list[str]], *,
 
 def render_blocks(headers: list[str], rows: list[list[str]], *,
                   paint=None, width: int | None = None) -> list[str]:
-    """One item per labeled block — the narrow-terminal fallback. Never
+    """One unit per labeled block — the narrow-terminal fallback. Never
     truncates a value; each row's fields sit on their own line instead, and
     the last (prose) field wraps under a two-space hang."""
     lines: list[str] = []

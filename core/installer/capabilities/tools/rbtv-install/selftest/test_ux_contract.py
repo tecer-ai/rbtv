@@ -17,7 +17,7 @@ from lib.shared_links import owner_file
 
 def public_contract(ctx) -> None:
     catalog = ctx.frame()[0]
-    target = ctx.tmp / "public command workspace"
+    target = ctx.tmp / "public command installation"
     target.mkdir()
 
     def run(*args, selected_catalog=None, explicit=True):
@@ -39,8 +39,8 @@ def public_contract(ctx) -> None:
 
     print("\nUX — public noninteractive command contracts")
     def retry_args(retry: str) -> list[str]:
-        assert retry.startswith("rbtv install ")
-        lexer = shlex.shlex(retry[len("rbtv install "):], posix=True)
+        assert retry.startswith("rbtv ")
+        lexer = shlex.shlex(retry[len("rbtv "):], posix=True)
         lexer.whitespace_split = True
         lexer.escape = ""  # PowerShell's single-quoted Windows paths keep backslashes
         return list(lexer)
@@ -73,14 +73,14 @@ def public_contract(ctx) -> None:
     ctx.check("UX-exact-hierarchy-and-type-depth",
               modules["scope"] == "modules"
               and components["scope"] == "components"
-              and exact["scope"] == typed["scope"] == "items"
-              and [r["id"] for r in exact["items"]]
+              and exact["scope"] == typed["scope"] == "units"
+              and [r["id"] for r in exact["units"]]
               == ["fixmod/goodcomp#fixskill"]
-              and all(r["module"] == "fixmod" for r in typed["items"]))
+              and all(r["module"] == "fixmod" for r in typed["units"]))
     _, searched = run("search", "fixskill")
     ctx.check("UX-search-is-broad-item-discovery",
-              searched["scope"] == "items"
-              and searched["items"][0]["id"] == "fixmod/goodcomp#fixskill")
+              searched["scope"] == "units"
+              and searched["units"][0]["id"] == "fixmod/goodcomp#fixskill")
     _, filtered_page = run("list", "fixmod", "--type", "rule",
                            "--limit", "1")
     ctx.check("UX-continuation-keeps-exact-scope-and-type",
@@ -95,15 +95,15 @@ def public_contract(ctx) -> None:
               and module_detail["selection"]["components"])
     _, status = run("status")
     ctx.check("UX-status-separates-installed-from-source",
-              status["installation"]["installed_items"] == 0
+              status["installation"]["installed_units"] == 0
               and status["installation"]["health"] == "not_checked"
-              and status["source_catalog"]["items"] > 0)
+              and status["source_catalog"]["units"] > 0)
     _, first = run("list", "fixmod/goodcomp", "--limit", "2")
     _, second = run("list", "fixmod/goodcomp", "--limit", "2", "--offset", "2")
     ctx.check("UX-bounded-pagination", first["returned"] == 2
               and first["total"] > 2 and second["offset"] == 2
-              and not ({x["id"] for x in first["items"]}
-                       & {x["id"] for x in second["items"]})
+              and not ({x["id"] for x in first["units"]}
+                       & {x["id"] for x in second["units"]})
               and "--offset 2" in first["next"])
     _, alias = run("ls", "fixmod/goodcomp", "--limit", "2")
     ctx.check("UX-ls-identical-to-list", alias == first)
@@ -111,13 +111,13 @@ def public_contract(ctx) -> None:
     ctx.check("UX-show-public-resolver", details["selection"]["id"]
               == "fixmod/goodcomp#fixskill"
               and details["selection"]["unit_id"] == "fixskill"
-              and details["selection"]["scope"] == "item"
+              and details["selection"]["scope"] == "unit"
               and details["selection"]["type"] == "skill"
               and "method" not in details["selection"])
     code, unknown = run("show", "no-such-item-7z")
     ctx.check("UX-unknown-name-has-targeted-recovery",
               code == 1 and unknown["error"]["code"] == "name-unknown"
-              and unknown["next"].startswith("rbtv install list --target ")
+              and unknown["next"].startswith("rbtv list --target ")
               and str(target) in unknown["next"])
     code, usage = run("show")
     ctx.check("UX-parser-error-is-JSON", code == 2
@@ -142,28 +142,22 @@ def public_contract(ctx) -> None:
                           "--guidance", "none")
         ctx.check(f"UX-add-repeat-{attempt}", code == 0 and added["ok"])
     before_retired = (target / STATE_REL).read_bytes()
-    for old, new in (("harness", "--harness"),
-                     ("artifact", "--guidance")):
-        value = "codex" if old == "harness" else "none"
-        code, moved = run("set", old, value, "--dry-run")
-        retry = retry_args(moved["next"])
-        followed_code, followed = run(*retry, explicit=False)
-        ctx.check(f"UX-retired-set-{old}-has-executable-quoted-retry",
-                  code == 2 and moved["error"]["code"] == "grammar-retired"
-                  and retry[:2] == ["configure", new]
-                  and retry[2] == value
-                  and str(target) in retry
-                  and followed_code == 0 and followed["dry_run"]
+    for old, value in (("set", "--harness"), ("harness", "codex"),
+                       ("artifact", "none")):
+        code, retired = run(old, value, "--dry-run")
+        ctx.check(f"UX-retired-verb-{old}-is-wrong-usage-without-a-moved-line",
+                  code == 2 and retired["error"]["code"] == "usage"
+                  and "invalid choice" in retired["error"]["message"]
+                  and "moved" not in str(retired)
                   and (target / STATE_REL).read_bytes() == before_retired,
-                  str(moved))
+                  str(retired))
     code, old_flag = run("list", "fixmod", "--kind=rule")
-    flag_retry = retry_args(old_flag["next"])
-    followed_code, filtered = run(*flag_retry, explicit=False)
-    ctx.check("UX-retired-option-equals-form-has-executable-retry",
-              code == 2 and old_flag["error"]["code"] == "grammar-retired"
-              and "--type=rule" in flag_retry
-              and followed_code == 0 and filtered["scope"] == "items"
-              and (target / STATE_REL).read_bytes() == before_retired)
+    ctx.check("UX-retired-option-is-refused-as-unknown",
+              code == 2 and old_flag["error"]["code"] == "usage"
+              and "--kind=rule" in old_flag["error"]["message"]
+              and "moved" not in str(old_flag)
+              and (target / STATE_REL).read_bytes() == before_retired,
+              str(old_flag))
     _, reinstall_preview = run("add", "fixskill", "--harness", "codex",
                                "--guidance", "none", "--dry-run")
     planned1 = reinstall_preview["planned_changes"]
@@ -177,7 +171,7 @@ def public_contract(ctx) -> None:
     tq = shell_quote(str(target))
     _, installed_item = run("show", "fixskill", "--type", "skill")
     ctx.check("UX-show-installed-item-next-is-doctor-not-remove",
-              installed_item["next"] == f"rbtv install doctor --target {tq}",
+              installed_item["next"] == f"rbtv doctor --target {tq}",
               str(installed_item))
     ctx.check("UX-show-installed-item-real-receiving-tools",
               installed_item["selection"]["harnesses"] == ["codex"],
@@ -190,26 +184,26 @@ def public_contract(ctx) -> None:
               src)
     _, comp_detail = run("show", "fixmod/goodcomp")
     ctx.check("UX-show-component-next-drills-into-real-item",
-              comp_detail["next"].startswith("rbtv install show fixmod/goodcomp#")
-              and any(comp_detail["next"] == f"rbtv install show {p['key']} --target {tq}"
+              comp_detail["next"].startswith("rbtv show fixmod/goodcomp#")
+              and any(comp_detail["next"] == f"rbtv show {p['key']} --target {tq}"
                       for p in comp_detail["selection"]["units"]),
               str(comp_detail))
     _, mod_detail = run("show", "fixmod")
     ctx.check("UX-show-module-next-drills-into-real-component",
-              mod_detail["next"].startswith("rbtv install show fixmod/")
-              and any(mod_detail["next"] == f"rbtv install show {c['id']} --target {tq}"
+              mod_detail["next"].startswith("rbtv show fixmod/")
+              and any(mod_detail["next"] == f"rbtv show {c['id']} --target {tq}"
                       for c in mod_detail["selection"]["components"]),
               str(mod_detail))
     _, installed = run("list", "--installed")
     _, installed_alias = run("li")
     ctx.check("UX-installed-alias-identical", installed == installed_alias
-              and [x["id"] for x in installed["items"]] == ["fixmod"])
+              and [x["id"] for x in installed["units"]] == ["fixmod"])
     _, installed_module = run("list", "fixmod", "--installed")
-    goodcomp = next(r for r in installed_module["items"]
+    goodcomp = next(r for r in installed_module["units"]
                     if r["id"] == "fixmod/goodcomp")
     ctx.check("UX-installed-aggregate-retains-source-denominator",
-              goodcomp["installed_items"] == 1
-              and goodcomp["source_items"] > goodcomp["installed_items"])
+              goodcomp["installed_units"] == 1
+              and goodcomp["source_units"] > goodcomp["installed_units"])
     before = (target / STATE_REL).read_bytes()
     code, refusal = run("remove", "--all")
     ctx.check("UX-broad-removal-refuses-with-preview", code == 1
@@ -220,8 +214,8 @@ def public_contract(ctx) -> None:
                     if key != "fixmod/goodcomp"}
     _, missing = run("list", "fixmod/goodcomp", "--installed", selected_catalog=gone_catalog)
     ctx.check("UX-vanished-item-stays-visible", missing["returned"] == 1
-              and not missing["items"][0]["source_available"]
-              and missing["items"][0]["id"] == "fixmod/goodcomp#fixskill")
+              and not missing["units"][0]["source_available"]
+              and missing["units"][0]["id"] == "fixmod/goodcomp#fixskill")
     code, guidance = run("update", "guidance", selected_catalog=gone_catalog)
     ctx.check("UX-source-missing-does-not-block-guidance-copy",
               code == 0 and guidance["scope"] == "guidance")
@@ -250,7 +244,7 @@ def public_contract(ctx) -> None:
     ctx.check("UX-IO-error-changed-is-unknown-not-false",
               failed.get("changed", False) is None, str(failed))
 
-    target = ctx.tmp / "deleted owner workspace"
+    target = ctx.tmp / "deleted owner installation"
     bindir = ctx.tmp / "public ownership" / "bin"
     registry = owner_file(bindir)
     registry.parent.mkdir()
@@ -297,22 +291,22 @@ def result_screens(ctx) -> None:
     print("\nRESULT — human result screens")
     _, empty, _ = text("list", "--installed")
     ctx.check("RESULT-empty-installed-list-says-so",
-              "No installed items in this target." in empty, empty)
+              "No installed units in this target." in empty, empty)
     _, found, _ = text("search", "fixture")
     next_line = found.rstrip().splitlines()[-1]
     ctx.check("RESULT-search-next-is-a-returned-exact-id",
-              next_line.startswith("Next: rbtv install show 'fixmod/goodcomp#")
+              next_line.startswith("Next: rbtv show 'fixmod/goodcomp#")
               and "'fixture'" not in next_line, next_line)
     _, modules, _ = text("list")
     ctx.check("RESULT-list-next-is-never-a-placeholder",
-              "MODULE" not in modules and "Next: rbtv install show " in modules,
+              "MODULE" not in modules and "Next: rbtv show " in modules,
               modules)
     with patch.dict(commands._HANDLERS, {
             "status": lambda *a, **k: (_ for _ in ()).throw(
                 PermissionError("fixture write refused"))}):
         code, _, failed = text("status")
     ctx.check("RESULT-io-failure-is-titled-failed-not-refused",
-              code == 1 and failed.startswith("RBTV install — failed\n\nFAILED [io-error]")
+              code == 1 and failed.startswith("rbtv — failed\n\nFAILED [io-error]")
               and "may have applied" in " ".join(failed.split()), failed)
 
     agent_home = target / ".rbtv" / "agents" / "resultagent"
@@ -330,8 +324,10 @@ def result_screens(ctx) -> None:
         _, agent_full, _ = agent_text(*add, "--details")
     skill = ".claude/skills/fixskill/SKILL.md"
     ctx.check("RESULT-agent-preview-reports-unit-files-default-and-details",
-              "Unit files:" in agent_default and "would write 1" in agent_default
-              and "Agent files:" in agent_default and skill not in agent_default
+              "Generated files:  would write 2" in agent_default
+              and "File list" not in agent_default and skill not in agent_default
+              and "Add --details to this preview" in agent_default
+              and "File list" in agent_full
               and f"\n    {skill}\n" in agent_full
               and "fixmod/goodcomp#fixskill" in agent_full
               and "guidance copies" not in agent_full,
@@ -339,13 +335,13 @@ def result_screens(ctx) -> None:
     ctx.check("RESULT-agent-preview-writes-nothing",
               not (agent_home / ".claude").exists())
 
-    # The owner's removal example (owner-example.txt): 40 items, dozens of
+    # The owner's removal example (owner-example.txt): 40 units, dozens of
     # unchanged files, 25 shortcuts kept for uncertain ownership.
-    items = [f"core/mod{n // 5}#item{n:02d}" for n in range(40)]
+    units = [f"core/mod{n // 5}#item{n:02d}" for n in range(40)]
     kept = [f"tool-{n:02d}" for n in range(25)]
     unchanged = [f".agents/skills/s{n:02d}/SKILL.md" for n in range(60)]
     big = {"_verb": "remove", "dry_run": False, "target": str(target),
-           "source": "--target", "selected_items": items,
+           "source": "--target", "selected_units": units,
            "uninstalled": ["core/mod0"],
            "written": [".claude/skills/a/SKILL.md"],
            "deleted": [f".agents/behavior-rules/r{n:02d}.md" for n in range(30)],
@@ -358,7 +354,7 @@ def result_screens(ctx) -> None:
                       "path": {"legacy_preserved": kept},
                       "gitignore": {"claimed": True, "count": 71},
                       "guidance_mirror": {"basis": None, "targets": []}},
-           "next": "rbtv install status"}
+           "next": "rbtv status"}
 
     def render(columns: str, **extra) -> str:
         out = io.StringIO()
@@ -372,8 +368,8 @@ def result_screens(ctx) -> None:
     full = render("100", _details=True)
     ctx.check("RESULT-large-batch-default-is-compact",
               len(compact.splitlines()) * 3 < len(full.splitlines())
-              and "Removed: 40 items" in flat
-              and items[-1] not in compact and unchanged[0] not in compact
+              and "Removed: 40 units" in flat
+              and units[-1] not in compact and unchanged[0] not in compact
               and "--details" in compact, compact)
     ctx.check("RESULT-large-batch-default-keeps-every-warning",
               "Warnings" in compact and all(name in compact for name in kept),
@@ -382,16 +378,16 @@ def result_screens(ctx) -> None:
               "Files: wrote 1, deleted 30, 60 already up to date" in flat
               and "Shared files: changed 1, deleted 0, 0 already up to date"
               in flat, flat)
-    ctx.check("RESULT-unusable-items-are-always-named-warnings",
+    ctx.check("RESULT-unusable-units-are-always-named-warnings",
               all(f"office/meeting#r{n}" in compact for n in range(12))
               and compact.index("cannot use") < compact.index("\nNotes"),
               compact)
     ctx.check("RESULT-routine-lists-are-counts-by-default",
-              "File list" not in compact and "Items" not in compact.split("\n")
+              "File list" not in compact and "Units" not in compact.split("\n")
               and "released 5 claim(s)" in flat
               and "--dry-run --details" in flat, compact)
     ctx.check("RESULT-details-lists-every-item-and-file",
-              all(f"\n  {i}\n" in full for i in items)
+              all(f"\n  {i}\n" in full for i in units)
               and all(f"\n    {u}\n" in full for u in unchanged)
               and "\n\n  Already up to date (60)\n" in full
               and "Lists are counted" not in full, full[-800:])

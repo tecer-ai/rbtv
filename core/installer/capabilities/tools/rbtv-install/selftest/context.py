@@ -37,7 +37,7 @@ class Ctx:
         """A precondition this MACHINE cannot supply — not a verdict.
 
         Only for an arm that needs something outside the fixture tree (an
-        installed workspace to read). Never for an arm whose inputs this
+        installed installation to read). Never for an arm whose inputs this
         suite builds itself: there, "cannot run" is a defect.
         """
         print(f"  [SKIP] {label} — {why}")

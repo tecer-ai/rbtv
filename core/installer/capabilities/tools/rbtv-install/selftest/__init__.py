@@ -1,4 +1,4 @@
-"""The installer's runnable check — `rbtv install selftest`.
+"""The installer's runnable check — `rbtv selftest`.
 
 One module per subject; `runner.py` owns the order they run in and the shared
 frame they run against. Importing `lib` first is what puts `core/installer/`

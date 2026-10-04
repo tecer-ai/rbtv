@@ -1,7 +1,7 @@
-"""The read-only health check for ONE selected workspace: is its saved
+"""The read-only health check for ONE selected installation: is its saved
 selection intact, and do its selected shared command shortcuts resolve
 through the current PATH (the system command lookup list) to the tool this
-workspace actually selected — never a stale ownership record.
+installation actually selected — never a stale ownership record.
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ from .pathlinks import (
     shell_profiles,
 )
 from .planning import plan_files
-from .shared_links import _read_owners, _workspace_key, path_ownership_status
+from .shared_links import _read_owners, _installation_key, path_ownership_status
 from .state import known_claims, known_files, read_state, upgrade_book
 from .recovery import shell_quote
 
@@ -56,8 +56,8 @@ def _quote_target(target: Path) -> str:
 
 def _scaffolding_recovery(target: Path) -> str:
     q = _quote_target(target)
-    return (f"preview: rbtv install update scaffolding --dry-run --target {q}; "
-            f"apply: rbtv install update scaffolding --target {q}")
+    return (f"preview: rbtv update scaffolding --dry-run --target {q}; "
+            f"apply: rbtv update scaffolding --target {q}")
 
 
 def _same_path(left: Path, right: Path) -> bool:
@@ -101,7 +101,7 @@ def _persistent_path_status(bindir: Path) -> tuple[bool | None, str | None]:
 
 def _selected_path_rows(target: Path, catalog: dict, state: dict
                         ) -> tuple[dict[str, Path], Refuse | None]:
-    """PATH shortcut targets this workspace's saved selection currently
+    """PATH shortcut targets this installation's saved selection currently
     implies, resolved against the CURRENT local catalog (never the shared-
     ownership record, which can be stale)."""
     records = state.get("components") or {}
@@ -117,7 +117,7 @@ def _selected_path_rows(target: Path, catalog: dict, state: dict
 
 def _legacy_shortcuts(bindir: Path, booked: set[str],
                       registered: set[str]) -> list[str]:
-    """Managed-format shortcuts on this machine that neither this workspace's
+    """Managed-format shortcuts on this machine that neither this installation's
     book nor the shared ownership record claims — cleanup-audit only."""
     if not bindir.is_dir():
         return []
@@ -140,27 +140,27 @@ def doctor_exit(checks: list[dict]) -> int:
 def do_doctor(target: Path, why: str, catalog: dict, shadowed: list,
               repo_tree: Path, mirror_tree: Path, *,
               cleanup_audit: bool = False) -> dict:
-    del shadowed  # unrelated to a single workspace's selected-scope health
+    del shadowed  # unrelated to a single installation's selected-scope health
     checks: list[dict] = []
     state: dict = {"schema": SCHEMA, "components": {}}
 
     if not target.is_dir():
-        checks.append(_check("Saved selection", "fail", "Workspace",
+        checks.append(_check("Saved selection", "fail", "Installation",
                              f"{target} is not a directory"))
     else:
         book_path = target / STATE_REL
         if not book_path.is_file():
-            checks.append(_check("Saved selection", "ok", "Workspace",
+            checks.append(_check("Saved selection", "ok", "Installation",
                                  "no saved selection (never installed)"))
         else:
             try:
                 state = upgrade_book(read_state(target), catalog_units_map(catalog))
                 n = len(state.get("components") or {})
                 checks.append(_check(
-                    "Saved selection", "ok", "Workspace",
+                    "Saved selection", "ok", "Installation",
                     f"{n} component{'s' if n != 1 else ''}; record readable"))
             except (ValueError, OSError, json.JSONDecodeError, Refuse) as exc:
-                checks.append(_check("Saved selection", "fail", "Workspace",
+                checks.append(_check("Saved selection", "fail", "Installation",
                                      f"unreadable: {exc}"))
                 state = {"schema": SCHEMA, "components": {}}
 
@@ -179,32 +179,33 @@ def do_doctor(target: Path, why: str, catalog: dict, shadowed: list,
             if rel:
                 expected.add(rel)
         if not expected:
-            checks.append(_check("Selected files", "ok", "Workspace",
+            checks.append(_check("Selected files", "ok", "Installation",
                                  "no selection — nothing to check"))
         else:
             missing = sorted(rel for rel in expected
                              if not (target / rel).is_file())
             if missing:
-                checks.append(_check("Selected files", "fail", "Workspace",
-                                     f"missing: {', '.join(missing)}"))
+                checks.append({**_check("Selected files", "fail", "Installation",
+                                        f"missing: {', '.join(missing)}"),
+                               "repair": f"rbtv update scaffolding --target {_quote_target(target)}"})
             else:
-                checks.append(_check("Selected files", "ok", "Workspace",
+                checks.append(_check("Selected files", "ok", "Installation",
                                      "Expected files present"))
 
         basis = state.get("guidance_basis")
         if basis is None or basis == BASIS_NONE:
-            checks.append(_check("Maintained guidance", "ok", "Workspace",
+            checks.append(_check("Maintained guidance", "ok", "Installation",
                                  "none (no mirror)"))
         elif basis in GUIDANCE_NAMES:
             if (target / basis).is_file():
-                checks.append(_check("Maintained guidance", "ok", "Workspace",
+                checks.append(_check("Maintained guidance", "ok", "Installation",
                                      f"{basis} present"))
             else:
-                checks.append(_check("Maintained guidance", "fail", "Workspace",
+                checks.append(_check("Maintained guidance", "fail", "Installation",
                                      f"{basis} missing"))
         else:
             checks.append(_check(
-                "Maintained guidance", "fail", "Workspace",
+                "Maintained guidance", "fail", "Installation",
                 f"{basis!r} is neither none nor {' · '.join(GUIDANCE_NAMES)}"))
 
     repo_found = scan_tree(repo_tree, "repo")
@@ -216,13 +217,13 @@ def do_doctor(target: Path, why: str, catalog: dict, shadowed: list,
 
     desired, path_err = _selected_path_rows(target, catalog, state)
     bindir = bin_dir()
-    workspace_key = _workspace_key(target) if target.exists() else str(target)
+    installation_key = _installation_key(target) if target.exists() else str(target)
     if path_err is not None:
         # A planning failure (a vanished component, an unrunnable entry —
         # e.g. a POSIX target that lost its execute bit, caught here because
         # `plan_path_links` re-validates it against the CURRENT file on every
         # run) is a problem with the selected SOURCE, not with the shared
-        # shortcut registry — a skill-only workspace with a broken source
+        # shortcut registry — a skill-only installation with a broken source
         # has no shortcut to blame this on.
         detail = f"cannot resolve selected shortcuts: {path_err}"
         if path_err.code == "path-not-runnable" and not _WIN:
@@ -237,7 +238,7 @@ def do_doctor(target: Path, why: str, catalog: dict, shadowed: list,
             all_owned = True
             for name in sorted(desired):
                 entry = owner_data["links"].get(name)
-                owned_here = entry is not None and workspace_key in entry["owners"]
+                owned_here = entry is not None and installation_key in entry["owners"]
                 all_owned = all_owned and owned_here
                 if entry is None:
                     parts.append(f"{name}: not tracked in shared ownership record")
@@ -245,11 +246,11 @@ def do_doctor(target: Path, why: str, catalog: dict, shadowed: list,
                     n_owners = len(entry["owners"])
                     parts.append(
                         f"{name}: claimed by {n_owners} other "
-                        f"workspace{'s' if n_owners != 1 else ''}, not this one")
+                        f"installation{'s' if n_owners != 1 else ''}, not this one")
                 else:
                     n_owners = len(entry["owners"])
                     parts.append(f"{name}: claimed by {n_owners} "
-                                 f"workspace{'s' if n_owners != 1 else ''}")
+                                 f"installation{'s' if n_owners != 1 else ''}")
             level = "ok" if all_owned else "fail"
             recov = "" if all_owned else f"; {_scaffolding_recovery(target)}"
             checks.append(_check("Shared shortcut ownership", level,
@@ -317,27 +318,27 @@ def do_doctor(target: Path, why: str, catalog: dict, shadowed: list,
             ownership = path_ownership_status(bindir)
         except Refuse as exc:
             checks.append(_check("Stale owner claim", "warn",
-                                 "Other workspace", f"unreadable: {exc}"))
+                                 "Other installation", f"unreadable: {exc}"))
             ownership = None
         if ownership is not None:
             missing = sorted({Path(owner) for row in ownership["orphaned"]
                               for owner in row["owners"]}, key=str)
             for owner in missing:
                 checks.append(_check(
-                    "Stale owner claim", "warn", "Other workspace",
-                    f"{owner} is absent; preview: rbtv install remove --all "
+                    "Stale owner claim", "warn", "Other installation",
+                    f"{owner} is absent; preview: rbtv remove --all "
                     f"--dry-run --target {_quote_target(owner)}; release: "
-                    f"rbtv install remove --all --yes --target "
+                    f"rbtv remove --all --yes --target "
                     f"{_quote_target(owner)}"))
             for row in ownership["unreadable"]:
                 checks.append(_check(
-                    "Stale owner claim", "warn", "Other workspace",
+                    "Stale owner claim", "warn", "Other installation",
                     f"{row['name']}: {row['owner']}: {row['error']}"))
             registered = set(ownership["names"])
             for name in _legacy_shortcuts(bindir, booked_links(state), registered):
                 checks.append(_check(
-                    "Legacy shortcut", "warn", "Other workspace",
-                    f"{name} is a managed shortcut with no workspace or "
+                    "Legacy shortcut", "warn", "Other installation",
+                    f"{name} is a managed shortcut with no installation or "
                     "shared-record owner"))
 
     failed = any(c["level"] == "fail" for c in checks)

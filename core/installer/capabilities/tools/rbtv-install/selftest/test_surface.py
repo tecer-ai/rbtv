@@ -43,12 +43,12 @@ def ls_li_doctor(ctx) -> None:
           ls_data["shadowed"][0]["id"] == "fixmod/goodcomp"
           and "no_manifest" not in ls_data)
     check("SURF-ls-parts-are-rows — vendored parts is 1, not file count",
-          vend_e["units"] == 1
-          and len(vend_e["items"]) == 1
+          vend_e["unit_count"] == 1
+          and len(vend_e["units"]) == 1
           and vend_files > 1
-          and good_e["units"] == len(good_e["items"]) == 8
+          and good_e["unit_count"] == len(good_e["units"]) == 8
           and f"{vend_files}" not in
-          [str(e["units"]) for e in ls_data["components"]
+          [str(e["unit_count"]) for e in ls_data["components"]
            if e["id"] == "_hub/skills/vendored"],
           f"parts={vend_e['units']} files={vend_files} "
           f"good={good_e['units']}")
@@ -63,7 +63,7 @@ def ls_li_doctor(ctx) -> None:
                dry_run=False)
     ls_in = build_ls(catalog, [], read_state(pws))
     good = next(e for e in ls_in["components"] if e["id"] == "fixmod/goodcomp")
-    inn = {i["unit_id"]: i["in"] for i in good["items"]}
+    inn = {i["unit_id"]: i["in"] for i in good["units"]}
     check("SURF-ls-in-column — booked True, sibling False",
           inn.get("fixskill") is True and inn.get("fixrule") is True
           and inn.get("fixcmd") is False,
@@ -84,11 +84,11 @@ def ls_li_doctor(ctx) -> None:
     ls_nx = build_ls(catalog, [], {}, exclude_methods=["skill"])
     check("SURF-ls-exclude-method",
           all(i["method"] != "skill"
-              for e in ls_nx["components"] for i in e["items"]))
+              for e in ls_nx["components"] for i in e["units"]))
     li_data = do_list(pws, catalog)
     part_rec = li_data["components"]["fixmod/goodcomp"]
     full_rec = li_data["components"]["fixmod/codexcomp"]
-    check("SURF-li-full-vs-part — structured inventory identifies missing items",
+    check("SURF-li-full-vs-part — structured inventory identifies missing units",
           part_rec["status"] == "part"
           and full_rec["status"] == "full"
           and "fixcmd" in part_rec["missing"]
@@ -99,7 +99,7 @@ def ls_li_doctor(ctx) -> None:
     doctor_data = do_doctor(pws, DISCOVER_CWD, catalog, [], tree,
                             pws / ".rbtv" / "mirror")
     by_name = {c["name"]: c for c in doctor_data["checks"]}
-    check("SURF-doctor-workspace-scope — current selection is explicit",
+    check("SURF-doctor-installation-scope — current selection is explicit",
           {"Saved selection", "Selected files", "Maintained guidance",
            "Source catalog"} <= set(by_name)
           and all(c["scope"] for c in doctor_data["checks"])
@@ -163,11 +163,11 @@ def ls_li_doctor(ctx) -> None:
                pws, catalog, [])
     lsj = json.loads(buf.getvalue())
     check("SURF-json-ls-keys — list envelope and stable item identity",
-          set(lsj) >= {"ok", "target", "source", "items", "total", "returned",
+          set(lsj) >= {"ok", "target", "source", "units", "total", "returned",
                        "limit", "offset", "next"}
-          and all(set(row) >= {"id", "installed_items", "source_items",
+          and all(set(row) >= {"id", "installed_units", "source_units",
                                    "description"}
-                  for row in lsj["items"])
+                  for row in lsj["units"])
           and lsj["ok"] is True,
           str(sorted(lsj)))
     buf = io.StringIO()
@@ -178,7 +178,7 @@ def ls_li_doctor(ctx) -> None:
     lij = json.loads(buf.getvalue())
     check("SURF-json-li-keys — installed list has same envelope",
           set(lij) == set(lsj)
-          and all(row["installed_items"] > 0 for row in lij["items"]),
+          and all(row["installed_units"] > 0 for row in lij["units"]),
           str(sorted(lij)))
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf), \
@@ -208,26 +208,26 @@ def ls_li_doctor(ctx) -> None:
     root_help = build_parser().format_help()
     group_body = root_help.split("Shared options:", 1)[0]
     check("SURF-root-help-grouped-no-argparse-leakage",
-          root_help.startswith("RBTV install — help")
-          and "Discover" in root_help and "Change this workspace" in root_help
+          root_help.startswith("rbtv — help")
+          and "Discover" in root_help and "Change this installation" in root_help
           and "Check and guided use" in root_help
           and "==SUPPRESS==" not in root_help
-          # The two retired verbs get no row of their own in the grouped
-          # command listing — only a mention later, in "Renamed:".
+          # The two retired verbs get no row, and no "Renamed:" line names
+          # them: the approved root page does not mention them at all.
           and not any(line.strip().startswith(("set ", "dupe-artifacts "))
                       for line in group_body.splitlines())
-          and "Renamed: set -> configure" in root_help,
+          and "Renamed" not in root_help,
           root_help)
 
     fail_data = {"ok": False, "target": str(pws), "why": DISCOVER_CWD,
                  "checks": [
                      {"name": "Saved selection", "ok": True, "level": "ok",
-                      "scope": "Workspace", "detail": "2 components; record readable"},
+                      "scope": "Installation", "detail": "2 components; record readable"},
                      {"name": "Selected shortcut: cast", "ok": False, "level": "fail",
                       "scope": "Shared commands",
                       "detail": "Managed cast shortcut missing; preview: "
-                                "rbtv install update scaffolding --dry-run "
-                                "--target 'X'; apply: rbtv install update "
+                                "rbtv update scaffolding --dry-run "
+                                "--target 'X'; apply: rbtv update "
                                 "scaffolding --target 'X'"},
                      {"name": "Command lookup: cast", "ok": False, "level": "fail",
                       "scope": "Current PATH",
@@ -240,7 +240,7 @@ def ls_li_doctor(ctx) -> None:
     doctor_plain = buf.getvalue()
     check("SURF-doctor-detail-not-truncated-at-width100 — full recovery text survives",
           fail_data["checks"][1]["detail"] in " ".join(doctor_plain.split())
-          and "\n  rbtv install update scaffolding --dry-run --target 'X';"
+          and "\n  rbtv update scaffolding --dry-run --target 'X';"
           in doctor_plain,
           doctor_plain)
     check("SURF-doctor-truthful-discovery-claim — FAIL never reads 'verified'",
@@ -250,7 +250,7 @@ def ls_li_doctor(ctx) -> None:
 
     ok_data = {"ok": True, "target": str(pws), "why": DISCOVER_CWD,
                "checks": [{"name": "Saved selection", "ok": True, "level": "ok",
-                          "scope": "Workspace", "detail": "fine"}]}
+                          "scope": "Installation", "detail": "fine"}]}
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         _print_doctor(ok_data, color=False)
@@ -278,7 +278,7 @@ def ls_li_doctor(ctx) -> None:
     # automatically-managed guidance-section report — never the retired
     # manual-paste instructions.
     fresh_preview = {"_verb": "add", "dry_run": True, "target": str(pws),
-                     "source": DISCOVER_CWD, "selected_items": ["fixmod/goodcomp#fixskill"],
+                     "source": DISCOVER_CWD, "selected_units": ["fixmod/goodcomp#fixskill"],
                      "harnesses": ["codex"], "adopted": [], "adopted_sections": [],
                      "released": [], "shared_removed": [],
                      "planned_changes": {
@@ -288,7 +288,7 @@ def ls_li_doctor(ctx) -> None:
                          "delete_shared_files": [], "unchanged_shared_files": []},
                      "report": {"guidance_sections": ["AGENTS.md"],
                                "guidance_mirror": {"basis": None, "targets": []}},
-                     "next": "rbtv install doctor --target " + str(pws)}
+                     "next": "rbtv doctor --target " + str(pws)}
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         print_result(fresh_preview)
@@ -342,7 +342,7 @@ def ls_li_doctor(ctx) -> None:
                                         "write_shared_files": [],
                                         "delete_shared_files": [],
                                         "unchanged_shared_files": []},
-                     "report": {}, "next": "rbtv install status"}
+                     "report": {}, "next": "rbtv status"}
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         print_result({**adoption_data, "dry_run": True})
@@ -392,11 +392,11 @@ def ls_li_doctor(ctx) -> None:
             except SystemExit:
                 pass
         text = buf.getvalue()
-        expected_title = f"RBTV install — {label} help"
+        expected_title = f"rbtv — {label} help"
         check(f"SURF-help-title-{'-'.join(argv)}",
               text.startswith(expected_title + "\n\n")
               and text.split("\n\n", 1)[1].startswith("usage:")
-              and text.count("RBTV install —") == 1
+              and text.count("rbtv —") == 1
               and root_text.strip() != text.strip(),
               text[:120])
 
@@ -423,7 +423,7 @@ def ls_li_doctor(ctx) -> None:
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             main(argv)
         check(f"SURF-refusal-has-shared-title-{'-'.join(argv)}",
-              err.getvalue().startswith("RBTV install — refused\n\nREFUSED [")
+              err.getvalue().startswith("rbtv — refused\n\nREFUSED [")
               and not out.getvalue(),
               err.getvalue())
         out, err = io.StringIO(), io.StringIO()
@@ -431,7 +431,7 @@ def ls_li_doctor(ctx) -> None:
             main([*argv, "--json"])
         check(f"SURF-refusal-json-stays-undecorated-{'-'.join(argv)}",
               not err.getvalue() and out.getvalue().strip().startswith("{")
-              and "RBTV install" not in out.getvalue(),
+              and "rbtv —" not in out.getvalue(),
               out.getvalue())
 
     # Owner ruling (content split): guidance copies maintained HUMAN text
@@ -441,14 +441,14 @@ def ls_li_doctor(ctx) -> None:
     # SAME file. Help text for every scope must say so explicitly, and
     # never make the superseded whole-counterpart-file claim.
     for argv, must_contain in (
-        (["update", "-h"], ("CONTENT OWNERSHIP", "SAME instruction file")),
+        (["update", "-h"], ("Make the folder match install.json", "The scope is required.")),
         (["update", "guidance", "-h"],
-         ("HUMAN text", "does NOT rebuild that section")),
+         ("Copy the human text", "it does not rebuild that section")),
         (["update", "scaffolding", "-h"],
-         ("generated instruction section in EVERY configured",
-          "does not copy or synchronize that text from the basis")),
+         ("Make generated files match install.json",
+          "it does not copy that text")),
         (["update", "all", "-h"],
-         ("the two parts of the SAME file",)),
+         ("Run scaffolding, then guidance.",)),
     ):
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
@@ -501,7 +501,7 @@ def ls_li_doctor(ctx) -> None:
                                 "guidance_mirror": {"basis": "CLAUDE.md",
                                                     "targets": ["AGENTS.md"],
                                                     "count": 1, "excludes": []}},
-                      "next": "rbtv install doctor"}
+                      "next": "rbtv doctor"}
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         print_result(all_scope_data)
@@ -529,12 +529,12 @@ def ls_li_doctor(ctx) -> None:
                                     ["guidance_mirror"]}}
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        print_result(guidance_only_data)
+        print_result({**guidance_only_data, "_verb": "update",
+                      "_facts": {"units": (10, 10)}})
     guidance_only_text = " ".join(buf.getvalue().split())
-    check("SURF-guidance-only-scope-states-destination-section-is-preserved",
-          "generated sections are not copied from the basis" in guidance_only_text
-          and "each destination's own existing generated instruction "
-          "section is preserved as-is by this copy" in guidance_only_text,
+    check("SURF-guidance-only-scope-prints-the-approved-body",
+          "The folder matches the file. Added none. Removed none. "
+          "Installed units stay 10." in guidance_only_text,
           guidance_only_text)
     check("SURF-guidance-only-scope-has-no-sections-and-no-regeneration-claim",
           "regenerate" not in guidance_only_text.lower()

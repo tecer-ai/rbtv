@@ -59,7 +59,7 @@ def vanished_component_removable(ctx) -> None:
         check("V1 — a vanished component blocks the run",
               exc.code == "component-vanished", exc.code)
         check("V1 — and the refusal names a door that actually opens",
-              "rbtv install remove" in exc.message
+              "rbtv remove" in exc.message
               and "gonemod/gonecomp" in exc.message
               and "--target" in exc.message,
               exc.message)
@@ -262,7 +262,7 @@ def v1_to_v2_upgrade(ctx) -> None:
     # exactly that. The practical cost was worse than the rule: on every
     # machine but one the path did not exist, so the whole block was inert
     # and its `live book present` arm failed for a reason no one could act
-    # on. Discovery makes it run wherever a workspace actually is.
+    # on. Discovery makes it run wherever a installation actually is.
     live_root, _ = discover_target(Path.cwd())
     live_book = live_root / STATE_REL
     if live_book.is_file():
@@ -350,10 +350,10 @@ def v1_to_v2_upgrade(ctx) -> None:
                        for cid in hub_skills[:3]}))
         else:
             skip("U-live hub skill ids land under the hub module",
-                 "this workspace books no _hub skill")
+                 "this installation books no _hub skill")
     else:
         skip("U-live — upgrade against a real book",
-             f"no installed workspace at or above {Path.cwd()}")
+             f"no installed installation at or above {Path.cwd()}")
     ctx.keep(locals())
 
 

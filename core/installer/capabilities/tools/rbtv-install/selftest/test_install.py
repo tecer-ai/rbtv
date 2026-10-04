@@ -77,7 +77,7 @@ def green_arm_all_harnesses(ctx) -> None:
           str(res["report"]["path_rows"]))
     public_rows = [row for key in ("no_realization", "path_rows")
                    for row in res["report"][key]]
-    check("report rows classify items by public type",
+    check("report rows classify units by public type",
           bool(public_rows)
           and all("type" in row and "method" not in row
                   for row in public_rows),

@@ -64,14 +64,14 @@ def _retire_number(token: str) -> None:
     if re.fullmatch(r"\d+(?:-\d+)?", token):
         raise Refuse("index-retired",
                      f"numeric selector {token!r} is retired because list order can change. "
-                     "Run `rbtv install list` and copy its stable identifier")
+                     "Run `rbtv list` and copy its stable identifier")
 
 
 def _unknown(code: str, label: str, token: str, choices: list[str]) -> Refuse:
     close = difflib.get_close_matches(token, sorted(set(choices)), n=3, cutoff=0.5)
     tail = f" Did you mean: {', '.join(close)}?" if close else ""
     exc = Refuse(code, f"unknown {label} {token!r}.{tail} "
-                 "Run `rbtv install list` to see stable identifiers")
+                 "Run `rbtv list` to see stable identifiers")
     exc.candidates = close
     return exc
 
@@ -79,7 +79,7 @@ def _unknown(code: str, label: str, token: str, choices: list[str]) -> Refuse:
 def _ambiguous(token: str, choices: list[str]) -> Refuse:
     keys = sorted(set(choices))
     exc = Refuse("name-ambiguous",
-                 f"{token!r} names multiple items or components: "
+                 f"{token!r} names multiple units or components: "
                  + ", ".join(keys) + ". Use a full identifier")
     exc.candidates = keys
     return exc
@@ -106,7 +106,7 @@ def resolve_name(token: str, catalog: dict, book: dict | None = None,
         part = by_key.get(token)
         if part and (not methods or part["method"] in methods):
             return {"kind": "part", "id": token, "units": [part]}
-        raise _unknown("unit-unknown", "item", token,
+        raise _unknown("unit-unknown", "unit", token,
                        [p["key"] for p in allowed])
     if token in components:
         parts = [p for p in allowed if p["component"] == token]
@@ -114,7 +114,7 @@ def resolve_name(token: str, catalog: dict, book: dict | None = None,
             return {"kind": "component", "id": token, "units": parts}
         if token in catalog:
             _unit_specs(catalog[token])     # an invalid component says why
-        raise Refuse("kind-mismatch", f"{token!r} has no item of the requested type")
+        raise Refuse("kind-mismatch", f"{token!r} has no unit of the requested type")
     if not component_only:
         hits = [p for p in allowed if p["unit_id"] == token]
         if len(hits) == 1:
@@ -174,7 +174,7 @@ def resolve_selection(args, catalog: dict[str, dict],
     for token in (*names, *pos_c, *neg_c, *pos_m, *neg_m):
         _retire_number(token)
     if not (all_flag or names or pos_c or pos_m or pos_x):
-        raise Refuse("selection-empty", "name an item or component, or use --all, "
+        raise Refuse("selection-empty", "name an unit or component, or use --all, "
                      "--module, --component or --type")
 
     universe = (iter_booked_units(catalog, book) if verb in ("rm", "remove")
@@ -201,7 +201,7 @@ def resolve_selection(args, catalog: dict[str, dict],
     if verb in ("rm", "remove"):
         return selected
     if not selected:
-        raise Refuse("selection-empty", "selectors matched no installable item")
+        raise Refuse("selection-empty", "selectors matched no installable unit")
     return selected
 
 

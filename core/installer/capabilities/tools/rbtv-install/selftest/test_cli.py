@@ -33,7 +33,7 @@ def parser_selectors_index(ctx) -> None:
 
     print("\nCLI — parser, selectors, stable names, confirmation")
     for verb in ("add", "remove", "rm", "list", "status", "show",
-                 "ls", "li", "harness", "artifact",
+                 "ls", "li",
                  "configure", "update", "search", "doctor", "selftest", "interactive"):
         argv = (["add", "-A"] if verb == "add" else
                 ["show", "fixskill"] if verb == "show" else
@@ -41,6 +41,15 @@ def parser_selectors_index(ctx) -> None:
         ns = build_parser().parse_args(argv)
         check(f"CLI-reach-{verb}", ns.verb == verb
               and verb in _HANDLERS, ns.verb)
+    # No retired verb is recognised: each one is wrong usage, before any read.
+    for verb in ("harness", "artifact", "set", "dupe-artifacts", "install"):
+        try:
+            build_parser().parse_args([verb])
+            check(f"CLI-retired-verb-{verb}-is-unknown", False, "parsed")
+        except Refuse as exc:
+            check(f"CLI-retired-verb-{verb}-is-unknown",
+                  exc.code == "usage" and "invalid choice" in exc.message
+                  and "moved" not in exc.message, exc.message)
     empty = tmp / "ws-cli-empty"
     empty.mkdir()
     shown = {}
@@ -81,7 +90,7 @@ def parser_selectors_index(ctx) -> None:
         rc_doc = cmd_doctor(None, empty, catalog, [])
     check("CLI-reach-handler-ls", rc_ls == 0)
     check("CLI-reach-handler-li", rc_li == 0)
-    check("CLI-reach-handler-dupe", rc_dupe == "workspace-unrecorded",
+    check("CLI-reach-handler-dupe", rc_dupe == "installation-unrecorded",
           str(rc_dupe))
     check("CLI-reach-handler-add", rc_add == "setup-required",
           str(rc_add))
@@ -246,6 +255,24 @@ def parser_selectors_index(ctx) -> None:
         ambiguous = exc.code
     check("SEL-ambiguous-direct-name",
           ambiguous == "name-ambiguous", ambiguous)
+
+    # An agent a component ships is placed by `rbtv agent add`, never at the root.
+    agent_cat = dict(SEL_CAT)
+    agent_cat["web/research"] = {
+        "module": "web", "component": "research", "manifest": True,
+        "kind": "component", "rows": [{"id": "research", "method": "agent"}]}
+    agent_root = tmp / "ws-agent-root"
+    agent_root.mkdir()
+    refusal = None
+    try:
+        cmd_add(_sel(verb="add", noun=["research"], pack=[], dry_run=True,
+                     json=False), agent_root, agent_cat, [])
+    except Refuse as exc:
+        refusal = exc
+    check("ADD-agent-at-root — an agent a component ships is refused at the root",
+          refusal is not None and refusal.code == "agent-at-root"
+          and refusal.next == "rbtv agent add research",
+          str(refusal and (refusal.code, refusal.message)))
 
     nws = tmp / "ws-nconfirm"
     nws.mkdir()

@@ -20,8 +20,8 @@ def _state_refuse(path: Path, detail: str) -> None:
 
 
 def _string_list(value: object, label: str, path: Path) -> None:
-    if not isinstance(value, list) or not all(isinstance(item, str)
-                                              for item in value):
+    if not isinstance(value, list) or not all(isinstance(unit, str)
+                                              for unit in value):
         _state_refuse(path, f"{label} must be a list of strings")
 
 
@@ -138,7 +138,7 @@ def read_state(target: Path) -> dict:
         state = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise Refuse("state-unreadable",
-                     f"cannot read installer state; repair or restore {path} before changing this workspace ({exc})",
+                     f"cannot read installer state; repair or restore {path} before changing this installation ({exc})",
                      str(path)) from exc
     if not isinstance(state, dict):
         raise Refuse("state-unreadable",
@@ -150,7 +150,7 @@ def read_state(target: Path) -> dict:
     _validate_state(state, path)
     rewrite_legacy_skill_ids(state)
     strip_retired_harnesses(state)
-    migrate_workspace_harnesses(state)
+    migrate_installation_harnesses(state)
     return state
 
 
@@ -215,7 +215,7 @@ def installed_harnesses(records: dict[str, dict]) -> list[str]:
 
 
 def book_harnesses(state: dict) -> list[str] | None:
-    """D16 — the WORKSPACE harness set. `None` means never recorded, which is
+    """D16 — the INSTALLATION harness set. `None` means never recorded, which is
     what makes `--harness` mandatory on the first `add` and refused after it.
     A recorded set is normalised to canonical order and filtered to D4's
     harnesses (a hand-edited book cannot smuggle one back in)."""
@@ -225,9 +225,9 @@ def book_harnesses(state: dict) -> list[str] | None:
     return [h for h in HARNESSES if h in raw]
 
 
-def migrate_workspace_harnesses(state: dict) -> None:
+def migrate_installation_harnesses(state: dict) -> None:
     """D16 — a pre-D16 book records harnesses only per component. Lift them to
-    the workspace level by UNION: the widest set any component held. Narrower
+    the installation level by UNION: the widest set any component held. Narrower
     would delete files on the very next run, before the human asked for it.
     A book with no components stays unrecorded — nothing was ever installed,
     so the first `add` is still the first `add`."""
@@ -306,7 +306,7 @@ def upgrade_book(state: dict, catalog_parts: dict[str, list[dict]]) -> dict:
     refuses component-vanished.
     """
     strip_retired_harnesses(state)
-    migrate_workspace_harnesses(state)
+    migrate_installation_harnesses(state)
     out = dict(state)
     out["schema"] = SCHEMA
     comps = {k: dict(v) for k, v in (state.get("components") or {}).items()}

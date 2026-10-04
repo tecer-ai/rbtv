@@ -171,7 +171,7 @@ def _forbid_local_bin(bindir: Path) -> None:
         return
 
 
-def workspace_root(start: Path) -> Path:
+def installation_root(start: Path) -> Path:
     here = start.resolve()
     for p in (here, *here.parents):
         if (p / STATE_REL).is_file() or (
@@ -184,7 +184,7 @@ def resolve_path_entry(target: Path, comp_dir: Path, entry: str) -> Path:
     """The program a tool places on PATH: its entry, relative to the component,
     or `ws:` and a path from the installation root."""
     if entry.startswith(WS_PREFIX):
-        dest = workspace_root(target) / entry[len(WS_PREFIX):]
+        dest = installation_root(target) / entry[len(WS_PREFIX):]
     else:
         dest = comp_dir / entry
     if dest.exists():
@@ -297,7 +297,7 @@ def plan_path_links(target: Path,
         name = link_name(pid)
         dest = resolve_path_entry(target, comp_dir, entry)
         # The shebang is required on every system: a program Windows would
-        # run by its extension alone cannot run on Linux (owner ruling, item 7).
+        # run by its extension alone cannot run on Linux (owner ruling, unit 7).
         try:
             with dest.open("rb") as fh:
                 shebang = fh.read(2) == b"#!"
@@ -418,9 +418,9 @@ def _write_windows_user_path() -> None:
             current, kind = winreg.QueryValueEx(key, "Path")
         except FileNotFoundError:
             current, kind = "", winreg.REG_EXPAND_SZ
-        if any(item.strip('"').replace("/", "\\").casefold()
+        if any(unit.strip('"').replace("/", "\\").casefold()
                == entry.replace("/", "\\").casefold()
-               for item in current.split(";")):
+               for unit in current.split(";")):
             return
         winreg.SetValueEx(key, "Path", 0, kind,
                           current.rstrip(";") + ";" + entry if current else entry)

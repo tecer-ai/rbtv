@@ -1,28 +1,27 @@
 #!/usr/bin/env python3
-"""install.py — the rbtv installer.
+"""install.py — the rbtv command.
 
-Installs units into a workspace by reading each component's `<component>.json`
+Installs units into an installation by reading each component's `<component>.json`
 and the folder that exposes each unit, and realizing that method per harness, at the
-INSTALL ROOT only. Python 3 stdlib only.
+INSTALLATION ROOT only. Python 3 stdlib only.
 
-    rbtv install status                target, settings and installed counts
-    rbtv install list [NAME]           browse modules, components or exact items
-    rbtv install search QUERY          search items broadly
-    rbtv install list --installed      inspect recorded installed items
-    rbtv install show NAME             resolve a name and inspect details
-    rbtv install add NAME...           install or refresh selected items
+    rbtv status                target, saved settings and recorded selections
+    rbtv list [NAME]           browse modules, components or exact units
+    rbtv search QUERY          search names and descriptions broadly
+    rbtv show NAME             resolve a name and inspect details
+    rbtv add NAME...           install or refresh selected units
         First add: --harness codex --guidance CLAUDE.md|AGENTS.md|none
         Identical setup flags may be repeated on later adds.
-    rbtv install add --module core     select a whole module
-    rbtv install remove NAME...        remove selected items
-    rbtv install remove --all --yes    explicitly confirm broad removal
-    rbtv install configure --harness codex --guidance none
-    rbtv install update guidance       copy maintained instructions
-    rbtv install update scaffolding    refresh selected installed files
-    rbtv install update all            do both updates
-    rbtv install doctor               read-only health and recovery checks
-    rbtv install interactive           explicitly start the guided flow
-    rbtv install selftest              run isolated regression checks
+    rbtv add --module core     select a whole module
+    rbtv remove NAME...        remove selected units
+    rbtv remove --all --yes    explicitly confirm broad removal
+    rbtv configure --harness codex --guidance none
+    rbtv update guidance       copy maintained instructions
+    rbtv update scaffolding    refresh selected installed files
+    rbtv update all            do both updates
+    rbtv doctor               read-only health and recovery checks
+    rbtv interactive           explicitly start the guided flow
+    rbtv selftest              run isolated regression checks
 
     No arguments prints help. ls/li/rm and explicit selector flags remain
     compatible aliases. See --help for the complete command grammar.
@@ -35,7 +34,7 @@ INSTALL ROOT only. Python 3 stdlib only.
     Otherwise the install root is discovered from the current directory —
     first ancestor holding `.rbtv/config/install.json`, else first ancestor
     holding a `.rbtv/` directory, else the cwd (D24). So a run from anywhere
-    inside the workspace finds the workspace, and a run from inside this repo
+    inside the installation finds the installation, and a run from inside this repo
     finds nothing to install only when the repo really is outside one.
 
 THE NAME. This file was `install2.py` from its first commit until 2026-08-23,
@@ -67,7 +66,7 @@ ones above it, so there is no cycle:
     apply         writing that set to disk, and removing what the book records
     selection     what the human typed -> the component and part keys it names
     operations    performing one install or one uninstall
-    listing       available/installed item views and item details
+    listing       available/installed unit views and unit details
     doctor        the read-only health check
     report        printing what a run planned or did
     tui           the arrow-key widgets the interactive flow is built from

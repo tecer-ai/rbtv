@@ -9,7 +9,7 @@ from pathlib import Path
 from discovery import Refuse
 
 from . import frontmatter, schema
-from .catalog import pack_units
+from .catalog import catalog_packs, pack_units
 from .claims import _block_del
 from .constants import AGENT_RECORD, GUIDANCE_FILE, HARNESSES
 from .fsio import write_file
@@ -26,20 +26,42 @@ def agent_home(root: Path, name: str) -> Path:
     return root / AGENTS_REL / name
 
 
+def is_path(raw: str) -> bool:
+    """An AGENT argument is a path when it has a slash or is a dot name."""
+    return "/" in raw or raw in (".", "..")
+
+
+def _refuse(code: str, message: str, next_cmd: str, path: str = "") -> Refuse:
+    exc = Refuse(code, message, path)
+    exc.next = next_cmd
+    return exc
+
+
+def _unknown_packs(catalog: dict, names: set[str]) -> None:
+    unknown = sorted(set(names) - set(catalog_packs(catalog)))
+    if unknown:
+        raise _refuse("pack-unknown", "unknown pack " + ", ".join(repr(n) for n in unknown)
+                      + ". Nothing was changed.", "rbtv list --type pack")
+
+
 def resolve_agent(root: Path, raw: str) -> Path:
     """Resolve a named agent below an installation or a path managed in place."""
-    pathish = "/" in raw or raw in (".", "..")
-    home = Path(raw).expanduser().resolve() if pathish else agent_home(root, raw)
+    home = Path(raw).expanduser().resolve() if is_path(raw) else agent_home(root, raw)
     if not home.exists():
-        kind = "path" if pathish else "name"
-        raise Refuse("agent-unknown", f"no agent folder for {kind} {raw!r}. "
-                     f"Create its agent.md and agent.json, then run `rbtv install agent add {raw}`")
+        if is_path(raw):
+            raise _refuse("agent-unknown", f"no agent folder at {home}. Nothing was changed.",
+                          "rbtv agent list", str(home))
+        raise _refuse("agent-unknown", f"no agent named {raw!r} under {root / AGENTS_REL}/, "
+                      "and no component ships an agent of that name. Nothing was changed.",
+                      "rbtv list --type agent")
     if not home.is_dir():
         raise Refuse("agent-folder-invalid", f"{home} is not an agent folder")
-    if not (home / "agent.md").is_file():
-        raise Refuse("agent-folder-invalid", f"{home} has no agent.md. Add agent.md and agent.json, then retry", str(home))
     if not (home / AGENT_RECORD).is_file():
-        raise Refuse("agent-record-missing", f"{home} has no agent.json. Add the agent record, then retry", str(home))
+        raise _refuse("agent-json-missing", f"no agent.json in {home}. An agent folder holds "
+                      "agent.md and agent.json. Nothing was changed.", "rbtv agent add -h", str(home))
+    if not (home / "agent.md").is_file():
+        raise _refuse("agent-md-missing", f"no agent.md in {home}. An agent folder holds "
+                      "agent.md and agent.json. Nothing was changed.", "rbtv agent add -h", str(home))
     return home
 
 
@@ -57,6 +79,12 @@ def _agent_front(home: Path) -> dict:
 
 def agent_state(home: Path) -> dict:
     """Read and validate an authored agent record before any operation."""
+    record = home / AGENT_RECORD
+    try:
+        json.loads(record.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise _refuse("agent-json-invalid", f"agent.json is not valid JSON (line {exc.lineno}, "
+                      f"{exc.msg}). Nothing was changed.", "rbtv agent add -h", str(record)) from exc
     try:
         state = read_state(home)
     except Refuse as exc:
@@ -71,9 +99,10 @@ def agent_state(home: Path) -> dict:
     front = _agent_front(home)
     names = {"folder": home.name, "agent.md": front["name"], "agent.json": state["name"]}
     if len(set(names.values())) != 1:
-        raise Refuse("agent-name-mismatch", "agent names disagree: "
-                     + ", ".join(f"{where}={value!r}" for where, value in names.items())
-                     + ". Make all three match, then retry", str(home))
+        raise _refuse("agent-name-mismatch", "the three names disagree. Nothing was changed.\n"
+                      f"folder name:  {names['folder']}\nagent.md:     {names['agent.md']}\n"
+                      f"agent.json:   {names['agent.json']}",
+                      "make the three names the same, then retry the same command", str(home))
     problems = schema.errors({key: state[key] for key in required}, schema.load("agent-json"))
     if problems:
         raise Refuse("agent-record-invalid", f"{home / AGENT_RECORD}: " + "; ".join(problems)
@@ -84,7 +113,8 @@ def agent_state(home: Path) -> dict:
 def cast_catalog() -> dict[str, dict[str, list[str]]]:
     exe = shutil.which("cast")
     if exe is None:
-        raise Refuse("cast-missing", "the `cast` command is not on PATH. Install cast, then run `rbtv install agent add`")
+        raise _refuse("cast-missing", "cast is not on PATH, so model and effort cannot be checked "
+                      "against cast list. Nothing was changed.", "rbtv doctor")
     done = subprocess.run([exe, "list", "--json"], capture_output=True, text=True, encoding="utf-8")
     try:
         return json.loads(done.stdout)
@@ -94,14 +124,16 @@ def cast_catalog() -> dict[str, dict[str, list[str]]]:
 
 def launch_values(harness: str, model: str, effort: str, known: dict) -> dict:
     if harness not in HARNESSES or model not in (known.get(harness) or {}):
-        raise Refuse("launch-invalid", f"{harness} has no model {model!r}. See `cast list`")
+        raise _refuse("launch-invalid", f"{harness} has no model {model!r}. Nothing was changed. "
+                      "See `cast list`", "cast list")
     rungs = known[harness][model]
     if not rungs:
         return {"harness": harness, "model": model, "effort": "inert"}
     if effort.isdigit() and 1 <= int(effort) <= 5:
         effort = rungs[min(int(effort), len(rungs)) - 1]
     if effort not in rungs:
-        raise Refuse("launch-invalid", f"{model} does not accept effort {effort!r}; see `cast list`")
+        raise _refuse("launch-invalid", f"{model} does not accept effort {effort!r}. "
+                      "Nothing was changed. See `cast list`", "cast list")
     return {"harness": harness, "model": model, "effort": effort}
 
 
@@ -120,14 +152,14 @@ def _agent_section(home: Path, harness: str, dry: bool) -> list[str]:
 
 
 def _agent_files(home: Path, state: dict, dry: bool) -> list[str]:
-    written: list[str] = []
+    """Create the folder's own settings and ignore files when missing, then write
+    the harness instruction section. Returns only the instruction file names: the
+    two own files are not generated files and are not reported as written."""
     for name, body in (("settings.json", "{}\n"), (".gitignore", IGNORE_TEXT)):
         path = home / name
-        if not path.exists():
-            written.append(name)
-            if not dry:
-                write_file(path, body, newline="\n")
-    return written + _agent_section(home, state["harness"], dry)
+        if not path.exists() and not dry:
+            write_file(path, body, newline="\n")
+    return _agent_section(home, state["harness"], dry)
 
 
 def _remove_agent_section(home: Path, harness: str, dry: bool) -> list[str]:
@@ -157,9 +189,8 @@ def configure_agent(root: Path, raw: str, harness: str | None,
                     catalog: dict, dry: bool) -> dict:
     """Change an agent's authored launch settings and replan only a harness flip."""
     if all(value is None for value in (harness, model, effort, voice)):
-        exc = Refuse("usage", "at least one of --harness, --model, --effort, --voice is required")
-        exc.next = "rbtv install agent configure -h"
-        raise exc
+        raise _refuse("usage", "at least one of --harness, --model, --effort, --voice is required. "
+                      "Nothing was changed.", "rbtv agent configure -h")
     home = resolve_agent(root, raw)
     before = agent_state(home)
     after = dict(before)
@@ -200,8 +231,9 @@ def list_agents(root: Path, folder: Path | None) -> dict:
     search = folder if folder is not None else root / AGENTS_REL
     if not search.is_dir():
         if folder is None:
-            return {"ok": True, "folder": str(search), "agents": []}
-        raise Refuse("not-a-folder", f"no folder at {search}", str(search))
+            return {"ok": True, "folder": str(search), "total": 0, "returned": 0, "agents": []}
+        raise _refuse("not-a-folder", f"no folder at {search}. Nothing was listed.",
+                      "rbtv agent list", str(search))
     homes = ([search] if (search / AGENT_RECORD).is_file() else []) + sorted(
         path.parent for path in search.rglob(AGENT_RECORD.name))
     rows = []
@@ -211,25 +243,26 @@ def list_agents(root: Path, folder: Path | None) -> dict:
             data = json.loads(record.read_text(encoding="utf-8"))
             if not isinstance(data, dict):
                 raise ValueError("the JSON value is not an object")
-            row = {"name": data.get("name", home.name), "folder": str(home),
-                   "harness": data.get("harness"), "model": data.get("model"),
-                   "effort": data.get("effort"), "voice": data.get("voice"),
+            row = {"name": data.get("name", home.name), "home": str(home),
+                   "launch": {key: data.get(key) for key in ("harness", "model", "effort", "voice")},
                    "packs": data.get("packs", []), "units": data.get("units", [])}
             if not isinstance(row["packs"], list) or not isinstance(row["units"], list):
                 raise ValueError("packs and units must be lists")
         except (OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
-            row = {"name": home.name, "folder": str(home), "unreadable": str(exc)}
+            row = {"name": home.name, "home": str(home), "unreadable": str(exc)}
         rows.append(row)
-    rows.sort(key=lambda row: (str(row["name"]), row["folder"]))
-    return {"ok": True, "folder": str(search), "agents": rows}
+    rows.sort(key=lambda row: (str(row["name"]), row["home"]))
+    return {"ok": True, "folder": str(search), "total": len(rows), "returned": len(rows), "agents": rows}
 
 
 def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: dict, dry: bool) -> dict:
     home = resolve_agent(root, raw)
     state = agent_state(home)
+    _unknown_packs(catalog, packs)
     launch_values(state["harness"], state["model"], str(state["effort"]), cast_catalog())
     explicit = _keys(names, catalog)
     declared = _keys(list(state["units"]), catalog)
+    before = declared | pack_units(catalog, set(state["packs"]))
     enabled = set(state["packs"]) | packs
     wanted = declared | explicit | pack_units(catalog, enabled)
     written = _agent_files(home, state, dry)
@@ -239,7 +272,12 @@ def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: 
         after = read_state(home)
         after["units"], after["packs"] = sorted(declared | explicit), sorted(enabled)
         write_state(home, after)
-    return {"ok": True, "agent": state["name"], "home": str(home), "launch": _launch(state), "written": written, "units": sorted(wanted), "units_removed": [], "unit_files": result, "dry_run": dry}
+    added, packs_on = sorted(wanted - before), sorted(packs - set(state["packs"]))
+    touched = bool(added or packs_on or written or result.get("written") or result.get("deleted"))
+    return {"ok": True, "agent": state["name"], "home": str(home), "launch": _launch(state),
+            "packs": sorted(enabled), "written": (["agent.json"] if touched and not dry else []) + written,
+            "units": sorted(wanted), "units_removed": [], "was": len(before), "added": added,
+            "packs_on": packs_on, "unit_files": result, "dry_run": dry}
 
 
 def update_agent(root: Path, raw: str, scope: str, catalog: dict, dry: bool) -> dict:
@@ -249,18 +287,25 @@ def update_agent(root: Path, raw: str, scope: str, catalog: dict, dry: bool) -> 
     picked, parts = _split_part_keys(wanted)
     result = do_install(home, catalog, picked, [state["harness"]], dry, guidance_basis="none", parts=parts, scope=scope, selected=parts if scope in ("scaffolding", "all") else None)
     written = _agent_files(home, state, dry) if scope != "guidance" else []
-    return {"ok": True, "agent": state["name"], "home": str(home), "launch": _launch(state), "written": written, "units": sorted(wanted), "units_removed": [], "unit_files": result, "dry_run": dry}
+    return {"ok": True, "agent": state["name"], "home": str(home), "launch": _launch(state),
+            "packs": list(state["packs"]), "scope": scope, "written": written,
+            "units": sorted(wanted), "units_removed": [], "unit_files": result, "dry_run": dry}
 
 
 def remove_agent(root: Path, raw: str, names: list[str], packs: set[str], all_units: bool, yes: bool, catalog: dict, dry: bool) -> dict:
-    if all_units and not yes:
-        raise Refuse("confirmation-required", "agent remove --all requires --yes. Review with --dry-run, then run `rbtv install agent remove " + raw + " --all --yes`")
     if not (names or packs or all_units):
         raise Refuse("usage", "agent remove needs a NAME, --pack, or --all")
     home = resolve_agent(root, raw)
     state = agent_state(home)
-    # Validate even a pack being turned off: a typo must not be a silent no-op.
-    pack_units(catalog, packs)
+    if all_units and not yes:
+        pack_part = f", pack {', '.join(state['packs'])}" if state["packs"] else ""
+        before = _keys(list(state["units"]), catalog, state.get("components")) | pack_units(catalog, set(state["packs"]))
+        count = f"{len(before)} unit{'' if len(before) == 1 else 's'}"
+        raise Refuse("confirm-required", f"--all removes every unit from {state['name']} "
+                     f"({count}{pack_part}). Nothing was changed. Re-run with --yes:\n"
+                     f"rbtv agent remove {raw} --all --yes")
+    _unknown_packs(catalog, packs)
+    before = _keys(list(state["units"]), catalog, state.get("components")) | pack_units(catalog, set(state["packs"]))
     removed = set(state["units"]) if all_units else _keys(names, catalog, state.get("components"))
     enabled = set() if all_units else set(state["packs"]) - packs
     explicit = set() if all_units else set(state["units"]) - removed
@@ -273,5 +318,9 @@ def remove_agent(root: Path, raw: str, names: list[str], packs: set[str], all_un
         after = read_state(home)
         after["units"], after["packs"] = sorted(explicit), sorted(enabled)
         write_state(home, after)
-    kept = sorted(path.name for path in home.iterdir()) if not dry else ["agent.md", "agent.json", "settings.json", ".gitignore"]
-    return {"ok": True, "agent": state["name"], "home": str(home), "launch": _launch(state), "written": [], "units": sorted(wanted), "units_removed": sorted(gone), "unit_files": result, "kept": kept, "dry_run": dry}
+    packs_off = sorted(set(state["packs"]) if all_units else set(state["packs"]) & packs)
+    return {"ok": True, "agent": state["name"], "home": str(home), "launch": _launch(state),
+            "packs": sorted(enabled), "written": [], "units": sorted(wanted),
+            "units_removed": sorted(gone), "unit_files": result, "kept": ["agent.md", AGENT_RECORD.name],
+            "dry_run": dry, "was": len(before), "all": all_units, "packs_off": packs_off,
+            "absent_packs": sorted(packs - set(state["packs"]))}
