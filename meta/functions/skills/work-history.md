@@ -49,7 +49,7 @@ Use this layout, creating optional files/directories only when they hold recover
   manifest.json
   timeline.csv                 # full event ledger when needed for a large record
   <agent-label-session-id>/
-    agent.md                   # identity, assignment, sources, limits, file links
+    session.md                 # identity, assignment, sources, limits, file links
     transcript.md              # readable visible record, or explicitly partial export
     events.jsonl               # retained structured visible events when available
     outputs/                   # intermediate and final artifacts
@@ -58,7 +58,7 @@ Use this layout, creating optional files/directories only when they hold recover
     scratch/                   # explicit saved working artifacts
 ```
 
-Keep names valid on Windows and Linux; sanitize labels and timestamp filenames, preserve original names in the manifest, and disambiguate collisions with stable identifiers. Store an artifact once and link from other contributing sessions; distinguish its author from the session that collected it. Keep unresolved attribution explicit rather than assigning ownership from folder proximity. Link every recovered artifact from the relevant `agent.md`; list missing or inaccessible artifacts there with the attempted source and reason.
+Keep names valid on Windows and Linux; sanitize labels and timestamp filenames, preserve original names in the manifest, and disambiguate collisions with stable identifiers. Store an artifact once and link from other contributing sessions; distinguish its author from the session that collected it. Keep unresolved attribution explicit rather than assigning ownership from folder proximity. Link every recovered artifact from the relevant `session.md`; list missing or inaccessible artifacts there with the attempted source and reason.
 
 Write `manifest.json` with `scope`, `collected_at`, `files`, and `gaps`. Each file entry records `path` (relative destination), `source` (original path/export reference and event/version identifier), `session_id` (null if unknown), `kind`, `captured_at`, `source_time` (null if unknown), `bytes`, `sha256`, and `transformation` (copy, filtered export, redaction, or reconstruction). Hash archived bytes with Python `hashlib.sha256` or PowerShell `Get-FileHash`; for unchanged copies also compare the source hash. Exclude the manifest itself from its file entries. Never call a filtered copy byte-identical to its original. **Done when:** each recovered item has a source, attribution status, and preservation classification, and missing items have explicit gap records.
 

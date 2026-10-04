@@ -22,12 +22,12 @@ description: "Run one meeting-summarizer cycle inline, in the current turn: dete
 </role>
 
 <procedure>
-This capability carries no settings of its own — an agent installing it supplies a settings file
+This capability carries no settings of its own — an agent that adds this unit supplies a settings file
 and a state folder, never a value typed into this skill (owner ruling 2026-09-28, "Agent settings
 vs capabilities"). Resolve, ONCE per turn, before step 1:
 
 - **Tools directory** — this capability's own `tools/` folder. Find it by reading `rbtv_path` from
-  the workspace's `rbtv.json` (at the workspace root) and joining `office/meeting-summarizer/tools`.
+  the installation's `rbtv.json` (at the installation root) and joining `office/meeting-summarizer/tools`.
   Call this `<tools>` below.
 - **State directory** — `<agent-home>/state/` (`<agent-home>` is `$RBTV_AGENT_HOME` inside a turn;
   starts empty on a new agent, nothing migrates from a prior instance). `doubts.jsonl`,

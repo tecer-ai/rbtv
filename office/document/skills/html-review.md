@@ -18,4 +18,4 @@ A missing brand pack is non-halting. Fallback to the library's shipped design-sy
 
 ## Supersession
 
-The previously installed personal `html-review` command is RETIRED; this file supersedes it. Its substance split: page rules went into the standards library; the remaining invoke-procedure is this file. After `rbtv add`, agents load the skill generated from this component's `exposure.csv` row. NOTHING continues to load the old seed file or the retired personal command copy.
+The previously installed personal `html-review` command is RETIRED; this file supersedes it. Its substance split: page rules went into the standards library; the remaining invoke-procedure is this file. After `rbtv add office/document#html-review`, each AI tool chosen with `--harness` receives the generated skill; check with `rbtv show office/document#html-review`. NOTHING continues to load the old seed file or the retired personal command copy.

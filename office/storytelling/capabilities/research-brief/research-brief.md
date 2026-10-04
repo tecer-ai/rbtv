@@ -10,7 +10,7 @@ outputs: one or more self-contained briefs, each carrying the six-field schema; 
 
 Storytelling **requests** research. It does not own research seats, web-search tools, or design-extraction tools. It authors self-contained briefs; non-interactive seats elsewhere execute them; findings return keyed to the brief's topics.
 
-This capability is tier 3 with no exposure row, no skill, and no part-id an agent can invoke on its own. It is reached through `narrative-lock` and `visual-strategist`. An agent MUST NEVER invoke this capability on its own.
+This capability is not an rbtv unit: `rbtv search research-brief` finds nothing. The `narrative-lock` and `visual-strategist` skills name it as the way to author their briefs. An agent MUST NEVER invoke this capability on its own.
 
 ## Four purpose types
 
