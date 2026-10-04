@@ -36,4 +36,4 @@ Every new or edited rbtv command-line tool follows the `cli-creator` skill (`met
 
 ## Installed is a subset
 
-An installation carries only the items its user installed, chosen just in time, so a unit missing from an installation is normal, not a defect. Check what is installed with `rbtv list --installed` before treating anything as missing.
+An installation carries only the units its user selected, chosen just in time, so a unit missing from an installation is normal, not a defect. Check what is installed with `rbtv list --installed` before treating anything as missing.

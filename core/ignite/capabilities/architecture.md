@@ -72,7 +72,7 @@ General shape only. Instance ids, token paths, and launch pins are runtime confi
 | File | Content |
 |---|---|
 | `agent.md` | The agent's instructions. Every turn passes this absolute path as `systemPromptFile` on the `ignite turn` request. Ignite does not write a standing-instructions `CLAUDE.md`. rbtv's marked `agent` section and installed units are the instruction files. |
-| `agent.json` | `{ "name", "harness", "model", "effort", "voice"?, "units", "packs" }` — the one agent-wide configuration record. Startup's harness check reads this file, per agent. |
+| `agent.json` | `{ "name", "description", "harness", "model", "effort", "voice"?, "units", "packs" }` — the one agent-wide configuration record. Startup's harness check reads this file, per agent. |
 | `settings.json` | This agent's own settings — see "Capabilities vs settings" below. How install seeds it: see `ignite -h`. |
 | `_artifacts/board.md` | Tracked short-term memory: subjects, watch-outs, generated Timers and Recently closed |
 | `memory/` | Tracked learned rules and topic files, written by the dreamer; `learned.md` is injected every turn |

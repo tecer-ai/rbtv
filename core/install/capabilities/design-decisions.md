@@ -12,7 +12,7 @@ The installer discovers modules and components through their named JSON records 
 
 ## D3 — Source trees and precedence
 
-The installer scans its fixed repository root and the target's `.rbtv/mirror/` together. A mirror component with the same id replaces the shipped component as a whole, and the installer reports what it shadows. This lets a workspace supply its own component without mixing two sources under one id. The selftest also checks that shipped programs with shebangs have executable git modes, so a tool accepted on Windows remains runnable on POSIX.
+The installer scans its fixed repository root and the target's `.rbtv/mirror/` together. A mirror component with the same id replaces the shipped component as a whole, and the installer reports what it shadows. This lets an installation supply its own component without mixing two sources under one id. The selftest also checks that shipped programs with shebangs have executable git modes, so a tool accepted on Windows remains runnable on POSIX.
 
 ## D4 — Receiving harnesses
 
@@ -48,13 +48,13 @@ In a target with a `.git/` folder, the installer maintains its artifact list as 
 
 A skill in the standard shareable format — a `_skills/<name>/` folder with `SKILL.md` and its own files — is read only from an installation's `.rbtv/mirror/`, never from the rbtv repository, and is identified as `_hub/skills/<name>`. It installs as a thin loader in each selected harness's skills folder: the skill's own frontmatter, verbatim so harness-specific keys survive, and a body that points at the source `SKILL.md` and its folder, from which its relative files resolve. The loader is booked in the install record and updated and removed like every other unit. The source folder is never copied or changed, so a skill kept current with `git pull` takes effect at once; a folder copied by an earlier installer is deleted on the next run.
 
-## D16 — Workspace settings
+## D16 — Installation settings
 
-The first `add` requires an explicit harness set and guidance basis, unless `configure` has recorded both. Each component uses the workspace harness set. A change through `configure`, `add|remove harness`, or `add|remove guidance exclude` replans every selected installed component. This makes a narrower setting remove the files it no longer calls for, and keeps settings separate from item selection.
+The first `add` requires an explicit harness set and guidance basis, unless `configure` has recorded both. Each component uses the installation harness set. A change through `configure`, `add|remove harness`, or `add|remove guidance exclude` replans every selected installed component. This makes a narrower setting remove the files it no longer calls for, and keeps settings separate from unit selection.
 
 ## D16b — Settings grammar
 
-Set-valued settings use `add harness`, `remove harness`, `add guidance exclude`, and `remove guidance exclude`; `configure --guidance` replaces the single basis value. Named item selection uses `add` and `remove`. The action leads each command so adding to a set and replacing one value have distinct, readable forms.
+Set-valued settings use `add harness`, `remove harness`, `add guidance exclude`, and `remove guidance exclude`; `configure --guidance` replaces the single basis value. Named unit selection uses `add` and `remove`. The action leads each command so adding to a set and replacing one value have distinct, readable forms.
 
 ## D16c — Saved settings in inspection
 
@@ -70,7 +70,7 @@ On Windows, each PATH tool gets a marked `<name>.cmd` shim and an extensionless 
 
 ## D9c — User PATH
 
-A real install that selects a PATH tool adds `~/.rbtv/bin` to the user's shell startup profiles on POSIX or user PATH on Windows. It leaves that PATH setup in place when a workspace removes its tools. This lets new shells find installed commands and lets the same bin folder serve other workspaces.
+A real install that selects a PATH tool adds `~/.rbtv/bin` to the user's shell startup profiles on POSIX or user PATH on Windows. It leaves that PATH setup in place when an installation removes its tools. This lets new shells find installed commands and lets the same bin folder serve other installations.
 
 ## D10 — Absolute loader paths
 
@@ -86,9 +86,9 @@ Per-unit harness files use an `rbtv-managed` marker in the file, after YAML fron
 
 ## D26 — Public commands and local updates
 
-`configure` records or changes harness and guidance settings; `add` and `remove` change selected items. Public item filters and JSON use `type`; `list` follows exact named scope, `search` matches names and descriptions broadly, and short names resolve only when unique. `show` keeps a stable id and selection, with `scope` for module, component, or item and `type` for an item. These forms make selection inspectable and unambiguous.
+`configure` records or changes harness and guidance settings; `add` and `remove` change selected units. Public unit filters and JSON use `type`; `list` follows exact named scope, `search` matches names and descriptions broadly, and short names resolve only when unique. `show` keeps a stable id and selection, with `scope` for module, component, or unit and `type` for a unit. These forms make selection inspectable and unambiguous.
 
-`update guidance` copies maintained human guidance while preserving generated destination sections. `update scaffolding` regenerates selected installer-owned files and generated instruction sections while preserving human text. `update all` validates both phases before writing. Updates use local source and do not expand the saved selection; a selected unit whose source no longer exists leaves the record, and the report lists it as "removed (source no longer exists)", so the record always matches the installed files. Named removal needs no blanket confirmation; broad nonempty removal requires `--yes`, and dry runs write nothing. `status` shows saved selection without claiming to check health; `doctor` checks files and selected shared shortcuts. These boundaries keep refreshing, inspecting, and checking separate and make broad deletion deliberate.
+`update guidance` copies maintained human guidance while preserving generated destination sections. `update scaffolding` regenerates selected installer-owned files and generated instruction sections while preserving human text. `update all` validates both phases before writing. Updates use local source and do not expand the saved selection; a selected unit, pack, or component whose source no longer exists is removed from the generated files and record by `update scaffolding` or `update all`, as D5 specifies. Named removal needs no blanket confirmation; broad nonempty removal requires `--yes`, and dry runs write nothing. `status` shows saved selection without claiming to check health; `doctor` checks files and selected shared shortcuts. These boundaries keep refreshing, inspecting, and checking separate and make broad deletion deliberate.
 
 ## D27 — The `rbtv` command: verbs, words, help
 
