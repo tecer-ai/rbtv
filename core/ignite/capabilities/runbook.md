@@ -5,10 +5,10 @@ One process per workspace, unit `rbtv-ignite-agents.service`. It runs from the d
 ## Deploy
 
 ```
-RBTV_DEPLOY=<worktree> RBTV_WORKSPACE=<workspace> deploy.sh <commit>
+RBTV_DEPLOY=<worktree> RBTV_INSTALLATION=<workspace> deploy.sh <commit>
 ```
 
-`deploy.sh` is `core/ignite/capabilities/tools/ignite-agent/deploy.sh` in the repo that owns the worktree. It checks the worktree out detached at `<commit>`, fills the unit template (`EnvironmentFile` is `<workspace>/.rbtv/config/env/.env`), `systemctl --user daemon-reload`, restarts `rbtv-ignite-agents.service`, and prints the running commit. Running it again at the same commit is safe. The env file must exist or deploy refuses.
+`deploy.sh` is `core/ignite/capabilities/tools/ignite/deploy.sh` in the repo that owns the worktree. It checks the worktree out detached at `<commit>`, fills the unit template (`EnvironmentFile` is `<workspace>/.rbtv/config/env/.env`), `systemctl --user daemon-reload`, restarts `rbtv-ignite-agents.service`, and prints the running commit. Running it again at the same commit is safe. The env file must exist or deploy refuses.
 
 ## Status
 
@@ -30,7 +30,7 @@ Stop sends SIGTERM. The process stops claiming, logs any in-flight run (`turn-le
 
 ## Agents
 
-Managing an agent's files and launch values uses `rbtv agent`; connecting and disconnecting it uses `ignite-agent connect|disconnect`. Flags: see `ignite-agent -h`.
+Managing an agent's files and launch values uses `rbtv agent`; connecting and disconnecting it uses `ignite connect|disconnect`. Flags: see `ignite -h`.
 
 ## Dreamer
 
@@ -50,10 +50,10 @@ Dreamer ships disabled: omit `dreamer` or keep `"dreamer": { "enabled": false }`
 To consolidate once without waiting for 03:00, and without marking that slot consumed, run:
 
 ```
-ignite-agent dreamer run --workspace <workspace>
+ignite dreamer run --installation <workspace>
 ```
 
-It is one shot: it runs the same quiet-or-consolidation path as the nightly pass, then exits. It does not loop. It takes `.rbtv/runtime/ignite-memory.lock` for the initial work check, each snapshot read and publication, releasing it before every model call. Contention during the initial check prints a busy result and does not start a run. It runs even when `dreamer.enabled` is false, and the result says so. Use it for the owner-present first consolidation, or for a deliberate catch-up, including while the nightly runner is still off. It queues a digest or failure notice on the direct-message agent's outbox; the running daemon delivers that row. It does not confirm delivery itself, so it does not save new reported conflicts. Ordinary daemon outbox delivery saves the thread key but has no conflict metadata. Only a later consolidation whose own digest delivery is confirmed saves those conflicts. The result is one JSON line, including workspace, config, and run-setup failures. Exit 0 means the run finished without an alert or error. A required digest or failure notice that cannot be queued returns `ok: false`, a non-null `error`, and exit 1; this includes a missing `dmAgent` or DM agent store. See `ignite-agent dreamer --help`.
+It is one shot: it runs the same quiet-or-consolidation path as the nightly pass, then exits. It does not loop. It takes `.rbtv/runtime/ignite-memory.lock` for the initial work check, each snapshot read and publication, releasing it before every model call. Contention during the initial check prints a busy result and does not start a run. It runs even when `dreamer.enabled` is false, and the result says so. Use it for the owner-present first consolidation, or for a deliberate catch-up, including while the nightly runner is still off. It queues a digest or failure notice on the direct-message agent's outbox; the running daemon delivers that row. It does not confirm delivery itself, so it does not save new reported conflicts. Ordinary daemon outbox delivery saves the thread key but has no conflict metadata. Only a later consolidation whose own digest delivery is confirmed saves those conflicts. The result is one JSON line, including workspace, config, and run-setup failures. Exit 0 means the run finished without an alert or error. A required digest or failure notice that cannot be queued returns `ok: false`, a non-null `error`, and exit 1; this includes a missing `dmAgent` or DM agent store. See `ignite dreamer --help`.
 
 The JSON result distinguishes `digestQueued` (a consolidation digest was queued) from `noticeQueued` (a failure notice was queued). Both are false for quiet, busy, or setup-failure results, or when enqueueing fails. `delivered` says whether the digest or notice was confirmed delivered; it is always false for the manual command. The daemon's `dreamer-watchdog` JSON log uses the same queue fields for watchdog notices: `digestQueued: false`, `noticeQueued: true` after enqueueing.
 
@@ -69,24 +69,24 @@ When enabled, the existing `rbtv-ignite-agents.service` checks one shared Dreame
 
 A slot is quiet when there is no unread owner row, no due expiry, the inbox is empty, and no watch-out can be folded with available owner thread evidence. The daemon directly updates every configured agent's `lastSuccessAt`, keeping its cursor, commit and reported conflicts unchanged. It calls no model, makes no commit, and posts no digest. Deferred watch-outs stay on the board. Consolidation posts a digest only when files changed or a new conflict appears; `settings.dreamer.reportedConflicts` retains conflicts only when that consolidation confirms its own digest delivery, so saved conflicts are not repeated. Unconfirmed delivery leaves new conflicts unsaved; the next consolidation that finds them reports them again. A quiet slot does not retry consolidation. Digests, failures, and a watchdog warning when the last successful run is older than 48 hours are posted in one persisted thread for the configured direct-message agent. Every confirmed Dreamer outbox delivery, including a manually queued notice delivered by the daemon drain or turn pump, saves its conversation key for later notices. Ensure `dmAgent` remains configured and its home is present before enabling memory consolidation.
 
-Dreamer publication, `remember`, migration and every board write share `.rbtv/runtime/ignite-memory.lock`. Exclusive creation takes the lock; contenders retry with a short backoff for about five seconds, then fail visibly and can be retried. The lock records its holder pid, hostname and unique token. Reclaim requires all three: age greater than 60 seconds, the same hostname, and `process.kill(pid, 0)` failing with `ESRCH` (no such process). A live holder is never displaced; foreign-host or unknown owner records and other liveness errors stay busy. `ignite-agent dreamer run`, the nightly pass and direct consolidation all lock each snapshot read, release before every model call, then reacquire for the unchanged-since-read comparison, writes, commit, cursor updates and any rollback. If files changed meanwhile, publication releases the lock and retries once with a fresh snapshot. The installed runner also locks its initial work check and any quiet success update. No lock spans model calls or outbox delivery. Board writes, `remember` and the board refresh in `schedules-due` hold it only for their own read/modify/write, so they can finish while the model is running. Inbox and board paths must contain ordinary directories/files: symlink or junction parents and leaves are refused, with no-follow opens where supported.
+Dreamer publication, `remember`, migration and every board write share `.rbtv/runtime/ignite-memory.lock`. Exclusive creation takes the lock; contenders retry with a short backoff for about five seconds, then fail visibly and can be retried. The lock records its holder pid, hostname and unique token. Reclaim requires all three: age greater than 60 seconds, the same hostname, and `process.kill(pid, 0)` failing with `ESRCH` (no such process). A live holder is never displaced; foreign-host or unknown owner records and other liveness errors stay busy. `ignite dreamer run`, the nightly pass and direct consolidation all lock each snapshot read, release before every model call, then reacquire for the unchanged-since-read comparison, writes, commit, cursor updates and any rollback. If files changed meanwhile, publication releases the lock and retries once with a fresh snapshot. The installed runner also locks its initial work check and any quiet success update. No lock spans model calls or outbox delivery. Board writes, `remember` and the board refresh in `schedules-due` hold it only for their own read/modify/write, so they can finish while the model is running. Inbox and board paths must contain ordinary directories/files: symlink or junction parents and leaves are refused, with no-follow opens where supported.
 
 Before a commit, a failed memory write restores the original bytes, including when writing, truncating, or closing changed bytes before throwing. Newly created files from the failed run are removed. Rollback preserves later concurrent edits whose bytes differ from those left by the run.
 
 ## Inspect
 
 ```
-ignite-agent --agent <slug> --workspace <workspace> work status
+ignite --agent <slug> --installation <workspace> work status
 ```
 
-Entry point, if the PATH link is not installed yet: `node <deploy>/core/ignite/capabilities/tools/ignite-agent/cli.js`.
+Entry point, if the PATH link is not installed yet: `node <deploy>/core/ignite/capabilities/tools/ignite/cli.js`.
 
 ## Post into an existing thread
 
 Use a full conversation key from the agent's stored history, or its root timestamp when unique:
 
 ```
-ignite-agent --agent <slug> --workspace <workspace> post --thread <team>:<channel>:<root-ts> --text "Check complete"
+ignite --agent <slug> --installation <workspace> post --thread <team>:<channel>:<root-ts> --text "Check complete"
 ```
 
 The command prints `<conversation key> activated` and queues delivery; `--json` returns `conversationKey`, `outboxId`, `clientMsgId`, `activated` and `channel`. Exit 0 means queued, not delivered. The confirmed post joins that thread's history. Unknown or ambiguous targets fail with exit 1 and an error on stderr; use the exact key in this agent's history to resolve ambiguity. Omitting `--thread` starts a new conversation. `--text-file`, `--file` and `--audio` also work with a thread target.
@@ -95,16 +95,16 @@ Each timer wake starts with a new conversation key and harness session, with no 
 
 ## Write or close a board subject
 
-Use `ignite-agent board --help` for the checked form. Copy `<home>/_artifacts/board.md` to a candidate file, edit its subjects or watch-outs, then submit it:
+Use `ignite board --help` for the checked form. Copy `<home>/_artifacts/board.md` to a candidate file, edit its subjects or watch-outs, then submit it:
 
 ```
-ignite-agent --agent <slug> --workspace <workspace> board write --file "board candidate.md"
-ignite-agent --agent <slug> --workspace <workspace> board close "Subject title" "One-line outcome" "[discussion](https://example.com/thread)"
+ignite --agent <slug> --installation <workspace> board write --file "board candidate.md"
+ignite --agent <slug> --installation <workspace> board close "Subject title" "One-line outcome" "[discussion](https://example.com/thread)"
 ```
 
 The close thread is optional. All four sections must be present, even when empty. Keep Timers, Recently closed and existing Flags unchanged in a candidate. New subjects use Flags `none`. `write` reports the board path and whether bytes changed; `close` reports the title and path. `--json` returns `{path, changed, subject?}` on success or `{path, error}` with exit 1 on failure (`path` is null before a home is resolved). Validation refuses malformed or over-cap input without changing the board. Close records a dated outcome; when six closed entries already exist, archive old entries before trying again. No entry is truncated or automatically pruned. Legacy boards require reshaping before using the checked commands; runtime board commands never read or copy the legacy path.
 
-`connect` creates the four-section board at `<home>/_artifacts/board.md` when it is missing. Its working-file setup may copy `<home>/board.md` once, preserving its bytes and leaving the old file untouched. Once the new path exists, Ignite reads and writes only that path. Copying does not reshape an old board. Runtime refresh always leaves a missing board absent, even when a legacy board exists, so turn-start memory recovery can load HEAD or report its absence.
+`connect` first turns on the `ignite` pack through `rbtv agent add <home> --pack ignite`, then creates missing working files: the four-section board at `<home>/_artifacts/board.md`, `state.sqlite`, and `conversations/`, before it makes a Slack request. Its working-file setup may copy `<home>/board.md` once, preserving its bytes and leaving the old file untouched. Once the new path exists, Ignite reads and writes only that path. `disconnect` removes the Slack route and timers first, then turns the pack off through `rbtv agent remove <home> --pack ignite`; it keeps the agent folder and working files.
 
 Schedule add/change/cancel and connection timer binding require an existing, valid `<home>/_artifacts/board.md` and safe write path before opening SQLite. A missing or invalid board refuses with a message naming that path; SQLite remains unchanged, and an absent database is not created. Disconnect timer changes use the same board check before changing schedules. If SQLite commits but the subsequent board refresh fails (including lock contention), the command still exits 0 and reports `<id> committed; board refresh pending`. Disconnect lists all cancelled timer ids. JSON retains the normal success fields (`schedule`, `cancelled`, `scheduleId` or `timers`) and adds `warning` with the same message and id(s). Do not repeat the mutation: the next successful board write/close, schedule tick or turn refreshes from SQLite.
 
@@ -113,7 +113,7 @@ Ignite regenerates the Timers table from schedules after add/change/cancel, conn
 `schedule add --subject "Subject title"` stores an optional subject association; without it, Subject is `none`. Schedule changes and recurring fires preserve the association. For example:
 
 ```
-ignite-agent schedule add --every 1h --note "Check the draft is ready" --subject "Draft review"
+ignite schedule add --every 1h --note "Check the draft is ready" --subject "Draft review"
 ```
 
 The runtime sets subject Flags through `board.js`, using owner replies stored for linked Slack threads. A reply sets `answered YYYY-MM-DD`; after seven elapsed days without another owner reply it becomes `idle since YYYY-MM-DD`, dated from that last reply. With no reply yet, the clock starts at the latest linked thread root. Dates are UTC. A newer owner reply clears idle; bot messages, other users and synthetic transcript rows do not reset it. A subject with several threads uses the latest owner reply across them. Links may use Slack permalinks or a permalink with `thread_ts`; subjects without a dated Slack thread retain their flags. Refresh runs on owner ingress even while the agent is held, and on ticks even when no timer is due. No subject is automatically closed or deleted. A refused runtime refresh preserves the board and reports its failure. Turn-start checks recover broken boards as described below; a valid board whose refresh fails is injected with a visible warning.
@@ -137,8 +137,8 @@ When a file is missing, unreadable or fails its check, Ignite saves readable rej
 ## Remember an owner fact
 
 ```
-ignite-agent remember "Prefers afternoon appointments"
-ignite-agent --agent <slug> --workspace <workspace> remember "Prefers afternoon appointments"
+ignite remember "Prefers afternoon appointments"
+ignite --agent <slug> --installation <workspace> remember "Prefers afternoon appointments"
 ```
 
 `remember` appends one UTF-8 line to `.rbtv/memory/inbox.md` with the UTC date, agent slug and current Slack thread link when available. Newlines in the supplied text become spaces. The shared installation lock and a single append write preserve concurrent agents' lines; an absent inbox starts as a headerless list. Existing bytes are never rewritten, even if the inbox is malformed or missing its final newline. The command never writes `learned.md` and never refuses for length or inbox format. Above 20 bullet lines (lines starting with `- `; headings, blanks and other prose do not count), it queues an owner alert in the current conversation, or the agent's configured channel/DM outside a turn. Alert setup or delivery-queue failure leaves the append successful and produces a visible warning.
@@ -161,8 +161,8 @@ A hold survives ticks and restarts. Set a launch setting that does not use the f
 
 ```
 rbtv agent configure <slug> --harness <harness> --model <cast short name> --effort <rung word>
-ignite-agent --agent <slug> --workspace <workspace> work retry
-ignite-agent --agent <slug> --workspace <workspace> work retry <work-id>
+ignite --agent <slug> --installation <workspace> work retry
+ignite --agent <slug> --installation <workspace> work retry <work-id>
 ```
 
 The setting applies from the next turn in every conversation of that agent.
@@ -179,4 +179,4 @@ Long threads. The prompt carries a bounded recent window (20 messages) plus the 
 
 The unit starts at boot when user lingering is on. Check with `systemctl --user is-enabled rbtv-ignite-agents.service`.
 
-The installer puts `~/.rbtv/bin` on the user shell PATH. `deploy.sh` also keeps its conditional prepend for the service unit, since a boot-time user service may not source a shell profile; it adds the directory only when absent. The installer links `ignite-agent` there. After installing a harness or a tool in a new location, redeploy. Startup refuses to go ready if `ignite-agent` is not on that PATH.
+The installer puts `~/.rbtv/bin` on the user shell PATH. `deploy.sh` also keeps its conditional prepend for the service unit, since a boot-time user service may not source a shell profile; it adds the directory only when absent. The installer links `ignite` there. After installing a harness or a tool in a new location, redeploy. Startup refuses to go ready if `ignite` is not on that PATH.

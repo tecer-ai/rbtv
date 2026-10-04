@@ -46,7 +46,7 @@ ln -s "$(pwd)/3-resources/tools/rbtv/core/cast/capabilities/tools/acct/acct.py" 
 ```
 
 Run from the workspace root. The CLI resolves its workspace by walking up from its own real path
-to the nearest `rbtv.json`, so the symlink works from any cwd; `RBTV_WORKSPACE` overrides.
+to the nearest `rbtv.json`, so the symlink works from any cwd; `RBTV_INSTALLATION` overrides.
 
 ## Which providers can do what
 

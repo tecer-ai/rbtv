@@ -168,7 +168,7 @@ function harness(ctx, setting = {}) {
       store,
       slack,
       audio,
-      castCmd: stubPath,
+      turnCommand: [process.execPath, stubPath],
       castEnv: { FAKE_CAST_CONTROL: controlPath, FAKE_CAST_SEEN: seenPath },
       now: () => now,
       log(fields) { box.logs.push(fields); },
@@ -255,7 +255,7 @@ test('3 failures → hold + one blocker', async (ctx) => {
   const outbox = box.store.pendingOutbox(box.now() + 1);
   assert.equal(outbox.length, 1);
   assert.match(outbox[0].payload.text, /boom-model: refused/);
-  assert.match(outbox[0].payload.text, /ignite-agent work retry/);
+  assert.match(outbox[0].payload.text, /ignite work retry/);
   assert.equal(seen(box).length, 3);
   box.setNow(box.now() + 60_000);
   const again = await runOnce('master', box.deps);
@@ -495,7 +495,7 @@ test('post --thread delivers into the target and joins its next turn history', a
   box.store.recordMessage(key, { id: 'before', role: 'owner', text: 'EARLIER_THREAD_CONTEXT' });
   box.store.setSession(key, 'claude', 'thread-session');
   box.store.upsertConversation({ key: 'schedule:current', agent: 'master', workspace: 'T1', channel: 'C1' });
-  const code = main(['--agent', 'master', '--workspace', workspace, 'post', '--thread', key, '--text', 'CHECK_RESULT'], {
+  const code = main(['--agent', 'master', '--installation', workspace, 'post', '--thread', key, '--text', 'CHECK_RESULT'], {
     env: { RBTV_AGENT_HOME: box.home, IGNITE_CONVERSATION: 'schedule:current' }, stdout() {},
   });
   assert.equal(code, 0);

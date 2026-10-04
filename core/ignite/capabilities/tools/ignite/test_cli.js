@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { Store } = require('./store.js');
-const { main, HELP } = require('./cli.js');
+const { main } = require('./cli.js');
 const { getState } = require('./dreamer.js');
 const { nextCron, FIXED_TZ } = require('./schedule.js');
 const { EMPTY_BOARD, parseBoard, boardPath } = require('./board.js');
@@ -117,7 +117,7 @@ test('cron + tz next-occurrence across a DST change', () => {
 });
 
 test('--every without tz documented as fixed-interval', () => {
-  assert.match(HELP, /fixed-interval/);
+  assert.match(run(['schedule', '-h']).out, /fixed-interval/);
   const home = tempHome();
   fs.mkdirSync(path.dirname(boardPath(home)));
   fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
@@ -406,11 +406,11 @@ test('post help explains thread targeting without requiring a home', () => {
 test('help names connect and disconnect but not retired verbs', () => {
   const result = run(['--help']);
   assert.equal(result.code, 0);
-  assert.match(result.out, /connect <agent>/);
-  assert.match(result.out, /disconnect <agent>/);
+  assert.match(result.out, /ignite connect AGENT/);
+  assert.match(result.out, /ignite disconnect AGENT/);
   assert.doesNotMatch(result.out, /\binstall\b|\bupdate\b|\bsettings\b/);
-  assert.doesNotMatch(result.out, /ignite-agent create/);
-  assert.match(HELP, /fixed-interval/);
+  assert.doesNotMatch(result.out, /ignite create/);
+  assert.match(run(['schedule', '-h']).out, /fixed-interval/);
 });
 
 test('retired verbs are unknown', () => {
@@ -522,7 +522,7 @@ test('board rejects invalid arguments, missing input and missing home', () => {
 });
 
 test('board help works before and after every command depth without context or writes', () => {
-  assert.match(run(['--help']).out, /board write --file/);
+  assert.match(run(['board', '--help']).out, /board write --file/);
   for (const args of [[], ['write'], ['close'], ['close', 'Subject', 'Outcome']]) {
     for (const flag of ['--help', '-h']) {
       for (const argv of [[flag, 'board', ...args], ['board', flag, ...args], ['board', ...args, flag]]) {
@@ -554,11 +554,11 @@ test('board resolves explicit workspace and gives RBTV_AGENT_HOME precedence', (
   boardFixture(({ root, home, candidate, file, deps }) => {
     const workspace = path.join(root, 'workspace');
     const other = writeConfig(workspace, 'other', {});
-    const selected = run(['--agent', 'other', '--workspace', workspace, 'board', 'write', '--file', candidate], { env: {} });
+    const selected = run(['--agent', 'other', '--installation', workspace, 'board', 'write', '--file', candidate], { env: {} });
     assert.equal(selected.code, 0);
     assert.ok(fs.existsSync(boardPath(other)));
     assert.equal(fs.existsSync(file), false);
-    const overridden = run(['--agent', 'other', '--workspace', workspace, 'board', 'write', '--file', candidate], deps);
+    const overridden = run(['--agent', 'other', '--installation', workspace, 'board', 'write', '--file', candidate], deps);
     assert.equal(overridden.code, 0);
     assert.ok(fs.existsSync(file));
     assert.equal(fs.existsSync(path.join(home, 'state.sqlite')), false);
@@ -635,7 +635,7 @@ test('schedule subjects and generated timers survive changes and dues; cancellat
       assert.throws(() => run(['schedule', 'add', '--every', '1h', '--note', 'x', '--subject', subject], deps), /--subject/);
     }
     assert.equal(store.listSchedules().length, 1);
-    assert.match(HELP, /--subject <title>/);
+    assert.match(run(['schedule', '--help']).out, /--subject <title>/);
   } finally { store.close(); fs.rmSync(home, { recursive: true, force: true }); }
 });
 
@@ -764,7 +764,7 @@ test('remember succeeds after append even if the owner alert cannot be queued', 
 });
 
 test('remember help at every position needs no home; failures are structured and leave no append', () => {
-  assert.match(run(['--help']).out, /remember <text>/);
+  assert.match(run(['remember', '--help']).out, /remember <text>/);
   for (const args of [['--help', 'remember'], ['remember', '--help'], ['remember', 'fact', '-h']]) {
     const result = run(args, { env: {} });
     assert.equal(result.code, 0);
@@ -803,7 +803,7 @@ test('remember executable resolves installation outside cwd and reports real wri
     assert.equal(plain.stdout, '');
     assert.match(plain.stderr, /requires <text>/);
     fs.rmSync(file, { recursive: true });
-    const selected = run(['--agent', 'sample', '--workspace', workspace, 'remember', 'Explicit selection'], { env: {} });
+    const selected = run(['--agent', 'sample', '--installation', workspace, 'remember', 'Explicit selection'], { env: {} });
     assert.equal(selected.code, 0);
     assert.match(fs.readFileSync(file, 'utf8'), /Explicit selection/);
   } finally { fs.rmSync(workspace, { recursive: true, force: true }); }
@@ -1025,14 +1025,14 @@ async function finishCli() {
     const disabled = dreamerInstall(false);
     const enabled = dreamerInstall(true);
     try {
-      const off = await runAsync(['--workspace', disabled.dir, 'dreamer', 'run']);
+      const off = await runAsync(['--installation', disabled.dir, 'dreamer', 'run']);
       assert.equal(calls, 1);
       assert.equal(off.code, 0, off.err);
       assert.equal(off.out.split('\n').length, 2);
       const offBody = JSON.parse(off.out);
       assert.equal(offBody.enabled, false);
       assert.match(offBody.note, /dreamer.enabled is false; ran because this command was called/);
-      const on = await runAsync(['--workspace', enabled.dir, 'dreamer', 'run']);
+      const on = await runAsync(['--installation', enabled.dir, 'dreamer', 'run']);
       assert.equal(calls, 2);
       assert.equal(JSON.parse(on.out).note, null);
       assert.equal(JSON.parse(on.out).enabled, true);
@@ -1047,7 +1047,7 @@ async function finishCli() {
     const { dir, home } = dreamerInstall(false);
     addOwner(home);
     try {
-      const result = await runAsync(['--workspace', dir, 'dreamer', 'run'], {
+      const result = await runAsync(['--installation', dir, 'dreamer', 'run'], {
         now: () => Date.parse('2026-10-01T12:00:00Z'),
         runDreamer: async () => ({
           ok: true, changed: true, alert: null,
@@ -1080,7 +1080,7 @@ async function finishCli() {
     const { dir, home } = dreamerInstall(false);
     addOwner(home);
     try {
-      const result = await runAsync(['--workspace', dir, 'dreamer', 'run'], {
+      const result = await runAsync(['--installation', dir, 'dreamer', 'run'], {
         runDreamer: async () => ({ ok: false, changed: false, digest: null, alert: 'Dreamer failed: model failed: Insufficient credits.' }),
       });
       assert.equal(result.code, 1); assert.equal(result.err, '');
@@ -1110,7 +1110,7 @@ async function finishCli() {
       const file = path.join(dir, '.rbtv', 'config', 'ignite', 'config.json');
       const config = JSON.parse(fs.readFileSync(file, 'utf8')); config.tools.cast = cast;
       fs.writeFileSync(file, JSON.stringify(config), 'utf8');
-      const result = await runAsync(['--workspace', dir, 'dreamer', 'run']);
+      const result = await runAsync(['--installation', dir, 'dreamer', 'run']);
       assert.equal(result.code, 1); assert.equal(result.err, '');
       assert.equal(result.out.split('\n').length, 2);
       const body = JSON.parse(result.out);
@@ -1130,7 +1130,7 @@ async function finishCli() {
   await testAsync('quiet dreamer run reports neither a digest nor a notice queued', async () => {
     const { dir } = dreamerInstall(false);
     try {
-      const result = await runAsync(['--workspace', dir, 'dreamer', 'run']);
+      const result = await runAsync(['--installation', dir, 'dreamer', 'run']);
       const body = JSON.parse(result.out);
       assert.equal(result.code, 0); assert.equal(body.quiet, true);
       assert.equal(body.digestQueued, false); assert.equal(body.noticeQueued, false);
@@ -1146,7 +1146,7 @@ async function finishCli() {
     store.close();
     const release = acquireMemoryLock(dir);
     try {
-      const result = await runAsync(['--workspace', dir, 'dreamer', 'run'], {
+      const result = await runAsync(['--installation', dir, 'dreamer', 'run'], {
         runDreamer: async () => { throw new Error('must not run'); },
       });
       assert.equal(result.code, 1);
@@ -1183,7 +1183,7 @@ async function finishCli() {
       }
       let calls = 0;
       try {
-        const result = await runAsync(['--workspace', dir, 'dreamer', 'run'], {
+        const result = await runAsync(['--installation', dir, 'dreamer', 'run'], {
           runDreamer: async () => {
             calls++;
             return notice === 'digest'
@@ -1219,7 +1219,7 @@ async function finishCli() {
         fs.writeFileSync(path.join(dir, '.rbtv', 'runtime'), 'not a directory\n', 'utf8');
       }
       try {
-        const result = spawnSync(process.execPath, [path.join(__dirname, 'cli.js'), 'dreamer', 'run', '--workspace', target], {
+        const result = spawnSync(process.execPath, [path.join(__dirname, 'cli.js'), 'dreamer', 'run', '--installation', target], {
           encoding: 'utf8', env: { ...process.env, RBTV_AGENT_HOME: '', NODE_NO_WARNINGS: '1' },
         });
         assert.equal(result.status, 1);

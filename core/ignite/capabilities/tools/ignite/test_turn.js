@@ -6,9 +6,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { validate, argvFor, parseSessionEvents, buildResult } = require('./lib/turn');
+const { validate, argvFor, parseSessionEvents, buildResult } = require('./turn.js');
 
-const TOOL = path.join(__dirname, 'cast.js');
+const TOOL = path.join(__dirname, 'cli.js');
 const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-turn-'));
 
 function base(over = {}) {
@@ -370,7 +370,7 @@ process.exit(0);
 
 // F2: one throwing lookup. validate must not exit the process on an unknown model.
 {
-  const { lookupModel } = require('./lib/core');
+  const { lookupModel } = require('../../../../cast/capabilities/tools/cast/lib/core');
   assert.strictEqual(lookupModel('claude', 'sonnet-5').modelId, 'claude-sonnet-5');
   assert.throws(() => lookupModel('claude', 'no-such'), /unknown claude model/);
   assert.throws(() => lookupModel('nope', 'sonnet-5'), /unknown harness/);
@@ -378,7 +378,7 @@ process.exit(0);
 
 // The agent's standing prompt rides each harness's strongest channel.
 {
-  const { stdinFor } = require('./lib/turn');
+  const { stdinFor } = require('./turn.js');
   const file = path.join(cwd, 'agent.md');
   fs.writeFileSync(file, '# Role\nYou are the agent.\n');
   const sys = (over) => validate({ ...base(), systemPromptFile: file, ...over });

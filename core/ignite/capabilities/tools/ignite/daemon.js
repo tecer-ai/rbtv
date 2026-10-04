@@ -115,14 +115,14 @@ function namedHarnesses(config) {
 function assertHarnesses(config) {
   const pathEnv = process.env.PATH || '';
   const missing = namedHarnesses(config).filter((name) => !resolveHarness(name, pathEnv));
-  const tool = resolveHarness('ignite-agent', pathEnv);
+  const tool = resolveHarness('ignite', pathEnv);
   if (!missing.length && tool) return;
   for (const harness of missing) {
     log({ event: 'error', harness, path: pathEnv, message: `harness not on PATH: ${harness}` });
   }
-  if (!tool) log({ event: 'error', tool: 'ignite-agent', path: pathEnv, message: 'ignite-agent not on PATH' });
+  if (!tool) log({ event: 'error', tool: 'ignite', path: pathEnv, message: 'ignite not on PATH' });
   const parts = missing.map((name) => `harness not on PATH: ${name}`);
-  if (!tool) parts.push('ignite-agent not on PATH');
+  if (!tool) parts.push('ignite not on PATH');
   const error = new Error(parts.join('; '));
   error.exitCode = 1;
   throw error;
@@ -372,23 +372,23 @@ function parseArgs(argv) {
   let workspace = null;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === '--workspace') {
+    if (arg === '--installation') {
       workspace = argv[i + 1];
-      if (!workspace || workspace.startsWith('--')) throw new Error('--workspace requires a path');
+      if (!workspace || workspace.startsWith('--')) throw new Error('--installation requires a path');
       i += 1;
     } else if (arg === '--help' || arg === '-h') {
-      process.stdout.write('usage: daemon.js --workspace <path>\n');
+      process.stdout.write('usage: daemon.js --installation <path>\n');
       process.exit(0);
     } else {
       throw new Error(`unknown argument: ${arg}`);
     }
   }
-  if (!workspace) throw new Error('--workspace required');
+  if (!workspace) throw new Error('--installation required');
   return { workspace: path.resolve(workspace) };
 }
 
 async function start(opts = {}) {
-  if (!opts.workspace) throw new Error('--workspace required');
+  if (!opts.workspace) throw new Error('--installation required');
   const workspace = path.resolve(opts.workspace);
   const lockPath = opts.lockPath || path.join(workspace, '.rbtv', 'agents', '.daemon.lock');
   const held = acquireLock(lockPath);
@@ -455,7 +455,7 @@ async function startLocked(opts, workspace, held) {
       store,
       slack,
       audio,
-      castCmd: opts.castCmd || config.tools.cast,
+      turnCommand: opts.turnCommand,
       castEnv: opts.castEnv,
       now: opts.now,
       log(fields) { log({ slug, ...fields }); },
@@ -605,7 +605,7 @@ async function startLocked(opts, workspace, held) {
       const out = [];
       try {
         cli.main([
-          '--workspace', workspace,
+          '--installation', workspace,
           '--agent', slug,
           '--json',
           'schedules-due',

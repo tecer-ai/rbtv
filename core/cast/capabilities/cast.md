@@ -12,7 +12,7 @@ cast <harness> <model> <effort 1-5> [launch-folder] (-p TEXT | -f FILE) [-s TEXT
 cast -ig AGENT (-p TEXT | -f FILE) [--headed] [--dry-run]
 cast resume <harness> <session-id|last> [launch-folder] (-p TEXT | -f FILE) [--dry-run]
 cast sessions [harness] [launch-folder] [--json] [-n N]
-cast turn --request FILE --result FILE
+ignite turn --request FILE --result FILE
 cast api <model> <effort 1-5> (-p TEXT | -f FILE) --output-folder DIR [--image [--input-image PATH ...]] [--target-file PATH] [--timeout N] [--grounded] [--extra-params JSON] [--dry-run]
 cast route --access open|bounded --type code|text --class planner|broad|bounded|mechanical --optimize price|quality [--caps image] [--explain]
 cast route --caps image
@@ -81,44 +81,8 @@ are per-invocation, not per-session. The resumed session keeps its own model/eff
 wrapper blocks skipped) — for cast-launched sessions that is the `-p` prompt itself. Known ceiling: two same-harness sessions launched into the same folder
 in the same minute are distinguishable only by trying them — no id is captured at birth (codex and
 opencode only surface theirs inside their `--json` output streams, which cast passes through
-untouched). `cast turn` is the exception: it returns an exact id for that invocation (see below).
+untouched). `ignite turn` is the exception: it returns an exact id for that invocation (see below).
 
-## `cast turn`
-
-`cast turn --request FILE --result FILE` runs one foreground harness turn for a caller that owns many independent conversations in one folder. The caller persists the returned `sessionId` with its own conversation key. This verb never resolves `last` and never picks the newest session in a folder.
-
-Request JSON:
-
-| Field | Required | Meaning |
-|---|---|---|
-| `harness` | yes | `claude`, `codex`, or `opencode` |
-| `model` | yes | short name or the harness-native id |
-| `effort` | yes | integer 1-5 (clamped onto that model's ladder) or a native rung word |
-| `cwd` | yes | existing absolute directory; the child's working directory |
-| `prompt` | one of | prompt text. Exactly one of `prompt` and `promptFile` |
-| `promptFile` | one of | path to a file whose contents are the prompt |
-| `session` | yes | `{"mode":"new"}` or `{"mode":"resume","id":"<exact id>"}` |
-| `env` | no | string map merged over the process environment for that child. `PWD` is then set to `cwd` and cannot be overridden — OpenCode records its project directory from `PWD`, not from the spawn chdir |
-
-`mode: "new"` rejects an `id` (the verb mints or discovers the id itself). `mode: "resume"` requires an exact nonempty `id` and refuses `last`. Resume passes the requested model and effort on that invocation. `cast resume` does not — it leaves the session's own settings — and is the wrong verb when the caller changed them.
-
-Result JSON is written atomically (temp file in the same directory, then rename, mode `0600`) even when the turn fails:
-
-`ok`, `harness`, `model` (short name), `effort` (the rung actually passed, or null when the ladder is inert), `sessionId`, `exitCode`, `startedAt`, `endedAt` (ISO-8601), `pid`, `pidStart`, `stdoutPath`, `stderrPath`, and `error` only when `ok` is false.
-
-`pid` is the child. `pidStart` is field 22 of `/proc/<pid>/stat` (start time in clock ticks), read while that process is alive, so a later observer can tell that pid from a reused one. Both are null when the child never started. `stdoutPath` and `stderrPath` are `<result>.stdout` and `<result>.stderr`. They are null when no child was spawned. Persist `sessionId` only when `ok` is true.
-
-`cast turn` exits 0 when `ok` is true, 1 when a result file was written and `ok` is false, and 2 when the arguments are wrong and no result file could be written. The child's own status is `exitCode`.
-
-Session identity is per harness, and it is never a folder-wide "last session" lookup:
-
-| Harness | New | Resume |
-|---|---|---|
-| claude | mint a UUID and pass `--session-id`. That UUID is `sessionId`. If stdout JSON reports a different `session_id`, the turn fails rather than guessing | `--resume <id>` plus `--model` and `--effort` |
-| codex | `exec --json`; `sessionId` is `thread_id` from a `thread.started` event. No event is a failure, not a guess | `exec resume <id> -m <model> -c model_reasoning_effort=<rung> --json`. The event must echo the same id |
-| opencode | a unique `--title` tag (`cast-turn:<uuid>`). `sessionId` is the store row whose title equals that tag. A missing row is a failure | `run -s <id> -m <model> --variant <rung>` |
-
-Machine-output flags (`--output-format json`, `--json`, `--format json`) are used only by this verb, so the captured stdout file can be parsed. Bare `cast` launches still inherit stdio and do not pass those flags.
 
 ## Agent launches (`-ig`, `-rg`)
 
@@ -157,7 +121,7 @@ The system prompt rides each harness's strongest channel, the same as `-s TEXT`/
 `-s`/`-S` cannot be combined with `-ig`/`-rg`. Every Codex launch also passes
 `-c project_doc_max_bytes=131072`, because rules reach Codex as full text in `AGENTS.md`.
 
-`cast turn` takes its standing prompt the same way: the `systemPromptFile` in its request is read
+`ignite turn` takes its standing prompt the same way: the `systemPromptFile` in its request is read
 with its frontmatter removed, and the model receives the body only.
 
 ## spark — open an agent for a person
@@ -180,7 +144,7 @@ written to the child's stdin and stdin is then closed. Stdout/stderr are inherit
 exits with the child's exit code.
 
 **Output format is deliberately the harness default — no `--output-format`/`--json` flag on a bare
-launch (owner-ruled 1a, 2026-08-18, closing a measured divergence with ignite).** `cast turn` is the exception: it captures stdout to a file and passes those flags so it can read an exact session id. The contract for every other verb is
+launch (owner-ruled 1a, 2026-08-18, closing a measured divergence with ignite).** `ignite turn` is the exception: it captures stdout to a file and passes those flags so it can read an exact session id. The contract for every other verb is
 "child stdout IS the plain-text completion report", and callers rely on it. Consequences and
 rationale, per harness: codex and opencode stream their output natively, so their logs grow live;
 **claude's `-p` buffers stdout until exit — a claude launch's log is 0 bytes for the entire run
@@ -447,7 +411,7 @@ dotenv at `rbtv.json`'s `env_file`.
 | `capabilities/tools/cast/catalog.js` | LAUNCH mechanics only — harness-native id, effort ladder, auth (see Spec source) |
 | `capabilities/tools/cast/models.csv` | the routing table — level, scores, cost, image. Owner-editable; overridable per vault. Lives beside this tool so routing does not depend on any other tree |
 | `capabilities/tools/cast/lib/core.js` | shared primitives: argv parsing, model/effort/folder resolution, the model table, `doctor`, `list` |
-| `capabilities/tools/cast/lib/turn.js` | `cast turn` — exact session id, resume with the requested model/effort, result file |
+| `core/ignite/capabilities/tools/ignite/turn.js` | `ignite turn` — exact session id, resume with the requested model/effort, result file |
 | `capabilities/tools/cast/lib/handles.js` | the launch-handle registry — the one observable a watcher uses to find a run again |
 | `capabilities/tools/cast/lib/launch.js` | spawn, `cast resume` |
 | `capabilities/tools/cast/lib/agent.js` | `-ig` / `-rg`: find the agent folder, read `agent.json` and `agent.md`; the readers spark also uses |

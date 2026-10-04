@@ -2,9 +2,9 @@
 
 // API
 // runOnce(slug, deps) → one claimed turn, or a refusal / empty claim.
-//   deps: { home, store, slack?, audio?, castCmd?, castEnv?, historyWindow?, now?, log? }
+//   deps: { home, store, slack?, audio?, turnCommand?, castEnv?, historyWindow?, now?, log? }
 //   Refuses when liveRun() matches a live pid. A running row that is not live is failRun'd
-//   (recovery) before the next claim. cast turn cwd is realpath(home). Same harness + stored
+//   (recovery) before the next claim. ignite turn cwd is realpath(home). Same harness + stored
 //   session id resumes that id; a harness change or no id starts a new session and the prompt
 //   carries stored history and work state. Every cast request includes systemPromptFile
 //   <home>/agent.md (absolute). This file does not read or require CLAUDE.md.
@@ -323,7 +323,10 @@ async function execute(slug, claim, deps) {
   };
   fs.writeFileSync(requestPath, JSON.stringify(request));
 
-  const child = spawn(deps.castCmd || 'cast', ['turn', '--request', requestPath, '--result', launcherPath], {
+  // Production always starts this tool's local `turn`; a test may replace that
+  // program without changing the production command lookup contract.
+  const turnCommand = deps.turnCommand || [process.execPath, path.join(__dirname, 'cli.js'), 'turn'];
+  const child = spawn(turnCommand[0], [...turnCommand.slice(1), '--request', requestPath, '--result', launcherPath], {
     cwd: home,
     env: { ...process.env, ...deps.castEnv },
     stdio: ['ignore', 'ignore', 'ignore'],

@@ -132,7 +132,7 @@ async function run(argv, extra = {}) {
     const secret = 'xoxb-do-not-print';
     process.env.SLACK_BOT_TOKEN = secret;
     try {
-      const result = await run(['connect', 'probe', '--channel-name', 'probe', '--workspace', dir], { slack });
+      const result = await run(['connect', 'probe', '--channel-name', 'probe', '--installation', dir], { slack });
       assert.equal(result.code, 0, result.out + result.err);
       assert.equal(result.out.includes(secret), false);
       assert.equal(readConfig(dir).routes.CNEW, 'probe');
@@ -152,7 +152,7 @@ async function run(argv, extra = {}) {
     writeConfig(dir);
     installAgent(dir);
     const slack = fakeSlack();
-    const result = await run(['connect', 'probe', '--dm', '--workspace', dir, '--json'], { slack });
+    const result = await run(['connect', 'probe', '--dm', '--installation', dir, '--json'], { slack });
     assert.equal(result.code, 0, result.out + result.err);
     const body = JSON.parse(result.out);
     assert.equal(body.dmAgent, 'probe');
@@ -170,7 +170,7 @@ async function run(argv, extra = {}) {
     fs.writeFileSync(schedule, JSON.stringify({ cron: '0 9 * * 1', tz: 'UTC', note: 'read the board' }));
     const slack = fakeSlack();
     const result = await run([
-      'connect', 'probe', '--channel-name', 'probe', '--schedule-json', schedule, '--workspace', dir,
+      'connect', 'probe', '--channel-name', 'probe', '--schedule-json', schedule, '--installation', dir,
     ], { slack, now: () => Date.parse('2026-10-01T12:00:00Z') });
     assert.equal(result.code, 0, result.out + result.err);
     const board = fs.readFileSync(boardPath(home), 'utf8');
@@ -197,7 +197,7 @@ async function run(argv, extra = {}) {
     fs.writeFileSync(path.join(home, 'board.md'), 'invalid legacy board', 'utf8');
     const schedule = path.join(dir, 'schedule.json');
     fs.writeFileSync(schedule, JSON.stringify({ every: '1h', tz: 'fixed', note: 'First check' }), 'utf8');
-    const args = ['connect', 'probe', '--dm', '--schedule-json', schedule, '--workspace', dir, '--json'];
+    const args = ['connect', 'probe', '--dm', '--schedule-json', schedule, '--installation', dir, '--json'];
     const deps = { slack: fakeSlack(), now: () => Date.parse('2026-10-01T12:00:00Z') };
     // Numeric intervals in connection files use the same elapsed-time cadence as the CLI.
     const first = await run(args, deps);
@@ -219,7 +219,7 @@ async function run(argv, extra = {}) {
     const home = installAgent(dir);
     fs.unlinkSync(boardPath(home));
     fs.writeFileSync(path.join(home, 'board.md'), 'invalid legacy board', 'utf8');
-    const result = await run(['connect', 'probe', '--dm', '--workspace', dir], { slack: fakeSlack() });
+    const result = await run(['connect', 'probe', '--dm', '--installation', dir], { slack: fakeSlack() });
     assert.equal(result.code, 0);
     assert.equal(fs.existsSync(boardPath(home)), true);
   });
@@ -246,11 +246,11 @@ async function run(argv, extra = {}) {
         const schedule = path.join(dir, 'schedule.json');
         fs.writeFileSync(schedule, JSON.stringify({ every: '2h', tz: 'fixed', note: 'Changed' }), 'utf8');
         if (state === 'deleted') {
-          const result = await run(['connect', 'probe', '--dm', '--schedule-json', schedule, '--workspace', dir], { slack: fakeSlack() });
+          const result = await run(['connect', 'probe', '--dm', '--schedule-json', schedule, '--installation', dir], { slack: fakeSlack() });
           assert.equal(result.code, 0, result.out + result.err);
           assert.equal(fs.existsSync(file), true);
         } else {
-          await assert.rejects(() => run(['connect', 'probe', '--dm', '--schedule-json', schedule, '--workspace', dir], { slack: fakeSlack() }),
+          await assert.rejects(() => run(['connect', 'probe', '--dm', '--schedule-json', schedule, '--installation', dir], { slack: fakeSlack() }),
             (error) => error.message.includes(`board refused: ${file}: `));
           if (existing) assert.deepEqual(fs.readFileSync(db), before);
           assert.equal(fs.readFileSync(file, 'utf8'), 'invalid board café\r\n');
@@ -272,7 +272,7 @@ async function run(argv, extra = {}) {
       else fs.writeFileSync(boardPath(home), 'invalid board', 'utf8');
       const schedule = path.join(dir, 'schedule.json');
       fs.writeFileSync(schedule, JSON.stringify({ every: '1h', tz: 'fixed', note: 'Check' }), 'utf8');
-      await assert.rejects(() => run(['disconnect', 'probe', '--workspace', dir], { slack: fakeSlack() }), /board refused/);
+      await assert.rejects(() => run(['disconnect', 'probe', '--installation', dir], { slack: fakeSlack() }), /board refused/);
       assert.deepEqual(store.listSchedules(), before);
     } finally { store.close(); fs.rmSync(dir, { recursive: true, force: true }); }
   });
@@ -284,7 +284,7 @@ async function run(argv, extra = {}) {
       const home = installAgent(dir);
       const schedule = path.join(dir, 'schedule.json');
       fs.writeFileSync(schedule, JSON.stringify({ every: '1h', tz: 'fixed', note: 'Original' }), 'utf8');
-      const args = ['connect', 'probe', '--dm', '--schedule-json', schedule, '--workspace', dir];
+      const args = ['connect', 'probe', '--dm', '--schedule-json', schedule, '--installation', dir];
       const deps = { slack: fakeSlack() };
       const store = new Store(path.join(home, 'state.sqlite'));
       const method = action === 'cancel' ? 'deleteSchedule' : 'upsertSchedule';
@@ -305,7 +305,7 @@ async function run(argv, extra = {}) {
           else fs.writeFileSync(boardPath(home), 'changed to invalid after preflight', 'utf8');
           return result;
         };
-        const result = await run([...(action === 'cancel' ? ['disconnect', 'probe', '--workspace', dir] : args), ...(json ? ['--json'] : [])], deps);
+        const result = await run([...(action === 'cancel' ? ['disconnect', 'probe', '--installation', dir] : args), ...(json ? ['--json'] : [])], deps);
         assert.equal(result.code, 0);
         assert.equal(result.err, '');
         const rows = store.listSchedules();
@@ -346,9 +346,9 @@ async function run(argv, extra = {}) {
     writeConfig(dir);
     installAgent(dir);
     const slack = fakeSlack();
-    const first = await run(['connect', 'probe', '--channel-name', 'probe', '--workspace', dir], { slack });
+    const first = await run(['connect', 'probe', '--channel-name', 'probe', '--installation', dir], { slack });
     assert.equal(first.code, 0, first.out + first.err);
-    const second = await run(['connect', 'probe', '--channel-name', 'probe', '--workspace', dir], { slack });
+    const second = await run(['connect', 'probe', '--channel-name', 'probe', '--installation', dir], { slack });
     assert.equal(second.code, 0, second.out + second.err);
     assert.equal(slack.calls.filter((call) => call[0] === 'create').length, 1);
     assert.equal(readConfig(dir).routes.CNEW, 'probe');
@@ -360,7 +360,7 @@ async function run(argv, extra = {}) {
     writeConfig(dir);
     installAgent(dir);
     const slack = fakeSlack();
-    const first = await run(['connect', 'probe', '--channel-name', 'probe', '--workspace', dir], {
+    const first = await run(['connect', 'probe', '--channel-name', 'probe', '--installation', dir], {
       slack,
       afterChannel() {
         const error = new Error('injected');
@@ -372,7 +372,7 @@ async function run(argv, extra = {}) {
     assert.deepEqual(readConfig(dir).routes, { CNEW: 'probe' });
     assert.equal(fs.existsSync(path.join(dir, '.rbtv', 'agents', 'probe', 'setup.json')), false);
     assert.equal(slack.calls.filter((call) => call[0] === 'create').length, 1);
-    const second = await run(['connect', 'probe', '--channel-name', 'probe', '--workspace', dir], { slack });
+    const second = await run(['connect', 'probe', '--channel-name', 'probe', '--installation', dir], { slack });
     assert.equal(second.code, 0, second.out + second.err);
     assert.equal(slack.calls.filter((call) => call[0] === 'create').length, 1);
     assert.equal(readConfig(dir).routes.CNEW, 'probe');
@@ -386,10 +386,10 @@ async function run(argv, extra = {}) {
     fs.writeFileSync(schedule, JSON.stringify({ cron: '0 9 * * 1', tz: 'UTC', note: 'read the board' }));
     const slack = fakeSlack();
     const created = await run([
-      'connect', 'probe', '--channel-name', 'probe', '--schedule-json', schedule, '--workspace', dir,
+      'connect', 'probe', '--channel-name', 'probe', '--schedule-json', schedule, '--installation', dir,
     ], { slack });
     assert.equal(created.code, 0, created.out + created.err);
-    const removed = await run(['disconnect', 'probe', '--archive-channel', '--workspace', dir], { slack });
+    const removed = await run(['disconnect', 'probe', '--archive-channel', '--installation', dir], { slack });
     assert.equal(removed.code, 0, removed.out + removed.err);
     assert.deepEqual(readConfig(dir).routes, {});
     assert.equal(readConfig(dir).dmAgent, undefined);
@@ -411,9 +411,9 @@ async function run(argv, extra = {}) {
     writeConfig(dir);
     installAgent(dir);
     const slack = fakeSlack();
-    const created = await run(['connect', 'probe', '--dm', '--workspace', dir], { slack });
+    const created = await run(['connect', 'probe', '--dm', '--installation', dir], { slack });
     assert.equal(created.code, 0, created.out + created.err);
-    const removed = await run(['disconnect', 'probe', '--workspace', dir], { slack });
+    const removed = await run(['disconnect', 'probe', '--installation', dir], { slack });
     assert.equal(removed.code, 0, removed.out + removed.err);
     assert.equal(readConfig(dir).dmAgent, undefined);
     assert.equal(slack.calls.some((call) => call[0] === 'archive'), false);
@@ -439,7 +439,7 @@ async function run(argv, extra = {}) {
     const oldPath = process.env.PATH;
     process.env.PATH = `${bin}${path.delimiter}${oldPath}`;
     try {
-      const result = await run(['connect', 'probe', '--dm', '--workspace', dir, '--dry-run'], { realInstaller: true });
+      const result = await run(['connect', 'probe', '--dm', '--installation', dir, '--dry-run'], { realInstaller: true });
       assert.equal(result.code, 0, result.out + result.err);
       assert.match(result.out, /pack: ignite/);
       assert.match(result.out, /units: 0 -> 9/);
@@ -458,7 +458,7 @@ async function run(argv, extra = {}) {
     const calls = [];
     const slack = fakeSlack();
     const before = fs.readFileSync(path.join(home, 'agent.json'), 'utf8');
-    const result = await run(['connect', 'probe', '--channel-name', 'probe', '--workspace', dir, '--dry-run'], {
+    const result = await run(['connect', 'probe', '--channel-name', 'probe', '--installation', dir, '--dry-run'], {
       install: fakeInstaller(calls), slack,
     });
     assert.equal(result.code, 0, result.out + result.err);
@@ -475,8 +475,8 @@ async function run(argv, extra = {}) {
     fs.writeFileSync(path.join(outside, 'agent.md'), '---\nname: agent\n---\n');
     fs.writeFileSync(path.join(outside, 'agent.json'), '{}\n');
     const args = command === 'connect'
-      ? [command, outside, '--dm', '--workspace', dir]
-      : [command, outside, '--workspace', dir];
+      ? [command, outside, '--dm', '--installation', dir]
+      : [command, outside, '--installation', dir];
     const error = await run(args).catch((caught) => caught);
     assert.match(error.message, /not under/);
     assert.match(error.message, /Nothing changed/);
@@ -486,7 +486,7 @@ async function run(argv, extra = {}) {
     const dir = workspace();
     installAgent(dir);
     const file = path.join(dir, '.rbtv', 'config', 'ignite', 'config.json');
-    const result = await run(['connect', 'probe', '--dm', '--workspace', dir]).catch((error) => error);
+    const result = await run(['connect', 'probe', '--dm', '--installation', dir]).catch((error) => error);
     assert.match(result.message, /config[/\\]ignite[/\\]config\.json/);
     assert.match(result.message, /core\/ignite\/capabilities\/runbook\.md/);
     assert.equal(fs.existsSync(file), false);
@@ -495,7 +495,7 @@ async function run(argv, extra = {}) {
   await test('connect refuses an agent that is not installed', async () => {
     const dir = workspace();
     writeConfig(dir);
-    const result = await run(['connect', 'probe', '--dm', '--workspace', dir]).catch((error) => error);
+    const result = await run(['connect', 'probe', '--dm', '--installation', dir]).catch((error) => error);
     assert.match(result.message, /not installed/);
     assert.match(result.message, /no folder/);
     assert.match(result.message, /rbtv agent add probe/);
@@ -508,7 +508,7 @@ async function run(argv, extra = {}) {
     installAgent(dir);
     const slack = fakeSlack();
     const before = fs.readFileSync(path.join(dir, '.rbtv', 'config', 'ignite', 'config.json'), 'utf8');
-    const result = await run(['connect', 'probe', '--channel-name', 'Bad Name', '--workspace', dir], { slack }).catch((error) => error);
+    const result = await run(['connect', 'probe', '--channel-name', 'Bad Name', '--installation', dir], { slack }).catch((error) => error);
     assert.match(result.message, /channel name/);
     assert.equal(slack.calls.length, 0);
     assert.equal(fs.readFileSync(path.join(dir, '.rbtv', 'config', 'ignite', 'config.json'), 'utf8'), before);

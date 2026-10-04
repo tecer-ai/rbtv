@@ -615,8 +615,8 @@ class Store {
         this.db.prepare("UPDATE work SET state='held', error=?, updated_at=? WHERE id=?").run(String(reason), now, run.work_id);
       }
       const repair = holdAgent
-        ? 'rbtv agent configure, then ignite-agent work retry'
-        : `ignite-agent work retry ${run.work_id}`;
+        ? 'rbtv agent configure, then ignite work retry'
+        : `ignite work retry ${run.work_id}`;
       this._enqueueOutbox({
         id: `hold:${run.queue_id}`,
         conversationKey: run.conversation_key,

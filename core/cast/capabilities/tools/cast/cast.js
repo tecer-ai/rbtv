@@ -15,7 +15,6 @@ const { SYSTEM_WRAPPER, launch, runResume } = require('./lib/launch');
 const { loadOptional } = require('./lib/optional');
 const { runRoute } = require('./lib/route');
 const { runSessions } = require('./lib/sessions');
-const { runTurn } = require('./lib/turn');
 
 function main(rawArgv) {
   if (rawArgv.length === 0) fail(`usage: ${USAGE}\nrun cast -h for full help`);
@@ -35,7 +34,6 @@ function main(rawArgv) {
   if (rawArgv[0] === 'list') return runList(rawArgv.slice(1));
   if (rawArgv[0] === 'resume') return runResume(rawArgv.slice(1));
   if (rawArgv[0] === 'sessions') return runSessions(rawArgv.slice(1));
-  if (rawArgv[0] === 'turn') return runTurn(rawArgv.slice(1));
   if (rawArgv[0] === 'monitor') {
     const { module: monitor, error } = loadOptional('monitor');
     if (error) {
@@ -48,6 +46,9 @@ function main(rawArgv) {
   // `cast api` takes -p TEXT as of 2026-08-20 (route redesign §7), so the verb owns every `api`
   // invocation — there is no longer a launch-shaped `cast api …` form to fall through to.
   if (rawArgv[0] === 'api') return runApi(rawArgv.slice(1));
+  if (rawArgv[0] === 'turn') {
+    fail("refused: unknown verb 'turn'\nchoose from resume, sessions, monitor, route, api, doctor, list\nNothing changed.\ncast -h");
+  }
 
   const agentFlags = takeAgentFlags(rawArgv, fail);
   const parsed = parseArgs(agentFlags.argv, USAGE, true);

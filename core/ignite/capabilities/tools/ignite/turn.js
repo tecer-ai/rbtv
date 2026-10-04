@@ -1,22 +1,23 @@
 'use strict';
 
-// cast turn — one foreground harness turn whose session id is exact, never "newest in the folder".
+// ignite turn — one foreground harness turn whose session id is exact, never "newest in the folder".
 
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const { CODEX_DOC_LIMIT, lookupModel, shortName, resolveEffortValue } = require('./core');
-const { agentBody } = require('./agent');
-const { procStart, emitHandle } = require('./handles');
-const { launchEnv, opencodeTagged, SYSTEM_WRAPPER } = require('./launch');
-const { loadOptional } = require('./optional');
-const { spawnable } = require('./win-exec');
+const CAST_LIB = '../../../../cast/capabilities/tools/cast/lib';
+const { CODEX_DOC_LIMIT, lookupModel, shortName, resolveEffortValue } = require(`${CAST_LIB}/core`);
+const { agentBody } = require(`${CAST_LIB}/agent`);
+const { procStart, emitHandle } = require(`${CAST_LIB}/handles`);
+const { launchEnv, opencodeTagged, SYSTEM_WRAPPER } = require(`${CAST_LIB}/launch`);
+const { loadOptional } = require(`${CAST_LIB}/optional`);
+const { spawnable } = require(`${CAST_LIB}/win-exec`);
 
 const { module: monitorMod } = loadOptional('monitor');
 const DEADLINE_MS = monitorMod ? monitorMod.DEADLINE_MS : 4 * 60 * 60 * 1000;
 
-const USAGE = 'cast turn --request FILE --result FILE';
+const USAGE = 'ignite turn --request FILE --result FILE';
 
 function requestPaths(args) {
   if (args.length !== 4 || args[0] !== '--request' || args[2] !== '--result') {
@@ -331,31 +332,33 @@ async function runTurnAsync(args) {
     const result = buildResult(v, outcome);
     writeResult(resultFile, result);
     process.exitCode = result.ok ? 0 : 1;
+    return process.exitCode;
   } catch (e) {
     if (!resultFile) {
-      process.stderr.write(`cast turn: ${e.message}\n`);
+      process.stderr.write(`ignite turn: ${e.message}\n`);
       process.exitCode = 2;
-      return;
+      return 2;
     }
     try {
       writeResult(resultFile, blankResult(e.message));
     } catch (w) {
-      process.stderr.write(`cast turn: ${e.message}\ncast turn: cannot write result: ${w.message}\n`);
+      process.stderr.write(`ignite turn: ${e.message}\nignite turn: cannot write result: ${w.message}\n`);
       process.exitCode = 2;
-      return;
+      return 2;
     }
     process.exitCode = 1;
+    return 1;
   }
 }
 
 function runTurn(args) {
   runTurnAsync(args).catch((e) => {
-    process.stderr.write(`cast turn: ${e.message}\n`);
+    process.stderr.write(`ignite turn: ${e.message}\n`);
     process.exitCode = 1;
   });
 }
 
 module.exports = {
   USAGE, requestPaths, validate, argvFor, stdinFor, noteLine, parseSessionEvents,
-  capturePaths, blankResult, buildResult, writeResult, runTurn,
+  capturePaths, blankResult, buildResult, writeResult, runTurn, runTurnAsync,
 };

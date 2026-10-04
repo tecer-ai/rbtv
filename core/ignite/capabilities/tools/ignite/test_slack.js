@@ -253,7 +253,7 @@ test('downloadFile', async () => {
   assert.equal(argv[0][1], 'download');
   assert.deepEqual(argv[0].slice(2, 8), ['--channel', 'C1', '--ts', '4.4', '--thread-ts', '1.1']);
   assert.equal(argv[0][8], '--output');
-  assert.equal(argv[0].at(-2), '--workspace');
+  assert.equal(argv[0].at(-2), '--installation');
   assert.equal(argv[0].at(-1), 'ignite');
   assert.equal(argv[0].at(-1).includes('/'), false);
   assert.equal(files[0].name, 'voice note.mp3');

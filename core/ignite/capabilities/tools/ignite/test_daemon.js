@@ -170,8 +170,8 @@ function harnessBin(dir, names) {
   return bin;
 }
 
-function spawnDaemon(dir, pathEnv = harnessBin(dir, ['claude', 'ignite-agent'])) {
-  const child = spawn(process.execPath, [daemonPath, '--workspace', dir], {
+function spawnDaemon(dir, pathEnv = harnessBin(dir, ['claude', 'ignite'])) {
+  const child = spawn(process.execPath, [daemonPath, '--installation', dir], {
     env: { ...process.env, IGNITE_DAEMON_FAKE: '1', PATH: pathEnv },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -205,14 +205,14 @@ test('dm-delivered-once', async () => {
   const slack = fakeSlack();
   const socket = fakeSocket();
   const prevPath = process.env.PATH;
-  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prevPath || ''}`;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prevPath || ''}`;
   let runtime;
   try {
   runtime = await start({
     workspace: dir,
     slack,
     socket,
-    castCmd: cast.stub,
+    turnCommand: [process.execPath, cast.stub],
     castEnv: cast.env,
     signals: false,
     tickMs: 60_000,
@@ -253,10 +253,10 @@ test('daemon ticks and ingress leave a missing board visible to recovery and own
   const slack = fakeSlack();
   const socket = fakeSocket();
   const prevPath = process.env.PATH;
-  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prevPath || ''}`;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prevPath || ''}`;
   let runtime;
   try {
-    runtime = await start({ workspace: dir, slack, socket, castCmd: cast.stub, castEnv: cast.env,
+    runtime = await start({ workspace: dir, slack, socket, turnCommand: [process.execPath, cast.stub], castEnv: cast.env,
       signals: false, tickMs: 60_000, sweepMs: 60_000, drainMs: 50 });
     assert.equal(fs.existsSync(boardPath(home)), false);
     await socket.inject({ team: 'T1', channel: 'D1', channelType: 'im', ts: '1.100000', threadTs: '1.100000',
@@ -291,14 +291,14 @@ test('due-schedule-one-wake', async () => {
   });
   store.close();
   const prevPath = process.env.PATH;
-  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prevPath || ''}`;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prevPath || ''}`;
   let runtime;
   try {
   runtime = await start({
     workspace: dir,
     slack: fakeSlack(),
     socket: fakeSocket(),
-    castCmd: cast.stub,
+    turnCommand: [process.execPath, cast.stub],
     castEnv: cast.env,
     now: () => now,
     signals: false,
@@ -358,7 +358,7 @@ for (const enabled of [undefined, false]) test(`disabled dreamer gates the start
   addOwnerMessage(home);
   const slack = fakeSlack();
   const prev = process.env.PATH;
-  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prev || ''}`;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prev || ''}`;
   let runtime;
   let calls = 0;
   let now = Date.parse('2026-10-01T06:00:00Z');
@@ -393,7 +393,7 @@ test('watchdog excludes disabled time, resets on re-enable and survives an enabl
   setDreamerState(home, { cursor: 0, lastSuccessAt: now - 10 * day, commit: null });
   const slack = fakeSlack();
   const prev = process.env.PATH;
-  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prev || ''}`;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prev || ''}`;
   const opts = { workspace: dir, slack, socket: fakeSocket(), signals: false, now: () => now, tickMs: 20, sweepMs: 60_000 };
   let runtime;
   try {
@@ -432,7 +432,7 @@ test('dreamer runs once at 03:00 Sao Paulo for unread owner messages', async () 
   const now = Date.parse('2026-10-01T06:00:00Z');
   addOwnerMessage(home);
   const prev = process.env.PATH;
-  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prev || ''}`;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prev || ''}`;
   let runtime;
   let calls = 0;
   try {
@@ -481,7 +481,7 @@ for (const watch of ['', '- Send one PDF. (2026-09-30 · master)',
     const inbox = fs.readFileSync(inboxFile);
     const slack = fakeSlack();
     const prev = process.env.PATH;
-    process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prev || ''}`;
+    process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prev || ''}`;
     let runtime;
     let calls = 0;
     try {
@@ -520,7 +520,7 @@ for (const ending of ['\n', '\r\n']) test(`dreamer runs for expiry-only work wit
   checkMemory('profile', text);
   fs.writeFileSync(file, text, 'utf8');
   const prev = process.env.PATH;
-  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prev || ''}`;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prev || ''}`;
   let runtime;
   let calls = 0;
   let model;
@@ -564,7 +564,7 @@ for (const ending of ['\n', '\r\n']) test(`inbox-only work runs the model once, 
   git('commit', '-qm', 'Fixture');
   const head = git('rev-parse', 'HEAD');
   const slack = fakeSlack(); const prev = process.env.PATH;
-  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prev || ''}`;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prev || ''}`;
   let runtime; let calls = 0;
   try {
     runtime = await start({ workspace: dir, slack, socket: fakeSocket(), signals: false, now: () => now,
@@ -657,7 +657,7 @@ test('a failed nightly run leaves success unchanged and a missed slot crosses th
   enabledStore.close();
   const slack = fakeSlack();
   const prev = process.env.PATH;
-  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prev || ''}`;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prev || ''}`;
   let runtime;
   const logs = [];
   const write = process.stdout.write;
@@ -766,7 +766,7 @@ test('dreamer digests reuse the direct-message thread', async () => {
   const firstNight = Date.parse('2026-10-01T06:00:00Z');
   addOwnerMessage(home);
   const prev = process.env.PATH;
-  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prev || ''}`;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prev || ''}`;
   let runtime;
   try {
     const first = fakeSlack();
@@ -807,12 +807,12 @@ for (const delivery of ['drain', 'pump']) test(`manual digests reuse the thread 
   slack.postMessage = (args) => post({ ...args, channel: 'D1' });
   const socket = fakeSocket();
   const prev = process.env.PATH;
-  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prev || ''}`;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prev || ''}`;
   const store = new Store(path.join(home, 'state.sqlite'));
   let runtime;
   try {
     runtime = await start({ workspace: dir, slack, socket, signals: false,
-      castCmd: cast.stub, castEnv: cast.env,
+      turnCommand: [process.execPath, cast.stub], castEnv: cast.env,
       tickMs: 60_000, sweepMs: 60_000, drainMs: delivery === 'drain' ? 20 : 60_000,
     });
     for (let run = 1; run <= 2; run++) {
@@ -860,7 +860,7 @@ test('a busy nightly slot retries after the installation lock is released', asyn
   addOwnerMessage(home);
   const release = acquireMemoryLock(dir);
   const prev = process.env.PATH;
-  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prev || ''}`;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prev || ''}`;
   let runtime;
   let calls = 0;
   try {
@@ -905,7 +905,7 @@ test('conflicts are saved only after delivery succeeds and the following run is 
     return post(args);
   };
   const prev = process.env.PATH;
-  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prev || ''}`;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prev || ''}`;
   let runtime;
   let calls = 0;
   try {
@@ -947,7 +947,7 @@ test('manual run and the nightly slot share runInstalledDreamer without consumin
   };
   let now = Date.parse('2026-10-01T12:00:00Z');
   const prev = process.env.PATH;
-  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prev || ''}`;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prev || ''}`;
   let runtime;
   try {
     await original({
@@ -1033,7 +1033,7 @@ for (const ending of ['\n', '\r\n']) test(`board, remember and schedule checks s
     assert.equal(result.status, 0, result.stderr); return result.stdout.trim();
   };
   const command = (...args) => {
-    const result = spawnSync(process.execPath, [path.join(__dirname, 'cli.js'), '--workspace', dir, '--agent', 'master', '--json', ...args], {
+    const result = spawnSync(process.execPath, [path.join(__dirname, 'cli.js'), '--installation', dir, '--agent', 'master', '--json', ...args], {
       encoding: 'utf8', timeout: 15_000,
       env: { ...process.env, RBTV_AGENT_HOME: home, IGNITE_CONVERSATION: '' },
     });
@@ -1133,7 +1133,7 @@ test('sigterm-clean', async () => {
 
 function fillUnit(pathValue, linkBin) {
   const deploy = fs.readFileSync(path.join(__dirname, 'deploy.sh'), 'utf8');
-  const marker = 'const [src, dst, deploy, workspace, envFile, pathValue, linkBin]';
+  const marker = 'const [src, dst, deploy, installation, envFile, pathValue, linkBin]';
   const at = deploy.indexOf(marker);
   assert.ok(at > 0);
   const open = deploy.lastIndexOf("node -e '", at);
@@ -1183,7 +1183,7 @@ test('launch-json-drives-preflight', async () => {
   }));
   fs.writeFileSync(path.join(side, 'agent.md'), '---\nname: side\n---\n', 'utf8');
   const empty = fs.mkdtempSync(path.join(dir, 'empty-'));
-  const child = spawn(process.execPath, [daemonPath, '--workspace', dir], {
+  const child = spawn(process.execPath, [daemonPath, '--installation', dir], {
     env: { ...process.env, IGNITE_DAEMON_FAKE: '1', PATH: empty },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -1222,11 +1222,11 @@ test('unset-token-refuses', async () => {
   const envDir = path.join(dir, '.rbtv', 'config', 'env');
   fs.mkdirSync(envDir, { recursive: true });
   fs.writeFileSync(path.join(envDir, '.env'), `${botName}=${secret}\n`);
-  const env = { ...process.env, PATH: harnessBin(dir, ['claude', 'ignite-agent']) };
+  const env = { ...process.env, PATH: harnessBin(dir, ['claude', 'ignite']) };
   delete env.IGNITE_DAEMON_FAKE;
   delete env[appName];
   delete env[botName];
-  const child = spawn(process.execPath, [daemonPath, '--workspace', dir], {
+  const child = spawn(process.execPath, [daemonPath, '--installation', dir], {
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -1253,7 +1253,7 @@ test('stools-workspace-missing', async () => {
   const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
   delete cfg.slack.stoolsWorkspace;
   fs.writeFileSync(cfgPath, JSON.stringify(cfg));
-  const child = spawn(process.execPath, [daemonPath, '--workspace', dir], {
+  const child = spawn(process.execPath, [daemonPath, '--installation', dir], {
     env: { ...process.env, IGNITE_DAEMON_FAKE: '1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -1272,10 +1272,10 @@ test('stools-workspace-missing', async () => {
   }
 });
 
-test('ignite-agent-missing', async () => {
+test('ignite-missing', async () => {
   const { dir } = workspace();
   const bin = harnessBin(dir, ['claude']);
-  const child = spawn(process.execPath, [daemonPath, '--workspace', dir], {
+  const child = spawn(process.execPath, [daemonPath, '--installation', dir], {
     env: { ...process.env, IGNITE_DAEMON_FAKE: '1', PATH: bin },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -1286,7 +1286,7 @@ test('ignite-agent-missing', async () => {
     const code = await new Promise((resolve) => child.once('exit', resolve));
     assert.notEqual(code, 0);
     assert.match(stdout, /"event":"error"/);
-    assert.match(stdout, /ignite-agent not on PATH/);
+    assert.match(stdout, /ignite not on PATH/);
     assert.equal(stdout.includes('"event":"ready"'), false);
   } finally {
     if (child.exitCode == null) child.kill('SIGKILL');
@@ -1296,7 +1296,7 @@ test('ignite-agent-missing', async () => {
 
 test('harness-ready', async () => {
   const { dir } = workspace();
-  const holder = spawnDaemon(dir, harnessBin(dir, ['claude', 'ignite-agent']));
+  const holder = spawnDaemon(dir, harnessBin(dir, ['claude', 'ignite']));
   try {
     await waitFor(() => holder.stdout().includes('"event":"ready"') && holder.child.exitCode == null);
     assert.equal(holder.stdout().includes('"event":"error"'), false);
@@ -1331,7 +1331,7 @@ function mention(channel, text = 'hello') {
 
 function started(dir, overrides = {}) {
   const prev = process.env.PATH;
-  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prev || ''}`;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prev || ''}`;
   const socket = overrides.socket || fakeSocket();
   const slack = overrides.slack || fakeSlack();
   const options = {
@@ -1459,7 +1459,7 @@ test('daemon marks idle on ticks and answered on owner ingress even while held',
   store.close();
   const socket = fakeSocket();
   const prev = process.env.PATH;
-  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite-agent'])}${path.delimiter}${prev || ''}`;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prev || ''}`;
   let runtime;
   try {
     runtime = await start({ workspace: dir, slack: fakeSlack(), socket, signals: false, now: () => now,

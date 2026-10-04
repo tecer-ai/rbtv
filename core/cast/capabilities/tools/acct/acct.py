@@ -45,12 +45,12 @@ CYAN, GREEN, YELLOW, RED = "\033[36m", "\033[32m", "\033[33m", "\033[31m"
 
 def workspace_root():
     """The workspace this CLI is installed into — the nearest ancestor holding `rbtv.json`."""
-    if env := os.environ.get("RBTV_WORKSPACE"):
+    if env := os.environ.get("RBTV_INSTALLATION"):
         return Path(env)
     for p in Path(__file__).resolve().parents:
         if (p / "rbtv.json").exists():
             return p
-    sys.exit("cannot resolve the workspace root (no rbtv.json above this script) — set RBTV_WORKSPACE")
+    sys.exit("cannot resolve the installation root (no rbtv.json above this script) — set RBTV_INSTALLATION")
 
 
 def dig(d, *keys):
@@ -842,7 +842,7 @@ def selftest():
             "locations": {"credentials": (str(cred), None), "who": (str(conf), "acc")},
             "ident": lambda s: dig(s, "who", "uuid"),
             "who": lambda s: dig(s, "who", "mail"), "expires": lambda s: None}
-        os.environ["RBTV_WORKSPACE"] = str(td)
+        os.environ["RBTV_INSTALLATION"] = str(td)
         (td / "rbtv.json").write_text("{}", encoding="utf-8")
         try:
             cred.write_text(json.dumps({"tok": "A"}), encoding="utf-8")
@@ -878,7 +878,7 @@ def selftest():
                 del PROVIDERS["_u"]
         finally:
             del PROVIDERS["_t"]
-            os.environ.pop("RBTV_WORKSPACE", None)
+            os.environ.pop("RBTV_INSTALLATION", None)
 
     print("selftest: " + (f"{len(fails)} FAILED: {', '.join(fails)}" if fails else "all passed"))
     sys.exit(1 if fails else 0)

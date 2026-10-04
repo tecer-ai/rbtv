@@ -1,5 +1,5 @@
 {
-  "name": "ignite-agent",
+  "name": "ignite",
   "description": "Runs and administers Ignite agents: their turns, schedules, work queue and settings.",
   "entry": "cli.js"
 }

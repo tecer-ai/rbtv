@@ -9,7 +9,6 @@ const { API_USAGE } = require('./api');
 const { RESUME_USAGE, SESSIONS_USAGE, USAGE, USAGE_IG, EFFORT_RULE, modelTable } = require('./core');
 const { loadOptional } = require('./optional');
 const { ROUTE_FORMS, ROUTE_USAGE } = require('./route');
-const { USAGE: TURN_USAGE } = require('./turn');
 
 const { module: monitorMod } = loadOptional('monitor');
 const MONITOR_USAGE = monitorMod
@@ -32,7 +31,6 @@ function printHelp() {
     '',
     `  ${RESUME_USAGE}`,
     `  ${SESSIONS_USAGE}`,
-    `  ${TURN_USAGE}`,
     `  ${MONITOR_USAGE}`,
     `  ${ROUTE_USAGE}`,
     // The batch form is the one route surface a caller cannot guess from the interview line;
@@ -53,7 +51,6 @@ function printHelp() {
     '-rg FILE       one-off agent: the body of the agent file is the system prompt',
     'cast resume    one more turn into a session id, or `last` for the folder newest',
     'cast sessions  what ran in a folder — harness, id, started, first-prompt label',
-    'cast turn      structured turn with an exact per-conversation session ID and result file',
     'cast route     answer 4 questions about the job, get (harness, model, mode, effort)',
     'cast monitor   live cast jobs; --watch exits 3 on stall, 4 on ENDED.',
     '',
@@ -75,32 +72,6 @@ function printHelp() {
 
 function verbHelpPages() {
   return {
-    turn: [
-      `usage: ${TURN_USAGE}`,
-      '',
-      'One foreground turn for a caller that keeps many conversations in one folder.',
-      'Never resolves `last` and never picks the newest session in the folder.',
-      'Resume passes the requested model and effort on that invocation.',
-      '',
-      'Request JSON:',
-      '  harness          claude | codex | opencode',
-      '  model            short name or harness-native id',
-      '  effort           integer 1-5, or a native rung word',
-      '  cwd              existing absolute directory',
-      '  prompt|promptFile  exactly one',
-      '  session          {"mode":"new"} or {"mode":"resume","id":"<exact id>"}',
-      '  env              optional string map merged over the process environment',
-      '',
-      'Result JSON (written even on failure):',
-      '  ok, harness, model, effort, sessionId, exitCode,',
-      '  startedAt, endedAt, pid, pidStart, stdoutPath, stderrPath, error?',
-      'pid + pidStart (starttime from /proc/<pid>/stat, read while alive) distinguish a',
-      'live run from a reused pid. stdout/stderr are captured to files, not inherited.',
-      '',
-      'Session id: claude mints a UUID and passes --session-id; codex parses thread.started',
-      '(thread_id); opencode binds a unique --title tag to that store row. Resume passes',
-      '--resume / exec resume <id> / run -s <id> plus the requested model and effort.',
-    ],
     resume: [
       `usage: ${RESUME_USAGE}`,
       '',

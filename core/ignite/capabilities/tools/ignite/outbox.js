@@ -64,7 +64,7 @@ function giveUp(store, row, message) {
     store.enqueueOutbox({
       id: `hold:delivery:${row.id}`,
       conversationKey: row.conversation_key,
-      payload: { text: `Delivery is on hold. ${message} Repair: ignite-agent post` },
+      payload: { text: `Delivery is on hold. ${message} Repair: ignite post` },
       asRoot: Boolean(row.as_root) || isBoard(conv),
     });
   });

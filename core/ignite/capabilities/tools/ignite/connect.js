@@ -1,7 +1,7 @@
 'use strict';
 
-// API — ignite-agent connect | disconnect. run(command, argv, flags, deps) → Promise<exit code>.
-// flags.workspace / flags.json / flags.help come from cli.js parseGlobal.
+// API — ignite connect | disconnect. run(command, argv, flags, deps) → Promise<exit code>.
+// flags.installation / flags.json / flags.help come from cli.js parseGlobal.
 // deps.slack stubs Slack. deps.afterChannel() runs after the route write and before the bot joins.
 // The agent must already be installed (agent.md and agent.json). Config must already exist; this does not create it.
 // Slack tokens come from slackToken(config, …) and are never printed.
@@ -25,15 +25,15 @@ const BOARD_ROOT = 'board';
 const RUNBOOK = 'core/ignite/capabilities/runbook.md';
 const INSTALLER_ENTRY = path.resolve(__dirname, '../../../../..', 'core/installer/capabilities/tools/rbtv-install/install.py');
 
-const HELP = `ignite-agent connect — connect or disconnect an installed agent
+const HELP = `ignite — connect help
 
 connect <agent> (--channel-name <name> | --dm) [--schedule-json <file>]
-        [--workspace <path>] [--dry-run] [--json]
+        [--installation <path>] [--dry-run] [--json]
 
   Run on the machine that will run the agent. The agent must already be installed
-  (agent.md and agent.json in <workspace>/.rbtv/agents/<agent>/). connect turns
+  (agent.md and agent.json in <installation>/.rbtv/agents/<agent>/). connect turns
   on the ignite pack, creates missing working files, then connects Slack.
-  Needs <workspace>/.rbtv/config/ignite/config.json. This command does not write that
+  Needs <installation>/.rbtv/config/ignite/config.json. This command does not write that
   file. See ${RUNBOOK}.
   --channel-name: create the Slack channel, the bot joins, the owner is invited,
   routes[channelId] = agent. A re-run reuses a channel already routed.
@@ -53,7 +53,7 @@ connect <agent> (--channel-name <name> | --dm) [--schedule-json <file>]
   The next board write or turn refreshes Timers from SQLite. This also applies
   to timers cancelled by disconnect.
 
-disconnect <agent> [--archive-channel] [--workspace <path>] [--dry-run] [--json]
+disconnect <agent> [--archive-channel] [--installation <path>] [--dry-run] [--json]
 
   Removes the agent's route(s) and dmAgent from the config, cancels its timers,
   and archives its channel when asked, then turns off the ignite pack. Does not
@@ -108,8 +108,8 @@ function parseArgs(argv, known) {
 }
 
 function workspaceOf(flags) {
-  if (!flags.workspace) fail('--workspace required');
-  return path.resolve(flags.workspace);
+  if (!flags.installation) fail('--installation required');
+  return path.resolve(flags.installation);
 }
 
 function readJson(file, label) {
@@ -137,7 +137,7 @@ function requireConfig(workspace) {
 }
 
 function agentOutsideMessage(raw, home, agents, command) {
-  return `agent ${JSON.stringify(raw)} is not under\n${agents}${path.sep}.\nignite-agent ${command}s only an agent that lives there. ignite-agent does not copy an agent.\nNothing changed.\nPlace it under ${agents}${path.sep}, then ${command} that name.`;
+  return `agent ${JSON.stringify(raw)} is not under\n${agents}${path.sep}.\nignite ${command}s only an agent that lives there. ignite does not copy an agent.\nNothing changed.\nPlace it under ${agents}${path.sep}, then ${command} that name.`;
 }
 
 function isInside(folder, parent) {
@@ -398,7 +398,7 @@ async function connectAgent(opts, flags, deps) {
     const details = [`failed: Slack, after the pack and the working files`, `units: ${pack.before}${pack.after === pack.before ? '' : ` -> ${pack.after}`}`, 'pack: ignite', runtimeText(created)];
     details.push(`Slack failed: ${error.message}`, 'The pack and the working files stay.',
       channel ? `The route ${channel.id} stays and will be reused.` : 'No route was written.',
-      `Rerun: ignite-agent connect ${agent}${opts.dm ? ' --dm' : ` --channel-name ${opts['channel-name']}`}`);
+      `Rerun: ignite connect ${agent}${opts.dm ? ' --dm' : ` --channel-name ${opts['channel-name']}`}`);
     fail(details.join('\n'));
   }
   const link = channel ? `https://slack.com/app_redirect?channel=${channel.id}&team=${config.slack.team}` : null;
@@ -483,4 +483,4 @@ async function run(command, argv, flags, deps = {}) {
   fail(`unknown command: ${command}`);
 }
 
-module.exports = { run, HELP, ensureRuntime };
+module.exports = { run, HELP, ensureRuntime, runInstaller, installerCommand, INSTALLER_ENTRY };
