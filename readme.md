@@ -50,6 +50,8 @@ Agent results also include `unit_files` (file outcomes from installing or removi
 
 The `cli-creator` skill in `meta/code` covers both help and actual command results. Its output review checks tables, spacing, wrapping, bulk-result summaries, structured output, and real outcomes against observed state; help coverage alone is insufficient.
 
+The `work-history` skill in `meta/functions` reconstructs a user-agreed project, plan, or session history. It preserves visible transcripts, intermediate and final outputs, and saved working notes in one folder per agent/session, with a linked root timeline, provenance manifest, and explicit recovery gaps. It researches historical evidence; `handoff` transfers current session knowledge for continuation. Install it with `rbtv install add work-history` in a configured workspace.
+
 > **The installer is `core/installer/capabilities/tools/install/install.py`, reachable as `rbtv install`.**
 > It carried the name `install2.py` from its first commit until 2026-08-23, while a
 > PREDECESSOR installer held the plain name at the repo root. On that date it was split
