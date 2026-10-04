@@ -145,10 +145,10 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     // caller re-throws unless routed through the seam.
     fs.writeFileSync(target, `${original}\nconst __INJECTED_FAULT__ = __UNDEFINED_SYMBOL__;\n`);
     try {
-      const seat = spawnSync('node', [TOOL, 'claude', 'sonnet-5', '2', '-rg', agentFile, '-p', 'go', '--dry-run'],
+      const seat = spawnSync('node', [TOOL, 'claude', 'sonnet-5', '2', '-rogue', agentFile, '-p', 'go', '--dry-run'],
         { encoding: 'utf8' });
       assert.strictEqual(seat.status, 0,
-        `cast -rg --dry-run must survive a broken lib/${name}.js, got exit ${seat.status}: ${seat.stderr}`);
+        `cast -rogue --dry-run must survive a broken lib/${name}.js, got exit ${seat.status}: ${seat.stderr}`);
       assert.ok(seat.stderr.includes(`lib/${name}.js failed to load`),
         `cast must name the failed module lib/${name}.js in its degradation notice, got: ${seat.stderr}`);
 
@@ -244,7 +244,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.deepStrictEqual(oc.argv.slice(-2), ['--prompt', 'hi']);
 }
 
-// plain mode never reads an agent file sitting in the launch-folder — that is -ig / -rg
+// plain mode never reads an agent file sitting in the launch-folder — that is -rbtv / -rogue
 {
   const folder = mkFolder('plain-ignores-agent-file');
   fs.writeFileSync(path.join(folder, 'agent.md'), '# agent\nact as X.');
@@ -351,7 +351,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.ok(!/^usage: cast resume/.test(res.stdout), `"-h" as prompt text must not print usage: ${res.stdout}`);
 }
 
-// -h: exit 0, <=60 lines (raised from 50 on 2026-10-04 for the -ig usage block: the approved help
+// -h: exit 0, <=60 lines (raised from 50 on 2026-10-04 for the -rbtv usage block: the approved help
 // screen, build/screens/review/40-cast-spark.md screen 400, runs to about 70 lines)
 {
   const res = spawnSync('node', [TOOL, '-h'], { encoding: 'utf8' });
@@ -1382,9 +1382,9 @@ else {
   }
 }
 
-// -ig launches an installed agent from its agent folder: harness, model and effort come from its
+// -rbtv launches an rbtv agent from its agent folder: harness, model and effort come from its
 // agent.json, agent.md (frontmatter removed) is the system prompt, RBTV_AGENT_HOME names the folder.
-// -rg launches an agent file that is not installed, its body (frontmatter ignored) as the system prompt.
+// -rogue launches a rogue agent with no folder; its body (frontmatter ignored) is the system prompt.
 {
   const root = mkFolder('ig-root');
   const home = path.join(root, '.rbtv', 'agents', 'sara');
@@ -1396,7 +1396,7 @@ else {
     assert.strictEqual(res.status, 0, `expected exit 0, got ${res.status}, stderr: ${res.stderr}`);
     return JSON.parse(res.stdout);
   };
-  const ig = igRun(['-ig', 'sara', '-p', 'go']);
+  const ig = igRun(['-rbtv', 'sara', '-p', 'go']);
   assert.strictEqual(ig.cwd, home);
   assert.strictEqual(ig.RBTV_AGENT_HOME, home);
   assert.strictEqual(ig.effort_word, 'medium');
@@ -1405,34 +1405,39 @@ else {
   assert.ok(!ig.argv.some((a) => a.includes('name: sara')), `frontmatter leaked into argv: ${ig.argv}`);
   assert.strictEqual(ig.stdin_preview, 'go');
 
-  const byPath = spawnSync('node', [TOOL, '-ig', '.rbtv/agents/sara', '-p', 'go', '--dry-run'], { cwd: root, encoding: 'utf8' });
+  const byPath = spawnSync('node', [TOOL, '-rbtv', '.rbtv/agents/sara', '-p', 'go', '--dry-run'], { cwd: root, encoding: 'utf8' });
   assert.strictEqual(byPath.status, 0, byPath.stderr);
   assert.strictEqual(JSON.parse(byPath.stdout).cwd, home, 'a path names the agent folder');
 
-  const rg = dryRun(['codex', 'gpt-5.5', '2', '-rg', path.join(home, 'agent.md'), '-p', 'go']);
+  const rg = dryRun(['codex', 'gpt-5.5', '2', '-rogue', path.join(home, 'agent.md'), '-p', 'go']);
   assert.ok(rg.argv.includes(`developer_instructions=${JSON.stringify('You are Sara.')}`), `frontmatter must not reach the prompt: ${rg.argv}`);
   assert.ok(rg.argv.includes('project_doc_max_bytes=131072'), `every Codex launch raises the AGENTS.md limit: ${rg.argv}`);
-  assert.ok(!('RBTV_AGENT_HOME' in rg), '-rg is not an installed agent: no RBTV_AGENT_HOME');
+  assert.ok(!('RBTV_AGENT_HOME' in rg), '-rogue is not an rbtv agent: no RBTV_AGENT_HOME');
 
   const halfHome = path.join(root, '.rbtv', 'agents', 'half');
   fs.mkdirSync(halfHome, { recursive: true });
   fs.writeFileSync(path.join(halfHome, 'agent.md'), 'You are half.');
 
   const refusals = [
-    [['claude', 'sonnet-5', '2', '-ig', 'sara', '-p', 'go'], 'does not take a harness, model or effort'],
-    [['codex', 'gpt-6-sol', '3', '-ig', 'sara', '-p', 'go'], 'does not take a harness, model or effort'],
-    [['-ig', 'nobody', '-p', 'go'], "no installed agent 'nobody'"],
-    [['-ig', 'plans/launch/agents/missing', '-p', 'go'], 'no installed agent'],
-    [['-ig', 'half', '-p', 'go'], 'agent.json is missing'],
-    [['-ig', 'sara', '-rg', 'x.md', '-p', 'go'], 'mutually exclusive'],
-    [['-ig', 'sara', '-s', 'x', '-p', 'go'], 'cannot be combined'],
-    [['-ig', 'sara', '--target', root, '-p', 'go'], "unknown flag '--target'"],
+    [['claude', 'sonnet-5', '2', '-rbtv', 'sara', '-p', 'go'], 'does not take a harness, model or effort'],
+    [['codex', 'gpt-6-sol', '3', '-rbtv', 'sara', '-p', 'go'], 'does not take a harness, model or effort'],
+    [['-rbtv', 'nobody', '-p', 'go'], "no rbtv agent 'nobody'"],
+    [['-rbtv', 'plans/launch/agents/missing', '-p', 'go'], 'no rbtv agent'],
+    [['-rbtv', 'half', '-p', 'go'], 'agent.json is missing'],
+    [['-rbtv', 'sara', '-rogue', 'x.md', '-p', 'go'], 'mutually exclusive'],
+    [['-rbtv', 'sara', '-s', 'x', '-p', 'go'], 'cannot be combined'],
+    [['-rbtv', 'sara', '--target', root, '-p', 'go'], "unknown flag '--target'"],
     [['claude', 'sonnet-5', '2', '--target', root, '-p', 'go'], "unknown flag '--target'"],
   ];
   for (const [args, text] of refusals) {
     const res = spawnSync('node', [TOOL, ...args, '--dry-run'], { cwd: root, encoding: 'utf8' });
     assert.strictEqual(res.status, 2, `expected a refusal for: ${args.join(' ')}`);
     assert.ok(res.stderr.includes(text), `refusal for ${args.join(' ')} must say '${text}', got: ${res.stderr}`);
+  }
+  for (const retiredFlag of ['-' + 'ig', '-' + 'rg']) {
+    const res = spawnSync('node', [TOOL, retiredFlag, 'sara', '-p', 'go', '--dry-run'], { cwd: root, encoding: 'utf8' });
+    assert.strictEqual(res.status, 2, `expected ${retiredFlag} to be refused`);
+    assert.ok(res.stderr.includes(`unknown flag '${retiredFlag}'`), res.stderr);
   }
   const help = spawnSync('node', [TOOL, '-h'], { encoding: 'utf8' }).stdout;
   assert.ok(help.includes('rbtv agent configure AGENT') && !help.includes('--target'),

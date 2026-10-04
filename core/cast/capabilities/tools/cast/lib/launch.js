@@ -55,7 +55,7 @@ function launch({ harness, modelId, folder, effortWord, effortArgv, system, prom
 
   let argv = baseArgv(harness, modelId, folder, headed);
   let stdinText = promptText;
-  // An installed agent's folder is announced to the harness's process as RBTV_AGENT_HOME.
+  // An rbtv agent's folder is announced to the harness's process as RBTV_AGENT_HOME.
   const agentEnv = agentHome ? { RBTV_AGENT_HOME: agentHome } : null;
 
   // Mint claude's session id instead of resolving it post-hoc: the id names the transcript file

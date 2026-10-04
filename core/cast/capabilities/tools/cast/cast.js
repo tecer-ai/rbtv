@@ -7,7 +7,7 @@
 // in its own module under lib/, split out 2026-08-20 along the section banners this file used
 // to carry. Read lib/<verb>.js for a verb; read here only for how argv reaches it.
 
-const { agentFilePrompt, installedAgent, takeAgentFlags } = require('./lib/agent');
+const { agentFilePrompt, rbtvAgent, takeAgentFlags } = require('./lib/agent');
 const { runApi } = require('./lib/api');
 const { USAGE, USAGE_IG, fail, parseArgs, resolveEffort, resolveEffortValue, resolveFolder, resolveModel, runDoctor, runList } = require('./lib/core');
 const { printHelp, verbHelpPages } = require('./lib/help');
@@ -54,18 +54,18 @@ function main(rawArgv) {
   const parsed = parseArgs(agentFlags.argv, USAGE, true);
   const { dryRun, headed, detached, promptText, positional } = parsed;
   let { system } = parsed;
-  if (agentFlags.installed && positional.length) {
-    fail('refused: -ig does not take a harness, model or effort\n'
-      + "with -ig, those values come from the agent's agent.json\n"
+  if (agentFlags.rbtv && positional.length) {
+    fail('refused: -rbtv does not take a harness, model or effort\n'
+      + "with -rbtv, those values come from the agent's agent.json\n"
       + 'Nothing changed.\n'
-      + `cast -ig ${agentFlags.installed} (-p TEXT | -f FILE)\n`
-      + `to change them: rbtv agent configure ${agentFlags.installed}`);
+      + `cast -rbtv ${agentFlags.rbtv} (-p TEXT | -f FILE)\n`
+      + `to change them: rbtv agent configure ${agentFlags.rbtv}`);
   }
-  if ((agentFlags.installed || agentFlags.file) && system) {
-    fail('refused: -s/-S cannot be combined with -ig or -rg — the agent file is the system prompt');
+  if ((agentFlags.rbtv || agentFlags.file) && system) {
+    fail('refused: -s/-S cannot be combined with -rbtv or -rogue — the agent file is the system prompt');
   }
   if (agentFlags.file) system = agentFilePrompt(agentFlags.file, fail);
-  const agent = agentFlags.installed ? installedAgent(agentFlags.installed, fail) : null;
+  const agent = agentFlags.rbtv ? rbtvAgent(agentFlags.rbtv, fail) : null;
   if (agent) system = { text: agent.prompt };
   if (system) system.wrapper = SYSTEM_WRAPPER;
   if (!agent && (positional.length < 3 || positional.length > 4)) {

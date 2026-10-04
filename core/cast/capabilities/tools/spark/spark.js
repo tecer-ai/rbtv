@@ -3,7 +3,7 @@
 
 // spark AGENT — open an rbtv agent in this terminal, for a person. A thin layer over cast: it
 // shows the agent's harness, model and effort (read from its agent.json), then starts
-// `cast -ig AGENT --headed` with a greeting. It passes no harness, model or effort: cast reads them.
+// `cast -rbtv AGENT --headed` with a greeting. It passes no harness, model or effort: cast reads them.
 
 const fs = require('fs');
 const path = require('path');
@@ -23,7 +23,7 @@ const HELP = [
   '',
   'Opens an rbtv agent in this terminal, for a person, with that agent\'s',
   'own harness, model and effort. An agent that needs another agent uses',
-  'cast -ig.',
+  'cast -rbtv.',
   '',
   USAGE,
   '',
@@ -104,7 +104,7 @@ function spark(args) {
     const looked = isPath(value)
       ? `looked for ${path.join(path.resolve(value), 'agent.json')}.`
       : `looked for .rbtv/agents/${value}/agent.json from the current folder upward.`;
-    return refuse(`no installed agent \`${value}\` was found`, looked, '`rbtv agent list`, or pass the folder.');
+    return refuse(`no rbtv agent \`${value}\` was found`, looked, '`rbtv agent list`, or pass the folder.');
   }
   const read = readAgent(home);
   if (read.problem === 'launch') {
@@ -119,7 +119,7 @@ function spark(args) {
     return refuse('cast is not on PATH', 'spark opens the agent through cast. Nothing was launched.', 'rbtv doctor');
   }
 
-  const castArgs = ['-ig', value, '--headed', '-p', OPENING];
+  const castArgs = ['-rbtv', value, '--headed', '-p', OPENING];
   const name = path.basename(home);
   if (dry) {
     if (json) process.stdout.write(`${JSON.stringify({ agent: name, home, cast: ['cast', ...castArgs] })}\n`);

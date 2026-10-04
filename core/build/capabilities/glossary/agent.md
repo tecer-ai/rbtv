@@ -48,10 +48,10 @@ Whoever launches an agent hands it its `agent.md` prompt as its instructions, th
 
 - **Through Slack**, when it is an Ignite agent: each message, or a timer, supplies the task.
 - **`spark AGENT`**: interactively, a person opens the agent. `spark` is a tool of the `cast` component.
-- **`cast -ig AGENT`**: launched by another agent, which passes the task.
-- **`cast -rg FILE`**: a one-off prompt file that is not an rbtv agent, launched with `cast`'s inline arguments for harness, model, and effort.
+- **`cast -rbtv AGENT`**: launched by another agent, which passes the task.
+- **`cast -rogue FILE`**: a rogue agent: a prompt file with no folder that is not an rbtv agent, launched with `cast`'s inline arguments for harness, model, and effort.
 
-Ignite, `cast -ig` and `spark` all use the agent's own harness, model, and effort, as recorded in its `agent.json`. `rbtv agent configure` is the only command that changes them.
+Ignite, `cast -rbtv` and `spark` all use the agent's own harness, model, and effort, as recorded in its `agent.json`. `rbtv agent configure` is the only command that changes them.
 
 ## Sub-agent
 

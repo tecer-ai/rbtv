@@ -1,11 +1,11 @@
 'use strict';
 
 // Launching an agent by its agent folder.
-//   -ig AGENT   an agent folder. AGENT is a name, looked up as `.rbtv/agents/<name>/` from the
+//   -rbtv AGENT   an agent folder. AGENT is a name, looked up as `.rbtv/agents/<name>/` from the
 //               current folder upward, or a path to the folder (a value with `/`, or `.` or `..`).
 //               agent.json gives harness, model and effort; agent.md, without its frontmatter, is
 //               the system prompt; the folder is the working folder.
-//   -rg FILE    a one-off agent that is not installed: the body of FILE (frontmatter ignored) is
+//   -rogue FILE    a rogue agent with no folder: the body of FILE (frontmatter ignored) is
 //               the system prompt, and the launch folder is the usual one.
 // Both ride the ordinary launch. spark reads the same files through the readers below.
 
@@ -67,14 +67,14 @@ function readAgent(home) {
   return { agent };
 }
 
-// The installed agent -ig names, read for launch. A refusal stops here.
-function installedAgent(value, fail) {
+// The rbtv agent -rbtv names, read for launch. A refusal stops here.
+function rbtvAgent(value, fail) {
   const home = findAgentHome(value, process.cwd());
   if (!home) {
     const looked = isPath(value)
       ? `looked for ${path.join(path.resolve(value), AGENT_JSON)}\nNothing changed.\ncheck the path, or look up a name: rbtv agent list`
       : `looked for .rbtv/agents/${value}/agent.json from the current folder upward\nNothing changed.\nlook up a name: rbtv agent list`;
-    fail(`refused: no installed agent '${value}' was found\n${looked}`);
+    fail(`refused: no rbtv agent '${value}' was found\n${looked}`);
   }
   const read = readAgent(home);
   if (read.problem === 'launch') {
@@ -86,25 +86,25 @@ function installedAgent(value, fail) {
   return read.agent;
 }
 
-// Pull -ig / -rg out of argv, leaving the ordinary launch arguments.
+// Pull -rbtv / -rogue out of argv, leaving the ordinary launch arguments.
 function takeAgentFlags(argv, fail) {
   const rest = [];
-  const out = { installed: null, file: null };
+  const out = { rbtv: null, file: null };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
-    if (a === '-ig' || a === '-rg') {
+    if (a === '-rbtv' || a === '-rogue') {
       const val = argv[i + 1];
       if (val === undefined) fail(`refused: ${a} requires an argument`);
       i += 1;
-      if (a === '-ig') out.installed = val;
+      if (a === '-rbtv') out.rbtv = val;
       else out.file = val;
     } else rest.push(a);
   }
-  if (out.installed && out.file) fail('refused: -ig and -rg are mutually exclusive — pass exactly one');
+  if (out.rbtv && out.file) fail('refused: -rbtv and -rogue are mutually exclusive — pass exactly one');
   return { argv: rest, ...out };
 }
 
-// The system prompt a one-off agent file stands for.
+// The system prompt a rogue agent file stands for.
 function agentFilePrompt(flag, fail) {
   const file = path.resolve(process.cwd(), flag);
   let text;
@@ -112,4 +112,4 @@ function agentFilePrompt(flag, fail) {
   return { text: agentBody(text) };
 }
 
-module.exports = { agentBody, isPath, findAgentHome, readAgent, installedAgent, takeAgentFlags, agentFilePrompt };
+module.exports = { agentBody, isPath, findAgentHome, readAgent, rbtvAgent, takeAgentFlags, agentFilePrompt };
