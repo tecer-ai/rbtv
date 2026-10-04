@@ -150,6 +150,11 @@ def _legacy_owned_link(path: Path, dest: Path) -> bool:
             and link_points_at(path, dest))
 
 
+def _recorded_target_missing(entry: dict) -> bool:
+    """A vanished target cannot reserve a shared shortcut."""
+    return not Path(entry["target"]).exists()
+
+
 def preflight_shared_links(bindir: Path, desired: dict[str, Path],
                            booked: set[str], target: Path) -> dict:
     """Refuse shared shortcut conflicts before target files are touched."""
@@ -159,7 +164,8 @@ def preflight_shared_links(bindir: Path, desired: dict[str, Path],
     for name, dest in sorted(desired.items()):
         entry = data["links"].get(name)
         path = link_path(bindir, name)
-        if entry and entry["target"] != str(dest):
+        if entry and entry["target"] != str(dest) and \
+                not _recorded_target_missing(entry):
             if set(entry["owners"]) != {installation}:
                 owners = ", ".join(entry["owners"]) or "an unknown installation"
                 raise Refuse("path-owner-conflict",
@@ -218,6 +224,12 @@ def reconcile_shared(bindir: Path, desired: dict[str, Path], booked: set[str],
                 path = link_path(bindir, name)
                 if path.exists() or path.is_symlink():
                     report["legacy_preserved"].append(name)
+                continue
+            if _recorded_target_missing(entry):
+                status = unlink_one(bindir, name, dry=dry)
+                if status == "unlinked":
+                    report["unlinked"].append(name)
+                links.pop(name, None)
                 continue
             owners = [owner for owner in entry["owners"] if owner != installation]
             if owners:

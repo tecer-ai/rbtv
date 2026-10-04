@@ -22,7 +22,7 @@ from lib.constants import (
 from lib.pathlinks import (bin_dir, gate_path_links, link_path,
                            link_points_at, unlink_one)
 from lib.locks import mutation_lock
-from lib.shared_links import owner_file
+from lib.shared_links import owner_file, reconcile_shared
 from lib import pathlinks
 from lib.state import read_state
 from lib.operations import do_install, do_uninstall
@@ -178,6 +178,54 @@ def path_links(ctx) -> None:
           conflict_code == "path-owner-conflict"
           and not (conflict_ws / STATE_REL).exists(), conflict_code)
     do_uninstall(left, lcat, ["lmod/ladd"], dry_run=False)
+
+    bindir = bin_dir()
+    stale_left, stale_right = tmp / "ws-path-stale-left", tmp / "ws-path-stale-right"
+    stale_left.mkdir()
+    stale_right.mkdir()
+    stale_old = tmp / "stale-old.py"
+    stale_old.write_text("#!/usr/bin/env python3\nprint('old')\n",
+                         encoding="utf-8")
+    stale_old.chmod(0o755)
+    stale_new = tmp / "stale-new.py"
+    stale_new.write_text("#!/usr/bin/env python3\nprint('new')\n",
+                         encoding="utf-8")
+    stale_new.chmod(0o755)
+    migrate_name, retired_name = "stale-migrate", "stale-retired"
+    reconcile_shared(bindir, {migrate_name: stale_old}, set(), stale_left,
+                     dry=False)
+    reconcile_shared(bindir, {migrate_name: stale_old}, set(), stale_right,
+                     dry=False)
+    stale_old.unlink()
+    reconcile_shared(bindir, {migrate_name: stale_new}, {migrate_name},
+                     stale_left, dry=False)
+    stale_owners = json.loads(owner_file(bindir).read_text(
+        encoding="utf-8"))["links"][migrate_name]
+    check("L-shared-stale-target — either owner migrates a vanished target",
+          link_points_at(link_path(bindir, migrate_name), stale_new)
+          and stale_owners == {"target": str(stale_new), "owners": sorted(
+              [str(stale_left.resolve()), str(stale_right.resolve())])},
+          str(stale_owners))
+
+    stale_old.write_text("#!/usr/bin/env python3\nprint('old')\n",
+                         encoding="utf-8")
+    stale_old.chmod(0o755)
+    reconcile_shared(bindir, {retired_name: stale_old}, set(), stale_left,
+                     dry=False)
+    reconcile_shared(bindir, {retired_name: stale_old}, set(), stale_right,
+                     dry=False)
+    stale_old.unlink()
+    retired = reconcile_shared(bindir, {}, {retired_name}, stale_left,
+                               dry=False)
+    stale_links = json.loads(owner_file(bindir).read_text(
+        encoding="utf-8"))["links"]
+    check("L-shared-stale-target — removing a retired shortcut drops all stale owners",
+          retired_name in retired["unlinked"]
+          and not link_path(bindir, retired_name).exists()
+          and retired_name not in stale_links,
+          str(retired))
+    reconcile_shared(bindir, {}, {migrate_name}, stale_left, dry=False)
+    reconcile_shared(bindir, {}, {migrate_name}, stale_right, dry=False)
 
     owner_path = owner_file(bin_dir())
     owner_path.parent.mkdir(parents=True, exist_ok=True)

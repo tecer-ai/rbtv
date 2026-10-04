@@ -82,7 +82,7 @@ Per-unit harness files use an `rbtv-managed` marker in the file, after YAML fron
 
 ## D25 — Shared shortcut ownership and locks
 
-`~/.rbtv/path-owners.json` records each shortcut's resolved target and the workspaces that need it. The installer removes a shortcut only after its last owner leaves, preserves unrecorded shortcuts, and refuses conflicting targets before target writes. Bounded locks serialize workspace mutation and the shared shortcut record; workspace lock names derive from resolved target paths in the system temporary folder. This prevents concurrent runs and different workspaces from silently taking over one command. An OS error while persisting PATH is reported as a warning after the workspace install succeeds.
+`~/.rbtv/path-owners.json` records each shortcut's resolved target and the installations that need it. The installer removes a shortcut only after its last owner leaves, except that a shortcut whose recorded target has vanished is removed with all of its stale owners when its unit is removed. A vanished recorded target cannot reserve a shortcut: an installation may replace it while retaining the other owners for their next run. An existing different target remains a refusal. The installer preserves unrecorded shortcuts. Bounded locks serialize installation mutation and the shared shortcut record; installation lock names derive from resolved target paths in the system temporary folder. This prevents concurrent runs and different installations from silently taking over one command. An operating-system error while persisting PATH is reported as a warning after the installation succeeds.
 
 ## D26 — Public commands and local updates
 
