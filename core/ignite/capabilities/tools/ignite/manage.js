@@ -5,6 +5,8 @@
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 const { INSTALLER_ENTRY, runInstaller } = require('./connect.js');
+const CAST_LIB = '../../../../cast/capabilities/tools/cast/lib';
+const { spawnable } = require(`${CAST_LIB}/win-exec`);
 
 const CHANGE = new Set(['add', 'remove', 'configure', 'update']);
 const READ = new Set(['list', 'search', 'show']);
@@ -39,7 +41,9 @@ A passed-through command keeps that command's exit code.
 function write(deps, stream, text) { (deps[stream] || process[stream].write.bind(process[stream]))(text); }
 function callCast(args, deps) {
   if (deps.cast) return deps.cast(args);
-  const result = spawnSync('cast', args, { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+  const win = spawnable('cast', args);
+  const result = spawnSync(win.cmd, win.args, { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024, ...win.opts });
+  if (result.error) return { status: 1, stdout: '', stderr: `${result.error.message}\n` };
   return { status: result.status ?? 1, stdout: result.stdout || '', stderr: result.stderr || '' };
 }
 async function callInstaller(args, installation, deps) { return runInstaller(args, installation || process.cwd(), deps); }

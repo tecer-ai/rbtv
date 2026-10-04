@@ -5,6 +5,15 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+// The platform helper is swapped in before manage.js loads (it reads the helper once, at load).
+// Outside the check that sets helperStandIn, the real helper runs.
+const winExecPath = require.resolve('../../../../cast/capabilities/tools/cast/lib/win-exec.js');
+const winExec = require(winExecPath);
+let helperStandIn = null;
+require.cache[winExecPath].exports = {
+  ...winExec,
+  spawnable: (cmd, args) => (helperStandIn ? helperStandIn(cmd, args) : winExec.spawnable(cmd, args)),
+};
 const { spawnSync } = require('node:child_process');
 const { run } = require('./manage.js');
 const { INSTALLER_ENTRY } = require('./connect.js');
@@ -59,6 +68,47 @@ async function captures(argv, flags, deps) {
     fs.rmSync(bin, { recursive: true, force: true });
     fs.rmSync(installation, { recursive: true, force: true });
   }
+  // (a) models starts cast through the platform helper, and passes what the helper returns to the spawn.
+  const started = [];
+  helperStandIn = (cmd, args) => {
+    started.push([cmd, args]);
+    return { cmd: process.execPath, args: ['-e', "process.stdout.write('[]\\n')"], opts: {} };
+  };
+  const viaHelper = await captures(['models'], {}, { env: {} });
+  helperStandIn = null;
+  assert.deepEqual(started, [['cast', ['list']]]);
+  assert.deepEqual(viaHelper, { code: 0, stdout: '[]\n', stderr: '' });
+
+  // (b) a start that fails is never silent: the error goes to stderr and the exit code is 1.
+  const emptyPath = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-manage-empty-'));
+  const oldPathB = process.env.PATH;
+  process.env.PATH = emptyPath;
+  try {
+    const missing = await captures(['models'], {}, { env: {} });
+    assert.equal(missing.code, 1);
+    assert.equal(missing.stdout, '');
+    assert.match(missing.stderr, /spawnSync cast ENOENT/);
+  } finally {
+    process.env.PATH = oldPathB;
+    fs.rmSync(emptyPath, { recursive: true, force: true });
+  }
+
+  // (c) Windows only: a stand-in cast.cmd first on PATH is started, and its output is passed through.
+  if (process.platform === 'win32') {
+    const castBin = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-manage-cmd-'));
+    fs.writeFileSync(path.join(castBin, 'cast.cmd'), '@echo off\r\necho ignite-stand-in-cast\r\n', 'utf8');
+    const oldPathC = process.env.PATH;
+    process.env.PATH = `${castBin}${path.delimiter}${oldPathC}`;
+    try {
+      const viaCmd = await captures(['models'], {}, { env: {} });
+      assert.equal(viaCmd.code, 0);
+      assert.match(viaCmd.stdout, /ignite-stand-in-cast/);
+    } finally {
+      process.env.PATH = oldPathC;
+      fs.rmSync(castBin, { recursive: true, force: true });
+    }
+  }
+
   const unknown = await run(['settings'], {}, { env: {} }).catch((error) => error);
   assert.equal(unknown.exitCode, 1);
   assert.equal(unknown.message, 'unknown command: settings\nchoose from add, remove, configure, update, models, list, search, show\nNothing changed.\nignite manage -h');
