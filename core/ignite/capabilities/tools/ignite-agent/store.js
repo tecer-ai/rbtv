@@ -13,11 +13,13 @@
 // acceptOwnerInput({ key, agent, workspace, channel, rootTs, activated, message, queueId, payload })
 // recordMessage(key, { id, role, text, files, metadata, team, channel, ts, createdAt }) — false if duplicate Slack identity
 // listHistory(key, limit) — Slack identity on each row
+// lastOwnerReply(channel, rootTs, now?) — latest stored owner reply time, excluding roots and synthetic text
 // setSession(key, harness, sessionId) / getSession(key, harness) — per harness, never folder-last
 // getWork(id) / listWork({ conversationKey })
 // enqueue({ id, conversationKey, payload, message, workId, availableAt }) — owner input only; reopens completed|stopped as a new work id; never unholds
 // wake({ workId, conversationKey, note }) — worker completion; false on completed|stopped|held|waiting_owner
-// enqueueScheduleWake({ id, conversationKey, scheduleId, payload, workId }) — ≤1 pending per agent; never reopens or unholds
+// enqueueScheduleWake({ id, conversationKey, scheduleId, workId }) — fresh threadless conversation;
+//   conversationKey supplies routing only, workId gates eligibility only. ≤1 pending per agent; never reopens or unholds
 // claimNext(now) — owner input before continuation; a pending owner row on completed|stopped work is reopened, then claimed
 // getActiveRun() — running row even if the process is dead; liveRun() — the row only when /proc/<pid>/stat field 22 equals pidStart (string compare)
 // procStart(pid) — /proc/<pid>/stat field 22, or null if the process is gone
@@ -29,11 +31,13 @@
 // getLaunchSetting() / setLaunchSetting({ harness, model, effort, voice }) — changedAt; does not rewrite the active snapshot
 // enqueueOutbox({ id, conversationKey, payload, asRoot, clientMsgId }) — client_msg_id defaults to id
 // pendingOutbox(now) / markDelivered(id, { channel, ts, asRoot? }) / markDeliveryFailed(id, error, { retryAt })
+//   Delivery binds a threadless conversation to its root; confirmed post: rows join the target's history once.
 // stopOutbox(id, error) — state failed on the existing column; pendingOutbox no longer returns it. No new column.
 // rememberPost(id, { channel, ts }) — text already confirmed; row stays pending so file uploads can retry. No new column.
 // beginProactive({ id, agent, workspace, channel, payload, clientMsgId }) — activated; Slack key bound in markDelivered
-// upsertSchedule({ id, conversationKey, workId, cadence, timezone, nextAt, enabled, note, report })
+// upsertSchedule({ id, conversationKey, workId, cadence, timezone, nextAt, enabled, note, report, subject })
 // getSchedule(id) / listSchedules() / dueSchedules(now) / deleteSchedule(id)
+// pendingScheduleIds() — ids of schedule wakes still pending or running, including spent one-shots
 // transaction(fn)
 
 const fs = require('node:fs');
@@ -181,6 +185,7 @@ class Store {
         enabled INTEGER NOT NULL,
         note TEXT,
         report TEXT,
+        subject TEXT,
         updated_at INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS settings (
@@ -189,6 +194,11 @@ class Store {
         updated_at INTEGER NOT NULL
       );
     `);
+    this.transaction(() => {
+      if (!this.db.prepare('PRAGMA table_info(schedules)').all().some((column) => column.name === 'subject')) {
+        this.db.exec('ALTER TABLE schedules ADD COLUMN subject TEXT');
+      }
+    });
   }
 
   close() { this.db.close(); }
@@ -290,6 +300,14 @@ class Store {
       ORDER BY created_at DESC, id DESC LIMIT ?) ORDER BY created_at, id`)
       .all(conversationKeyValue, limit)
       .map((row) => ({ ...row, files: parse(row.files), metadata: parse(row.metadata) }));
+  }
+
+  lastOwnerReply(channel, rootTs, now = Date.now()) {
+    return this.db.prepare(`SELECT MAX(m.created_at) AS latest FROM messages m
+      JOIN conversations c ON c.key=m.conversation_key
+      WHERE c.channel=? AND c.root_ts=? AND m.role='owner'
+        AND m.ts IS NOT NULL AND m.ts!=c.root_ts AND m.created_at<=?`)
+      .get(channel, rootTs, now).latest;
   }
 
   acceptOwnerInput({ key, agent, workspace, channel, rootTs = null, activated = false, message, queueId = null, payload = {} }) {
@@ -416,10 +434,11 @@ class Store {
         ORDER BY updated_at DESC, id DESC LIMIT 1`).get(conversationKeyValue));
   }
 
-  enqueueScheduleWake({ id, conversationKey: conversationKeyValue, scheduleId = null, payload = {}, workId = null }) {
+  enqueueScheduleWake({ id, conversationKey: conversationKeyValue, scheduleId = id, workId = null }) {
     if (!id || !conversationKeyValue) throw new Error('schedule wake id and conversation required');
     return this.transaction(() => {
-      if (!this.getConversation(conversationKeyValue)) throw new Error('unknown conversation');
+      const source = this.getConversation(conversationKeyValue);
+      if (!source) throw new Error('unknown conversation');
       if (this.agentHold()) return { inserted: false, reason: 'agent_hold' };
       if (workId) {
         const work = this.getWork(workId);
@@ -430,10 +449,14 @@ class Store {
       }
       const pending = this.db.prepare(`SELECT id FROM queue WHERE kind='schedule' AND state='pending'`).get();
       if (pending) return { inserted: false, reason: 'duplicate', id: pending.id };
+      const key = `schedule:${randomUUID()}`;
+      this.upsertConversation({
+        key, agent: source.agent, workspace: source.workspace, channel: source.channel, activated: true,
+      });
       this.db.prepare(`INSERT INTO queue
         (id, conversation_key, kind, payload, work_id, priority, available_at, created_at)
         VALUES (?, ?, 'schedule', ?, ?, ?, ?, ?)`).run(
-        id, conversationKeyValue, json({ ...payload, scheduleId }), workId, AUTO_PRIORITY, Date.now(), Date.now(),
+        id, key, json({ scheduleId }), null, AUTO_PRIORITY, Date.now(), Date.now(),
       );
       return { inserted: true, reason: 'queued', id };
     });
@@ -693,8 +716,8 @@ class Store {
         row.as_root = 1;
       }
       let conversationKeyValue = row.conversation_key;
-      if (row.as_root) {
-        const conv = this.db.prepare('SELECT * FROM conversations WHERE key=?').get(row.conversation_key);
+      const conv = this.getConversation(row.conversation_key);
+      if (row.as_root || !conv.root_ts) {
         const bound = conversationKey(conv.workspace, channel, ts);
         if (conv.key !== bound) {
           this._rekey(conv.key, bound);
@@ -705,6 +728,13 @@ class Store {
       }
       this.db.prepare(`UPDATE outbox SET state='delivered', channel=?, ts=?, delivered_at=? WHERE id=?`)
         .run(channel, ts, Date.now(), id);
+      if (row.id.startsWith('post:')) {
+        const payload = parse(row.payload);
+        this.recordMessage(conversationKeyValue, {
+          id: row.id, role: 'assistant', text: payload.text || '', files: payload.files || [],
+          team: conv.workspace, channel, ts,
+        });
+      }
       return { channel, ts, clientMsgId: row.client_msg_id, conversationKey: conversationKeyValue };
     });
   }
@@ -754,10 +784,12 @@ class Store {
     if (!row) throw new Error('unknown conversation');
     this.db.prepare(`INSERT INTO conversations(key, agent, workspace, channel, root_ts, activated, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)`).run(newKey, row.agent, row.workspace, row.channel, row.root_ts, row.activated, Date.now());
-    for (const table of ['messages', 'work', 'queue', 'outbox', 'schedules', 'conversation_sessions']) {
+    for (const table of ['messages', 'work', 'queue', 'outbox', 'conversation_sessions']) {
       this.db.prepare(`UPDATE ${table} SET conversation_key=? WHERE conversation_key=?`).run(newKey, oldKey);
     }
-    this.db.prepare('DELETE FROM conversations WHERE key=?').run(oldKey);
+    // Schedules keep their creation reference for routing; it must still satisfy the foreign key.
+    this.db.prepare(`DELETE FROM conversations WHERE key=?
+      AND NOT EXISTS (SELECT 1 FROM schedules WHERE conversation_key=?)`).run(oldKey, oldKey);
   }
 
   beginProactive({ id, agent, workspace, channel, payload, clientMsgId = null }) {
@@ -782,7 +814,7 @@ class Store {
     return { ...row, enabled: row.enabled === 1 };
   }
 
-  upsertSchedule({ id, conversationKey: conversationKeyValue, workId = null, cadence, timezone, nextAt = null, enabled = true, note = null, report = null }) {
+  upsertSchedule({ id, conversationKey: conversationKeyValue, workId = null, cadence, timezone, nextAt = null, enabled = true, note = null, report = null, subject = null }) {
     if (!id || !conversationKeyValue || !cadence || !timezone) {
       throw new Error('schedule id, conversation, cadence and timezone required');
     }
@@ -790,12 +822,12 @@ class Store {
       if (!this.getConversation(conversationKeyValue)) throw new Error('unknown conversation');
       if (workId && !this.getWork(workId)) throw new Error('unknown work');
       this.db.prepare(`INSERT INTO schedules
-        (id, conversation_key, work_id, cadence, timezone, next_at, enabled, note, report, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, conversation_key, work_id, cadence, timezone, next_at, enabled, note, report, subject, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET cadence=excluded.cadence, timezone=excluded.timezone,
           next_at=excluded.next_at, enabled=excluded.enabled, note=excluded.note, report=excluded.report,
-          work_id=excluded.work_id, updated_at=excluded.updated_at`).run(
-        id, conversationKeyValue, workId, cadence, timezone, nextAt, enabled ? 1 : 0, note, report, Date.now(),
+          work_id=excluded.work_id, subject=excluded.subject, updated_at=excluded.updated_at`).run(
+        id, conversationKeyValue, workId, cadence, timezone, nextAt, enabled ? 1 : 0, note, report, subject, Date.now(),
       );
       return this.getSchedule(id);
     });
@@ -807,6 +839,11 @@ class Store {
 
   listSchedules() {
     return this.db.prepare('SELECT * FROM schedules ORDER BY id').all().map((row) => this._schedule(row));
+  }
+
+  pendingScheduleIds() {
+    return this.db.prepare("SELECT payload FROM queue WHERE kind='schedule' AND state IN ('pending', 'running')")
+      .all().map((row) => parse(row.payload).scheduleId);
   }
 
   dueSchedules(now = Date.now()) {

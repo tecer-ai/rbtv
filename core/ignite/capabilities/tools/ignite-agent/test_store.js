@@ -162,6 +162,7 @@ test('2d one pending scheduled wake per agent', (store) => {
   const second = store.enqueueScheduleWake({ id: 'sw2', conversationKey: 'T1:C2:2.2', scheduleId: 's2' });
   assert.equal(second.inserted, false);
   assert.equal(second.reason, 'duplicate');
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM conversations').get().n, 3);
   store.setLaunchSetting({ harness: 'claude', model: 'm', effort: 'low' });
   const claim = store.claimNext();
   assert.equal(claim.kind, 'schedule');
@@ -170,6 +171,36 @@ test('2d one pending scheduled wake per agent', (store) => {
   store.finishRun(claim.runId, claim.nonce, {
     invocationNonce: claim.nonce, output: '{}', disposition: 'completed', summary: 'board',
   });
+});
+
+test('schedule wakes inherit only routing, never thread, work state, history or session', (store) => {
+  const source = conv(store);
+  store.recordMessage(source.key, ownerMessage('earlier', 'old context'));
+  store.setSession(source.key, 'claude', 'old-session');
+  const work = store.enqueue({ id: 'owner', conversationKey: source.key, availableAt: 1_000 });
+  finish(store, store.claimNext(1_000), 'continue', { summary: 'old work' });
+  store.db.prepare("UPDATE queue SET state='cancelled' WHERE kind='continue'").run();
+  const keys = new Set([source.key]);
+  for (const id of ['first', 'second']) {
+    assert.equal(store.enqueueScheduleWake({
+      id, conversationKey: source.key, scheduleId: 'check', workId: work.workId,
+    }).inserted, true);
+    const claim = store.claimNext();
+    assert.equal(keys.has(claim.conversation_key), false);
+    keys.add(claim.conversation_key);
+    const fresh = store.getConversation(claim.conversation_key);
+    assert.equal(fresh.root_ts, null);
+    assert.equal(fresh.agent, source.agent);
+    assert.equal(fresh.workspace, source.workspace);
+    assert.equal(fresh.channel, source.channel);
+    assert.equal(claim.work_id, null);
+    assert.deepEqual(claim.payload, { scheduleId: 'check' });
+    assert.deepEqual(store.listHistory(fresh.key), []);
+    assert.equal(store.getSession(fresh.key, 'claude'), null);
+    finish(store, claim, 'completed', { harness: 'claude', sessionId: `session-${id}` });
+  }
+  assert.equal(store.getWork(work.workId).summary, 'old work');
+  assert.equal(store.getSession(source.key, 'claude'), 'old-session');
 });
 
 test('owner input queued during a running continuation is claimed after completed', (store) => {
@@ -469,6 +500,55 @@ test('proactive post binds activated thread on delivery', (store) => {
   assert.equal(bound.activated, true);
   assert.equal(bound.agent, 'master');
   assert.equal(store.getConversation(begun.conversationKey), null);
+  assert.equal(store.listHistory(bound.key)[0].text, 'board');
+  store.markDelivered(begun.outboxId, { channel: 'C1', ts: '8.8' });
+  assert.equal(store.listHistory(bound.key).length, 1);
+});
+
+test('rekey moves conversation state but leaves every schedule row unchanged', (store) => {
+  const begun = store.beginProactive({
+    id: 'p1', agent: 'master', workspace: 'T1', channel: 'C1', payload: { text: 'report' },
+  });
+  const key = begun.conversationKey;
+  const queued = store.enqueue({ id: 'q1', conversationKey: key });
+  store.recordMessage(key, ownerMessage('old', 'history'));
+  store.setSession(key, 'claude', 'keep-session');
+  store.upsertSchedule({
+    id: 'check', conversationKey: key, workId: queued.workId,
+    cadence: 'every:1h', timezone: 'fixed-interval', nextAt: 100, note: 'details',
+  });
+  const before = store.listSchedules();
+  const bound = store.markDelivered(begun.outboxId, { channel: 'C1', ts: '8.8' }).conversationKey;
+  assert.deepEqual(store.listSchedules(), before);
+  assert.ok(store.getConversation(key)); // The schedule's foreign key still has a valid routing source.
+  assert.equal(store.getConversation(key).root_ts, null);
+  for (const table of ['messages', 'work', 'queue', 'outbox', 'conversation_sessions']) {
+    assert.equal(store.db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE conversation_key=?`).get(key).n, 0);
+    assert.ok(store.db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE conversation_key=?`).get(bound).n > 0);
+  }
+  assert.equal(store.getSession(bound, 'claude'), 'keep-session');
+  assert.deepEqual(store.db.prepare('PRAGMA foreign_key_check').all(), []);
+  assert.equal(store.enqueueScheduleWake({ id: 'next', conversationKey: key, scheduleId: 'check' }).inserted, true);
+});
+
+test('confirmed posts join existing history once without rebinding the thread', (store) => {
+  conv(store);
+  store.recordMessage('T1:C1:1.1', ownerMessage('1.1', 'earlier'));
+  store.setSession('T1:C1:1.1', 'claude', 'thread-session');
+  store.enqueueOutbox({
+    id: 'post:reply', conversationKey: 'T1:C1:1.1', payload: { text: 'answer', files: ['report.pdf'] },
+  });
+  assert.equal(store.listHistory('T1:C1:1.1').length, 1);
+  const delivered = store.markDelivered('post:reply', { channel: 'C1', ts: '2.2' });
+  assert.equal(delivered.conversationKey, 'T1:C1:1.1');
+  assert.equal(store.getConversation(delivered.conversationKey).root_ts, '1.1');
+  assert.equal(store.getSession(delivered.conversationKey, 'claude'), 'thread-session');
+  store.markDelivered('post:reply', { channel: 'C1', ts: '2.2' });
+  const history = store.listHistory(delivered.conversationKey);
+  assert.deepEqual(history.map((row) => row.text), ['earlier', 'answer']);
+  assert.equal(history[1].role, 'assistant');
+  assert.deepEqual(history[1].files, ['report.pdf']);
+  assert.equal(history[1].ts, '2.2');
 });
 
 test('transaction rollback and persistence', (store, ctx) => {
@@ -500,6 +580,50 @@ test('held owner input is retained and not an unhold', (store) => {
   store.clearHold({ workId: first.workId });
   const next = store.claimNext(40_000);
   assert.equal(next.kind, 'owner');
+});
+
+test('schedule subjects persist and older databases acquire a nullable subject column', (store, ctx) => {
+  conv(store);
+  store.upsertSchedule({ id: 'old', conversationKey: 'T1:C1:1.1', cadence: 'every:1h', timezone: 'fixed', note: 'kept', nextAt: 1000 });
+  store.db.exec('ALTER TABLE schedules DROP COLUMN subject');
+  let reopened = ctx.reopen();
+  assert.equal(reopened.getSchedule('old').subject, null);
+  assert.equal(reopened.getSchedule('old').note, 'kept');
+  assert.equal(reopened.getSchedule('old').next_at, 1000);
+  reopened.upsertSchedule({ id: 'new', conversationKey: 'T1:C1:1.1', cadence: 'every:1h', timezone: 'fixed', subject: 'Résumé review', nextAt: 2000 });
+  reopened = ctx.reopen();
+  assert.equal(reopened.getSchedule('new').subject, 'Résumé review');
+  assert.equal(reopened.listSchedules().find((row) => row.id === 'old').subject, null);
+  assert.equal(reopened.dueSchedules(3000).find((row) => row.id === 'new').subject, 'Résumé review');
+});
+
+test('lastOwnerReply excludes root, other threads, non-owner and synthetic rows', (store) => {
+  conv(store);
+  conv(store, 'T1:C2:1.1', { channel: 'C2' });
+  conv(store, 'T1:C1:3.3', { rootTs: '3.3' });
+  assert.equal(store.lastOwnerReply('C1', '1.1', 5000), null);
+  store.recordMessage('T1:C1:1.1', { id: 'root', role: 'owner', ts: '1.1', createdAt: 1000 });
+  store.recordMessage('T1:C1:1.1', { id: 'reply', role: 'owner', ts: '2.2', createdAt: 2000 });
+  for (const [id, role, ts, key] of [
+    ['assistant', 'assistant', '4.4', 'T1:C1:1.1'], ['other', 'user', '4.5', 'T1:C1:1.1'],
+    ['synthetic', 'owner', null, 'T1:C1:1.1'], ['channel', 'owner', '4.6', 'T1:C2:1.1'],
+    ['thread', 'owner', '4.7', 'T1:C1:3.3'],
+  ]) store.recordMessage(key, { id, role, ts, createdAt: 4000 });
+  store.recordMessage('T1:C1:1.1', { id: 'future', role: 'owner', ts: '6.6', createdAt: 6000 });
+  assert.equal(store.lastOwnerReply('C1', '1.1', 5000), 2000);
+  store.recordMessage('T1:C1:1.1', { id: 'latest', role: 'owner', ts: '5.5', createdAt: 5000 });
+  assert.equal(store.lastOwnerReply('C1', '1.1', 5000), 5000);
+});
+
+test('pendingScheduleIds retains a running wake and drops completed wakes', (store) => {
+  conv(store);
+  assert.deepEqual(store.pendingScheduleIds(), []);
+  store.enqueueScheduleWake({ id: 'wake', conversationKey: 'T1:C1:1.1', scheduleId: 'one-shot' });
+  assert.deepEqual(store.pendingScheduleIds(), ['one-shot']);
+  const claim = store.claimNext();
+  assert.deepEqual(store.pendingScheduleIds(), ['one-shot']);
+  finish(store, claim, 'completed');
+  assert.deepEqual(store.pendingScheduleIds(), []);
 });
 
 async function runAll() {

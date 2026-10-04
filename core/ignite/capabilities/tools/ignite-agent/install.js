@@ -5,13 +5,14 @@
 // deps.install(args) stubs the installer. args are the install.py argv. Absent: the real installer.
 // install runs `agent add`, then installs STANDARD_UNITS with `add`. No Slack.
 // Refuses when agent.md is already there; point at `ignite-agent update`.
-// update re-runs both and does not replace launch.json, settings.json, board.md,
+// update re-runs both and does not replace launch.json, settings.json, _artifacts/board.md,
 // state.sqlite, or conversations.
 
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { Store } = require('./store.js');
+const { boardPath, migrateBoard, writeBoard } = require('./board.js');
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const INSTALLER_ENTRY = path.resolve(__dirname, '../../../../..', 'core/installer/capabilities/tools/rbtv-install/install.py');
@@ -37,7 +38,7 @@ install <agent file> --harness <name> --model <cast short name> --effort <rung o
     rbtv install agent add <file> --harness … --model … --effort … --target <workspace>
   then installs Ignite's standard units into <workspace>/.rbtv/agents/<name>/ with
     rbtv install add <unit>… --target <home> --harness <the agent's harness> --guidance none
-  then writes what the agent needs to run and the installer does not: board.md
+  then writes what the agent needs to run and the installer does not: _artifacts/board.md
   (never overwrites an existing one), state.sqlite, and conversations/.
   Refuses when that agent is already installed. Refresh it with: ignite-agent update <agent>
   --workspace defaults to the current directory.
@@ -47,7 +48,7 @@ update <agent> [--workspace <path>] [--dry-run] [--json]
 
   Runs rbtv install agent update <agent>, then re-installs the standard units and
   removes any unit Ignite installed earlier that is no longer a standard unit.
-  Keeps launch.json, settings.json, board.md, state.sqlite, and conversations.
+  Keeps launch.json, settings.json, _artifacts/board.md, state.sqlite, and conversations.
 `;
 
 function fail(message) {
@@ -168,9 +169,9 @@ function readLaunch(home) {
 
 function ensureRuntime(home) {
   fs.mkdirSync(path.join(home, 'conversations'), { recursive: true });
-  const board = path.join(home, 'board.md');
+  const board = migrateBoard(home);
   if (!fs.existsSync(board)) {
-    fs.copyFileSync(path.join(__dirname, 'templates', 'board.md.tmpl'), board);
+    writeBoard(board, fs.readFileSync(path.join(__dirname, 'templates', 'board.md.tmpl'), 'utf8'));
   }
   const db = path.join(home, 'state.sqlite');
   if (!fs.existsSync(db)) {
@@ -229,7 +230,7 @@ async function installAgent(opts, positionals, flags, deps) {
     emit(deps, flags, { dryRun: true, ...plan, writes: 'none' }, planText(plan));
     return 0;
   }
-  const boardExisted = fs.existsSync(path.join(home, 'board.md'));
+  const boardExisted = fs.existsSync(boardPath(home));
   ensureRuntime(home);
   emit(deps, flags, {
     installed: name, home, launch, units: STANDARD_UNITS, board: boardExisted ? 'kept' : 'written',
@@ -264,7 +265,7 @@ async function updateAgent(opts, positionals, flags, deps) {
     const removedError = installerError(removed);
     if (removedError) fail(removedError);
   }
-  const kept = ['launch.json', 'settings.json', 'board.md', 'state.sqlite', 'conversations'];
+  const kept = ['launch.json', 'settings.json', '_artifacts/board.md', 'state.sqlite', 'conversations'];
   if (opts.dryRun) {
     emit(deps, flags, {
       dryRun: true, verb: 'update', agent: name, home, launch, units: STANDARD_UNITS, removes: dropped, kept, writes: 'none',

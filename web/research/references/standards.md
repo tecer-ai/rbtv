@@ -8,8 +8,9 @@ Every rule here binds every research output, whatever asked for it.
 
 ## Reaching a page
 
-Finding a URL is a live web search. Reading what sits behind that URL is the sibling `web/browse`
-component — its routing capability picks the surface and states its own failure modes.
+Finding a URL is a live web search. Reading the page — fetch, extract, judge, save — is `web/capture`.
+Driving or measuring a browser is `web/browse`, and only when capture cannot read the page. This
+reference scores and cites what those return; it does not fetch or drive.
 
 ## 1. Identify the topic
 

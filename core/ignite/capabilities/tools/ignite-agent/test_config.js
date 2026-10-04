@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { configPath, loadConfig, agentHome, storePath, envValue, slackToken } = require('./config.js');
+const { configPath, loadConfig, updateConfig, agentHome, storePath, envValue, slackToken } = require('./config.js');
 
 const failures = [];
 
@@ -40,7 +40,7 @@ function writeConfig(dir, patch = {}) {
   const body = { ...base, ...patch, slack: { ...base.slack, ...patch.slack } };
   const folder = path.dirname(configPath(dir));
   fs.mkdirSync(folder, { recursive: true });
-  fs.writeFileSync(configPath(dir), JSON.stringify(body));
+  fs.writeFileSync(configPath(dir), JSON.stringify(body), 'utf8');
   return body;
 }
 
@@ -65,6 +65,49 @@ test('loads a valid config from the runtime path', (dir) => {
   assert.equal(config.slack.appTokenEnv, 'IGNITE_APP_TOKEN');
   assert.equal(config.slack.botTokenEnv, 'IGNITE_BOT_TOKEN');
   assert.equal(Object.hasOwn(config, 'defaultLaunch'), false);
+});
+
+test('dreamer defaults off and accepts only a boolean enable setting', (dir) => {
+  for (const dreamer of [undefined, {}, { enabled: false }, { enabled: true }]) {
+    writeConfig(dir, { dreamer });
+    assert.equal(loadConfig(dir).dreamer.enabled, dreamer?.enabled ?? false);
+    assert.deepEqual(loadConfig(dir).dreamer.model, { harness: 'codex', model: 'gpt-6-sol', effort: 3 });
+  }
+  for (const dreamer of [null, [], true, { enabled: 'true' }, { enabled: 1 }, { hour: 3 }]) {
+    writeConfig(dir, { dreamer });
+    assert.throws(() => loadConfig(dir), /dreamer/);
+  }
+});
+
+test('dreamer model accepts a complete override and survives config updates', (dir) => {
+  for (const harness of ['codex', 'opencode', 'claude']) for (const effort of [1, 3, 5]) {
+    const model = { harness, model: 'example/model-v1', effort };
+    writeConfig(dir, { dreamer: { enabled: true, model } });
+    assert.deepEqual(loadConfig(dir).dreamer.model, model);
+    assert.deepEqual(updateConfig(dir, (config) => { config.routes.C2 = 'sample'; }).dreamer.model, model);
+    assert.deepEqual(loadConfig(dir).dreamer.model, model);
+  }
+  const reset = updateConfig(dir, (config) => { delete config.dreamer.model; });
+  assert.deepEqual(reset.dreamer.model, { harness: 'codex', model: 'gpt-6-sol', effort: 3 });
+  assert.deepEqual(loadConfig(dir).dreamer.model, reset.dreamer.model);
+});
+
+test('dreamer model rejects malformed or incomplete overrides without writing', (dir) => {
+  const valid = { harness: 'codex', model: 'example', effort: 3 };
+  const invalid = [null, [], true, 'codex', {},
+    ...['harness', 'model', 'effort'].map((key) => Object.fromEntries(Object.entries(valid).filter(([name]) => name !== key))),
+    ...['', 'unknown', ' codex', 7].map((harness) => ({ ...valid, harness })),
+    ...['', ' ', '--help', 'two names', 'model\r\nname', null, 7].map((model) => ({ ...valid, model })),
+    ...[0, 6, 2.5, '3', 'high', null, true].map((effort) => ({ ...valid, effort })),
+    { ...valid, extra: true }];
+  for (const model of invalid) {
+    writeConfig(dir, { dreamer: { model } });
+    assert.throws(() => loadConfig(dir), /dreamer\.model/);
+    writeConfig(dir);
+    const before = fs.readFileSync(configPath(dir), 'utf8');
+    assert.throws(() => updateConfig(dir, (config) => { config.dreamer.model = model; }), /dreamer\.model/);
+    assert.equal(fs.readFileSync(configPath(dir), 'utf8'), before);
+  }
 });
 
 test('agentHome resolves under the given workspace', (dir) => {

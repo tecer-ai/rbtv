@@ -7,9 +7,12 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { Store } = require('./store.js');
+const { main } = require('./cli.js');
 const { runOnce } = require('./turn-loop.js');
 const { deliverPending } = require('./outbox.js');
 const { historyPath, writeHistory } = require('./history.js');
+const { EMPTY_BOARD, boardPath, parseBoard } = require('./board.js');
+const TEST_BOARD = EMPTY_BOARD.replace('## What matters now\n', '## What matters now\n\n### BOARD_TOKEN\nReady.\n- Threads: none\n- Detail: none\n- Flags: none\n');
 
 const failures = [];
 const pending = [];
@@ -112,7 +115,7 @@ function fakeAudio() {
     calls: [],
     fail: false,
     async transcribe() {
-      if (audio.fail) throw new Error('no transcript');
+      if (audio.fail) throw new Error(audio.error || 'no transcript');
       return { text: 'heard words' };
     },
     async speak(text, opts) {
@@ -124,11 +127,20 @@ function fakeAudio() {
 }
 
 function harness(ctx, setting = {}) {
-  const home = path.join(ctx.dir, 'home');
+  const home = path.join(ctx.dir, '.rbtv', 'agents', 'master');
   fs.mkdirSync(home, { recursive: true });
   const launch = { harness: 'claude', model: 'sonnet-5', effort: 'low', voice: 'voice-a', ...setting };
   fs.writeFileSync(path.join(home, 'launch.json'), `${JSON.stringify(launch)}\n`);
-  fs.writeFileSync(path.join(home, 'board.md'), 'BOARD_TOKEN\n');
+  fs.writeFileSync(path.join(home, 'board.md'), TEST_BOARD, 'utf8');
+  fs.mkdirSync(path.dirname(boardPath(home)), { recursive: true });
+  fs.writeFileSync(boardPath(home), TEST_BOARD, 'utf8');
+  fs.mkdirSync(path.join(home, 'memory'));
+  fs.writeFileSync(path.join(home, 'memory', 'learned.md'), '# Learned rules — master\n', 'utf8');
+  const memory = path.join(ctx.dir, '.rbtv', 'memory');
+  fs.mkdirSync(path.join(memory, '_artifacts'), { recursive: true });
+  fs.writeFileSync(path.join(memory, 'profile.md'), '# Profile — Sam\n\n## Who\n- PROFILE_TOKEN. (2026-10-01 · source.md)\n\n## Working with Sam\n\n## Now\n', 'utf8');
+  fs.writeFileSync(path.join(memory, 'inbox.md'), '# Inbox — waiting to be filed\n- INBOX_TOKEN. (2026-10-01 · master)\n', 'utf8');
+  fs.writeFileSync(path.join(memory, '_artifacts', 'index.md'), '# Memory index\n| Open | When |\n|---|---|\n| [../knowledge/](../knowledge/) | WHEN needed. |\n', 'utf8');
   const store = ctx.track(new Store(path.join(home, 'state.sqlite')));
   store.setLaunchSetting(launch);
   const controlPath = path.join(ctx.dir, 'control.json');
@@ -144,6 +156,7 @@ function harness(ctx, setting = {}) {
     store,
     slack,
     audio,
+    logs: [],
     seenPath,
     writeControl,
     launch,
@@ -158,6 +171,7 @@ function harness(ctx, setting = {}) {
       castCmd: stubPath,
       castEnv: { FAKE_CAST_CONTROL: controlPath, FAKE_CAST_SEEN: seenPath },
       now: () => now,
+      log(fields) { box.logs.push(fields); },
     },
   };
   return box;
@@ -396,6 +410,111 @@ test('harness change → new session with re-hydrated prompt', async (ctx) => {
   assert.equal(resumed.prompt.includes('Stored thread context'), false);
 });
 
+test('successive schedule turns start new sessions with only the schedule id as input', async (ctx) => {
+  const box = harness(ctx);
+  const key = 'T1:C1:1.1';
+  box.store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
+  box.store.recordMessage(key, { id: 'old', role: 'owner', text: 'OLD_THREAD_CONTEXT' });
+  box.store.setSession(key, 'claude', 'old-session');
+  const keys = new Set([key]);
+  for (const id of ['wake-1', 'wake-2']) {
+    box.store.enqueueScheduleWake({ id, conversationKey: key, scheduleId: 'check-inbox' });
+    // Even a legacy payload carrying details must expose only the schedule id as input.
+    box.store.db.prepare('UPDATE queue SET payload=? WHERE id=?').run(JSON.stringify({
+      scheduleId: 'check-inbox', note: 'OLD_SCHEDULE_NOTE', report: 'always', cadence: 'every:1h',
+    }), id);
+    box.sync();
+    const result = await runOnce('master', box.deps);
+    assert.equal(result.failed, undefined);
+    const request = seen(box).at(-1);
+    assert.deepEqual(request.session, { mode: 'new' });
+    const freshKey = request.env.IGNITE_CONVERSATION;
+    assert.equal(keys.has(freshKey), false);
+    keys.add(freshKey);
+    assert.equal(box.store.getConversation(freshKey).root_ts, null);
+    assert.equal(request.prompt.split('Triggering input:\n')[1].split('\nRecent messages')[0], '[schedule] check-inbox');
+    assert.doesNotMatch(request.prompt, /OLD_THREAD_CONTEXT|OLD_SCHEDULE_NOTE|old-session|every:1h/);
+    const [delivered] = await deliverPending(box.store, { slack: box.slack });
+    assert.equal(delivered.delivered, true);
+    assert.equal(box.slack.posts.at(-1).threadTs, undefined);
+    assert.equal(box.store.getConversation(delivered.conversationKey).root_ts, delivered.ts);
+  }
+  assert.equal(box.store.getSession(key, 'claude'), 'old-session');
+});
+
+test('two replies from one schedule wake deliver in the same thread in one drain', async (ctx) => {
+  const box = harness(ctx);
+  const key = 'T1:C1:board';
+  box.store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs: 'board' });
+  const schedule = box.store.upsertSchedule({
+    id: 'check-inbox', conversationKey: key, cadence: 'every:1h', timezone: 'UTC',
+  });
+  box.store.enqueueScheduleWake({ id: 'wake-1', conversationKey: key, scheduleId: schedule.id });
+  box.writeControl({ agent: agentOf('completed', {
+    replies: [{ text: 'first reply' }, { text: 'second reply' }],
+  }) });
+  box.sync();
+  const result = await runOnce('master', box.deps);
+  assert.equal(result.disposition, 'completed');
+  const freshKey = seen(box)[0].env.IGNITE_CONVERSATION;
+  assert.equal(box.store.getConversation(freshKey).root_ts, null);
+  const rows = box.store.pendingOutbox();
+  assert.equal(rows.length, 2);
+  assert.ok(rows.every((row) => row.conversation_key === freshKey));
+
+  const delivered = await deliverPending(box.store, { slack: box.slack });
+  assert.deepEqual(delivered.map((row) => row.delivered), [true, true]);
+  assert.deepEqual(box.slack.posts.map((post) => post.text), ['first reply', 'second reply']);
+  assert.equal(box.slack.posts[0].threadTs, undefined);
+  assert.equal(box.slack.posts[1].threadTs, delivered[0].ts);
+  assert.equal(delivered[1].conversationKey, delivered[0].conversationKey);
+  assert.equal(box.store.getConversation(freshKey), null);
+  for (const row of rows) {
+    const saved = box.store.db.prepare('SELECT * FROM outbox WHERE id=?').get(row.id);
+    assert.equal(saved.state, 'delivered');
+    assert.equal(saved.last_error, null);
+    assert.equal(saved.conversation_key, delivered[0].conversationKey);
+  }
+  assert.deepEqual(box.store.pendingOutbox(), []);
+  assert.deepEqual(box.store.getSchedule(schedule.id), schedule);
+});
+
+test('post --thread delivers into the target and joins its next turn history', async (ctx) => {
+  const box = harness(ctx);
+  const workspace = path.join(ctx.dir, 'workspace');
+  const configDir = path.join(workspace, '.rbtv', 'config', 'ignite');
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({
+    slack: { team: 'T1', botUserId: 'UBOT', ownerUserId: 'UOWNER',
+      appTokenEnv: 'SLACK_APP_TOKEN', botTokenEnv: 'SLACK_BOT_TOKEN', ownerTokenEnv: 'SLACK_OWNER_TOKEN',
+      stoolsWorkspace: 'ignite' },
+    tools: { cast: 'cast', stools: 'stools', audio: 'audio' }, dmAgent: 'master', routes: { C1: 'master' },
+  }), 'utf8');
+  const key = 'T1:C1:1.1';
+  box.store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
+  box.store.recordMessage(key, { id: 'before', role: 'owner', text: 'EARLIER_THREAD_CONTEXT' });
+  box.store.setSession(key, 'claude', 'thread-session');
+  box.store.upsertConversation({ key: 'schedule:current', agent: 'master', workspace: 'T1', channel: 'C1' });
+  const code = main(['--agent', 'master', '--workspace', workspace, 'post', '--thread', key, '--text', 'CHECK_RESULT'], {
+    env: { IGNITE_AGENT_HOME: box.home, IGNITE_CONVERSATION: 'schedule:current' }, stdout() {},
+  });
+  assert.equal(code, 0);
+  const [delivered] = await deliverPending(box.store, { slack: box.slack });
+  assert.equal(delivered.delivered, true);
+  assert.equal(delivered.conversationKey, key);
+  assert.equal(box.slack.posts[0].threadTs, '1.1');
+  assert.equal(box.slack.posts[0].text, 'CHECK_RESULT');
+  assert.deepEqual(box.store.listHistory('schedule:current'), []);
+  seed(box.store, { id: '10.1', text: 'FOLLOW_UP', createdAt: Date.now() });
+  box.sync();
+  const result = await runOnce('master', box.deps);
+  assert.deepEqual(result.session, { mode: 'resume', id: 'thread-session' });
+  assert.match(result.prompt, /EARLIER_THREAD_CONTEXT/);
+  assert.match(result.prompt, /CHECK_RESULT/);
+  assert.match(result.prompt, /FOLLOW_UP/);
+  assert.match(fs.readFileSync(historyPath(box.home, key), 'utf8'), /CHECK_RESULT/);
+});
+
 test('queued owner input runs before a continue', async (ctx) => {
   const box = harness(ctx);
   seed(box.store, { text: 'start' });
@@ -623,7 +742,7 @@ test('retry after a posted text does not post it again', async (ctx) => {
   assert.equal(textHits(box.slack, 'once only'), 1);
 });
 
-test('transcription failure is a visible reply', async (ctx) => {
+test('transcription failure replies plainly and logs its detail', async (ctx) => {
   const box = harness(ctx);
   seed(box.store, {
     text: '',
@@ -631,16 +750,22 @@ test('transcription failure is a visible reply', async (ctx) => {
   });
   box.slack.downloads = [{ name: 'note.m4a', path: '/tmp/note.m4a' }];
   box.audio.fail = true;
+  box.audio.error = 'audio keys file: /configured/audio-keys.json';
   box.sync();
   const result = await runOnce('master', box.deps);
   assert.equal(result.launched, false);
   assert.equal(seen(box).length, 0);
   const outbox = box.store.pendingOutbox();
   assert.equal(outbox.length, 1);
-  assert.match(outbox[0].payload.text, /Transcription failed/);
-  assert.ok(outbox[0].payload.text.trim());
+  assert.equal(outbox[0].payload.text, 'I could not transcribe that voice note; please send it as text.');
+  assert.deepEqual(box.logs, [{
+    event: 'transcription-failed', message: 'Transcription failed: note.m4a: audio keys file: /configured/audio-keys.json',
+  }]);
+  const [delivered] = await deliverPending(box.store, { slack: box.slack, audio: box.audio, home: box.home });
+  assert.equal(delivered.delivered, true);
+  assert.equal(box.slack.posts.at(-1).text, 'I could not transcribe that voice note; please send it as text.');
   const history = fs.readFileSync(historyPath(box.home, 'T1:C1:1.1'), 'utf8');
-  assert.match(history, /Transcription failed/);
+  assert.equal(history.includes('/configured/audio-keys.json'), false);
 });
 
 test('launch failure holds the agent', async (ctx) => {
@@ -702,6 +827,125 @@ test('cwd is symlink-resolved', async (ctx) => {
   await runOnce('master', box.deps);
   assert.equal(seen(box)[0].cwd, fs.realpathSync(box.home));
   assert.equal(seen(box)[0].env.IGNITE_AGENT_HOME, fs.realpathSync(box.home));
+});
+
+for (const trigger of ['owner', 'schedule']) {
+  test(`${trigger} turn injects the canonical board with regenerated timers and owner flags`, async (ctx) => {
+    const box = harness(ctx);
+    const now = Date.now() + 1000;
+    box.setNow(now);
+    const rootTs = `${Math.floor((now - 8 * 86_400_000) / 1000)}.000000`;
+    const replyTs = `${Math.floor((now - 3_600_000) / 1000)}.000000`;
+    const key = `T1:C1:${rootTs}`;
+    box.store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs });
+    if (trigger === 'owner') seed(box.store, { key, id: replyTs, text: 'Reviewed', createdAt: now - 3_600_000 });
+    else {
+      box.store.recordMessage(key, { id: 'reply', role: 'owner', ts: replyTs, text: 'Reviewed', createdAt: now - 3_600_000 });
+      box.store.enqueueScheduleWake({ id: 'wake', conversationKey: key, scheduleId: 'review-timer' });
+    }
+    box.store.upsertSchedule({ id: 'review-timer', conversationKey: key, cadence: 'every:1h', timezone: 'fixed',
+      nextAt: now + 3_600_000, note: 'Read the review', subject: 'Café review' });
+    const text = EMPTY_BOARD.replace('## What matters now\n', `## What matters now\n\n### Café review\nWaiting.\n- Threads: [review](https://example.slack.com/archives/C1/p${rootTs.replace('.', '')})\n- Detail: none\n- Flags: none\n`);
+    fs.mkdirSync(path.dirname(boardPath(box.home)), { recursive: true });
+    fs.writeFileSync(boardPath(box.home), text, 'utf8');
+    const result = await runOnce('master', box.deps);
+    assert.equal(result.disposition, 'completed');
+    assert.match(result.prompt, /Café review/);
+    for (const marker of ['PROFILE_TOKEN', '# Learned rules — master', '# Memory index', 'INBOX_TOKEN']) assert.ok(result.prompt.includes(marker), marker);
+    assert.match(result.prompt, /\| review-timer \| Read the review \| Café review \|/);
+    assert.match(result.prompt, /- Flags: answered \d{4}-\d{2}-\d{2}/);
+    assert.doesNotMatch(result.prompt, /BOARD_TOKEN|board refresh failed/);
+    assert.equal(parseBoard(fs.readFileSync(boardPath(box.home), 'utf8')).subjects.length, 1);
+    assert.equal(fs.readFileSync(path.join(box.home, 'board.md'), 'utf8'), TEST_BOARD);
+  });
+}
+
+test('a due one-shot injects its note from the board after the schedule disables itself', async (ctx) => {
+  const box = harness(ctx);
+  const now = Date.now() + 1000;
+  box.setNow(now);
+  const key = 'T1:C1:board';
+  box.store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs: 'board' });
+  box.store.upsertSchedule({ id: 'send-draft', conversationKey: key, cadence: `at:${new Date(now).toISOString()}`,
+    timezone: 'Z', nextAt: now, note: 'Send the draft for review' });
+  fs.mkdirSync(path.dirname(boardPath(box.home)), { recursive: true });
+  fs.writeFileSync(boardPath(box.home), EMPTY_BOARD, 'utf8');
+  assert.equal(main(['schedules-due', '--now', new Date(now).toISOString()], {
+    env: { IGNITE_AGENT_HOME: box.home }, stdout() {},
+  }), 0);
+  assert.equal(box.store.getSchedule('send-draft').enabled, false);
+  const result = await runOnce('master', box.deps);
+  assert.equal(result.disposition, 'completed');
+  assert.match(result.prompt, /\| send-draft \| Send the draft for review \| none \|/);
+  assert.match(result.prompt, /\[schedule\] send-draft\n/);
+  assert.deepEqual(result.session, { mode: 'new' });
+});
+
+for (const trigger of ['owner', 'schedule']) {
+  test(`${trigger} missing memory still launches and queues a deliverable owner alert`, async (ctx) => {
+    const box = harness(ctx);
+    seed(box.store);
+    if (trigger === 'schedule') {
+      box.store.db.prepare("DELETE FROM queue WHERE state='pending'").run();
+      box.store.enqueueScheduleWake({ id: 'missing-memory-wake', conversationKey: 'T1:C1:1.1', scheduleId: 'check-memory' });
+    }
+    fs.unlinkSync(path.join(ctx.dir, '.rbtv', 'memory', 'profile.md'));
+    fs.unlinkSync(boardPath(box.home));
+    fs.writeFileSync(path.join(box.home, 'board.md'), 'INVALID_LEGACY_BOARD', 'utf8');
+    fs.writeFileSync(path.join(box.home, 'memory', 'learned.md'), 'BROKEN_LESSON', 'utf8');
+    box.sync();
+    const result = await runOnce('master', box.deps);
+    assert.equal(result.disposition, 'completed');
+    assert.match(result.prompt, /MISSING MEMORY/);
+    assert.doesNotMatch(result.prompt, /BROKEN_LESSON|INVALID_LEGACY_BOARD/);
+    assert.equal(fs.existsSync(boardPath(box.home)), false);
+    assert.equal(box.store.agentHold(), null);
+    const alert = box.store.pendingOutbox().find((row) => row.id.startsWith('memory:'));
+    assert.match(alert.payload.text, /profile\.md.*ENOENT/);
+    assert.match(alert.payload.text, /board\.md.*ENOENT/);
+    assert.match(alert.payload.text, /learned\.md.*memory check failed/);
+    assert.ok(fs.readdirSync(path.join(box.home, 'memory')).some((name) => name.startsWith('learned.md.broken-')));
+    const delivered = await deliverPending(box.store, { slack: box.slack });
+    assert.ok(delivered.every((row) => row.delivered));
+    assert.ok(box.slack.posts.some((row) => row.text.includes('Memory alert:')));
+  });
+}
+
+test('resumed turns reread shared inbox and inject only workspace notes matching their cwd', async (ctx) => {
+  const box = harness(ctx);
+  const memory = path.join(ctx.dir, '.rbtv', 'memory');
+  fs.mkdirSync(path.join(memory, 'workspaces'));
+  const note = (folder, marker) => `---\ndescription: when working here\ntype: workspace\npaths: [${folder}]\n---\n# ${marker}\n`;
+  fs.writeFileSync(path.join(memory, 'workspaces', 'inside.md'), note('.rbtv/agents/master', 'MATCHING_NOTE'), 'utf8');
+  fs.writeFileSync(path.join(memory, 'workspaces', 'outside.md'), note('projects/elsewhere', 'OTHER_PRIVATE_NOTE'), 'utf8');
+  seed(box.store);
+  box.sync();
+  const first = await runOnce('master', box.deps);
+  assert.match(first.prompt, /MATCHING_NOTE/);
+  assert.doesNotMatch(first.prompt, /OTHER_PRIVATE_NOTE/);
+  fs.appendFileSync(path.join(memory, 'inbox.md'), '- NEW_INBOX_FACT. (2026-10-01 · other)\n', 'utf8');
+  seed(box.store, { id: '2.2', text: 'again', createdAt: 20 });
+  box.sync();
+  const second = await runOnce('master', box.deps);
+  assert.equal(second.session.mode, 'resume');
+  assert.match(second.prompt, /NEW_INBOX_FACT/);
+  assert.match(second.prompt, /PROFILE_TOKEN/);
+});
+
+test('an owner-alert queue failure leaves a visible instruction and never blocks the turn', async (ctx) => {
+  const box = harness(ctx);
+  seed(box.store);
+  fs.unlinkSync(path.join(ctx.dir, '.rbtv', 'memory', 'profile.md'));
+  const original = box.store.enqueueOutbox.bind(box.store);
+  box.store.enqueueOutbox = (args) => {
+    if (args.id?.startsWith('memory:')) throw new Error('simulated queue failure');
+    return original(args);
+  };
+  box.sync();
+  const result = await runOnce('master', box.deps);
+  assert.equal(result.disposition, 'completed');
+  assert.match(result.prompt, /Owner alert could not be queued; tell the owner/);
+  assert.equal(box.logs[0].event, 'memory-alert-failed');
 });
 
 async function runAll() {

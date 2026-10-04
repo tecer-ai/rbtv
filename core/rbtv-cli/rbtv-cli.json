@@ -1,5 +1,5 @@
 {
-  "description": "The ONE system-wide RBTV CLI — the agent-facing disclosure drill (modules → components → entry points) plus the action-verb router that delegates to the surfaces that already ship.",
+  "description": "The rbtv command: spark, doctor, selftest, and rbtv install. Modules, components, and units are browsed with rbtv install list.",
   "dependencies": [
     "node"
   ]

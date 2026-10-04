@@ -16,6 +16,7 @@ const { loadConfig, updateConfig, agentHome, configPath, slackToken } = require(
 const { Slack } = require('./slack.js');
 const { Store, conversationKey } = require('./store.js');
 const { cadenceSpec, nextOccurrence, FIXED_TZ } = require('./schedule.js');
+const { preflightBoard, refreshBoard, refreshBoardAfterCommit } = require('./board.js');
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const CHANNEL = /^[a-z0-9][a-z0-9_-]{0,79}$/;
@@ -43,6 +44,11 @@ connect <agent> (--channel-name <name> | --dm) [--schedule-json <file>]
     { "every": "<duration>", "tz": "fixed", "note": "<check>" }
     { "at": "<ISO datetime with offset>", "note": "<check>" }
   report defaults to when-useful. A missing cadence or timezone is refused.
+  Binding a timer requires a valid <home>/_artifacts/board.md before opening SQLite.
+  A committed timer whose board refresh fails still exits 0, with its id and
+  "committed; board refresh pending" (--json adds warning). Do not repeat the mutation.
+  The next board write or turn refreshes Timers from SQLite. This also applies
+  to timers cancelled by disconnect.
 
 disconnect <agent> [--archive-channel] [--workspace <path>] [--dry-run] [--json]
 
@@ -149,31 +155,10 @@ function scheduleFrom(file, now) {
     at: body.at || undefined,
     cron: body.cron || undefined,
     every: body.every || undefined,
-    tz: body.tz || undefined,
+    tz: body.every != null ? undefined : body.tz || undefined,
   });
   const nextAt = spec.nextAt != null ? spec.nextAt : nextOccurrence(spec.cadence, spec.timezone, now);
   return { ...spec, nextAt, note: String(body.note).trim(), report };
-}
-
-function writeBoard(home, schedule) {
-  const file = path.join(home, 'board.md');
-  if (!fs.existsSync(file)) {
-    fs.copyFileSync(path.join(__dirname, 'templates', 'board.md.tmpl'), file);
-  }
-  if (!schedule) return;
-  const text = fs.readFileSync(file, 'utf8');
-  const block = [
-    '## Recurring checks',
-    '',
-    `- cadence: ${schedule.cadence}`,
-    `- timezone: ${schedule.timezone}`,
-    `- check: ${schedule.note}`,
-    `- report: ${schedule.report}`,
-    '',
-  ].join('\n');
-  const next = text.replace(/## Recurring checks\r?\n\r?\n[\s\S]*?\r?\n\r?\n## Open work/, `${block}\n## Open work`);
-  if (next === text) fail('board template has no recurring-checks section');
-  fs.writeFileSync(file, next, 'utf8');
 }
 
 function slackClient(config, deps) {
@@ -204,9 +189,10 @@ async function ensureChannel(ctx, slack, deps) {
 // One timer per connection: a re-run updates the timer already bound to the board conversation.
 async function bindSchedule(ctx) {
   const { config, opts, home, schedule, channel } = ctx;
-  if (!schedule) return null;
+  if (!schedule) return { scheduleId: null, warning: null };
   const channelId = opts.dm ? config.slack.ownerUserId : channel.id;
   const key = conversationKey(config.slack.team, channelId, BOARD_ROOT);
+  preflightBoard(home);
   const store = new Store(path.join(home, 'state.sqlite'));
   try {
     store.upsertConversation({
@@ -223,9 +209,10 @@ async function bindSchedule(ctx) {
       enabled: true,
       note: schedule.note,
       report: schedule.report,
+      subject: bound?.subject ?? null,
     });
-    writeBoard(home, schedule);
-    return id;
+    const warning = refreshBoardAfterCommit(home, store, [id]);
+    return { scheduleId: id, warning };
   } finally {
     store.close();
   }
@@ -233,12 +220,15 @@ async function bindSchedule(ctx) {
 
 function cancelTimers(home) {
   const db = path.join(home, 'state.sqlite');
-  if (!fs.existsSync(db)) return [];
+  if (!fs.existsSync(db)) return { timers: [], warning: null };
   const store = new Store(db);
   try {
     const ids = store.listSchedules().map((row) => row.id);
+    preflightBoard(home);
     for (const id of ids) store.deleteSchedule(id);
-    return ids;
+    if (!ids.length) refreshBoard(home, store);
+    const warning = ids.length ? refreshBoardAfterCommit(home, store, ids) : null;
+    return { timers: ids, warning };
   } finally {
     store.close();
   }
@@ -301,7 +291,7 @@ async function connectAgent(opts, flags, deps) {
       raw.dmAgent = opts.agent;
     });
   }
-  const scheduleId = await bindSchedule({ config, opts, home, schedule, channel });
+  const { scheduleId, warning } = await bindSchedule({ config, opts, home, schedule, channel });
   const link = channel ? `https://slack.com/app_redirect?channel=${channel.id}&team=${config.slack.team}` : null;
   const lines = [`connected ${opts.agent}`];
   if (opts.dm) {
@@ -312,8 +302,10 @@ async function connectAgent(opts, flags, deps) {
     lines.push(`link: ${link}`);
   }
   lines.push(`schedule: ${scheduleId || 'none'}`);
+  if (warning) lines.push(warning);
   emit(deps, flags, {
     connected: opts.agent, channel, link, scheduleId, dmAgent: opts.dm ? opts.agent : null,
+    ...(warning ? { warning } : {}),
   }, `${lines.join('\n')}\n`);
   return 0;
 }
@@ -345,10 +337,10 @@ async function disconnectAgent(opts, flags, deps) {
     }
     if (raw.dmAgent === opts.agent) delete raw.dmAgent;
   });
-  const timers = fs.existsSync(home) ? cancelTimers(home) : [];
+  const { timers, warning } = fs.existsSync(home) ? cancelTimers(home) : { timers: [], warning: null };
   emit(deps, flags, {
-    disconnected: opts.agent, archived, timers, home, kept: true,
-  }, `disconnected ${opts.agent}\nroutes: ${routes.length ? `removed ${routes.join(', ')}` : 'none'}\ndmAgent: ${dm ? 'cleared' : 'unchanged'}\narchived: ${opts.archiveChannel ? archived.join(', ') || 'none' : 'no'}\ntimers: ${timers.join(', ') || 'none'}\nhome: kept\n`);
+    disconnected: opts.agent, archived, timers, home, kept: true, ...(warning ? { warning } : {}),
+  }, `disconnected ${opts.agent}\nroutes: ${routes.length ? `removed ${routes.join(', ')}` : 'none'}\ndmAgent: ${dm ? 'cleared' : 'unchanged'}\narchived: ${opts.archiveChannel ? archived.join(', ') || 'none' : 'no'}\ntimers: ${timers.join(', ') || 'none'}\nhome: kept\n${warning ? `${warning}\n` : ''}`);
   return 0;
 }
 

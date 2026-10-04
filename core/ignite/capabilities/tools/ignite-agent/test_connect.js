@@ -7,6 +7,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { main } = require('./cli.js');
 const { Store } = require('./store.js');
+const { EMPTY_BOARD, boardPath, parseBoard } = require('./board.js');
+const { acquireMemoryLock } = require('./memory-write.js');
 
 const failures = [];
 
@@ -51,6 +53,8 @@ function installAgent(dir, name = 'probe') {
   fs.writeFileSync(path.join(home, 'agent.md'), `---\nname: ${name}\ndescription: fixture\n---\n\n## Role\n\nFixture.\n`);
   fs.writeFileSync(path.join(home, 'launch.json'), '{"harness":"claude","model":"m","effort":"high"}\n');
   fs.writeFileSync(path.join(home, 'conversations', 'kept.md'), 'history\n');
+  fs.mkdirSync(path.dirname(boardPath(home)), { recursive: true });
+  fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
   return home;
 }
 
@@ -140,19 +144,174 @@ async function run(argv, extra = {}) {
     const slack = fakeSlack();
     const result = await run([
       'connect', 'probe', '--channel-name', 'probe', '--schedule-json', schedule, '--workspace', dir,
-    ], { slack });
+    ], { slack, now: () => Date.parse('2026-10-01T12:00:00Z') });
     assert.equal(result.code, 0, result.out + result.err);
-    assert.match(fs.readFileSync(path.join(home, 'board.md'), 'utf8'), /read the board/);
+    const board = fs.readFileSync(boardPath(home), 'utf8');
+    assert.equal(fs.existsSync(path.join(home, 'board.md')), false);
     const store = new Store(path.join(home, 'state.sqlite'));
     try {
       const rows = store.listSchedules();
       assert.equal(rows.length, 1);
       assert.equal(rows[0].note, 'read the board');
+      assert.deepEqual(parseBoard(board).timers, ['| Fires | Timer | For | Subject |', '|---|---|---|---|',
+        `| 2026-10-05 09:00 UTC | ${rows[0].id} | read the board | none |`]);
       assert.match(result.out, new RegExp(rows[0].id));
     } finally {
       store.close();
     }
   });
+
+  await test('connect ignores a legacy board and rerenders a reused timer without replacing subjects', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const home = installAgent(dir);
+    const text = EMPTY_BOARD.replace('## What matters now\n', '## What matters now\n\n### Café\nReview it.\n- Threads: none\n- Detail: none\n- Flags: none\n');
+    fs.writeFileSync(boardPath(home), text.replace(/\n/g, '\r\n'), 'utf8');
+    fs.writeFileSync(path.join(home, 'board.md'), 'invalid legacy board', 'utf8');
+    const schedule = path.join(dir, 'schedule.json');
+    fs.writeFileSync(schedule, JSON.stringify({ every: '1h', tz: 'fixed', note: 'First check' }), 'utf8');
+    const args = ['connect', 'probe', '--dm', '--schedule-json', schedule, '--workspace', dir, '--json'];
+    const deps = { slack: fakeSlack(), now: () => Date.parse('2026-10-01T12:00:00Z') };
+    // Numeric intervals in connection files use the same elapsed-time cadence as the CLI.
+    const first = await run(args, deps);
+    const id = JSON.parse(first.out).scheduleId;
+    fs.writeFileSync(path.join(home, 'board.md'), 'obsolete', 'utf8');
+    fs.writeFileSync(schedule, JSON.stringify({ cron: '0 9 * * *', tz: 'Europe/Lisbon', note: 'Second check' }), 'utf8');
+    const second = await run(args, deps);
+    assert.equal(JSON.parse(second.out).scheduleId, id);
+    const board = parseBoard(fs.readFileSync(boardPath(home), 'utf8'));
+    assert.equal(board.subjects[0].title, 'Café');
+    assert.equal(board.timers.length, 3);
+    assert.match(board.timers[2], /2026-10-02 09:00 Europe\/Lisbon.*Second check \| none/);
+    assert.equal(fs.readFileSync(path.join(home, 'board.md'), 'utf8'), 'obsolete');
+  });
+
+  await test('connect without a schedule never recreates a deleted canonical board', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const home = installAgent(dir);
+    fs.unlinkSync(boardPath(home));
+    fs.writeFileSync(path.join(home, 'board.md'), 'invalid legacy board', 'utf8');
+    const result = await run(['connect', 'probe', '--dm', '--workspace', dir], { slack: fakeSlack() });
+    assert.equal(result.code, 0);
+    assert.equal(fs.existsSync(boardPath(home)), false);
+  });
+
+  for (const state of ['deleted', 'invalid']) {
+    for (const existing of [false, true]) await test(`connection timer refuses a ${state} board with ${existing ? 'existing' : 'absent'} SQLite unchanged`, async () => {
+      const dir = workspace();
+      writeConfig(dir);
+      const home = installAgent(dir);
+      const file = boardPath(home);
+      const db = path.join(home, 'state.sqlite');
+      try {
+        if (existing) {
+          const store = new Store(db);
+          try {
+            store.upsertConversation({ key: 'T1:UOWNER:board', agent: 'probe', workspace: 'T1', channel: 'UOWNER', rootTs: 'board' });
+            store.upsertSchedule({ id: 'existing', conversationKey: 'T1:UOWNER:board', cadence: 'every:1h', timezone: 'fixed', nextAt: 1000, note: 'Original' });
+          } finally { store.close(); }
+        }
+        const before = existing ? fs.readFileSync(db) : null;
+        fs.writeFileSync(path.join(home, 'board.md'), EMPTY_BOARD, 'utf8');
+        if (state === 'deleted') fs.unlinkSync(file);
+        else fs.writeFileSync(file, 'invalid board café\r\n', 'utf8');
+        const schedule = path.join(dir, 'schedule.json');
+        fs.writeFileSync(schedule, JSON.stringify({ every: '2h', tz: 'fixed', note: 'Changed' }), 'utf8');
+        await assert.rejects(() => run(['connect', 'probe', '--dm', '--schedule-json', schedule, '--workspace', dir], { slack: fakeSlack() }),
+          (error) => error.message.startsWith(`board refused: ${file}: `)
+            && (state !== 'deleted' || error.message === `board refused: ${file}: board is missing`));
+        if (existing) assert.deepEqual(fs.readFileSync(db), before);
+        assert.deepEqual(fs.readdirSync(home).filter((name) => name.startsWith('state.sqlite')), existing ? ['state.sqlite'] : []);
+        if (state === 'deleted') assert.equal(fs.existsSync(file), false);
+        else assert.equal(fs.readFileSync(file, 'utf8'), 'invalid board café\r\n');
+      } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    });
+  }
+
+  for (const state of ['invalid', 'deleted']) await test(`connect and disconnect refuse a ${state} board before changing schedules`, async () => {
+    const dir = workspace();
+    writeConfig(dir, { dmAgent: 'probe' });
+    const home = installAgent(dir);
+    const store = new Store(path.join(home, 'state.sqlite'));
+    try {
+      store.upsertConversation({ key: 'k', agent: 'probe', workspace: 'T1', channel: 'C1' });
+      store.upsertSchedule({ id: 'existing', conversationKey: 'k', cadence: 'every:1h', timezone: 'fixed', nextAt: 1000 });
+      const before = store.listSchedules();
+      if (state === 'deleted') fs.unlinkSync(boardPath(home));
+      else fs.writeFileSync(boardPath(home), 'invalid board', 'utf8');
+      const schedule = path.join(dir, 'schedule.json');
+      fs.writeFileSync(schedule, JSON.stringify({ every: '1h', tz: 'fixed', note: 'Check' }), 'utf8');
+      for (const args of [['connect', 'probe', '--dm', '--schedule-json', schedule], ['disconnect', 'probe']]) {
+        await assert.rejects(() => run([...args, '--workspace', dir], { slack: fakeSlack() }), /board refused/);
+        assert.deepEqual(store.listSchedules(), before);
+      }
+    } finally { store.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  for (const json of [false, true]) {
+    for (const action of ['add', 'change', 'cancel']) await test(`connection timer ${action} reports committed with refresh pending in ${json ? 'JSON' : 'text'} mode`, async () => {
+      const dir = workspace();
+      writeConfig(dir);
+      const home = installAgent(dir);
+      const schedule = path.join(dir, 'schedule.json');
+      fs.writeFileSync(schedule, JSON.stringify({ every: '1h', tz: 'fixed', note: 'Original' }), 'utf8');
+      const args = ['connect', 'probe', '--dm', '--schedule-json', schedule, '--workspace', dir];
+      const deps = { slack: fakeSlack() };
+      const store = new Store(path.join(home, 'state.sqlite'));
+      const method = action === 'cancel' ? 'deleteSchedule' : 'upsertSchedule';
+      const original = Store.prototype[method];
+      let release;
+      try {
+        let existing;
+        if (action !== 'add') {
+          const first = await run([...args, '--json'], deps);
+          existing = JSON.parse(first.out).scheduleId;
+        }
+        const before = fs.readFileSync(boardPath(home), 'utf8');
+        fs.writeFileSync(schedule, JSON.stringify({ every: '2h', tz: 'fixed', note: 'Changed' }), 'utf8');
+        // Acquire only after the preflight and the real SQLite mutation.
+        Store.prototype[method] = function (...values) {
+          const result = original.apply(this, values);
+          if (json) release = acquireMemoryLock(dir);
+          else fs.writeFileSync(boardPath(home), 'changed to invalid after preflight', 'utf8');
+          return result;
+        };
+        const result = await run([...(action === 'cancel' ? ['disconnect', 'probe', '--workspace', dir] : args), ...(json ? ['--json'] : [])], deps);
+        assert.equal(result.code, 0);
+        assert.equal(result.err, '');
+        const rows = store.listSchedules();
+        assert.equal(rows.length, action === 'cancel' ? 0 : 1);
+        const id = action === 'cancel' ? existing : rows[0].id;
+        if (action !== 'add') assert.equal(id, existing);
+        if (action !== 'cancel') assert.equal(rows[0].note, 'Changed');
+        const warning = `${id} committed; board refresh pending`;
+        if (json) {
+          const body = JSON.parse(result.out);
+          assert.equal(body.warning, warning);
+          assert.equal(body.error, undefined);
+          if (action === 'cancel') assert.deepEqual(body.timers, [id]);
+          else assert.equal(body.scheduleId, id);
+          assert.equal(fs.readFileSync(boardPath(home), 'utf8'), before);
+        } else assert.ok(result.out.includes(warning));
+        if (release) { release(); release = null; }
+        Store.prototype[method] = original;
+        if (!json) fs.writeFileSync(boardPath(home), before, 'utf8');
+        const candidate = path.join(dir, 'candidate.md');
+        fs.writeFileSync(candidate, before, 'utf8');
+        const next = await run(['board', 'write', '--file', candidate], { env: { IGNITE_AGENT_HOME: home } });
+        assert.equal(next.code, 0, next.err);
+        const timers = parseBoard(fs.readFileSync(boardPath(home), 'utf8')).timers;
+        assert.equal(timers.length, action === 'cancel' ? 2 : 3);
+        if (action !== 'cancel') assert.ok(timers[2].includes(`| ${id} | Changed |`));
+      } finally {
+        Store.prototype[method] = original;
+        if (release) release();
+        store.close();
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  }
 
   await test('connect re-run reuses a routed channel', async () => {
     const dir = workspace();
@@ -213,6 +372,7 @@ async function run(argv, extra = {}) {
     const store = new Store(path.join(home, 'state.sqlite'));
     try {
       assert.equal(store.listSchedules().length, 0);
+      assert.equal(parseBoard(fs.readFileSync(boardPath(home), 'utf8')).timers.length, 2);
     } finally {
       store.close();
     }

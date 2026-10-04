@@ -27,3 +27,7 @@ Ask only what the conversation did not settle, one round at a time, with named o
 ## 4. Write it, show it, then install it
 
 Write the unit as its own guide and its template and schema require; each step states what proves it is done. Show the whole draft and get the user's confirmation before saving. The unit is done when the installer accepts it.
+
+## 5. What stays memory
+
+A fact the owner asked to remember is not a unit. Record it with `ignite-agent remember`. That appends to the shared inbox; the dreamer files it later. A correction of this agent's behaviour goes on the board as a watch-out in the same turn. Do not write learned rules by hand. A lesson inferred from the conversation is not a learned rule here: the dreamer writes an inferred rule only with evidence from two separate conversations.

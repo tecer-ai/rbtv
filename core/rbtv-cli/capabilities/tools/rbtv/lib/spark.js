@@ -11,7 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const { RBTV_ROOT } = require('./catalog');
+const { RBTV_ROOT } = require('./root');
 const { delegate } = require('./delegate');
 const { refusal } = require('./render');
 
