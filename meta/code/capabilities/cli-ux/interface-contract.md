@@ -31,7 +31,7 @@ A flag or an option is written in the form almost every command-line tool uses, 
 - **Short form: one dash and ONE letter**: `-h`, `-p TEXT`. Use it only for what is typed often.
 - **NEVER a whole word after one dash** (`-models`). Under the standard it reads as several one-letter flags written together (`-m -o -d -e -l -s`), and a parser or a reader that follows the standard takes it that way.
 - `--` alone ends the flags and options: every word after it is an argument, even one that starts with a dash.
-- Names are lowercase, except a one-letter short form that needs both cases (`-s`, `-S`). One name means one thing on every verb of the tool.
+- A long name is lowercase. A short form is one letter, in either case (`-s`, `-S`, `-A`). One name means one thing on every verb of the tool.
 
 When a tool being created or edited holds a form outside this standard, record it in the inventory as nonconforming, with its callers. A new or changed word takes the standard form. Changing a form that callers already use breaks them, so it is an owner decision, made with the list of callers.
 

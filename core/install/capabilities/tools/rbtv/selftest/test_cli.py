@@ -105,12 +105,16 @@ def parser_selectors_index(ctx) -> None:
     check("CLI-reach-handler-rm", rc_rm == "ok", str(rc_rm))
     check("CLI-reach-handler-doctor", rc_doc == 0, str(rc_doc))
 
-    for flag, meth in (("-xs", "skill"), ("-xr", "rule"),
-                       ("-xc", "command"), ("-xa", "agent")):
-        a = build_parser().parse_args(["add", flag])
-        b = build_parser().parse_args(["add", "-x", meth])
-        check(f"CLI-alias-{flag}", a.method == b.method == [meth],
-              f"{a.method} vs {b.method}")
+    # A whole word after one dash is no option: a type, and an exclusion, are
+    # named with their long forms or the one-letter -x.
+    for words in (["-xs"], ["-xr"], ["-xc"], ["-xa"], ["-nx", "skill"],
+                  ["-nm", "fixmod"], ["-nc", "fixmod/goodcomp"]):
+        try:
+            build_parser().parse_args(["add", *words])
+            got = None
+        except Refuse as exc:
+            got = exc.code
+        check(f"CLI-no-two-letter-form — {words[0]} is refused", got is not None, str(got))
 
     # A comma list must be IDENTICAL to the repeated form, for every
     # selector — not just for -x, which is the only one that split before.
@@ -118,9 +122,9 @@ def parser_selectors_index(ctx) -> None:
     # any of these four, the comma token arrives as one bogus id and the
     # equality fails.
     for _flag, _dest in (("-m", "module"), ("-c", "component"),
-                         ("-nm", "exclude_module"),
-                         ("-nc", "exclude_component"),
-                         ("-x", "method"), ("-nx", "exclude_method")):
+                         ("--exclude-module", "exclude_module"),
+                         ("--exclude-component", "exclude_component"),
+                         ("-x", "method"), ("--exclude-type", "exclude_method")):
         _v = ("skill", "rule") if _dest.endswith("method") else ("aa", "bb")
         _one = build_parser().parse_args(
             ["rm", _flag, ",".join(_v)])
@@ -194,13 +198,13 @@ def parser_selectors_index(ctx) -> None:
               "web/browse#browse",
               "web/capture#capture",
               "_hub/skills/ponytail#ponytail"})
-    # -nx must SUBTRACT, not merely trigger the confirmation prompt.
+    # --exclude-type must SUBTRACT, not merely trigger the confirmation prompt.
     # Without this arm, neutering the method-exclusion filter left the whole
     # suite green: N-confirm asserts the prompt fired and that answering "n"
     # changed nothing, which passes whether or not the filter ever ran.
     _all_parts = R(all=True)
     _no_skill = R(all=True, exclude_method=["skill"])
-    check("SEL-exclude-method — -nx subtracts the method",
+    check("SEL-exclude-method — --exclude-type subtracts the method",
           _no_skill < _all_parts
           and "web/browse#browse" not in _no_skill
           and "_hub/skills/ponytail#ponytail" not in _no_skill
@@ -209,7 +213,7 @@ def parser_selectors_index(ctx) -> None:
           f"dropped={sorted(_all_parts - _no_skill)}")
     _all = R(all=True)
     _no_browse = R(all=True, exclude_component=["web/browse"])
-    check("SEL-exclude-component — -nc subtracts the component",
+    check("SEL-exclude-component — --exclude-component subtracts the component",
           _no_browse < _all
           and "web/browse#browse" not in _no_browse
           and "web/browse#chrome-devtools" not in _no_browse
@@ -301,7 +305,7 @@ def parser_selectors_index(ctx) -> None:
     with contextlib.redirect_stdout(io.StringIO()):
         try:
             cmd_rm(build_parser().parse_args(
-                ["rm", "-A", "-nx", "skill"]), nws, catalog, [], ask=_say_n)
+                ["rm", "-A", "--exclude-type", "skill"]), nws, catalog, [], ask=_say_n)
             refused = "no refusal"
         except Refuse as exc:
             refused = exc.code
@@ -321,7 +325,7 @@ def parser_selectors_index(ctx) -> None:
     with contextlib.redirect_stdout(buf):
         rc_dry = cmd_rm(
             build_parser().parse_args(
-                ["rm", "--dry-run", "-A", "-nx", "skill"]),
+                ["rm", "--dry-run", "-A", "--exclude-type", "skill"]),
             nws, catalog, [], ask=_boom)
     check("N-dry-run — prints and never asks",
           rc_dry == 0 and not asked

@@ -93,15 +93,11 @@ def build_parser() -> argparse.ArgumentParser:
                           dest="component", metavar="COMPONENT")
         dest.add_argument("--type", "-x", action=MethodsAction, default=[], dest="method",
                           metavar="TYPE")
-        for flag, meth in (("-xs", "skill"), ("-xr", "rule"),
-                           ("-xc", "command"), ("-xa", "agent")):
-            dest.add_argument(flag, action="append_const", const=meth, dest="method",
-                              help=argparse.SUPPRESS)
-        dest.add_argument("--exclude-type", "-nx", action=MethodsAction, default=[],
+        dest.add_argument("--exclude-type", action=MethodsAction, default=[],
                           dest="exclude_method", metavar="TYPE")
-        dest.add_argument("--exclude-module", "-nm", action=ListAction, default=[],
+        dest.add_argument("--exclude-module", action=ListAction, default=[],
                           dest="exclude_module", metavar="MODULE")
-        dest.add_argument("--exclude-component", "-nc", action=ListAction, default=[],
+        dest.add_argument("--exclude-component", action=ListAction, default=[],
                           dest="exclude_component", metavar="COMPONENT")
 
     # Verbs are registered in the order the refusal for an unknown verb lists

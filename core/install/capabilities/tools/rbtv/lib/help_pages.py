@@ -375,11 +375,11 @@ options:
   --component, -c COMPONENT
                         choose a component; full unit ids are accepted too
   --type, -x TYPE       choose unit types; comma-separated or repeatable
-  --exclude-type, -nx TYPE
+  --exclude-type TYPE
                         leave these unit types out
-  --exclude-module, -nm MODULE
+  --exclude-module MODULE
                         leave these modules out
-  --exclude-component, -nc COMPONENT
+  --exclude-component COMPONENT
                         leave these components out
   --pack PACK           turn this pack on; its units are added like names
   --on HARNESS:MODEL:EFFORT
@@ -465,11 +465,11 @@ options:
   --component, -c COMPONENT
                         choose a component
   --type, -x TYPE       choose unit types; comma-separated or repeatable
-  --exclude-type, -nx TYPE
+  --exclude-type TYPE
                         leave these unit types out
-  --exclude-module, -nm MODULE
+  --exclude-module MODULE
                         leave these modules out
-  --exclude-component, -nc COMPONENT
+  --exclude-component COMPONENT
                         leave these components out
   --pack PACK           turn this pack off
   --yes                 confirm a removal selected by module, type, all, or
