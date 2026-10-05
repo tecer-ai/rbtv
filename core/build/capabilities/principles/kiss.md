@@ -1,4 +1,4 @@
-# Keep it simple
+# Keep it stupidly simple
 
 **Statement.** Build the simplest thing that fully solves the problem, even over covering needs nobody has stated.
 
