@@ -49,7 +49,7 @@ Then run the commands, in this order:
 1. `rbtv agent add AGENT`, where AGENT is the agent's name under `.rbtv/agents/` or the path to its folder. It applies `agent.json`: the units and packs it lists, with the harness, model, and effort checked against `cast list`. Name an extra unit after AGENT only when the purpose needs it and the owner named it.
 2. Only when the agent must answer on Slack: `ignite connect AGENT --channel-name NAME`, or `--dm` for direct messages. Add `--schedule-json FILE` only when the owner asked for a schedule: `cron` with a timezone, `every`, or `at` with an ISO datetime and offset. Ignite connects only agents under `.rbtv/agents/`.
 
-Do not pass harness, model or effort on any command; change them with `rbtv agent configure AGENT`. To run the agent, follow [running an agent](../glossary/agent.md#running-an-agent): `spark AGENT` for a person, or `cast -rbtv AGENT -p TEXT` for another agent.
+Do not pass harness, model or effort on any command; change them with `rbtv agent configure AGENT`. To run the agent, follow [running an agent](../glossary/agent.md#running-an-agent): `spark AGENT` for a person, or `cast --agent NAME -p TEXT` for another agent.
 
 If a command is refused, fix the cause it names and run the same command again. `rbtv agent add` and `ignite connect` are safe to re-run. Never start a second agent to work around a partial one.
 

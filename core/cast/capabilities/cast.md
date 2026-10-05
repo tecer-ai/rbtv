@@ -8,8 +8,8 @@ turn into an existing session.
 ## Usage
 
 ```
-cast <harness> <model> <effort 1-5> [launch-folder] (-p TEXT | -f FILE) [-s TEXT | -S FILE | -rogue AGENT-FILE] [--headed] [--dry-run]
-cast -rbtv AGENT (-p TEXT | -f FILE) [--headed] [--dry-run]
+cast <harness> <model> <effort 1-5> [launch-folder] (-p TEXT | -f FILE) [-s TEXT | -S FILE | --rogue AGENT-FILE] [--headed] [--dry-run]
+cast --agent NAME (-p TEXT | -f FILE) [--headed] [--dry-run]
 cast resume <harness> <session-id|last> [launch-folder] (-p TEXT | -f FILE) [--dry-run]
 cast sessions [harness] [launch-folder] [--json] [-n N]
 ignite turn --request FILE --result FILE
@@ -84,9 +84,9 @@ opencode only surface theirs inside their `--json` output streams, which cast pa
 untouched). `ignite turn` is the exception: it returns an exact id for that invocation (see below).
 
 
-## Agent launches (`-rbtv`, `-rogue`)
+## Agent launches (`--agent`, `--rogue`)
 
-`cast -rbtv AGENT (-p TEXT | -f FILE)` runs an agent folder: a folder holding both `agent.md` and
+`cast --agent NAME (-p TEXT | -f FILE)` runs an agent folder: a folder holding both `agent.md` and
 `agent.json`. AGENT is a name, looked up as `<installation>/.rbtv/agents/AGENT/` from the current
 folder upward, or a path to the folder (a value containing `/`, or `.` or `..`, relative to the
 current folder). The folder is the working folder. `agent.json` gives the harness, model and effort
@@ -96,9 +96,9 @@ that is refused, and the refusal names `rbtv agent configure AGENT` as the way t
 `RBTV_AGENT_HOME` to the agent folder for the harness process. A folder holding only one of the two
 files is refused by name, so a broken agent is never launched half-read. `--target` is gone.
 
-`-rogue FILE` runs a rogue agent file that is not an agent folder: the file's body, without its
+`--rogue FILE` runs a rogue agent file that is not an agent folder: the file's body, without its
 frontmatter, is the system prompt, and the launch folder is the usual one. It sets no
-`RBTV_AGENT_HOME`. Harness, model and effort are always given on the command line for `-rogue`.
+`RBTV_AGENT_HOME`. Harness, model and effort are always given on the command line for `--rogue`.
 
 The system prompt rides each harness's strongest channel, the same as `-s TEXT`/`-S FILE`:
 
@@ -118,7 +118,7 @@ The system prompt rides each harness's strongest channel, the same as `-s TEXT`/
   <prompt>
   ```
 
-`-s`/`-S` cannot be combined with `-rbtv`/`-rogue`. Every Codex launch also passes
+`-s`/`-S` cannot be combined with `--agent`/`--rogue`. Every Codex launch also passes
 `-c project_doc_max_bytes=131072`, because rules reach Codex as full text in `AGENTS.md`.
 
 `ignite turn` takes its standing prompt the same way: the `systemPromptFile` in its request is read
@@ -126,7 +126,7 @@ with its frontmatter removed, and the model receives the body only.
 
 ### Finding the agents: `cast list --agents`
 
-`cast list --agents` shows the rbtv agents `cast -rbtv NAME` can launch from the current folder: the
+`cast list --agents` shows the rbtv agents `cast --agent NAME` can launch from the current folder: the
 agents in the nearest `.rbtv/agents/` folder above it. For each agent it prints the name, harness,
 model, effort, Ignite (`yes` when the agent's `ignite` pack is on, which `ignite connect` does) and
 the description from `agent.json`. The description is shortened to fit the line; on a terminal too
@@ -134,7 +134,7 @@ narrow for the table each agent is a labeled block with its whole description. A
 be launched is named with the reason. `--json` prints `{folder, agents}`. `cast list` and
 `cast list --models` print the model inventory.
 
-`cast list --agent AGENT` shows one agent in full; AGENT is a name or a path. Besides its folder and
+`cast list --agent NAME` shows one agent in full; AGENT is a name or a path. Besides its folder and
 whole description it lists what is installed in the agent, each under the name `rbtv show` takes:
 every pack that is on, one per row, with the skills, rules, commands, MCP servers and hooks that
 pack installs on a row each under it; then, by kind, what is installed outside a pack. A unit a
@@ -157,7 +157,7 @@ its own refusals.
 ## spark — open an agent for a person
 
 `spark AGENT` (`capabilities/tools/spark/spark.js`) opens an agent in this terminal, for a person.
-It prints the agent's folder, harness, model and effort, then starts `cast -rbtv AGENT --headed` with
+It prints the agent's folder, harness, model and effort, then starts `cast --agent NAME --headed` with
 a one-line greeting. It passes no harness, model or effort, so cast reads them from `agent.json`.
 It needs `cast` on PATH and finds the agent the same way cast does: a name or a path.
 
@@ -453,9 +453,9 @@ dotenv at `rbtv.json`'s `env_file`.
 | `core/ignite/capabilities/tools/ignite/turn.js` | `ignite turn` — exact session id, resume with the requested model/effort, result file |
 | `capabilities/tools/cast/lib/handles.js` | the launch-handle registry — the one observable a watcher uses to find a run again |
 | `capabilities/tools/cast/lib/launch.js` | spawn, `cast resume` |
-| `capabilities/tools/cast/lib/agent.js` | `-rbtv` / `-rogue`: find the agent folder, read `agent.json` and `agent.md`; the readers spark also uses |
+| `capabilities/tools/cast/lib/agent.js` | `--agent` / `--rogue`: find the agent folder, read `agent.json` and `agent.md`; the readers spark also uses |
 | `capabilities/tools/cast/lib/agent-list.js` | `cast list --agents`: the agents a name can reach, as a table, labeled blocks, or JSON; the one list, which `spark list` and `rbtv agent list` also show |
-| `capabilities/tools/spark/spark.js` | `spark AGENT`: the terminal handoff, a thin layer over `cast -rbtv`; `spark list`: the list of `lib/agent-list.js` (its tests: `test_spark.js`) |
+| `capabilities/tools/spark/spark.js` | `spark AGENT`: the terminal handoff, a thin layer over `cast --agent`; `spark list`: the list of `lib/agent-list.js` (its tests: `test_spark.js`) |
 | `capabilities/tools/cast/lib/sessions.js` | the per-harness session-store readers and `cast sessions` |
 | `capabilities/tools/cast/lib/monitor.js` | `cast monitor` — the freeze tripwire, its witness channel, roster and watch |
 | `capabilities/tools/cast/lib/route.js` | `cast route` — the selector |

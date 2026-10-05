@@ -1,11 +1,11 @@
 'use strict';
 
 // Launching an agent by its agent folder.
-//   -rbtv AGENT   an agent folder. AGENT is a name, looked up as `.rbtv/agents/<name>/` from the
+//   --agent NAME   an agent folder. AGENT is a name, looked up as `.rbtv/agents/<name>/` from the
 //               current folder upward, or a path to the folder (a value with `/`, or `.` or `..`).
 //               agent.json gives harness, model and effort; agent.md, without its frontmatter, is
 //               the system prompt; the folder is the working folder.
-//   -rogue FILE    a rogue agent with no folder: the body of FILE (frontmatter ignored) is
+//   --rogue FILE    a rogue agent with no folder: the body of FILE (frontmatter ignored) is
 //               the system prompt, and the launch folder is the usual one.
 // Both ride the ordinary launch. spark reads the same files through the readers below, and
 // lib/agent-list.js lists the agents a name can reach.
@@ -91,7 +91,7 @@ function readAgent(home) {
   return { agent };
 }
 
-// The rbtv agent -rbtv names, read for launch. A refusal stops here.
+// The rbtv agent --agent names, read for launch. A refusal stops here.
 function rbtvAgent(value, fail) {
   const home = findAgentHome(value, process.cwd());
   if (!home) {
@@ -110,21 +110,21 @@ function rbtvAgent(value, fail) {
   return read.agent;
 }
 
-// Pull -rbtv / -rogue out of argv, leaving the ordinary launch arguments.
+// Pull --agent / --rogue out of argv, leaving the ordinary launch arguments.
 function takeAgentFlags(argv, fail) {
   const rest = [];
   const out = { rbtv: null, file: null };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
-    if (a === '-rbtv' || a === '-rogue') {
+    if (a === '--agent' || a === '--rogue') {
       const val = argv[i + 1];
       if (val === undefined) fail(`refused: ${a} requires an argument`);
       i += 1;
-      if (a === '-rbtv') out.rbtv = val;
+      if (a === '--agent') out.rbtv = val;
       else out.file = val;
     } else rest.push(a);
   }
-  if (out.rbtv && out.file) fail('refused: -rbtv and -rogue are mutually exclusive — pass exactly one');
+  if (out.rbtv && out.file) fail('refused: --agent and --rogue are mutually exclusive — pass exactly one');
   return { argv: rest, ...out };
 }
 

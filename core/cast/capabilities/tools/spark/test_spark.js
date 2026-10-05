@@ -59,7 +59,7 @@ function spark(args, { env = {}, cwd = root } = {}) {
   const res = spark(['-h']);
   assert.strictEqual(res.status, 0, res.stderr);
   assert.ok(res.stdout.startsWith('spark — help'), res.stdout);
-  assert.ok(res.stdout.includes('cast -rbtv'), 'help names cast -rbtv');
+  assert.ok(res.stdout.includes('cast --agent'), 'help names cast --agent');
   assert.ok(res.stdout.includes('       spark list [AGENT] [--json] [-h]\n'), 'help names the list form');
 
   const afterList = spark(['list', '--help']);
@@ -71,7 +71,7 @@ function spark(args, { env = {}, cwd = root } = {}) {
 {
   const res = spark(['scout', '--dry-run']);
   assert.strictEqual(res.status, 0, res.stderr);
-  assert.strictEqual(res.stdout, `cast -rbtv scout --headed -p "${OPENING}"\n`);
+  assert.strictEqual(res.stdout, `cast --agent scout --headed -p "${OPENING}"\n`);
   assert.strictEqual(res.stderr, '');
   assert.ok(!fs.existsSync(shimOut), 'a dry run launches nothing');
 }
@@ -81,7 +81,7 @@ function spark(args, { env = {}, cwd = root } = {}) {
   const res = spark(['scout', '--dry-run', '--json']);
   assert.strictEqual(res.status, 0, res.stderr);
   assert.strictEqual(res.stdout.trim(), JSON.stringify({
-    agent: 'scout', home: scout, cast: ['cast', '-rbtv', 'scout', '--headed', '-p', OPENING],
+    agent: 'scout', home: scout, cast: ['cast', '--agent', 'scout', '--headed', '-p', OPENING],
   }));
 }
 
@@ -92,7 +92,7 @@ function spark(args, { env = {}, cwd = root } = {}) {
   const out = JSON.parse(res.stdout);
   assert.strictEqual(out.agent, 'drafter');
   assert.strictEqual(out.home, drafter);
-  assert.deepStrictEqual(out.cast.slice(0, 3), ['cast', '-rbtv', 'plans/x/agents/drafter']);
+  assert.deepStrictEqual(out.cast.slice(0, 3), ['cast', '--agent', 'plans/x/agents/drafter']);
 }
 
 // list: the agents under .rbtv/agents/, the list cast prints; an agent that cannot be launched is
@@ -198,7 +198,7 @@ function spark(args, { env = {}, cwd = root } = {}) {
   assert.ok(noCast.stderr.includes('cast is not on PATH'), noCast.stderr);
 }
 
-// a real launch: the handoff block, then cast with -rbtv and no harness, model or effort
+// a real launch: the handoff block, then cast with --agent and no harness, model or effort
 if (process.platform !== 'win32') {
   const res = spark(['scout']);
   assert.strictEqual(res.status, 0, res.stderr);
@@ -210,7 +210,7 @@ if (process.platform !== 'win32') {
     'effort   high',
     '',
   ].join('\n'));
-  assert.deepStrictEqual(JSON.parse(fs.readFileSync(shimOut, 'utf8')), ['-rbtv', 'scout', '--headed', '-p', OPENING]);
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(shimOut, 'utf8')), ['--agent', 'scout', '--headed', '-p', OPENING]);
 
   const withJson = spark(['plans/x/agents/drafter', '--json']);
   assert.strictEqual(withJson.status, 0, withJson.stderr);

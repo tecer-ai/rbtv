@@ -57,11 +57,11 @@ function fail(msg) {
 }
 
 const HARNESSES = Object.keys(SPECS);
-const USAGE = 'cast <harness> <model> <effort 1-5> [launch-folder] (-p TEXT | -f FILE) [-s TEXT | -S FILE | -rogue AGENT-FILE] [--headed] [--dry-run]';
-const USAGE_IG = 'cast -rbtv AGENT (-p TEXT | -f FILE) [--headed] [--dry-run]';
+const USAGE = 'cast <harness> <model> <effort 1-5> [launch-folder] (-p TEXT | -f FILE) [-s TEXT | -S FILE | --rogue AGENT-FILE] [--headed] [--dry-run]';
+const USAGE_IG = 'cast --agent NAME (-p TEXT | -f FILE) [--headed] [--dry-run]';
 const RESUME_USAGE = 'cast resume <harness> <session-id|last> [launch-folder] (-p TEXT | -f FILE) [--dry-run]';
 const SESSIONS_USAGE = 'cast sessions [harness] [launch-folder] [--json] [-n N]';
-const KNOWN_FLAGS = '-p, -f, -s, -S, -rbtv, -rogue, --headed, --dry-run, --detached, -h/--help';
+const KNOWN_FLAGS = '-p, -f, -s, -S, --agent, --rogue, --headed, --dry-run, --detached, -h/--help';
 
 // Detached launches lose the caller's tracking: the orchestrator never hears the exit
 // (issue I-1 / ruling D, 2026-08-18). Measured discriminators: under `… &` and nohup-

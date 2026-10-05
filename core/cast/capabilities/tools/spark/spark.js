@@ -3,7 +3,7 @@
 
 // spark AGENT — open an rbtv agent in this terminal, for a person. A thin layer over cast: it
 // shows the agent's harness, model and effort (read from its agent.json), then starts
-// `cast -rbtv AGENT --headed` with a greeting. It passes no harness, model or effort: cast reads them.
+// `cast --agent NAME --headed` with a greeting. It passes no harness, model or effort: cast reads them.
 // spark list [AGENT] — the agents spark can open by name, or one of them in full. The list is
 // cast's (`cast list --agents`, lib/agent-list.js).
 
@@ -28,7 +28,7 @@ const HELP = [
   '',
   'Opens an rbtv agent in this terminal, for a person, with that agent\'s',
   'own harness, model and effort. An agent that needs another agent uses',
-  'cast -rbtv.',
+  'cast --agent.',
   '',
   USAGE,
   `       ${LIST_FORM}`,
@@ -186,7 +186,7 @@ function spark(args) {
     return refuse('cast is not on PATH', 'spark opens the agent through cast. Nothing was launched.', 'rbtv doctor');
   }
 
-  const castArgs = ['-rbtv', value, '--headed', '-p', OPENING];
+  const castArgs = ['--agent', value, '--headed', '-p', OPENING];
   const name = path.basename(home);
   if (dry) {
     if (json) process.stdout.write(`${JSON.stringify({ agent: name, home, cast: ['cast', ...castArgs] })}\n`);
