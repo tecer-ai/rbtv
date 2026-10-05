@@ -19,6 +19,11 @@ const pending = [];
 
 function test(name, fn) { pending.push([name, fn]); }
 
+// A test of the waking program's Linux-only side: on Windows it is skipped by name, with the reason.
+function linuxOnly(name, why, fn) {
+  pending.push([name, process.platform === 'win32' ? null : fn, why]);
+}
+
 function waitFor(fn, ms = 4000) {
   const startAt = Date.now();
   return new Promise((resolve, reject) => {
@@ -1116,7 +1121,7 @@ test('starts-at-boot', () => {
   assert.ok(enableAt >= 0 && restartAt > enableAt);
 });
 
-test('sigterm-clean', async () => {
+linuxOnly('sigterm-clean', 'the service is stopped with SIGTERM, a signal Windows does not deliver', async () => {
   const { dir } = workspace();
   const holder = spawnDaemon(dir);
   const lock = path.join(dir, '.rbtv', 'agents', '.daemon.lock');
@@ -1157,14 +1162,14 @@ function fillUnit(pathValue, linkBin) {
   return filled;
 }
 
-test('unit-path-filled', () => {
+linuxOnly('unit-path-filled', 'it runs the program inside deploy.sh that fills the systemd unit', () => {
   const filled = fillUnit('/usr/bin:/opt/harness-bin', '/opt/harness-bin');
   assert.match(filled, /^Environment=PATH=\/usr\/bin:\/opt\/harness-bin$/m);
   assert.equal(filled.includes('@PATH@'), false);
   assert.equal(/@[A-Z_]+@/.test(filled), false);
 });
 
-test('unit-path-has-link-bin', () => {
+linuxOnly('unit-path-has-link-bin', 'it runs the program inside deploy.sh that fills the systemd unit', () => {
   const linkBin = '/opt/rbtv-bin';
   const filled = fillUnit('/usr/bin', linkBin);
   assert.match(filled, /^Environment=PATH=\/opt\/rbtv-bin:\/usr\/bin$/m);
@@ -1386,7 +1391,7 @@ test('transcription detail is service-log-only', async () => {
   }
 });
 
-test('route-after-start', async () => {
+linuxOnly('route-after-start', 'the stopped service keeps its database open while a turn runs, and Windows cannot delete an open file', async () => {
   const { dir } = workspace();
   const box = await started(dir);
   try {
@@ -1429,7 +1434,7 @@ test('ignored-logged', async () => {
   }
 });
 
-test('half-written-config', async () => {
+linuxOnly('half-written-config', 'the stopped service keeps its database open while a turn runs, and Windows cannot delete an open file', async () => {
   const { dir } = workspace();
   setRoutes(dir, { COLD: 'master' });
   const box = await started(dir);
@@ -1488,7 +1493,8 @@ test('daemon marks idle on ticks and answered on owner ingress even while held',
 });
 
 async function runAll() {
-  for (const [name, fn] of pending) {
+  for (const [name, fn, why] of pending) {
+    if (!fn) { console.log(`skip: ${name} is Linux-only: ${why}`); continue; }
     try {
       await fn();
       console.log(`PASS ${name}`);

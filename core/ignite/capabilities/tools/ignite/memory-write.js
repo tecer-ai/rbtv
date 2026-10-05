@@ -9,6 +9,9 @@ const { randomUUID } = require('node:crypto');
 
 const NOFOLLOW = fs.constants.O_NOFOLLOW || 0;
 const sleep = new Int32Array(new SharedArrayBuffer(4));
+// Windows answers EPERM, not EEXIST or ENOENT, for a lock file another process has released and
+// that is not yet gone from the folder: the lock is still taken for that instant.
+const releasing = (error) => process.platform === 'win32' && error.code === 'EPERM';
 
 function safeWritePath(root, file) {
   const relative = path.relative(path.resolve(root), path.resolve(file));
@@ -46,7 +49,7 @@ function acquireMemoryLock(workspace) {
     let fd;
     try { fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | NOFOLLOW, 0o600); }
     catch (error) {
-      if (error.code !== 'EEXIST') throw error;
+      if (error.code !== 'EEXIST' && !releasing(error)) throw error;
       safeWritePath(workspace, file);
       try {
         if (Date.now() - fs.statSync(file).mtimeMs > 60_000) {
@@ -63,7 +66,10 @@ function acquireMemoryLock(workspace) {
             }
           }
         }
-      } catch (race) { if (race.code !== 'ENOENT') throw race; continue; }
+      } catch (race) {
+        if (race.code === 'ENOENT') continue;
+        if (!releasing(race)) throw race;
+      }
       if (Date.now() >= deadline) throw new Error('memory write lock busy; retry the command');
       Atomics.wait(sleep, 0, 0, 25);
       continue;

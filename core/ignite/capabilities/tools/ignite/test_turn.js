@@ -221,8 +221,13 @@ rejects(base({ env: { A: 1 } }), 'must be a string');
   assert.strictEqual(unbound.sessionId, null);
 }
 
+// A stand-in harness on PATH. Windows starts a .cmd file, never a sh script.
 function installFake(bin, name, js) {
   fs.writeFileSync(path.join(bin, `${name}.js`), js);
+  if (process.platform === 'win32') {
+    fs.writeFileSync(path.join(bin, `${name}.cmd`), `@node "%~dp0${name}.js" %*\r\n`);
+    return;
+  }
   fs.writeFileSync(path.join(bin, name), `#!/bin/sh\nexec node "${path.join(bin, `${name}.js`)}" "$@"\n`);
   fs.chmodSync(path.join(bin, name), 0o755);
 }
@@ -349,13 +354,17 @@ function runTurn(request, env) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-turn-home-'));
   const callerPwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-turn-caller-'));
   const pwdFile = path.join(bin, 'pwd.txt');
-  // Direct node shebang, not the sh wrapper: sh resets PWD to the real cwd and would hide the bug.
-  fs.writeFileSync(path.join(bin, 'opencode'), `#!/usr/bin/env node
-try { require('fs').readFileSync(0); } catch {}
+  const recordPwd = `try { require('fs').readFileSync(0); } catch {}
 require('fs').writeFileSync(process.env.PWD_FILE, process.env.PWD || '');
 process.exit(0);
-`);
-  fs.chmodSync(path.join(bin, 'opencode'), 0o755);
+`;
+  // Direct node shebang, not the sh wrapper: sh resets PWD to the real cwd and would hide the bug.
+  // The Windows .cmd stand-in leaves PWD as it was given.
+  if (process.platform === 'win32') installFake(bin, 'opencode', recordPwd);
+  else {
+    fs.writeFileSync(path.join(bin, 'opencode'), `#!/usr/bin/env node\n${recordPwd}`);
+    fs.chmodSync(path.join(bin, 'opencode'), 0o755);
+  }
   const env = {
     ...process.env, HOME: home, USERPROFILE: home, PWD: callerPwd, PWD_FILE: pwdFile,
     PATH: [bin, path.dirname(process.execPath)].join(path.delimiter),

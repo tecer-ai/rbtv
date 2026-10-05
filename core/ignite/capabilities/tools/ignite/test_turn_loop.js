@@ -22,6 +22,11 @@ function test(name, fn) {
   pending.push([name, fn]);
 }
 
+// A test of the waking program's Linux-only side: on Windows it is skipped by name, with the reason.
+function linuxOnly(name, why, fn) {
+  pending.push([name, process.platform === 'win32' ? null : fn, why]);
+}
+
 const STUB = `#!/usr/bin/env node
 'use strict';
 const fs = require('fs');
@@ -304,7 +309,7 @@ test('request carries systemPromptFile', async (ctx) => {
   assert.equal(fs.existsSync(path.join(box.home, 'CLAUDE.md')), false);
 });
 
-test('live-PID refusal', async (ctx) => {
+linuxOnly('live-PID refusal', 'the liveness check reads /proc, and only the waking program calls it', async (ctx) => {
   const box = harness(ctx);
   seed(box.store);
   box.sync();
@@ -353,7 +358,7 @@ test('restart recovery from a DB with a pending queue and an unfinished work ite
   assert.equal(seen(box).length, 2);
 });
 
-test('settings changed between turns → next run snapshots the new setting', async (ctx) => {
+linuxOnly('settings changed between turns → next run snapshots the new setting', 'the launch setting is stored together with the process start read from /proc', async (ctx) => {
   const box = harness(ctx);
   seed(box.store, { text: 'first' });
   box.sync();
@@ -829,7 +834,7 @@ test('history folder name is Windows-valid', async (ctx) => {
   assert.equal(historyPath(home, key), file);
 });
 
-test('old colon history folder is found', async (ctx) => {
+linuxOnly('old colon history folder is found', 'a folder name with colons cannot exist on Windows', async (ctx) => {
   const home = path.join(ctx.dir, 'agent');
   const key = 'T1:C1:1.1';
   const legacy = path.join(home, 'conversations', key);
@@ -977,7 +982,8 @@ async function runAll() {
   fs.writeFileSync(stubPath, STUB);
   fs.chmodSync(stubPath, 0o755);
   try {
-    for (const [name, fn] of pending) {
+    for (const [name, fn, why] of pending) {
+      if (!fn) { console.log(`skip: ${name} is Linux-only: ${why}`); continue; }
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-turn-'));
       const open = [];
       const pids = [];

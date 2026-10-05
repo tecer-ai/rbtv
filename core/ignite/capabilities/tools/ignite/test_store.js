@@ -14,6 +14,11 @@ function test(name, fn) {
   pending.push([name, fn]);
 }
 
+// A test of the waking program's Linux-only side: on Windows it is skipped by name, with the reason.
+function linuxOnly(name, why, fn) {
+  pending.push([name, process.platform === 'win32' ? null : fn, why]);
+}
+
 function procStart(pid) {
   const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
   return stat.slice(stat.lastIndexOf(')') + 1).trim().split(/\s+/)[19];
@@ -92,7 +97,7 @@ test('2b liveRun returns pid and pidStart', (store) => {
   assert.throws(() => store.attachProcess(claim.runId, { pid: 1, pidStart: 'other', setting }));
 });
 
-test('2b liveRun matches proc start and refuses a dead or reused pid', async (store, ctx) => {
+linuxOnly('2b liveRun matches proc start and refuses a dead or reused pid', 'the liveness check reads /proc, and only the waking program calls it', async (store, ctx) => {
   const { spawn } = require('node:child_process');
   const child = spawn('sleep', ['30'], { stdio: 'ignore' });
   try {
@@ -621,7 +626,8 @@ test('pendingScheduleIds retains a running wake and drops completed wakes', (sto
 });
 
 async function runAll() {
-  for (const [name, fn] of pending) {
+  for (const [name, fn, why] of pending) {
+    if (!fn) { console.log(`skip: ${name} is Linux-only: ${why}`); continue; }
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-store-'));
     const db = path.join(dir, 'state.sqlite');
     let store = new Store(db);
