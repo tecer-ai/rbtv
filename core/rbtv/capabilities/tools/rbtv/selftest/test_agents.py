@@ -9,8 +9,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from discovery import Refuse, scan_all
-from lib.agents import (IGNORE_TEXT, add_agent, cast_agent_list, configure_agent,
-                        remove_agent, update_agent)
+from lib.agents import (IGNORE_TEXT, add_agent, cast_agent_list, cast_catalog, cast_effort_word,
+                        configure_agent, launch_values, remove_agent, update_agent)
 from lib.constants import MATRIX, REPO_ROOT
 from lib.doctor import do_doctor
 from lib.planning import plan_files
@@ -154,7 +154,13 @@ def installed_agents(ctx) -> None:
     _agent(home, units=["kiss"])
     known = {"claude": {"m1": ["low", "high"]},
              "codex": {"c1": ["low", "medium", "high"]}}
-    with patch("lib.agents.cast_catalog", return_value=known):
+    # The word cast gives for an effort number on these made-up models.
+    words = {("claude", "m1", "2"): "high", ("codex", "c1", "3"): "high"}
+
+    def cast_words():
+        return patch("lib.agents.cast_effort_word", side_effect=lambda *asked: words.get(asked))
+
+    with patch("lib.agents.cast_catalog", return_value=known), cast_words():
         before = (home / "agent.json").read_bytes()
         planned = add_agent(ws, "scout", [], set(), catalog, True)
         check("A-add — dry run writes no agent file", (home / "agent.json").read_bytes() == before and planned["dry_run"], str(planned))
@@ -211,7 +217,7 @@ def installed_agents(ctx) -> None:
           and (research / ".claude/rules/kiss.md").is_file(), str(placed))
     update_agent(ws, "scout", "all", catalog, False)
     check("A-update — shared update keeps the authored record", (home / "agent.json").is_file() and (home / ".claude/rules/kiss.md").is_file(), "")
-    with patch("lib.agents.cast_catalog", return_value=known):
+    with patch("lib.agents.cast_catalog", return_value=known), cast_words():
         files_before = {path.relative_to(home) for path in home.rglob("*") if path.is_file()}
         configured = configure_agent(ws, "scout", None, None, "2", None, catalog, False)
         files_after = {path.relative_to(home) for path in home.rglob("*") if path.is_file()}
@@ -225,7 +231,7 @@ def installed_agents(ctx) -> None:
           and state["effort"] == "high" and not (home / ".claude/rules/kiss.md").exists()
           and not (home / "CLAUDE.md").exists() and (home / "AGENTS.md").is_file()
           and switched["harness_changed"], str(switched))
-    with patch("lib.agents.cast_catalog", return_value=known):
+    with patch("lib.agents.cast_catalog", return_value=known), cast_words():
         updated = update_agent(ws, "scout", "all", catalog, False)
         added = add_agent(ws, "scout", ["other"], set(), catalog, False)
         removed = remove_agent(ws, "scout", ["other"], set(), False, False,
@@ -266,6 +272,16 @@ def installed_agents(ctx) -> None:
     with patch("lib.agents.shutil.which", return_value=None):
         check("A-list — without cast on PATH the list is refused, not rebuilt here",
               _refused(lambda: cast_agent_list(ws, None, False, False, 100)) == ("cast-missing", "rbtv doctor"), "")
+        check("A-effort — without cast on PATH an effort number is refused, not worked out here",
+              _refused(lambda: cast_effort_word("claude", "m1", "2")) == ("cast-missing", "rbtv doctor"), "")
+    with patch("lib.agents.shutil.which", return_value="cast"), \
+            patch("lib.agents.subprocess.run",
+                  return_value=subprocess.CompletedProcess([], 0, "not JSON", "")):
+        check("A-effort — an answer from cast that is not its launch value is refused",
+              _refused(lambda: cast_effort_word("claude", "m1", "2"))[0] == "cast-unreadable", "")
+    with patch("lib.agents.cast_effort_word", return_value=None):
+        check("A-effort — a number cast refuses is refused, and no word is made up for it",
+              _refused(lambda: launch_values("claude", "m1", "2", known)) == ("launch-invalid", "cast list"), "")
     node = shutil.which("node")
     if node is None:
         skip("A-list — the list is the one cast prints", "node is not on this machine, and cast runs on node")
@@ -299,6 +315,21 @@ def installed_agents(ctx) -> None:
             bare = tmp / "agent-list-empty"; bare.mkdir()
             check("A-list — an installation with no agent folder is successful",
                   cast_agent_list(bare, None, False, False, 100).startswith("rbtv agents: 0\n"), "")
+            # What an effort number means is cast's own. The expected words are read from the
+            # table cast prints (for each word, the smallest number that selects it), on the first
+            # model that has effort words.
+            table = cast_catalog()
+            harness, model = next((h, m) for h in table["effort_numbers"]
+                                  for m, numbers in table["effort_numbers"][h].items() if numbers)
+            numbers = table["effort_numbers"][harness][model]
+            got = {word: cast_effort_word(harness, model, str(n)) for word, n in numbers.items()}
+            check("A-effort — an effort number becomes the word cast gives for it",
+                  got == {word: word for word in numbers}, f"{harness} {model}: {got}")
+            check("A-effort — the word reaches the agent's values, and a number cast refuses is refused",
+                  launch_values(harness, model, "1", table)["effort"] == min(numbers, key=numbers.get)
+                  and cast_effort_word(harness, model, "0") is None
+                  and _refused(lambda: launch_values(harness, model, "0", table))[0] == "launch-invalid",
+                  f"{harness} {model}")
     selected, source = resolve_target(None, ws, {"RBTV_AGENT_HOME": str(home)})
     retired_name = "IGNITE" + "_AGENT_HOME"
     legacy, legacy_source = resolve_target(None, ws, {retired_name: str(home)})

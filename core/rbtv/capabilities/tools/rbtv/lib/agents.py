@@ -174,6 +174,25 @@ def cast_model_id(harness: str, model: str, folder: Path) -> str:
                      "name the model; repair cast, then retry") from exc
 
 
+def cast_effort_word(harness: str, model: str, number: str) -> str | None:
+    """The model's own effort word for an effort number, as `cast` resolves it
+    on a launch: read from a `cast --dry-run`, so rbtv keeps no second copy of
+    what a number means. None when cast refuses the number."""
+    exe = shutil.which("cast")
+    if exe is None:
+        raise _refuse("cast-missing", "cast is not on PATH, so the effort number cannot be "
+                      "turned into the model's own word.", "rbtv doctor")
+    done = subprocess.run([exe, harness, model, number, "-p", "ok", "--dry-run"],
+                          capture_output=True, text=True, encoding="utf-8")
+    if done.returncode:
+        return None
+    try:
+        return json.loads(done.stdout)["effort_word"]
+    except (ValueError, KeyError, TypeError) as exc:
+        raise Refuse("cast-unreadable", f"`cast {harness} {model} {number} --dry-run` did not "
+                     "name the effort word; repair cast, then retry") from exc
+
+
 def launch_values(harness: str, model: str, effort: str, known: dict) -> dict:
     if harness not in HARNESSES or model not in (known.get(harness) or {}):
         raise _refuse("launch-invalid", f"{harness} has no model {model!r}. "
@@ -181,8 +200,8 @@ def launch_values(harness: str, model: str, effort: str, known: dict) -> dict:
     rungs = known[harness][model]
     if not rungs:
         return {"harness": harness, "model": model, "effort": EFFORT_INERT}
-    if effort.isdigit() and 1 <= int(effort) <= 5:
-        effort = rungs[min(int(effort), len(rungs)) - 1]
+    if effort.isdigit():
+        effort = cast_effort_word(harness, model, effort) or effort
     if effort not in rungs:
         raise _refuse("launch-invalid", f"{model} does not accept effort {effort!r}. "
                       "See `cast list`", "cast list")

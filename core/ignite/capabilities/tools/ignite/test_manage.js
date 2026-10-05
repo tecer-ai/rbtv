@@ -46,7 +46,9 @@ async function captures(argv, flags, deps) {
   fs.mkdirSync(agent, { recursive: true });
   fs.writeFileSync(path.join(agent, 'agent.json'), JSON.stringify({ name: 'probe', description: 'Probe.', harness: 'codex', model: 'gpt-6.1-sol', effort: 'high', units: [], packs: [] }), 'utf8');
   fs.writeFileSync(path.join(agent, 'agent.md'), '---\nname: probe\n---\n', 'utf8');
-  // The installer checks the model against `cast list`, so a stand-in cast answers for this one model.
+  // The installer checks the model and the effort word against `cast list`, so a stand-in cast answers
+  // for this one model. The effort is a word: what a number means the installer asks cast, and this
+  // stand-in gives only the list.
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-manage-bin-'));
   const cast = path.join(bin, process.platform === 'win32' ? 'cast.cmd' : 'cast');
   fs.writeFileSync(cast, process.platform === 'win32'
@@ -57,9 +59,9 @@ async function captures(argv, flags, deps) {
   process.env.PATH = `${bin}${path.delimiter}${oldPath}`;
   try {
     // Through the installation, by name: the installer's own output for that form (screen 330).
-    const expected = spawnSync('python3', [INSTALLER_ENTRY, 'agent', 'configure', 'probe', '--effort', '2', '--dry-run'], { cwd: installation, encoding: 'utf8' });
+    const expected = spawnSync('python3', [INSTALLER_ENTRY, 'agent', 'configure', 'probe', '--effort', 'medium', '--dry-run'], { cwd: installation, encoding: 'utf8' });
     assert.equal(expected.status, 0, expected.stdout + expected.stderr);
-    const actual = await captures(['configure', '--effort', '2', '--dry-run'], {}, { env: { RBTV_AGENT_HOME: agent } });
+    const actual = await captures(['configure', '--effort', 'medium', '--dry-run'], {}, { env: { RBTV_AGENT_HOME: agent } });
     assert.equal(actual.code, expected.status);
     assert.equal(actual.stdout, expected.stdout);
     assert.equal(actual.stderr, expected.stderr);

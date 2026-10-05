@@ -19,6 +19,9 @@ from .fixture import FIXAGENT, _component, _unit_md, _w
 KNOWN = {"claude": {"m1": ["low", "medium", "high"], "nodial": []},
          "codex": {"c1": ["low", "medium", "high"]},
          "opencode": {"o1": ["high", "max"]}}
+# The word cast gives for an effort number on these made-up models.
+WORDS = {("claude", "m1", "1"): "low", ("claude", "m1", "2"): "medium",
+         ("claude", "m1", "3"): "high", ("opencode", "o1", "1"): "high"}
 
 
 def sub_agents(ctx) -> None:
@@ -34,6 +37,7 @@ def sub_agents(ctx) -> None:
         out, err = io.StringIO(), io.StringIO()
         with patch.object(commands, "scan_all", return_value=(cat or catalog, [])), \
                 patch("lib.agents.cast_catalog", return_value=KNOWN), \
+                patch("lib.agents.cast_effort_word", side_effect=lambda *asked: WORDS.get(asked)), \
                 patch("lib.agents.cast_model_id",
                       side_effect=lambda harness, model, _folder: f"id/{model}"), \
                 patch.dict("os.environ", {"COLUMNS": columns}), \
