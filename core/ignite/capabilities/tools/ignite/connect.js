@@ -244,7 +244,7 @@ function requireInstalled(config, raw, command) {
   const resolved = resolveAgent(config, raw, command);
   const { agent, home } = resolved;
   if (!fs.existsSync(home)) {
-    fail(`agent ${agent} is not installed (no folder at ${home}).\nAdd it with: rbtv agent add ${agent}\nNothing changed.`);
+    fail(`agent ${agent} is not installed (no folder at ${home}).\nAdd it with: rbtv agent add ${agent} --harness HARNESS --model MODEL --effort EFFORT\nNothing changed.`);
   }
   if (!fs.existsSync(path.join(home, 'agent.md')) || !fs.existsSync(path.join(home, 'agent.json'))) {
     fail(`agent ${agent} is not installed (needs agent.md and agent.json at ${home})`);

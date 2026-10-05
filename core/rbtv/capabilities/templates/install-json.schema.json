@@ -149,6 +149,79 @@
                   "items": {
                     "type": "string"
                   }
+                },
+                "sub_agent": {
+                  "description": "Only on a unit of method `agent` installed as a harness-native sub-agent: the model and effort its file is written with, keyed by harness. A harness with no entry has no sub-agent file. Absent when no harness has values.",
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "claude": {
+                      "type": "object",
+                      "required": [
+                        "model",
+                        "model_id",
+                        "effort"
+                      ],
+                      "properties": {
+                        "model": {
+                          "description": "The model, by the name `cast list` shows.",
+                          "type": "string"
+                        },
+                        "model_id": {
+                          "description": "The same model, by the harness's own name for it, as written into the sub-agent file.",
+                          "type": "string"
+                        },
+                        "effort": {
+                          "description": "The effort, as a word: a number from 1 to 5 is recorded as the model's own word for it.",
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "codex": {
+                      "type": "object",
+                      "required": [
+                        "model",
+                        "model_id",
+                        "effort"
+                      ],
+                      "properties": {
+                        "model": {
+                          "description": "The model, by the name `cast list` shows.",
+                          "type": "string"
+                        },
+                        "model_id": {
+                          "description": "The same model, by the harness's own name for it, as written into the sub-agent file.",
+                          "type": "string"
+                        },
+                        "effort": {
+                          "description": "The effort, as a word: a number from 1 to 5 is recorded as the model's own word for it.",
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "opencode": {
+                      "type": "object",
+                      "required": [
+                        "model",
+                        "model_id",
+                        "effort"
+                      ],
+                      "properties": {
+                        "model": {
+                          "description": "The model, by the name `cast list` shows.",
+                          "type": "string"
+                        },
+                        "model_id": {
+                          "description": "The same model, by the harness's own name for it, as written into the sub-agent file.",
+                          "type": "string"
+                        },
+                        "effort": {
+                          "description": "The effort, as a word: a number from 1 to 5 is recorded as the model's own word for it.",
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }

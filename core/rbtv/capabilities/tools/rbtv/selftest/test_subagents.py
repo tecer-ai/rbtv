@@ -89,6 +89,26 @@ def sub_agents(ctx) -> None:
                                              "effort": "high"}}
           and read_state(ws)["schema"] == SCHEMA == 9
           and str(tmp) not in json.dumps(unit()["sub_agent"]), str(unit()))
+    saved = json.loads((ws / STATE_REL).read_text(encoding="utf-8"))
+    booked = saved["components"]["fixmod/goodcomp"]["units"]["fixagent"]
+    described = schema.load("install-json")
+    broken = []
+    for change in (lambda entry: entry["claude"].pop("model_id"),
+                   lambda entry: entry["claude"].update(effort=3),
+                   lambda entry: entry.update(kimi=dict(entry["claude"]))):
+        booked["sub_agent"] = {"claude": {"model": "m1", "model_id": "id/m1",
+                                          "effort": "high"}}
+        valid = not schema.errors(saved, described)
+        change(booked["sub_agent"])
+        broken.append(valid and bool(schema.errors(saved, described)))
+    check("SA-record-schema — the record the program wrote, with its sub_agent entry, "
+          "matches the install record schema; an entry missing a key, with a value "
+          "that is not text, or under an unknown harness does not",
+          "sub_agent" in json.loads((ws / STATE_REL).read_text(encoding="utf-8"))
+          ["components"]["fixmod/goodcomp"]["units"]["fixagent"]
+          and not schema.errors(json.loads((ws / STATE_REL).read_text(encoding="utf-8")),
+                                described)
+          and broken == [True, True, True], str(broken))
 
     code, two, _err = run("add", "fixagent", "--on", "codex:c1:medium", "--on", "claude:m1:1")
     check("SA-second-harness — a second harness is added and a new value replaces the old, "

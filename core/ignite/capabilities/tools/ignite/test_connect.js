@@ -504,7 +504,7 @@ async function run(argv, extra = {}) {
     const result = await run(['connect', 'probe', '--dm', '--installation', dir]).catch((error) => error);
     assert.match(result.message, /not installed/);
     assert.match(result.message, /no folder/);
-    assert.match(result.message, /rbtv agent add probe/);
+    assert.match(result.message, /Add it with: rbtv agent add probe --harness HARNESS --model MODEL --effort EFFORT\n/);
     assert.equal(readConfig(dir).dmAgent, undefined);
   });
 
