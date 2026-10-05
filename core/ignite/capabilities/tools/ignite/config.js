@@ -12,6 +12,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { agentHomeIn } = require('../../../../cast/capabilities/tools/cast/lib/agent');
 
 const TOP_KEYS = ['slack', 'tools', 'dmAgent', 'routes', 'dreamer'];
 const SLACK_KEYS = ['team', 'botUserId', 'ownerUserId', 'appTokenEnv', 'botTokenEnv', 'ownerTokenEnv', 'stoolsWorkspace'];
@@ -128,7 +129,7 @@ function updateConfig(workspace, change) {
 function agentHome(config, slug) {
   if (!config?.workspace) throw new Error('config.workspace required');
   reqSlug(slug, 'agent slug');
-  return path.join(config.workspace, '.rbtv', 'agents', slug);
+  return agentHomeIn(config.workspace, slug);
 }
 
 function storePath(config, slug) {

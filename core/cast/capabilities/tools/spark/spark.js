@@ -199,7 +199,7 @@ function spark(args) {
   }
 
   for (const [label, text] of [['agent', name], ['folder', home], ['harness', harness], ['model', model],
-    ['effort', effort || 'none']]) {
+    ['effort', effort]]) {
     process.stdout.write(`${label.padEnd(8)} ${text}\n`);
   }
   const win = spawnable(cast, castArgs);

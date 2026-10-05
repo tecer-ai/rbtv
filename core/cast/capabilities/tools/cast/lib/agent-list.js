@@ -92,7 +92,7 @@ function agentList(from) {
 }
 
 function cells(row) {
-  return [row.name, row.harness, row.model, row.effort || 'none', row.ignite ? 'yes' : 'no', row.description];
+  return [row.name, row.harness, row.model, row.effort, row.ignite ? 'yes' : 'no', row.description];
 }
 
 // COLUMNS first, which a caller sets to choose a width; then the real terminal; then 100.

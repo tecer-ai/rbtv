@@ -1587,6 +1587,27 @@ else {
       ['Name  Harness  Model       Effort  Ignite  Description', `tess  codex    gpt-6-luna  high    yes     ${TESS_SAYS}`]);
   }
 
+  // a record must carry the model's own effort word: none, or a number, stops the launch
+  for (const [name, effort, text] of [['noeffort', undefined, 'names no harness, model or effort'],
+    ['blank', ' ', 'names no harness, model or effort'], ['numbered', '3', 'gives effort as the number 3']]) {
+    const dir = path.join(root, '.rbtv', 'agents', name);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'agent.md'), `---\nname: ${name}\n---\nYou are ${name}.`);
+    fs.writeFileSync(path.join(dir, 'agent.json'), JSON.stringify({ name, harness: 'claude', model: 'sonnet-5-5', effort }));
+    const res = spawnSync('node', [TOOL, '--agent', name, '-p', 'go', '--dry-run'], { cwd: root, encoding: 'utf8' });
+    assert.strictEqual(res.status, 2, `an agent with effort ${JSON.stringify(effort)} must be refused`);
+    assert.ok(res.stderr.includes(text), res.stderr);
+    fs.rmSync(dir, { recursive: true });
+  }
+  {
+    // the one place that says where an agent's folder is, and what a path is
+    const { agentsFolder, agentHomeIn, isAgentFolder, isPath } = require('./lib/agent');
+    assert.strictEqual(agentHomeIn(root, 'sara'), home);
+    assert.strictEqual(agentsFolder(root), path.dirname(home));
+    assert.ok(isAgentFolder(home) && !isAgentFolder(halfHome), 'an agent folder holds both files');
+    assert.ok(isPath('plans/x') && isPath('plans\\x') && isPath('.') && !isPath('sara'), 'a slash or a backslash makes a path');
+  }
+
   const refusals = [
     [['claude', 'sonnet-5-5', '2', '--agent', 'sara', '-p', 'go'], 'does not take a harness, model or effort'],
     [['codex', 'gpt-6.1-sol', '3', '--agent', 'sara', '-p', 'go'], 'does not take a harness, model or effort'],

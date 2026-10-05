@@ -14,6 +14,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
 const { loadConfig, updateConfig, agentHome, configPath, findWorkspace, slackToken } = require('./config.js');
+const { agentsFolder, isAgentFolder, isPath, readAgent } = require('../../../../cast/capabilities/tools/cast/lib/agent');
 const { Slack } = require('./slack.js');
 const { Store, conversationKey } = require('./store.js');
 const { cadenceSpec, nextOccurrence, FIXED_TZ } = require('./schedule.js');
@@ -231,9 +232,8 @@ function isInside(folder, parent) {
 }
 
 function resolveAgent(config, raw, command) {
-  const agents = path.join(config.workspace, '.rbtv', 'agents');
-  const pathish = raw.includes('/') || raw.includes('\\') || raw === '.' || raw === '..';
-  const home = pathish ? path.resolve(raw) : agentHome(config, raw);
+  const agents = agentsFolder(config.workspace);
+  const home = isPath(raw) ? path.resolve(raw) : agentHome(config, raw);
   if (!isInside(home, agents)) fail(agentOutsideMessage(raw, home, agents, command));
   const agent = path.basename(home);
   if (!SLUG.test(agent)) fail(`agent name must match [a-z0-9][a-z0-9-]{0,63}`);
@@ -246,7 +246,7 @@ function requireInstalled(config, raw, command) {
   if (!fs.existsSync(home)) {
     fail(`agent ${agent} is not installed (no folder at ${home}).\nAdd it with: rbtv agent add ${agent} --harness HARNESS --model MODEL --effort EFFORT\nNothing changed.`);
   }
-  if (!fs.existsSync(path.join(home, 'agent.md')) || !fs.existsSync(path.join(home, 'agent.json'))) {
+  if (!isAgentFolder(home)) {
     fail(`agent ${agent} is not installed (needs agent.md and agent.json at ${home})`);
   }
   return resolved;
@@ -295,8 +295,9 @@ async function setIgnitePack(verb, home, workspace, dryRun, deps) {
 }
 
 function packIsOn(home) {
-  const state = readJson(path.join(home, 'agent.json'), 'agent.json');
-  return Array.isArray(state.packs) && state.packs.includes('ignite');
+  const read = readAgent(home);
+  if (read.problem) fail(`agent.json: ${read.why}`);
+  return read.agent.ignite;
 }
 
 function ensureRuntime(home) {

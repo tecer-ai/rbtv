@@ -14,9 +14,8 @@
 //   Transient failures retry MAX_ATTEMPTS times (the same few-then-stop bound as a turn), then
 //   stopOutbox plus one hold: notice. A permanent Slack error stops on the first failure.
 
-const fs = require('node:fs');
-const path = require('node:path');
 const { MAX_ATTEMPTS } = require('./store.js');
+const { readAgent } = require('../../../../cast/capabilities/tools/cast/lib/agent');
 
 const RETRY_MS = 5_000;
 const PERMANENT = new Set([
@@ -30,11 +29,7 @@ const PERMANENT = new Set([
 
 function voiceOf(store, home) {
   if (!home) return null;
-  try {
-    return JSON.parse(fs.readFileSync(path.join(home, 'agent.json'), 'utf8')).voice || null;
-  } catch {
-    return null;
-  }
+  return readAgent(home).agent?.voice || null;
 }
 
 function isBoard(conv) {

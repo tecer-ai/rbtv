@@ -782,6 +782,16 @@ test('an attachment that was not downloaded still delivers the message with a wa
   assert.match(turn.prompt, /see attached\nattachments: \/tmp\/a\.pdf\n1 attached file\(s\) could not be downloaded; tell the owner\./);
 });
 
+test('a record cast would not launch stops the turn: no effort value', async (ctx) => {
+  const box = harness(ctx);
+  seed(box.store);
+  fs.writeFileSync(path.join(box.home, 'agent.json'), `${JSON.stringify({ harness: 'claude', model: 'sonnet-5-5' })}\n`);
+  box.sync();
+  const result = await runOnce('master', box.deps);
+  assert.equal(result.failure.scope, 'agent');
+  assert.equal(seen(box).length, 0, 'nothing was launched');
+});
+
 test('launch failure holds the agent', async (ctx) => {
   const box = harness(ctx);
   seed(box.store);

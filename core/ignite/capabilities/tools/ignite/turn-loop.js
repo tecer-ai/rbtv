@@ -15,6 +15,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { procStart } = require('./store.js');
+const castAgent = require('../../../../cast/capabilities/tools/cast/lib/agent');
 const { composeTurn, readTurnMemory } = require('./prompt.js');
 const { DEFAULT_HISTORY_WINDOW, historyPath, listAll, writeHistory } = require('./history.js');
 
@@ -39,19 +40,13 @@ function isAudio(file) {
   return AUDIO_EXT.has(ext);
 }
 
+// The agent's launch values and voice, as cast reads its record; a record cast would not launch
+// stops the turn here.
 function readAgent(home) {
-  const file = path.join(home, 'agent.json');
-  let raw;
-  try {
-    raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (error) {
-    throw fail(`agent.json: ${error.message}`, 'agent');
-  }
-  if (!raw?.harness || !raw.model || typeof raw.effort !== 'string' || !raw.effort.trim()) {
-    throw fail('agent.json requires harness, model and an effort word', 'agent');
-  }
-  if (/^\d+$/.test(raw.effort)) throw fail(`agent.json effort must be a rung word, not ${raw.effort}`, 'agent');
-  return { harness: raw.harness, model: raw.model, effort: raw.effort, voice: raw.voice ?? null };
+  const read = castAgent.readAgent(home);
+  if (read.problem) throw fail(`agent.json: ${read.why}`, 'agent');
+  const { harness, model, effort, voice } = read.agent;
+  return { harness, model, effort, voice };
 }
 
 function inputText(claim) {

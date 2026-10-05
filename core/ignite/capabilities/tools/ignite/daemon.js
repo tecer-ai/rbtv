@@ -4,6 +4,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { loadConfig, agentHome, storePath, slackToken } = require('./config.js');
+const { agentsFolder, isAgentFolder, readAgent } = require('../../../../cast/capabilities/tools/cast/lib/agent');
 const { Store, procStart } = require('./store.js');
 const { handleEvent } = require('./ingress.js');
 const { runOnce } = require('./turn-loop.js');
@@ -104,10 +105,8 @@ function resolveHarness(name, pathEnv) {
 function namedHarnesses(config) {
   const names = new Set();
   for (const slug of agentSlugs(config.workspace)) {
-    const file = path.join(agentHome(config, slug), 'agent.json');
-    if (!fs.existsSync(file)) continue;
-    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (typeof raw.harness === 'string' && raw.harness.trim()) names.add(raw.harness.trim());
+    const read = readAgent(agentHome(config, slug));
+    if (read.agent) names.add(read.agent.harness.trim());
   }
   return [...names];
 }
@@ -129,16 +128,13 @@ function assertHarnesses(config) {
 }
 
 function agentSlugs(workspace) {
-  const dir = path.join(workspace, '.rbtv', 'agents');
+  const dir = agentsFolder(workspace);
   let names;
   try { names = fs.readdirSync(dir, { withFileTypes: true }); } catch { return []; }
   return names
     .filter((ent) => ent.isDirectory() && SLUG.test(ent.name))
     .map((ent) => ent.name)
-    .filter((name) => {
-      const home = path.join(dir, name);
-      return fs.existsSync(path.join(home, 'agent.md')) && fs.existsSync(path.join(home, 'agent.json'));
-    });
+    .filter((name) => isAgentFolder(path.join(dir, name)));
 }
 
 function dreamerSlugs(config) {
@@ -157,7 +153,7 @@ function expiredUntilDate(workspace, slugs, now) {
   const today = `${parts.year}-${parts.month}-${parts.day}`;
   const roots = [path.join(workspace, '.rbtv', 'memory')];
   for (const slug of slugs) {
-    const home = path.join(workspace, '.rbtv', 'agents', slug);
+    const home = path.join(agentsFolder(workspace), slug);
     roots.push(path.join(home, 'memory'), path.join(home, '_artifacts', 'board.md'));
   }
   const expired = (file) => fs.readFileSync(file, 'utf8').split(/\r?\n/).some((line) => {
@@ -390,7 +386,7 @@ function parseArgs(argv) {
 async function start(opts = {}) {
   if (!opts.workspace) throw new Error('--installation required');
   const workspace = path.resolve(opts.workspace);
-  const lockPath = opts.lockPath || path.join(workspace, '.rbtv', 'agents', '.daemon.lock');
+  const lockPath = opts.lockPath || path.join(agentsFolder(workspace), '.daemon.lock');
   const held = acquireLock(lockPath);
   try {
     return await startLocked(opts, workspace, held);

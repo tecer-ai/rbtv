@@ -7,6 +7,7 @@ const path = require('node:path');
 const { INSTALLER_ENTRY, runInstaller } = require('./connect.js');
 const CAST_LIB = '../../../../cast/capabilities/tools/cast/lib';
 const { spawnable } = require(`${CAST_LIB}/win-exec`);
+const { agentHomeIn } = require(`${CAST_LIB}/agent`);
 
 const CHANGE = new Set(['add', 'remove', 'configure', 'update']);
 const READ = new Set(['list', 'search', 'show']);
@@ -50,7 +51,7 @@ async function callInstaller(args, installation, deps) { return runInstaller(arg
 function callingAgent(flags, deps) {
   const env = deps.env || process.env;
   if (env.RBTV_AGENT_HOME) return env.RBTV_AGENT_HOME;
-  if (flags.agent && flags.installation) return path.join(flags.installation, '.rbtv', 'agents', flags.agent);
+  if (flags.agent && flags.installation) return agentHomeIn(flags.installation, flags.agent);
   return null;
 }
 function absent(subcommand, args) {

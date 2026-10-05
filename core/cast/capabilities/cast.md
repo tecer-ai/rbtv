@@ -88,9 +88,10 @@ untouched). `ignite turn` is the exception: it returns an exact id for that invo
 
 `cast --agent NAME (-p TEXT | -f FILE)` runs an agent folder: a folder holding both `agent.md` and
 `agent.json`. AGENT is a name, looked up as `<installation>/.rbtv/agents/AGENT/` from the current
-folder upward, or a path to the folder (a value containing `/`, or `.` or `..`, relative to the
-current folder). The folder is the working folder. `agent.json` gives the harness, model and effort
-(effort as the model's own word, such as `high`); none of them may be given on the command line:
+folder upward, or a path to the folder (a value containing `/` or `\`, or `.` or `..`, relative to
+the current folder). The folder is the working folder. `agent.json` gives the harness, model and
+effort, all three required (effort as the model's own word, such as `high`, never a number; a
+record without one is refused); none of them may be given on the command line:
 that is refused, and the refusal names `rbtv agent configure AGENT` as the way to change them.
 `agent.md` is the system prompt, handed to the model without its frontmatter. The launch sets
 `RBTV_AGENT_HOME` to the agent folder for the harness process. A folder holding only one of the two
@@ -453,7 +454,7 @@ dotenv at `rbtv.json`'s `env_file`.
 | `core/ignite/capabilities/tools/ignite/turn.js` | `ignite turn` — exact session id, resume with the requested model/effort, result file |
 | `capabilities/tools/cast/lib/handles.js` | the launch-handle registry — the one observable a watcher uses to find a run again |
 | `capabilities/tools/cast/lib/launch.js` | spawn, `cast resume` |
-| `capabilities/tools/cast/lib/agent.js` | `--agent` / `--rogue`: find the agent folder, read `agent.json` and `agent.md`; the readers spark also uses |
+| `capabilities/tools/cast/lib/agent.js` | `--agent` / `--rogue`: find the agent folder, read `agent.json` and `agent.md`. The one place that knows where an agent's folder is (`<installation>/.rbtv/agents/<name>`), what counts as a path, and how the record is read: spark, the agent list and Ignite load it |
 | `capabilities/tools/cast/lib/agent-list.js` | `cast list --agents`: the agents a name can reach, as a table, labeled blocks, or JSON; the one list, which `spark list` and `rbtv agent list` also show |
 | `capabilities/tools/spark/spark.js` | `spark AGENT`: the terminal handoff, a thin layer over `cast --agent`; `spark list`: the list of `lib/agent-list.js` (its tests: `test_spark.js`) |
 | `capabilities/tools/cast/lib/sessions.js` | the per-harness session-store readers and `cast sessions` |
