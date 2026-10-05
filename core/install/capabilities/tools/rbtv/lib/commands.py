@@ -37,7 +37,7 @@ from .selection import (
 from .operations import do_install, do_uninstall
 from .pathlinks import bin_dir
 from .shared_links import release_installation_links, installation_mutation_lock
-from .listing import (_short_description, build_list, build_show,
+from .listing import (_description, build_list, build_show,
                       do_list, json_view, pack_members, print_list, print_show)
 from .agents import (OWN_FILES, add_agent, agent_state, cast_agent_list, configure_agent,
                      is_path, on_values, remove_agent, update_agent)
@@ -166,7 +166,7 @@ def cmd_list(args, target: Path, catalog: dict, shadowed: list,
                       modules=args.module, components=args.component,
                       methods=args.method,
                       installed=bool(args.installed or args.verb == "li"),
-                      search=args.verb == "search",
+                      search=args.verb == "search", full=args.full,
                       limit=limit, offset=offset)
     data.update(target=str(target.resolve()), source=getattr(args, "_why", "unknown"))
     if offset >= data["total"] and data["total"]:
@@ -202,7 +202,7 @@ def cmd_list(args, target: Path, catalog: dict, shadowed: list,
     else:
         # Presentation-only bookkeeping (never part of the JSON contract):
         # which title/next-label branch to render.
-        print_list({**data, "searching": searching,
+        print_list({**data, "searching": searching, "full": args.full,
                    "installed_only": bool(args.installed or args.verb == "li"),
                    "has_more": has_more, "methods": args.method})
     return 0
@@ -264,10 +264,10 @@ def cmd_show(args, target: Path, catalog: dict, shadowed: list,
         if args.method:
             raise Refuse("type-mismatch", "--type requires an unit name; list "
                          + args.name + " --type " + args.method[0])
-        view = build_list(catalog, state, query=args.name, limit=100)
+        view = build_list(catalog, state, query=args.name, full=args.full, limit=100)
         comp = next((c for c in catalog.values()
                      if c.get("module") == named_module), None)
-        description = _short_description(comp.get("module_description", "")) if comp else ""
+        description = _description(comp.get("module_description", ""), args.full) if comp else ""
         selection = {"scope": "module", "id": args.name,
                      "description": description,
                      "components": view["units"],
@@ -292,7 +292,7 @@ def cmd_show(args, target: Path, catalog: dict, shadowed: list,
                             methods=set(args.method) or None)
     data = {"ok": True, "target": str(target.resolve()),
             "source": getattr(args, "_why", "unknown"),
-            "selection": build_show(selected, catalog, state)}
+            "selection": build_show(selected, catalog, state, args.full)}
     parts = data["selection"]["units"]
     if selected["kind"] == "part":
         # Approved screens 20/55: an installed unit's next step is a health
@@ -1359,7 +1359,7 @@ def cmd_agent(args, target: Path, catalog: dict, shadowed: list,
     as_json = bool(getattr(args, "json", False))
     details = bool(getattr(args, "details", False))
     if verb == "list":
-        shown = cast_agent_list(target, args.agent, as_json, present.terminal_width())
+        shown = cast_agent_list(target, args.agent, as_json, args.full, present.terminal_width())
         if as_json:
             found = json.loads(shown)
             _emit({"ok": True, **({"agent": found} if args.agent else found), "next": "rbtv agent -h"},

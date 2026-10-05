@@ -208,18 +208,21 @@ function runDoctor(args) {
   process.exit(0);
 }
 
-// The words of `cast list`: which list (--models, --agents, or --agent NAME) and --json. Every
-// other word is refused, so a mistyped command never falls back to printing the models.
+// The words of `cast list`: which list (--models, --agents, or --agent NAME), --full for whole
+// descriptions, and --json. Every other word is refused, so a mistyped command never falls back
+// to printing the models.
 function listArgs(args) {
   const refuse = (what, why, next) => fail(`refused: ${what}\n${why}\nNothing was listed.\n${next}`);
   let json = false;
   let models = false;
   let agents = false;
+  let full = false;
   let agent = null;
   const named = [];
   for (let i = 0; i < args.length; i += 1) {
     const a = args[i];
     if (a === '--json') json = true;
+    else if (a === '--full') full = true;
     else if (a === '--models') models = true;
     else if (a === '--agents') agents = true;
     else if (a === '--agent') {
@@ -231,7 +234,8 @@ function listArgs(args) {
       agent = name;
       i += 1;
     } else if (a.startsWith('-')) {
-      refuse(`'${a}' is not a cast list option`, 'cast list takes --models, --agents or --agent NAME, and --json', 'cast list -h');
+      refuse(`'${a}' is not a cast list option`,
+        'cast list takes --models, --agents or --agent NAME, and --full and --json', 'cast list -h');
     } else named.push(a);
   }
   if ([models, agents, agent !== null].filter(Boolean).length > 1) {
@@ -241,7 +245,10 @@ function listArgs(args) {
     refuse(`cast list takes no name by itself, got '${named[0]}'`,
       'one agent in full is --agent NAME; with no flag, cast list prints the models', `cast list --agent ${named[0]}`);
   }
-  return { json, agents: agents || agent !== null, agent };
+  if (full && !agents && agent === null) {
+    refuse('--full shows whole descriptions, and the models have none', 'it goes with --agents', 'cast list --agents --full');
+  }
+  return { json, full, agents: agents || agent !== null, agent };
 }
 
 function runList(json) {

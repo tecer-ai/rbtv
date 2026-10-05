@@ -40,8 +40,8 @@ function main(rawArgv) {
     }
     // --agents and --agent NAME show the rbtv agents; without them, the model inventory, which
     // --models names.
-    const { json, agents, agent } = listArgs(rest);
-    return agents ? runAgentList(agent, json, fail) : runList(json);
+    const { json, full, agents, agent } = listArgs(rest);
+    return agents ? runAgentList(agent, { json, full }, fail) : runList(json);
   }
   if (rawArgv[0] === 'resume') return runResume(rawArgv.slice(1));
   if (rawArgv[0] === 'sessions') return runSessions(rawArgv.slice(1));

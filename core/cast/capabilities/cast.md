@@ -19,7 +19,7 @@ cast route --caps image
 cast route --batch <agents.json | -> [--explain]
 cast route --catalog [--json]
 cast doctor [--json]
-cast list [--models | --agents | --agent NAME] [--json]
+cast list [--models | --agents [--full] | --agent NAME] [--json]
 cast -h | --help
 ```
 
@@ -129,8 +129,8 @@ with its frontmatter removed, and the model receives the body only.
 `cast list --agents` shows the rbtv agents `cast --agent NAME` can launch from the current folder: the
 agents in the nearest `.rbtv/agents/` folder above it. For each agent it prints the name, harness,
 model, effort, Ignite (`yes` when the agent's `ignite` pack is on, which `ignite connect` does) and
-the description from `agent.json`. The description is shortened to fit the line; on a terminal too
-narrow for the table each agent is a labeled block with its whole description. An agent that cannot
+the description from `agent.json`. The description is shortened to fit the line; with `--full`, or on
+a terminal too narrow for the table, each agent is a labeled block with its whole description. An agent that cannot
 be launched is named with the reason. `--json` prints `{folder, agents}`. `cast list` and
 `cast list --models` print the model inventory.
 

@@ -8,7 +8,7 @@ import re
 import shlex
 from unittest.mock import patch
 
-from lib import commands
+from lib import commands, listing
 from lib.constants import STATE_REL, _RUNTIME
 from lib.recovery import shell_quote
 from lib.report import print_result
@@ -44,6 +44,27 @@ def public_contract(ctx) -> None:
         lexer.whitespace_split = True
         lexer.escape = ""  # PowerShell's single-quoted Windows paths keep backslashes
         return list(lexer)
+
+    # --full: a list shows a description's first sentence; --full shows it whole,
+    # in the JSON value and, as one labeled block per row, in the text.
+    long_text = "First sentence of a description. " + "More words. " * 20 + "The last sentence."
+    ctx.check("UX-full — a description is its first sentence by default",
+              listing._description(long_text, False) == "First sentence of a description.")
+    ctx.check("UX-full — --full gives the whole description on one line",
+              listing._description(long_text + "\n", True) == long_text)
+    code, plain = run("list", "--type", "skill")
+    code_full, whole = run("list", "--type", "skill", "--full")
+    ctx.check("UX-full — --full changes no row of the list",
+              code == code_full == 0 and [row["id"] for row in plain["units"]] == [row["id"] for row in whole["units"]],
+              str(whole)[:200])
+    shown = io.StringIO()
+    with patch.object(commands, "scan_all", return_value=(catalog, [])), contextlib.redirect_stdout(shown):
+        commands.main(["list", "--type", "skill", "--full", "--target", str(target)])
+    ctx.check("UX-full — the text is one labeled block per row, with no cut description",
+              "\nDescription: " in shown.getvalue() and "…" not in shown.getvalue(), shown.getvalue()[:300])
+    for verb in (("search", "fix", "--full"), ("show", "fixmod", "--full")):
+        code, _ = run(*verb)
+        ctx.check(f"UX-full — rbtv {verb[0]} takes --full", code == 0, str(code))
 
     code, searched_set = run("search", "set")
     ctx.check("UX-retired-verb-word-is-a-valid-search-term",

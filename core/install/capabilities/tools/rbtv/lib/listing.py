@@ -55,6 +55,12 @@ def _safe_specs(comp: dict) -> tuple[list[dict], str]:
         return [], exc.message
 
 
+def _description(text: str, full: bool) -> str:
+    """A description as a list shows it: its first sentence, cut at 150
+    characters; with --full, the whole text on one line."""
+    return " ".join(text.split()) if full else _short_description(text)
+
+
 def _short_description(text: str) -> str:
     sentence = text.split(". ", 1)[0].strip()
     if sentence and not sentence.endswith("."):
@@ -176,7 +182,7 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
                components: list[str] | None = None,
                methods: list[str] | None = None,
                installed: bool = False,
-               search: bool = False,
+               search: bool = False, full: bool = False,
                limit: int = 20, offset: int = 0) -> dict:
     """Browse exact hierarchy, or search the same unit pool broadly."""
     view = build_ls(catalog, [], state)
@@ -189,12 +195,12 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
     rows: list[dict] = []
     for comp in view["components"]:
         source_comp = catalog.get(comp["id"]) or {}
-        comp_desc = _short_description(source_comp.get("description", ""))
-        mod_desc = _short_description(source_comp.get("module_description", ""))
+        comp_desc = _description(source_comp.get("description", ""), full)
+        mod_desc = _description(source_comp.get("module_description", ""), full)
         for part in comp["units"]:
             rows.append({"id": part["id"], "component": comp["id"],
                          "module": comp["module"], "type": part["method"],
-                         "description": _short_description(part["description"]),
+                         "description": _description(part["description"], full),
                          "component_description": comp_desc,
                          "module_description": mod_desc,
                          "_search": part["description"],
@@ -217,7 +223,7 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
             rows.append({"id": pack["name"], "component": pack["component"],
                          "module": pack["module"], "type": "pack",
                          "description": (f"Declared by {pack['component']}. "
-                                         + _short_description(pack["description"])),
+                                         + _description(pack["description"], full)),
                          "component_description": "", "module_description": "",
                          "_search": pack["description"],
                          "installed": pack["name"] in selected_packs(state),
@@ -365,7 +371,10 @@ def print_list(data: dict) -> None:
         headers = ["ID", "Installed units", "Description"]
         rows = [[row["id"], f"{row['installed_units']}/{row['source_units']}",
                  row["description"]] for row in units]
-    lines = present.render_table(headers, rows)
+    # --full: one labeled block per row, the description whole and wrapped;
+    # a table would cut its last column to the width again.
+    lines = (present.render_blocks(headers, rows) if data.get("full")
+             else present.render_table(headers, rows))
     for line in lines:
         print(line)
     if not units and not data.get("searching"):  # search says "0 matches"
@@ -389,6 +398,9 @@ def print_list(data: dict) -> None:
         for line in subagents.installed_lines(
                 {row["id"]: row["sub_agent"] for row in units if row.get("sub_agent")}):
             print("\n".join(present.wrap(line, hang="  ")))
+        # A cut description ends with an ellipsis; say how to read it whole.
+        if any(line.endswith("…") for line in lines):
+            print("Whole descriptions: add --full.")
     print()
     label = "More" if data.get("has_more") else "Next"
     print(f"{label}: {data['next']}")
@@ -443,7 +455,7 @@ def pack_members(catalog: dict, state: dict, pack: dict) -> list[dict]:
     return members
 
 
-def build_show(selection: dict, catalog: dict, state: dict) -> dict:
+def build_show(selection: dict, catalog: dict, state: dict, full: bool = False) -> dict:
     parts = [unit_detail(catalog, state, part) for part in selection["units"]]
     parts = [{**p, "type": p["method"]} for p in parts]
     for part in parts:
@@ -469,7 +481,7 @@ def build_show(selection: dict, catalog: dict, state: dict) -> dict:
     elif selection["kind"] == "component":
         source_comp = catalog.get(selection["id"]) or {}
         source_path = Path(source_comp["path"]) if source_comp.get("path") else None
-        description = _short_description(source_comp.get("description", ""))
+        description = _description(source_comp.get("description", ""), full)
         out.update(description=description,
                    dependencies=list(source_comp.get("dependencies") or []),
                    source_entry=(str(source_path) if source_path else ""))

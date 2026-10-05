@@ -114,6 +114,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest.add_argument("--installed", action="store_true", default=installed_default)
         dest.add_argument("--limit", type=int, default=20)
         dest.add_argument("--offset", type=int, default=0)
+        dest.add_argument("--full", action="store_true")
         tree_flags(dest, on_verb=True)
 
     s_list = sub.add_parser("list")
@@ -139,6 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
     s_show.add_argument("--type", "-x", action=MethodsAction, default=[],
                         dest="method", metavar="TYPE")
     s_show.add_argument("--pack", action=ListAction, default=[], metavar="PACK")
+    s_show.add_argument("--full", action="store_true")
     tree_flags(s_show, on_verb=True)
     page(s_show, "show")
 
@@ -245,4 +247,5 @@ def build_parser() -> argparse.ArgumentParser:
         s.add_argument("--dry-run", action="store_true")
         s.add_argument("--details", action="store_true")
     s_ag_list.add_argument("--json", action="store_true")
+    s_ag_list.add_argument("--full", action="store_true")
     return p

@@ -68,7 +68,7 @@ rbtv — list help
 
 usage: rbtv list [-h] [--module MODULE] [--component COMPONENT]
                   [--type TYPE] [--installed] [--limit LIMIT]
-                  [--offset OFFSET] [--target TARGET] [--json]
+                  [--offset OFFSET] [--full] [--target TARGET] [--json]
                  
                   [NAME]
 
@@ -116,6 +116,8 @@ options:
   --installed           show only installed units, and packs that are on
   --limit LIMIT         maximum rows (default: 20)
   --offset OFFSET       rows to skip (default: 0)
+  --full                show every description whole, one labeled block
+                        per row; a list shows the first sentence otherwise
   --target TARGET       installation or agent folder; overrides
                         RBTV_AGENT_HOME and discovery from the current
                         folder
@@ -126,7 +128,7 @@ rbtv — search help
 
 usage: rbtv search [-h] [--module MODULE] [--component COMPONENT]
                     [--type TYPE] [--installed] [--limit LIMIT]
-                    [--offset OFFSET] [--target TARGET] [--json]
+                    [--offset OFFSET] [--full] [--target TARGET] [--json]
                    
                     WORDS
 
@@ -160,6 +162,8 @@ options:
   --installed           show only installed units, and packs that are on
   --limit LIMIT         maximum rows (default: 20)
   --offset OFFSET       rows to skip (default: 0)
+  --full                show every description whole, one labeled block
+                        per row; a list shows the first sentence otherwise
   --target TARGET       installation or agent folder; overrides
                         RBTV_AGENT_HOME and discovery from the current
                         folder
@@ -168,7 +172,7 @@ options:
     "show": """\
 rbtv — show help
 
-usage: rbtv show [-h] [--type TYPE] [--pack PACK]
+usage: rbtv show [-h] [--type TYPE] [--pack PACK] [--full]
                   [--target TARGET] [--json]
                   [NAME]
 
@@ -205,6 +209,8 @@ options:
   -h, --help            show this help message and exit
   --type, -x TYPE       require this type, such as skill or tool
   --pack PACK           show this pack; use it when the name is also a unit
+  --full                show the whole description of a module or a
+                        component, and of the rows under it
   --target TARGET       installation or agent folder; overrides
                         RBTV_AGENT_HOME and discovery from the current
                         folder
@@ -833,7 +839,7 @@ Exit codes: 0 success; 1 refused or failed; 2 invalid arguments.
     "agent list": """\
 rbtv — agent list help
 
-usage: rbtv agent list [-h] [--json] [AGENT]
+usage: rbtv agent list [-h] [--full] [--json] [AGENT]
 
 List the agents of this installation, or show one of them in full. The
 list is the one cast prints: this verb runs cast list --agents, so cast
@@ -843,10 +849,10 @@ With no AGENT: the agents in the installation's .rbtv/agents/, the
 installation found by walking up from the current folder. Columns:
 name, harness, model, effort, Ignite (yes when the agent's ignite pack
 is on, which ignite connect does), and description. The description is
-shortened to fit the line. At a narrow width, each agent is a labeled
-block with its whole description; a name is never cut. Alphabetical by
-name. No row limit. An agent that cannot be launched is named with the
-reason. No agent found is success.
+shortened to fit the line. With --full, or at a narrow width, each
+agent is a labeled block with its whole description; a name is never
+cut. Alphabetical by name. No row limit. An agent that cannot be
+launched is named with the reason. No agent found is success.
 
 With AGENT: that agent in full: its folder, its whole description, and
 the packs, skills, rules, commands, MCP servers and hooks installed in
@@ -859,11 +865,14 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
+  --full                show every description whole; one agent is
+                        always shown in full
   --json                one JSON value on standard output, success or
                         failure
 
 Examples:
   rbtv agent list
+  rbtv agent list --full
   rbtv agent list scout
   rbtv agent list plans/launch/agents/drafter
 

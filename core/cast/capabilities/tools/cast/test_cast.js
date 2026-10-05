@@ -1473,7 +1473,13 @@ else {
     const row = lines.find((line) => line.startsWith('tess '));
     assert.match(row, /^tess  codex    gpt-6-luna  high    yes     Tests a change .*…$/, 'the description is shortened');
     assert.ok(row.length <= 100, `a row fits the terminal: ${row.length}`);
-    assert.strictEqual(lines[lines.length - 2], 'One agent in full: cast list --agent NAME, spark list NAME or rbtv agent list NAME.');
+    assert.deepStrictEqual(lines.slice(-3, -1), ['Whole descriptions: add --full.',
+      'One agent in full: cast list --agent NAME, spark list NAME or rbtv agent list NAME.']);
+    // --full: every description whole, as labeled blocks, at any width; --agent NAME is in full already
+    const whole = list(['--agents', '--full'], '200');
+    assert.strictEqual(whole.status, 0, whole.stderr);
+    assert.ok(whole.stdout.includes(`Ignite: yes\nDescription: ${TESS_SAYS}\n`), whole.stdout);
+    assert.ok(!whole.stdout.includes('…') && !whole.stdout.includes('add --full'), 'nothing is shortened, so nothing points to --full');
 
     const narrow = list(['--agents'], '60');
     assert.ok(narrow.stdout.includes('Name: tess\nHarness: codex\nModel: gpt-6-luna\nEffort: high\nIgnite: yes\nDescription: Tests'), narrow.stdout);
@@ -1509,6 +1515,7 @@ else {
     assert.deepStrictEqual(fs.readFileSync(asked, 'utf8').trim().split('\n').map((line) => JSON.parse(line)), [
       ['list', '--installed', '--target', tess, '--type', 'pack,skill,rule,command,mcp-server,hook', '--limit', '100', '--offset', '0', '--json'],
     ], 'the list of all agents asks the installer nothing; one agent asks once');
+    assert.strictEqual(list(['--agent', 'tess', '--full']).stdout, list(['--agent', 'tess']).stdout, 'one agent is in full with or without --full');
     const installed = {
       pack: [{ name: 'ignite', skill: ['web/browse#web'], rule: ['core/ignite#ignite-standing-instructions'], command: [], 'mcp-server': [], hook: [] }],
       skill: ['core/build#build', 'meta/functions#interview'], rule: [], command: [], 'mcp-server': [], hook: [],
@@ -1536,7 +1543,7 @@ else {
     for (const form of [['--agents', '-h'], ['--models', '--help'], ['-h']]) {
       const help = list(form);
       assert.strictEqual(help.status, 0);
-      assert.ok(help.stdout.startsWith('usage: cast list [--models | --agents | --agent NAME] [--json]'), `${form}: ${help.stdout}`);
+      assert.ok(help.stdout.startsWith('usage: cast list [--models | --agents [--full] | --agent NAME] [--json]'), `${form}: ${help.stdout}`);
     }
 
     for (const form of [[], ['--json']]) {
@@ -1554,6 +1561,8 @@ else {
       [['-rbtv'], "'-rbtv' is not a cast list option"],
       [['-models'], "'-models' is not a cast list option"],
       [['--agents', '--models'], 'are different lists'],
+      [['--full'], 'cast list --agents --full'],
+      [['--models', '--full'], 'the models have none'],
       [['--agent', 'tess', '--agents'], 'are different lists'],
       [['--agent'], "--agent takes an agent's name or path"],
       [['--agent', '--json'], 'every agent: cast list --agents'],
@@ -1574,7 +1583,7 @@ else {
     assert.deepStrictEqual(listLines({ folder: agents, agents: [] }),
       ['rbtv agents: 0', `Folder: ${agents}`, '', 'No agent found. An agent folder holds agent.md and agent.json.']);
     // a description that fits is not shortened, and then nothing points to the full form
-    assert.deepStrictEqual(listLines({ folder: agents, agents: [tessRow] }, 400).slice(-2),
+    assert.deepStrictEqual(listLines({ folder: agents, agents: [tessRow] }, { width: 400 }).slice(-2),
       ['Name  Harness  Model       Effort  Ignite  Description', `tess  codex    gpt-6-luna  high    yes     ${TESS_SAYS}`]);
   }
 

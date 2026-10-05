@@ -7,7 +7,7 @@
 //   agentRow(agent)        an agent read by lib/agent.js as one row of the list
 //   agentInFull(agent)     that row, with the packs and units the installer records in the agent
 //   listLines(list)        the list as text: a table, or one labeled block per agent when the
-//                          terminal is too narrow for the table
+//                          terminal is too narrow for the table or whole descriptions are asked
 //   agentLines(row)        one agent as a labeled block with its whole description
 //   runAgentList(agent, json)  what `cast list --agents | --agent NAME` prints
 // A refusal is worded by the caller: cast, spark and rbtv each have their own form.
@@ -159,7 +159,7 @@ function agentLines(row, width = terminalWidth()) {
   return lines;
 }
 
-function listLines({ folder, agents }, width = terminalWidth()) {
+function listLines({ folder, agents }, { full = false, width = terminalWidth() } = {}) {
   if (!folder) return ['rbtv agents: 0', '', 'No .rbtv/agents/ folder was found from the current folder upward.'];
   const lines = [`rbtv agents: ${agents.length}`, `Folder: ${folder}`, ''];
   if (!agents.length) return [...lines, 'No agent found. An agent folder holds agent.md and agent.json.'];
@@ -171,7 +171,7 @@ function listLines({ folder, agents }, width = terminalWidth()) {
   const table = ready.map(cells);
   const widths = LABELS.map((label, i) => Math.max(label.length, ...table.map((row) => row[i].length)));
   const budget = width - widths.slice(0, LAST).reduce((sum, w) => sum + w + GAP, 0);
-  if (budget < MIN_DESCRIPTION) {
+  if (full || budget < MIN_DESCRIPTION) {
     ready.forEach((row, i) => lines.push(...(i ? [''] : []), ...agentLines(row, width)));
     return lines;
   }
@@ -179,21 +179,22 @@ function listLines({ folder, agents }, width = terminalWidth()) {
     .join(' '.repeat(GAP)).trimEnd();
   lines.push(line(LABELS), ...table.map(line));
   if (table.some((row) => row[LAST].length > budget)) {
-    lines.push('', 'One agent in full: cast list --agent NAME, spark list NAME or rbtv agent list NAME.');
+    lines.push('', 'Whole descriptions: add --full.',
+      'One agent in full: cast list --agent NAME, spark list NAME or rbtv agent list NAME.');
   }
   return lines;
 }
 
 // `cast list --agents | --agent NAME`, once cast has read the arguments. `fail` comes from cast, as
-// for the other functions of lib/agent.js.
-function runAgentList(agent, json, fail) {
+// for the other functions of lib/agent.js. One agent is always shown in full.
+function runAgentList(agent, { json, full }, fail) {
   const print = (value, lines) => process.stdout.write(json ? `${JSON.stringify(value)}\n` : `${lines.join('\n')}\n`);
   if (agent) {
     const row = agentInFull(rbtvAgent(agent, fail));
     print(row, agentLines(row));
   } else {
     const list = agentList(process.cwd());
-    print(list, listLines(list));
+    print(list, listLines(list, { full }));
   }
   process.exit(0);
 }

@@ -60,7 +60,7 @@ function spark(args, { env = {}, cwd = root } = {}) {
   assert.strictEqual(res.status, 0, res.stderr);
   assert.ok(res.stdout.startsWith('spark — help'), res.stdout);
   assert.ok(res.stdout.includes('cast --agent'), 'help names cast --agent');
-  assert.ok(res.stdout.includes('       spark list [AGENT] [--json] [-h]\n'), 'help names the list form');
+  assert.ok(res.stdout.includes('       spark list [AGENT] [--full] [--json] [-h]\n'), 'help names the list form');
 
   const afterList = spark(['list', '--help']);
   assert.strictEqual(afterList.status, 0, afterList.stderr);
@@ -109,7 +109,13 @@ function spark(args, { env = {}, cwd = root } = {}) {
   assert.match(row, /^scout  codex    gpt-6\.1-sol  high    yes     Scouts the repository .*…$/, 'the description is shortened');
   assert.ok(row.length <= 100, `a row fits the terminal: ${row.length}`);
   assert.ok(!res.stdout.includes('drafter'), 'an agent outside .rbtv/agents/ is not in the list');
-  assert.strictEqual(lines[lines.length - 2], 'One agent in full: cast list --agent NAME, spark list NAME or rbtv agent list NAME.');
+  assert.deepStrictEqual(lines.slice(-3, -1), ['Whole descriptions: add --full.',
+    'One agent in full: cast list --agent NAME, spark list NAME or rbtv agent list NAME.']);
+  // --full: every description whole, at any width
+  const whole = spark(['list', '--full'], { env: { PATH: os.tmpdir(), COLUMNS: '200' } });
+  assert.strictEqual(whole.status, 0, whole.stderr);
+  assert.ok(whole.stdout.includes(`Ignite: yes\nDescription: ${SCOUT_SAYS}\n`), whole.stdout);
+  assert.ok(!whole.stdout.includes('…'), 'nothing is shortened');
   assert.ok(!fs.existsSync(shimOut), 'list launches nothing');
 
   // a narrow terminal: one labeled block per agent, the description whole, no line cut
@@ -150,6 +156,10 @@ function spark(args, { env = {}, cwd = root } = {}) {
   const two = spark(['list', 'scout', 'half']);
   assert.strictEqual(two.status, 1);
   assert.ok(two.stderr.includes('spark list takes at most one agent'), two.stderr);
+
+  const fullOpen = spark(['scout', '--full', '--dry-run']);
+  assert.strictEqual(fullOpen.status, 1);
+  assert.ok(fullOpen.stderr.includes('`--full` is not a spark option'), fullOpen.stderr);
 
   const listFlag = spark(['list', '--target', root]);
   assert.strictEqual(listFlag.status, 1);

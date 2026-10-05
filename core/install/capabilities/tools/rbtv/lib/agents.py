@@ -325,7 +325,7 @@ def configure_agent(root: Path, raw: str, harness: str | None,
                 for key in sorted(subagents.recorded(before))] if changed_harness else []}
 
 
-def cast_agent_list(root: Path, raw: str | None, as_json: bool, width: int) -> str:
+def cast_agent_list(root: Path, raw: str | None, as_json: bool, full: bool, width: int) -> str:
     """What `cast list --agents` prints for this installation, or `cast list
     --agent` for one agent. The list of agents
     has one source, in cast, so nothing here reads the agent folders to list
@@ -342,6 +342,8 @@ def cast_agent_list(root: Path, raw: str | None, as_json: bool, width: int) -> s
     else:
         # Forward slashes on every system: cast takes a value with a slash as a path.
         words = [exe, "list", "--agent", resolve_agent(root, raw).as_posix()]
+    if full:
+        words.append("--full")
     if as_json:
         words.append("--json")
     done = subprocess.run(words, cwd=root, env={**os.environ, "COLUMNS": str(width)},

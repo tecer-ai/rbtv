@@ -265,7 +265,7 @@ def installed_agents(ctx) -> None:
     # through a launcher the suite writes; node is what this machine must supply.
     with patch("lib.agents.shutil.which", return_value=None):
         check("A-list — without cast on PATH the list is refused, not rebuilt here",
-              _refused(lambda: cast_agent_list(ws, None, False, 100)) == ("cast-missing", "rbtv doctor"), "")
+              _refused(lambda: cast_agent_list(ws, None, False, False, 100)) == ("cast-missing", "rbtv doctor"), "")
     node = shutil.which("node")
     if node is None:
         skip("A-list — the list is the one cast prints", "node is not on this machine, and cast runs on node")
@@ -276,26 +276,29 @@ def installed_agents(ctx) -> None:
         (cast_bin / "cast").chmod(0o755)
         _w(cast_bin / "cast.cmd", f'@"{node}" "{cast_js}" %*\r\n')
         with patch.dict(os.environ, {"PATH": f"{cast_bin}{os.pathsep}{os.environ['PATH']}"}):
-            listed = cast_agent_list(ws, None, False, 100).splitlines()
+            listed = cast_agent_list(ws, None, False, False, 100).splitlines()
             check("A-list — the list is the one cast prints: the installation's agents, by name",
                   listed[:2] == ["rbtv agents: 3", f"Folder: {ws / '.rbtv' / 'agents'}"]
                   and [line.split()[0] for line in listed[3:7]] == ["Name", "research", "scout", "second"], str(listed))
             check("A-list — the columns are cast's: Ignite and description, no packs, units or folder",
                   listed[3].split() == ["Name", "Harness", "Model", "Effort", "Ignite", "Description"], listed[3])
-            narrow = cast_agent_list(ws, None, False, 40)
+            whole = cast_agent_list(ws, None, False, True, 200)
+            check("A-list — --full reaches cast: every agent is a labeled block with its whole description",
+                  "Name: second\nHarness: " in whole and "…" not in whole, whole)
+            narrow = cast_agent_list(ws, None, False, False, 40)
             check("A-list — the width this command sees reaches cast: a narrow terminal gets labeled blocks",
                   "Name: second\nHarness: " in narrow, narrow)
-            one = cast_agent_list(ws, "second", False, 100)
+            one = cast_agent_list(ws, "second", False, False, 100)
             check("A-list — an agent named is shown in full, with its folder",
                   one.startswith("Name: second\n") and f"Folder: {ws / '.rbtv' / 'agents' / 'second'}\n" in one, one)
-            by_path = json.loads(cast_agent_list(ws, str(ws / ".rbtv/agents/second"), True, 100))
+            by_path = json.loads(cast_agent_list(ws, str(ws / ".rbtv/agents/second"), True, False, 100))
             check("A-list — a path names the agent, and --json is cast's value",
                   by_path["name"] == "second" and by_path["ignite"] is False, str(by_path))
             check("A-list — an agent that is not there is refused as for the other agent verbs",
-                  _refused(lambda: cast_agent_list(ws, "nosuch", False, 100))[0] == "agent-unknown", "")
+                  _refused(lambda: cast_agent_list(ws, "nosuch", False, False, 100))[0] == "agent-unknown", "")
             bare = tmp / "agent-list-empty"; bare.mkdir()
             check("A-list — an installation with no agent folder is successful",
-                  cast_agent_list(bare, None, False, 100).startswith("rbtv agents: 0\n"), "")
+                  cast_agent_list(bare, None, False, False, 100).startswith("rbtv agents: 0\n"), "")
     selected, source = resolve_target(None, ws, {"RBTV_AGENT_HOME": str(home)})
     retired_name = "IGNITE" + "_AGENT_HOME"
     legacy, legacy_source = resolve_target(None, ws, {retired_name: str(home)})

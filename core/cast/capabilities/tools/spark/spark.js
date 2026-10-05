@@ -19,7 +19,7 @@ const { spawnable } = require('../cast/lib/win-exec');
 const OPENING = 'You have just been started by your owner in an interactive terminal. '
   + 'Greet them in one line and wait for what they need.';
 
-const LIST_FORM = 'spark list [AGENT] [--json] [-h]';
+const LIST_FORM = 'spark list [AGENT] [--full] [--json] [-h]';
 const USAGE = 'usage: spark AGENT [--dry-run] [--json] [-h]';
 const LIST_USAGE = `usage: ${LIST_FORM}`;
 
@@ -43,8 +43,9 @@ const HELP = [
   'name, harness, model, effort, Ignite (yes when the agent\'s ignite pack',
   'is on, which ignite connect does; such an agent also wakes from',
   'Slack), and description. The description is shortened to fit the',
-  'line; on a narrow terminal each agent is a labeled block with its',
-  'whole description. spark list AGENT shows that one agent in full:',
+  'line; with --full, or on a narrow terminal, each agent is a labeled',
+  'block with its whole description. spark list AGENT shows that one',
+  'agent in full:',
   'its folder, its whole description, and the packs, skills, rules,',
   'commands, MCP servers and hooks installed in it, under the names',
   'rbtv show takes. Both open nothing. No agent found is success. Open',
@@ -57,6 +58,7 @@ const HELP = [
   '',
   '--dry-run   Print the cast command it would run. Launch nothing.',
   '            spark list refuses it.',
+  '--full      With list, show every description whole.',
   '--json      With --dry-run, one JSON value: agent, home, cast.',
   '            With list, one JSON value: folder and agents, each',
   '            agent with name, description, harness, model, effort,',
@@ -132,7 +134,7 @@ function findAgent(value) {
 }
 
 // spark list [AGENT]: the list, or one agent in full. Nothing is opened.
-function list(named, dry, json) {
+function list(named, dry, json, full) {
   if (dry) {
     return refuse('`--dry-run` is not a spark list option',
       'spark list opens nothing, so it has nothing to preview.', LIST_USAGE);
@@ -148,7 +150,7 @@ function list(named, dry, json) {
     print(row, agentLines(row));
   } else {
     const found = agentList(process.cwd());
-    print(found, listLines(found));
+    print(found, listLines(found, { full }));
   }
   return 0;
 }
@@ -156,6 +158,7 @@ function list(named, dry, json) {
 function spark(args) {
   let dry = false;
   let json = false;
+  let full = false;
   const positional = [];
   // The first argument that is not an option decides the form: `list`, or an agent.
   const listing = args.find((a) => !a.startsWith('-')) === 'list';
@@ -165,15 +168,16 @@ function spark(args) {
       return 0;
     } else if (a === '--dry-run') dry = true;
     else if (a === '--json') json = true;
+    else if (a === '--full' && listing) full = true;
     else if (a.startsWith('-')) {
       return listing
         ? refuse(`\`${a}\` is not a spark list option`,
-          'spark list takes one optional agent and the options --json and -h.', LIST_USAGE)
+          'spark list takes one optional agent and the options --full, --json and -h.', LIST_USAGE)
         : refuse(`\`${a}\` is not a spark option`,
           'spark takes one agent and the options --dry-run, --json and -h.', USAGE);
     } else positional.push(a);
   }
-  if (listing) return list(positional.slice(1), dry, json);
+  if (listing) return list(positional.slice(1), dry, json, full);
   if (positional.length !== 1) {
     return refuse('spark needs exactly one agent', `got ${positional.length}.`, USAGE);
   }
