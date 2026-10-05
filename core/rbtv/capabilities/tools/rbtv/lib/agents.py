@@ -48,8 +48,10 @@ def agent_home(root: Path, name: str) -> Path:
 
 
 def is_path(raw: str) -> bool:
-    """An AGENT argument is a path when it has a slash or is a dot name."""
-    return "/" in raw or raw in (".", "..")
+    """An AGENT argument is a path when it has a slash or a backslash, or is a
+    dot name. This and `agent_home` state cast's rules (`lib/agent.js` of the
+    cast tool); the self-test runs cast's code and fails when they differ."""
+    return "/" in raw or "\\" in raw or raw in (".", "..")
 
 
 def _refuse(code: str, message: str, next_cmd: str, path: str = "") -> Refuse:

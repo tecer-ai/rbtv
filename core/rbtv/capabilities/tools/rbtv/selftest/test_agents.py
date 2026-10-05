@@ -9,8 +9,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from discovery import Refuse, scan_all
-from lib.agents import (IGNORE_TEXT, add_agent, cast_agent_list, cast_catalog, cast_effort_word,
-                        configure_agent, launch_values, remove_agent, update_agent)
+from lib.agents import (IGNORE_TEXT, add_agent, agent_home, cast_agent_list, cast_catalog,
+                        cast_effort_word, configure_agent, is_path, launch_values, remove_agent,
+                        update_agent)
 from lib.constants import MATRIX, REPO_ROOT
 from lib.doctor import do_doctor
 from lib.planning import plan_files
@@ -284,8 +285,29 @@ def installed_agents(ctx) -> None:
               _refused(lambda: launch_values("claude", "m1", "2", known)) == ("launch-invalid", "cast list"), "")
     node = shutil.which("node")
     if node is None:
-        skip("A-list — the list is the one cast prints", "node is not on this machine, and cast runs on node")
+        for name in ("A-list — the list is the one cast prints",
+                     "A-effort — an effort number becomes the word cast gives for it",
+                     "A-rules — rbtv and cast agree on what a path is and where an agent's folder is"):
+            skip(name, "node is not on this machine, and cast runs on node")
     else:
+        # What makes a value a path, and where an agent's folder is, are cast's rules, which rbtv
+        # states in one line each. cast's own code answers here, so the two cannot differ unnoticed.
+        values = ["scout", "a-b", "plans/x", "plans\\x", "C:\\agents\\x", ".", "..", "./x", "x/", "a.b", "~", ""]
+        asked = subprocess.run(
+            [node, "-e",
+             "const [lib, root, values] = process.argv.slice(1); const cast = require(lib);"
+             "console.log(JSON.stringify({ paths: JSON.parse(values).map((value) => cast.isPath(value)),"
+             " home: cast.agentHomeIn(root, 'scout') }));",
+             str(REPO_ROOT / "core/cast/capabilities/tools/cast/lib/agent.js"), str(ws), json.dumps(values)],
+            capture_output=True, text=True, encoding="utf-8")
+        cast_says = json.loads(asked.stdout) if asked.returncode == 0 else {"paths": asked.stderr, "home": ""}
+        ours = [is_path(value) for value in values]
+        check("A-rules — rbtv and cast agree on what makes a value a path: a slash, a backslash, or a dot name",
+              ours == cast_says["paths"] and ours == [False, False, True, True, True, True, True, True, True, False, False, False],
+              f"rbtv {ours}, cast {cast_says['paths']}")
+        check("A-rules — rbtv and cast agree on where an agent's folder is",
+              cast_says["home"] != "" and agent_home(ws, "scout") == Path(cast_says["home"]),
+              f"rbtv {agent_home(ws, 'scout')}, cast {cast_says['home']}")
         cast_js = REPO_ROOT / "core/cast/capabilities/tools/cast/cast.js"
         cast_bin = tmp / "cast-bin"; cast_bin.mkdir()
         _w(cast_bin / "cast", f'#!/bin/sh\nexec "{node}" "{cast_js}" "$@"\n')
