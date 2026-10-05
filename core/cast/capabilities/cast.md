@@ -135,9 +135,10 @@ be launched is named with the reason. `cast list -rbtv AGENT` shows one agent in
 folder; AGENT is a name or a path. `--json` prints `{folder, agents}` or that one agent. Both only
 read. `cast list` and `cast list -models` print the model inventory.
 
-`lib/agent-list.js` holds the list: `cast list -rbtv` shows it to an agent and `spark list` shows
-the same list to a person, each with its own wording for the command that shows one agent in full
-and for a refusal.
+`lib/agent-list.js` holds the list, and it is the only list of agents: `cast list -rbtv` shows it
+to an agent, `spark list` shows it to a person, and `rbtv agent list` runs `cast list -rbtv`. The
+three print the same text, so no line of it names the command that printed it. Each command words
+its own refusals.
 
 ## spark — open an agent for a person
 
@@ -439,7 +440,7 @@ dotenv at `rbtv.json`'s `env_file`.
 | `capabilities/tools/cast/lib/handles.js` | the launch-handle registry — the one observable a watcher uses to find a run again |
 | `capabilities/tools/cast/lib/launch.js` | spawn, `cast resume` |
 | `capabilities/tools/cast/lib/agent.js` | `-rbtv` / `-rogue`: find the agent folder, read `agent.json` and `agent.md`; the readers spark also uses |
-| `capabilities/tools/cast/lib/agent-list.js` | `cast list -rbtv`: the agents a name can reach, as a table, labeled blocks, or JSON; the list spark also shows |
+| `capabilities/tools/cast/lib/agent-list.js` | `cast list -rbtv`: the agents a name can reach, as a table, labeled blocks, or JSON; the one list, which `spark list` and `rbtv agent list` also show |
 | `capabilities/tools/spark/spark.js` | `spark AGENT`: the terminal handoff, a thin layer over `cast -rbtv`; `spark list`: the list of `lib/agent-list.js` (its tests: `test_spark.js`) |
 | `capabilities/tools/cast/lib/sessions.js` | the per-harness session-store readers and `cast sessions` |
 | `capabilities/tools/cast/lib/monitor.js` | `cast monitor` — the freeze tripwire, its witness channel, roster and watch |

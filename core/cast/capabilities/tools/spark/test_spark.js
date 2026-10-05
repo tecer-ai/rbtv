@@ -95,8 +95,8 @@ function spark(args, { env = {}, cwd = root } = {}) {
   assert.deepStrictEqual(out.cast.slice(0, 3), ['cast', '-rbtv', 'plans/x/agents/drafter']);
 }
 
-// list: the agents under .rbtv/agents/, cast's list with spark's own words; an agent that cannot
-// be launched is named with the reason; nothing is launched and cast is not needed
+// list: the agents under .rbtv/agents/, the list cast prints; an agent that cannot be launched is
+// named with the reason; nothing is launched and cast is not needed
 {
   const res = spark(['list'], { env: { PATH: os.tmpdir() } });
   assert.strictEqual(res.status, 0, res.stderr);
@@ -109,7 +109,7 @@ function spark(args, { env = {}, cwd = root } = {}) {
   assert.match(row, /^scout  codex    gpt-6\.1-sol  high    yes     Scouts the repository .*…$/, 'the description is shortened');
   assert.ok(row.length <= 100, `a row fits the terminal: ${row.length}`);
   assert.ok(!res.stdout.includes('drafter'), 'an agent outside .rbtv/agents/ is not in the list');
-  assert.strictEqual(lines[lines.length - 2], 'Full description of one agent: spark list AGENT');
+  assert.strictEqual(lines[lines.length - 2], 'Full description of one agent: add its name to this command.');
   assert.ok(!fs.existsSync(shimOut), 'list launches nothing');
 
   // a narrow terminal: one labeled block per agent, the description whole, no line cut

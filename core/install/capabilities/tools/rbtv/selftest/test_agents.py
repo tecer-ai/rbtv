@@ -2,15 +2,16 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
 from discovery import Refuse, scan_all
-from lib.agents import (IGNORE_TEXT, add_agent, configure_agent, list_agents,
+from lib.agents import (IGNORE_TEXT, add_agent, cast_agent_list, configure_agent,
                         remove_agent, update_agent)
-from lib.constants import MATRIX
+from lib.constants import MATRIX, REPO_ROOT
 from lib.doctor import do_doctor
 from lib.planning import plan_files
 from lib.state import read_state
@@ -139,7 +140,7 @@ def agent_ignore_file(ctx) -> None:
 
 
 def installed_agents(ctx) -> None:
-    check, tmp = ctx.check, ctx.tmp
+    check, skip, tmp = ctx.check, ctx.skip, ctx.tmp
     root = tmp / "agent-source"
     comp = _component(root, "moda", "comp")
     _unit_md(comp / "rules/kiss.md", "kiss", "Kiss", "body\n")
@@ -260,26 +261,41 @@ def installed_agents(ctx) -> None:
         got = exc.code
     check("A-configure — no option is usage", got == "usage", str(got))
     _agent(ws / ".rbtv/agents/second", name="second")
-    listed = list_agents(ws, None)
-    listed_folder = list_agents(ws, ws / ".rbtv")
-    check("A-list — reads two agents below the default folder and a supplied folder",
-          [row["name"] for row in listed["agents"]] == ["research", "scout", "second"]
-          and [row["name"] for row in listed_folder["agents"]] == ["research", "scout", "second"], str(listed))
-    empty = ws / "empty"; empty.mkdir()
-    check("A-list — no agent is successful", not list_agents(ws, empty)["agents"], "")
-    _w(empty / "turn" / "agent.json", "{}\n")
-    check("A-list — a folder with agent.json and no agent.md is not an agent",
-          not list_agents(ws, empty)["agents"], "")
-    check("A-list — a supplied folder that is an agent folder lists itself",
-          [row["name"] for row in list_agents(ws, ws / ".rbtv/agents/second")["agents"]] == ["second"], "")
-    _w(empty / "broken" / "agent.md", "---\nname: broken\n---\n")
-    _w(empty / "broken" / "agent.json", "{not json\n")
-    unreadable = list_agents(ws, empty)["agents"]
-    check("A-list — an unreadable record is reported without stopping the list",
-          len(unreadable) == 1 and "unreadable" in unreadable[0], str(unreadable))
-    bare = tmp / "agent-list-empty"; bare.mkdir()
-    check("A-list — a missing default agent folder is successful",
-          not list_agents(bare, None)["agents"], "")
+    # The list of agents is cast's own. The checks run the cast of this source tree, on PATH
+    # through a launcher the suite writes; node is what this machine must supply.
+    with patch("lib.agents.shutil.which", return_value=None):
+        check("A-list — without cast on PATH the list is refused, not rebuilt here",
+              _refused(lambda: cast_agent_list(ws, None, False, 100)) == ("cast-missing", "rbtv doctor"), "")
+    node = shutil.which("node")
+    if node is None:
+        skip("A-list — the list is the one cast prints", "node is not on this machine, and cast runs on node")
+    else:
+        cast_js = REPO_ROOT / "core/cast/capabilities/tools/cast/cast.js"
+        cast_bin = tmp / "cast-bin"; cast_bin.mkdir()
+        _w(cast_bin / "cast", f'#!/bin/sh\nexec "{node}" "{cast_js}" "$@"\n')
+        (cast_bin / "cast").chmod(0o755)
+        _w(cast_bin / "cast.cmd", f'@"{node}" "{cast_js}" %*\r\n')
+        with patch.dict(os.environ, {"PATH": f"{cast_bin}{os.pathsep}{os.environ['PATH']}"}):
+            listed = cast_agent_list(ws, None, False, 100).splitlines()
+            check("A-list — the list is the one cast prints: the installation's agents, by name",
+                  listed[:2] == ["rbtv agents: 3", f"Folder: {ws / '.rbtv' / 'agents'}"]
+                  and [line.split()[0] for line in listed[3:7]] == ["Name", "research", "scout", "second"], str(listed))
+            check("A-list — the columns are cast's: Ignite and description, no packs, units or folder",
+                  listed[3].split() == ["Name", "Harness", "Model", "Effort", "Ignite", "Description"], listed[3])
+            narrow = cast_agent_list(ws, None, False, 40)
+            check("A-list — the width this command sees reaches cast: a narrow terminal gets labeled blocks",
+                  "Name: second\nHarness: " in narrow, narrow)
+            one = cast_agent_list(ws, "second", False, 100)
+            check("A-list — an agent named is shown in full, with its folder",
+                  one.startswith("Name: second\n") and f"Folder: {ws / '.rbtv' / 'agents' / 'second'}\n" in one, one)
+            by_path = json.loads(cast_agent_list(ws, str(ws / ".rbtv/agents/second"), True, 100))
+            check("A-list — a path names the agent, and --json is cast's value",
+                  by_path["name"] == "second" and by_path["ignite"] is False, str(by_path))
+            check("A-list — an agent that is not there is refused as for the other agent verbs",
+                  _refused(lambda: cast_agent_list(ws, "nosuch", False, 100))[0] == "agent-unknown", "")
+            bare = tmp / "agent-list-empty"; bare.mkdir()
+            check("A-list — an installation with no agent folder is successful",
+                  cast_agent_list(bare, None, False, 100).startswith("rbtv agents: 0\n"), "")
     selected, source = resolve_target(None, ws, {"RBTV_AGENT_HOME": str(home)})
     retired_name = "IGNITE" + "_AGENT_HOME"
     legacy, legacy_source = resolve_target(None, ws, {retired_name: str(home)})
@@ -325,5 +341,3 @@ def installed_agents(ctx) -> None:
     check("A-refusal — an unknown pack is pack-unknown",
           refused(lambda: add_agent(ws, "scout", [], {"nosuchpack"}, catalog, True))
           == ("pack-unknown", "rbtv list --type pack"), "")
-    check("A-refusal — listing a missing folder is not-a-folder",
-          refused(lambda: list_agents(ws, ws / "missing"))[0] == "not-a-folder", "")

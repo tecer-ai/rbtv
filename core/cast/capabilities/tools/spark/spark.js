@@ -5,7 +5,7 @@
 // shows the agent's harness, model and effort (read from its agent.json), then starts
 // `cast -rbtv AGENT --headed` with a greeting. It passes no harness, model or effort: cast reads them.
 // spark list [AGENT] — the agents spark can open by name, or one of them in full. The list is
-// cast's (`cast list -rbtv`, lib/agent-list.js), shown here with spark's own words.
+// cast's (`cast list -rbtv`, lib/agent-list.js).
 
 const fs = require('fs');
 const path = require('path');
@@ -144,7 +144,7 @@ function list(named, dry, json) {
     print(row, agentLines(row, { folder: true }));
   } else {
     const found = agentList(process.cwd());
-    print(found, listLines(found, 'spark list AGENT'));
+    print(found, listLines(found));
   }
   return 0;
 }

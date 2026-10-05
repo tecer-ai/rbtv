@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -324,36 +325,31 @@ def configure_agent(root: Path, raw: str, harness: str | None,
                 for key in sorted(subagents.recorded(before))] if changed_harness else []}
 
 
-def list_agents(root: Path, folder: Path | None) -> dict:
-    """Read agent records below one folder without validating their generated files."""
-    search = folder if folder is not None else root / AGENTS_REL
-    if not search.is_dir():
-        if folder is None:
-            return {"ok": True, "folder": str(search), "total": 0, "returned": 0, "agents": []}
-        exc = _refuse("not-a-folder", f"no folder at {search}",
-                      "rbtv agent list", str(search))
+def cast_agent_list(root: Path, raw: str | None, as_json: bool, width: int) -> str:
+    """What `cast list -rbtv` prints for this installation. The list of agents
+    has one source, in cast, so nothing here reads the agent folders to list
+    them. `raw` names one agent to show in full; it is resolved as for the
+    other agent verbs and handed to cast as a path."""
+    exe = shutil.which("cast")
+    if exe is None:
+        exc = _refuse("cast-missing", "cast is not on PATH, so the agents cannot be listed.",
+                      "rbtv doctor")
         exc.unchanged = "Nothing was listed."
         raise exc
-    # An agent folder holds agent.md and agent.json; a folder with one of them is not listed.
-    homes = sorted(record.parent for record in search.rglob(AGENT_RECORD.name)
-                   if (record.parent / "agent.md").is_file())
-    rows = []
-    for home in homes:
-        record = home / AGENT_RECORD
-        try:
-            data = json.loads(record.read_text(encoding="utf-8"))
-            if not isinstance(data, dict):
-                raise ValueError("the JSON value is not an object")
-            row = {"name": data.get("name", home.name), "home": str(home),
-                   "launch": {key: data.get(key) for key in ("harness", "model", "effort", "voice")},
-                   "packs": data.get("packs", []), "units": data.get("units", [])}
-            if not isinstance(row["packs"], list) or not isinstance(row["units"], list):
-                raise ValueError("packs and units must be lists")
-        except (OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
-            row = {"name": home.name, "home": str(home), "unreadable": str(exc)}
-        rows.append(row)
-    rows.sort(key=lambda row: (str(row["name"]), row["home"]))
-    return {"ok": True, "folder": str(search), "total": len(rows), "returned": len(rows), "agents": rows}
+    words = [exe, "list", "-rbtv"]
+    if raw is not None:
+        # Forward slashes on every system: cast takes a value with a slash as a path.
+        words.append(resolve_agent(root, raw).as_posix())
+    if as_json:
+        words.append("--json")
+    done = subprocess.run(words, cwd=root, env={**os.environ, "COLUMNS": str(width)},
+                          capture_output=True, text=True, encoding="utf-8")
+    if done.returncode != 0:
+        exc = _refuse("cast-refused", "`cast list -rbtv` refused: " + " ".join(done.stderr.split()),
+                      "rbtv doctor")
+        exc.unchanged = "Nothing was listed."
+        raise exc
+    return done.stdout
 
 
 def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: dict,

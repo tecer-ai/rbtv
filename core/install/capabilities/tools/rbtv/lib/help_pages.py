@@ -833,23 +833,31 @@ Exit codes: 0 success; 1 refused or failed; 2 invalid arguments.
     "agent list": """\
 rbtv — agent list help
 
-usage: rbtv agent list [-h] [--json] [FOLDER]
+usage: rbtv agent list [-h] [--json] [AGENT]
 
-List agents. With no FOLDER, lists the installation's .rbtv/agents/,
-the installation found by walking up from the current folder. With
-FOLDER, lists every agent folder found there: the folder itself, if it
-holds agent.md and agent.json, and any descendant that does. Reads
-agent.json. It does not check that generated files exist.
-This verb takes no --target.
+List the agents of this installation, or show one of them in full. The
+list is the one cast prints: this verb runs cast list -rbtv, so cast
+must be on PATH. It only reads. This verb takes no --target.
 
-Columns: name, harness, model, effort, packs, number of units, folder.
-Alphabetical by name. No row limit. At a narrow width, each agent is a
-labeled block; a name or path is never cut. No agent found is success.
-A FOLDER that is not a folder is refused.
+With no AGENT: the agents in the installation's .rbtv/agents/, the
+installation found by walking up from the current folder. Columns:
+name, harness, model, effort, Ignite (yes when the agent's ignite pack
+is on, which ignite connect does), and description. The description is
+shortened to fit the line. At a narrow width, each agent is a labeled
+block with its whole description; a name is never cut. Alphabetical by
+name. No row limit. An agent that cannot be launched is named with the
+reason. No agent found is success.
+
+With AGENT: that agent in full, with its folder. AGENT is a name or a
+folder path, as for the other agent verbs. An agent that is not found
+is refused.
+
+The units and packs of an agent: rbtv list --installed --target FOLDER,
+with the agent's folder.
 
 positional arguments:
-  FOLDER                folder to search; default is the installation's
-                        .rbtv/agents/
+  AGENT                 the agent to show in full: a name under
+                        .rbtv/agents/, or a path to an agent folder
 
 options:
   -h, --help            show this help message and exit
@@ -858,7 +866,8 @@ options:
 
 Examples:
   rbtv agent list
-  rbtv agent list plans/launch
+  rbtv agent list scout
+  rbtv agent list plans/launch/agents/drafter
 
 Next: rbtv agent configure scout -h
 Exit codes: 0 success, including no agent found; 1 refused or failed; 2 invalid arguments.

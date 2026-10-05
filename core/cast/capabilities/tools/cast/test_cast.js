@@ -1445,7 +1445,7 @@ else {
     const row = lines.find((line) => line.startsWith('tess '));
     assert.match(row, /^tess  codex    gpt-6-luna  high    yes     Tests a change .*…$/, 'the description is shortened');
     assert.ok(row.length <= 100, `a row fits the terminal: ${row.length}`);
-    assert.strictEqual(lines[lines.length - 2], 'Full description of one agent: cast list -rbtv AGENT');
+    assert.strictEqual(lines[lines.length - 2], 'Full description of one agent: add its name to this command.');
 
     const narrow = list(['-rbtv'], '60');
     assert.ok(narrow.stdout.includes('Name: tess\nHarness: codex\nModel: gpt-6-luna\nEffort: high\nIgnite: yes\nDescription: Tests'), narrow.stdout);
@@ -1491,12 +1491,12 @@ else {
 
     // the two results that name no agent
     const { listLines } = require('./lib/agent-list');
-    assert.deepStrictEqual(listLines({ folder: null, agents: [] }, 'x'),
+    assert.deepStrictEqual(listLines({ folder: null, agents: [] }),
       ['rbtv agents: 0', '', 'No .rbtv/agents/ folder was found from the current folder upward.']);
-    assert.deepStrictEqual(listLines({ folder: agents, agents: [] }, 'x'),
+    assert.deepStrictEqual(listLines({ folder: agents, agents: [] }),
       ['rbtv agents: 0', `Folder: ${agents}`, '', 'No agent found. An agent folder holds agent.md and agent.json.']);
     // a description that fits is not shortened, and then nothing points to the full form
-    assert.deepStrictEqual(listLines({ folder: agents, agents: [tessRow] }, 'x', 400).slice(-2),
+    assert.deepStrictEqual(listLines({ folder: agents, agents: [tessRow] }, 400).slice(-2),
       ['Name  Harness  Model       Effort  Ignite  Description', `tess  codex    gpt-6-luna  high    yes     ${TESS_SAYS}`]);
   }
 

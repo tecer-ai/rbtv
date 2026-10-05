@@ -1,15 +1,15 @@
 'use strict';
 
-// The rbtv agents a folder can launch by name. `cast list -rbtv` shows them to an agent and
-// `spark list` shows the same list to a person.
+// The rbtv agents a folder can launch by name: the one list of agents. `cast list -rbtv` shows it
+// to an agent, `spark list` to a person, and `rbtv agent list` runs `cast list -rbtv`. The three
+// print the same text, so no line of it names the command that printed it.
 //   agentList(from)        the nearest `.rbtv/agents/` folder from `from` upward, and its agents
 //   agentRow(agent)        an agent read by lib/agent.js as one row of the list
-//   listLines(list, more)  the list as text: a table, or one labeled block per agent when the
-//                          terminal is too narrow for the table. `more` is the command that
-//                          shows one agent in full, in the caller's own words.
+//   listLines(list)        the list as text: a table, or one labeled block per agent when the
+//                          terminal is too narrow for the table
 //   agentLines(row)        one agent as a labeled block with its whole description
 //   runAgentList(args)     the `cast list -rbtv [AGENT] [--json]` verb
-// A refusal is worded by the caller: cast and spark each have their own form.
+// A refusal is worded by the caller: cast, spark and rbtv each have their own form.
 
 const fs = require('fs');
 const path = require('path');
@@ -80,7 +80,7 @@ function agentLines(row, { folder = false, width = terminalWidth() } = {}) {
   return [...lines, ...wrap(`${LABELS[LAST]}: ${values[LAST]}`, width)];
 }
 
-function listLines({ folder, agents }, more, width = terminalWidth()) {
+function listLines({ folder, agents }, width = terminalWidth()) {
   if (!folder) return ['rbtv agents: 0', '', 'No .rbtv/agents/ folder was found from the current folder upward.'];
   const lines = [`rbtv agents: ${agents.length}`, `Folder: ${folder}`, ''];
   if (!agents.length) return [...lines, 'No agent found. An agent folder holds agent.md and agent.json.'];
@@ -99,7 +99,9 @@ function listLines({ folder, agents }, more, width = terminalWidth()) {
   const line = (row) => row.map((cell, i) => (i === LAST ? shorten(cell, budget) : cell.padEnd(widths[i])))
     .join(' '.repeat(GAP)).trimEnd();
   lines.push(line(LABELS), ...table.map(line));
-  if (table.some((row) => row[LAST].length > budget)) lines.push('', `Full description of one agent: ${more}`);
+  if (table.some((row) => row[LAST].length > budget)) {
+    lines.push('', 'Full description of one agent: add its name to this command.');
+  }
   return lines;
 }
 
@@ -128,7 +130,7 @@ function runAgentList(args, fail, help) {
     print(row, agentLines(row, { folder: true }));
   } else {
     const list = agentList(process.cwd());
-    print(list, listLines(list, 'cast list -rbtv AGENT'));
+    print(list, listLines(list));
   }
   process.exit(0);
 }

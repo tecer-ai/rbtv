@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from functools import wraps
 from pathlib import Path
@@ -40,8 +39,8 @@ from .pathlinks import bin_dir
 from .shared_links import release_installation_links, installation_mutation_lock
 from .listing import (_short_description, build_list, build_show,
                       do_list, json_view, pack_members, print_list, print_show)
-from .agents import (OWN_FILES, add_agent, agent_state, configure_agent, is_path,
-                     list_agents, on_values, remove_agent, update_agent)
+from .agents import (OWN_FILES, add_agent, agent_state, cast_agent_list, configure_agent,
+                     is_path, on_values, remove_agent, update_agent)
 from .doctor import do_doctor, doctor_exit
 from .report import LIST_LIMIT, print_result
 from .recovery import shell_quote
@@ -1315,59 +1314,12 @@ def _print_agent_configure(data: dict, target: Path, why: str | None,
                         data["next"])
 
 
-def _print_agent_list(data: dict, target: Path, why: str | None, *, searched: bool) -> None:
-    """The agent list (approved screens 240 to 244): a table, or one labeled
-    block per agent when the terminal is too narrow for the table."""
-    rows = data["agents"]
-    print(present.title("agents" if rows else "no agent found"))
-    print()
-    if not searched:
-        line = f"Installation: {target} ({present.target_source_label(why)})"
-        if len(line) <= present.terminal_width():
-            print(line)
-        else:
-            print(f"Installation: {target}\n  ({present.target_source_label(why)})")
-    print(f"{'Searched' if searched else 'Folder'}: {data['folder']}")
-    print(f"Agents: {data['total']}")
-    print()
-    readable = [row for row in rows if "unreadable" not in row]
-    for row in rows:
-        if "unreadable" in row:
-            print(f"{row['name']}: agent.json unreadable: {row['unreadable']}")
-    if not rows:
-        print("No agent found under this folder. That is a valid result, not an error.")
-        print("An agent folder holds agent.md and agent.json.")
-    elif readable:
-        table = [[row["name"], row["launch"]["harness"], row["launch"]["model"],
-                  row["launch"]["effort"], ", ".join(row["packs"]) or "none",
-                  str(len(row["units"])), os.path.relpath(row["home"], target)]
-                 for row in readable]
-        lines = present.render_table(
-            ["Name", "Harness", "Model", "Effort", "Packs", "Units", "Folder"], table)
-        print("\n".join(lines))
-        # render_table falls back to labeled blocks on a narrow terminal, and
-        # its header row then starts with "Name:" rather than "Name ".
-        if lines[0].startswith("Name "):
-            print()
-            print("Folders are relative to the installation. Alphabetical by name.")
-    print()
-    print("Next: " + data["next"])
-
-
-def _agent_list_next(data: dict, target: Path, searched: bool) -> str:
-    rows = data["agents"]
-    if not rows:
-        return "rbtv agent list"
-    if searched:
-        return "rbtv agent add " + os.path.relpath(rows[0]["home"], target)
-    return f"rbtv agent configure {rows[-1]['name']} -h"
-
-
 def _agent_next_text(data: dict, path_arg: bool) -> str:
     """The next command after an agent change: the same command again for a
-    preview, otherwise the agent list (the parent folder for a path)."""
+    preview, otherwise the agent list (the agent in full for a path, since
+    the list holds only the installation's own agents)."""
     if path_arg:
-        return "rbtv agent list " + _quote(Path(data["home"]).parent.parent)
+        return "rbtv agent list " + _quote(Path(data["home"]))
     return "rbtv agent list"
 
 
@@ -1407,13 +1359,13 @@ def cmd_agent(args, target: Path, catalog: dict, shadowed: list,
     as_json = bool(getattr(args, "json", False))
     details = bool(getattr(args, "details", False))
     if verb == "list":
-        folder = Path(args.folder).expanduser().resolve() if args.folder else None
-        data = list_agents(target, folder)
-        data["next"] = _agent_list_next(data, target, folder is not None)
+        shown = cast_agent_list(target, args.agent, as_json, present.terminal_width())
         if as_json:
-            _emit(data, True, target, why)
+            found = json.loads(shown)
+            _emit({"ok": True, **({"agent": found} if args.agent else found), "next": "rbtv agent -h"},
+                  True, target, why)
         else:
-            _print_agent_list(data, target, why, searched=folder is not None)
+            sys.stdout.write(shown)
         return 0
     path_arg = is_path(args.agent)
     if verb == "update" and args.scope not in UPDATE_SCOPES:
