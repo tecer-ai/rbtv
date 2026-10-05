@@ -47,14 +47,14 @@ The `cli-creator` skill in `meta/code` covers both help and actual command resul
 
 The `work-history` skill in `meta/functions` reconstructs a user-agreed project, plan, or session history. It preserves visible transcripts, intermediate and final outputs, and saved working notes in one folder per agent/session, with a linked root timeline, provenance manifest, and explicit recovery gaps. It researches historical evidence; `handoff` transfers current session knowledge for continuation. Install it with `rbtv add work-history` in a configured installation.
 
-> **rbtv is `core/install/capabilities/tools/rbtv/install.py`, run as `rbtv`.**
+> **rbtv is `core/rbtv/capabilities/tools/rbtv/install.py`, run as `rbtv`.**
 >
 > rbtv manages **components**: a `<module>/<component>/` folder holding its own
 > `<component>.json`, inside a `<module>/` folder holding its own `<module>.json`, on BOTH the
 > installation mirror (`{target}/.rbtv/mirror`) and this repo. It finds a component's units by the
 > folder each sits in (`skills/`, `rules/`, `commands/`, `agents/<name>/`, `sub-agents/`, `hooks/`, `mcp-servers/`,
 > `capabilities/tools/<tool>/`, `folder-instructions/`), checks each file's frontmatter or record
-> against the schemas in `core/build/capabilities/templates/`, and realizes the units for
+> against the schemas in `core/rbtv/capabilities/templates/`, and realizes the units for
 > **three harnesses** (claude, codex, opencode). A component's folder instructions become a
 > marked section of the target folder's instructions file. The one unit shaped as a folder is a
 > whole skill in the installation mirror, `{target}/.rbtv/mirror/_skills/<name>/`: it is exposed
@@ -94,12 +94,12 @@ The `work-history` skill in `meta/functions` reconstructs a user-agreed project,
 > installation root; choose `none` when no such file is maintained. A later `configure` replaces only the settings
 > supplied; `status` displays them. `--type` filters unit types; `--exclude-type` excludes them.
 > Numeric catalog positions are not identifiers. The setting rationale and current command names
-> are recorded in `core/install/capabilities/design-decisions.md`.
+> are recorded in `core/rbtv/capabilities/design-decisions.md`.
 >
 > `configure`, `add`, `remove`, and `update` accept `--dry-run`. The read and change commands
 > accept `--json`; `interactive` and `selftest` accept neither flag. Exit codes are `0` success / `1` refusal /
 > `2` usage. Its design decisions (tree precedence, the new-standard scope, the ownership marker, the collision
-> rule, the installation settings) are documented in `core/install/capabilities/design-decisions.md` —
+> rule, the installation settings) are documented in `core/rbtv/capabilities/design-decisions.md` —
 > that is their one home.
 >
 
@@ -114,7 +114,7 @@ The `work-history` skill in `meta/functions` reconstructs a user-agreed project,
 2. Run rbtv:
 
    ```bash
-   rbtv status          # or: python rbtv/core/install/capabilities/tools/rbtv/install.py status
+   rbtv status          # or: python rbtv/core/rbtv/capabilities/tools/rbtv/install.py status
    ```
 
    For a guided flow, run `rbtv interactive`: choose the installation, tick the
@@ -227,6 +227,16 @@ their generated sections. `rbtv update all` does both from local source. It also
 files for units that `install.json` no longer lists, so `rbtv update scaffolding` and `rbtv update all`
 make the folder match that file. Use `add` or `remove` when you want to change the selected units.
 
+When `rbtv` is not found after a pull, its shortcut in `~/.rbtv/bin` points at a path where the
+program is not. Start the program by its full path once; each run points the shortcut at the
+program's file:
+
+```bash
+python3 <repository>/core/rbtv/capabilities/tools/rbtv/install.py update all --target <installation>
+# then, from the installation, for each placed agent:
+python3 <repository>/core/rbtv/capabilities/tools/rbtv/install.py agent update <agent> all
+```
+
 ## Source of truth
 
 Installed files under `.claude/skills/`, `.claude/commands/`, `.claude/rules/` and `.claude/agents/` that carry the `rbtv-managed` marker (or the earlier `rbtv2-managed`) are regenerated on every `rbtv update` run. **Do not edit them in your installation** — edit the source in this repo and re-install. This section is the canonical statement of that principle for installs without the builder module; installations that install builder also get the always-on `rbtv-source-of-truth` rule enforcing it.
@@ -259,6 +269,6 @@ installable content from each component's folders, not from a central manifest.
 
 ## Extending RBTV
 
-`/rbtv-create-component` was retired. Component structure and naming are defined by `core/build/capabilities/`. Place a new component in
+`/rbtv-create-component` was retired. Component structure and naming are defined by `core/rbtv/capabilities/`. Place a new component in
 its owning module; update its `<component>.json`, `<module>/<module>.json`, and relevant README
 guidance in the same change.

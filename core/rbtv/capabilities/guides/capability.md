@@ -8,7 +8,7 @@ It holds the substance behind a skill or command. The entry point holds the proc
 
 ## What good looks like
 
-- Each page serves the component's purpose; use only the kinds its domain needs: a reader page for what the domain is, a glossary for exact terms, guides for how to do each thing, templates and schemas for output shapes, and principles for what good means. [core/build's capabilities](../capabilities.md) show this shape. No folder is empty, and no page is a placeholder.
+- Each page serves the component's purpose; use only the kinds its domain needs: a reader page for what the domain is, a glossary for exact terms, guides for how to do each thing, templates and schemas for output shapes, and principles for what good means. [core/rbtv's capabilities](../capabilities.md) show this shape. No folder is empty, and no page is a placeholder.
 - One purpose. An unrelated second method fails. ([Micro agency](../principles/micro-agency.md))
 - A step with an exact answer names the [tool](../glossary/tool.md) that runs it. ([Deterministic first](../principles/deterministic-first.md))
 - Read with only the passed inputs, a builder can follow it. It names no file the pointer did not pass.

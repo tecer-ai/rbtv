@@ -2,7 +2,7 @@
 
 What each Ignite file does, the commands and units Ignite exposes, and the configuration and turn contracts.
 
-Exposed commands and units: `ignite` (`capabilities/tools/ignite/cli.js` — `ignite -h` is the command surface), the `build` skill (guide: `core/build/capabilities/guides/agent.md`), the `agent-controls` skill for an agent's own settings, schedules, work, wakes, proactive posts, board edits, and remembered facts, and the `ignite-standing-instructions` rule every Ignite agent receives.
+Exposed commands and units: `ignite` (`capabilities/tools/ignite/cli.js` — `ignite -h` is the command surface), the `framework` skill (guide: `core/rbtv/capabilities/guides/agent.md`), the `agent-controls` skill for an agent's own settings, schedules, work, wakes, proactive posts, board edits, and remembered facts, and the `ignite-standing-instructions` rule every Ignite agent receives.
 
 ## capabilities/tools/ignite/
 

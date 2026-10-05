@@ -5,7 +5,7 @@ description: "Use when the owner asks to change or inspect this agent's harness,
 
 # agent-controls
 
-Use this for controls on your own agent. Inside a turn, `RBTV_AGENT_HOME` and `IGNITE_CONVERSATION` identify your home and conversation. Outside a turn, select the home with `--agent`. Check `ignite <subcommand> --help` before acting; never invent a flag. Use the command's result to describe what happened. Creating an agent belongs to the `build` skill, and connecting one to Slack (`ignite connect`) belongs to that same purpose only.
+Use this for controls on your own agent. Inside a turn, `RBTV_AGENT_HOME` and `IGNITE_CONVERSATION` identify your home and conversation. Outside a turn, select the home with `--agent`. Check `ignite <subcommand> --help` before acting; never invent a flag. Use the command's result to describe what happened. Creating an agent belongs to the `framework` skill, and connecting one to Slack (`ignite connect`) belongs to that same purpose only.
 
 ## Launch setting
 

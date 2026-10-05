@@ -1,6 +1,6 @@
 # Documenting a change
 
-Use this after adding, changing, renaming, or removing anything in rbtv — a unit, a tool, a component, a module, a template or schema, or how a program behaves — and before calling the change done. It says which documents change with it, so the documentation never describes something that no longer exists and every new thing can be found. The documentation's own editing rules are in [`core/build/CLAUDE.md`](../../CLAUDE.md); among them, pages describe the design as it is now, and why it changed belongs only in [`decisions.md`](../../decisions.md).
+Use this after adding, changing, renaming, or removing anything in rbtv — a unit, a tool, a component, a module, a template or schema, or how a program behaves — and before calling the change done. It says which documents change with it, so the documentation never describes something that no longer exists and every new thing can be found. The documentation's own editing rules are in [`core/rbtv/CLAUDE.md`](../../CLAUDE.md); among them, pages describe the design as it is now, and why it changed belongs only in [`decisions.md`](../../decisions.md).
 
 ## 1. The unit describes itself
 

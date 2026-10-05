@@ -1,14 +1,14 @@
 # Installer design decisions
 
-These are the installer decisions in force. The installer code is the authority for behavior. The [building decisions](../../build/decisions.md) own decisions about rbtv as a whole; the [overview](../../build/capabilities/rbtv.md), glossary, and schemas own the source and record formats.
+These are the installer decisions in force. The installer code is the authority for behavior. The [building decisions](../decisions.md) own decisions about rbtv as a whole; the [overview](rbtv.md), glossary, and schemas own the source and record formats.
 
 ## D1 — Installer placement
 
-The installer is the `core/install` component. Its tool has a small `install.py` entry point, responsibility-specific modules in `lib/`, `discovery.py` beside the entry point, and checks in `selftest/`. `REPO_ROOT` is defined once in `lib/constants.py` as `Path(__file__).resolve().parents[6]`; the layout selftest checks it. This keeps imports and repository scans anchored to one location while the code stays readable by responsibility. The reason `core` owns the installer is in the [building decisions](../../build/decisions.md#module-and-component-placement).
+The installer is the `core/rbtv` component. Its tool has a small `install.py` entry point, responsibility-specific modules in `lib/`, `discovery.py` beside the entry point, and checks in `selftest/`. `REPO_ROOT` is defined once in `lib/constants.py` as `Path(__file__).resolve().parents[6]`; the layout selftest checks it. This keeps imports and repository scans anchored to one location while the code stays readable by responsibility. The reason `core` owns the installer is in the [building decisions](../decisions.md#module-and-component-placement).
 
 ## D2 — Component source shape
 
-The installer discovers modules and components through their named JSON records and reads units from their folders. The definition and layout belong to the [overview](../../build/capabilities/rbtv.md#folder-structure), [component glossary](../../build/capabilities/glossary/component.md), and [component schema](../../build/capabilities/templates/component-json.schema.json).
+The installer discovers modules and components through their named JSON records and reads units from their folders. The definition and layout belong to the [overview](rbtv.md#folder-structure), [component glossary](glossary/component.md), and [component schema](templates/component-json.schema.json).
 
 ## D3 — Source trees and precedence
 
@@ -16,11 +16,11 @@ The installer scans its fixed repository root and the target's `.rbtv/mirror/` t
 
 ## D4 — Receiving harnesses
 
-The installer accepts `claude`, `codex`, and `opencode` as receiving harnesses. CLI changes require a nonempty supported set; a saved component record with no supported harness refuses on load. One supported set keeps the installed files and guidance copies consistent. The product's harness choice belongs to the [overview](../../build/capabilities/rbtv.md).
+The installer accepts `claude`, `codex`, and `opencode` as receiving harnesses. CLI changes require a nonempty supported set; a saved component record with no supported harness refuses on load. One supported set keeps the installed files and guidance copies consistent. The product's harness choice belongs to the [overview](rbtv.md).
 
 ## D5 — Install record
 
-The shape of `.rbtv/config/install.json` belongs to the [install record schema](../../build/capabilities/templates/install-json.schema.json) and [glossary](../../build/capabilities/glossary/install-json.md).
+The shape of `.rbtv/config/install.json` belongs to the [install record schema](templates/install-json.schema.json) and [glossary](glossary/install-json.md).
 
 When a selected unit, pack, or component is absent from the local source after an update, `rbtv update scaffolding` and `rbtv update all` remove its generated files, record entry, and command shortcut. Other add and remove operations continue, warn about the stale selection, and direct the user to `rbtv update all` for reconciliation.
 
@@ -36,11 +36,11 @@ The installer recomputes claims in harness settings and instruction files from t
 
 ## D8 — Rules and folder instructions
 
-Claude Code receives a marked full rule file in `.claude/rules/`; Codex and OpenCode receive each rule's full body in a labeled section of root `AGENTS.md`. A component's `folder-instructions/` file becomes a labeled section in the target folder's guidance file for each selected harness. The installer also raises Codex's project document limit in `.codex/config.toml` when an installed component targets Codex. These forms keep rules present and let several components contribute to one guidance file while preserving authored text. The source kinds and folders belong to the [overview](../../build/capabilities/rbtv.md#folder-structure).
+Claude Code receives a marked full rule file in `.claude/rules/`; Codex and OpenCode receive each rule's full body in a labeled section of root `AGENTS.md`. A component's `folder-instructions/` file becomes a labeled section in the target folder's guidance file for each selected harness. The installer also raises Codex's project document limit in `.codex/config.toml` when an installed component targets Codex. These forms keep rules present and let several components contribute to one guidance file while preserving authored text. The source kinds and folders belong to the [overview](rbtv.md#folder-structure).
 
 ## D13 — Guidance copies
 
-The recorded basis is `CLAUDE.md`, `AGENTS.md`, or `none`. For each basis file found in the target tree, the installer generates the other filenames read by selected harnesses, deduplicated by name. It skips symlinks, nested git repositories, built-in skip folders, and configured exclusions. The basis is protected from deletion. Generated copies carry a banner; the installer can adopt a banner-bearing copy, strips a generated banner before copying from it, and keeps a copy unbooked if a partial removal cannot safely replan it. This gives each folder one authored source and avoids deleting guidance during recovery. The role of folder instructions belongs to the [glossary](../../build/capabilities/glossary/folder-instructions.md).
+The recorded basis is `CLAUDE.md`, `AGENTS.md`, or `none`. For each basis file found in the target tree, the installer generates the other filenames read by selected harnesses, deduplicated by name. It skips symlinks, nested git repositories, built-in skip folders, and configured exclusions. The basis is protected from deletion. Generated copies carry a banner; the installer can adopt a banner-bearing copy, strips a generated banner before copying from it, and keeps a copy unbooked if a partial removal cannot safely replan it. This gives each folder one authored source and avoids deleting guidance during recovery. The role of folder instructions belongs to the [glossary](glossary/folder-instructions.md).
 
 ## D14 — Clone-local ignore block
 
@@ -64,7 +64,7 @@ Set-valued settings use `add harness`, `remove harness`, `add guidance exclude`,
 
 ## D9 — Tools on PATH
 
-A selected tool creates a shortcut in `~/.rbtv/bin` under its tool name and creates no tool copy under the target. Planning checks the program before writing: every system requires a shebang (`#!`) first line, so a program that would not run on Linux is refused on Windows too; POSIX also requires execute permission, and Windows takes its interpreter from the shebang or the script extension. This gives each installation a checked, runnable entry point while keeping the program in its source location. The tool record and source folder belong to the [tool glossary](../../build/capabilities/glossary/tool.md).
+A selected tool creates a shortcut in `~/.rbtv/bin` under its tool name and creates no tool copy under the target. Planning checks the program before writing: every system requires a shebang (`#!`) first line, so a program that would not run on Linux is refused on Windows too; POSIX also requires execute permission, and Windows takes its interpreter from the shebang or the script extension. This gives each installation a checked, runnable entry point while keeping the program in its source location. The tool record and source folder belong to the [tool glossary](glossary/tool.md).
 
 ## D9b — Windows shortcuts
 
@@ -76,7 +76,7 @@ A real install that selects a PATH tool adds `~/.rbtv/bin` to the user's shell s
 
 ## D10 — Absolute loader paths
 
-The installer writes resolved absolute source paths into thin loaders. The [building decisions](../../build/decisions.md#system-and-installation-decisions) own this choice and its machine-local rationale.
+The installer writes resolved absolute source paths into thin loaders. The [building decisions](../decisions.md#system-and-installation-decisions) own this choice and its machine-local rationale.
 
 ## D12 — Proof of ownership
 
@@ -84,7 +84,7 @@ Per-unit harness files use an `rbtv-managed` marker in the file, after YAML fron
 
 ## D25 — Shared shortcut ownership and locks
 
-`~/.rbtv/path-owners.json` records each shortcut's resolved target and the installations that need it. The installer removes a shortcut only after its last owner leaves, except that a shortcut whose recorded target has vanished is removed with all of its stale owners when its unit is removed. A vanished recorded target cannot reserve a shortcut: an installation may replace it while retaining the other owners for their next run. An existing different target remains a refusal. The installer preserves unrecorded shortcuts. Bounded locks serialize installation mutation and the shared shortcut record; installation lock names derive from resolved target paths in the system temporary folder. This prevents concurrent runs and different installations from silently taking over one command. An operating-system error while persisting PATH is reported as a warning after the installation succeeds.
+`~/.rbtv/path-owners.json` records each shortcut's resolved target and the installations that need it. The installer removes a shortcut only after its last owner leaves, except that a shortcut whose recorded target has vanished is removed with all of its stale owners when its unit is removed. A vanished recorded target cannot reserve a shortcut: an installation may replace it while retaining the other owners for their next run. An existing different target remains a refusal. The installer preserves unrecorded shortcuts. Bounded locks serialize installation mutation and the shared shortcut record; installation lock names derive from resolved target paths in the system temporary folder. This prevents concurrent runs and different installations from silently taking over one command. An operating-system error while persisting PATH is reported as a warning after the installation succeeds. A shortcut whose target is not at its recorded path does not run, and that includes `rbtv` itself; the next update relinks it, so the program is started once by its full path: `python3 <repository>/core/rbtv/capabilities/tools/rbtv/install.py update all --target <installation>`, then, from the installation, for each placed agent, `python3 <repository>/core/rbtv/capabilities/tools/rbtv/install.py agent update <agent> all`.
 
 ## D26 — Public commands and local updates
 
