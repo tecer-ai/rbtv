@@ -208,8 +208,44 @@ function runDoctor(args) {
   process.exit(0);
 }
 
-function runList(args) {
-  if (args.includes('--json')) {
+// The words of `cast list`: which list (--models, --agents, or --agent NAME) and --json. Every
+// other word is refused, so a mistyped command never falls back to printing the models.
+function listArgs(args) {
+  const refuse = (what, why, next) => fail(`refused: ${what}\n${why}\nNothing was listed.\n${next}`);
+  let json = false;
+  let models = false;
+  let agents = false;
+  let agent = null;
+  const named = [];
+  for (let i = 0; i < args.length; i += 1) {
+    const a = args[i];
+    if (a === '--json') json = true;
+    else if (a === '--models') models = true;
+    else if (a === '--agents') agents = true;
+    else if (a === '--agent') {
+      const name = args[i + 1];
+      if (name === undefined || name.startsWith('-')) {
+        refuse("--agent takes an agent's name or path", 'every agent: cast list --agents', 'cast list --agent NAME');
+      }
+      if (agent !== null) refuse('--agent takes one agent', `got '${agent}' and '${name}'`, 'cast list -h');
+      agent = name;
+      i += 1;
+    } else if (a.startsWith('-')) {
+      refuse(`'${a}' is not a cast list option`, 'cast list takes --models, --agents or --agent NAME, and --json', 'cast list -h');
+    } else named.push(a);
+  }
+  if ([models, agents, agent !== null].filter(Boolean).length > 1) {
+    refuse('--models, --agents and --agent NAME are different lists', 'pass one of them', 'cast list -h');
+  }
+  if (named.length) {
+    refuse(`cast list takes no name by itself, got '${named[0]}'`,
+      'one agent in full is --agent NAME; with no flag, cast list prints the models', `cast list --agent ${named[0]}`);
+  }
+  return { json, agents: agents || agent !== null, agent };
+}
+
+function runList(json) {
+  if (json) {
     // Additive: the three harness keys stay byte-identical (first, unchanged); the two new
     // keys ride after them, so name-based lookups (`inv[harness]`) and array indexing keep working.
     const usage = 'Pass the NUMBER (integer 1-5) as <effort>, not the word — example: '
@@ -341,6 +377,6 @@ module.exports = {
   fail, HARNESSES, USAGE, USAGE_IG,
   RESUME_USAGE, SESSIONS_USAGE, KNOWN_FLAGS, detachMarks,
   refuseIfDetached, effortMap, modelTable, buildInventory, EFFORT_RULE, effortNumbers,
-  suggest, runDoctor, runList, resolveEffort, resolveEffortValue,
+  suggest, runDoctor, listArgs, runList, resolveEffort, resolveEffortValue,
   parseArgs, resolveFolder, refuseIfNotLaunchable, lookupModel, resolveModel,
 };

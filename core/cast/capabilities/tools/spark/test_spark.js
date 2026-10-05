@@ -109,7 +109,7 @@ function spark(args, { env = {}, cwd = root } = {}) {
   assert.match(row, /^scout  codex    gpt-6\.1-sol  high    yes     Scouts the repository .*…$/, 'the description is shortened');
   assert.ok(row.length <= 100, `a row fits the terminal: ${row.length}`);
   assert.ok(!res.stdout.includes('drafter'), 'an agent outside .rbtv/agents/ is not in the list');
-  assert.strictEqual(lines[lines.length - 2], 'Full description of one agent: add its name to this command.');
+  assert.strictEqual(lines[lines.length - 2], 'One agent in full: cast list --agent NAME, spark list NAME or rbtv agent list NAME.');
   assert.ok(!fs.existsSync(shimOut), 'list launches nothing');
 
   // a narrow terminal: one labeled block per agent, the description whole, no line cut
@@ -124,6 +124,10 @@ function spark(args, { env = {}, cwd = root } = {}) {
   assert.strictEqual(one.status, 0, one.stderr);
   assert.ok(one.stdout.startsWith(`Name: scout\nHarness: codex\nModel: gpt-6.1-sol\nEffort: high\nIgnite: yes\nFolder: ${scout}\nDescription: `), one.stdout);
   assert.ok(one.stdout.replace(/\n {2}/g, ' ').includes(SCOUT_SAYS), 'the whole description is shown');
+  // what is installed in the agent is asked of rbtv, as cast does; without rbtv the view says so
+  const alone = spark(['list', 'scout'], { env: { PATH: os.tmpdir() } });
+  assert.strictEqual(alone.status, 0, alone.stderr);
+  assert.ok(alone.stdout.endsWith('\n\nInstalled packs and units: not shown. rbtv is not on PATH.\n'), alone.stdout);
 
   const all = JSON.parse(spark(['--json', 'list']).stdout);
   assert.strictEqual(all.folder, path.join(root, '.rbtv', 'agents'));
@@ -131,8 +135,10 @@ function spark(args, { env = {}, cwd = root } = {}) {
     { name: 'half', home: half, problem: `${path.join(half, 'agent.json')} is missing` },
     { name: 'scout', description: SCOUT_SAYS, harness: 'codex', model: 'gpt-6.1-sol', effort: 'high', ignite: true, home: scout },
   ]);
-  assert.deepStrictEqual(JSON.parse(spark(['list', 'plans/x/agents/drafter', '--json']).stdout),
-    { name: 'drafter', description: '', harness: 'claude', model: 'sonnet-5-5', effort: 'medium', ignite: false, home: drafter });
+  assert.deepStrictEqual(JSON.parse(spark(['list', 'plans/x/agents/drafter', '--json'], { env: { PATH: os.tmpdir() } }).stdout), {
+    name: 'drafter', description: '', harness: 'claude', model: 'sonnet-5-5', effort: 'medium', ignite: false, home: drafter,
+    installed: null, installed_problem: 'rbtv is not on PATH.',
+  });
 }
 
 // list refusals: --dry-run, a second agent, an unknown option, an agent that is not there or cannot be launched

@@ -350,29 +350,31 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.ok(!/^usage: cast resume/.test(res.stdout), `"-h" as prompt text must not print usage: ${res.stdout}`);
 }
 
-// -h: exit 0, no longer than the approved help screen. Screen 400 (build/screens/review/40-cast-spark.md)
-// has 66 non-empty lines; the -h page must print exactly those, so the cap is that count.
+// -h: exit 0. The page names where the models are and prints none of them: the model inventory
+// is `cast list --models`, so a model added to the catalog never changes the help page.
 {
   const res = spawnSync('node', [TOOL, '-h'], { encoding: 'utf8' });
   assert.strictEqual(res.status, 0, 'cast -h must exit 0');
-  const lines = res.stdout.split('\n').filter((l) => l.length > 0);
-  assert.ok(lines.length <= 66, `help must be <=66 lines (approved screen 400), got ${lines.length}`);
+  assert.ok(res.stdout.includes('  cast list --models\n'), 'help names the command that lists the models');
   // enumerate models from the tool's own inventory, never by re-parsing its source.
   // list --json also carries non-harness top-level keys (effort_numbers, usage), so the
   // three harnesses are read BY NAME — Object.values() would flatten the new keys too.
   const inv = JSON.parse(spawnSync('node', [TOOL, 'list', '--json'], { encoding: 'utf8' }).stdout);
   const shorts = ['claude', 'codex', 'opencode'].flatMap((h) => Object.keys(inv[h]));
   assert.ok(shorts.length > 10, `sanity: expected the full inventory, got ${shorts.length}`);
+  const table = spawnSync('node', [TOOL, 'list', '--models'], { encoding: 'utf8' }).stdout;
   for (const short of shorts) {
-    assert.ok(res.stdout.includes(` ${short} `), `help text missing model: ${short}`);
+    assert.ok(table.includes(` ${short} `), `cast list --models is missing model: ${short}`);
+    // the examples under the page name one model, so a row is what must be absent
+    assert.ok(!new RegExp(`^  \\w+  ${short.replace(/[.]/g, '\\.')} `, 'm').test(res.stdout), `help must not print a model row: ${short}`);
   }
   for (const id of ['claude-opus-5-5', 'zai-coding-plan/glm-5.3', 'kimi-for-coding/k3']) {
-    assert.ok(!res.stdout.includes(id), `help text must print short names only, found long id: ${id}`);
+    assert.ok(!table.includes(id), `the model table must print short names only, found long id: ${id}`);
   }
   // every model row names what each effort number resolves to, clamping included
-  assert.ok(res.stdout.includes('1=low 2=medium 3=high 4=xhigh 5=max'), 'claude effort map missing');
-  assert.ok(res.stdout.includes('1=high 2-5=max'), 'glm-5.3 clamped effort map missing');
-  assert.ok(/haiku-4-5 +\(no dial/.test(res.stdout), 'inert ladder must say so');
+  assert.ok(table.includes('1=low 2=medium 3=high 4=xhigh 5=max'), 'claude effort map missing');
+  assert.ok(table.includes('1=high 2-5=max'), 'glm-5.3 clamped effort map missing');
+  assert.ok(/haiku-4-5 +\(no dial/.test(table), 'inert ladder must say so');
   // -h says the dial takes a number and the words are labels
   assert.match(res.stdout, /pass the number/i, 'help must say to pass the number');
   assert.match(res.stdout, /words are labels/i, 'help must say the words are labels only');
@@ -1419,8 +1421,8 @@ else {
   fs.mkdirSync(halfHome, { recursive: true });
   fs.writeFileSync(path.join(halfHome, 'agent.md'), 'You are half.');
 
-  // cast list -rbtv: the agents `cast -rbtv NAME` can launch from here; -rbtv AGENT is one in full;
-  // -models is the name of the list `cast list` has always printed
+  // cast list --agents: the agents `cast -rbtv NAME` can launch from here; --agent NAME is one in
+  // full; --models is the name of the list `cast list` has always printed
   {
     const TESS_SAYS = 'Tests a change before it ships and reports each failure with the command that shows it. '
       + 'Triggered by a request to check a change. Not for writing the change.';
@@ -1430,11 +1432,37 @@ else {
     fs.writeFileSync(path.join(tess, 'agent.json'), JSON.stringify({
       name: 'tess', description: TESS_SAYS, harness: 'codex', model: 'gpt-6-luna', effort: 'high', packs: ['ignite'],
     }));
-    const list = (args, columns = '100') => spawnSync('node', [TOOL, 'list', ...args],
-      { cwd: root, encoding: 'utf8', env: { ...process.env, COLUMNS: columns } });
+    // An `rbtv` on PATH that stands for the installer: it records its arguments and answers
+    // `list --installed` from five rows, RBTV_PAGE of them at a time, or refuses. Its pack lists
+    // two of the installed units and one unit that is not installed in this agent.
+    const bin = mkFolder('ig-rbtv');
+    const asked = path.join(bin, 'asked.json');
+    fs.writeFileSync(path.join(bin, 'rbtv.js'), `
+      const fs = require('fs');
+      const argv = process.argv.slice(2);
+      fs.appendFileSync(process.env.RBTV_ASKED, JSON.stringify(argv) + '\\n');
+      if (process.env.RBTV_REFUSES) {
+        console.log(JSON.stringify({ ok: false, error: { code: 'agent-record-invalid', message: 'agent.json is missing units' } }));
+        process.exit(1);
+      }
+      const rows = [['pack', 'ignite'], ['skill', 'core/build#build'], ['skill', 'meta/functions#interview'],
+        ['skill', 'web/browse#web'], ['rule', 'core/ignite#ignite-standing-instructions']].map(([type, id]) => ({ type, id }));
+      rows[0].units = ['web/browse#web', 'core/ignite#ignite-standing-instructions', 'core/ignite#agent-controls'];
+      const offset = Number(argv[argv.indexOf('--offset') + 1]);
+      const size = Math.min(Number(argv[argv.indexOf('--limit') + 1]), Number(process.env.RBTV_PAGE || 100));
+      const units = rows.slice(offset, offset + size);
+      console.log(JSON.stringify({ ok: true, scope: 'units', total: rows.length, returned: units.length, units }));
+    `);
+    fs.writeFileSync(path.join(bin, 'rbtv'), `#!/bin/sh\nexec "${process.execPath}" "$(dirname "$0")/rbtv.js" "$@"\n`, { mode: 0o755 });
+    fs.writeFileSync(path.join(bin, 'rbtv.cmd'), `@"${process.execPath}" "%~dp0rbtv.js" %*\r\n`);
+    const list = (args, columns = '100', env = {}) => spawnSync('node', [TOOL, 'list', ...args], {
+      cwd: root,
+      encoding: 'utf8',
+      env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, RBTV_ASKED: asked, COLUMNS: columns, ...env },
+    });
     const agents = path.join(root, '.rbtv', 'agents');
 
-    const all = list(['-rbtv']);
+    const all = list(['--agents']);
     assert.strictEqual(all.status, 0, all.stderr);
     assert.strictEqual(all.stderr, '');
     const lines = all.stdout.split('\n');
@@ -1445,43 +1473,93 @@ else {
     const row = lines.find((line) => line.startsWith('tess '));
     assert.match(row, /^tess  codex    gpt-6-luna  high    yes     Tests a change .*…$/, 'the description is shortened');
     assert.ok(row.length <= 100, `a row fits the terminal: ${row.length}`);
-    assert.strictEqual(lines[lines.length - 2], 'Full description of one agent: add its name to this command.');
+    assert.strictEqual(lines[lines.length - 2], 'One agent in full: cast list --agent NAME, spark list NAME or rbtv agent list NAME.');
 
-    const narrow = list(['-rbtv'], '60');
+    const narrow = list(['--agents'], '60');
     assert.ok(narrow.stdout.includes('Name: tess\nHarness: codex\nModel: gpt-6-luna\nEffort: high\nIgnite: yes\nDescription: Tests'), narrow.stdout);
     assert.ok(narrow.stdout.replace(/\n {2}/g, ' ').includes(`Description: ${TESS_SAYS}`), 'a narrow terminal shows the whole description');
     assert.ok(narrow.stdout.split('\n').filter((line) => /^(Description:| {2})/.test(line)).every((line) => line.length <= 60),
       'a description is wrapped to the terminal');
 
-    const one = list(['-rbtv', 'tess']);
+    const one = list(['--agent', 'tess']);
     assert.strictEqual(one.status, 0, one.stderr);
     assert.ok(one.stdout.startsWith(`Name: tess\nHarness: codex\nModel: gpt-6-luna\nEffort: high\nIgnite: yes\nFolder: ${tess}\nDescription: `), one.stdout);
     assert.ok(one.stdout.replace(/\n {2}/g, ' ').includes(TESS_SAYS), 'one agent is shown in full');
+    // what is installed in it, asked of the installer once, under the names `rbtv show` takes: each
+    // pack on its own row, what it installs on a row per kind under it, and under each kind
+    // outside a pack only what no pack installs
+    assert.ok(one.stdout.endsWith([
+      '',
+      'Installed in this agent, under the names rbtv show takes:',
+      'Packs, each with what it installs:',
+      '  ignite',
+      '    Skills: web/browse#web',
+      '    Rules: core/ignite#ignite-standing-instructions',
+      'Outside a pack:',
+      '  Skills: core/build#build, meta/functions#interview',
+      '  Rules: none',
+      '  Commands: none',
+      '  MCP servers: none',
+      '  Hooks: none',
+      '',
+      `More about a pack: rbtv show --pack NAME --target ${tess}`,
+      `More about any other name: rbtv show NAME --target ${tess}`,
+      '',
+    ].join('\n')), one.stdout);
+    assert.deepStrictEqual(fs.readFileSync(asked, 'utf8').trim().split('\n').map((line) => JSON.parse(line)), [
+      ['list', '--installed', '--target', tess, '--type', 'pack,skill,rule,command,mcp-server,hook', '--limit', '100', '--offset', '0', '--json'],
+    ], 'the list of all agents asks the installer nothing; one agent asks once');
+    const installed = {
+      pack: [{ name: 'ignite', skill: ['web/browse#web'], rule: ['core/ignite#ignite-standing-instructions'], command: [], 'mcp-server': [], hook: [] }],
+      skill: ['core/build#build', 'meta/functions#interview'], rule: [], command: [], 'mcp-server': [], hook: [],
+    };
 
     const tessRow = { name: 'tess', description: TESS_SAYS, harness: 'codex', model: 'gpt-6-luna', effort: 'high', ignite: true, home: tess };
-    const json = JSON.parse(list(['--json', '-rbtv']).stdout);
+    const json = JSON.parse(list(['--json', '--agents']).stdout);
     assert.strictEqual(json.folder, agents);
     assert.deepStrictEqual(json.agents, [
       { name: 'half', home: halfHome, problem: `${path.join(halfHome, 'agent.json')} is missing` },
       { name: 'sara', description: '', harness: 'claude', model: 'sonnet-5-5', effort: 'medium', ignite: false, home },
       tessRow,
     ]);
-    assert.deepStrictEqual(JSON.parse(list(['-rbtv', '.rbtv/agents/tess', '--json']).stdout), tessRow, 'a path names the agent');
+    assert.deepStrictEqual(JSON.parse(list(['--agent', '.rbtv/agents/tess', '--json']).stdout), { ...tessRow, installed },
+      'a path names the agent');
+    assert.deepStrictEqual(JSON.parse(list(['--agent', 'tess', '--json'], '100', { RBTV_PAGE: '2' }).stdout).installed, installed,
+      'an answer in several pages is read to its end');
+    // the installer cannot be asked: the view says why and shows the rest
+    const refused = list(['--agent', 'tess'], '100', { RBTV_REFUSES: '1' });
+    assert.strictEqual(refused.status, 0, refused.stderr);
+    assert.ok(refused.stdout.endsWith('\n\nInstalled packs and units: not shown. rbtv refused: agent.json is missing units\n'), refused.stdout);
+    const alone = spawnSync(process.execPath, [TOOL, 'list', '--agent', 'tess', '--json'], { cwd: root, encoding: 'utf8', env: { ...process.env, PATH: bin + '-none' } });
+    assert.deepStrictEqual(JSON.parse(alone.stdout), { ...tessRow, installed: null, installed_problem: 'rbtv is not on PATH.' });
 
-    const help = list(['-rbtv', '-h']);
-    assert.strictEqual(help.status, 0);
-    assert.ok(help.stdout.startsWith('usage: cast list [-models | -rbtv [AGENT]] [--json]'), help.stdout);
+    for (const form of [['--agents', '-h'], ['--models', '--help'], ['-h']]) {
+      const help = list(form);
+      assert.strictEqual(help.status, 0);
+      assert.ok(help.stdout.startsWith('usage: cast list [--models | --agents | --agent NAME] [--json]'), `${form}: ${help.stdout}`);
+    }
 
     for (const form of [[], ['--json']]) {
-      assert.strictEqual(list(['-models', ...form]).stdout, list(form).stdout, `-models is the list cast list prints: ${form}`);
+      assert.strictEqual(list(['--models', ...form]).stdout, list(form).stdout, `--models is the list cast list prints: ${form}`);
     }
 
     for (const [args, text] of [
-      [['-rbtv', '-models'], 'two different lists'],
-      [['-rbtv', '--target', root], "'--target' is not a cast list option"],
-      [['-rbtv', 'sara', 'tess'], 'takes at most one agent, got 2'],
-      [['-rbtv', 'nobody'], 'look up a name: cast list -rbtv'],
-      [['-rbtv', 'half', '--json'], 'agent.json is missing'],
+      // a name by itself is a mistyped command: refused, with the command that was meant
+      [['tess'], 'cast list --agent tess'],
+      [['tess', '--json'], "takes no name by itself, got 'tess'"],
+      [['--agents', 'tess'], 'cast list --agent tess'],
+      [['--target', root], "'--target' is not a cast list option"],
+      [['--models', '--bogus'], "'--bogus' is not a cast list option"],
+      // a whole word after one dash is not a flag of this command
+      [['-rbtv'], "'-rbtv' is not a cast list option"],
+      [['-models'], "'-models' is not a cast list option"],
+      [['--agents', '--models'], 'are different lists'],
+      [['--agent', 'tess', '--agents'], 'are different lists'],
+      [['--agent'], "--agent takes an agent's name or path"],
+      [['--agent', '--json'], 'every agent: cast list --agents'],
+      [['--agent', 'sara', '--agent', 'tess'], "--agent takes one agent"],
+      [['--agent', 'nobody'], 'look up a name: cast list --agents'],
+      [['--agent', 'half', '--json'], 'agent.json is missing'],
     ]) {
       const res = list(args);
       assert.strictEqual(res.status, 2, `expected a refusal for: cast list ${args.join(' ')}`);

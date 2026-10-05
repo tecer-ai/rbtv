@@ -10,7 +10,7 @@
 const { agentFilePrompt, rbtvAgent, takeAgentFlags } = require('./lib/agent');
 const { runAgentList } = require('./lib/agent-list');
 const { runApi } = require('./lib/api');
-const { USAGE, USAGE_IG, fail, parseArgs, resolveEffort, resolveEffortValue, resolveFolder, resolveModel, runDoctor, runList } = require('./lib/core');
+const { USAGE, USAGE_IG, fail, listArgs, parseArgs, resolveEffort, resolveEffortValue, resolveFolder, resolveModel, runDoctor, runList } = require('./lib/core');
 const { printHelp, verbHelpPages } = require('./lib/help');
 const { SYSTEM_WRAPPER, launch, runResume } = require('./lib/launch');
 const { loadOptional } = require('./lib/optional');
@@ -33,10 +33,15 @@ function main(rawArgv) {
   }
   if (rawArgv[0] === 'doctor') return runDoctor(rawArgv.slice(1));
   if (rawArgv[0] === 'list') {
-    // -rbtv lists the rbtv agents; every other form is the model inventory, which -models names.
     const rest = rawArgv.slice(1);
-    if (rest.includes('-rbtv')) return runAgentList(rest, fail, PAGES.list);
-    return runList(rest.filter((a) => a !== '-models'));
+    if (rest.includes('-h') || rest.includes('--help')) {
+      process.stdout.write(`${PAGES.list.join('\n')}\n`);
+      process.exit(0);
+    }
+    // --agents and --agent NAME show the rbtv agents; without them, the model inventory, which
+    // --models names.
+    const { json, agents, agent } = listArgs(rest);
+    return agents ? runAgentList(agent, json, fail) : runList(json);
   }
   if (rawArgv[0] === 'resume') return runResume(rawArgv.slice(1));
   if (rawArgv[0] === 'sessions') return runSessions(rawArgv.slice(1));

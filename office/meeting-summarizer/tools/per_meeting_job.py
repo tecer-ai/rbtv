@@ -335,7 +335,7 @@ def invocation_of(config: dict) -> dict:
     missing = [key for key in ("harness", "model", "effort") if not chosen.get(key)]
     if missing:
         refuse(f"the summarize config declares no invocation {missing}",
-               "add 'invocation': {'harness', 'model', 'effort'} — see `cast -h` for the choices")
+               "add 'invocation': {'harness', 'model', 'effort'} — see `cast list --models` for the choices")
     return chosen
 
 

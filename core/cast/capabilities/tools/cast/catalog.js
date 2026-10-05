@@ -109,8 +109,8 @@ const ROWS = [
   // 3.7-flash REPLACED 3.6-flash here 2026-08-22, when models.csv started routing 3.7: same
   // provider, same ladder (variants read from `opencode models google --verbose` that day —
   // minimal, low, medium, high), one row for one row. The swap is why 3.6 is gone rather than
-  // kept as an unrouted-but-launchable row: `cast -h`'s model table has a 50-line budget
-  // (test_cast.js pins it) and adding a row without removing one breaks it.
+  // kept as an unrouted-but-launchable row: `cast -h` then printed the model table inside a
+  // line budget, and adding a row without removing one broke it.
   { harness: 'opencode', model: 'gemini-3.7-flash', mode: 'cli', id: 'google/gemini-3.7-flash',
     rungs: ['minimal', 'low', 'medium', 'high'], auth: GOOGLE_OC_AUTH },
   { harness: 'opencode', model: 'gemini-flash-latest', mode: 'cli', id: 'google/gemini-flash-latest',

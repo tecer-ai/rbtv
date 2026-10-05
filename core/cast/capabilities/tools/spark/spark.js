@@ -5,14 +5,14 @@
 // shows the agent's harness, model and effort (read from its agent.json), then starts
 // `cast -rbtv AGENT --headed` with a greeting. It passes no harness, model or effort: cast reads them.
 // spark list [AGENT] — the agents spark can open by name, or one of them in full. The list is
-// cast's (`cast list -rbtv`, lib/agent-list.js).
+// cast's (`cast list --agents`, lib/agent-list.js).
 
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
 const { findAgentHome, isPath, readAgent } = require('../cast/lib/agent');
-const { agentLines, agentList, agentRow, listLines } = require('../cast/lib/agent-list');
+const { agentInFull, agentLines, agentList, listLines } = require('../cast/lib/agent-list');
 const { spawnable } = require('../cast/lib/win-exec');
 
 // cast needs a first message to open the session; this one starts a conversation and waits.
@@ -44,8 +44,10 @@ const HELP = [
   'is on, which ignite connect does; such an agent also wakes from',
   'Slack), and description. The description is shortened to fit the',
   'line; on a narrow terminal each agent is a labeled block with its',
-  'whole description. spark list AGENT shows that one agent in full,',
-  'with its folder. Both open nothing. No agent found is success. Open',
+  'whole description. spark list AGENT shows that one agent in full:',
+  'its folder, its whole description, and the packs, skills, rules,',
+  'commands, MCP servers and hooks installed in it, under the names',
+  'rbtv show takes. Both open nothing. No agent found is success. Open',
   'an agent whose name is list by its path.',
   '',
   'Harness, model and effort are read from the agent\'s agent.json. To',
@@ -58,12 +60,14 @@ const HELP = [
   '--json      With --dry-run, one JSON value: agent, home, cast.',
   '            With list, one JSON value: folder and agents, each',
   '            agent with name, description, harness, model, effort,',
-  '            ignite and home. With list AGENT, that agent. A real',
-  '            launch ignores --json. A refusal is text on standard',
-  '            error, with or without --json.',
+  '            ignite and home. With list AGENT, that agent, plus',
+  '            installed: the names by kind. A real launch ignores',
+  '            --json. A refusal is text on standard error, with or',
+  '            without --json.',
   '-h, --help  Show this help and exit.',
   '',
-  'spark needs cast on PATH to open an agent. It does not ask questions.',
+  'spark needs cast on PATH to open an agent, and rbtv on PATH to show',
+  'what is installed in one. It does not ask questions.',
   '',
   'Example:',
   '  spark list',
@@ -140,8 +144,8 @@ function list(named, dry, json) {
   if (named.length) {
     const agent = findAgent(named[0]);
     if (!agent) return 1;
-    const row = agentRow(agent);
-    print(row, agentLines(row, { folder: true }));
+    const row = agentInFull(agent);
+    print(row, agentLines(row));
   } else {
     const found = agentList(process.cwd());
     print(found, listLines(found));

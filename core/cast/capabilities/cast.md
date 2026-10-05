@@ -19,7 +19,7 @@ cast route --caps image
 cast route --batch <agents.json | -> [--explain]
 cast route --catalog [--json]
 cast doctor [--json]
-cast list [-models | -rbtv [AGENT]] [--json]
+cast list [--models | --agents | --agent NAME] [--json]
 cast -h | --help
 ```
 
@@ -33,8 +33,8 @@ cast -h | --help
 | `-f FILE` | read the prompt from a file; `-f -` reads it from stdin |
 | `--dry-run` | print the composed argv as JSON and exit 0 without launching |
 
-Run `cast -h` for the live model/effort table (generated from the tool's own spec), or
-`cast list --json` for a machine-readable `{harness: {model: [rungs...]}}` inventory plus two
+Run `cast list --models` for the live model/effort table (generated from the tool's own spec; `cast -h`
+names that command and prints no model), or `cast list --json` for a machine-readable `{harness: {model: [rungs...]}}` inventory plus two
 top-level keys: `effort_numbers` — `{harness: {model: {word: number}}}`, each word mapped to the
 smallest number that selects it (`glm-5.3` → `{"high":1,"max":2}`; a model with no dial → `{}`) —
 and `usage`, which says to pass the NUMBER as `<effort>` because the launch path accepts only the
@@ -50,7 +50,7 @@ providers: {name: {enabled, via, slots, active}}, usage: [...]}`.
 Each (harness, model) has its own rung ladder in `capabilities/tools/cast/catalog.js`. Rule:
 `rung = ladder[min(N, ladder.length) - 1]`
 — asking for 5 on a 3-rung ladder clamps to that ladder's top rung, never a refusal. An `inert`
-ladder (`haiku-4-5`) accepts any N and emits no effort argv at all. `cast -h` prints the
+ladder (`haiku-4-5`) accepts any N and emits no effort argv at all. `cast list --models` prints the
 resolved mapping per model with the clamping folded in (e.g. `glm-5.3  1=high 2-5=max`), so the
 number-to-rung answer is never inferred. The positional `<effort>` a bare launch takes is an
 integer 1-5 only — a rung word is refused at exit 2 — so `cast list --json` also reports
@@ -124,20 +124,34 @@ The system prompt rides each harness's strongest channel, the same as `-s TEXT`/
 `ignite turn` takes its standing prompt the same way: the `systemPromptFile` in its request is read
 with its frontmatter removed, and the model receives the body only.
 
-### Finding the agents: `cast list -rbtv`
+### Finding the agents: `cast list --agents`
 
-`cast list -rbtv` shows the rbtv agents `cast -rbtv NAME` can launch from the current folder: the
+`cast list --agents` shows the rbtv agents `cast -rbtv NAME` can launch from the current folder: the
 agents in the nearest `.rbtv/agents/` folder above it. For each agent it prints the name, harness,
 model, effort, Ignite (`yes` when the agent's `ignite` pack is on, which `ignite connect` does) and
 the description from `agent.json`. The description is shortened to fit the line; on a terminal too
 narrow for the table each agent is a labeled block with its whole description. An agent that cannot
-be launched is named with the reason. `cast list -rbtv AGENT` shows one agent in full, with its
-folder; AGENT is a name or a path. `--json` prints `{folder, agents}` or that one agent. Both only
-read. `cast list` and `cast list -models` print the model inventory.
+be launched is named with the reason. `--json` prints `{folder, agents}`. `cast list` and
+`cast list --models` print the model inventory.
 
-`lib/agent-list.js` holds the list, and it is the only list of agents: `cast list -rbtv` shows it
-to an agent, `spark list` shows it to a person, and `rbtv agent list` runs `cast list -rbtv`. The
-three print the same text, so no line of it names the command that printed it. Each command words
+`cast list --agent AGENT` shows one agent in full; AGENT is a name or a path. Besides its folder and
+whole description it lists what is installed in the agent, each under the name `rbtv show` takes:
+every pack that is on, one per row, with the skills, rules, commands, MCP servers and hooks that
+pack installs on a row each under it; then, by kind, what is installed outside a pack. A unit a
+pack installs is shown with its pack only. The list is followed by the two commands that tell
+more about a name (`rbtv show --pack NAME` for a pack, `rbtv show NAME` for the rest), each with
+`--target` and the agent's folder: without it `rbtv show` answers for the installation, where the
+same unit may not be installed. Only the
+installer knows what a pack brings in and what kind each unit is, so cast asks it:
+`rbtv list --installed --target <agent folder>`. This is the one place where cast receives from
+`rbtv`. Without `rbtv` on PATH, or when it refuses, the view says so and shows the rest. `--json`
+prints the agent's object with `installed`: `pack` is a list of `{name, skill, rule, command,
+mcp-server, hook}`, and `skill`, `rule`, `command`, `mcp-server` and `hook` list what is outside a pack; or
+`installed: null` and the reason in `installed_problem`. Every form only reads.
+
+`lib/agent-list.js` holds the list, and it is the only list of agents: `cast list --agents` shows it
+to an agent, `spark list` shows it to a person, and `rbtv agent list` runs `cast list --agents`. The
+three print the same text, so a line that names a command names all three. Each command words
 its own refusals.
 
 ## spark — open an agent for a person
@@ -153,7 +167,7 @@ It needs `cast` on PATH and finds the agent the same way cast does: a name or a 
   missing, `cast` not on PATH, or an unknown option.
 
 `spark list [AGENT]` shows the agents spark can open by name, or one of them in full: the list of
-`cast list -rbtv`, read in the same process, so it needs nothing on PATH and opens nothing. The
+`cast list --agents`, read in the same process, so it needs nothing on PATH and opens nothing. The
 first argument that is not an option decides the form, so `list` is never taken as an agent name:
 an agent whose name is `list` is opened by its path.
 
@@ -215,7 +229,7 @@ xai is authenticated via opencode oauth as of 2026-08-13 and both grok ladders a
 effort number, no `--variant` argv.
 
 The (harness, model) → argv/effort table lives in `capabilities/tools/cast/catalog.js`; `capabilities/tools/cast/models.csv` holds
-the routing catalog. `cast -h` and `cast list --json` read the current launch table. Update
+the routing catalog. `cast list --models` and `cast list --json` read the current launch table. Update
 `capabilities/tools/cast/catalog.js` when a harness model or effort ladder changes, then run `test_cast.js` and
 `test_route.js`.
 
@@ -440,7 +454,7 @@ dotenv at `rbtv.json`'s `env_file`.
 | `capabilities/tools/cast/lib/handles.js` | the launch-handle registry — the one observable a watcher uses to find a run again |
 | `capabilities/tools/cast/lib/launch.js` | spawn, `cast resume` |
 | `capabilities/tools/cast/lib/agent.js` | `-rbtv` / `-rogue`: find the agent folder, read `agent.json` and `agent.md`; the readers spark also uses |
-| `capabilities/tools/cast/lib/agent-list.js` | `cast list -rbtv`: the agents a name can reach, as a table, labeled blocks, or JSON; the one list, which `spark list` and `rbtv agent list` also show |
+| `capabilities/tools/cast/lib/agent-list.js` | `cast list --agents`: the agents a name can reach, as a table, labeled blocks, or JSON; the one list, which `spark list` and `rbtv agent list` also show |
 | `capabilities/tools/spark/spark.js` | `spark AGENT`: the terminal handoff, a thin layer over `cast -rbtv`; `spark list`: the list of `lib/agent-list.js` (its tests: `test_spark.js`) |
 | `capabilities/tools/cast/lib/sessions.js` | the per-harness session-store readers and `cast sessions` |
 | `capabilities/tools/cast/lib/monitor.js` | `cast monitor` — the freeze tripwire, its witness channel, roster and watch |

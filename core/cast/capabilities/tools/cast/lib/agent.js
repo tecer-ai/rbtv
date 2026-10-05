@@ -96,8 +96,8 @@ function rbtvAgent(value, fail) {
   const home = findAgentHome(value, process.cwd());
   if (!home) {
     const looked = isPath(value)
-      ? `looked for ${path.join(path.resolve(value), AGENT_JSON)}\nNothing changed.\ncheck the path, or look up a name: cast list -rbtv`
-      : `looked for .rbtv/agents/${value}/agent.json from the current folder upward\nNothing changed.\nlook up a name: cast list -rbtv`;
+      ? `looked for ${path.join(path.resolve(value), AGENT_JSON)}\nNothing changed.\ncheck the path, or look up a name: cast list --agents`
+      : `looked for .rbtv/agents/${value}/agent.json from the current folder upward\nNothing changed.\nlook up a name: cast list --agents`;
     fail(`refused: no rbtv agent '${value}' was found\n${looked}`);
   }
   const read = readAgent(home);

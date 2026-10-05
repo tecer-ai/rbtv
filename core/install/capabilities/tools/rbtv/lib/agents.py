@@ -326,7 +326,8 @@ def configure_agent(root: Path, raw: str, harness: str | None,
 
 
 def cast_agent_list(root: Path, raw: str | None, as_json: bool, width: int) -> str:
-    """What `cast list -rbtv` prints for this installation. The list of agents
+    """What `cast list --agents` prints for this installation, or `cast list
+    --agent` for one agent. The list of agents
     has one source, in cast, so nothing here reads the agent folders to list
     them. `raw` names one agent to show in full; it is resolved as for the
     other agent verbs and handed to cast as a path."""
@@ -336,16 +337,17 @@ def cast_agent_list(root: Path, raw: str | None, as_json: bool, width: int) -> s
                       "rbtv doctor")
         exc.unchanged = "Nothing was listed."
         raise exc
-    words = [exe, "list", "-rbtv"]
-    if raw is not None:
+    if raw is None:
+        words = [exe, "list", "--agents"]
+    else:
         # Forward slashes on every system: cast takes a value with a slash as a path.
-        words.append(resolve_agent(root, raw).as_posix())
+        words = [exe, "list", "--agent", resolve_agent(root, raw).as_posix()]
     if as_json:
         words.append("--json")
     done = subprocess.run(words, cwd=root, env={**os.environ, "COLUMNS": str(width)},
                           capture_output=True, text=True, encoding="utf-8")
     if done.returncode != 0:
-        exc = _refuse("cast-refused", "`cast list -rbtv` refused: " + " ".join(done.stderr.split()),
+        exc = _refuse("cast-refused", "`cast list` refused: " + " ".join(done.stderr.split()),
                       "rbtv doctor")
         exc.unchanged = "Nothing was listed."
         raise exc

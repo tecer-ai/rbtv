@@ -351,10 +351,10 @@ def result_classes(ctx) -> None:
     text = _text_refusal(Refuse("name-unknown", "unknown name 'x'"))
     check("RC-sentence — the text refusal ends with 'Nothing was changed.'",
           text == "unknown name 'x'. Nothing was changed.", text)
-    listing = Refuse("not-a-folder", "no folder at /x")
+    listing = Refuse("cast-missing", "cast is not on PATH, so the agents cannot be listed.")
     listing.unchanged = "Nothing was listed."
     check("RC-sentence — a listing refusal says it listed nothing",
-          _text_refusal(listing) == "no folder at /x. Nothing was listed.",
+          _text_refusal(listing) == "cast is not on PATH, so the agents cannot be listed. Nothing was listed.",
           _text_refusal(listing))
 
     ws = tmp / "ws-result-classes"

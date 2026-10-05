@@ -618,7 +618,7 @@ core/build/capabilities/guides/agent.md in the rbtv source.
   remove AGENT NAME...  Remove units or a pack. The agent folder stays.
   configure AGENT       Change harness, model, effort or voice.
   update AGENT SCOPE    Make the folder match agent.json. Scope is required.
-  list [FOLDER]         List agents under .rbtv/agents/, or under FOLDER.
+  list [AGENT]          List the installation's agents, or AGENT in full.
 
 Shared options: --json  -h, --help
 Changes also accept --dry-run and --details.
@@ -836,7 +836,7 @@ rbtv — agent list help
 usage: rbtv agent list [-h] [--json] [AGENT]
 
 List the agents of this installation, or show one of them in full. The
-list is the one cast prints: this verb runs cast list -rbtv, so cast
+list is the one cast prints: this verb runs cast list --agents, so cast
 must be on PATH. It only reads. This verb takes no --target.
 
 With no AGENT: the agents in the installation's .rbtv/agents/, the
@@ -848,12 +848,10 @@ block with its whole description; a name is never cut. Alphabetical by
 name. No row limit. An agent that cannot be launched is named with the
 reason. No agent found is success.
 
-With AGENT: that agent in full, with its folder. AGENT is a name or a
-folder path, as for the other agent verbs. An agent that is not found
-is refused.
-
-The units and packs of an agent: rbtv list --installed --target FOLDER,
-with the agent's folder.
+With AGENT: that agent in full: its folder, its whole description, and
+the packs, skills, rules, commands, MCP servers and hooks installed in
+it, under the names rbtv show takes. AGENT is a name or a folder path,
+as for the other agent verbs. An agent that is not found is refused.
 
 positional arguments:
   AGENT                 the agent to show in full: a name under

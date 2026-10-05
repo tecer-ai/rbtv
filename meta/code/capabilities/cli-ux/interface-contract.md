@@ -16,6 +16,25 @@ Record every root command, group, leaf, alias, positional, and option. For each 
 
 Use a coverage matrix with a row per documented command path and columns for help positions, argument/value classes, ordinary/empty/failure output, structured mode, mutation, and applicable contexts. A command group has its own row. Pairwise or risk-based tests cover interacting options; a full cross-product is rarely useful. A coverage cell marked “not applicable” needs the reason.
 
+## Verbs, arguments, flags and options
+
+Every word after the program name is one of four kinds. Name the kind of each word in the inventory, and give it the form of its kind.
+
+- **Verb** (subcommand; a leaf or a group in the inventory): picks the action. A bare word, before any argument: `list` in `cast list`. A group is a verb that holds verbs: `agent` in `rbtv agent list`.
+- **Argument** (positional): the thing the action applies to. A bare value whose position gives it its meaning: `scout` in `spark list scout`.
+- **Flag**: a switch that changes how the action runs and takes no value: `--json`, `--dry-run`.
+- **Option**: a flag that takes one value: `--target FOLDER`. The value is required. An option whose value may be left out makes the next word ambiguous, so "all" and "one" are two words: a flag and an option (`--agents`, `--agent NAME`).
+
+A flag or an option is written in the form almost every command-line tool uses, the POSIX short form and the GNU long form:
+
+- **Long form: two dashes and a whole word**, with a hyphen between words: `--json`, `--dry-run`, `--target FOLDER`.
+- **Short form: one dash and ONE letter**: `-h`, `-p TEXT`. Use it only for what is typed often.
+- **NEVER a whole word after one dash** (`-models`). Under the standard it reads as several one-letter flags written together (`-m -o -d -e -l -s`), and a parser or a reader that follows the standard takes it that way.
+- `--` alone ends the flags and options: every word after it is an argument, even one that starts with a dash.
+- Names are lowercase, except a one-letter short form that needs both cases (`-s`, `-S`). One name means one thing on every verb of the tool.
+
+When a tool being created or edited holds a form outside this standard, record it in the inventory as nonconforming, with its callers. A new or changed word takes the standard form. Changing a form that callers already use breaks them, so it is an owner decision, made with the list of callers.
+
 ## Cover every result, not only help
 
 A command is used for what it prints when it runs, not only for its help. Alongside the coverage matrix, keep a separate finite result matrix: one row per verb — a leaf command that performs one operation — or per group of verbs sharing a result shape, and one column per outcome class. Read verbs cover success and a valid empty result. Mutation verbs cover success, no-op, and dry-run or preview where the product offers it. Any verb can meet partial completion, refusal, and failure. Each applicable cell specifies:

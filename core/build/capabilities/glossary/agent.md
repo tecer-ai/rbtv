@@ -48,7 +48,7 @@ Whoever launches an agent hands it its `agent.md` prompt as its instructions, th
 
 - **Through Slack**, when it is an Ignite agent: each message, or a timer, supplies the task.
 - **`spark AGENT`**: interactively, a person opens the agent. `spark list` shows the agents it can open. `spark` is a tool of the `cast` component.
-- **`cast -rbtv AGENT`**: launched by another agent, which passes the task. `cast list -rbtv` shows the agents it can launch.
+- **`cast -rbtv AGENT`**: launched by another agent, which passes the task. `cast list --agents` shows the agents it can launch.
 - **`cast -rogue FILE`**: a rogue agent: a prompt file with no folder that is not an rbtv agent, launched with `cast`'s inline arguments for harness, model, and effort.
 
 Ignite, `cast -rbtv` and `spark` all use the agent's own harness, model, and effort, as recorded in its `agent.json`. `rbtv agent configure` is the only command that changes them. `spark`, `cast -rbtv` and Ignite set `RBTV_AGENT_HOME` to the agent's folder; the Ignite commands that act for an agent, such as `ignite board`, `ignite remember` and `ignite manage`, use it.
