@@ -47,11 +47,21 @@ EXIT_VERDICT = 1  # ran fine, the meeting did not produce a summary
 EXIT_REFUSED = 2  # could not run
 
 # The durable settlement record. A meeting with a row here is FINISHED: it is
-# never re-asked and never re-noted. Rows are pure seam objects — the
+# never re-asked and never re-noted. The one job that still acts on a settled
+# meeting is an amendment (the `amend` branch of `run`). Rows are pure seam objects — the
 # per-meeting-outcome shape in `outcomes.jsonl`, the completion-record shape in
 # `completions.jsonl` — so this module invents no record of its own.
 OUTCOMES = "outcomes.jsonl"
 COMPLETIONS = "completions.jsonl"
+
+# Two run records of an `amend` job, each one file in the meeting's run folder,
+# beside publication's own record of the paths the sitting changed. Run records,
+# not seam objects. Each holds the sources it was written for:
+#   amended.json     the newest amendment was written from them, and is not written twice;
+#   left-alone.json  the filed summary was no longer at its path when they arrived, and
+#                    the owner was told so once.
+AMENDED_FILE = "amended.json"
+LEFT_ALONE_FILE = "left-alone.json"
 
 # The summarize -> channel handoff. One row per summary that was written AND
 # carries at least one doubt marker; the channel cycle reads this file and asks
@@ -213,6 +223,35 @@ def settled(state: Path, meeting_key: str) -> dict | None:
         if row.get("meeting-key") == meeting_key:
             return row
     return None
+
+
+def run_record(state: Path, job: dict, name: str) -> dict | None:
+    """The run record `name`, when it was written for every source this job names.
+
+    An `amend` job arrives for a meeting that is ALREADY settled and processed:
+    that is what makes it an amendment, so "has a settlement row" cannot answer
+    "is this job done". Detection hands the same job over every tick until the
+    processed record covers its sources; these records are what keep the same
+    thing from being done, or said, a second time in between. They compare
+    source kinds, as detection does when it decides that a meeting needs amending.
+    """
+    path = state / "runs" / job["meeting-key"] / name
+    if not path.is_file():
+        return None
+    record = read_json(path)
+    present = {source["source"] for source in job["source-set"]}
+    return record if present <= set(record.get("sources", [])) else None
+
+
+def write_run_record(state: Path, job: dict, name: str, destination: dict) -> None:
+    """Write the run record `name` for this job's sources. Whole file or none (os.replace)."""
+    path = state / "runs" / job["meeting-key"] / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    draft = path.with_name(path.name + ".tmp")
+    draft.write_text(json.dumps({
+        "sources": sorted({source["source"] for source in job["source-set"]}),
+        "summary": destination, "at": now_stamp()}) + "\n", encoding="utf-8")
+    os.replace(draft, path)
 
 
 def settle(state: Path, meeting_key: str, outcome: str, destination=None,
@@ -440,7 +479,7 @@ def artifact_kind(item: dict) -> str:
 
 def build_prompt(skill: str, transcript: Path | None, notes: list[Path], routed: dict,
                  checkout_root: Path, token: str, targets: dict,
-                 google: Path | None = None) -> str:
+                 google: Path | None = None, filed: Path | None = None) -> str:
     """The invocation text. Every line of it is addressing the skill's OWN gates.
 
     `google` is Google Meet's verbatim transcript split out of a Gemini notes
@@ -448,6 +487,11 @@ def build_prompt(skill: str, transcript: Path | None, notes: list[Path], routed:
     merged Tactiq/Meet transcript. Both None is a notes-only meeting (clause 19):
     the notes are the only source, and the summary must say so where a reader
     sees it. Every source is named for what it is, so the summary can too.
+
+    `filed` is the summary already filed for this meeting, on an amendment: a
+    further source arrived, and the summary is written again, whole, from every
+    source, at that same path (the job seam's `amend.summary`: "rewrite in
+    place — never a second file"). The placement lines give way to that path.
     """
     destination = routed["destination"]
     repo_root = checkout_root / destination["repo"]
@@ -488,7 +532,16 @@ def build_prompt(skill: str, transcript: Path | None, notes: list[Path], routed:
             "rename or write back to it.")
     # The summarizer writes the FINAL, discriminated name itself, so publication
     # files that very file and no undiscriminated draft is left behind.
-    if destination.get("placement") == "template":
+    if filed is not None:
+        lines += [f"A summary of this meeting is ALREADY FILED: {filed}",
+                  "A further source of the same meeting arrived after it was written. Write the "
+                  "summary again, whole, from ALL the sources named above, by your normal steps, "
+                  "and write it to that exact path, replacing its entire text. Do not keep, merge "
+                  "or patch the old text.",
+                  "Never a second file: no copy, no `-v2`, no dated sibling, no new name. Do not "
+                  "move or rename the filed file.",
+                  "Report that path under `SUMMARY:` and report `OUTCOME: amended`."]
+    elif destination.get("placement") == "template":
         target = repo_root / publish_job.discriminate(destination["path"], token, targets)
         lines += [f"Destination folder: {target.parent}",
                   f"Summary filename: {target.name}"]
@@ -533,10 +586,38 @@ def run(job: dict, *, artifacts: dict, config_root: Path, checkout_root: Path,
                        "meeting's set is already covered by a processed record"}
 
     already = settled(state, key)
-    if already:
+    amending = job.get("disposition") == "amend"
+    if already and not amending:
         return {**verdict, "action": "already-settled", "outcome": already["outcome"],
                 "why": "this meeting carries a settlement record; it is neither re-asked "
                        "nor re-noted"}
+    filed = None
+    if amending:
+        filed = (job.get("amend") or {}).get("summary")
+        if not filed:
+            refuse("the job's disposition is `amend` and it names no filed summary",
+                   "take the job from a detection tick: an `amend` job carries `amend.summary`")
+        if not (checkout_root / filed["repo"] / filed["path"]).is_file():
+            # Rewritten in place or not at all. A summary a person moved or renamed after
+            # it was filed is left as it is (owner ruling, 2026-10-05): writing to the
+            # recorded path would make the second file an amendment never makes. Nothing
+            # is started, and the owner is told once for these sources.
+            first = run_record(state, job, LEFT_ALONE_FILE) is None
+            if first:
+                write_run_record(state, job, LEFT_ALONE_FILE, filed)
+            return {**verdict, "action": "left-alone", "destination": filed,
+                    **({"first-report": True} if first else {}),
+                    "why": "a further source arrived for this meeting, and its filed summary is "
+                           "no longer at the path it was filed at (moved or renamed since): it "
+                           "is left as it is, and nothing was written"}
+        written = run_record(state, job, AMENDED_FILE)
+        if written:
+            destination = written["summary"]
+            return {**verdict, "action": "already-settled", "outcome": "amended",
+                    "awaiting-publication": True, "destination": destination,
+                    "summary-file": str(checkout_root / destination["repo"] / destination["path"]),
+                    "why": "the amendment from these sources is already written and settled: it "
+                           "waits for publication and is not summarized a second time"}
 
     # 1 · the bytes, and the two verdicts only the reader can give
     markers = config["artifact-kinds"]
@@ -613,7 +694,21 @@ def run(job: dict, *, artifacts: dict, config_root: Path, checkout_root: Path,
     # 5 · clause 6/7 — where it goes: facts first, then the owner's answer or the
     #     content, else ASKED. BEFORE any destination write.
     routed_job = job
-    routed = destination_resolver.resolve(job, config_root)
+    if filed:
+        # An amendment goes where the summary it amends is. The route is the settled
+        # one, a content pick included: it is never classified or asked a second time.
+        entity = publish_job.settled_content_entity(state, key)
+        if entity:
+            routed_job = {**job, "content-entity": entity}
+    routed = destination_resolver.resolve(routed_job, config_root)
+    if filed and (routed["kind"] != "routed" or routed["destination"]["repo"] != filed["repo"]):
+        now_in = routed["destination"]["repo"] if routed["kind"] == "routed" else "no destination"
+        bus.emit({"kind": "failure-event", "scope": "meeting", "meeting-key": key,
+                  "cause": f"a further source arrived for the summary filed at "
+                           f"{filed['repo']}:{filed['path']}, and the meeting now routes to "
+                           f"{now_in}: an amendment does not move a summary",
+                  "at": now_stamp()})
+        return {**verdict, "action": "amend-unroutable", "messages": 1, "outcome": "failed"}
     choices = destination_resolver.content_routes(config_root) if routed["kind"] != "routed" else []
     answered = owner_named_entity(bus, key, choices)
     if answered:
@@ -644,7 +739,8 @@ def run(job: dict, *, artifacts: dict, config_root: Path, checkout_root: Path,
     token = publish_job.discriminator(job, targets, destination_resolver.load_routing(config_root))
     prompt = build_prompt(skill_for(routed["entity"], config["skill-bindings"]),
                           transcript_path, note_paths, routed, checkout_root, token, targets,
-                          google=google_path)
+                          google=google_path,
+                          filed=checkout_root / filed["repo"] / filed["path"] if filed else None)
     repo_root = checkout_root / routed["destination"]["repo"]
     # Only a clone the workflow OWNS: in a shared vault a peer's concurrent write
     # would land in the diff, so there only publication's own paths are committed.
@@ -673,15 +769,26 @@ def run(job: dict, *, artifacts: dict, config_root: Path, checkout_root: Path,
     destination = {"repo": routed["destination"]["repo"],
                    "path": relative_to_repo(written, checkout_root,
                                             routed["destination"]["repo"])}
-    settle(state, key, reported["OUTCOME"], destination, routed_job.get("content-entity"))
+    if filed and destination["path"] != filed["path"]:
+        bus.emit({"kind": "failure-event", "scope": "meeting", "meeting-key": key,
+                  "cause": f"the amendment was written to {destination['path']} and the filed "
+                           f"summary is {filed['path']}: an amendment never makes a second file",
+                  "at": now_stamp()})
+        return {**verdict, "action": "summarize-failed", "messages": 1,
+                "outcome": "failed", "skill-report": reported}
+    settled_as = "amended" if filed else reported["OUTCOME"]
+    settle(state, key, settled_as, destination, routed_job.get("content-entity"))
+    if filed:
+        write_run_record(state, job, AMENDED_FILE, destination)
     handoff = hand_off_doubts(state, seams, meeting_key=key, entity=routed["entity"],
                               work=work,
                               transcript=transcript_path or google_path or note_paths[0],
                               destination=destination, summary_path=written)
     return {**verdict, "action": "summarized", "wrote-summary": True, "settled": True,
-            "outcome": reported["OUTCOME"], "destination": destination,
+            "outcome": settled_as, "destination": destination,
             "skill-report": reported, "summary-file": written,
-            "doubts-handed-off": len(handoff["marker"]["doubts"]) if handoff else 0}
+            "doubts-handed-off": len(handoff["marker"]["doubts"]) if handoff else 0,
+            **({"awaiting-publication": True} if filed else {})}
 
 
 def relative_to_repo(written: str, checkout_root: Path, repo: str) -> str:

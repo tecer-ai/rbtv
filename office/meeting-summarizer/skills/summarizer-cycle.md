@@ -118,9 +118,26 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
      writes the actual summary in the summarizer skill's own format — you do not read the
      transcript yourself and you do not draft any part of the summary. Read the JSON verdict this
      command prints: the action it took, the outcome, and whether a doubts handoff row landed.
+   - A job whose disposition is `amend` is a meeting whose summary is already filed and for which
+     a further source has arrived since. Run it exactly the same way: the call has the filed
+     summary written again, whole, at its own path. Its verdict then carries
+     `"awaiting-publication": true`, on the run that writes it (`action: summarized`, `outcome:
+     amended`) and on every later run (`action: already-settled`) until step 5 has filed it; the
+     call never has the same amendment written twice.
+   - A verdict `action: left-alone` means the filed summary of that meeting is no longer at the
+     path it was filed at: a person moved or renamed it. By owner ruling it is left as it is. The
+     call wrote nothing and will write nothing. This is not a failure and not a refusal: never
+     report it as one, never search for the file, never edit the summary or any record yourself,
+     and never run step 5 for that meeting. Its only consequence is in step 7, and only when the
+     verdict carries `"first-report": true`.
 
-5. **File every settled meeting.** For each meeting whose outcome is `filed` or `amended` in
-   `outcomes.jsonl` and that carries no row yet in `processed-transcripts.jsonl`, run:
+5. **File every settled meeting.** Two kinds of meeting are due: (a) each meeting whose outcome is
+   `filed` or `amended` in `outcomes.jsonl` and that carries no row yet in
+   `processed-transcripts.jsonl`; (b) each meeting whose per-meeting job in step 4 answered
+   `"awaiting-publication": true` — an amendment: that meeting HAS rows in
+   `processed-transcripts.jsonl`, from its first filing, and they do not cover the source that
+   arrived since. A meeting with rows there whose verdict does NOT carry that field is not due:
+   never run `cycle` for it. For each due meeting, run:
    `python3 <tools>/publish_job.py precheck --job <scratch>/jobs/<meeting-key>.json --config-root <agent-home>/config --checkout-root <checkout root> --state <state>`
    then, only if the precheck does not refuse:
    `python3 <tools>/publish_job.py cycle --job <scratch>/jobs/<meeting-key>.json --summary <the summary file the verdict named> --config-root <agent-home>/config --checkout-root <checkout root> --state <state>`
@@ -161,8 +178,16 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
    conversation; a scheduled wake of an already-created agent always continues its own conversation).
    - Nothing filed, nothing applied, nothing newly open: `replies: []`, `disposition: completed`.
      A quiet cycle is a correct cycle — never manufacture a status update.
-   - Something filed and/or an answer was applied, with no doubt or routing question open: report it
-     plainly (load the `slack-message-format` skill first), `disposition: completed`.
+   - Something filed or amended and/or an answer was applied, with no doubt or routing question
+     open: report it plainly (load the `slack-message-format` skill first), `disposition:
+     completed`. A summary amended because a further source arrived is reported as such: the
+     meeting, and that its filed summary was written again from every source.
+   - A `left-alone` verdict that carries `"first-report": true` is told to the owner ONCE, in this
+     cycle's report, with nothing asked: the meeting, the path its summary was filed at, that a
+     further source arrived, and that the summary was not changed because it is no longer at that
+     path. A `left-alone` verdict without that field was already told: it is silence, it is not
+     "something filed", and by itself it leaves the cycle a quiet one (`replies: []`,
+     `disposition: completed`).
    - A doubt OR a routing question is open (whether or not something also filed this cycle): report
      what filed, THEN ask every open item in the SAME grouped message — each doubt (term, guess,
      meeting) and each routing question (meeting title, the declared entity choices from
@@ -187,7 +212,9 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
 - `artifact-bindings` (`artifact_bindings.py`) — downloads every Drive reference the pending job set
   names, once, into a shared `bindings.json`.
 - `per-meeting-job` (`per_meeting_job.py`) — runs ONE meeting through the summarizer skill (via its
-  own nested, unattended `cast` call) and records the settlement and any doubt.
+  own nested, unattended `cast` call) and records the settlement and any doubt. For an `amend` job
+  it has the filed summary written again at its own path, and says when that waits for filing; a
+  filed summary that is no longer at its path it leaves alone, and says so once.
 - `publish-job` (`publish_job.py`) — `precheck` then `cycle` files, commits and pushes one settled
   meeting. Reads the latest `content-entity` row in `outcomes.jsonl` per meeting — a routing answer
   you settle there (step 1b) is what a retried `precheck` resolves against.

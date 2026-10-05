@@ -228,8 +228,14 @@ gate that cannot be decided ends the job with `OUTCOME: failed`, never with a wa
    it proposes, then report the count. Accepting is not skipping: a gate reported as "skipped",
    "deferred" or "left for the owner" is a failure of this step. This gate lives in the destination
    repo's CLAUDE.md, not in this workflow, which is why it is named here explicitly.
-5. **Re-run safety.** If the summary file already exists, amend it in place (`## Amendment Mode`)
-   rather than writing a second file.
+5. **Re-run safety.** A meeting whose summary exists never gets a second file.
+   - **A further source arrived.** The invocation says so and names the summary already filed.
+     Write the summary again, whole, from ALL the sources the invocation names, by the steps
+     above, and write it to that exact path, replacing its entire text. Do not keep, merge or
+     patch the old text, and do not move or rename the file. Report that path under `SUMMARY:`
+     and report `OUTCOME: amended`.
+   - **Otherwise**, if the summary file already exists, amend it in place (`## Amendment Mode`)
+     rather than writing a second file.
 6. **Report**, as the last thing emitted, replacing Step 7's conversational report:
 
    ```
