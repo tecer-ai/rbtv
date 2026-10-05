@@ -608,3 +608,50 @@ def test_a_late_tactiq_transcript_pairs_by_name_within_the_hour():
     sets = mm.pair([first, second, t1, t2], [], TZ)[0]
     members = sorted(sorted(r["drive-ref"] for r in s["source-set"]) for s in sets)
     assert members == [["a", "c"], ["b", "d"]]
+
+
+# ── the command line, as the cycle skill writes it ──────────────────────────────────────
+
+SKILL = TOOLS.parent / "skills" / "summarizer-cycle.md"
+VERBS = (["tick"], ["schedule"], ["retry", "--meeting-key", "EXAMPLE-key"], ["status"], ["keys"])
+SHARED = ["--config-dir", "EXAMPLE-config", "--fixture", "EXAMPLE-listing.json",
+          "--source-map", "EXAMPLE-map.json"]
+
+
+def _skill_commands() -> list[list[str]]:
+    """Every detection_cycle command line the cycle skill gives: its words after the program."""
+    marker = "`python3 <tools>/detection_cycle.py "
+    return [line.split(marker, 1)[1].split("`", 1)[0].split()
+            for line in SKILL.read_text(encoding="utf-8").splitlines() if marker in line]
+
+
+def test_the_command_the_cycle_skill_gives_is_one_the_tool_accepts(config_dir):
+    """The agent runs the line the skill gives, word for word; the tool must take it."""
+    commands = _skill_commands()
+    assert commands, "the cycle skill gives no detection_cycle command line, so nothing was checked"
+    for words in commands:
+        words = [str(config_dir) if word == "<agent-home>/config" else word for word in words]
+        args = dc._parser().parse_args(words)
+        assert args.op in {verb[0] for verb in VERBS}
+        assert args.config_dir == str(config_dir)
+
+
+@pytest.mark.parametrize("verb", VERBS, ids=lambda verb: verb[0])
+def test_every_verb_takes_the_shared_options_after_it_and_before_it(verb):
+    """After the verb is how this component's commands are written; before it stays accepted."""
+    for words in (verb + SHARED, SHARED + verb):
+        args = dc._parser().parse_args(words)
+        assert (args.op, args.config_dir, args.fixture, args.source_map) == \
+            (verb[0], "EXAMPLE-config", "EXAMPLE-listing.json", "EXAMPLE-map.json")
+    bare = dc._parser().parse_args(verb)
+    assert (bare.config_dir, bare.fixture, bare.source_map) == (None, None, None)
+
+
+def test_the_command_line_runs_a_verb_with_its_options_after_it(config_dir):
+    """Through the real command line, with a verb that only reads."""
+    done = subprocess.run(
+        [sys.executable, str(TOOLS / "detection_cycle.py"), "keys", "--config-dir", str(config_dir)],
+        capture_output=True, text=True, encoding="utf-8")
+    assert done.returncode == 0, done.stderr
+    stores = json.loads(done.stdout)
+    assert stores and all(Path(path).is_relative_to(config_dir.parent) for path in stores.values())

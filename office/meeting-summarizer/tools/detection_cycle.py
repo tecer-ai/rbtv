@@ -821,14 +821,24 @@ def _env_for(args) -> Env:
     return load_env(config_dir, source_map=source_map, account_emails=emails)
 
 
-def main(argv: list[str] | None = None) -> int:
+def _shared_options(target, default=None) -> None:
+    """The options every verb takes. They are accepted after the verb, the way this component's
+    commands are written (`tick --config-dir DIR`), and before it. After the verb their default
+    is SUPPRESS, so a verb never overwrites a value given before it."""
+    target.add_argument("--config-dir", default=default,
+                        help="the config-module home (default: this component's)")
+    target.add_argument("--fixture", default=default,
+                        help="a fixture Drive listing; omit to poll live Drive")
+    target.add_argument("--source-map", default=default,
+                        help="a source map to poll (default: the grounded one)")
+
+
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="detection_cycle",
         description="The detection tick: one poll, meetings, dispositions, single-flight, park.",
     )
-    parser.add_argument("--config-dir", help="the config-module home (default: this component's)")
-    parser.add_argument("--fixture", help="a fixture Drive listing; omit to poll live Drive")
-    parser.add_argument("--source-map", help="a source map to poll (default: the grounded one)")
+    _shared_options(parser)
     sub = parser.add_subparsers(dest="op", required=True)
 
     tick = sub.add_parser("tick", help="run one detection tick")
@@ -841,10 +851,16 @@ def main(argv: list[str] | None = None) -> int:
     retry = sub.add_parser("retry", help="the owner's answer that un-parks one meeting")
     retry.add_argument("--meeting-key", required=True)
 
-    sub.add_parser("status", help="the watermark, the meetings, the parked jobs")
-    sub.add_parser("keys", help="the config keys this cycle reads and the files they name")
+    status = sub.add_parser("status", help="the watermark, the meetings, the parked jobs")
+    keys = sub.add_parser("keys", help="the config keys this cycle reads and the files they name")
 
-    args = parser.parse_args(argv)
+    for verb in (tick, schedule, retry, status, keys):
+        _shared_options(verb, argparse.SUPPRESS)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
 
     try:
         env = _env_for(args)
