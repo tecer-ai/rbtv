@@ -32,7 +32,7 @@ For named records, `name` equals the file stem; folder instructions have no `nam
 
 An agent's folder, prompt name and record name must agree. Shipped component records cannot name `harness`, `model` or `effort`. The obsolete source folder `sub-agents/` is refused; use the agent folder format.
 
-A self-contained mirror skill is the exception: `.rbtv/mirror/_skills/<name>/SKILL.md`. It is recognized only there, requires a frontmatter block and is not checked against the skill schema; extra keys are retained.
+A self-contained mirror skill is the exception: `.rbtv/mirror/_skills/<name>/SKILL.md`. It is recognized only there, requires a frontmatter block and is not checked against the skill schema; extra keys are retained. Its folder name cannot start with the reserved `rbtv-` prefix.
 
 ## What is generated
 
@@ -92,6 +92,7 @@ Edit the source, then choose the refresh that reaches the reader:
 | Rule body or component folder-instruction section | Add or scaffolding regeneration; a hand edit inside generated markers is lost. |
 | Maintained folder instruction file's copy under the other harness name | `rbtv update guidance`. It rebuilds no pointer or managed section; with guidance `none` it can succeed without writing anything. |
 | Both scaffolding and guidance | `rbtv update all`, in that order. |
+| Mirror replacement added or removed while the repository still supplies that component | `rbtv update all`; inspect the selected source and resulting files. |
 | Agent's generated scaffolding | `rbtv agent update AGENT scaffolding` or `rbtv agent update AGENT all`. |
 
 The installer owns `.rbtv/config/install.json`. If that record or an agent's `agent.json` is edited, scaffolding or all applies its settings. Test refreshes in an isolated installation: change a description, confirm guidance alone leaves the listing unchanged, then confirm scaffolding updates it. This distinguishes a successful invocation from the intended reader actually receiving the change.

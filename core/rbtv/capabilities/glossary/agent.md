@@ -21,6 +21,8 @@ Write the prompt using [Prompt](prompt.md). A shipped record contains no harness
 
 A managed folder may be at an explicit path. A name without a path resolves under `.rbtv/agents/`. For an rbtv-agent placement, the installer supplies missing launch settings and a generated pointer to the prompt in folder instructions.
 
+When sharing a managed agent folder through git, track its prompt, record and any memory or board it maintains. Keep machine-local [settings](settings-json.md) and harness session data out of that shared content; regenerate harness files in each installation.
+
 ## Build the agent
 
 Identify the work that needs separate context and two tasks the same prompt must support. Use the user's stated purpose rather than inventing a reason for delegation. If the work can stay in the caller and needs no standing function, revisit [Choosing what to build](../choosing-what-to-build.md).

@@ -1,3 +1,9 @@
 # `mirror/`
 
-The `.rbtv/mirror/` folder for components local to this rbtv installation, whether written here or imported. rbtv scans it alongside components shipped in the rbtv repository. A new local component is added to those available; when a local and shipped component have the same module and component name, the local component replaces the shipped one as a whole. Their files are not merged. The selected component is installed through the same exposure process as a shipped component. Local components use rbtv's format. The mirror also contains [self-contained skills](self-contained-skill.md) in `_skills/`; that folder exists only in the mirror, never in the rbtv repository.
+`.rbtv/mirror/` holds component source local to one installation. rbtv scans it alongside repository source and installs its selected files through the same process.
+
+Use [Choosing where to build](../choosing-where-to-build.md) to settle whether the source belongs here. Write a local component with the [Component](component.md) layout. For an imported or shareable skill that keeps its own supporting files, follow [Self-contained skill](self-contained-skill.md) instead.
+
+Follow Choosing where to build’s identity rule for additions and whole-component replacements. For a replacement, include the files its users still need and make every omission intentional. Scanner acceptance validates recognized records and files, not whether the replacement preserves users’ work; [rbtv CLI](rbtv-cli.md) owns those checks.
+
+Edit the mirror source and apply the required refresh. While the replacement is active, check the selected source and installed files: an omitted file must not reappear merely because the repository component contains it. To stop replacing that component, remove its mirror component and refresh; check that the repository source is selected again.

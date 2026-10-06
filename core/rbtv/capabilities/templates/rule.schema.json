@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "rule frontmatter",
-  "description": "The frontmatter of a rule file, which rbtv reads and validates. The file's body follows the template rule.md.",
+  "description": "discovery.py validates rule frontmatter with this schema. Authoring and the body template are in ../glossary/rule.md.",
   "type": "object",
   "required": [
     "name",
@@ -17,7 +17,7 @@
     "description": {
       "type": "string",
       "minLength": 1,
-      "description": "First sentence: what every agent that receives the rule does on every task. No situations, and no task it skips."
+      "description": "Installation-selection description; follow ../glossary/rule.md to write it."
     }
   }
 }

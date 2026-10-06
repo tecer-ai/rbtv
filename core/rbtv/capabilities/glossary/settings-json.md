@@ -1,5 +1,19 @@
 # `settings.json`
 
-The file in an [rbtv agent](agent.md#rbtv-agent)'s folder that contains values specific to that agent's job, such as the sources it works from. The agent reads it when a task needs one of them, so it is a [cognitive unit](cognitive-unit.md). Its contents depend on the agent, but its layout follows one convention: one top-level key per tool or concern, such as `slack` or `sources`, with the paths written relative to the installation root, and no secrets. A secret, such as a token, is named by the environment variable that contains it, as in [configuration](config.md). Its [template](../templates/settings-json.md) shows that convention. The file is one file in the agent's folder, not a folder of files.
+`settings.json` holds the job-specific values an agent’s tasks use, beside `agent.md` and [agent.json](agent-json.md). It is configuration data, not a [cognitive unit](cognitive-unit.md).
 
-The file is not shared through git. The agent's `agent.md`, `agent.json`, `memory/` folder, and `_artifacts/board.md` are tracked instead.
+Add a value when a current task needs it and it changes independently of the prompt. Do not repeat a value already owned by the prompt, agent record or another configuration file. Group values by tool or concern, with one top-level key for each.
+
+Write paths relative to the installation root. For secrets, store the environment-variable name the consumer expects, not the value; [Config](config.md) routes to the value store. Keep this machine’s settings out of git rather than assuming the installer excludes them automatically. Follow [Agent](agent.md) when sharing the folder’s other content.
+
+rbtv creates an empty object when the file is missing and preserves an existing file during agent updates. Edit the settings here and verify them through a task or tool that consumes them. The file remains one record; do not split it into a folder of settings files.
+
+Use the consumer’s required JSON type for each value:
+
+```text
+{
+  "<tool-or-concern>": {
+    "<setting>": <value>
+  }
+}
+```

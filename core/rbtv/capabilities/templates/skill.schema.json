@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "skill frontmatter",
-  "description": "The frontmatter of a skill file, which rbtv reads and validates. The file's body follows the template skill.md.",
+  "description": "discovery.py validates skill frontmatter with this schema. Authoring and the body template are in ../glossary/skill.md.",
   "type": "object",
   "required": [
     "name",
@@ -17,7 +17,7 @@
     "description": {
       "type": "string",
       "minLength": 1,
-      "description": "First sentence enough to decide whether to open the skill; then the situations that should open it, including one that does not use the skill's name, and one similar task that must not."
+      "description": "Task-selection description; follow ../glossary/skill.md to write it."
     }
   }
 }

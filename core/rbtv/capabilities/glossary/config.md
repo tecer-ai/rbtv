@@ -1,3 +1,11 @@
 # `config/`
 
-The `.rbtv/config/` folder for all user-specific configuration that rbtv and its modules and components need to run in this installation, including the installation root's record, [`install.json`](install-json.md). A component keeps its configuration in a folder named after it, such as [`config/ignite/`](ignite-config.md). An rbtv agent's own record and settings stay in its [agent folder](agent.md#rbtv-agent), and local components stay in [`mirror/`](mirror.md). A configuration file names the environment variable that contains a secret, such as a token, never the secret itself.
+`.rbtv/config/` holds one installation’s settings and its root [installation record](install-json.md). A component keeps its configuration under a folder named for that component, such as [Ignite configuration](ignite-config.md).
+
+Put component settings here when they belong to the installation. An agent’s own [settings](settings-json.md) and record stay in its agent folder; local component source belongs in [mirror/](mirror.md), and operational data belongs in [runtime/](runtime.md).
+
+Follow the component’s instructions to edit its configuration. Change installation selections and apply them as Installation record specifies; rbtv maintains the generated-file ownership fields. An update does not turn every file in this folder into generated data.
+
+Configuration records name the environment variable supplying a secret instead of copying its value. The installation’s [environment file](environment-file.md) is a separate value store; use that entry when a component reads values from it.
+
+Check the setting through the component that consumes it. For installation selections, inspect the generated files and diagnostics specified by Installation record.
