@@ -30,7 +30,7 @@ Do not put one task's filenames or one machine's absolute paths here. This secti
 
 ### Procedure
 
-Write the standing method in execution order. State branch conditions, actions and missing-input behavior. Put exact checks and their tools here, not in Constraints. When another task consumes a result, name the file or record it can read without retaining this agent.
+Write the standing method in execution order. State branch conditions, actions and missing-input behavior. Order steps that change the same file or record. Put exact checks and their tools here, not in Constraints. When another task consumes a result, name the file or record it can read without retaining this agent.
 
 Read a capability at the step that needs it instead of copying its method. Capability paths start at the repository root or `.rbtv/`, so rbtv can derive a path for both copied and source-read prompts. Workspace navigation and capability source paths have different bases; label them accordingly.
 

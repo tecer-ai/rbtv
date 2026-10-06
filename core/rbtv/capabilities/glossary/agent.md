@@ -1,6 +1,6 @@
 # Agent
 
-An agent is a model, a harness and scaffolding launched with a task. Scaffolding includes the prompt and other material the agent receives; the harness itself is not scaffolding.
+An agent is a model, a harness and scaffolding launched with a task. [Scaffolding](scaffolding.md) includes the prompt and other material the agent receives; the harness itself is not scaffolding.
 
 Use an agent when work needs a separate context and a standing prompt must support different tasks. The description must let a caller select the agent and supply its task without first reading the prompt.
 

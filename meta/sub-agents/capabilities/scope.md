@@ -10,7 +10,7 @@ It keeps this task's boundary closed, so a reviewer can classify any action as i
 
 - A reviewer who has not seen the conversation classifies any candidate action as in or out. "Related files" fails.
 - Examine and may-change are separate closed lists of named files, folders, or records.
-- No sentence is true of every task of this agent. Standing remit stays in the [role](../../../core/rbtv/capabilities/glossary/role.md); standing limits stay in [constraints](../../../core/rbtv/capabilities/glossary/constraints.md). ([Single source of truth](../../../core/rbtv/capabilities/principles/single-source-of-truth.md))
+- No sentence is true of every task of this agent. Standing remit stays in the [role](../../../core/rbtv/capabilities/glossary/prompt.md#role); standing limits stay in [constraints](../../../core/rbtv/capabilities/glossary/prompt.md#constraints). ([Single source of truth](../../../core/rbtv/capabilities/principles/single-source-of-truth.md))
 - It bounds one purpose. Two results that can be judged apart are two tasks. ([Micro agency](../../../core/rbtv/capabilities/principles/keep-it-stupidly-simple.md))
 - It states no completion check. That check is the [done contract](done-contract.md). ([Single source of truth](../../../core/rbtv/capabilities/principles/single-source-of-truth.md))
 - A sentence whose removal still leaves every action classifiable is absent. ([Keep it simple](../../../core/rbtv/capabilities/principles/keep-it-stupidly-simple.md))
