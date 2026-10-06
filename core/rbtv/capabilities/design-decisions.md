@@ -1,6 +1,6 @@
 # Installer design decisions
 
-These are the installer decisions in force. The installer code is the authority for behavior. The [building decisions](../decisions.md) own decisions about rbtv as a whole; the [overview](rbtv.md), glossary, and schemas own the source and record formats.
+These are the installer decisions in force. The installer code is the authority for behavior. The [building decisions](../decisions.md) own decisions about rbtv as a whole; the [overview](../skills/framework.md), glossary, and schemas own the source and record formats.
 
 ## D1 — Installer placement
 
@@ -8,7 +8,7 @@ The installer is the `core/rbtv` component. Its tool has a small `install.py` en
 
 ## D2 — Component source shape
 
-The installer discovers modules and components through their named JSON records and reads units from their folders. The definition and layout belong to the [overview](rbtv.md#folder-structure), [component glossary](glossary/component.md), and [component schema](templates/component-json.schema.json).
+The installer discovers modules and components through their named JSON records and reads units from their folders. The definition and layout belong to the [overview](../skills/framework.md), [component glossary](glossary/component.md), and [component schema](templates/component-json.schema.json).
 
 ## D3 — Source trees and precedence
 
@@ -16,7 +16,7 @@ The installer scans its fixed repository root and the target's `.rbtv/mirror/` t
 
 ## D4 — Receiving harnesses
 
-The installer accepts `claude`, `codex`, and `opencode` as receiving harnesses. CLI changes require a nonempty supported set; a saved component record with no supported harness refuses on load. One supported set keeps the installed files and guidance copies consistent. The product's harness choice belongs to the [overview](rbtv.md).
+The installer accepts `claude`, `codex`, and `opencode` as receiving harnesses. CLI changes require a nonempty supported set; a saved component record with no supported harness refuses on load. One supported set keeps the installed files and guidance copies consistent. The product's harness choice belongs to the [overview](../skills/framework.md).
 
 ## D5 — Install record
 
@@ -36,7 +36,7 @@ The installer recomputes claims in harness settings and instruction files from t
 
 ## D8 — Rules and folder instructions
 
-Claude Code receives a marked full rule file in `.claude/rules/`; Codex and OpenCode receive each rule's full body in a labeled section of root `AGENTS.md`. A component's `folder-instructions/` file becomes a labeled section in the target folder's guidance file for each selected harness. The installer also raises Codex's project document limit in `.codex/config.toml` when an installed component targets Codex. These forms keep rules present and let several components contribute to one guidance file while preserving authored text. The source kinds and folders belong to the [overview](rbtv.md#folder-structure).
+Claude Code receives a marked full rule file in `.claude/rules/`; Codex and OpenCode receive each rule's full body in a labeled section of root `AGENTS.md`. A component's `folder-instructions/` file becomes a labeled section in the target folder's guidance file for each selected harness. The installer also raises Codex's project document limit in `.codex/config.toml` when an installed component targets Codex. These forms keep rules present and let several components contribute to one guidance file while preserving authored text. The source kinds and folders belong to the [overview](../skills/framework.md).
 
 ## D13 — Guidance copies
 

@@ -4,11 +4,11 @@ A [mirror component](../glossary/mirror.md) is a component local to this install
 
 ## Purpose
 
-It supplies a component rbtv does not ship, or replaces a shipped component entirely. A partial copy does not patch a shipped one: their files are not merged. Whether the work belongs in a shipped component is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md#2-choose-a-component>).
+It supplies a component rbtv does not ship, or replaces a shipped component entirely. A partial copy does not patch a shipped one: their files are not merged. Whether the work belongs in a shipped component is in [Choosing what to build](../choosing-what-to-build.md).
 
 ## What good looks like
 
-- A mirror component holds what belongs to this installation only: a personal workflow, an installation-specific value, or an experiment. A generally useful rbtv-format unit belongs in the rbtv repository; a shareable standard skill belongs in the mirror as a [self-contained skill](../glossary/self-contained-skill.md) ([Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md#2-choose-a-component>)).
+- A mirror component holds what belongs to this installation only: a personal workflow, an installation-specific value, or an experiment. A generally useful rbtv-format unit belongs in the rbtv repository; a shareable standard skill belongs in the mirror as a [self-contained skill](../glossary/self-contained-skill.md) ([Choosing what to build](../choosing-what-to-build.md)).
 - The same module and component name is a deliberate full replacement. Any other name is a new component ([Terminology is king](../principles/terminology-is-king.md)).
 - It is not a partial copy meant to patch the shipped component ([Single source of truth](../principles/single-source-of-truth.md)).
 - For a replacement, every cognitive unit and capability users of the shipped component rely on is present, or its absence is intentional. rbtv checks only that [`<component>.json`](component-json.md) exists.

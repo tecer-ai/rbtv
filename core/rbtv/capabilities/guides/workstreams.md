@@ -4,7 +4,7 @@
 
 ## Purpose
 
-It lets an agent see what is active without opening every board. Without it, planning has no single map, or the map copies state that goes stale. Which kind of unit to build is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>). Do not add a second map.
+It lets an agent see what is active without opening every board. Without it, planning has no single map, or the map copies state that goes stale. Which kind of unit to build is in [Choosing what to build](../choosing-what-to-build.md). Do not add a second map.
 
 ## What good looks like
 

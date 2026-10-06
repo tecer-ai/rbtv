@@ -1,4 +1,4 @@
 {
-  "description": "Builds and manages rbtv itself: the `rbtv` command, which manages what an installation or an agent is exposed to, and the skill and documentation (glossary, guides, templates, principles) for building any rbtv unit.",
+  "description": "Builds and manages rbtv itself: the `rbtv` command, which manages what an installation or an agent is exposed to, and the `framework` skill with its glossary, principles and capabilities for building any file of rbtv.",
   "dependencies": []
 }

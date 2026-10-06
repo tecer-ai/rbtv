@@ -4,7 +4,7 @@ A [profile](../glossary/profile.md) is the facts about the owner that should sha
 
 ## Purpose
 
-It keeps those facts in the window on every turn, so an agent does not rediscover them. Without it, a standing constraint is missing or buried in a note the turn did not open. Which kind of unit to build is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>). Do not add a second always-loaded biography.
+It keeps those facts in the window on every turn, so an agent does not rediscover them. Without it, a standing constraint is missing or buried in a note the turn did not open. Which kind of unit to build is in [Choosing what to build](../choosing-what-to-build.md). Do not add a second always-loaded biography.
 
 ## What good looks like
 

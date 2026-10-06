@@ -1,16 +1,55 @@
 # Exposure method
 
-The way a component makes instructions or an agent definition available through a harness:
+An exposure method is how the content of a capability¹ reaches an agent. In rbtv the exposure methods are a skill, a command, a rule and folder instructions, and no other file. Every exposure method is an entry point, and the page "Entry point"² says what such a file contains and how its body is written. Outside rbtv that grouping is not used. A skill, a command, a rule, folder instructions, an agent, a hook and an MCP server are separate ways to extend an agent. In Claude Code a person can invoke a skill by typing its name, the same way as a command, and a command file works the same way as a skill.
 
-- [Skill](skill.md): chosen by an agent.
-- [Rule](rule.md): always presented to an agent.
-- [Command](command.md): invoked by a human.
-- [Harness-native sub-agent](agent.md#harness-native-sub-agent): a file in a harness's own sub-agent format, shipped in `sub-agents/` and called through that harness's own tool.
-- [Hook](hook.md): a command the harness runs when an event happens.
-- [MCP server](mcp-server.md): a program that offers the agent extra actions.
+A skill reaches the agent when the agent matches its description, before the agent has read the body. The program copies that description into the file that the harness shows, and the body of that file tells the agent to read the source. Claude Code also allows a person to type the skill's name, and it treats a command file the same way as a skill. rbtv does not use that path for a skill: a person who types a name uses a command. OpenCode shows the name and the description, and the agent loads the skill when it needs the content. A command reaches the agent when a person invokes its name, before the agent has read the body. On Codex the installed file has no description, only the instruction to read the source, so the name is what the person has. A rule reaches the agent because the rule is installed, on every task of every agent that has the rule, and the agent does not choose it. The program copies the rule for Claude Code, and Claude Code loads that text at the start of the session. For Codex and OpenCode the program places the body, without the frontmatter, in the root instructions file, which those harnesses load on every turn. The load is not the action. Folder instructions reach the agent because of the folder, only as far as the harness loads that folder's file. The program places the body, not the frontmatter, in that file. Claude Code loads a root file at the start of the session, and a file in a subdirectory when it reads a file there. Codex reads the instructions files from the project root down to the working directory at the start of a run, and stops when their combined size reaches the limit the program sets.
 
-An rbtv agent shipped in a component's `agents/<name>/` folder is not an exposure method of the receiving harness. The [`rbtv` command](rbtv-command.md) places it in `.rbtv/agents/` and manages it there as an agent.
+An agent is not an exposure method, in either placement. A hook, an MCP server and a tool are not exposure methods. A prompt is not an exposure method, and it is not an entry point. A step of its procedure may still send the agent to a capability.
 
-Hooks and MCP servers are not cognitive units; the `rbtv` command translates each into the harness's own settings.
+An exposure method lets a capability reach the agent on the task where the work needs it, and keeps the capability absent on a task where the work does not need it. An author wants one when a capability has no way to reach an agent, or reaches an agent through a file that lets the wrong party decide. The page "Choosing what to build"³ decides which of the four to write, and reads this page for who decides for each. Write an exposure method for the party who decides for that kind, the party who can make the capability arrive.
 
-Instructions that reach an agent because it works in a folder are [folder instructions](folder-instructions.md), not an exposure method. The folder a skill, rule, command, harness-native sub-agent, hook, or MCP server sits in (`skills/`, `rules/`, `commands/`, `sub-agents/`, `hooks/`, or `mcp-servers/`) decides its exposure method. Executable [tools](tool.md), kept in `capabilities/tools/`, are installed on [`PATH`](path.md); harness exposure can also instruct agents about them.
+## How it fails
+
+The program can accept a skill, a command, a rule or folder instructions, and the capability can still fail to reach the agent, because the program does not read which party the file lets decide.
+
+- The file is written for a party that the kind does not give the decision to. A skill written as a name a person types does not open, because the agent matches the description and may never type the name. A rule whose full text only some tasks need crowds every task, because that text is already loaded. Folder instructions written for every task miss the tasks that never enter the folder, because they arrive only as far as the harness loads that folder's file. A command whose needed facts are only in the body asks for them too late, because the person has already invoked.
+- The capability is exposed through an agent, a hook, an MCP server or a tool. The program installs those. The capability's text does not arrive by a skill, a command, a rule or folder instructions.
+
+## What it is composed of
+
+The author writes no file named for an exposure method. The exposure method is a skill, a rule, a command or folder instructions, and that file is an entry point whatever the body contains. The page "Skill"⁴, the page "Rule"⁵, the page "Command"⁶ and the page "Folder instructions"⁷ name the file and the folder.
+
+## How to build it
+
+1. **The party who decides, then when the content reaches the agent.** The page "Choosing what to build"³ has already chosen which of the four. Name the party who decides for that kind, from the four above. Name the capability that should arrive, and read the page "Capability"¹ for what that file is. The failure is a capability absent when the work needs it, or present when the work does not. Its cause is that no file lets that party decide, or that the file lets a different party decide. The situation is one task where the capability should be in front of the agent, and a second task where it should not. Write what this exposure method does so that the capability arrives on the first task and not on the second. Read the page "Entry point"² for the file.
+
+   Weak: "Use this when the person types the skill name."
+
+   Strong: "The agent opens this skill when the task is a brand book and no name is written yet."
+
+   The weak line writes the skill for a person. The agent matches the description and may never type the name, so it does not open the skill.
+
+When you edit, change the kind when the party who should decide has changed. The kind is that party. A change of what the file contains is a change to the entry point, and the page "Entry point"² has it.
+
+When you convert, take an outside file in which a person types the name and an agent also loads it from a description as two decisions. Decide each with the page "Choosing what to build"³. Do not leave both in one file. The program writes a skill and a command as different files, and it does not split one source into both. A hook, an agent, an MCP server or a tool in the source is not an exposure method.
+
+When you review, name the party who can make the content arrive, and name the task on which it arrives. A review that starts from the body judges the entry point. It misses a kind that lets the wrong party decide.
+
+Checks:
+
+- A reviewer sees one of the four, and the party who decides is the party that kind gives the decision to. An agent, a hook, an MCP server and a tool are not the way the capability arrives. A prompt is not among the four.
+- The program accepts the file. The page "rbtv command"⁸ says how to have it accepted. Acceptance shows the file was recognized as that kind. It does not show that the party who decides is the one that kind gives the decision to.
+- Give the exposure method, once the program has accepted it, to an agent, with one task where the capability should arrive and one where it should not. Look at whether the capability arrives on the first and not on the second. For a rule, look at whether the text is present on both tasks and acted on only where it applies.
+
+## References
+
+| # | Page | File | Read | When | To |
+|---|---|---|---|---|---|
+| 1 | Capability | [Capability](capability.md) | when | naming what the exposure method lets arrive | take what a capability is |
+| 2 | Entry point | [Entry point](entry-point.md) | when | writing the file, or editing what the file contains | take what the file contains and how its body is written |
+| 3 | Choosing what to build | [Choosing what to build](../choosing-what-to-build.md) | when | before this page is opened, or a converted part is not one of the four | choose the exposure method, or place the part that is not one |
+| 4 | Skill | [Skill](skill.md) | when | the exposure method is a skill | take where the skill file sits, and what a skill adds |
+| 5 | Rule | [Rule](rule.md) | when | the exposure method is a rule | take where the rule file sits, and what a rule adds |
+| 6 | Command | [Command](command.md) | when | the exposure method is a command | take where the command file sits, and what a command adds |
+| 7 | Folder instructions | [Folder instructions](folder-instructions.md) | when | the exposure method is folder instructions | take where that file sits, and what folder instructions add |
+| 8 | rbtv command | [rbtv command](rbtv-command.md) | when | the program is to accept the exposure method | take what acceptance shows for this kind, and what it does not show about the party who decides |

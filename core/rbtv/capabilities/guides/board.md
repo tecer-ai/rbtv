@@ -4,7 +4,7 @@ A [board](../glossary/board.md) is the short-term memory of what matters in one 
 
 ## Purpose
 
-It tells a wake what matters and where to resume or answer. Without it, a wake with only a check name has to guess, and a correction is asked again the same day. Which kind of unit to build is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>). The board is not one of those units. The agent maintains it. Ignite writes timers and flags. The dreamer only shortens a subject and moves detail out.
+It tells a wake what matters and where to resume or answer. Without it, a wake with only a check name has to guess, and a correction is asked again the same day. Which kind of unit to build is in [Choosing what to build](../choosing-what-to-build.md). The board is not one of those units. The agent maintains it. Ignite writes timers and flags. The dreamer only shortens a subject and moves detail out.
 
 ## What good looks like
 

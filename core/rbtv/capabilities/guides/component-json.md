@@ -1,10 +1,10 @@
 # Building a `<component>.json`
 
-[`<component>.json`](../glossary/component-json.md) is the [folder artifact](<../_under-evaluation/guides/folder artifacts/glossary/folder-artifact.md>) that holds a component's description and the outside software it requires.
+[`<component>.json`](../glossary/component-json.md) is the [folder artifact](../glossary/folder-artifact.md) that holds a component's description and the outside software it requires.
 
 ## Purpose
 
-rbtv reads it to learn what the component is for and which outside programs it needs. Without it, rbtv reports the component folder as an error. Which folder artifact to add is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>).
+rbtv reads it to learn what the component is for and which outside programs it needs. Without it, rbtv reports the component folder as an error. Which folder artifact to add is in [Choosing what to build](../choosing-what-to-build.md).
 
 ## What good looks like
 

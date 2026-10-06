@@ -4,15 +4,15 @@ A [workflow](../../../core/rbtv/capabilities/glossary/workflow.md) is a set of t
 
 ## Purpose
 
-It lets independent work run at the same time and dependent work wait for exactly what it needs. Without it, the coordinating agent reorders the work in its head each time, and tasks that could run together run one after another. Which kind of unit to build is in [Choosing what to build](<../../../core/rbtv/capabilities/_under-evaluation/guides/procedure documents/choosing-what-to-build.md>).
+It lets independent work run at the same time and dependent work wait for exactly what it needs. Without it, the coordinating agent reorders the work in its head each time, and tasks that could run together run one after another. Which kind of unit to build is in [Choosing what to build](../../../core/rbtv/capabilities/choosing-what-to-build.md).
 
 ## What good looks like
 
-- Each task has one purpose whose result can be judged on its own ([Micro agency](../../../core/rbtv/capabilities/principles/micro-agency.md)).
+- Each task has one purpose whose result can be judged on its own ([Micro agency](../../../core/rbtv/capabilities/principles/keep-it-stupidly-simple.md)).
 - Each row names every agent whose result its task uses, and no chain of needs loops back.
-- Two tasks that change the same file or record never run at the same time: one needs the other ([Micro agency](../../../core/rbtv/capabilities/principles/micro-agency.md)).
+- Two tasks that change the same file or record never run at the same time: one needs the other ([Micro agency](../../../core/rbtv/capabilities/principles/keep-it-stupidly-simple.md)).
 - Every agent whose needs are done is launched; none waits for a reason the file does not state.
-- Each task's result is a file or record the next task reads without the agent that produced it ([Micro agency](../../../core/rbtv/capabilities/principles/micro-agency.md)).
+- Each task's result is a file or record the next task reads without the agent that produced it ([Micro agency](../../../core/rbtv/capabilities/principles/keep-it-stupidly-simple.md)).
 
 ## Making it good
 

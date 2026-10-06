@@ -4,7 +4,7 @@
 
 ## Purpose
 
-They bound conduct on every task of this agent, where honoring the limit takes judgment; without them, that conduct has no standing limit. If nothing fails without the limit, do not write it ([Keep it simple](../principles/kiss.md)); where a one-step or tool-checkable limit belongs instead is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>).
+They bound conduct on every task of this agent, where honoring the limit takes judgment; without them, that conduct has no standing limit. If nothing fails without the limit, do not write it ([Keep it simple](../principles/keep-it-stupidly-simple.md)); where a one-step or tool-checkable limit belongs instead is in [Choosing what to build](../choosing-what-to-build.md).
 
 ## What good looks like
 
@@ -12,8 +12,8 @@ They bound conduct on every task of this agent, where honoring the limit takes j
 - No limit is also stated as a procedure step, and [scope](../../../../meta/sub-agents/capabilities/scope.md) does not repeat it ([Single source of truth](../principles/single-source-of-truth.md)).
 - No limit is one a tool can enforce ([Deterministic first](../principles/deterministic-first.md)).
 - Each limit names the bounded behavior, the reason, and what to do instead. A ban with no alternative fails.
-- Two limits on the same behavior are one limit ([Keep it simple](../principles/kiss.md)).
-- The constraints hold limits only. They hold no steps and no task files ([Micro agency](../principles/micro-agency.md)).
+- Two limits on the same behavior are one limit ([Keep it simple](../principles/keep-it-stupidly-simple.md)).
+- The constraints hold limits only. They hold no steps and no task files ([Micro agency](../principles/keep-it-stupidly-simple.md)).
 
 ## Making it good
 

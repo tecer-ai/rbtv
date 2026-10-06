@@ -1,10 +1,10 @@
 # Building a `<module>.json`
 
-A [`<module>.json`](../glossary/module-json.md) is the [folder artifact](<../_under-evaluation/guides/folder artifacts/glossary/folder-artifact.md>) that records one [module](../glossary/module.md).
+A [`<module>.json`](../glossary/module-json.md) is the [folder artifact](../glossary/folder-artifact.md) that records one [module](../glossary/module.md).
 
 ## Purpose
 
-rbtv reads it to show what the module is for. Without it, the module is listed with no description. Whether to create a module is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md#1-choose-a-module>).
+rbtv reads it to show what the module is for. Without it, the module is listed with no description. Whether to create a module is in [Choosing what to build](../choosing-what-to-build.md).
 
 ## What good looks like
 

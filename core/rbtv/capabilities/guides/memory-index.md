@@ -4,7 +4,7 @@ The [memory index](../glossary/memory-index.md) is the always-loaded router of g
 
 ## Purpose
 
-It lets every turn find general memory without listing every file. Without it, the agent opens the wrong folder or the index grows with every daily file. Which kind of unit to build is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>). Do not add a second always-loaded index.
+It lets every turn find general memory without listing every file. Without it, the agent opens the wrong folder or the index grows with every daily file. Which kind of unit to build is in [Choosing what to build](../choosing-what-to-build.md). Do not add a second always-loaded index.
 
 ## What good looks like
 

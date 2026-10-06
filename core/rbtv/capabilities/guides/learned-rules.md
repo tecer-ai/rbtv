@@ -4,7 +4,7 @@
 
 ## Purpose
 
-They stop the same correction being needed twice, without letting a wrong lesson rewrite `agent.md`. Without them, a correction lives only on the board until someone edits the prompt. Which kind of unit to build is in [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>). Do not add a second rules file for the same lessons.
+They stop the same correction being needed twice, without letting a wrong lesson rewrite `agent.md`. Without them, a correction lives only on the board until someone edits the prompt. Which kind of unit to build is in [Choosing what to build](../choosing-what-to-build.md). Do not add a second rules file for the same lessons.
 
 ## What good looks like
 

@@ -1,14 +1,14 @@
 # rbtv
 
-This repository is rbtv's source: the modules and components that `rbtv` (the rbtv command, `core/rbtv/capabilities/tools/rbtv/install.py`) exposes to a target folder by managing its units. To learn what rbtv is and how its folders are laid out, read `core/rbtv/capabilities/rbtv.md`.
+This repository is rbtv's source: the modules and components that `rbtv` (the rbtv command, `core/rbtv/capabilities/tools/rbtv/install.py`) exposes to a target folder by managing its units. To learn what rbtv is and how its folders are laid out, read `core/rbtv/skills/framework.md`.
 
 ## Hard Rule — Build and Document Every Change
 
-Before creating, changing, renaming, or deleting anything in this repository — a skill, rule, command, agent, hook, MCP server, tool, component, module, template, schema, or a kind of thing nothing defines yet — read and follow `core/rbtv/skills/framework.md`, the `framework` skill's entry file. Read it directly, whether or not the skill is installed. In the SAME change, document it as `core/rbtv/capabilities/_under-evaluation/guides/procedure documents/documenting-a-change.md` says. A change without its documentation is incomplete.
+Before creating, changing, renaming, or deleting anything in this repository — a skill, rule, command, agent, hook, MCP server, tool, component, module, template, schema, or a kind of thing nothing defines yet — read and follow `core/rbtv/skills/framework.md`, the `framework` skill's entry file. Read it directly, whether or not the skill is installed. In the SAME change, document it as `core/rbtv/capabilities/documenting-a-change.md` says. A change without its documentation is incomplete.
 
 ## Hard Rule — rbtv Content Must Be General
 
-rbtv ships to any user; an installation is one instance of it. Every unit, capability, and tool here MUST be usable by any user and MUST NOT contain anything specific to one installation: no hardcoded installation, vault, or host paths, no client or project names, no build-time task IDs or hypothesis/decision markers. Per-installation inputs (a project's reference set, an output location, a Slack identity) are resolved at runtime from configuration — never written into the file. Content that belongs to one installation only is built in that installation's `.rbtv/mirror/`, never here (`core/rbtv/capabilities/_under-evaluation/guides/procedure documents/choosing-what-to-build.md`).
+rbtv ships to any user; an installation is one instance of it. Every unit, capability, and tool here MUST be usable by any user and MUST NOT contain anything specific to one installation: no hardcoded installation, vault, or host paths, no client or project names, no build-time task IDs or hypothesis/decision markers. Per-installation inputs (a project's reference set, an output location, a Slack identity) are resolved at runtime from configuration — never written into the file. Content that belongs to one installation only is built in that installation's `.rbtv/mirror/`, never here (`core/rbtv/capabilities/choosing-what-to-build.md`).
 
 When carrying a file INTO this repository from an archive or an installation:
 

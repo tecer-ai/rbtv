@@ -1,64 +1,92 @@
 # Agent
 
-An agent is a prompt, a model (with its effort), a [harness](harness.md) and [scaffolding](scaffolding.md). A user or another agent supplies its work, a [task](task.md), at runtime.
+An agent is a model, a harness and scaffolding, launched with a task. Scaffolding is everything the agent is exposed to, the prompt included. The harness is not part of the scaffolding. In rbtv the prompt stays the same while the task changes, and the author writes it in one folder with a record. Outside rbtv an agent is often one file that a harness launches, with the description and the prompt in that file, and a sub-agent is a second file. Here the program places one folder either as an rbtv agent or as a sub-agent of a harness.
 
-## Agent file
+An agent gives that prompt a fresh context, so the caller's context does not fill with the work, and a later launch can bring a different task to the same prompt. An author wants an agent when the work cannot stay in the caller's context and the same prompt must take a different task on each launch. Decide the kind with the page "Choosing what to build"¹ before you open this page. Write an agent so that a launcher who has only the description launches it for the situation the description names, with the task that the description says to give, and does not launch it for the similar case.
 
-The agent's prompt, in `agent.md`. Its frontmatter (structured metadata at the top of the file) holds one field, `name`, which must equal the folder name and the name in the agent's [`agent.json`](agent-json.md). Its body is the prompt: its [template](template.md) defines its sections, and its [schema](schema.md) defines its frontmatter. It holds no harness, model, or effort: those are in `agent.json`. The author may add a "Navigation" section that lists the folders the agent works in, with paths relative to the installation root, so the same agent works on any machine where that root is the same repository. rbtv does not read that section. rbtv gives the model the body of `agent.md`, without its frontmatter, on every launch path.
+## How it fails
 
-## rbtv agent
+The program can accept the folder, and the agent can still fail. The program does not read the prompt, and it does not check that the description decides a launch.
 
-An rbtv agent is an agent that has a folder holding `agent.md` (its prompt) and `agent.json` (its description, harness, model, effort, chosen units and packs, and the record of generated files). An rbtv agent lives anywhere and is managed in place; `.rbtv/agents/<name>/` is where one is found by name. The [`rbtv` command](rbtv-command.md) manages it with the agent verbs, `rbtv agent add | remove | configure | update | list`, each taking the agent as a name or a folder path. Adding it writes the [generated files](scaffolding.md) inside the agent's own folder:
+- The work can stay in the caller's context. The launch pays for a fresh context and returns a summary the caller could have produced, and the description has no situation that is not also the caller's own job.
+- The description restates the prompt, or it names no input the task has to carry. The launcher has not read the prompt. It launches with nothing, or it does not launch. A launch that is not a conversation ends before a question in the prompt is answered.
+- The description's situation is a message that arrives after the agent is already connected, or a task an already-running agent should act on. The agent is chosen for one wake and is missing from the list that a person or another agent reads, or it is launched for a job that was never a launch.
+- The prompt requires a skill, a rule or a command that only the record lists, and the folder is placed as a sub-agent of a harness. That placement does not install the list. The agent follows the prompt and the skill is absent. The program accepts the placement and reports that the list was not applied.
+- The description and the prompt name different jobs. The launcher chooses the agent for the description's job, and the prompt does the other one.
 
-```text
-<agent folder>/
-|-- agent.md          (the agent file: the prompt; shared through git)
-|-- agent.json        (the agent record; shared through git)
-|-- settings.json     (values the agent reads for its job; per machine)
-|-- .gitignore        (written by rbtv: keeps per-machine data out of git)
-|-- memory/
-|   `-- learned.md    (learned rules; the dreamer writes this)
-|-- _artifacts/
-|   `-- board.md      (short-term memory)
-|-- <harness files>   (generated files: folder instructions, loaders for selected units)
-`-- <live data>       (conversations and their history, written while the agent runs)
-```
+## What it is composed of
 
-Terms: [`agent.json`](agent-json.md), [`settings.json`](settings-json.md), and [folder instructions](folder-instructions.md), where rbtv writes the agent section: a pointer to `agent.md`. The agent reads a conversation's history when the recent messages are not enough, so that history is a [cognitive unit](cognitive-unit.md) too.
+The author writes one folder. It contains two files the author writes:
 
-**Shared through git:** `agent.md` and `agent.json`, the agent's definition. The agent's `memory/` folder and `_artifacts/board.md` are also tracked in git. Nothing in these shared files holds a path or a time, so the same agent works on every machine.
+- `agent.md` is the prompt. It is the text that the model follows on every launch, while the task changes. The page "Prompt"² says how to write it. The name in its frontmatter is the same as the folder name and the name in the record.
+- `agent.json` is the record. The author writes the name and the description, and may list the skills, the rules, the commands and the packs that an rbtv-agent placement installs. The schema of the record is the file "Agent record"³. A folder a component ships names no harness, no model and no effort in the record. Those three exist only in an installation. The program writes them into the record when it places the folder as an rbtv agent, if the record does not already name them.
 
-**Per machine:** the generated files, which `rbtv agent update` rebuilds on each machine from `agent.json`; `settings.json`; and the live data. The `.gitignore` keeps them out of git. The user can override it, which is safe only when one machine runs the agent at a time.
+A component ships the folder at `agents/<name>/` inside the component. The program reads that folder, and it can place the folder either way. A folder managed in place can live at any path. A name with no path is found under `.rbtv/agents/<name>/`.
 
-The agent folder is self-contained: everything the agent is and has done lives in it, so it can be its own git repository and be shared between installations.
+Placed as an rbtv agent, the folder is copied to `.rbtv/agents/<name>/`, and the launch reads the copy. The program installs the record's skills, rules, commands and packs into that folder. The working folder is the agent folder. The program also writes a pointer to `agent.md` in that folder's folder instructions, so the model can find the prompt again after a long conversation. The author does not write that pointer.
 
-## Memory on a turn
+Placed as a sub-agent of a harness, the harness file points at the source `agent.md`. It copies the description and does not copy the prompt. It does not install the record's skills, rules, commands or packs. The sub-agent sees what its target already has. The parent agent matches the task to the copied description before it reads the prompt. The prompt is copied only when the folder is placed as an rbtv agent.
 
-Every turn, including a scheduled wake, receives the shared general-memory [profile](profile.md), this agent's [learned rules](learned-rules.md), this agent's [board](board.md), the general-memory [index](memory-index.md), and the [inbox](inbox.md). [Workspace memory](workspace-memory.md) is added only when the working directory is under that file's declared paths. The agent maintains the board. It never writes learned rules. The [dreamer](dreamer.md) writes those, and the agent's topic files. A scheduled wake starts a fresh conversation bound to no thread. The board holds the check's details. `ignite post --thread` continues an existing thread and joins that thread's history.
+The prompt and the record contain nothing tied to one machine: no channel, no account, no host, no credential and no absolute path. The same folder works on every machine where the installation root is the same repository.
 
-## Ignite agent
+## How to build it
 
-An rbtv agent connected to Ignite: the Ignite [pack](pack.md) is on and a Slack channel or a direct message wakes it. The pack holds the standard units of an Ignite agent, for Slack communication and Ignite's behaviour. `ignite connect` turns the pack on through `rbtv` and connects the agent to one Slack channel or to direct messages (`--dm`). It records that connection in the machine's [`config/ignite/config.json`](ignite-config.md), never in the agent folder, so sharing an agent never connects it twice. It also creates the agent's board, its database and its `conversations/` folder. Ignite connects only agents that live under `.rbtv/agents/`. `ignite disconnect` removes the Slack route and turns the pack off. An Ignite agent changes itself with `ignite manage add|remove|configure|update`, which runs `rbtv agent` for it; it reads the catalog with `ignite manage models|list|search|show`. Outside a turn the change verbs are refused.
+1. **The work that cannot stay in the caller's context.** Name the work that cannot stay in the caller's context. The cause is what the caller would have to keep: a search, a set of files, or a method that must stay the same while the task changes. The situation is one launch a person or another agent would make, and a second launch with a different task. Write one sentence on why this agent exists. When the owner has named why the work cannot stay in the caller's context, use those words. Do not invent a reason the owner did not give. Then write the prompt, as the page "Prompt" says. An agent whose sentence is also true of the caller's own job has a fresh context the work does not need, and the program still accepts the folder.
 
-Ignite's waking program then runs one agent turn for each message in the agent's channel: a reply in a thread continues that thread's conversation, and a new message in the channel starts a new one. The agent can also set timers that wake it. The waking program runs on Linux only, a deliberate restriction that keeps Ignite simple, so an Ignite agent's Slack side runs on a Linux machine.
+   Weak: "A separate agent keeps the review organized."
 
-## Running an agent
+   Strong: "The search of the change fills the caller's context."
 
-Whoever launches an agent hands it its `agent.md` prompt as its instructions, through the harness's strongest channel: a system prompt in Claude Code, developer instructions in Codex, and the first message in OpenCode. The agent section of the agent folder's folder instructions points to `agent.md` as well, so the agent finds its instructions again after the harness shortens a long conversation.
+   The weak line names no work the caller cannot keep, so the folder is a second context for the caller's own job.
 
-- **Through Slack**, when it is an Ignite agent: each message, or a timer, supplies the task.
-- **`spark AGENT`**: interactively, a person opens the agent. `spark list` shows the agents it can open. `spark` is a tool of the `cast` component.
-- **`cast --agent NAME`**: launched by another agent, which passes the task. `cast list --agents` shows the agents it can launch.
-- **`cast --rogue FILE`**: a rogue agent: a prompt file with no folder that is not an rbtv agent, launched with `cast`'s inline arguments for harness, model, and effort.
+2. **Write one name in the folder, the frontmatter and the record.** Write the same name in the folder, in the frontmatter of `agent.md`, and in the record. A launcher finds an rbtv agent by that name, and a harness file is named with it. Choose a name a launcher can tell from the neighboring agents' names. When the owner has named the agent, use that name in those three places. When the name changes, change the three places in the same edit. The page "Agent record" says what the program checks.
 
-Ignite, `cast --agent` and `spark` all use the agent's own harness, model, and effort, as recorded in its `agent.json`. `rbtv agent configure` is the only command that changes them. `spark`, `cast --agent` and Ignite set `RBTV_AGENT_HOME` to the agent's folder; the Ignite commands that act for an agent, such as `ignite board`, `ignite remember` and `ignite manage`, use it.
+3. **Write the description from the finished prompt, as one row of a routing table.** The description is the description field of the record. It is the row a launcher reads before the prompt. The page "Routing table"⁴ has the form. Write the row after the prompt, as the page "Cognitive unit"⁷ says. The launcher has not read the prompt, so write the row from the finished prompt.
 
-## Sub-agent
+   `CONTAINS:` is the standing function and the method, in words that separate this agent from another a launcher could choose for a similar job.
 
-An agent launched by another agent. Any agent that an agent launches through `cast` is a sub-agent, whatever its kind. Some harnesses, such as Claude Code and Codex, launch sub-agents of their own, but only on their own harness and models; `cast` lets an agent launch a sub-agent on any harness and model. Some harnesses also let a person start a sub-agent directly; `spark` is the route rbtv offers for that interactive use.
+   `PURPOSE:` is what that function is for, and each input the task has to carry, in the words the launcher supplies. It is not the harness, the model or the effort. The launcher has not read the prompt. A launch that is not a conversation ends before a question in the prompt is answered, so an input left out of `PURPOSE:` is an input the launch does not carry.
 
-A sub-agent is not a cognitive unit of the agent that launches it. Like a [tool](tool.md), it shapes that agent's [context window](context-window.md) indirectly: it gives the work a fresh context window, access to other models and their different views, and specialized agents to distribute tasks to.
+   `ALWAYS LOAD WHEN:` is a situation in which to launch this agent, matchable from the row alone. It is not a message that arrives after the agent is already connected to a channel, and it is not a task an already-running agent should act on. Once a channel is connected, the description does not filter the messages in that channel.
 
-## Harness-native sub-agent
+   `DO NOT LOAD WHEN:` names one similar launch, and the other agent to launch, or that no launch is right. It does not name a message that arrives after the agent is connected. The page "Routing table" says when the part is on the line.
 
-A file in a harness's own sub-agent format, shipped by a component in its `sub-agents/` folder: `.claude/agents/<name>.md` for Claude Code, `.opencode/agents/<name>.md` for OpenCode, or `.codex/agents/<name>.toml` for Codex. It is called through that harness's own tool, by an agent, and where the harness allows it, by a person. It is not an rbtv agent and not an [exposure method](exposure-method.md) of rbtv's agent kind. An rbtv agent, by contrast, can be called by a person or by an agent.
+   The list a person or another agent reads shortens the description to the line, unless the whole description is asked for. A part that sits past what the line can show is missed. Keep the row to what the four labels need. Apply the tests of the page "Scaffolding language"⁵ to the row.
+
+   Weak: `PURPOSE: reviews a change`
+
+   Strong: `PURPOSE: reviews the change the launcher names, in the files the launcher names`
+
+   The weak line leaves the change and the files in the prompt. The launcher starts the agent with nothing.
+
+   Weak: `DO NOT LOAD WHEN: the agent is already running`
+
+   Strong: `DO NOT LOAD WHEN: the job is to change the files, which is a launch of the implementer agent`
+
+   The weak line names a moment after the launch, so it excludes no similar launch.
+
+4. **List in the record only what an rbtv-agent placement should install.** List a skill, a rule, a command or a pack in the record when that placement should install it into the agent folder. A placement as a sub-agent of a harness does not install the list, and the program still accepts that placement. A folder a component ships can be placed either way, so the prompt cannot require a skill that only the list installs. Do not write a harness, a model or an effort in a record that a component ships. Those three exist only in an installation. The program writes them into the record when it places the folder as an rbtv agent, if the record does not already name them. The page "rbtv command"⁶ says what the program checks. Do not copy them into the prompt. When the folder is managed in place and is not one a component ships, the record may already name them. Leave them in the record.
+
+When you edit the description, change it in the record that the launcher reads, as the page "Routing table" says for a row that changes with what it names. An rbtv agent's list reads the record in the folder that the launch uses. A harness file contains a copy of the description from the moment the folder was placed as a sub-agent. An edit to the source record reaches that copy when the folder is placed that way again. When you edit the prompt, change the `agent.md` that the model is given. For a folder managed in place, that file is the `agent.md` in the folder. A harness sub-agent file points at the source `agent.md`, so the model reads the source. Placed as an rbtv agent, the launch reads the copy. An edit to the source reaches that launch when the folder is placed again. When the name changes, change the folder, the frontmatter and the record in the same edit.
+
+When you convert an outside agent file, write its description as the record's description, in the form above. Its body becomes the prompt; follow the page "Prompt". A model, a tool list and a permission mode in the outside file are not written into the prompt. A model is a launch value of an installation, not a field of a record that a component ships. A part that is not the prompt and not the description is decided with the page "Choosing what to build".
+
+When you review, read the description with the prompt closed, as the page "Routing table" says. For one request that should launch this agent and one that should not, write the launch the description causes. The first request's task has to contain every input `PURPOSE:` names.
+
+Checks:
+
+- `PURPOSE:` names each input the task has to carry, in the words the launcher supplies. `ALWAYS LOAD WHEN:` is a situation in which to launch this agent, not a message after it is connected. The description names the same job as the prompt.
+- The program accepts the folder, as the page "rbtv command" says. Acceptance shows the folder was recognized. It does not show that the description decides a launch, or that the prompt does the work.
+- Hand a person the description and a neighboring agent's description, and not the prompt. Ask which agent to launch for a job this agent does, and for a job the neighbor does. The person names this agent only for the first, and the task they would give contains every input `PURPOSE:` names.
+
+## References
+
+| # | Page | File | Read | When | To |
+|---|---|---|---|---|---|
+| 1 | Choosing what to build | [Choosing what to build](../choosing-what-to-build.md) | when | before this page is opened, or a part of a converted file is another kind of thing in rbtv | decide the kind, or where that part goes |
+| 2 | Prompt | [Prompt](prompt.md) | must | | write the prompt, and take which file a launch reads |
+| 3 | Agent record | [Agent record](../templates/agent-json.schema.json) | when | writing the record | take the fields the program checks |
+| 4 | Routing table | [Routing table](routing-table.md) | when | writing the description | take the form of the row, and write only what each part contains for an agent |
+| 5 | Scaffolding language | [Scaffolding language](scaffolding-language.md) | must | | word every sentence so the agent acts on the meaning you gave it, and apply its tests |
+| 6 | rbtv command | [rbtv command](rbtv-command.md) | when | having the program accept the folder | find the command to run, and take what acceptance shows |
+| 7 | Cognitive unit | [Cognitive unit](cognitive-unit.md) | when | writing the description after the prompt | write that text after the instructions, and take only what an agent adds |
