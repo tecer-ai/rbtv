@@ -1447,11 +1447,11 @@ else {
       }
       const rows = [['pack', 'ignite'], ['skill', 'core/rbtv#framework'], ['skill', 'meta/functions#interview'],
         ['skill', 'web/browse#web'], ['rule', 'core/ignite#ignite-standing-instructions']].map(([type, id]) => ({ type, id }));
-      rows[0].units = ['web/browse#web', 'core/ignite#ignite-standing-instructions', 'core/ignite#agent-controls'];
+      rows[0].files = ['web/browse#web', 'core/ignite#ignite-standing-instructions', 'core/ignite#agent-controls'];
       const offset = Number(argv[argv.indexOf('--offset') + 1]);
       const size = Math.min(Number(argv[argv.indexOf('--limit') + 1]), Number(process.env.RBTV_PAGE || 100));
-      const units = rows.slice(offset, offset + size);
-      console.log(JSON.stringify({ ok: true, scope: 'units', total: rows.length, returned: units.length, units }));
+      const files = rows.slice(offset, offset + size);
+      console.log(JSON.stringify({ ok: true, scope: 'files', total: rows.length, returned: files.length, files }));
     `);
     fs.writeFileSync(path.join(bin, 'rbtv'), `#!/bin/sh\nexec "${process.execPath}" "$(dirname "$0")/rbtv.js" "$@"\n`, { mode: 0o755 });
     fs.writeFileSync(path.join(bin, 'rbtv.cmd'), `@"${process.execPath}" "%~dp0rbtv.js" %*\r\n`);

@@ -20,7 +20,7 @@ from lib.pathlinks import link_one
 from lib.shared_links import owner_file
 from lib.state import migrate_rbtv_component_ids, read_state
 
-from .fixture import _component, _unit_md, _w
+from .fixture import _component, _file_md, _w
 
 KNOWN = {"claude": {"m1": ["low", "high"]}}
 
@@ -76,7 +76,7 @@ def record_rewrite(ctx) -> None:
           and rec["units"]["framework"]
           == {"method": "skill", "files": [".claude/skills/build/SKILL.md"]},
           str(rec))
-    check("U-merge-unit-ids — build is framework and rbtv keeps its name, "
+    check("U-merge-file-ids — build is framework and rbtv keeps its name, "
           "in the selection and in the booking",
           got["units"] == ["core/rbtv#framework", "core/rbtv#rbtv", "moda/comp#kiss"]
           and "build" not in rec["units"], str(got["units"]))
@@ -92,18 +92,18 @@ def record_rewrite(ctx) -> None:
     check("U-merge-idempotent — the step changes nothing on a rewritten record",
           again == got)
 
-    for old, units, expect_units, expect_selected in (
+    for old, files, expect_files, expect_selected in (
             ("core/build", {"build": {"method": "skill", "files": []}},
              {"framework"}, ["core/rbtv#framework"]),
             ("core/install", {"rbtv": {"method": "tool", "files": [], "links": ["rbtv"]}},
              {"rbtv"}, ["core/rbtv#rbtv"])):
         state = {"components": {old: {"module": "core", "component": old.split("/")[1],
-                                      "harnesses": ["claude"], "units": units}},
-                 "units": [f"{old}#{name}" for name in units]}
+                                      "harnesses": ["claude"], "units": files}},
+                 "units": [f"{old}#{name}" for name in files]}
         migrate_rbtv_component_ids(state)
         check(f"U-merge-single — a record holding only {old} becomes core/rbtv",
               set(state["components"]) == {"core/rbtv"}
-              and set(state["components"]["core/rbtv"]["units"]) == expect_units
+              and set(state["components"]["core/rbtv"]["units"]) == expect_files
               and state["units"] == expect_selected, str(state))
 
     half = {"components": {
@@ -145,13 +145,13 @@ def update_after_rewrite(ctx) -> None:
     old_src = (tmp / "merge-old-src").resolve()
     new_src = (tmp / "merge-new-src").resolve()
     install = _component(old_src, "core", "install")
-    _unit_md(install / "skills/manage-components.md", "manage-components",
+    _file_md(install / "skills/manage-components.md", "manage-components",
              "The retired skill", "# manage\n")
     old_entry = _tool(install)
-    _unit_md(_component(old_src, "core", "build") / "skills/build.md", "build",
+    _file_md(_component(old_src, "core", "build") / "skills/build.md", "build",
              "The building skill", "# build\n")
     merged = _component(new_src, "core", "rbtv")
-    _unit_md(merged / "skills/framework.md", "framework",
+    _file_md(merged / "skills/framework.md", "framework",
              "The building skill", "# rbtv framework\n")
     new_entry = _tool(merged)
     old_catalog, _ = scan_all(tmp / "merge-no-mirror", old_src)
@@ -215,7 +215,7 @@ def update_after_rewrite(ctx) -> None:
         # The move: the old program's file is gone, so the shortcut points nowhere.
         shutil.rmtree(old_src)
         code, text, err = run(new_catalog, "update", "all", "--dry-run")
-        check("U-merge-preview — a preview names the unit that would leave and "
+        check("U-merge-preview — a preview names the file that would leave and "
               "writes nothing",
               code == 0 and "Would remove: core/rbtv#manage-components" in text
               and loaders[0].is_file()
@@ -223,7 +223,7 @@ def update_after_rewrite(ctx) -> None:
               == {"core/build", "core/install"}, text + err)
         code, text, err = run(new_catalog, "update", "all")
         record = saved(ws / STATE_REL)
-        check("U-merge-update-says — `update all` says the unit left the record",
+        check("U-merge-update-says — `update all` says the file left the record",
               code == 0 and "Removed: core/rbtv#manage-components" in text, text + err)
         check("U-merge-update-files — the generated files of manage-components and of "
               "the old build skill are deleted, and those of framework are written",
@@ -254,7 +254,7 @@ def update_after_rewrite(ctx) -> None:
 
         code, text, err = run(new_catalog, "agent", "update", str(home), "all")
         record = saved(home / AGENT_RECORD)
-        check("U-merge-agent-update — `agent update AGENT all` says the unit left, "
+        check("U-merge-agent-update — `agent update AGENT all` says the file left, "
               "deletes its files, and writes the record with core/rbtv",
               code == 0 and "Removed: core/rbtv#manage-components" in text
               and not loaders[1].exists() and not old_skill[1].exists()

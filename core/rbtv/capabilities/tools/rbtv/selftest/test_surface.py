@@ -10,7 +10,7 @@ from discovery import SKILLS_DIR
 
 from lib.constants import STATE_REL
 from lib.target import DISCOVER_CWD, DISCOVER_FLAG
-from lib.state import _unit_in, read_state, write_state
+from lib.state import _file_in, read_state, write_state
 from lib.operations import do_install
 from lib.listing import build_ls, do_list
 from lib.doctor import do_doctor, doctor_exit
@@ -43,15 +43,15 @@ def ls_li_doctor(ctx) -> None:
           ls_data["shadowed"][0]["id"] == "fixmod/goodcomp"
           and "no_manifest" not in ls_data)
     check("SURF-ls-parts-are-rows — vendored parts is 1, not file count",
-          vend_e["unit_count"] == 1
-          and len(vend_e["units"]) == 1
+          vend_e["file_count"] == 1
+          and len(vend_e["files"]) == 1
           and vend_files > 1
-          and good_e["unit_count"] == len(good_e["units"]) == 9
+          and good_e["file_count"] == len(good_e["files"]) == 9
           and f"{vend_files}" not in
-          [str(e["unit_count"]) for e in ls_data["components"]
+          [str(e["file_count"]) for e in ls_data["components"]
            if e["id"] == "_hub/skills/vendored"],
-          f"parts={vend_e['units']} files={vend_files} "
-          f"good={good_e['units']}")
+          f"parts={vend_e['files']} files={vend_files} "
+          f"good={good_e['files']}")
 
     pws = tmp / "ws-surf-li"
     pws.mkdir()
@@ -63,7 +63,7 @@ def ls_li_doctor(ctx) -> None:
                dry_run=False)
     ls_in = build_ls(catalog, [], read_state(pws))
     good = next(e for e in ls_in["components"] if e["id"] == "fixmod/goodcomp")
-    inn = {i["unit_id"]: i["in"] for i in good["units"]}
+    inn = {i["file_id"]: i["in"] for i in good["files"]}
     check("SURF-ls-in-column — booked True, sibling False",
           inn.get("fixskill") is True and inn.get("fixrule") is True
           and inn.get("fixcmd") is False,
@@ -71,12 +71,12 @@ def ls_li_doctor(ctx) -> None:
     raw_sk = {"components": {
         "_skills/vendored": {"units": {"vendored": {"method": "skill"}}}}}
     check("ls-in-legacy-skills-key — leftover _skills/ counts as in",
-          _unit_in(raw_sk, "_hub/skills/vendored", "vendored") is True)
+          _file_in(raw_sk, "_hub/skills/vendored", "vendored") is True)
     raw_v1 = {"components": {
         "fixmod/goodcomp": {"files": [".claude/rules/fixrule.md"]}}}
     check("ls-in-schema1-whole — missing parts map means every pid is in",
-          _unit_in(raw_v1, "fixmod/goodcomp", "fixrule") is True
-          and _unit_in(raw_v1, "fixmod/goodcomp", "fixcmd") is True)
+          _file_in(raw_v1, "fixmod/goodcomp", "fixrule") is True
+          and _file_in(raw_v1, "fixmod/goodcomp", "fixcmd") is True)
     ls_nc = build_ls(catalog, [], {}, exclude_components=["fixmod/goodcomp"])
     check("SURF-ls-exclude-component",
           all(e["id"] != "fixmod/goodcomp" for e in ls_nc["components"]),
@@ -84,11 +84,11 @@ def ls_li_doctor(ctx) -> None:
     ls_nx = build_ls(catalog, [], {}, exclude_methods=["skill"])
     check("SURF-ls-exclude-method",
           all(i["method"] != "skill"
-              for e in ls_nx["components"] for i in e["units"]))
+              for e in ls_nx["components"] for i in e["files"]))
     li_data = do_list(pws, catalog)
     part_rec = li_data["components"]["fixmod/goodcomp"]
     full_rec = li_data["components"]["fixmod/codexcomp"]
-    check("SURF-li-full-vs-part — structured inventory identifies missing units",
+    check("SURF-li-full-vs-part — structured inventory identifies missing files",
           part_rec["status"] == "part"
           and full_rec["status"] == "full"
           and "fixcmd" in part_rec["missing"]
@@ -178,11 +178,11 @@ def ls_li_doctor(ctx) -> None:
                pws, catalog, [])
     lsj = json.loads(buf.getvalue())
     check("SURF-json-ls-keys — list envelope and stable item identity",
-          set(lsj) >= {"ok", "target", "source", "units", "total", "returned",
+          set(lsj) >= {"ok", "target", "source", "files", "total", "returned",
                        "limit", "offset", "next"}
-          and all(set(row) >= {"id", "installed_units", "source_units",
+          and all(set(row) >= {"id", "installed_files", "source_files",
                                    "description"}
-                  for row in lsj["units"])
+                  for row in lsj["files"])
           and lsj["ok"] is True,
           str(sorted(lsj)))
     buf = io.StringIO()
@@ -193,7 +193,7 @@ def ls_li_doctor(ctx) -> None:
     lij = json.loads(buf.getvalue())
     check("SURF-json-li-keys — installed list has same envelope",
           set(lij) == set(lsj)
-          and all(row["installed_units"] > 0 for row in lij["units"]),
+          and all(row["installed_files"] > 0 for row in lij["files"]),
           str(sorted(lij)))
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf), \
@@ -293,7 +293,7 @@ def ls_li_doctor(ctx) -> None:
     # automatically-managed guidance-section report — never the retired
     # manual-paste instructions.
     fresh_preview = {"_verb": "add", "dry_run": True, "target": str(pws),
-                     "source": DISCOVER_CWD, "selected_units": ["fixmod/goodcomp#fixskill"],
+                     "source": DISCOVER_CWD, "selected_files": ["fixmod/goodcomp#fixskill"],
                      "harnesses": ["codex"], "adopted": [], "adopted_sections": [],
                      "released": [], "shared_removed": [],
                      "planned_changes": {
@@ -545,11 +545,11 @@ def ls_li_doctor(ctx) -> None:
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         print_result({**guidance_only_data, "_verb": "update",
-                      "_facts": {"units": (10, 10)}})
+                      "_facts": {"files": (10, 10)}})
     guidance_only_text = " ".join(buf.getvalue().split())
     check("SURF-guidance-only-scope-prints-the-approved-body",
           "The folder matches the file. Added none. Removed none. "
-          "Installed units stay 10." in guidance_only_text,
+          "Installed files stay 10." in guidance_only_text,
           guidance_only_text)
     check("SURF-guidance-only-scope-has-no-sections-and-no-regeneration-claim",
           "regenerate" not in guidance_only_text.lower()

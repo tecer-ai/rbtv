@@ -457,8 +457,7 @@ def doctor_ownership(ctx) -> None:
               broken_cfg["Selected files"]["detail"])
 
         # DO-truthful-count-labels — a component count is labelled
-        # "components", not the item-classification word "units" (D8's
-        # module/component/item vocabulary is not interchangeable).
+        # "components".
         labelled = _checks(ws, catalog, tree)
         check("DO-truthful-count-labels — Saved selection and Source "
               "catalog label what they actually counted",

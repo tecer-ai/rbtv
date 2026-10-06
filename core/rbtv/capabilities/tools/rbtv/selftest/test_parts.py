@@ -15,7 +15,7 @@ from lib.constants import (
     SCHEMA,
     STATE_REL,
 )
-from lib.catalog import catalog_units_map
+from lib.catalog import catalog_files_map
 from lib.claims import _claim_id
 from lib.target import discover_target
 from lib.state import (
@@ -30,7 +30,7 @@ from lib.state import (
 )
 from lib.planning import plan_files
 from lib.selection import _sel, resolve_selection
-from lib.operations import _select_units, do_install, do_uninstall
+from lib.operations import _select_files, do_install, do_uninstall
 from lib.commands import cmd_update
 from lib.parser import build_parser
 from lib.pathlinks import bin_dir, link_path
@@ -114,19 +114,19 @@ def part_level_install_remove(ctx) -> None:
         check("D-dup — duplicate part-id refuses", False, "no refusal")
     except Refuse as exc:
         check("D-dup — duplicate part-id refuses",
-              exc.code == "unit-duplicate", exc.code)
+              exc.code == "file-duplicate", exc.code)
         check("D-dup — zero files written",
               not any(pdup.rglob("*.md")) and not (pdup / STATE_REL).exists())
 
     try:
-        _select_units(catalog["fixmod/goodcomp"], None, ["no-such-part"])
+        _select_files(catalog["fixmod/goodcomp"], None, ["no-such-part"])
         pu = "no refusal"
     except Refuse as exc:
         pu = exc.code
     except Exception as exc:
         pu = type(exc).__name__
     check("P-unknown — unknown part-id refuses",
-          pu == "unit-unknown", pu)
+          pu == "file-unknown", pu)
 
     pws = tmp / "ws-parts"
     pws.mkdir()
@@ -224,22 +224,22 @@ def vanished_component_part_rm(ctx) -> None:
           in pvst["shared_claims"],
           str(pvst["shared_claims"]))
 
-    # G1 — a unit whose source is gone leaves the record on the next run, and
+    # G1 — a file whose source is gone leaves the record on the next run, and
     # the run says so; the files and the record then always match.
-    from discovery import unit_rows
+    from discovery import file_rows
     g1 = tmp / "ws-source-gone"
     g1.mkdir()
     do_install(g1, catalog, ["fixmod/goodcomp"], ["claude"], dry_run=False)
     shrunk = dict(catalog["fixmod/goodcomp"])
-    shrunk["rows"] = [r for r in unit_rows(shrunk) if r["id"] != "fixskill"]
+    shrunk["rows"] = [r for r in file_rows(shrunk) if r["id"] != "fixskill"]
     res_g1 = do_install(g1, {**catalog, "fixmod/goodcomp": shrunk},
                         ["fixmod/goodcomp"], ["claude"], dry_run=False)
-    g1units = read_state(g1)["components"]["fixmod/goodcomp"]["units"]
-    check("SG1 — a unit whose source is gone leaves the record and the run reports it",
-          "fixskill" not in g1units and "fixrule" in g1units
+    g1files = read_state(g1)["components"]["fixmod/goodcomp"]["units"]
+    check("SG1 — a file whose source is gone leaves the record and the run reports it",
+          "fixskill" not in g1files and "fixrule" in g1files
           and res_g1["report"]["source_gone"] == ["fixmod/goodcomp#fixskill"]
           and not (g1 / ".claude/skills/fixskill/SKILL.md").exists(),
-          str(sorted(g1units)) + " " + str(res_g1["report"].get("source_gone")))
+          str(sorted(g1files)) + " " + str(res_g1["report"].get("source_gone")))
 
     # An update must reconcile a selection after its source has disappeared:
     # delete its generated file, its record entry and its PATH shortcut.
@@ -275,7 +275,7 @@ def vanished_component_part_rm(ctx) -> None:
                    unavailable_catalog, [])
     reconciled = read_state(selected_ws)
     owners = json.loads(owner_file(bin_dir()).read_text(encoding="utf-8"))
-    check("SG2 — update removes a selected unit whose source is gone, including its shortcut",
+    check("SG2 — update removes a selected file whose source is gone, including its shortcut",
           before_link and reconciled["units"] == []
           and "gone/selected" not in reconciled["components"]
           and not link_path(bin_dir(), "old-tool").exists()
@@ -297,7 +297,7 @@ def vanished_component_part_rm(ctx) -> None:
               "no refusal")
     except Refuse as exc:
         check("P-unbooked-v1 — vanished v1 part-rm refuses",
-              exc.code == "unit-unbooked", exc.code)
+              exc.code == "file-unbooked", exc.code)
     ctx.keep(locals())
 
 
@@ -338,7 +338,7 @@ def v1_to_v2_upgrade(ctx) -> None:
         old_ids = set(raw["components"])
         live_cat, _ = scan_all(live_root / ".rbtv" / "mirror",
                                REPO_ROOT)
-        upgraded = upgrade_book(raw, catalog_units_map(live_cat))
+        upgraded = upgrade_book(raw, catalog_files_map(live_cat))
         write_state(dest_root, upgraded)
         got = json.loads(dest.read_text(encoding="utf-8"))
         check("U-live live file untouched",
@@ -416,7 +416,7 @@ def legacy_records_gain_selection_fields_on_write(ctx) -> None:
      _mk, rf, pws) = ctx.frame()
 
     print("\nU-selection — legacy records gain selections on their next write")
-    for schema, without_units in ((3, True), (5, False)):
+    for schema, without_files in ((3, True), (5, False)):
         old = tmp / f"ws-schema-{schema}"
         old.mkdir()
         do_install(old, catalog, ["fixmod/goodcomp"], ["claude"], dry_run=False)
@@ -427,7 +427,7 @@ def legacy_records_gain_selection_fields_on_write(ctx) -> None:
         old_record["installed_at"] = "2000-01-01T00:00:00"
         old_record["target"] = str(old.resolve())
         old_record.pop("packs", None)
-        if without_units:
+        if without_files:
             old_record.pop("units", None)
         else:
             old_record["units"] = sorted(
@@ -438,7 +438,7 @@ def legacy_records_gain_selection_fields_on_write(ctx) -> None:
         read = read_state(old)
         expected = {f"fixmod/goodcomp#{pid}" for pid in
                     read["components"]["fixmod/goodcomp"]["units"]}
-        check(f"U-selection-{schema} — reads with units and empty packs derived",
+        check(f"U-selection-{schema} — reads with files and empty packs derived",
               not {"installer", "installed_at", "target"} & set(read)
               and "tree_root" not in read["components"]["fixmod/goodcomp"]
               and set(read["units"]) == expected and read["packs"] == [])

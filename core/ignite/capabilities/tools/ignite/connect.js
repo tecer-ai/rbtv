@@ -290,8 +290,8 @@ async function setIgnitePack(verb, home, workspace, dryRun, deps) {
   const args = ['agent', verb, home, '--pack', 'ignite', '--json'];
   if (dryRun) args.push('--dry-run');
   const body = installerResult(await runInstaller(args, workspace, deps));
-  const after = body.units.length;
-  return { before: verb === 'add' ? after - body.added.length : after + body.units_removed.length, after };
+  const after = body.files.length;
+  return { before: verb === 'add' ? after - body.added.length : after + body.files_removed.length, after };
 }
 
 function packIsOn(home) {

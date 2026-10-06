@@ -16,7 +16,7 @@ from .constants import (
     MATRIX,
     STATE_REL,
 )
-from .catalog import _unit_specs, catalog_units_map
+from .catalog import _file_specs, catalog_files_map
 from .claims import _block_set, _claim_id, owned_fence_claims
 from .guidance import plan_mirror, resolve_basis
 from .pathlinks import (
@@ -181,7 +181,7 @@ def _stray_artifacts(target: Path, booked: set[str]) -> set[str]:
     earlier run whose record entry was lost, which the book alone would leave
     out of the block and so up for commit (D14, 2026-09-27). A booked file is
     left to `owners`: this run either re-plans it or prunes it. A skill is
-    listed as its FOLDER, the unit D15 owns."""
+    listed as its FOLDER, which is what D15 owns."""
     out = set()
     for template in {t for row in MATRIX.values() for t in row.values() if t}:
         skill = template.endswith("/{name}/SKILL.md")
@@ -224,7 +224,7 @@ def _tracked(target: Path, paths: list[str]) -> list[str]:
     return sorted(set(out.stdout.split()) & set(paths))
 
 
-def _units_for_cid(cid: str, parts: list[str] | None) -> list[str] | None:
+def _files_for_cid(cid: str, parts: list[str] | None) -> list[str] | None:
     """None = all/refresh. Bare pids apply to every cid. `{cid}#{pid}` only to theirs."""
     if parts is None:
         return None
@@ -249,12 +249,12 @@ def _scaffold_rbtv(target: Path) -> None:
         (target / ".rbtv" / name).mkdir(parents=True, exist_ok=True)
 
 
-def _select_units(comp: dict, existing_parts, requested: list[str] | None
+def _select_files(comp: dict, existing_parts, requested: list[str] | None
                   ) -> tuple[dict, list[str]]:
-    """The component's selected units, and the booked ones whose source no
+    """The component's selected files, and the booked ones whose source no
     longer exists. Those leave the record, so it always matches the files the
     plan keeps (owner ruling G1)."""
-    specs = {r["id"]: r["method"] for r in _unit_specs(comp)}
+    specs = {r["id"]: r["method"] for r in _file_specs(comp)}
     gone = sorted(pid for pid in (existing_parts or {}) if pid not in specs)
     kept = {pid: dict(p) for pid, p in (existing_parts or {}).items()
             if pid in specs}
@@ -267,8 +267,8 @@ def _select_units(comp: dict, existing_parts, requested: list[str] | None
     for pid in requested:
         if pid not in specs:
             raise Refuse(
-                "unit-unknown",
-                f"{comp.get('id', '?')}: no unit {pid!r} in the component "
+                "file-unknown",
+                f"{comp.get('id', '?')}: no file {pid!r} in the component "
                 "— refusing before any write",
                 str(comp["path"]))
         if pid not in out:
@@ -277,20 +277,20 @@ def _select_units(comp: dict, existing_parts, requested: list[str] | None
 
 
 def _record_sub_agents(records: dict, given: dict[str, dict]) -> None:
-    """Keep, per agent unit, the model and effort of each harness its
+    """Keep, per agent file, the model and effort of each harness its
     component is installed for: the recorded values, replaced by the ones this
-    run gives (`given`, by unit id then harness). A harness the component no
+    run gives (`given`, by file id then harness). A harness the component no
     longer receives loses its values, so adding it back later generates
     nothing until a model and an effort are given again."""
     for cid, rec in records.items():
-        for pid, unit in (rec.get("units") or {}).items():
-            values = {**(unit.get("sub_agent") or {}),
+        for pid, file in (rec.get("units") or {}).items():
+            values = {**(file.get("sub_agent") or {}),
                       **(given.get(f"{cid}#{pid}") or {})}
             values = {h: values[h] for h in rec.get("harnesses") or [] if h in values}
             if values:
-                unit["sub_agent"] = values
+                file["sub_agent"] = values
             else:
-                unit.pop("sub_agent", None)
+                file.pop("sub_agent", None)
 
 
 def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
@@ -300,7 +300,7 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
                parts: list[str] | None = None,
                scope: str = "all", selected: list[str] | None = None,
                sub_agents: dict[str, dict] | None = None) -> dict:
-    state = upgrade_book(read_state(target), catalog_units_map(catalog))
+    state = upgrade_book(read_state(target), catalog_files_map(catalog))
     records = dict(state.get("components") or {})
     if scope == "guidance":
         report: dict = {}
@@ -326,7 +326,7 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
             cid, sep, pid = key.partition("#")
             if not sep or cid not in catalog:
                 raise Refuse("component-vanished",
-                             f"selected unit is unavailable from local source: {key}")
+                             f"selected file is unavailable from local source: {key}")
             chosen.setdefault(cid, []).append(pid)
         picked = sorted(chosen)
         parts = sorted(selected)
@@ -337,17 +337,17 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
         c = catalog[cid]
         existing = (old_records if selected is not None else records).get(cid) or {}
         if selected is not None:
-            wanted = set(_units_for_cid(cid, parts) or [])
+            wanted = set(_files_for_cid(cid, parts) or [])
             existing = {**existing, "units": {
                 pid: part for pid, part in (existing.get("units") or {}).items()
                 if pid in wanted}}
-        units, gone = _select_units(c, existing.get("units"),
-                                    _units_for_cid(cid, parts))
+        booked, gone = _select_files(c, existing.get("units"),
+                                    _files_for_cid(cid, parts))
         source_gone += [f"{cid}#{pid}" for pid in gone]
         rec = {"tree": c["tree"], "module": c["module"],
                "component": c["component"],
                "harnesses": [h for h in HARNESSES if h in harnesses],
-                "units": units}
+                "units": booked}
         if "files" in existing:
             rec["files"] = list(existing["files"])
         records[cid] = rec
@@ -464,7 +464,7 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
 
 def _do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
                  dry_run: bool, parts: list[str] | None = None) -> dict:
-    state = upgrade_book(read_state(target), catalog_units_map(catalog))
+    state = upgrade_book(read_state(target), catalog_files_map(catalog))
     # Deep copy: popping a part mutates the dict apply() later reads as the
     # previous book. A shallow copy left removed part files off the stale set,
     # so uninstall forgot them instead of deleting them.
@@ -475,7 +475,7 @@ def _do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
                      "not installed at this target: " + ", ".join(missing))
     for cid in picked:
         rec = records[cid]
-        want = _units_for_cid(cid, parts)
+        want = _files_for_cid(cid, parts)
         if want is None:
             records.pop(cid)
             continue
@@ -485,7 +485,7 @@ def _do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
                 records.pop(cid)
                 continue
             raise Refuse(
-                "unit-unbooked",
+                "file-unbooked",
                 f"{cid} has no parts map (a vanished v1 record) — remove the "
                 "whole component; files cannot be split across parts")
         for pid in want:

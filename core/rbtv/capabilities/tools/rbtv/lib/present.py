@@ -25,7 +25,7 @@ TYPE_MEANING = {
     "mcp-server": "Server an agent tool connects to for extra tools.",
     "tool": "Runnable program exposed through a command shortcut.",
     "folder-instructions": "Text added to a folder's instructions file.",
-    "pack": "A named list of units a component declares.",
+    "pack": "A named list of files a component declares.",
 }
 assert set(TYPE_MEANING) == set(CATALOG_TYPES)
 
@@ -59,23 +59,23 @@ def title(command: str) -> str:
 COMMAND_GROUPS = (
     ("Discover", (
         ("status", "Show target, saved settings, and recorded selections."),
-        ("list [NAME]", "Browse exact module, component, or unit scope."),
+        ("list [NAME]", "Browse exact module, component, or file scope."),
         ("search WORDS", "Search catalog names and descriptions broadly."),
-        ("show NAME", "Show description, included units, and installation details."),
+        ("show NAME", "Show description, included files, and installation details."),
     )),
     ("Change this installation", (
         ("configure", "Initialize or change receiving tools and guidance settings."),
-        ("add [NAME...]", "Add named or filtered units, or turn a pack on."),
-        ("remove [NAME...]", "Remove installed units, or turn a pack off."),
+        ("add [NAME...]", "Add named or filtered files, or turn a pack on."),
+        ("remove [NAME...]", "Remove installed files, or turn a pack off."),
         ("update SCOPE", "Make the folder match the file. The scope is required."),
     )),
     ("Agents", (
         ("agent VERB", "Act on one agent instead of this installation: create it, change its\n"
-                       "                units, harness, model or effort, or list the agents. See: rbtv agent -h"),
+                       "                files, harness, model or effort, or list the agents. See: rbtv agent -h"),
     )),
     ("Check and guided use", (
         ("doctor", "Check generated files and selected command shortcuts."),
-        ("interactive", "Choose units through a guided menu (asks questions)."),
+        ("interactive", "Choose files through a guided menu (asks questions)."),
         ("selftest", "Run checks in isolated temporary installations."),
     )),
 )
@@ -94,7 +94,7 @@ def root_help() -> str:
     lines.append("Only interactive asks questions.")
     lines.append("Target order: --target, then RBTV_AGENT_HOME, then discovery from the current folder.")
     lines.append("Aliases: ls=list; li=list --installed; rm=remove.")
-    lines.append("A unit id is module/component#name. A pack is named only with --pack.")
+    lines.append("A file id is module/component#name. A pack is named only with --pack.")
     lines.append("A bare name never resolves to a pack.")
     lines.append("With no command, this page is printed.")
     lines.append("")
@@ -241,7 +241,7 @@ def render_table(headers: list[str], rows: list[list[str]], *,
 
 def render_blocks(headers: list[str], rows: list[list[str]], *,
                   paint=None, width: int | None = None) -> list[str]:
-    """One unit per labeled block — the narrow-terminal fallback. Never
+    """One file per labeled block — the narrow-terminal fallback. Never
     truncates a value; each row's fields sit on their own line instead, and
     the last (prose) field wraps under a two-space hang."""
     lines: list[str] = []

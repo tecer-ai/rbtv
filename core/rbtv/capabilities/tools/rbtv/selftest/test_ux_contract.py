@@ -55,7 +55,7 @@ def public_contract(ctx) -> None:
     code, plain = run("list", "--type", "skill")
     code_full, whole = run("list", "--type", "skill", "--full")
     ctx.check("UX-full — --full changes no row of the list",
-              code == code_full == 0 and [row["id"] for row in plain["units"]] == [row["id"] for row in whole["units"]],
+              code == code_full == 0 and [row["id"] for row in plain["files"]] == [row["id"] for row in whole["files"]],
               str(whole)[:200])
     shown = io.StringIO()
     with patch.object(commands, "scan_all", return_value=(catalog, [])), contextlib.redirect_stdout(shown):
@@ -94,14 +94,14 @@ def public_contract(ctx) -> None:
     ctx.check("UX-exact-hierarchy-and-type-depth",
               modules["scope"] == "modules"
               and components["scope"] == "components"
-              and exact["scope"] == typed["scope"] == "units"
-              and [r["id"] for r in exact["units"]]
+              and exact["scope"] == typed["scope"] == "files"
+              and [r["id"] for r in exact["files"]]
               == ["fixmod/goodcomp#fixskill"]
-              and all(r["module"] == "fixmod" for r in typed["units"]))
+              and all(r["module"] == "fixmod" for r in typed["files"]))
     _, searched = run("search", "fixskill")
     ctx.check("UX-search-is-broad-item-discovery",
-              searched["scope"] == "units"
-              and searched["units"][0]["id"] == "fixmod/goodcomp#fixskill")
+              searched["scope"] == "files"
+              and searched["files"][0]["id"] == "fixmod/goodcomp#fixskill")
     _, filtered_page = run("list", "fixmod", "--type", "rule",
                            "--limit", "1")
     ctx.check("UX-continuation-keeps-exact-scope-and-type",
@@ -116,23 +116,23 @@ def public_contract(ctx) -> None:
               and module_detail["selection"]["components"])
     _, status = run("status")
     ctx.check("UX-status-separates-installed-from-source",
-              status["installation"]["installed_units"] == 0
+              status["installation"]["installed_files"] == 0
               and status["installation"]["health"] == "not_checked"
-              and status["source_catalog"]["units"] > 0)
+              and status["source_catalog"]["files"] > 0)
     _, first = run("list", "fixmod/goodcomp", "--limit", "2")
     _, second = run("list", "fixmod/goodcomp", "--limit", "2", "--offset", "2")
     ctx.check("UX-bounded-pagination", first["returned"] == 2
               and first["total"] > 2 and second["offset"] == 2
-              and not ({x["id"] for x in first["units"]}
-                       & {x["id"] for x in second["units"]})
+              and not ({x["id"] for x in first["files"]}
+                       & {x["id"] for x in second["files"]})
               and "--offset 2" in first["next"])
     _, alias = run("ls", "fixmod/goodcomp", "--limit", "2")
     ctx.check("UX-ls-identical-to-list", alias == first)
     _, details = run("show", "fixskill", "--type", "skill")
     ctx.check("UX-show-public-resolver", details["selection"]["id"]
               == "fixmod/goodcomp#fixskill"
-              and details["selection"]["unit_id"] == "fixskill"
-              and details["selection"]["scope"] == "unit"
+              and details["selection"]["file_id"] == "fixskill"
+              and details["selection"]["scope"] == "file"
               and details["selection"]["type"] == "skill"
               and "method" not in details["selection"])
     code, unknown = run("show", "no-such-item-7z")
@@ -197,7 +197,7 @@ def public_contract(ctx) -> None:
     ctx.check("UX-show-installed-item-real-receiving-tools",
               installed_item["selection"]["harnesses"] == ["codex"],
               str(installed_item["selection"].get("harnesses")))
-    part0 = installed_item["selection"]["units"][0]
+    part0 = installed_item["selection"]["files"][0]
     src = part0.get("source_path", "")
     ctx.check("UX-show-item-unambiguous-source-path",
               bool(src) and "/" in src.replace("\\", "/")
@@ -207,7 +207,7 @@ def public_contract(ctx) -> None:
     ctx.check("UX-show-component-next-drills-into-real-item",
               comp_detail["next"].startswith("rbtv show fixmod/goodcomp#")
               and any(comp_detail["next"] == f"rbtv show {p['key']} --target {tq}"
-                      for p in comp_detail["selection"]["units"]),
+                      for p in comp_detail["selection"]["files"]),
               str(comp_detail))
     _, mod_detail = run("show", "fixmod")
     ctx.check("UX-show-module-next-drills-into-real-component",
@@ -218,13 +218,13 @@ def public_contract(ctx) -> None:
     _, installed = run("list", "--installed")
     _, installed_alias = run("li")
     ctx.check("UX-installed-alias-identical", installed == installed_alias
-              and [x["id"] for x in installed["units"]] == ["fixmod"])
+              and [x["id"] for x in installed["files"]] == ["fixmod"])
     _, installed_module = run("list", "fixmod", "--installed")
-    goodcomp = next(r for r in installed_module["units"]
+    goodcomp = next(r for r in installed_module["files"]
                     if r["id"] == "fixmod/goodcomp")
     ctx.check("UX-installed-aggregate-retains-source-denominator",
-              goodcomp["installed_units"] == 1
-              and goodcomp["source_units"] > goodcomp["installed_units"])
+              goodcomp["installed_files"] == 1
+              and goodcomp["source_files"] > goodcomp["installed_files"])
     before = (target / STATE_REL).read_bytes()
     code, refusal = run("remove", "--all")
     ctx.check("UX-broad-removal-refuses-with-preview", code == 1
@@ -235,8 +235,8 @@ def public_contract(ctx) -> None:
                     if key != "fixmod/goodcomp"}
     _, missing = run("list", "fixmod/goodcomp", "--installed", selected_catalog=gone_catalog)
     ctx.check("UX-vanished-item-stays-visible", missing["returned"] == 1
-              and not missing["units"][0]["source_available"]
-              and missing["units"][0]["id"] == "fixmod/goodcomp#fixskill")
+              and not missing["files"][0]["source_available"]
+              and missing["files"][0]["id"] == "fixmod/goodcomp#fixskill")
     code, guidance = run("update", "guidance", selected_catalog=gone_catalog)
     ctx.check("UX-source-missing-does-not-block-guidance-copy",
               code == 0 and guidance["scope"] == "guidance")
@@ -310,7 +310,7 @@ def result_screens(ctx) -> None:
     print("\nRESULT — human result screens")
     _, empty, _ = text("list", "--installed")
     ctx.check("RESULT-empty-installed-list-says-so",
-              "No installed units in this target." in empty, empty)
+              "No installed files in this target." in empty, empty)
     _, found, _ = text("search", "fixture")
     next_line = found.rstrip().splitlines()[-1]
     ctx.check("RESULT-search-next-is-a-returned-exact-id",
@@ -342,7 +342,7 @@ def result_screens(ctx) -> None:
         _, agent_default, _ = agent_text(*add)
         _, agent_full, _ = agent_text(*add, "--details")
     skill = ".claude/skills/fixskill/SKILL.md"
-    ctx.check("RESULT-agent-preview-reports-unit-files-default-and-details",
+    ctx.check("RESULT-agent-preview-reports-generated-files-default-and-details",
               "Generated files:  would write 2" in agent_default
               and "File list" not in agent_default and skill not in agent_default
               and "Add --details to this preview" in agent_default
@@ -354,13 +354,13 @@ def result_screens(ctx) -> None:
     ctx.check("RESULT-agent-preview-writes-nothing",
               not (agent_home / ".claude").exists())
 
-    # The owner's removal example (owner-example.txt): 40 units, dozens of
+    # The owner's removal example (owner-example.txt): 40 files, dozens of
     # unchanged files, 25 shortcuts kept for uncertain ownership.
-    units = [f"core/mod{n // 5}#item{n:02d}" for n in range(40)]
+    files = [f"core/mod{n // 5}#item{n:02d}" for n in range(40)]
     kept = [f"tool-{n:02d}" for n in range(25)]
     unchanged = [f".agents/skills/s{n:02d}/SKILL.md" for n in range(60)]
     big = {"_verb": "remove", "dry_run": False, "target": str(target),
-           "source": "--target", "selected_units": units,
+           "source": "--target", "selected_files": files,
            "uninstalled": ["core/mod0"],
            "written": [".claude/skills/a/SKILL.md"],
            "deleted": [f".agents/behavior-rules/r{n:02d}.md" for n in range(30)],
@@ -387,8 +387,8 @@ def result_screens(ctx) -> None:
     full = render("100", _details=True)
     ctx.check("RESULT-large-batch-default-is-compact",
               len(compact.splitlines()) * 3 < len(full.splitlines())
-              and "Removed: 40 units" in flat
-              and units[-1] not in compact and unchanged[0] not in compact
+              and "Removed: 40 files" in flat
+              and files[-1] not in compact and unchanged[0] not in compact
               and "--details" in compact, compact)
     ctx.check("RESULT-large-batch-default-keeps-every-warning",
               "Warnings" in compact and all(name in compact for name in kept),
@@ -397,16 +397,16 @@ def result_screens(ctx) -> None:
               "Files: wrote 1, deleted 30, 60 already up to date" in flat
               and "Shared files: changed 1, deleted 0, 0 already up to date"
               in flat, flat)
-    ctx.check("RESULT-unusable-units-are-always-named-warnings",
+    ctx.check("RESULT-unusable-files-are-always-named-warnings",
               all(f"office/meeting#r{n}" in compact for n in range(12))
               and compact.index("cannot use") < compact.index("\nNotes"),
               compact)
     ctx.check("RESULT-routine-lists-are-counts-by-default",
-              "File list" not in compact and "Units" not in compact.split("\n")
+              "File list" not in compact and "Files" not in compact.split("\n")
               and "released 5 claim(s)" in flat
               and "--dry-run --details" in flat, compact)
     ctx.check("RESULT-details-lists-every-item-and-file",
-              all(f"\n  {i}\n" in full for i in units)
+              all(f"\n  {i}\n" in full for i in files)
               and all(f"\n    {u}\n" in full for u in unchanged)
               and "\n\n  Already up to date (60)\n" in full
               and "Lists are counted" not in full, full[-800:])

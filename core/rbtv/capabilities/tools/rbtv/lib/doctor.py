@@ -22,7 +22,7 @@ from .constants import (
     STATE_REL,
     VERSION,
 )
-from .catalog import catalog_units_map
+from .catalog import catalog_files_map
 from .pathlinks import (
     _owned,
     _path_rows_from_report,
@@ -155,7 +155,7 @@ def do_doctor(target: Path, why: str, catalog: dict, shadowed: list,
                                  "no saved selection (never installed)"))
         else:
             try:
-                state = upgrade_book(read_state(target), catalog_units_map(catalog))
+                state = upgrade_book(read_state(target), catalog_files_map(catalog))
                 n = len(state.get("components") or {})
                 checks.append(_check(
                     "Saved selection", "ok", target_scope,

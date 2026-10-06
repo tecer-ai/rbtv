@@ -17,9 +17,9 @@ def packs(ctx) -> None:
     catalog = ctx.frame()[0]
     print("\nPK — component packs")
     starter = catalog_packs(catalog).get("starter")
-    check("PK-discover — schema-checked pack names its component and units",
+    check("PK-discover — schema-checked pack names its component and files",
           starter is not None and starter["component"] == "fixmod/goodcomp"
-          and len(starter["units"]) == 2, str(starter))
+          and len(starter["files"]) == 2, str(starter))
 
     duplicate = tree / "fixmod" / "codexcomp" / "packs" / "starter.json"
     duplicate.parent.mkdir(parents=True, exist_ok=True)
@@ -35,7 +35,7 @@ def packs(ctx) -> None:
           duplicate_result)
 
     invalid = tree / "fixmod" / "codexcomp" / "packs" / "bad.json"
-    invalid.write_text(json.dumps({"description": "bad", "units": ["no/such#unit"]}),
+    invalid.write_text(json.dumps({"description": "bad", "units": ["no/such#file"]}),
                             encoding="utf-8")
     try:
         scan_all(mirror, tree)
@@ -43,7 +43,7 @@ def packs(ctx) -> None:
     except Refuse as exc:
         invalid_result = exc.code
     invalid.unlink()
-    check("PK-unit — unknown pack unit refuses", invalid_result == "pack-unit-unknown",
+    check("PK-file — unknown pack file refuses", invalid_result == "pack-file-unknown",
           invalid_result)
 
     malformed = tree / "fixmod" / "codexcomp" / "packs" / "malformed.json"
@@ -70,7 +70,7 @@ def packs(ctx) -> None:
         cmd_add(args(["add", "--pack", "starter", "--harness", "claude",
                       "--guidance", "none"]), target, catalog, [])
     state = read_state(target)
-    check("PK-add — pack generates each unit but records only the pack",
+    check("PK-add — pack generates each file but records only the pack",
           state["packs"] == ["starter"] and state["units"] == []
           and set(state["components"]["fixmod/goodcomp"]["units"])
           == {"fixskill", "fixrule"}, str(state))
@@ -91,7 +91,7 @@ def packs(ctx) -> None:
         cmd_add(args(["add", "fixskill"]), target, catalog, [])
         cmd_rm(args(["remove", "--pack", "starter"]), target, catalog, [])
     state = read_state(target)
-    check("PK-remove — explicit unit survives a removed pack",
+    check("PK-remove — explicit file survives a removed pack",
           state["packs"] == [] and state["units"] == ["fixmod/goodcomp#fixskill"]
           and set(state["components"]["fixmod/goodcomp"]["units"]) == {"fixskill"},
           str(state))
@@ -101,7 +101,7 @@ def packs(ctx) -> None:
                 target, catalog, [])
         cmd_rm(args(["remove", "--pack", "starter"]), target, catalog, [])
     overlapping = read_state(target)
-    check("PK-overlap — unit shared by an enabled pack stays once",
+    check("PK-overlap — file shared by an enabled pack stays once",
           overlapping["packs"] == ["second"]
           and set(overlapping["components"]["fixmod/goodcomp"]["units"])
           == {"fixskill", "fixrule"}, str(overlapping))
@@ -123,7 +123,7 @@ def packs(ctx) -> None:
     with contextlib.redirect_stdout(io.StringIO()):
         cmd_update(args(["update", "all"]), target, catalog, [])
     restored = read_state(target)
-    check("PK-update — changed pack drops then restores its generated unit",
+    check("PK-update — changed pack drops then restores its generated file",
           set(dropped["components"]["fixmod/goodcomp"]["units"]) == {"fixskill"}
           and set(restored["components"]["fixmod/goodcomp"]["units"])
           == {"fixskill", "fixrule"}, str(restored))
@@ -151,6 +151,6 @@ def packs(ctx) -> None:
     text = rendered.getvalue()
     words = ("starter", "fixmod/goodcomp", "2", "Pack: on for this target", "Declaration:",
              "fixskill", "fixrule")
-    check("PK-discover-views — list and show expose component, count, state, path and units",
+    check("PK-discover-views — list and show expose component, count, state, path and files",
           all(word in text for word in words), text)
     ctx.keep(locals())

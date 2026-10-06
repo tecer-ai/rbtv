@@ -7,10 +7,10 @@ import re
 
 from discovery import Refuse
 
-from .catalog import _unit_specs, module_id
+from .catalog import _file_specs, module_id
 
 
-def unit_key(cid: str, pid: str) -> str:
+def file_key(cid: str, pid: str) -> str:
     return f"{cid}#{pid}"
 
 
@@ -18,20 +18,20 @@ def iter_catalog_parts(catalog: dict[str, dict]) -> list[dict]:
     out: list[dict] = []
     for cid, comp in catalog.items():
         try:
-            specs = _unit_specs(comp)
+            specs = _file_specs(comp)
         except Refuse:
             continue        # its own install refuses it; it never blocks the rest
         for spec in specs:
             if spec["id"]:
-                out.append({"key": unit_key(cid, spec["id"]),
+                out.append({"key": file_key(cid, spec["id"]),
                             "component": cid,
                             "module": comp.get("module") or cid.split("/")[0],
-                            "unit_id": spec["id"],
+                            "file_id": spec["id"],
                             "method": spec.get("method") or ""})
     return out
 
 
-def iter_booked_units(catalog: dict[str, dict],
+def iter_booked_files(catalog: dict[str, dict],
                       book: dict[str, dict] | None) -> list[dict]:
     by_cid: dict[str, list[dict]] = {}
     for part in iter_catalog_parts(catalog):
@@ -41,16 +41,16 @@ def iter_booked_units(catalog: dict[str, dict],
         declared = rec.get("units")
         if isinstance(declared, dict) and declared:
             for pid, part in declared.items():
-                booked.append({"key": unit_key(cid, pid), "component": cid,
+                booked.append({"key": file_key(cid, pid), "component": cid,
                                "module": rec.get("module") or cid.split("/")[0],
-                               "unit_id": pid, "method": (part or {}).get("method") or ""})
+                               "file_id": pid, "method": (part or {}).get("method") or ""})
         elif cid in by_cid:
             booked.extend(by_cid[cid])
         else:
             pid = rec.get("component") or cid.split("/")[-1]
-            booked.append({"key": unit_key(cid, pid), "component": cid,
+            booked.append({"key": file_key(cid, pid), "component": cid,
                            "module": rec.get("module") or cid.split("/")[0],
-                           "unit_id": pid, "method": "component"})
+                           "file_id": pid, "method": "component"})
     return booked
 
 
@@ -79,7 +79,7 @@ def _unknown(code: str, label: str, token: str, choices: list[str]) -> Refuse:
 def _ambiguous(token: str, choices: list[str]) -> Refuse:
     keys = sorted(set(choices))
     exc = Refuse("name-ambiguous",
-                 f"{token!r} names multiple units or components: "
+                 f"{token!r} names multiple files or components: "
                  + ", ".join(keys) + ". Use a full identifier")
     exc.candidates = keys
     return exc
@@ -87,7 +87,7 @@ def _ambiguous(token: str, choices: list[str]) -> Refuse:
 
 def _pool(catalog: dict, book: dict | None = None) -> list[dict]:
     by_key = {p["key"]: p for p in iter_catalog_parts(catalog)}
-    for part in iter_booked_units(catalog, book):
+    for part in iter_booked_files(catalog, book):
         by_key[part["key"]] = part
     return list(by_key.values())
 
@@ -105,20 +105,20 @@ def resolve_name(token: str, catalog: dict, book: dict | None = None,
     if "#" in token:
         part = by_key.get(token)
         if part and (not methods or part["method"] in methods):
-            return {"kind": "part", "id": token, "units": [part]}
-        raise _unknown("unit-unknown", "unit", token,
+            return {"kind": "part", "id": token, "files": [part]}
+        raise _unknown("file-unknown", "file", token,
                        [p["key"] for p in allowed])
     if token in components:
         parts = [p for p in allowed if p["component"] == token]
         if parts:
-            return {"kind": "component", "id": token, "units": parts}
+            return {"kind": "component", "id": token, "files": parts}
         if token in catalog:
-            _unit_specs(catalog[token])     # an invalid component says why
-        raise Refuse("kind-mismatch", f"{token!r} has no unit of the requested type")
+            _file_specs(catalog[token])     # an invalid component says why
+        raise Refuse("kind-mismatch", f"{token!r} has no file of the requested type")
     if not component_only:
-        hits = [p for p in allowed if p["unit_id"] == token]
+        hits = [p for p in allowed if p["file_id"] == token]
         if len(hits) == 1:
-            return {"kind": "part", "id": hits[0]["key"], "units": hits}
+            return {"kind": "part", "id": hits[0]["key"], "files": hits}
         if len(hits) > 1:
             raise _ambiguous(token, [p["key"] for p in hits])
     if component_only:
@@ -128,7 +128,7 @@ def resolve_name(token: str, catalog: dict, book: dict | None = None,
                                 component_only=True)
         if len(hits_c) > 1:
             raise _ambiguous(token, hits_c)
-    choices = ([p["key"] for p in allowed] + [p["unit_id"] for p in allowed]
+    choices = ([p["key"] for p in allowed] + [p["file_id"] for p in allowed]
                + sorted(components))
     raise _unknown("component-unknown" if component_only else "name-unknown",
                    "component" if component_only else "name", token, choices)
@@ -142,7 +142,7 @@ def component_keys(tokens: list[str], catalog: dict,
     for token in tokens:
         resolved = resolve_name(token, catalog, book, methods=methods,
                                 component_only=True)
-        keys.update(p["key"] for p in resolved["units"])
+        keys.update(p["key"] for p in resolved["files"])
     return keys
 
 
@@ -174,10 +174,10 @@ def resolve_selection(args, catalog: dict[str, dict],
     for token in (*names, *pos_c, *neg_c, *pos_m, *neg_m):
         _retire_number(token)
     if not (all_flag or names or pos_c or pos_m or pos_x):
-        raise Refuse("selection-empty", "name an unit or component, or use --all, "
+        raise Refuse("selection-empty", "name a file or component, or use --all, "
                      "--module, --component or --type")
 
-    universe = (iter_booked_units(catalog, book) if verb in ("rm", "remove")
+    universe = (iter_booked_files(catalog, book) if verb in ("rm", "remove")
                 else iter_catalog_parts(catalog))
     by_key = {p["key"]: p for p in universe}
     selected = set(by_key)
@@ -185,7 +185,7 @@ def resolve_selection(args, catalog: dict[str, dict],
         requested: set[str] = set()
         for name in names:
             resolved = resolve_name(name, catalog, book, methods=pos_x or None)
-            requested.update(p["key"] for p in resolved["units"])
+            requested.update(p["key"] for p in resolved["files"])
         requested |= component_keys(pos_c, catalog, book)
         selected &= requested
     if pos_m:
@@ -201,7 +201,7 @@ def resolve_selection(args, catalog: dict[str, dict],
     if verb in ("rm", "remove"):
         return selected
     if not selected:
-        raise Refuse("selection-empty", "selectors matched no installable unit")
+        raise Refuse("selection-empty", "selectors matched no installable file")
     return selected
 
 

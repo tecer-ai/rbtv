@@ -24,13 +24,13 @@ from .constants import (
 from .guidance import _norm_prefix
 from .target import DISCOVER_CWD, discover_installation, resolve_target
 from .state import (book_harnesses, is_agent_target, read_state, selected_packs,
-                    selected_units, state_path, unit_membership, write_state)
-from .catalog import catalog_packs, check_packs, pack_units
+                    selected_files, state_path, file_membership, write_state)
+from .catalog import catalog_packs, check_packs, pack_files
 from .selection import (
     _has_negative,
     _split_part_keys,
     iter_catalog_parts,
-    iter_booked_units,
+    iter_booked_files,
     resolve_name,
     resolve_selection,
 )
@@ -133,7 +133,7 @@ def _error_data(exc: Refuse, target: Path | None = None,
         out["next"] = exc.next
     elif error.get("suggestions"):
         out["next"] = "rbtv show " + _quote(error["suggestions"][0]["id"]) + flag
-    elif exc.code in {"name-unknown", "unit-unknown", "component-unknown"}:
+    elif exc.code in {"name-unknown", "file-unknown", "component-unknown"}:
         out["next"] = "rbtv list" + flag
     elif exc.code == "pack-unknown":
         out["next"] = "rbtv list --type pack" + flag
@@ -171,7 +171,7 @@ def cmd_list(args, target: Path, catalog: dict, shadowed: list,
     data.update(target=str(target.resolve()), source=getattr(args, "_why", "unknown"))
     if offset >= data["total"] and data["total"]:
         raise Refuse("offset-out-of-range",
-                     f"--offset {offset} is past {data['total']} matching units. "
+                     f"--offset {offset} is past {data['total']} matching files. "
                      "Run `rbtv list --offset 0 --target "
                      + _quote(target) + "`")
     command = ["rbtv " + ("search" if args.verb == "search" else "list")]
@@ -191,7 +191,7 @@ def cmd_list(args, target: Path, catalog: dict, shadowed: list,
     else:
         # Always a returned exact ID: a search query or a placeholder is
         # not something `show` accepts.
-        first = data["units"][0]
+        first = data["files"][0]
         show_arg = ("--pack " if first.get("type") == "pack" else "") + _quote(first["id"])
         command = ["rbtv show " + show_arg
                    + " --target " + _quote(target)]
@@ -217,7 +217,7 @@ def cmd_search(args, target: Path, catalog: dict, shadowed: list,
                *, ask=None) -> int:
     if not args.query:
         refusal = Refuse("query-required", "search needs words to match against "
-                         "unit names and descriptions.")
+                         "names and descriptions.")
         refusal.next = "rbtv search -h"
         raise refusal
     return cmd_list(args, target, catalog, shadowed, ask=ask)
@@ -240,14 +240,14 @@ def cmd_show(args, target: Path, catalog: dict, shadowed: list,
         packs = catalog_packs(catalog)
         name = next(iter(requested_packs))
         if name not in packs:
-            pack_units(catalog, {name})
+            pack_files(catalog, {name})
         pack = packs[name]
         data = {"ok": True, "target": str(target.resolve()),
                 "source": getattr(args, "_why", "unknown"),
                 "selection": {"scope": "pack", "id": name,
                               "description": pack["description"],
                               "component": pack["component"],
-                              "units": pack_members(catalog, state, pack),
+                              "files": pack_members(catalog, state, pack),
                               "path": pack["path"],
                               "enabled": name in selected_packs(state)},
                 "next": f"rbtv list --type pack --target {_quote(target)}"}
@@ -262,7 +262,7 @@ def cmd_show(args, target: Path, catalog: dict, shadowed: list,
     named_module = ("_hub" if args.name == "hub" else args.name)
     if named_module in known_modules:
         if args.method:
-            raise Refuse("type-mismatch", "--type requires an unit name; list "
+            raise Refuse("type-mismatch", "--type requires the name of a file; list "
                          + args.name + " --type " + args.method[0])
         view = build_list(catalog, state, query=args.name, full=args.full, limit=100)
         comp = next((c for c in catalog.values()
@@ -270,14 +270,14 @@ def cmd_show(args, target: Path, catalog: dict, shadowed: list,
         description = _description(comp.get("module_description", ""), args.full) if comp else ""
         selection = {"scope": "module", "id": args.name,
                      "description": description,
-                     "components": view["units"],
-                     "installed_units": sum(r["installed_units"] for r in view["units"]),
-                     "source_units": sum(r["source_units"] for r in view["units"])}
+                     "components": view["files"],
+                     "installed_files": sum(r["installed_files"] for r in view["files"]),
+                     "source_files": sum(r["source_files"] for r in view["files"])}
         # A real component drilled into (screen 21's pattern), never the
         # module itself again — `list` was a dead end that never advanced
-        # the reader toward an actual unit.
-        next_cmd = (f"rbtv show {view['units'][0]['id']} --target {_quote(target)}"
-                   if view["units"] else
+        # the reader toward an actual file.
+        next_cmd = (f"rbtv show {view['files'][0]['id']} --target {_quote(target)}"
+                   if view["files"] else
                    f"rbtv list {args.name} --target {_quote(target)}")
         data = {"ok": True, "target": str(target.resolve()),
                 "source": getattr(args, "_why", "unknown"),
@@ -293,18 +293,18 @@ def cmd_show(args, target: Path, catalog: dict, shadowed: list,
     data = {"ok": True, "target": str(target.resolve()),
             "source": getattr(args, "_why", "unknown"),
             "selection": build_show(selected, catalog, state, args.full)}
-    parts = data["selection"]["units"]
+    parts = data["selection"]["files"]
     if selected["kind"] == "part":
-        # Approved screens 20/55: an installed unit's next step is a health
+        # Approved screens 20/55: an installed file's next step is a health
         # check, never a removal suggestion just because it happens to be
-        # installed. An uninstalled unit's next step is the setup that
+        # installed. An uninstalled file's next step is the setup that
         # would install it.
         data["next"] = ("cast list" if parts[0]["type"] == "agent" else
                         f"rbtv doctor --target {_quote(target)}" if parts[0]["installed"] else
                         f"rbtv add {selected['id']} --target {_quote(target)}")
     else:
         # Screen 21: a component's next step drills into one of its real
-        # included units, never a generic re-listing of itself.
+        # included files, never a generic re-listing of itself.
         data["next"] = (f"rbtv show {parts[0]['key']} --target {_quote(target)}"
                         if parts else
                         f"rbtv list {selected['id']} --target {_quote(target)}")
@@ -321,14 +321,14 @@ def _catalog_counts(catalog: dict) -> dict:
                 else comp.get("module") or cid.split("/")[0])
                for cid, comp in catalog.items()}
     return {"modules": len(modules), "components": len(catalog),
-            "units": len(iter_catalog_parts(catalog)),
+            "files": len(iter_catalog_parts(catalog)),
             "packs": len(catalog_packs(catalog))}
 
 
 def _print_catalog(counts: dict) -> None:
     print("Local source catalog on this machine")
     _prose(f"{counts['modules']} modules, {counts['components']} components, "
-           f"{counts['units']} units, {counts['packs']} packs; source availability "
+           f"{counts['files']} files, {counts['packs']} packs; source availability "
            "does not mean installed here.", indent="  ")
 
 
@@ -346,7 +346,7 @@ def _status_agent(args, target: Path, catalog: dict) -> int:
     seen = set(named)
     from_packs = []
     for name in sorted(record["packs"]):
-        keys = sorted(pack_units(catalog, {name}) - seen)
+        keys = sorted(pack_files(catalog, {name}) - seen)
         seen |= set(keys)
         from_packs.append((name, keys))
     counts = _catalog_counts(catalog)
@@ -356,7 +356,7 @@ def _status_agent(args, target: Path, catalog: dict) -> int:
             "agent": {"name": record["name"], "harness": harness,
                       "model": record["model"], "effort": record["effort"],
                       "voice": record.get("voice"),
-                      "packs": sorted(record["packs"]), "installed_units": sorted(seen),
+                      "packs": sorted(record["packs"]), "installed_files": sorted(seen),
                       "sub_agents": subagents.recorded(record)},
             "source_catalog": counts,
             "next": f"rbtv doctor --target {_quote(target)}"}
@@ -374,7 +374,7 @@ def _status_agent(args, target: Path, catalog: dict) -> int:
     print("Voice: " + (record.get("voice") or "not set"))
     print("Packs on: " + (", ".join(sorted(record["packs"])) or "none"))
     _print_sub_agents(data["agent"]["sub_agents"])
-    print(f"Installed units: {len(seen)}")
+    print(f"Installed files: {len(seen)}")
     if record["packs"]:
         print("  Named: " + (", ".join(sorted(named)) or "none"))
         for name, keys in from_packs:
@@ -411,7 +411,7 @@ def cmd_status(args, target: Path, catalog: dict, shadowed: list,
                              "packs": settings["packs"],
                              "sub_agents": subagents.recorded(read_state(target)),
                              "installed_components": len(comps),
-                             "installed_units": count,
+                             "installed_files": count,
                              "health": "not_checked"},
             "source_catalog": counts,
             "next": f"rbtv doctor --target {_quote(target)}"}
@@ -435,11 +435,11 @@ def cmd_status(args, target: Path, catalog: dict, shadowed: list,
             _print_sub_agents(data["installation"]["sub_agents"])
             print()
             print("Recorded installation in this target")
-            print(f"  Components with selected units: {len(comps)}")
-            print(f"  Units: {count}")
+            print(f"  Components with selected files: {len(comps)}")
+            print(f"  Files: {count}")
             print(f"  Saved record: {STATE_REL}")
         else:
-            print("Installation: no saved configuration or selected units")
+            print("Installation: no saved configuration or selected files")
             print()
             print("First use: choose receiving tools and a maintained guidance file.")
             print("  " + "; ".join(f"{h} = {present.HARNESS_MEANING[h]}"
@@ -523,9 +523,9 @@ def _replan_all(target: Path, catalog: dict, harnesses: list[str],
                       selected=selected)
 
 
-def _unit_keys(catalog: dict, state: dict) -> set[str]:
-    """The key of every installed unit: what the `Installed units` count counts."""
-    return {row["key"] for row in iter_booked_units(catalog, state.get("components") or {})}
+def _file_keys(catalog: dict, state: dict) -> set[str]:
+    """The key of every installed file: what the `Installed files` count counts."""
+    return {row["key"] for row in iter_booked_files(catalog, state.get("components") or {})}
 
 
 def _pack_facts(catalog: dict, names: set[str], *, on: bool) -> list[tuple[str, str, bool]]:
@@ -538,21 +538,21 @@ def _available_selection(catalog: dict, state: dict) -> tuple[set[str], set[str]
     """Return source-backed selections and the recorded selections now gone."""
     available = {row["key"] for row in iter_catalog_parts(catalog)}
     packs = catalog_packs(catalog)
-    units = selected_units(state)
+    files = selected_files(state)
     enabled_packs = selected_packs(state)
-    missing_units = sorted(units - available)
+    missing_files = sorted(files - available)
     missing_packs = sorted(enabled_packs - set(packs))
-    missing = missing_units + [f"pack {name}" for name in missing_packs]
-    return units & available, enabled_packs & set(packs), missing
+    missing = missing_files + [f"pack {name}" for name in missing_packs]
+    return files & available, enabled_packs & set(packs), missing
 
 
-def _save_selected_units(target: Path, add: set[str] | None = None,
+def _save_selected_files(target: Path, add: set[str] | None = None,
                          remove: set[str] | None = None,
                          add_packs: set[str] | None = None,
                          remove_packs: set[str] | None = None) -> None:
-    """Persist the root's independent unit selection after a real mutation."""
+    """Persist the root's independent file selection after a real mutation."""
     state = read_state(target)
-    state["units"] = sorted((selected_units(state) | set(add or ()))
+    state["units"] = sorted((selected_files(state) | set(add or ()))
                             - set(remove or ()))
     state["packs"] = sorted((selected_packs(state) | set(add_packs or ()))
                             - set(remove_packs or ()))
@@ -568,7 +568,7 @@ def _require_recorded(target: Path, state: dict) -> list[str]:
             "installation-unrecorded",
             "this installation has no recorded settings yet — nothing has been "
             "installed here. The first add needs both --harness and "
-            "--guidance; run `rbtv list` to choose an unit",
+            "--guidance; run `rbtv list` to choose a file",
             str(target / STATE_REL))
     return booked
 
@@ -756,10 +756,10 @@ def cmd_configure(args, target: Path, catalog: dict, shadowed: list,
                                guidance_basis=wanted_g)
             data["sub_agents_missing"] = _joined_harness_gaps(
                 state, current, wanted_h, target)
-        count = len(_unit_keys(catalog, state))
+        count = len(_file_keys(catalog, state))
         _emit(data, bool(args.json), target, getattr(args, "_why", "unknown"),
               verb="configure", details=getattr(args, "details", False),
-              facts={"units": (count, count), "harnesses_before": current})
+              facts={"files": (count, count), "harnesses_before": current})
         return 0
     raise Refuse("noun-missing", "configure needs --harness, --guidance, or both")
 
@@ -786,13 +786,13 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
     keys -= set(skipped_agents)
     picked, parts = _split_part_keys(keys)
     state = read_state(target)
-    _available_units, _available_packs, stale = _available_selection(catalog, state)
+    _available_files, _available_packs, stale = _available_selection(catalog, state)
     if not is_agent_target(target) and book_harnesses(state) is None and (
             getattr(args, "harness", None) is None
             or getattr(args, "artifact", None) is None):
         raise Refuse(
             "setup-required",
-            "first add needs both --harness (which AI tools receive units) "
+            "first add needs both --harness (which AI tools receive files) "
             "and --guidance (CLAUDE.md, AGENTS.md, or none). Example: "
             "rbtv add " + (parts[0] if parts else "--pack <name>")
             + " --harness codex --guidance none --target " + _quote(target))
@@ -804,7 +804,7 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
         list(getattr(args, "on", None) or []), named, harnesses, target,
         "rbtv agent configure -h" if is_agent_target(target) else
         "rbtv configure --harness " + ",".join(HARNESSES) + " --target " + _quote(target))
-    pack_parts = pack_units(catalog, requested_packs)
+    pack_parts = pack_files(catalog, requested_packs)
     all_parts = sorted(set(parts) | pack_parts)
     picked, _unused = _split_part_keys(all_parts)
     data = do_install(
@@ -813,19 +813,19 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
         guidance_basis=basis,
         parts=all_parts, sub_agents=sub_agents)
     if not bool(getattr(args, "dry_run", False)):
-        _save_selected_units(target, add=set(parts), add_packs=requested_packs)
-    data["selected_units"] = all_parts
+        _save_selected_files(target, add=set(parts), add_packs=requested_packs)
+    data["selected_files"] = all_parts
     data["sub_agents"] = subagents.describe(
         named, sub_agents, subagents.recorded(state), harnesses, catalog, target)
     data["skipped_agents"] = skipped_agents
     data["recorded_source_gone"] = stale
-    before = _unit_keys(catalog, state)
-    facts = {"units": (len(before), len(before | set(all_parts))),
+    before = _file_keys(catalog, state)
+    facts = {"files": (len(before), len(before | set(all_parts))),
              "harnesses_before": book_harnesses(state),
              "packs": _pack_facts(catalog, requested_packs, on=True)}
     if len(all_parts) > 1:
         changed = len(set(all_parts) - before)
-        facts.update(changed=changed, unchanged=facts["units"][1] - changed)
+        facts.update(changed=changed, unchanged=facts["files"][1] - changed)
     _emit(data, bool(getattr(args, "json", False)),
           target, getattr(args, "_why", "unknown"), verb="add",
           details=getattr(args, "details", False), facts=facts)
@@ -834,18 +834,18 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
 
 def _remove_not_installed(args, target: Path, catalog: dict, state: dict,
                           noun: list[str], dry: bool, stale: list[str]) -> int:
-    """`remove NAME` where NAME is a known unit that is not installed: there is
+    """`remove NAME` where NAME is a known file that is not installed: there is
     nothing to take away, so the result names it and changes no file. A name
     the catalog does not know was refused before this point."""
     book = state.get("components")
-    installed = _unit_keys(catalog, state)
+    installed = _file_keys(catalog, state)
     named = sorted({part["key"] for name in noun
-                    for part in resolve_name(name, catalog, book)["units"]}
+                    for part in resolve_name(name, catalog, book)["files"]}
                    - installed)
     if not named:
         _emit({"ok": True, "uninstalled": [], "dry_run": dry,
                "recorded_source_gone": stale,
-               "message": "no installed units matched this request"},
+               "message": "no installed files matched this request"},
               bool(args.json), target, getattr(args, "_why", "unknown"),
               verb="remove", details=getattr(args, "details", False))
         return 0
@@ -855,7 +855,7 @@ def _remove_not_installed(args, target: Path, catalog: dict, state: dict,
            "dry_run": dry, "written": [], "deleted": [], "skipped": []},
           bool(args.json), target, getattr(args, "_why", "unknown"),
           verb="remove", details=getattr(args, "details", False),
-          facts={"units": (count, count)})
+          facts={"files": (count, count)})
     return 0
 
 
@@ -874,7 +874,7 @@ def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
         raise SystemExit(2)
     args.names = noun
     state = read_state(target)
-    _available_units, available_packs, stale = _available_selection(catalog, state)
+    _available_files, available_packs, stale = _available_selection(catalog, state)
     book = state.get("components")
     keys = resolve_selection(args, catalog, book) if (_has_selectors(args) or noun) else set()
     dry = bool(getattr(args, "dry_run", False))
@@ -887,13 +887,13 @@ def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
                        | set(preview_links.get("kept_shared") or []))
     current_packs = available_packs
     removed_parts = set(keys)
-    wanted_units = (selected_units(state) - removed_parts) | pack_units(
+    wanted_files = (selected_files(state) - removed_parts) | pack_files(
         catalog, current_packs - requested_packs)
-    booked_units = {row["key"] for row in iter_booked_units(catalog, book or {})}
+    booked_files = {row["key"] for row in iter_booked_files(catalog, book or {})}
     # A pack remains an active selection until `--pack` turns it off.  This
-    # applies even to broad unit selectors: removing a unit cannot silently
+    # applies even to broad file selectors: removing a file cannot silently
     # contradict an enabled pack, and update must not immediately add it back.
-    keys = booked_units - wanted_units
+    keys = booked_files - wanted_files
     if not keys and not shared_count and not requested_packs:
         return _remove_not_installed(args, target, catalog, state, noun, dry, stale)
     broad = bool(args.all or args.module or args.method or _has_negative(args))
@@ -911,23 +911,23 @@ def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
         preview = sorted(keys)[:20]
         exc = Refuse(
             "confirmation-required",
-            f"broad removal selected {len(keys)} unit{'' if len(keys) == 1 else 's'}"
+            f"broad removal selected {len(keys)} file{'' if len(keys) == 1 else 's'}"
             + (f" and {shared_count} registered shared shortcut(s)" if shared_count else "")
             + "; preview: "
             + (", ".join(preview) or "(none)")
             + (f"; {len(keys)-20} more" if len(keys) > 20 else "")
             + f". Review with --dry-run, then run: {retry}")
-        exc.preview = {"total": len(keys), "units": preview,
+        exc.preview = {"total": len(keys), "files": preview,
                        "next": retry}
         raise exc
-    before = _unit_keys(catalog, state)
-    facts = {"units": (len(before), len(before - set(keys))),
+    before = _file_keys(catalog, state)
+    facts = {"files": (len(before), len(before - set(keys))),
              "packs": _pack_facts(catalog, requested_packs, on=False)}
     if not keys:
         report = {"path": (preview_links if dry else
                            release_installation_links(bin_dir(), target, dry=False))}
         if not dry and state_path(target).is_file():
-            _save_selected_units(target, remove=removed_parts,
+            _save_selected_files(target, remove=removed_parts,
                                  remove_packs=requested_packs)
         _emit({"ok": True, "uninstalled": [], "dry_run": dry,
                "report": report,
@@ -938,9 +938,9 @@ def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
     picked, parts = _split_part_keys(keys)
     data = do_uninstall(target, catalog, picked, dry, parts=parts)
     if not dry and state_path(target).is_file():
-        _save_selected_units(target, remove=removed_parts,
+        _save_selected_files(target, remove=removed_parts,
                              remove_packs=requested_packs)
-    data["selected_units"] = parts
+    data["selected_files"] = parts
     data["recorded_source_gone"] = stale
     _emit(data, bool(getattr(args, "json", False)),
           target, getattr(args, "_why", "unknown"), verb="remove",
@@ -957,8 +957,8 @@ def cmd_update(args, target: Path, catalog: dict, shadowed: list,
     state = read_state(target)
     hs = _require_recorded(target, state)
     selected, packs, unavailable = _available_selection(catalog, state)
-    chosen = selected | pack_units(catalog, packs)
-    members = unit_membership(target, catalog, state, chosen)
+    chosen = selected | pack_files(catalog, packs)
+    members = file_membership(target, catalog, state, chosen)
     data = _replan_all(target, catalog, hs,
                        bool(getattr(args, "dry_run", False)),
                        scope=args.scope,
@@ -970,11 +970,11 @@ def cmd_update(args, target: Path, catalog: dict, shadowed: list,
         saved["packs"] = sorted(packs)
         write_state(target, saved)
     records = state.get("components") or {}
-    data["recorded_units"] = len(iter_booked_units(catalog, records))
+    data["recorded_files"] = len(iter_booked_files(catalog, records))
     data["source_missing"] = sorted(cid for cid in records if cid not in catalog)
     data["added"] = sorted(members["added"]) if args.scope != "guidance" else []
     data["removed"] = sorted(members["removed"]) if args.scope != "guidance" else []
-    facts = {"units": (len(members["booked"]), len(chosen)),
+    facts = {"files": (len(members["booked"]), len(chosen)),
              "listed_missing": sorted(members["listed_missing"]),
              "on_disk_unlisted": sorted(members["on_disk_unlisted"])}
     _emit(data, bool(getattr(args, "json", False)),
@@ -1095,30 +1095,30 @@ def cmd_selftest(args, target: Path, catalog: dict, shadowed: list,
 _AGENT_TEXT_ONLY = ("was", "packs_on", "packs_off", "absent_packs", "all",
                     "harness_changed", "on_disk", "listed_missing", "on_disk_unlisted")
 # The approved wording, broken where the approved screens break it.
-AGENT_LIST_HINT = ["Lists are counted, not printed. To list every unit and file, preview the",
+AGENT_LIST_HINT = ["Lists are counted, not printed. To list every file and generated file, preview the",
                    "next change with --dry-run --details. --json always carries the full lists."]
-AGENT_PREVIEW_HINT = ["Add --details to this preview to list every unit and file. "
+AGENT_PREVIEW_HINT = ["Add --details to this preview to list every file and generated file. "
                       "--json always carries the full lists."]
 
 
 def _agent_ids(values: list[str], details: bool) -> str:
-    """Unit ids inline when short; a count past the list limit, or with
+    """File ids inline when short; a count past the list limit, or with
     --details (the full list is then printed in its own section)."""
     if details or len(values) > LIST_LIMIT:
-        return f"{len(values)} units"
+        return f"{len(values)} files"
     return ", ".join(values) or "none"
 
 
-def _agent_files(unit_files: dict, guidance: list[str], dry: bool) -> tuple[list[str], list[str], list[str]]:
+def _agent_files(generated: dict, guidance: list[str], dry: bool) -> tuple[list[str], list[str], list[str]]:
     """Written, deleted and already-current file lists for one agent change.
     A preview reads the planned lists; a real run reads the applied ones."""
     if dry:
-        plan = unit_files.get("planned_changes") or {}
+        plan = generated.get("planned_changes") or {}
         write, delete = plan.get("write_files") or [], plan.get("delete_files") or []
         same = plan.get("unchanged_files") or []
     else:
-        write, delete = unit_files.get("written") or [], unit_files.get("deleted") or []
-        same = unit_files.get("skipped") or []
+        write, delete = generated.get("written") or [], generated.get("deleted") or []
+        same = generated.get("skipped") or []
     return list(dict.fromkeys(write + guidance)), delete, same
 
 
@@ -1169,13 +1169,13 @@ def _print_agent(data: dict, verb: str, target: Path, why: str | None,
     own = [name for name in data["written"] if name in OWN_FILES]
     guidance = [name for name in data["written"]
                 if name not in OWN_FILES and name != AGENT_RECORD.name]
-    write, delete, same = _agent_files(data["unit_files"], guidance, dry)
+    write, delete, same = _agent_files(data["generated"], guidance, dry)
     touched = bool(write or delete or data.get("added") or data.get("packs_on")
-                   or data.get("units_removed") or data["written"])
+                   or data.get("files_removed") or data["written"])
     launch = data["launch"]
     row_target = f"{data['home']} ({'path' if path_arg else 'name'})"
     rows = [("Target", row_target), ("Installation", f"{target} ({present.target_source_label(why)})")]
-    units = data["units"]
+    files = data["files"]
     if verb == "add":
         title = ("agent add preview" if dry else "agent added" if touched
                  else "agent add, nothing to do")
@@ -1185,11 +1185,11 @@ def _print_agent(data: dict, verb: str, target: Path, why: str | None,
         if added:
             rows.append(("Added", _agent_ids(added, details)))
         if added:
-            rows.append(("Units", f"{len(units)} (was {data['was']})"))
+            rows.append(("Installed files", f"{len(files)} (was {data['was']})"))
         elif write and not dry:
-            rows.append(("Units", f"{len(units)} ({_agent_ids(units, details)})"))
+            rows.append(("Installed files", f"{len(files)} ({_agent_ids(files, details)})"))
         else:
-            rows.append(("Units", f"{len(units)}, already recorded"))
+            rows.append(("Installed files", f"{len(files)}, already recorded"))
         if data["packs"] and not data["packs_on"]:
             rows.append(("Packs", ", ".join(data["packs"]) + ", already on"))
         else:
@@ -1217,15 +1217,15 @@ def _print_agent(data: dict, verb: str, target: Path, why: str | None,
         if removed:
             rows.append(("Would remove" if dry else "Removed", _agent_ids(removed, details)))
         if (added or removed) and dry:
-            rows.append(("Units", f"{len(units)} (would be {_agent_ids(units, details)})"))
+            rows.append(("Installed files", f"{len(files)} (would be {_agent_ids(files, details)})"))
         elif added or removed:
-            rows.append(("Units", f"{len(units)} (membership changed)"))
+            rows.append(("Installed files", f"{len(files)} (membership changed)"))
             rows.append(("  Was", _agent_ids(data["on_disk"], details)))
-            rows.append(("  Now", _agent_ids(units, details)))
+            rows.append(("  Now", _agent_ids(files, details)))
         elif touched or _agent_mismatch(data):
-            rows.append(("Units", f"{len(units)}"))
+            rows.append(("Installed files", f"{len(files)}"))
         else:
-            rows.append(("Units", f"{len(units)}, already match agent.json"))
+            rows.append(("Installed files", f"{len(files)}, already match agent.json"))
         if not touched and not dry:
             rows.append(("Packs", ", ".join(data["packs"]) or "none"))
         rows.append(("Guidance", "nothing to copy (no guidance file is set)"))
@@ -1233,9 +1233,9 @@ def _print_agent(data: dict, verb: str, target: Path, why: str | None,
             rows.append(("Record", "already matched the pulled file"))
         rows.append(("Generated files", _agent_generated(write, delete, same, dry)))
     else:
-        title = ("removal preview" if dry else "units removed" if touched
+        title = ("removal preview" if dry else "files removed" if touched
                  else "agent remove, nothing to do")
-        removed = data["units_removed"]
+        removed = data["files_removed"]
         packs_off = data["packs_off"]
         if packs_off and not data["all"]:
             rows.append(("Pack off", ", ".join(packs_off)))
@@ -1243,8 +1243,8 @@ def _print_agent(data: dict, verb: str, target: Path, why: str | None,
             rows.append(("Would remove" if dry else "Removed", _agent_ids(removed, details)))
         if data["all"] and packs_off:
             rows.append(("Packs", f"none ({', '.join(packs_off)} turned off)"))
-        rows.append(("Units", f"{len(units)} (was {data['was']})" if data["was"] != len(units)
-                     else f"{len(units)}, unchanged"))
+        rows.append(("Installed files", f"{len(files)} (was {data['was']})" if data["was"] != len(files)
+                     else f"{len(files)}, unchanged"))
         if not data["all"]:
             kept_packs = ", ".join(data["packs"])
             rows.append(("Packs", (f"{kept_packs} (kept)" if kept_packs and touched else kept_packs or "none")))
@@ -1260,14 +1260,14 @@ def _print_agent(data: dict, verb: str, target: Path, why: str | None,
         blocks = [["Nothing to copy. No guidance file is set for this agent."]]
         if _agent_mismatch(data):
             blocks.append(present.wrap("Warning: the folder does not match agent.json. "
-                                       "This scope does not add or remove units.")
+                                       "This scope does not add or remove files.")
                           + [f"  On disk:     {_agent_ids(data['on_disk'], details)}",
-                             f"  agent.json:  {_agent_ids(units, details)}"])
+                             f"  agent.json:  {_agent_ids(files, details)}"])
         _print_agent_blocks(blocks, data["next"])
         return
     detail_blocks = _agent_details(write, delete, dry) if details else []
-    if verb in ("add", "update") and details and units:
-        detail_blocks.insert(0, ["Units"] + [f"  {u}" for u in units])
+    if verb in ("add", "update") and details and files:
+        detail_blocks.insert(0, ["Files"] + [f"  {u}" for u in files])
     if verb == "add":
         detail_blocks += [present.wrap(note) for note in subagents.notes(data["sub_agents"])]
     keep_note = verb == "remove" and touched and not dry
@@ -1283,7 +1283,7 @@ def _print_agent_configure(data: dict, target: Path, why: str | None,
     own = [name for name in data["written"] if name in OWN_FILES]
     guidance = [name for name in data["written"]
                 if name not in OWN_FILES and name != AGENT_RECORD.name]
-    write, delete, same = _agent_files(data["unit_files"], guidance, dry)
+    write, delete, same = _agent_files(data["generated"], guidance, dry)
     changed = bool(data["written"])
     title = ("configure preview" if dry else "agent configured" if changed
              else "agent configure, nothing to do")
@@ -1295,7 +1295,7 @@ def _print_agent_configure(data: dict, target: Path, why: str | None,
             ("Effort", f"{before['effort']} -> {after['effort']}"),
             ("Voice", f"{before['voice'] or 'not set'} -> {after['voice'] or 'not set'}")]
     if data["harness_changed"]:
-        rows.append(("Units", f"{len(data['units'])}, unchanged"))
+        rows.append(("Installed files", f"{len(data['files'])}, unchanged"))
     if not dry:
         rows.append(("Record", "agent.json updated" if changed else "agent.json already has these values"))
     if data["harness_changed"]:
@@ -1324,7 +1324,7 @@ def _agent_next_text(data: dict, path_arg: bool) -> str:
 
 
 def _agent_mismatch(data: dict) -> bool:
-    """True when the folder's units and agent.json's units differ."""
+    """True when the folder's files and agent.json's files differ."""
     return bool(data["listed_missing"] or data["on_disk_unlisted"])
 
 

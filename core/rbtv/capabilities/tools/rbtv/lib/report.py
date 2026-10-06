@@ -1,7 +1,7 @@
 """Printing what a run planned or did, in the form a human reads.
 
 Layout: title, target, a summary of aligned fields (what was selected, the
-receiving tools, file counts), then the sections Warnings, Units, File list
+receiving tools, file counts), then the sections Warnings, Files, File list
 and Notes.
 Owner-ruled compact default: every warning prints in full, routine lists
 (files, claims, copied folders) print as counts, and a selection longer
@@ -31,15 +31,15 @@ def _title(data: dict) -> str:
             return "configuration unchanged"
         return "configuration preview" if dry else "configuration saved"
     if verb == "add":
-        return "add preview" if dry else "units added"
+        return "add preview" if dry else "files added"
     if verb == "remove":
         if data.get("not_installed"):
             return "nothing to remove"
-        if not data.get("uninstalled") and not data.get("selected_units"):
+        if not data.get("uninstalled") and not data.get("selected_files"):
             if "report" in data:
                 return "shared shortcut claims released"
             return "nothing removed"
-        return "removal preview" if dry else "units removed"
+        return "removal preview" if dry else "files removed"
     if verb == "update":
         label = _UPDATE_LABEL.get(data.get("scope", ""), data.get("scope", "update"))
         return f"{label} update preview" if dry else f"{label} updated"
@@ -56,15 +56,15 @@ class _Out:
         self.hidden = False
         self.summary: list[tuple[str, str]] = []
         self.sections: dict[str, list[str]] = {
-            "Warnings": [], "Units": [], "File list": [], "Notes": []}
+            "Warnings": [], "Files": [], "File list": [], "Notes": []}
 
     def ids(self, values: list[str], noun: str, *, listed: bool = True) -> str:
         """A selection by name, inline. A long one (more than `LIST_LIMIT`)
         prints as its count unless --details is given; with --details the
-        full selection is also listed one ID per line under Units. A
-        component row passes `listed=False`: its components are not units."""
+        full selection is also listed one ID per line under Files. A
+        component row passes `listed=False`: its components are not files."""
         if listed and self.full:
-            self.sections["Units"].extend(f"  {value}" for value in values)
+            self.sections["Files"].extend(f"  {value}" for value in values)
         if self.full or len(values) <= LIST_LIMIT:
             return ", ".join(values)
         self.hidden = True
@@ -126,23 +126,23 @@ def print_result(data: dict) -> None:
         return
     if facts.get("changed") is not None:
         print()
-        print(f"Changed {_count(facts['changed'], 'unit')}, unchanged "
-              f"{_count(facts['unchanged'], 'unit')}, failed "
-              f"{len(_failed_units(data))}.")
+        print(f"Changed {_count(facts['changed'], 'file')}, unchanged "
+              f"{_count(facts['unchanged'], 'file')}, failed "
+              f"{len(_failed_files(data))}.")
 
     out.summary.extend(data.get("_fields") or [])
-    selected = data.get("selected_units") or []
+    selected = data.get("selected_files") or []
     added, removed = data.get("added") or [], data.get("removed") or []
     if data.get("_verb") == "update":
         out.summary.append(("Would add" if preview else "Added",
-                            out.ids(added, "units") if added else "none"))
+                            out.ids(added, "files") if added else "none"))
         out.summary.append(("Would remove" if preview else "Removed",
-                            out.ids(removed, "units") if removed else "none"))
+                            out.ids(removed, "files") if removed else "none"))
     removing = data.get("_verb") == "remove"
     if selected:
         label = ("Would remove" if removing else "Would add") if preview \
             else ("Removed" if removing else "Installed")
-        out.summary.append((label, out.ids(selected, "units")))
+        out.summary.append((label, out.ids(selected, "files")))
     elif data.get("installed"):
         out.summary.append(("Would refresh" if preview else "Refreshed",
                             out.ids(data["installed"], "components", listed=False)))
@@ -150,11 +150,11 @@ def print_result(data: dict) -> None:
         out.summary.append(("Would remove" if preview else "Removed",
                             out.ids(data["uninstalled"], "components", listed=False)))
     elif data.get("not_installed"):
-        out.summary.append(("Not installed", out.ids(data["not_installed"], "units")))
+        out.summary.append(("Not installed", out.ids(data["not_installed"], "files")))
     if data.get("harnesses"):
         out.summary.append(("Receiving tools",
                             _receiving(data["harnesses"], facts, preview)))
-    _units_row(out, facts, data)
+    _installed_row(out, facts, data)
     out.summary.extend(subagents.rows(data.get("sub_agents") or []))
     for name, component, on in facts.get("packs") or []:
         out.summary.append(("Pack", f"{name} ({component}) "
@@ -193,10 +193,10 @@ def print_result(data: dict) -> None:
     print()
     if out.hidden:
         # Never suggests repeating a change that already ran.
-        hint = ("Add --details to this preview to list every unit and file."
+        hint = ("Add --details to this preview to list every file and generated file."
                 if preview else
-                "Lists are counted, not printed. To list every unit and "
-                "file, preview the next change with --dry-run --details.")
+                "Lists are counted, not printed. To list every file and "
+                "generated file, preview the next change with --dry-run --details.")
         for line in present.wrap(hint + " --json always carries the full lists."):
             print(line)
         print()
@@ -207,8 +207,8 @@ def _count(n: int, noun: str) -> str:
     return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
 
 
-def _failed_units(data: dict) -> set[tuple[str, str]]:
-    """Selected units a receiving tool cannot use: the run's failures."""
+def _failed_files(data: dict) -> set[tuple[str, str]]:
+    """Selected files a receiving tool cannot use: the run's failures."""
     return {(row["component"], row["part"])
             for row in (data.get("report") or {}).get("no_realization") or []}
 
@@ -222,24 +222,24 @@ def _receiving(now: list[str], facts: dict, preview: bool) -> str:
     return f"{text} ({'would replace' if preview else 'was'} {', '.join(before)})"
 
 
-def _units_row(out: _Out, facts: dict, data: dict) -> None:
-    """`Installed units: N (was M)`, or `(unchanged)`. An update that added or
-    removed units prints the count alone (the Added and Removed rows say it)."""
-    if "units" not in facts:
+def _installed_row(out: _Out, facts: dict, data: dict) -> None:
+    """`Installed files: N (was M)`, or `(unchanged)`. An update that added or
+    removed files prints the count alone (the Added and Removed rows say it)."""
+    if "files" not in facts:
         return
-    before, after = facts["units"]
+    before, after = facts["files"]
     if data.get("_verb") == "update" and (data.get("added") or data.get("removed")):
         text = str(after)
     elif before == after:
         text = f"{after} (unchanged)"
     else:
         text = f"{after} (was {before})"
-    out.summary.append(("Installed units", text))
+    out.summary.append(("Installed files", text))
 
 
 def _guidance_lines(data: dict, facts: dict, preview: bool) -> list[str]:
     """`update guidance`: whether the guidance copies were made and whether the
-    folder matches the file. It never adds or removes a unit."""
+    folder matches the file. It never adds or removes a file."""
     mirror = (data.get("report") or {}).get("guidance_mirror") or {}
     if mirror.get("basis"):
         copied = "would copy" if preview else "copied"
@@ -250,14 +250,14 @@ def _guidance_lines(data: dict, facts: dict, preview: bool) -> list[str]:
     listed = facts.get("listed_missing") or []
     unlisted = facts.get("on_disk_unlisted") or []
     if listed or unlisted:
-        sentences = ([f"{unit} is listed and missing." for unit in listed]
-                     + [f"{unit} is on disk and is not listed." for unit in unlisted])
+        sentences = ([f"{file} is listed and missing." for file in listed]
+                     + [f"{file} is on disk and is not listed." for file in unlisted])
         lines.append("The folder does not match install.json. "
                      + " ".join(sentences) + " Added none. Removed none.")
         lines.append(f"Fix: rbtv update scaffolding --target {data['target']}")
     else:
         lines.append("The folder matches the file. Added none. Removed none. "
-                     f"Installed units stay {facts['units'][1]}.")
+                     f"Installed files stay {facts['files'][1]}.")
     return [line for text in lines for line in present.wrap(text)]
 
 
@@ -330,7 +330,7 @@ def _warnings(out: _Out, data: dict, preview: bool) -> None:
                    + ", ".join(missing))
     stale = data.get("recorded_source_gone") or []
     if stale:
-        out.bullet("Warnings", "the record lists unit(s) whose source is gone: "
+        out.bullet("Warnings", "the record lists file(s) whose source is gone: "
                    + ", ".join(stale)
                    + ". Run `rbtv update all` to remove them.")
     report = data.get("report") or {}
@@ -357,12 +357,12 @@ def _warnings(out: _Out, data: dict, preview: bool) -> None:
 
 
 def _report_rows(out: _Out, report: dict, planned: bool, target: str) -> None:
-    """Why a unit minted nothing, and the PATH shortcut changes. Printed on
+    """Why a file minted nothing, and the PATH shortcut changes. Printed on
     DRY RUNS TOO, marked as planned (task 7.622): the SAME data a real run
     prints; only the tense moves."""
     tail = "no file would be written" if planned else "no file was written"
-    # A selected unit a receiving tool cannot use is an exception, never
-    # routine: always under Warnings, every unit named, one bullet per
+    # A selected file a receiving tool cannot use is an exception, never
+    # routine: always under Warnings, every file named, one bullet per
     # tool and type so a long run stays readable.
     unused: dict[tuple[str, str], list[str]] = {}
     for row in report.get("no_realization") or []:
@@ -370,7 +370,7 @@ def _report_rows(out: _Out, report: dict, planned: bool, target: str) -> None:
             f"{row['component']}#{row['part']}")
     for (harness, kind), keys in unused.items():
         out.bullet("Warnings", f"{harness} cannot use {len(keys)} selected "
-                   f"{kind} unit(s) — {tail} for: " + ", ".join(keys))
+                   f"{kind} file(s) — {tail} for: " + ", ".join(keys))
     for key in report.get("sub_agents_unset") or []:
         out.bullet("Warnings", subagents.unset_note(key, target))
     gone = report.get("source_gone") or []

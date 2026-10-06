@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from discovery import Refuse, scan_all, scan_tree, unit_rows
+from discovery import Refuse, scan_all, scan_tree, file_rows
 
 from lib import frontmatter, schema
 from lib.claims import _block_del, _block_set
@@ -13,7 +13,7 @@ from lib.content import _is_ours
 from lib.operations import do_install, do_uninstall
 from lib.state import read_state
 
-from .fixture import _component, _unit_md, _w
+from .fixture import _component, _file_md, _w
 
 
 def _install(ws, root, cid, harnesses, tmp):
@@ -70,7 +70,7 @@ def schema_and_frontmatter(ctx) -> None:
         _w(tool / "t.json", json.dumps(
             {"name": "t", "description": "d", "entry": entry}))
         try:
-            unit_rows(scan_tree(root, "repo")["tm/tc"])
+            file_rows(scan_tree(root, "repo")["tm/tc"])
             got = None
         except Refuse as exc:
             got = exc.code
@@ -144,14 +144,14 @@ def legacy_names(ctx) -> None:
                       "e": {"method": "pool", "files": []},
                       "f": {"method": "skill", "files": []}}}}}),
         encoding="utf-8")
-    units = read_state(ws)["components"]["m/c"]
+    files = read_state(ws)["components"]["m/c"]
     check("U-legacy — `parts` become `units`, methods take the new names, "
           "`pool` goes",
-          "parts" not in units
-          and {k: v["method"] for k, v in units["units"].items()}
+          "parts" not in files
+          and {k: v["method"] for k, v in files["units"].items()}
           == {"a": "agent", "b": "mcp-server", "c": "tool",
               "d": "folder-instructions", "f": "skill"},
-          str(units))
+          str(files))
 
     renamed = tmp / "ws-renamed-install"
     (renamed / STATE_REL).parent.mkdir(parents=True)
@@ -165,7 +165,7 @@ def legacy_names(ctx) -> None:
                               "rbtv": {"method": "tool", "files": [], "links": ["rbtv"]}}}},
         "units": ["core/installer#rbtv-install", "core/rbtv-cli#rbtv"]}))
     migrated = read_state(renamed)
-    check("U-legacy — renamed install component and shortcut unit migrate together",
+    check("U-legacy — renamed install component and shortcut file migrate together",
           set(migrated["components"]) == {"core/rbtv"}
           and set(migrated["components"]["core/rbtv"]["units"])
           == {"rbtv", "manage-components"}

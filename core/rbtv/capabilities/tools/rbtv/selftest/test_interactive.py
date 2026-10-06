@@ -98,12 +98,12 @@ def fumbled_answers_reask(ctx) -> None:
     check = ctx.check
 
     print("\nI2 — a fumbled answer costs one re-ask, never the whole run")
-    units = [{"label": "AGENTS.md"}, {"label": "CLAUDE.md"},
+    choices = [{"label": "AGENTS.md"}, {"label": "CLAUDE.md"},
              {"label": BASIS_NONE}]
     out = io.StringIO()
     with _typed(["9", "2"]):
         with contextlib.redirect_stdout(out):
-            picked = tui.select_one("basis", units, default_index=2)
+            picked = tui.select_one("basis", choices, default_index=2)
     check("I2 — an out-of-range choice re-asks and the next answer lands",
           picked == 1 and "no such option: '9'" in out.getvalue(),
           f"{picked}; {out.getvalue()[-120:]!r}")
@@ -111,7 +111,7 @@ def fumbled_answers_reask(ctx) -> None:
     out = io.StringIO()
     with _typed([""]):
         with contextlib.redirect_stdout(out):
-            picked = tui.select_one("basis", units, default_index=2)
+            picked = tui.select_one("basis", choices, default_index=2)
     check("I2 — a blank answer takes the default, it does not refuse",
           picked == 2, str(picked))
 
@@ -119,18 +119,18 @@ def fumbled_answers_reask(ctx) -> None:
     with _typed(["x", "y", "z"]):
         try:
             with contextlib.redirect_stdout(out):
-                tui.select_one("basis", units, default_index=2)
+                tui.select_one("basis", choices, default_index=2)
             bounded = "no error"
         except ValueError as exc:
             bounded = str(exc)
     check("I2 — the re-ask is BOUNDED: three bad answers stop the question",
           "z" in bounded, bounded)
 
-    units = [{"label": h, "selected": h == "claude"} for h in HARNESSES]
+    choices = [{"label": h, "selected": h == "claude"} for h in HARNESSES]
     out = io.StringIO()
     with _typed([""]):
         with contextlib.redirect_stdout(out):
-            kept = tui.checkbox("tools", units)
+            kept = tui.checkbox("tools", choices)
     check("I2 — a blank answer to a multi-select keeps what was pre-ticked",
           kept == [0], str(kept))
 

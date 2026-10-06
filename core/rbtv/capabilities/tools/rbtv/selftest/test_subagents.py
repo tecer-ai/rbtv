@@ -1,4 +1,4 @@
-"""An agent a component ships, added as a unit: the harness-native sub-agent
+"""An agent a component ships, added with `rbtv add`: the harness-native sub-agent
 files, the `--on` values, the record that keeps them, and the one source format."""
 from __future__ import annotations
 
@@ -7,14 +7,14 @@ import io
 import json
 from unittest.mock import patch
 
-from discovery import Refuse, scan_all, unit_rows
+from discovery import Refuse, scan_all, file_rows
 from lib import commands, constants, schema
 from lib.constants import SCHEMA, STATE_REL
 from lib.help_pages import PAGES
 from lib.recovery import shell_quote
 from lib.state import read_state
 
-from .fixture import FIXAGENT, _component, _unit_md, _w
+from .fixture import FIXAGENT, _component, _file_md, _w
 
 KNOWN = {"claude": {"m1": ["low", "medium", "high"], "nodial": []},
          "codex": {"c1": ["low", "medium", "high"]},
@@ -49,7 +49,7 @@ def sub_agents(ctx) -> None:
         """Text with its line wrapping removed: the wrap depends on the path length."""
         return " ".join(text.split())
 
-    def unit() -> dict:
+    def agent_record() -> dict:
         return read_state(ws)["components"]["fixmod/goodcomp"]["units"]["fixagent"]
 
     print("\nSA — an agent a component ships, added as a harness-native sub-agent")
@@ -57,7 +57,7 @@ def sub_agents(ctx) -> None:
     check("SA-on-required — naming an agent without --on is refused, naming --on and rbtv agent add",
           code == 1 and err.startswith(
               "rbtv — refused\n\nREFUSED [on-required] fixagent: an agent a component ships. "
-              "Added as a unit it is written as a\n  harness-native sub-agent, which needs a "
+              "Added with `rbtv add` it is written as a\n  harness-native sub-agent, which needs a "
               "model and an effort for each harness: give --on\n  HARNESS:MODEL:EFFORT, once "
               "per harness. To place it as an rbtv agent instead, run\n  `rbtv agent add "
               "fixagent --harness HARNESS --model MODEL --effort EFFORT`. Nothing was changed.\n"
@@ -87,12 +87,12 @@ def sub_agents(ctx) -> None:
               "cannot add it by itself: a model and an effort are needed. Add it with: "
               "rbtv add fixagent --on codex:MODEL:EFFORT --target "
               f"{shell_quote(ws)} " in flat(one), one)
-    check("SA-record — the unit's record holds the model, the harness's own model id and "
+    check("SA-record — the agent's record holds the model, the harness's own model id and "
           "the effort, per harness, and nothing tied to this machine",
-          unit()["sub_agent"] == {"claude": {"model": "m1", "model_id": "id/m1",
+          agent_record()["sub_agent"] == {"claude": {"model": "m1", "model_id": "id/m1",
                                              "effort": "high"}}
           and read_state(ws)["schema"] == SCHEMA == 9
-          and str(tmp) not in json.dumps(unit()["sub_agent"]), str(unit()))
+          and str(tmp) not in json.dumps(agent_record()["sub_agent"]), str(agent_record()))
     saved = json.loads((ws / STATE_REL).read_text(encoding="utf-8"))
     booked = saved["components"]["fixmod/goodcomp"]["units"]["fixagent"]
     described = schema.load("install-json")
@@ -123,7 +123,7 @@ def sub_agents(ctx) -> None:
           and 'effort: "low"\n' in claude.read_text(encoding="utf-8")
           and "  claude:         m1, effort low (was m1, effort high)\n"
               "  codex:          c1, effort medium\n" in two
-          and "Installed units:  1 (unchanged)" in two and "not for codex" not in two, two)
+          and "Installed files:  1 (unchanged)" in two and "not for codex" not in two, two)
 
     code, out, _err = run("add", "fixagent", "--on", "claude:m1:1", "--json")
     payload = json.loads(out)
@@ -134,7 +134,7 @@ def sub_agents(ctx) -> None:
           == {"model": "m1", "model_id": "id/m1", "effort": "low", "was": None,
               "not_applied": []}
           and payload["sub_agents"][0]["not_written_for"] == []
-          and payload["sub_agents"][0]["units_not_applied"] == []
+          and payload["sub_agents"][0]["files_not_applied"] == []
           and run("add", "fixskill", "--json")[1].count('"sub_agents": []') == 1, out)
 
     code, _out, err = run("add", "fixagent", "--on", "opencode:o1:high")
@@ -169,15 +169,15 @@ def sub_agents(ctx) -> None:
     check("SA-status — status says for which harnesses and with what",
           "Packs on: none\n" + line in status
           and json.loads(status_json)["installation"]["sub_agents"]
-          == {FIXAGENT: unit()["sub_agent"]}, status)
+          == {FIXAGENT: agent_record()["sub_agent"]}, status)
     _code, listed, _err = run("list", "--type", "agent")
     _code, listed_json, _err = run("list", "--type", "agent", "--json")
-    rows = {row["id"]: row for row in json.loads(listed_json)["units"]}
+    rows = {row["id"]: row for row in json.loads(listed_json)["files"]}
     check("SA-list — the catalog lists each agent once, type agent, and an installed one "
           "with its harnesses",
           f"{FIXAGENT}  agent  installed " in listed and line in listed
           and "fixmod/goodcomp#research  agent  not installed" in listed
-          and rows[FIXAGENT]["sub_agent"] == unit()["sub_agent"]
+          and rows[FIXAGENT]["sub_agent"] == agent_record()["sub_agent"]
           and rows["fixmod/goodcomp#research"]["sub_agent"] == {}, listed)
     _code, shown, _err = run("show", "fixagent")
     check("SA-show — show names the sub-agent's harnesses, the rbtv agent folder and "
@@ -204,7 +204,7 @@ def sub_agents(ctx) -> None:
     code, grown, _err = run("configure", "--harness", "claude,codex,opencode")
     check("SA-harness-added — a harness added later gets no file; the result names the "
           "agent and the command, and says why rbtv cannot do it",
-          code == 0 and not opencode.exists() and "opencode" not in unit()["sub_agent"]
+          code == 0 and not opencode.exists() and "opencode" not in agent_record()["sub_agent"]
           and "· fixagent is a harness-native sub-agent for claude and codex, not for "
               "opencode. rbtv cannot add it by itself: a model and an effort are "
               "needed. Add it with: "
@@ -217,8 +217,8 @@ def sub_agents(ctx) -> None:
           and 'variant: "high"\n' in opencode.read_text(encoding="utf-8"), _err)
     code, _out, _err = run("configure", "--harness", "claude,codex")
     check("SA-harness-dropped — a dropped harness loses its file and its values",
-          code == 0 and not opencode.exists() and sorted(unit()["sub_agent"]) == ["claude", "codex"],
-          str(unit()))
+          code == 0 and not opencode.exists() and sorted(agent_record()["sub_agent"]) == ["claude", "codex"],
+          str(agent_record()))
 
     with patch.dict(constants.SUB_AGENT_SETTINGS["codex"], {"effort": None}):
         code, gap, _err = run("add", "fixagent", "--on", "codex:c1:high")
@@ -226,21 +226,21 @@ def sub_agents(ctx) -> None:
     check("SA-not-applied — a value the harness's file has no setting for is recorded, "
           "left out of the file, and reported",
           code == 0 and "model_reasoning_effort" not in toml and 'model = "id/c1"' in toml
-          and unit()["sub_agent"]["codex"]["effort"] == "high"
+          and agent_record()["sub_agent"]["codex"]["effort"] == "high"
           and "fixagent for codex: effort high was recorded and not applied (a codex "
               "sub-agent file has no" in gap, gap)
     code, inert, _err = run("add", "fixagent", "--on", "claude:nodial:2")
     check("SA-no-dial — a model with no effort dial records the effort and writes no "
           "effort setting",
-          code == 0 and unit()["sub_agent"]["claude"]["effort"] == "inert"
+          code == 0 and agent_record()["sub_agent"]["claude"]["effort"] == "inert"
           and "effort:" not in claude.read_text(encoding="utf-8")
           and "effort inert was recorded and not applied (nodial has no effort setting)"
           in " ".join(inert.split()), inert)
 
     code, _out, _err = run("add", "research", "--on", "claude:m1:high")
     _code, own, _err = run("add", "research", "--on", "claude:m1:high")
-    check("SA-own-units — the agent's own units and packs are named as not applied",
-          code == 0 and "research's own units and packs were not applied: unit fixskill. "
+    check("SA-own-files — the agent's own files and packs are named as not applied",
+          code == 0 and "research's own files and packs were not applied: file fixskill. "
           "A harness-native sub-agent sees what its target has; add them with "
           "`rbtv add`." in flat(own), own)
     code, removed, _err = run("remove", "fixagent")
@@ -264,13 +264,13 @@ def sub_agents(ctx) -> None:
     print("\nSA — one source format")
     src = tmp / "sa-source"
     comp = _component(src, "moda", "comp")
-    _unit_md(comp / "skills/plain.md", "plain", "Plain", "body\n")
+    _file_md(comp / "skills/plain.md", "plain", "Plain", "body\n")
     _w(comp / "agents/named/agent.md", "---\nname: named\n---\n\nNamed.\n")
     _w(comp / "agents/named/agent.json", json.dumps({
         "name": "named", "description": "Named.", "harness": "claude", "model": "m1"}) + "\n")
     bad, _ = scan_all(tmp / "sa-mirror", src)
     try:
-        unit_rows(bad["moda/comp"])
+        file_rows(bad["moda/comp"])
         refusal = None
     except Refuse as exc:
         refusal = exc
@@ -290,11 +290,11 @@ def sub_agents(ctx) -> None:
     except Refuse as exc:
         with_pack = exc.code
     check("SA-source-launch-pack — a pack of that component fails for the same reason, "
-          "not as an unknown unit",
+          "not as an unknown file",
           with_pack == "agent-source-launch", with_pack)
     (comp / "agents/named/agent.json").write_text(
         json.dumps({"name": "named", "description": "Named."}) + "\n", encoding="utf-8")
-    _unit_md(comp / "sub-agents/old.md", "old", "Old format", "body\n")
+    _file_md(comp / "sub-agents/old.md", "old", "Old format", "body\n")
     try:
         scan_all(tmp / "sa-mirror", src)
         refusal = None
@@ -328,8 +328,8 @@ def sub_agents(ctx) -> None:
             contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
         code = commands.main(["update", "all", "--target", str(legacy)])
     after = json.loads((legacy / STATE_REL).read_text(encoding="utf-8"))
-    check("SA-migrate — a schema 7 record is read, its sub-agent unit becomes the agent "
-          "unit, and the record written is valid",
+    check("SA-migrate — a schema 7 record is read, its sub-agent file becomes the agent "
+          "file, and the record written is valid",
           before["components"]["fixmod/goodcomp"]["units"]["fixagent"]["method"] == "agent"
           and code == 0 and after["schema"] == 9
           and after["components"]["fixmod/goodcomp"]["units"]["fixagent"]

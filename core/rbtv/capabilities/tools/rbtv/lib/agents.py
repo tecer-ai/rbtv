@@ -10,14 +10,14 @@ from pathlib import Path
 from discovery import LAUNCH_FIELDS, Refuse
 
 from . import frontmatter, schema, subagents
-from .catalog import check_packs, pack_units
+from .catalog import check_packs, pack_files
 from .claims import _block_del
 from .constants import (AGENT_RECORD, EFFORT_INERT, GUIDANCE_FILE, HARNESSES, MATRIX,
                         SHARED_FILE_DESTINATIONS)
 from .fsio import write_file
 from .operations import do_install, do_uninstall
-from .selection import _split_part_keys, iter_booked_units, iter_catalog_parts, resolve_name
-from .state import read_state, unit_membership, write_state
+from .selection import _split_part_keys, iter_booked_files, iter_catalog_parts, resolve_name
+from .state import read_state, file_membership, write_state
 
 AGENTS_REL = Path(".rbtv") / "agents"
 
@@ -87,7 +87,7 @@ def unplaced_shipped_agent(root: Path, raw: str, catalog: dict) -> dict | None:
     if is_path(raw) or agent_home(root, raw).exists():
         return None
     matches = [part for part in iter_catalog_parts(catalog)
-               if part["unit_id"] == raw and part["method"] == "agent"]
+               if part["file_id"] == raw and part["method"] == "agent"]
     return matches[0] if len(matches) == 1 else None
 
 
@@ -212,7 +212,7 @@ def launch_values(harness: str, model: str, effort: str, known: dict) -> dict:
 
 def on_values(on: list[str], named: list[dict], receiving: list[str],
               target: Path, configure_cmd: str) -> dict[str, dict]:
-    """The checked `--on` values of the agents a command names as units, with
+    """The checked `--on` values of the agents a command names as files, with
     the check and the model names an rbtv agent's values get. `cast` is read
     only when there is a value to check."""
     return subagents.values_for(
@@ -242,7 +242,7 @@ def _launch_flags(name: str, has: bool, given: dict | None) -> dict:
 
 
 def _keys(names: list[str], catalog: dict, book: dict | None = None) -> set[str]:
-    return {unit["key"] for name in names for unit in resolve_name(name, catalog, book)["units"]}
+    return {file["key"] for name in names for file in resolve_name(name, catalog, book)["files"]}
 
 
 def _agent_section(home: Path, harness: str, dry: bool) -> list[str]:
@@ -310,19 +310,19 @@ def configure_agent(root: Path, raw: str, harness: str | None,
                            str(after["effort"]), cast_catalog())
     after.update(launch)
     changed_harness = before["harness"] != after["harness"]
-    wanted = _keys(list(after["units"]), catalog) | pack_units(catalog, set(after["packs"]))
+    wanted = _keys(list(after["units"]), catalog) | pack_files(catalog, set(after["packs"]))
     picked, parts = _split_part_keys(wanted)
-    unit_files = (do_install(home, catalog, picked, [after["harness"]], dry,
+    generated = (do_install(home, catalog, picked, [after["harness"]], dry,
                              guidance_basis="none", parts=parts,
                              selected=parts) if changed_harness else {
                                  "harnesses": [after["harness"]], "written": [],
-                                 "deleted": [], "skipped": [], "selected_units": []})
+                                 "deleted": [], "skipped": [], "selected_files": []})
     written = ["agent.json"] if before != after else []
     if changed_harness:
         if GUIDANCE_FILE[before["harness"]] != GUIDANCE_FILE[after["harness"]]:
             released = _remove_agent_section(home, before["harness"], dry)
             if released:
-                unit_files["deleted"] = sorted(set(unit_files.get("deleted", [])) | set(released))
+                generated["deleted"] = sorted(set(generated.get("deleted", [])) | set(released))
         written += _agent_files(home, after, dry)
     if not dry and before != after:
         # `do_install` has already booked every generated file and shared claim.
@@ -334,8 +334,8 @@ def configure_agent(root: Path, raw: str, harness: str | None,
     return {"ok": True, "agent": after["name"], "home": str(home),
             "launch": _launch(after), "before": _launch(before),
             "packs": list(after["packs"]), "written": written,
-            "units": sorted(wanted), "units_removed": [],
-            "unit_files": unit_files, "dry_run": dry,
+            "files": sorted(wanted), "files_removed": [],
+            "generated": generated, "dry_run": dry,
             "harness_changed": changed_harness,
             # A sub-agent written for the former harness has no model and no
             # effort for the new one: each is named with the command that adds it.
@@ -381,7 +381,7 @@ def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: 
               dry: bool, given: dict | None = None, on: tuple[str, ...] = ()) -> dict:
     """Apply an agent folder, placing it first when a component ships it.
     `given` holds --harness, --model and --effort; `on` the --on values of the
-    agents named among the units."""
+    agents named among the files."""
     part = unplaced_shipped_agent(root, raw, catalog)
     home = agent_home(root, raw) if part else resolve_agent(root, raw)
     if part:
@@ -413,9 +413,9 @@ def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: 
         _checked_agent(home, state)
     explicit = _keys(names, catalog)
     declared = _keys(list(state["units"]), catalog)
-    before = declared | pack_units(catalog, set(state["packs"]))
+    before = declared | pack_files(catalog, set(state["packs"]))
     enabled = set(state["packs"]) | packs
-    wanted = declared | explicit | pack_units(catalog, enabled)
+    wanted = declared | explicit | pack_files(catalog, enabled)
     receiving = [state["harness"]]
     named = subagents.named_agents(catalog, explicit)
     sub_agents = on_values(list(on), named, receiving, home, f"rbtv agent configure {raw} -h")
@@ -434,8 +434,8 @@ def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: 
                    or result.get("written") or result.get("deleted"))
     return {"ok": True, "agent": state["name"], "home": str(home), "launch": _launch(state), "placed": placed,
             "packs": sorted(enabled), "written": (["agent.json"] if touched and not dry else []) + written,
-            "units": sorted(wanted), "units_removed": [], "was": len(before), "added": added,
-            "packs_on": packs_on, "unit_files": result, "dry_run": dry,
+            "files": sorted(wanted), "files_removed": [], "was": len(before), "added": added,
+            "packs_on": packs_on, "generated": result, "dry_run": dry,
             "sub_agents": subagents.describe(named, sub_agents, recorded, receiving,
                                              catalog, home)}
 
@@ -446,15 +446,15 @@ def update_agent(root: Path, raw: str, scope: str, catalog: dict, dry: bool) -> 
     mismatch (listed_missing, on_disk_unlisted) for the caller to name."""
     home = resolve_agent(root, raw)
     state = agent_state(home)
-    wanted = _keys(list(state["units"]), catalog) | pack_units(catalog, set(state["packs"]))
-    members = unit_membership(home, catalog, state, wanted)
+    wanted = _keys(list(state["units"]), catalog) | pack_files(catalog, set(state["packs"]))
+    members = file_membership(home, catalog, state, wanted)
     picked, parts = _split_part_keys(wanted)
     result = do_install(home, catalog, picked, [state["harness"]], dry, guidance_basis="none", parts=parts, scope=scope, selected=parts if scope in ("scaffolding", "all") else None)
     written = _agent_files(home, state, dry) if scope != "guidance" else []
     guidance = scope == "guidance"
     return {"ok": True, "agent": state["name"], "home": str(home), "launch": _launch(state),
             "packs": list(state["packs"]), "scope": scope, "written": written,
-            "units": sorted(wanted), "units_removed": [], "unit_files": result, "dry_run": dry,
+            "files": sorted(wanted), "files_removed": [], "generated": result, "dry_run": dry,
             "added": [] if guidance else sorted(members["added"]),
             "removed": [] if guidance else sorted(members["removed"]),
             "on_disk": sorted(members["booked"]),
@@ -462,35 +462,35 @@ def update_agent(root: Path, raw: str, scope: str, catalog: dict, dry: bool) -> 
             "on_disk_unlisted": sorted(members["on_disk_unlisted"])}
 
 
-def remove_agent(root: Path, raw: str, names: list[str], packs: set[str], all_units: bool, yes: bool, catalog: dict, dry: bool) -> dict:
-    if not (names or packs or all_units):
+def remove_agent(root: Path, raw: str, names: list[str], packs: set[str], all_files: bool, yes: bool, catalog: dict, dry: bool) -> dict:
+    if not (names or packs or all_files):
         raise Refuse("usage", "agent remove needs a NAME, --pack, or --all")
     home = resolve_agent(root, raw)
     state = agent_state(home)
-    if all_units and not yes:
+    if all_files and not yes:
         pack_part = f", pack {', '.join(state['packs'])}" if state["packs"] else ""
-        before = _keys(list(state["units"]), catalog, state.get("components")) | pack_units(catalog, set(state["packs"]))
-        count = f"{len(before)} unit{'' if len(before) == 1 else 's'}"
-        raise Refuse("confirm-required", f"--all removes every unit from {state['name']} "
+        before = _keys(list(state["units"]), catalog, state.get("components")) | pack_files(catalog, set(state["packs"]))
+        count = f"{len(before)} file{'' if len(before) == 1 else 's'}"
+        raise Refuse("confirm-required", f"--all removes every file from {state['name']} "
                      f"({count}{pack_part}). Re-run with --yes:\n"
                      f"rbtv agent remove {raw} --all --yes")
     check_packs(catalog, packs, "rbtv list --type pack")
-    before = _keys(list(state["units"]), catalog, state.get("components")) | pack_units(catalog, set(state["packs"]))
+    before = _keys(list(state["units"]), catalog, state.get("components")) | pack_files(catalog, set(state["packs"]))
     try:
-        removed = (set(state["units"]) if all_units else
+        removed = (set(state["units"]) if all_files else
                    _keys(names, catalog, state.get("components")))
     except Refuse as exc:
         if exc.code != "name-unknown":
             raise
         unknown = names[0] if names else ""
-        refusal = _refuse("name-unknown", f"unknown unit {unknown!r}",
+        refusal = _refuse("name-unknown", f"unknown file {unknown!r}",
                           "rbtv list")
         refusal.candidates = getattr(exc, "candidates", [])
         raise refusal from exc
-    enabled = set() if all_units else set(state["packs"]) - packs
-    explicit = set() if all_units else set(state["units"]) - removed
-    wanted = explicit | pack_units(catalog, enabled)
-    booked = {row["key"] for row in iter_booked_units(catalog, state.get("components") or {})}
+    enabled = set() if all_files else set(state["packs"]) - packs
+    explicit = set() if all_files else set(state["units"]) - removed
+    wanted = explicit | pack_files(catalog, enabled)
+    booked = {row["key"] for row in iter_booked_files(catalog, state.get("components") or {})}
     gone = booked - wanted
     picked, parts = _split_part_keys(gone)
     result = do_uninstall(home, catalog, picked, dry, parts=parts) if parts else {"ok": True, "uninstalled": [], "dry_run": dry, "report": {}}
@@ -498,9 +498,9 @@ def remove_agent(root: Path, raw: str, names: list[str], packs: set[str], all_un
         after = read_state(home)
         after["units"], after["packs"] = sorted(explicit), sorted(enabled)
         write_state(home, after)
-    packs_off = sorted(set(state["packs"]) if all_units else set(state["packs"]) & packs)
+    packs_off = sorted(set(state["packs"]) if all_files else set(state["packs"]) & packs)
     return {"ok": True, "agent": state["name"], "home": str(home), "launch": _launch(state),
-            "packs": sorted(enabled), "written": [], "units": sorted(wanted),
-            "units_removed": sorted(gone), "unit_files": result, "kept": ["agent.md", AGENT_RECORD.name],
-            "dry_run": dry, "was": len(before), "all": all_units, "packs_off": packs_off,
+            "packs": sorted(enabled), "written": [], "files": sorted(wanted),
+            "files_removed": sorted(gone), "generated": result, "kept": ["agent.md", AGENT_RECORD.name],
+            "dry_run": dry, "was": len(before), "all": all_files, "packs_off": packs_off,
             "absent_packs": sorted(packs - set(state["packs"]))}

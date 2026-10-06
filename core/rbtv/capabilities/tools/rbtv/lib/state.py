@@ -12,7 +12,7 @@ from .constants import (AGENT_RECORD, HARNESSES, MANAGED_MARK, SCHEMA, STATE_REL
 from .claims import _jget, _located
 from .content import _is_ours
 from .fsio import write_file
-from .selection import iter_booked_units
+from .selection import iter_booked_files
 
 
 def _state_refuse(path: Path, detail: str) -> None:
@@ -22,8 +22,8 @@ def _state_refuse(path: Path, detail: str) -> None:
 
 
 def _string_list(value: object, label: str, path: Path) -> None:
-    if not isinstance(value, list) or not all(isinstance(unit, str)
-                                              for unit in value):
+    if not isinstance(value, list) or not all(isinstance(item, str)
+                                              for item in value):
         _state_refuse(path, f"{label} must be a list of strings")
 
 
@@ -81,7 +81,7 @@ def state_path(target: Path) -> Path:
 
 # How earlier records named what they booked, and the name read today. A
 # record up to schema 7 booked an agent's harness-native file as `sub-agent`;
-# it is read as the unit `agent`, which holds no model and no effort yet.
+# it is read as an agent, which holds no model and no effort yet.
 _LEGACY_METHODS = {"sub-agent": "agent", "config": "mcp-server",
                    "path": "tool", "agents.md": "folder-instructions"}
 
@@ -94,15 +94,15 @@ def migrate_legacy_record(state: dict) -> None:
             continue
         if "parts" in rec and "units" not in rec:
             rec["units"] = rec.pop("parts")
-        units = rec.get("units")
-        if not isinstance(units, dict):
+        files = rec.get("units")
+        if not isinstance(files, dict):
             continue
-        for uid in [u for u, b in units.items()
+        for uid in [u for u, b in files.items()
                     if isinstance(b, dict) and b.get("method") == "pool"]:
-            units.pop(uid)
-        for unit in units.values():
-            if isinstance(unit, dict) and unit.get("method") in _LEGACY_METHODS:
-                unit["method"] = _LEGACY_METHODS[unit["method"]]
+            files.pop(uid)
+        for file in files.values():
+            if isinstance(file, dict) and file.get("method") in _LEGACY_METHODS:
+                file["method"] = _LEGACY_METHODS[file["method"]]
 
 
 def migrate_portable_record(state: dict) -> None:
@@ -118,8 +118,8 @@ def migrate_portable_record(state: dict) -> None:
             rec.pop("tree_root", None)
 
 
-def migrate_selected_units(state: dict) -> None:
-    """Schema 4 chose every unit it had generated; schema 5 says so plainly.
+def migrate_selected_files(state: dict) -> None:
+    """Schema 4 chose every file it had generated; schema 5 says so plainly.
 
     The old per-component map remains the generated-file ledger.  `units` is
     the independent, portable selection that later updates reconcile against.
@@ -153,9 +153,9 @@ def migrate_install_component_ids(state: dict) -> None:
         if "core/install" in components:
             raise Refuse("component-id-collision", "book has both 'core/installer' and 'core/install'")
         old["component"] = "install"
-        units = old.get("units")
-        if isinstance(units, dict) and "rbtv-install" in units:
-            units["rbtv"] = units.pop("rbtv-install")
+        files = old.get("units")
+        if isinstance(files, dict) and "rbtv-install" in files:
+            files["rbtv"] = files.pop("rbtv-install")
         # Keep the old shortcut booking until reconciliation removes it.  If
         # it were renamed here, `reconcile_shared` would no longer know to
         # release rbtv-install from ~/.rbtv/bin or path-owners.json.
@@ -168,25 +168,25 @@ def migrate_install_component_ids(state: dict) -> None:
                          if not key.startswith("core/rbtv-cli#")]
 
 
-# The two components that became `core/rbtv`, and what each of their units is
-# called there. `None` marks a unit with no successor.
+# The two components that became `core/rbtv`, and what each of their files is
+# called there. `None` marks a file with no successor.
 _MERGED_INTO_RBTV = ("core/build", "core/install")
-_RBTV_UNIT_NAMES = {"core/build#build": "framework",
+_RBTV_FILE_NAMES = {"core/build#build": "framework",
                     "core/install#manage-components": None}
 
 
 def _merge_component_record(into: dict, rec: dict) -> None:
     """Fold one booked component into another: lists are joined without
-    repeats, units are folded name by name, and any other field keeps the
+    repeats, files are folded name by name, and any other field keeps the
     value it already has."""
     for name, value in rec.items():
         if name == "units":
-            units = into.setdefault("units", {})
-            for uid, unit in value.items():
-                if uid in units:
-                    _merge_component_record(units[uid], unit)
+            files = into.setdefault("units", {})
+            for uid, file in value.items():
+                if uid in files:
+                    _merge_component_record(files[uid], file)
                 else:
-                    units[uid] = unit
+                    files[uid] = file
         elif isinstance(value, list) and isinstance(into.get(name), list):
             into[name] = into[name] + [item for item in value
                                        if item not in into[name]]
@@ -195,7 +195,7 @@ def _merge_component_record(into: dict, rec: dict) -> None:
 
 
 def migrate_rbtv_component_ids(state: dict) -> None:
-    """Schema 8 booked rbtv's own units under `core/build` and `core/install`;
+    """Schema 8 booked rbtv's own files under `core/build` and `core/install`;
     schema 9 books them under the one component `core/rbtv`.
 
     Both records fold into one. The skill `build` is `framework`. The
@@ -210,11 +210,11 @@ def migrate_rbtv_component_ids(state: dict) -> None:
         rec = components.pop(old, None)
         if rec is None:
             continue
-        units = rec.get("units") or {}
-        for uid in list(units):
-            name = _RBTV_UNIT_NAMES.get(f"{old}#{uid}")
+        files = rec.get("units") or {}
+        for uid in list(files):
+            name = _RBTV_FILE_NAMES.get(f"{old}#{uid}")
             if name is not None:
-                units[name] = units.pop(uid)
+                files[name] = files.pop(uid)
         rec["component"] = "rbtv"
         if merged is None:
             merged = rec
@@ -226,7 +226,7 @@ def migrate_rbtv_component_ids(state: dict) -> None:
     for key in state.get("units") or []:
         cid, _, uid = key.partition("#")
         if cid in _MERGED_INTO_RBTV:
-            name = _RBTV_UNIT_NAMES.get(key, uid)
+            name = _RBTV_FILE_NAMES.get(key, uid)
             if name is None:
                 continue
             key = f"core/rbtv#{name}"
@@ -240,7 +240,7 @@ def read_state(target: Path) -> dict:
     path = state_path(target)
     if not path.is_file():
         # A fresh target has made no explicit choice.  Without these fields,
-        # the next read mistakes units generated for a newly enabled pack as
+        # the next read mistakes files generated for a newly enabled pack as
         # the schema-4 migration input and records them as explicit choices.
         return {"schema": SCHEMA, "components": {}, "shared_claims": [],
                 "units": [], "packs": []}
@@ -256,7 +256,7 @@ def read_state(target: Path) -> dict:
     migrate_legacy_record(state)
     migrate_portable_record(state)
     migrate_install_component_ids(state)
-    migrate_selected_units(state)
+    migrate_selected_files(state)
     migrate_selected_packs(state)
     _validate_state(state, path)
     migrate_rbtv_component_ids(state)
@@ -351,7 +351,7 @@ def migrate_installation_harnesses(state: dict) -> None:
         state["harnesses"] = lifted
 
 
-def _wanted_units(rec: dict) -> set[str] | None:
+def _wanted_files(rec: dict) -> set[str] | None:
     raw = rec.get("units")
     return None if raw is None else set(raw)
 
@@ -386,8 +386,8 @@ def known_claims(state: dict) -> set[str]:
     return set(state.get("shared_claims") or [])
 
 
-def selected_units(state: dict) -> set[str]:
-    """The root's explicit unit selection, as full catalog ids."""
+def selected_files(state: dict) -> set[str]:
+    """The root's explicit file selection, as full catalog ids."""
     return set(state.get("units") or [])
 
 
@@ -396,7 +396,7 @@ def selected_packs(state: dict) -> set[str]:
     return set(state.get("packs") or [])
 
 
-def _unit_in(state: dict, cid: str, pid: str) -> bool:
+def _file_in(state: dict, cid: str, pid: str) -> bool:
     rec = (state.get("components") or {}).get(cid)
     if rec is None and cid.startswith(f"{HUB_DIR}/skills/"):
         rec = (state.get("components") or {}).get(
@@ -476,24 +476,24 @@ def _rebuild_claim(target: Path, claim_id: str, owner: tuple) -> dict | None:
             "owner": owner}
 
 
-def _missing_generated_units(target: Path, state: dict) -> set[str]:
-    """Recorded units whose generated files are absent or released."""
+def _files_missing_generated(target: Path, state: dict) -> set[str]:
+    """Recorded files whose generated files are absent or released."""
     missing: set[str] = set()
     for cid, rec in (state.get("components") or {}).items():
-        for pid, unit in (rec.get("units") or {}).items():
-            files = unit.get("files") or []
+        for pid, booked in (rec.get("units") or {}).items():
+            generated = booked.get("files") or []
             if any(not (target / rel).is_file() or not _is_ours(target, rel)
-                   for rel in files):
+                   for rel in generated):
                 missing.add(f"{cid}#{pid}")
     return missing
 
 
-def unit_membership(target: Path, catalog: dict, state: dict, chosen: set[str]) -> dict:
-    """An update's reconciliation: the units the record lists (`chosen`) against
-    the units booked on disk. Read it before the update writes anything. A
-    listed unit whose generated files are gone counts as added."""
-    booked = {row["key"] for row in iter_booked_units(catalog, state.get("components") or {})}
-    missing = _missing_generated_units(target, state)
+def file_membership(target: Path, catalog: dict, state: dict, chosen: set[str]) -> dict:
+    """An update's reconciliation: the files the record lists (`chosen`) against
+    the files booked on disk. Read it before the update writes anything. A
+    listed file whose generated files are gone counts as added."""
+    booked = {row["key"] for row in iter_booked_files(catalog, state.get("components") or {})}
+    missing = _files_missing_generated(target, state)
     return {"booked": booked, "listed_missing": chosen - booked,
             "on_disk_unlisted": booked - chosen,
             "added": (chosen - booked) | (chosen & missing),

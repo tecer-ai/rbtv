@@ -387,11 +387,11 @@ def installation_settings(ctx) -> None:
           == "Owner\n" + start + "\nBroken\n")
 
 
-def unit_selection_sync(ctx) -> None:
-    """A portable selected-unit list reconciles root folders, not agents."""
+def file_selection_sync(ctx) -> None:
+    """A portable selected-file list reconciles root folders, not agents."""
     check, tmp, tree = ctx.check, ctx.tmp, ctx.tree
     catalog = ctx.frame()[0]
-    print("\nW44 — selected units reconcile copied and hand-edited records")
+    print("\nW44 — selected files reconcile copied and hand-edited records")
 
     def home(name: str) -> Path:
         path = tmp / name
@@ -407,7 +407,7 @@ def unit_selection_sync(ctx) -> None:
             except Refuse as exc:
                 return exc.code, exc.message
 
-    a, b, c = home("ws-units-a"), home("ws-units-b"), home("ws-units-c")
+    a, b, c = home("ws-files-a"), home("ws-files-b"), home("ws-files-c")
     for target in (a, b):
         run(target, "add", "fixskill", "fixrule", "--harness", "claude",
             "--guidance", "none")
@@ -429,18 +429,18 @@ def unit_selection_sync(ctx) -> None:
           and (c / ".claude/skills/fixskill/SKILL.md").is_file()
           and do_doctor(c, "fixture", catalog, [], tree, c / ".rbtv/mirror")["ok"])
 
-    hand = home("ws-units-hand")
+    hand = home("ws-files-hand")
     run(hand, "add", "fixskill", "fixrule", "--harness", "claude", "--guidance", "none")
     state = read_state(hand)
     state["units"] = ["fixmod/goodcomp#fixskill"]
     write_state(hand, state)
-    check("W46 — a hand deletion from units removes its generated files",
+    check("W46 — a hand deletion from files removes its generated files",
           run(hand, "update", "all")[0] == 0
           and not (hand / ".claude/rules/fixrule.md").exists())
     state = read_state(hand)
     state["units"].append("fixmod/goodcomp#fixrule")
     write_state(hand, state)
-    check("W46 — a valid hand-added unit is generated",
+    check("W46 — a valid hand-added file is generated",
           run(hand, "update", "all")[0] == 0
           and (hand / ".claude/rules/fixrule.md").is_file())
     user_file = hand / ".claude/rules/user.md"
@@ -450,16 +450,16 @@ def unit_selection_sync(ctx) -> None:
           run(hand, "update", "all")[0] == 0
           and user_file.read_text(encoding="utf-8") == "author text\n")
 
-    guidance = home("ws-units-guidance")
+    guidance = home("ws-files-guidance")
     run(guidance, "add", "fixskill", "fixrule", "--harness", "claude", "--guidance", "none")
     state = read_state(guidance)
     state["units"] = ["fixmod/goodcomp#fixskill"]
     write_state(guidance, state)
-    check("W48 — update guidance does not reconcile unit files",
+    check("W48 — update guidance does not reconcile generated files",
           run(guidance, "update", "guidance")[0] == 0
           and (guidance / ".claude/rules/fixrule.md").is_file())
 
-    fence_a, fence_b = home("ws-units-fence-a"), home("ws-units-fence-b")
+    fence_a, fence_b = home("ws-files-fence-a"), home("ws-files-fence-b")
     for target in (fence_a, fence_b):
         do_install(target, catalog, ["fixmod/codexcomp"], ["codex"],
                    dry_run=False, guidance_basis="none", parts=["codexrule"])
@@ -493,7 +493,7 @@ def unit_selection_sync(ctx) -> None:
         backup.write_bytes((home / "AGENTS.md").read_bytes())
         return {path: path.read_bytes() for path in (docs, backup, nested)}
 
-    bounded = home("ws-units-fence-bounded")
+    bounded = home("ws-files-fence-bounded")
     do_install(bounded, catalog, ["fixmod/codexcomp"], ["codex"],
                dry_run=False, guidance_basis="none", parts=["codexrule"])
     root_foreign = foreign_fences(bounded)
@@ -504,7 +504,7 @@ def unit_selection_sync(ctx) -> None:
     root_real = run(bounded, "update", "all")
     root_stale_released = not (bounded / "AGENTS.md").exists()
 
-    agent_root = home("ws-units-fence-agent-root")
+    agent_root = home("ws-files-fence-agent-root")
     agent = agent_root / ".rbtv/agents/scout"
     agent.mkdir(parents=True)
     (agent / "agent.md").write_text("---\nname: scout\n---\n\nScout.\n",
@@ -531,9 +531,9 @@ def unit_selection_sync(ctx) -> None:
                   for name in foreign_names)
           and root_stale_released and agent_stale_released
           and "AGENTS.md::#block:rule fixmod/codexcomp#codexrule" in
-          agent_preview["unit_files"]["shared_removed"]
+          agent_preview["generated"]["shared_removed"]
           and "AGENTS.md::#block:rule fixmod/codexcomp#codexrule" in
-          agent_real["unit_files"]["shared_removed"],
+          agent_real["generated"]["shared_removed"],
           str((root_preview, root_real,
-               agent_preview["unit_files"].get("shared_removed"),
-               agent_real["unit_files"].get("shared_removed"))))
+               agent_preview["generated"].get("shared_removed"),
+               agent_real["generated"].get("shared_removed"))))

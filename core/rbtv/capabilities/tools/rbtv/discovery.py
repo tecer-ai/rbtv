@@ -1,7 +1,7 @@
-"""Installer discovery — modules, components and their units, read from the
+"""Installer discovery — modules, components and their files, read from the
 folder layout. Roots are ARGUMENTS. The installer keeps `REPO_ROOT` (the repo
 that ships install.py); the caller passes the installation mirror and that root.
-One scan, one merge (mirror wins), one unit reader.
+One scan, one merge (mirror wins), one file reader.
 
 A module is a folder holding `<module>/<module>.json`; a component is a folder
 inside it holding `<component>/<component>.json`. The folder a file sits in
@@ -26,7 +26,7 @@ HUB_DIR = "_hub"          # only the id prefix of whole-folder skills, `_hub/ski
 SKILLS_DIR = "_skills"
 SKILL_FILE = "SKILL.md"
 
-# Folder -> method, for the units that are one `<name>.md` or `<name>.json` file.
+# Folder -> method, for the files that are one `<name>.md` or `<name>.json` file.
 MD_FOLDERS = {"skills": "skill", "rules": "rule", "commands": "command"}
 JSON_FOLDERS = {"hooks": "hook", "mcp-servers": "mcp-server"}
 FOLDER_INSTRUCTIONS = "folder-instructions"
@@ -186,18 +186,18 @@ def pack_rows(catalog: dict[str, dict]) -> list[dict]:
     """Validated pack declarations in the merged catalog, one name globally.
 
     This is deliberately derived from component folders each time: a mirror
-    component replaces both its units and its packs, and update sees edits to
+    component replaces both its files and its packs, and update sees edits to
     a declaration without a second cache to invalidate.
     """
     provided: set[str] = set()
     unreadable: dict[str, Refuse] = {}
     for cid, comp in catalog.items():
         try:
-            provided.update(f"{cid}#{row['id']}" for row in unit_rows(comp))
+            provided.update(f"{cid}#{row['id']}" for row in file_rows(comp))
         except Refuse as exc:
             # An unrelated invalid component already remains discoverable and
             # blocks only its own install; packs keep that same boundary. Its
-            # refusal is kept: a pack that names its units fails for that reason.
+            # refusal is kept: a pack that names its files fails for that reason.
             unreadable[cid] = exc
     rows: list[dict] = []
     names: dict[str, Path] = {}
@@ -212,33 +212,33 @@ def pack_rows(catalog: dict[str, dict]) -> list[dict]:
                              str(path))
             names[path.stem] = path
             missing = sorted(set(data["units"]) - provided)
-            for unit in missing:
-                if unit.split("#", 1)[0] in unreadable:
-                    raise unreadable[unit.split("#", 1)[0]]
+            for file in missing:
+                if file.split("#", 1)[0] in unreadable:
+                    raise unreadable[file.split("#", 1)[0]]
             if missing:
-                raise Refuse("pack-unit-unknown",
-                             f"pack {path.stem!r} names unavailable unit(s): {', '.join(missing)}",
+                raise Refuse("pack-file-unknown",
+                             f"pack {path.stem!r} names unavailable file(s): {', '.join(missing)}",
                              str(path))
             rows.append({"name": path.stem, "component": cid,
                          "module": comp["module"], "tree": comp["tree"],
                          "path": str(path), "description": data["description"],
-                         "units": list(data["units"])})
+                         "files": list(data["units"])})
     return rows
 
 
-def _unit(comp: dict, method: str, path: Path, template: str) -> dict:
-    """One `<name>.md` or `<name>.json` unit: its record checked against the
+def _file_row(comp: dict, method: str, path: Path, template: str) -> dict:
+    """One `<name>.md` or `<name>.json` file: its record checked against the
     schema, its `name` equal to the file name."""
     comp_dir = Path(comp["path"])
     if path.suffix == ".md":
         data, _body = frontmatter.split(path.read_text(encoding="utf-8"))
         if data is None:
-            raise Refuse("unit-invalid", f"{path}: no frontmatter", str(path))
+            raise Refuse("file-invalid", f"{path}: no frontmatter", str(path))
     else:
-        data = _read_json(path, "unit-invalid")
-    _checked(data, template, path, "unit-invalid")
+        data = _read_json(path, "file-invalid")
+    _checked(data, template, path, "file-invalid")
     if method != "folder-instructions" and data["name"] != path.stem:
-        raise Refuse("unit-invalid",
+        raise Refuse("file-invalid",
                      f"{path}: name {data['name']!r} is not the file name "
                      f"{path.stem!r}", str(path))
     description = (f"folder instructions for {data['target']}"
@@ -248,19 +248,19 @@ def _unit(comp: dict, method: str, path: Path, template: str) -> dict:
             "description": description, "data": data}
 
 
-def unit_rows(comp: dict) -> list[dict]:
-    """Every unit of one component, read from its folders: [{id, method, entry,
+def file_rows(comp: dict) -> list[dict]:
+    """Every file of one component, read from its folders: [{id, method, entry,
     description, data}]. `entry` is relative to the component folder; `data` is
-    the unit's checked frontmatter or JSON record (none for a tool). A file that
+    the file's checked frontmatter or JSON record (none for a tool). A file that
     fails its schema, or whose name is not its file name, refuses; so does a
-    name used by two units of one component."""
+    name used by two files of one component."""
     comp_dir = Path(comp["path"])
     rows: list[dict] = []
-    # `<folder>/<folder>.md` is the folder's index file, not a unit.
+    # `<folder>/<folder>.md` is the folder's index file, which is not installed.
     for folder, method in MD_FOLDERS.items():
         for path in sorted((comp_dir / folder).glob("*.md")):
             if path.stem != folder:
-                rows.append(_unit(comp, method, path, method))
+                rows.append(_file_row(comp, method, path, method))
     for path in sorted((comp_dir / RETIRED_AGENT_FOLDER).glob("*.md")):
         raise Refuse("agent-source-retired",
                      f"{path}: an agent is no longer shipped as one file in "
@@ -270,11 +270,11 @@ def unit_rows(comp: dict) -> list[dict]:
     for home in sorted((comp_dir / "agents").glob("*/")):
         prompt, record = home / "agent.md", home / "agent.json"
         if not (prompt.is_file() and record.is_file()):
-            raise Refuse("unit-invalid", f"{home}: an agent needs agent.md and agent.json", str(home))
+            raise Refuse("file-invalid", f"{home}: an agent needs agent.md and agent.json", str(home))
         front, _body = frontmatter.split(prompt.read_text(encoding="utf-8"))
-        _checked(front or {}, "agent", prompt, "unit-invalid")
-        data = _read_json(record, "unit-invalid")
-        _checked(data, "agent-json", record, "unit-invalid")
+        _checked(front or {}, "agent", prompt, "file-invalid")
+        data = _read_json(record, "file-invalid")
+        _checked(data, "agent-json", record, "file-invalid")
         launch = [name for name in LAUNCH_FIELDS if name in data]
         if launch:
             raise Refuse("agent-source-launch",
@@ -282,25 +282,25 @@ def unit_rows(comp: dict) -> list[dict]:
                          "model or effort; they exist only in an installation. "
                          "Remove: " + ", ".join(launch), str(record))
         if home.name != front["name"] or home.name != data["name"]:
-            raise Refuse("unit-invalid", f"{home}: folder, agent.md and agent.json names must agree", str(home))
+            raise Refuse("file-invalid", f"{home}: folder, agent.md and agent.json names must agree", str(home))
         rows.append({"id": home.name, "method": "agent",
                      "entry": prompt.relative_to(comp_dir).as_posix(),
                      "description": data["description"], "data": data})
     for folder, method in JSON_FOLDERS.items():
         for path in sorted((comp_dir / folder).glob("*.json")):
             if path.stem != folder:
-                rows.append(_unit(comp, method, path, method))
+                rows.append(_file_row(comp, method, path, method))
     for path in sorted((comp_dir / FOLDER_INSTRUCTIONS).glob("*.md")):
         if path.stem != FOLDER_INSTRUCTIONS:
-            rows.append(_unit(comp, "folder-instructions", path,
+            rows.append(_file_row(comp, "folder-instructions", path,
                               "folder-instructions"))
     for record in sorted((comp_dir / TOOLS_DIR).glob("*/*.json")):
         if record.stem != record.parent.name:
             continue
-        data = _read_json(record, "unit-invalid")
-        _checked(data, "tool-json", record, "unit-invalid")
+        data = _read_json(record, "file-invalid")
+        _checked(data, "tool-json", record, "file-invalid")
         if data["name"] != record.parent.name:
-            raise Refuse("unit-invalid",
+            raise Refuse("file-invalid",
                          f"{record}: name {data['name']!r} is not its folder "
                          f"name {record.parent.name!r}", str(record))
         if data["entry"].startswith(WS_PREFIX):
@@ -319,7 +319,7 @@ def unit_rows(comp: dict) -> list[dict]:
                              f"{record}: entry {data['entry']!r} leaves the "
                              "component's folder", str(record))
             if not entry.is_file():
-                raise Refuse("unit-invalid",
+                raise Refuse("file-invalid",
                              f"{record}: entry {data['entry']!r} is not a file",
                              str(record))
             entry_rel = entry.relative_to(comp_dir).as_posix()
@@ -329,8 +329,8 @@ def unit_rows(comp: dict) -> list[dict]:
     names = [r["id"] for r in rows]
     dups = sorted({n for n in names if names.count(n) > 1})
     if dups:
-        raise Refuse("unit-duplicate",
+        raise Refuse("file-duplicate",
                      f"{comp.get('id', '?')}: the name {', '.join(dups)} is "
-                     "used by more than one unit — a name is one unit",
+                     "used by more than one file — a name is one file",
                      str(comp_dir))
     return rows

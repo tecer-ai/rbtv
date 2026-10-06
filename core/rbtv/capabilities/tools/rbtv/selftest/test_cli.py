@@ -29,7 +29,7 @@ from lib.commands import (
 from lib.report import print_result
 from lib.state import read_state
 
-from .fixture import _component, _unit_md
+from .fixture import _component, _file_md
 from .test_agents import _agent
 
 
@@ -346,7 +346,7 @@ def parser_selectors_index(ctx) -> None:
 def result_classes(ctx) -> None:
     """The result and refusal texts of this round: the refusal sentence, the
     pack refusal of `remove`, the scope refusals of `agent update`, the own
-    files of `agent add`, and the Units rows of an update preview."""
+    files of `agent add`, and the Files rows of an update preview."""
     check, tmp = ctx.check, ctx.tmp
     (catalog, _data, _legacy, _expect, _basis, _mirrors, _mtr,
      _mk, _rf, _pws) = ctx.frame()
@@ -381,9 +381,9 @@ def result_classes(ctx) -> None:
     with contextlib.redirect_stdout(shown):
         code = cmd_rm(build_parser().parse_args(["remove", "fixskill"]),
                       gone, catalog, [])
-    check("RC-remove-not-installed — a known unit not installed is a result, exit 0",
+    check("RC-remove-not-installed — a known file not installed is a result, exit 0",
           code == 0 and "nothing to remove" in shown.getvalue()
-          and "Not installed:" in shown.getvalue() and "Installed units:  0 (unchanged)"
+          and "Not installed:" in shown.getvalue() and "Installed files:  0 (unchanged)"
           in shown.getvalue() and not any(gone.iterdir()), shown.getvalue())
 
     usage = None
@@ -421,10 +421,10 @@ def result_classes(ctx) -> None:
         print_result({"dry_run": True, "_verb": "update", "scope": "all",
                       "target": str(ws), "added": [], "removed": ["meta/b#kiss"],
                       "installed": ["core/rbtv"], "_details": True,
-                      "planned_changes": {}, "selected_units": [],
-                      "_facts": {"units": (2, 1)}})
+                      "planned_changes": {}, "selected_files": [],
+                      "_facts": {"files": (2, 1)}})
     lines = out.getvalue().splitlines()
-    check("RC-update-units — a preview's Units lists units, not components",
+    check("RC-update-files — a preview's Files lists files, not components",
           "  meta/b#kiss" in lines and "  core/rbtv" not in lines,
           out.getvalue())
 
@@ -432,7 +432,7 @@ def result_classes(ctx) -> None:
 def cli_defects(ctx) -> None:
     """Task 3a4: the list traceback, bare update with --target, agent refusals
     without --target, agent update membership and guidance mismatch, and
-    remove of a unit that is not installed."""
+    remove of a file that is not installed."""
     check, tmp = ctx.check, ctx.tmp
     (catalog, _data, _legacy, _expect, _basis, _mirrors, _mtr,
      _mk, _rf, _pws) = ctx.frame()
@@ -453,9 +453,9 @@ def cli_defects(ctx) -> None:
 
     inst = tmp / "d-installation"
     inst.mkdir()
-    code, _out, err, escaped = run(["list", "--type", "unit", "--installed", "--target", str(inst)])
+    code, _out, err, escaped = run(["list", "--type", "file", "--installed", "--target", str(inst)])
     check("D1-type — an unknown --type is a usage refusal, never a traceback",
-          escaped is None and code == 2 and "'unit' is unknown" in err,
+          escaped is None and code == 2 and "'file' is unknown" in err,
           f"{escaped} / {code} / {err[:200]}")
     crashed = []
     for verb in ("list", "li", "ls"):
@@ -477,17 +477,17 @@ def cli_defects(ctx) -> None:
     ws = tmp / "d-agent-ws"
     ws.mkdir()
     # Agent update reconciles the membership the agent.json lists against the
-    # units booked on disk, and names what it added and removed.
+    # files booked on disk, and names what it added and removed.
     src = tmp / "d-agent-source"
     comp = _component(src, "moda", "comp")
-    _unit_md(comp / "rules/kiss.md", "kiss", "Kiss", "body\n")
-    _unit_md(comp / "rules/other.md", "other", "Other", "body\n")
+    _file_md(comp / "rules/kiss.md", "kiss", "Kiss", "body\n")
+    _file_md(comp / "rules/other.md", "other", "Other", "body\n")
     d_catalog, _ = scan_all(tmp / "d-agent-mirror", src)
     home = ws / ".rbtv/agents/scout"
     known = {"claude": {"m1": ["low", "high"]}, "codex": {"c1": ["low", "high"]}}
     from unittest.mock import patch
     from lib.agents import add_agent
-    _agent(home, units=["moda/comp#kiss"])
+    _agent(home, files=["moda/comp#kiss"])
     with patch("lib.agents.cast_catalog", return_value=known):
         add_agent(ws, "scout", [], set(), d_catalog, False)
     record = json.loads((home / "agent.json").read_text(encoding="utf-8"))
@@ -498,7 +498,7 @@ def cli_defects(ctx) -> None:
         cmd_agent(build_parser().parse_args(["agent", "update", str(home), "all", "--dry-run"]),
                   ws, d_catalog, [])
     text = shown.getvalue()
-    check("D4-membership-preview — a preview names the units it would add and remove",
+    check("D4-membership-preview — a preview names the files it would add and remove",
           "Would add:" in text and "moda/comp#other" in text
           and "Would remove:" in text and "moda/comp#kiss" in text, text)
     shown = io.StringIO()
@@ -506,7 +506,7 @@ def cli_defects(ctx) -> None:
         cmd_agent(build_parser().parse_args(["agent", "update", str(home), "all"]),
                   ws, d_catalog, [])
     text = shown.getvalue()
-    check("D4-membership — the result names the units added and removed",
+    check("D4-membership — the result names the files added and removed",
           "Added:" in text and "moda/comp#other" in text
           and "Removed:" in text and "moda/comp#kiss" in text
           and "(membership changed)" in text and "Was:" in text, text)
@@ -528,11 +528,11 @@ def cli_defects(ctx) -> None:
     record = json.loads((home / "agent.json").read_text(encoding="utf-8"))
     record["units"] = ["moda/comp#other"]
     (home / "agent.json").write_text(json.dumps(record) + "\n", encoding="utf-8")
-    code, out, _err, escaped = run(["agent", "remove", str(home), "nosuchunit", "--json", "--dry-run"])
+    code, out, _err, escaped = run(["agent", "remove", str(home), "nosuchfile", "--json", "--dry-run"])
     refusal = json.loads(out) if escaped is None and out.strip() else {}
-    check("D3-agent-next — an agent removal refusal names an unknown unit and offers an agent-safe next command",
+    check("D3-agent-next — an agent removal refusal names an unknown file and offers an agent-safe next command",
           escaped is None and code == 1
-          and refusal.get("error", {}).get("message") == "unknown unit 'nosuchunit'"
+          and refusal.get("error", {}).get("message") == "unknown file 'nosuchfile'"
           and refusal.get("next") == "rbtv list",
           f"{escaped} / {code} / refusal={refusal!r}")
 
@@ -542,6 +542,6 @@ def cli_defects(ctx) -> None:
     with contextlib.redirect_stdout(shown):
         code = cmd_rm(build_parser().parse_args(["remove", "fixskill"]), gone, catalog, [])
     text = shown.getvalue()
-    check("D5-not-installed — remove of an uninstalled unit says nothing to remove and names it",
+    check("D5-not-installed — remove of an uninstalled file says nothing to remove and names it",
           code == 0 and "nothing to remove" in text and "Not installed:" in text
-          and "units removed" not in text and "Removed:" not in text, text)
+          and "files removed" not in text and "Removed:" not in text, text)

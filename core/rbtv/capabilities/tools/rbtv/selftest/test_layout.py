@@ -26,17 +26,17 @@ def repo_root_is_the_repo(ctx) -> None:
           REPO_ROOT.name not in ("core", "lib"),
           f"REPO_ROOT={REPO_ROOT}")
 
-    # The catalog maps a component with an invalid unit record to no units, so
+    # The catalog maps a component with an invalid file record to no files, so
     # one bad file hides the whole component from list, show and install with
     # no error (a tool record without `entry` hid meta/code, 2026-10-01).
-    from discovery import Refuse, scan_tree, unit_rows
+    from discovery import Refuse, scan_tree, file_rows
     invalid = []
     for cid, comp in sorted(scan_tree(REPO_ROOT, "repo").items()):
         try:
-            unit_rows(comp)
+            file_rows(comp)
         except Refuse as exc:
             invalid.append(f"{cid}: {exc}")
-    check("D2 — every component in this repo has valid unit records",
+    check("D2 — every component in this repo has valid file records",
           not invalid, "; ".join(invalid))
 
     # A program is linked and run only with the executable bit, which git keeps

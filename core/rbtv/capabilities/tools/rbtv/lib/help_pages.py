@@ -12,23 +12,23 @@ rbtv — help
 
 Discover
   status        Show target, saved settings, and recorded selections.
-  list [NAME]   Browse exact module, component, or unit scope.
+  list [NAME]   Browse exact module, component, or file scope.
   search WORDS  Search catalog names and descriptions broadly.
-  show NAME     Show description, included units, and installation details.
+  show NAME     Show description, included files, and installation details.
 
 Change this installation
   configure         Initialize or change receiving tools and guidance settings.
-  add [NAME...]     Add named or filtered units, or turn a pack on.
-  remove [NAME...]  Remove installed units, or turn a pack off.
+  add [NAME...]     Add named or filtered files, or turn a pack on.
+  remove [NAME...]  Remove installed files, or turn a pack off.
   update SCOPE      Make the folder match the file. The scope is required.
 
 Agents
   agent VERB    Act on one agent instead of this installation: create it, change its
-                units, harness, model or effort, or list the agents. See: rbtv agent -h
+                files, harness, model or effort, or list the agents. See: rbtv agent -h
 
 Check and guided use
   doctor       Check generated files and selected command shortcuts.
-  interactive  Choose units through a guided menu (asks questions).
+  interactive  Choose files through a guided menu (asks questions).
   selftest     Run checks in isolated temporary installations.
 
 Shared options: --target PATH  --json  -h, --help  --version
@@ -36,7 +36,7 @@ Non-interactive changes also accept --dry-run and --details.
 Only interactive asks questions.
 Target order: --target, then RBTV_AGENT_HOME, then discovery from the current folder.
 Aliases: ls=list; li=list --installed; rm=remove.
-A unit id is module/component#name. A pack is named only with --pack.
+A file id is module/component#name. A pack is named only with --pack.
 A bare name never resolves to a pack.
 With no command, this page is printed.
 
@@ -51,7 +51,7 @@ usage: rbtv status [-h] [--target TARGET] [--json]
 
 Show the selected installation or agent and its saved settings. The target is --target, then
   RBTV_AGENT_HOME, then discovery from the current folder. The result names the target and why it
-  was selected. An agent result shows harness, model, effort, voice, packs and installed units.
+  was selected. An agent result shows harness, model, effort, voice, packs and installed files.
   It does not show a Slack connection. A root result shows none of name, description, harness,
   model or effort. Both results name each agent installed as a harness-native sub-agent, with the
   model and the effort of every harness it is written for.
@@ -73,13 +73,13 @@ usage: rbtv list [-h] [--module MODULE] [--component COMPONENT]
                   [NAME]
 
 Browse the local source catalog. No NAME shows modules; a module shows its components; a component
-  shows its units and any pack it declares; an exact unit name shows only that unit. A pack is
+  shows its files and any pack it declares; an exact name shows only that file. A pack is
   named only with --pack. NAME never searches descriptions. Use search for broad discovery.
   Installed means recorded for this installation; use doctor to check the files. --installed shows
-  installed units, and packs that are on. Under the table, an installed agent is named with the
+  installed files, and packs that are on. Under the table, an installed agent is named with the
   harnesses it is written for as a harness-native sub-agent, and the model and effort of each.
 
-A unit id is module/component#name. A pack is a name. The listing names the component that declares
+A file id is module/component#name. A pack is a name. The listing names the component that declares
   it. Turn a pack on or off with add --pack and remove --pack. --type pack lists packs; it does not
   turn one on.
 
@@ -92,7 +92,7 @@ Types (--type; comma-separated or repeatable):
   mcp-server           Server an agent tool connects to for extra tools.
   tool                 Runnable program exposed through a command shortcut.
   folder-instructions  Text added to a folder's instructions file.
-  pack                 A named list of units a component declares.
+  pack                 A named list of files a component declares.
 
 Examples:
   rbtv list core
@@ -105,15 +105,15 @@ Examples:
 Results show the next-page command when more entries match.
 
 positional arguments:
-  NAME                  exact module, component, unit, or pack name
+  NAME                  exact module, component, file, or pack name
 
 options:
   -h, --help            show this help message and exit
   --module, -m MODULE   filter to a module (a bundle of components)
   --component, -c COMPONENT
-                        filter to a component (related units)
+                        filter to a component (related files)
   --type, -x TYPE       filter to a type, such as skill, agent, or pack
-  --installed           show only installed units, and packs that are on
+  --installed           show only installed files, and packs that are on
   --limit LIMIT         maximum rows (default: 20)
   --offset OFFSET       rows to skip (default: 0)
   --full                show every description whole, one labeled block
@@ -132,10 +132,10 @@ usage: rbtv search [-h] [--module MODULE] [--component COMPONENT]
                    
                     WORDS
 
-Search names and descriptions in the local source catalog. Results are units and packs with full
+Search names and descriptions in the local source catalog. Results are files and packs with full
   ids. A word matches any part of the id or the description, so a component name matches every entry
   in that component. Search does not choose anything. Use list NAME when you know an exact module,
-  component, unit, or pack name. WORDS is required; an empty search is refused.
+  component, file, or pack name. WORDS is required; an empty search is refused.
 
 Types (--type; comma-separated or repeatable):
   skill                Ability an agent can invoke for a task.
@@ -146,7 +146,7 @@ Types (--type; comma-separated or repeatable):
   mcp-server           Server an agent tool connects to for extra tools.
   tool                 Runnable program exposed through a command shortcut.
   folder-instructions  Text added to a folder's instructions file.
-  pack                 A named list of units a component declares.
+  pack                 A named list of files a component declares.
 
 Example: rbtv search research
 
@@ -157,9 +157,9 @@ options:
   -h, --help            show this help message and exit
   --module, -m MODULE   filter to a module (a bundle of components)
   --component, -c COMPONENT
-                        filter to a component (related units)
+                        filter to a component (related files)
   --type, -x TYPE       filter to a type, such as skill, agent, or pack
-  --installed           show only installed units, and packs that are on
+  --installed           show only installed files, and packs that are on
   --limit LIMIT         maximum rows (default: 20)
   --offset OFFSET       rows to skip (default: 0)
   --full                show every description whole, one labeled block
@@ -176,8 +176,8 @@ usage: rbtv show [-h] [--type TYPE] [--pack PACK] [--full]
                   [--target TARGET] [--json]
                   [NAME]
 
-Show the catalog description, included units or component summaries, and the saved selection for one
-  unit, pack, component, or module. It does not print source-file contents. A short name must be
+Show the catalog description, included files or component summaries, and the saved selection for one
+  file, pack, component, or module. It does not print source-file contents. A short name must be
   unique. A bare name never resolves to a pack. show --pack NAME shows that pack and prints the
   declaration file, <component>/packs/<pack>.json in the rbtv source. For an agent a component
   ships, it shows the harnesses it is written for as a harness-native sub-agent, whether it is
@@ -192,7 +192,7 @@ Types (--type; comma-separated or repeatable):
   mcp-server           Server an agent tool connects to for extra tools.
   tool                 Runnable program exposed through a command shortcut.
   folder-instructions  Text added to a folder's instructions file.
-  pack                 A named list of units a component declares.
+  pack                 A named list of files a component declares.
 
 Examples:
   rbtv show kiss
@@ -208,7 +208,7 @@ positional arguments:
 options:
   -h, --help            show this help message and exit
   --type, -x TYPE       require this type, such as skill or tool
-  --pack PACK           show this pack; use it when the name is also a unit
+  --pack PACK           show this pack; use it when the name is also a file
   --full                show the whole description of a module or a
                         component, and of the rows under it
   --target TARGET       installation or agent folder; overrides
@@ -274,8 +274,8 @@ usage: rbtv configure [-h] [--harness HARNESS]
                       [--target TARGET] [--json] [--dry-run] [--details]
 
 Initialize a fresh target or change saved receiving tools and guidance.
-This command selects no catalog units. Changing settings regenerates
-generated files for units already selected; it does not add new units.
+This command selects no catalog files. Changing settings regenerates
+generated files for files already selected; it does not add new files.
 On first setup, give both --harness and --guidance. A named guidance file
 must already exist at the installation root; choose none when you maintain
 no such file. Later, each supplied option replaces its saved setting; an
@@ -307,7 +307,7 @@ options:
   --json                one JSON value on standard output, for success
                         and for failure
   --dry-run             show what would change; write and delete nothing
-  --details             list every unit and file instead of counting
+  --details             list every file and generated file instead of counting
 
 Also accepted:
   rbtv add harness opencode          (add one harness)
@@ -331,11 +331,11 @@ usage: rbtv add [-h] [--all] [--module MODULE] [--component COMPONENT]
                 [--json] [--dry-run] [--details]
                 [NAME ...]
 
-Add named units, whole components, a pack, or a filtered selection from
+Add named files, whole components, a pack, or a filtered selection from
 local source, and write their generated files. A bare name never resolves
 to a pack: rbtv add ignite is the tool core/ignite#ignite. Name a pack
-with --pack. A short name must match one unit. --pack adds that pack's
-units and combines with named units. Filters narrow together, including a
+with --pack. A short name must match one file. --pack adds that pack's
+files and combines with named files. Filters narrow together, including a
 pack; values inside one filter are alternatives. An empty result is
 refused and nothing is written. Nothing fetches a newer source.
 
@@ -345,7 +345,7 @@ sub-agent: the harness's own sub-agent file, for the harnesses given with
 when an agent is among the names. Each harness must be one this target
 receives. Model and effort are checked with cast list, so cast must be on
 PATH. Running it again for a harness replaces that harness's model and
-effort. The agent's own units and packs are not applied: a harness-native
+effort. The agent's own files and packs are not applied: a harness-native
 sub-agent sees what its target has. A component given as a NAME names
 its agents too. A selection by --all, --module, --component or --type
 skips agents and says so. To place the agent as an rbtv agent in its own
@@ -370,24 +370,24 @@ First add in an installation needs both --harness and --guidance:
 off. Later adds can omit both.
 
 positional arguments:
-  NAME                  unit name (brainstorm), full unit id
+  NAME                  short name (brainstorm), full id
                         (meta/functions#brainstorm), or whole component
                         (meta/functions)
 
 options:
   -h, --help            show this help message and exit
-  --all, -A             choose every unit in the catalog
+  --all, -A             choose every file in the catalog
   --module, -m MODULE   choose a module; comma-separated or repeatable
   --component, -c COMPONENT
-                        choose a component; full unit ids are accepted too
-  --type, -x TYPE       choose unit types; comma-separated or repeatable
+                        choose a component; full ids are accepted too
+  --type, -x TYPE       choose file types; comma-separated or repeatable
   --exclude-type TYPE
-                        leave these unit types out
+                        leave these file types out
   --exclude-module MODULE
                         leave these modules out
   --exclude-component COMPONENT
                         leave these components out
-  --pack PACK           turn this pack on; its units are added like names
+  --pack PACK           turn this pack on; its files are added like names
   --on HARNESS:MODEL:EFFORT
                         for an agent among the names: write it as a
                         harness-native sub-agent for this harness, with
@@ -404,7 +404,7 @@ options:
   --json                one JSON value on standard output, for success
                         and for failure
   --dry-run             show what would change; write and delete nothing
-  --details             list every unit and file instead of counting
+  --details             list every file and generated file instead of counting
 
 Examples:
   rbtv add brainstorm
@@ -429,12 +429,12 @@ usage: rbtv remove [-h] [--all] [--module MODULE] [--component COMPONENT]
                    [--target TARGET] [--json] [--dry-run] [--details]
                    [NAME ...]
 
-Remove installed units from this installation, and delete the generated
-files that go with them. A named unit, component or pack needs no --yes.
---pack turns that pack off and removes units it added, unless the same
-unit is also installed on its own. Counts never count one unit twice.
+Remove installed files from this installation, and delete the generated
+files that go with them. A named file, component or pack needs no --yes.
+--pack turns that pack off and removes files it added, unless the same
+file is also installed on its own. Counts never count one file twice.
 Broad filters (--all, --module, --type, or any exclusion) need --yes when
-they match installed units. An empty result needs no confirmation.
+they match installed files. An empty result needs no confirmation.
 Removal never asks a question. A command shortcut stays while another
 installation still uses it.
 
@@ -451,7 +451,7 @@ Types (--type; comma-separated or repeatable):
   tool                  Runnable program exposed through a command shortcut.
   folder-instructions   Text added to a folder's instructions file.
 
-Remove a named unit:
+Remove a named file:
   rbtv remove root-cause
 
 Turn a pack off:
@@ -462,17 +462,17 @@ Preview a broad removal, then confirm it:
   rbtv remove --all --yes
 
 positional arguments:
-  NAME                  unit name, full unit id, or whole component
+  NAME                  short name, full id, or whole component
 
 options:
   -h, --help            show this help message and exit
-  --all, -A             select every installed unit
+  --all, -A             select every installed file
   --module, -m MODULE   choose a module; comma-separated or repeatable
   --component, -c COMPONENT
                         choose a component
-  --type, -x TYPE       choose unit types; comma-separated or repeatable
+  --type, -x TYPE       choose file types; comma-separated or repeatable
   --exclude-type TYPE
-                        leave these unit types out
+                        leave these file types out
   --exclude-module MODULE
                         leave these modules out
   --exclude-component COMPONENT
@@ -486,7 +486,7 @@ options:
   --json                one JSON value on standard output, for success
                         and for failure
   --dry-run             show what would change; write and delete nothing
-  --details             list every unit and file instead of counting
+  --details             list every file and generated file instead of counting
 
 Exit codes: 0 success; 1 refused; 2 invalid arguments.
 Next: rbtv status
@@ -497,27 +497,27 @@ rbtv — update help
 usage: rbtv update [-h] {guidance,scaffolding,all} ...
 
 Make the folder match install.json, from the RBTV source already on this
-machine. Does not download a newer source, and does not select a unit
-the file does not list. The scope is required. The root file is edited
+machine. Does not download a newer source, and does not select a file
+that install.json does not list. The scope is required. The root file is edited
 by hand; it is not shared between machines.
 
   guidance      Copy the instruction file you maintain into each other
                 harness's file. Leaves each file's generated section as
-                it is. Adds and removes no units. If guidance is none,
+                it is. Adds and removes no files. If guidance is none,
                 there is nothing to copy.
-  scaffolding   Regenerate generated files for the installed units. Add a
-                unit the file lists whose generated files are missing.
-                Remove generated files for a unit the file no longer
+  scaffolding   Regenerate generated files for the installed files. Add a
+                file that install.json lists whose generated files are
+                missing. Remove generated files for a file it no longer
                 lists. Does not copy the text you maintain.
   all           Run scaffolding, then guidance.
 
-The result names every unit added and every unit removed, including
+The result names every file added and every file removed, including
 when both lists are empty.
 
 positional arguments:
   {guidance,scaffolding,all}
-    guidance            copy maintained text; add and remove no units
-    scaffolding         make generated files match the installed units
+    guidance            copy maintained text; add and remove no files
+    scaffolding         make generated files match the installed files
     all                 scaffolding, then guidance
 
 options:
@@ -537,7 +537,7 @@ Copy the human text of the instruction file you maintain (CLAUDE.md or
 AGENTS.md) into each other harness's file. Strips generated text from
 what it copies. Leaves each destination's own generated section as it
 is — it does not rebuild that section (that is update scaffolding).
-Adds and removes no units. Saved guidance exclusions apply. If guidance
+Adds and removes no files. Saved guidance exclusions apply. If guidance
 is none, there is nothing to copy and nothing is written. If the folder
 still does not match the file, the result says so and names
 `rbtv update scaffolding`. If the maintained file is missing, the command
@@ -563,8 +563,8 @@ usage: rbtv update scaffolding [-h] [--target TARGET] [--json]
                                [--dry-run] [--details]
 
 Make generated files match install.json. Regenerates generated files
-for units the file lists, writes a listed unit whose files are missing,
-and removes generated files for a unit the file no longer lists. The
+for the files it lists, writes a listed file whose generated files are
+missing, and removes generated files for a file it no longer lists. The
 result names what was added and what was removed. Leaves human-authored
 text alone; it does not copy that text (that is update guidance). Use
 update all when both parts of every file must be current.
@@ -576,7 +576,7 @@ options:
   --json           one JSON value on standard output, for success and
                    for failure
   --dry-run        show what would change; write and delete nothing
-  --details        list every unit and file instead of counting
+  --details        list every file and generated file instead of counting
 
 Example: rbtv update scaffolding
 Next: rbtv doctor
@@ -589,8 +589,8 @@ usage: rbtv update all [-h] [--target TARGET] [--json] [--dry-run]
                        [--details]
 
 Run scaffolding, then guidance. Generated files are made to match
-install.json (units added whose files are missing, generated files
-removed for units the file no longer lists), then maintained text is
+install.json (a listed file added when its generated files are missing,
+generated files removed for a file it no longer lists), then maintained text is
 copied. The result names what was added and what was removed. If the
 maintained guidance file is missing, refuses before any write.
 
@@ -601,7 +601,7 @@ options:
   --json           one JSON value on standard output, for success and
                    for failure
   --dry-run        show what would change; write and delete nothing
-  --details        list every unit and file instead of counting
+  --details        list every file and generated file instead of counting
 
 Example: rbtv update all
 Next: rbtv doctor
@@ -610,18 +610,18 @@ Exit codes: 0 success; 1 refused; 2 invalid arguments.
     "agent": """\
 rbtv — agent help
 
-Manage one agent: which units it is exposed to, and its harness, model and
+Manage one agent: which files it is exposed to, and its harness, model and
 effort. AGENT is a name under the installation's .rbtv/agents/, found by
 walking up from the current folder, or a path to a folder that holds
 agent.md and agent.json.
 
 To write a new agent, create a folder with agent.md (its prompt) and
-agent.json (its description, units and packs), then run rbtv agent add
+agent.json (its description, files and packs), then run rbtv agent add
 AGENT --harness HARNESS --model MODEL --effort EFFORT to apply it. Guide:
 core/rbtv/capabilities/glossary/agent.md in the rbtv source.
 
-  add AGENT [NAME...]   Apply agent.json, then add named units or a pack.
-  remove AGENT NAME...  Remove units or a pack. The agent folder stays.
+  add AGENT [NAME...]   Apply agent.json, then add named files or a pack.
+  remove AGENT NAME...  Remove files or a pack. The agent folder stays.
   configure AGENT       Change harness, model, effort or voice.
   update AGENT SCOPE    Make the folder match agent.json. Scope is required.
   list [AGENT]          List the installation's agents, or AGENT in full.
@@ -648,8 +648,8 @@ usage: rbtv agent add [-h] [--pack PACK]
                       AGENT [NAME ...]
 
 Apply what AGENT's agent.json declares, the first time or again, then add
-any NAME units and record them in agent.json. --pack turns a pack on and
-records it. Declared units are applied first; a unit already on disk is
+any NAME files and record them in agent.json. --pack turns a pack on and
+records it. Declared files are applied first; a file already on disk is
 left as it is. A second run that finds nothing missing changes nothing.
 To write a new agent first, see the new-agent passage in rbtv agent -h.
 
@@ -665,16 +665,16 @@ with cast list, so cast must be on PATH, and written into the agent's
 agent.json. When agent.json already has them, giving one is refused:
 change them with rbtv agent configure.
 
-A short unit name must be unique; otherwise pass the full id,
-<module>/<component>#<unit>. A pack is named only with --pack, for example
---pack research-kit. A bare name is always a unit, never a pack. A NAME
+A short name must be unique; otherwise pass the full id,
+<module>/<component>#<name>. A pack is named only with --pack, for example
+--pack research-kit. A bare name is always a file, never a pack. A NAME
 that is an agent a component ships is written for AGENT as a
 harness-native sub-agent and needs --on with AGENT's own harness.
 This verb takes no --target. See rbtv list and rbtv show.
 
 positional arguments:
   AGENT                 name or path of the agent
-  NAME                  unit to add; repeatable. Short name or full id
+  NAME                  file to add; repeatable. Short name or full id
 
 options:
   -h, --help            show this help message and exit
@@ -687,13 +687,13 @@ options:
   --model MODEL         a model cast list shows for that harness
   --effort EFFORT       1 to 5, or the model's own effort word
   --on HARNESS:MODEL:EFFORT
-                        for an agent among the NAME units: the model and
+                        for an agent among the names: the model and
                         effort of its harness-native sub-agent; HARNESS
                         is AGENT's own harness
   --json                one JSON value on standard output, success or
                         failure
   --dry-run             preview changes without writing or removing files
-  --details             list every unit and file instead of counting
+  --details             list every file and generated file instead of counting
 
 Examples:
   rbtv agent add plans/launch/agents/drafter
@@ -711,26 +711,26 @@ usage: rbtv agent remove [-h] [--pack PACK] [--all] [--yes]
                          [--json] [--dry-run] [--details]
                          AGENT [NAME ...]
 
-Remove units from the agent and from its agent.json. --pack turns that
-pack off. A pack is named only with --pack; a bare NAME is always a unit.
---all removes every unit and turns every pack off; it requires --yes.
-A named unit or a named pack needs no --yes. Give one of NAME, --pack or
+Remove files from the agent and from its agent.json. --pack turns that
+pack off. A pack is named only with --pack; a bare NAME is always a file.
+--all removes every file and turns every pack off; it requires --yes.
+A named file or a named pack needs no --yes. Give one of NAME, --pack or
 --all. This verb takes no --target. It never asks a question and never
 deletes the agent folder, agent.md or agent.json.
 
 positional arguments:
   AGENT                 name or path of the agent
-  NAME                  unit to remove; repeatable. Short name or full id
+  NAME                  file to remove; repeatable. Short name or full id
 
 options:
   -h, --help            show this help message and exit
   --pack PACK           turn this pack off and drop it from agent.json
-  --all                 remove every unit; requires --yes
+  --all                 remove every file; requires --yes
   --yes                 confirm --all
   --json                one JSON value on standard output, success or
                         failure
   --dry-run             preview changes without writing or removing files
-  --details             list every unit and file instead of counting
+  --details             list every file and generated file instead of counting
 
 Examples:
   rbtv agent remove scout interview
@@ -762,7 +762,7 @@ Changing --harness regenerates generated files for the new harness.
 A harness-native sub-agent written for the old harness is deleted with its
 model and effort; the result names the command that adds it for the new one.
 Changing model, effort or voice updates agent.json only.
-This verb takes no --target. It never changes units or packs.
+This verb takes no --target. It never changes files or packs.
 
 Harness values:
   claude (Claude Code)
@@ -781,7 +781,7 @@ options:
   --json                one JSON value on standard output, success or
                         failure
   --dry-run             preview changes without writing or removing files
-  --details             list every unit and file instead of counting
+  --details             list every file and generated file instead of counting
 
 Examples:
   rbtv agent configure scout --model gpt-6-astra --effort medium
@@ -805,7 +805,7 @@ wrong usage and changes nothing. A scope word is not an agent name.
 This verb takes no --target.
 
   guidance      Copy a maintained instruction file, if one is set. Does
-                not add or remove units. With no guidance file set,
+                not add or remove files. With no guidance file set,
                 reports nothing to copy. If the folder still does not
                 match agent.json, the result says so and names the
                 command that would finish the match.
@@ -818,7 +818,7 @@ This verb takes no --target.
 positional arguments:
   AGENT                 name or path of the agent
   {guidance,scaffolding,all}
-    guidance            copy maintained text; add and remove no units
+    guidance            copy maintained text; add and remove no files
     scaffolding         make generated files match agent.json
     all                 scaffolding, then guidance
 
@@ -827,7 +827,7 @@ options:
   --json                one JSON value on standard output, success or
                         failure
   --dry-run             preview changes without writing or removing files
-  --details             list every unit and file instead of counting
+  --details             list every file and generated file instead of counting
 
 Examples:
   rbtv agent update scout all

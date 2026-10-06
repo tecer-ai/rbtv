@@ -9,7 +9,7 @@ from discovery import Refuse, SKILLS_DIR, scan_all
 
 from . import tui
 from .constants import BASIS_NONE, GUIDANCE_NAMES, HARNESSES, REPO_ROOT
-from .catalog import catalog_units_map
+from .catalog import catalog_files_map
 from .state import book_harnesses, read_state
 from .operations import do_install
 from .report import print_result
@@ -56,8 +56,8 @@ def interactive(target: Path, catalog: dict[str, dict]) -> int:
         return 1
 
     installed = set(read_state(target).get("components") or {})
-    parts = catalog_units_map(catalog)
-    units = [{"label": cid,
+    parts = catalog_files_map(catalog)
+    choices = [{"label": cid,
               "selected": cid in installed,
               "hint": f"{len(parts[cid])} part(s) · {catalog[cid]['tree']}"
                       + (" · installed" if cid in installed else "")}
@@ -71,7 +71,7 @@ def interactive(target: Path, catalog: dict[str, dict]) -> int:
         return "\n".join(rows)
 
     picked = [installable[i] for i in
-              tui.checkbox("Components to install", units,
+              tui.checkbox("Components to install", choices,
                            detail_callback=_detail)]
     if not picked:
         print("Nothing selected — cancelled.")

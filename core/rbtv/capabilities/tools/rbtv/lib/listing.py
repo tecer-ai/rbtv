@@ -5,30 +5,30 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from discovery import Refuse, unit_rows
+from discovery import Refuse, file_rows
 
 from . import present, subagents
 from .constants import BASIS_NONE, MANAGED_MARK, STATE_REL
 from .catalog import (
-    _unit_specs,
+    _file_specs,
     catalog_packs,
-    catalog_units_map,
+    catalog_files_map,
 )
-from .state import (_unit_in, book_harnesses, read_state, selected_packs,
+from .state import (_file_in, book_harnesses, read_state, selected_packs,
                     upgrade_book)
-from .selection import (component_keys, iter_booked_units, iter_catalog_parts,
-                        module_names, unit_key, resolve_name)
+from .selection import (component_keys, iter_booked_files, iter_catalog_parts,
+                        module_names, file_key, resolve_name)
 
 
-def _unit_row(comp: dict, pid: str) -> dict:
-    """The catalog row of one unit of a component, or {}."""
+def _file_row(comp: dict, pid: str) -> dict:
+    """The catalog row of one file of a component, or {}."""
     if comp.get("manifest"):
-        return next((r for r in unit_rows(comp) if r["id"] == pid), {})
+        return next((r for r in file_rows(comp) if r["id"] == pid), {})
     return {}
 
 
-def _unit_description(comp: dict, pid: str) -> str:
-    row = _unit_row(comp, pid)
+def _file_description(comp: dict, pid: str) -> str:
+    row = _file_row(comp, pid)
     if row:
         return row["description"]
     if comp.get("kind") == "hub":
@@ -47,10 +47,10 @@ def _unit_description(comp: dict, pid: str) -> str:
 
 
 def _safe_specs(comp: dict) -> tuple[list[dict], str]:
-    """A component's units, or none and why: one component's invalid file must
+    """A component's files, or none and why: one component's invalid file must
     not blank the whole listing."""
     try:
-        return _unit_specs(comp), ""
+        return _file_specs(comp), ""
     except Refuse as exc:
         return [], exc.message
 
@@ -71,14 +71,14 @@ def _short_description(text: str) -> str:
     return head.rstrip(".,;:") + "…"
 
 
-def unit_detail(catalog: dict, state: dict, part: dict) -> dict:
-    cid, pid = part["component"], part["unit_id"]
+def file_detail(catalog: dict, state: dict, part: dict) -> dict:
+    cid, pid = part["component"], part["file_id"]
     comp = catalog.get(cid) or {}
-    row = _unit_row(comp, pid)
+    row = _file_row(comp, pid)
     entry_point = row.get("entry", "")
     comp_path = Path(comp["path"]) if comp.get("path") else None
     return {**part,
-            "description": _unit_description(comp, pid),
+            "description": _file_description(comp, pid),
             "entry_point": entry_point,
             # The unambiguous path a human can open: entry_point alone
             # (e.g. `prompts/brainstorm.md`) is component-relative and reads
@@ -88,7 +88,7 @@ def unit_detail(catalog: dict, state: dict, part: dict) -> dict:
                             if comp_path and entry_point else ""),
             "tree": comp.get("tree") or "book",
             "source_available": bool(comp and (comp.get("kind") == "hub" or row)),
-            "installed": _unit_in(state, cid, pid)}
+            "installed": _file_in(state, cid, pid)}
 
 
 def do_scan(catalog: dict[str, dict], shadowed: list[dict]) -> dict:
@@ -101,14 +101,14 @@ def do_scan(catalog: dict[str, dict], shadowed: list[dict]) -> dict:
             "kind": c.get("kind", "component"),
             "manifest": c["manifest"],
             "methods": sorted({s["method"] for s in specs}),
-            "unit_count": len(specs), "note": note,
+            "file_count": len(specs), "note": note,
         })
     return {"ok": True, "components": entries, "shadowed": shadowed}
 
 
 def catalog_ids(catalog: dict, cid: str) -> list[str]:
     c = catalog.get(cid) or {}
-    return [s["id"] for s in _unit_specs(c) if s.get("id")]
+    return [s["id"] for s in _file_specs(c) if s.get("id")]
 
 
 def status_of(cid: str, rec: dict, catalog: dict
@@ -146,11 +146,11 @@ def build_ls(catalog: dict, shadowed: list, state: dict, *,
             continue
         if drop_m and mod in drop_m:
             continue
-        units = []
+        files = []
         specs, note = _safe_specs(c)
         for spec in specs:
             pid, meth = spec["id"], spec.get("method") or ""
-            key = unit_key(cid, pid)
+            key = file_key(cid, pid)
             if want_c and key not in want_c:
                 continue
             if key in drop_c:
@@ -159,20 +159,20 @@ def build_ls(catalog: dict, shadowed: list, state: dict, *,
                 continue
             if drop_x and meth in drop_x:
                 continue
-            detail = unit_detail(catalog, state, {
+            detail = file_detail(catalog, state, {
                 "key": key, "component": cid, "module": mod,
-                "unit_id": pid, "method": meth})
-            units.append({"id": key, "unit_id": pid, "method": meth,
+                "file_id": pid, "method": meth})
+            files.append({"id": key, "file_id": pid, "method": meth,
                           "description": detail["description"],
                           "in": detail["installed"]})
-        if (want_x or drop_x or want_c or drop_c) and not units:
+        if (want_x or drop_x or want_c or drop_c) and not files:
             continue
         entries.append({
             "id": cid, "tree": c.get("tree", ""), "module": mod,
             "kind": "hub" if hub else c.get("kind", "component"),
             "manifest": bool(c.get("manifest")),
-            "methods": sorted({i["method"] for i in units}),
-            "unit_count": len(units), "units": units, "note": note,
+            "methods": sorted({i["method"] for i in files}),
+            "file_count": len(files), "files": files, "note": note,
         })
     return {"ok": True, "components": entries, "shadowed": shadowed}
 
@@ -184,7 +184,7 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
                installed: bool = False,
                search: bool = False, full: bool = False,
                limit: int = 20, offset: int = 0) -> dict:
-    """Browse exact hierarchy, or search the same unit pool broadly."""
+    """Browse exact hierarchy, or search the same file pool broadly."""
     view = build_ls(catalog, [], state)
     book = state.get("components") or {}
     sub_agents = subagents.recorded(state)
@@ -197,7 +197,7 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
         source_comp = catalog.get(comp["id"]) or {}
         comp_desc = _description(source_comp.get("description", ""), full)
         mod_desc = _description(source_comp.get("module_description", ""), full)
-        for part in comp["units"]:
+        for part in comp["files"]:
             rows.append({"id": part["id"], "component": comp["id"],
                          "module": comp["module"], "type": part["method"],
                          "description": _description(part["description"], full),
@@ -209,12 +209,12 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
                          **({"sub_agent": sub_agents.get(part["id"], {})}
                             if part["method"] == "agent" else {})})
     seen = {row["id"] for row in rows}
-    for part in iter_booked_units(catalog, book):
+    for part in iter_booked_files(catalog, book):
         if part["key"] in seen:
             continue
         rows.append({"id": part["key"], "component": part["component"],
                      "module": part["module"], "type": part["method"],
-                     "description": "Recorded unit; source is no longer available.",
+                     "description": "Recorded file; source is no longer available.",
                      "component_description": "", "module_description": "",
                      "installed": True, "source_available": False,
                      "tree": "missing"})
@@ -228,23 +228,23 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
                          "_search": pack["description"],
                          "installed": pack["name"] in selected_packs(state),
                          "source_available": True, "tree": pack["tree"],
-                         "units": list(pack["units"])})
+                         "files": list(pack["files"])})
     matched = []
-    for row in sorted(rows, key=lambda unit: unit["id"]):
+    for row in sorted(rows, key=lambda file: file["id"]):
         if want_m and row["module"] not in want_m:
             continue
         if want_c and row["id"] not in want_c:
             continue
         if want_x and row["type"] not in want_x:
             continue
-        unit_id = row["id"].split("#", 1)[-1]
-        hay = " ".join((row["id"], unit_id,
+        file_id = row["id"].split("#", 1)[-1]
+        hay = " ".join((row["id"], file_id,
                         row.get("_search", row["description"]))).casefold()
         if words and not all(word in hay for word in words):
             continue
         matched.append({key: value for key, value in row.items()
                         if key != "_search"})
-    scope = "units"
+    scope = "files"
     if not search:
         if query:
             try:
@@ -261,12 +261,12 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
             else:
                 chosen = resolve_name(query, catalog, book,
                                       methods=want_x or None)
-                ids = {p["key"] for p in chosen["units"]}
+                ids = {p["key"] for p in chosen["files"]}
                 owner = chosen["id"] if chosen["kind"] == "component" else None
                 matched = [r for r in matched if r["id"] in ids
                            or (r["type"] == "pack" and r["component"] == owner)]
                 if chosen["kind"] == "component" and not want_x:
-                    scope = "units"
+                    scope = "files"
         elif not want_x and not components:
             scope = "modules"
             matched = _group_rows(matched, "module")
@@ -275,18 +275,18 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
             matched = _group_rows([r for r in matched if r["type"] != "pack"],
                                   "component")
     if installed:
-        matched = [r for r in matched if (r["installed"] if scope == "units"
-                   else r["installed_units"] > 0)]
+        matched = [r for r in matched if (r["installed"] if scope == "files"
+                   else r["installed_files"] > 0)]
     total = len(matched)
     page = matched[offset:offset + limit]
-    if scope == "units":
+    if scope == "files":
         page = [{k: v for k, v in row.items()
                  if k not in ("component_description", "module_description")}
                 for row in page]
     return {"ok": True, "query": query, "scope": scope, "total": total,
             "returned": len(page),
             "limit": limit, "offset": offset,
-            "units": page}
+            "files": page}
 
 
 def _group_rows(rows: list[dict], field: str) -> list[dict]:
@@ -295,8 +295,8 @@ def _group_rows(rows: list[dict], field: str) -> list[dict]:
         grouped.setdefault(row[field], []).append(row)
     desc_field = "module_description" if field == "module" else "component_description"
     return [{"id": "hub" if name == "_hub" and field == "module" else name,
-             "installed_units": sum(r["installed"] for r in parts),
-             "source_units": sum(r["source_available"] for r in parts),
+             "installed_files": sum(r["installed"] for r in parts),
+             "source_files": sum(r["source_available"] for r in parts),
              "description": next((r[desc_field] for r in parts if r[desc_field]), "")}
             for name, parts in sorted(grouped.items())]
 
@@ -315,11 +315,11 @@ def _list_scope_noun(data: dict) -> str:
     if query and data.get("total") == 1:
         return query
     if query:
-        packs = any(row["type"] == "pack" for row in data["units"])
-        return f"{query} units and packs" if packs else f"{query} units"
+        packs = any(row["type"] == "pack" for row in data["files"])
+        return f"{query} files and packs" if packs else f"{query} files"
     if len(methods) == 1:
         return f"{methods[0]}s"
-    return "installed units" if data.get("installed_only") else "units"
+    return "installed files" if data.get("installed_only") else "files"
 
 
 def _list_context_line(data: dict) -> str | None:
@@ -334,24 +334,24 @@ def _list_context_line(data: dict) -> str | None:
     if scope == "modules":
         paged = data.get("has_more") or data["offset"]
         return f"Showing {start}-{end} of {data['total']}" if paged else None
-    if scope != "units":
+    if scope != "files":
         return None
     if query and data["total"] == 1:
-        return f"Exact unit: {data['units'][0]['id']}"
+        return f"Exact file: {data['files'][0]['id']}"
     parts = ([query] if query else []) + (
         [f"type {', '.join(methods)}"] if methods else [])
     scope_txt = f"Scope: {'; '.join(parts)}; " if parts else ""
     return f"{scope_txt}showing {start}-{end} of {data['total']}"
 
 
-_PACK_MEANING = "A named list of units a component declares."
+_PACK_MEANING = "A named list of files a component declares."
 
 
 def print_list(data: dict) -> None:
     """Human-readable rendering of `build_list`'s JSON envelope — the JSON
     field names are the stable contract; this only decides how they look on
-    a terminal. Module/component rows use ID/Installed units/Description;
-    unit rows use ID/Type/State/Description (D9)."""
+    a terminal. Module/component rows use ID/Installed files/Description;
+    file rows use ID/Type/State/Description (D9)."""
     print(present.title(_list_scope_noun(data)))
     print()
     print(f"Target: {data['target']} "
@@ -360,43 +360,43 @@ def print_list(data: dict) -> None:
     if context:
         print(context)
     print()
-    units = data["units"]
-    if data["scope"] == "units":
+    files = data["files"]
+    if data["scope"] == "files":
         headers = ["ID", "Type", "State", "Description"]
-        rows = [[row["id"], row["type"], _unit_state(row),
+        rows = [[row["id"], row["type"], _file_state(row),
                  row["description"] + ("" if row["source_available"]
                                         else " (source missing)")]
-                for row in units]
+                for row in files]
     else:
-        headers = ["ID", "Installed units", "Description"]
-        rows = [[row["id"], f"{row['installed_units']}/{row['source_units']}",
-                 row["description"]] for row in units]
+        headers = ["ID", "Installed files", "Description"]
+        rows = [[row["id"], f"{row['installed_files']}/{row['source_files']}",
+                 row["description"]] for row in files]
     # --full: one labeled block per row, the description whole and wrapped;
     # a table would cut its last column to the width again.
     lines = (present.render_blocks(headers, rows) if data.get("full")
              else present.render_table(headers, rows))
     for line in lines:
         print(line)
-    if not units and not data.get("searching"):  # search says "0 matches"
-        print("No installed units in this target." if data.get("installed_only")
-              else "No matching units.")
-    if units:
+    if not files and not data.get("searching"):  # search says "0 matches"
+        print("No installed files in this target." if data.get("installed_only")
+              else "No matching files.")
+    if files:
         print()
-        if data["scope"] != "units":
-            text = "Installed units is the saved selection; run doctor to check files."
-        elif any(row["type"] == "pack" for row in units):
-            if all(row["type"] == "pack" for row in units):
+        if data["scope"] != "files":
+            text = "Installed files is the saved selection; run doctor to check generated files."
+        elif any(row["type"] == "pack" for row in files):
+            if all(row["type"] == "pack" for row in files):
                 text = ("State is on or off for this target. Saved selection; "
                         "run doctor to check files.")
             else:
-                text = ("State is installed or not installed for a unit, and on or "
+                text = ("State is installed or not installed for a file, and on or "
                         "off for a pack.\nSaved selection; run doctor to check files.")
         else:
             text = ("State is the saved selection for this target; "
                     "run doctor to check files.")
         print("\n".join(present.wrap(text)))
         for line in subagents.installed_lines(
-                {row["id"]: row["sub_agent"] for row in units if row.get("sub_agent")}):
+                {row["id"]: row["sub_agent"] for row in files if row.get("sub_agent")}):
             print("\n".join(present.wrap(line, hang="  ")))
         # A cut description ends with an ellipsis; say how to read it whole.
         if any(line.endswith("…") for line in lines):
@@ -406,7 +406,7 @@ def print_list(data: dict) -> None:
     print(f"{label}: {data['next']}")
 
 
-def _unit_state(row: dict) -> str:
+def _file_state(row: dict) -> str:
     if row["type"] == "pack":
         return "on" if row["installed"] else "off"
     return "installed" if row["installed"] else "not installed"
@@ -414,12 +414,12 @@ def _unit_state(row: dict) -> str:
 
 def json_view(data: dict, *, searching: bool) -> dict:
     """The list/search envelope with the per-row JSON shape the approved
-    screens show: list and search carry different keys for a unit row and for
+    screens show: list and search carry different keys for a file row and for
     a pack row. Module and component rows are returned unchanged."""
-    if data["scope"] != "units":
+    if data["scope"] != "files":
         return data
     shaped = []
-    for row in data["units"]:
+    for row in data["files"]:
         if row["type"] == "pack" and searching:
             shape = {"id": row["id"], "type": "pack", "description": row["description"],
                      "tree": row["tree"], "source_available": row["source_available"],
@@ -428,7 +428,7 @@ def json_view(data: dict, *, searching: bool) -> dict:
             shape = {"id": row["id"], "component": row["component"],
                      "module": row["module"], "type": "pack", "on": row["installed"],
                      "declared_by": row["component"], "description": row["description"],
-                     "units": row["units"]}
+                     "files": row["files"]}
         elif searching:
             shape = {"id": row["id"], "type": row["type"], "description": row["description"],
                      "tree": row["tree"], "source_available": row["source_available"],
@@ -441,38 +441,38 @@ def json_view(data: dict, *, searching: bool) -> dict:
         if "sub_agent" in row:
             shape["sub_agent"] = row["sub_agent"]
         shaped.append(shape)
-    return {**data, "units": shaped}
+    return {**data, "files": shaped}
 
 
 def pack_members(catalog: dict, state: dict, pack: dict) -> list[dict]:
-    """The units a pack includes, each with its type and whether it is installed here."""
+    """The files a pack includes, each with its type and whether it is installed here."""
     types = {part["key"]: part["method"] for part in iter_catalog_parts(catalog)}
     members = []
-    for key in pack["units"]:
+    for key in pack["files"]:
         cid, _, pid = key.partition("#")
         members.append({"key": key, "type": types.get(key, ""),
-                        "installed": _unit_in(state, cid, pid)})
+                        "installed": _file_in(state, cid, pid)})
     return members
 
 
 def build_show(selection: dict, catalog: dict, state: dict, full: bool = False) -> dict:
-    parts = [unit_detail(catalog, state, part) for part in selection["units"]]
+    parts = [file_detail(catalog, state, part) for part in selection["files"]]
     parts = [{**p, "type": p["method"]} for p in parts]
     for part in parts:
         part.pop("method", None)
-    out = {"scope": "unit" if selection["kind"] == "part" else selection["kind"],
+    out = {"scope": "file" if selection["kind"] == "part" else selection["kind"],
            "id": selection["id"],
-           "units": parts,
+           "files": parts,
            "harnesses": book_harnesses(state) or []}
     if selection["kind"] == "part":
         out.update(type=parts[0]["type"], component=parts[0]["component"],
-                   unit_id=parts[0]["unit_id"])
+                   file_id=parts[0]["file_id"])
         if parts[0]["type"] == "agent":
-            row = _unit_row(catalog[parts[0]["component"]], parts[0]["unit_id"])
-            home = Path(state.get("_target", "")) / ".rbtv" / "agents" / parts[0]["unit_id"]
-            name = parts[0]["unit_id"]
+            row = _file_row(catalog[parts[0]["component"]], parts[0]["file_id"])
+            home = Path(state.get("_target", "")) / ".rbtv" / "agents" / parts[0]["file_id"]
+            name = parts[0]["file_id"]
             out["agent"] = {"packs": row["data"].get("packs", []),
-                            "units": row["data"].get("units", []),
+                            "files": row["data"].get("units", []),
                             "placed": home.is_dir(), "home": str(home),
                             "sub_agent": subagents.recorded(state).get(selection["id"], {}),
                             "add": {"rbtv_agent": f"rbtv agent add {name} --harness HARNESS "
@@ -495,7 +495,7 @@ def _say(text: str) -> None:
 
 def print_show(data: dict) -> None:
     """Human-readable rendering of `build_show`'s envelope: description,
-    included units or installation details, source entry path (D9 §4)."""
+    included files or installation details, source entry path (D9 §4)."""
     sel = data["selection"]
     print(present.title(f"pack {sel['id']}" if sel["scope"] == "pack" else sel["id"]))
     print()
@@ -507,12 +507,12 @@ def print_show(data: dict) -> None:
         print("Declared by: " + sel["component"])
         print("Declaration: " + sel["path"])
         _say(f"Description: {sel['description']}")
-        print(f"Units: {len(sel['units'])}")
+        print(f"Files: {len(sel['files'])}")
         print("Pack: " + ("on" if sel["enabled"] else "off") + " for this target")
         print()
-        rows = [[unit["key"], unit["type"],
-                 "installed" if unit["installed"] else "not installed"]
-                for unit in sel["units"]]
+        rows = [[file["key"], file["type"],
+                 "installed" if file["installed"] else "not installed"]
+                for file in sel["files"]]
         for line in present.render_table(["ID", "Type", "State"], rows):
             print(line)
         print()
@@ -522,12 +522,12 @@ def print_show(data: dict) -> None:
         return
     if sel["scope"] == "module":
         _say(f"Description: {sel['description'] or '(no catalog description)'}")
-        _say(f"Local source: {sel['source_units']} units; "
-              f"installed here: {sel['installed_units']} saved selections. "
-              "Files not checked.")
+        _say(f"Local source: {sel['source_files']} files; "
+              f"installed here: {sel['installed_files']} saved selections. "
+              "Generated files not checked.")
         print()
-        headers = ["ID", "Installed units", "Description"]
-        rows = [[c["id"], f"{c['installed_units']}/{c['source_units']}",
+        headers = ["ID", "Installed files", "Description"]
+        rows = [[c["id"], f"{c['installed_files']}/{c['source_files']}",
                  c["description"]] for c in sel["components"]]
         for line in present.render_table(headers, rows):
             print(line)
@@ -539,18 +539,18 @@ def print_show(data: dict) -> None:
         _say("Dependencies: " + (", ".join(sel.get("dependencies") or []) or "none"))
         if sel.get("source_entry"):
             print("Source entry (local RBTV source): " + sel['source_entry'])
-        _say(f"Local source: {len(sel['units'])} unit(s) in this component.")
+        _say(f"Local source: {len(sel['files'])} file(s) in this component.")
         print()
         headers = ["ID", "Type", "State", "Description"]
         rows = [[p["key"], p["type"],
                  "installed" if p["installed"] else "not installed",
-                 p["description"]] for p in sel["units"]]
+                 p["description"]] for p in sel["files"]]
         for line in present.render_table(headers, rows):
             print(line)
         print()
         print("Next: " + data["next"])
         return
-    part = sel["units"][0]
+    part = sel["files"][0]
     meaning = present.TYPE_MEANING.get(part["type"], "")
     print(f"Type: {part['type']}" + (f" ({meaning})" if meaning else ""))
     if part["description"]:
@@ -564,7 +564,7 @@ def print_show(data: dict) -> None:
         print()
         print("Declared in its agent.json")
         print("  Packs: " + (", ".join(agent["packs"]) or "none"))
-        print("  Other units: " + (", ".join(agent["units"]) or "none"))
+        print("  Other files: " + (", ".join(agent["files"]) or "none"))
     print()
     print("Installation in this target")
     print(f"  Selection: {'installed' if part['installed'] else 'not installed'} "
@@ -594,7 +594,7 @@ def print_show(data: dict) -> None:
 def do_list(target: Path, catalog: dict | None = None) -> dict:
     raw = read_state(target)
     catalog = catalog or {}
-    state = upgrade_book(raw, catalog_units_map(catalog)) if catalog else raw
+    state = upgrade_book(raw, catalog_files_map(catalog)) if catalog else raw
     comps: dict = {}
     links: list[dict] = []
     for cid, rec in sorted((state.get("components") or {}).items()):

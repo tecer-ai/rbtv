@@ -1,4 +1,4 @@
-"""An agent a component ships, added to a target as a unit: it is written as a
+"""An agent a component ships, added to a target with `rbtv add`: it is written as a
 harness-native sub-agent, for the harnesses a model and an effort were given
 for. This file owns those values: the `--on HARNESS:MODEL:EFFORT` flag, where a
 record keeps them, and what a result says about them.
@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from discovery import Refuse, unit_rows
+from discovery import Refuse, file_rows
 
 from .constants import HARNESSES
 from .content import sub_agent_settings
@@ -24,7 +24,7 @@ def _refuse(code: str, message: str, next_cmd: str) -> Refuse:
 
 
 def named_agents(catalog: dict, keys: set[str]) -> list[dict]:
-    """The catalog rows of the agents among these unit ids."""
+    """The catalog rows of the agents among these file ids."""
     return [row for row in iter_catalog_parts(catalog)
             if row["key"] in keys and row["method"] == "agent"]
 
@@ -50,11 +50,11 @@ def parse_on(raw: list[str]) -> dict[str, tuple[str, str]]:
 def values_for(on: list[str], named: list[dict], receiving: list[str],
                target: Path, *, known: dict, check, model_id,
                configure_cmd: str) -> dict[str, dict]:
-    """The checked `--on` values for the agents a command names, by unit id then
+    """The checked `--on` values for the agents a command names, by file id then
     harness: {model, model_id, effort}. `known` is `cast list`, `check` the
     check an rbtv agent's values get, `model_id` the harness's own id for a
     model. `configure_cmd` is the command that changes what the target receives."""
-    names = ", ".join(row["unit_id"] for row in named)
+    names = ", ".join(row["file_id"] for row in named)
     if on and not named:
         raise _refuse("on-without-agent",
                       "--on gives a model and an effort to an agent a component "
@@ -62,9 +62,9 @@ def values_for(on: list[str], named: list[dict], receiving: list[str],
                       "or name the agent",
                       "rbtv list --type agent --target " + shell_quote(target))
     if named and not on:
-        first = named[0]["unit_id"]
+        first = named[0]["file_id"]
         raise _refuse("on-required",
-                      f"{names}: an agent a component ships. Added as a unit it is "
+                      f"{names}: an agent a component ships. Added with `rbtv add` it is "
                       "written as a harness-native sub-agent, which needs a model "
                       f"and an effort for each harness: give --on {ON_FORM}, once "
                       "per harness. To place it as an rbtv agent instead, run "
@@ -87,11 +87,11 @@ def values_for(on: list[str], named: list[dict], receiving: list[str],
 
 
 def recorded(state: dict) -> dict[str, dict]:
-    """The sub-agent values a record holds, by unit id then harness."""
-    return {f"{cid}#{pid}": unit["sub_agent"]
+    """The sub-agent values a record holds, by file id then harness."""
+    return {f"{cid}#{pid}": file["sub_agent"]
             for cid, rec in (state.get("components") or {}).items()
-            for pid, unit in (rec.get("units") or {}).items()
-            if isinstance(unit, dict) and unit.get("sub_agent")}
+            for pid, file in (rec.get("units") or {}).items()
+            if isinstance(file, dict) and file.get("sub_agent")}
 
 
 def installed_lines(values: dict[str, dict]) -> list[str]:
@@ -111,14 +111,14 @@ def describe(named: list[dict], given: dict[str, dict], before: dict[str, dict],
     """What a result says of each agent added as a sub-agent: the harnesses it
     is written for, with the values before when they changed; the receiving
     harnesses left out, each with the command that adds it; the agent's own
-    units and packs, which are not applied; the values a file cannot carry."""
+    files and packs, which are not applied; the values a file cannot carry."""
     out = []
     for row in named:
-        key, name = row["key"], row["unit_id"]
+        key, name = row["key"], row["file_id"]
         was = before.get(key) or {}
         now = {h: v for h, v in {**was, **(given.get(key) or {})}.items()
                if h in receiving}
-        data = next(r["data"] for r in unit_rows(catalog[row["component"]])
+        data = next(r["data"] for r in file_rows(catalog[row["component"]])
                     if r["id"] == name)
         left_out = [h for h in receiving if h not in now]
         out.append({
@@ -128,7 +128,7 @@ def describe(named: list[dict], given: dict[str, dict], before: dict[str, dict],
                           for h in receiving if h in now},
             "not_written_for": left_out,
             "add_commands": {h: add_command(name, h, target) for h in left_out},
-            "units_not_applied": list(data.get("units") or []),
+            "files_not_applied": list(data.get("units") or []),
             "packs_not_applied": list(data.get("packs") or [])})
     return out
 
@@ -166,9 +166,9 @@ def notes(report: list[dict]) -> list[str]:
         out += [missing_note(name, list(agent["harnesses"]), harness, command)
                 for harness, command in agent["add_commands"].items()]
         own = ([f"pack {pack}" for pack in agent["packs_not_applied"]]
-               + [f"unit {unit}" for unit in agent["units_not_applied"]])
+               + [f"file {file}" for file in agent["files_not_applied"]])
         if own:
-            out.append(f"{name}'s own units and packs were not applied: "
+            out.append(f"{name}'s own files and packs were not applied: "
                        + ", ".join(own) + ". A harness-native sub-agent sees what "
                        "its target has; add them with `rbtv add`.")
         for harness, values in agent["harnesses"].items():

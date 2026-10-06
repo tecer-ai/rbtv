@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """install.py — the rbtv command.
 
-Installs units into an installation by reading each component's `<component>.json`
-and the folder that exposes each unit, and realizing that method per harness, at the
+Installs files into an installation by reading each component's `<component>.json`
+and the folder that exposes each file, and realizing that method per harness, at the
 INSTALLATION ROOT only. Python 3 stdlib only.
 
     rbtv status                target, saved settings and recorded selections
-    rbtv list [NAME]           browse modules, components or exact units
+    rbtv list [NAME]           browse modules, components or exact files
     rbtv search QUERY          search names and descriptions broadly
     rbtv show NAME             resolve a name and inspect details
-    rbtv add NAME...           install or refresh selected units
+    rbtv add NAME...           install or refresh selected files
         First add: --harness codex --guidance CLAUDE.md|AGENTS.md|none
         Identical setup flags may be repeated on later adds.
     rbtv add --module core     select a whole module
-    rbtv remove NAME...        remove selected units
+    rbtv remove NAME...        remove selected files
     rbtv remove --all --yes    explicitly confirm broad removal
     rbtv configure --harness codex --guidance none
     rbtv update guidance       copy maintained instructions
@@ -66,7 +66,7 @@ ones above it, so there is no cycle:
     apply         writing that set to disk, and removing what the book records
     selection     what the human typed -> the component and part keys it names
     operations    performing one install or one uninstall
-    listing       available/installed unit views and unit details
+    listing       available/installed file views and file details
     doctor        the read-only health check
     report        printing what a run planned or did
     tui           the arrow-key widgets the interactive flow is built from

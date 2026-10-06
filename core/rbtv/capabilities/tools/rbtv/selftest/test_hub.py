@@ -8,7 +8,7 @@ from discovery import HUB_DIR, Refuse, SKILLS_DIR, SKILL_FILE, scan_tree
 from lib.constants import MANAGED_BANNER, MANAGED_MARK, STATE_REL
 from lib.catalog import module_id
 from lib.state import read_state, rec_files
-from lib.selection import _sel, resolve_selection, unit_key
+from lib.selection import _sel, resolve_selection, file_key
 from lib.operations import do_install, do_uninstall
 
 
@@ -42,7 +42,7 @@ def skills_folder_thin_loaded(ctx) -> None:
           loader[:400])
     check("S3 — the source folder is never modified",
           MANAGED_MARK not in (src / SKILL_FILE).read_text(encoding="utf-8"))
-    check("S4 — it is booked like any other unit",
+    check("S4 — it is booked like any other file",
           rec_files(read_state(sk)["components"]["_hub/skills/vendored"]) == want_sk
           and "vendored" in read_state(sk)["components"]["_hub/skills/vendored"]["units"],
           str(rec_files(read_state(sk)["components"]["_hub/skills/vendored"])))
@@ -99,7 +99,7 @@ def hub_alias(ctx) -> None:
      _mk, rf, pws) = ctx.frame()
 
     print("\nH — `-m hub` reaches the whole-folder skills")
-    hub_keys = {unit_key(cid, catalog[cid]["component"])
+    hub_keys = {file_key(cid, catalog[cid]["component"])
                 for cid, c in catalog.items() if c["module"] == HUB_DIR}
     check("H-alias — -m hub maps to module _hub (the one mapping)",
           hub_keys == {"_hub/skills/vendored#vendored"}

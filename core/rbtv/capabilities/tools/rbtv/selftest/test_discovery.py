@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from discovery import HUB_DIR, Refuse, scan_all, scan_tree, unit_rows
+from discovery import HUB_DIR, Refuse, scan_all, scan_tree, file_rows
 
 from lib.constants import (
     RULE_SECTION_HARNESSES,
@@ -12,7 +12,7 @@ from lib.constants import (
     MATRIX,
     STATE_REL,
 )
-from lib.catalog import catalog_units_map
+from lib.catalog import catalog_files_map
 from lib.state import read_state, upgrade_book, write_state
 from lib.planning import plan_files
 from lib.listing import do_scan
@@ -20,7 +20,7 @@ from lib.commands import _parse_harnesses
 from lib.parser import build_parser
 from lib.commands import cmd_add
 
-from .fixture import _component, _reserved_id_refuses, _unit_md, _w
+from .fixture import _component, _reserved_id_refuses, _file_md, _w
 
 
 def scan(ctx) -> None:
@@ -52,14 +52,14 @@ def scan(ctx) -> None:
           == "The fixmod module"
           and catalog["fixmod/goodcomp"]["dependencies"] == [],
           str(catalog["fixmod/goodcomp"]))
-    good = {r["id"]: r for r in unit_rows(catalog["fixmod/goodcomp"])}
-    check("a component's units are read from its folders, one method each",
+    good = {r["id"]: r for r in file_rows(catalog["fixmod/goodcomp"])}
+    check("a component's files are read from its folders, one method each",
           {uid: r["method"] for uid, r in good.items()}
           == {"fixskill": "skill", "fixcmd": "command", "fixrule": "rule",
               "fixagent": "agent", "research": "agent", "fixhook": "hook", "fixmcp": "mcp-server",
               "fixguide": "folder-instructions", "fixtool": "tool"},
           str({u: r["method"] for u, r in good.items()}))
-    check("a unit's entry is relative to its component; a tool's is its program",
+    check("a file's entry is relative to its component; a tool's is its program",
           good["fixskill"]["entry"] == "skills/fixskill.md"
           and good["fixtool"]["entry"] == "capabilities/tools/fixtool/thing.py"
           and good["fixskill"]["description"]
@@ -79,13 +79,13 @@ def depth_two_is_the_marker(ctx) -> None:
           "deepmod/deepcomp/nested" not in catalog
           and not any("nested" in cid for cid in catalog),
           str(sorted(catalog)))
-    check("a folder with no record and no unit folders is not a component",
+    check("a folder with no record and no file folders is not a component",
           "fixmod/barecomp" not in catalog,
           str(sorted(catalog)))
 
     norec = tmp / "no-record"
     _w(norec / "m" / "m.json", json.dumps({"description": "m"}))
-    _unit_md(norec / "m" / "c" / "skills" / "x.md", "x", "a skill")
+    _file_md(norec / "m" / "c" / "skills" / "x.md", "x", "a skill")
     try:
         scan_tree(norec, "repo")
         check("a component folder without its record refuses by name",
@@ -127,15 +127,15 @@ def depth_two_is_the_marker(ctx) -> None:
               exc.code == "record-invalid" and "dependencies" in exc.message,
               f"{exc.code}: {exc.message}")
 
-    bad_cat = catalog_units_map(catalog)
-    check("an invalid unit empties only its own component in the units map",
+    bad_cat = catalog_files_map(catalog)
+    check("an invalid file empties only its own component in the files map",
           bad_cat["badmod/badcomp"] == [] and bad_cat["fixmod/goodcomp"],
           str({k: len(v) for k, v in bad_cat.items()}))
     for cid, code, words in (
-            ("badmod/badcomp", "unit-invalid", "not the file name"),
-            ("fixmod/dupcomp", "unit-duplicate", "same")):
+            ("badmod/badcomp", "file-invalid", "not the file name"),
+            ("fixmod/dupcomp", "file-duplicate", "same")):
         try:
-            unit_rows(catalog[cid])
+            file_rows(catalog[cid])
             check(f"{cid} refuses by name", False, "no refusal")
         except Refuse as exc:
             check(f"{cid} refuses by name",
@@ -146,24 +146,24 @@ def depth_two_is_the_marker(ctx) -> None:
     _component(frontless, "m", "c")
     _w(frontless / "m" / "c" / "skills" / "x.md", "# no frontmatter\n")
     try:
-        unit_rows(scan_tree(frontless, "repo")["m/c"])
-        check("a unit file without frontmatter refuses", False, "no refusal")
+        file_rows(scan_tree(frontless, "repo")["m/c"])
+        check("a source file without frontmatter refuses", False, "no refusal")
     except Refuse as exc:
-        check("a unit file without frontmatter refuses",
-              exc.code == "unit-invalid" and "no frontmatter" in exc.message,
+        check("a source file without frontmatter refuses",
+              exc.code == "file-invalid" and "no frontmatter" in exc.message,
               f"{exc.code}: {exc.message}")
 
     extra = tmp / "extra-field"
     _component(extra, "m", "c")
-    _unit_md(extra / "m" / "c" / "skills" / "x.md", "x", "a skill",
+    _file_md(extra / "m" / "c" / "skills" / "x.md", "x", "a skill",
              extra="color: red\n")
     try:
-        unit_rows(scan_tree(extra, "repo")["m/c"])
+        file_rows(scan_tree(extra, "repo")["m/c"])
         check("a frontmatter field the schema does not name refuses",
               False, "no refusal")
     except Refuse as exc:
         check("a frontmatter field the schema does not name refuses",
-              exc.code == "unit-invalid" and "color" in exc.message,
+              exc.code == "file-invalid" and "color" in exc.message,
               f"{exc.code}: {exc.message}")
 
     mirror_cat, shadow = scan_all(tmp / "no-mirror", tmp / "no-repo")
@@ -181,7 +181,7 @@ def depth_two_is_the_marker(ctx) -> None:
             "harnesses": ["claude"], "files": [],
         },
     }, "shared_claims": []})
-    ev_st = upgrade_book(read_state(ev), catalog_units_map(catalog))
+    ev_st = upgrade_book(read_state(ev), catalog_files_map(catalog))
     try:
         plan_files(ev_st["components"], catalog)
         ev_refused = None
@@ -207,7 +207,7 @@ def depth_two_is_the_marker(ctx) -> None:
             "harnesses": ["claude"], "files": [],
         },
     }, "shared_claims": []})
-    fv_st = upgrade_book(read_state(fv), catalog_units_map(catalog))
+    fv_st = upgrade_book(read_state(fv), catalog_files_map(catalog))
     check("D2-files-vanished — owning files is kept in the book",
           "gone/full" in fv_st["components"],
           str(sorted(fv_st["components"])))
@@ -353,7 +353,7 @@ def predecessor_sweep_cannot_reach(ctx) -> None:
      _mk, rf, pws) = ctx.frame()
 
     print("\nD12 — the old installer's sweep cannot reach our names")
-    check("a `rbtv-` unit name is REFUSED, never minted",
+    check("a `rbtv-` file name is REFUSED, never minted",
           _reserved_id_refuses(tmp, catalog))
 
     # Pre-existing foreign content the run must preserve (D6/D12): an

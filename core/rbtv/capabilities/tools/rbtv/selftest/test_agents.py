@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -18,15 +19,15 @@ from lib.planning import plan_files
 from lib.state import read_state
 from lib.target import resolve_target
 
-from .fixture import _component, _unit_md, _w
+from .fixture import _component, _file_md, _w
 
 
-def _agent(home, *, name="scout", units=None, packs=None):
+def _agent(home, *, name="scout", files=None, packs=None):
     home.mkdir(parents=True, exist_ok=True)
     _w(home / "agent.md", f"---\nname: {name}\n---\n\nScout.\n")
     _w(home / "agent.json", json.dumps({"name": name, "description": "Scout.",
         "harness": "claude", "model": "m1", "effort": "high",
-        "units": units or [], "packs": packs or []}) + "\n")
+        "units": files or [], "packs": packs or []}) + "\n")
 
 
 def _git_status(repo: Path) -> set[str]:
@@ -144,15 +145,15 @@ def installed_agents(ctx) -> None:
     check, skip, tmp = ctx.check, ctx.skip, ctx.tmp
     root = tmp / "agent-source"
     comp = _component(root, "moda", "comp")
-    _unit_md(comp / "rules/kiss.md", "kiss", "Kiss", "body\n")
-    _unit_md(comp / "rules/other.md", "other", "Other", "body\n")
+    _file_md(comp / "rules/kiss.md", "kiss", "Kiss", "body\n")
+    _file_md(comp / "rules/other.md", "other", "Other", "body\n")
     _w(comp / "agents/research/agent.md", "---\nname: research\n---\n\nResearch.\n")
     _w(comp / "agents/research/agent.json", json.dumps({
         "name": "research", "description": "Research.", "units": ["kiss"], "packs": []}) + "\n")
     catalog, _ = scan_all(tmp / "agent-mirror", root)
     ws = tmp / "agent-installation"; ws.mkdir()
     home = ws / ".rbtv/agents/scout"
-    _agent(home, units=["kiss"])
+    _agent(home, files=["kiss"])
     known = {"claude": {"m1": ["low", "high"]},
              "codex": {"c1": ["low", "medium", "high"]}}
     # The word cast gives for an effort number on these made-up models.
@@ -210,7 +211,7 @@ def installed_agents(ctx) -> None:
               str(read_state(bare)))
         shutil.rmtree(bare)
     state = read_state(home)
-    check("A-add — agent.json is the sole record and normalizes units", state["units"] == ["moda/comp#kiss"] and not (home / "launch.json").exists() and not (home / ".rbtv/config/install.json").exists(), str(state))
+    check("A-add — agent.json is the sole record and normalizes files", state["units"] == ["moda/comp#kiss"] and not (home / "launch.json").exists() and not (home / ".rbtv/config/install.json").exists(), str(state))
     check("A-add — generated files, settings and ignore file are present", (home / ".claude/rules/kiss.md").is_file() and (home / "settings.json").is_file() and (home / ".gitignore").is_file(), "")
     check("A-add — a shipped agent is placed then applied",
           placed["placed"]["id"] == "moda/comp#research"
@@ -268,8 +269,8 @@ def installed_agents(ctx) -> None:
         got = exc.code
     check("A-configure — no option is usage", got == "usage", str(got))
     _agent(ws / ".rbtv/agents/second", name="second")
-    # The list of agents is cast's own. The checks run the cast of this source tree, on PATH
-    # through a launcher the suite writes; node is what this machine must supply.
+    # The list of agents is cast's own. The checks run the cast of this source tree, and the rbtv
+    # that cast asks, on PATH through launchers the suite writes; node is what this machine must supply.
     with patch("lib.agents.shutil.which", return_value=None):
         check("A-list — without cast on PATH the list is refused, not rebuilt here",
               _refused(lambda: cast_agent_list(ws, None, False, False, 100)) == ("cast-missing", "rbtv doctor"), "")
@@ -313,12 +314,16 @@ def installed_agents(ctx) -> None:
         _w(cast_bin / "cast", f'#!/bin/sh\nexec "{node}" "{cast_js}" "$@"\n')
         (cast_bin / "cast").chmod(0o755)
         _w(cast_bin / "cast.cmd", f'@"{node}" "{cast_js}" %*\r\n')
+        rbtv_py = REPO_ROOT / "core/rbtv/capabilities/tools/rbtv/install.py"
+        _w(cast_bin / "rbtv", f'#!/bin/sh\nexec "{sys.executable}" "{rbtv_py}" "$@"\n')
+        (cast_bin / "rbtv").chmod(0o755)
+        _w(cast_bin / "rbtv.cmd", f'@"{sys.executable}" "{rbtv_py}" %*\r\n')
         with patch.dict(os.environ, {"PATH": f"{cast_bin}{os.pathsep}{os.environ['PATH']}"}):
             listed = cast_agent_list(ws, None, False, False, 100).splitlines()
             check("A-list — the list is the one cast prints: the installation's agents, by name",
                   listed[:2] == ["rbtv agents: 3", f"Folder: {ws / '.rbtv' / 'agents'}"]
                   and [line.split()[0] for line in listed[3:7]] == ["Name", "research", "scout", "second"], str(listed))
-            check("A-list — the columns are cast's: Ignite and description, no packs, units or folder",
+            check("A-list — the columns are cast's: Ignite and description, no packs, files or folder",
                   listed[3].split() == ["Name", "Harness", "Model", "Effort", "Ignite", "Description"], listed[3])
             whole = cast_agent_list(ws, None, False, True, 200)
             check("A-list — --full reaches cast: every agent is a labeled block with its whole description",

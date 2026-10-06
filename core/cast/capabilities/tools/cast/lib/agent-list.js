@@ -56,14 +56,14 @@ function installedIn(home) {
     let page;
     try { page = JSON.parse(res.stdout); } catch { return { problem: '`rbtv list --installed` did not answer in JSON.' }; }
     if (!page.ok) return { problem: `rbtv refused: ${page.error?.message ?? 'no reason given'}` };
-    rows.push(...page.units);
+    rows.push(...page.files);
     offset += page.returned;
     if (!page.returned || offset >= page.total) break;
   }
   const units = rows.filter((row) => row.type !== 'pack');
-  const listedBy = (pack) => new Set(pack.units ?? []);
+  const listedBy = (pack) => new Set(pack.files ?? []);
   const packs = rows.filter((row) => row.type === 'pack');
-  const inAPack = new Set(packs.flatMap((pack) => pack.units ?? []));
+  const inAPack = new Set(packs.flatMap((pack) => pack.files ?? []));
   return {
     installed: {
       pack: packs.map((pack) => ({ name: pack.id, ...byKind(units.filter((unit) => listedBy(pack).has(unit.id))) })),

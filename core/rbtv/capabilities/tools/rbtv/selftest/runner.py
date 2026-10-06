@@ -20,7 +20,7 @@ from .fixture import _fixture
 from . import (test_agents, test_cli, test_discovery, test_doctor_ownership, test_guidance, test_guidance_walk,
                test_hub, test_install, test_interactive, test_layout,
                test_ownership, test_parts, test_pathlinks, test_settings,
-               test_surface, test_units, test_ux_contract, test_packs,
+               test_surface, test_files, test_ux_contract, test_packs,
                test_subagents, test_component_merge)
 
 ORDER = [
@@ -29,10 +29,10 @@ ORDER = [
     test_discovery.depth_two_is_the_marker,
     test_discovery.three_harnesses,
     test_discovery.predecessor_sweep_cannot_reach,
-    test_units.schema_and_frontmatter,
-    test_units.component_sections,
-    test_units.legacy_names,
-    test_units.translations,
+    test_files.schema_and_frontmatter,
+    test_files.component_sections,
+    test_files.legacy_names,
+    test_files.translations,
     test_agents.installed_agents,
     test_agents.agent_ignore_file,
     test_install.green_arm_all_harnesses,
@@ -66,7 +66,7 @@ ORDER = [
     test_ownership.the_marker_is_ownership,
     test_ownership.gitignore_block,
     test_settings.installation_settings,
-    test_settings.unit_selection_sync,
+    test_settings.file_selection_sync,
     test_parts.vanished_component_removable,
     test_parts.part_level_install_remove,
     test_parts.part_level_claim_release,

@@ -79,7 +79,7 @@ def green_arm_all_harnesses(ctx) -> None:
           str(res["report"]["path_rows"]))
     public_rows = [row for key in ("no_realization", "path_rows")
                    for row in res["report"][key]]
-    check("report rows classify units by public type",
+    check("report rows classify files by public type",
           bool(public_rows)
           and all("type" in row and "method" not in row
                   for row in public_rows),
@@ -312,14 +312,14 @@ def red_unknown_method(ctx) -> None:
     (catalog, data, legacy, expect, basis_body, mirrors_on_disk, mtr,
      _mk, rf, pws) = ctx.frame()
 
-    print("\nred arm — invalid unit")
+    print("\nred arm — invalid file")
     try:
         do_install(target, catalog, ["badmod/badcomp"], list(HARNESSES),
                    dry_run=False)
-        check("an invalid unit refuses", False, "no refusal raised")
+        check("an invalid file refuses", False, "no refusal raised")
     except Refuse as exc:
-        check("an invalid unit refuses", exc.code == "unit-invalid", exc.code)
-        check("invalid-unit refusal wrote nothing",
+        check("an invalid file refuses", exc.code == "file-invalid", exc.code)
+        check("invalid-file refusal wrote nothing",
               "badcomp" not in json.dumps(read_state(target)))
     ctx.keep(locals())
 

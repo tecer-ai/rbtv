@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from discovery import Refuse, SKILL_FILE, unit_rows
+from discovery import Refuse, SKILL_FILE, file_rows
 
 from . import frontmatter
 from .constants import (
@@ -23,7 +23,7 @@ from .constants import (
     RULE_SECTION_HARNESSES,
     CODEX_PROJECT_DOC_MAX_BYTES,
 )
-from .catalog import _unit_specs
+from .catalog import _file_specs
 from .content import (
     _claude_mcp_entry,
     _codex_mcp_toml_block,
@@ -32,7 +32,7 @@ from .content import (
     _opencode_mcp_entry,
     sub_agent_content,
 )
-from .state import _wanted_units
+from .state import _wanted_files
 from .recovery import vanished_component_message
 
 
@@ -62,10 +62,10 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
             other = owners[rel][0]
             other_cid = other[0] if isinstance(other, tuple) else other
             raise Refuse(
-                "unit-collision",
+                "file-collision",
                 f"components {other_cid!r} and {cid!r} both realize "
                 f"{rel!r} with different content — two components exposing the "
-                "same unit name is a conflict, not something to resolve "
+                "same file name is a conflict, not something to resolve "
                 "by write order",
                 rel)
         files[rel] = content
@@ -81,7 +81,7 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
         named = comp["component"]
         if named.startswith("rbtv-"):
             raise Refuse(
-                "unit-name-reserved",
+                "name-reserved",
                 f"{cid}: a skill folder named {named!r} would land under "
                 "`rbtv-*`, which the prior rbtv program sweeps out of "
                 "`.claude/skills/` on every run — rename the folder (D12)",
@@ -90,7 +90,7 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
         text = source.read_text(encoding="utf-8")
         head = re.match(r"---\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|$)", text, re.S)
         if head is None:
-            raise Refuse("unit-invalid", f"{source}: no frontmatter", str(source))
+            raise Refuse("file-invalid", f"{source}: no frontmatter", str(source))
         body = (f"---\n{head.group(1)}\n---\n\n"
                 f"Read `{source.resolve()}` NOW and follow it as this skill's full "
                 "instructions. Relative paths in it resolve from its own folder, "
@@ -112,15 +112,15 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
         harnesses = [h for h in HARNESSES if h in rec["harnesses"]]
         codex_used = codex_used or "codex" in harnesses
 
-        wanted = _wanted_units(rec)
+        wanted = _wanted_files(rec)
         if comp.get("kind") == "hub":
             pid = comp["component"]
             if wanted is not None and pid not in wanted:
                 continue
             claim_skill_folder(comp, cid, harnesses)
             continue
-        _unit_specs(comp)
-        for row in unit_rows(comp):
+        _file_specs(comp)
+        for row in file_rows(comp):
             pid, method = row["id"], row["method"]
             entry_rel, desc = row["entry"], row["description"]
             if wanted is not None and pid not in wanted:
@@ -128,7 +128,7 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
             if method not in CANONICAL_METHODS:
                 raise Refuse(
                     "method-unknown",
-                    f"{cid}: unit {pid!r} has method {method!r}, which is "
+                    f"{cid}: file {pid!r} has method {method!r}, which is "
                     f"outside the vocabulary ({' · '.join(CANONICAL_METHODS)}) "
                     "— refusing before any write", str(comp_dir / entry_rel))
             if method == "tool":
@@ -138,19 +138,19 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                 continue
             if pid.startswith("rbtv-"):
                 raise Refuse(
-                    "unit-name-reserved",
-                    f"{cid}: unit {pid!r} starts with `rbtv-`, the "
+                    "name-reserved",
+                    f"{cid}: file {pid!r} starts with `rbtv-`, the "
                     "prefix the prior rbtv program sweeps out of "
                     "`.claude/{rules,commands,agents,skills}` on every run "
                     "(generator.py::clear_previous_install) — a file minted "
                     "under that name would be deleted behind rbtv's "
-                    "back. Rename the unit (D12)",
+                    "back. Rename the file (D12)",
                     str(comp_dir / entry_rel))
             entry_abs = str((comp_dir / entry_rel).resolve())
             data = row["data"]
 
             if method == "agent":
-                # An agent chosen as a unit is a harness-native sub-agent, written
+                # An agent added with `rbtv add` is a harness-native sub-agent, written
                 # only for the harnesses its record holds a model and an effort for.
                 values = ((rec.get("units") or {}).get(pid) or {}).get("sub_agent") or {}
                 written = [h for h in harnesses if h in values]
@@ -191,10 +191,10 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                 handler = {"type": "command", "command": data["command"]}
                 if "timeout" in data:
                     handler["timeout"] = data["timeout"]
-                unit = {"hooks": [handler]}
+                group = {"hooks": [handler]}
                 if "matcher" in data:
-                    unit = {"matcher": data["matcher"], **unit}
-                hooks.setdefault(data["event"], []).append(unit)
+                    group = {"matcher": data["matcher"], **group}
+                hooks.setdefault(data["event"], []).append(group)
                 if (cid, pid) not in hook_owners.setdefault(data["event"], []):
                     hook_owners[data["event"]].append((cid, pid))
                 hook_harnesses |= set(harnesses)

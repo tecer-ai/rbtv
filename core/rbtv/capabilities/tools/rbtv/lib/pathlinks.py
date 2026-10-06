@@ -289,7 +289,7 @@ def unlink_one(bindir: Path, name: str, *, dry: bool) -> str:
 def plan_path_links(target: Path,
                     rows: list[tuple[str, str, Path, str]]
                     ) -> tuple[dict[str, Path], dict[str, tuple[str, str]]]:
-    """rows = (component_id, unit_id, comp_dir, entry). One name → one dest."""
+    """rows = (component_id, file_id, comp_dir, entry). One name → one dest."""
     desired: dict[str, Path] = {}
     owners: dict[str, tuple[str, str]] = {}
     seen: dict[str, str] = {}
@@ -297,7 +297,7 @@ def plan_path_links(target: Path,
         name = link_name(pid)
         dest = resolve_path_entry(target, comp_dir, entry)
         # The shebang is required on every system: a program Windows would
-        # run by its extension alone cannot run on Linux (owner ruling, unit 7).
+        # run by its extension alone cannot run on Linux.
         try:
             with dest.open("rb") as fh:
                 shebang = fh.read(2) == b"#!"
@@ -418,9 +418,9 @@ def _write_windows_user_path() -> None:
             current, kind = winreg.QueryValueEx(key, "Path")
         except FileNotFoundError:
             current, kind = "", winreg.REG_EXPAND_SZ
-        if any(unit.strip('"').replace("/", "\\").casefold()
+        if any(folder.strip('"').replace("/", "\\").casefold()
                == entry.replace("/", "\\").casefold()
-               for unit in current.split(";")):
+               for folder in current.split(";")):
             return
         winreg.SetValueEx(key, "Path", 0, kind,
                           current.rstrip(";") + ";" + entry if current else entry)

@@ -84,8 +84,8 @@ function fakeInstaller(calls = []) {
     }
     const next = { ...state, packs: [...packs].sort(), units: [...units].sort() };
     if (!dryRun) fs.writeFileSync(path.join(home, 'agent.json'), `${JSON.stringify(next)}\n`);
-    const change = adding ? { added: changed } : { units_removed: changed };
-    return { status: 0, stdout: JSON.stringify({ units: next.units, packs: next.packs, ...change }) };
+    const change = adding ? { added: changed } : { files_removed: changed };
+    return { status: 0, stdout: JSON.stringify({ files: next.units, packs: next.packs, ...change }) };
   };
 }
 
