@@ -1,6 +1,6 @@
 # cast
 
-Launches ONE headless agent turn in any of three harnesses behind one CLI. The caller's
+Launches ONE headless agent turn in any of three harnesses through one CLI. The caller's
 process runs the launch (foreground, blocking). Sessions are
 addressable after the fact: `sessions` lists what ran in a folder, `resume` sends one more
 turn into an existing session.
@@ -86,7 +86,7 @@ untouched). `ignite turn` is the exception: it returns an exact id for that invo
 
 ## Agent launches (`--agent`, `--rogue`)
 
-`cast --agent NAME (-p TEXT | -f FILE)` runs an agent folder: a folder holding both `agent.md` and
+`cast --agent NAME (-p TEXT | -f FILE)` runs an agent folder: a folder that contains both `agent.md` and
 `agent.json`. AGENT is a name, looked up as `<installation>/.rbtv/agents/AGENT/` from the current
 folder upward, or a path to the folder (a value containing `/` or `\`, or `.` or `..`, relative to
 the current folder). The folder is the working folder. `agent.json` gives the harness, model and
@@ -94,7 +94,7 @@ effort, all three required (effort as the model's own word, such as `high`, neve
 record without one is refused); none of them may be given on the command line:
 that is refused, and the refusal names `rbtv agent configure AGENT` as the way to change them.
 `agent.md` is the system prompt, handed to the model without its frontmatter. The launch sets
-`RBTV_AGENT_HOME` to the agent folder for the harness process. A folder holding only one of the two
+`RBTV_AGENT_HOME` to the agent folder for the harness process. A folder that contains only one of the two
 files is refused by name, so a broken agent is never launched half-read. `--target` is gone.
 
 `--rogue FILE` runs a rogue agent file that is not an agent folder: the file's body, without its
@@ -150,7 +150,7 @@ prints the agent's object with `installed`: `pack` is a list of `{name, skill, r
 mcp-server, hook}`, and `skill`, `rule`, `command`, `mcp-server` and `hook` list what is outside a pack; or
 `installed: null` and the reason in `installed_problem`. Every form only reads.
 
-`lib/agent-list.js` holds the list, and it is the only list of agents: `cast list --agents` shows it
+`lib/agent-list.js` builds the list, and it is the only list of agents: `cast list --agents` shows it
 to an agent, `spark list` shows it to a person, and `rbtv agent list` runs `cast list --agents`. The
 three print the same text, so a line that names a command names all three. Each command words
 its own refusals.
@@ -211,7 +211,7 @@ read of the binary at `~/.codex/packages/standalone/releases/<ver>/bin/codex`. R
 0.147.0 and spot-checked with live `codex exec` runs. Availability is account-dependent and the
 manifest does NOT encode it: `gpt-5.2` is listed with visibility `list` yet a live run returns
 `400 … "not supported when using Codex with a ChatGPT account"`, so it is excluded. Also excluded:
-`gpt-5.4`, `gpt-5.4-mini`, `codex-auto-review` (manifest visibility `hide`). Note that a bad
+`gpt-5.4`, `gpt-5.4-mini`, `codex-auto-review` (manifest visibility `hide`). A bad
 `model_reasoning_effort` IS rejected by the API (`invalid_enum_value`, supported: none, minimal,
 low, medium, high, xhigh, max) — but `ultra`, which sol/terra list as a 6th level, is accepted
 without appearing in that enum, so codex translates it client-side. A 1-5 dial cannot reach a 6th
@@ -229,7 +229,7 @@ xai is authenticated via opencode oauth as of 2026-08-13 and both grok ladders a
 (`low,medium,high`). A model with no variants at all (`zai-coding-plan/glm-4.7`) is inert: any
 effort number, no `--variant` argv.
 
-The (harness, model) → argv/effort table lives in `capabilities/tools/cast/catalog.js`; `capabilities/tools/cast/models.csv` holds
+The (harness, model) → argv/effort table lives in `capabilities/tools/cast/catalog.js`; `capabilities/tools/cast/models.csv` contains
 the routing catalog. `cast list --models` and `cast list --json` read the current launch table. Update
 `capabilities/tools/cast/catalog.js` when a harness model or effort ladder changes, then run `test_cast.js` and
 `test_route.js`.
@@ -283,7 +283,7 @@ gets one line per level, and its override columns are set per line. haiku is nor
 `price` ranking above in every respect — same order, same blank-cost exclusion, same tie-breaks —
 carrying its own `"optimize":"default"` trace label so an `--explain` reader can still tell an
 omitted flag from an explicit one. This REPLACED the two-band rule of 2026-08-21 (SOTA/L1 on price,
-L2/L3 on quality), which is gone: one rule the owner can hold in their head beat two bands. The
+L2/L3 on quality), which is gone: one rule the owner can remember beat two bands. The
 class's level is the ONLY thing standing between a job and the cheapest model on the roster, which
 is what makes level curation load-bearing.
 
@@ -345,8 +345,8 @@ warning: route must never name something cast cannot launch.
 
 Columns: `mode` (cli|api) · `harness` · `model` · `efforts` (max N, 0 = inert) · `image` (Y/N) ·
 `level` (SOTA|L1|L2|L3|L4) · `reasoning` (1-7) · `coding` (1-7) · `cost` ($ per M
-output tokens, **public API list price** — comparable and stable, never the personal
-subscription-effective cost) · `use` (route|panel|off) · `quality-override` (Y/N) ·
+output tokens, **public API list price** — comparable and stable, never what a personal
+subscription makes it cost) · `use` (route|panel|off) · `quality-override` (Y/N) ·
 `price-override` (Y/N).
 
 **The three owner switches** (added 2026-08-22, owner ruling). They are the only columns that
@@ -376,8 +376,8 @@ for. Three values, three outcomes, no contradiction possible.
 **A model MAY sit at more than one level** — one CSV line per level, identical in every other
 cell (owner ruling 2026-08-23). `level` is normally the model's single quality tier, and a second
 line is the deliberate exception for a model whose list price misrepresents what it actually costs
-this vault: `claude/sonnet-5-5` carries a Claude subscription that makes its $10 list cost effectively
-~5x lower, so it sits at **L2 and L3** and is reachable by both `bounded` and `mechanical`, winning
+this vault: `claude/sonnet-5-5` carries a Claude subscription that makes it cost about 5x less
+than its $10 list price, so it sits at **L2 and L3** and is reachable by both `bounded` and `mechanical`, winning
 each on its `price-override=Y`. The join onto `catalog.js` is on harness+model and every copy
 resolves to the same launch spec, so nothing about launching is ambiguous. What remains forbidden
 is the ACCIDENTAL duplicate: two lines for one model that disagree on any cell other than `level` —

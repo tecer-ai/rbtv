@@ -1,6 +1,6 @@
 # `<tool>.json`
 
-The [folder artifact](folder-artifact.md) holding each [tool](tool.md)'s record, named after the tool: `capabilities/tools/<tool>/<tool>.json`. The `rbtv` CLI reads it for:
+The [folder artifact](folder-artifact.md) containing each [tool](tool.md)'s record, named after the tool: `capabilities/tools/<tool>/<tool>.json`. The `rbtv` CLI reads it for:
 
 - The tool's name.
 - A one-line description, which rbtv uses to tell agents the tool exists.

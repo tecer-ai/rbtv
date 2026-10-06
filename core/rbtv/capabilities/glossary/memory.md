@@ -2,9 +2,9 @@
 
 Two homes. The runtime supplies both. The agent does not discover them.
 
-**General memory** is one folder per installation, `.rbtv/memory/`, seen by every agent. It holds thin facts and pointers. The content's own home stays canonical and is not copied. There is no location setting and no per-agent grant.
+**General memory** is one folder per installation, `.rbtv/memory/`, seen by every agent. It contains thin facts and pointers. The content's own home stays canonical and is not copied. There is no location setting and no per-agent grant.
 
-**Agent memory** is that agent's [learned rules](learned-rules.md) and [topic files](agent-topic.md), in the agent folder. Learned rules are how this agent must behave. Topic files hold on-demand detail. Facts about the owner are general memory, not agent memory.
+**Agent memory** is that agent's [learned rules](learned-rules.md) and [topic files](agent-topic.md), in the agent folder. Learned rules are how this agent must behave. Topic files contain on-demand detail. Facts about the owner are general memory, not agent memory.
 
 ## Always loaded
 

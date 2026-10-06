@@ -1,6 +1,6 @@
 # Index file
 
-The [folder artifact](folder-artifact.md) `_artifacts/index.md` that lists a folder's content and states when to open each item. It holds the list, never the items' content. Rows are an `| Open | When |` table. The When column is a trigger, never a description of the item.
+The [folder artifact](folder-artifact.md) `_artifacts/index.md` that lists a folder's content and states when to open each item. It contains the list, never the items' content. Rows are an `| Open | When |` table. The When column is a trigger, never a description of the item.
 
 The folder instructions table lists that folder's `_artifacts/` items. This index lists the rest: subfolders and documents. No item appears in both. It does not list the folder instructions file, `_artifacts/` itself, or this index.
 

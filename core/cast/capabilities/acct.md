@@ -133,7 +133,7 @@ cost a wrong rotation.
 To read a stale slot's usage: `acct claude use <name>`, run one session (the harness refreshes),
 then read it again.
 
-**Switching is between sessions.** A running harness holds its token in memory: it will not pick
+**Switching is between sessions.** A running harness keeps its token in memory: it will not pick
 up a swap, and on its next refresh it writes its own token back over the slot just activated.
 Switch, then start new sessions. Mid-run switching is not achievable from outside the process.
 

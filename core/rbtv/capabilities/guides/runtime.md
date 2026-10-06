@@ -4,7 +4,7 @@
 
 ## Purpose
 
-It holds data a component creates while it runs, so that data stays out of source. Without it, that data has no home. The folder is not hand-written.
+It contains data a component creates while it runs, so that data stays out of source. Without it, that data has no home. The folder is not hand-written.
 
 ## What good looks like
 

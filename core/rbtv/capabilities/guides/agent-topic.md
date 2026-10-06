@@ -4,7 +4,7 @@ An [agent topic](../glossary/agent-topic.md) is on-demand detail of one agent's 
 
 ## Purpose
 
-It holds the detail a board subject, a repeated procedure, or a private reference needs, so the board stays short. Without it, that detail stays on the board or is lost when the subject is shortened. Which kind of unit to build is in [Choosing what to build](../choosing-what-to-build.md). Do not put owner facts here.
+It contains the detail a board subject, a repeated procedure, or a private reference needs, so the board stays short. Without it, that detail stays on the board or is lost when the subject is shortened. Which kind of unit to build is in [Choosing what to build](../choosing-what-to-build.md). Do not put owner facts here.
 
 ## What good looks like
 
@@ -21,4 +21,4 @@ Do not create or edit the file by hand. Keep the board entry lean through `ignit
 
 ## Traps
 
-- Pasting the topic into the board to "make sure it is seen". The board is injected every turn. The topic is opened when the subject needs it.
+- Pasting the topic into the board so that the agent sees it every turn. The board is injected every turn. The topic is opened when the subject needs it.

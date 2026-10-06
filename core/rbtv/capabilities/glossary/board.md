@@ -2,7 +2,7 @@
 
 The short-term memory of what matters in one folder, by subject, at `_artifacts/board.md`. An agent folder, a project folder, and an area folder use the same four sections, empty when unused. Ignite injects an agent's board into every turn, including a scheduled wake.
 
-The board points to threads. A thread does not point to the board. Ignite never adds a thread. A subject may name no thread yet. A scheduled wake names only the check that fired; the board holds the details.
+The board points to threads. A thread does not point to the board. Ignite never adds a thread. A subject may name no thread yet. A scheduled wake names only the check that fired; the board contains the details.
 
 ## Sections and writers
 

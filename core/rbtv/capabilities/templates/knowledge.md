@@ -17,7 +17,7 @@ aliases: [<subtopic words>, <synonyms>]
 ## <Subtopic>
 - <one fact>. (<YYYY-MM-DD> · <agent>/<thread link>)
 - <decisions only:> <decision>. Rejected: <alternative>. Why: <reason>. Reopen when: <condition>. (<YYYY-MM-DD> · <agent>/<thread link>)
-- <self / health only:> Vault: [<path of the note that holds the content>](<relative link>)
+- <self / health only:> Vault: [<path of the note where the content is>](<relative link>)
 ```
 
 ## Example (fictional — never copy)

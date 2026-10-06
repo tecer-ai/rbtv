@@ -20,11 +20,11 @@ When you add or rename a standard file, folder, or one of these sections, create
 
 When you find an inconsistency in any file of this component while working here, tell the owner, even if it is outside your task. Inconsistencies include contradictions between documents, broken links, a term used with two meanings, a gap under rule 2, or text that breaks rule 1. Do not resolve it silently. Report it, and fix it only when the owner agrees.
 
-## 4. `decisions.md` holds the standing decisions, never a log
+## 4. `decisions.md` contains the standing decisions, never a log
 
-- `decisions.md` holds only decisions specific to rbtv 0.2.1. A decision that is not specific to it, such as a general command-line design choice, does not go there.
+- `decisions.md` contains only decisions specific to rbtv 0.2.1. A decision that is not specific to it, such as a general command-line design choice, does not go there.
 - When the owner makes such a decision about this documentation, record it in `decisions.md`, under the section of the file where it belongs.
-- The file holds only the decisions in force right now. When a decision is superseded, replace its entry. Do not append the new one after the old one, and do not keep the old one with a date, "previously", "first considered", or similar history.
+- The file contains only the decisions in force right now. When a decision is superseded, replace its entry. Do not append the new one after the old one, and do not keep the old one with a date, "previously", "first considered", or similar history.
 - A decision that compares 0.2.1 with 0.1 or 0.2 is recorded when it changes the shape of this documentation. The trigger is the owner saying "0.1/0.2 works like X, I want Y, because Z". Record what 0.2.1 does, how the earlier version did it, and the owner's reason. The migration from 0.2 to 0.2.1 will be planned from these entries.
 - Undecided questions stay under "Open decisions". When one is decided, move it to its section and remove it from the open list.
 - When the owner defers a decision but says how they imagine it will work, record those hints under that open decision, starting with "Owner hints (not decided):". Record them in the owner's meaning, without adding to them. Hints stay only in `decisions.md`: never write them into `skills/framework.md`, `glossary/`, `principles/`, or the capabilities, and never build on them as if decided. When the decision is made, the hints go with the open item.

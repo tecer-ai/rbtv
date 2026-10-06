@@ -10,7 +10,7 @@ It lets an agent open the one item a task needs, when the folder's items are nee
 
 - Rows are an `| Open | When |` table. From the When cell alone, a reviewer can say whether a given task should open that item ([Progressive disclosure](../principles/progressive-disclosure.md)).
 - Each item has one row: a link and the moment. Not a summary of its contents. "See X" is not a row.
-- The file holds the list only. Each item's content stays in the item ([Single source of truth](../principles/single-source-of-truth.md)).
+- The file contains the list only. Each item's content stays in the item ([Single source of truth](../principles/single-source-of-truth.md)).
 - `_artifacts/` items are not listed here. Folder instructions list those. No item appears in both ([Single source of truth](../principles/single-source-of-truth.md)).
 - After an add, rename, or removal, every covered item is listed once, under its current name, in the same change.
 - A hand-written index stays at 40 rows or fewer. No CLI checks this; past 40, split the folder.

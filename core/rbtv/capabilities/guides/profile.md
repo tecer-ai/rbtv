@@ -21,4 +21,4 @@ Use `ignite remember` for a fact about the owner. Do not edit the profile by han
 
 ## Traps
 
-- Copying a vault note into the profile. The profile holds the thin fact and a pointer.
+- Copying a vault note into the profile. The profile contains the thin fact and a pointer.

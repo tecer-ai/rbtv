@@ -19,7 +19,7 @@ Use `schedule list` to inspect reminders and checks; `schedule add|change|cancel
 
 Use `work status` to inspect an assignment or hold. Use `work retry|resume` for a held assignment or agent hold, and `work stop` when the owner stops an assignment. Stopping work does not cancel its schedule; change the schedule only if the same instruction calls for it.
 
-When a worker completes, use `wake` with its conversation and work reference to queue continuation. Keep outstanding worker references in the turn result so that continuation can find them. A wake does not clear a hold.
+When a worker completes, use `wake` with its conversation and work reference to queue continuation. Keep outstanding worker references in the turn result so that continuation can find them. A wake does not remove a hold.
 
 ## Units
 

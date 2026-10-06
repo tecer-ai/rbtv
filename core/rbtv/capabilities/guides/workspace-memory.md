@@ -4,7 +4,7 @@
 
 ## Purpose
 
-It gives those notes one home that a shared repository cannot hold. Without it, private cautions are either missing or committed where other people can read them. Which kind of unit to build is in [Choosing what to build](../choosing-what-to-build.md). Do not put the notes in the shared repository.
+It gives those notes one home that a shared repository cannot contain. Without it, private cautions are either missing or committed where other people can read them. Which kind of unit to build is in [Choosing what to build](../choosing-what-to-build.md). Do not put the notes in the shared repository.
 
 ## What good looks like
 

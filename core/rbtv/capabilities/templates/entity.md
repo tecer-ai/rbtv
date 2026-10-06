@@ -15,7 +15,7 @@ aliases: [<other names>, <nicknames>, <misheard spellings>]
 
 - <relation to the owner / what it is>. (<YYYY-MM-DD> · <agent>/<thread link>)
 - <a fact an agent needs>. (<YYYY-MM-DD> · <agent>/<thread link>)
-- Vault: [<path of the vault note or folder holding the content>](<relative link>)
+- Vault: [<path of the vault note or folder that contains the content>](<relative link>)
 - Glossary: [row "<Name>"](<relative link to the installation's name glossary>)   (people and orgs only)
 ```
 

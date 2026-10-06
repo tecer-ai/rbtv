@@ -4,7 +4,7 @@ A [procedure](../glossary/procedure.md) is the reusable method for the agent's w
 
 ## Purpose
 
-It is the method that holds across this agent's tasks. Without it, each task improvises its own method, and the results differ run to run. The choice of unit is [Choosing what to build](../choosing-what-to-build.md).
+It is the method that applies to all of this agent's tasks. Without it, each task improvises its own method, and the results differ run to run. The choice of unit is [Choosing what to build](../choosing-what-to-build.md).
 
 ## What good looks like
 
@@ -24,7 +24,7 @@ Give each exact-answer step the tool that answers it. Leave interpretation to th
 
 When a step needs a skill or a [capability](../glossary/capability.md), point to it at that step and name the moment to open it. Do not paste it.
 
-Put a condition that must hold for every task here, or in the skill or command that does that work. Do not copy it into each [done contract](../../../../meta/sub-agents/capabilities/done-contract.md).
+Put a condition that must be true for every task here, or in the skill or command that does that work. Do not copy it into each [done contract](../../../../meta/sub-agents/capabilities/done-contract.md).
 
 When another task uses a step's result, pass a file or record with fixed fields. Order steps that change the same file or record ([Micro agency](../principles/keep-it-stupidly-simple.md)).
 

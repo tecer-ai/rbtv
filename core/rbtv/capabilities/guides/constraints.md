@@ -13,7 +13,7 @@ They bound conduct on every task of this agent, where honoring the limit takes j
 - No limit is one a tool can enforce ([Deterministic first](../principles/deterministic-first.md)).
 - Each limit names the bounded behavior, the reason, and what to do instead. A ban with no alternative fails.
 - Two limits on the same behavior are one limit ([Keep it simple](../principles/keep-it-stupidly-simple.md)).
-- The constraints hold limits only. They hold no steps and no task files ([Micro agency](../principles/keep-it-stupidly-simple.md)).
+- The constraints contain limits only. They contain no steps and no task files ([Micro agency](../principles/keep-it-stupidly-simple.md)).
 
 ## Making it good
 

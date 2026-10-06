@@ -8,7 +8,7 @@ It is the one file that says what an agent is set up with. The author writes wha
 
 ## What good looks like
 
-- The file holds nothing tied to one machine: no absolute path, no timestamp, no account. It is shared through git, so another machine reads the same file ([Single source of truth](../principles/single-source-of-truth.md)).
+- The file contains nothing tied to one machine: no absolute path, no timestamp, no account. It is shared through git, so another machine reads the same file ([Single source of truth](../principles/single-source-of-truth.md)).
 - Each field has one writer. No other file of the agent repeats the harness, model, or effort ([Single source of truth](../principles/single-source-of-truth.md)).
 - Whoever chose the harness, model, and effort chose each value; none came from a default that nobody chose.
 - Its name matches its folder name and the name in `agent.md`. A disagreement is refused before any change.

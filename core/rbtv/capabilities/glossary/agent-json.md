@@ -1,6 +1,6 @@
 # `agent.json`
 
-The record of an [rbtv agent](agent.md#rbtv-agent), in its folder beside `agent.md`. It holds the agent's description, its harness, model, effort and voice, the units and [packs](pack.md) chosen for it, and the record of the files the [`rbtv` CLI](rbtv-cli.md) generated for it. Its fields are defined by its [schema](../templates/agent-json.schema.json). CLIs read it, and the agent's own commands read it too; the agent's prompt does not depend on it.
+The record of an [rbtv agent](agent.md#rbtv-agent), in its folder beside `agent.md`. It contains the agent's description, its harness, model, effort and voice, the units and [packs](pack.md) chosen for it, and the record of the files the [`rbtv` CLI](rbtv-cli.md) generated for it. Its fields are defined by its [schema](../templates/agent-json.schema.json). CLIs read it, and the agent's own commands read it too; the agent's prompt does not depend on it.
 
 Who writes which field:
 

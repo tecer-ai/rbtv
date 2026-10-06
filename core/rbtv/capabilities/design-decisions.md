@@ -24,11 +24,11 @@ The shape of `.rbtv/config/install.json` belongs to the [install record schema](
 
 When a selected unit, pack, or component is absent from the local source after an update, `rbtv update scaffolding` and `rbtv update all` remove its generated files, record entry, and command shortcut. Other add and remove operations continue, warn about the stale selection, and direct the user to `rbtv update all` for reconciliation.
 
-The record's schema number is 9. A record of schema 8 is read with the components `core/build` and `core/install` as the one component `core/rbtv`, in an installation's record and in an agent's `agent.json`: their two entries become one that carries what both held, the unit `core/build#build` is `core/rbtv#framework`, `core/install#rbtv` is `core/rbtv#rbtv`, and `core/install#manage-components`, which has no successor, leaves the selection. The file is rewritten by the next command that writes the record; `rbtv update all` and `rbtv agent update AGENT all` then delete the generated files of the units that left, name them as removed, and point the `rbtv` shortcut at the rbtv CLI's present file.
+The record's schema number is 9. A record of schema 8 is read with the components `core/build` and `core/install` as the one component `core/rbtv`, in an installation's record and in an agent's `agent.json`: their two entries become one that carries what both contained, the unit `core/build#build` is `core/rbtv#framework`, `core/install#rbtv` is `core/rbtv#rbtv`, and `core/install#manage-components`, which has no successor, leaves the selection. The file is rewritten by the next command that writes the record; `rbtv update all` and `rbtv agent update AGENT all` then delete the generated files of the units that left, name them as removed, and point the `rbtv` shortcut at the rbtv CLI's present file.
 
 ## D6 — Collision gate
 
-Before writing, the installer refuses a planned whole-file path or shared-file key held by someone else. A booked path or claim can be updated; a marked generated file can be adopted. This protects authored content while allowing installer output to be refreshed.
+Before writing, the installer refuses a planned whole-file path or shared-file key that belongs to someone else. A booked path or claim can be updated; a marked generated file can be adopted. This protects authored content while allowing installer output to be refreshed.
 
 ## D7 — Shared files
 
@@ -108,7 +108,7 @@ When it is missing, `rbtv agent add` writes the agent folder's `.gitignore`. It 
 
 ## D28 — One agent source format, two installed forms
 
-A component ships an agent in one format: the folder `agents/<name>/`, holding `agent.md` (frontmatter `name`; the body is the prompt) and `agent.json` (`name`, `description`, and optionally `files` and `packs`). The catalog lists it once, as one unit of type `agent`. A shipped `agent.json` names no harness, no model and no effort: those values exist only in an installation, and rbtv refuses a component whose shipped agent names one (`agent-source-launch`), naming the fields to remove. A component that holds a file in a `sub-agents/` folder is refused (`agent-source-retired`) with a message that names `agents/<name>/`. One format means one prompt to maintain; the verb, not the source, decides how the agent is exposed.
+A component ships an agent in one format: the folder `agents/<name>/`, which contains `agent.md` (frontmatter `name`; the body is the prompt) and `agent.json` (`name`, `description`, and optionally `files` and `packs`). The catalog lists it once, as one unit of type `agent`. A shipped `agent.json` names no harness, no model and no effort: those values exist only in an installation, and rbtv refuses a component whose shipped agent names one (`agent-source-launch`), naming the fields to remove. A component that has a file in a `sub-agents/` folder is refused (`agent-source-retired`) with a message that names `agents/<name>/`. One format means one prompt to maintain; the verb, not the source, decides how the agent is exposed.
 
 `rbtv agent add NAME --harness H --model M --effort E` places the agent as an rbtv agent in `<installation>/.rbtv/agents/<name>/`. The three flags are required when the agent's `agent.json` has none of the values, checked as `rbtv agent configure` checks them, and written into the placed `agent.json`. When the file already has the values, a flag is refused and the refusal names `rbtv agent configure`.
 

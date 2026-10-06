@@ -4,7 +4,7 @@
 
 ## Purpose
 
-It holds the commands that make tools runnable through `PATH`, and the record of which installation owns each. Without it, each installation would put its own copy on `PATH`. It is not hand-written.
+It contains the commands that make tools runnable through `PATH`, and the record of which installation owns each. Without it, each installation would put its own copy on `PATH`. It is not hand-written.
 
 ## What good looks like
 

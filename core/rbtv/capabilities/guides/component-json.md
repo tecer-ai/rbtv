@@ -1,6 +1,6 @@
 # Building a `<component>.json`
 
-[`<component>.json`](../glossary/component-json.md) is the [folder artifact](../glossary/folder-artifact.md) that holds a component's description and the outside software it requires.
+[`<component>.json`](../glossary/component-json.md) is the [folder artifact](../glossary/folder-artifact.md) that contains a component's description and the outside software it requires.
 
 ## Purpose
 
@@ -8,7 +8,7 @@ rbtv reads it to learn what the component is for and which outside software it n
 
 ## What good looks like
 
-- From the description alone, a reviewer can accept or reject the component as relevant without opening the folder ([Progressive disclosure](../principles/progressive-disclosure.md)).
+- From the description alone, a reviewer can accept or reject the component as relevant and does not need to open the folder ([Progressive disclosure](../principles/progressive-disclosure.md)).
 - Outside software is a list of names, not prose or objects ([Deterministic first](../principles/deterministic-first.md)).
 - The record does not list how a skill, rule, command, agent, hook, or MCP server is exposed. The folder each one sits in is that record ([Single source of truth](../principles/single-source-of-truth.md)).
 - The file name matches the component folder name exactly ([Terminology is king](../principles/terminology-is-king.md)).

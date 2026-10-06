@@ -1,6 +1,6 @@
 # Building a knowledge file
 
-A [knowledge](../glossary/knowledge.md) file holds durable knowledge about the owner that should not shape every turn.
+A [knowledge](../glossary/knowledge.md) file contains durable knowledge about the owner that should not shape every turn.
 
 ## Purpose
 

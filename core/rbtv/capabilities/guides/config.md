@@ -10,7 +10,7 @@ Installation state and component configuration are read from here. Without it, t
 
 - What is installed is read from this folder. No second list is kept by hand ([Single source of truth](../principles/single-source-of-truth.md)).
 - A change to installation state is made by the rbtv CLI. The root's units and packs change only through `rbtv add` and `rbtv remove` ([Agent parity](../principles/agent-parity.md)).
-- No file here holds a secret: each names the environment variable that holds one.
+- No file here contains a secret: each names the environment variable that contains one.
 
 ## Making it good
 

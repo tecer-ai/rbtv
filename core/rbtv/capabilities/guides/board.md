@@ -23,4 +23,4 @@ Copy the board, edit subjects or watch-outs, and submit the whole candidate with
 ## Traps
 
 - Free-editing the file. The check refuses a bad form, and a hand edit races the dreamer.
-- Putting the check's details only in the wake. The wake names the check. The board holds the details.
+- Putting the check's details only in the wake. The wake names the check. The board contains the details.
