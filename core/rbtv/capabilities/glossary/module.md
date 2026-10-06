@@ -8,7 +8,7 @@ Use [Choosing where to build](../choosing-where-to-build.md) before adding a mod
 
 Use a noun for the subject, not an action or a glossary term with a different meaning. The folder name is the module identifier and prefixes its components' identifiers; the record has no separate module name.
 
-Write the record's description for the next component, not as a list of current components. Its first sentence names the subject and the nearest excluded subject. Do not repeat the folder name just to fill the description. Follow Choosing where to build for the listing's 150-character first-sentence limit.
+Describe the subject shared by the module's components without naming individual components. Its first sentence names the subject and the nearest excluded subject. Follow Choosing where to build for the listing's 150-character first-sentence limit.
 
 The record is the boundary's owner. Do not duplicate it in an index, a glossary entry or `decisions.md`. For Core or Meta, read their existing glossary entries before changing their boundaries; do not create such a page for every new module.
 

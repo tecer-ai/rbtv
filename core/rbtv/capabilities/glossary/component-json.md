@@ -1,8 +1,9 @@
 # `<component>.json`
 
-The [folder artifact](folder-artifact.md) containing each component's structured record, named after the component: `<module>/<component>/<component>.json`. The `rbtv` CLI reads it for:
+`<component>.json` is a component’s record at `<module>/<component>/<component>.json`. It tells rbtv what the component is for and which outside software it requires.
 
-- The component's description.
-- The outside software it requires.
+Use [component-json.schema.json](../templates/component-json.schema.json) for the fields. Before writing or changing the description, follow [Component](component.md) for the subject boundary and naming. The record does not choose exposure methods; the source folders do.
 
-It does not record exposure methods: the folder a skill, rule, command, agent, hook, or MCP server sits in decides how it is exposed.
+In `dependencies`, name the software the component requires but does not include. Use an empty list when none is required. rbtv displays these names; it does not install or verify those dependencies.
+
+Validate the record and inspect the component’s displayed description and dependencies through [rbtv CLI](rbtv-cli.md). Check required software through the component’s actual operation; accepting the record does not prove that software is available.

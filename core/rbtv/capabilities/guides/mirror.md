@@ -11,7 +11,7 @@ It supplies a component rbtv does not ship, or replaces a shipped component enti
 - A mirror component contains what belongs to this installation only: a personal workflow, an installation-specific value, or an experiment. A generally useful rbtv-format unit belongs in the rbtv repository; a shareable standard skill belongs in the mirror as a [self-contained skill](../glossary/self-contained-skill.md) ([Choosing what to build](../choosing-what-to-build.md)).
 - The same module and component name is a deliberate full replacement. Any other name is a new component ([Terminology is king](../principles/terminology-is-king.md)).
 - It is not a partial copy meant to patch the shipped component ([Single source of truth](../principles/single-source-of-truth.md)).
-- For a replacement, every cognitive unit and capability users of the shipped component rely on is present, or its absence is intentional. rbtv checks only that [`<component>.json`](component-json.md) exists.
+- For a replacement, every cognitive unit and capability users of the shipped component rely on is present, or its absence is intentional. rbtv checks only that [`<component>.json`](../glossary/component-json.md) exists.
 
 ## Making it good
 

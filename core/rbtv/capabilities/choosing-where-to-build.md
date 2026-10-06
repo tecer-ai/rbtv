@@ -28,7 +28,7 @@ A [Self-contained skill](glossary/self-contained-skill.md) is not a component; t
 
 ## Write the boundary once
 
-Use [Module](glossary/module.md) and [Component](glossary/component.md) for their records. The description's first sentence must say what belongs and the nearest excluded work. Listing uses the first sentence, cut at 150 characters; keep the boundary within that span and do not put the exclusion after a period followed by a space.
+Use [Module](glossary/module.md) and [Component](glossary/component.md) for their records. The description's first sentence states the subject and nearest excluded work directly. Listings already show the module or component identifier; omit an introductory name label and commentary about unspecified future additions. Listing uses the first sentence, cut at 150 characters; keep the boundary within that span and do not put the exclusion after a period followed by a space.
 
 Keep the record as the boundary's owner rather than creating a second definition. Use a noun for the folder name and existing glossary terminology. Do not create a glossary entry merely because a module was added.
 

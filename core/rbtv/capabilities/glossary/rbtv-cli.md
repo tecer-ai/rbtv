@@ -24,7 +24,7 @@ The scan validates frontmatter or JSON. It does not evaluate prose bodies. Under
 | `packs/<name>.json` | [Pack](pack.md) | [pack](../templates/pack.schema.json) |
 | `capabilities/tools/<tool>/<tool>.json` | [Tool](tool.md) | [tool-json](../templates/tool-json.schema.json) |
 
-Open the authoring page for the source being changed and its schema when changing validated fields. Use [Module](module.md) or [Component](component.md) when their records or boundaries change. A [capability](capability.md) is not installed; putting its text in an installable folder with valid frontmatter instead exposes it as that folder's kind.
+Open the authoring page for the source being changed and its schema when changing validated fields. Use [Module](module.md) or [Component](component.md) when their boundaries change. For their records, read [Module record](module-json.md) or [Component record](component-json.md); for a tool’s record, read [Tool record](tool-json.md). A [capability](capability.md) is not installed; putting its text in an installable folder with valid frontmatter instead exposes it as that folder's kind.
 
 The scanner silently skips the index names `skills.md`, `rules.md`, `commands.md`, `hooks.json`, `mcp-servers.json` and `folder-instructions.md`, and files with the wrong extension. There are no source-folder index files to install.
 

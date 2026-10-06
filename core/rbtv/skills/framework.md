@@ -78,6 +78,9 @@ Then read every matching conditional page:
 | [Pack](../capabilities/glossary/pack.md) | Shared installation selection | Install one group for several targets | writing or changing a pack, or sharing a selection across targets | only one target needs the selection |
 | [Task](../capabilities/glossary/task.md) | One launch’s inputs, scope and completion | Give a worker bounded work | writing or changing launch text or a task file | changing the standing prompt |
 | [Harness](../capabilities/glossary/harness.md) | Delivery differences between supported applications | Avoid assuming identical loading behavior | stating what an agent receives or supporting multiple harnesses |  |
+| [Module record](../capabilities/glossary/module-json.md) | Module description record | Write the module’s listing record | creating, editing or converting `<module>.json` | only files inside an existing module change |
+| [Component record](../capabilities/glossary/component-json.md) | Description and external dependencies | Write the component’s record | creating, editing or converting `<component>.json` | only files inside an existing component change |
+| [Tool record](../capabilities/glossary/tool-json.md) | Executable reference and listing description | Make the intended program available by name | creating, editing or converting `<tool>.json` | only the program body changes |
 | [Schema](../capabilities/glossary/schema.md) | Validator constraints and actual callers | Enforce the record’s contract | writing or changing a schema or adding a record field | only filling an existing record |
 | [Template](../capabilities/glossary/template.md) | Layout and placeholders | Fill the required structure | writing or filling a page’s template |  |
 | [Principle](../capabilities/glossary/principle.md) | Cross-kind design tests | Settle recurring design choices | writing or changing a principle | only applying an existing principle |

@@ -1,7 +1,9 @@
 # `<tool>.json`
 
-The [folder artifact](folder-artifact.md) containing each [tool](tool.md)'s record, named after the tool: `capabilities/tools/<tool>/<tool>.json`. The `rbtv` CLI reads it for:
+`<tool>.json` is a tool’s record at `capabilities/tools/<tool>/<tool>.json` inside its component. It identifies the program rbtv makes available by name and describes it in listings.
 
-- The tool's name.
-- A one-line description, which rbtv uses to tell agents the tool exists.
-- Its entry: the file of the tool's CLI that rbtv places on `PATH` under the tool's name.
+Use [tool-json.schema.json](../templates/tool-json.schema.json) for the fields and [rbtv CLI](rbtv-cli.md) for executable-path resolution and installation checks. Follow [Tool](tool.md) when changing the program or its calling interface.
+
+Write the description as one line identifying the operation and result, so a reader can distinguish it from a nearby tool without opening the program. Keep steps and instructions for when to run it in the caller, not in this record.
+
+Check the displayed description and that the installed name resolves to the intended executable. A record makes the program discoverable through rbtv; the calling instructions must still tell the agent when to use it. Follow Tool for testing the program’s behavior.
