@@ -2,7 +2,7 @@
 
 // API
 // configPath(workspace)        — <installation>/.rbtv/config/ignite/config.json
-// loadConfig(workspace)        — read and validate that file (schema: core/rbtv templates/ignite-config.schema.json);
+// loadConfig(workspace)        — read and validate that file directly (field reference: core/rbtv/capabilities/templates/ignite-config.schema.json);
 //                                returns the parsed object plus `workspace` (the absolute path it was read for)
 // updateConfig(workspace, fn)  — read, let fn(config) change it, validate, write atomically; returns the new config
 // agentHome(config, slug)      — <installation>/.rbtv/agents/<slug>

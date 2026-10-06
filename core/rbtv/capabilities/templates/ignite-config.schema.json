@@ -1,35 +1,104 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "ignite/config.json",
-  "description": "Ignite's configuration on one machine, at .rbtv/config/ignite/config.json. Read by Ignite's programs; never shared with another machine.",
+  "description": "Field reference for .rbtv/config/ignite/config.json. Ignite config.js validates the record directly and does not load this schema; its validator is authoritative. Authoring guidance is in core/ignite/capabilities/glossary/ignite-config.md.",
   "type": "object",
-  "required": ["slack", "tools", "routes"],
+  "required": [
+    "slack",
+    "tools",
+    "routes"
+  ],
   "additionalProperties": false,
   "properties": {
     "slack": {
       "description": "The Slack workspace Ignite connects to.",
       "type": "object",
-      "required": ["team", "botUserId", "ownerUserId", "appTokenEnv", "botTokenEnv", "ownerTokenEnv", "stoolsWorkspace"],
+      "required": [
+        "team",
+        "botUserId",
+        "ownerUserId",
+        "appTokenEnv",
+        "botTokenEnv",
+        "ownerTokenEnv",
+        "stoolsWorkspace"
+      ],
       "additionalProperties": false,
       "properties": {
-        "team": { "description": "The Slack workspace (team) id.", "type": "string", "minLength": 1 },
-        "botUserId": { "description": "The Slack user id of Ignite's bot.", "type": "string", "minLength": 1 },
-        "ownerUserId": { "description": "The Slack user id of the one person the agents answer.", "type": "string", "minLength": 1 },
-        "appTokenEnv": { "description": "Name of the environment variable holding the app-level token that opens the connection.", "type": "string", "minLength": 1 },
-        "botTokenEnv": { "description": "Name of the environment variable holding the bot token that posts replies.", "type": "string", "minLength": 1 },
-        "ownerTokenEnv": { "description": "Name of the environment variable holding the owner's user token.", "type": "string", "minLength": 1 },
-        "stoolsWorkspace": { "description": "The name the Slack command-line tool uses for this workspace.", "type": "string", "minLength": 1 }
+        "team": {
+          "description": "The Slack workspace (team) id.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "botUserId": {
+          "description": "The Slack user id of Ignite's bot.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "ownerUserId": {
+          "description": "The Slack user id of the one person the agents answer.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "appTokenEnv": {
+          "description": "Name of the environment variable holding the app-level token that opens the connection.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "botTokenEnv": {
+          "description": "Name of the environment variable holding the bot token that posts replies.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "ownerTokenEnv": {
+          "description": "Name of the environment variable holding the owner's user token.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "stoolsWorkspace": {
+          "description": "Slack command-line workspace name, not a path; Ignite also rejects absolute paths on the current platform.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "not": {
+            "pattern": "[/\\\\]"
+          }
+        }
       }
     },
     "tools": {
       "description": "The commands Ignite runs, as their names on PATH.",
       "type": "object",
-      "required": ["cast", "stools", "audio"],
+      "required": [
+        "cast",
+        "stools",
+        "audio"
+      ],
       "additionalProperties": false,
       "properties": {
-        "cast": { "description": "The command that runs each agent turn.", "type": "string", "minLength": 1 },
-        "stools": { "description": "The Slack command-line tool.", "type": "string", "minLength": 1 },
-        "audio": { "description": "The command that transcribes and speaks audio.", "type": "string", "minLength": 1 }
+        "cast": {
+          "description": "The command that runs each agent turn.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "stools": {
+          "description": "The Slack command-line tool.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "audio": {
+          "description": "The command that transcribes and speaks audio.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
       }
     },
     "dmAgent": {
@@ -38,11 +107,60 @@
       "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
     },
     "routes": {
-      "description": "Which agent each Slack channel connects to: channel id to agent name. One channel connects to one agent.",
+      "description": "Channel id to agent slug. Channel ids must contain a non-whitespace character; config.js checks each key.",
       "type": "object",
       "additionalProperties": {
         "type": "string",
         "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+      }
+    },
+    "dreamer": {
+      "description": "Optional shared memory-consolidation settings, separate from each agent’s launch settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "Enable the nightly runner and watchdog; defaults to false. An explicit operator run is separate.",
+          "type": "boolean"
+        },
+        "model": {
+          "description": "Optional proposal model override; supply all three fields. Without an override Ignite uses its configured software default.",
+          "type": "object",
+          "required": [
+            "harness",
+            "model",
+            "effort"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "harness": {
+              "description": "Harness used for the consolidation proposal.",
+              "type": "string",
+              "enum": [
+                "codex",
+                "opencode",
+                "claude"
+              ]
+            },
+            "model": {
+              "description": "Cast model name with no whitespace or leading dash; Cast checks availability when invoked.",
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?!-)\\S+$"
+            },
+            "effort": {
+              "description": "Cast effort rung from 1 through 5, independent of an agent’s launch effort.",
+              "type": "integer",
+              "enum": [
+                1,
+                2,
+                3,
+                4,
+                5
+              ]
+            }
+          }
+        }
       }
     }
   }

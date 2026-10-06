@@ -1,6 +1,6 @@
 # `config/`
 
-`.rbtv/config/` holds one installation’s settings and its root [installation record](install-json.md). A component keeps its configuration under a folder named for that component, such as [Ignite configuration](ignite-config.md).
+`.rbtv/config/` holds one installation’s settings and its root [installation record](install-json.md). A component keeps its configuration under a folder named for that component, such as [Ignite configuration](../../../ignite/capabilities/glossary/ignite-config.md).
 
 Put component settings here when they belong to the installation. An agent’s own [settings](settings-json.md) and record stay in its agent folder; local component source belongs in [mirror/](mirror.md), and operational data belongs in [runtime/](runtime.md).
 

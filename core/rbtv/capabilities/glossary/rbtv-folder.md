@@ -8,7 +8,7 @@ Place material through its owning entry:
 - Read [Config](config.md) for installation settings and the root installation record.
 - Read [Agent](agent.md) for `agents/`, which locates agents addressed by name; an explicit path can identify an agent elsewhere.
 - Read [Runtime](runtime.md) for component operational data; agent live data stays in the agent’s own folder.
-- Read [Memory](memory.md) for installation-wide memory.
+- Read [Memory](../../../ignite/capabilities/glossary/memory.md) for installation-wide memory.
 
 Use the owning entry’s operations. [rbtv CLI](rbtv-cli.md) refreshes installed files from their source and selections; it does not repair arbitrary component configuration or runtime data. Edit author-maintained source or settings, not generated copies, then apply the refresh required for that change.
 

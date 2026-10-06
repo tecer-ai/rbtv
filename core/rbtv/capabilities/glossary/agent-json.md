@@ -8,7 +8,7 @@ In an installation, rbtv adds the launch settings and generated-file record. Cha
 
 The author may write file and [pack](pack.md) selections; rbtv also changes them through its add and remove operations. File selections use full `module/component#name` identifiers. Apply a hand-edited selection with the refresh specified by rbtv CLI, then check the generated files against it.
 
-Keep machine-specific paths, timestamps and accounts out of the record so another machine can rebuild the agent from it. Harness sessions and live data stay outside it; a Slack connection belongs in [Ignite configuration](ignite-config.md). The installation root instead uses [install.json](install-json.md).
+Keep machine-specific paths, timestamps and accounts out of the record so another machine can rebuild the agent from it. Harness sessions and live data stay outside it; a Slack connection belongs in [Ignite configuration](../../../ignite/capabilities/glossary/ignite-config.md). The installation root instead uses [install.json](install-json.md).
 
 The author-written record starts with this layout. Include selection lists only when needed; the schema owns their fields and types.
 

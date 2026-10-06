@@ -35,7 +35,7 @@ Read [Exposure method](glossary/exposure-method.md) for the four selection mecha
 
 A rule must state when to act; being supplied on every task does not mean executing its method on every task. Folder-specific instructions must not govern unrelated folders. Work that must also start without a human invocation cannot live only in a command.
 
-A correction learned from one agent's runs belongs to the dreamer's [Learned rules](glossary/learned-rules.md), not a new shipped skill or rule.
+A correction learned from one agent's runs belongs to the dreamer's [Learned rules](../../ignite/capabilities/glossary/learned-rules.md), not a new shipped skill or rule.
 
 ## Put supporting work in its proper place
 

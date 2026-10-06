@@ -1,9 +1,0 @@
-# Memory index
-
-The always-loaded router of general [memory](memory.md), at `.rbtv/memory/_artifacts/index.md`. One row per folder, plus `workstreams.md`. It is injected into every turn of every agent, including a scheduled wake. It does not grow with the files, so the always-loaded part stays bounded.
-
-It is written once, when general memory is created, and edited only when a folder is added or removed, in that same change. The dreamer does not regenerate it. The [profile](profile.md) and the [inbox](inbox.md) are listed nowhere: they are always loaded. Agent topics are listed nowhere here: they route through the agent's [board](board.md) and that agent's memory index.
-
-Each folder under the root that contains files has its own generated index file, read on demand. A parent folder lists its subfolders, not their files. No file appears in both this index and a folder index. Generated indexes have no row cap.
-
-A generated folder index lists each file once with a link and its reading condition, built from that file’s description. It has no frontmatter. Change the source description rather than hand-editing the generated table. Ignite validates memory indexes as `Open | When` tables: Open holds the link and When its reading condition. Keep that software-read record format rather than substituting an authored routing table.

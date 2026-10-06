@@ -82,7 +82,7 @@ General shape only. Instance ids, token paths, and launch pins are runtime confi
 
 ## Capabilities vs settings
 
-A CAPABILITY — what an agent can do, reusable by other agents — is an rbtv skill component (skill + its tools) under `<module>/<component>/` in rbtv, installed into agent homes by rbtv like any other skill. It carries no agent-specific value: no installation path, no account name, no owner value. An agent's SPECIFIC settings — the values that make a reusable capability act for THIS agent — live in ONE file in its home, `settings.json`, referenced from the agent's instructions (`agent.md`). How install seeds that file: see `ignite -h`. A capability's own tools take their settings and state paths as an explicit argument or environment variable — never a hardcoded relative path — so the same capability serves any agent that installs it. Track only each agent's `memory/` and `_artifacts/board.md`; its other home files, SQLite state, conversations and turns stay untracked.
+Follow [Capability](../../rbtv/capabilities/glossary/capability.md) for reusable instructions and [Choosing where to build](../../rbtv/capabilities/choosing-where-to-build.md) for their component placement. They carry no agent-specific installation path, account or owner value. Agent-specific values belong in [Settings](../../rbtv/capabilities/glossary/settings-json.md), referenced from the prompt. Tools take their settings and state paths as explicit arguments or environment variables, not hardcoded paths. [Agent](../../rbtv/capabilities/glossary/agent.md) owns which agent-folder files are shared through git.
 
 **Conversation key.** `<teamId>:<channelId>:<rootTs>`, DM and channel alike. The mapping key → agent is persisted.
 

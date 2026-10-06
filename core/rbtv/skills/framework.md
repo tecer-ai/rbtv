@@ -95,3 +95,18 @@ Then read every matching conditional page:
 | [Schema](../capabilities/glossary/schema.md) | Validator constraints and actual callers | Enforce the record’s contract | writing or changing a schema or adding a record field | only filling an existing record |
 | [Template](../capabilities/glossary/template.md) | Layout and placeholders | Fill the required structure | writing or filling a page’s template |  |
 | [Principle](../capabilities/glossary/principle.md) | Cross-kind design tests | Settle recurring design choices | writing or changing a principle | only applying an existing principle |
+| [Memory](../../ignite/capabilities/glossary/memory.md) | General and agent memory, writer boundaries and record checks | Preserve memory across Ignite turns | creating, editing, reviewing or converting any Ignite memory record | only ordinary agent settings change |
+| [Ignite configuration](../../ignite/capabilities/glossary/ignite-config.md) | Machine-local connections and consolidation settings | Configure Ignite through its actual validator | working with Ignite config.json | only agent.json changes |
+| [Board](../../ignite/capabilities/glossary/board.md) | Subjects, watch-outs and software-maintained fields | Maintain short-term agent memory | working with an Ignite board or its convention | only long-term records change |
+| [Dreamer](../../ignite/capabilities/glossary/dreamer.md) | Consolidation evidence and publication boundaries | Operate or verify long-term memory writing | working with consolidation or its produced records | only reading a stored fact |
+| [Profile](../../ignite/capabilities/glossary/profile.md) | Facts supplied on nearly every turn | Keep standing owner context | working with profile.md |  |
+| [Learned rules](../../ignite/capabilities/glossary/learned-rules.md) | Corrections and repeated lessons for one agent | Preserve learned behavior | working with learned.md |  |
+| [Memory index](../../ignite/capabilities/glossary/memory-index.md) | Always-supplied root and generated folder lists | Route memory reads in the validated format | working with memory indexes |  |
+| [Workspace memory](../../ignite/capabilities/glossary/workspace-memory.md) | Private notes and declared path matching | Supply notes only in the relevant workspace | working with workspace memory |  |
+| [Inbox](../../ignite/capabilities/glossary/inbox.md) | Append-only owner facts and filing results | Remember a fact without rewriting memory | working with inbox.md or remember |  |
+| [Agent topic](../../ignite/capabilities/glossary/agent-topic.md) | Subject, procedure and reference detail for one agent | Keep detail available on demand | working with agent memory topics |  |
+| [Entity](../../ignite/capabilities/glossary/entity.md) | Stable identity, aliases and source-note links | Keep one record per owner-related entity | working with memory entities |  |
+| [Knowledge](../../ignite/capabilities/glossary/knowledge.md) | Five durable owner-information kinds | Preserve topical facts without always supplying them | working with knowledge records |  |
+| [Workstreams](../../ignite/capabilities/glossary/workstreams.md) | Pointers to active projects, areas and subjects | Find active work without copying its state | working with workstreams.md |  |
+| [Daily timeline](../../ignite/capabilities/glossary/timeline-daily.md) | Daily episodes and source threads | Retain a day’s activity as on-demand history | working with daily memory timelines |  |
+| [Weekly timeline](../../ignite/capabilities/glossary/timeline-weekly.md) | Consequential events linked to their source days | Retain a week’s history without repeating daily detail | working with weekly memory timelines |  |
