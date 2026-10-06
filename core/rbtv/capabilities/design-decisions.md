@@ -48,7 +48,7 @@ In a target with a `.git/` folder, the installer maintains its artifact list as 
 
 ## D15 — Whole-folder skills
 
-A skill in the standard shareable format — a `_skills/<name>/` folder with `SKILL.md` and its own files — is read only from an installation's `.rbtv/mirror/`, never from the rbtv repository, and is identified as `_hub/skills/<name>`. It installs as a thin loader in each selected harness's skills folder: the skill's own frontmatter, verbatim so harness-specific keys survive, and a body that points at the source `SKILL.md` and its folder, from which its relative files resolve. The loader is booked in the install record and updated and removed like every other unit. The source folder is never copied or changed, so a skill kept current with `git pull` takes effect at once; a folder copied by an earlier installer is deleted on the next run.
+A skill in the standard shareable format — a `_skills/<name>/` folder with `SKILL.md` and its own files — is read only from an installation's `.rbtv/mirror/`, never from the rbtv repository, and is identified as `_hub/skills/<name>`. It installs as a pointer in each selected harness's skills folder: the skill's own frontmatter, verbatim so harness-specific keys survive, and a body that points at the source `SKILL.md` and its folder, from which its relative files resolve. The loader is booked in the install record and updated and removed like every other unit. The source folder is never copied or changed, so a skill kept current with `git pull` takes effect at once; a folder copied by an earlier installer is deleted on the next run.
 
 ## D16 — Installation settings
 
@@ -76,7 +76,7 @@ A real install that selects a PATH tool adds `~/.rbtv/bin` to the user's shell s
 
 ## D10 — Absolute loader paths
 
-The installer writes resolved absolute source paths into thin loaders. The [building decisions](../decisions.md#system-and-installation-decisions) own this choice and its machine-local rationale.
+The installer writes resolved absolute source paths into pointers. The [building decisions](../decisions.md#system-and-installation-decisions) own this choice and its machine-local rationale.
 
 ## D12 — Proof of ownership
 

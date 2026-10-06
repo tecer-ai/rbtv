@@ -58,7 +58,7 @@ The `work-history` skill in `meta/functions` reconstructs a user-agreed project,
 > **three harnesses** (claude, codex, opencode). A component's folder instructions become a
 > marked section of the target folder's instructions file. The one unit shaped as a folder is a
 > whole skill in the installation mirror, `{target}/.rbtv/mirror/_skills/<name>/`: it is exposed
-> through a thin loader in each installed harness's skills directory, and the generated loader
+> through a pointer in each installed harness's skills directory, and the generated loader
 > carries the `rbtv-managed` ownership marker (files written by an earlier
 > rbtv carry `rbtv2-managed` and are still recognised).
 > Other generated artifacts are named after their bare unit name and marked as rbtv-owned.
@@ -125,7 +125,7 @@ The `work-history` skill in `meta/functions` reconstructs a user-agreed project,
    are in the callout at the top of this section.
 
 3. After install, your installation has:
-   - `.claude/skills/<name>/SKILL.md` — thin loaders for skills
+   - `.claude/skills/<name>/SKILL.md` — pointers for skills
    - `.claude/commands/<name>.md` — slash commands
    - `.claude/rules/<name>.md` — rules
    - `.claude/agents/<name>.md` — sub-agents
@@ -211,14 +211,14 @@ RBTV uses Claude Code plugins for extended functionality. Install them from insi
 
 ## Updating RBTV
 
-RBTV content (agents, workflows, tasks) stays in this repo — thin loaders in your installation reference it by path. To get new content:
+RBTV content (agents, workflows, tasks) stays in this repo — pointers in your installation reference it by path. To get new content:
 
 ```bash
 cd /path/to/rbtv
 git pull
 ```
 
-Content changes behind thin loaders appear live. Run `rbtv update scaffolding` when an
+Content changes behind pointers appear live. Run `rbtv update scaffolding` when an
 unit file, loader, or generated instruction section changes. This
 refreshes generated sections in every configured instruction file, including counterpart files,
 while preserving human text outside them. Use `rbtv update guidance` when maintained
