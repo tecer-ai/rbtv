@@ -77,6 +77,7 @@ Then read every matching conditional page:
 | [Tool](../capabilities/glossary/tool.md) | Program interface and executable record | Return usable results during a task | writing or changing a tool | only prose instructions change |
 | [Pack](../capabilities/glossary/pack.md) | Shared installation selection | Install one group for several targets | writing or changing a pack, or sharing a selection across targets | only one target needs the selection |
 | [Task](../capabilities/glossary/task.md) | One launch’s inputs, scope and completion | Give a worker bounded work | writing or changing launch text or a task file | changing the standing prompt |
+| [Workflow](../capabilities/glossary/workflow.md) | Task dependencies, shared writes and scheduling | Coordinate tasks from their declared inputs | writing, editing or reviewing a workflow | one task needs no coordination |
 | [Harness](../capabilities/glossary/harness.md) | Delivery differences between supported applications | Avoid assuming identical loading behavior | stating what an agent receives or supporting multiple harnesses |  |
 | [Module record](../capabilities/glossary/module-json.md) | Module description record | Write the module’s listing record | creating, editing or converting `<module>.json` | only files inside an existing module change |
 | [Component record](../capabilities/glossary/component-json.md) | Description and external dependencies | Write the component’s record | creating, editing or converting `<component>.json` | only files inside an existing component change |

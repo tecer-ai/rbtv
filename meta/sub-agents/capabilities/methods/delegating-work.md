@@ -42,7 +42,7 @@ Before launching agents for a broad task with parallel investigation, open the [
   - Ask for checkable reports in the task itself: numbers come from a tool or script, never an estimate; each factual claim names its source; anything the sub-agent did not verify is marked UNVERIFIED.
 
 - Staffing:
-  - Give each sub-agent a [task](../../../../core/rbtv/capabilities/glossary/task.md) with its [scope](../scope.md) and [done contract](../done-contract.md). For several tasks with dependencies, write a `workflow.md` file following the [workflow guide](../workflow.md) and [workflow template](../templates/workflow.md). If the tasks run as rbtv agents, follow [Planning a workflow](../../../plan/capabilities/methods/planning-a-workflow.md) instead (its format carries the Install line for each agent).
+  - Give each sub-agent a [task](../../../../core/rbtv/capabilities/glossary/task.md) with its [scope](../scope.md) and [done contract](../done-contract.md). For several tasks with dependencies, follow [Workflow](../../../../core/rbtv/capabilities/glossary/workflow.md) for the scheduling instructions and inline table. If the tasks run as rbtv agents, follow [Planning a workflow](../../../plan/capabilities/methods/planning-a-workflow.md) instead (its format carries the Install line for each agent).
   - Give each agent a bounded and small scope: keeps its context optimized (low context usage, better answers).
     - More critical on L2-level models and below; mandatory on L3 (model levels per `cast route -h`: SOTA > L1 > L2 > L3).
     - The small-scope test — a scope is one agent's ONLY when ALL three hold; fail one and it is NOT one agent's scope:
