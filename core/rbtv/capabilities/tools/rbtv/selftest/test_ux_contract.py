@@ -8,7 +8,7 @@ import re
 import shlex
 from unittest.mock import patch
 
-from lib import commands, listing
+from lib import commands, help_pages, listing, present
 from lib.constants import STATE_REL, _RUNTIME
 from lib.recovery import shell_quote
 from lib.report import print_result
@@ -217,8 +217,44 @@ def public_contract(ctx) -> None:
               str(mod_detail))
     _, installed = run("list", "--installed")
     _, installed_alias = run("li")
-    ctx.check("UX-installed-alias-identical", installed == installed_alias
-              and [x["id"] for x in installed["files"]] == ["fixmod"])
+    _, component_listing = run("list", "fixmod/goodcomp")
+    ctx.check("UX-installed-alias-identical", installed == installed_alias)
+    ctx.check("UX-installed-lists-files — `list --installed` with no NAME is one table of "
+              "the installed files, with the fields of a component's listing, in the window",
+              installed["scope"] == "files"
+              and [x["id"] for x in installed["files"]] == ["fixmod/goodcomp#fixskill"]
+              and installed["files"][0] == next(
+                  row for row in component_listing["files"]
+                  if row["id"] == "fixmod/goodcomp#fixskill")
+              and installed["files"][0]["type"] == "skill"
+              and installed["files"][0]["installed"] is True
+              and installed["total"] == installed["returned"] == 1
+              and installed["limit"] == 20 and installed["offset"] == 0, str(installed))
+    code, no_hit = run("search", "fixskilz")
+    ctx.check("UX-search-no-hit — a search with no hit has no row and names the nearest words",
+              code == 0 and no_hit["files"] == [] and no_hit["total"] == 0
+              and "fixskill" in no_hit["did_you_mean"]
+              and 0 < len(no_hit["did_you_mean"]) <= 5
+              and "did_you_mean" not in searched, str(no_hit))
+    _, near = run("show", "fixskilz")
+    _, far = run("show", "zzzzqqqq")
+    _, near_removal = run("remove", "fixskilz")
+    _, not_installed = run("remove", "fixrulz")
+    ctx.check("UX-refusal-close-names — a refusal suggests only close names, says when none "
+              "is close, and on remove suggests only installed names",
+              any("fixskill" in s["id"] for s in near["error"]["suggestions"])
+              and far["error"]["suggestions"] == []
+              and "No close name exists." in far["error"]["message"]
+              and far["next"] == f"rbtv list --target {tq}"
+              and any("fixskill" in s["id"] for s in near_removal["error"]["suggestions"])
+              and not_installed["error"]["suggestions"] == []
+              and any("fixrule" in s["id"] for s in run("show", "fixrulz")[1]["error"]["suggestions"]),
+              str((near, far, near_removal, not_installed)))
+    ctx.check("UX-tool-meaning — a tool is described as a runnable CLI wherever types are listed",
+              present.TYPE_MEANING["tool"] == "Runnable CLI exposed through a command shortcut."
+              and not any("Runnable program" in page for page in help_pages.PAGES.values())
+              and sum("Runnable CLI exposed through a command shortcut." in page
+                      for page in help_pages.PAGES.values()) >= 5)
     _, installed_module = run("list", "fixmod", "--installed")
     goodcomp = next(r for r in installed_module["files"]
                     if r["id"] == "fixmod/goodcomp")
@@ -311,6 +347,11 @@ def result_screens(ctx) -> None:
     _, empty, _ = text("list", "--installed")
     ctx.check("RESULT-empty-installed-list-says-so",
               "No installed files in this target." in empty, empty)
+    code, no_hit_text, _ = text("search", "fixskilz")
+    ctx.check("RESULT-search-no-hit-names-nearest-words",
+              code == 0 and "0 matches" in no_hit_text
+              and "No file or pack matches. Did you mean: fixskill" in no_hit_text
+              and "fixmod/goodcomp#" not in no_hit_text, no_hit_text)
     _, found, _ = text("search", "fixture")
     next_line = found.rstrip().splitlines()[-1]
     ctx.check("RESULT-search-next-is-a-returned-exact-id",

@@ -67,10 +67,22 @@ def _retire_number(token: str) -> None:
                      "Run `rbtv list` and copy its stable identifier")
 
 
+# How alike a name must be to the one typed before a refusal suggests it.
+CLOSE_NAME = 0.75
+
+
+def close_names(token: str, choices: list[str]) -> list[str]:
+    """Up to three of `choices` close enough to `token` to be what was meant."""
+    return difflib.get_close_matches(token, sorted(set(choices)), n=3, cutoff=CLOSE_NAME)
+
+
+def close_names_sentence(close: list[str]) -> str:
+    return f"Did you mean: {', '.join(close)}?" if close else "No close name exists."
+
+
 def _unknown(code: str, label: str, token: str, choices: list[str]) -> Refuse:
-    close = difflib.get_close_matches(token, sorted(set(choices)), n=3, cutoff=0.5)
-    tail = f" Did you mean: {', '.join(close)}?" if close else ""
-    exc = Refuse(code, f"unknown {label} {token!r}.{tail} "
+    close = close_names(token, choices)
+    exc = Refuse(code, f"unknown {label} {token!r}. {close_names_sentence(close)} "
                  "Run `rbtv list` to see stable identifiers")
     exc.candidates = close
     return exc
@@ -94,20 +106,28 @@ def _pool(catalog: dict, book: dict | None = None) -> list[dict]:
 
 def resolve_name(token: str, catalog: dict, book: dict | None = None,
                  *, methods: set[str] | None = None,
-                 component_only: bool = False) -> dict:
-    """One name -> one exposed part or one component with its parts."""
+                 component_only: bool = False,
+                 suggest_installed: bool = False) -> dict:
+    """One name -> one exposed part or one component with its parts. A name
+    that is unknown is refused with the close names: of the whole catalog, or,
+    with `suggest_installed`, of what `book` records as installed."""
     _retire_number(token)
     token = _norm_comp(token)
     pool = _pool(catalog, book)
     by_key = {p["key"]: p for p in pool}
     components = set(catalog) | set(book or {})
     allowed = [p for p in pool if not methods or p["method"] in methods]
+    suggested, suggested_components = allowed, components
+    if suggest_installed:
+        suggested = [p for p in iter_booked_files(catalog, book)
+                     if not methods or p["method"] in methods]
+        suggested_components = set(book or {})
     if "#" in token:
         part = by_key.get(token)
         if part and (not methods or part["method"] in methods):
             return {"kind": "part", "id": token, "files": [part]}
         raise _unknown("file-unknown", "file", token,
-                       [p["key"] for p in allowed])
+                       [p["key"] for p in suggested])
     if token in components:
         parts = [p for p in allowed if p["component"] == token]
         if parts:
@@ -125,23 +145,26 @@ def resolve_name(token: str, catalog: dict, book: dict | None = None,
         hits_c = sorted(cid for cid in components if cid.split("/")[-1] == token)
         if len(hits_c) == 1:
             return resolve_name(hits_c[0], catalog, book, methods=methods,
-                                component_only=True)
+                                component_only=True,
+                                suggest_installed=suggest_installed)
         if len(hits_c) > 1:
             raise _ambiguous(token, hits_c)
-    choices = ([p["key"] for p in allowed] + [p["file_id"] for p in allowed]
-               + sorted(components))
+    choices = ([p["key"] for p in suggested] + [p["file_id"] for p in suggested]
+               + sorted(suggested_components))
     raise _unknown("component-unknown" if component_only else "name-unknown",
                    "component" if component_only else "name", token, choices)
 
 
 def component_keys(tokens: list[str], catalog: dict,
                    book: dict | None = None,
-                   *, methods: set[str] | None = None) -> set[str]:
+                   *, methods: set[str] | None = None,
+                   suggest_installed: bool = False) -> set[str]:
     """Explicit -c/--component tokens keep component semantics."""
     keys: set[str] = set()
     for token in tokens:
         resolved = resolve_name(token, catalog, book, methods=methods,
-                                component_only=True)
+                                component_only=True,
+                                suggest_installed=suggest_installed)
         keys.update(p["key"] for p in resolved["files"])
     return keys
 
@@ -177,16 +200,18 @@ def resolve_selection(args, catalog: dict[str, dict],
         raise Refuse("selection-empty", "name a file or component, or use --all, "
                      "--module, --component or --type")
 
-    universe = (iter_booked_files(catalog, book) if verb in ("rm", "remove")
+    removing = verb in ("rm", "remove")
+    universe = (iter_booked_files(catalog, book) if removing
                 else iter_catalog_parts(catalog))
     by_key = {p["key"]: p for p in universe}
     selected = set(by_key)
     if names or pos_c:
         requested: set[str] = set()
         for name in names:
-            resolved = resolve_name(name, catalog, book, methods=pos_x or None)
+            resolved = resolve_name(name, catalog, book, methods=pos_x or None,
+                                    suggest_installed=removing)
             requested.update(p["key"] for p in resolved["files"])
-        requested |= component_keys(pos_c, catalog, book)
+        requested |= component_keys(pos_c, catalog, book, suggest_installed=removing)
         selected &= requested
     if pos_m:
         selected &= {p["key"] for p in universe if p["module"] in pos_m}
@@ -198,7 +223,7 @@ def resolve_selection(args, catalog: dict[str, dict],
         selected -= component_keys(neg_c, catalog, book)
     if neg_x:
         selected -= {p["key"] for p in universe if p["method"] in neg_x}
-    if verb in ("rm", "remove"):
+    if removing:
         return selected
     if not selected:
         raise Refuse("selection-empty", "selectors matched no installable file")

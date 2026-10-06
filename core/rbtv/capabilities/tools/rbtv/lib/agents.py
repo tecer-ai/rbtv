@@ -18,7 +18,8 @@ from .files_key import files_key
 from .fsio import write_file
 from .link_paths import absolute_links
 from .operations import do_install, do_uninstall
-from .selection import _split_part_keys, iter_booked_files, iter_catalog_parts, resolve_name
+from .selection import (_split_part_keys, close_names_sentence, iter_booked_files,
+                        iter_catalog_parts, resolve_name)
 from .state import read_state, file_membership, write_state
 
 AGENTS_REL = Path(".rbtv") / "agents"
@@ -243,8 +244,11 @@ def _launch_flags(name: str, has: bool, given: dict | None) -> dict:
     return flags
 
 
-def _keys(names: list[str], catalog: dict, book: dict | None = None) -> set[str]:
-    return {file["key"] for name in names for file in resolve_name(name, catalog, book)["files"]}
+def _keys(names: list[str], catalog: dict, book: dict | None = None,
+          *, suggest_installed: bool = False) -> set[str]:
+    return {file["key"] for name in names
+            for file in resolve_name(name, catalog, book,
+                                     suggest_installed=suggest_installed)["files"]}
 
 
 def _agent_section(home: Path, harness: str, dry: bool) -> list[str]:
@@ -481,14 +485,14 @@ def remove_agent(root: Path, raw: str, names: list[str], packs: set[str], all_fi
     before = _keys(list(state["files"]), catalog, state.get("components")) | pack_files(catalog, set(state["packs"]))
     try:
         removed = (set(state["files"]) if all_files else
-                   _keys(names, catalog, state.get("components")))
+                   _keys(names, catalog, state.get("components"), suggest_installed=True))
     except Refuse as exc:
         if exc.code != "name-unknown":
             raise
         unknown = names[0] if names else ""
-        refusal = _refuse("name-unknown", f"unknown file {unknown!r}",
-                          "rbtv list")
-        refusal.candidates = getattr(exc, "candidates", [])
+        refusal = _refuse("name-unknown", f"unknown file {unknown!r}. "
+                          + close_names_sentence(exc.candidates), "rbtv list")
+        refusal.candidates = exc.candidates
         raise refusal from exc
     enabled = set() if all_files else set(state["packs"]) - packs
     explicit = set() if all_files else set(state["files"]) - removed

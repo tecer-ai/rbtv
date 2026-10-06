@@ -193,7 +193,7 @@ def ls_li_doctor(ctx) -> None:
     lij = json.loads(buf.getvalue())
     check("SURF-json-li-keys — installed list has same envelope",
           set(lij) == set(lsj)
-          and all(row["installed_files"] > 0 for row in lij["files"]),
+          and all(row["installed"] for row in lij["files"]),
           str(sorted(lij)))
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf), \

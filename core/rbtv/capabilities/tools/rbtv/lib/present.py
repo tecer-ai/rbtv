@@ -23,7 +23,7 @@ TYPE_MEANING = {
     "agent": "Agent a component ships; an rbtv agent or a harness-native sub-agent.",
     "hook": "Action triggered by a tool event.",
     "mcp-server": "Server an agent tool connects to for extra tools.",
-    "tool": "Runnable program exposed through a command shortcut.",
+    "tool": "Runnable CLI exposed through a command shortcut.",
     "folder-instructions": "Text added to a folder's instructions file.",
     "pack": "A named list of files a component declares.",
 }

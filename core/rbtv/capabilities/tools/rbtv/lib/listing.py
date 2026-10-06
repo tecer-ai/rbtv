@@ -3,6 +3,8 @@ installation's settings.
 """
 from __future__ import annotations
 
+import difflib
+import re
 from pathlib import Path
 
 from discovery import Refuse, file_rows
@@ -219,16 +221,7 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
                      "installed": True, "source_available": False,
                      "tree": "missing"})
     if "pack" in want_x or query or components or search:
-        for pack in catalog_packs(catalog).values():
-            rows.append({"id": pack["name"], "component": pack["component"],
-                         "module": pack["module"], "type": "pack",
-                         "description": (f"Declared by {pack['component']}. "
-                                         + _description(pack["description"], full)),
-                         "component_description": "", "module_description": "",
-                         "_search": pack["description"],
-                         "installed": pack["name"] in selected_packs(state),
-                         "source_available": True, "tree": pack["tree"],
-                         "files": list(pack["files"])})
+        rows += [_pack_row(pack, state, full) for pack in catalog_packs(catalog).values()]
     matched = []
     for row in sorted(rows, key=lambda file: file["id"]):
         if want_m and row["module"] not in want_m:
@@ -237,10 +230,7 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
             continue
         if want_x and row["type"] not in want_x:
             continue
-        file_id = row["id"].split("#", 1)[-1]
-        hay = " ".join((row["id"], file_id,
-                        row.get("_search", row["description"]))).casefold()
-        if words and not all(word in hay for word in words):
+        if words and not all(word in _search_text(row) for word in words):
             continue
         matched.append({key: value for key, value in row.items()
                         if key != "_search"})
@@ -267,6 +257,12 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
                            or (r["type"] == "pack" and r["component"] == owner)]
                 if chosen["kind"] == "component" and not want_x:
                     scope = "files"
+        elif installed and not want_x and not components:
+            # Every installed file across modules, then the packs that are on.
+            on = [_pack_row(pack, state, full) for pack in catalog_packs(catalog).values()
+                  if not want_m or pack["module"] in want_m]
+            matched += [{key: value for key, value in row.items() if key != "_search"}
+                        for row in sorted(on, key=lambda pack: pack["id"])]
         elif not want_x and not components:
             scope = "modules"
             matched = _group_rows(matched, "module")
@@ -283,10 +279,52 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
         page = [{k: v for k, v in row.items()
                  if k not in ("component_description", "module_description")}
                 for row in page]
-    return {"ok": True, "query": query, "scope": scope, "total": total,
-            "returned": len(page),
-            "limit": limit, "offset": offset,
-            "files": page}
+    out = {"ok": True, "query": query, "scope": scope, "total": total,
+           "returned": len(page),
+           "limit": limit, "offset": offset,
+           "files": page}
+    if search and not total:
+        out["did_you_mean"] = nearest_words(words, rows)
+    return out
+
+
+def _pack_row(pack: dict, state: dict, full: bool) -> dict:
+    """One pack as a row of the file listing; it is installed when it is on."""
+    return {"id": pack["name"], "component": pack["component"],
+            "module": pack["module"], "type": "pack",
+            "description": (f"Declared by {pack['component']}. "
+                            + _description(pack["description"], full)),
+            "component_description": "", "module_description": "",
+            "_search": pack["description"],
+            "installed": pack["name"] in selected_packs(state),
+            "source_available": True, "tree": pack["tree"],
+            "files": list(pack["files"])}
+
+
+def _search_text(row: dict) -> str:
+    """What a search word is matched against: the id, the name, the description."""
+    return " ".join((row["id"], row["id"].split("#", 1)[-1],
+                     row.get("_search", row["description"]))).casefold()
+
+
+# How many words a search with no hit suggests, and how short a word may be.
+NEAREST_WORDS = 5
+SHORTEST_WORD = 4
+
+
+def nearest_words(words: list[str], rows: list[dict]) -> list[str]:
+    """For a search that returned nothing: the words of the searched ids and
+    descriptions closest to each searched word that no row holds."""
+    texts = [_search_text(row) for row in rows]
+    vocabulary = sorted({word for text in texts
+                         for word in re.findall(r"[^\W_]+", text)
+                         if len(word) >= SHORTEST_WORD})
+    near: list[str] = []
+    for word in words:
+        if not any(word in text for text in texts):
+            near += [w for w in difflib.get_close_matches(word, vocabulary, n=NEAREST_WORDS)
+                     if w not in near]
+    return near[:NEAREST_WORDS]
 
 
 def _group_rows(rows: list[dict], field: str) -> list[dict]:
@@ -377,7 +415,10 @@ def print_list(data: dict) -> None:
              else present.render_table(headers, rows))
     for line in lines:
         print(line)
-    if not files and not data.get("searching"):  # search says "0 matches"
+    if not files and data.get("searching"):
+        near = data["did_you_mean"]
+        print("No file or pack matches." + (f" Did you mean: {', '.join(near)}?" if near else ""))
+    elif not files:
         print("No installed files in this target." if data.get("installed_only")
               else "No matching files.")
     if files:

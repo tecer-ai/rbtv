@@ -75,8 +75,9 @@ usage: rbtv list [-h] [--module MODULE] [--component COMPONENT]
 Browse the local source catalog. No NAME shows modules; a module shows its components; a component
   shows its files and any pack it declares; an exact name shows only that file. A pack is
   named only with --pack. NAME never searches descriptions. Use search for broad discovery.
-  Installed means recorded for this installation; use doctor to check the files. --installed shows
-  installed files, and packs that are on. Under the table, an installed agent is named with the
+  Installed means recorded for this installation; use doctor to check the files. --installed with
+  no NAME lists every installed file across modules in one table, then the packs that are on; with a
+  NAME it narrows inside that module or component. Under the table, an installed agent is named with the
   harnesses it is written for as a harness-native sub-agent, and the model and effort of each.
 
 A file id is module/component#name. A pack is a name. The listing names the component that declares
@@ -90,7 +91,7 @@ Types (--type; comma-separated or repeatable):
   agent                Agent a component ships; an rbtv agent or a harness-native sub-agent.
   hook                 Action triggered by a tool event.
   mcp-server           Server an agent tool connects to for extra tools.
-  tool                 Runnable program exposed through a command shortcut.
+  tool                 Runnable CLI exposed through a command shortcut.
   folder-instructions  Text added to a folder's instructions file.
   pack                 A named list of files a component declares.
 
@@ -135,7 +136,9 @@ usage: rbtv search [-h] [--module MODULE] [--component COMPONENT]
 Search names and descriptions in the local source catalog. Results are files and packs with full
   ids. A word matches any part of the id or the description, so a component name matches every entry
   in that component. Search does not choose anything. Use list NAME when you know an exact module,
-  component, file, or pack name. WORDS is required; an empty search is refused.
+  component, file, or pack name. WORDS is required; an empty search is refused. A search with no
+  hit prints no rows and up to five words of the catalog nearest to each word that matched nothing,
+  as "Did you mean: ...?"; with --json they are the list did_you_mean.
 
 Types (--type; comma-separated or repeatable):
   skill                Ability an agent can invoke for a task.
@@ -144,7 +147,7 @@ Types (--type; comma-separated or repeatable):
   agent                Agent a component ships; an rbtv agent or a harness-native sub-agent.
   hook                 Action triggered by a tool event.
   mcp-server           Server an agent tool connects to for extra tools.
-  tool                 Runnable program exposed through a command shortcut.
+  tool                 Runnable CLI exposed through a command shortcut.
   folder-instructions  Text added to a folder's instructions file.
   pack                 A named list of files a component declares.
 
@@ -190,7 +193,7 @@ Types (--type; comma-separated or repeatable):
   agent                Agent a component ships; an rbtv agent or a harness-native sub-agent.
   hook                 Action triggered by a tool event.
   mcp-server           Server an agent tool connects to for extra tools.
-  tool                 Runnable program exposed through a command shortcut.
+  tool                 Runnable CLI exposed through a command shortcut.
   folder-instructions  Text added to a folder's instructions file.
   pack                 A named list of files a component declares.
 
@@ -359,7 +362,7 @@ Types (--type; comma-separated or repeatable):
                         is written as a harness-native sub-agent.
   hook                  Action triggered by a tool event.
   mcp-server            Server an agent tool connects to for extra tools.
-  tool                  Runnable program exposed through a command shortcut.
+  tool                  Runnable CLI exposed through a command shortcut.
   folder-instructions   Text added to a folder's instructions file.
 
 First add in an installation needs both --harness and --guidance:
@@ -448,7 +451,7 @@ Types (--type; comma-separated or repeatable):
                         harness-native sub-agent.
   hook                  Action triggered by a tool event.
   mcp-server            Server an agent tool connects to for extra tools.
-  tool                  Runnable program exposed through a command shortcut.
+  tool                  Runnable CLI exposed through a command shortcut.
   folder-instructions   Text added to a folder's instructions file.
 
 Remove a named file:

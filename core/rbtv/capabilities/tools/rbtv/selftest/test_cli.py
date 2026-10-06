@@ -532,7 +532,8 @@ def cli_defects(ctx) -> None:
     refusal = json.loads(out) if escaped is None and out.strip() else {}
     check("D3-agent-next — an agent removal refusal names an unknown file and offers an agent-safe next command",
           escaped is None and code == 1
-          and refusal.get("error", {}).get("message") == "unknown file 'nosuchfile'"
+          and refusal.get("error", {}).get("message") == "unknown file 'nosuchfile'. No close name exists."
+          and refusal.get("error", {}).get("suggestions") == []
           and refusal.get("next") == "rbtv list",
           f"{escaped} / {code} / refusal={refusal!r}")
 
