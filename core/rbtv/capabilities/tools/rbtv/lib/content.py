@@ -19,6 +19,7 @@ from .constants import (
     TOML_BANNER,
     MANAGED_MARK,
 )
+from .link_paths import absolute_links
 
 
 def _yq(text: str) -> str:
@@ -120,16 +121,19 @@ def _is_ours(target: Path, rel: str) -> bool:
 
 
 def _content_for(rel: str, method: str, part: str, desc: str, entry: str,
-                 comp_dir: Path, entry_rel: str) -> str:
-    return _mark(_body_for(rel, method, part, desc, entry, comp_dir, entry_rel))
+                 comp_dir: Path, entry_rel: str, installation: Path | None) -> str:
+    return _mark(_body_for(rel, method, part, desc, entry, comp_dir, entry_rel,
+                           installation))
 
 
 def _body_for(rel: str, method: str, part: str, desc: str, entry: str,
-              comp_dir: Path, entry_rel: str) -> str:
+              comp_dir: Path, entry_rel: str, installation: Path | None) -> str:
     if method == "rule":
-        # Verbatim copy — CMP-12's fallback row is a mirror, not a pointer. The
-        # ONE addition is the ownership marker `_content_for` stamps on (D12).
-        return (comp_dir / entry_rel).read_text(encoding="utf-8")
+        # A copy — CMP-12's fallback row is a mirror, not a pointer. It differs
+        # from the source in its link targets, which open from where the copy
+        # sits, and in the ownership marker `_content_for` stamps on (D12).
+        return absolute_links((comp_dir / entry_rel).read_text(encoding="utf-8"),
+                              installation)
     if method == "skill":
         return _loader(part, desc, entry, "skill", named=True)
     if method == "command":

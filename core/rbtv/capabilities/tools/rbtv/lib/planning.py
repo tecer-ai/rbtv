@@ -32,8 +32,18 @@ from .content import (
     _opencode_mcp_entry,
     sub_agent_content,
 )
-from .state import _wanted_files
+from .link_paths import absolute_links
+from .state import _wanted_files, is_agent_target
+from .target import discover_installation
 from .recovery import vanished_component_message
+
+
+def _installation_of(target: Path | None) -> Path | None:
+    """The installation whose `.rbtv/` a file written under `target` reaches:
+    the target itself, or, for an agent folder, the installation above it."""
+    if target is not None and is_agent_target(target):
+        return discover_installation(target.parent)[0]
+    return target
 
 
 def plan_files(records: dict[str, dict], catalog: dict[str, dict],
@@ -56,6 +66,7 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
     sections: list[dict] = []
     report: dict = {"no_realization": [], "path_rows": [], "sub_agents_unset": []}
     codex_used = False
+    installation = _installation_of(target)
 
     def claim_file(rel: str, content: str, cid: str, pid: str) -> None:
         if rel in files and files[rel] != content:
@@ -212,7 +223,8 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                         (comp_dir / entry_rel).read_text(encoding="utf-8"))
                     sections.append({"owner": (cid, pid), "harnesses": readers,
                                      "label": f"rule {comp['module']}/{comp['component']}#{pid}",
-                                     "target": ".", "body": body.strip("\r\n")})
+                                     "target": ".",
+                                     "body": absolute_links(body.strip("\r\n"), installation)})
             for harness in harnesses:
                 template = MATRIX[method].get(harness)
                 if template is None:
@@ -224,7 +236,8 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                     continue
                 rel = template.format(name=pid)
                 claim_file(rel, _content_for(
-                    rel, method, pid, desc, entry_abs, comp_dir, entry_rel),
+                    rel, method, pid, desc, entry_abs, comp_dir, entry_rel,
+                    installation),
                     cid, pid)
 
     # ── D7/D12: shared-file claims, recomputed from the whole set ──

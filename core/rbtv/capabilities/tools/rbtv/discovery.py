@@ -119,6 +119,17 @@ def discover_skill_folders(root: Path, tree: str) -> dict[str, dict]:
     return found
 
 
+def module_folders(root: Path) -> list[str]:
+    """The names of the module folders directly under one tree root: each holds
+    its own `<module>.json`. [] when the root is absent."""
+    if not root.is_dir():
+        return []
+    return sorted(top.name for top in root.iterdir()
+                  if top.is_dir() and not top.name.startswith(".")
+                  and top.name not in {HUB_DIR, SKILLS_DIR}
+                  and (top / f"{top.name}.json").is_file())
+
+
 def scan_tree(root: Path, tree: str) -> dict[str, dict]:
     """Every component under one tree root, by id `<module>/<component>`:
     a folder holding its own `<component>.json`, inside a folder holding its own

@@ -16,6 +16,7 @@ from .constants import (AGENT_RECORD, EFFORT_INERT, GUIDANCE_FILE, HARNESSES, MA
                         SHARED_FILE_DESTINATIONS)
 from .files_key import files_key
 from .fsio import write_file
+from .link_paths import absolute_links
 from .operations import do_install, do_uninstall
 from .selection import _split_part_keys, iter_booked_files, iter_catalog_parts, resolve_name
 from .state import read_state, file_membership, write_state
@@ -406,7 +407,8 @@ def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: 
         placed = {"id": part["key"], "files": ["agent.md", AGENT_RECORD.name]}
         if not dry:
             home.mkdir(parents=True, exist_ok=True)
-            write_file(home / "agent.md", (source / "agent.md").read_text(encoding="utf-8"),
+            write_file(home / "agent.md",
+                       absolute_links((source / "agent.md").read_text(encoding="utf-8"), root),
                        newline="\n")
             write_file(home / AGENT_RECORD, json.dumps(state, indent=2) + "\n", newline="\n")
             state = agent_state(home)

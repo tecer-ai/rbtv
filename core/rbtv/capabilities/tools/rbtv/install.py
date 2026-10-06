@@ -57,6 +57,8 @@ ones above it, so there is no cycle:
     constants     every literal: names, paths, banners, harnesses, the matrix
     catalog       reading one discovered component record and its parts
     claims        one key or one fenced block inside a shared config file
+    files_key     the key `files` of a record, read from one that says `units`
+    link_paths    a link from the repository root or `.rbtv/`, made absolute
     content       rendering the body of every file written, recognising ours
     guidance      the root guidance mirror (D13)
     pathlinks     the `~/.rbtv/bin` shortcuts and the shell PATH line
