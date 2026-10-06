@@ -1,3 +1,7 @@
 # `path-owners.json`
 
-The [rbtv CLI](rbtv-cli.md)'s record, in [`~/.rbtv/`](rbtv-home-folder.md), of each command it placed on `PATH`: the tool's CLI that the command runs and the installations that installed it. A command is removed only when its last installation uninstalls it. CLIs read it; agents do not.
+`path-owners.json` is rbtv’s record of shared commands in [`~/.rbtv/`](rbtv-home-folder.md): each command’s executable and the installations that use it. Its [schema](../templates/path-owners-json.schema.json) defines the fields. Each installation’s selections belong in its own record, not here.
+
+Change ownership by adding or removing tools through [rbtv CLI](rbtv-cli.md); do not edit this record by hand. When the executable still exists, removing one installation’s selection keeps the command for its other owners; the last removal deletes it. If the recorded executable has disappeared, removal clears the broken command and its ownership entry even when other owners remain recorded.
+
+Use `rbtv doctor` to check this installation’s command ownership. To find claims belonging to absent installations, use `rbtv doctor --cleanup-audit` and follow its reported preview and release commands. An unreadable ownership record blocks command changes; repair the reported defect before retrying rather than discarding other installations’ claims.

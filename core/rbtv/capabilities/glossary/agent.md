@@ -9,7 +9,7 @@ Use an agent when work needs a separate context and a standing prompt must suppo
 A component supplies `agents/<name>/` containing:
 
 - `agent.md`: the prompt, with name-only frontmatter matching the folder name.
-- `agent.json`: the record, with the same name, its description and any installation selections allowed by the [agent-record schema](../templates/agent-json.schema.json).
+- `agent.json`: the record, with the same name, its description and any installation selections. Follow [Agent record](agent-json.md) when writing or changing the record.
 
 Write the prompt using [Prompt](prompt.md). A shipped record contains no harness, model or effort choice; those belong to the installation. Keep machine-specific paths, accounts, channels and credentials out of both source files.
 

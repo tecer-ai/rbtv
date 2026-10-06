@@ -8,7 +8,7 @@ It contains this installation's mirror, configuration, agents found by name, and
 
 ## What good looks like
 
-- The only hand-written pieces are [`mirror/`](mirror.md) and each agent's `agent.md`, [`agent.json`](agent-json.md), and [`settings.json`](settings-json.md). [`config/`](config.md) and the generated files of each agent match the last `rbtv` run. [`runtime/`](runtime.md) contains only data written while components run; an agent's live data stays in its agent folder.
+- The only hand-written pieces are [`mirror/`](mirror.md) and each agent's `agent.md`, [`agent.json`](../glossary/agent-json.md), and [`settings.json`](settings-json.md). [`config/`](config.md) and the generated files of each agent match the last `rbtv` run. [`runtime/`](runtime.md) contains only data written while components run; an agent's live data stays in its agent folder.
 - A human and an agent repair it by running rbtv. No step needs a control only a human can use ([Agent parity](../principles/agent-parity.md)).
 
 ## Making it good

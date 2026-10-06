@@ -8,4 +8,4 @@ It contains the commands that make tools runnable through `PATH`, and the record
 
 ## What good looks like
 
-- Every command in `bin/` has an entry in [`path-owners.json`](path-owners-json.md), and every entry has its command.
+- Every command in `bin/` has an entry in [`path-owners.json`](../glossary/path-owners-json.md), and every entry has its command.

@@ -57,6 +57,8 @@ A pack generates no file of its own. `rbtv add --pack NAME` installs its members
 
 ## Select the target and placement
 
+To configure an installation before selecting files, use `rbtv configure --harness HARNESS --guidance BASIS`. Choose `none` when no maintained folder-instructions file exists; `CLAUDE.md` or `AGENTS.md` must already exist at the target root when selected as the basis.
+
 For a file not yet installed, use `rbtv add NAME`. The first add also needs `--harness` (`claude`, `codex` or `opencode`) and `--guidance` (`CLAUDE.md`, `AGENTS.md` or `none`). Later adds may omit those settings.
 
 Use `--target D` to select the installation explicitly, especially for a test. Without it, selection is:

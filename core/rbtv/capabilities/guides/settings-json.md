@@ -9,7 +9,7 @@ It gives the agent values its tasks use but its prompt should not carry, such as
 ## What good looks like
 
 - Each value is one some task of this agent uses; a value with no use today is not added ([Keep it simple](../principles/keep-it-stupidly-simple.md)).
-- No value repeats something the agent file, [`agent.json`](agent-json.md), or another file already contains ([Single source of truth](../principles/single-source-of-truth.md)).
+- No value repeats something the agent file, [`agent.json`](../glossary/agent-json.md), or another file already contains ([Single source of truth](../principles/single-source-of-truth.md)).
 - Keys are grouped by tool or concern: one top-level key for each, so a reader finds a tool's values in one place.
 - Every path is written relative to the installation root, so values work on each machine. The file is per machine and not shared through git.
 - No secret is written in it: it names the environment variable that contains one.

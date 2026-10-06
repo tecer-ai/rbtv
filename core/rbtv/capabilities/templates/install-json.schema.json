@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "install.json",
-  "description": "The install record at .rbtv/config/install.json: what rbtv installed in one target folder. Written and read only by rbtv.",
+  "description": "The install record at .rbtv/config/install.json: what rbtv installed in one target folder. Maintained by rbtv; authors may edit selections and apply them through the documented refresh.",
   "type": "object",
   "required": [
     "schema",

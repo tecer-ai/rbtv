@@ -81,6 +81,9 @@ Then read every matching conditional page:
 | [Module record](../capabilities/glossary/module-json.md) | Module description record | Write the module’s listing record | creating, editing or converting `<module>.json` | only files inside an existing module change |
 | [Component record](../capabilities/glossary/component-json.md) | Description and external dependencies | Write the component’s record | creating, editing or converting `<component>.json` | only files inside an existing component change |
 | [Tool record](../capabilities/glossary/tool-json.md) | Executable reference and listing description | Make the intended program available by name | creating, editing or converting `<tool>.json` | only the program body changes |
+| [Agent record](../capabilities/glossary/agent-json.md) | Author selections and installed setup | Maintain an agent’s record | writing or changing `agent.json` | only the prompt body changes |
+| [Installation record](../capabilities/glossary/install-json.md) | Root selection and generated-file ownership | Maintain an installation’s selections | working with `install.json` | only component source changes |
+| [Command ownership record](../capabilities/glossary/path-owners-json.md) | Commands shared by installations | Check ownership and release obsolete claims | working with shared command ownership | only writing a tool’s program |
 | [Schema](../capabilities/glossary/schema.md) | Validator constraints and actual callers | Enforce the record’s contract | writing or changing a schema or adding a record field | only filling an existing record |
 | [Template](../capabilities/glossary/template.md) | Layout and placeholders | Fill the required structure | writing or filling a page’s template |  |
 | [Principle](../capabilities/glossary/principle.md) | Cross-kind design tests | Settle recurring design choices | writing or changing a principle | only applying an existing principle |

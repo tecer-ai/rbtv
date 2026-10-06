@@ -1,9 +1,11 @@
 # `install.json`
 
-The record of the installation root: the file in [`.rbtv/config/`](config.md) that contains the root's chosen units and packs, the harnesses that receive its files, and the record of the files the [`rbtv` CLI](rbtv-cli.md) generated for it. The root is an [rbtv agent](agent.md#rbtv-agent) with no `agent.md` and no stored harness, model or effort: the person chooses them when they open it. Its fields are defined by its [schema](../templates/install-json.schema.json), and they are the same as an agent's [`agent.json`](agent-json.md) except that it has no `name`, `description`, `harness`, `model`, `effort` or `voice`. It has `harnesses`, a list, instead.
+`install.json` is the installation root’s record at `.rbtv/config/install.json`. It holds the selected files and packs, receiving harnesses and rbtv’s record of generated files and shared-file ownership. rbtv uses it to distinguish what it may update or remove from the author’s own files.
 
-Who writes which field: `rbtv configure` creates the file and writes `harnesses`; `rbtv add` and `rbtv remove` change its `files` and `packs`; rbtv writes the record of generated files. A person may also edit it by hand; a hand edit is applied by `rbtv update all`.
+Use the [schema](../templates/install-json.schema.json) for its fields and [rbtv CLI](rbtv-cli.md) for setup and changes. The first configuration or add creates the record. An agent folder uses [agent.json](agent-json.md) instead; the root has no stored model or effort for its interactive sessions.
 
-The file contains nothing tied to one machine: no absolute path and no timestamp. It is not shared through git. It stays on each machine, and a machine that has the root's units runs `rbtv update all` to make its folder match.
+Change selections through rbtv or edit the selection fields and apply the refresh specified by rbtv CLI. Editing the record alone does not change the generated files. Applying a selection also removes generated files no longer selected. Leave rbtv’s generated-file and ownership records to the software; do not maintain a second installation list.
 
-The file also books ownership of shared-file keys and sections; per-unit generated files carry `rbtv-managed`, guidance copies carry a generated banner, and PATH shortcuts have a separate [`~/.rbtv/path-owners.json`](path-owners-json.md) record. CLIs read the record; the `rbtv` CLI reads it to update or remove what it generated.
+Keep this record on its machine and exclude it from git. Keep absolute paths and timestamps out of it. Each machine maintains its own installation selections, while [path-owners.json](path-owners-json.md) records commands shared by installations on that machine.
+
+After changing a selection, check the installed listing and generated files. Run `rbtv doctor` to check them against the saved record; merely accepting an edit does not prove the folder matches it.
