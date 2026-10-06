@@ -247,7 +247,7 @@ class Slack {
     if (name.includes('/') || name.includes('\\')) {
       throw new Error('Slack stoolsWorkspace must be a workspace name, not a path');
     }
-    const { stdout } = await this.run(this.config.stools, [...args, '--installation', name],
+    const { stdout } = await this.run(this.config.stools, [...args, '--workspace', name],
       { maxBuffer: 8 * 1024 * 1024 });
     return stdout;
   }
