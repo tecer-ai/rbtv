@@ -1,108 +1,49 @@
 # Scaffolding language
 
-Scaffolding language governs how every text of an agent's scaffolding¹ is worded, so that its reader understands at the first reading exactly what the writer meant, and knows what to do. Its goals are clarity, objectivity, eloquence, consistency and actionability. A shorter text is a by-product of these goals. It is never a goal.
+Scaffolding language is the writing standard for instructions and reference material an agent reads. Use literal, natural language so the reader understands what to do on the first reading.
 
-The scaffolding is everything an agent is exposed to, its prompt included: a prompt, a skill, a rule, a command, folder instructions, folder artifacts and capabilities. The reader of such a text is an agent in the middle of its work, or the person who owns the text. Neither can ask the writer what a sentence meant. The agent acts on what it understood: a sentence that it misreads becomes a wrong action, and a sentence that it did not need takes its attention from the sentences that it needs.
+This includes prompts, skills, rules, commands, folder instructions, folder artifacts and capabilities. Preserve the facts, requirements and reasoning needed for the work. Length alone does not establish quality.
 
-Scaffolding language governs wording. It does not reduce what a text makes its reader think about. A text written in scaffolding language:
+## Write the action directly
 
-- still states what its subject is for, the situation in which it is used, and what its reader has to weigh;
-- states a point that is subjective as an instruction or a fact that a reviewer can check;
-- never leaves a point out because it is hard to word. A text that keeps only a list of files and steps is missing something that its reader needs.
+Name the actor, action and object. State a condition before the action it controls. Use a list for independent items and prose when one sentence explains the next.
 
-## How to apply it
+For example: “Use a skill when an agent needs instructions for a particular kind of task but does not need them on every task.” State the instruction directly. Do not describe what an author would want or soften a requirement with “should ideally”; the reader can treat either as optional.
 
-You know what each of your sentences was meant to say, so reading your text again does not show you which sentence fails. Apply the tests of each goal to each sentence.
+Use ordinary words in their ordinary senses. Use glossary terms for the concepts they define, without inventing synonyms or shortening the terms. A pronoun is suitable when its referent is unambiguous. Do not repeat the full subject just to make every sentence stand alone.
 
-**Clarity: the reader understands the sentence at the first reading, in the meaning that you gave it.**
+Replace a metaphor with the literal action. Established expressions such as “a link points to a page” need no rewriting. Split a sentence when a reader must resolve several nested clauses to find its action; do not replace connected prose with fragments.
 
-- Name the thing and the action in their literal words. A figure of speech makes the reader translate, and two readers translate it differently. The test: read the verb literally, and when its subject cannot do that action, write the action that you mean. An established verb of computing or of editing passes the test: a file contains a field, a link points to a page, a CLI reads a file. Weak: "The summary is the front door of the report." Strong: "Put the conclusion in the first sentence of the summary, because most readers read only that sentence."
-- Name each thing with an ordinary word, with a term of the glossary in its glossary meaning, or with a word that you define in the sentence that first uses it. A label that you invent sends the reader back through the text to find what it means.
-- Use each word in the sense that a reader gives it first. A common word in a new sense passes the test of the literal verb and still stops the reader, who takes the usual sense and then has to correct it. Take the word that people already use for the thing, and write a verb where a noun only names an occasion: "when" in place of "the moment at which". Give no word two senses in one text or in two texts of one set. Keep "that" after a noun: "the file that the CLI writes", not "the file the CLI writes". Weak: "At each opening of the file, the opening says what a line is." Strong: "Each time an agent reads the file, its first lines say what a line is."
-- Name another page by its title, in quotes, with the number of its row in the table of references, raised: the page "Writing a report"². A title that is used as a word of the sentence reads as part of the sentence. Weak: "Decide it with the capability choosing what to send." Strong: "Decide it with the page "Choosing what to send"³." Add a new reference at the end of the table, so that no number changes.
-- Let a pronoun stand only for a noun that the reader can name without searching. Weak: "Compare the note with the list and correct it." Strong: "Compare the note with the list and correct the list."
-- Write the step between a claim and the instruction that follows from it. After each claim, ask "why?" and "what does the reader do then?", and write each answer that the reader cannot supply.
+## State requirements that can be applied
 
-**Objectivity: each sentence is a fact, a condition or an instruction that a reviewer can check.**
+Write the action or result instead of an appeal for care. For example, “Name every changed file” states a requirement; “make the report thorough” leaves the requirement undefined.
 
-- Replace a request for a quality, an emphasis or a reminder with what a reviewer could observe. Weak: "Make sure the report is thorough." Strong: "State the result in the first sentence of the report, and list every file that you changed."
-- Write a point that is subjective as the criterion that decides it. Weak: "Use good judgment about when to stop searching." Strong: "Stop searching when two searches in a row return nothing new."
-- Check a claim about what a CLI or an agent does before you write it: in the CLI's code, in its help output, in the file itself, or in a run that you observed. A claim that is true of some cases names those cases.
+Do not turn a subjective preference into an invented numerical threshold. For decisions, use the defaults and conditions required by [Keep it stupidly simple](../principles/keep-it-stupidly-simple.md). State the evidence that determines a choice and what happens when the evidence is missing.
 
-**Eloquence: the text is fluent, connected prose.**
+Verify statements about software in its source, help or an observed run. Qualify platform-specific behavior and retain explicit uncertainty where it has not been verified.
 
-- Write complete sentences that follow from one another, and give each instruction its reason, in the same sentence or in the next one. A list of fragments gives the reader the steps and none of the reasoning that connects them.
-- Put one statement in one sentence. Split a sentence at its third clause that begins with "that", "which" or "whose", and split one in which such a clause sits inside another. State the subject first. Weak: "The fault that a summary corrects is a report that a reader who has ten minutes does not finish." Strong: "A summary corrects one fault. A reader who has ten minutes does not finish the report."
-- Give several faults, or several cases, one sentence each, or one item of a list each. A chain of "or" and "so" makes the reader keep every part in mind until the last one.
-- Use a list for items of one kind. Use prose where one sentence depends on another.
-- Do not repeat the subject in every sentence so that each one can be read alone. Weak: "The report names the file. The report gives the line. The report states the fault." Strong: "The report names the file, gives the line and states the fault."
+## Keep explanations and examples for specific needs
 
-**Consistency: one word for one thing, and one construction for one kind of statement.**
+Start with the instruction and its conditions. Do not append a reason that repeats them. Retain an explanation when it supplies a fact needed to apply the instruction outside the named example, or addresses an identified mistake in existing work or tests. Put the explanation beside the instruction that uses it, once.
 
-- Use the same word for the same thing in the whole text, and the glossary's term when the glossary has one. A second word for the same thing reads as a second thing.
-- Write one kind of statement the same way each time: an instruction as an order, a condition with "when" before the instruction that it governs, a choice as "choose X when ...; otherwise Y".
-- Consistency between two files is not a matter of wording: the page "Single source of truth"² governs a fact that another file owns.
+Do not add examples by default. Show one minimal correct example when an exact output format must be learned. Use a contrasting pair to demonstrate a specific mistake identified in existing work or tests. Explain a consequence only when the contrast does not show it. Do not add a pair merely because a section exists, and do not shorten a correct example until it loses a requirement.
 
-**Actionability: after each sentence, the reader knows what to do, or knows a fact that changes what it does.**
+For example:
 
-- Write an instruction as an order to the reader, with its reason. Do not soften it and do not narrate it, because the reader takes a softened or a narrated sentence as optional. Weak: "The report should ideally be sent before the task is closed." Strong: "Send the report before you close the task, because nobody reads a report that arrives after the decision."
-- Say when an instruction applies, unless it applies always.
-- State the purpose before the first instruction, and give an instruction its reason when the reason decides a case that the instruction does not name. A reader that has only the steps cannot decide such a case.
+> List a decision only when the note records it as settled. Record an unresolved choice as an open question.
 
-**The by-product: a shorter text.**
+This states the criterion and both actions. It needs no additional sentence saying that unsettled choices are not settled decisions.
 
-- Delete a sentence when the reader would do the same without it, because it takes attention from the sentences that the reader needs. Complete "without this sentence, the reader does ...". When the answer is "the same", delete the sentence.
-- State a fact once in a text. Each copy passes the test above alone, so search the text for the fact.
-- Never delete one of these, and never shorten it until it says less: a fact that changes what and how the reader decides; the purpose of the thing, or the situation that it is for; a step of reasoning that the reader cannot supply; a decision that you made and that the reader would otherwise make differently; a reason without which the reader would apply an instruction to a case that it does not cover, or would not apply it to a case that it covers.
-- Never judge a text by its length. Before you cut a sentence, name what the reader loses with it. When the reader loses something, the sentence stays.
+## Remove repetition without removing requirements
 
-Checks:
+Keep a fact or instruction in one place. Follow [Single source of truth](../principles/single-source-of-truth.md) when another page owns it. An entry may rely on the framework's required prior reading; it must still route to any additional guidance needed for its task.
 
-- This search, ignoring case, returns no match outside a quoted weak line or a copy of the pattern. Each word in it names a quality or asks for care, and names nothing that the reader can do.
+Delete repeated restatements, commentary about how the document is organized, and explanations that add no condition, fact or consequence. Preserve the purpose, required inputs, limits, exceptions and actions on missing information. Moving an instruction to its owner is not deleting the requirement: the reader must still reach it before acting.
 
-```text
-\b(clear|clearly|concise|robust|proper|properly|appropriate|appropriately|effective|effectively|comprehensive|high-quality|well-structured|important|crucial|essential|very|really|ensure|make sure|be careful|carefully|remember to|note that|keep in mind|best practices?|simply|seamless|leverage)\b
-```
+Use direct Markdown links for references. A reference used in an instruction says when to read the target and what to take from it. Use a table when several conditional readings must be compared. Do not repeat a routing instruction in prose and in a table.
 
-- This second search, ignoring case, returns no match outside a quoted weak line or a copy of the pattern. Each word in it was used in texts of the scaffolding in a sense that readers did not expect, and an ordinary word says the same.
+Words such as “clear” or “appropriate” are not banned. They cannot substitute for an action or criterion. Review their meaning in context rather than passing a document because a word search found nothing.
 
-```text
-\b(openings?|holds?|held|holding|the lack|the moment at which|moments? at which|behind (a|an|one|the|each)|only looks right|stated from|takes? for|the send|landing|arrivals?|a time (that )?(reads|follows|needs|meets|edits|searches))\b
-```
+## Review
 
-| In place of | Write |
-|---|---|
-| "an opening", "an arrival", for one reading of a file | "each time an agent reads the file", "a run" |
-| "hold", for what a file or a page has in it | "contain", "have", "say" |
-| "the lack" | "what the reader lacks" |
-| "the moment at which" | "when" |
-| a file "behind" a row or a page | "the row names the file and says when to read it" |
-| a thing that "only looks right" | "is accepted and still fails" |
-| "stated from" | "based on" |
-| "the send", "a landing", for a sentence that names the next file | "the row", "the sentence that names the file" |
-| "a time" that reads or follows | "an agent that is editing", "when the agent searches" |
-
-- Give the text to a reader who has not seen it, and ask what the text tells that reader to do. The answer is what you meant.
-
-## Example
-
-Good: one instruction.
-
-```text
-List a decision only when the note records it as settled. A choice that the note does not settle is an open question, or is left out: a decision that you infer, and that the note does not record, is a false record.
-```
-
-Nearest bad: the same instruction, as it is usually worded.
-
-```text
-Be laser-focused on real decisions. Don't let wishful thinking sneak into the list! IMPORTANT: make sure every decision is rock solid.
-```
-
-Clarity fails: "laser-focused", "sneak into" and "rock solid" are figures that the reader has to translate, and "real decisions" is never defined. Objectivity fails: "IMPORTANT: make sure" is emphasis, and a reviewer cannot check "rock solid". Eloquence fails: the three sentences do not follow from one another, and none gives a reason. Actionability fails: the reader is not told what to do with a choice that the note leaves open. The good version says what makes a decision listable, what becomes of the other choices, and why. Its reason lets the reader decide a case that the instruction does not name, such as a decision that one participant reports and the note does not confirm.
-
-## References
-
-| # | Page | File | Read | When | To |
-|---|---|---|---|---|---|
-| 1 | Scaffolding | [scaffolding](scaffolding.md) | when | deciding whether a text that you are about to write is covered by this page | take what an agent's scaffolding is |
-| 2 | Single source of truth | [single source of truth](../principles/single-source-of-truth.md) | when | a sentence states a fact that another file owns | link the owner, and keep the two consistent |
+Read the instructions in the order their user encounters them, including required prior pages. Check for an unclear actor, ambiguous condition, missing action, duplicated requirement or unsupported claim. Ask a reader unfamiliar with the draft what it would do; correct any difference from the intended action. A shorter draft fails if it makes that reader reconstruct a requirement that was explicit before.

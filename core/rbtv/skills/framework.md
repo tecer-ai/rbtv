@@ -1,88 +1,83 @@
 ---
 name: framework
-description: "CONTAINS: the map of where a file of rbtv sits, and the choice among the pages for building, editing, reviewing and converting it PURPOSE: the work follows the page for that file, so the file is not written from memory ALWAYS LOAD WHEN: the task builds, reviews, edits or converts a skill, a command, a rule, an agent, folder instructions, a hook, an MCP server, a tool, a module, a component or another file under rbtv/ or .rbtv/, converts an outside document to the standards of rbtv, or the task is how to develop such a file before that conversation starts DO NOT LOAD WHEN: the task uses or installs what already exists and does not change a source file"
+description: "CONTAINS: rbtv source layout and routes to authoring guidance PURPOSE: create, edit, review and convert files using the guidance for their kind ALWAYS LOAD WHEN: authoring a skill, command, rule, agent, folder instructions, hook, MCP server, tool, module, component or another rbtv or .rbtv source; converting outside material to rbtv; discussing how to develop it DO NOT LOAD WHEN: using or installing existing material without changing its source"
 ---
 
-After this skill opens, read the map, then the table, and follow each page that a matching row names. Do not build, edit, review or convert a file of rbtv from this file alone. This file has the map of where a file sits, and the choice of which page to read. It does not have the method of any one kind. The task names the file and the kind.
+Use this skill to create, edit, review or convert rbtv files. Read the mandatory pages below, then every conditional page that matches the work. Follow those pages for the method; this skill supplies the map and reading route.
 
-## What rbtv is
+## What rbtv provides
 
-rbtv is the conventions and the CLI for the files an agent is exposed to ("is the conventions and the CLI for the files" isso que eu falo de linguagem estranha.. tem texto que não faz sentido, não comunica nada.. o que signigica ser a convencao e o programa para os arquivos que um agente é exposto? a frase não tem sentido.), and for the agents those files belong to. The rbtv CLI recognizes the kind of a file from the folder that the file sits in, and exposes it as that kind. It does not expose a file because an author listed it.
+rbtv defines conventions for agent instructions and installs them for supported harnesses. The installer recognizes each kind by its source folder and filename. Authors edit the source; generated harness files are replaced from it.
 
-Write the source in the repository, or in `.rbtv/mirror/`. Do not write a file that the rbtv CLI generates for a harness. The rbtv CLI writes that file from the source, and replaces it from the source. When the work changes a file that the rbtv CLI has written for a harness, change the source.
+Write shared components in the repository. Write installation-specific components in `.rbtv/mirror/`, with the same layout. A mirror component replaces the entire repository component with the same module and component names. Components do not belong in `.rbtv/config/`, `.rbtv/agents/`, `.rbtv/runtime/` or `.rbtv/memory/`.
 
-A skill, a command, a rule and folder instructions are the files a harness injects. Do not place one of those inside another. A row of the table names a page, not one of those four.
+A module is `<module>/` with `<module>.json`; a component is `<module>/<component>/` with `<component>.json`. Inside a component:
 
-## Where a file sits
+| Kind | Source |
+|---|---|
+| Skill, rule, command | `skills/<name>.md`, `rules/<name>.md`, `commands/<name>.md` |
+| Agent | `agents/<name>/agent.md` and `agent.json` |
+| Hook, MCP server, pack | `hooks/<name>.json`, `mcp-servers/<name>.json`, `packs/<name>.json` |
+| Tool | `capabilities/tools/<name>/<name>.json` and its executable |
+| Folder instructions | `folder-instructions/<name>.md` |
+| Capability | Markdown under `capabilities/`; read from source, not installed |
+| Glossary entry | `capabilities/glossary/<term>.md` in the owning component |
+| rbtv principle | `core/rbtv/capabilities/principles/<name>.md` |
 
-The rbtv CLI creates `.rbtv/` in the installation root, and it scans `.rbtv/mirror/` together with the repository. A component written for this installation goes in `.rbtv/mirror/`, in the same layout as a component in the repository. When a mirror component and a shipped component have the same module name and the same component name, the mirror component replaces the shipped one as a whole. The files are not merged.
+A self-contained skill folder with `SKILL.md` and supporting files is allowed only under `.rbtv/mirror/_skills/<name>/`. There is no repository `_skills/` folder and no source-folder index such as `capabilities.md`, `principles.md` or `glossary.md`.
 
-A skill that is a folder, with `SKILL.md` and the files beside it, is written only at `.rbtv/mirror/_skills/<name>/`. The rbtv CLI reads that folder only in the mirror. The repository has no `_skills/` folder.
+A skill, command, rule or folder-instructions file routes to capabilities, not to another exposure method. Do not nest those installed forms inside one another.
 
-Do not write a component under `.rbtv/config/`, `.rbtv/agents/`, `.rbtv/runtime/` or `.rbtv/memory/`. The rbtv CLI does not scan those folders for a component.
+## Read for this work
 
-A module is a folder `<module>/` with the record `<module>.json`. A component is a folder `<module>/<component>/` with the record `<component>.json`. Write each file in the folder the rbtv CLI scans for that kind:
+Apply the same routes in create, edit, review and convert modes; there is no separate page per mode. Read mandatory pages first. For conditional rows, match the work and honor the exclusion. If [Choosing what to build](../capabilities/choosing-what-to-build.md) settles a different kind from the request's wording, follow the settled kind's row too.
 
-- a skill is `skills/<name>.md`
-- a rule is `rules/<name>.md`
-- a command is `commands/<name>.md`
-- an agent is the folder `agents/<name>/`, with `agent.md` and `agent.json`
-- a hook is `hooks/<name>.json`
-- an MCP server is `mcp-servers/<name>.json`
-- a pack is `packs/<name>.json`
-- a tool is `capabilities/tools/<tool>/<tool>.json` and the CLI that the record names
-- folder instructions are `folder-instructions/<name>.md`
-- a capability, a principle or a glossary entry is a markdown file under `capabilities/`. The rbtv CLI does not install that file. A route reads it in the source. A glossary entry goes in that component's `capabilities/glossary/`. A principle of rbtv goes in `capabilities/principles/` of this component.
+On create or conversion, start in the user's named module and component and use [Choosing where to build](../capabilities/choosing-where-to-build.md) to check its boundary. Object only for a boundary violation. Editing an existing file does not reopen placement.
 
-There is no index file for a folder. Do not write `capabilities.md`, `principles.md` or `glossary.md`. The table names each page.
+If a required page is absent, report the missing path and stop that work. Do not substitute an older entry or build from this folder map alone. If no row covers the intended kind, ask for the missing definition rather than guessing.
 
-## Which page to read
+Read these pages on every use, before the conditional readings:
 
-This skill is for four modes: create, review, edit and convert. The same table serves the four modes: the conditions of a row say when a mode reads it. Do not look for a page for a mode.
+- [Scaffolding language](../capabilities/glossary/scaffolding-language.md): Instructions understood on first reading.
+- [Keep it stupidly simple](../capabilities/principles/keep-it-stupidly-simple.md): Remove unnecessary work and cognitive load.
+- [Terminology is king](../capabilities/principles/terminology-is-king.md): Use one meaning consistently.
+- [Single source of truth](../capabilities/principles/single-source-of-truth.md): Maintain each in one home.
+- [Deterministic first](../capabilities/principles/deterministic-first.md): Use computed results for exact work.
+- [Progressive disclosure](../capabilities/principles/progressive-disclosure.md): Supply each method when needed.
+- [Agent parity](../capabilities/principles/agent-parity.md): Provide equivalent executable paths.
 
-The kind of the file is the one that the page "Choosing what to build" settles. When that kind differs from the word in the task, follow the settled kind: a task that names a skill and needs an exact answer also reads the row of the tool. Read a row when its situation matches and its exclusion does not match. Read every row that says every reading before the other rows. When no row matches the kind the task names, stop and say what the task must name. Do not guess a kind.
-
-When the user has named the module and the component, start in that folder. On a create or a convert, still read the page "Choosing where to build", and object only when that page says the named place breaks the boundary. Do not read that row on an edit.
-
-When a row's file is absent, stop. Say which page is missing. Do not open an older page for that term, and do not write the file from the folder list alone.
+Then read every matching conditional page:
 
 | File | CONTAINS | PURPOSE | ALWAYS LOAD WHEN | DO NOT LOAD WHEN |
 |---|---|---|---|---|
-| [Scaffolding language](../capabilities/glossary/scaffolding-language.md) | the wording tests for every sentence written in scaffolding | a sentence written on this load is understood at the first reading, and the next action is known | every reading of this file | |
-| [Keep it stupidly simple](../capabilities/principles/keep-it-stupidly-simple.md) | what to leave out, and what leaving it out must not drop | the work solves the task and adds nothing the task did not require | every reading of this file | |
-| [Terminology is king](../capabilities/principles/terminology-is-king.md) | one term for one meaning, and the place that defines it | a name in the work is that term in that meaning, or a word defined where it first appears | every reading of this file | |
-| [Single source of truth](../capabilities/principles/single-source-of-truth.md) | the one home of a fact, an instruction, a setting or an operation | the work links that home and does not keep a second copy | every reading of this file | |
-| [Deterministic first](../capabilities/principles/deterministic-first.md) | the split between a step a tool answers and a step that needs a judgment | an exact step names a tool, and a judgment stays with the agent | every reading of this file | |
-| [Progressive disclosure](../capabilities/principles/progressive-disclosure.md) | when a text reaches an agent, and what stays unread until a route names it | this task has in front of the agent only the text the task needs | every reading of this file | |
-| [Agent parity](../capabilities/principles/agent-parity.md) | the requirement that an agent can take each action a human can take on state both use | the work adds no control that only a human can use | every reading of this file | |
-| [rbtv CLI](../capabilities/glossary/rbtv-cli.md) | what the rbtv CLI reads, writes and refuses, and how it is run | a file that the rbtv CLI should recognise is written so that it does, and a run follows that page | the work creates or converts a file, changes the rbtv CLI, or reviews or edits a file in a folder the rbtv CLI scans | the work changes only the body of a page under `capabilities/` that the rbtv CLI does not read, and does not move that file or change its name |
-| [Choosing what to build](../capabilities/choosing-what-to-build.md) | the choice of which kind of file carries the content | the kind is settled before a file of that kind is written | the work creates, reviews or converts a file | the work is an edit |
-| [Choosing where to build](../capabilities/choosing-where-to-build.md) | the choice of module and component, in the repository or in the mirror | the file is written in the component whose boundary contains the work | the work creates or converts a file | the work is an edit |
-| [Nested exposure](../capabilities/nested-exposure.md) | when several capabilities belong under one skill, one command, one rule or one folder-instructions file | one of those four stands for the set, and a capability is opened only for its case | more than one capability would be reached from one skill, one command, one rule or one folder-instructions file, in any of the four modes | one capability is exposed through one of those four |
-| [Building from a conversation](../capabilities/building-from-a-conversation.md) | how a conversation that already happened becomes a file of rbtv | the file keeps what the conversation settled, and does not add a method the conversation did not use | the work creates a file from a conversation that already happened | the conversation has not happened: read the page "Tips development" |
-| [Tips development](../capabilities/tips-development.md) | how to develop with an agent before the conversation starts | the next conversation is set up before it starts | a conversation is about to start, or is going on, and what it teaches has to be recorded as it goes | the conversation has already happened and the user asks to keep it as a file: read the page "Building from a conversation" |
-| [Writing a glossary entry](../capabilities/writing-a-glossary-entry.md) | how to write the one page that defines a term | that page is written or corrected in the same change as the file it describes | the work creates, edits or converts a glossary entry, or the file being built is a term that has no page | the work does not add or change a term's page |
-| [Writing a capability](../capabilities/writing-a-capability.md) | how to write a page with a method or with knowledge that an exposure method sends the agent to | that page does the work that remains after the route | the work creates, edits or converts a capability, or the task calls it a procedure | the page defines a term: read the page "Writing a glossary entry" |
-| [Capability](../capabilities/glossary/capability.md) | what a capability is, and how its instructions are written from what the route passed | the agent that arrives by a route does the work with what the route passed | the task names a capability, or the kind is settled as a capability | the task names a skill, a command, a rule or folder instructions, and does not name a capability |
-| [Cognitive unit](../capabilities/glossary/cognitive-unit.md) | how the instructions of a skill, a rule, a command or a prompt are written | the instructions do the work on a task that the author did not have in front of them | the work writes or changes the instructions of a skill, a rule, a command or a prompt | |
-| [Routing table](../capabilities/glossary/routing-table.md) | the form of a description and of a table that names files | a reader loads the right file from the description or from the row | the work writes or changes a description, or a table that names files | |
-| [Entry point](../capabilities/glossary/entry-point.md) | how the body of a skill, a rule, a command or folder instructions is divided between its own text and a table | every reading has what it needs, and one case opens one file | the file names other files, or has text that every reading needs | |
-| [Exposure method](../capabilities/glossary/exposure-method.md) | who decides that a skill, a command, a rule or folder instructions reaches the agent | the content reaches the agent by the method whose decider fits it | the work chooses among a skill, a command, a rule and folder instructions | |
-| [Prompt](../capabilities/glossary/prompt.md) | how to write the standing text of an agent, section by section | the agent does every task of its work from the prompt and the task alone | the task names a prompt, or the work writes or changes the `agent.md` of an agent | the work changes only the record or the description of the agent: read the page "Agent"; the work writes the text of one launch: read the page "Task" |
-| [Skill](../capabilities/glossary/skill.md) | how to write the one file that the agent opens from a description, including a file that routes | the agent does the skill's work on a task that did not type the name, and a neighbor task does not open it | the task names a skill, or the kind is settled as a skill | the task names a command, a rule, an agent, folder instructions, a hook, an MCP server or a tool, and does not name a skill |
-| [Rule](../capabilities/glossary/rule.md) | how to write the file that, once installed, is present on every task | the agent has it on a task that does not name it | the task names a rule, or the kind is settled as a rule | the task names a skill, a command or folder instructions, and does not name a rule |
-| [Command](../capabilities/glossary/command.md) | how to write the file that a human invokes by typing its name | the invocation carries each input, because the human types it with the name | the task names a command, or the kind is settled as a command | the task names a skill or a rule, and does not name a command |
-| [Agent](../capabilities/glossary/agent.md) | how to write the one folder that the rbtv CLI places as an rbtv agent or as a sub-agent of a harness | the launch carries the task, and a neighbor situation does not start it | the task names an agent or a sub-agent, or the kind is settled as an agent | the task names a skill, a command or a rule, and does not name an agent |
-| [Folder instructions](../capabilities/glossary/folder-instructions.md) | how to write the file that the harness reads when the agent works in a folder | a visit to the folder gets what every visit needs, and a case names its page | the task names folder instructions, or the file that the harness reads for a folder | the instructions apply on every task, in every folder: read the page "Rule" |
-| [Folder artifact](../capabilities/glossary/folder-artifact.md) | how to write a file that the folder instructions name for one case | that case is read from this file, not from the folder instructions | the task names a folder artifact | the task names the folder instructions file: read the page "Folder instructions" |
-| [Module](../capabilities/glossary/module.md) | the folder of components, its record, and how the boundary in the first sentence of its description is written | a later author puts the next component of the subject in, and leaves another subject out | the task names a module, or the kind is settled as a module | the task names a component and does not change the module: read the page "Component" |
-| [Component](../capabilities/glossary/component.md) | the folder of files, its record, the folders it may have, its glossary and its `decisions.md`, and how its boundary sentence is written | every file of the component is covered by the first sentence of its description, and sits in the folder for its kind | the task names a component, or the kind is settled as a component | the task names a file inside a component and does not change that component, which is a load of the row for that file |
-| [MCP server](../capabilities/glossary/mcp-server.md) | how the record of a server is written: the command or the address, the variables that name the secrets, the name that the list of actions carries | each harness starts or reaches the server, and the agent sees its actions under that name | the task names an MCP server | the task names a tool or a hook, and does not name an MCP server |
-| [Hook](../capabilities/glossary/hook.md) | how the record of a hook is written: the event, the matcher, what the command reads and prints, the exit status that blocks | the harness runs the command on the named event, and the command blocks or lets the action proceed as the author meant | the task names a hook | the task names an MCP server or a tool, and does not name a hook |
-| [Tool](../capabilities/glossary/tool.md) | how the CLI and the record of a tool are written: the field on standard output, the stop that names the next invocation, the CLI's own files | an agent in the middle of other work runs the name from its task folder and acts on the result | the task names a tool, or the kind is settled as a tool | the task names a skill or a command, and does not name a tool |
-| [Pack](../capabilities/glossary/pack.md) | what a pack lists, which targets share it, and what turning it off removes | each target that turns the pack on receives the same files | the task names a pack, or several targets must receive one group of files | one target needs the group: its own record lists the files |
-| [Task](../capabilities/glossary/task.md) | how the text of one launch is written: the result, the scope and the done contract | the launched agent does this work from the prompt and the task alone, and stops on the done contract | the work writes or changes the text of one launch, or a task file | the work changes the standing text of the agent: read the page "Prompt" |
-| [Harness](../capabilities/glossary/harness.md) | what a harness is, and what differs between Claude Code, Codex and OpenCode in what each puts in front of the agent | a file written for one harness is still true on the others | a sentence of the work says what an agent receives, or the file must work on more than one harness | |
-| [Schema](../capabilities/glossary/schema.md) | the schema files, which CLI loads each, and how a schema is written so that the check applies the constraint | a record that breaks a constraint is refused, and the entry of the record and the schema agree | the work writes or changes a schema, or adds a field to a record | the work writes a record: read the entry of that record |
-| [Template](../capabilities/glossary/template.md) | what a template is: the part of a page that lays out one file, as against a schema and an example | the builder fills the template and copies no instance | the work writes or fills the template of a page | |
-| [Principle](../capabilities/glossary/principle.md) | what a principle is, where it lives, and how one is written as a test of a design | a builder applies the principle before a design, from the first sentence | the work writes or changes a principle | the work applies a principle: read that principle's own row above |
+| [rbtv CLI](../capabilities/glossary/rbtv-cli.md) | Recognition, generation and refresh commands | Validate and deliver source changes | creating or converting a file; changing the installer; reviewing or editing scanned source | only changing an unscanned capability body without renaming or moving it |
+| [Choosing what to build](../capabilities/choosing-what-to-build.md) | Choice of kind | Match the mechanism to the work | creating, reviewing or converting; editing when the current kind cannot support the required behavior | editing with the kind unchanged |
+| [Choosing where to build](../capabilities/choosing-where-to-build.md) | Repository, mirror, module and component choice | Place work inside the right boundary | creating or converting | editing |
+| [Nested exposure](../capabilities/nested-exposure.md) | Several capabilities under one exposure method | Group related methods without premature reading | one exposure method may route to multiple capabilities | only one capability is exposed |
+| [Building from a conversation](../capabilities/building-from-a-conversation.md) | Extraction of settled reusable instructions | Preserve the corrected method | asked to build from a completed conversation | capture during an ongoing conversation |
+| [Tips development](../capabilities/tips-development.md) | Capture of decisions and evidence during work | Preserve distinctions without starting another build | setting up or continuing capture during a conversation | extracting instructions after the conversation |
+| [Writing a glossary entry](../capabilities/writing-a-glossary-entry.md) | Entry structure, ownership and verification | Define a term and teach its authoring | creating, editing or converting an entry, or introducing a term without one | no term entry is added or changed |
+| [Writing a capability](../capabilities/writing-a-capability.md) | Writing routed methods and knowledge | Continue from the caller’s supplied context | creating, editing or converting a capability or procedure | writing a term definition |
+| [Capability](../capabilities/glossary/capability.md) | Capability boundary and caller contract | Write the work that follows a route | the selected kind or named work is a capability | only writing an exposure method |
+| [Cognitive unit](../capabilities/glossary/cognitive-unit.md) | Actionable instructions and their parts | Make instructions usable on another task | writing or changing instructions in a skill, rule, command, prompt or capability |  |
+| [Routing table](../capabilities/glossary/routing-table.md) | Descriptions and file-selection rows | Select the right reading | writing or changing a description or routing table |  |
+| [Entry point](../capabilities/glossary/entry-point.md) | Common body and conditional routes | Keep each reading focused | writing or changing the body or routes of a skill, command, rule or folder-instructions file |  |
+| [Exposure method](../capabilities/glossary/exposure-method.md) | Who selects each installed form | Choose how content reaches the agent | choosing among skill, command, rule and folder instructions |  |
+| [Prompt](../capabilities/glossary/prompt.md) | Standing instructions in agent.md | Define behavior across the agent’s tasks | writing or changing a prompt body | only agent configuration or one launch task changes |
+| [Skill](../capabilities/glossary/skill.md) | Agent-selected task instructions | Open on the intended task | the selected kind or named work is a skill | only another kind is being changed |
+| [Rule](../capabilities/glossary/rule.md) | Always-supplied instructions with action conditions | Act when the condition arises | the selected kind or named work is a rule | only another kind is being changed |
+| [Command](../capabilities/glossary/command.md) | Human invocation and supplied inputs | Perform the requested action | the selected kind or named work is a command | only another kind is being changed |
+| [Agent](../capabilities/glossary/agent.md) | Agent folder, record and placement | Launch the intended worker | the selected kind or named work is an agent or sub-agent | only another kind is being changed |
+| [Folder instructions](../capabilities/glossary/folder-instructions.md) | Instructions supplied by folder location | Give each visit its required context | writing or changing folder instructions | instructions apply across all folders; use Rule |
+| [Folder artifact](../capabilities/glossary/folder-artifact.md) | Records reached from folder instructions | Keep case-specific workspace information | writing or changing a folder artifact | writing the folder instructions themselves |
+| [Module](../capabilities/glossary/module.md) | Component grouping and module boundary | Place components by subject | writing or changing a module | only a component changes |
+| [Component](../capabilities/glossary/component.md) | Source grouping and component boundary | Keep related files together | writing or changing a component | only a file inside an unchanged component changes |
+| [MCP server](../capabilities/glossary/mcp-server.md) | Server connection and credential references | Expose the intended server actions | writing or changing an MCP server record | only a tool or hook changes |
+| [Hook](../capabilities/glossary/hook.md) | Event, matching and command outcome | Run and enforce at the intended event | writing or changing a hook | only a server or tool changes |
+| [Tool](../capabilities/glossary/tool.md) | Program interface and executable record | Return usable results during a task | writing or changing a tool | only prose instructions change |
+| [Pack](../capabilities/glossary/pack.md) | Shared installation selection | Install one group for several targets | writing or changing a pack, or sharing a selection across targets | only one target needs the selection |
+| [Task](../capabilities/glossary/task.md) | One launch’s inputs, scope and completion | Give a worker bounded work | writing or changing launch text or a task file | changing the standing prompt |
+| [Harness](../capabilities/glossary/harness.md) | Delivery differences between supported applications | Avoid assuming identical loading behavior | stating what an agent receives or supporting multiple harnesses |  |
+| [Schema](../capabilities/glossary/schema.md) | Validator constraints and actual callers | Enforce the record’s contract | writing or changing a schema or adding a record field | only filling an existing record |
+| [Template](../capabilities/glossary/template.md) | Layout and placeholders | Fill the required structure | writing or filling a page’s template |  |
+| [Principle](../capabilities/glossary/principle.md) | Cross-kind design tests | Settle recurring design choices | writing or changing a principle | only applying an existing principle |

@@ -13,14 +13,11 @@ averaged away.
 - A diagnosis, a verdict, a review, or a recommendation over more than a trivial evidence base
   is a PANEL. Never one agent, and never the manager itself.
 - The test: does answering require weighing evidence that no single file read settles? Yes →
-  panel. A judgment over N reports handed to one agent both breaks small scope (sub-agents
-  skill § Staffing) and throws away the independence that makes the answer trustworthy.
+  panel. A judgment over N reports handed to one agent both breaks small scope (Delegating work, Staffing) and throws away the independence that makes the answer trustworthy.
 - Trivial and settled by one read → one agent, no panel. Do not convene four lenses to confirm
   a value.
 
-Staffing and launch mechanics are the sub-agents skill's (`../skills/sub-agents.md` — tasks,
-`cast` launches, output schemas, output location). This reference adds only what is
-panel-specific.
+Read [Delegating work](methods/delegating-work.md) before applying this page if it has not already been read for this task. It owns staffing, launch mechanics, report requirements and output location. This page adds the panel-specific instructions.
 
 ## Interview — tiered
 
@@ -66,7 +63,7 @@ directly below it. Read them from `cast route --catalog --json`.
 
 ## Synthesis
 
-One run folder per panel (location per the sub-agents skill's output-location rule); every
+One run folder per panel (location specified in Delegating work); every
 panelist's raw output file is KEPT there — synthesis condenses, the raw files preserve.
 A synthesis task goes to a sub-agent when the panel has more than two panelists. The
 manager synthesizes a 2-panelist panel only when it can hold the outputs in one page. Either way the synthesis is:

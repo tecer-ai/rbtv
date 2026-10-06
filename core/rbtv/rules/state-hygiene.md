@@ -1,6 +1,6 @@
 ---
 name: state-hygiene
-description: "CONTAINS: the orders that apply when a file a later agent acts on is about to be left behind: a task list, a file of decisions, a state, a page an agent follows, code whose interface changed PURPOSE: a later agent that reads such a file does the first action the writer meant, and treats no finished task, closed question or removed interface as still in force ALWAYS LOAD WHEN: the agent writes or leaves files that a later agent will read to know what to do next DO NOT LOAD WHEN: the agent's work writes no file that a later agent acts on"
+description: "CONTAINS: instructions for maintaining current tasks, decisions, interfaces and state PURPOSE: later agents know what to do and do not follow completed or superseded work ALWAYS LOAD WHEN: installing guidance for agents whose work maintains files that other agents use to decide their next action DO NOT LOAD WHEN: configuring an agent limited to reading existing records and returning transient answers; it does not need this rule"
 ---
 
 The point comes when you are about to leave a file that a later agent will read to know what to do next: a task list, a file of decisions, a state, a page that an agent follows, or code whose interface you changed. When that point has not come, this rule asks nothing.

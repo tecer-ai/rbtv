@@ -11,9 +11,7 @@ A swarm saves the coordinator's context (it reads one synthesis, not the evidenc
 results (a fresh focused context per question), and costs less (cheap models on the wide base,
 strong ones only at the top) — all three at once, or the shape is wrong.
 
-Staffing and launch mechanics are the sub-agents skill's (`../skills/sub-agents.md` — tasks,
-`cast` launches, output schemas, output location). This reference adds only what is
-swarm-specific.
+Read [Delegating work](methods/delegating-work.md) before applying this page if it has not already been read for this task. It owns staffing, launch mechanics, report requirements and output location. This page adds the swarm-specific instructions.
 
 ## Quick interview — always
 
@@ -23,7 +21,7 @@ waves (count and size), `cast route` model suggestion for each wave, and depth. 
 ## Architecture
 
 - Unit: ONE swarm attacks ONE problem. Its base wave is one agent per independently-answerable
-  question of that problem (the small-scope test — sub-agents skill § Staffing). Several
+  question of that problem (the small-scope test — Delegating work, Staffing). Several
   problems are several swarms (run in parallel when independent) — never one swarm whose base
   agents each hold a whole problem.
 - Lane membership: **ONE LANE = ONE FACET, never one problem.** A lane's scope is a single
@@ -60,7 +58,7 @@ waves (count and size), `cast route` model suggestion for each wave, and depth. 
 
 ## Handoff between waves
 
-One run folder per swarm (location per the sub-agents skill's output-location rule). Every
+One run folder per swarm (location specified in Delegating work). Every
 agent writes its findings to a file there; the next wave's tasks point at the previous
 wave's files — the coordinator composes tasks, it does not relay findings through its own
 context. Give same-wave agents task text with a shared prefix (same structure, per-agent scope
