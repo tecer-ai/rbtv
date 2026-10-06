@@ -50,7 +50,7 @@ def sub_agents(ctx) -> None:
         return " ".join(text.split())
 
     def agent_record() -> dict:
-        return read_state(ws)["components"]["fixmod/goodcomp"]["units"]["fixagent"]
+        return read_state(ws)["components"]["fixmod/goodcomp"]["selected"]["fixagent"]
 
     print("\nSA — an agent a component ships, added as a harness-native sub-agent")
     code, _out, err = run("add", "fixagent", "--harness", "claude,codex", "--guidance", "none")
@@ -94,7 +94,7 @@ def sub_agents(ctx) -> None:
           and read_state(ws)["schema"] == SCHEMA == 9
           and str(tmp) not in json.dumps(agent_record()["sub_agent"]), str(agent_record()))
     saved = json.loads((ws / STATE_REL).read_text(encoding="utf-8"))
-    booked = saved["components"]["fixmod/goodcomp"]["units"]["fixagent"]
+    booked = saved["components"]["fixmod/goodcomp"]["selected"]["fixagent"]
     described = schema.load("install-json")
     broken = []
     for change in (lambda entry: entry["claude"].pop("model_id"),
@@ -109,7 +109,7 @@ def sub_agents(ctx) -> None:
           "matches the install record schema; an entry missing a key, with a value "
           "that is not text, or under an unknown harness does not",
           "sub_agent" in json.loads((ws / STATE_REL).read_text(encoding="utf-8"))
-          ["components"]["fixmod/goodcomp"]["units"]["fixagent"]
+          ["components"]["fixmod/goodcomp"]["selected"]["fixagent"]
           and not schema.errors(json.loads((ws / STATE_REL).read_text(encoding="utf-8")),
                                 described)
           and broken == [True, True, True], str(broken))
@@ -246,7 +246,7 @@ def sub_agents(ctx) -> None:
     code, removed, _err = run("remove", "fixagent")
     check("SA-remove — remove deletes the sub-agent for every harness and its values",
           code == 0 and not claude.exists() and not codex.exists()
-          and "fixagent" not in read_state(ws)["components"]["fixmod/goodcomp"]["units"]
+          and "fixagent" not in read_state(ws)["components"]["fixmod/goodcomp"]["selected"]
           and (ws / ".claude/agents/research.md").is_file(), removed)
 
     pages = {"add": ("--on HARNESS:MODEL:EFFORT",),
@@ -318,7 +318,7 @@ def sub_agents(ctx) -> None:
         "packs": [], "guidance_basis": "none", "shared_claims": [], "shared_files": [],
         "components": {"fixmod/goodcomp": {
             "module": "fixmod", "component": "goodcomp", "tree": "repo",
-            "harnesses": ["claude"], "units": {
+            "harnesses": ["claude"], "selected": {
                 "fixagent": {"method": "sub-agent",
                              "files": [".claude/agents/fixagent.md"]},
                 "fixskill": {"method": "skill", "files": []}}}}}), encoding="utf-8")
@@ -330,9 +330,9 @@ def sub_agents(ctx) -> None:
     after = json.loads((legacy / STATE_REL).read_text(encoding="utf-8"))
     check("SA-migrate — a schema 7 record is read, its sub-agent file becomes the agent "
           "file, and the record written is valid",
-          before["components"]["fixmod/goodcomp"]["units"]["fixagent"]["method"] == "agent"
+          before["components"]["fixmod/goodcomp"]["selected"]["fixagent"]["method"] == "agent"
           and code == 0 and after["schema"] == 9
-          and after["components"]["fixmod/goodcomp"]["units"]["fixagent"]
+          and after["components"]["fixmod/goodcomp"]["selected"]["fixagent"]
           == {"method": "agent", "files": []}
           and not schema.errors(after, schema.load("install-json"))
           and (legacy / ".claude/skills/fixskill/SKILL.md").is_file(), out.getvalue() + err.getvalue())

@@ -38,7 +38,7 @@ def iter_booked_files(catalog: dict[str, dict],
         by_cid.setdefault(part["component"], []).append(part)
     booked: list[dict] = []
     for cid, rec in (book or {}).items():
-        declared = rec.get("units")
+        declared = rec.get("selected")
         if isinstance(declared, dict) and declared:
             for pid, part in declared.items():
                 booked.append({"key": file_key(cid, pid), "component": cid,

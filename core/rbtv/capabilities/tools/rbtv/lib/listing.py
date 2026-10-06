@@ -114,7 +114,7 @@ def catalog_ids(catalog: dict, cid: str) -> list[str]:
 def status_of(cid: str, rec: dict, catalog: dict
               ) -> tuple[str, set[str], set[str], set[str]]:
     cat = set(catalog_ids(catalog, cid))
-    booked = set(rec["units"]) if "units" in rec else cat
+    booked = set(rec["selected"]) if "selected" in rec else cat
     if cid not in catalog:
         return "gone", booked, set(), booked
     if not cat:
@@ -602,9 +602,9 @@ def do_list(target: Path, catalog: dict | None = None) -> dict:
         st, booked, miss, orph = status_of(cid, rec, catalog)
         rec["status"], rec["missing"], rec["orphans"] = (
             st, sorted(miss), sorted(orph))
-        rec.setdefault("units", {})
+        rec.setdefault("selected", {})
         comps[cid] = rec
-        for pid, part in (rec.get("units") or {}).items():
+        for pid, part in (rec.get("selected") or {}).items():
             if not isinstance(part, dict):
                 continue
             for name in part.get("links") or []:

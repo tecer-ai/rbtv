@@ -328,7 +328,7 @@ def booked_path_names(state: dict) -> set[str]:
     names: set[str] = set()
     for rec in (state.get("components") or {}).values():
         names.update(rec.get("path_links") or [])
-        for part in (rec.get("units") or {}).values():
+        for part in (rec.get("selected") or {}).values():
             if isinstance(part, dict):
                 names.update(part.get("links") or [])
     return names

@@ -141,19 +141,19 @@ def part_level_install_remove(ctx) -> None:
           str(sorted(pdisk)))
     prec = read_state(pws)["components"]["fixmod/goodcomp"]
     check("P-add — book carries only that part",
-          set(prec["units"]) == {"fixskill"}, str(sorted(prec["units"])))
+          set(prec["selected"]) == {"fixskill"}, str(sorted(prec["selected"])))
     rp2 = do_install(pws, catalog, ["fixmod/goodcomp"], list(HARNESSES),
                      dry_run=False)
     check("P-add — re-add with no parts list refreshes booked, does not fill",
-          set(read_state(pws)["components"]["fixmod/goodcomp"]["units"])
+          set(read_state(pws)["components"]["fixmod/goodcomp"]["selected"])
           == {"fixskill"}
           and not (pws / ".claude/rules/fixrule.md").exists()
           and rp2["written"] == [],
-          str(sorted(read_state(pws)["components"]["fixmod/goodcomp"]["units"])))
+          str(sorted(read_state(pws)["components"]["fixmod/goodcomp"]["selected"])))
     do_install(pws, catalog, ["fixmod/goodcomp"], list(HARNESSES),
                dry_run=False, parts=["fixrule", "fixmcp", "fixhook"])
     check("P-add — later add MERGES parts",
-          set(read_state(pws)["components"]["fixmod/goodcomp"]["units"])
+          set(read_state(pws)["components"]["fixmod/goodcomp"]["selected"])
           == {"fixskill", "fixrule", "fixmcp", "fixhook"})
     ctx.keep(locals())
 
@@ -182,9 +182,9 @@ def part_level_claim_release(ctx) -> None:
           (pws / ".claude/skills/fixskill/SKILL.md").is_file()
           and _claim_id(".claude/settings.json", ["hooks", "PreToolUse"])
           in pst["shared_claims"]
-          and "fixmcp" not in pst["components"]["fixmod/goodcomp"]["units"]
-          and "fixhook" in pst["components"]["fixmod/goodcomp"]["units"])
-    hook_claims = pst["components"]["fixmod/goodcomp"]["units"]["fixhook"].get(
+          and "fixmcp" not in pst["components"]["fixmod/goodcomp"]["selected"]
+          and "fixhook" in pst["components"]["fixmod/goodcomp"]["selected"])
+    hook_claims = pst["components"]["fixmod/goodcomp"]["selected"]["fixhook"].get(
         "claims") or []
     check("C-leak — claims are tagged on the part that minted them",
           any("hooks" in c for c in hook_claims), str(hook_claims))
@@ -216,9 +216,9 @@ def vanished_component_part_rm(ctx) -> None:
            or "fixmcp" not in json.loads(
                (pv / ".mcp.json").read_text(encoding="utf-8")).get("mcpServers", {}))
           and (pv / ".claude/skills/fixskill/SKILL.md").is_file()
-          and "fixmcp" not in pvst["components"]["fixmod/goodcomp"]["units"]
-          and "fixskill" in pvst["components"]["fixmod/goodcomp"]["units"],
-          str(sorted(pvst["components"]["fixmod/goodcomp"]["units"])))
+          and "fixmcp" not in pvst["components"]["fixmod/goodcomp"]["selected"]
+          and "fixskill" in pvst["components"]["fixmod/goodcomp"]["selected"],
+          str(sorted(pvst["components"]["fixmod/goodcomp"]["selected"])))
     check("C2-rebuild — vanished part-rm keeps sibling hook claim",
           _claim_id(".claude/settings.json", ["hooks", "PreToolUse"])
           in pvst["shared_claims"],
@@ -234,7 +234,7 @@ def vanished_component_part_rm(ctx) -> None:
     shrunk["rows"] = [r for r in file_rows(shrunk) if r["id"] != "fixskill"]
     res_g1 = do_install(g1, {**catalog, "fixmod/goodcomp": shrunk},
                         ["fixmod/goodcomp"], ["claude"], dry_run=False)
-    g1files = read_state(g1)["components"]["fixmod/goodcomp"]["units"]
+    g1files = read_state(g1)["components"]["fixmod/goodcomp"]["selected"]
     check("SG1 — a file whose source is gone leaves the record and the run reports it",
           "fixskill" not in g1files and "fixrule" in g1files
           and res_g1["report"]["source_gone"] == ["fixmod/goodcomp#fixskill"]
@@ -286,7 +286,7 @@ def vanished_component_part_rm(ctx) -> None:
     do_install(vu, catalog, ["fixmod/goodcomp"], ["claude"], dry_run=False)
     st = read_state(vu)
     rec = st["components"]["fixmod/goodcomp"]
-    rec.pop("units", None)
+    rec.pop("selected", None)
     rec["files"] = sorted(rec_files(rec)) if "files" not in rec else rec["files"]
     write_state(vu, st)
     gone_vu = {k: v for k, v in catalog.items() if k != "fixmod/goodcomp"}
@@ -330,7 +330,7 @@ def v1_to_v2_upgrade(ctx) -> None:
             cid: list(rec.get("harnesses") or [])
             for cid, rec in raw["components"].items()}
         src_parts = {
-            cid: set((rec.get("units") or {}))
+            cid: set((rec.get("selected") or {}))
             for cid, rec in raw["components"].items()}
         src_files = {cid: rec_files(rec)
                      for cid, rec in raw["components"].items()}
@@ -348,8 +348,8 @@ def v1_to_v2_upgrade(ctx) -> None:
         present = [cid for cid in old_ids if cid in live_cat]
         check("U-live still-present cids keep their parts maps",
               present
-              and all("units" in got["components"][cid]
-                      and set(got["components"][cid]["units"])
+              and all("selected" in got["components"][cid]
+                      and set(got["components"][cid]["selected"])
                       == src_parts.get(cid, set())
                       for cid in present),
               str(present[:5]))
@@ -432,12 +432,12 @@ def legacy_records_gain_selection_fields_on_write(ctx) -> None:
         else:
             old_record["files"] = sorted(
                 f"fixmod/goodcomp#{pid}" for pid in
-                old_record["components"]["fixmod/goodcomp"]["units"])
+                old_record["components"]["fixmod/goodcomp"]["selected"])
         old_record["components"]["fixmod/goodcomp"]["tree_root"] = str(tree)
         state_path.write_text(json.dumps(old_record), encoding="utf-8")
         read = read_state(old)
         expected = {f"fixmod/goodcomp#{pid}" for pid in
-                    read["components"]["fixmod/goodcomp"]["units"]}
+                    read["components"]["fixmod/goodcomp"]["selected"]}
         check(f"U-selection-{schema} — reads with files and empty packs derived",
               not {"installer", "installed_at", "target"} & set(read)
               and "tree_root" not in read["components"]["fixmod/goodcomp"]

@@ -398,7 +398,7 @@ def cmd_status(args, target: Path, catalog: dict, shadowed: list,
         return _status_agent(args, target, catalog)
     installed = do_list(target, catalog)
     comps = installed["components"]
-    count = sum(len(rec.get("units") or {}) for rec in comps.values())
+    count = sum(len(rec.get("selected") or {}) for rec in comps.values())
     settings = installed["settings"]
     counts = _catalog_counts(catalog)
     data = {"ok": True, "target": str(target.resolve()),

@@ -53,7 +53,7 @@ def _rebook(state: dict, records: dict, files: dict, owners: dict,
             keep_cids: set[str] | None = None) -> None:
     keep_cids = set(keep_cids or ())
     for cid, rec in records.items():
-        parts = rec.setdefault("units", {})
+        parts = rec.setdefault("selected", {})
         rec_names: list[str] = []
         for pid, part in parts.items():
             part["files"] = sorted(
@@ -283,7 +283,7 @@ def _record_sub_agents(records: dict, given: dict[str, dict]) -> None:
     longer receives loses its values, so adding it back later generates
     nothing until a model and an effort are given again."""
     for cid, rec in records.items():
-        for pid, file in (rec.get("units") or {}).items():
+        for pid, file in (rec.get("selected") or {}).items():
             values = {**(file.get("sub_agent") or {}),
                       **(given.get(f"{cid}#{pid}") or {})}
             values = {h: values[h] for h in rec.get("harnesses") or [] if h in values}
@@ -338,16 +338,16 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
         existing = (old_records if selected is not None else records).get(cid) or {}
         if selected is not None:
             wanted = set(_files_for_cid(cid, parts) or [])
-            existing = {**existing, "units": {
-                pid: part for pid, part in (existing.get("units") or {}).items()
+            existing = {**existing, "selected": {
+                pid: part for pid, part in (existing.get("selected") or {}).items()
                 if pid in wanted}}
-        booked, gone = _select_files(c, existing.get("units"),
+        booked, gone = _select_files(c, existing.get("selected"),
                                     _files_for_cid(cid, parts))
         source_gone += [f"{cid}#{pid}" for pid in gone]
         rec = {"tree": c["tree"], "module": c["module"],
                "component": c["component"],
                "harnesses": [h for h in HARNESSES if h in harnesses],
-                "units": booked}
+                "selected": booked}
         if "files" in existing:
             rec["files"] = list(existing["files"])
         records[cid] = rec
@@ -479,7 +479,7 @@ def _do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
         if want is None:
             records.pop(cid)
             continue
-        if "units" not in rec:
+        if "selected" not in rec:
             name = rec.get("component") or cid.split("/")[-1]
             if set(want) <= {name}:
                 records.pop(cid)
@@ -489,12 +489,12 @@ def _do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
                 f"{cid} has no parts map (a vanished v1 record) — remove the "
                 "whole component; files cannot be split across parts")
         for pid in want:
-            rec["units"].pop(pid, None)
-        if not rec["units"]:
+            rec["selected"].pop(pid, None)
+        if not rec["selected"]:
             records.pop(cid)
     live = {cid: rec for cid, rec in records.items() if cid in catalog}
     stranded = {cid: rec for cid, rec in records.items() if cid not in catalog}
-    blockers = [cid for cid, rec in stranded.items() if "units" not in rec]
+    blockers = [cid for cid, rec in stranded.items() if "selected" not in rec]
     if blockers:
         rec0 = stranded[blockers[0]]
         raise Refuse(
@@ -516,7 +516,7 @@ def _do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
                                    booked - set(desired) - keep_names, target)
         keep_protect: set[str] = set()
         for cid, rec in stranded.items():
-            for pid, part in rec["units"].items():
+            for pid, part in rec["selected"].items():
                 for rel in part.get("files") or []:
                     keep_protect.add(rel)
                     owners.setdefault(rel, []).append((cid, pid))

@@ -44,7 +44,7 @@ def skills_folder_thin_loaded(ctx) -> None:
           MANAGED_MARK not in (src / SKILL_FILE).read_text(encoding="utf-8"))
     check("S4 — it is booked like any other file",
           rec_files(read_state(sk)["components"]["_hub/skills/vendored"]) == want_sk
-          and "vendored" in read_state(sk)["components"]["_hub/skills/vendored"]["units"],
+          and "vendored" in read_state(sk)["components"]["_hub/skills/vendored"]["selected"],
           str(rec_files(read_state(sk)["components"]["_hub/skills/vendored"])))
     check("S5 — a re-install is idempotent",
           do_install(sk, catalog, ["_hub/skills/vendored"],
@@ -55,7 +55,7 @@ def skills_folder_thin_loaded(ctx) -> None:
     old.parent.mkdir(parents=True, exist_ok=True)
     old.write_text("# deep reference\n", encoding="utf-8")
     book = json.loads((sk / STATE_REL).read_text(encoding="utf-8"))
-    book["components"]["_hub/skills/vendored"]["units"]["vendored"]["files"].append(
+    book["components"]["_hub/skills/vendored"]["selected"]["vendored"]["files"].append(
         ".claude/skills/vendored/references/deep.md")
     (sk / STATE_REL).write_text(json.dumps(book), encoding="utf-8")
     rmig = do_install(sk, catalog, ["_hub/skills/vendored"],

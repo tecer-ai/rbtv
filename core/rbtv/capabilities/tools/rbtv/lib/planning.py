@@ -163,7 +163,7 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
             if method == "agent":
                 # An agent added with `rbtv add` is a harness-native sub-agent, written
                 # only for the harnesses its record holds a model and an effort for.
-                values = ((rec.get("units") or {}).get(pid) or {}).get("sub_agent") or {}
+                values = ((rec.get("selected") or {}).get(pid) or {}).get("sub_agent") or {}
                 written = [h for h in harnesses if h in values]
                 if not written:
                     report["sub_agents_unset"].append(f"{cid}#{pid}")

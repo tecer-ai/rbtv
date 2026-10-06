@@ -69,7 +69,7 @@ def ls_li_doctor(ctx) -> None:
           and inn.get("fixcmd") is False,
           str(inn))
     raw_sk = {"components": {
-        "_skills/vendored": {"units": {"vendored": {"method": "skill"}}}}}
+        "_skills/vendored": {"selected": {"vendored": {"method": "skill"}}}}}
     check("ls-in-legacy-skills-key — leftover _skills/ counts as in",
           _file_in(raw_sk, "_hub/skills/vendored", "vendored") is True)
     raw_v1 = {"components": {

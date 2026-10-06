@@ -72,7 +72,7 @@ def packs(ctx) -> None:
     state = read_state(target)
     check("PK-add — pack generates each file but records only the pack",
           state["packs"] == ["starter"] and state["files"] == []
-          and set(state["components"]["fixmod/goodcomp"]["units"])
+          and set(state["components"]["fixmod/goodcomp"]["selected"])
           == {"fixskill", "fixrule"}, str(state))
 
     combined = tmp / "ws-pack-combined"
@@ -84,7 +84,7 @@ def packs(ctx) -> None:
     check("PK-add-combined — one command keeps explicit and pack selections distinct",
           combined_state["packs"] == ["starter"]
           and combined_state["files"] == ["fixmod/goodcomp#fixcmd"]
-          and set(combined_state["components"]["fixmod/goodcomp"]["units"])
+          and set(combined_state["components"]["fixmod/goodcomp"]["selected"])
           == {"fixcmd", "fixskill", "fixrule"}, str(combined_state))
 
     with contextlib.redirect_stdout(io.StringIO()):
@@ -93,7 +93,7 @@ def packs(ctx) -> None:
     state = read_state(target)
     check("PK-remove — explicit file survives a removed pack",
           state["packs"] == [] and state["files"] == ["fixmod/goodcomp#fixskill"]
-          and set(state["components"]["fixmod/goodcomp"]["units"]) == {"fixskill"},
+          and set(state["components"]["fixmod/goodcomp"]["selected"]) == {"fixskill"},
           str(state))
 
     with contextlib.redirect_stdout(io.StringIO()):
@@ -103,7 +103,7 @@ def packs(ctx) -> None:
     overlapping = read_state(target)
     check("PK-overlap — file shared by an enabled pack stays once",
           overlapping["packs"] == ["second"]
-          and set(overlapping["components"]["fixmod/goodcomp"]["units"])
+          and set(overlapping["components"]["fixmod/goodcomp"]["selected"])
           == {"fixskill", "fixrule"}, str(overlapping))
     with contextlib.redirect_stdout(io.StringIO()):
         cmd_rm(args(["remove", "--pack", "second"]), target, catalog, [])
@@ -124,8 +124,8 @@ def packs(ctx) -> None:
         cmd_update(args(["update", "all"]), target, catalog, [])
     restored = read_state(target)
     check("PK-update — changed pack drops then restores its generated file",
-          set(dropped["components"]["fixmod/goodcomp"]["units"]) == {"fixskill"}
-          and set(restored["components"]["fixmod/goodcomp"]["units"])
+          set(dropped["components"]["fixmod/goodcomp"]["selected"]) == {"fixskill"}
+          and set(restored["components"]["fixmod/goodcomp"]["selected"])
           == {"fixskill", "fixrule"}, str(restored))
 
     try:

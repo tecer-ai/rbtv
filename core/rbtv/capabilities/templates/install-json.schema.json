@@ -82,7 +82,7 @@
           "component",
           "tree",
           "harnesses",
-          "units"
+          "selected"
         ],
         "properties": {
           "module": {
@@ -105,7 +105,7 @@
               "type": "string"
             }
           },
-          "units": {
+          "selected": {
             "description": "Each installed skill, rule, command, agent, hook, MCP server, tool, or folder-instructions file of the component, keyed by its name.",
             "type": "object",
             "additionalProperties": {

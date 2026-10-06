@@ -52,7 +52,7 @@ def installation_settings(ctx) -> None:
           and read_state(fresh)["harnesses"] == ["claude", "codex"])
     check("W3 — add inherits configured settings",
           run(fresh, "add", "fixmod/goodcomp#fixskill")[0] == 0
-          and set(read_state(fresh)["components"]["fixmod/goodcomp"]["units"])
+          and set(read_state(fresh)["components"]["fixmod/goodcomp"]["selected"])
           == {"fixskill"})
     code, message = run(fresh, "add", "fixmod/goodcomp#fixskill",
                         "--harness", "claude")
@@ -63,7 +63,7 @@ def installation_settings(ctx) -> None:
     mirror = fresh / "AGENTS.md"
     check("W5 — all update preserves partial selection",
           run(fresh, "update", "all")[0] == 0
-          and set(read_state(fresh)["components"]["fixmod/goodcomp"]["units"])
+          and set(read_state(fresh)["components"]["fixmod/goodcomp"]["selected"])
           == {"fixskill"})
     correct_skill = skill.read_bytes()
     correct_mirror = mirror.read_bytes()
@@ -121,7 +121,7 @@ def installation_settings(ctx) -> None:
                    for name in ("set", "dupe-artifacts")]
     check("W15 — retired commands refuse", retired == [2, 2])
     check("W16 — saved book keeps internal method schema",
-          read_state(fresh)["components"]["fixmod/goodcomp"]["units"]
+          read_state(fresh)["components"]["fixmod/goodcomp"]["selected"]
           ["fixskill"]["method"] == "skill")
 
     codex_skill = fresh / ".agents/skills/fixskill/SKILL.md"

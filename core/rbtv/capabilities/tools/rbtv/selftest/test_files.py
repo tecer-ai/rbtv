@@ -145,10 +145,10 @@ def legacy_names(ctx) -> None:
                       "f": {"method": "skill", "files": []}}}}}),
         encoding="utf-8")
     files = read_state(ws)["components"]["m/c"]
-    check("U-legacy — `parts` become `units`, methods take the new names, "
+    check("U-legacy — `parts` become `selected`, methods take the new names, "
           "`pool` goes",
           "parts" not in files
-          and {k: v["method"] for k, v in files["units"].items()}
+          and {k: v["method"] for k, v in files["selected"].items()}
           == {"a": "agent", "b": "mcp-server", "c": "tool",
               "d": "folder-instructions", "f": "skill"},
           str(files))
@@ -157,17 +157,17 @@ def legacy_names(ctx) -> None:
     (renamed / STATE_REL).parent.mkdir(parents=True)
     _w(renamed / STATE_REL, json.dumps({"components": {
         "core/installer": {"module": "core", "component": "installer",
-                           "harnesses": ["claude"], "units": {
+                           "harnesses": ["claude"], "selected": {
                                "rbtv-install": {"method": "tool", "files": [], "links": ["rbtv-install"]},
                                "manage-components": {"method": "skill", "files": []}}},
         "core/rbtv-cli": {"module": "core", "component": "rbtv-cli",
-                          "harnesses": ["claude"], "units": {
+                          "harnesses": ["claude"], "selected": {
                               "rbtv": {"method": "tool", "files": [], "links": ["rbtv"]}}}},
         "files": ["core/installer#rbtv-install", "core/rbtv-cli#rbtv"]}))
     migrated = read_state(renamed)
     check("U-legacy — renamed install component and shortcut file migrate together",
           set(migrated["components"]) == {"core/rbtv"}
-          and set(migrated["components"]["core/rbtv"]["units"])
+          and set(migrated["components"]["core/rbtv"]["selected"])
           == {"rbtv", "manage-components"}
           and migrated["files"] == ["core/rbtv#rbtv"], str(migrated))
 

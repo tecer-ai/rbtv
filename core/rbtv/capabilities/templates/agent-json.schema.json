@@ -59,7 +59,7 @@
       "type": "string"
     },
     "components": {
-      "description": "Each component that generated files for this agent, keyed by its id. Under a component, `units` maps each installed unit to its type (`method`) and its generated `files`. A unit of type agent, installed as a harness-native sub-agent, also holds `sub_agent`: for each harness the file is written for, the `model` (cast's name for it), the `model_id` (the harness's own name for it) and the `effort`.",
+      "description": "Each component that generated files for this agent, keyed by its id. Under a component, `selected` maps each installed file to its type (`method`) and its generated `files`. A unit of type agent, installed as a harness-native sub-agent, also holds `sub_agent`: for each harness the file is written for, the `model` (cast's name for it), the `model_id` (the harness's own name for it) and the `effort`.",
       "type": "object"
     },
     "shared_files": {

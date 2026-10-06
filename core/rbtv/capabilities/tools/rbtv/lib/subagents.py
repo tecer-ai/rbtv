@@ -90,7 +90,7 @@ def recorded(state: dict) -> dict[str, dict]:
     """The sub-agent values a record holds, by file id then harness."""
     return {f"{cid}#{pid}": file["sub_agent"]
             for cid, rec in (state.get("components") or {}).items()
-            for pid, file in (rec.get("units") or {}).items()
+            for pid, file in (rec.get("selected") or {}).items()
             if isinstance(file, dict) and file.get("sub_agent")}
 
 

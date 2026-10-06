@@ -161,14 +161,14 @@ def green_arm_all_harnesses(ctx) -> None:
     check("schema 2 books parts keyed by bare part-id, no rec.files",
           state.get("schema") == SCHEMA
           and "files" not in rec
-          and set(rec["units"]) >= {"fixskill", "fixcmd", "fixrule",
+          and set(rec["selected"]) >= {"fixskill", "fixcmd", "fixrule",
                                     "fixagent", "fixhook", "fixmcp",
                                     "fixguide", "fixtool"}
-          and rec["units"]["fixskill"]["method"] == "skill"
-          and rec["units"]["fixmcp"]["method"] == "mcp-server"
+          and rec["selected"]["fixskill"]["method"] == "skill"
+          and rec["selected"]["fixmcp"]["method"] == "mcp-server"
           and ".claude/skills/fixskill/SKILL.md"
-          in rec["units"]["fixskill"]["files"],
-          str(sorted(rec.get("units") or {})))
+          in rec["selected"]["fixskill"]["files"],
+          str(sorted(rec.get("selected") or {})))
     check("install.json books every shared-file claim",
           sorted(state["shared_claims"]) == sorted([
               _claim_id(".claude/settings.json",

@@ -170,7 +170,7 @@ def parser_selectors_index(ctx) -> None:
     SEL_BOOK = {
         "meta/communication": {
             "module": "core", "component": "communication",
-            "units": {"audio-aware": {"method": "skill"},
+            "selected": {"audio-aware": {"method": "skill"},
                       "plain-language": {"method": "rule"}}},
         "web/browse": {"module": "web", "component": "browse"},
         "ghost/gone": {"module": "ghost", "component": "gone"},

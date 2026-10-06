@@ -1,5 +1,6 @@
-"""A record whose key is `units` is read as one whose key is `files`, and the
-next write of that record carries `files`: install.json, agent.json, a pack."""
+"""A record whose key is `units` is read as one with the new key, and the next
+write of that record carries the new key: `files` in install.json, agent.json
+and a pack, and `selected` under each component of the first two."""
 from __future__ import annotations
 
 import contextlib
@@ -21,15 +22,23 @@ from .fixture import _component, _file_md, _w
 
 def _with_old_key(path: Path) -> list[str]:
     """Rewrite the record at `path` as an earlier program wrote it, with its
-    chosen files under `units`. Returns that list."""
+    chosen files, and each component's map, under `units`. Returns that list."""
     record = json.loads(path.read_text(encoding="utf-8"))
     record["units"] = record.pop("files")
+    for component in record["components"].values():
+        component["units"] = component.pop("selected")
     _w(path, json.dumps(record, indent=2, sort_keys=True) + "\n")
     return record["units"]
 
 
 def _on_disk(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _maps(record: dict, key: str) -> dict:
+    """What each component of `record` holds under `key`, by component id."""
+    return {cid: sorted(component[key])
+            for cid, component in record["components"].items() if key in component}
 
 
 def old_key_read_and_rewritten(ctx) -> None:
@@ -51,6 +60,7 @@ def old_key_read_and_rewritten(ctx) -> None:
               _on_disk(book).get("files") == ["fixmod/goodcomp#fixskill"]
               and "units" not in _on_disk(book), str(sorted(_on_disk(book))))
         chosen = _with_old_key(book)
+        installed = {"fixmod/goodcomp": ["fixskill"]}
         read = read_state(root)
         check(f"FK-read-{scope} — install.json with `units` is read as `files`",
               read.get("files") == chosen and "units" not in read, str(sorted(read)))
@@ -59,6 +69,11 @@ def old_key_read_and_rewritten(ctx) -> None:
         check(f"FK-preview-{scope} — a preview leaves the old record as it is",
               previewed == 0 and _on_disk(book).get("units") == chosen
               and "files" not in _on_disk(book), str(sorted(_on_disk(book))))
+        check(f"FK-nested-read-{scope} — a component's `units` in install.json is read "
+              "as `selected`, and a preview leaves it",
+              _maps(read, "selected") == installed and not _maps(read, "units")
+              and _maps(_on_disk(book), "units") == installed
+              and not _maps(_on_disk(book), "selected"), str(_on_disk(book)["components"]))
         updated = run(root, "update", scope)
         check(f"FK-rewrite-{scope} — `rbtv update {scope}` applies the old record "
               "and writes it with `files`",
@@ -66,6 +81,10 @@ def old_key_read_and_rewritten(ctx) -> None:
               and "units" not in _on_disk(book)
               and (root / ".claude/skills/fixskill/SKILL.md").is_file(),
               str(sorted(_on_disk(book))))
+        check(f"FK-nested-rewrite-{scope} — `rbtv update {scope}` writes each component "
+              "of install.json with `selected`, never `units`",
+              _maps(_on_disk(book), "selected") == installed
+              and not _maps(_on_disk(book), "units"), str(_on_disk(book)["components"]))
 
     agent_root = tmp / "ws-files-key-agent"
     agent = agent_root / ".rbtv/agents/scout"
@@ -82,6 +101,17 @@ def old_key_read_and_rewritten(ctx) -> None:
           and record.get("files") == ["fixmod/goodcomp#fixskill"]
           and "units" not in record
           and (agent / ".claude/skills/fixskill/SKILL.md").is_file(), str(sorted(record)))
+    _with_old_key(agent / AGENT_RECORD)
+    read = read_state(agent)
+    update_agent(agent_root, "scout", "scaffolding", catalog, False)
+    record = _on_disk(agent / AGENT_RECORD)
+    check("FK-nested-agent — a component's `units` in agent.json is read as `selected`, "
+          "and `rbtv agent update` writes it with `selected`",
+          _maps(read, "selected") == {"fixmod/goodcomp": ["fixskill"]}
+          and not _maps(read, "units")
+          and _maps(record, "selected") == {"fixmod/goodcomp": ["fixskill"]}
+          and not _maps(record, "units") and "units" not in record,
+          str(record["components"]))
 
     source = tmp / "files-key-source"
     comp = _component(source, "moda", "comp")

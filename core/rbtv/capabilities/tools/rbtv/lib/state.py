@@ -42,25 +42,25 @@ def _validate_state(state: dict, path: Path) -> None:
         for name in ("files", "claims", "path_links", "harnesses"):
             if name in rec:
                 _string_list(rec[name], f"components.{cid}.{name}", path)
-        if "units" not in rec:
+        if "selected" not in rec:
             continue
-        parts = rec["units"]
+        parts = rec["selected"]
         if not isinstance(parts, dict):
-            _state_refuse(path, f"components.{cid}.units must be an object")
+            _state_refuse(path, f"components.{cid}.selected must be an object")
         for pid, part in parts.items():
             if not isinstance(pid, str) or not isinstance(part, dict):
-                _state_refuse(path, f"components.{cid}.units must map ids to objects")
+                _state_refuse(path, f"components.{cid}.selected must map ids to objects")
             for name in ("files", "claims", "links"):
                 if name in part:
                     _string_list(part[name],
-                                 f"components.{cid}.units.{pid}.{name}", path)
+                                 f"components.{cid}.selected.{pid}.{name}", path)
             values = part.get("sub_agent", {})
             if not isinstance(values, dict) or not all(
                     harness in HARNESSES and isinstance(entry, dict)
                     and all(isinstance(entry.get(key), str)
                             for key in ("model", "model_id", "effort"))
                     for harness, entry in values.items()):
-                _state_refuse(path, f"components.{cid}.units.{pid}.sub_agent must map "
+                _state_refuse(path, f"components.{cid}.selected.{pid}.sub_agent must map "
                               "a harness to its model, model_id and effort")
     for name in ("harnesses", "guidance_files", "shared_claims", "files", "packs"):
         if name in state:
@@ -88,14 +88,14 @@ _LEGACY_METHODS = {"sub-agent": "agent", "config": "mcp-server",
 
 
 def migrate_legacy_record(state: dict) -> None:
-    """Read a 0.2 book as a 0.2.1 one: a component's `parts` are its `units`,
+    """Read a 0.2 book as a 0.2.1 one: a component's `parts` are its `selected` map,
     its methods carry the new names, and `pool` parts (never installed) go."""
     for rec in (state.get("components") or {}).values():
         if not isinstance(rec, dict):
             continue
-        if "parts" in rec and "units" not in rec:
-            rec["units"] = rec.pop("parts")
-        files = rec.get("units")
+        if "parts" in rec and "selected" not in rec:
+            rec["selected"] = rec.pop("parts")
+        files = rec.get("selected")
         if not isinstance(files, dict):
             continue
         for uid in [u for u, b in files.items()
@@ -130,7 +130,7 @@ def migrate_selected_files(state: dict) -> None:
     state["files"] = sorted(
         f"{cid}#{pid}"
         for cid, rec in (state.get("components") or {}).items()
-        for pid in (rec.get("units") or {})
+        for pid in (rec.get("selected") or {})
     )
 
 
@@ -154,7 +154,7 @@ def migrate_install_component_ids(state: dict) -> None:
         if "core/install" in components:
             raise Refuse("component-id-collision", "book has both 'core/installer' and 'core/install'")
         old["component"] = "install"
-        files = old.get("units")
+        files = old.get("selected")
         if isinstance(files, dict) and "rbtv-install" in files:
             files["rbtv"] = files.pop("rbtv-install")
         # Keep the old shortcut booking until reconciliation removes it.  If
@@ -181,8 +181,8 @@ def _merge_component_record(into: dict, rec: dict) -> None:
     repeats, files are folded name by name, and any other field keeps the
     value it already has."""
     for name, value in rec.items():
-        if name == "units":
-            files = into.setdefault("units", {})
+        if name == "selected":
+            files = into.setdefault("selected", {})
             for uid, file in value.items():
                 if uid in files:
                     _merge_component_record(files[uid], file)
@@ -211,7 +211,7 @@ def migrate_rbtv_component_ids(state: dict) -> None:
         rec = components.pop(old, None)
         if rec is None:
             continue
-        files = rec.get("units") or {}
+        files = rec.get("selected") or {}
         for uid in list(files):
             name = _RBTV_FILE_NAMES.get(f"{old}#{uid}")
             if name is not None:
@@ -354,13 +354,13 @@ def migrate_installation_harnesses(state: dict) -> None:
 
 
 def _wanted_files(rec: dict) -> set[str] | None:
-    raw = rec.get("units")
+    raw = rec.get("selected")
     return None if raw is None else set(raw)
 
 
 def rec_files(rec: dict) -> set[str]:
     out = set(rec.get("files") or [])
-    for part in (rec.get("units") or {}).values():
+    for part in (rec.get("selected") or {}).values():
         out |= set(part.get("files") or [])
     return out
 
@@ -369,7 +369,7 @@ def rec_owns_nothing(rec: dict) -> bool:
     """True when a booked record holds no files, claims, or PATH links."""
     if rec_files(rec) or rec.get("path_links") or rec.get("claims"):
         return False
-    for part in (rec.get("units") or {}).values():
+    for part in (rec.get("selected") or {}).values():
         if not isinstance(part, dict):
             continue
         if part.get("claims") or part.get("links"):
@@ -405,7 +405,7 @@ def _file_in(state: dict, cid: str, pid: str) -> bool:
             f"{SKILLS_DIR}/{cid.rsplit('/', 1)[-1]}")
     if rec is None:
         return False
-    parts = rec.get("units")
+    parts = rec.get("selected")
     if parts is None:
         return True
     return pid in parts
@@ -429,12 +429,12 @@ def upgrade_book(state: dict, catalog_parts: dict[str, list[dict]]) -> dict:
         if cid not in catalog_parts and rec_owns_nothing(rec):
             comps.pop(cid)
             continue
-        if "units" in rec:
-            rec["units"] = {p: dict(b) for p, b in rec["units"].items()}
+        if "selected" in rec:
+            rec["selected"] = {p: dict(b) for p, b in rec["selected"].items()}
             continue
         if cid not in catalog_parts:
             continue
-        rec["units"] = {r["id"]: {"method": r["method"], "files": []}
+        rec["selected"] = {r["id"]: {"method": r["method"], "files": []}
                         for r in catalog_parts[cid]}
     out["components"] = comps
     migrate_portable_record(out)
@@ -482,7 +482,7 @@ def _files_missing_generated(target: Path, state: dict) -> set[str]:
     """Recorded files whose generated files are absent or released."""
     missing: set[str] = set()
     for cid, rec in (state.get("components") or {}).items():
-        for pid, booked in (rec.get("units") or {}).items():
+        for pid, booked in (rec.get("selected") or {}).items():
             generated = booked.get("files") or []
             if any(not (target / rel).is_file() or not _is_ours(target, rel)
                    for rel in generated):
