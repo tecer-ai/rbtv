@@ -383,7 +383,7 @@ def print_list(data: dict) -> None:
     if files:
         print()
         if data["scope"] != "files":
-            text = "Installed files is the saved selection; run doctor to check generated files."
+            text = "Installed files is the saved selection; run doctor to check harness files."
         elif any(row["type"] == "pack" for row in files):
             if all(row["type"] == "pack" for row in files):
                 text = ("State is on or off for this target. Saved selection; "
@@ -524,7 +524,7 @@ def print_show(data: dict) -> None:
         _say(f"Description: {sel['description'] or '(no catalog description)'}")
         _say(f"Local source: {sel['source_files']} files; "
               f"installed here: {sel['installed_files']} saved selections. "
-              "Generated files not checked.")
+              "Harness files not checked.")
         print()
         headers = ["ID", "Installed files", "Description"]
         rows = [[c["id"], f"{c['installed_files']}/{c['source_files']}",

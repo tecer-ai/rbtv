@@ -212,7 +212,7 @@ def installed_agents(ctx) -> None:
         shutil.rmtree(bare)
     state = read_state(home)
     check("A-add — agent.json is the sole record and normalizes files", state["files"] == ["moda/comp#kiss"] and not (home / "launch.json").exists() and not (home / ".rbtv/config/install.json").exists(), str(state))
-    check("A-add — generated files, settings and ignore file are present", (home / ".claude/rules/kiss.md").is_file() and (home / "settings.json").is_file() and (home / ".gitignore").is_file(), "")
+    check("A-add — harness files, settings and ignore file are present", (home / ".claude/rules/kiss.md").is_file() and (home / "settings.json").is_file() and (home / ".gitignore").is_file(), "")
     check("A-add — a shipped agent is placed then applied",
           placed["placed"]["id"] == "moda/comp#research"
           and (research / "agent.md").is_file() and (research / "agent.json").is_file()
@@ -364,7 +364,7 @@ def installed_agents(ctx) -> None:
           selected == home and source == "RBTV_AGENT_HOME" and legacy == ws
           and legacy_source != retired_name, f"{selected} / {legacy}")
     remove_agent(ws, "scout", ["kiss"], set(), False, False, catalog, False)
-    check("A-remove — removes generated files but preserves authored files",
+    check("A-remove — removes harness files but preserves authored files",
           (home / "agent.md").is_file() and (home / "agent.json").is_file()
           and (home / ".gitignore").read_text(encoding="utf-8") == IGNORE_TEXT
           and not (home / ".agents/behavior-rules/kiss.md").exists(), "")

@@ -41,7 +41,7 @@ On a fresh installation, run `configure --harness NAMES --guidance NAME` or supp
 
 Change results show a compact summary and important warnings by default. Add `--details` to include the complete grouped unit and file lists; combine it with `--dry-run` to inspect a plan before applying it. `--json` retains the full structured result regardless of text verbosity. A file-operation failure reports `changed: null` when earlier writes may have applied; inspect the target before retrying.
 
-Agent results also include `generated` (file outcomes from installing or removing the agent's skills and rules) and `files_removed` (their full identifiers). These supplement the existing agent fields. An agent-removal preview's `kept` list predicts what remains after removal.
+Agent results also include `harness_files` (file outcomes from installing or removing the agent's skills and rules) and `files_removed` (their full identifiers). These supplement the existing agent fields. An agent-removal preview's `kept` list predicts what remains after removal.
 
 The `cli-creator` skill in `meta/code` covers both help and actual command results. Its output review checks tables, spacing, wrapping, bulk-result summaries, structured output, and real outcomes against observed state; help coverage alone is insufficient.
 

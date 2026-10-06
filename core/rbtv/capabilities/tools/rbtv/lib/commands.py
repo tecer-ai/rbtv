@@ -1095,9 +1095,9 @@ def cmd_selftest(args, target: Path, catalog: dict, shadowed: list,
 _AGENT_TEXT_ONLY = ("was", "packs_on", "packs_off", "absent_packs", "all",
                     "harness_changed", "on_disk", "listed_missing", "on_disk_unlisted")
 # The approved wording, broken where the approved screens break it.
-AGENT_LIST_HINT = ["Lists are counted, not printed. To list every file and generated file, preview the",
+AGENT_LIST_HINT = ["Lists are counted, not printed. To list every file and harness file, preview the",
                    "next change with --dry-run --details. --json always carries the full lists."]
-AGENT_PREVIEW_HINT = ["Add --details to this preview to list every file and generated file. "
+AGENT_PREVIEW_HINT = ["Add --details to this preview to list every file and harness file. "
                       "--json always carries the full lists."]
 
 
@@ -1109,20 +1109,20 @@ def _agent_ids(values: list[str], details: bool) -> str:
     return ", ".join(values) or "none"
 
 
-def _agent_files(generated: dict, guidance: list[str], dry: bool) -> tuple[list[str], list[str], list[str]]:
+def _agent_files(harness_files: dict, guidance: list[str], dry: bool) -> tuple[list[str], list[str], list[str]]:
     """Written, deleted and already-current file lists for one agent change.
     A preview reads the planned lists; a real run reads the applied ones."""
     if dry:
-        plan = generated.get("planned_changes") or {}
+        plan = harness_files.get("planned_changes") or {}
         write, delete = plan.get("write_files") or [], plan.get("delete_files") or []
         same = plan.get("unchanged_files") or []
     else:
-        write, delete = generated.get("written") or [], generated.get("deleted") or []
-        same = generated.get("skipped") or []
+        write, delete = harness_files.get("written") or [], harness_files.get("deleted") or []
+        same = harness_files.get("skipped") or []
     return list(dict.fromkeys(write + guidance)), delete, same
 
 
-def _agent_generated(write: list[str], delete: list[str], same: list[str], dry: bool) -> str:
+def _agent_harness_files(write: list[str], delete: list[str], same: list[str], dry: bool) -> str:
     verbs = ("would write", "would delete") if dry else ("wrote", "deleted")
     return f"{verbs[0]} {len(write)}, {verbs[1]} {len(delete)}, {len(same)} already up to date"
 
@@ -1169,7 +1169,7 @@ def _print_agent(data: dict, verb: str, target: Path, why: str | None,
     own = [name for name in data["written"] if name in OWN_FILES]
     guidance = [name for name in data["written"]
                 if name not in OWN_FILES and name != AGENT_RECORD.name]
-    write, delete, same = _agent_files(data["generated"], guidance, dry)
+    write, delete, same = _agent_files(data["harness_files"], guidance, dry)
     touched = bool(write or delete or data.get("added") or data.get("packs_on")
                    or data.get("files_removed") or data["written"])
     launch = data["launch"]
@@ -1201,7 +1201,7 @@ def _print_agent(data: dict, verb: str, target: Path, why: str | None,
             rows += [("Model", launch["model"]), ("Effort", str(launch["effort"]))]
         if not dry:
             rows.append(("Record", "agent.json updated" if touched else "agent.json already matches"))
-        rows.append(("Generated files", _agent_generated(write, delete, same, dry)))
+        rows.append(("Harness files", _agent_harness_files(write, delete, same, dry)))
         if own:
             rows.append(("Own files", (f"would write {', '.join(own)}" if dry
                                        else f"wrote {', '.join(own)}")))
@@ -1231,7 +1231,7 @@ def _print_agent(data: dict, verb: str, target: Path, why: str | None,
         rows.append(("Guidance", "nothing to copy (no guidance file is set)"))
         if touched and not dry:
             rows.append(("Record", "already matched the pulled file"))
-        rows.append(("Generated files", _agent_generated(write, delete, same, dry)))
+        rows.append(("Harness files", _agent_harness_files(write, delete, same, dry)))
     else:
         title = ("removal preview" if dry else "files removed" if touched
                  else "agent remove, nothing to do")
@@ -1251,7 +1251,7 @@ def _print_agent(data: dict, verb: str, target: Path, why: str | None,
         if touched and not dry:
             rows.append(("Record", "agent.json updated"))
         if touched or dry:
-            rows.append(("Generated files", _agent_generated(write, delete, same, dry)))
+            rows.append(("Harness files", _agent_harness_files(write, delete, same, dry)))
             rows.append(("Kept", ", ".join([data["home"], *data["kept"]])))
     print(present.title(title))
     print()
@@ -1283,7 +1283,7 @@ def _print_agent_configure(data: dict, target: Path, why: str | None,
     own = [name for name in data["written"] if name in OWN_FILES]
     guidance = [name for name in data["written"]
                 if name not in OWN_FILES and name != AGENT_RECORD.name]
-    write, delete, same = _agent_files(data["generated"], guidance, dry)
+    write, delete, same = _agent_files(data["harness_files"], guidance, dry)
     changed = bool(data["written"])
     title = ("configure preview" if dry else "agent configured" if changed
              else "agent configure, nothing to do")
@@ -1299,9 +1299,9 @@ def _print_agent_configure(data: dict, target: Path, why: str | None,
     if not dry:
         rows.append(("Record", "agent.json updated" if changed else "agent.json already has these values"))
     if data["harness_changed"]:
-        rows.append(("Generated files", _agent_generated(write, delete, same, dry)))
+        rows.append(("Harness files", _agent_harness_files(write, delete, same, dry)))
     else:
-        rows.append(("Generated files", "none (harness unchanged)" if changed else "none"))
+        rows.append(("Harness files", "none (harness unchanged)" if changed else "none"))
     print(present.title(title))
     print()
     print("\n".join(present.fields(rows)))

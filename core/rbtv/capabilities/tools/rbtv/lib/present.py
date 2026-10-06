@@ -74,7 +74,7 @@ COMMAND_GROUPS = (
                        "                files, harness, model or effort, or list the agents. See: rbtv agent -h"),
     )),
     ("Check and guided use", (
-        ("doctor", "Check generated files and selected command shortcuts."),
+        ("doctor", "Check harness files and selected command shortcuts."),
         ("interactive", "Choose files through a guided menu (asks questions)."),
         ("selftest", "Run checks in isolated temporary installations."),
     )),

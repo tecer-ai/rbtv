@@ -123,7 +123,7 @@ def packs(ctx) -> None:
     with contextlib.redirect_stdout(io.StringIO()):
         cmd_update(args(["update", "all"]), target, catalog, [])
     restored = read_state(target)
-    check("PK-update — changed pack drops then restores its generated file",
+    check("PK-update — changed pack drops then restores its harness file",
           set(dropped["components"]["fixmod/goodcomp"]["selected"]) == {"fixskill"}
           and set(restored["components"]["fixmod/goodcomp"]["selected"])
           == {"fixskill", "fixrule"}, str(restored))

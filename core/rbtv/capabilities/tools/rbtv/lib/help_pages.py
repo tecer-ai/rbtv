@@ -27,7 +27,7 @@ Agents
                 files, harness, model or effort, or list the agents. See: rbtv agent -h
 
 Check and guided use
-  doctor       Check generated files and selected command shortcuts.
+  doctor       Check harness files and selected command shortcuts.
   interactive  Choose files through a guided menu (asks questions).
   selftest     Run checks in isolated temporary installations.
 
@@ -222,7 +222,7 @@ rbtv — doctor help
 usage: rbtv doctor [-h] [--cleanup-audit] [--target TARGET]
                     [--json] [--pretty]
 
-Check generated files and selected shared command shortcuts for the selected installation or agent.
+Check harness files and selected shared command shortcuts for the selected installation or agent.
   Reports problems and a recovery command. Changes no files. Names where each check ran: the
   installation or agent, the local rbtv source, shared commands, or the current PATH (the shell's
   command lookup list).
@@ -275,7 +275,7 @@ usage: rbtv configure [-h] [--harness HARNESS]
 
 Initialize a fresh target or change saved receiving tools and guidance.
 This command selects no catalog files. Changing settings regenerates
-generated files for files already selected; it does not add new files.
+the harness files of files already selected; it does not add new files.
 On first setup, give both --harness and --guidance. A named guidance file
 must already exist at the installation root; choose none when you maintain
 no such file. Later, each supplied option replaces its saved setting; an
@@ -307,7 +307,7 @@ options:
   --json                one JSON value on standard output, for success
                         and for failure
   --dry-run             show what would change; write and delete nothing
-  --details             list every file and generated file instead of counting
+  --details             list every file and harness file instead of counting
 
 Also accepted:
   rbtv add harness opencode          (add one harness)
@@ -332,7 +332,7 @@ usage: rbtv add [-h] [--all] [--module MODULE] [--component COMPONENT]
                 [NAME ...]
 
 Add named files, whole components, a pack, or a filtered selection from
-local source, and write their generated files. A bare name never resolves
+local source, and write their harness files. A bare name never resolves
 to a pack: rbtv add ignite is the tool core/ignite#ignite. Name a pack
 with --pack. A short name must match one file. --pack adds that pack's
 files and combines with named files. Filters narrow together, including a
@@ -404,7 +404,7 @@ options:
   --json                one JSON value on standard output, for success
                         and for failure
   --dry-run             show what would change; write and delete nothing
-  --details             list every file and generated file instead of counting
+  --details             list every file and harness file instead of counting
 
 Examples:
   rbtv add brainstorm
@@ -429,7 +429,7 @@ usage: rbtv remove [-h] [--all] [--module MODULE] [--component COMPONENT]
                    [--target TARGET] [--json] [--dry-run] [--details]
                    [NAME ...]
 
-Remove installed files from this installation, and delete the generated
+Remove installed files from this installation, and delete the harness
 files that go with them. A named file, component or pack needs no --yes.
 --pack turns that pack off and removes files it added, unless the same
 file is also installed on its own. Counts never count one file twice.
@@ -486,7 +486,7 @@ options:
   --json                one JSON value on standard output, for success
                         and for failure
   --dry-run             show what would change; write and delete nothing
-  --details             list every file and generated file instead of counting
+  --details             list every file and harness file instead of counting
 
 Exit codes: 0 success; 1 refused; 2 invalid arguments.
 Next: rbtv status
@@ -505,9 +505,9 @@ by hand; it is not shared between machines.
                 harness's file. Leaves each file's generated section as
                 it is. Adds and removes no files. If guidance is none,
                 there is nothing to copy.
-  scaffolding   Regenerate generated files for the installed files. Add a
-                file that install.json lists whose generated files are
-                missing. Remove generated files for a file it no longer
+  scaffolding   Regenerate the harness files of the installed files. Add a
+                file that install.json lists whose harness files are
+                missing. Remove the harness files of a file it no longer
                 lists. Does not copy the text you maintain.
   all           Run scaffolding, then guidance.
 
@@ -517,7 +517,7 @@ when both lists are empty.
 positional arguments:
   {guidance,scaffolding,all}
     guidance            copy maintained text; add and remove no files
-    scaffolding         make generated files match the installed files
+    scaffolding         make harness files match the installed files
     all                 scaffolding, then guidance
 
 options:
@@ -562,9 +562,9 @@ rbtv — update scaffolding help
 usage: rbtv update scaffolding [-h] [--target TARGET] [--json]
                                [--dry-run] [--details]
 
-Make generated files match install.json. Regenerates generated files
-for the files it lists, writes a listed file whose generated files are
-missing, and removes generated files for a file it no longer lists. The
+Make harness files match install.json. Regenerates the harness files
+of the files it lists, writes a listed file whose harness files are
+missing, and removes the harness files of a file it no longer lists. The
 result names what was added and what was removed. Leaves human-authored
 text alone; it does not copy that text (that is update guidance). Use
 update all when both parts of every file must be current.
@@ -576,7 +576,7 @@ options:
   --json           one JSON value on standard output, for success and
                    for failure
   --dry-run        show what would change; write and delete nothing
-  --details        list every file and generated file instead of counting
+  --details        list every file and harness file instead of counting
 
 Example: rbtv update scaffolding
 Next: rbtv doctor
@@ -588,9 +588,9 @@ rbtv — update all help
 usage: rbtv update all [-h] [--target TARGET] [--json] [--dry-run]
                        [--details]
 
-Run scaffolding, then guidance. Generated files are made to match
-install.json (a listed file added when its generated files are missing,
-generated files removed for a file it no longer lists), then maintained text is
+Run scaffolding, then guidance. Harness files are made to match
+install.json (a listed file added when its harness files are missing,
+the harness files of a file it no longer lists removed), then maintained text is
 copied. The result names what was added and what was removed. If the
 maintained guidance file is missing, refuses before any write.
 
@@ -601,7 +601,7 @@ options:
   --json           one JSON value on standard output, for success and
                    for failure
   --dry-run        show what would change; write and delete nothing
-  --details        list every file and generated file instead of counting
+  --details        list every file and harness file instead of counting
 
 Example: rbtv update all
 Next: rbtv doctor
@@ -693,7 +693,7 @@ options:
   --json                one JSON value on standard output, success or
                         failure
   --dry-run             preview changes without writing or removing files
-  --details             list every file and generated file instead of counting
+  --details             list every file and harness file instead of counting
 
 Examples:
   rbtv agent add plans/launch/agents/drafter
@@ -730,7 +730,7 @@ options:
   --json                one JSON value on standard output, success or
                         failure
   --dry-run             preview changes without writing or removing files
-  --details             list every file and generated file instead of counting
+  --details             list every file and harness file instead of counting
 
 Examples:
   rbtv agent remove scout interview
@@ -758,7 +758,7 @@ accepts, or a number 1-5 stored as that model's word. Both are checked
 with cast list, so cast must be on PATH. --voice is the voice the agent
 speaks with; cast list does not check it.
 
-Changing --harness regenerates generated files for the new harness.
+Changing --harness regenerates the harness files for the new harness.
 A harness-native sub-agent written for the old harness is deleted with its
 model and effort; the result names the command that adds it for the new one.
 Changing model, effort or voice updates agent.json only.
@@ -781,7 +781,7 @@ options:
   --json                one JSON value on standard output, success or
                         failure
   --dry-run             preview changes without writing or removing files
-  --details             list every file and generated file instead of counting
+  --details             list every file and harness file instead of counting
 
 Examples:
   rbtv agent configure scout --model gpt-6-astra --effort medium
@@ -809,9 +809,9 @@ This verb takes no --target.
                 reports nothing to copy. If the folder still does not
                 match agent.json, the result says so and names the
                 command that would finish the match.
-  scaffolding   Generated files only: add what agent.json lists and is
-                missing, and remove generated files it no longer lists.
-                "scaffolding" is the scope name; the files are generated
+  scaffolding   Harness files only: add what agent.json lists and is
+                missing, and remove harness files it no longer lists.
+                "scaffolding" is the scope name; the files are harness
                 files.
   all           scaffolding, then guidance.
 
@@ -819,7 +819,7 @@ positional arguments:
   AGENT                 name or path of the agent
   {guidance,scaffolding,all}
     guidance            copy maintained text; add and remove no files
-    scaffolding         make generated files match agent.json
+    scaffolding         make harness files match agent.json
     all                 scaffolding, then guidance
 
 options:
@@ -827,7 +827,7 @@ options:
   --json                one JSON value on standard output, success or
                         failure
   --dry-run             preview changes without writing or removing files
-  --details             list every file and generated file instead of counting
+  --details             list every file and harness file instead of counting
 
 Examples:
   rbtv agent update scout all

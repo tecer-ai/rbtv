@@ -122,7 +122,7 @@ def migrate_portable_record(state: dict) -> None:
 def migrate_selected_files(state: dict) -> None:
     """Schema 4 chose every file it had generated; schema 5 says so plainly.
 
-    The old per-component map remains the generated-file ledger.  `files` is
+    The old per-component map remains the harness-file ledger.  `files` is
     the independent, portable selection that later updates reconcile against.
     """
     if "files" in state:
@@ -202,7 +202,7 @@ def migrate_rbtv_component_ids(state: dict) -> None:
     Both records fold into one. The skill `build` is `framework`. The
     skill `manage-components` has no successor: it leaves the selection here
     and keeps its booking, so the next update deletes its files and names it
-    as removed. Generated files are not renamed here either; that same update
+    as removed. Harness files are not renamed here either; that same update
     replaces them. A record that holds neither old component is left as it is.
     """
     components = state.get("components") or {}
@@ -478,14 +478,14 @@ def _rebuild_claim(target: Path, claim_id: str, owner: tuple) -> dict | None:
             "owner": owner}
 
 
-def _files_missing_generated(target: Path, state: dict) -> set[str]:
-    """Recorded files whose generated files are absent or released."""
+def _files_missing_harness_files(target: Path, state: dict) -> set[str]:
+    """Recorded files whose harness files are absent or released."""
     missing: set[str] = set()
     for cid, rec in (state.get("components") or {}).items():
         for pid, booked in (rec.get("selected") or {}).items():
-            generated = booked.get("files") or []
+            harness_files = booked.get("files") or []
             if any(not (target / rel).is_file() or not _is_ours(target, rel)
-                   for rel in generated):
+                   for rel in harness_files):
                 missing.add(f"{cid}#{pid}")
     return missing
 
@@ -493,9 +493,9 @@ def _files_missing_generated(target: Path, state: dict) -> set[str]:
 def file_membership(target: Path, catalog: dict, state: dict, chosen: set[str]) -> dict:
     """An update's reconciliation: the files the record lists (`chosen`) against
     the files booked on disk. Read it before the update writes anything. A
-    listed file whose generated files are gone counts as added."""
+    listed file whose harness files are gone counts as added."""
     booked = {row["key"] for row in iter_booked_files(catalog, state.get("components") or {})}
-    missing = _files_missing_generated(target, state)
+    missing = _files_missing_harness_files(target, state)
     return {"booked": booked, "listed_missing": chosen - booked,
             "on_disk_unlisted": booked - chosen,
             "added": (chosen - booked) | (chosen & missing),

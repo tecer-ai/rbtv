@@ -125,7 +125,7 @@ def installation_settings(ctx) -> None:
           ["fixskill"]["method"] == "skill")
 
     codex_skill = fresh / ".agents/skills/fixskill/SKILL.md"
-    check("W17 — removing one harness removes only its generated files",
+    check("W17 — removing one harness removes only its harness files",
           codex_skill.exists()
           and run(fresh, "rm", "harness", "codex")[0] == 0
           and not codex_skill.exists()
@@ -434,7 +434,7 @@ def file_selection_sync(ctx) -> None:
     state = read_state(hand)
     state["files"] = ["fixmod/goodcomp#fixskill"]
     write_state(hand, state)
-    check("W46 — a hand deletion from files removes its generated files",
+    check("W46 — a hand deletion from files removes its harness files",
           run(hand, "update", "all")[0] == 0
           and not (hand / ".claude/rules/fixrule.md").exists())
     state = read_state(hand)
@@ -455,7 +455,7 @@ def file_selection_sync(ctx) -> None:
     state = read_state(guidance)
     state["files"] = ["fixmod/goodcomp#fixskill"]
     write_state(guidance, state)
-    check("W48 — update guidance does not reconcile generated files",
+    check("W48 — update guidance does not reconcile harness files",
           run(guidance, "update", "guidance")[0] == 0
           and (guidance / ".claude/rules/fixrule.md").is_file())
 
@@ -531,9 +531,9 @@ def file_selection_sync(ctx) -> None:
                   for name in foreign_names)
           and root_stale_released and agent_stale_released
           and "AGENTS.md::#block:rule fixmod/codexcomp#codexrule" in
-          agent_preview["generated"]["shared_removed"]
+          agent_preview["harness_files"]["shared_removed"]
           and "AGENTS.md::#block:rule fixmod/codexcomp#codexrule" in
-          agent_real["generated"]["shared_removed"],
+          agent_real["harness_files"]["shared_removed"],
           str((root_preview, root_real,
-               agent_preview["generated"].get("shared_removed"),
-               agent_real["generated"].get("shared_removed"))))
+               agent_preview["harness_files"].get("shared_removed"),
+               agent_real["harness_files"].get("shared_removed"))))

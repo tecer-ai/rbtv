@@ -342,8 +342,8 @@ def result_screens(ctx) -> None:
         _, agent_default, _ = agent_text(*add)
         _, agent_full, _ = agent_text(*add, "--details")
     skill = ".claude/skills/fixskill/SKILL.md"
-    ctx.check("RESULT-agent-preview-reports-generated-files-default-and-details",
-              "Generated files:  would write 2" in agent_default
+    ctx.check("RESULT-agent-preview-reports-harness-files-default-and-details",
+              "Harness files:    would write 2" in agent_default
               and "File list" not in agent_default and skill not in agent_default
               and "Add --details to this preview" in agent_default
               and "File list" in agent_full

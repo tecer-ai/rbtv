@@ -23,7 +23,7 @@ The description is always present. It is the row a human reads before typing the
 
 The body is always present. It is the instructions the agent reads after the invocation. When the command is an entry point, the body has a markdown table that names capabilities. Take that table from the page "Routing table"¹ and from the page "Entry point"². A command can route, keep text in the body, or both.
 
-The rbtv CLI writes one short file for each harness that receives the command, named with the command's name. That is the file the harness lists. Its text tells the agent to read this source and follow it. The rbtv CLI does not copy the body into that file. On Claude Code and OpenCode the short file also carries the description. On Codex it does not, so the human chooses from the name alone.
+The rbtv CLI writes one short harness file for each harness that receives the command, named with the command's name. That is the file the harness lists. Its text tells the agent to read this source and follow it. The rbtv CLI does not copy the body into that file. On Claude Code and OpenCode the short file also carries the description. On Codex it does not, so the human chooses from the name alone.
 
 ## How to build it
 
@@ -51,7 +51,7 @@ The rbtv CLI writes one short file for each harness that receives the command, n
 
    Strong: "Name it trail-review, because review is a name a harness already lists as its own command."
 
-   The weak line is a name the harness already lists, so the file the rbtv CLI writes replaces that command.
+   The weak line is a name the harness already lists, so the harness file the rbtv CLI writes replaces that command.
 
 5. **Write the description as the row the human reads before typing.** Write one row, and take the labels, the order and the quoting from the page "Routing table"¹. The reader is the human who is about to type a name and has not read the body. For a command, the parts contain:
 

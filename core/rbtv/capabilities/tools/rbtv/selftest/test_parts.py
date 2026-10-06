@@ -242,7 +242,7 @@ def vanished_component_part_rm(ctx) -> None:
           str(sorted(g1files)) + " " + str(res_g1["report"].get("source_gone")))
 
     # An update must reconcile a selection after its source has disappeared:
-    # delete its generated file, its record entry and its PATH shortcut.
+    # delete its harness file, its record entry and its PATH shortcut.
     source = tmp / "selection-source"
     component = source / "gone" / "selected"
     component.mkdir(parents=True)

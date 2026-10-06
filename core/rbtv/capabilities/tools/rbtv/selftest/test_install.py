@@ -226,7 +226,7 @@ def green_arm_all_harnesses(ctx) -> None:
     changed_file = target / ".claude/skills/fixskill/SKILL.md"
     changed_shared = target / ".claude/settings.json"
     old_file, old_shared = changed_file.read_bytes(), changed_shared.read_bytes()
-    changed_file.write_text("stale generated file\n", encoding="utf-8")
+    changed_file.write_text("stale harness file\n", encoding="utf-8")
     changed_shared.write_text('{"foreignKey": 1}\n', encoding="utf-8")
     changed_before = (changed_file.read_bytes(), changed_shared.read_bytes())
     changed_preview = do_install(target, catalog, ["fixmod/goodcomp"],

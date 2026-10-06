@@ -460,7 +460,7 @@ def ls_li_doctor(ctx) -> None:
         (["update", "guidance", "-h"],
          ("Copy the human text", "it does not rebuild that section")),
         (["update", "scaffolding", "-h"],
-         ("Make generated files match install.json",
+         ("Make harness files match install.json",
           "it does not copy that text")),
         (["update", "all", "-h"],
          ("Run scaffolding, then guidance.",)),

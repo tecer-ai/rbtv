@@ -225,7 +225,7 @@ def update_after_rewrite(ctx) -> None:
         record = saved(ws / STATE_REL)
         check("U-merge-update-says — `update all` says the file left the record",
               code == 0 and "Removed: core/rbtv#manage-components" in text, text + err)
-        check("U-merge-update-files — the generated files of manage-components and of "
+        check("U-merge-update-files — the harness files of manage-components and of "
               "the old build skill are deleted, and those of framework are written",
               not loaders[0].exists() and not loaders[0].parent.exists()
               and not old_skill[0].exists() and not old_skill[0].parent.exists()

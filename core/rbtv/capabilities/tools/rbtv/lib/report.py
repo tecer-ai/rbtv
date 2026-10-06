@@ -193,10 +193,10 @@ def print_result(data: dict) -> None:
     print()
     if out.hidden:
         # Never suggests repeating a change that already ran.
-        hint = ("Add --details to this preview to list every file and generated file."
+        hint = ("Add --details to this preview to list every file and harness file."
                 if preview else
                 "Lists are counted, not printed. To list every file and "
-                "generated file, preview the next change with --dry-run --details.")
+                "harness file, preview the next change with --dry-run --details.")
         for line in present.wrap(hint + " --json always carries the full lists."):
             print(line)
         print()
@@ -406,7 +406,7 @@ def _gitignore(out: _Out, report: dict, planned: bool) -> None:
         out.bullet("Notes", f"Git ignore list not claimed ({gi.get('reason')})")
         return
     out.bullet("Notes", f"Git ignore list {'would keep' if planned else 'keeps'} "
-               f"{gi['count']} generated path(s) out of commits")
+               f"{gi['count']} harness file path(s) out of commits")
 
 
 def _guidance(out: _Out, report: dict, planned: bool, *,
