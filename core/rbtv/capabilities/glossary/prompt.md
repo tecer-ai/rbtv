@@ -17,7 +17,7 @@ The rbtv CLI can accept the file, and the prompt can still fail, because the rbt
 
 ## What it is composed of
 
-The author writes the body of `agent.md`, in the folder that the page "Agent"¹ names. The frontmatter of that file carries the name and nothing else. It is not part of the prompt. The schema of that frontmatter is the file "Agent frontmatter"². On an rbtv launch and on an Ignite turn, the CLI that launches the agent removes the frontmatter before the model sees the text. A harness sub-agent file does not contain the body. It tells the model to read the source file.
+The author writes the body of `agent.md`, in the folder that the page "Agent"¹ names. The frontmatter of that file carries the name and nothing else. It is not part of the prompt. The schema of that frontmatter is the file "Agent frontmatter"². On an rbtv launch and on an Ignite turn, the cast CLI launches the agent and removes the frontmatter before the model sees the text. A harness sub-agent file does not contain the body. It tells the model to read the source file.
 
 The body has these headings, in this order, spelled as written: `## Role`, `## Navigation`, `## Procedure`, `## Constraints`. Navigation is absent when the agent works only in its own folder. Constraints are absent when no standing limit remains. The persona has no heading. It sits in Role, and only when an open choice remains. An empty heading is absent: no heading and no placeholder.
 
