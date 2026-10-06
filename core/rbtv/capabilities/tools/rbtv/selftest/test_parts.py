@@ -16,6 +16,7 @@ from lib.constants import (
     STATE_REL,
 )
 from lib.catalog import catalog_files_map
+from lib.files_key import files_key
 from lib.claims import _claim_id
 from lib.target import discover_target
 from lib.state import (
@@ -323,7 +324,7 @@ def v1_to_v2_upgrade(ctx) -> None:
         dest = dest_root / STATE_REL
         dest.parent.mkdir(parents=True)
         dest.write_bytes(before)
-        raw = json.loads(dest.read_text(encoding="utf-8"))
+        raw = files_key(json.loads(dest.read_text(encoding="utf-8")))
         migrate_legacy_record(raw)
         old_claims = list(raw.get("shared_claims") or [])
         src_harnesses = {
