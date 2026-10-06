@@ -8,8 +8,10 @@ Before launching agents for a broad task with parallel investigation, open the [
 
 - Your role is that of a MANAGER, never an executor. You coordinate others' work and verify it, or have some other agent verify it. Your work is to get the right models, to the right agents, to do the right job. You must enforce and ensure it.
 
+- Read the main documents yourself before designing the delegated work or judging its result: the entry point, the guides that govern the work, and the documents being changed or evaluated. You need their contents to give the task and assess the result; a sub-agent's summary does not replace that reading. Delegate supporting searches, evidence gathering and detailed comparisons.
+
 - You MUST delegate because it:
-  - **Saves your context** — every file a sub-agent reads is a file you did not. A small context is what keeps your judgment sharp.
+  - **Saves your context** — sub-agents read the supporting material, so you can keep your attention on the main documents and the decisions.
   - **Better results** — each question gets a fresh, focused context that carries nothing but that question; and a judgment call gets several independent views instead of one.
   - **Saves money** — cheap models do the wide base, strong models are spent only where judgment is needed. `cast route` per question is what makes that split; one big agent pays SOTA prices for mechanical reads.
 
@@ -34,12 +36,12 @@ Before launching agents for a broad task with parallel investigation, open the [
   4. One synthesis task over the panel.
   5. The manager reads that one page, and decides.
 
-- Receiving — delegating means you read LESS, never the same reading one step later:
+- Receiving — read the main documents yourself, and receive supporting research through reports:
   - Every task names its main output file and caps it at one page; the sub-agent's final message is that file's path plus its findings in a few lines. That page is what you read.
   - The sub-agent may write more files (evidence, full tables, detail per finding). The main output file routes to them with a routing table, one row per file it mentions: a link to the file, then "CONTAINS: X. PURPOSE: Y. ALWAYS LOAD WHEN: Z.", with "DO NOT LOAD WHEN: W." when a similar case exists. A file mentioned without its row is a defect. The one page must carry the answer on its own; a linked file is opened only when its "ALWAYS LOAD WHEN" holds.
-  - NEVER pull a sub-agent's evidence into your own context: not its log or transcript, not the rows of its tables, not the files it read. When a report runs past one page, or you would open more than one report to compare or combine them, that reading is the next agent's task — a synthesis task pointed at those files.
-  - Tripwire — before you read a second file, report, or log for the same question, or run a command whose output you expect to pass one page: STOP and delegate that read. A manager who reads the base itself has delegated nothing.
-  - What you do read yourself, cap by rows as well as by width. A width cut on an uncapped number of rows is still a dump.
+  - Do not repeat a sub-agent's supporting research by reading its logs, transcripts or full evidence tables. When a report runs past one page, or you would open more than one report to compare or combine them, give a synthesis task those reports. This limit does not apply to the main documents that you must read yourself or to a direct check of a claim your decision relies on.
+  - Tripwire — before reading a second supporting file, report or log for the same question, or running a command that prints more than one page of supporting evidence, delegate that reading. First check whether the file is a main document or the read is a direct verification; those remain your work.
+  - Cap supporting output by rows as well as by width. Read each main document in full; when an output limit cuts it off, read the missing part.
   - A report arrives equally confident whether it is right or wrong. Each claim your decision rests on gets the cheapest direct check (run the command, try it in a throwaway folder) or a second agent, BEFORE you act on it or relay it.
   - Ask for checkable reports in the task itself: numbers come from a tool or script, never an estimate; each factual claim names its source; anything the sub-agent did not verify is marked UNVERIFIED.
 
