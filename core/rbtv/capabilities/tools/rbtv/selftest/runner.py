@@ -20,7 +20,7 @@ from .fixture import _fixture
 from . import (test_agents, test_cli, test_discovery, test_doctor_ownership, test_guidance, test_guidance_walk,
                test_hub, test_install, test_interactive, test_layout,
                test_ownership, test_parts, test_pathlinks, test_settings,
-               test_surface, test_files, test_ux_contract, test_packs,
+               test_surface, test_files, test_files_key, test_ux_contract, test_packs,
                test_subagents, test_component_merge)
 
 ORDER = [
@@ -67,6 +67,7 @@ ORDER = [
     test_ownership.gitignore_block,
     test_settings.installation_settings,
     test_settings.file_selection_sync,
+    test_files_key.old_key_read_and_rewritten,
     test_parts.vanished_component_removable,
     test_parts.part_level_install_remove,
     test_parts.part_level_claim_release,

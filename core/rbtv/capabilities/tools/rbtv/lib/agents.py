@@ -14,6 +14,7 @@ from .catalog import check_packs, pack_files
 from .claims import _block_del
 from .constants import (AGENT_RECORD, EFFORT_INERT, GUIDANCE_FILE, HARNESSES, MATRIX,
                         SHARED_FILE_DESTINATIONS)
+from .files_key import files_key
 from .fsio import write_file
 from .operations import do_install, do_uninstall
 from .selection import _split_part_keys, iter_booked_files, iter_catalog_parts, resolve_name
@@ -125,7 +126,7 @@ def _read_agent(home: Path) -> dict:
 
 
 def _checked_agent(home: Path, state: dict) -> dict:
-    required = ("name", "description", *LAUNCH_FIELDS, "units", "packs")
+    required = ("name", "description", *LAUNCH_FIELDS, "files", "packs")
     missing = [name for name in required if name not in state]
     if missing:
         raise Refuse("agent-record-invalid", "agent.json is missing " + ", ".join(missing)
@@ -310,7 +311,7 @@ def configure_agent(root: Path, raw: str, harness: str | None,
                            str(after["effort"]), cast_catalog())
     after.update(launch)
     changed_harness = before["harness"] != after["harness"]
-    wanted = _keys(list(after["units"]), catalog) | pack_files(catalog, set(after["packs"]))
+    wanted = _keys(list(after["files"]), catalog) | pack_files(catalog, set(after["packs"]))
     picked, parts = _split_part_keys(wanted)
     generated = (do_install(home, catalog, picked, [after["harness"]], dry,
                              guidance_basis="none", parts=parts,
@@ -386,8 +387,8 @@ def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: 
     home = agent_home(root, raw) if part else resolve_agent(root, raw)
     if part:
         source = Path(catalog[part["component"]]["path"]) / "agents" / raw
-        state = {"units": [], "packs": [],
-                 **json.loads((source / AGENT_RECORD.name).read_text(encoding="utf-8"))}
+        state = {"files": [], "packs": [],
+                 **files_key(json.loads((source / AGENT_RECORD.name).read_text(encoding="utf-8")))}
     else:
         state = _read_agent(home)
     launch = _launch_flags(raw, all(key in state for key in LAUNCH_FIELDS), given)
@@ -412,7 +413,7 @@ def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: 
     elif launch:
         _checked_agent(home, state)
     explicit = _keys(names, catalog)
-    declared = _keys(list(state["units"]), catalog)
+    declared = _keys(list(state["files"]), catalog)
     before = declared | pack_files(catalog, set(state["packs"]))
     enabled = set(state["packs"]) | packs
     wanted = declared | explicit | pack_files(catalog, enabled)
@@ -427,7 +428,7 @@ def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: 
     if not dry:
         after = read_state(home)
         after.update(launch)
-        after["units"], after["packs"] = sorted(declared | explicit), sorted(enabled)
+        after["files"], after["packs"] = sorted(declared | explicit), sorted(enabled)
         write_state(home, after)
     added, packs_on = sorted(wanted - before), sorted(packs - set(state["packs"]))
     touched = bool(added or packs_on or written or launch
@@ -446,7 +447,7 @@ def update_agent(root: Path, raw: str, scope: str, catalog: dict, dry: bool) -> 
     mismatch (listed_missing, on_disk_unlisted) for the caller to name."""
     home = resolve_agent(root, raw)
     state = agent_state(home)
-    wanted = _keys(list(state["units"]), catalog) | pack_files(catalog, set(state["packs"]))
+    wanted = _keys(list(state["files"]), catalog) | pack_files(catalog, set(state["packs"]))
     members = file_membership(home, catalog, state, wanted)
     picked, parts = _split_part_keys(wanted)
     result = do_install(home, catalog, picked, [state["harness"]], dry, guidance_basis="none", parts=parts, scope=scope, selected=parts if scope in ("scaffolding", "all") else None)
@@ -469,15 +470,15 @@ def remove_agent(root: Path, raw: str, names: list[str], packs: set[str], all_fi
     state = agent_state(home)
     if all_files and not yes:
         pack_part = f", pack {', '.join(state['packs'])}" if state["packs"] else ""
-        before = _keys(list(state["units"]), catalog, state.get("components")) | pack_files(catalog, set(state["packs"]))
+        before = _keys(list(state["files"]), catalog, state.get("components")) | pack_files(catalog, set(state["packs"]))
         count = f"{len(before)} file{'' if len(before) == 1 else 's'}"
         raise Refuse("confirm-required", f"--all removes every file from {state['name']} "
                      f"({count}{pack_part}). Re-run with --yes:\n"
                      f"rbtv agent remove {raw} --all --yes")
     check_packs(catalog, packs, "rbtv list --type pack")
-    before = _keys(list(state["units"]), catalog, state.get("components")) | pack_files(catalog, set(state["packs"]))
+    before = _keys(list(state["files"]), catalog, state.get("components")) | pack_files(catalog, set(state["packs"]))
     try:
-        removed = (set(state["units"]) if all_files else
+        removed = (set(state["files"]) if all_files else
                    _keys(names, catalog, state.get("components")))
     except Refuse as exc:
         if exc.code != "name-unknown":
@@ -488,7 +489,7 @@ def remove_agent(root: Path, raw: str, names: list[str], packs: set[str], all_fi
         refusal.candidates = getattr(exc, "candidates", [])
         raise refusal from exc
     enabled = set() if all_files else set(state["packs"]) - packs
-    explicit = set() if all_files else set(state["units"]) - removed
+    explicit = set() if all_files else set(state["files"]) - removed
     wanted = explicit | pack_files(catalog, enabled)
     booked = {row["key"] for row in iter_booked_files(catalog, state.get("components") or {})}
     gone = booked - wanted
@@ -496,7 +497,7 @@ def remove_agent(root: Path, raw: str, names: list[str], packs: set[str], all_fi
     result = do_uninstall(home, catalog, picked, dry, parts=parts) if parts else {"ok": True, "uninstalled": [], "dry_run": dry, "report": {}}
     if not dry:
         after = read_state(home)
-        after["units"], after["packs"] = sorted(explicit), sorted(enabled)
+        after["files"], after["packs"] = sorted(explicit), sorted(enabled)
         write_state(home, after)
     packs_off = sorted(set(state["packs"]) if all_files else set(state["packs"]) & packs)
     return {"ok": True, "agent": state["name"], "home": str(home), "launch": _launch(state),

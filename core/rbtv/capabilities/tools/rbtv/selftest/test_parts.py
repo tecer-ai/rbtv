@@ -265,7 +265,7 @@ def vanished_component_part_rm(ctx) -> None:
                dry_run=False, parts=["gone/selected#old-tool"])
     before_link = link_path(bin_dir(), "old-tool").exists()
     old_state = read_state(selected_ws)
-    old_state["units"] = ["gone/selected#old-tool"]
+    old_state["files"] = ["gone/selected#old-tool"]
     write_state(selected_ws, old_state)
     unavailable_catalog = {**selected_catalog,
                            "gone/selected": {**selected_catalog["gone/selected"],
@@ -276,7 +276,7 @@ def vanished_component_part_rm(ctx) -> None:
     reconciled = read_state(selected_ws)
     owners = json.loads(owner_file(bin_dir()).read_text(encoding="utf-8"))
     check("SG2 — update removes a selected file whose source is gone, including its shortcut",
-          before_link and reconciled["units"] == []
+          before_link and reconciled["files"] == []
           and "gone/selected" not in reconciled["components"]
           and not link_path(bin_dir(), "old-tool").exists()
           and "old-tool" not in owners["links"], str(reconciled))
@@ -428,9 +428,9 @@ def legacy_records_gain_selection_fields_on_write(ctx) -> None:
         old_record["target"] = str(old.resolve())
         old_record.pop("packs", None)
         if without_files:
-            old_record.pop("units", None)
+            old_record.pop("files", None)
         else:
-            old_record["units"] = sorted(
+            old_record["files"] = sorted(
                 f"fixmod/goodcomp#{pid}" for pid in
                 old_record["components"]["fixmod/goodcomp"]["units"])
         old_record["components"]["fixmod/goodcomp"]["tree_root"] = str(tree)
@@ -441,13 +441,13 @@ def legacy_records_gain_selection_fields_on_write(ctx) -> None:
         check(f"U-selection-{schema} — reads with files and empty packs derived",
               not {"installer", "installed_at", "target"} & set(read)
               and "tree_root" not in read["components"]["fixmod/goodcomp"]
-              and set(read["units"]) == expected and read["packs"] == [])
+              and set(read["files"]) == expected and read["packs"] == [])
         write_state(old, read)
         persisted = json.loads(state_path.read_text(encoding="utf-8"))
         check(f"U-selection-{schema} — next write is current and portable",
               persisted["schema"] == SCHEMA
               and not {"installer", "installed_at", "target"} & set(persisted)
-              and persisted["units"] == sorted(expected)
+              and persisted["files"] == sorted(expected)
               and persisted["packs"] == []
               and all("tree_root" not in rec
                       for rec in persisted["components"].values()),

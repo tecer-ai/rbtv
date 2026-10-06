@@ -128,7 +128,7 @@ def describe(named: list[dict], given: dict[str, dict], before: dict[str, dict],
                           for h in receiving if h in now},
             "not_written_for": left_out,
             "add_commands": {h: add_command(name, h, target) for h in left_out},
-            "files_not_applied": list(data.get("units") or []),
+            "files_not_applied": list(data.get("files") or []),
             "packs_not_applied": list(data.get("packs") or [])})
     return out
 

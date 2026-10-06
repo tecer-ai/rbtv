@@ -53,7 +53,7 @@ function installAgent(dir, name = 'probe') {
   fs.writeFileSync(path.join(home, 'agent.md'), `---\nname: ${name}\n---\n\n## Role\n\nFixture.\n`);
   fs.writeFileSync(path.join(home, 'agent.json'), JSON.stringify({
     name, description: 'fixture', harness: 'claude', model: 'm', effort: 'high',
-    units: ['fixture/a#one', 'fixture/a#two', 'fixture/a#web'], packs: ['research-kit'],
+    files: ['fixture/a#one', 'fixture/a#two', 'fixture/a#web'], packs: ['research-kit'],
   }) + '\n');
   fs.writeFileSync(path.join(home, 'conversations', 'kept.md'), 'history\n');
   fs.mkdirSync(path.dirname(boardPath(home)), { recursive: true });
@@ -72,7 +72,7 @@ function fakeInstaller(calls = []) {
     const dryRun = args.includes('--dry-run');
     const state = JSON.parse(fs.readFileSync(path.join(home, 'agent.json'), 'utf8'));
     const packs = new Set(state.packs);
-    const units = new Set(state.units);
+    const units = new Set(state.files);
     const adding = args[1] === 'add';
     const changed = IGNITE_UNITS.filter((unit) => units.has(unit) !== adding);
     if (adding) {
@@ -82,10 +82,10 @@ function fakeInstaller(calls = []) {
       packs.delete('ignite');
       for (const unit of IGNITE_UNITS) units.delete(unit);
     }
-    const next = { ...state, packs: [...packs].sort(), units: [...units].sort() };
+    const next = { ...state, packs: [...packs].sort(), files: [...units].sort() };
     if (!dryRun) fs.writeFileSync(path.join(home, 'agent.json'), `${JSON.stringify(next)}\n`);
     const change = adding ? { added: changed } : { files_removed: changed };
-    return { status: 0, stdout: JSON.stringify({ files: next.units, packs: next.packs, ...change }) };
+    return { status: 0, stdout: JSON.stringify({ files: next.files, packs: next.packs, ...change }) };
   };
 }
 
@@ -432,7 +432,7 @@ async function run(argv, extra = {}) {
     const home = installAgent(dir);
     const statePath = path.join(home, 'agent.json');
     const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
-    fs.writeFileSync(statePath, `${JSON.stringify({ ...state, units: [], packs: [] })}\n`);
+    fs.writeFileSync(statePath, `${JSON.stringify({ ...state, files: [], packs: [] })}\n`);
     const bin = path.join(dir, 'bin');
     fs.mkdirSync(bin);
     const cast = path.join(bin, process.platform === 'win32' ? 'cast.cmd' : 'cast');

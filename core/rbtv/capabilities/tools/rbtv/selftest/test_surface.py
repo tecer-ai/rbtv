@@ -113,7 +113,7 @@ def ls_li_doctor(ctx) -> None:
     (agent / "agent.json").write_text("{}\n", encoding="utf-8")
     write_state(agent, {"name": "ws-surf-agent", "description": "Checks scope labels.",
                         "harness": "claude", "model": "sonnet", "effort": "medium",
-                        "units": [], "packs": [], "components": {}, "shared_claims": []})
+                        "files": [], "packs": [], "components": {}, "shared_claims": []})
     agent_doctor = do_doctor(agent, DISCOVER_FLAG, catalog, [], tree,
                              agent / ".rbtv" / "mirror")
     check("SURF-doctor-agent-scope — agent target labels its own checks",

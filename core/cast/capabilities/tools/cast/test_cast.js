@@ -1442,7 +1442,7 @@ else {
       const argv = process.argv.slice(2);
       fs.appendFileSync(process.env.RBTV_ASKED, JSON.stringify(argv) + '\\n');
       if (process.env.RBTV_REFUSES) {
-        console.log(JSON.stringify({ ok: false, error: { code: 'agent-record-invalid', message: 'agent.json is missing units' } }));
+        console.log(JSON.stringify({ ok: false, error: { code: 'agent-record-invalid', message: 'agent.json is missing files' } }));
         process.exit(1);
       }
       const rows = [['pack', 'ignite'], ['skill', 'core/rbtv#framework'], ['skill', 'meta/functions#interview'],
@@ -1536,7 +1536,7 @@ else {
     // the installer cannot be asked: the view says why and shows the rest
     const refused = list(['--agent', 'tess'], '100', { RBTV_REFUSES: '1' });
     assert.strictEqual(refused.status, 0, refused.stderr);
-    assert.ok(refused.stdout.endsWith('\n\nInstalled packs and units: not shown. rbtv refused: agent.json is missing units\n'), refused.stdout);
+    assert.ok(refused.stdout.endsWith('\n\nInstalled packs and units: not shown. rbtv refused: agent.json is missing files\n'), refused.stdout);
     const alone = spawnSync(process.execPath, [TOOL, 'list', '--agent', 'tess', '--json'], { cwd: root, encoding: 'utf8', env: { ...process.env, PATH: bin + '-none' } });
     assert.deepStrictEqual(JSON.parse(alone.stdout), { ...tessRow, installed: null, installed_problem: 'rbtv is not on PATH.' });
 

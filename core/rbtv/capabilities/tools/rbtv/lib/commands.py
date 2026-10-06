@@ -342,7 +342,7 @@ def _print_sub_agents(recorded: dict) -> None:
 def _status_agent(args, target: Path, catalog: dict) -> int:
     """Status of an agent folder: its own record, not the installation's."""
     record = agent_state(target)
-    named = set(record["units"])
+    named = set(record["files"])
     seen = set(named)
     from_packs = []
     for name in sorted(record["packs"]):
@@ -552,7 +552,7 @@ def _save_selected_files(target: Path, add: set[str] | None = None,
                          remove_packs: set[str] | None = None) -> None:
     """Persist the root's independent file selection after a real mutation."""
     state = read_state(target)
-    state["units"] = sorted((selected_files(state) | set(add or ()))
+    state["files"] = sorted((selected_files(state) | set(add or ()))
                             - set(remove or ()))
     state["packs"] = sorted((selected_packs(state) | set(add_packs or ()))
                             - set(remove_packs or ()))
@@ -966,7 +966,7 @@ def cmd_update(args, target: Path, catalog: dict, shadowed: list,
     data["report"]["source_gone"] = unavailable
     if not bool(getattr(args, "dry_run", False)) and args.scope in ("scaffolding", "all"):
         saved = read_state(target)
-        saved["units"] = sorted(selected)
+        saved["files"] = sorted(selected)
         saved["packs"] = sorted(packs)
         write_state(target, saved)
     records = state.get("components") or {}

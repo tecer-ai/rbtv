@@ -28,7 +28,7 @@ The file may carry `$schema`, `title` and a top-level `description`. The check d
 These calls load a stem. The page "rbtv command"¹ says which source the scan checks against each stem, and what a pass of that source shows. This page does not say how to run that program.
 
 - The scan in `discovery.py` calls `load` with `module-json`, `component-json`, `pack`, `skill`, `rule`, `command`, `agent`, `agent-json`, `hook`, `mcp-server`, `folder-instructions` and `tool-json`. It submits the whole frontmatter or the whole JSON.
-- `agents.py` calls `load` with `agent` for the frontmatter of an installed agent. It calls `load` with `agent-json` and submits only `name`, `description`, `harness`, `model`, `effort`, `units` and `packs`.
+- `agents.py` calls `load` with `agent` for the frontmatter of an installed agent. It calls `load` with `agent-json` and submits only `name`, `description`, `harness`, `model`, `effort`, `files` and `packs`.
 - `selftest/test_subagents.py` calls `load` with `install-json`. The writer in `state.py` does not. It checks the record in `_validate_state`.
 - `shared_links.py` does not call `load` with `path-owners-json`. It checks that record in `_read_owners`. `core/ignite/capabilities/tools/ignite/config.js` does not read `ignite-config.schema.json`. It checks the config in `validate`.
 

@@ -472,7 +472,7 @@ def build_show(selection: dict, catalog: dict, state: dict, full: bool = False) 
             home = Path(state.get("_target", "")) / ".rbtv" / "agents" / parts[0]["file_id"]
             name = parts[0]["file_id"]
             out["agent"] = {"packs": row["data"].get("packs", []),
-                            "files": row["data"].get("units", []),
+                            "files": row["data"].get("files", []),
                             "placed": home.is_dir(), "home": str(home),
                             "sub_agent": subagents.recorded(state).get(selection["id"], {}),
                             "add": {"rbtv_agent": f"rbtv agent add {name} --harness HARNESS "

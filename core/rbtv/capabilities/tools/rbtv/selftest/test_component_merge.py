@@ -40,7 +40,7 @@ def _schema_8() -> dict:
                                  ".claude/skills/manage-components/SKILL.md"]}}},
         "moda/comp": {"module": "moda", "component": "comp", "harnesses": ["claude"],
                       "units": {"kiss": {"method": "rule", "files": []}}}},
-        "units": ["core/build#build", "core/install#manage-components",
+        "files": ["core/build#build", "core/install#manage-components",
                   "core/install#rbtv", "moda/comp#kiss"]}
 
 
@@ -78,11 +78,11 @@ def record_rewrite(ctx) -> None:
           str(rec))
     check("U-merge-file-ids — build is framework and rbtv keeps its name, "
           "in the selection and in the booking",
-          got["units"] == ["core/rbtv#framework", "core/rbtv#rbtv", "moda/comp#kiss"]
-          and "build" not in rec["units"], str(got["units"]))
+          got["files"] == ["core/rbtv#framework", "core/rbtv#rbtv", "moda/comp#kiss"]
+          and "build" not in rec["units"], str(got["files"]))
     check("U-merge-no-successor — manage-components leaves the selection and keeps "
           "its booking, so the next update can delete its files",
-          not any("manage-components" in key for key in got["units"])
+          not any("manage-components" in key for key in got["files"])
           and rec["units"]["manage-components"]["files"]
           == [".claude/skills/manage-components/SKILL.md"], str(rec["units"]))
     check("U-merge-read-only — reading a schema 8 record leaves its file as it was",
@@ -99,25 +99,25 @@ def record_rewrite(ctx) -> None:
              {"rbtv"}, ["core/rbtv#rbtv"])):
         state = {"components": {old: {"module": "core", "component": old.split("/")[1],
                                       "harnesses": ["claude"], "units": files}},
-                 "units": [f"{old}#{name}" for name in files]}
+                 "files": [f"{old}#{name}" for name in files]}
         migrate_rbtv_component_ids(state)
         check(f"U-merge-single — a record holding only {old} becomes core/rbtv",
               set(state["components"]) == {"core/rbtv"}
               and set(state["components"]["core/rbtv"]["units"]) == expect_files
-              and state["units"] == expect_selected, str(state))
+              and state["files"] == expect_selected, str(state))
 
     half = {"components": {
         "core/rbtv": {"module": "core", "component": "rbtv", "harnesses": ["claude"],
                       "units": {"rbtv": {"method": "tool", "files": [], "links": ["rbtv"]}}},
         "core/build": {"module": "core", "component": "build", "harnesses": ["claude"],
                        "units": {"build": {"method": "skill", "files": ["a"]}}}},
-        "units": ["core/rbtv#rbtv", "core/build#build", "core/rbtv#framework"]}
+        "files": ["core/rbtv#rbtv", "core/build#build", "core/rbtv#framework"]}
     migrate_rbtv_component_ids(half)
     check("U-merge-into-existing — an old component folds into a core/rbtv entry "
           "the record already holds, and no id repeats",
           set(half["components"]) == {"core/rbtv"}
           and set(half["components"]["core/rbtv"]["units"]) == {"rbtv", "framework"}
-          and half["units"] == ["core/rbtv#rbtv", "core/rbtv#framework"], str(half))
+          and half["files"] == ["core/rbtv#rbtv", "core/rbtv#framework"], str(half))
 
     home = tmp / "ws-merge-agent"
     _w(home / "agent.md", "---\nname: scout\n---\n\nScout.\n")
@@ -129,8 +129,8 @@ def record_rewrite(ctx) -> None:
     agent = read_state(home)
     check("U-merge-agent — an agent's agent.json is rewritten by the same reader",
           set(agent["components"]) == {"core/rbtv", "moda/comp"}
-          and agent["units"] == got["units"] and agent["name"] == "scout",
-          str(agent.get("units")))
+          and agent["files"] == got["files"] and agent["name"] == "scout",
+          str(agent.get("files")))
     ctx.keep(locals())
 
 
@@ -162,7 +162,7 @@ def update_after_rewrite(ctx) -> None:
     _w(home / "agent.md", "---\nname: scout\n---\n\nScout.\n")
     _w(home / AGENT_RECORD, json.dumps({
         "name": "scout", "description": "A scout", "packs": [],
-        "units": ["core/build#build", "core/install#manage-components",
+        "files": ["core/build#build", "core/install#manage-components",
                   "core/install#rbtv"]}) + "\n")
     loaders = [ws / ".claude/skills/manage-components/SKILL.md",
                home / ".claude/skills/manage-components/SKILL.md"]
@@ -239,7 +239,7 @@ def update_after_rewrite(ctx) -> None:
               == {"rbtv", "framework"}
               and record["components"]["core/rbtv"]["units"]["framework"]["files"]
               == [".claude/skills/framework/SKILL.md"]
-              and record["units"] == ["core/rbtv#framework", "core/rbtv#rbtv"],
+              and record["files"] == ["core/rbtv#framework", "core/rbtv#rbtv"],
               str(record))
         owners = json.loads(owner_file(bindir).read_text(encoding="utf-8"))
         check("U-merge-shortcut — the rbtv shortcut that pointed at the missing old "
@@ -260,7 +260,7 @@ def update_after_rewrite(ctx) -> None:
               and not loaders[1].exists() and not old_skill[1].exists()
               and new_skill[1].is_file()
               and record["schema"] == 9 and set(record["components"]) == {"core/rbtv"}
-              and sorted(record["units"])
+              and sorted(record["files"])
               == ["core/rbtv#framework", "core/rbtv#rbtv"],
               text + err + str(record))
     finally:

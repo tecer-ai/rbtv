@@ -11,6 +11,7 @@ from discovery import HUB_DIR, Refuse, SKILLS_DIR
 from .constants import (AGENT_RECORD, HARNESSES, MANAGED_MARK, SCHEMA, STATE_REL, VERSION)
 from .claims import _jget, _located
 from .content import _is_ours
+from .files_key import files_key
 from .fsio import write_file
 from .selection import iter_booked_files
 
@@ -61,7 +62,7 @@ def _validate_state(state: dict, path: Path) -> None:
                     for harness, entry in values.items()):
                 _state_refuse(path, f"components.{cid}.units.{pid}.sub_agent must map "
                               "a harness to its model, model_id and effort")
-    for name in ("harnesses", "guidance_files", "shared_claims", "units", "packs"):
+    for name in ("harnesses", "guidance_files", "shared_claims", "files", "packs"):
         if name in state:
             _string_list(state[name], name, path)
     if "guidance_basis" in state and state["guidance_basis"] is not None and \
@@ -121,12 +122,12 @@ def migrate_portable_record(state: dict) -> None:
 def migrate_selected_files(state: dict) -> None:
     """Schema 4 chose every file it had generated; schema 5 says so plainly.
 
-    The old per-component map remains the generated-file ledger.  `units` is
+    The old per-component map remains the generated-file ledger.  `files` is
     the independent, portable selection that later updates reconcile against.
     """
-    if "units" in state:
+    if "files" in state:
         return
-    state["units"] = sorted(
+    state["files"] = sorted(
         f"{cid}#{pid}"
         for cid, rec in (state.get("components") or {}).items()
         for pid in (rec.get("units") or {})
@@ -163,8 +164,8 @@ def migrate_install_component_ids(state: dict) -> None:
     components.pop("core/rbtv-cli", None)
     state["components"] = components
     rewrites = {"core/installer#rbtv-install": "core/install#rbtv"}
-    if "units" in state:
-        state["units"] = [rewrites.get(key, key) for key in state["units"]
+    if "files" in state:
+        state["files"] = [rewrites.get(key, key) for key in state["files"]
                          if not key.startswith("core/rbtv-cli#")]
 
 
@@ -223,7 +224,7 @@ def migrate_rbtv_component_ids(state: dict) -> None:
     if merged is not None:
         components["core/rbtv"] = merged
     selected: list[str] = []
-    for key in state.get("units") or []:
+    for key in state.get("files") or []:
         cid, _, uid = key.partition("#")
         if cid in _MERGED_INTO_RBTV:
             name = _RBTV_FILE_NAMES.get(key, uid)
@@ -232,8 +233,8 @@ def migrate_rbtv_component_ids(state: dict) -> None:
             key = f"core/rbtv#{name}"
         if key not in selected:
             selected.append(key)
-    if "units" in state:
-        state["units"] = selected
+    if "files" in state:
+        state["files"] = selected
 
 
 def read_state(target: Path) -> dict:
@@ -243,7 +244,7 @@ def read_state(target: Path) -> dict:
         # the next read mistakes files generated for a newly enabled pack as
         # the schema-4 migration input and records them as explicit choices.
         return {"schema": SCHEMA, "components": {}, "shared_claims": [],
-                "units": [], "packs": []}
+                "files": [], "packs": []}
     try:
         state = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -253,6 +254,7 @@ def read_state(target: Path) -> dict:
     if not isinstance(state, dict):
         raise Refuse("state-unreadable",
                      f"rbtv state must be a JSON object: {path}", str(path))
+    files_key(state)
     migrate_legacy_record(state)
     migrate_portable_record(state)
     migrate_install_component_ids(state)
@@ -388,7 +390,7 @@ def known_claims(state: dict) -> set[str]:
 
 def selected_files(state: dict) -> set[str]:
     """The root's explicit file selection, as full catalog ids."""
-    return set(state.get("units") or [])
+    return set(state.get("files") or [])
 
 
 def selected_packs(state: dict) -> set[str]:

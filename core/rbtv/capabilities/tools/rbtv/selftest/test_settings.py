@@ -413,7 +413,7 @@ def file_selection_sync(ctx) -> None:
             "--guidance", "none")
     check("W44 — add and remove maintain full selected ids",
           run(a, "remove", "fixrule")[0] == 0
-          and read_state(a)["units"] == ["fixmod/goodcomp#fixskill"])
+          and read_state(a)["files"] == ["fixmod/goodcomp#fixskill"])
     book = (a / STATE_REL).read_bytes()
     (b / STATE_REL).write_bytes(book)
     preview = run(b, "update", "all", "--dry-run", "--details")
@@ -432,13 +432,13 @@ def file_selection_sync(ctx) -> None:
     hand = home("ws-files-hand")
     run(hand, "add", "fixskill", "fixrule", "--harness", "claude", "--guidance", "none")
     state = read_state(hand)
-    state["units"] = ["fixmod/goodcomp#fixskill"]
+    state["files"] = ["fixmod/goodcomp#fixskill"]
     write_state(hand, state)
     check("W46 — a hand deletion from files removes its generated files",
           run(hand, "update", "all")[0] == 0
           and not (hand / ".claude/rules/fixrule.md").exists())
     state = read_state(hand)
-    state["units"].append("fixmod/goodcomp#fixrule")
+    state["files"].append("fixmod/goodcomp#fixrule")
     write_state(hand, state)
     check("W46 — a valid hand-added file is generated",
           run(hand, "update", "all")[0] == 0
@@ -453,7 +453,7 @@ def file_selection_sync(ctx) -> None:
     guidance = home("ws-files-guidance")
     run(guidance, "add", "fixskill", "fixrule", "--harness", "claude", "--guidance", "none")
     state = read_state(guidance)
-    state["units"] = ["fixmod/goodcomp#fixskill"]
+    state["files"] = ["fixmod/goodcomp#fixskill"]
     write_state(guidance, state)
     check("W48 — update guidance does not reconcile generated files",
           run(guidance, "update", "guidance")[0] == 0
@@ -464,10 +464,10 @@ def file_selection_sync(ctx) -> None:
         do_install(target, catalog, ["fixmod/codexcomp"], ["codex"],
                    dry_run=False, guidance_basis="none", parts=["codexrule"])
         state = read_state(target)
-        state["units"] = ["fixmod/codexcomp#codexrule"]
+        state["files"] = ["fixmod/codexcomp#codexrule"]
         write_state(target, state)
     state = read_state(fence_a)
-    state["units"] = []
+    state["files"] = []
     write_state(fence_a, state)
     (fence_b / STATE_REL).write_bytes((fence_a / STATE_REL).read_bytes())
     check("W49 — copied record removes an unbooked fenced shared section",
@@ -498,7 +498,7 @@ def file_selection_sync(ctx) -> None:
                dry_run=False, guidance_basis="none", parts=["codexrule"])
     root_foreign = foreign_fences(bounded)
     state = read_state(bounded)
-    state["units"] = []
+    state["files"] = []
     write_state(bounded, state)
     root_preview = run(bounded, "update", "all", "--dry-run", "--details")
     root_real = run(bounded, "update", "all")
@@ -512,12 +512,12 @@ def file_selection_sync(ctx) -> None:
     (agent / "agent.json").write_text(json.dumps({
         "name": "scout", "description": "Scout.", "harness": "codex",
         "model": "c1", "effort": "high",
-        "units": ["fixmod/codexcomp#codexrule"], "packs": []}) + "\n",
+        "files": ["fixmod/codexcomp#codexrule"], "packs": []}) + "\n",
                                      encoding="utf-8")
     update_agent(agent_root, "scout", "all", catalog, False)
     agent_foreign = foreign_fences(agent)
     state = read_state(agent)
-    state["units"] = []
+    state["files"] = []
     write_state(agent, state)
     agent_preview = update_agent(agent_root, "scout", "all", catalog, True)
     agent_real = update_agent(agent_root, "scout", "all", catalog, False)

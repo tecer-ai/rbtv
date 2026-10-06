@@ -283,7 +283,7 @@ def sub_agents(ctx) -> None:
                                        "Remove: harness, model")
           and code == 1 and "[agent-source-launch]" in err, str(refusal and refusal.message))
     _w(comp / "packs/both.json", json.dumps({"description": "Both",
-                                             "units": ["moda/comp#plain"]}))
+                                             "files": ["moda/comp#plain"]}))
     try:
         scan_all(tmp / "sa-mirror", src)
         with_pack = "no refusal"
@@ -314,7 +314,7 @@ def sub_agents(ctx) -> None:
        "---\nname: fixagent\n---\n<!-- rbtv-managed -->\nold loader\n")
     (legacy / STATE_REL).write_text(json.dumps({
         "schema": 7, "version": "0.2.1", "marker": "rbtv-managed",
-        "harnesses": ["claude"], "units": [FIXAGENT, "fixmod/goodcomp#fixskill"],
+        "harnesses": ["claude"], "files": [FIXAGENT, "fixmod/goodcomp#fixskill"],
         "packs": [], "guidance_basis": "none", "shared_claims": [], "shared_files": [],
         "components": {"fixmod/goodcomp": {
             "module": "fixmod", "component": "goodcomp", "tree": "repo",

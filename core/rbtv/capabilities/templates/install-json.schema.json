@@ -8,7 +8,7 @@
     "version",
     "marker",
     "harnesses",
-    "units",
+    "files",
     "packs",
     "components"
   ],
@@ -38,8 +38,8 @@
       },
       "uniqueItems": true
     },
-    "units": {
-      "description": "The units chosen on their own, as full <module>/<component>#<unit> ids. This is the root selection; component records separately report what was generated.",
+    "files": {
+      "description": "The files chosen on their own, as full <module>/<component>#<name> ids. This is the root selection; component records separately report what was generated.",
       "type": "array",
       "items": {
         "type": "string"

@@ -27,7 +27,7 @@ def _agent(home, *, name="scout", files=None, packs=None):
     _w(home / "agent.md", f"---\nname: {name}\n---\n\nScout.\n")
     _w(home / "agent.json", json.dumps({"name": name, "description": "Scout.",
         "harness": "claude", "model": "m1", "effort": "high",
-        "units": files or [], "packs": packs or []}) + "\n")
+        "files": files or [], "packs": packs or []}) + "\n")
 
 
 def _git_status(repo: Path) -> set[str]:
@@ -47,7 +47,7 @@ def _ignored_agent(home: Path, harness: str) -> None:
     _w(home / "agent.md", f"---\nname: {name}\n---\n\nAgent.\n")
     _w(home / "agent.json", json.dumps({
         "name": name, "description": "Agent.", "harness": harness,
-        "model": model, "effort": effort, "units": [], "packs": []}) + "\n")
+        "model": model, "effort": effort, "files": [], "packs": []}) + "\n")
     _w(home / "agent.pre-split.md", "Author file.\n")
     _w(home / "notes/own.md", "Author note.\n")
 
@@ -76,7 +76,7 @@ def agent_ignore_file(ctx) -> None:
     def add(repo: Path, agent: Path, harness: str) -> tuple[set[str], set[str]]:
         _ignored_agent(agent, harness)
         state = json.loads((agent / "agent.json").read_text(encoding="utf-8"))
-        state["units"] = every_destination
+        state["files"] = every_destination
         _w(agent / "agent.json", json.dumps(state) + "\n")
         # The fixture agent is added by name as a harness-native sub-agent, so the
         # plan holds that harness's sub-agent file too.
@@ -149,7 +149,7 @@ def installed_agents(ctx) -> None:
     _file_md(comp / "rules/other.md", "other", "Other", "body\n")
     _w(comp / "agents/research/agent.md", "---\nname: research\n---\n\nResearch.\n")
     _w(comp / "agents/research/agent.json", json.dumps({
-        "name": "research", "description": "Research.", "units": ["kiss"], "packs": []}) + "\n")
+        "name": "research", "description": "Research.", "files": ["kiss"], "packs": []}) + "\n")
     catalog, _ = scan_all(tmp / "agent-mirror", root)
     ws = tmp / "agent-installation"; ws.mkdir()
     home = ws / ".rbtv/agents/scout"
@@ -211,7 +211,7 @@ def installed_agents(ctx) -> None:
               str(read_state(bare)))
         shutil.rmtree(bare)
     state = read_state(home)
-    check("A-add — agent.json is the sole record and normalizes files", state["units"] == ["moda/comp#kiss"] and not (home / "launch.json").exists() and not (home / ".rbtv/config/install.json").exists(), str(state))
+    check("A-add — agent.json is the sole record and normalizes files", state["files"] == ["moda/comp#kiss"] and not (home / "launch.json").exists() and not (home / ".rbtv/config/install.json").exists(), str(state))
     check("A-add — generated files, settings and ignore file are present", (home / ".claude/rules/kiss.md").is_file() and (home / "settings.json").is_file() and (home / ".gitignore").is_file(), "")
     check("A-add — a shipped agent is placed then applied",
           placed["placed"]["id"] == "moda/comp#research"

@@ -99,7 +99,7 @@ Checks:
 ```json
 {
   "description": "<what the group is for, in one line, for every target that turns the pack on>",
-  "units": [
+  "files": [
     "<module>/<component>#<name the program installs>"
   ]
 }

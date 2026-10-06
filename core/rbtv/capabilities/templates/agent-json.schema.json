@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "agent.json",
-  "description": "The record of an agent, in its folder beside agent.md. The author writes name and description, and may write units and packs. An agent a component ships holds only those: its agent.json names no harness, no model and no effort, and rbtv refuses a component whose shipped agent names one. In an installation, an rbtv agent's agent.json also holds harness, model and effort: rbtv agent add writes them from its --harness, --model and --effort flags when the file has none, and rbtv agent configure changes them. rbtv writes voice through rbtv agent configure, units and packs through rbtv agent add and remove, and the record of generated files. Programs read it, and the agent's own commands read it too.",
+  "description": "The record of an agent, in its folder beside agent.md. The author writes name and description, and may write files and packs. An agent a component ships holds only those: its agent.json names no harness, no model and no effort, and rbtv refuses a component whose shipped agent names one. In an installation, an rbtv agent's agent.json also holds harness, model and effort: rbtv agent add writes them from its --harness, --model and --effort flags when the file has none, and rbtv agent configure changes them. rbtv writes voice through rbtv agent configure, files and packs through rbtv agent add and remove, and the record of generated files. Programs read it, and the agent's own commands read it too.",
   "type": "object",
   "required": ["name", "description"],
   "properties": {
@@ -34,8 +34,8 @@
       "description": "Optional voice, written by rbtv agent configure. Not checked.",
       "type": "string"
     },
-    "units": {
-      "description": "The units chosen on their own, as full ids <module>/<component>#<unit>. A short name is accepted on input when it is unique in the catalog.",
+    "files": {
+      "description": "The files chosen on their own, as full ids <module>/<component>#<name>. A short name is accepted on input when it is unique in the catalog.",
       "type": "array",
       "items": {"type": "string"},
       "uniqueItems": true

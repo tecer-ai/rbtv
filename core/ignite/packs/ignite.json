@@ -1,6 +1,6 @@
 {
   "description": "The standard units for an Ignite agent.",
-  "units": [
+  "files": [
     "meta/communication#slack-message-format",
     "meta/communication#audio-aware",
     "meta/sub-agents#sub-agents",

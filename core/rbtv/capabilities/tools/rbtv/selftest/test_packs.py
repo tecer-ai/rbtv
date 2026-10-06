@@ -23,7 +23,7 @@ def packs(ctx) -> None:
 
     duplicate = tree / "fixmod" / "codexcomp" / "packs" / "starter.json"
     duplicate.parent.mkdir(parents=True, exist_ok=True)
-    duplicate.write_text(json.dumps({"description": "duplicate", "units":
+    duplicate.write_text(json.dumps({"description": "duplicate", "files":
                                      ["fixmod/codexcomp#codexrule"]}), encoding="utf-8")
     try:
         scan_all(mirror, tree)
@@ -35,7 +35,7 @@ def packs(ctx) -> None:
           duplicate_result)
 
     invalid = tree / "fixmod" / "codexcomp" / "packs" / "bad.json"
-    invalid.write_text(json.dumps({"description": "bad", "units": ["no/such#file"]}),
+    invalid.write_text(json.dumps({"description": "bad", "files": ["no/such#file"]}),
                             encoding="utf-8")
     try:
         scan_all(mirror, tree)
@@ -47,7 +47,7 @@ def packs(ctx) -> None:
           invalid_result)
 
     malformed = tree / "fixmod" / "codexcomp" / "packs" / "malformed.json"
-    malformed.write_text(json.dumps({"units": ["fixmod/codexcomp#codexrule"]}),
+    malformed.write_text(json.dumps({"files": ["fixmod/codexcomp#codexrule"]}),
                          encoding="utf-8")
     try:
         scan_all(mirror, tree)
@@ -71,7 +71,7 @@ def packs(ctx) -> None:
                       "--guidance", "none"]), target, catalog, [])
     state = read_state(target)
     check("PK-add — pack generates each file but records only the pack",
-          state["packs"] == ["starter"] and state["units"] == []
+          state["packs"] == ["starter"] and state["files"] == []
           and set(state["components"]["fixmod/goodcomp"]["units"])
           == {"fixskill", "fixrule"}, str(state))
 
@@ -83,7 +83,7 @@ def packs(ctx) -> None:
     combined_state = read_state(combined)
     check("PK-add-combined — one command keeps explicit and pack selections distinct",
           combined_state["packs"] == ["starter"]
-          and combined_state["units"] == ["fixmod/goodcomp#fixcmd"]
+          and combined_state["files"] == ["fixmod/goodcomp#fixcmd"]
           and set(combined_state["components"]["fixmod/goodcomp"]["units"])
           == {"fixcmd", "fixskill", "fixrule"}, str(combined_state))
 
@@ -92,7 +92,7 @@ def packs(ctx) -> None:
         cmd_rm(args(["remove", "--pack", "starter"]), target, catalog, [])
     state = read_state(target)
     check("PK-remove — explicit file survives a removed pack",
-          state["packs"] == [] and state["units"] == ["fixmod/goodcomp#fixskill"]
+          state["packs"] == [] and state["files"] == ["fixmod/goodcomp#fixskill"]
           and set(state["components"]["fixmod/goodcomp"]["units"]) == {"fixskill"},
           str(state))
 
@@ -113,7 +113,7 @@ def packs(ctx) -> None:
     pack_path = tree / "fixmod" / "goodcomp" / "packs" / "starter.json"
     original = pack_path.read_text(encoding="utf-8")
     pack_path.write_text(json.dumps({"description": "The fixture starter pack",
-                                     "units": ["fixmod/goodcomp#fixskill"]}), encoding="utf-8")
+                                     "files": ["fixmod/goodcomp#fixskill"]}), encoding="utf-8")
     catalog, _ = scan_all(mirror, tree)
     with contextlib.redirect_stdout(io.StringIO()):
         cmd_update(args(["update", "all"]), target, catalog, [])

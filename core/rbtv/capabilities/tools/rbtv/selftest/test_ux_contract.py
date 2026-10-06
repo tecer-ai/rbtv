@@ -335,7 +335,7 @@ def result_screens(ctx) -> None:
     (agent_home / "agent.json").write_text(
         '{"name":"resultagent","description":"Result check.",'
         '"harness":"claude","model":"m1","effort":"high",'
-        '"units":["fixskill"],"packs":[]}\n', encoding="utf-8")
+        '"files":["fixskill"],"packs":[]}\n', encoding="utf-8")
     add = ["agent", "add", "resultagent", "--dry-run"]
     with patch("lib.agents.cast_catalog",
                return_value={"claude": {"m1": ["low", "high"]}}):

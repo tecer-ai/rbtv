@@ -19,6 +19,7 @@ import json
 from pathlib import Path
 
 from lib import frontmatter, schema
+from lib.files_key import files_key
 
 
 WS_PREFIX = "ws:"
@@ -204,14 +205,14 @@ def pack_rows(catalog: dict[str, dict]) -> list[dict]:
     for cid, comp in sorted(catalog.items()):
         packs = Path(comp["path"]) / "packs"
         for path in sorted(packs.glob("*.json")):
-            data = _read_json(path, "pack-invalid")
+            data = files_key(_read_json(path, "pack-invalid"))
             _checked(data, "pack", path, "pack-invalid")
             if path.stem in names:
                 raise Refuse("pack-duplicate",
                              f"pack {path.stem!r} is declared by both {names[path.stem]} and {path}",
                              str(path))
             names[path.stem] = path
-            missing = sorted(set(data["units"]) - provided)
+            missing = sorted(set(data["files"]) - provided)
             for file in missing:
                 if file.split("#", 1)[0] in unreadable:
                     raise unreadable[file.split("#", 1)[0]]
@@ -222,7 +223,7 @@ def pack_rows(catalog: dict[str, dict]) -> list[dict]:
             rows.append({"name": path.stem, "component": cid,
                          "module": comp["module"], "tree": comp["tree"],
                          "path": str(path), "description": data["description"],
-                         "files": list(data["units"])})
+                         "files": list(data["files"])})
     return rows
 
 
@@ -273,7 +274,7 @@ def file_rows(comp: dict) -> list[dict]:
             raise Refuse("file-invalid", f"{home}: an agent needs agent.md and agent.json", str(home))
         front, _body = frontmatter.split(prompt.read_text(encoding="utf-8"))
         _checked(front or {}, "agent", prompt, "file-invalid")
-        data = _read_json(record, "file-invalid")
+        data = files_key(_read_json(record, "file-invalid"))
         _checked(data, "agent-json", record, "file-invalid")
         launch = [name for name in LAUNCH_FIELDS if name in data]
         if launch:

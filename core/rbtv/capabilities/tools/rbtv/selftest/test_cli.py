@@ -491,7 +491,7 @@ def cli_defects(ctx) -> None:
     with patch("lib.agents.cast_catalog", return_value=known):
         add_agent(ws, "scout", [], set(), d_catalog, False)
     record = json.loads((home / "agent.json").read_text(encoding="utf-8"))
-    record["units"] = ["moda/comp#other"]
+    record["files"] = ["moda/comp#other"]
     (home / "agent.json").write_text(json.dumps(record) + "\n", encoding="utf-8")
     shown = io.StringIO()
     with contextlib.redirect_stdout(shown):
@@ -511,7 +511,7 @@ def cli_defects(ctx) -> None:
           and "Removed:" in text and "moda/comp#kiss" in text
           and "(membership changed)" in text and "Was:" in text, text)
     record = json.loads((home / "agent.json").read_text(encoding="utf-8"))
-    record["units"] = ["moda/comp#kiss"]
+    record["files"] = ["moda/comp#kiss"]
     (home / "agent.json").write_text(json.dumps(record) + "\n", encoding="utf-8")
     shown = io.StringIO()
     with contextlib.redirect_stdout(shown):
@@ -523,10 +523,10 @@ def cli_defects(ctx) -> None:
           and "agent.json:" in text and "Next: rbtv agent update " in text
           and text.rstrip().endswith("scaffolding"), text)
     check("D4-state — the record was left as the agent wrote it",
-          read_state(home)["units"] == ["moda/comp#kiss"], "")
+          read_state(home)["files"] == ["moda/comp#kiss"], "")
 
     record = json.loads((home / "agent.json").read_text(encoding="utf-8"))
-    record["units"] = ["moda/comp#other"]
+    record["files"] = ["moda/comp#other"]
     (home / "agent.json").write_text(json.dumps(record) + "\n", encoding="utf-8")
     code, out, _err, escaped = run(["agent", "remove", str(home), "nosuchfile", "--json", "--dry-run"])
     refusal = json.loads(out) if escaped is None and out.strip() else {}

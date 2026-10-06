@@ -51,7 +51,7 @@ def _fixture(root: Path, mirror: Path) -> None:
     _w(good / "agents/research/agent.md", "---\nname: research\n---\n\nResearch.\n")
     _w(good / "agents/research/agent.json", json.dumps({
         "name": "research", "description": "The fixture research agent",
-        "units": ["fixskill"], "packs": []}) + "\n")
+        "files": ["fixskill"], "packs": []}) + "\n")
     _w(good / "hooks/fixhook.json", json.dumps({
         "name": "fixhook", "description": "The fixture hook",
         "event": "PreToolUse", "matcher": "Bash", "command": "true"}))
@@ -68,11 +68,11 @@ def _fixture(root: Path, mirror: Path) -> None:
     (tool / "thing.py").chmod(0o755)
     _w(good / "packs/starter.json", json.dumps({
         "description": "The fixture starter pack",
-        "units": ["fixmod/goodcomp#fixskill", "fixmod/goodcomp#fixrule"],
+        "files": ["fixmod/goodcomp#fixskill", "fixmod/goodcomp#fixrule"],
     }))
     _w(good / "packs/second.json", json.dumps({
         "description": "The fixture overlapping pack",
-        "units": ["fixmod/goodcomp#fixrule"],
+        "files": ["fixmod/goodcomp#fixrule"],
     }))
 
     codexc = _component(root, "fixmod", "codexcomp")
