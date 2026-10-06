@@ -6,14 +6,14 @@ Two copies of a fact stop agreeing as soon as one of them changes. An agent that
 
 ## How it fails
 
-The program can accept every file, and a fact can still have two homes. It does not compare one file with another.
+The rbtv CLI can accept every file, and a fact can still have two homes. It does not compare one file with another.
 
 - The fact is written again in the file that is open, because that file's reader needs it, and another file already states it. The two stop agreeing at the next edit of one of them. The agent acts on the copy it read.
-- The fact is new, and its home is the file that is open, not the file that changes when the fact changes. A fact about what the program reads, written into each glossary entry, is not updated when the program changes, because that entry was not in the change.
+- The fact is new, and its home is the file that is open, not the file that changes when the fact changes. A fact about what the rbtv CLI reads, written into each glossary entry, is not updated when the rbtv CLI changes, because that entry was not in the change.
 - A sentence has to state the fact to be understood, and the statement does not use the home's words. The sentence is accepted and still fails. A later edit of the home does not touch it, and a reader cannot tell which sentence matches the home.
 - Two files each have the instructions that both of them need, or each has its own steps for one operation. The next edit updates one file.
-- A list of a kind of state is kept by hand. The home of that state changes. The list does not. The program does not compare them.
-- The part that the program writes into a file that a harness reads is edited. The program overwrites that edit when it next writes that part. Until then, the agent reads text that the home does not say.
+- A list of a kind of state is kept by hand. The home of that state changes. The list does not. The rbtv CLI does not compare them.
+- The part that the rbtv CLI writes into a file that a harness reads is edited. The rbtv CLI overwrites that edit when it next writes that part. Until then, the agent reads text that the home does not say.
 
 ## How to apply it
 
@@ -25,13 +25,13 @@ The program can accept every file, and a fact can still have two homes. It does 
 
    The weak line writes the list again, because the reader of this page needs it. The next edit of the list does not touch this page.
 
-2. **When no home exists, put the fact in the file that changes with it.** Ask which other facts change for the same reason, and which file a writer changes when those facts change. That file is the home. A fact about what the program reads changes when the program changes, together with the other facts about what the program reads and writes. How the program is run, and what it enforces by itself, have their home in the page "rbtv command"³. A fact of the program that decides what an author writes stays in the page of that thing, as the reason of the instruction that it decides. When the files are glossary entries, the page "Writing a glossary entry"⁴, in the part "Which entry owns what", applies this rule. Do not restate its five rules.
+2. **When no home exists, put the fact in the file that changes with it.** Ask which other facts change for the same reason, and which file a writer changes when those facts change. That file is the home. A fact about what the rbtv CLI reads changes when the rbtv CLI changes, together with the other facts about what the rbtv CLI reads and writes. How the rbtv CLI is run, and what it enforces by itself, have their home in the page "rbtv CLI"³. A fact of the rbtv CLI that decides what an author writes stays in the page of that thing, as the reason of the instruction that it decides. When the files are glossary entries, the page "Writing a glossary entry"⁴, in the part "Which entry owns what", applies this rule. Do not restate its five rules.
 
-   Weak: "Add how the program recognizes a skill to the skill page, so the builder has it in the page that is open."
+   Weak: "Add how the rbtv CLI recognizes a skill to the skill page, so the builder has it in the page that is open."
 
-   Strong: "How the program recognizes a skill changes when the program changes, together with the other facts about what the program reads. Put it on the page "rbtv command"³, and link that page from the skill page."
+   Strong: "How the rbtv CLI recognizes a skill changes when the rbtv CLI changes, together with the other facts about what the rbtv CLI reads. Put it on the page "rbtv CLI"³, and link that page from the skill page."
 
-   The weak line picks the file that is open. The next change to the program updates one page and leaves the skill page unchanged.
+   The weak line picks the file that is open. The next change to the rbtv CLI updates one page and leaves the skill page unchanged.
 
 3. **When a sentence cannot be understood without the fact, state the fact in the words of its home, and link the home.** Do not use other words for it. When this text and the home do not say the same thing, change this text in the same change. Do not change the home to match this text. One word for one thing, inside one text, is the page "Scaffolding language"⁵. This step governs a fact that another file owns, not the word used for it.
 
@@ -57,19 +57,19 @@ The program can accept every file, and a fact can still have two homes. It does 
 
    The weak line is two implementations. They stop agreeing at the first change to one check.
 
-6. **Keep each kind of state in one home.** A view of that state reads that home. A list kept by hand is a second home. Where an installation keeps its settings, and what reads them, is the page "rbtv command"³.
+6. **Keep each kind of state in one home.** A view of that state reads that home. A list kept by hand is a second home. Where an installation keeps its settings, and what reads them, is the page "rbtv CLI"³.
 
    Weak: "Keep a list in the readme of what is installed, and update that list when the home changes."
 
    Strong: "The readme links the home of what is installed. It does not list what is installed."
 
-   The weak line is a view kept by hand. The home changes. The list does not. The program does not compare them.
+   The weak line is a view kept by hand. The home changes. The list does not. The rbtv CLI does not compare them.
 
-7. **Do not edit the part that the program writes into a file that a harness reads.** The program overwrites that edit when it next writes that part. Change the file that the program reads. Text in the same file that the program does not write is not this case. The page "rbtv command"³ says which part the program writes, and how the program writes it again.
+7. **Do not edit the part that the rbtv CLI writes into a file that a harness reads.** The rbtv CLI overwrites that edit when it next writes that part. Change the file that the rbtv CLI reads. Text in the same file that the rbtv CLI does not write is not this case. The page "rbtv CLI"³ says which part the rbtv CLI writes, and how the rbtv CLI writes it again.
 
    Weak: "Correct the rule in the part that the harness file marks as generated, because that is the text that the agent follows."
 
-   Strong: "Correct the rule in the file that the program reads. The part marked as generated is overwritten when the program next writes that part."
+   Strong: "Correct the rule in the file that the rbtv CLI reads. The part marked as generated is overwritten when the rbtv CLI next writes that part."
 
    The weak line edits the generated part. Until then, the agent reads text that the home does not say.
 
@@ -79,8 +79,8 @@ The program can accept every file, and a fact can still have two homes. It does 
 
 Checks:
 
-- A reviewer sees one home for the fact. Every other mention links that home, or states the fact in the home's words and links the home. An operation has one implementation. A kind of state has no list kept by hand. The part that the program writes for a harness has no hand edit.
-- The program accepts the files. Acceptance does not show that a fact has one home, and it does not show that a generated part was left unedited.
+- A reviewer sees one home for the fact. Every other mention links that home, or states the fact in the home's words and links the home. An operation has one implementation. A kind of state has no list kept by hand. The part that the rbtv CLI writes for a harness has no hand edit.
+- The rbtv CLI accepts the files. Acceptance does not show that a fact has one home, and it does not show that a generated part was left unedited.
 - Change one fact in its home, then read a second file that uses it. The second file still agrees with the home, or it links the home and does not carry the old words. Then change only the second file. The home is unchanged, so the second file is the one to correct.
 
 ## References
@@ -89,7 +89,7 @@ Checks:
 |---|---|---|---|---|---|
 | 1 | Terminology is king | [Terminology is king](terminology-is-king.md) | when | the fact is a term's meaning, or the search is for a word | take how the meaning is defined, how a deviation is corrected, and how an agent reaches the entry |
 | 2 | Entry point | [Entry point](../glossary/entry-point.md) | when | a route names the home | write the row that names the home |
-| 3 | rbtv command | [rbtv command](../glossary/rbtv-command.md) | when | the fact is what the program reads or writes, or a part that the program generates | take the home of those facts, which part is generated, and how that part is written again |
+| 3 | rbtv CLI | [rbtv CLI](../glossary/rbtv-cli.md) | when | the fact is what the rbtv CLI reads or writes, or a part that the rbtv CLI generates | take the home of those facts, which part is generated, and how that part is written again |
 | 4 | Writing a glossary entry | [Writing a glossary entry](../writing-a-glossary-entry.md) | when | the files are glossary entries | apply the part "Which entry owns what", and do not restate its five rules |
 | 5 | Scaffolding language | [Scaffolding language](../glossary/scaffolding-language.md) | when | the question is one word for one thing inside one text | take the wording, and leave a fact that another file owns to this page |
 | 6 | Cognitive unit | [Cognitive unit](../glossary/cognitive-unit.md) | when | the same instructions serve a second cognitive unit | take where that shared text goes |

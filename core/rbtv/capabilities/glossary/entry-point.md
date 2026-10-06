@@ -8,13 +8,13 @@ The entry point is the file the reader has after that meeting and before any fil
 
 ## How it fails
 
-The program can accept the file, and the entry point can still fail. It does not read the body.
+The rbtv CLI can accept the file, and the entry point can still fail. It does not read the body.
 
 - The description names one row's job, or it lists each file the table names. The reader never loads this file for the other rows, or it loads on a word from one file and misses the boundary. Claude Code cuts the skill listing at 1,536 characters, so a list of files can lose the boundary before the reader sees it.
-- The body sends the reader to a file that only lists other files, or to another entry point. The match this file made is dropped, and two readers open different files. The program does not read the body. A folder is a load the table may name. A file that only lists other files is not.
+- The body sends the reader to a file that only lists other files, or to another entry point. The match this file made is dropped, and two readers open different files. The rbtv CLI does not read the body. A folder is a load the table may name. A file that only lists other files is not.
 - Information that only one case needs sits in the text every reading includes, or the fact that chooses the row sits below the table. Every reading pays for one case, or the reader follows a row that the fact would have ruled out.
 - A link to a file, a folder or a capability in a skill or a command is not relative to the source file. A capability in a rule is not a path from the root of the rbtv repository, or from `.rbtv/`. The reader cannot open the file from the place where this entry point is read.
-- A row names a skill, a rule, a command or folder instructions. An exposure method sits inside this entry point. The reader loads one method to find another. Read the page "Exposure method"¹⁰ for what those methods are. The rows name capabilities. Read the page "Nested exposure"⁷ when several capabilities share a purpose or the same documents. The program does not read the row.
+- A row names a skill, a rule, a command or folder instructions. An exposure method sits inside this entry point. The reader loads one method to find another. Read the page "Exposure method"¹⁰ for what those methods are. The rows name capabilities. Read the page "Nested exposure"⁷ when several capabilities share a purpose or the same documents. The rbtv CLI does not read the row.
 - A rule's body carries a method that only one task needs. That method is on every task of every agent that has the rule, and the agent follows it on a task it does not cover. The body is present on every task.
 - A command's table asks which row, and the description did not name what the human types to distinguish the rows. The agent asks after the invoke for a choice the human could have typed.
 
@@ -33,7 +33,7 @@ The body has information of its own, a table, or both. Information of its own is
 
 The table is a markdown table, in the form the page "Routing table"⁴ has. The rows name capabilities. A capability is a link. A row may name a folder. The first cell names the file that has the instructions. It does not name a file that only lists other files, and it does not name another entry point. It does not name an exposure method. Read the page "Exposure method"¹⁰. Read the page "Nested exposure"⁷ when several capabilities share a purpose or the same documents and might belong under this one entry point.
 
-When the entry point is a skill or a command, write a link to a file, a folder or a capability relative to the source file. The program tells the agent to read that source file and follow it. When the entry point is a rule and the cell is a capability, write the path from the root of the rbtv repository, or from `.rbtv/`. The author writes that path so the program can derive the path that opens where the rule is placed. Read the page "Rule"² for the copy the agent has. When the entry point is folder instructions, write the link as the page "Folder instructions"¹¹ says.
+When the entry point is a skill or a command, write a link to a file, a folder or a capability relative to the source file. The rbtv CLI tells the agent to read that source file and follow it. When the entry point is a rule and the cell is a capability, write the path from the root of the rbtv repository, or from `.rbtv/`. The author writes that path so the rbtv CLI can derive the path that opens where the rule is placed. Read the page "Rule"² for the copy the agent has. When the entry point is folder instructions, write the link as the page "Folder instructions"¹¹ says.
 
 A row that says to read a file on every reading of this entry point comes before the other rows. Each bracket below is a decision. Do not paste a line that contains a bracket.
 
@@ -46,7 +46,7 @@ A row that says to read a file on every reading of this entry point comes before
 
 ## How to build it
 
-1. **The missed file, then what this load does.** Find a task where the reader had this file and still missed the file that the case needed. Or the reader opened a file that the case did not need. Or the reader acted without a fact every reading of this file needs. That miss is the failure. The cause is one of three. The body has no place for a fact every reading needs. The body has no place for the file a case needs. The description does not cover a case the table names. The situation is the load. The reader has matched the description, or has the rule on this task, and does not yet have the files that the table would name. Write the purpose from that miss: what the reader has after the load, and which file it opens, so the miss does not happen. An author who starts from the four labels, with the name filled in, writes a description that the program accepts and a load that decides nothing.
+1. **The missed file, then what this load does.** Find a task where the reader had this file and still missed the file that the case needed. Or the reader opened a file that the case did not need. Or the reader acted without a fact every reading of this file needs. That miss is the failure. The cause is one of three. The body has no place for a fact every reading needs. The body has no place for the file a case needs. The description does not cover a case the table names. The situation is the load. The reader has matched the description, or has the rule on this task, and does not yet have the files that the table would name. Write the purpose from that miss: what the reader has after the load, and which file it opens, so the miss does not happen. An author who starts from the four labels, with the name filled in, writes a description that the rbtv CLI accepts and a load that decides nothing.
 
 2. **Split the text every reading needs from the text one case needs.** The reader reads the body on the load. For a skill or a command, that read happens only after the description matches, and the loader tells the agent to read the source file and follow it, so the whole body is that read. For a rule, read the page "Rule"² for the copy, and the body is on every task. For folder instructions, the harness reads the file whenever the agent works in the folder, so the whole body is that read. Put in the body, before any row, only text every reading needs and that no other file owns. Write that text as the page "Cognitive unit"⁵ says. When another file owns text every reading needs, write a row that says to read it on every reading, and put that row before the other rows. Do not paste the text. When only one case needs it, write a row for that case. When the file sends the reader nowhere, write no table.
 
@@ -54,7 +54,7 @@ A row that says to read a file on every reading of this entry point comes before
 
    Strong: "The token format is in the check page."
 
-   The weak line puts one case's fact in the text every reading includes. A reading that is not a review still pays for it, and the program accepts the file.
+   The weak line puts one case's fact in the text every reading includes. A reading that is not a review still pays for it, and the rbtv CLI accepts the file.
 
 3. **Put the fact that chooses the row before the case rows.** The reader uses the first lines to read the rest, and follows a row it can match. A fact that would send the reader to a different row, written below that row, arrives after the reader has followed it. Information of its own comes first. Then the row that says to read a file on every reading. Then the rows for one case.
 
@@ -101,7 +101,7 @@ A row that says to read a file on every reading of this entry point comes before
 Checks:
 
 - A reviewer sees a description that names the jobs the table covers, not one row and not each file. Text every reading needs, and that no other file owns, is in the body before the table. A page every reading needs that another file owns is a row before the other rows. A link to a file, a folder or a capability in a skill or a command is relative to the source file. A capability in a rule is a path from the root of the rbtv repository, or from `.rbtv/`. A rule body has no method that only one task needs.
-- The program accepts the file, as the page "rbtv command"⁹ says. Acceptance shows the file was recognized. It does not show that a reader reaches every row, because the program does not read the body.
+- The rbtv CLI accepts the file, as the page "rbtv CLI"⁹ says. Acceptance shows the file was recognized. It does not show that a reader reaches every row, because the rbtv CLI does not read the body.
 - Give the description, without the body, to a reader, with one task for each row and one task that shares a word with a row and is not a job of this file. The reader loads on each row's task and not on the other. Then give the body and one task that matches one row. The reader opens that row's file and does not open another row's file.
 
 ## References
@@ -115,7 +115,7 @@ Checks:
 | 5 | Cognitive unit | [Cognitive unit](cognitive-unit.md) | when | writing the text every reading needs | write that text, and take what an instruction adds |
 | 6 | Capability | [Capability](capability.md) | when | a row names a capability | keep the load a read, and take where that file is written |
 | 7 | Nested exposure | [Nested exposure](../nested-exposure.md) | when | several capabilities share a purpose or the same documents, or the set is too large for one entry point | take whether they belong under this one entry point |
-| 8 | Choosing what to build | [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>) | when | a part of a converted file is another kind of thing in rbtv | decide where that part goes |
-| 9 | rbtv command | [rbtv command](rbtv-command.md) | when | having the program accept the file | find the command to run, and take what acceptance shows |
+| 8 | Choosing what to build | [Choosing what to build](../choosing-what-to-build.md) | when | a part of a converted file is another kind of thing in rbtv | decide where that part goes |
+| 9 | rbtv CLI | [rbtv CLI](rbtv-cli.md) | when | having the rbtv CLI accept the file | find the command to run, and take what acceptance shows |
 | 10 | Exposure method | [Exposure method](exposure-method.md) | when | a row might name a skill, a rule, a command or folder instructions | take that the same four things are the kinds, and a row does not name one |
 | 11 | Folder instructions | [Folder instructions](folder-instructions.md) | when | the entry point is folder instructions | take the file, the folder, and the link, and leave what is their own |

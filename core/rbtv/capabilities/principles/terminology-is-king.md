@@ -8,13 +8,13 @@ An author applies this page before naming a concept, a folder, a file or a field
 
 ## How it fails
 
-The program can accept the file, and the names can still fail. It does not read the words of a page. It exposes a file from a source folder that it scans. A folder with another name is not exposed.
+The rbtv CLI can accept the file, and the names can still fail. It does not read the words of a page. It exposes a file from a source folder that it scans. A folder with another name is not exposed.
 
 - A shorter word stands in for the term. The reader takes the shorter word as a second thing, or as the term with a piece of it left out.
 - The file that uses the term also writes what the term means. The next change of the glossary entry does not change that sentence, so the agent can act on the old meaning.
 - A second name sits beside the term, including a word kept so that nothing breaks before a later change. The reader follows one name and misses the other, or treats the two names as two things.
 - The term is used in its ordinary sense, or one plain word is made to cover several things that already have terms. The reader merges two things, or cannot tell which thing the word names.
-- A folder, a file or a field is named with a harness word or with a shorter word. The program does not scan that folder, so the file is not exposed. A wrong word in a page is accepted.
+- A folder, a file or a field is named with a harness word or with a shorter word. The rbtv CLI does not scan that folder, so the file is not exposed. A wrong word in a page is accepted.
 - The meaning changes in the glossary entry, and a current file keeps the old meaning. The old sentence still reads as ordinary language, so the agent acts on it.
 
 ## How to apply it
@@ -39,13 +39,13 @@ The program can accept the file, and the names can still fail. It does not read 
 
    The weak line cuts the term. The reader takes unit as the thing, or as a second thing.
 
-3. **Use the term only in the meaning that its glossary entry gives it.** For anything else, use a plain word that no entry defines. Do not make a term of a word that would have to cover several things. Name each thing by its term, or use a plain word. The program does not read which sense you meant.
+3. **Use the term only in the meaning that its glossary entry gives it.** For anything else, use a plain word that no entry defines. Do not make a term of a word that would have to cover several things. Name each thing by its term, or use a plain word. The rbtv CLI does not read which sense you meant.
 
    Weak: "The step runs the command that lists the files."
 
-   Strong: "The step runs the program that lists the files."
+   Strong: "The step runs the CLI that lists the files."
 
-   The weak line uses the term for a program. The reader merges the program and the cognitive unit.
+   The weak line uses the term for a CLI. The reader merges the CLI and the cognitive unit.
 
 4. **Do not write what the term means in the file that uses it. The one exception is the page "Single source of truth": when a sentence cannot be understood without the meaning, state it once in the words of the entry, and link the entry.** Use the term, and send the reader to its glossary entry. An agent opens the entry from that route, and it does not need a definition written in this file. A definition in this file stays when the entry changes, so the agent can act on the old meaning. Write the route as the page "Routing table"⁴ says.
 
@@ -55,17 +55,17 @@ The program can accept the file, and the names can still fail. It does not read 
 
    The weak line writes the meaning in the file that uses the term. A later change of the entry leaves that sentence.
 
-5. **Name a folder, a file and a field with the term.** Do not name them with a harness word, and do not name them with a shorter word. The program reads a command from the source folder `commands/`. For Codex it writes that file under the harness folder `prompts`. It does not scan `prompts/`, so a file placed there is not exposed. The page "rbtv command"⁵ has the other source folders and the paths that the program writes. A wrong word in a page, or in a field that the program does not read, is accepted.
+5. **Name a folder, a file and a field with the term.** Do not name them with a harness word, and do not name them with a shorter word. The rbtv CLI reads a command from the source folder `commands/`. For Codex it writes that file under the harness folder `prompts`. It does not scan `prompts/`, so a file placed there is not exposed. The page "rbtv CLI"⁵ has the other source folders and the paths that the rbtv CLI writes. A wrong word in a page, or in a field that the rbtv CLI does not read, is accepted.
 
    Weak: "Put the file in prompts/, the name that Codex uses for a command."
 
    Strong: "Put the file in commands/."
 
-   The weak line uses the harness word as the folder name, so the program does not expose the file.
+   The weak line uses the harness word as the folder name, so the rbtv CLI does not expose the file.
 
 6. **When the name or the meaning changes, change the entry and every current file in the same change.** Search the current files for the old word and for the old meaning. A sentence that still reads as ordinary language can still carry the old meaning. Do not leave the old word in a page that an agent reads in order to act, so that nothing breaks before a later change. That leftover word is a second name. Do not add a line that the old word still means the term. A record of a decision already made keeps the words of that decision. Do not rewrite that record to the new word.
 
-   Weak: "Change the glossary entry now. Leave unit in the other files until the program changes."
+   Weak: "Change the glossary entry now. Leave unit in the other files until the rbtv CLI changes."
 
    Strong: "Change the glossary entry and every current file that says unit, in the same change. Those files say cognitive unit, and they do not also say unit."
 
@@ -78,7 +78,7 @@ The program can accept the file, and the names can still fail. It does not read 
 Checks:
 
 - A reviewer sees the glossary term, whole, in every current file that names the thing. No current file writes what a term means. No folder, file or field uses a shorter word or a harness word for a term. A changed meaning has no current file left on the old meaning. A record of a decision already made still has its own words.
-- The program can accept a file whose words are wrong. Acceptance shows that a scanned folder and the checked fields matched, as the page "rbtv command"⁵ says. It does not show that the words are the terms. A file in a folder the program does not scan is not exposed.
+- The rbtv CLI can accept a file whose words are wrong. Acceptance shows that a scanned folder and the checked fields matched, as the page "rbtv CLI"⁵ says. It does not show that the words are the terms. A file in a folder the rbtv CLI does not scan is not exposed.
 - Take a page that uses a shorter word and a second name, with the glossary entry of the term. The corrected page uses the term whole, does not write what the term means, and does not add the old word to the entry. Then place a command. The file is in `commands/`, not in a folder named with a harness word.
 
 ## References
@@ -89,4 +89,4 @@ Checks:
 | 2 | Writing a glossary entry | [Writing a glossary entry](../writing-a-glossary-entry.md) | when | a term has no entry yet | write the entry, and find the glossary folder |
 | 3 | Scaffolding language | [Scaffolding language](../glossary/scaffolding-language.md) | when | wording a sentence that uses a plain word, or that names a page | word the sentence, and take how a sentence names another page |
 | 4 | Routing table | [Routing table](../glossary/routing-table.md) | when | sending the reader to the glossary entry from a route | write the route, and do not put the meaning of the term in the row |
-| 5 | rbtv command | [rbtv command](../glossary/rbtv-command.md) | when | naming a source folder, or having the program accept a file | take the source folders and the paths that the program writes, and what acceptance shows |
+| 5 | rbtv CLI | [rbtv CLI](../glossary/rbtv-cli.md) | when | naming a source folder, or having the rbtv CLI accept a file | take the source folders and the paths that the rbtv CLI writes, and what acceptance shows |

@@ -6,7 +6,7 @@ The artifact keeps a fact, a history, or a rule for adding files out of the fold
 
 ## How it fails
 
-No program reads a folder artifact. A file with two purposes, or with no first section, is still a file.
+No CLI reads a folder artifact. A file with two purposes, or with no first section, is still a file.
 
 - The content is needed on every reading of the folder instructions, and it was put in an artifact. An agent that is searching never reads it, because the row is not that reading. Or the first section is also pasted into the folder instructions. Read the page "Folder instructions"¹ for when that text is a row and when it is in the body.
 - The artifact has two purposes, or it has no first section. A later agent adds a log to a file that is not a log, or rewrites the rules, and the next agent follows the rewritten file. Nothing refuses the edit.
@@ -17,13 +17,13 @@ No program reads a folder artifact. A file with two purposes, or with no first s
 
 ## What it is composed of
 
-You write a file, or a folder. The path is the path the row in the folder's folder instructions opens. This page does not name a directory every artifact sits in. A file that a program reads by a fixed path is a record, not a folder artifact: the program finds it without a row.
+You write a file, or a folder. The path is the path the row in the folder's folder instructions opens. This page does not name a directory every artifact sits in. A file that a CLI reads by a fixed path is a record, not a folder artifact: the CLI finds it without a row.
 
 A file always has a first section. The section says what the artifact is, what it is not, how a later agent adds to it, and that the agent does not edit the section. After that section, the agent adds the records the purpose names. Those records are the form in the artifact's glossary entry.
 
 A folder artifact that is a folder has its own folder instructions. The first section is the start of that file, because every reading of that folder needs those rules. The page "Folder instructions" says what else that file contains. The component's glossary names what the folder contains.
 
-The component that organises this work states the artifact in its glossary, as an entry of its own. The page "Component"² says what a component is. The page "Writing a glossary entry"³ says how that entry is written. Write that entry in the component's glossary, not in rbtv's glossary. A folder artifact is not an exposure method, and it is not an agent. The page "Exposure method"⁸ says what an exposure method is. The program does not install a folder artifact.
+The component that organises this work states the artifact in its glossary, as an entry of its own. The page "Component"² says what a component is. The page "Writing a glossary entry"³ says how that entry is written. Write that entry in the component's glossary, not in rbtv's glossary. A folder artifact is not an exposure method, and it is not an agent. The page "Exposure method"⁸ says what an exposure method is. The rbtv CLI does not install a folder artifact.
 
 ## How to build it
 
@@ -37,7 +37,7 @@ The component that organises this work states the artifact in its glossary, as a
 
 2. **Keep one purpose, and write the first section the later agent does not edit.** Keep one purpose in the file. Read the page "Cognitive unit"⁴ when a second purpose would be another text. An agent that opens this file for one purpose also reads the other, because the row names the file. The first section is not edited later, so that second purpose cannot be split off after the file exists.
 
-   Write the first section before any record. It says what the artifact is, what it is not, how a later agent adds to it, and that the agent does not change the section. Word the first section as the page "Scaffolding language"⁵ says. The program does not fence the section. A later agent that rewrites it changes the purpose, and the next agent follows the new text.
+   Write the first section before any record. It says what the artifact is, what it is not, how a later agent adds to it, and that the agent does not change the section. Word the first section as the page "Scaffolding language"⁵ says. The rbtv CLI does not fence the section. A later agent that rewrites it changes the purpose, and the next agent follows the new text.
 
    Weak: "Add a decision after this section, with the date and the file it governs. Do not edit this section."
 
@@ -70,7 +70,7 @@ When you review, read the first section and not the records. Name the work that 
 Checks:
 
 - A reviewer sees one purpose, and a first section that says what the artifact is, what it is not, how to add, and that the section is not edited. The records after it match the glossary entry. The folder instructions of the folder that contains it have a row. The situation of the row is the work the purpose names, not every reading of those instructions. A folder artifact that is a folder has folder instructions, and the section is the start of that file. The component's glossary has the entry. The path is a path the task or the workspace already uses, or the path is unset.
-- No program accepts or refuses a folder artifact. A file that is present shows that it was written. It does not show that an agent in the folder reads it, or that a later agent leaves the first section.
+- No CLI accepts or refuses a folder artifact. A file that is present shows that it was written. It does not show that an agent in the folder reads it, or that a later agent leaves the first section.
 - Give an agent work that should read the artifact, and work that should not, with the folder instructions and without the path said again. Look at whether the first work reads it and leaves the first section, and whether the second work does not read it.
 
 ## Template
@@ -95,5 +95,5 @@ The layout of a folder artifact that is a file. A folder artifact that is a fold
 | 4 | Cognitive unit | [Cognitive unit](cognitive-unit.md) | when | a second purpose would be another text | take when that purpose is another text |
 | 5 | Scaffolding language | [Scaffolding language](scaffolding-language.md) | must | | word the first section so the later agent acts on the meaning you gave it |
 | 6 | Routing table | [Routing table](routing-table.md) | when | adding the row, or changing the row with the file | take the same change of the row and the file it names |
-| 7 | Choosing what to build | [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>) | when | a part of a converted file is another kind of thing in rbtv | decide where that part goes |
+| 7 | Choosing what to build | [Choosing what to build](../choosing-what-to-build.md) | when | a part of a converted file is another kind of thing in rbtv | decide where that part goes |
 | 8 | Exposure method | [Exposure method](exposure-method.md) | when | deciding whether to expose the artifact as a skill, a rule, a command or folder instructions | take that those are exposure methods, and a folder artifact is not one |

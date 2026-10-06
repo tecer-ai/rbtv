@@ -1,12 +1,12 @@
 # Skill
 
-A skill, in rbtv, is a cognitive unit the agent opens when its description matches the task, and whose instructions the agent reads only after that open. Outside rbtv a skill is a folder, and the harness reads the instructions from a file in that folder, together with any file beside it. In rbtv the author writes one file, `skills/<name>.md`. The page "Component"¹ says which folder has it. The program writes a pointer: the file that the harness lists as the skill. The pointer has the name and the description, and it tells the agent to read the source file. The program does not copy the instructions into the pointer, and the folder that has the pointer has no other file.
+A skill, in rbtv, is a cognitive unit the agent opens when its description matches the task, and whose instructions the agent reads only after that open. Outside rbtv a skill is a folder, and the harness reads the instructions from a file in that folder, together with any file beside it. In rbtv the author writes one file, `skills/<name>.md`. The page "Component"¹ says which folder has it. The rbtv CLI writes a pointer: the file that the harness lists as the skill. The pointer has the name and the description, and it tells the agent to read the source file. The rbtv CLI does not copy the instructions into the pointer, and the folder that has the pointer has no other file.
 
 A skill is for instructions the agent needs on some tasks and must not carry on the others. The agent decides the open from the description. The person does not choose the skill by typing its name. An author wants one when that work comes out wrong because those instructions were not in the task, and having them in front of the agent on every task would put them on a task that is not this work. Open this page only after the page "Choosing what to build"² has settled that the cognitive unit is a skill. Write a skill so that an agent with only the description opens it on the task that needs it, and leaves it closed on the similar task. After the open, the agent does the work that the failure names.
 
 ## How it fails
 
-The program can accept a skill, and the skill can still fail, because the program does not read the body and does not read the situation in the description.
+The rbtv CLI can accept a skill, and the skill can still fail, because the rbtv CLI does not read the body and does not read the situation in the description.
 
 - The description restates the name, or the situation that should open the skill is only in the body. The agent matches the description before it has the body, so it never opens the skill, or it opens the skill only when the task uses the name. The agent does that work as it would with no skill.
 - The description lists words a person might say, and not a situation that the agent can match when those words are absent and the name is absent. A task that is this job, said without those words, does not open the skill.
@@ -18,13 +18,13 @@ The program can accept a skill, and the skill can still fail, because the progra
 
 ## What it is composed of
 
-The author writes that one file. The program checks its frontmatter against the schema [skill](../templates/skill.schema.json). The page "Schema"³ says what the check uses. The description is the line the agent matches before the open. The page "Routing table"⁴ has that line. The body is the instructions that the agent follows after the open. A skill can work as an entry point, including one that both routes and has instructions of its own. The page "Entry point"⁵ says what an entry point is. When the skill routes, the body has the table that the page "Routing table" has for a body. Each row names a capability. The page "Exposure method"¹⁰ says what an exposure method is, so a row does not name one.
+The author writes that one file. The rbtv CLI checks its frontmatter against the schema [skill](../templates/skill.schema.json). The page "Schema"³ says what the check uses. The description is the line the agent matches before the open. The page "Routing table"⁴ has that line. The body is the instructions that the agent follows after the open. A skill can work as an entry point, including one that both routes and has instructions of its own. The page "Entry point"⁵ says what an entry point is. When the skill routes, the body has the table that the page "Routing table" has for a body. Each row names a capability. The page "Exposure method"¹⁰ says what an exposure method is, so a row does not name one.
 
 ## How to build it
 
 Follow the steps of the page "Cognitive unit"⁶ for the instructions. The steps below are the ones that a skill does differently, and the ones that only a skill has.
 
-1. **The failure, its cause and the situation, then the purpose.** Name three things before any line of the skill. The failure is the work that comes out wrong when the agent does not have these instructions, on a task that needs them. The cause, for a skill, is something the agent lacks until it opens the skill: the instructions are not in the task until the agent chooses them from the description. The situation has three tasks. One is a task where the cause shows. The second is a task of this work that is not the task in front of you. The third is a similar task that must not open the skill. Then write the purpose from the failure: what the agent does after it opens the skill, so that the failure does not happen. The page "Cognitive unit"⁶ says how the first lines of the body carry that purpose. An author who starts from the name and the description writes a file that the program accepts, and the agent does not open it for the work.
+1. **The failure, its cause and the situation, then the purpose.** Name three things before any line of the skill. The failure is the work that comes out wrong when the agent does not have these instructions, on a task that needs them. The cause, for a skill, is something the agent lacks until it opens the skill: the instructions are not in the task until the agent chooses them from the description. The situation has three tasks. One is a task where the cause shows. The second is a task of this work that is not the task in front of you. The third is a similar task that must not open the skill. Then write the purpose from the failure: what the agent does after it opens the skill, so that the failure does not happen. The page "Cognitive unit"⁶ says how the first lines of the body carry that purpose. An author who starts from the name and the description writes a file that the rbtv CLI accepts, and the agent does not open it for the work.
 
    Weak: "After the agent opens it, the agent does better visual work."
 
@@ -34,7 +34,7 @@ Follow the steps of the page "Cognitive unit"⁶ for the instructions. The steps
 
 2. **Write the body before the description.** Write the instructions that the agent follows after the open, before the description, because the agent matches the description in the pointer before it reads the source. The page "Cognitive unit" says how to write those instructions.
 
-3. **Name each input, and do not wait for a word after the name.** Name each input, and the next action when it is absent, as the page "Cognitive unit" says. The person does not type the inputs after the name, because the agent opened the skill from the description, and the program does not pass a word from the name into the body.
+3. **Name each input, and do not wait for a word after the name.** Name each input, and the next action when it is absent, as the page "Cognitive unit" says. The person does not type the inputs after the name, because the agent opened the skill from the description, and the rbtv CLI does not pass a word from the name into the body.
 
    Weak: "Use the file that the person passed after the skill name."
 
@@ -62,7 +62,7 @@ Follow the steps of the page "Cognitive unit"⁶ for the instructions. The steps
 
    `DO NOT LOAD WHEN:` names one similar situation, and names the other skill to open, or names that no open is right. The similar situation is another skill the agent could open from the same list, not a capability that the body names. A capability that the body names is reached after the open.
 
-   Write each part as a fact about the skill or about the task. Do not write it as the author's speech. The program copies the description into the pointer, and the agent matches that copy before it reads the source.
+   Write each part as a fact about the skill or about the task. Do not write it as the author's speech. The rbtv CLI copies the description into the pointer, and the agent matches that copy before it reads the source.
 
    Weak: `ALWAYS LOAD WHEN: the person says ban list, visual ban, or slop`
 
@@ -76,7 +76,7 @@ Follow the steps of the page "Cognitive unit"⁶ for the instructions. The steps
 
    The weak line is an order. The agent can skip it, because it is not the body.
 
-7. **Name the file for the work, not for a word of the task.** Name the file for the work that the purpose names. The program writes that name into the pointer, beside the description, and the agent sees the name before it opens the skill. The criterion: the name is not a word that the task will contain for a reason other than this work. A name that is such a word makes the agent open the skill when the situation does not match.
+7. **Name the file for the work, not for a word of the task.** Name the file for the work that the purpose names. The rbtv CLI writes that name into the pointer, beside the description, and the agent sees the name before it opens the skill. The criterion: the name is not a word that the task will contain for a reason other than this work. A name that is such a word makes the agent open the skill when the situation does not match.
 
     Weak: `name: files`
 
@@ -86,7 +86,7 @@ Follow the steps of the page "Cognitive unit"⁶ for the instructions. The steps
 
 8. **When the skill routes, the open is decided before the table is read.** Write the description so the open covers every row, as the page "Entry point" says. The agent reads the table only after the open, and the description is the only text it has for that choice. When the table names more than one capability, the page "Nested exposure"⁸ says when those capabilities belong under one exposure method.
 
-- When you edit the body, change the source file. The next open reads the new body, because the pointer names the source and the program does not copy the body. When you edit the description or the name, the agent still matches the copy in the pointer until the program writes the pointer again. Change the source, then have the program write the pointer again, in the same change. The page "rbtv command"⁹ says how. A description in the source that the pointer does not yet have sends the agent to the old open.
+- When you edit the body, change the source file. The next open reads the new body, because the pointer names the source and the rbtv CLI does not copy the body. When you edit the description or the name, the agent still matches the copy in the pointer until the rbtv CLI writes the pointer again. Change the source, then have the rbtv CLI write the pointer again, in the same change. The page "rbtv CLI"⁹ says how. A description in the source that the pointer does not yet have sends the agent to the old open.
 - When you convert an outside skill, keep the failure it was written against, and write the body from that failure, as the page "Cognitive unit" says. The outside skill is a folder. The instructions go in the body of the one file. A file beside those instructions is not copied into the folder that has the pointer. Send a file beside the outside skill, when it is not these instructions, to the page "Choosing what to build". A field that the outside file uses to block the agent's open, to name one harness's tool, or to take a word typed after the name, is not a part of the skill. Drop it. The inputs come from the task. Rewrite the outside description as the page "Routing table" says, and fill the parts as the description step says.
 - When you review, read the description before the body, as the page "Routing table" says. Name the open it causes for one task that should open the skill and one that should not. Neither task uses the name. Then follow the body on a task that types nothing after the name, and follow each path.
 
@@ -95,7 +95,7 @@ Checks:
 - A reviewer who has only the description can name one task that should open the skill and one that should not, and neither task uses the name. `CONTAINS:` and `PURPOSE:` are not the same sentence. No step is in the description. The name is not a word of an ordinary task.
 - The body does not ask for a word typed after the name. Each path in the body says it opens from the folder of the source file.
 - The checks of the page "Cognitive unit" pass for the instructions. The checks of the page "Routing table" pass for the description. The checks of the page "Entry point" pass when the skill routes.
-- A run of the program accepts the file. The page "rbtv command" says how to run it. Acceptance shows that the frontmatter matches the schema. It does not show that the agent opens the skill on the task that the description names, or stays closed on the similar task, because the program does not read the body or the situation.
+- A run of the rbtv CLI accepts the file. The page "rbtv CLI" says how to run it. Acceptance shows that the frontmatter matches the schema. It does not show that the agent opens the skill on the task that the description names, or stays closed on the similar task, because the rbtv CLI does not read the body or the situation.
 - Give an agent the description and not the body. Give one task that should open the skill and one that should not. Neither task uses the name. The agent opens the skill for the first task and leaves it closed for the second. Then give the agent the skill, on a task that types nothing after the name, and with one input absent. Watch the work that the purpose names, the action on the absent input, and the folder of any path the agent opens.
 
 ## Template
@@ -119,11 +119,11 @@ description: "<CONTAINS: what the instructions have that another skill with the 
 |---|---|---|---|---|---|
 | 1 | Component | [Component](component.md) | when | placing the file | take which folder has `skills/<name>.md` |
 | 2 | Choosing what to build | [Choosing what to build](../choosing-what-to-build.md) | when | the choice of a skill is not yet settled, or a file beside an outside skill is not these instructions | settle that choice, or send that file onward |
-| 3 | Schema | [Schema](schema.md) | when | the program checks the frontmatter | find the schema file the program loads |
+| 3 | Schema | [Schema](schema.md) | when | the rbtv CLI checks the frontmatter | find the schema file the rbtv CLI loads |
 | 4 | Routing table | [Routing table](routing-table.md) | when | writing or reviewing the description, or the body has a table | take the line and the table, and apply the checks of a description |
 | 5 | Entry point | [Entry point](entry-point.md) | when | the skill routes, or it both routes and has instructions of its own | take what an entry point is, and what each part contains when the file sends the agent on |
 | 6 | Cognitive unit | [Cognitive unit](cognitive-unit.md) | when | writing, editing, converting or reviewing the instructions | write the instructions, and take the checks that every cognitive unit shares |
 | 7 | Capability | [Capability](capability.md) | when | the body sends the agent to a file | write that file, and name it at the step that needs it |
 | 8 | Nested exposure | [Nested exposure](../nested-exposure.md) | when | the table names more than one capability | take when those capabilities belong under one exposure method |
-| 9 | rbtv command | [rbtv command](rbtv-command.md) | when | having the program accept the file, or writing the pointer again after a description or a name changes | run that acceptance, and read what a matching frontmatter does not prove |
+| 9 | rbtv CLI | [rbtv CLI](rbtv-cli.md) | when | having the rbtv CLI accept the file, or writing the pointer again after a description or a name changes | run that acceptance, and read what a matching frontmatter does not prove |
 | 10 | Exposure method | [Exposure method](exposure-method.md) | when | a row might name an exposure method | take what an exposure method is, so the row names a capability |

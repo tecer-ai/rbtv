@@ -18,7 +18,7 @@
 
 - <Only a trap a named source has shown. Omit this section when none remain.>
 
-<!-- Short shape: for a file rbtv or another program creates, not written by hand. -->
+<!-- Short shape: for a file rbtv or another CLI creates, not written by hand. -->
 
 # Building <a/an> <file>
 

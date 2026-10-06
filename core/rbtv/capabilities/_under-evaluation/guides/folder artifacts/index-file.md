@@ -13,7 +13,7 @@ It lets an agent open the one item a task needs, when the folder's items are nee
 - The file holds the list only. Each item's content stays in the item ([Single source of truth](../principles/single-source-of-truth.md)).
 - `_artifacts/` items are not listed here. Folder instructions list those. No item appears in both ([Single source of truth](../principles/single-source-of-truth.md)).
 - After an add, rename, or removal, every covered item is listed once, under its current name, in the same change.
-- A hand-written index stays at 40 rows or fewer. No program checks this; past 40, split the folder.
+- A hand-written index stays at 40 rows or fewer. No CLI checks this; past 40, split the folder.
 - A generated index lists every file of its folder, one row built from that file's description, and is not hand-edited. It has no row cap.
 - A wiki keeps its own index names.
 

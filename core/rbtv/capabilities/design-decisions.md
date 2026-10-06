@@ -12,7 +12,7 @@ The installer discovers modules and components through their named JSON records 
 
 ## D3 — Source trees and precedence
 
-The installer scans its fixed repository root and the target's `.rbtv/mirror/` together. A mirror component with the same id replaces the shipped component as a whole, and the installer reports what it shadows. This lets an installation supply its own component without mixing two sources under one id. The selftest also checks that shipped programs with shebangs have executable git modes, so a tool accepted on Windows remains runnable on POSIX.
+The installer scans its fixed repository root and the target's `.rbtv/mirror/` together. A mirror component with the same id replaces the shipped component as a whole, and the installer reports what it shadows. This lets an installation supply its own component without mixing two sources under one id. The selftest also checks that the CLIs of shipped tools with shebangs have executable git modes, so a tool accepted on Windows remains runnable on POSIX.
 
 ## D4 — Receiving harnesses
 
@@ -24,7 +24,7 @@ The shape of `.rbtv/config/install.json` belongs to the [install record schema](
 
 When a selected unit, pack, or component is absent from the local source after an update, `rbtv update scaffolding` and `rbtv update all` remove its generated files, record entry, and command shortcut. Other add and remove operations continue, warn about the stale selection, and direct the user to `rbtv update all` for reconciliation.
 
-The record's schema number is 9. A record of schema 8 is read with the components `core/build` and `core/install` as the one component `core/rbtv`, in an installation's record and in an agent's `agent.json`: their two entries become one that carries what both held, the unit `core/build#build` is `core/rbtv#framework`, `core/install#rbtv` is `core/rbtv#rbtv`, and `core/install#manage-components`, which has no successor, leaves the selection. The file is rewritten by the next command that writes the record; `rbtv update all` and `rbtv agent update AGENT all` then delete the generated files of the units that left, name them as removed, and point the `rbtv` shortcut at the program's present file.
+The record's schema number is 9. A record of schema 8 is read with the components `core/build` and `core/install` as the one component `core/rbtv`, in an installation's record and in an agent's `agent.json`: their two entries become one that carries what both held, the unit `core/build#build` is `core/rbtv#framework`, `core/install#rbtv` is `core/rbtv#rbtv`, and `core/install#manage-components`, which has no successor, leaves the selection. The file is rewritten by the next command that writes the record; `rbtv update all` and `rbtv agent update AGENT all` then delete the generated files of the units that left, name them as removed, and point the `rbtv` shortcut at the rbtv CLI's present file.
 
 ## D6 — Collision gate
 
@@ -64,11 +64,11 @@ Set-valued settings use `add harness`, `remove harness`, `add guidance exclude`,
 
 ## D9 — Tools on PATH
 
-A selected tool creates a shortcut in `~/.rbtv/bin` under its tool name and creates no tool copy under the target. Planning checks the program before writing: every system requires a shebang (`#!`) first line, so a program that would not run on Linux is refused on Windows too; POSIX also requires execute permission, and Windows takes its interpreter from the shebang or the script extension. This gives each installation a checked, runnable entry point while keeping the program in its source location. The tool record and source folder belong to the [tool glossary](glossary/tool.md).
+A selected tool creates a shortcut in `~/.rbtv/bin` under its tool name and creates no tool copy under the target. Planning checks the tool's CLI before writing: every system requires a shebang (`#!`) first line, so a CLI that would not run on Linux is refused on Windows too; POSIX also requires execute permission, and Windows takes its interpreter from the shebang or the script extension. This gives each installation a checked, runnable entry point while keeping the tool's CLI in its source location. The tool record and source folder belong to the [tool glossary](glossary/tool.md).
 
 ## D9b — Windows shortcuts
 
-On Windows, each PATH tool gets a marked `<name>.cmd` shim and an extensionless shell launcher beside it; POSIX uses a symlink. The Windows shim chooses an interpreter from the program, maps Python shebangs to `python`, and prefers Git Bash for shell scripts. The pair serves native terminals and Git Bash without requiring Windows symlink privilege.
+On Windows, each PATH tool gets a marked `<name>.cmd` shim and an extensionless shell launcher beside it; POSIX uses a symlink. The Windows shim chooses an interpreter from the tool's CLI, maps Python shebangs to `python`, and prefers Git Bash for shell scripts. The pair serves native terminals and Git Bash without requiring Windows symlink privilege.
 
 ## D9c — User PATH
 
@@ -84,7 +84,7 @@ Per-unit harness files use an `rbtv-managed` marker in the file, after YAML fron
 
 ## D25 — Shared shortcut ownership and locks
 
-`~/.rbtv/path-owners.json` records each shortcut's resolved target and the installations that need it. The installer removes a shortcut only after its last owner leaves, except that a shortcut whose recorded target has vanished is removed with all of its stale owners when its unit is removed. A vanished recorded target cannot reserve a shortcut: an installation may replace it while retaining the other owners for their next run. An existing different target remains a refusal. The installer preserves unrecorded shortcuts. Bounded locks serialize installation mutation and the shared shortcut record; installation lock names derive from resolved target paths in the system temporary folder. This prevents concurrent runs and different installations from silently taking over one command. An operating-system error while persisting PATH is reported as a warning after the installation succeeds. A shortcut whose target is not at its recorded path does not run, and that includes `rbtv` itself; the next update relinks it, so the program is started once by its full path: `python3 <repository>/core/rbtv/capabilities/tools/rbtv/install.py update all --target <installation>`, then, from the installation, for each placed agent, `python3 <repository>/core/rbtv/capabilities/tools/rbtv/install.py agent update <agent> all`.
+`~/.rbtv/path-owners.json` records each shortcut's resolved target and the installations that need it. The installer removes a shortcut only after its last owner leaves, except that a shortcut whose recorded target has vanished is removed with all of its stale owners when its unit is removed. A vanished recorded target cannot reserve a shortcut: an installation may replace it while retaining the other owners for their next run. An existing different target remains a refusal. The installer preserves unrecorded shortcuts. Bounded locks serialize installation mutation and the shared shortcut record; installation lock names derive from resolved target paths in the system temporary folder. This prevents concurrent runs and different installations from silently taking over one command. An operating-system error while persisting PATH is reported as a warning after the installation succeeds. A shortcut whose target is not at its recorded path does not run, and that includes `rbtv` itself; the next update relinks it, so the rbtv CLI is started once by its full path: `python3 <repository>/core/rbtv/capabilities/tools/rbtv/install.py update all --target <installation>`, then, from the installation, for each placed agent, `python3 <repository>/core/rbtv/capabilities/tools/rbtv/install.py agent update <agent> all`.
 
 ## D26 — Public commands and local updates
 
@@ -92,9 +92,9 @@ Per-unit harness files use an `rbtv-managed` marker in the file, after YAML fron
 
 `update guidance` copies maintained human guidance while preserving generated destination sections. `update scaffolding` regenerates selected installer-owned files and generated instruction sections while preserving human text. `update all` validates both phases before writing. Updates use local source and do not expand the saved selection; a selected unit, pack, or component whose source no longer exists is removed from the generated files and record by `update scaffolding` or `update all`, as D5 specifies. Named removal needs no blanket confirmation; broad nonempty removal requires `--yes`, and dry runs write nothing. `status` shows saved selection without claiming to check health; `doctor` checks files and selected shared shortcuts. These boundaries keep refreshing, inspecting, and checking separate and make broad deletion deliberate.
 
-## D27 — The `rbtv` command: verbs, words, help
+## D27 — The `rbtv` CLI: verbs, words, help
 
-The command is `rbtv`, the program itself: there is no `install` level. Its verbs are `status`, `list` (alias `ls`, and `li` for `list --installed`), `search`, `show`, `configure`, `add`, `remove` (alias `rm`), `update`, `agent`, `doctor`, `interactive` and `selftest`. `rbtv --version` prints the version. An unknown verb, `install` included, is wrong usage: standard error, exit 2, the list of valid verbs and no sentence saying that a word moved. The old forms `set`, `dupe-artifacts`, `harness` and `artifact` are not recognised at all, and neither are the retired options `--kind`, `--exclude-kind` and `--artifact`.
+The command is `rbtv`, the CLI itself: there is no `install` level. Its verbs are `status`, `list` (alias `ls`, and `li` for `list --installed`), `search`, `show`, `configure`, `add`, `remove` (alias `rm`), `update`, `agent`, `doctor`, `interactive` and `selftest`. `rbtv --version` prints the version. An unknown verb, `install` included, is wrong usage: standard error, exit 2, the list of valid verbs and no sentence saying that a word moved. The old forms `set`, `dupe-artifacts`, `harness` and `artifact` are not recognised at all, and neither are the retired options `--kind`, `--exclude-kind` and `--artifact`.
 
 The public words are **file** (what the catalog offers and what an installation selects; the JSON keys are `files`) and **installation** (the root folder; it replaces "workspace", and Ignite's flag becomes `--installation`). The state words `installed` and `not installed` stay, and `target` stays the name of the folder a command acts on. The unit named `google-workspace` is a name and is unchanged.
 

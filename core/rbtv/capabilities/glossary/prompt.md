@@ -6,24 +6,24 @@ A prompt keeps one standing function, one method and one set of limits while eac
 
 ## How it fails
 
-The program can accept the file, and the prompt can still fail, because the program does not read the body.
+The rbtv CLI can accept the file, and the prompt can still fail, because the rbtv CLI does not read the body.
 
 - The body names one task's files, goal or done check. The next launch is decided by that task, or the agent asks for it. A skill is read inside a task that already has those. A prompt is the text that the model has before the task arrives.
 - The role names no standing function, or the persona is a voice that changes no open choice. Each launch invents who the agent is, or it performs the voice and still stops, explores and weighs risk as it would have with no persona.
-- Role, procedure and constraints give different orders for the same behavior. The agent spends the launch reconciling them. A skill is one text. A prompt is four sections that can disagree, and the program does not compare them.
+- Role, procedure and constraints give different orders for the same behavior. The agent spends the launch reconciling them. A skill is one text. A prompt is four sections that can disagree, and the rbtv CLI does not compare them.
 - Navigation uses the working folder, or names one task's files. An rbtv launch sets the working folder to the agent folder. On Claude Code, a harness that launches the agent as its sub-agent starts in the caller's folder. The same relative path is a different place in those two launches, so the agent looks in the wrong folder.
 - The procedure tells the agent to ask and wait, or it pastes a capability, or it is a second method. A launch that is not a conversation ends before the answer arrives. A pasted capability drifts from the page on the next edit. A second method is improvised on the launch that needed the first.
-- The body assumes the caller's prompt, a skill that the record lists, or a memory file. A called agent does not receive the caller's prompt. A placement as a sub-agent of a harness does not install the record's list. A launch that is not an Ignite wake does not inject memory. The agent invents the missing fact, and the program still accepts the file.
+- The body assumes the caller's prompt, a skill that the record lists, or a memory file. A called agent does not receive the caller's prompt. A placement as a sub-agent of a harness does not install the record's list. A launch that is not an Ignite wake does not inject memory. The agent invents the missing fact, and the rbtv CLI still accepts the file.
 
 ## What it is composed of
 
-The author writes the body of `agent.md`, in the folder that the page "Agent"¹ names. The frontmatter of that file carries the name and nothing else. It is not part of the prompt. The schema of that frontmatter is the file "Agent frontmatter"². On an rbtv launch and on an Ignite turn, the program removes the frontmatter before the model sees the text. A harness sub-agent file does not contain the body. It tells the model to read the source file.
+The author writes the body of `agent.md`, in the folder that the page "Agent"¹ names. The frontmatter of that file carries the name and nothing else. It is not part of the prompt. The schema of that frontmatter is the file "Agent frontmatter"². On an rbtv launch and on an Ignite turn, the CLI that launches the agent removes the frontmatter before the model sees the text. A harness sub-agent file does not contain the body. It tells the model to read the source file.
 
 The body has these headings, in this order, spelled as written: `## Role`, `## Navigation`, `## Procedure`, `## Constraints`. Navigation is absent when the agent works only in its own folder. Constraints are absent when no standing limit remains. The persona has no heading. It sits in Role, and only when an open choice remains. An empty heading is absent: no heading and no placeholder.
 
 Role is always there. It states who the agent is and the standing function that is true of every task. The persona, when it is there, is the standpoint that shapes the choices the procedure and the task leave open.
 
-Navigation, when it is there, names the folders the tasks work in, as paths from the installation root. The program does not read this section.
+Navigation, when it is there, names the folders the tasks work in, as paths from the installation root. The rbtv CLI does not read this section.
 
 Procedure is there when the agent does work. It is the method that is true of every task. A step may send the agent to a capability. The page "Capability"³ says how to write that page. A prompt is not an entry point. The page "Entry point"⁴ says what an entry point is. Do not put a routing table in the body.
 
@@ -45,11 +45,11 @@ The task arrives with the launch. Its scope and its done contract are sections o
 
 3. **Name each input the task must carry, and the next action when it is absent.** Name each input the procedure uses, as the page "Cognitive unit" says. For a prompt, the input arrives in the task. A person who opens the agent can answer a question. A launch by another agent, a harness, a Slack message or a timer ends before the answer arrives. When any launch is one of those, the next action is to stop and name what the next launch has to carry. A folder, a path or an account that is true of one installation is an input the task or the installation supplies. It is not a sentence of the prompt.
 
-4. **Name the tool in the procedure when the answer is exact.** When a step has an exact answer, name the tool as the page "Cognitive unit" says, and write that name in the procedure. Do not put the check in Constraints. A constraint is honored by judgment, and the program does not run it. When several ways succeed, follow the page "Cognitive unit" for the result, the criterion and the one way. Write that step in the procedure too. A constraint does not choose among ways.
+4. **Name the tool in the procedure when the answer is exact.** When a step has an exact answer, name the tool as the page "Cognitive unit" says, and write that name in the procedure. Do not put the check in Constraints. A constraint is honored by judgment, and the rbtv CLI does not run it. When several ways succeed, follow the page "Cognitive unit" for the result, the criterion and the one way. Write that step in the procedure too. A constraint does not choose among ways.
 
-5. **Keep one method, and send the agent out instead of pasting.** Keep one purpose, as the page "Cognitive unit" says. A second method does not belong in this procedure. Decide where it goes with the page "Choosing what to build"⁷. When a step needs a page that already has the instructions, send the agent there and name the moment, as the page "Cognitive unit" says. Do not paste the caller's prompt. A launch does not include it. When the step needs a skill, a rule or a command that the record lists, state the next action for when it is absent. The page "Agent" says a placement as a sub-agent of a harness does not install that list. When a step names a capability, write the path from the root of the rbtv repository, or from `.rbtv/`, as a rule does, and not from `agent.md`. The program derives from it the path that opens where the prompt is read. One placement reads a copy of the prompt, and the other reads the source, as that page says. A path from the file is a different place in the two placements. Do not paste a memory file. Require one only when every launch of this agent is a wake that injects it, and you named that launcher in the first step. A prompt is not an entry point. Do not put a routing table in the body.
+5. **Keep one method, and send the agent out instead of pasting.** Keep one purpose, as the page "Cognitive unit" says. A second method does not belong in this procedure. Decide where it goes with the page "Choosing what to build"⁷. When a step needs a page that already has the instructions, send the agent there and name the moment, as the page "Cognitive unit" says. Do not paste the caller's prompt. A launch does not include it. When the step needs a skill, a rule or a command that the record lists, state the next action for when it is absent. The page "Agent" says a placement as a sub-agent of a harness does not install that list. When a step names a capability, write the path from the root of the rbtv repository, or from `.rbtv/`, as a rule does, and not from `agent.md`. The rbtv CLI derives from it the path that opens where the prompt is read. One placement reads a copy of the prompt, and the other reads the source, as that page says. A path from the file is a different place in the two placements. Do not paste a memory file. Require one only when every launch of this agent is a wake that injects it, and you named that launcher in the first step. A prompt is not an entry point. Do not put a routing table in the body.
 
-6. **Write the sections under one set of rules.** Use the headings in the order above, spelled as written. The program does not read the headings, so a renamed heading, a missing section, or a section that does another section's job is accepted. A sentence that names one task's files, goal or done check is not in any section. The task carries it. A sentence that restates another section makes the two disagree, and the agent spends the launch on the disagreement. No section names a channel, an account, a host, a credential, or a path that is true of one machine. Leave out a sentence the failure does not need, as the page "Cognitive unit" says.
+6. **Write the sections under one set of rules.** Use the headings in the order above, spelled as written. The rbtv CLI does not read the headings, so a renamed heading, a missing section, or a section that does another section's job is accepted. A sentence that names one task's files, goal or done check is not in any section. The task carries it. A sentence that restates another section makes the two disagree, and the agent spends the launch on the disagreement. No section names a channel, an account, a host, a credential, or a path that is true of one machine. Leave out a sentence the failure does not need, as the page "Cognitive unit" says.
 
 ### Role
 
@@ -73,7 +73,7 @@ The weak line adds a voice. The open choices stay unset, so each launch stops an
 
 **When the prompt has it.** It is there when the work is not only in the agent folder. When the agent works only in its own folder, the heading is absent.
 
-**How to write it.** Write one line that says the paths start at the installation root, not at the working folder. Then one path per line, from that root. An rbtv launch sets the working folder to the agent folder. A harness that launches the agent as its sub-agent starts in the caller's folder, on Claude Code. A path from the working folder is a different place in those two launches. Do not name one task's files. The program does not read this section, so a path of one machine is accepted and still fails on the next machine.
+**How to write it.** Write one line that says the paths start at the installation root, not at the working folder. Then one path per line, from that root. An rbtv launch sets the working folder to the agent folder. A harness that launches the agent as its sub-agent starts in the caller's folder, on Claude Code. A path from the working folder is a different place in those two launches. Do not name one task's files. The rbtv CLI does not read this section, so a path of one machine is accepted and still fails on the next machine.
 
 Weak: "The notes for every task of this agent are in ./plans/launch."
 
@@ -101,7 +101,7 @@ The weak line asks in a turn that ends before the answer arrives.
 
 ### Constraints
 
-**What it is for.** Constraints are standing limits on conduct, honored by judgment, on every task. They prevent conduct that has no standing limit. They are not limits a program enforces.
+**What it is for.** Constraints are standing limits on conduct, honored by judgment, on every task. They prevent conduct that has no standing limit. They are not limits that code enforces.
 
 **When the prompt has it.** They are there when a limit must be true of every task, honoring it takes judgment, and no tool can enforce it. When no such limit remains, the heading is absent. A limit that is true of one task is not a constraint. A limit a tool can check is a procedure step that names the tool.
 
@@ -124,7 +124,7 @@ When you review, read the body as the model meets it, without the frontmatter an
 Checks:
 
 - Role states one standing function that is true of a task that the purpose does not name. The persona sits in Role, and only when removing it would change an open choice. Navigation, when present, uses paths from the installation root and says so. Procedure is one method, with a next action at each branch and when an input or a listed skill is absent, and it does not wait for a later message when a launch is not a conversation. Constraints, when present, name the behavior, the reason and the alternative. The headings are the fixed names in the fixed order. No section names one task's files, goal or done check.
-- The program accepts the file, as the page "rbtv command"⁸ says. Acceptance shows the file was recognized. It does not show that the body was read.
+- The rbtv CLI accepts the file, as the page "rbtv CLI"⁸ says. Acceptance shows the file was recognized. It does not show that the body was read.
 - Launch an agent with this prompt, with a task that the procedure does not name, and with one input left out. Look at the standing function it follows, the path it opens, whether it waits, and whether the missing input ends the turn with that input named.
 
 ## Template
@@ -164,4 +164,4 @@ name: <the name, the same as the folder and the record>
 | 5 | Cognitive unit | [Cognitive unit](cognitive-unit.md) | when | writing the instructions the agent acts on | take the shared steps, and write only what a prompt adds |
 | 6 | Scaffolding language | [Scaffolding language](scaffolding-language.md) | must | | word every sentence so the agent acts on the meaning you gave it, and apply its tests |
 | 7 | Choosing what to build | [Choosing what to build](../choosing-what-to-build.md) | when | a second method does not belong here, or a part of a converted file is not a section of the prompt | decide where that part goes |
-| 8 | rbtv command | [rbtv command](rbtv-command.md) | when | having the program accept the file | find the command to run, and take what acceptance shows |
+| 8 | rbtv CLI | [rbtv CLI](rbtv-cli.md) | when | having the rbtv CLI accept the file | find the command to run, and take what acceptance shows |

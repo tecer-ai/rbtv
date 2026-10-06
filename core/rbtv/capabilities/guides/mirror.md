@@ -1,6 +1,6 @@
 # Building a mirror component
 
-A [mirror component](../glossary/mirror.md) is a component local to this installation, scanned by the [rbtv](../glossary/rbtv-command.md) alongside shipped components. The mirror also holds [self-contained skills](../glossary/self-contained-skill.md) in `_skills/`; use the [self-contained skill guide](self-contained-skill.md) when importing or writing one to share.
+A [mirror component](../glossary/mirror.md) is a component local to this installation, scanned by the [rbtv](../glossary/rbtv-cli.md) alongside shipped components. The mirror also holds [self-contained skills](../glossary/self-contained-skill.md) in `_skills/`; use the [self-contained skill guide](self-contained-skill.md) when importing or writing one to share.
 
 ## Purpose
 

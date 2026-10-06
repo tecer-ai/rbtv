@@ -10,7 +10,7 @@ The line, or the table, is the text the reader matches when it chooses the load.
 
 ## How it fails
 
-The program can accept the file that has the routing table, and the routing table can still send the reader to the wrong load.
+The rbtv CLI can accept the file that has the routing table, and the routing table can still send the reader to the wrong load.
 
 - The row restates what it names, or the situation is only in what it names. The reader never loads, because the row gives no situation, or it loads on the name alone, because the row gives no boundary.
 - `ALWAYS LOAD WHEN` lists words the reader might see, and not a situation the reader can match without those words. The reader loads on a word and misses the same job when the word is absent.
@@ -115,7 +115,7 @@ CONTAINS: <what is in the skill, rule, command or agent> PURPOSE: <what that con
 
    The weak line gives a path for a load that the reader does by name. The reader opens the file of the prompt and reads it, and launches no agent.
 
-   When the table is in a rule and the cell is a capability, write the path from the root of the rbtv repository, or from `.rbtv/`. The program derives from that path the path the reader opens, in the place where the rule is placed. When the row names a capability, read the page "Capability"⁹, so the reader reads it and does not open it as a skill. When the named file only lists other files, read the page "Entry point"⁵ and replace that pointer with rows. A row in an entry point does not name a skill, a rule or a command. Read the page "Nested exposure"⁷ for when several capabilities belong under one exposure method.
+   When the table is in a rule and the cell is a capability, write the path from the root of the rbtv repository, or from `.rbtv/`. The rbtv CLI derives from that path the path the reader opens, in the place where the rule is placed. When the row names a capability, read the page "Capability"⁹, so the reader reads it and does not open it as a skill. When the named file only lists other files, read the page "Entry point"⁵ and replace that pointer with rows. A row in an entry point does not name a skill, a rule or a command. Read the page "Nested exposure"⁷ for when several capabilities belong under one exposure method.
 
 - When you edit: change the four labels in the same change that alters what a description names, what it is for, when it is loaded, or what a command or an agent must be given. A description has no file cell, so a change that is only in the body is not in the text the reader matches. When the change alters what a table names, change that table in the same change. The table is in the entry point or the folder instructions, and the reader matches the table before it opens the named file.
 - When you convert: take an outside description that says what a file does and when to use it, and write the four parts. Split what it does into `CONTAINS` and `PURPOSE`. Write the when as a situation in `ALWAYS LOAD WHEN`, not as the source's list of words. A near-miss in the source becomes `DO NOT LOAD WHEN`. When the source has none and the row is a description, name the nearest other. A procedure in the source stays in what the row names, not in the row. When that procedure is another kind in rbtv, decide with the page "Choosing what to build"¹⁰. An outside column table of a body becomes the columns above. An outside one-line description stays one line.
@@ -124,7 +124,7 @@ CONTAINS: <what is in the skill, rule, command or agent> PURPOSE: <what that con
 Checks:
 
 - A reviewer sees a description as one line, the four labels in this order, and no link. A reviewer sees a body routing table as a markdown table whose columns are the file, `CONTAINS`, `PURPOSE` and `ALWAYS LOAD WHEN`, with `DO NOT LOAD WHEN` only when at least one row has a similar case. The first cell of a file, a folder or a capability is a link. The first cell of an agent is its name. No row names two, or a file that only lists other files. No row in an entry point names a skill, a rule or a command. A capability in a rule uses a path from the rbtv repository root, or from `.rbtv/`. For a command or an agent, `PURPOSE` names what the reader has to give, in the words the reader supplies. `ALWAYS LOAD WHEN` is a situation for this kind's load, and a rule's situation is a case in which to install it.
-- The program accepts the file that has the routing table. Acceptance shows that the file was recognized. It does not show that the row decides a load.
+- The rbtv CLI accepts the file that has the routing table. Acceptance shows that the file was recognized. It does not show that the row decides a load.
 - Give the row, without what the row names, to a reader that also has the neighboring rows. Give one task that should load and one that should not. The reader loads on the first and not on the second. A command or an agent load carries what `PURPOSE` names.
 
 ## References
@@ -140,5 +140,5 @@ Checks:
 | 7 | Nested exposure | [Nested exposure](../nested-exposure.md) | when | several capabilities would belong under one exposure method | take when they belong under one exposure method |
 | 8 | Cognitive unit | [Cognitive unit](cognitive-unit.md) | when | a step is about to go into the row | write the step in what the row names |
 | 9 | Capability | [Capability](capability.md) | when | the row names a capability | take what a capability is, so the load stays a read |
-| 10 | Choosing what to build | [Choosing what to build](<../_under-evaluation/guides/procedure documents/choosing-what-to-build.md>) | when | a converted procedure is another kind in rbtv | decide where that procedure belongs |
+| 10 | Choosing what to build | [Choosing what to build](../choosing-what-to-build.md) | when | a converted procedure is another kind in rbtv | decide where that procedure belongs |
 | 11 | Exposure method | [Exposure method](exposure-method.md) | when | a row would name a skill, a rule or a command from an entry point | take what an exposure method is, so the row names a capability |

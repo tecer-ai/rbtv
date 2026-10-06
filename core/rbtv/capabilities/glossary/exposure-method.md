@@ -2,7 +2,7 @@
 
 An exposure method is how the content of a capability¹ reaches an agent. In rbtv the exposure methods are a skill, a command, a rule and folder instructions, and no other file. Every exposure method is an entry point, and the page "Entry point"² says what such a file contains and how its body is written. Outside rbtv that grouping is not used. A skill, a command, a rule, folder instructions, an agent, a hook and an MCP server are separate ways to extend an agent. In Claude Code a person can invoke a skill by typing its name, the same way as a command, and a command file works the same way as a skill.
 
-A skill reaches the agent when the agent matches its description, before the agent has read the body. The program copies that description into the file that the harness shows, and the body of that file tells the agent to read the source. Claude Code also allows a person to type the skill's name, and it treats a command file the same way as a skill. rbtv does not use that path for a skill: a person who types a name uses a command. OpenCode shows the name and the description, and the agent loads the skill when it needs the content. A command reaches the agent when a person invokes its name, before the agent has read the body. On Codex the installed file has no description, only the instruction to read the source, so the name is what the person has. A rule reaches the agent because the rule is installed, on every task of every agent that has the rule, and the agent does not choose it. The program copies the rule for Claude Code, and Claude Code loads that text at the start of the session. For Codex and OpenCode the program places the body, without the frontmatter, in the root instructions file, which those harnesses load on every turn. The load is not the action. Folder instructions reach the agent because of the folder, only as far as the harness loads that folder's file. The program places the body, not the frontmatter, in that file. Claude Code loads a root file at the start of the session, and a file in a subdirectory when it reads a file there. Codex reads the instructions files from the project root down to the working directory at the start of a run, and stops when their combined size reaches the limit the program sets.
+A skill reaches the agent when the agent matches its description, before the agent has read the body. The rbtv CLI copies that description into the file that the harness shows, and the body of that file tells the agent to read the source. Claude Code also allows a person to type the skill's name, and it treats a command file the same way as a skill. rbtv does not use that path for a skill: a person who types a name uses a command. OpenCode shows the name and the description, and the agent loads the skill when it needs the content. A command reaches the agent when a person invokes its name, before the agent has read the body. On Codex the installed file has no description, only the instruction to read the source, so the name is what the person has. A rule reaches the agent because the rule is installed, on every task of every agent that has the rule, and the agent does not choose it. The rbtv CLI copies the rule for Claude Code, and Claude Code loads that text at the start of the session. For Codex and OpenCode the rbtv CLI places the body, without the frontmatter, in the root instructions file, which those harnesses load on every turn. The load is not the action. Folder instructions reach the agent because of the folder, only as far as the harness loads that folder's file. The rbtv CLI places the body, not the frontmatter, in that file. Claude Code loads a root file at the start of the session, and a file in a subdirectory when it reads a file there. Codex reads the instructions files from the project root down to the working directory at the start of a run, and stops when their combined size reaches the limit the rbtv CLI sets.
 
 An agent is not an exposure method, in either placement. A hook, an MCP server and a tool are not exposure methods. A prompt is not an exposure method, and it is not an entry point. A step of its procedure may still send the agent to a capability.
 
@@ -10,10 +10,10 @@ An exposure method lets a capability reach the agent on the task where the work 
 
 ## How it fails
 
-The program can accept a skill, a command, a rule or folder instructions, and the capability can still fail to reach the agent, because the program does not read which party the file lets decide.
+The rbtv CLI can accept a skill, a command, a rule or folder instructions, and the capability can still fail to reach the agent, because the rbtv CLI does not read which party the file lets decide.
 
 - The file is written for a party that the kind does not give the decision to. A skill written as a name a person types does not open, because the agent matches the description and may never type the name. A rule whose full text only some tasks need crowds every task, because that text is already loaded. Folder instructions written for every task miss the tasks that never enter the folder, because they arrive only as far as the harness loads that folder's file. A command whose needed facts are only in the body asks for them too late, because the person has already invoked.
-- The capability is exposed through an agent, a hook, an MCP server or a tool. The program installs those. The capability's text does not arrive by a skill, a command, a rule or folder instructions.
+- The capability is exposed through an agent, a hook, an MCP server or a tool. The rbtv CLI installs those. The capability's text does not arrive by a skill, a command, a rule or folder instructions.
 
 ## What it is composed of
 
@@ -31,15 +31,15 @@ The author writes no file named for an exposure method. The exposure method is a
 
 When you edit, change the kind when the party who should decide has changed. The kind is that party. A change of what the file contains is a change to the entry point, and the page "Entry point"² has it.
 
-When you convert, take an outside file in which a person types the name and an agent also loads it from a description as two decisions. Decide each with the page "Choosing what to build"³. Do not leave both in one file. The program writes a skill and a command as different files, and it does not split one source into both. A hook, an agent, an MCP server or a tool in the source is not an exposure method.
+When you convert, take an outside file in which a person types the name and an agent also loads it from a description as two decisions. Decide each with the page "Choosing what to build"³. Do not leave both in one file. The rbtv CLI writes a skill and a command as different files, and it does not split one source into both. A hook, an agent, an MCP server or a tool in the source is not an exposure method.
 
 When you review, name the party who can make the content arrive, and name the task on which it arrives. A review that starts from the body judges the entry point. It misses a kind that lets the wrong party decide.
 
 Checks:
 
 - A reviewer sees one of the four, and the party who decides is the party that kind gives the decision to. An agent, a hook, an MCP server and a tool are not the way the capability arrives. A prompt is not among the four.
-- The program accepts the file. The page "rbtv command"⁸ says how to have it accepted. Acceptance shows the file was recognized as that kind. It does not show that the party who decides is the one that kind gives the decision to.
-- Give the exposure method, once the program has accepted it, to an agent, with one task where the capability should arrive and one where it should not. Look at whether the capability arrives on the first and not on the second. For a rule, look at whether the text is present on both tasks and acted on only where it applies.
+- The rbtv CLI accepts the file. The page "rbtv CLI"⁸ says how to have it accepted. Acceptance shows the file was recognized as that kind. It does not show that the party who decides is the one that kind gives the decision to.
+- Give the exposure method, once the rbtv CLI has accepted it, to an agent, with one task where the capability should arrive and one where it should not. Look at whether the capability arrives on the first and not on the second. For a rule, look at whether the text is present on both tasks and acted on only where it applies.
 
 ## References
 
@@ -52,4 +52,4 @@ Checks:
 | 5 | Rule | [Rule](rule.md) | when | the exposure method is a rule | take where the rule file sits, and what a rule adds |
 | 6 | Command | [Command](command.md) | when | the exposure method is a command | take where the command file sits, and what a command adds |
 | 7 | Folder instructions | [Folder instructions](folder-instructions.md) | when | the exposure method is folder instructions | take where that file sits, and what folder instructions add |
-| 8 | rbtv command | [rbtv command](rbtv-command.md) | when | the program is to accept the exposure method | take what acceptance shows for this kind, and what it does not show about the party who decides |
+| 8 | rbtv CLI | [rbtv CLI](rbtv-cli.md) | when | the rbtv CLI is to accept the exposure method | take what acceptance shows for this kind, and what it does not show about the party who decides |

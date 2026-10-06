@@ -8,12 +8,12 @@ Apply this whenever you add or change a control on state that humans and agents 
 
 ## How it fails
 
-The program can accept the software, and an agent can still be unable to take an action a human can take. The program does not check whether an agent can take the action.
+The rbtv CLI can accept the software, and an agent can still be unable to take an action a human can take. The rbtv CLI does not check whether an agent can take the action.
 
 - The human control ships, and the agent path is left for later. The agent waits for a human.
 - The agent path is the human interface. The agent clicks through the screen, or it answers the questions a guided flow asks. The action cannot be run again from a record of it, and the context window fills with screens the task does not need.
 - The agent path does not perform the action. It prints the steps a person follows, or it leaves different state from the human path. The results do not match.
-- For state rbtv manages, the agent edits a file a person sees, and the action does more than that edit. Or the agent edits a copy the program writes. The action the human took is not done.
+- For state rbtv manages, the agent edits a file a person sees, and the action does more than that edit. Or the agent edits a copy the rbtv CLI writes. The action the human took is not done.
 - A control only a human can use is the normal route, and no exception is written. Every agent drives the screen.
 
 ## How to apply it
@@ -26,7 +26,7 @@ The program can accept the software, and an agent can still be unable to take an
 
    The weak line makes driving the screen the route, so the agent waits or reconstructs the clicks.
 
-2. **Give the agent a form that the agent can run again without a question.** When the action is an edit of a file a human edits, the form is that file. When the action does more than change that file, such as writing other files or starting a program, the form is an invocation of the tool that performs the operation. The page "Tool"² says what a tool is. The invocation carries every input. When an input is missing, it stops and names what the next invocation has to carry. It does not ask. Driving the screen is not this form. The next run has no record of the clicks, which is context gap. The screens are in the context window, which is context load. Decide what carries the invocation with the page "Choosing what to build"³. Follow the page "Deterministic first"⁴ when the operation has an exact answer, and when the next agent has to learn when to call the tool.
+2. **Give the agent a form that the agent can run again without a question.** When the action is an edit of a file a human edits, the form is that file. When the action does more than change that file, such as writing other files or starting other software, the form is an invocation of the tool that performs the operation. The page "Tool"² says what a tool is. The invocation carries every input. When an input is missing, it stops and names what the next invocation has to carry. It does not ask. Driving the screen is not this form. The next run has no record of the clicks, which is context gap. The screens are in the context window, which is context load. Decide what carries the invocation with the page "Choosing what to build"³. Follow the page "Deterministic first"⁴ when the operation has an exact answer, and when the next agent has to learn when to call the tool.
 
    Weak: "The guided flow asks the person. The agent path asks those same questions."
 
@@ -42,15 +42,15 @@ The program can accept the software, and an agent can still be unable to take an
 
    The weak line leaves the action to a human.
 
-   The install of rbtv has this shape. Its guided flow asks a person, then calls the install operation. The invocation that performs the install calls the same operation and asks nothing. The page "rbtv command"⁶ says how the program is run.
+   The install of rbtv has this shape. Its guided flow asks a person, then calls the install operation. The invocation that performs the install calls the same operation and asks nothing. The page "rbtv CLI"⁶ says how the rbtv CLI is run.
 
-4. **For state rbtv manages, match the path to what completes the action.** That state is components, agents, settings, runtime data, memory, and folder artifacts. When the action is the edit of a file a human edits, the agent edits that file. When the action does more than the edit, such as the program writing the files a harness loads, the agent runs the tool, and the human control calls that tool. Do not have the agent edit a copy the program writes. The page "rbtv command"⁶ says what the program writes. Follow the page "Single source of truth"⁵ for that copy.
+4. **For state rbtv manages, match the path to what completes the action.** That state is components, agents, settings, runtime data, memory, and folder artifacts. When the action is the edit of a file a human edits, the agent edits that file. When the action does more than the edit, such as the rbtv CLI writing the files a harness loads, the agent runs the tool, and the human control calls that tool. Do not have the agent edit a copy the rbtv CLI writes. The page "rbtv CLI"⁶ says what the rbtv CLI writes. Follow the page "Single source of truth"⁵ for that copy.
 
-   Weak: "The person runs the add. The agent edits the copy the program writes for the harness."
+   Weak: "The person runs the add. The agent edits the copy the rbtv CLI writes for the harness."
 
-   Strong: "The person runs the add. The agent runs the same add, with the name in the invocation. Neither edits the copy the program writes."
+   Strong: "The person runs the add. The agent runs the same add, with the name in the invocation. Neither edits the copy the rbtv CLI writes."
 
-   The weak line does not perform the action the human performed by running the program.
+   The weak line does not perform the action the human performed by running the rbtv CLI.
 
 5. **Write the exception when a control has no operation an agent can invoke.** A graphical action with no such operation is an exception. Write the action, why no agent path exists, and that the agent reaches it by driving the screen. Driving the screen is computer use: the agent clicks and types in the interface a human uses. Do not make computer use the route for an action that has an operation. An exception that is not written is a human-only action, and the agent waits.
 
@@ -60,14 +60,14 @@ The program can accept the software, and an agent can still be unable to take an
 
    The weak line makes computer use the normal route.
 
-When you edit, a new human control is a new action. Apply step 1 in the same change. The program does not ask whether an agent path exists.
+When you edit, a new human control is a new action. Apply step 1 in the same change. The rbtv CLI does not ask whether an agent path exists.
 
 When you review, list the actions a human can take on the state. For each, name the agent path, or the written exception. A review that only uses the human control misses an action the agent cannot take.
 
 Checks:
 
 - A reviewer sees, for each action a human can take on the state, an agent path that performs that action without a question, or a written exception that names the action and says the agent drives the screen. After both paths, the state matches. No path drives the screen for an action that has an operation.
-- The program can accept the software. Acceptance does not show that an agent can take the action, or that the two paths leave the same state.
+- The rbtv CLI can accept the software. Acceptance does not show that an agent can take the action, or that the two paths leave the same state.
 - Give an agent the state and one action a human can take, and not the screen. The agent completes the action. Then remove the agent path and give the action again. If the agent waits, or drives the screen, the path was not there.
 
 ## References
@@ -78,5 +78,5 @@ Checks:
 | 2 | Tool | [Tool](../glossary/tool.md) | when | the action does more than an edit of a file a human edits | take what a tool is, and that the operation runs outside the context window |
 | 3 | Choosing what to build | [Choosing what to build](../choosing-what-to-build.md) | when | deciding what carries the invocation | decide the kind |
 | 4 | Deterministic first | [Deterministic first](deterministic-first.md) | when | the operation has an exact answer, or the next agent has to learn when to call the tool | take the decision for an exact answer, and the decision for how the next agent learns to call the tool |
-| 5 | Single source of truth | [Single source of truth](single-source-of-truth.md) | when | both paths must perform one operation, or the agent path would edit a copy the program writes | take how one operation stays one implementation, and what to do with a copy |
-| 6 | rbtv command | [rbtv command](../glossary/rbtv-command.md) | when | the action is one the program performs, or you are about to write how to run it | take what the guided flow and the install invocation do, and how to run the program |
+| 5 | Single source of truth | [Single source of truth](single-source-of-truth.md) | when | both paths must perform one operation, or the agent path would edit a copy the rbtv CLI writes | take how one operation stays one implementation, and what to do with a copy |
+| 6 | rbtv CLI | [rbtv CLI](../glossary/rbtv-cli.md) | when | the action is one the rbtv CLI performs, or you are about to write how to run it | take what the guided flow and the install invocation do, and how to run the rbtv CLI |

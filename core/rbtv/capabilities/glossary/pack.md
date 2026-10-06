@@ -6,7 +6,7 @@ A pack is for one group of files that more than one target must receive together
 
 ## How it fails
 
-The program can accept a pack, and the pack can still fail. It checks each name against a file that it installs. It does not read whether every target that turns the pack on needs that file.
+The rbtv CLI can accept a pack, and the pack can still fail. It checks each name against a file that it installs. It does not read whether every target that turns the pack on needs that file.
 
 - The pack is declared for one target. The list is not in that target's record. Only the pack's name is there. A later turn-on installs every file for a target that did not need them. The one target's record does not show the files.
 - A file that only some of those targets need is in the list. Every turn-on installs it. A skill or a rule in that list puts its text in front of an agent that does not do that work.
@@ -16,11 +16,11 @@ The program can accept a pack, and the pack can still fail. It checks each name 
 
 ## What it is composed of
 
-The author writes one file, in the component that declares the pack. The page "rbtv command"¹ says the name of that file and the folder that the program reads. The program checks the file against the schema [pack.schema.json](../templates/pack.schema.json). This page does not list the fields.
+The author writes one file, in the component that declares the pack. The page "rbtv CLI"¹ says the name of that file and the folder that the rbtv CLI reads. The rbtv CLI checks the file against the schema [pack.schema.json](../templates/pack.schema.json). This page does not list the fields.
 
-The description is always there. It is one line that says what the group is for. A person who lists packs reads that line. The program does not copy it into a file that an agent reads. The page "rbtv command"¹ says the program writes no file for the pack, so the description is not a decision about what an agent loads.
+The description is always there. It is one line that says what the group is for. A person who lists packs reads that line. The rbtv CLI does not copy it into a file that an agent reads. The page "rbtv CLI"¹ says the rbtv CLI writes no file for the pack, so the description is not a decision about what an agent loads.
 
-The list is always there. Each entry is the id of a file that the program installs, written as `module/component#name`. The part after `#` is the name that the program installs, not a short name and not a path. The list may name a file of another component. The page "Choosing where to build"² says which component declares the pack, and what a mirror folder does to a file that the list names.
+The list is always there. Each entry is the id of a file that the rbtv CLI installs, written as `module/component#name`. The part after `#` is the name that the rbtv CLI installs, not a short name and not a path. The list may name a file of another component. The page "Choosing where to build"² says which component declares the pack, and what a mirror folder does to a file that the list names.
 
 ## How to build it
 
@@ -34,7 +34,7 @@ The list is always there. Each entry is the id of a file that the program instal
 
 2. **Put in the list only a file that every such target needs.** Put a file in the list when every target that turns the pack on needs that file. A file that only some of them need stays out. It goes in that target's own list, or in a second pack that only those targets turn on. The page "Agent"³ says what an agent's record may list. Read it for the placement that installs a pack named in that record. A skill or a rule in the list puts its text in front of every agent that turns the pack on. The page "Progressive disclosure"⁴ says why text that an agent does not need should not be in front of it.
 
-   Write each id as `module/component#name`, because the program matches that string to a file that it installs. A short name is not that string. Name a skill, a rule, a command, a hook, an MCP server, a tool, or folder instructions. When the list names a hook, read the page "rbtv command"¹ for which harness receives a hook file. A target on a harness that receives none does not get that hook.
+   Write each id as `module/component#name`, because the rbtv CLI matches that string to a file that it installs. A short name is not that string. Name a skill, a rule, a command, a hook, an MCP server, a tool, or folder instructions. When the list names a hook, read the page "rbtv CLI"¹ for which harness receives a hook file. A target on a harness that receives none does not get that hook.
 
    Weak: "`meta/communication#slack-message-format` in a pack that a research agent and an Ignite agent both turn on."
 
@@ -42,7 +42,7 @@ The list is always there. Each entry is the id of a file that the program instal
 
    The weak line puts the Slack skill in front of the research agent.
 
-3. **Do not name a file that the turn-on does not install.** Do not name a capability. The program does not install that file. The page "Choosing what to build"⁵ says a pack does not make a capability reach an agent. Do not name a whole-folder skill. Its id is not the id of a file that a component installs, so the scan refuses that name. Do not name another pack.
+3. **Do not name a file that the turn-on does not install.** Do not name a capability. The rbtv CLI does not install that file. The page "Choosing what to build"⁵ says a pack does not make a capability reach an agent. Do not name a whole-folder skill. Its id is not the id of a file that a component installs, so the scan refuses that name. Do not name another pack.
 
    Do not name an agent folder. Turning the pack on does not place that folder. The page "Agent"³ says the two placements. A pack that names an agent writes a sub-agent file only when the run also names that agent with `--on` and a harness, a model and an effort, or when an earlier run recorded those for it. The pack file cannot carry them. Without them the turn-on writes no file for that agent.
 
@@ -54,7 +54,7 @@ The list is always there. Each entry is the id of a file that the program instal
 
 4. **Name a file that another component owns by its id.** The declaring component is the one whose work the group serves. The page "Choosing where to build"² says how to find it. A file that the group needs can sit in another component. Write that file's id. Do not copy the file into the component that declares the pack. The pack is a list, not a second home for the file. The page "Single source of truth"⁶ says why a second copy drifts. The ignite pack names files that other components own. Those files stay in those components.
 
-5. **Write the description as what the group is for.** Write one line. A later author reads it to decide whether a file belongs. A person who lists packs reads that line after the name of the component that declares the pack. Do not start the line by naming that component. Do not list the files. The program does not copy the line into a file that an agent reads, so the line is not a load decision.
+5. **Write the description as what the group is for.** Write one line. A later author reads it to decide whether a file belongs. A person who lists packs reads that line after the name of the component that declares the pack. Do not start the line by naming that component. Do not list the files. The rbtv CLI does not copy the line into a file that an agent reads, so the line is not a load decision.
 
    Weak: "Skills and a rule for Slack and documents."
 
@@ -62,7 +62,7 @@ The list is always there. Each entry is the id of a file that the program instal
 
    The weak line names kinds. A later author adds any Slack skill.
 
-6. **Choose a name no other pack has.** Do not write the name inside the file. The page "rbtv command"¹ has it as the file name. The program keeps one pack for each file name, across every component. Choose a name that says which targets turn the pack on. A name that does not say which targets share the group is accepted, and a later author turns the pack on for the wrong target.
+6. **Choose a name no other pack has.** Do not write the name inside the file. The page "rbtv CLI"¹ has it as the file name. The rbtv CLI keeps one pack for each file name, across every component. Choose a name that says which targets turn the pack on. A name that does not say which targets share the group is accepted, and a later author turns the pack on for the wrong target.
 
    Weak: "tools"
 
@@ -70,7 +70,7 @@ The list is always there. Each entry is the id of a file that the program instal
 
    The weak line does not say which targets turn the pack on.
 
-7. **Change a named id in the same change as the move or the rename.** The id is a string. The program matches it to a file that it installs. It does not follow the file. A move to another component changes the module and the component in the id. A rename of the file changes the name after `#`. Change that string in the pack in the same change. The program does not rewrite the list. The page "Choosing where to build"² says what a mirror folder does when it leaves out a file that a pack names.
+7. **Change a named id in the same change as the move or the rename.** The id is a string. The rbtv CLI matches it to a file that it installs. It does not follow the file. A move to another component changes the module and the component in the id. A rename of the file changes the name after `#`. Change that string in the pack in the same change. The rbtv CLI does not rewrite the list. The page "Choosing where to build"² says what a mirror folder does when it leaves out a file that a pack names.
 
 8. **Leave out a file that must remain after the pack is turned off, unless the target also lists it.** The target records the pack's name, not a copy of the list. Turning the pack off removes that name. It removes a file that the pack was the only reason for. It leaves a file that the target lists itself. It leaves a file that another pack still on also names. A file is installed once, however many lists name it. Removing a file by its name, while a pack that names it is still on, does not remove the file. The pack stays the reason until the pack is turned off.
 
@@ -84,14 +84,14 @@ The list is always there. Each entry is the id of a file that the program instal
 
    The weak line loses the rule when the pack is turned off.
 
-- When you edit the list, change the pack file. It is the only copy of the group. A target that already has the pack on still has the files of the old list until the run that rewrites installed files. The page "rbtv command"¹ says which run that is. Renaming the pack file makes a new name. A target that had the old name on does not follow the rename. On that run, an installation drops the old name, and a file that only the old name installed is removed, unless the target lists the file or another pack that is on names it. An agent is refused on that run, `pack-unknown`, until its record names the new name.
-- When you convert an outside list of files to install together, put in the pack only a file that the program installs, under the id that the program matches. A part that is instructions, or another kind of file, does not become a line of the list. The page "Choosing what to build"⁵ says where that part goes.
+- When you edit the list, change the pack file. It is the only copy of the group. A target that already has the pack on still has the files of the old list until the run that rewrites installed files. The page "rbtv CLI"¹ says which run that is. Renaming the pack file makes a new name. A target that had the old name on does not follow the rename. On that run, an installation drops the old name, and a file that only the old name installed is removed, unless the target lists the file or another pack that is on names it. An agent is refused on that run, `pack-unknown`, until its record names the new name.
+- When you convert an outside list of files to install together, put in the pack only a file that the rbtv CLI installs, under the id that the rbtv CLI matches. A part that is instructions, or another kind of file, does not become a line of the list. The page "Choosing what to build"⁵ says where that part goes.
 - When you review a pack, do not stop when each name matches a file. For each file, name the targets that turn the pack on, and confirm that each of them needs that file. Confirm that a file which must remain after turn-off is not only in the pack.
 
 Checks:
 
 - Every id names a file that every target which turns the pack on needs. The description says what the group is for, in one line, and does not list the files. The list has no agent folder and no capability. A file that must remain after the pack is turned off is also in a target's own list, or is not in the pack. The name is not the name of another pack.
-- A pass shows that each name matched an installed file. It shows that the description is present. It shows that the name is one pack in the catalog. It does not show that every target needs every file. It does not show that turning the pack off leaves what must remain. The page "rbtv command"¹ says how to read a pass.
+- A pass shows that each name matched an installed file. It shows that the description is present. It shows that the name is one pack in the catalog. It does not show that every target needs every file. It does not show that turning the pack off leaves what must remain. The page "rbtv CLI"¹ says how to read a pass.
 - Turn the pack on for two targets that should share the group, and look at one target that should not have one of the files. That third target must not receive the file. Then turn the pack off for a target that also lists one file itself. That file remains. A file that the pack was the only reason for is gone.
 
 ## Template
@@ -100,7 +100,7 @@ Checks:
 {
   "description": "<what the group is for, in one line, for every target that turns the pack on>",
   "files": [
-    "<module>/<component>#<name the program installs>"
+    "<module>/<component>#<name the rbtv CLI installs>"
   ]
 }
 ```
@@ -109,7 +109,7 @@ Checks:
 
 | # | Page | File | Read | When | To |
 |---|---|---|---|---|---|
-| 1 | rbtv command | [rbtv command](rbtv-command.md) | when | writing the file, reading a pass, naming a hook, or updating a target that already has the pack on | take the file name and the folder, what a pass shows, which harness receives a hook file, and which run rewrites installed files |
+| 1 | rbtv CLI | [rbtv CLI](rbtv-cli.md) | when | writing the file, reading a pass, naming a hook, or updating a target that already has the pack on | take the file name and the folder, what a pass shows, which harness receives a hook file, and which run rewrites installed files |
 | 2 | Choosing where to build | [Choosing where to build](../choosing-where-to-build.md) | when | deciding which component declares the pack, or a named file may sit in a component that a mirror replaces | take the component, and what a mirror folder does to a file that the list names |
 | 3 | Agent | [Agent](agent.md) | when | a file would be an agent folder, or a target's own list should name a file that the pack must not be the only reason for | take the two placements, what a record may list, and which placement installs a pack from that record |
 | 4 | Progressive disclosure | [Progressive disclosure](../principles/progressive-disclosure.md) | when | a file in the list would put text in front of an agent that does not do that work | take why that text should not be in front of that agent |

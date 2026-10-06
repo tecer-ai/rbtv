@@ -1,6 +1,6 @@
 # Dreamer
 
-The one shared program that writes long-term [memory](memory.md). When switched on in Ignite's configuration it runs nightly, and `ignite dreamer run` runs it once on demand; each run goes through the agents one at a time. It reads conversation transcripts past a cursor that moves only forward, and only after a durable write. It does not learn from boards, from text that was injected or recalled, or from text it wrote itself.
+The one shared part of the ignite CLI that writes long-term [memory](memory.md). When switched on in Ignite's configuration it runs nightly, and `ignite dreamer run` runs it once on demand; each run goes through the agents one at a time. It reads conversation transcripts past a cursor that moves only forward, and only after a durable write. It does not learn from boards, from text that was injected or recalled, or from text it wrote itself.
 
 The model proposes add, supersede, or archive. Deterministic code checks each proposal and applies it: an over-cap change is refused, never truncated; a file changed since it was read is not overwritten; no record disappears without a reason. It archives, never deletes. It never edits `agent.md` and never edits rbtv source. A conflict with an agent's instructions goes to a digest for the owner. It stays silent when nothing changed. A failure alerts the owner. The owner is alerted when it has not completed a run in 48 hours.
 

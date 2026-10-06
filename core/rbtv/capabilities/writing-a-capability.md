@@ -1,12 +1,12 @@
 # Writing a capability
 
-Writing a capability is how you write the page an agent reads after a route, when that page carries a method or knowledge. That page is not a glossary entry, and it is not a principle, a template or a schema. The page "Capability"¹ says what a capability is, and how the instructions are written from what the route passed. That page also names the layout of a glossary entry, a principle, a template and a schema, and says that a program under `capabilities/tools/` is not written as a capability. The page "Writing a glossary entry"² has the list of decisions, the three tests, the weak line and the strong line, the form of a reference, and the wording. Follow that page for those. On this page, "you" write the file. "The agent" arrives by the route and does the work.
+Writing a capability is how you write the page an agent reads after a route, when that page carries a method or knowledge. That page is not a glossary entry, and it is not a principle, a template or a schema. The page "Capability"¹ says what a capability is, and how the instructions are written from what the route passed. That page also names the layout of a glossary entry, a principle, a template and a schema, and says that a tool's CLI under `capabilities/tools/` is not written as a capability. The page "Writing a glossary entry"² has the list of decisions, the three tests, the weak line and the strong line, the form of a reference, and the wording. Follow that page for those. On this page, "you" write the file. "The agent" arrives by the route and does the work.
 
 Outside rbtv, extra files sit in a skill's own folder, and the skill package carries them. Public guidance gives such a file no required sections. It recommends examples of inputs and outputs, and it asks the author to move detail out of the skill so the skill stays short. Here the file is not in the skill folder, and a whole example is not a part. Read this page when the file is a method or knowledge, and not one of those four. Write the file so that the agent does the work that remained. The agent has nothing but the file, the pages that the file names, and the facts that the route passed.
 
 ## How it fails
 
-The page "Capability"¹ says the program does not read the file. Headings do not keep the work from failing.
+The page "Capability"¹ says the rbtv CLI does not read the file. Headings do not keep the work from failing.
 
 - The file has the parts of a glossary entry: a definition of a term, a section that names parts the agent does not write, and a template of the file itself. The agent reads a definition and copies a layout. The work that remained is not those parts.
 - The steps follow the order in which you found the decisions, or they repeat the page "Writing a glossary entry"² with this work's name put in. The agent researches, or it writes a page. The decision the route left open is missing.
@@ -46,7 +46,7 @@ The page "Capability"¹ says the program does not read the file. Headings do not
 
    The weak line puts your research first, so the agent lists failures and does not name the lines.
 
-3. **Test with an agent that a route sent.** Give an agent the file, every page that the file names, and only the facts that the route passed. Phrase the job as the person would phrase the task that the route names. Withhold the file until the route names it. A run passes when the remaining work is done, none of the failures you listed appears in the result, and no weak line or strong line was copied. Then give a task from another route that also names the file. When editing, converting or reviewing goes wrong in a way the other work does not, give a task for that mode. The page "Writing a glossary entry"² says when such a mode needs its own instruction. Do not launch create, convert and review twice each. The program does not install this file, so no run of the program accepts or refuses it.
+3. **Test with an agent that a route sent.** Give an agent the file, every page that the file names, and only the facts that the route passed. Phrase the job as the person would phrase the task that the route names. Withhold the file until the route names it. A run passes when the remaining work is done, none of the failures you listed appears in the result, and no weak line or strong line was copied. Then give a task from another route that also names the file. When editing, converting or reviewing goes wrong in a way the other work does not, give a task for that mode. The page "Writing a glossary entry"² says when such a mode needs its own instruction. Do not launch create, convert and review twice each. The rbtv CLI does not install this file, so no run of the rbtv CLI accepts or refuses it.
 
    Weak: "Treat the file as done when the component is accepted, before that agent finishes the remaining work."
 
@@ -71,5 +71,5 @@ Checks:
 
 | # | Page | File | Read | When | To |
 |---|---|---|---|---|---|
-| 1 | Capability | [Capability](glossary/capability.md) | must | | take what a capability is, how the instructions are written from what the route passed, the layout for a glossary entry and for a principle, a template or a schema, and that the program does not read the file |
+| 1 | Capability | [Capability](glossary/capability.md) | must | | take what a capability is, how the instructions are written from what the route passed, the layout for a glossary entry and for a principle, a template or a schema, and that the rbtv CLI does not read the file |
 | 2 | Writing a glossary entry | [Writing a glossary entry](writing-a-glossary-entry.md) | must | | take the list of decisions, the three tests, the weak line and the strong line, the form of a reference, and the wording |

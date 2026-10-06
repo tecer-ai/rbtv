@@ -10,7 +10,7 @@ A principle is for a design choice that builders would make again, and would mak
 
 ## How it fails
 
-The program can accept the component, and the principle can still fail as a test of a design. A file under `capabilities/principles/` is not among the files it reads.
+The rbtv CLI can accept the component, and the principle can still fail as a test of a design. A file under `capabilities/principles/` is not among the files it reads.
 
 - The first sentence is a preference of one good over another, or it names a quality. A builder cannot say whether a design meets the sentence.
 - The page explains why the choice is worth making, and no check names what a reviewer sees in a design. The builder agrees, and still cannot reject a design.
@@ -54,7 +54,7 @@ There is no `principles.md`. The page "Progressive disclosure"⁵ refuses an ind
 
    The weak line rejects a design that meets the choice and has no Report section. The order at the save never reaches the agent.
 
-4. **Name the file from the skill "framework", on every reading.** Add a row to the skill "framework"¹. Put the row among the rows that every reading loads. Put it before the rows that name a condition. The program does not read this folder. Without a row that says every reading of the skill "framework"¹, no builder applies the test before a design. Do not write `principles.md`, because a list of the folder is not a route. The page "Routing table"⁷ has the columns. For this row, `CONTAINS` names the test, `PURPOSE` names what a design does when the test is met, and `ALWAYS LOAD WHEN` is every reading of that skill. Leave `DO NOT LOAD WHEN` empty. There is no reading of that skill that must not apply the test.
+4. **Name the file from the skill "framework", on every reading.** Add a row to the skill "framework"¹. Put the row among the rows that every reading loads. Put it before the rows that name a condition. The rbtv CLI does not read this folder. Without a row that says every reading of the skill "framework"¹, no builder applies the test before a design. Do not write `principles.md`, because a list of the folder is not a route. The page "Routing table"⁷ has the columns. For this row, `CONTAINS` names the test, `PURPOSE` names what a design does when the test is met, and `ALWAYS LOAD WHEN` is every reading of that skill. Leave `DO NOT LOAD WHEN` empty. There is no reading of that skill that must not apply the test.
 
    Weak: "Add the file under principles/, and list it in principles.md."
 
@@ -81,7 +81,7 @@ Checks:
 - The first sentence states the choice in words a reviewer can confirm or reject in a design. It is not a preference of one good over another, and it does not name a quality. The lines after it say that a builder applies the page before the design is written. The file has no frontmatter, and it does not open by naming when to open the file.
 - A check names what is seen in a design when the choice is met. No check requires a section, a field or a file that the choice does not require. No sentence orders the agent at a moment of the task. The file does not repeat a test from the every-reading list of the skill "framework"¹. It states no tie-break.
 - The skill "framework"¹ names the file. The row sits among the rows that every reading loads, before the rows that name a condition. There is no `principles.md`.
-- Where the program accepts the component, acceptance shows that the component was found. It does not show that a builder can reject a design from this file before the design is written. It does not show that the skill "framework"¹ opens the file on every reading. The page "rbtv command"¹¹ describes that run.
+- Where the rbtv CLI accepts the component, acceptance shows that the component was found. It does not show that a builder can reject a design from this file before the design is written. It does not show that the skill "framework"¹ opens the file on every reading. The page "rbtv CLI"¹¹ describes that run.
 - Give a builder the file and a design that breaks the choice in two ways. One break is a part that the choice does not require, or an order for the agent during a task. The other break is the same choice failed in a second kind of file. Apply the file. Both breaks are corrected, and the design gains no section the choice does not require.
 
 ## References
@@ -98,4 +98,4 @@ Checks:
 | 8 | Single source of truth | [Single source of truth](../principles/single-source-of-truth.md) | when | a page on the every-reading list already decides the choice | leave the choice in that page |
 | 9 | Keep it stupidly simple | [Keep it stupidly simple](../principles/keep-it-stupidly-simple.md) | when | two principles both apply to one design | take the decision, and write no tie-break here |
 | 10 | Tips development | [Tips development](../tips-development.md) | when | the material is one occurrence from a conversation | take that the occurrence is not this file |
-| 11 | rbtv command | [rbtv command](rbtv-command.md) | when | a run accepts the component | take what acceptance shows for this file |
+| 11 | rbtv CLI | [rbtv CLI](rbtv-cli.md) | when | a run accepts the component | take what acceptance shows for this file |

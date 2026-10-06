@@ -6,7 +6,7 @@ The agent did not choose to read this file. The body stops the agent from acting
 
 ## How it fails
 
-The program can write the file, and the file can still send the agent to the wrong next read. The program does not read the body or the rows.
+The rbtv CLI can write the file, and the file can still send the agent to the wrong next read. The rbtv CLI does not read the body or the rows.
 
 - The body contains a procedure, a list of names, or a fact that only one kind of work needs. The harness reads that body when the agent is searching and when it is editing. The search follows the procedure, or the edit never reaches the file, because the list named no situation.
 - Text that every reading needs is pasted here when another file owns it, or that file has no first row. An agent that is searching reads the paste, or never reads the file.
@@ -17,15 +17,15 @@ The program can write the file, and the file can still send the agent to the wro
 
 ## What it is composed of
 
-You write one file in the folder, under the name this installation maintains. The harnesses read `CLAUDE.md` and `AGENTS.md`. The program writes the other name from yours, and the next run overwrites that copy. You do not write the copy.
+You write one file in the folder, under the name this installation maintains. The harnesses read `CLAUDE.md` and `AGENTS.md`. The rbtv CLI writes the other name from yours, and the next run overwrites that copy. You do not write the copy.
 
-Write the body and the table as the page "Entry point" says. The file is an entry point even when that body has no text of its own and the table is absent. One table, when the folder has a file, a subfolder, or a folder artifact that a reading may open, names all of them. A marked section that the program writes is not yours: text outside the markers stays, and the next run overwrites the text between them.
+Write the body and the table as the page "Entry point" says. The file is an entry point even when that body has no text of its own and the table is absent. One table, when the folder has a file, a subfolder, or a folder artifact that a reading may open, names all of them. A marked section that the rbtv CLI writes is not yours: text outside the markers stays, and the next run overwrites the text between them.
 
-A component that ships instructions for a folder also writes one file in its `folder-instructions/` folder. Set the target folder in the frontmatter. The page "Schema"³ is the authority for that frontmatter, in [folder-instructions.schema.json](../templates/folder-instructions.schema.json). The program removes the frontmatter and writes the body into a marked section of the target folder's file. The agent never sees the frontmatter.
+A component that ships instructions for a folder also writes one file in its `folder-instructions/` folder. Set the target folder in the frontmatter. The page "Schema"³ is the authority for that frontmatter, in [folder-instructions.schema.json](../templates/folder-instructions.schema.json). The rbtv CLI removes the frontmatter and writes the body into a marked section of the target folder's file. The agent never sees the frontmatter.
 
 ## How to build it
 
-1. **The case the folder went wrong, then what this file does.** Find a case in which an agent was in this folder and the work went wrong. The agent edited a file that does not belong here. The agent searched here for something that lives elsewhere. The agent did the work without the file that the work needed. The cause, for folder instructions, is that the harness read no file into the context, or read a file that contains another kind of work. Name one case in which the agent edits, and one case in which it searches or only reads. Then write what this file does on the next case of that kind, after the harness has read it, so the wrong work does not happen. An author who starts from a list of the folder's files writes a file the program copies and that stops nothing.
+1. **The case the folder went wrong, then what this file does.** Find a case in which an agent was in this folder and the work went wrong. The agent edited a file that does not belong here. The agent searched here for something that lives elsewhere. The agent did the work without the file that the work needed. The cause, for folder instructions, is that the harness read no file into the context, or read a file that contains another kind of work. Name one case in which the agent edits, and one case in which it searches or only reads. Then write what this file does on the next case of that kind, after the harness has read it, so the wrong work does not happen. An author who starts from a list of the folder's files writes a file the rbtv CLI copies and that stops nothing.
 
    Weak: "After the harness reads it, the agent works in the folder."
 
@@ -60,7 +60,7 @@ A component that ships instructions for a folder also writes one file in its `fo
 
    The weak line is not a case of editing, searching, or reading in this folder. The agent cannot match it from the work it is doing here.
 
-5. **Write one file, and write a subfolder's file so a missing subfolder file still leaves the parent right.** Write the one name this installation maintains. When no name is recorded, stop and ask which of `CLAUDE.md` and `AGENTS.md` to write. Do not write both. The program writes the other name from yours and overwrites that copy on the next run. Change the file you author, as the page "Routing table" says for a row and the file it names. The agent sees the other name only after that run.
+5. **Write one file, and write a subfolder's file so a missing subfolder file still leaves the parent right.** Write the one name this installation maintains. When no name is recorded, stop and ask which of `CLAUDE.md` and `AGENTS.md` to write. Do not write both. The rbtv CLI writes the other name from yours and overwrites that copy on the next run. Change the file you author, as the page "Routing table" says for a row and the file it names. The agent sees the other name only after that run.
 
    Do not put an instruction in an HTML comment. Claude Code strips a block comment before the text reaches the agent. Codex and OpenCode leave the comment in the text.
 
@@ -70,28 +70,28 @@ A component that ships instructions for a folder also writes one file in its `fo
 
    Strong: "A client name does not belong in this folder."
 
-   The weak line is the whole content of the second file: a harness that reads only that file gets a pointer and none of the lines. The strong line is a line of the one file that you write, which the program copies under the other name.
+   The weak line is the whole content of the second file: a harness that reads only that file gets a pointer and none of the lines. The strong line is a line of the one file that you write, which the rbtv CLI copies under the other name.
 
-6. **When a component ships the section, write lines that are true in every installation.** Write the source in the component's `folder-instructions/` folder. Set the target folder in the frontmatter, relative to the installation root. `.` is the root. The program removes the frontmatter and writes the body into a marked section of the target file. The next run overwrites the text between those markers. Edit the source, not the section in the target. Text outside the markers is the author's, and the program leaves it.
+6. **When a component ships the section, write lines that are true in every installation.** Write the source in the component's `folder-instructions/` folder. Set the target folder in the frontmatter, relative to the installation root. `.` is the root. The rbtv CLI removes the frontmatter and writes the body into a marked section of the target file. The next run overwrites the text between those markers. Edit the source, not the section in the target. Text outside the markers is the author's, and the rbtv CLI leaves it.
 
-   The same body is written into every installation that has the component. Name no file the target may not have. Add no line that contradicts the text outside the section: the agent reads both. Write each link so it opens from the target file, not from the component's source folder, because the body is placed in the target. In an agent's folder the program also writes a marked section that points at the agent's prompt. Write outside it.
+   The same body is written into every installation that has the component. Name no file the target may not have. Add no line that contradicts the text outside the section: the agent reads both. Write each link so it opens from the target file, not from the component's source folder, because the body is placed in the target. In an agent's folder the rbtv CLI also writes a marked section that points at the agent's prompt. Write outside it.
 
    Weak: "Open the roster before any edit in this folder."
 
    Strong: "Edit the file the installation maintains, not a generated copy."
 
-   The weak line names a file the target may not have, and the program still writes the section into every installation.
+   The weak line names a file the target may not have, and the rbtv CLI still writes the section into every installation.
 
-When you edit, change the file you author, or the component source, in the same change as a file a row names. The page "Routing table" says to change the row with the file it names. The agent sees a generated copy only after the program has written it again. A change between the markers in the target is lost on that run.
+When you edit, change the file you author, or the component source, in the same change as a file a row names. The page "Routing table" says to change the row with the file it names. The agent sees a generated copy only after the rbtv CLI has written it again. A change between the markers in the target is lost on that run.
 
-When you convert an outside `CLAUDE.md` or `AGENTS.md`, keep a line that is true on every reading of this folder and that no other file owns. Each other block becomes a row, or a folder artifact the row names. An `@` import becomes a row, not an import. A second harness file is not a second source: keep one, and let the program write the other. When a block is another kind of thing in rbtv, decide it with the page "Choosing what to build".
+When you convert an outside `CLAUDE.md` or `AGENTS.md`, keep a line that is true on every reading of this folder and that no other file owns. Each other block becomes a row, or a folder artifact the row names. An `@` import becomes a row, not an import. A second harness file is not a second source: keep one, and let the rbtv CLI write the other. When a block is another kind of thing in rbtv, decide it with the page "Choosing what to build".
 
 When you review, read this file as an agent meets it while searching. Read the row before the named file, as the page "Routing table" says. Take an edit that should read a named file. Take an edit that should not. Take a search. Look at whether the search followed a body line it did not need.
 
 Checks:
 
 - A reviewer sees one authored file. The file is an entry point even when the body has no text of its own and the table is absent. Each body line is false in another folder, and true when the agent edits, when it searches, and when it only reads. One table names the files, the subfolders, and the folder artifacts. The first cell of a file, a folder or a capability is a link that opens from this file. When a row names an agent, the first cell is the agent's name. No instruction is in an HTML comment. No route is an `@` import. A subfolder's file adds to its parents and does not contradict them. A component section names no file the target may not have.
-- The program accepts a component source when the frontmatter matches its schema, and it writes the other harness name from the file you author. The page "rbtv command"⁸ says how to run it. Acceptance shows that the source was recognized and the copy was written. It does not show that an agent in the folder reads the right file, because the program does not read the body or the rows.
+- The rbtv CLI accepts a component source when the frontmatter matches its schema, and it writes the other harness name from the file you author. The page "rbtv CLI"⁸ says how to run it. Acceptance shows that the source was recognized and the copy was written. It does not show that an agent in the folder reads the right file, because the rbtv CLI does not read the body or the rows.
 - Give the file to an agent on a search, on an edit that should read a named file, and on an edit that should not. Look at whether the search followed a body line it did not need, and whether the edit read the file the row names and not the others.
 
 ## Template
@@ -130,6 +130,6 @@ target: <target folder, relative to the installation root; . for the root>
 | 5 | Choosing what to build | [Choosing what to build](../choosing-what-to-build.md) | when | a body line would still be true in another folder, or a block of a converted file is another kind of thing in rbtv | decide where that line goes |
 | 6 | Cognitive unit | [Cognitive unit](cognitive-unit.md) | when | a body line's answer is a count, a date, or whether a file exists | take how to name the tool that prints the answer |
 | 7 | Capability | [Capability](capability.md) | when | the first cell is a capability | take what that read is, so the agent reads the page and does not treat it as a skill |
-| 8 | rbtv command | [rbtv command](rbtv-command.md) | when | having the program accept a component source, or write the other harness name | find the command to run |
+| 8 | rbtv CLI | [rbtv CLI](rbtv-cli.md) | when | having the rbtv CLI accept a component source, or write the other harness name | find the command to run |
 | 9 | Exposure method | [Exposure method](exposure-method.md) | when | the definition of this file | take that folder instructions are one of the four, and an agent is not |
 | 10 | Entry point | [Entry point](entry-point.md) | when | the definition of this file, or writing the body or the table | take how that body and table are written, and that the same four things are entry points |

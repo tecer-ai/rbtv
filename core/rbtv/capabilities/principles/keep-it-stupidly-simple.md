@@ -12,7 +12,7 @@ How a text of the scaffolding is worded is the page "Scaffolding language"¹.
 
 ## How it fails
 
-The program can accept the files, and the work can still fail. It does not read whether a part was required.
+The rbtv CLI can accept the files, and the work can still fail. It does not read whether a part was required.
 
 - A part that a stated need requires is missing, because the result was shortened. The reader cannot do what the need asked.
 - A field, an option, a setting, a step or a file exists for a need that nobody has stated. Every reading has to decide whether that part applies.
@@ -73,12 +73,12 @@ The program can accept the files, and the work can still fail. It does not read 
 
 - When you edit: a part you are about to keep has to name its stated need again. A part is not kept because it is already there.
 - When you convert an outside document: a part that the source has is not a stated need. It passes step 1 and step 2, or you drop it. Which kind carries a part that is another kind of thing in rbtv is the page "Choosing what to build"³.
-- When you review: list each part and the need it serves, then list each exposure method whose capabilities name the same documents. A review that only checks that the program accepts the files misses every failure on this page.
+- When you review: list each part and the need it serves, then list each exposure method whose capabilities name the same documents. A review that only checks that the rbtv CLI accepts the files misses every failure on this page.
 
 Checks:
 
 - A stated requirement that was present before the change is still present, unless a person withdrew it. No part serves a need that nobody has stated. A value with only one use today is not an option, a setting or a field. A cognitive unit, a task, an agent or a component does not carry two purposes whose results can be judged apart. Capabilities that share a purpose, or that name the same documents, have one exposure method, unless the page "Nested exposure"² requires more than one. The change does not leave the old file, field or page in place.
-- Where the program accepts a file, acceptance shows that a record matched its schema. It does not show that each part was required, and it does not show that an unneeded part is absent.
+- Where the rbtv CLI accepts a file, acceptance shows that a record matched its schema. It does not show that each part was required, and it does not show that an unneeded part is absent.
 - Take one design that drops a stated requirement and adds an option for a need that nobody has stated. The same design puts two purposes that can be judged apart into one cognitive unit, and it exposes two capabilities that name the same document through two exposure methods. Apply the steps. The requirement is present, and the option is absent. The two purposes are not in one cognitive unit. The two capabilities have one exposure method, unless the page "Nested exposure"² requires two.
 
 ## References

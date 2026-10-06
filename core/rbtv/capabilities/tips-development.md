@@ -6,7 +6,7 @@ A later reader was not in the conversation. Name the subject before the first ti
 
 ## How it fails
 
-The program does not read the record. A record that mixes a decision with an interpretation remains, and a later reader acts on the mix.
+The rbtv CLI does not read the record. A record that mixes a decision with an interpretation remains, and a later reader acts on the mix.
 
 - The subject is not named before the conversation. A tip about another subject is recorded in this file. The later reader applies it to this subject.
 - The record is written next to this page, in the rbtv component. Another project's task never sees it, or a tip about one project is read as a fact of rbtv.
@@ -109,7 +109,7 @@ The program does not read the record. A record that mixes a decision with an int
 Checks:
 
 - A reviewer sees the subject, the other subject that must not be recorded here, and the file path, before any tip. Each tip names who said it or who observed it, its kind, the need apart from the mechanism, what was authorized, and what was not shown. An inferred need is marked as an interpretation. An earlier formulation that was corrected is still in the file, with the time when it governed. No skill, rule, command or prompt was written from the conversation. No product's operating detail is stated as this method. The file is in the project of the task, not next to this page.
-- The program does not read the file. A run that accepts a component shows nothing about this record. The page "rbtv command"⁴ says what that run shows.
+- The rbtv CLI does not read the file. A run that accepts a component shows nothing about this record. The page "rbtv CLI"⁴ says what that run shows.
 - Give an agent this page, a task that is still going, and one line that can be read as a decision or as a possibility. The agent records both readings, returns to the task, and does not build what the line named. Then the owner ends the conversation. A second agent adds a tip that the first agent did not record, and adds nothing outside the subject.
 
 ## References
@@ -119,4 +119,4 @@ Checks:
 | 1 | Building from a conversation | [Building from a conversation](building-from-a-conversation.md) | when | the owner asks to turn the conversation into a skill, a rule, a command or a prompt | do that work there, not from a tip |
 | 2 | Choosing what to build | [Choosing what to build](choosing-what-to-build.md) | when | the owner asks for a principle page after the conversation, or an outside log contains a skill, a rule, a command or a prompt to write | decide the file, and do not write it from this record |
 | 3 | Single source of truth | [Single source of truth](principles/single-source-of-truth.md) | when | a fact in a tip already has a home, a subject has moved, or an edit changes a fact that a page owns | leave the fact in its home, and change that page |
-| 4 | rbtv command | [rbtv command](glossary/rbtv-command.md) | when | a run that accepts a component is taken as a check of the record | take what that run shows, and what it does not show for this file |
+| 4 | rbtv CLI | [rbtv CLI](glossary/rbtv-cli.md) | when | a run that accepts a component is taken as a check of the record | take what that run shows, and what it does not show for this file |

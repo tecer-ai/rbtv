@@ -9,7 +9,7 @@ Use this for controls on your own agent. Inside a turn, `RBTV_AGENT_HOME` and `I
 
 ## Launch setting
 
-Your harness (the program), model, effort and voice are the record in `agent.json` in your home (`$RBTV_AGENT_HOME/agent.json`). Read it before answering what harness, model, effort, or voice you use, even if you believe you already know your model. Tell the owner the harness, model, and reasoning effort in plain words, plus the voice when asked, without naming internal commands or asking the owner to run them.
+Your harness (the application that runs the model), model, effort and voice are the record in `agent.json` in your home (`$RBTV_AGENT_HOME/agent.json`). Read it before answering what harness, model, effort, or voice you use, even if you believe you already know your model. Tell the owner the harness, model, and reasoning effort in plain words, plus the voice when asked, without naming internal commands or asking the owner to run them.
 
 Run `ignite manage models` to see the valid values before you propose a change. Use `ignite manage configure --model M --effort E` (any of `--harness`, `--model`, `--effort`, `--voice`) when the owner asks to change them. It changes the launch setting for the whole agent, including queued turns and scheduled wakes. The new setting starts on the **next** turn; finish this turn under the original setting and tell the owner that. Never claim the running turn changed or substitute a different model. A setting change leaves conversation histories and unfinished work intact. It does not change workers already launched unless the owner asks for that too.
 

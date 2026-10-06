@@ -6,11 +6,11 @@ The decision is for an author who knows the content and does not yet know which 
 
 ## How it fails
 
-The program can accept the file that it installs, and the kind can still be wrong. The program installs a file because of the folder that contains it. The program does not read whether, with that kind, the content reaches the agent when the work needs it.
+The rbtv CLI can accept the file that it installs, and the kind can still be wrong. The rbtv CLI installs a file because of the folder that contains it. The rbtv CLI does not read whether, with that kind, the content reaches the agent when the work needs it.
 
-- The request said "skill", and a step has an exact answer. The agent estimates the answer. The program accepts the skill from its folder. It does not read the step.
-- A tool is built, and no skill, rule or command says when to run it. The program places the tool on PATH. The agent does not know the tool is there.
-- A capability is written, and no exposure method and no step of a prompt names it. The program installs a tool from the capabilities folder. It does not install the other pages there. The agent never reads the unnamed page.
+- The request said "skill", and a step has an exact answer. The agent estimates the answer. The rbtv CLI accepts the skill from its folder. It does not read the step.
+- A tool is built, and no skill, rule or command says when to run it. The rbtv CLI places the tool on PATH. The agent does not know the tool is there.
+- A capability is written, and no exposure method and no step of a prompt names it. The rbtv CLI installs a tool from the capabilities folder. It does not install the other pages there. The agent never reads the unnamed page.
 - A method that the agent needs only when a point comes is pasted into a rule, or into folder instructions. Every task includes that method, including a task that never reaches that point. Every visit to the folder includes that method, including a search.
 - Several capabilities of one purpose each get their own skill. The agent chooses among those descriptions before any work.
 - An agent is built for a fixed checklist the caller could follow. The launch starts another context and returns what the caller could have produced.
@@ -30,9 +30,9 @@ The program can accept the file that it installs, and the kind can still be wron
 
 2. **Name each file whose purpose already covers the content.** Search before you choose a new kind. The page "Single source of truth"³ says a fact has one home. When one file's purpose covers the content, change that file. Do not build a second kind for it. Name each file you considered, and why its purpose does not cover the content. When none covers it, choose the kind in the steps below. After the kind, the page "Choosing where to build"² decides the module, the component and the mirror.
 
-3. **Ask whether a tool does the step, before any text.** Read the page "Deterministic first"⁴ for what an exact answer is. When you can name the answer that a program would print, and two runs of that program print the same answer, the step is a tool. A request that names a skill, a rule or a command does not make that step one of those. A decision, a weighing or a wording is not that answer. Do not write instructions that ask the agent to produce an exact answer. When a tool already produces it, name that tool in the text that says when to run it. Do not build a second tool. The page "Tool"⁵ says how the file is written.
+3. **Ask whether a tool does the step, before any text.** Read the page "Deterministic first"⁴ for what an exact answer is. When you can name the answer that a CLI would print, and two runs of that CLI print the same answer, the step is a tool. A request that names a skill, a rule or a command does not make that step one of those. A decision, a weighing or a wording is not that answer. Do not write instructions that ask the agent to produce an exact answer. When a tool already produces it, name that tool in the text that says when to run it. Do not build a second tool. The page "Tool"⁵ says how the file is written.
 
-   A tool does not say when to run it. The program places the tool on PATH and does not check that a skill, a rule or a command names it. After the tool, continue. Choose the exposure method that says when to run the tool. A judgment in the same request stays text. It does not move into the tool.
+   A tool does not say when to run it. The rbtv CLI places the tool on PATH and does not check that a skill, a rule or a command names it. After the tool, continue. Choose the exposure method that says when to run the tool. A judgment in the same request stays text. It does not move into the tool.
 
    Weak: "Write a skill that counts the failing tests and reports the number."
 
@@ -40,7 +40,7 @@ The program can accept the file that it installs, and the kind can still be wron
 
    The weak line asks the agent to estimate a count.
 
-4. **Choose a hook when a command must run even if the agent ignores every text.** A hook is a command that a harness runs when an event happens. It is not an exposure method. The page "Exposure method"¹ names the four, and a hook is not among them. Choose a hook when you can name the event, the command has an exact result, and the agent could skip a rule that only asked for that command. Do not choose a hook for a judgment. The program writes hooks for Claude Code and Codex. OpenCode receives none. When the action must also happen under OpenCode, do not stop at the hook. Add the kind that reaches that harness: a rule, or a text that names the tool. The page "Hook"⁶ says how the file is written. The page "rbtv command"⁷ says what the program writes, and what it does not write for OpenCode.
+4. **Choose a hook when a command must run even if the agent ignores every text.** A hook is a command that a harness runs when an event happens. It is not an exposure method. The page "Exposure method"¹ names the four, and a hook is not among them. Choose a hook when you can name the event, the command has an exact result, and the agent could skip a rule that only asked for that command. Do not choose a hook for a judgment. The rbtv CLI writes hooks for Claude Code and Codex. OpenCode receives none. When the action must also happen under OpenCode, do not stop at the hook. Add the kind that reaches that harness: a rule, or a text that names the tool. The page "Hook"⁶ says how the file is written. The page "rbtv CLI"⁷ says what the rbtv CLI writes, and what it does not write for OpenCode.
 
    Weak: "Add a rule that says to run the linter before you finish."
 
@@ -48,7 +48,7 @@ The program can accept the file that it installs, and the kind can still be wron
 
    The weak line depends on the agent noticing the text. The check does not run when the agent skips it.
 
-5. **Choose an MCP server when the actions come from a server, not from one program on PATH.** A tool is one program the program places on PATH. An MCP server offers the agent a set of actions through the protocol. The file names either a local command or an address, and it names the environment variables that contain the secrets, never the secret values. An MCP server is not an exposure method. Choose an MCP server when the harness should list those actions, or the server is reached at an address. Choose a tool when one local program returns the answer and the agent, or a hook, runs it by name. Do not write a skill that pastes the calls that a server should offer. The page "MCP server"⁸ says how the file is written.
+5. **Choose an MCP server when the actions come from a server, not from one CLI on PATH.** A tool is one CLI that the rbtv CLI places on PATH. An MCP server offers the agent a set of actions through the protocol. The file names either a local command or an address, and it names the environment variables that contain the secrets, never the secret values. An MCP server is not an exposure method. Choose an MCP server when the harness should list those actions, or the server is reached at an address. Choose a tool when one local CLI returns the answer and the agent, or a hook, runs it by name. Do not write a skill that pastes the calls that a server should offer. The page "MCP server"⁸ says how the file is written.
 
    Weak: "Write a skill that calls the browser and reads the console."
 
@@ -70,7 +70,7 @@ The program can accept the file that it installs, and the kind can still be wron
 
    The weak line puts the guide on every task, including a task that sends no message.
 
-7. **Pair a capability with that exposure method, or with a step of a prompt.** The kind is a capability when work remains after the exposure method has been followed. One case is a second route that might name that work. The other case is a method that only some readings of the exposure method need: written there, every reading would contain it. The exposure method names the file, as the page "Entry point"¹⁴ says. When the whole content is one short method, and no second route needs it, leave it in the exposure method. Do not add a capability for those lines. Do not choose a capability with no route. The program does not install that file, so the file never reaches an agent.
+7. **Pair a capability with that exposure method, or with a step of a prompt.** The kind is a capability when work remains after the exposure method has been followed. One case is a second route that might name that work. The other case is a method that only some readings of the exposure method need: written there, every reading would contain it. The exposure method names the file, as the page "Entry point"¹⁴ says. When the whole content is one short method, and no second route needs it, leave it in the exposure method. Do not add a capability for those lines. Do not choose a capability with no route. The rbtv CLI does not install that file, so the file never reaches an agent.
 
    A step of a prompt may name a capability. That step does not replace an exposure method when the content must also reach other agents. The page "Entry point"¹⁴ says what a prompt is not. The page "Capability"¹⁵ says how the file is written.
 
@@ -84,7 +84,7 @@ The program can accept the file that it installs, and the kind can still be wron
 
    The weak line leaves the page uninstalled.
 
-8. **Choose an agent only when the work cannot stay in the caller's context.** The same prompt must take a different task on each launch. The page "Agent"¹⁷ says what the caller cannot keep, and the two ways the program places the folder. When the caller's own job already covers the work, the kind is not an agent. A fixed checklist is not an agent. It is a skill, a command, or a capability that the skill or the command names. Do not choose an agent in order to expose a capability. The page "Exposure method"¹ says an agent is not one of the four.
+8. **Choose an agent only when the work cannot stay in the caller's context.** The same prompt must take a different task on each launch. The page "Agent"¹⁷ says what the caller cannot keep, and the two ways the rbtv CLI places the folder. When the caller's own job already covers the work, the kind is not an agent. A fixed checklist is not an agent. It is a skill, a command, or a capability that the skill or the command names. Do not choose an agent in order to expose a capability. The page "Exposure method"¹ says an agent is not one of the four.
 
    Choose a prompt when you are writing the agent, or when that agent exists and its prompt is what is wrong. Do not choose a prompt as the way that a capability reaches other agents. The page "Prompt"¹⁸ says how that text is written. Sections of the prompt, and sections of the task, are chosen on that page. They are not kinds this page chooses.
 
@@ -110,15 +110,15 @@ The program can accept the file that it installs, and the kind can still be wron
 
     The weak line puts the sentence where the harness does not present it, so the agent commits without the cause.
 
-- When you edit: do not use this page to change the text of a file whose kind is already the one you are changing. When the edit shows the kind was wrong, stop and start again at step 1. The program does not ask whether the folder still matches the content.
+- When you edit: do not use this page to change the text of a file whose kind is already the one you are changing. When the edit shows the kind was wrong, stop and start again at step 1. The rbtv CLI does not ask whether the folder still matches the content.
 - When you convert: decide each part here before you open its entry. The page "Exposure method"¹ says what to do with an outside file that is both a typed name and a description. A step with an exact answer becomes a tool, not a paragraph of the skill. A hook in the source that is a prompt to the model is not a hook here.
-- When you review: start from when the content is needed, not from the folder that the file sits in. A review that only checks that the program accepts the file misses a skill that should have been a tool, and a rule that should have been a hook.
+- When you review: start from when the content is needed, not from the folder that the file sits in. A review that only checks that the rbtv CLI accepts the file misses a skill that should have been a tool, and a rule that should have been a hook.
 
 Checks:
 
 - A reviewer sees one sentence that names the content, who needs it, and when. The kind is the one that the steps give. It is not the word in the request, unless that word is the kind that the steps give.
 - A step with an exact answer is a tool, and a skill, a rule or a command says when to run it. A capability has an exposure method that names it, or a step of a prompt that names it. No file is an index of its folder. An agent is not a checklist. A hook is not the only kind when the action must also happen under OpenCode.
-- The program accepts the file. Acceptance shows the folder was recognized as that kind. It does not show that, with that kind, the content reaches the agent when the work needs it. The page "rbtv command"⁷ says what acceptance shows.
+- The rbtv CLI accepts the file. Acceptance shows the folder was recognized as that kind. It does not show that, with that kind, the content reaches the agent when the work needs it. The page "rbtv CLI"⁷ says what acceptance shows.
 - Give an agent a request that says to build a skill for a count, a date or a format, and the files of the component. The result is a tool, and a text that says when to run it. If a skill is written, it does not ask the agent to produce that answer.
 
 ## References
@@ -131,7 +131,7 @@ Checks:
 | 4 | Deterministic first | [Deterministic first](principles/deterministic-first.md) | when | a step might have an exact answer | take what an exact answer is, and that a tool must be reachable from a skill, a rule or a command |
 | 5 | Tool | [Tool](glossary/tool.md) | when | the step has an exact answer and no tool produces it | write the tool |
 | 6 | Hook | [Hook](glossary/hook.md) | when | a command must run on an event even if the agent ignores every text | write the file; a hook is not an exposure method |
-| 7 | rbtv command | [rbtv command](glossary/rbtv-command.md) | when | the program is to accept the file, or a hook must also be judged for OpenCode | take what acceptance shows, and that OpenCode receives no hooks |
+| 7 | rbtv CLI | [rbtv CLI](glossary/rbtv-cli.md) | when | the rbtv CLI is to accept the file, or a hook must also be judged for OpenCode | take what acceptance shows, and that OpenCode receives no hooks |
 | 8 | MCP server | [MCP server](glossary/mcp-server.md) | when | the actions come from a server the harness should list | write the file; an MCP server is not an exposure method |
 | 9 | Learned rules | [Learned rules](glossary/learned-rules.md) | when | the content is a correction of one agent's behaviour, learned from its runs | leave that file to the dreamer |
 | 10 | Skill | [Skill](glossary/skill.md) | when | the exposure method is a skill | write the skill |

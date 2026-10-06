@@ -8,7 +8,7 @@ It holds data a component creates while it runs, so that data stays out of sourc
 
 ## What good looks like
 
-- The record has fixed fields a program can read, not free prose ([Deterministic first](../principles/deterministic-first.md)).
+- The record has fixed fields a CLI can read, not free prose ([Deterministic first](../principles/deterministic-first.md)).
 - No copy of that data sits in source or in [`mirror/`](mirror.md) ([Single source of truth](../principles/single-source-of-truth.md)).
 
 ## Making it good

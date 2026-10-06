@@ -9,7 +9,7 @@ rbtv reads it to update or remove what it generated. Without it, an update canno
 ## What good looks like
 
 - What the installation root has is read from this record; no second list is kept by hand ([Single source of truth](../principles/single-source-of-truth.md)).
-- Every change to it comes from an rbtv command (`rbtv configure`, `rbtv add`, or `rbtv remove`) or from a hand edit that `rbtv update all` applies ([Agent parity](../principles/agent-parity.md)).
+- Every change to it comes from the rbtv CLI (`rbtv configure`, `rbtv add`, or `rbtv remove`) or from a hand edit that `rbtv update all` applies ([Agent parity](../principles/agent-parity.md)).
 - The record stays on the machine that wrote it. Each machine keeps its own root.
 
 ## Making it good

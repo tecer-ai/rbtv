@@ -1,6 +1,6 @@
 # Building with the dreamer
 
-The [dreamer](../glossary/dreamer.md) is the program that writes long-term memory. It is not a file an agent authors.
+The [dreamer](../glossary/dreamer.md) is the part of the ignite CLI that writes long-term memory. It is not a file an agent authors.
 
 ## Purpose
 

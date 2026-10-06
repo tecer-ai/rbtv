@@ -1,6 +1,6 @@
 # Building `.rbtv/`
 
-[`.rbtv/`](../glossary/rbtv-folder.md) is the folder the [rbtv command](../glossary/rbtv-command.md) creates in the installation root and maintains.
+[`.rbtv/`](../glossary/rbtv-folder.md) is the folder the [rbtv CLI](../glossary/rbtv-cli.md) creates in the installation root and maintains.
 
 ## Purpose
 

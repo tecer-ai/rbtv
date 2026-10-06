@@ -6,7 +6,7 @@ A task gives the launch the boundary and the done conditions that the prompt doe
 
 ## How it fails
 
-A launch accepts the text it is given as the task, and the task can still fail, because no program reads the sections.
+A launch accepts the text it is given as the task, and the task can still fail, because no CLI reads the sections.
 
 - The text restates the prompt's method, or it leaves this launch's files for the agent to find. The launch follows two methods, or it opens a file that the supplier did not name. A prompt fails when it names one task's files. A task fails when it carries the standing method, or when it does not carry this launch's files.
 - Scope says the work is related, or it names what may change and not what to examine. The agent changes a file that the supplier did not mean, or it searches the workspace. A role states a standing remit. Scope is the closed boundary of this launch.
@@ -19,7 +19,7 @@ A launch accepts the text it is given as the task, and the task can still fail, 
 
 ## What it is composed of
 
-You write the text of one task. The rbtv program does not install that text, and it is not a file in a component. A person types it in a conversation. An agent passes it when it launches another. A Slack message or a timer supplies it when that message or that timer wakes an Ignite agent for one turn. The launch receives this text beside the prompt.
+You write the text of one task. The rbtv CLI does not install that text, and it is not a file in a component. A person types it in a conversation. An agent passes it when it launches another. A Slack message or a timer supplies it when that message or that timer wakes an Ignite agent for one turn. The launch receives this text beside the prompt.
 
 The text has first lines and two sections, in this order: `## Scope`, then `## Done contract`. Both sections are always there. The first lines state the result of this launch, in ordinary language. They are not a section.
 
@@ -98,7 +98,7 @@ When you review, read the task with the supplier's files closed, beside the prom
 Checks:
 
 - The first lines state one result this launch produces. Scope has two closed lists, and a reviewer who was not in the writing classifies an action as in or out. The done contract states observations on the result, and a next action on a miss that this launch can finish. No sentence is true of every task of this agent. No sentence points at the supplier's open files or at turns that the launch does not have. A timer's sections are in the board entry the wake names, not in the wake name alone.
-- No program reads the sections. A launch that starts shows the text was given. It does not show that a second reader would pass the result, or that an action is in or out.
+- No CLI reads the sections. A launch that starts shows the text was given. It does not show that a second reader would pass the result, or that an action is in or out.
 - Give the prompt and the task to a fresh agent, and withhold the supplier's other files. Look at the files it opens, whether it asks, and whether the result meets the done contract.
 
 ## Template

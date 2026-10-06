@@ -6,7 +6,7 @@ Read this page after the conversation, when creating, and only when the user ask
 
 ## How it fails
 
-The program can accept a skill, a rule or a command, and a capability page is not checked at all. Either way the extraction can fail. The program does not read the conversation, and it does not compare the files with what the user settled.
+The rbtv CLI can accept a skill, a rule or a command, and a capability page is not checked at all. Either way the extraction can fail. The rbtv CLI does not read the conversation, and it does not compare the files with what the user settled.
 
 - The files follow the path that this agent took, including a step that the user corrected. The next agent repeats the fault.
 - A path, an account, a host or a name that appears in the conversation is copied into the files, because it was in the source. It was this task's input. Another task follows it.
@@ -39,7 +39,7 @@ The program can accept a skill, a rule or a command, and a capability page is no
 
 2. **When a tips record of this conversation exists, read it before you sort a sentence a second time.** The page "Tips development"¹ made the distinctions. Keep each one. Do not write, as an instruction, a sentence that the record left unsettled. After that, read the conversation only to find a correction that the record does not mention. Do not run that page's method on a finished conversation in order to produce a record that you then build from. That page does not write the files, and sorting the sentences a second time drops a distinction that the record already made. When no such record exists, sort the conversation as step 1 says.
 
-3. **Edit the file that already has the method.** Find whether a file already has this method. The page "rbtv command"² says how to list and show what is installed. When one file has the method, edit that file. Read the page "Single source of truth"³ before you write a second copy. You just did the work, so you will not search unless this step says to. A second file leaves the next edit with two copies, and the program accepts both.
+3. **Edit the file that already has the method.** Find whether a file already has this method. The page "rbtv CLI"² says how to list and show what is installed. When one file has the method, edit that file. Read the page "Single source of truth"³ before you write a second copy. You just did the work, so you will not search unless this step says to. A second file leaves the next edit with two copies, and the rbtv CLI accepts both.
 
 4. **The word that the user used does not decide the kind.** The user may say "skill", "command" or "rule". That word is a hint. Decide the kind with the page "Choosing what to build"⁴. Decide the module, the component and the mirror with the page "Choosing where to build"⁵. A path that the conversation names is a fact of this task. It is not a reason to choose the mirror, and it is not a reason to choose the repository. Use the commands that ran in the conversation as evidence when you follow the page "Choosing what to build"⁴. Do not write them as a script because an outside method turns a conversation into a script. A hint that the page rejects is not written.
 
@@ -51,7 +51,7 @@ The program can accept a skill, a rule or a command, and a capability page is no
 
 5. **Write the extraction from the settled sentences only, as what a later agent does.** The later agent was not in the conversation. It does not have this transcript. From the settled sentences of step 1, write the action that the user required, in the order that a later task needs. A correction replaces the step that it rejected. What showed that the step was done becomes the check: the result that the user accepted, not the story of this run. Name a fact of this task as an input that the later task supplies. When that input is absent, the later agent stops and names it, as the page "Cognitive unit"⁶ says. Do not write the story of this run. Do not write an open sentence.
 
-   When the settled sentences are several jobs, and the result of one does not require the next, they are not one file. Do not paste them into one file and then split. The paste is what the program accepts. The page "Writing a capability"⁷ says how one job is written. The page "Nested exposure"⁸ says when several capabilities share one exposure method.
+   When the settled sentences are several jobs, and the result of one does not require the next, they are not one file. Do not paste them into one file and then split. The paste is what the rbtv CLI accepts. The page "Writing a capability"⁷ says how one job is written. The page "Nested exposure"⁸ says when several capabilities share one exposure method.
 
    Weak: "It worked when we ran it on Tuesday's report, so do the same."
 
@@ -87,7 +87,7 @@ Checks:
 
 - A reviewer sees the three lists that were shown to the user. The saved files contain only the instructions from the settled sentences. No path, account or host of this task is an instruction. No open sentence is an instruction. No fact that the user asked to remember is in the files.
 - The kind is the one that the page "Choosing what to build"⁴ gave. An existing file that had the method was edited. Several jobs whose results do not require one another are not one file.
-- The program accepts a skill, a rule or a command. Acceptance shows that it recognized the file. It does not show that the file matches the conversation. A capability page is not checked. The page "rbtv command"² says what that run shows for the kind that was written.
+- The rbtv CLI accepts a skill, a rule or a command. Acceptance shows that it recognized the file. It does not show that the file matches the conversation. A capability page is not checked. The page "rbtv CLI"² says what that run shows for the kind that was written.
 - Give the files to an agent that was not in the conversation, with one later task that the files name, and with that task missing one input that the conversation had. Watch whether the agent does the corrected work, whether it follows a fact of the first task, and whether it stops on the missing input.
 
 ## References
@@ -95,7 +95,7 @@ Checks:
 | # | Page | File | Read | When | To |
 |---|---|---|---|---|---|
 | 1 | Tips development | [Tips development](tips-development.md) | when | a tips record of this conversation exists, or you are about to sort the conversation again | take the distinctions that record already made, and do not write the files from that page |
-| 2 | rbtv command | [rbtv command](glossary/rbtv-command.md) | when | finding whether a file already has the method, or a run accepts what you wrote | take how to list and show what is installed, and what acceptance shows |
+| 2 | rbtv CLI | [rbtv CLI](glossary/rbtv-cli.md) | when | finding whether a file already has the method, or a run accepts what you wrote | take how to list and show what is installed, and what acceptance shows |
 | 3 | Single source of truth | [Single source of truth](principles/single-source-of-truth.md) | when | a second file would repeat a method an existing file already has | take that a fact has one home |
 | 4 | Choosing what to build | [Choosing what to build](choosing-what-to-build.md) | when | the user's word names a kind, the conversation ran commands, or a converted part is not this method | decide the kind, and do not treat the word or the commands as the decision |
 | 5 | Choosing where to build | [Choosing where to build](choosing-where-to-build.md) | when | placing the files | decide the module, the component and the mirror, without using a path of this task as the reason |

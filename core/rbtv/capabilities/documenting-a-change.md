@@ -1,10 +1,10 @@
 # Documenting a change
 
-Use this after adding, changing, renaming, or removing anything in rbtv — a unit, a tool, a component, a module, a template or schema, or how a program behaves — and before calling the change done. It says which documents change with it, so the documentation never describes something that no longer exists and every new thing can be found. The documentation's own editing rules are in [`core/rbtv/CLAUDE.md`](../CLAUDE.md); among them, pages describe the design as it is now, and why it changed belongs only in [`decisions.md`](../decisions.md).
+Use this after adding, changing, renaming, or removing anything in rbtv — a unit, a tool, a component, a module, a template or schema, or how a CLI behaves — and before calling the change done. It says which documents change with it, so the documentation never describes something that no longer exists and every new thing can be found. The documentation's own editing rules are in [`core/rbtv/CLAUDE.md`](../CLAUDE.md); among them, pages describe the design as it is now, and why it changed belongs only in [`decisions.md`](../decisions.md).
 
 ## 1. The unit describes itself
 
-A unit's name and description, in its frontmatter or its JSON record, are what the [installer](glossary/rbtv-command.md) lists and what an agent reads before deciding to use it. Keep them saying what the unit is for and when to use it after every change. The installer checks them against the unit's [schema](glossary/schema.md): the change is not done until `rbtv install add` or `rbtv install update` accepts it.
+A unit's name and description, in its frontmatter or its JSON record, are what the [installer](glossary/rbtv-cli.md) lists and what an agent reads before deciding to use it. Keep them saying what the unit is for and when to use it after every change. The installer checks them against the unit's [schema](glossary/schema.md): the change is not done until `rbtv install add` or `rbtv install update` accepts it.
 
 ## 2. Its records stay true
 
@@ -13,7 +13,7 @@ A unit's name and description, in its frontmatter or its JSON record, are what t
 
 ## 3. A change to an existing kind
 
-When the change alters how a kind of thing works — a field added to a frontmatter or record, a new section in a file, a program behaving differently — every page that describes it changes in the same commit: its schema and [template](glossary/template.md), its glossary entry, its guide, its line in [`rbtv.md`](../skills/framework.md), and its standing decision. Search the documentation for the thing's name to find every page that describes it.
+When the change alters how a kind of thing works — a field added to a frontmatter or record, a new section in a file, a CLI behaving differently — every page that describes it changes in the same commit: its schema and [template](glossary/template.md), its glossary entry, its guide, its line in [`rbtv.md`](../skills/framework.md), and its standing decision. Search the documentation for the thing's name to find every page that describes it.
 
 ## 4. A new kind of thing
 
