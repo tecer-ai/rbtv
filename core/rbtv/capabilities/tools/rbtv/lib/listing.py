@@ -18,7 +18,7 @@ from .catalog import (
 )
 from .state import (_file_in, book_harnesses, read_state, selected_packs,
                     upgrade_book)
-from .selection import (component_keys, iter_booked_files, iter_catalog_parts,
+from .selection import (CLOSE_NAME, component_keys, iter_booked_files, iter_catalog_parts,
                         module_names, file_key, resolve_name)
 
 
@@ -314,7 +314,8 @@ SHORTEST_WORD = 4
 
 def nearest_words(words: list[str], rows: list[dict]) -> list[str]:
     """For a search that returned nothing: the words of the searched ids and
-    descriptions closest to each searched word that no row holds."""
+    descriptions as close to a searched word that no row holds as a name must
+    be to be suggested in a refusal."""
     texts = [_search_text(row) for row in rows]
     vocabulary = sorted({word for text in texts
                          for word in re.findall(r"[^\W_]+", text)
@@ -322,7 +323,8 @@ def nearest_words(words: list[str], rows: list[dict]) -> list[str]:
     near: list[str] = []
     for word in words:
         if not any(word in text for text in texts):
-            near += [w for w in difflib.get_close_matches(word, vocabulary, n=NEAREST_WORDS)
+            near += [w for w in difflib.get_close_matches(word, vocabulary, n=NEAREST_WORDS,
+                                                      cutoff=CLOSE_NAME)
                      if w not in near]
     return near[:NEAREST_WORDS]
 

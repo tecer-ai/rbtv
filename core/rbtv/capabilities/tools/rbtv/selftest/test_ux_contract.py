@@ -236,6 +236,9 @@ def public_contract(ctx) -> None:
               and "fixskill" in no_hit["did_you_mean"]
               and 0 < len(no_hit["did_you_mean"]) <= 5
               and "did_you_mean" not in searched, str(no_hit))
+    _, far_word = run("search", "zzzzqqqq")
+    ctx.check("UX-search-no-close-word — a searched word with no close word gets none",
+              far_word["total"] == 0 and far_word["did_you_mean"] == [], str(far_word))
     _, near = run("show", "fixskilz")
     _, far = run("show", "zzzzqqqq")
     _, near_removal = run("remove", "fixskilz")
@@ -352,6 +355,10 @@ def result_screens(ctx) -> None:
               code == 0 and "0 matches" in no_hit_text
               and "No file or pack matches. Did you mean: fixskill" in no_hit_text
               and "fixmod/goodcomp#" not in no_hit_text, no_hit_text)
+    _, far_text, _ = text("search", "zzzzqqqq")
+    ctx.check("RESULT-search-no-close-word-says-only-no-match",
+              "No file or pack matches.\n" in far_text and "Did you mean" not in far_text,
+              far_text)
     _, found, _ = text("search", "fixture")
     next_line = found.rstrip().splitlines()[-1]
     ctx.check("RESULT-search-next-is-a-returned-exact-id",
