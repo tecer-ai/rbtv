@@ -73,6 +73,7 @@ function scratch() {
     head: (folder) => git(folder, 'rev-parse', 'HEAD'),
     calls: () => (fs.existsSync(at('calls')) ? fs.readFileSync(at('calls'), 'utf8') : ''),
     unitFile: at('home', '.config', 'systemd', 'user', UNIT),
+    log: (installation) => path.join(installation, '.rbtv', 'runtime', 'ignite', 'deploys.jsonl'),
     remove: () => fs.rmSync(root, { recursive: true, force: true }),
   };
 }
@@ -90,6 +91,16 @@ async function deploy(argv, deps = {}) {
     stderr += error.message;
   }
   return { code, stdout, stderr };
+}
+
+function undoLines(text) {
+  return text.split('\n').filter((line) => line.startsWith('to undo'));
+}
+
+function logEntries(file) {
+  const text = fs.readFileSync(file, 'utf8');
+  assert.ok(text.endsWith('\n'), 'the log ends with a line end');
+  return text.slice(0, -1).split('\n').map((line) => JSON.parse(line));
 }
 
 async function withScratch(fn) {
@@ -132,9 +143,25 @@ test('unknown-words-refused', async () => {
 linuxOnly('default-commit', () => withScratch(async (s) => {
   const folder = s.clone('deploy');
   const installation = s.installation('installation');
+  const started = Date.now();
   const done = await deploy(['--deploy-folder', folder, '--installation', installation], { env: s.env, sourceDir: s.source });
+  const finished = Date.now();
   assert.equal(done.code, 0, done.stderr);
   assert.equal(s.head(folder), s.second, 'the deploy folder is at the HEAD of the source repository');
+  assert.deepEqual(undoLines(done.stdout), [`to undo: ignite deploy ${s.first} --deploy-folder ${folder} --installation ${installation}`]);
+  assert.equal(done.stdout.split(s.log(installation)).length, 2, 'the output names the log file once');
+  assert.match(done.stdout, new RegExp(`^Deploy log {5}${s.log(installation)}$`, 'm'));
+  const entries = logEntries(s.log(installation));
+  assert.equal(entries.length, 1, 'one deploy, one line');
+  const [entry] = entries;
+  assert.deepEqual(Object.keys(entry), ['time', 'commitBefore', 'commitAsked', 'commitAfter', 'deployFolder', 'outcome']);
+  assert.match(entry.time, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+  assert.ok(Date.parse(entry.time) >= started && Date.parse(entry.time) <= finished, 'the time is the time of the deploy');
+  assert.equal(entry.commitBefore, s.first);
+  assert.equal(entry.commitAsked, s.second);
+  assert.equal(entry.commitAfter, s.second);
+  assert.equal(entry.deployFolder, folder);
+  assert.equal(entry.outcome, 'ok');
   assert.match(done.stdout, new RegExp(`^Commit {9}${s.second} \\(HEAD of the repository holding `, 'm'));
   assert.match(done.stdout, new RegExp(`^Commit before {2}${s.first}$`, 'm'));
   assert.match(done.stdout, new RegExp(`^Commit now {5}${s.second}$`, 'm'));
@@ -168,14 +195,25 @@ linuxOnly('explicit-commit', () => withScratch(async (s) => {
     deployFolder: folder,
     deployFolderSource: '--deploy-folder',
     command: `RBTV_DEPLOY=${folder} RBTV_INSTALLATION=${installation} bash ${path.join(__dirname, 'deploy.sh')} ${s.first}`,
+    log: s.log(installation),
     before: s.second,
     now: s.first,
     service: 'active',
+    undo: `ignite deploy ${s.second} --deploy-folder ${folder} --installation ${installation}`,
   });
   const unknown = await deploy(['no-such-commit', '--deploy-folder', folder, '--installation', installation], { env: s.env });
   assert.equal(unknown.code, 1);
   assert.match(unknown.stderr, new RegExp(`^commit no-such-commit is not known in the deploy folder ${folder}\\.\\n.*\\nNothing changed\\.\\nignite deploy -h$`));
   assert.equal(s.head(folder), s.first);
+  // A log folder that cannot be made: .rbtv/runtime is a file in this installation.
+  const blocked = s.installation('blocked');
+  fs.writeFileSync(path.join(blocked, '.rbtv', 'runtime'), '');
+  const unlogged = await deploy([s.second, '--json', '--deploy-folder', folder, '--installation', blocked], { env: s.env });
+  assert.equal(unlogged.code, 0, unlogged.stderr);
+  assert.equal(s.head(folder), s.second);
+  assert.match(unlogged.stderr, new RegExp(`^warning: this deploy was not written to the deploy log ${s.log(blocked)} \\(E[A-Z]+\\)\\.$`, 'm'));
+  assert.equal(JSON.parse(unlogged.stdout).log, null);
+  assert.equal(JSON.parse(unlogged.stdout).now, s.second);
 }));
 
 // The three sources of the deploy folder, each against a second folder a lower source names.
@@ -207,11 +245,21 @@ linuxOnly('folder-from-installed-unit', () => withScratch(async (s) => {
   const folder = s.clone('deploy');
   const installation = s.installation('installation');
   // The unit file is the one the real deploy.sh wrote on a first deploy, not a hand-typed one.
-  assert.equal((await deploy([s.first, '--deploy-folder', folder, '--installation', installation], { env: s.env })).code, 0);
+  const same = await deploy([s.first, '--deploy-folder', folder, '--installation', installation], { env: s.env });
+  assert.equal(same.code, 0, same.stderr);
+  assert.deepEqual(undoLines(same.stdout), [], 'no undo line when the commit did not change');
+  const firstLine = fs.readFileSync(s.log(installation), 'utf8');
+  assert.equal(logEntries(s.log(installation)).length, 1);
   const done = await deploy(['--installation', installation], { env: s.env, sourceDir: s.source });
   assert.equal(done.code, 0, done.stderr);
   assert.match(done.stdout, new RegExp(`^Deploy folder {2}${folder} \\(from the installed unit ${s.unitFile}\\)$`, 'm'));
   assert.equal(s.head(folder), s.second);
+  const both = fs.readFileSync(s.log(installation), 'utf8');
+  assert.equal(both.slice(0, firstLine.length), firstLine, 'the first line is byte-identical after the second deploy');
+  const entries = logEntries(s.log(installation));
+  assert.equal(entries.length, 2, 'the second deploy appended one line');
+  assert.deepEqual([entries[0].commitBefore, entries[0].commitAfter], [s.first, s.first]);
+  assert.deepEqual([entries[1].commitBefore, entries[1].commitAfter], [s.first, s.second]);
 }));
 
 linuxOnly('no-folder-refused', () => withScratch(async (s) => {
@@ -227,6 +275,7 @@ linuxOnly('no-folder-refused', () => withScratch(async (s) => {
   const notGit = await deploy(['--deploy-folder', s.at('home'), '--installation', installation], { env: s.env, sourceDir: s.source });
   assert.match(notGit.stderr, /is not a git worktree with a commit checked out\.\nNothing changed\./);
   assert.equal(s.calls(), '');
+  assert.equal(fs.existsSync(path.join(installation, '.rbtv', 'runtime')), false, 'a refusal writes no log');
 }));
 
 linuxOnly('dry-run-runs-nothing', () => withScratch(async (s) => {
@@ -243,6 +292,9 @@ linuxOnly('dry-run-runs-nothing', () => withScratch(async (s) => {
   assert.equal(s.head(folder), s.first, 'the deploy folder did not move');
   assert.equal(s.calls(), '', 'neither systemctl nor journalctl ran');
   assert.equal(fs.existsSync(s.unitFile), false, 'no unit file was written');
+  assert.match(plan.stdout, new RegExp(`^Would log to {3}${s.log(installation)}$`, 'm'));
+  assert.deepEqual(undoLines(plan.stdout), []);
+  assert.equal(fs.existsSync(path.join(installation, '.rbtv', 'runtime')), false, 'a dry run writes no log');
 }));
 
 linuxOnly('installation-from-walk', () => withScratch(async (s) => {
@@ -280,7 +332,19 @@ linuxOnly('service-not-active-fails', () => withScratch(async (s) => {
   assert.equal(failed.stdout, '');
   assert.match(failed.stderr, new RegExp(`^ignite deploy failed: the service did not stay active at ${s.second} within 0\\.2 seconds\\.$`, 'm'));
   assert.match(failed.stderr, new RegExp(`^Commit before {2}${s.first}\\nCommit now {5}${s.second}\\nService {8}${UNIT} failed\\nLast 20 journal lines:\\njournal line one\\njournal line two$`, 'm'));
-  assert.match(failed.stderr, new RegExp(`^To return to the commit before: ignite deploy ${s.first} --deploy-folder ${folder} --installation ${installation}$`, 'm'));
+  assert.deepEqual(undoLines(failed.stderr), [`to undo: ignite deploy ${s.first} --deploy-folder ${folder} --installation ${installation}`]);
+  assert.match(failed.stderr, new RegExp(`^Deploy log {5}${s.log(installation)}$`, 'm'));
+  const entries = logEntries(s.log(installation));
+  assert.equal(entries.length, 1);
+  assert.deepEqual({ ...entries[0], time: null }, {
+    time: null,
+    commitBefore: s.first,
+    commitAsked: s.second,
+    commitAfter: s.second,
+    deployFolder: folder,
+    outcome: 'failed',
+    reason: `the service did not stay active at ${s.second} within 0.2 seconds.`,
+  });
   assert.match(s.calls(), new RegExp(`^journalctl --user -u ${UNIT} -n 20 --no-pager$`, 'm'));
 }));
 
@@ -294,6 +358,9 @@ linuxOnly('script-failure-fails', () => withScratch(async (s) => {
   assert.match(failed.stderr, /^ignite deploy failed: deploy\.sh exited 1\.$/m);
   assert.equal(s.head(folder), s.first);
   assert.doesNotMatch(s.calls(), /restart/);
+  assert.deepEqual(undoLines(failed.stderr), [], 'no undo line when the commit did not change');
+  const [entry] = logEntries(s.log(installation));
+  assert.deepEqual([entry.commitBefore, entry.commitAfter, entry.outcome, entry.reason], [s.first, s.first, 'failed', 'deploy.sh exited 1.']);
 }));
 
 (async () => {

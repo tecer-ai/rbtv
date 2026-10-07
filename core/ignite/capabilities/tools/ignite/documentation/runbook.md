@@ -9,7 +9,7 @@ ignite deploy --dry-run
 ignite deploy
 ```
 
-`ignite deploy [COMMIT]` deploys the service at a commit and confirms the result; `ignite deploy -h` owns its options. Run the dry run first: it prints the commit, the installation, the deploy folder and the exact script command, and runs nothing. Linux only.
+`ignite deploy [COMMIT]` deploys the service at a commit and confirms the result; `ignite deploy -h` owns its options. Run the dry run first: it prints the commit, the installation, the deploy folder, the exact script command and the deploy log it would append to, and it runs and writes nothing. Linux only.
 
 - **Commit.** `COMMIT`, or the HEAD commit of the repository that holds the `ignite` program that was run. The command prints the full id.
 - **Installation.** `--installation`, or the installation that holds the current folder.
@@ -17,7 +17,23 @@ ignite deploy
 
 The command then runs `deploy.sh`, the script beside the `ignite` program, with those three values. The script checks the deploy folder out detached at the commit, fills the unit template (`EnvironmentFile` is `<installation>/.rbtv/config/env/.env`), runs `systemctl --user daemon-reload`, enables and restarts `rbtv-ignite-agents.service`, and prints the commit. The env file must exist or the script refuses. Running a deploy again at the same commit is safe.
 
-After the script, the command waits up to 30 seconds for the service to answer active three times in a row with the deploy folder at the commit, then prints the commit before, the commit now and the service state. When the script fails or the service does not stay active, it exits 1 with the last 20 journal lines and the command that returns to the commit before. The restart reaches every agent of the installation; a turn in progress is left running (Stop and start, below).
+After the script, the command waits up to 30 seconds for the service to answer active three times in a row with the deploy folder at the commit, then prints the commit before, the commit now and the service state. When the script fails or the service does not stay active, it exits 1 with the last 20 journal lines. The restart reaches every agent of the installation; a turn in progress is left running (Stop and start, below).
+
+**Undo.** When the deploy folder's commit changed, the output of a success and of a failure ends with one line to copy: `to undo: ignite deploy <full id of the commit before> --deploy-folder <folder> --installation <installation>`. Running it deploys the commit that was there before, to the same folder and installation. No undo line is printed when the commit did not change. With `--json` the same command is the field `undo`, `null` when there is none.
+
+**Deploy log.** Every deploy that ran the script appends one line to `<installation>/.rbtv/runtime/ignite/deploys.jsonl`, and the output names that file once. A refusal and a dry run write nothing. Each line is one JSON object:
+
+| Field | Value |
+|---|---|
+| `time` | When the result was known, ISO 8601 in UTC |
+| `commitBefore` | The full id the deploy folder held before |
+| `commitAsked` | The full id of the commit the deploy asked for |
+| `commitAfter` | The full id the deploy folder holds afterwards; `null` when it could not be read |
+| `deployFolder` | The deploy folder |
+| `outcome` | `ok`, or `failed` when the script failed or the service did not stay active |
+| `reason` | Only on `failed`: the reason, in one line |
+
+When the line cannot be written, the command prints a warning on stderr that names the file, and its exit code does not change: a deploy that succeeded still exits 0. No command reads the log; read it with `cat` or `tail`.
 
 ## Status
 

@@ -1,14 +1,16 @@
 'use strict';
 
 // API — ignite deploy [COMMIT] [--deploy-folder PATH] [--dry-run]: resolves the commit, the
-// installation and the deploy folder, runs deploy.sh once, then confirms the service stays active
-// at that commit. run(argv, flags, deps, resolveInstallation) → Promise of the exit code.
+// installation and the deploy folder, runs deploy.sh once, confirms the service stays active at
+// that commit, and appends the result to the installation's deploy log.
+// run(argv, flags, deps, resolveInstallation) → Promise of the exit code.
 // deps.env / deps.stdout / deps.stderr optional. deps.platform, deps.sourceDir (the folder whose
 // repository gives the default commit), deps.pollMs and deps.limitMs replace the real ones in tests.
 
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const { runtimeFolder } = require('./memory-write.js');
 
 const UNIT = 'rbtv-ignite-agents.service';
 const UNIT_TEMPLATE = path.join(__dirname, 'units', UNIT);
@@ -17,6 +19,7 @@ const POLL_MS = 1000;
 const LIMIT_MS = 30000;
 const STEADY_CHECKS = 3;
 const JOURNAL_LINES = 20;
+const LOG_NAME = 'deploys.jsonl';
 
 const HELP = `ignite deploy — run the waking service from a commit
 
@@ -50,20 +53,33 @@ COMMIT
   names the one to serve.
 
 --dry-run
-  Prints the commit, the installation, the deploy folder and the exact script
-  command. Runs nothing.
+  Prints the commit, the installation, the deploy folder, the exact script
+  command and the deploy log. Runs nothing and writes nothing.
 
 After the script, the command waits up to ${LIMIT_MS / 1000} seconds for the service to answer
 active on ${STEADY_CHECKS} checks in a row, one second apart, with the deploy folder at COMMIT.
 
+Undo: when the deploy folder's commit changed, the output ends with one line
+to copy, "to undo: ignite deploy <commit before> ...". It deploys the commit
+that was there before, with the same deploy folder and installation.
+
+Deploy log: every deploy that ran the script appends one line to
+<installation>/.rbtv/runtime/ignite/${LOG_NAME}, a JSON object with time
+(UTC), commitBefore, commitAsked, commitAfter, deployFolder, outcome ("ok" or
+"failed") and, for a failure, reason. A refusal and a dry run write nothing.
+When the line cannot be written, the command warns on stderr and its exit
+code does not change.
+
 Success: exit 0, with the commit before, the commit now and the service state.
   --json prints {dryRun, commit, installation, deployFolder,
-  deployFolderSource, command, before, now, service}; now and service are
-  null on a dry run. The script's own output goes to stderr.
+  deployFolderSource, command, log, before, now, service, undo}. now, service
+  and undo are null on a dry run; undo is also null when the commit did not
+  change, and log when the line was not written. The script's own output goes
+  to stderr.
 Refusal: exit 1, the reason on stderr, nothing changed.
 Failure: exit 1 when the script fails or the service is not active in time.
   stderr carries the commit before, the commit now, the service state, the
-  last ${JOURNAL_LINES} journal lines and the command that returns to the commit before.
+  last ${JOURNAL_LINES} journal lines, the deploy log and the undo line.
 
 Examples:
   ignite deploy --dry-run
@@ -147,7 +163,36 @@ async function settle(folder, commit, env, deps) {
   }
 }
 
-function failure(reason, plan, seen, env) {
+// The command that deploys the commit the folder held before; null when that commit is still there.
+function undoCommand(plan, now) {
+  if (now === plan.before) return null;
+  return `ignite deploy ${plan.before} --deploy-folder ${quote(plan.deployFolder)} --installation ${quote(plan.installation)}`;
+}
+
+// One line per deploy that ran the script. A line that cannot be written is a warning, never the
+// deploy's outcome. Returns the log file, or null when the line was not written.
+function logDeploy(plan, seen, reason, err) {
+  const entry = {
+    time: new Date().toISOString(),
+    commitBefore: plan.before,
+    commitAsked: plan.commit,
+    commitAfter: seen.now,
+    deployFolder: plan.deployFolder,
+    outcome: reason ? 'failed' : 'ok',
+    ...(reason && { reason }),
+  };
+  try {
+    fs.mkdirSync(path.dirname(plan.log), { recursive: true });
+    fs.appendFileSync(plan.log, `${JSON.stringify(entry)}\n`);
+    return plan.log;
+  } catch (error) {
+    err(`warning: this deploy was not written to the deploy log ${plan.log} (${error.code || error.message}).\n`);
+    return null;
+  }
+}
+
+function failure(reason, plan, seen, env, log) {
+  const undo = undoCommand(plan, seen.now);
   const journal = spawnSync('journalctl', ['--user', '-u', UNIT, '-n', String(JOURNAL_LINES), '--no-pager'], { encoding: 'utf8', env });
   return [
     `ignite deploy failed: ${reason}`,
@@ -157,7 +202,8 @@ function failure(reason, plan, seen, env) {
     `Last ${JOURNAL_LINES} journal lines:`,
     (journal.stdout || '').trimEnd() || `(none: journalctl answered ${journal.error ? journal.error.message : `exit ${journal.status}`})`,
     'A turn that was in progress was left running.',
-    `To return to the commit before: ignite deploy ${plan.before} --deploy-folder ${quote(plan.deployFolder)} --installation ${quote(plan.installation)}`,
+    ...(log ? [`Deploy log     ${log}`] : []),
+    ...(undo ? [`to undo: ${undo}`] : []),
     '',
   ].join('\n');
 }
@@ -195,9 +241,11 @@ async function run(argv, flags, deps = {}, resolveInstallation) {
     deployFolder: target.folder,
     deployFolderSource: target.source,
     command: `RBTV_DEPLOY=${quote(target.folder)} RBTV_INSTALLATION=${quote(installation)} bash ${quote(SCRIPT)} ${commit}`,
+    log: path.join(runtimeFolder(installation), LOG_NAME),
     before,
     now: null,
     service: null,
+    undo: null,
   };
   const resolved = [
     `Commit         ${commit} (${opts.commit ? `given as ${opts.commit}` : `HEAD of the repository holding ${source}`})`,
@@ -211,6 +259,7 @@ async function run(argv, flags, deps = {}, resolveInstallation) {
       ...resolved,
       `Commit there   ${before}`,
       `Would run      ${plan.command}`,
+      `Would log to   ${plan.log}`,
       '',
       `The script checks the deploy folder out at the commit, rewrites the unit ${UNIT}`,
       'and restarts it for every agent of the installation. A turn in progress is left running.',
@@ -223,17 +272,19 @@ async function run(argv, flags, deps = {}, resolveInstallation) {
     encoding: 'utf8', env: { ...env, RBTV_DEPLOY: target.folder, RBTV_INSTALLATION: installation },
   });
   err(`${script.stdout || ''}${script.stderr || ''}`);
+  const failed = (reason, seen) => {
+    err(failure(reason, plan, seen, env, logDeploy(plan, seen, reason, err)));
+    return 1;
+  };
   if (script.error || script.status !== 0) {
     const seen = { now: git(target.folder, ['rev-parse', 'HEAD'], env), service: serviceState(env) };
-    err(failure(`deploy.sh ${script.error ? `did not run: ${script.error.message}` : `exited ${script.status}`}.`, plan, seen, env));
-    return 1;
+    return failed(`deploy.sh ${script.error ? `did not run: ${script.error.message}` : `exited ${script.status}`}.`, seen);
   }
   const seen = await settle(target.folder, commit, env, deps);
-  if (!seen.ok) {
-    err(failure(`the service did not stay active at ${commit} within ${(deps.limitMs ?? LIMIT_MS) / 1000} seconds.`, plan, seen, env));
-    return 1;
-  }
-  out(flags.json ? `${JSON.stringify({ ...plan, now: seen.now, service: seen.service })}\n` : [
+  if (!seen.ok) return failed(`the service did not stay active at ${commit} within ${(deps.limitMs ?? LIMIT_MS) / 1000} seconds.`, seen);
+  const log = logDeploy(plan, seen, null, err);
+  const undo = undoCommand(plan, seen.now);
+  out(flags.json ? `${JSON.stringify({ ...plan, log, now: seen.now, service: seen.service, undo })}\n` : [
     'ignite deploy — done',
     '',
     ...resolved,
@@ -243,7 +294,9 @@ async function run(argv, flags, deps = {}, resolveInstallation) {
     '',
     'A turn that was in progress was left running: the restarted service takes it over',
     'and starts no second one.',
-    `Follow the log: journalctl --user -u ${UNIT} -f`,
+    `Follow the service: journalctl --user -u ${UNIT} -f`,
+    ...(log ? [`Deploy log     ${log}`] : []),
+    ...(undo ? [`to undo: ${undo}`] : []),
     '',
   ].join('\n'));
   return 0;
