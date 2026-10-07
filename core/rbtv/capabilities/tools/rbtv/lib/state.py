@@ -11,7 +11,7 @@ from discovery import HUB_DIR, Refuse, SKILLS_DIR
 from .constants import (AGENT_RECORD, HARNESSES, MANAGED_MARK, SCHEMA, STATE_REL, VERSION)
 from .claims import _jget, _located
 from .content import _is_ours
-from .record_keys import current_keys
+from .record_keys import both_spellings, current_keys
 from .fsio import write_file
 from .selection import iter_booked_files
 from .target import is_agent_target
@@ -262,6 +262,15 @@ def read_state(target: Path) -> dict:
     strip_retired_harnesses(state)
     migrate_installation_harnesses(state)
     return state
+
+
+def doubled_keys(target: Path) -> list[str]:
+    """Where the readable record on disk carries a key under both names:
+    `read_state` has already dropped the old one from what it returns."""
+    path = state_path(target)
+    if not path.is_file():
+        return []
+    return both_spellings(json.loads(path.read_text(encoding="utf-8")))
 
 
 def write_state(target: Path, state: dict) -> None:

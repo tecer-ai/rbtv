@@ -19,10 +19,10 @@ from .constants import (
     STATE_REL,
     UPDATE_SCOPES,
 )
-from .guidance import _norm_prefix
+from .guidance import _norm_prefix, missing_excludes
 from .target import (DISCOVER_CWD, DISCOVER_STATE, discover_installation, is_agent_target,
                      resolve_target)
-from .state import (book_harnesses, read_state, selected_packs,
+from .state import (book_harnesses, doubled_keys, read_state, selected_packs,
                     selected_files, state_path, file_membership, write_state)
 from .catalog import catalog_packs, check_packs, module_id, pack_files
 from .selection import (
@@ -423,6 +423,7 @@ def cmd_status(args, target: Path, catalog: dict, shadowed: list,
     comps = installed["components"]
     count = sum(len(rec.get("selected") or {}) for rec in comps.values())
     settings = installed["settings"]
+    gone_excludes = missing_excludes(target, settings["guidance_excludes"])
     counts = _catalog_counts(catalog)
     data = {"ok": True, "target": str(target.resolve()),
             "target_source": ("explicit" if getattr(args, "_why", None) == "--target"
@@ -431,6 +432,7 @@ def cmd_status(args, target: Path, catalog: dict, shadowed: list,
                              "harnesses": settings["harnesses"] or [],
                              "guidance": settings["artifact"],
                              "guidance_excludes": settings["guidance_excludes"],
+                             "guidance_excludes_missing": gone_excludes,
                              "packs": settings["packs"],
                              "sub_agents": subagents.recorded(read_state(target)),
                              "installed_components": len(comps),
@@ -455,7 +457,12 @@ def cmd_status(args, target: Path, catalog: dict, shadowed: list,
             print("Saved receiving tools: " + harnesses)
             print("Maintained guidance: " + (settings["artifact"] or "none"))
             _prose("Guidance folders excluded from copying: "
-                   + (", ".join(settings["guidance_excludes"]) or "none"))
+                   + (", ".join(
+                       name + (" (no longer exists)" if name in gone_excludes else "")
+                       for name in settings["guidance_excludes"]) or "none"))
+            if gone_excludes:
+                _prose("An excluded folder that no longer exists is dropped by: "
+                       f"rbtv update all --target {_quote(target)}")
             print("Packs on: " + (", ".join(settings["packs"]) or "none"))
             _print_sub_agents(data["installation"]["sub_agents"])
             print()
@@ -573,6 +580,45 @@ def _available_selection(catalog: dict, state: dict) -> tuple[set[str], set[str]
     missing_packs = sorted(enabled_packs - set(packs))
     missing = missing_files + [f"pack {name}" for name in missing_packs]
     return files & available, enabled_packs & set(packs), missing
+
+
+def _same_name_elsewhere(catalog: dict, gone: list[str], selected: set[str]) -> dict[str, list[str]]:
+    """For each vanished file id, the ids of unselected files with its name."""
+    by_name: dict[str, list[str]] = {}
+    for row in iter_catalog_parts(catalog):
+        if row["key"] not in selected:
+            by_name.setdefault(row["file_id"], []).append(row["key"])
+    return {key: sorted(by_name[key.partition("#")[2]]) for key in gone
+            if key.partition("#")[2] in by_name}
+
+
+def _update_notices(target: Path, catalog: dict, selected: set[str],
+                    unavailable: list[str], doubled: list[str],
+                    stale_excludes: list[str], *, dry: bool, removes: bool) -> list[str]:
+    """One line for each thing `update` does that the record alone would not
+    show: a record rewritten with one key name, a guidance exclusion dropped,
+    and a removed file whose name exists under another id."""
+    notices = []
+    if doubled:
+        notices.append(
+            f"{'Would rewrite' if dry else 'Rewrote'} the saved record with one "
+            "name for each key; it carried " + "; ".join(doubled)
+            + ". The newer name is kept and `units` is dropped.")
+    if stale_excludes:
+        notices.append(
+            f"{'Would drop' if dry else 'Dropped'} the guidance exclusion "
+            + ", ".join(stale_excludes) + ": no such folder exists in this "
+            "installation any more.")
+    if removes:
+        gone = [key for key in unavailable if not key.startswith("pack ")]
+        for old, new in _same_name_elsewhere(catalog, gone, selected).items():
+            notices.append(
+                f"{old} {'would be' if dry else 'was'} removed (its source no "
+                f"longer exists); the same name exists as {', '.join(new)}. "
+                "Nothing was selected in its place. To select it: "
+                + " or ".join(f"rbtv add {key} --target {_quote(target)}"
+                              for key in new))
+    return notices
 
 
 def _save_selected_files(target: Path, add: set[str] | None = None,
@@ -988,12 +1034,22 @@ def cmd_update(args, target: Path, catalog: dict, shadowed: list,
     selected, packs, unavailable = _available_selection(catalog, state)
     chosen = selected | pack_files(catalog, packs)
     members = file_membership(target, catalog, state, chosen)
-    data = _replan_all(target, catalog, hs,
-                       bool(getattr(args, "dry_run", False)),
+    dry = bool(getattr(args, "dry_run", False))
+    excludes = list(state.get("guidance_excludes") or [])
+    stale_excludes = missing_excludes(target, excludes)
+    notices = _update_notices(
+        target, catalog, selected, unavailable, doubled_keys(target),
+        stale_excludes, dry=dry, removes=args.scope in ("scaffolding", "all"))
+    data = _replan_all(target, catalog, hs, dry,
+                       guidance_excludes=([x for x in excludes if x not in stale_excludes]
+                                          if stale_excludes else None),
                        scope=args.scope,
                        selected=sorted(chosen) if args.scope in ("scaffolding", "all") else None)
     data["report"]["source_gone"] = unavailable
-    if not bool(getattr(args, "dry_run", False)) and args.scope in ("scaffolding", "all"):
+    if notices:
+        data["notices"] = notices
+        data["message"] = "\n".join(notices)
+    if not dry and args.scope in ("scaffolding", "all"):
         saved = read_state(target)
         saved["files"] = sorted(selected)
         saved["packs"] = sorted(packs)
@@ -1067,8 +1123,18 @@ def _print_doctor(data: dict, *, color: bool) -> None:
         discovery = "Selected command discovery FAILED for at least one shortcut."
     else:
         discovery = "Selected command discovery verified."
-    _prose(f"{len(main)} checks: {counts}. {discovery} Runtime dependencies "
-           "and arbitrary command execution were not tested.")
+    _prose(f"{len(main)} checks: {counts}. {discovery} Arbitrary command "
+           "execution was not tested.")
+    dependencies = data.get("dependencies") or []
+    if dependencies:
+        print()
+        _prose("Runtime dependencies named by installed components (looked up "
+               "on PATH and in the Python that runs rbtv; nothing was run)")
+        for line in present.render_table(
+                ["Dependency", "State", "Named by"],
+                [[d["name"], d["state"], ", ".join(d["components"])]
+                 for d in dependencies]):
+            print(line)
     if audit:
         print()
         print("Optional cleanup audit")

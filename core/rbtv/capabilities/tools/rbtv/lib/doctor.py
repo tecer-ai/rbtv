@@ -5,6 +5,7 @@ installation actually selected — never a stale ownership record.
 """
 from __future__ import annotations
 
+import importlib.metadata
 import json
 import os
 import shutil
@@ -23,6 +24,7 @@ from .constants import (
     VERSION,
 )
 from .catalog import catalog_files_map
+from .guidance import missing_excludes
 from .pathlinks import (
     _owned,
     _path_rows_from_report,
@@ -35,7 +37,7 @@ from .pathlinks import (
 )
 from .planning import plan_files
 from .shared_links import _read_owners, _installation_key, path_ownership_status
-from .state import known_claims, known_files, read_state, upgrade_book
+from .state import doubled_keys, known_claims, known_files, read_state, upgrade_book
 from .target import is_agent_target
 from .recovery import shell_quote
 
@@ -134,6 +136,29 @@ def _legacy_shortcuts(bindir: Path, booked: set[str],
     return sorted(out)
 
 
+def _dependency_state(name: str) -> str:
+    """`present` when `name` is a command on PATH or a package installed in
+    the Python that runs rbtv, else `absent`. A lookup: nothing is run."""
+    if shutil.which(name):
+        return "present"
+    try:
+        importlib.metadata.distribution(name)
+    except importlib.metadata.PackageNotFoundError:
+        return "absent"
+    return "present"
+
+
+def _dependencies(catalog: dict, state: dict) -> list[dict]:
+    """Each runtime dependency an installed component's record names, with
+    the components that name it."""
+    needed: dict[str, list[str]] = {}
+    for cid in sorted(state.get("components") or {}):
+        for name in (catalog.get(cid) or {}).get("dependencies") or []:
+            needed.setdefault(name, []).append(cid)
+    return [{"name": name, "state": _dependency_state(name),
+             "components": needed[name]} for name in sorted(needed)]
+
+
 def doctor_exit(checks: list[dict]) -> int:
     return 1 if any(c["level"] == "fail" for c in checks) else 0
 
@@ -161,6 +186,15 @@ def do_doctor(target: Path, why: str, catalog: dict, shadowed: list,
                 checks.append(_check(
                     "Saved selection", "ok", target_scope,
                     f"{n} component{'s' if n != 1 else ''}; record readable"))
+                doubled = doubled_keys(target)
+                if doubled:
+                    checks.append(_check(
+                        "Record keys", "warn", target_scope,
+                        "the record carries a key under both of its names: "
+                        + "; ".join(doubled) + ". rbtv reads the newer name and "
+                        "ignores `units`. Compare the two in "
+                        f"{book_path}, then rewrite the record: rbtv update "
+                        f"scaffolding --target {_quote_target(target)}"))
             except (ValueError, OSError, json.JSONDecodeError, Refuse) as exc:
                 checks.append(_check("Saved selection", "fail", target_scope,
                                      f"unreadable: {exc}"))
@@ -209,6 +243,15 @@ def do_doctor(target: Path, why: str, catalog: dict, shadowed: list,
             checks.append(_check(
                 "Maintained guidance", "fail", target_scope,
                 f"{basis!r} is neither none nor {' · '.join(GUIDANCE_NAMES)}"))
+
+        stale = missing_excludes(target, list(state.get("guidance_excludes") or []))
+        if stale:
+            checks.append(_check(
+                "Guidance exclusions", "warn", target_scope,
+                "excluded from guidance copying but no longer in this "
+                f"installation: {', '.join(stale)}. Drop "
+                f"{'it' if len(stale) == 1 else 'them'}: rbtv update all "
+                f"--target {_quote_target(target)}"))
 
     repo_found = scan_tree(repo_tree, "repo")
     detail = f"{len(repo_found)} components discovered"
@@ -346,4 +389,5 @@ def do_doctor(target: Path, why: str, catalog: dict, shadowed: list,
     failed = any(c["level"] == "fail" for c in checks)
     return {"ok": not failed, "version": VERSION,
             "target": str(target.resolve() if target.exists() else target),
-            "why": why, "checks": checks}
+            "why": why, "checks": checks,
+            "dependencies": _dependencies(catalog, state)}

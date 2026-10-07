@@ -49,6 +49,11 @@ def _norm_prefix(value: str) -> str:
     return value.strip().replace("\\", "/").strip("/")
 
 
+def missing_excludes(target: Path, excludes: list[str]) -> list[str]:
+    """The configured excludes that name no path under `target` any more."""
+    return [x for x in excludes if not (target / _norm_prefix(x)).exists()]
+
+
 def walk_bases(target: Path, basis: str,
                excludes: list[str] | tuple[str, ...] = ()) -> list[Path]:
     """Every basis file the recursive mirror covers, root first, sorted (D13).

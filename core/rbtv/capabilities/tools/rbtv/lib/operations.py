@@ -316,6 +316,8 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
         _clean_bases(target, report, dry_run)
         if not dry_run:
             state["guidance_files"] = sorted(mirror_files)
+            if guidance_excludes is not None:
+                state["guidance_excludes"] = list(guidance_excludes)
             write_state(target, state)
         return {"ok": True, "scope": scope, "installed": picked,
                 "harnesses": harnesses, "files": sorted(mirror_files),
