@@ -128,10 +128,10 @@ HALT. Wait for user confirmation.
 
 ## Step 5 — Summarize
 
-Select the summary prompt in this priority order:
+Select the summary prompt in [the summarization prompts folder](../capabilities/summarization), in this priority order:
 
-1. **Built-in type prompt:** `.rbtv/mirror/office/meeting-summarizer/workflows/summarization/prompts/{type}-summary-prompt.md` — if a prompt exists for the classified meeting type.
-2. **Universal fallback:** `.rbtv/mirror/office/meeting-summarizer/workflows/summarization/universal-prompt.md` — for any content without a type-specific prompt.
+1. **Built-in type prompt:** the file named `<type>-summary-prompt.md` in that folder, where `<type>` is the classified meeting type — if that file exists.
+2. **Universal fallback:** else `universal-prompt.md` in that folder — for any content without a type-specific prompt.
 
 **Workspace hint augmentation:** After selecting the base prompt, look for a `## Summarization hints` section in the CLAUDE.md governing the output folder (the collection CLAUDE.md — e.g., `investors/CLAUDE.md`, `clients/CLAUDE.md`, `prospects/CLAUDE.md` — or the nearest CLAUDE.md up the tree). If found, append its content verbatim to the base prompt as an additional phase the agent must execute. If no such section exists, proceed with the base prompt alone.
 
