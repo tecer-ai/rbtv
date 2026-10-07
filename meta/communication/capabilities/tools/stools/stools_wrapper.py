@@ -23,7 +23,7 @@ by design: `search:read` has no bot-token equivalent, so reads are never gated):
      parser's own error and do not write. A parsed `--dry-run` (including an unambiguous
      abbreviation) forwards the original argv with no grant check: it does not post, it may
      contact Slack, and it does not check grant coverage.
-  3. On a `writes: false` workspace, `.rbtv/config/stools-as-owner-grants.yaml` is checked for an
+  3. On a `writes: false` workspace, `.rbtv/config/communication/stools-as-owner-grants.yaml` is checked for an
      `active` grant naming that workspace and verb, scoped to cover this sitting's cwd. A match
      execs the real stools.py; no match exits 2 with a named refusal that launches no FINAL
      executor, no Slack client, and no Slack SDK import. One local subprocess does run before the
@@ -64,7 +64,7 @@ def workspace_root():
 VAULT_ROOT = workspace_root()
 STOOLS_ROOT = Path(os.environ.get("SLACK_TOOLS_ROOT") or (VAULT_ROOT / "3-resources/tools/stools"))
 REAL_STOOLS = STOOLS_ROOT / "stools.py"
-GRANTS_FILE = VAULT_ROOT / ".rbtv/config/stools-as-owner-grants.yaml"
+GRANTS_FILE = VAULT_ROOT / ".rbtv/config/communication/stools-as-owner-grants.yaml"
 
 WRITE_VERBS = {"send", "upload", "react", "canvas"}
 
@@ -74,7 +74,7 @@ def die_refused(workspace, verb):
     print(f"  why: --workspace {workspace} is an owner-identity write (writes: false) "
           f"and no active grant covers '{verb}' for this sitting", file=sys.stderr)
     print("  fix: get the owner's explicit approval for the account, verb, working folder and purpose.\n"
-          "       After approval, an agent may append exactly that grant to .rbtv/config/stools-as-owner-grants.yaml.\n"
+          "       After approval, an agent may append exactly that grant to .rbtv/config/communication/stools-as-owner-grants.yaml.\n"
           "       Preserve existing grants; do not broaden the approved folder or verbs.\n"
           "       Run stools send --help for the grant format and scope guidance.", file=sys.stderr)
     sys.exit(2)

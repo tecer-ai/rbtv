@@ -87,7 +87,7 @@ This Ignite installation uses `ignite` for its bot and `ignite-owner` for the ow
 a configured account label alone does not verify the actual Slack identity.
 
 Write verbs (`send`, `upload`, `react`, `canvas`) on an account configured with `writes: false`
-require an active grant in `.rbtv/config/stools-as-owner-grants.yaml` covering the effective
+require an active grant in `.rbtv/config/communication/stools-as-owner-grants.yaml` covering the effective
 account, verb and current working folder. A plan's `read-first` or `decisions.md` may cite the
 approval, but those documents do not substitute for a matching record. Reads remain ungated.
 A refused write exits 2 with `as-owner-write-refused` and does not contact Slack.

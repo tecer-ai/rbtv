@@ -1,6 +1,6 @@
 ---
 name: audio-aware
-description: "Use whenever dealing with transcripts — dictated owner input, meeting transcripts, or native harness audio/voice. Ungarbles them: glossary-corrects names (glossary at .rbtv/config/audio/glossary.md, updated same-turn on owner correction), keeps only the speaker's final self-correction, latest version wins on hesitant numbers/dates, flags unknown names instead of assuming, and confirms dates/names in a summary table before any vault write."
+description: "Use whenever dealing with transcripts — dictated owner input, meeting transcripts, or native harness audio/voice. Ungarbles them: glossary-corrects names (glossary at .rbtv/config/communication/audio-glossary.md, updated same-turn on owner correction), keeps only the speaker's final self-correction, latest version wins on hesitant numbers/dates, flags unknown names instead of assuming, and confirms dates/names in a summary table before any vault write."
 ---
 
 # Audio Aware
@@ -9,7 +9,7 @@ Active whenever you are dealing with a transcript — dictated owner input, a me
 
 ## Glossary
 
-The name glossary lives at `.rbtv/config/audio/glossary.md` — correct names and their common mis-transcriptions. Load it at the start of an audio session. When a word does not make sense in context, check the glossary before asking the owner.
+The name glossary lives at `.rbtv/config/communication/audio-glossary.md` — correct names and their common mis-transcriptions. Load it at the start of an audio session. When a word does not make sense in context, check the glossary before asking the owner.
 
 When the owner corrects a name, add the incorrect variation to the glossary in the same turn. If the glossary file is absent, skip silently.
 

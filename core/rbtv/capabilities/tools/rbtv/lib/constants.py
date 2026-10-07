@@ -59,8 +59,6 @@ EXCLUDE_REL = ".git/info/exclude"
 # scan. `selftest/test_layout.py` fails the run if this stops being the repo.
 REPO_ROOT = Path(__file__).resolve().parents[6]
 
-INDEX_REL = Path(".rbtv") / "config" / "install-index.json"
-
 # The supported providers: one file, kept beside cast's supported models and
 # read by both programs. `core/rbtv/capabilities/tools/rbtv/documentation/providers.md` documents it.
 PROVIDERS_FILE = (REPO_ROOT / "core" / "cast" / "capabilities" / "tools" / "cast"
