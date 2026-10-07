@@ -5,7 +5,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { loadConfig, agentHome, storePath, slackToken } = require('./config.js');
 const { agentsFolder, holdsAgentFile, readAgent } = require('../../../../cast/capabilities/tools/cast/lib/agent');
-const { Store, procStart } = require('./store.js');
+const { procStart } = require('../../../../cast/capabilities/tools/cast/lib/handles');
+const { Store } = require('./store.js');
 const { handleEvent } = require('./ingress.js');
 const { runOnce } = require('./turn-loop.js');
 const { deliverPending } = require('./outbox.js');
@@ -415,6 +416,10 @@ async function startLocked(opts, workspace, held) {
   const stores = new Map();
   const inflight = new Set();
   let stopping = false;
+  // Settled once a stop has closed every agent's database: at once when no turn is running,
+  // otherwise when the last running turn ends.
+  let drained;
+  const closed = new Promise((resolve) => { drained = resolve; });
   let dreamerNight = null;
   let watchdogAlertAt = null;
   let socket = opts.socket || null;
@@ -440,6 +445,13 @@ async function startLocked(opts, workspace, held) {
     const store = new Store(storePath(config, slug));
     stores.set(slug, store);
     return store;
+  }
+
+  function closeStore(slug) {
+    const store = stores.get(slug);
+    if (!store) return;
+    stores.delete(slug);
+    try { store.close(); } catch (error) { log({ event: 'store-close', message: error.message }); }
   }
 
   let config = loadConfig(workspace);
@@ -559,6 +571,10 @@ async function startLocked(opts, workspace, held) {
       log({ event: 'turn-error', slug, message: error.message });
     } finally {
       inflight.delete(slug);
+      if (stopping) {
+        closeStore(slug);
+        if (inflight.size === 0) drained();
+      }
     }
   }
 
@@ -649,7 +665,7 @@ async function startLocked(opts, workspace, held) {
   }
 
   stop = function stop(reason) {
-    if (stopping) return;
+    if (stopping) return closed;
     stopping = true;
     for (const timer of timers) clearInterval(timer);
     const left = [];
@@ -661,12 +677,11 @@ async function startLocked(opts, workspace, held) {
     log({ event: 'stop', reason, left });
     try { socket?.stop(); } catch (error) { log({ event: 'socket-stop', message: error.message }); }
     releaseLock(held);
-    if (inflight.size === 0) {
-      for (const store of stores.values()) {
-        try { store.close(); } catch (error) { log({ event: 'store-close', message: error.message }); }
-      }
-      stores.clear();
+    for (const slug of [...stores.keys()]) {
+      if (!inflight.has(slug)) closeStore(slug);
     }
+    if (inflight.size === 0) drained();
+    return closed;
   }
 
   try {

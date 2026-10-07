@@ -14,7 +14,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { procStart } = require('./store.js');
+const { procStart } = require('../../../../cast/capabilities/tools/cast/lib/handles');
 const castAgent = require('../../../../cast/capabilities/tools/cast/lib/agent');
 const { composeTurn, readTurnMemory } = require('./prompt.js');
 const { DEFAULT_HISTORY_WINDOW, historyPath, listAll, writeHistory } = require('./history.js');

@@ -21,8 +21,7 @@
 // enqueueScheduleWake({ id, conversationKey, scheduleId, workId }) — fresh threadless conversation;
 //   conversationKey supplies routing only, workId gates eligibility only. ≤1 pending per agent; never reopens or unholds
 // claimNext(now) — owner input before continuation; a pending owner row on completed|stopped work is reopened, then claimed
-// getActiveRun() — running row even if the process is dead; liveRun() — the row only when /proc/<pid>/stat field 22 equals pidStart (string compare)
-// procStart(pid) — /proc/<pid>/stat field 22, or null if the process is gone
+// getActiveRun() — running row even if the process is dead; liveRun() — the row only when the process's start, read with cast's procStart, equals pidStart (string compare)
 // attachProcess(runId, { pid, pidStart, setting }) — freezes the launch snapshot for this run
 // finishRun(runId, nonce, { invocationNonce, output, disposition, summary, nextStep, workers, outputs, harness, sessionId, outbox })
 // failRun(runId, reason, { scope, now }) — retry then hold; enqueues the one blocker; callers must not enqueue another
@@ -43,6 +42,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
+const { procStart } = require('../../../../cast/capabilities/tools/cast/lib/handles');
 
 const DISPOSITIONS = Object.freeze(['completed', 'continue', 'waiting_owner', 'waiting_workers', 'stopped']);
 const DISPOSITION_SET = new Set(DISPOSITIONS);
@@ -55,19 +55,6 @@ const AUTO_PRIORITY = 10;
 
 const json = (value) => JSON.stringify(value ?? null);
 const parse = (value) => value == null ? null : JSON.parse(value);
-
-function procStart(pid) {
-  let stat;
-  try {
-    stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
-  } catch (error) {
-    if (error.code === 'ENOENT') return null;
-    throw error;
-  }
-  const end = stat.lastIndexOf(')');
-  if (end < 0) return null;
-  return stat.slice(end + 1).trim().split(/\s+/)[19] ?? null;
-}
 
 function conversationKey(team, channel, rootTs) {
   if (!team || !channel || !rootTs) throw new Error('team, channel and root ts required');
@@ -838,4 +825,4 @@ class Store {
   }
 }
 
-module.exports = { Store, conversationKey, DISPOSITIONS, RETRY_DELAYS_MS, MAX_ATTEMPTS, procStart };
+module.exports = { Store, conversationKey, DISPOSITIONS, RETRY_DELAYS_MS, MAX_ATTEMPTS };

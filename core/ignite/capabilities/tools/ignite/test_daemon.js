@@ -1400,9 +1400,10 @@ function started(dir, overrides = {}) {
     runtime,
     socket,
     slack,
+    // Settles when the stopped service has closed every agent's database.
     restore() {
       process.env.PATH = prev;
-      runtime.stop('test');
+      return runtime.stop('test');
     },
   }));
 }
@@ -1437,7 +1438,7 @@ test('transcription detail is service-log-only', async () => {
   }
 });
 
-linuxOnly('route-after-start', 'the stopped service keeps its database open while a turn runs, and Windows cannot delete an open file', async () => {
+test('route-after-start', async () => {
   const { dir } = workspace();
   const box = await started(dir);
   try {
@@ -1452,7 +1453,7 @@ linuxOnly('route-after-start', 'the stopped service keeps its database open whil
     assert.equal(saved.queued, true);
     assert.equal(saved.agent, 'probe');
   } finally {
-    box.restore();
+    await box.restore();
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -1480,7 +1481,7 @@ test('ignored-logged', async () => {
   }
 });
 
-linuxOnly('half-written-config', 'the stopped service keeps its database open while a turn runs, and Windows cannot delete an open file', async () => {
+test('half-written-config', async () => {
   const { dir } = workspace();
   setRoutes(dir, { COLD: 'master' });
   const box = await started(dir);
@@ -1493,7 +1494,7 @@ linuxOnly('half-written-config', 'the stopped service keeps its database open wh
     assert.equal(again.queued, true);
     assert.equal(again.agent, 'master');
   } finally {
-    box.restore();
+    await box.restore();
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });

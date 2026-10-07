@@ -5,7 +5,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { Store, conversationKey, DISPOSITIONS, RETRY_DELAYS_MS, MAX_ATTEMPTS, procStart: exportedProcStart } = require('./store.js');
+const { setTimeout: delay } = require('node:timers/promises');
+const { procStart } = require('../../../../cast/capabilities/tools/cast/lib/handles');
+const { Store, conversationKey, DISPOSITIONS, RETRY_DELAYS_MS, MAX_ATTEMPTS } = require('./store.js');
 
 const failures = [];
 const pending = [];
@@ -14,14 +16,15 @@ function test(name, fn) {
   pending.push([name, fn]);
 }
 
-// A test of the waking program's Linux-only side: on Windows it is skipped by name, with the reason.
-function linuxOnly(name, why, fn) {
-  pending.push([name, process.platform === 'win32' ? null : fn, why]);
-}
-
-function procStart(pid) {
-  const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
-  return stat.slice(stat.lastIndexOf(')') + 1).trim().split(/\s+/)[19];
+// Polls procStart(pid) until `done` accepts its answer. Windows answers from a process table
+// that is read at most once a second, so a process appears in it, and leaves it, late.
+async function startWhen(pid, done) {
+  for (let tries = 0; tries < 100; tries++) {
+    const start = procStart(pid);
+    if (done(start)) return start;
+    await delay(100);
+  }
+  throw new Error(`process ${pid} start did not settle`);
 }
 
 function conv(store, key = 'T1:C1:1.1', extra = {}) {
@@ -97,15 +100,18 @@ test('2b liveRun returns pid and pidStart', (store) => {
   assert.throws(() => store.attachProcess(claim.runId, { pid: 1, pidStart: 'other', setting }));
 });
 
-linuxOnly('2b liveRun matches proc start and refuses a dead or reused pid', 'the liveness check reads /proc, and only the waking program calls it', async (store, ctx) => {
+test('2b liveRun matches proc start and refuses a dead or reused pid', async (store, ctx) => {
   const { spawn } = require('node:child_process');
-  const child = spawn('sleep', ['30'], { stdio: 'ignore' });
+  // This test process stands for a reused pid: alive, with another start than the child's.
+  // Windows records a start in whole seconds, so the child is started more than a second later.
+  await delay(Math.max(0, 1500 - process.uptime() * 1000));
+  const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: 'ignore' });
   try {
     await new Promise((resolve, reject) => {
       child.once('spawn', resolve);
       child.once('error', reject);
     });
-    const start = procStart(child.pid);
+    const start = await startWhen(child.pid, (found) => found != null);
     assert.ok(start);
     conv(store);
     const setting = launch();
@@ -117,16 +123,16 @@ linuxOnly('2b liveRun matches proc start and refuses a dead or reused pid', 'the
     assert.ok(live);
     assert.equal(String(live.pid), String(child.pid));
     assert.equal(String(live.pidStart), String(start));
-    assert.equal(exportedProcStart(child.pid), String(live.pidStart));
-    const initStart = procStart(1);
-    assert.notEqual(String(initStart), String(start));
-    restarted.db.prepare('UPDATE runs SET pid=?, pid_start=? WHERE id=?').run(1, String(start), live.id);
+    const ownStart = procStart(process.pid);
+    assert.ok(ownStart);
+    assert.notEqual(String(ownStart), String(start));
+    restarted.db.prepare('UPDATE runs SET pid=?, pid_start=? WHERE id=?').run(process.pid, String(start), live.id);
     assert.equal(restarted.liveRun(), null);
     restarted.db.prepare('UPDATE runs SET pid=?, pid_start=? WHERE id=?').run(child.pid, String(start), live.id);
     assert.ok(restarted.liveRun());
     child.kill('SIGKILL');
     await new Promise((resolve) => child.once('exit', resolve));
-    assert.equal(fs.existsSync(`/proc/${child.pid}`), false);
+    await startWhen(child.pid, (found) => found == null);
     assert.equal(restarted.liveRun(), null);
   } finally {
     if (child.exitCode == null && child.signalCode == null) {
@@ -626,8 +632,7 @@ test('pendingScheduleIds retains a running wake and drops completed wakes', (sto
 });
 
 async function runAll() {
-  for (const [name, fn, why] of pending) {
-    if (!fn) { console.log(`skip: ${name} is Linux-only: ${why}`); continue; }
+  for (const [name, fn] of pending) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-store-'));
     const db = path.join(dir, 'state.sqlite');
     let store = new Store(db);

@@ -6,6 +6,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { setTimeout: delay } = require('node:timers/promises');
+const { procStart } = require('../../../../cast/capabilities/tools/cast/lib/handles');
 const { Store } = require('./store.js');
 const { main } = require('./cli.js');
 const { runOnce } = require('./turn-loop.js');
@@ -26,6 +28,13 @@ function test(name, fn) {
 function linuxOnly(name, why, fn) {
   pending.push([name, process.platform === 'win32' ? null : fn, why]);
 }
+
+// Windows answers "when did this process start" from a process table that takes about 1.5 s to
+// read and is reused for 1 s (cast's lib/win-proc.js). A test whose subject needs that answer
+// waits out the previous read, and keeps its stand-in turn alive through the next one.
+const WINDOWS = process.platform === 'win32';
+const TABLE_REUSE_MS = WINDOWS ? 1100 : 0;
+const TURN_HOLD_MS = WINDOWS ? 5000 : 0;
 
 const STUB = `#!/usr/bin/env node
 'use strict';
@@ -69,7 +78,7 @@ if (control.writeLauncher !== false) {
   if (control.error) launcher.error = control.error;
   fs.writeFileSync(resultFile, JSON.stringify(launcher));
 }
-process.exit(control.exitCode ?? 0);
+setTimeout(() => process.exit(control.exitCode ?? 0), control.holdMs ?? 0);
 `;
 
 function agentOf(disposition, extra = {}) {
@@ -309,14 +318,14 @@ test('request carries systemPromptFile', async (ctx) => {
   assert.equal(fs.existsSync(path.join(box.home, 'CLAUDE.md')), false);
 });
 
-linuxOnly('live-PID refusal', 'the liveness check reads /proc, and only the waking program calls it', async (ctx) => {
+test('live-PID refusal', async (ctx) => {
   const box = harness(ctx);
   seed(box.store);
   box.sync();
   const claim = box.store.claimNext(box.now());
-  const child = ctx.trackPid(spawn('sleep', ['60']));
-  const stat = fs.readFileSync(`/proc/${child.pid}/stat`, 'utf8');
-  const pidStart = stat.slice(stat.lastIndexOf(')') + 1).trim().split(/\s+/)[19];
+  const child = ctx.trackPid(spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' }));
+  await delay(TABLE_REUSE_MS);
+  const pidStart = procStart(child.pid);
   box.store.attachProcess(claim.runId, { pid: child.pid, pidStart, setting: box.launch });
   const result = await runOnce('master', box.deps);
   assert.equal(result.refused, 'live');
@@ -358,10 +367,12 @@ test('restart recovery from a DB with a pending queue and an unfinished work ite
   assert.equal(seen(box).length, 2);
 });
 
-linuxOnly('settings changed between turns → next run snapshots the new setting', 'the launch setting is stored together with the process start read from /proc', async (ctx) => {
+test('settings changed between turns → next run snapshots the new setting', async (ctx) => {
   const box = harness(ctx);
+  box.writeControl({ agent: agentOf('completed'), sessionId: 'ses-keep', holdMs: TURN_HOLD_MS });
   seed(box.store, { text: 'first' });
   box.sync();
+  await delay(TABLE_REUSE_MS);
   const first = await runOnce('master', box.deps);
   assert.equal(first.snapshot.effort, 'low');
   assert.equal(first.snapshot.harness, 'claude');
