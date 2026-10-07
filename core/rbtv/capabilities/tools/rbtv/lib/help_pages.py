@@ -641,8 +641,7 @@ To write a new agent first, see the new-agent passage in rbtv agent -h.
 A name is looked up in <installation>/.rbtv/agents/, then among agents a
 component ships. A shipped agent with no folder there is placed in
 .rbtv/agents/<name>/, then applied. A path is used in place: nothing is
-copied. The folder name, the name in prompt.md, and the name in agent.json
-must agree.
+copied. The folder name and the name in agent.json must agree.
 
 --harness, --model and --effort are required, all three, when agent.json
 has none: always the case for an agent a component ships. They are checked

@@ -30,7 +30,7 @@ The scanner silently skips the index names `skills.md`, `rules.md`, `commands.md
 
 For named records, `name` equals the file stem; folder instructions have no `name`. Skills, commands, rules, hooks, MCP servers and both agent files use `^[a-z0-9][a-z0-9-]*$`. The `rbtv-` prefix is separately reserved and yields `REFUSED [name-reserved]`. Tool names equal their folder name and are not checked against that pattern or reserved prefix. The installer does not detect a command name that conflicts with a harness's built-in name; check that through [Command](command.md).
 
-An agent's folder, prompt name and record name must agree. Shipped component records cannot name `harness`, `model` or `effort`. The obsolete source folder `sub-agents/` is refused; use the agent folder format.
+An agent's folder name and record name must agree. Shipped component records cannot name `harness`, `model` or `effort`. The obsolete source folder `sub-agents/` is refused; use the agent folder format.
 
 A self-contained mirror skill is the exception: `.rbtv/mirror/_skills/<name>/SKILL.md`. It is recognized only there, requires a frontmatter block and is not checked against the skill schema; extra keys are retained in its copy. Listings show its `description`, written on one line or as a `>` or `|` block. Its folder name cannot start with the reserved `rbtv-` prefix.
 

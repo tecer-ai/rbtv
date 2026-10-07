@@ -6,7 +6,7 @@
   "required": ["name", "description"],
   "properties": {
     "name": {
-      "description": "The agent's name. It equals the agent folder's name and the name in prompt.md.",
+      "description": "The agent's name. It equals the agent folder's name.",
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9-]*$"
     },

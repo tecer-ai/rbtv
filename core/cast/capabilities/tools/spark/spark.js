@@ -61,7 +61,7 @@ const HELP = [
   'Harness, model and effort are read from the agent\'s agent.json. To',
   'change them: rbtv agent configure AGENT',
   'spark sets RBTV_AGENT_HOME to the agent folder. It hands prompt.md to',
-  'the model without its frontmatter.',
+  'the model. A frontmatter block that still opens the file is ignored.',
   '',
   '--target FOLDER',
   '            Take the agents from FOLDER, not from above the current',
