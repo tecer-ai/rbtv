@@ -1,6 +1,6 @@
 # Documenting a change
 
-Keep rbtv's instructions and discovery routes accurate in the same change as its source. Start with the changed files and the behavior they add, alter or remove. Follow [the component's documentation rules](../CLAUDE.md) for current-design prose and standing decisions.
+Keep rbtv's instructions and discovery routes accurate in the same change as its source. Start with the changed files and the behavior they add, alter or remove. Write current-design prose: a page describes the design as it is, never what changed or why.
 
 ## Update what describes the change
 

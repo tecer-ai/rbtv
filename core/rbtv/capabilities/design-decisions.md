@@ -1,10 +1,10 @@
 # Installer design decisions
 
-These are the installer decisions in force. The installer code is the authority for behavior. The [building decisions](../decisions.md) own decisions about rbtv as a whole; the [overview](../skills/framework.md), glossary, and schemas own the source and record formats.
+These are the installer decisions in force. The installer code is the authority for behavior. The [overview](../skills/framework.md), glossary, and schemas own the source and record formats.
 
 ## D1 — Installer placement
 
-The installer is the `core/rbtv` component. Its tool has a small `install.py` entry point, responsibility-specific modules in `lib/`, `discovery.py` beside the entry point, and checks in `selftest/`. `REPO_ROOT` is defined once in `lib/constants.py` as `Path(__file__).resolve().parents[6]`; the layout selftest checks it. This keeps imports and repository scans anchored to one location while the code stays readable by responsibility. The reason `core` owns the installer is in the [building decisions](../decisions.md#module-and-component-placement).
+The installer is the `core/rbtv` component. Its tool has a small `install.py` entry point, responsibility-specific modules in `lib/`, `discovery.py` beside the entry point, and checks in `selftest/`. `REPO_ROOT` is defined once in `lib/constants.py` as `Path(__file__).resolve().parents[6]`; the layout selftest checks it. This keeps imports and repository scans anchored to one location while the code stays readable by responsibility.
 
 ## D2 — Component source shape
 
@@ -76,7 +76,7 @@ A real install that selects a PATH tool adds `~/.rbtv/bin` to the user's shell s
 
 ## D10 — Absolute source paths
 
-The installer writes resolved absolute source paths into the links of a copy and into a sub-agent pointer. The rule list in `opencode.json` is the exception: its paths are relative to the installation, because that file can be committed and read on another machine. The [building decisions](../decisions.md#system-and-installation-decisions) own this choice and its machine-local rationale.
+The installer writes resolved absolute source paths into the links of a copy and into a sub-agent pointer. The rule list in `opencode.json` is the exception: its paths are relative to the installation, because that file can be committed and read on another machine.
 
 ## D12 — Proof of ownership
 
