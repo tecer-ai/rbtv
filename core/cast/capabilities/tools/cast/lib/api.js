@@ -14,6 +14,7 @@ const { ROWS } = require('../supported-models');
 const { providers: PROVIDERS } = require('../providers.json');
 
 const { fail } = require('./core');
+const { gate } = require('./model-catalog');
 
 const API_USAGE = 'cast api <model> <effort 1-5> (-p TEXT | -f FILE) --output-folder DIR [--image [--input-image PATH ...]] [--target-file PATH] [--timeout N] [--grounded] [--extra-params JSON] [--dry-run]';
 const API_RUNNER = path.join(__dirname, '..', 'api', 'run.py');
@@ -129,12 +130,13 @@ function runApi(rawArgv) {
     const known = apiRows().map((r) => r.model || '(blank — owner has not filled the model id)').join(', ');
     fail(`refused: '${model}' is not a known api model\nknown: ${known}`);
   }
+  try { gate(row.harness, row.model, process.cwd()); } catch (e) { fail(e.message); }
   const provider = apiProvider(row);
   if (!provider) fail(`refused: api row '${row.model}' has no provider`);
   // A blank id is the not-yet-chosen image model. Refuse HERE rather than sending an empty model
   // name at the provider and reading its 404 as something else.
   if (!row.id) {
-    fail('refused: that api row has no model id yet — the owner fills it in models.csv and supported-models.js (both, identically)');
+    fail('refused: that api row has no model id yet — the owner fills it in the model catalog and supported-models.js (both, identically)');
   }
 
   let callerExtra = null;

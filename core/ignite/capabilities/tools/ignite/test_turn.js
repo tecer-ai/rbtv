@@ -58,7 +58,7 @@ function rejects(request, needle) {
 }
 
 rejects(base({ harness: 'nope' }), 'unknown harness');
-rejects(base({ model: 'no-such' }), 'unknown claude model');
+rejects(base({ model: 'no-such' }), "'claude no-such' is not a model cast supports");
 rejects(base({ effort: 'turbo' }), 'unsupported effort');
 rejects(base({ effort: 0 }), 'unsupported effort');
 rejects(base({ cwd: 'relative' }), 'absolute directory');
@@ -380,9 +380,61 @@ process.exit(0);
 // F2: one throwing lookup. validate must not exit the process on an unknown model.
 {
   const { lookupModel } = require('../../../../cast/capabilities/tools/cast/lib/core');
-  assert.strictEqual(lookupModel('claude', 'sonnet-5-5').modelId, 'claude-sonnet-5-5');
-  assert.throws(() => lookupModel('claude', 'no-such'), /unknown claude model/);
-  assert.throws(() => lookupModel('nope', 'sonnet-5-5'), /unknown harness/);
+  assert.strictEqual(lookupModel('claude', 'sonnet-5-5', cwd).modelId, 'claude-sonnet-5-5');
+  assert.throws(() => lookupModel('claude', 'no-such', cwd), /is not a model cast supports/);
+  assert.throws(() => lookupModel('nope', 'sonnet-5-5', cwd), /unknown harness/);
+  assert.throws(() => lookupModel('claude', 'sonnet-5-5'), /needs the folder that locates the installation/);
+}
+
+// A turn launches only a model its installation has selected. The installation is the one that
+// holds the request's cwd (the agent's folder): its model catalog is .rbtv/config/cast/models.csv,
+// and while it has none every supported model is selected.
+{
+  const HEAD = 'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override';
+  const SONNET = 'cli,claude,sonnet-5-5,5,N,L2,3,3,10,route,N,N';
+  const agentHome = (lines) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-turn-gate-'));
+    const home = path.join(root, '.rbtv', 'agents', 'probe');
+    fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(path.join(root, '.rbtv', 'config', 'cast'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.rbtv', 'config', 'install.json'), '{}\n');
+    const file = path.join(root, '.rbtv', 'config', 'cast', 'models.csv');
+    if (lines) fs.writeFileSync(file, `${lines.join('\n')}\n`);
+    return { root, home, file };
+  };
+  const turn = (home, harness, model) => ({ harness, model, effort: 1, cwd: home, prompt: 'x', session: { mode: 'new' } });
+
+  // no model catalog: everything supported launches
+  const fresh = agentHome(null);
+  assert.strictEqual(validate(turn(fresh.home, 'claude', 'haiku-4-5')).modelId, 'claude-haiku-4-5');
+  assert.strictEqual(validate(turn(fresh.home, 'opencode', 'grok-4.7')).modelId, 'xai/grok-4.7');
+
+  // the model is not in the installation's model catalog: refused with the command that selects it
+  const pruned = agentHome([HEAD, SONNET]);
+  assert.strictEqual(validate(turn(pruned.home, 'claude', 'sonnet-5-5')).modelId, 'claude-sonnet-5-5');
+  for (const model of ['haiku-4-5', 'claude-haiku-4-5']) {
+    rejects(turn(pruned.home, 'claude', model),
+      `refused: 'claude haiku-4-5' is not selected in ${pruned.root}\nmodel catalog: ${pruned.file}\nNothing changed.\ncast models add claude haiku-4-5`);
+  }
+  // the turn's own process reports it as an invalid request, never as a launch
+  const { res, written } = runTurn(turn(pruned.home, 'claude', 'haiku-4-5'), process.env);
+  assert.notStrictEqual(res.status, 0);
+  assert.ok(JSON.stringify(written || res.stderr).includes('cast models add claude haiku-4-5'), `${res.stderr}${JSON.stringify(written)}`);
+
+  // a row this copy of cast does not support: the deploy-copy case, named as such
+  const orphan = agentHome([HEAD, SONNET, 'cli,opencode,not-a-real-model,3,N,L2,6,6,1,route,N,N']);
+  rejects(turn(orphan.home, 'opencode', 'not-a-real-model'),
+    `refused: 'opencode not-a-real-model' is selected in ${orphan.file} but this copy of cast does not support it`);
+  rejects(turn(orphan.home, 'opencode', 'not-a-real-model'),
+    'the daemon runs its own deployed copy of rbtv: deploy a commit that supports it\nNothing changed.\ncast models remove opencode not-a-real-model');
+
+  // a model catalog that cannot be read stops the turn, for a selected model too
+  const broken = agentHome([HEAD, 'cli,claude,sonnet-5-5,5,N,L2,3,3,1,0,route,N,N']);
+  rejects(turn(broken.home, 'claude', 'sonnet-5-5'),
+    `refused: cannot read the model catalog ${broken.file} line 2: 13 cells where the header has 12\nNothing changed.\ncast models list --catalog`);
+
+  // the cwd is checked before the model: a missing folder is the answer, not a lookup from it
+  rejects(turn(path.join(pruned.root, 'missing'), 'claude', 'haiku-4-5'), 'absolute directory');
 }
 
 // The agent's standing prompt rides each harness's strongest channel.

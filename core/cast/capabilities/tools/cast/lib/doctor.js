@@ -7,13 +7,13 @@
 // Accounts, saved logins and plan usage belong to `rbtv providers`, which the report points to.
 
 const fs = require('fs');
-const path = require('path');
 const { ROWS } = require('../supported-models');
 const { providers: PROVIDERS } = require('../providers.json');
 const { HARNESSES, fail } = require('./core');
 const { installationRoot } = require('./installation');
-const { expandHome, isAvailable, readJson, unavailableReason } = require('./route');
-const { resolveWindowsExecutable } = require('./win-exec');
+const { CatalogError, loadSelection } = require('./model-catalog');
+const { expandHome, loginFoundIn, readJson, unavailableReason } = require('./route');
+const { findOnPath } = require('./win-exec');
 
 const NEXT = ['rbtv providers list', 'rbtv providers usage'];
 
@@ -30,24 +30,22 @@ function doctorArgs(args) {
   return { json };
 }
 
-// Where PATH would find the program, or null. Read from the folders of PATH; nothing is started.
-function programPath(name) {
-  if (process.platform === 'win32') return resolveWindowsExecutable(name, process.env);
-  for (const dir of (process.env.PATH || '').split(path.delimiter).filter(Boolean)) {
-    const file = path.join(dir, name);
-    try {
-      if (fs.statSync(file).isFile()) {
-        fs.accessSync(file, fs.constants.X_OK);
-        return file;
-      }
-    } catch { /* not here */ }
+// The models the login check covers: every supported model the installation selects, cli and
+// api. While the installation has no model catalog of its own, that is every supported model.
+// `problem` is set, and no model is checked, when its model catalog cannot be read.
+function selectedModels(root) {
+  let selection;
+  try { selection = loadSelection(root); } catch (e) {
+    if (!(e instanceof CatalogError)) throw e;
+    return { selection: null, rows: [], unsupported: 0, problem: e.message };
   }
-  return null;
-}
-
-// The models the login check covers: the current selection, which is every model cast can launch.
-function selectedModels() {
-  return ROWS.filter((r) => r.mode === 'cli');
+  const selects = (row) => selection.rows.some((r) => r.harness === row.harness && r.model === row.model);
+  return {
+    selection: selection.shipped ? null : selection.file,
+    rows: selection.shipped ? ROWS : ROWS.filter(selects),
+    unsupported: selection.rows.filter((r) => !ROWS.some((row) => row.harness === r.harness && row.model === r.model)).length,
+    problem: null,
+  };
 }
 
 // A provider whose login is a set of files (providers.json `saved_login.files`): what is missing
@@ -65,46 +63,47 @@ function savedLoginGap(provider) {
 }
 
 // One model's login: the presence test `cast route` uses, and for a provider with login files,
-// those files too. `reason` says what is absent; it never carries a value.
+// those files too. `via` says where it was found and `reason` what is absent; neither carries a
+// value.
 function loginState(row, root) {
-  let reason = isAvailable(row, root) ? null : unavailableReason(row);
+  let via = loginFoundIn(row, root);
+  let reason = via === null ? unavailableReason(row) : null;
   const provider = PROVIDERS[row.provider];
-  if (reason === null && provider.saved_login) reason = savedLoginGap(provider);
-  return { harness: row.harness, model: row.model, provider: row.provider, login: reason === null, reason };
+  if (reason === null && provider.saved_login) {
+    reason = savedLoginGap(provider);
+    via = reason === null ? `login files: ${Object.values(provider.saved_login.files).map((f) => f.path).join(', ')}` : null;
+  }
+  return { harness: row.harness, model: row.model, provider: row.provider, login: reason === null, via, reason };
 }
 
 function runDoctor(args) {
   const { json } = doctorArgs(args);
   const root = installationRoot(process.cwd());
-  const harnesses = {};
-  for (const name of HARNESSES) {
-    const found = programPath(name);
-    harnesses[name] = { ok: found !== null, path: found };
-  }
-  const models = selectedModels().map((row) => loginState(row, root));
+  const harnesses = Object.fromEntries(HARNESSES.map((name) => [name, findOnPath(name)]));
+  const { selection, rows, unsupported, problem } = selectedModels(root);
+  const models = rows.map((row) => loginState(row, root));
   if (json) {
-    process.stdout.write(`${JSON.stringify({ installation: root, harnesses, models, next: NEXT })}\n`);
+    process.stdout.write(`${JSON.stringify({ installation: root, selection, catalog_problem: problem, harnesses, models, next: NEXT })}\n`);
     process.exit(0);
   }
-  const pad = (values) => Math.max(...values.map((v) => v.length));
-  const hw = pad(HARNESSES);
+  const pad = (values) => Math.max(0, ...values.map((v) => v.length));
+  const hw = pad([...HARNESSES, ...models.map((m) => m.harness)]);
   const mw = pad(models.map((m) => m.model));
-  const pw = pad(models.map((m) => m.provider));
-  const lines = ['cast doctor: what this machine can launch. Local files only; nothing is started.', '',
-    'harness programs on PATH'];
-  for (const name of HARNESSES) {
-    const h = harnesses[name];
-    lines.push(`  ${name.padEnd(hw)}  ${h.ok ? `found    ${h.path}` : 'missing'}`);
-  }
-  lines.push('', 'login of each selected model',
-    root ? `  installation: ${root}`
-      : '  no installation found from this folder: no environment file is read');
+  const lines = ['cast doctor — can this machine launch the selected models? Local files only; nothing is started.', '',
+    root ? `installation: ${root}` : `installation: none above ${process.cwd()} (no environment file is read)`,
+    `model catalog: ${selection || 'the one shipped with cast (every supported model is selected)'}`,
+    '', 'harnesses'];
+  for (const name of HARNESSES) lines.push(`  ${name.padEnd(hw)}  ${harnesses[name] || 'MISSING'}`);
+  lines.push('', 'selected models');
+  if (problem) lines.push(`  none checked: ${problem}`);
   for (const m of models) {
-    lines.push(`  ${m.harness.padEnd(hw)}  ${m.model.padEnd(mw)}  ${m.provider.padEnd(pw)}  ${m.login ? 'present' : 'missing'}`);
-    if (!m.login) lines.push(`      ${m.reason}`);
+    lines.push(`  ${m.login ? '✓' : '·'} ${m.harness.padEnd(hw)}  ${m.model.padEnd(mw)}  ${m.login ? m.via : `no login: ${m.reason}`}`);
   }
-  lines.push(`  ${models.filter((m) => m.login).length} of ${models.length} selected models have a login present.`,
-    '', 'accounts, saved logins and plan usage:', ...NEXT.map((c) => `  ${c}`));
+  if (!problem) lines.push(`  ${models.filter((m) => m.login).length} of ${models.length} selected models have a login present.`);
+  if (unsupported) {
+    lines.push(`  ${unsupported} row${unsupported === 1 ? '' : 's'} of the model catalog name a model this copy of cast does not support: cast models list --catalog`);
+  }
+  lines.push('', `Accounts and usage: ${NEXT.join(' · ')}`);
   process.stdout.write(`${lines.join('\n')}\n`);
   process.exit(0);
 }

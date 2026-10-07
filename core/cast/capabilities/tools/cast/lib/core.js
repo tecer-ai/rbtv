@@ -1,13 +1,12 @@
 'use strict';
 
-// cast — shared primitives: argv parsing, model/effort/folder resolution, the model table, list.
-// Split out of cast.js 2026-08-20 on the file's own section banners; the code below is
-// unchanged from that file. Every composed argv and every stdout surface stayed
-// byte-identical across the split (163-invocation corpus, both self-check suites).
+// cast — shared primitives: argv parsing, model/effort/folder resolution, the words of `cast list`.
 
 const fs = require('fs');
 const path = require('path');
 const { SPECS, ROWS } = require('../supported-models');
+
+const { gate } = require('./model-catalog');
 
 // CLI model names are short: the provider prefix and the `claude-` prefix are dropped
 // (`zai-coding-plan/glm-5.3` -> `glm-5.3`, `claude-opus-5-5` -> `opus-5-5`). SPECS stays keyed by
@@ -117,80 +116,17 @@ function effortMap(eff) {
   return parts.map((p) => `${p.from === p.to ? p.from : `${p.from}-${p.to}`}=${p.word}`).join(' ');
 }
 
-function modelTable() {
-  const lines = [];
-  const names = [];
-  for (const harness of HARNESSES) {
-    for (const id of Object.keys(SPECS[harness])) names.push(`${harness}  ${shortName(harness, id)}`);
-  }
-  const width = Math.max(...names.map((n) => n.length));
-  let i = 0;
-  for (const harness of HARNESSES) {
-    for (const id of Object.keys(SPECS[harness])) {
-      lines.push(`  ${names[i++].padEnd(width)}   ${effortMap(SPECS[harness][id].effort)}`);
-    }
-  }
-  return lines;
-}
-
-function buildInventory() {
-  const inv = {};
-  for (const harness of HARNESSES) {
-    inv[harness] = {};
-    for (const id of Object.keys(SPECS[harness])) {
-      const eff = SPECS[harness][id].effort;
-      inv[harness][shortName(harness, id)] = (!eff || eff.inert) ? [] : eff.rungs.slice();
-    }
-  }
-  return inv;
-}
-
 // The one sentence every effort-facing surface says: the dial takes a NUMBER, the words are
 // labels. Agents kept passing rung words to the launch path, which only ever accepted 1-5.
 const EFFORT_RULE = "effort is an integer 1-5: N picks the Nth rung, clamped to the model's top — pass the number, the words are labels only.";
 
-// word -> the SMALLEST number that selects it, read off resolveEffort itself (never a second
-// copy of the ladder walk): walk N 1..5, keep each word's first N. Inert ladder -> {}.
-function effortNumbers() {
-  const out = {};
-  for (const harness of HARNESSES) {
-    out[harness] = {};
-    for (const id of Object.keys(SPECS[harness])) {
-      const numbers = {};
-      for (let n = 1; n <= 5; n++) {
-        const word = resolveEffort(SPECS[harness][id], n).word;
-        if (word && !(word in numbers)) numbers[word] = n;
-      }
-      out[harness][shortName(harness, id)] = numbers;
-    }
-  }
-  return out;
-}
-
-// naive scoring: longest common prefix length, +100 if either string contains the other
-function suggest(input, candidates) {
-  let best = null;
-  let bestScore = -1;
-  for (const c of candidates) {
-    let i = 0;
-    while (i < input.length && i < c.length && input[i] === c[i]) i++;
-    let score = i;
-    if (c.includes(input) || input.includes(c)) score += 100;
-    if (score > bestScore) {
-      bestScore = score;
-      best = c;
-    }
-  }
-  return best;
-}
-
-// The words of `cast list`: which list (--models, --agents, or --agent NAME), --full for whole
-// descriptions, and --json. Every other word is refused, so a mistyped command never falls back
-// to printing the models.
+// The words of `cast list`: --agents (every agent, the default) or --agent NAME, --full for whole
+// descriptions, and --json. Every other word is refused. The model lists are `cast models list`.
 function listArgs(args) {
   const refuse = (what, why, next) => fail(`refused: ${what}\n${why}\nNothing was listed.\n${next}`);
+  const moved = () => refuse('the model lists moved',
+    'cast list shows the rbtv agents; every list of models is a view of cast models list', 'cast models list');
   let json = false;
-  let models = false;
   let agents = false;
   let full = false;
   let agent = null;
@@ -199,7 +135,7 @@ function listArgs(args) {
     const a = args[i];
     if (a === '--json') json = true;
     else if (a === '--full') full = true;
-    else if (a === '--models') models = true;
+    else if (a === '--models') moved();
     else if (a === '--agents') agents = true;
     else if (a === '--agent') {
       const name = args[i + 1];
@@ -211,35 +147,18 @@ function listArgs(args) {
       i += 1;
     } else if (a.startsWith('-')) {
       refuse(`'${a}' is not a cast list option`,
-        'cast list takes --models, --agents or --agent NAME, and --full and --json', 'cast list -h');
+        'cast list takes --agents or --agent NAME, and --full and --json', 'cast list -h');
     } else named.push(a);
   }
-  if ([models, agents, agent !== null].filter(Boolean).length > 1) {
-    refuse('--models, --agents and --agent NAME are different lists', 'pass one of them', 'cast list -h');
+  if (agents && agent !== null) {
+    refuse('--agents and --agent NAME are different lists', 'pass one of them', 'cast list -h');
   }
+  if (named[0] === 'models') moved();
   if (named.length) {
     refuse(`cast list takes no name by itself, got '${named[0]}'`,
-      'one agent in full is --agent NAME; with no flag, cast list prints the models', `cast list --agent ${named[0]}`);
+      'one agent in full is --agent NAME', `cast list --agent ${named[0]}`);
   }
-  if (full && !agents && agent === null) {
-    refuse('--full shows whole descriptions, and the models have none', 'it goes with --agents', 'cast list --agents --full');
-  }
-  return { json, full, agents: agents || agent !== null, agent };
-}
-
-function runList(json) {
-  if (json) {
-    // Additive: the three harness keys stay byte-identical (first, unchanged); the two new
-    // keys ride after them, so name-based lookups (`inv[harness]`) and array indexing keep working.
-    const usage = 'Pass the NUMBER (integer 1-5) as <effort>, not the word — example: '
-      + 'cast opencode glm-5.3 2 -p "hello". The rung words are labels only; '
-      + 'effort_numbers maps each word to the number that selects it.';
-    process.stdout.write(`${JSON.stringify({ ...buildInventory(), effort_numbers: effortNumbers(), usage })}\n`);
-  } else {
-    for (const line of modelTable()) process.stdout.write(`${line}\n`);
-    process.stdout.write(`${EFFORT_RULE}\n`);
-  }
-  process.exit(0);
+  return { json, full, agent };
 }
 
 // Rung mapping: input N (1-5) -> ladder[min(N, ladder.length) - 1]. Inert ladder -> no argv.
@@ -321,9 +240,9 @@ function resolveFolder(folderArg) {
   return folder;
 }
 
-// The catalog also carries rows cast can NEVER spawn — the API workers. `cast route` may pick
-// them; addressing one as a launch pair is a refusal, not a "no such model", so the caller learns
-// WHY (and reaches it via `cast api`).
+// The supported models also hold rows cast can NEVER spawn — the API workers. `cast route` may
+// pick them; addressing one as a launch pair is a refusal, not a "no such model", so the caller
+// learns WHY (and reaches it via `cast api`).
 function refuseIfNotLaunchable(harness, model) {
   const row = ROWS.find((r) => r.harness === harness && r.model === model && r.mode !== 'cli');
   if (row) {
@@ -331,27 +250,27 @@ function refuseIfNotLaunchable(harness, model) {
   }
 }
 
-function lookupModel(harness, model) {
+// The one lookup every launch goes through: the model's launch spec, once the launch check
+// (lib/model-catalog.js `gate`) has passed it for the installation that holds `from` — the agent's folder
+// for an agent launch, the current folder for a plain one. Throws; never exits.
+function lookupModel(harness, model, from) {
   if (typeof harness !== 'string' || !SPECS[harness]) throw new Error(`unknown harness: ${harness}`);
   if (typeof model !== 'string' || !model) throw new Error('model must be a string');
+  if (typeof from !== 'string' || !from) throw new Error('lookupModel needs the folder that locates the installation');
   const modelId = SPECS[harness][model] ? model : SHORT[harness][model];
-  const spec = modelId && SPECS[harness][modelId];
-  if (!spec) throw new Error(`unknown ${harness} model: ${model}`);
-  return { modelId, spec };
+  gate(harness, modelId ? shortName(harness, modelId) : model, from);
+  return { modelId, spec: SPECS[harness][modelId] };
 }
 
-function resolveModel(harness, model) {
+function resolveModel(harness, model, from) {
   try {
-    return lookupModel(harness, model);
-  } catch {
+    return lookupModel(harness, model, from);
+  } catch (e) {
+    refuseIfNotLaunchable(harness, model);
     if (typeof harness !== 'string' || !SPECS[harness]) {
-      refuseIfNotLaunchable(harness, model);
       fail(`refused: '${harness}' is not a known harness\nknown: ${HARNESSES.join(', ')}`);
     }
-    refuseIfNotLaunchable(harness, model);
-    const candidates = Object.keys(SHORT[harness]);
-    const guess = suggest(model, candidates);
-    fail(`refused: '${model}' is not a known model for '${harness}'\ndid you mean '${guess}'?\nknown (${harness}): ${candidates.join(', ')}`);
+    fail(e.message);
   }
 }
 
@@ -359,7 +278,7 @@ module.exports = {
   CODEX_DOC_LIMIT, shortName, SHORT, baseArgv, promptArgv,
   fail, HARNESSES, USAGE, USAGE_IG,
   RESUME_USAGE, SESSIONS_USAGE, KNOWN_FLAGS, detachMarks,
-  refuseIfDetached, effortMap, modelTable, buildInventory, EFFORT_RULE, effortNumbers,
-  suggest, listArgs, runList, resolveEffort, resolveEffortValue,
+  refuseIfDetached, effortMap, EFFORT_RULE,
+  listArgs, resolveEffort, resolveEffortValue,
   parseArgs, resolveFolder, refuseIfNotLaunchable, lookupModel, resolveModel,
 };

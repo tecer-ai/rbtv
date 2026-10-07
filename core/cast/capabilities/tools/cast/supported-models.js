@@ -5,24 +5,25 @@
 // login it needs. The providers themselves (login method, key variable, credential store) are
 // data in `providers.json` beside this file; a row names one by its key there.
 //
-// The routing columns (levels, scores, cost, image capability) live in this component's
-// `models.csv`. `cast route` JOINS the two on harness+model: a CSV row with no row here is
-// excluded (route must never pick what cast cannot launch), and a row here with no CSV twin is
-// unroutable while staying launchable by hand.
+// The routing columns (levels, scores, cost, image capability) live in the model catalog: the
+// shipped `models.csv` beside this file, which holds at least one row for every row here, or the
+// installation's own `.rbtv/config/cast/models.csv`. A row of the model catalog in force SELECTS
+// its harness+model: a launch names a model that is supported (a row here) and selected, and
+// `cast route` JOINS the two on harness+model, excluding a model catalog row with no row here.
+// lib/model-catalog.js reads the table and holds that launch check.
 //
 // Readers:
 //   * the launch path (lib/core.js, lib/launch.js) consumes SPECS below: `mode: cli` rows only,
 //     in this file's order.
-//   * lib/route.js consumes ROWS for the launch and provider half of each joined pick.
+//   * lib/route.js and lib/model-catalog.js consume ROWS for the launch and provider half of each
+//     joined row.
 //   * lib/api.js consumes the `mode: api` rows.
 //
 // mode:
 //   cli  launchable by `cast <harness> <model> <effort>` (a real OS process)
 //   api  an API worker reached by `cast api` — routable, NOT launchable
-// (The `agent-tool` mode was DELETED 2026-08-20: a caller with a native sub-agent tool substitutes
-// it ITSELF when the routed model is runnable there — the sub-agents doc's rule.)
 //
-// Launch-ladder provenance (unchanged since 2026-08-12):
+// Launch-ladder provenance:
 //   claude   — measured 2026-08-12.
 //   codex    — each model's `supported_reasoning_levels` in the model manifest embedded in the
 //              codex binary (0.147.0), spot-checked against live `codex exec` runs 2026-08-12.
@@ -38,13 +39,7 @@
 //              rows are the one place `--verbose` UNDER-reports: it lists high,max, but a live
 //              `opencode run --variant low` on both returns normally (2026-08-14).
 //
-// PRUNING vs ROUTING: a row kept here that models.csv omits (haiku-4-5, sakana-namazu) stays
-// LAUNCHABLE — `cast claude haiku-4-5 1` still works. It just stops being an answer `cast route`
-// can give.
-//
-// SUPERSEDED VERSIONS are deleted, not kept (owner direction 2026-10-04): one row per model line,
-// the latest. gpt-6-sol, gpt-5.5, glm-5.2(-highspeed), k2.7(-highspeed) and grok-4.6-fast went;
-// fable-5 and sonnet-5 became fable-5-1 and sonnet-5-5.
+// One row per model line, the latest: a superseded version is deleted, not kept.
 
 const EFFORT_FLAG = {
   claude: (e) => ['--effort', e],

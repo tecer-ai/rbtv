@@ -10,10 +10,11 @@
 const { agentFilePrompt, rbtvAgent, takeAgentFlags } = require('./lib/agent');
 const { runAgentList } = require('./lib/agent-list');
 const { runApi } = require('./lib/api');
-const { USAGE, USAGE_IG, fail, listArgs, parseArgs, resolveEffort, resolveEffortValue, resolveFolder, resolveModel, runList } = require('./lib/core');
+const { USAGE, USAGE_IG, fail, listArgs, parseArgs, resolveEffort, resolveEffortValue, resolveFolder, resolveModel } = require('./lib/core');
 const { runDoctor } = require('./lib/doctor');
 const { printHelp, verbHelpPages } = require('./lib/help');
 const { SYSTEM_WRAPPER, launch, runResume } = require('./lib/launch');
+const { runModels } = require('./lib/models');
 const { loadOptional } = require('./lib/optional');
 const { runRoute } = require('./lib/route');
 const { runSessions } = require('./lib/sessions');
@@ -46,10 +47,16 @@ function main(rawArgv) {
       process.stdout.write(`${PAGES.list.join('\n')}\n`);
       process.exit(0);
     }
-    // --agents and --agent NAME show the rbtv agents; without them, the model inventory, which
-    // --models names.
-    const { json, full, agents, agent } = listArgs(rest);
-    return agents ? runAgentList(agent, { json, full }, fail) : runList(json);
+    const { json, full, agent } = listArgs(rest);
+    return runAgentList(agent, { json, full }, fail);
+  }
+  if (rawArgv[0] === 'models') {
+    const rest = rawArgv.slice(1);
+    if (rest.includes('-h') || rest.includes('--help')) {
+      process.stdout.write(`${PAGES.models.join('\n')}\n`);
+      process.exit(0);
+    }
+    return runModels(rest);
   }
   if (rawArgv[0] === 'resume') return runResume(rawArgv.slice(1));
   if (rawArgv[0] === 'sessions') return runSessions(rawArgv.slice(1));
@@ -66,7 +73,7 @@ function main(rawArgv) {
   // invocation — there is no longer a launch-shaped `cast api …` form to fall through to.
   if (rawArgv[0] === 'api') return runApi(rawArgv.slice(1));
   if (rawArgv[0] === 'turn') {
-    fail("refused: unknown verb 'turn'\nchoose from resume, sessions, monitor, route, api, doctor, list\nNothing changed.\ncast -h");
+    fail("refused: unknown verb 'turn'\nchoose from resume, sessions, monitor, route, api, doctor, list, models\nNothing changed.\ncast -h");
   }
 
   const agentFlags = takeAgentFlags(rawArgv, fail);
@@ -92,7 +99,7 @@ function main(rawArgv) {
   }
   const [harness, model, effortArg, folderArg = '.'] = agent ? [agent.harness, agent.model] : positional;
 
-  const { modelId, spec } = resolveModel(harness, model);
+  const { modelId, spec } = resolveModel(harness, model, agent ? agent.home : process.cwd());
 
   let effort;
   if (agent) {

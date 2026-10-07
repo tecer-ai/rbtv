@@ -115,8 +115,8 @@ function readEnv(env) {
 
 function validate(request) {
   if (!request || typeof request !== 'object' || Array.isArray(request)) throw new Error('request must be an object');
-  const { modelId, spec } = lookupModel(request.harness, request.model);
   existingDir(request.cwd);
+  const { modelId, spec } = lookupModel(request.harness, request.model, request.cwd);
   const prompt = readPrompt(request);
   const systemPrompt = readSystemPrompt(request);
   const { mode, sessionId } = readSession(request.session);

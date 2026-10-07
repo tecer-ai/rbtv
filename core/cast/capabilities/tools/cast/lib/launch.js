@@ -12,7 +12,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { SPECS } = require('../supported-models');
 
-const { CODEX_DOC_LIMIT, HARNESSES, RESUME_USAGE, baseArgv, fail, parseArgs, promptArgv, refuseIfDetached, resolveFolder, resolveModel, shortName } = require('./core');
+const { CODEX_DOC_LIMIT, HARNESSES, RESUME_USAGE, baseArgv, fail, parseArgs, promptArgv, refuseIfDetached, resolveFolder, shortName } = require('./core');
 const { claudeSlug, emitHandle, procStart, stdoutPath } = require('./handles');
 const { loadOptional } = require('./optional');
 const { spawnable } = require('./win-exec');

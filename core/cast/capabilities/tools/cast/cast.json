@@ -1,5 +1,5 @@
 {
   "name": "cast",
-  "description": "Launches one agent turn on any harness and model, routes a task to the right model, and lists or monitors running launches.",
+  "description": "Launches one agent turn on any harness and model, routes a task to the right model, lists and selects the models an installation launches, and lists or monitors running launches.",
   "entry": "cast.js"
 }

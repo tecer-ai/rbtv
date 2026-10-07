@@ -38,10 +38,11 @@ const ENV = {
 
 // --- the fixture table -------------------------------------------------------------------------
 // cwd is what selects a table: route finds the installation from cwd (the first folder upward
-// holding .rbtv/config/install.json), and an override file there REPLACES the shipped CSV. So the
-// suite makes itself a scratch installation, writes its own table into it, and every logic arm
-// runs there — the shipped models.csv is reached only by the arms that run from OUTSIDE, a fresh
-// folder inside no installation.
+// holding .rbtv/config/install.json), and that installation's model catalog
+// (.rbtv/config/cast/models.csv) is read INSTEAD of the shipped one. So the suite makes itself a
+// scratch installation, writes its own table into it, and every logic arm runs there — the
+// shipped models.csv is reached only by the arms that run from OUTSIDE, a fresh folder inside no
+// installation.
 //
 // The table is built so each arm has ONE right answer and no tie, and so every axis has a
 // discriminating pair: cli vs api, a blank cost, an image row, and one row (k3, on a
@@ -52,11 +53,15 @@ function scratchInstallation(prefix) {
   fs.writeFileSync(path.join(root, '.rbtv', 'config', 'install.json'), '{}\n');
   return root;
 }
+// Where an installation keeps its model catalog; the folder is made, the file is the caller's.
+function catalogOf(root) {
+  const file = path.join(root, '.rbtv', 'config', 'cast', 'models.csv');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  return file;
+}
 const OUTSIDE = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-route-outside-'));
 const FIXTURE = scratchInstallation('cast-route-fixture-');
-const FIXTURE_CSV = path.join(FIXTURE, '.rbtv', 'config', 'modules', 'core', 'sub-agents', 'models.csv');
-fs.mkdirSync(path.dirname(FIXTURE_CSV), { recursive: true });
-fs.writeFileSync(FIXTURE_CSV, [
+fs.writeFileSync(catalogOf(FIXTURE), [
   'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override',
   'cli,claude,fable-5-1,5,N,SOTA,7,7,50,route,N,N',
   'cli,codex,gpt-6-astra,5,N,SOTA,7,7,50,route,Y,Y',
@@ -232,9 +237,7 @@ const dropped = (v, stage) => (v.explain || [])
   // skips. Its own one-row table: whether the SHIPPED table happens to carry an image row is the
   // owner's data, and this arm is about the code path.
   const noImage = scratchInstallation('cast-route-noimage-');
-  const noImageCsv = path.join(noImage, '.rbtv', 'config', 'modules', 'core', 'sub-agents', 'models.csv');
-  fs.mkdirSync(path.dirname(noImageCsv), { recursive: true });
-  fs.writeFileSync(noImageCsv, [
+  fs.writeFileSync(catalogOf(noImage), [
     'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override',
     'cli,claude,opus-5-5,5,N,L1,6,6,25,route,N,N', ''].join('\n'));
   const none = route(['--caps', 'image'], noImage);
@@ -259,29 +262,27 @@ const dropped = (v, stage) => (v.explain || [])
   assert.strictEqual(broadText.effort, 3, 'broad is effort 3 on text');
 }
 
-// --- the per-vault override REPLACES the shipped CSV --------------------------------------------
-// A scratch installation (the install record + the override path) — never the real .rbtv/config.
-// Route finds the installation from cwd, so running there is what selects the override.
+// --- the installation's model catalog REPLACES the shipped one -----------------------------------
+// A scratch installation (the install record + its model catalog) — never the real .rbtv/config.
+// Route finds the installation from cwd, so running there is what selects its table.
 {
   const vault = scratchInstallation('cast-route-vault-');
-  const overrideDir = path.join(vault, '.rbtv', 'config', 'modules', 'core', 'sub-agents');
-  fs.mkdirSync(overrideDir, { recursive: true });
-  const overrideFile = path.join(overrideDir, 'models.csv');
+  const overrideFile = catalogOf(vault);
   // Two rows only, priced, and cost is what separates them — so a wrong answer here cannot be the
   // shipped CSV leaking through.
   fs.writeFileSync(overrideFile, [
     'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override',
     'cli,claude,sonnet-5-5,5,N,L2,6,5,3,route,N,N',
     'cli,claude,haiku-4-5,0,N,L2,3,2,9,route,N,N',
-    // A SHORT row on purpose: the three columns added 2026-08-22 are absent, which is what a CSV
-    // written before them looks like. Missing cells must read as use=route with neither override.
-    'cli,claude,opus-5-5,5,N,L2,7,6,',
+    // BLANK cells on purpose: a blank use reads as route, a blank override as N, and a blank cost
+    // as unknown.
+    'cli,claude,opus-5-5,5,N,L2,7,6,,,,',
     'cli,opencode,not-a-real-model,3,N,L2,6,6,1,route,N,N',
     '',
   ].join('\n'));
 
   const cheap = route(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'price', '--explain'], vault);
-  assert.strictEqual(pair(cheap), 'claude/sonnet-5-5/cli', 'the override IS the catalog — cost 3 beats cost 9');
+  assert.strictEqual(pair(cheap), 'claude/sonnet-5-5/cli', "the installation's table IS the model catalog — cost 3 beats cost 9");
   assert.ok(/no supported-models\.js row for opencode\/not-a-real-model/.test(cheap._stderr),
     `an unjoinable CSV row must warn LOUDLY on stderr: ${cheap._stderr}`);
   // A blank cost sits OUT of every price pick — unknown is not cheap. It stays eligible for
@@ -291,13 +292,11 @@ const dropped = (v, stage) => (v.explain || [])
   const best = route(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'quality'], vault);
   assert.strictEqual(pair(best), 'claude/opus-5-5/cli', 'a blank-cost row is still eligible for quality');
 
-  // and the shipped CSV is genuinely IGNORED while the override exists
-  const roster = spawnSync('node', [TOOL, 'route', '--catalog'], { encoding: 'utf8', env: ENV, cwd: vault });
-  assert.ok(roster.stdout.startsWith(`catalog: ${overrideFile}`),
-    `--catalog must name the file it actually read: ${roster.stdout.split('\n')[0]}`);
-  assert.ok(!roster.stdout.includes('fable-5-1'), 'the shipped CSV must not leak into an overridden run');
-  assert.ok(/not-a-real-model .* no /.test(roster.stdout.replace(/ +/g, ' ')),
-    'the roster must SHOW an unjoinable row as launchable=no, not hide it');
+  // and the shipped model catalog is genuinely IGNORED while the installation has its own: the
+  // trace names the file that was read, and counts its four rows, three of them joined.
+  const read = cheap.explain[0];
+  assert.strictEqual(read.source, fs.realpathSync(overrideFile), 'the trace must name the file it actually read');
+  assert.deepStrictEqual([read.csv_rows, read.joined], [4, 3], JSON.stringify(read));
 }
 
 // --- use / quality-override / price-override (owner ruling 2026-08-22) --------------------------
@@ -306,9 +305,7 @@ const dropped = (v, stage) => (v.explain || [])
 // hermetic env makes available, so nothing here can be decided by a credential.
 {
   const vault = scratchInstallation('cast-route-use-');
-  const dir = path.join(vault, '.rbtv', 'config', 'modules', 'core', 'sub-agents');
-  fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, 'models.csv');
+  const file = catalogOf(vault);
   const HEAD = 'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override';
   // level/score/cost chosen so every ranking below has ONE right answer and no tie:
   //   L1: sol  cost 20 (score 5) · opus cost 25 (score 6)   -> price picks sol, quality picks opus
@@ -372,10 +369,6 @@ const dropped = (v, stage) => (v.explain || [])
   const panel = at(['--access', 'bounded', '--type', 'text', '--class', 'broad', '--optimize', 'quality', '--explain']);
   assert.strictEqual(pair(panel), 'codex/gpt-6.1-sol/cli', 'a use=panel row must never be a verdict');
   assert.ok(dropped(panel, 'use').includes('claude/opus-5-5'), JSON.stringify(dropped(panel, 'use')));
-  //    ...but it stays in the roster, which is the surface a panel spreads its seats across.
-  const roster = spawnSync('node', [TOOL, 'route', '--catalog', '--json'], { encoding: 'utf8', env: ENV, cwd: vault });
-  const rows = JSON.parse(roster.stdout).rows;
-  assert.strictEqual(rows.find((r) => r.model === 'opus-5-5').use, 'panel', 'the roster must SHOW a panel row with its use value');
 
   // 8. use=off — same invisibility to routing; with both L1 rows gone, class broad has nothing left.
   write({ 'opus-5-5': ['panel', 'N', 'N'], 'gpt-6.1-sol': ['off', 'N', 'N'] });
@@ -390,13 +383,40 @@ const dropped = (v, stage) => (v.explain || [])
   assert.ok(/use='maybe'/.test(bad._stderr), `an unrecognised use must warn on stderr: ${bad._stderr}`);
   assert.ok(dropped(bad, 'use').includes('claude/opus-5-5'), JSON.stringify(dropped(bad, 'use')));
 
-  // 10. a header missing the three columns is REFUSED, not silently read as blanks: the columns
-  //     carry routing decisions, so a stale override CSV must be fixed, never half-obeyed.
+  // 10. cells are read by header name: a table without the three columns reads them blank, which
+  //     is use=route with neither override.
   fs.writeFileSync(file, ['mode,harness,model,efforts,image,level,reasoning,coding,cost',
     'cli,claude,opus-5-5,5,N,L1,6,6,25', ''].join('\n'));
-  const stale = at(['--access', 'bounded', '--type', 'text', '--class', 'broad']);
-  assert.strictEqual(stale.error, 'no_models');
-  assert.ok(/header is /.test(stale.details), stale.details);
+  assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'broad'])), 'claude/opus-5-5/cli');
+
+  // 11. a table that cannot be read as one is REFUSED with its file and line, never half-obeyed:
+  //     an unknown column, a row whose cell count is not the header's (what a decimal comma
+  //     makes), a missing harness column, a blank model, an empty file.
+  for (const [lines, where, why] of [
+    [[`${HEAD},notes`, 'cli,claude,opus-5-5,5,N,L1,6,6,25,route,N,N,x'], 'line 1:', "unknown column 'notes'"],
+    [[HEAD, '', 'cli,claude,opus-5-5,5,N,L1,6,6,2,5,route,N,N'], 'line 3:', '13 cells where the header has 12'],
+    [[HEAD, 'cli,claude,opus-5-5,5,N,L1,6,6,25'], 'line 2:', '9 cells where the header has 12'],
+    [['mode,model,level', 'cli,opus-5-5,L1'], 'line 1:', "no 'harness' column"],
+    [[HEAD, 'cli,claude,,5,N,L1,6,6,25,route,N,N'], 'line 2:', 'blank model'],
+    [[], 'models.csv:', 'the file is empty'],
+  ]) {
+    fs.writeFileSync(file, `${lines.join('\n')}\n`);
+    const broken = at(['--access', 'bounded', '--type', 'text', '--class', 'broad']);
+    assert.strictEqual(broken._status, 1, JSON.stringify(broken));
+    assert.strictEqual(broken.error, 'no_models');
+    assert.ok(broken.details.startsWith(`cannot read the model catalog ${fs.realpathSync(file)}`), broken.details);
+    assert.ok(broken.details.includes(`${where} ${why}`), broken.details);
+  }
+}
+
+// --- the roster left `cast route` ------------------------------------------------------------------
+{
+  for (const flags of [['--catalog'], ['--catalog', '--json'], ['--access', 'open', '--catalog']]) {
+    const res = spawnSync('node', [TOOL, 'route', ...flags], { encoding: 'utf8', env: ENV, cwd: FIXTURE });
+    assert.strictEqual(res.status, 2, `route ${flags.join(' ')} must be refused: ${res.stdout}`);
+    assert.strictEqual(res.stdout, '');
+    assert.strictEqual(res.stderr, 'cast: refused: --catalog moved\nthe model catalog is a view of cast models list\nNothing changed.\ncast models list --catalog\n');
+  }
 }
 
 // --- determinism ---------------------------------------------------------------------------------
@@ -503,7 +523,7 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
 {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cast-route-batch-')), 'agents.json');
   fs.writeFileSync(file, JSON.stringify([FIXER_AGENT]));
-  for (const flags of [['--access', 'open'], ['--caps', 'image'], ['--catalog']]) {
+  for (const flags of [['--access', 'open'], ['--caps', 'image']]) {
     const res = spawnSync('node', [TOOL, 'route', '--batch', file, ...flags], { encoding: 'utf8', env: ENV, cwd: OUTSIDE });
     assert.strictEqual(res.status, 2, `batch + ${flags[0]} must be refused: ${res.stdout}`);
     assert.ok(/--batch takes the whole interview as JSON/.test(res.stderr),
@@ -563,9 +583,7 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
 // can make a row available: the installation's env file, or the provider's entry in the store.
 {
   const inst = scratchInstallation('cast-route-login-');
-  const csv = path.join(inst, '.rbtv', 'config', 'modules', 'core', 'sub-agents', 'models.csv');
-  fs.mkdirSync(path.dirname(csv), { recursive: true });
-  fs.writeFileSync(csv, [
+  fs.writeFileSync(catalogOf(inst), [
     'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override',
     'cli,opencode,k3,3,N,L2,5,5,15,route,N,N',
     'cli,opencode,glm-5.3,2,N,L2,5,5,15,route,N,N',
@@ -579,10 +597,12 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
   const available = (store, envText, extraEnv = {}) => {
     fs.writeFileSync(path.join(xdg, 'opencode', 'auth.json'), JSON.stringify(store));
     fs.writeFileSync(envFile, envText);
-    const res = spawnSync('node', [TOOL, 'route', '--catalog', '--json'],
+    // Every row is L2, so a bounded interview weighs all four: a row is available unless the trace
+    // shows it dropped at the availability stage.
+    const res = spawnSync('node', [TOOL, 'route', '--access', 'bounded', '--type', 'text', '--class', 'bounded', '--explain'],
       { encoding: 'utf8', env: { ...ENV, XDG_DATA_HOME: xdg, ...extraEnv }, cwd: path.join(inst, '.rbtv') });
-    assert.strictEqual(res.status, 0, res.stderr);
-    return Object.fromEntries(JSON.parse(res.stdout).rows.map((r) => [r.model, r.available]));
+    const gone = dropped(JSON.parse(res.stdout), 'availability');
+    return Object.fromEntries(['k3', 'glm-5.3', 'fugu-ultra', 'grok-4.7'].map((m) => [m, String(!gone.includes(`opencode/${m}`))]));
   };
 
   // Nothing anywhere: every row is unavailable. `KEY=` with no value is NOT a key, quoted or not.
@@ -603,16 +623,20 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
 // --- the SHIPPED table: validation, never verdicts ----------------------------------------------
 // The one arm that reads the real models.csv. It asserts nothing about WHO wins — that is the
 // owner's data and theirs to change — only that the table is well-formed enough to be obeyed:
-// every row joinable and launchable, every cell in its vocabulary, no duplicates, and every class
-// still holding a routable row. Credentials are deliberately NOT consulted: availability depends
+// every row joinable and launchable, every supported model holding a row (an installation with
+// no model catalog of its own has every supported model selected), every cell in its vocabulary,
+// no duplicates, and every class still holding a routable row. Credentials are deliberately NOT consulted: availability depends
 // on which keys this box happens to have, and a table is not malformed because a key is missing.
 {
-  const shipped = spawnSync('node', [TOOL, 'route', '--catalog', '--json'],
-    { encoding: 'utf8', env: ENV, cwd: OUTSIDE });
-  assert.strictEqual(shipped.status, 0, shipped.stderr);
-  const { source, rows } = JSON.parse(shipped.stdout);
-  assert.ok(source.endsWith(path.join('core', 'cast', 'capabilities', 'tools', 'cast', 'models.csv')), `expected the shipped table, got ${source}`);
+  const { ROWS } = require('./supported-models');
+  const { loadSelection, supportedRow } = require('./lib/model-catalog');
+  const { file: source, shipped, rows } = loadSelection(null);
+  assert.ok(shipped && source === path.join(__dirname, 'models.csv'), `expected the shipped table, got ${source}`);
   assert.ok(rows.length > 3, `the shipped table is suspiciously short: ${rows.length} rows`);
+  for (const r of ROWS) {
+    assert.ok(rows.some((c) => c.harness === r.harness && c.model === r.model),
+      `supported model ${r.harness}/${r.model} has no models.csv row — cast models add could not select it`);
+  }
 
   const LEVELS = ['SOTA', 'L1', 'L2', 'L3', 'L4'];
   // Every axis a multi-level twin must agree on — the CSV columns minus `level` and the two
@@ -621,11 +645,11 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
   const YN = ['Y', 'N'];
   const seen = new Map();
   for (const r of rows) {
-    const at = `models.csv row ${r.harness}/${r.model || '(blank model)'}`;
+    const at = `models.csv row ${r.harness}/${r.model}`;
     // Launchability is the join: a row cast cannot launch is a row route must never name, and the
     // tool only WARNS about it — so this is where a typo like `gemini-3.7-flash` with no
     // supported-models.js row gets caught instead of silently shrinking the roster.
-    assert.strictEqual(r.launchable, 'yes', `${at} has no supported-models.js twin — route excludes it`);
+    assert.ok(supportedRow(r.harness, r.model), `${at} has no supported-models.js twin — route excludes it`);
     assert.ok(['cli', 'api'].includes(r.mode), `${at}: mode '${r.mode}'`);
     assert.ok(LEVELS.includes(r.level), `${at}: level '${r.level}' is not one of ${LEVELS.join('|')}`);
     assert.ok(YN.includes(r.image), `${at}: image '${r.image}'`);
@@ -677,10 +701,12 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
   }
 
   // And loading it must be SILENT. Every exclusion route makes on its own is a stderr warning, so
-  // an empty stderr is the proof that nothing was quietly left out of the roster.
-  const quiet = spawnSync('node', [TOOL, 'route', '--access', 'bounded', '--type', 'text', '--class', 'mechanical'],
+  // an empty stderr is the proof that nothing was quietly left out of the roster. Run from
+  // OUTSIDE, it is the shipped table the command reads.
+  const quiet = spawnSync('node', [TOOL, 'route', '--access', 'bounded', '--type', 'text', '--class', 'mechanical', '--explain'],
     { encoding: 'utf8', env: ENV, cwd: OUTSIDE });
   assert.strictEqual(quiet.stderr, '', `loading the shipped table must warn about nothing:\n${quiet.stderr}`);
+  assert.strictEqual(JSON.parse(quiet.stdout).explain[0].source, source);
 }
 
 process.stdout.write('all route tests passed\n');

@@ -7,13 +7,12 @@
 // spark list [AGENT] — the agents spark can open by name, or one of them in full. The list is
 // cast's (`cast list --agents`, lib/agent-list.js).
 
-const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
 const { findAgentHome, isPath, readAgent } = require('../cast/lib/agent');
 const { agentInFull, agentLines, agentList, listLines } = require('../cast/lib/agent-list');
-const { spawnable } = require('../cast/lib/win-exec');
+const { findOnPath, spawnable } = require('../cast/lib/win-exec');
 
 // cast needs a first message to open the session; this one starts a conversation and waits.
 const OPENING = 'You have just been started by your owner in an interactive terminal. '
@@ -85,25 +84,6 @@ const HELP = [
 function refuse(what, why, fix) {
   process.stderr.write(`refused: ${what}\n  why: ${why}\n  fix: ${fix}\n`);
   return 1;
-}
-
-// The program of that name on PATH, or null. Windows also tries each PATHEXT extension.
-function findOnPath(name) {
-  const exts = process.platform === 'win32'
-    ? ['', ...(process.env.PATHEXT || '.EXE;.CMD;.BAT;.COM').split(';')]
-    : [''];
-  const mode = process.platform === 'win32' ? fs.constants.F_OK : fs.constants.X_OK;
-  for (const dir of (process.env.PATH || '').split(path.delimiter)) {
-    if (!dir) continue;
-    for (const ext of exts) {
-      const file = path.join(dir, name + ext);
-      try {
-        fs.accessSync(file, mode);
-        if (fs.statSync(file).isFile()) return file;
-      } catch { /* not here */ }
-    }
-  }
-  return null;
 }
 
 function quote(arg) {

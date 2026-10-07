@@ -929,7 +929,7 @@ flagged: save it with name before you switch. Local files only; no network.
 
 --supported lists what rbtv supports instead: each provider's lab, the
 harness that runs it, its login method (account or API key), its key
-variable, and where its usage figure comes from. Models: cast list --models.
+variable, and where its usage figure comes from. Models: cast models list.
 
 positional arguments:
   PROVIDER     only this provider, for example claude

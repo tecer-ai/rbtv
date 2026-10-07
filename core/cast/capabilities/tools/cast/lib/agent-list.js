@@ -17,6 +17,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const { findAgentsFolder, holdsAgentFile, rbtvAgent, readAgent } = require('./agent');
+const { lookupModel } = require('./core');
 const { spawnable } = require('./win-exec');
 
 const LABELS = ['Name', 'Harness', 'Model', 'Effort', 'Ignite', 'Description'];
@@ -77,6 +78,16 @@ function agentInFull(agent) {
   return { ...agentRow(agent), installed, ...(problem ? { installed_problem: problem } : {}) };
 }
 
+// Why `cast --agent` would refuse the model of a readable agent, in one line that ends with the
+// next command, or null when the launch check passes it.
+function modelProblem(agent) {
+  try { lookupModel(agent.harness, agent.model, agent.home); } catch (e) {
+    if (e.code === 'not-selected') return `model not selected: ${e.next}`;
+    return `${e.message.split('\n')[0].replace(/^refused: /, '')}${e.next ? `: ${e.next}` : ''}`;
+  }
+  return null;
+}
+
 // Alphabetical by name. An agent that cannot be launched is a row with its problem.
 function agentList(from) {
   const folder = findAgentsFolder(from);
@@ -86,7 +97,8 @@ function agentList(from) {
     .filter(holdsAgentFile)
     .map((home) => {
       const read = readAgent(home);
-      return read.problem ? { name: path.basename(home), home, problem: read.why } : agentRow(read.agent);
+      const problem = read.problem ? read.why : modelProblem(read.agent);
+      return problem ? { name: path.basename(home), home, problem } : agentRow(read.agent);
     });
   return { folder, agents };
 }

@@ -8,8 +8,12 @@ const os = require('os');
 const { spawnSync } = require('child_process');
 
 const TOOL = path.join(__dirname, 'cast.js');
-const SCRATCH_ROOT = '/tmp/claude-1000/-home-henri-ht-wkdir-second-brain/204266c9-ba58-4854-b838-016c8b55cc42/scratchpad';
-const BASE = fs.existsSync(SCRATCH_ROOT) ? SCRATCH_ROOT : os.tmpdir();
+const BASE = os.tmpdir();
+// Every arm runs from a fresh folder inside no installation: the shipped model catalog is in
+// force there, so no arm reads the selection of an installation this checkout happens to sit in.
+process.chdir(fs.mkdtempSync(path.join(BASE, 'cast-test-cwd-')));
+// `cast models ...`, from the suite's folder or from `cwd`.
+const models = (args, cwd = process.cwd()) => spawnSync(process.execPath, [TOOL, 'models', ...args], { encoding: 'utf8', cwd });
 
 function mkFolder(name) {
   const dir = path.join(BASE, `cast-test-${name}-${process.pid}`);
@@ -337,7 +341,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
 
 // per-verb --help: exit 0, prints that verb's usage; a prompt that is literally "-h" is not help
 {
-  for (const verb of ['route', 'monitor', 'sessions', 'doctor', 'list', 'resume', 'api']) {
+  for (const verb of ['route', 'monitor', 'sessions', 'doctor', 'list', 'models', 'resume', 'api']) {
     for (const flag of ['-h', '--help']) {
       const res = spawnSync('node', [TOOL, verb, flag], { encoding: 'utf8' });
       assert.strictEqual(res.status, 0, `cast ${verb} ${flag} must exit 0: ${res.stderr}`);
@@ -351,20 +355,18 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
 }
 
 // -h: exit 0. The page names where the models are and prints none of them: the model inventory
-// is `cast list --models`, so a model added to the catalog never changes the help page.
+// is `cast models list`, so a newly supported model never changes the help page.
 {
   const res = spawnSync('node', [TOOL, '-h'], { encoding: 'utf8' });
   assert.strictEqual(res.status, 0, 'cast -h must exit 0');
-  assert.ok(res.stdout.includes('  cast list --models\n'), 'help names the command that lists the models');
+  assert.ok(res.stdout.includes('  cast models list\n'), 'help names the command that lists the models');
+  assert.ok(res.stdout.includes('\ncast models    '), 'help says what cast models is for');
   // enumerate models from the tool's own inventory, never by re-parsing its source.
-  // list --json also carries non-harness top-level keys (effort_numbers, usage), so the
-  // three harnesses are read BY NAME — Object.values() would flatten the new keys too.
-  const inv = JSON.parse(spawnSync('node', [TOOL, 'list', '--json'], { encoding: 'utf8' }).stdout);
-  const shorts = ['claude', 'codex', 'opencode'].flatMap((h) => Object.keys(inv[h]));
+  const shorts = JSON.parse(models(['list', '--json']).stdout).models.map((m) => m.model);
   assert.ok(shorts.length > 10, `sanity: expected the full inventory, got ${shorts.length}`);
-  const table = spawnSync('node', [TOOL, 'list', '--models'], { encoding: 'utf8' }).stdout;
+  const table = models(['list']).stdout;
   for (const short of shorts) {
-    assert.ok(table.includes(` ${short} `), `cast list --models is missing model: ${short}`);
+    assert.ok(table.includes(` ${short} `), `the model table is missing model: ${short}`);
     // the examples under the page name one model, so a row is what must be absent
     assert.ok(!new RegExp(`^  \\w+  ${short.replace(/[.]/g, '\\.')} `, 'm').test(res.stdout), `help must not print a model row: ${short}`);
   }
@@ -418,27 +420,29 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   };
 
   const { parsed, login } = report(inst);
-  assert.deepStrictEqual(Object.keys(parsed), ['installation', 'harnesses', 'models', 'next']);
+  assert.deepStrictEqual(Object.keys(parsed), ['installation', 'selection', 'catalog_problem', 'harnesses', 'models', 'next']);
   assert.strictEqual(parsed.installation, fs.realpathSync(inst), 'doctor names the installation it read');
-  // harness programs: found on PATH with the path, or missing
+  assert.deepStrictEqual([parsed.selection, parsed.catalog_problem], [null, null], 'no model catalog of its own: the shipped one');
+  // harness programs: the path PATH finds each at, or null
   assert.deepStrictEqual(Object.keys(parsed.harnesses), ['claude', 'codex', 'opencode']);
-  assert.strictEqual(parsed.harnesses.claude.ok, true);
-  assert.ok(path.basename(parsed.harnesses.claude.path).startsWith('claude'), parsed.harnesses.claude.path);
-  assert.deepStrictEqual(parsed.harnesses.codex, { ok: false, path: null });
-  assert.deepStrictEqual(parsed.harnesses.opencode, { ok: false, path: null });
-  // one row per selected model: every model cast can launch
-  const inv = JSON.parse(spawnSync('node', [TOOL, 'list', '--json'], { encoding: 'utf8' }).stdout);
-  const launchable = ['claude', 'codex', 'opencode'].flatMap((h) => Object.keys(inv[h]).map((m) => `${h}/${m}`));
-  assert.deepStrictEqual(Object.keys(login), launchable);
+  assert.ok(path.basename(parsed.harnesses.claude).startsWith('claude'), parsed.harnesses.claude);
+  assert.deepStrictEqual([parsed.harnesses.codex, parsed.harnesses.opencode], [null, null]);
+  // one row per selected model: with no model catalog of its own, every supported model
+  const { ROWS } = require('./supported-models');
+  assert.deepStrictEqual(Object.keys(login), ROWS.map((r) => `${r.harness}/${r.model}`));
   // claude: its login files are in the scratch home. codex: its login file is not.
-  assert.deepStrictEqual(login['claude/opus-5-5'],
-    { harness: 'claude', model: 'opus-5-5', provider: 'claude', login: true, reason: null });
+  assert.deepStrictEqual(login['claude/opus-5-5'], { harness: 'claude', model: 'opus-5-5', provider: 'claude', login: true,
+    via: 'login files: ~/.claude/.credentials.json, ~/.claude.json', reason: null });
   assert.strictEqual(login['codex/gpt-6-luna'].login, false);
+  assert.strictEqual(login['codex/gpt-6-luna'].via, null);
   assert.ok(login['codex/gpt-6-luna'].reason.includes('~/.codex/auth.json'), login['codex/gpt-6-luna'].reason);
-  // the three places a key provider's login is looked for, one row each
-  assert.strictEqual(login['opencode/deepseek-v4-pro'].login, true, 'key variable in the OS environment');
-  assert.strictEqual(login['opencode/k3'].login, true, "key variable in the installation's environment file");
-  assert.strictEqual(login['opencode/fugu-ultra'].login, true, "the provider's entry in opencode's store");
+  // the three places a key provider's login is looked for, one row each, named in `via`
+  assert.strictEqual(login['opencode/deepseek-v4-pro'].via, 'DEEPSEEK_API_KEY in the OS environment');
+  assert.strictEqual(login['opencode/k3'].via, "KIMI_API_KEY in the installation's environment file");
+  assert.strictEqual(login['opencode/fugu-ultra'].via, "'sakana' in the opencode store");
+  for (const name of ['opencode/deepseek-v4-pro', 'opencode/k3', 'opencode/fugu-ultra']) assert.strictEqual(login[name].login, true, name);
+  // an api model is a selected model too: its key variable is absent here
+  assert.strictEqual(login['api/gemini-3.5-flash'].login, false);
   // nowhere: missing, and the reason names what was looked for
   assert.strictEqual(login['opencode/glm-5.3'].login, false);
   assert.ok(login['opencode/glm-5.3'].reason.includes('ZHIPU_API_KEY'), login['opencode/glm-5.3'].reason);
@@ -449,12 +453,14 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   // the text report: the same facts, ending with the two rbtv providers commands
   const text = doctor([]);
   assert.strictEqual(text.status, 0, `doctor must exit 0: ${text.stderr}`);
-  assert.match(text.stdout, /^ {2}claude +found +\S/m);
-  assert.match(text.stdout, /^ {2}codex +missing$/m);
-  assert.match(text.stdout, /^ {2}opencode +k3 +kimi +present$/m);
-  assert.match(text.stdout, /^ {2}opencode +glm-5\.3 +zai +missing\n {6}.*ZHIPU_API_KEY/m);
-  assert.ok(text.stdout.includes(`installation: ${fs.realpathSync(inst)}`), text.stdout);
-  assert.ok(text.stdout.endsWith('\n  rbtv providers list\n  rbtv providers usage\n'), text.stdout);
+  assert.ok(text.stdout.startsWith('cast doctor — can this machine launch the selected models?'), text.stdout);
+  assert.match(text.stdout, /^ {2}claude +\S*claude\S*$/m);
+  assert.match(text.stdout, /^ {2}codex +MISSING$/m);
+  assert.match(text.stdout, /^ {2}✓ opencode +k3 +KIMI_API_KEY in the installation's environment file$/m);
+  assert.match(text.stdout, /^ {2}· opencode +glm-5\.3 +no login: .*ZHIPU_API_KEY/m);
+  assert.ok(text.stdout.includes(`\ninstallation: ${fs.realpathSync(inst)}\nmodel catalog: the one shipped with cast`), text.stdout);
+  assert.ok(text.stdout.includes(`\n  ${Object.values(login).filter((m) => m.login).length} of ${ROWS.length} selected models have a login present.\n`), text.stdout);
+  assert.ok(text.stdout.endsWith('\n\nAccounts and usage: rbtv providers list · rbtv providers usage\n'), text.stdout);
   // a key's value never reaches either report
   assert.ok(!text.stdout.includes('test-fake-not-real') && !JSON.stringify(parsed).includes('test-fake-not-real'));
 
@@ -463,7 +469,28 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.strictEqual(out.parsed.installation, null);
   assert.strictEqual(out.login['opencode/k3'].login, false);
   assert.strictEqual(out.login['opencode/deepseek-v4-pro'].login, true);
-  assert.ok(doctor([], outside).stdout.includes('no installation found'));
+  assert.ok(doctor([], outside).stdout.includes(`\ninstallation: none above ${fs.realpathSync(outside)} (no environment file is read)\n`));
+
+  // the installation's model catalog decides which models are checked: a selected model has a
+  // row, a model without one is not checked, and a row cast does not support is counted
+  const catalog = path.join(inst, '.rbtv', 'config', 'cast', 'models.csv');
+  fs.mkdirSync(path.dirname(catalog), { recursive: true });
+  fs.writeFileSync(catalog, 'mode,harness,model\ncli,opencode,k3\ncli,claude,opus-5-5\ncli,opencode,not-a-real-model\n');
+  const chosen = report(inst);
+  assert.strictEqual(chosen.parsed.selection, fs.realpathSync(catalog));
+  assert.deepStrictEqual(Object.keys(chosen.login), ['claude/opus-5-5', 'opencode/k3'], 'only the selected models, in the supported order');
+  const chosenText = doctor([]).stdout;
+  assert.ok(chosenText.includes(`\nmodel catalog: ${fs.realpathSync(catalog)}\n`), chosenText);
+  assert.ok(chosenText.includes('\n  2 of 2 selected models have a login present.\n'), chosenText);
+  assert.ok(chosenText.includes('\n  1 row of the model catalog name a model this copy of cast does not support: cast models list --catalog\n'), chosenText);
+  assert.ok(!chosenText.includes('glm-5.3'), 'a model the installation did not select is not checked');
+  // a model catalog that cannot be read: the report says so and checks no model, exit 0
+  fs.writeFileSync(catalog, 'mode,harness\ncli,claude\n');
+  const unread = report(inst).parsed;
+  assert.deepStrictEqual(unread.models, []);
+  assert.strictEqual(unread.catalog_problem, `cannot read the model catalog ${fs.realpathSync(catalog)} line 1: no 'model' column`);
+  assert.ok(doctor([]).stdout.includes(`\nselected models\n  none checked: ${unread.catalog_problem}\n`));
+  fs.rmSync(path.dirname(catalog), { recursive: true });
 
   // a login file that lacks the entry providers.json names is not a login
   fs.writeFileSync(claudeJson, '{}');
@@ -485,40 +512,41 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.ok(!fs.existsSync(started), `doctor started a program: ${fs.existsSync(started) && fs.readFileSync(started, 'utf8')}`);
 }
 
-// list --json: parses, matches SPECS keys, and carries effort_numbers + usage (additive)
+// cast models list --json: one object per supported model, each with its own effort numbers
 {
-  const res = spawnSync('node', [TOOL, 'list', '--json'], { encoding: 'utf8' });
-  assert.strictEqual(res.status, 0, 'list --json must exit 0');
+  const res = models(['list', '--json']);
+  assert.strictEqual(res.status, 0, `cast models list --json must exit 0: ${res.stderr}`);
   const parsed = JSON.parse(res.stdout);
-  assert.deepStrictEqual(Object.keys(parsed).sort(),
-    ['claude', 'codex', 'effort_numbers', 'opencode', 'usage'].sort());
-  assert.ok(Array.isArray(parsed.claude['sonnet-5-5']));
-  assert.deepStrictEqual(parsed.claude['haiku-4-5'], []);
-  // the pre-existing harness keys are byte-for-byte what buildInventory() serializes, first
-  const { buildInventory } = require('./lib/core');
-  const oldBody = JSON.stringify(buildInventory()).slice(1, -1); // strip the outer braces
-  assert.ok(res.stdout.trim().startsWith(`{${oldBody},"effort_numbers"`),
-    'list --json must keep the old harness keys unchanged, in place');
-  // effort_numbers: each word -> the smallest number that selects it (resolveEffort's mapping)
-  assert.deepStrictEqual(parsed.effort_numbers.opencode['glm-5.3'], { high: 1, max: 2 },
-    'two-rung ladder folds to its unique numbers');
-  assert.deepStrictEqual(parsed.effort_numbers.opencode.k3, { low: 1, high: 2, max: 3 },
-    'three-rung ladder maps low:1 high:2 max:3');
-  assert.deepStrictEqual(parsed.effort_numbers.codex['gpt-6-luna'],
-    { low: 1, medium: 2, high: 3, xhigh: 4, max: 5 }, 'five-rung ladder maps 1..5');
-  assert.deepStrictEqual(parsed.effort_numbers.claude['haiku-4-5'], {},
-    'no dial -> no numbers (any number accepted)');
+  assert.deepStrictEqual(Object.keys(parsed), ['installation', 'selection', 'view', 'models', 'usage']);
+  assert.deepStrictEqual([parsed.installation, parsed.selection, parsed.view], [null, null, 'selected']);
+  const { ROWS } = require('./supported-models');
+  assert.deepStrictEqual(parsed.models.map((m) => `${m.harness} ${m.model} ${m.mode}`), ROWS.map((r) => `${r.harness} ${r.model} ${r.mode}`));
+  const by = Object.fromEntries(parsed.models.map((m) => [`${m.harness}/${m.model}`, m]));
+  assert.deepStrictEqual(by['opencode/glm-5.3'], { harness: 'opencode', model: 'glm-5.3', mode: 'cli', rungs: ['high', 'max'],
+    effort_numbers: { high: 1, max: 2 }, selected: true }, 'two-rung ladder folds to its unique numbers');
+  assert.deepStrictEqual(by['opencode/k3'].effort_numbers, { low: 1, high: 2, max: 3 }, 'three-rung ladder maps low:1 high:2 max:3');
+  assert.deepStrictEqual(by['codex/gpt-6-luna'].effort_numbers, { low: 1, medium: 2, high: 3, xhigh: 4, max: 5 }, 'five-rung ladder maps 1..5');
+  assert.deepStrictEqual([by['claude/haiku-4-5'].rungs, by['claude/haiku-4-5'].effort_numbers], [[], {}], 'no dial -> no numbers');
+  // an api model's ladder is its own reasoning modes; the image model has none
+  assert.deepStrictEqual(by['api/gemini-3.5-flash'], { harness: 'api', model: 'gemini-3.5-flash', mode: 'api', rungs: ['off', 'on'],
+    effort_numbers: { off: 1, on: 2 }, selected: true });
+  assert.deepStrictEqual(by['api/gemini-3.1-flash-image'].effort_numbers, {});
   // usage says: pass the number, words are labels only, with one complete example
   assert.match(parsed.usage, /pass the number/i, 'usage must say to pass the number');
   assert.match(parsed.usage, /labels only/i, 'usage must say the words are labels only');
   assert.match(parsed.usage, /cast \S+ \S+ \d/, 'usage must carry a complete example command');
 }
 
-// plain-text list: the same table plus the pass-the-number rule under it
+// plain-text list: the installation and the file, the table, the count, the pass-the-number rule
 {
-  const res = spawnSync('node', [TOOL, 'list'], { encoding: 'utf8' });
-  assert.strictEqual(res.status, 0, 'cast list must exit 0');
+  const res = models(['list']);
+  assert.strictEqual(res.status, 0, 'cast models list must exit 0');
+  assert.strictEqual(res.stdout, models(['list', '--selected']).stdout, '--selected is the default view');
+  assert.ok(res.stdout.startsWith(`installation: none above ${process.cwd()}\nmodel catalog: ${path.join(__dirname, 'models.csv')} (shipped with cast: every supported model is selected)\n\n  harness `), res.stdout);
   assert.ok(res.stdout.includes('1=high 2-5=max'), 'plain list shows each word\'s number');
+  assert.match(res.stdout, /^ {2}api +gemini-3\.5-flash +1=off 2-5=on$/m);
+  const count = require('./supported-models').ROWS.length;
+  assert.ok(res.stdout.includes(`\n\n${count} of ${count} supported models are selected.\n`), res.stdout);
   assert.match(res.stdout, /pass the number/i, 'plain list must say to pass the number');
   assert.match(res.stdout, /words are labels/i, 'plain list must say the words are labels only');
 }
@@ -1509,8 +1537,8 @@ else {
   fs.mkdirSync(halfHome, { recursive: true });
   fs.writeFileSync(path.join(halfHome, 'agent.md'), 'You are half.');
 
-  // cast list --agents: the agents `cast --agent NAME` can launch from here; --agent NAME is one in
-  // full; --models is the name of the list `cast list` has always printed
+  // cast list, or cast list --agents: the agents `cast --agent NAME` can launch from here;
+  // --agent NAME is one in full; the model lists moved to `cast models list`
   {
     const TESS_SAYS = 'Tests a change before it ships and reports each failure with the command that shows it. '
       + 'Triggered by a request to check a change. Not for writing the change.';
@@ -1628,14 +1656,17 @@ else {
     const alone = spawnSync(process.execPath, [TOOL, 'list', '--agent', 'tess', '--json'], { cwd: root, encoding: 'utf8', env: { ...process.env, PATH: bin + '-none' } });
     assert.deepStrictEqual(JSON.parse(alone.stdout), { ...tessRow, installed: null, installed_problem: 'rbtv is not on PATH.' });
 
-    for (const form of [['--agents', '-h'], ['--models', '--help'], ['-h']]) {
+    for (const form of [['--agents', '-h'], ['--full', '--help'], ['-h']]) {
       const help = list(form);
       assert.strictEqual(help.status, 0);
-      assert.ok(help.stdout.startsWith('usage: cast list [--models | --agents [--full] | --agent NAME] [--json]'), `${form}: ${help.stdout}`);
+      assert.ok(help.stdout.startsWith('usage: cast list [--agents [--full] | --agent NAME] [--json]'), `${form}: ${help.stdout}`);
     }
 
-    for (const form of [[], ['--json']]) {
-      assert.strictEqual(list(['--models', ...form]).stdout, list(form).stdout, `--models is the list cast list prints: ${form}`);
+    for (const form of [[], ['--json'], ['--full']]) {
+      const bare = list(form);
+      assert.strictEqual(bare.status, 0, bare.stderr);
+      assert.ok(bare.stdout.includes('sara'), `cast list ${form} lists the agents: ${bare.stdout}`);
+      assert.strictEqual(bare.stdout, list(['--agents', ...form]).stdout, `--agents is the list cast list prints: ${form}`);
     }
 
     for (const [args, text] of [
@@ -1644,13 +1675,15 @@ else {
       [['tess', '--json'], "takes no name by itself, got 'tess'"],
       [['--agents', 'tess'], 'cast list --agent tess'],
       [['--target', root], "'--target' is not a cast list option"],
-      [['--models', '--bogus'], "'--bogus' is not a cast list option"],
+      [['--bogus'], "'--bogus' is not a cast list option"],
+      // the model lists moved: the flag, and the word, name where they went
+      [['--models'], 'refused: the model lists moved'],
+      [['--models', '--json'], 'Nothing was listed.\ncast models list\n'],
+      [['models'], 'refused: the model lists moved'],
+      [['--agents', '--models'], 'refused: the model lists moved'],
       // a whole word after one dash is not a flag of this command
       [['-rbtv'], "'-rbtv' is not a cast list option"],
       [['-models'], "'-models' is not a cast list option"],
-      [['--agents', '--models'], 'are different lists'],
-      [['--full'], 'cast list --agents --full'],
-      [['--models', '--full'], 'the models have none'],
       [['--agent', 'tess', '--agents'], 'are different lists'],
       [['--agent'], "--agent takes an agent's name or path"],
       [['--agent', '--json'], 'every agent: cast list --agents'],
@@ -1721,6 +1754,334 @@ else {
   const help = spawnSync('node', [TOOL, '-h'], { encoding: 'utf8' }).stdout;
   assert.ok(help.includes('rbtv agent configure AGENT') && !help.includes('--target'),
     'help names rbtv agent configure and no longer mentions --target');
+}
+
+// The launch check: a model launches only when the installation that holds the launch has selected
+// it. The installation is found from the agent's folder for --agent, from the current folder
+// otherwise; its model catalog is .rbtv/config/cast/models.csv, and while it has none every
+// supported model is selected.
+{
+  const HEAD = 'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override';
+  const SONNET = 'cli,claude,sonnet-5-5,5,N,L2,3,3,10,route,N,N';
+  const installation = (lines) => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(BASE, 'cast-test-gate-')));
+    fs.mkdirSync(path.join(root, '.rbtv', 'config', 'cast'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.rbtv', 'config', 'install.json'), '{}\n');
+    const file = path.join(root, '.rbtv', 'config', 'cast', 'models.csv');
+    if (lines) fs.writeFileSync(file, `${lines.join('\n')}\n`);
+    return { root, file };
+  };
+  const cast = (args, cwd) => spawnSync('node', [TOOL, ...args, '--dry-run'], { cwd, encoding: 'utf8' });
+  const launch = (harness, model, cwd, folder = []) => cast([harness, model, '1', ...folder, '-p', 'x'], cwd);
+  const api = (model, cwd) => cast(['api', model, '1', '-p', 'x', '--output-folder', 'out'], cwd);
+  const refused = (res, text) => {
+    assert.strictEqual(res.status, 2, `expected a refusal, got ${res.status}: ${res.stdout}${res.stderr}`);
+    assert.strictEqual(res.stdout, '');
+    assert.strictEqual(res.stderr, `cast: ${text}\n`);
+  };
+  const { ROWS } = require('./supported-models');
+
+  // no model catalog in the installation: everything supported launches, cli and api
+  const fresh = installation(null);
+  for (const row of ROWS) {
+    const res = row.mode === 'cli' ? launch(row.harness, row.model, fresh.root) : api(row.model, fresh.root);
+    assert.strictEqual(res.status, 0, `${row.harness} ${row.model} must launch with no model catalog: ${res.stderr}`);
+  }
+  assert.ok(!fs.existsSync(fresh.file), 'a launch never writes a model catalog');
+
+  // a model catalog without the model: refused, naming the command that selects it
+  const pruned = installation([HEAD, SONNET]);
+  const notSelected = (harness, model) => `refused: '${harness} ${model}' is not selected in ${pruned.root}\n`
+    + `model catalog: ${pruned.file}\nNothing changed.\ncast models add ${harness} ${model}`;
+  refused(launch('claude', 'haiku-4-5', pruned.root), notSelected('claude', 'haiku-4-5'));
+  refused(launch('claude', 'claude-haiku-4-5', pruned.root), notSelected('claude', 'haiku-4-5'));
+  refused(launch('claude', 'haiku-4-5', path.join(pruned.root, '.rbtv')), notSelected('claude', 'haiku-4-5'));
+  refused(api('gemini-3.5-flash', pruned.root), notSelected('api', 'gemini-3.5-flash'));
+  assert.strictEqual(launch('claude', 'sonnet-5-5', pruned.root).status, 0, 'a selected model launches');
+  // a plain launch asks the installation of the current folder, not of the launch folder
+  assert.strictEqual(launch('claude', 'haiku-4-5', fresh.root, [pruned.root]).status, 0);
+  refused(launch('claude', 'haiku-4-5', pruned.root, [fresh.root]), notSelected('claude', 'haiku-4-5'));
+  // an agent launch asks the installation of the agent's folder, wherever it is launched from
+  for (const [name, model] of [['tiny', 'haiku-4-5'], ['sound', 'sonnet-5-5']]) {
+    const home = path.join(pruned.root, '.rbtv', 'agents', name);
+    fs.mkdirSync(home, { recursive: true });
+    fs.writeFileSync(path.join(home, 'agent.md'), `---\nname: ${name}\n---\nYou are ${name}.`);
+    fs.writeFileSync(path.join(home, 'agent.json'), `${JSON.stringify({ name, harness: 'claude', model, effort: model === 'haiku-4-5' ? 'inert' : 'low' })}\n`);
+  }
+  const agent = (name, cwd) => cast(['--agent', path.join(pruned.root, '.rbtv', 'agents', name), '-p', 'x'], cwd);
+  refused(agent('tiny', fresh.root), notSelected('claude', 'haiku-4-5'));
+  refused(agent('tiny', pruned.root), notSelected('claude', 'haiku-4-5'));
+  assert.strictEqual(agent('sound', fresh.root).status, 0, agent('sound', fresh.root).stderr);
+
+  // a row this copy of cast does not support is an orphan: named as one, with the way out
+  const orphan = installation([HEAD, SONNET, 'cli,opencode,not-a-real-model,3,N,L2,6,6,1,route,N,N']);
+  refused(launch('opencode', 'not-a-real-model', orphan.root),
+    `refused: 'opencode not-a-real-model' is selected in ${orphan.file} but this copy of cast does not support it (${path.join(__dirname, 'supported-models.js')})\n`
+    + 'the daemon runs its own deployed copy of rbtv: deploy a commit that supports it\nNothing changed.\ncast models remove opencode not-a-real-model');
+  // neither supported nor selected: the closest supported name, and the list of them
+  for (const cwd of [orphan.root, fresh.root]) {
+    refused(launch('claude', 'claude-sonet-5', cwd),
+      "refused: 'claude claude-sonet-5' is not a model cast supports\ndid you mean 'sonnet-5-5'?\nNothing changed.\ncast models list --supported");
+  }
+
+  // a model catalog that cannot be read stops every launch in the installation, selected or not
+  for (const [lines, why] of [
+    [[HEAD, SONNET, 'cli,claude,opus-5-5,5,N,L1,6,6,2,5,route,N,N'], 'line 3: 13 cells where the header has 12'],
+    [[`${HEAD},notes`, `${SONNET},x`], "line 1: unknown column 'notes' (the columns are mode, harness, model, efforts, image, level, reasoning, coding, cost, use, quality-override, price-override)"],
+    [['mode,harness,level', 'cli,claude,L2'], "line 1: no 'model' column"],
+  ]) {
+    const broken = installation(lines);
+    const text = `refused: cannot read the model catalog ${broken.file} ${why}\nNothing changed.\ncast models list --catalog`;
+    refused(launch('claude', 'sonnet-5-5', broken.root), text);
+    refused(api('gemini-3.5-flash', broken.root), text);
+  }
+  // cells are read by header name: the three columns a row cannot do without are enough
+  const narrow = installation(['model,harness,mode', 'haiku-4-5,claude,cli']);
+  assert.strictEqual(launch('claude', 'haiku-4-5', narrow.root).status, 0);
+
+  // the writer replaces the file in one step and keeps the file's own line ending
+  const { loadSelection, saveSelection } = require('./lib/model-catalog');
+  for (const eol of ['\r\n', '\n']) {
+    const own = installation(null);
+    const bytes = [HEAD, SONNET, '', 'cli,claude,haiku-4-5,0,N,L4,0,0,999,off,N,N'].map((l) => `${l}${eol}`).join('');
+    fs.writeFileSync(own.file, bytes);
+    const read = loadSelection(own.root);
+    assert.deepStrictEqual([read.file, read.shipped, read.eol, read.rows.length], [own.file, false, eol, 2]);
+    assert.strictEqual(read.rows[1]._line, 4, 'a row keeps the line it sits on');
+    assert.strictEqual(saveSelection(own.root, read.lines, read.eol), own.file);
+    assert.strictEqual(fs.readFileSync(own.file, 'utf8'), bytes, `a ${JSON.stringify(eol)} file must come back byte for byte`);
+    saveSelection(own.root, read.lines.slice(0, 2), read.eol);
+    assert.strictEqual(fs.readFileSync(own.file, 'utf8'), `${HEAD}${eol}${SONNET}${eol}`);
+    assert.deepStrictEqual(fs.readdirSync(path.dirname(own.file)), ['models.csv'], 'no temporary file is left');
+    refused(launch('claude', 'haiku-4-5', own.root), `refused: 'claude haiku-4-5' is not selected in ${own.root}\nmodel catalog: ${own.file}\nNothing changed.\ncast models add claude haiku-4-5`);
+  }
+  // a first write copies the shipped model catalog with this machine's line ending
+  const first = installation(null);
+  fs.rmSync(path.dirname(first.file), { recursive: true });
+  const shipped = loadSelection(first.root);
+  assert.deepStrictEqual([shipped.file, shipped.shipped, shipped.eol], [path.join(__dirname, 'models.csv'), true, os.EOL]);
+  saveSelection(first.root, shipped.lines, shipped.eol);
+  assert.strictEqual(fs.readFileSync(first.file, 'utf8'), shipped.lines.map((l) => `${l}${os.EOL}`).join(''));
+  assert.deepStrictEqual(loadSelection(first.root).rows, shipped.rows);
+
+  // --- cast models: the lists, add and remove, each in a scratch installation ------------------
+  const crypto = require('crypto');
+  const digest = (root) => {
+    const hash = crypto.createHash('sha256');
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+        const full = path.join(dir, entry.name);
+        hash.update(`${path.relative(root, full)}\0`);
+        if (entry.isDirectory()) walk(full);
+        else hash.update(fs.readFileSync(full));
+      }
+    };
+    walk(root);
+    return hash.digest('hex');
+  };
+  // A command that must write nothing: every file under the installation is byte-identical after.
+  const unchanged = (root, run) => {
+    const before = digest(root);
+    const res = run();
+    assert.strictEqual(digest(root), before, `the installation changed: ${res.stdout}${res.stderr}`);
+    return res;
+  };
+  const ok = (res) => {
+    assert.strictEqual(res.status, 0, `expected exit 0, got ${res.status}: ${res.stderr}`);
+    assert.strictEqual(res.stderr, '');
+    return res.stdout;
+  };
+  const jsonRefusal = (res, code, next) => {
+    assert.strictEqual(res.status, 2, `expected a refusal, got ${res.status}: ${res.stdout}${res.stderr}`);
+    assert.strictEqual(res.stderr, '', 'a --json refusal is one value on standard output');
+    const value = JSON.parse(res.stdout);
+    assert.deepStrictEqual([Object.keys(value), value.error, value.next], [['error', 'message', 'next'], code, next]);
+    return value;
+  };
+  const HAIKU = 'cli,claude,haiku-4-5,0,N,L4,0,0,999,off,N,N';
+  const shippedFile = path.join(__dirname, 'models.csv');
+  const shippedNote = `model catalog: ${shippedFile} (shipped with cast: every supported model is selected)`;
+
+  // list: the three views of a pruned installation, each naming the installation and the file
+  const some = installation([HEAD, SONNET, 'cli,opencode,not-a-real-model,3,N,L2,6,6,1,route,N,N']);
+  const head = `installation: ${some.root}\nmodel catalog: ${some.file}\n\n`;
+  const selectedText = ok(unchanged(some.root, () => models(['list'], some.root)));
+  assert.strictEqual(selectedText, `${head}  harness  model       effort\n  claude   sonnet-5-5  1=low 2=medium 3=high 4=xhigh 5=max\n\n`
+    + `1 of ${ROWS.length} supported models are selected.\n`
+    + '1 row of the model catalog name a model this copy of cast does not support: cast models list --catalog\n'
+    + "effort is an integer 1-5: N picks the Nth rung, clamped to the model's top — pass the number, the words are labels only.\n"
+    + 'The models not selected: cast models list --supported\n');
+  const supportedText = ok(models(['list', '--supported'], path.join(some.root, '.rbtv')));
+  assert.ok(supportedText.startsWith(`${head}  harness   model                   selected  effort\n`), supportedText);
+  assert.match(supportedText, /^ {2}claude +sonnet-5-5 +yes +1=low/m);
+  assert.match(supportedText, /^ {2}claude +haiku-4-5 +no +\(no dial/m);
+  assert.strictEqual(supportedText.split('\n').filter((l) => / (yes|no) {2}/.test(l)).length, ROWS.length, 'one line per supported model');
+  const supportedJson = JSON.parse(ok(models(['list', '--supported', '--json'], some.root)));
+  assert.deepStrictEqual([supportedJson.installation, supportedJson.selection, supportedJson.view], [some.root, some.file, 'supported']);
+  assert.deepStrictEqual(supportedJson.models.filter((m) => m.selected).map((m) => `${m.harness} ${m.model}`), ['claude sonnet-5-5']);
+  assert.strictEqual(supportedJson.models.length, ROWS.length);
+  assert.deepStrictEqual(JSON.parse(ok(models(['list', '--json'], some.root))).models.map((m) => m.model), ['sonnet-5-5']);
+  // --catalog: every row of the file in force, the one cast does not support included
+  const catalogJson = JSON.parse(ok(models(['list', '--catalog', '--json'], some.root)));
+  assert.deepStrictEqual(Object.keys(catalogJson), ['installation', 'source', 'rows']);
+  assert.deepStrictEqual([catalogJson.installation, catalogJson.source], [some.root, some.file]);
+  assert.deepStrictEqual(catalogJson.rows[0], { mode: 'cli', harness: 'claude', model: 'sonnet-5-5', efforts: '5', image: 'N', level: 'L2',
+    reasoning: '3', coding: '3', cost: '10', use: 'route', 'quality-override': 'N', 'price-override': 'N', launchable: 'yes', available: 'true' });
+  assert.deepStrictEqual([catalogJson.rows[1].model, catalogJson.rows[1].launchable, catalogJson.rows[1].available], ['not-a-real-model', 'no', '-']);
+  const catalogText = ok(models(['list', '--catalog'], some.root));
+  assert.ok(catalogText.startsWith(`${head}  mode  harness   model `), catalogText);
+  assert.match(catalogText, /^ {2}cli +opencode +not-a-real-model .* no +-$/m);
+  // with no file of its own, and outside any installation, the shipped model catalog is the source
+  assert.ok(ok(models(['list'], fresh.root)).startsWith(`installation: ${fresh.root}\n${shippedNote}\n`));
+  const outsideCatalog = JSON.parse(ok(models(['list', '--catalog', '--json'])));
+  assert.deepStrictEqual([outsideCatalog.installation, outsideCatalog.source, outsideCatalog.rows.length], [null, shippedFile, shipped.rows.length]);
+
+  // add: appends the shipped rows of the model, every level, and says what each use value means
+  const adding = installation([HEAD, HAIKU]);
+  const wouldAdd = ok(unchanged(adding.root, () => models(['add', 'claude', 'sonnet-5-5', '--dry-run'], adding.root)));
+  assert.strictEqual(wouldAdd, `installation: ${adding.root}\nmodel catalog: ${adding.file}\n\n`
+    + "would select: 'claude sonnet-5-5', 2 rows to add\n"
+    + '  cli,claude,sonnet-5-5,5,N,L3,3,3,10,route,Y,Y\n      use=route: launchable, and cast route may name it\n'
+    + '  cli,claude,sonnet-5-5,5,N,L2,3,3,10,route,N,N\n      use=route: launchable, and cast route may name it\n'
+    + 'Nothing changed: this was a dry run.\n');
+  refused(launch('claude', 'sonnet-5-5', adding.root), `refused: 'claude sonnet-5-5' is not selected in ${adding.root}\nmodel catalog: ${adding.file}\nNothing changed.\ncast models add claude sonnet-5-5`);
+  const addedText = ok(models(['add', 'claude', 'claude-sonnet-5-5'], adding.root));
+  assert.ok(addedText.includes("\nselected: 'claude sonnet-5-5', 2 rows added\n") && addedText.endsWith('launch it: cast claude sonnet-5-5 1 -p "reply with exactly: ok"\n'), addedText);
+  assert.strictEqual(fs.readFileSync(adding.file, 'utf8'),
+    `${[HEAD, HAIKU, 'cli,claude,sonnet-5-5,5,N,L3,3,3,10,route,Y,Y', 'cli,claude,sonnet-5-5,5,N,L2,3,3,10,route,N,N'].join('\n')}\n`);
+  assert.deepStrictEqual(fs.readdirSync(path.dirname(adding.file)), ['models.csv'], 'no temporary file is left');
+  assert.strictEqual(launch('claude', 'sonnet-5-5', adding.root).status, 0, 'an added model launches');
+  // already selected: nothing is written, exit 0
+  assert.ok(ok(unchanged(adding.root, () => models(['add', 'claude', 'sonnet-5-5'], adding.root))).endsWith("\nalready selected: 'claude sonnet-5-5'\nNothing changed.\n"));
+  // --json: the rows as objects; an api model takes harness api and a use=off row says so in text
+  const addedJson = JSON.parse(ok(models(['add', 'api', 'gemini-3.5-flash', '--json'], adding.root)));
+  assert.deepStrictEqual(Object.keys(addedJson), ['installation', 'selection', 'harness', 'model', 'changed', 'added', 'dry_run']);
+  assert.deepStrictEqual([addedJson.installation, addedJson.selection, addedJson.changed, addedJson.dry_run, addedJson.added.length, addedJson.added[0].use],
+    [adding.root, adding.file, true, false, 1, 'off']);
+  assert.strictEqual(api('gemini-3.5-flash', adding.root).status, 0);
+  assert.ok(ok(models(['add', 'opencode', 'k3', '--dry-run'], adding.root)).includes('\n      use=off: launchable, never named by cast route: edit the use column to route it\n'));
+  // no file of its own: every supported model is already selected, and no file is saved
+  const addFresh = ok(unchanged(fresh.root, () => models(['add', 'claude', 'haiku-4-5'], fresh.root)));
+  assert.strictEqual(addFresh, `installation: ${fresh.root}\n${shippedNote}\n\nalready selected: 'claude haiku-4-5'\n`
+    + 'No model catalog was saved: while this installation has none of its own, every supported model is selected.\n');
+  assert.deepStrictEqual(JSON.parse(ok(unchanged(fresh.root, () => models(['add', 'claude', 'haiku-4-5', '--json'], fresh.root)))),
+    { installation: fresh.root, selection: null, harness: 'claude', model: 'haiku-4-5', changed: false, added: [], dry_run: false });
+  // a file with fewer columns in another order gets the row under ITS header, and stays readable
+  ok(models(['add', 'claude', 'sonnet-5-5'], narrow.root));
+  assert.strictEqual(fs.readFileSync(narrow.file, 'utf8'), 'model,harness,mode\nhaiku-4-5,claude,cli\nsonnet-5-5,claude,cli\nsonnet-5-5,claude,cli\n');
+  assert.strictEqual(launch('claude', 'sonnet-5-5', narrow.root).status, 0);
+  // a CRLF file keeps its line ending through add and remove
+  const crlf = installation(null);
+  fs.writeFileSync(crlf.file, `${HEAD}\r\n${SONNET}\r\n`);
+  ok(models(['add', 'claude', 'haiku-4-5'], crlf.root));
+  assert.strictEqual(fs.readFileSync(crlf.file, 'utf8'), `${HEAD}\r\n${SONNET}\r\n${HAIKU}\r\n`);
+  ok(models(['remove', 'claude', 'sonnet-5-5'], crlf.root));
+  assert.strictEqual(fs.readFileSync(crlf.file, 'utf8'), `${HEAD}\r\n${HAIKU}\r\n`);
+  // add refuses a model cast does not support, and any call outside an installation
+  for (const run of [() => models(['add', 'claude', 'claude-sonet-5'], adding.root), () => models(['remove', 'claude', 'sonnet-5-5']),
+    () => models(['add', 'claude', 'sonnet-5-5'])]) assert.strictEqual(run().stdout, '', 'a text refusal prints nothing on standard output');
+  refused(unchanged(adding.root, () => models(['add', 'claude', 'claude-sonet-5'], adding.root)),
+    "refused: 'claude claude-sonet-5' is not a model cast supports\ndid you mean 'sonnet-5-5'?\nNothing changed.\ncast models list --supported");
+  const noInstallation = `refused: no rbtv installation above ${process.cwd()} (no .rbtv/config/install.json)\n`
+    + 'the selected models belong to an installation; outside one, every supported model is selected\nNothing changed.\n'
+    + 'rbtv configure --harness claude --guidance none --target FOLDER';
+  refused(models(['add', 'claude', 'sonnet-5-5']), noInstallation);
+  refused(models(['remove', 'claude', 'sonnet-5-5']), noInstallation);
+  jsonRefusal(models(['add', 'claude', 'sonnet-5-5', '--json']), 'no-installation', 'rbtv configure --harness claude --guidance none --target FOLDER');
+  jsonRefusal(models(['add', 'claude', 'claude-sonet-5', '--json'], adding.root), 'not-supported', 'cast models list --supported');
+
+  // remove: with no file of its own the installation first gets the shipped one, minus the rows
+  const pruning = installation(null);
+  fs.rmSync(path.dirname(pruning.file), { recursive: true });
+  const wouldRemove = ok(unchanged(pruning.root, () => models(['remove', 'claude', 'sonnet-5-5', '--dry-run'], pruning.root)));
+  assert.ok(wouldRemove.startsWith(`installation: ${pruning.root}\nmodel catalog: ${pruning.file}\n\n`
+    + 'would copy the model catalog shipped with cast to that file first: every other supported model stays selected.\n'
+    + "would unselect: 'claude sonnet-5-5', 2 rows to remove\n  cli,claude,sonnet-5-5,5,N,L3,3,3,10,route,Y,Y\n  cli,claude,sonnet-5-5,5,N,L2,3,3,10,route,N,N\nnot checked:\n"), wouldRemove);
+  assert.ok(wouldRemove.endsWith('\nNothing changed: this was a dry run.\n'), wouldRemove);
+  const removedText = ok(models(['remove', 'claude', 'sonnet-5-5'], pruning.root));
+  assert.ok(removedText.includes('\ncopied the model catalog shipped with cast to that file first') && removedText.includes("\nunselected: 'claude sonnet-5-5', 2 rows removed\n"), removedText);
+  assert.ok(removedText.includes(`\nnot checked:\n  agents kept outside ${path.join(pruning.root, '.rbtv', 'agents')}\n  settings of a component that name a model`), removedText);
+  assert.ok(removedText.endsWith('\nselect it again: cast models add claude sonnet-5-5\n'), removedText);
+  assert.strictEqual(fs.readFileSync(pruning.file, 'utf8'), shipped.lines.filter((l) => !l.includes(',sonnet-5-5,')).map((l) => `${l}${os.EOL}`).join(''));
+  refused(launch('claude', 'sonnet-5-5', pruning.root), `refused: 'claude sonnet-5-5' is not selected in ${pruning.root}\nmodel catalog: ${pruning.file}\nNothing changed.\ncast models add claude sonnet-5-5`);
+  assert.strictEqual(launch('claude', 'opus-5-5', pruning.root).status, 0, 'every other supported model stays selected');
+  // not selected: nothing is written, exit 0
+  assert.ok(ok(unchanged(pruning.root, () => models(['remove', 'claude', 'sonnet-5-5'], pruning.root))).endsWith("\nnot selected: 'claude sonnet-5-5'\nNothing changed.\n"));
+  assert.ok(ok(unchanged(pruning.root, () => models(['remove', 'claude', 'nothing'], pruning.root)))
+    .endsWith("\nnot selected: 'claude nothing'\nIt is not a model cast supports either: cast models list --supported\nNothing changed.\n"));
+  // add brings it back, and a row cast does not support can be removed
+  ok(models(['add', 'claude', 'sonnet-5-5'], pruning.root));
+  assert.strictEqual(launch('claude', 'sonnet-5-5', pruning.root).status, 0);
+  ok(models(['remove', 'opencode', 'not-a-real-model'], some.root));
+  assert.strictEqual(fs.readFileSync(some.file, 'utf8'), `${HEAD}\n${SONNET}\n`);
+
+  // remove is refused while an agent or the Dreamer still launches the model; --force overrides
+  const used = installation([HEAD, SONNET, HAIKU]);
+  const agentFile = (name) => path.join(used.root, '.rbtv', 'agents', name, 'agent.json');
+  for (const [name, record] of [['tiny', { harness: 'claude', model: 'claude-haiku-4-5', effort: 'inert' }],
+    ['sound', { harness: 'claude', model: 'sonnet-5-5', effort: 'low' }], ['torn', null]]) {
+    fs.mkdirSync(path.dirname(agentFile(name)), { recursive: true });
+    fs.writeFileSync(path.join(path.dirname(agentFile(name)), 'agent.md'), `---\nname: ${name}\n---\nYou are ${name}.`);
+    fs.writeFileSync(agentFile(name), record ? JSON.stringify({ name, ...record }) : '{not json');
+  }
+  const igniteConfig = path.join(used.root, '.rbtv', 'config', 'ignite', 'config.json');
+  fs.mkdirSync(path.dirname(igniteConfig), { recursive: true });
+  const dreamer = (value) => fs.writeFileSync(igniteConfig, JSON.stringify({ dreamer: value }));
+  dreamer({ enabled: true, model: { harness: 'claude', model: 'haiku-4-5', effort: 3 } });
+  const inUse = `refused: 'claude haiku-4-5' is still used in ${used.root}\n  agent tiny (${agentFile('tiny')})\n  the Dreamer (${igniteConfig}, dreamer.model)\n`
+    + 'give each another model first (an agent: rbtv agent configure AGENT --model MODEL), or remove it anyway with --force\nNothing changed.\ncast models remove claude haiku-4-5 --force';
+  refused(unchanged(used.root, () => models(['remove', 'claude', 'haiku-4-5'], used.root)), inUse);
+  refused(unchanged(used.root, () => models(['remove', 'claude', 'haiku-4-5', '--dry-run'], used.root)), inUse);
+  const inUseJson = jsonRefusal(unchanged(used.root, () => models(['remove', 'claude', 'haiku-4-5', '--json'], used.root)), 'in-use', 'cast models remove claude haiku-4-5 --force');
+  assert.ok(inUseJson.message.includes(agentFile('tiny')) && inUseJson.message.includes('the Dreamer'), inUseJson.message);
+  // the Dreamer switched off is not a user; switched on with no model written, it is named as not checked
+  dreamer({ enabled: false, model: { harness: 'claude', model: 'haiku-4-5', effort: 3 } });
+  assert.ok(!models(['remove', 'claude', 'haiku-4-5'], used.root).stderr.includes('Dreamer'));
+  dreamer({ enabled: true });
+  const forcedDry = JSON.parse(ok(unchanged(used.root, () => models(['remove', 'claude', 'haiku-4-5', '--force', '--dry-run', '--json'], used.root))));
+  assert.deepStrictEqual(Object.keys(forcedDry), ['installation', 'selection', 'harness', 'model', 'changed', 'removed', 'copied_shipped', 'users', 'not_checked', 'dry_run']);
+  assert.deepStrictEqual([forcedDry.changed, forcedDry.dry_run, forcedDry.copied_shipped, forcedDry.removed.length], [false, true, false, 1]);
+  assert.deepStrictEqual(forcedDry.users, [{ kind: 'agent', name: 'tiny', file: agentFile('tiny') }]);
+  assert.deepStrictEqual(forcedDry.not_checked.slice(0, 2), [`${agentFile('torn')} cannot be read`, `the Dreamer is on and ${igniteConfig} names no dreamer.model`]);
+  const forced = ok(models(['remove', 'claude', 'haiku-4-5', '--force'], used.root));
+  assert.ok(forced.includes(`\nstill naming it, so these are now refused at launch:\n  agent tiny (${agentFile('tiny')})\nnot checked:\n  ${agentFile('torn')} cannot be read\n`), forced);
+  assert.strictEqual(fs.readFileSync(used.file, 'utf8'), `${HEAD}\n${SONNET}\n`);
+  // a model nobody uses is removed without --force
+  assert.ok(ok(models(['remove', 'claude', 'sonnet-5-5', '--force', '--dry-run'], used.root)).includes('agent sound'));
+
+  // cast list --agents: an agent whose model is not selected is a row with the command that
+  // selects it, never a launchable row
+  const listed = JSON.parse(spawnSync('node', [TOOL, 'list', '--agents', '--json'], { cwd: used.root, encoding: 'utf8' }).stdout);
+  assert.deepStrictEqual(listed.agents.map((a) => [a.name, a.problem]), [['sound', undefined],
+    ['tiny', 'model not selected: cast models add claude haiku-4-5'], ['torn', listed.agents[2].problem]]);
+  assert.ok(listed.agents[2].problem.includes('cannot be read'));
+  const listedText = spawnSync('node', [TOOL, 'list'], { cwd: used.root, encoding: 'utf8', env: { ...process.env, COLUMNS: '100' } }).stdout;
+  assert.ok(listedText.includes('\ntiny: cannot be launched: model not selected: cast models add claude haiku-4-5\n'), listedText);
+  assert.ok(!/^tiny +claude/m.test(listedText) && /^sound +claude +sonnet-5-5/m.test(listedText), listedText);
+  ok(models(['add', 'claude', 'haiku-4-5'], used.root));
+  assert.strictEqual(JSON.parse(spawnSync('node', [TOOL, 'list', '--json'], { cwd: used.root, encoding: 'utf8' }).stdout).agents[1].model, 'claude-haiku-4-5');
+
+  // a model catalog that cannot be read refuses every cast models verb, with the file and the line
+  const torn = installation(['mode,harness', 'cli,claude']);
+  for (const args of [['list'], ['list', '--catalog'], ['add', 'claude', 'haiku-4-5'], ['remove', 'claude', 'haiku-4-5']]) {
+    refused(unchanged(torn.root, () => models(args, torn.root)), `refused: cannot read the model catalog ${torn.file} line 1: no 'model' column\n`
+      + `${args[0] === 'list' ? 'Nothing was listed.' : 'Nothing changed.'}\ncorrect ${torn.file}, then run the same command again`);
+  }
+  // the words: a verb is required, each verb takes its own flags, -h anywhere is the help page
+  for (const [args, first] of [
+    [[], 'refused: cast models needs a verb\nchoose from list, add, remove\nNothing changed.'],
+    [['prune'], "refused: unknown verb 'models prune'\nchoose from list, add, remove\nNothing changed."],
+    [['list', 'claude'], "refused: cast models list takes no name, got 'claude'\nit lists every model of one view\nNothing was listed."],
+    [['list', '--selected', '--catalog'], 'refused: --selected and --catalog are different lists\npass one of them\nNothing was listed.'],
+    [['list', '--force'], "refused: '--force' is not a cast models list option\ncast models list takes --json, --selected, --supported, --catalog\nNothing was listed."],
+    [['add', 'claude'], 'refused: cast models add takes a harness and a model, got 1 name\nas in a launch: cast models add claude haiku-4-5\nNothing changed.'],
+    [['add', 'claude', 'haiku-4-5', '--force'], "refused: '--force' is not a cast models add option\ncast models add takes --json, --dry-run\nNothing changed."],
+    [['remove', 'claude', 'haiku-4-5', 'x'], 'refused: cast models remove takes a harness and a model, got 3 names\nas in a launch: cast models remove claude haiku-4-5\nNothing changed.'],
+  ]) refused(unchanged(used.root, () => models(args, used.root)), `${first}\ncast models -h`);
+  jsonRefusal(models(['prune', '--json'], used.root), 'invalid-arguments', 'cast models -h');
+  for (const args of [['-h'], ['add', '--help'], ['remove', 'claude', '-h']]) {
+    assert.ok(ok(models(args)).startsWith('usage: cast models list [--selected | --supported | --catalog] [--json]\n       cast models add HARNESS MODEL'), args.join(' '));
+  }
 }
 
 console.log('all cast tests passed');

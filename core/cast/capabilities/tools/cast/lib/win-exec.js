@@ -84,6 +84,21 @@ function resolveWindowsExecutable(name, env) {
   return null;
 }
 
+// Where PATH would find the program, or null. Read from the folders of PATH; nothing is started.
+function findOnPath(name, env = process.env) {
+  if (process.platform === 'win32') return resolveWindowsExecutable(name, env);
+  for (const dir of (env.PATH || '').split(path.delimiter).filter(Boolean)) {
+    const file = path.join(dir, name);
+    try {
+      if (fs.statSync(file).isFile()) {
+        fs.accessSync(file, fs.constants.X_OK);
+        return file;
+      }
+    } catch { /* not here */ }
+  }
+  return null;
+}
+
 // An npm global shim is a batch file ending in `"%_prog%" "%dp0%\path\to\entry.js" %*`. The
 // script it runs is what matters: started with node directly, argv stays a real array and cmd.exe
 // never re-parses it (a `&`, `|`, `<`, `>`, `%` or quote in an argument — a whole agent prompt —
@@ -125,4 +140,4 @@ function spawnable(cmd, args, platform = process.platform, env = process.env) {
   };
 }
 
-module.exports = { spawnable, resolveWindowsExecutable };
+module.exports = { spawnable, resolveWindowsExecutable, findOnPath };
