@@ -409,7 +409,9 @@ def cast_agent_list(root: Path, raw: str | None, as_json: bool, full: bool, widt
     done = subprocess.run(words, cwd=root, env={**os.environ, "COLUMNS": str(width)},
                           capture_output=True, text=True, encoding="utf-8")
     if done.returncode != 0:
-        exc = _refuse("cast-refused", "`cast list` refused: " + " ".join(done.stderr.split()),
+        # cast's first line says what it refused; its own closing lines and next
+        # step belong to cast's screen, and rbtv's refusal carries its own.
+        exc = _refuse("cast-refused", "`cast list` refused: " + done.stderr.strip().split("\n")[0],
                       "rbtv doctor" if folder is None else "rbtv agent list -h")
         exc.unchanged = "Nothing was listed."
         raise exc

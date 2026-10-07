@@ -22,6 +22,11 @@ from .state import (_file_in, book_harnesses, read_state, selected_packs,
 from .selection import (CLOSE_NAME, component_keys, iter_booked_files, iter_catalog_parts,
                         module_names, file_key, resolve_name)
 
+# The `scope` values of a list or search answer whose rows are single entries
+# (a file, a pack and, among search results, a module or a component), as
+# opposed to a table of modules or of components.
+ENTRY_SCOPES = ("files", "results")
+
 
 def _file_row(comp: dict, pid: str) -> dict:
     """The catalog row of one file of a component, or {}."""
@@ -250,7 +255,7 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
             continue
         matched.append({key: value for key, value in row.items()
                         if key != "_search"})
-    scope = "files"
+    scope = "results" if search else "files"
     if group and not search:
         scope = group + "s"
         files = [r for r in matched if r["type"] != "pack"]
@@ -305,11 +310,11 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
             matched = _group_rows([r for r in matched if r["type"] != "pack"],
                                   "component")
     if installed:
-        matched = [r for r in matched if (r["installed"] if scope == "files"
+        matched = [r for r in matched if (r["installed"] if scope in ENTRY_SCOPES
                    else r["installed_files"] > 0)]
     total = len(matched)
     page = matched[offset:offset + limit]
-    if scope == "files":
+    if scope in ENTRY_SCOPES:
         page = [{k: v for k, v in row.items()
                  if k not in ("component_description", "module_description")}
                 for row in page]
@@ -437,7 +442,7 @@ def _list_context_line(data: dict) -> str | None:
                 f"{n} match{'es' if n != 1 else ''}")
     start = data["offset"] + 1 if data["returned"] else 0
     end = data["offset"] + data["returned"]
-    if scope != "files":
+    if scope not in ENTRY_SCOPES:
         paged = data.get("has_more") or data["offset"]
         return f"Showing {start}-{end} of {data['total']}" if paged else None
     if query and data["total"] == 1:
@@ -462,7 +467,7 @@ def print_list(data: dict) -> None:
         print(context)
     print()
     files = data["files"]
-    if data["scope"] == "files":
+    if data["scope"] in ENTRY_SCOPES:
         headers = ["ID", "Type", "State", "Description"]
         rows = [[row["id"], row["type"], _file_state(row),
                  row["description"] + ("" if row["source_available"]
@@ -487,7 +492,7 @@ def print_list(data: dict) -> None:
               else "No matching files.")
     if files:
         print()
-        if data["scope"] != "files":
+        if data["scope"] not in ENTRY_SCOPES:
             text = "Installed files is the saved selection; run doctor to check harness files."
         elif any(row["type"] in GROUP_TYPES for row in files):
             text = ("State is installed or not installed for a file, on or off for a "
@@ -528,7 +533,7 @@ def json_view(data: dict, *, searching: bool) -> dict:
     screens show: list and search carry different keys for a file row and for
     a pack row. A table of modules or of components is returned unchanged; a
     module or a component among search results carries its counts of files."""
-    if data["scope"] != "files":
+    if data["scope"] not in ENTRY_SCOPES:
         return data
     shaped = []
     for row in data["files"]:
@@ -571,7 +576,7 @@ def pack_members(catalog: dict, state: dict, pack: dict) -> list[dict]:
     return members
 
 
-def build_show(selection: dict, catalog: dict, state: dict, full: bool = False) -> dict:
+def build_show(selection: dict, catalog: dict, state: dict) -> dict:
     parts = [file_detail(catalog, state, part) for part in selection["files"]]
     parts = [{**p, "type": p["method"]} for p in parts]
     for part in parts:
@@ -597,7 +602,7 @@ def build_show(selection: dict, catalog: dict, state: dict, full: bool = False) 
     elif selection["kind"] == "component":
         source_comp = catalog.get(selection["id"]) or {}
         source_path = Path(source_comp["path"]) if source_comp.get("path") else None
-        description = _description(source_comp.get("description", ""), full)
+        description = _description(source_comp.get("description", ""), True)
         out.update(description=description,
                    dependencies=list(source_comp.get("dependencies") or []),
                    source_entry=(str(source_path) if source_path else ""))

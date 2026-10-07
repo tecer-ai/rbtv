@@ -247,6 +247,8 @@ def build_parser() -> argparse.ArgumentParser:
     s_ag_list.add_argument("agent", nargs="?", metavar="AGENT")
     page(s_ag_list, "agent list")
     for s in (s_ag_add, s_ag_update, s_ag_remove, s_ag_configure):
+        # Accepted here so that main() words the refusal: these verbs take no --target.
+        s.add_argument("--target", default=argparse.SUPPRESS)
         s.add_argument("--json", action="store_true")
         s.add_argument("--dry-run", action="store_true")
         s.add_argument("--details", action="store_true")

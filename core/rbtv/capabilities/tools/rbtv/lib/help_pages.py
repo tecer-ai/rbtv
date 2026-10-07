@@ -86,18 +86,18 @@ usage: rbtv list [-h] [--module MODULE] [--component COMPONENT]
                   [NAME]
 
 Browse the local source catalog. No NAME shows modules; a module shows its components; a component
-  shows its files and any pack it declares; an exact name shows only that file. A pack is
-  named only with --pack. NAME never searches descriptions. Use search for broad discovery.
-  Installed means recorded for this installation; use doctor to check the files. --installed with
-  no NAME lists every installed file across modules in one table, then the packs that are on; with a
-  NAME it narrows inside that module or component. Under the table, an installed agent is named with the
+  shows its files and any pack it declares; an exact name shows only that file. A pack is named only
+  with --pack. NAME never searches descriptions. Use search for broad discovery. Installed means
+  recorded for this installation; use doctor to check the files. --installed with no NAME lists
+  every installed file across modules in one table, then the packs that are on; with a NAME it
+  narrows inside that module or component. Under the table, an installed agent is named with the
   harnesses it is written for as a harness-native sub-agent, and the model and effort of each.
 
 A file id is module/component#name. A pack is a name. The listing names the component that declares
   it. Turn a pack on or off with add --pack and remove --pack. --type pack lists packs; it does not
-  turn one on. --type module lists the modules, the table no NAME shows. --type component lists every
-  component across modules; with a module as NAME, that module's components. Each of the two is
-  named without another type.
+  turn one on. --type module lists the modules, the table no NAME shows. --type component lists
+  every component across modules; with a module as NAME, that module's components. Each of the two
+  is named without another type.
 
 Types (--type; comma-separated or repeatable):
 """ + _LISTING_TYPES + """
@@ -207,8 +207,8 @@ options:
   -h, --help            show this help message and exit
   --type, -x TYPE       require this type, such as skill or tool
   --pack PACK           show this pack; use it when the name is also a file
-  --full                show the whole description of a module or a
-                        component, and of the rows under it
+  --full                show the whole description of each component
+                        under a module
   --target TARGET       installation or agent folder; overrides
                         RBTV_AGENT_HOME and discovery from the current
                         folder
@@ -338,15 +338,16 @@ pack; values inside one filter are alternatives. An empty result is
 refused and nothing is written. Nothing fetches a newer source.
 
 An agent a component ships, named here, is written as a harness-native
-sub-agent: the harness's own sub-agent file, for the harnesses given with
---on HARNESS:MODEL:EFFORT. --on repeats, once per harness, and is required
-when an agent is among the names. Each harness must be one this target
-receives. Model and effort are checked with cast models list: the model
-must be one this installation selected (cast models add HARNESS MODEL
-selects one), so cast must be on PATH. Running it again for a harness replaces that harness's model and
-effort. The agent's own files and packs are not applied: a harness-native
-sub-agent sees what its target has. A component given as a NAME names
-its agents too. A selection by --all, --module, --component or --type
+sub-agent: the harness's own sub-agent file, for the harnesses given
+with --on HARNESS:MODEL:EFFORT. --on repeats, once per harness, and is
+required when an agent is among the names. Each harness must be one this
+target receives. Model and effort are checked with cast models list: the
+model must be one this installation selected
+(cast models add HARNESS MODEL selects one), so cast must be on PATH.
+Running it again for a harness replaces that harness's model and effort.
+The agent's own files and packs are not applied: a harness-native
+sub-agent sees what its target has. A component given as a NAME names its
+agents too. A selection by --all, --module, --component or --type
 skips agents and says so. To place the agent as an rbtv agent in its own
 folder instead, use rbtv agent add.
 
@@ -612,9 +613,9 @@ core/rbtv/capabilities/glossary/agent.md in the rbtv source.
 Shared options: --json  -h, --help
 Changes also accept --dry-run and --details.
 Only list takes --target, to list the agents of another folder. For the
-other verbs a name is looked up in the installation
-found from the current folder. A path is the agent folder, used in place.
-RBTV_AGENT_HOME does not stand in for AGENT.
+other verbs a name is looked up in the installation found from the current
+folder. A path is the agent folder, used in place. RBTV_AGENT_HOME does
+not stand in for AGENT.
 Aliases ls, li and rm are root commands. They are not verbs of agent.
 This command never asks a question.
 
@@ -647,8 +648,8 @@ must agree.
 has none: always the case for an agent a component ships. They are checked
 with cast models list, so cast must be on PATH, and written into the
 agent's agent.json. The model must be one the installation selected:
-cast models add HARNESS MODEL selects one. When agent.json already has them, giving one is refused:
-change them with rbtv agent configure.
+cast models add HARNESS MODEL selects one. When agent.json already has
+them, giving one is refused: change them with rbtv agent configure.
 
 A short name must be unique; otherwise pass the full id,
 <module>/<component>#<name>. A pack is named only with --pack, for example

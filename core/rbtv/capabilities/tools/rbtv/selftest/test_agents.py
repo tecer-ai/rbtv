@@ -372,6 +372,14 @@ def installed_agents(ctx) -> None:
             check("A-list — a --target that holds no agent is cast's refusal",
                   _refused(lambda: cast_agent_list(ws, None, False, False, 100, str(tmp / "elsewhere")))
                   == ("cast-refused", "rbtv agent list -h"), "")
+            try:
+                cast_agent_list(ws, None, False, False, 100, str(tmp / "elsewhere"))
+                said = ""
+            except Refuse as exc:
+                said = exc.message
+            check("A-list — that refusal carries cast's first line only",
+                  said.endswith("names no rbtv agents") and "Nothing was listed" not in said
+                  and "cast list -h" not in said, said)
             # What cast supports and what an effort number means are cast's own. The expected
             # words are read from the list cast prints (for each word, the number that selects
             # it), on the first model that has effort words. cast answers from a folder outside

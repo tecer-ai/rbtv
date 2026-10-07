@@ -166,7 +166,7 @@ function rbtvAgent(value, fail, target = null) {
   if (!home) {
     let looked;
     if (target) {
-      looked = `looked for an agent folder named ${value} in --target ${target}\nNothing changed.\nlook up a name: cast list --agents --target ${target}`;
+      looked = `looked for an agent folder named ${value} in --target ${target}\nNothing was listed.\nlook up a name: cast list --agents --target ${target}`;
     } else if (isPath(value)) {
       looked = `looked for ${path.join(path.resolve(value), AGENT_JSON)}\nNothing changed.\ncheck the path, or look up a name: cast list --agents`;
     } else {

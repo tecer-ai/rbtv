@@ -288,7 +288,7 @@ def cmd_show(args, target: Path, catalog: dict, shadowed: list,
         view = build_list(catalog, state, query=args.name, full=args.full, limit=100)
         comp = next((c for c in catalog.values()
                      if c.get("module") == named_module), None)
-        description = _description(comp.get("module_description", ""), args.full) if comp else ""
+        description = _description(comp.get("module_description", ""), True) if comp else ""
         selection = {"scope": "module", "id": args.name,
                      "description": description,
                      "components": view["files"],
@@ -314,7 +314,7 @@ def cmd_show(args, target: Path, catalog: dict, shadowed: list,
                               component_only=group == "component")
     data = {"ok": True, "target": str(target.resolve()),
             "source": getattr(args, "_why", "unknown"),
-            "selection": build_show(selected, catalog, state, args.full)}
+            "selection": build_show(selected, catalog, state)}
     parts = data["selection"]["files"]
     if selected["kind"] == "part":
         # Approved screens 20/55: an installed file's next step is a health

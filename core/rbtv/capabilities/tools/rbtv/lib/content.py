@@ -57,14 +57,13 @@ def _copy(head: str, source: Path, installation: Path | None,
 def rule_skill_description(name: str) -> str:
     """What Codex lists a rule by. Codex has no always-loaded rules folder, so
     the description is what makes the model open the rule in every session."""
-    return (f"CONTAINS: the user's standing rule {name} (preferences, rules "
-            "and instructions that hold for every task in this workspace) "
+    return (f"CONTAINS: the standing rule {name}, which holds for every task "
+            "in this workspace "
             "PURPOSE: act under this rule from the first action of a session "
             "to the last "
             "ALWAYS LOAD WHEN: a session starts, before the first action of "
             "any task, including a short question "
-            "DO NOT LOAD WHEN: no session is exempt; a task method lives in a "
-            "task skill, chosen separately")
+            "DO NOT LOAD WHEN: this rule is already open in this session")
 
 
 def sub_agent_settings(harness: str, values: dict) -> tuple[dict[str, str], list[dict]]:

@@ -137,7 +137,7 @@
                   }
                 },
                 "claims": {
-                    "description": "Keys or fenced sections it owns inside files shared with other components, such as a hook's entry in a harness settings file or a rule's section in root AGENTS.md.",
+                    "description": "Keys or fenced sections it owns inside files shared with other components, such as a hook's entry in a harness settings file, the `instructions` entry in `opencode.json` or a component's folder-instructions section.",
                   "type": "array",
                   "items": {
                     "type": "string"

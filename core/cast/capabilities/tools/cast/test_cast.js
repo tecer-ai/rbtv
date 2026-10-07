@@ -1758,7 +1758,7 @@ else {
         [['--target'], '--target takes a folder'],
         [['--target', '--json'], '--target takes a folder'],
         [['--target', plan, '--target', root], '--target takes one folder'],
-        [['--agent', 'tess', '--target', plan], `looked for an agent folder named tess in --target ${plan}`],
+        [['--agent', 'tess', '--target', plan], `looked for an agent folder named tess in --target ${plan}\nNothing was listed.\n`],
         [['--agent', drafter, '--target', plan], '--target goes with a name'],
       ]) {
         const res = listFrom(empty, args);

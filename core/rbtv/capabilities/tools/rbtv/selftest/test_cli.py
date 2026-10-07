@@ -466,6 +466,17 @@ def cli_defects(ctx) -> None:
     check("D1-types — every --type value lists with --installed, exit 0",
           not crashed, "; ".join(crashed))
 
+    for verb in ("add", "configure", "remove", "update"):
+        for argv in (["agent", verb, "x", "--target", str(inst)],
+                     ["--target", str(inst), "agent", verb, "x"]):
+            code, _out, err, escaped = run(argv)
+            check(f"D-agent-target — {' '.join(argv[:2] if argv[0] == 'agent' else argv[2:4])} "
+                  f"refuses --target {'after' if argv[0] == 'agent' else 'before'} the verb "
+                  "in its own words",
+                  escaped is None and code == 2
+                  and f"rbtv agent {verb} takes no --target" in err
+                  and "unrecognized arguments" not in err, f"{code} {err[:200]}")
+
     bare_code, _o, bare_err, _e = run(["update"])
     for argv in (["update", "--target", str(inst)], ["--target", str(inst), "update"]):
         code, _out, err, escaped = run(argv)

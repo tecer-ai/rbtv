@@ -17,6 +17,9 @@ from .fixture import _component, _file_md, _w
 
 FOLDED = ("Folds a long description over several lines. Holds a colon: here, and a "
           "second sentence.")
+# Two sentences each: a list shows the first, show the whole.
+PAINT = "Colouring walls, with a zebrawood finish. Brushes are cleaned after use."
+BETA = "Decoration of a room. Furniture is another module's subject."
 
 
 def listing_types(ctx) -> None:
@@ -28,9 +31,10 @@ def listing_types(ctx) -> None:
     _file_md(_component(src, "alpha", "tools") / "rules/gloves.md", "gloves", "Wear gloves.")
     _file_md(_component(src, "beta", "paint") / "skills/brush.md", "brush", "Paints a wall.")
     _w(src / "beta/paint/paint.json", json.dumps(
-        {"description": "Colouring walls, with a zebrawood finish.", "dependencies": []}))
+        {"description": PAINT, "dependencies": []}))
     # A component of capabilities only: no installable file.
     _w(_component(src, "beta", "standards") / "capabilities/grades.md", "# Grades\n")
+    _w(src / "beta/beta.json", json.dumps({"description": BETA}))
     _w(mirror / SKILLS_DIR / "folded" / "SKILL.md",
        "---\nname: folded\ndescription: >\n  Folds a long description over several lines.\n"
        "  Holds a colon: here, and a second sentence.\n---\n\nBody.\n")
@@ -112,6 +116,15 @@ def listing_types(ctx) -> None:
           code == 0 and as_module["selection"]["scope"] == "module"
           and code_bad == 1 and not_module["error"]["code"] == "module-unknown",
           str((as_module, not_module)))
+    _, shown_module = run("show", "beta")
+    _, shown_text = run("show", "paint", as_json=False)
+    _, listed = run("list", "beta")
+    check("LT-show-whole — show prints the whole description of a component and of a "
+          "module; a list keeps the first sentence",
+          shown["selection"]["description"] == PAINT and PAINT in shown_text
+          and shown_module["selection"]["description"] == BETA
+          and next(r for r in listed["files"] if r["id"] == "beta/paint")["description"]
+          == "Colouring walls, with a zebrawood finish.", str((shown, shown_module, listed)))
     code, unknown = run("show", "nothing-like-it")
     check("LT-show-unknown — a name that is neither stays an unknown name",
           code == 1 and unknown["error"]["code"] == "name-unknown", str(unknown))
@@ -119,7 +132,8 @@ def listing_types(ctx) -> None:
     _, found = run("search", "zebrawood")
     check("LT-search — search matches a component's description by default",
           [(row["id"], row["type"]) for row in found["files"]] == [("beta/paint", "component")]
-          and found["files"][0]["source_files"] == 1, str(found))
+          and found["files"][0]["source_files"] == 1 and found["scope"] == "results",
+          str(found))
     _, by_module = run("search", "beta", "--type", "module")
     _, by_component = run("search", "beta", "--type", "component")
     check("LT-search-type — --type module or component narrows a search to those rows",
@@ -144,6 +158,10 @@ def listing_types(ctx) -> None:
           and all(present.types_block(change=page) in PAGES[page]
                   and "\n  pack " not in PAGES[page] and "\n  module " not in PAGES[page]
                   for page in ("add", "remove")))
+
+    wide = [f"{page}: {line}" for page, text in PAGES.items()
+            for line in text.splitlines() if len(line) > 100]
+    check("LT-page-width — no help page has a line over 100 columns", not wide, str(wide))
 
     print("\nLT — a mirror skill's description written as a block")
     _, skills = run("list", "--type", "skill", "--full")

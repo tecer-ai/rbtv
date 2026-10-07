@@ -100,7 +100,7 @@ def public_contract(ctx) -> None:
               and all(r["module"] == "fixmod" for r in typed["files"]))
     _, searched = run("search", "fixskill")
     ctx.check("UX-search-is-broad-item-discovery",
-              searched["scope"] == "files"
+              searched["scope"] == "results"
               and searched["files"][0]["id"] == "fixmod/goodcomp#fixskill")
     _, filtered_page = run("list", "fixmod", "--type", "rule",
                            "--limit", "1")

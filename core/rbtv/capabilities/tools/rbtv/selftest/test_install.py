@@ -20,7 +20,7 @@ from lib.constants import (
 )
 from lib.claims import _claim_id
 from lib.apply import apply
-from lib.content import _is_ours, _mark, rule_skill_description
+from lib.content import _is_ours, _mark
 from lib.pathlinks import bin_dir, link_path, link_points_at
 from lib.state import read_state, rec_files
 from lib.operations import do_install, do_uninstall
@@ -139,11 +139,13 @@ def green_arm_all_harnesses(ctx) -> None:
           "the marker, then the rule's body",
           (target / ".agents/skills/fixrule/SKILL.md").read_text(encoding="utf-8")
           == "---\nname: fixrule\ndescription: "
-          + json.dumps(rule_skill_description("fixrule")) + "\n---\n"
-          + MANAGED_BANNER + "\n# THE RULE\n\nAlways do the thing.\n"
-          and all(word in rule_skill_description("fixrule") for word in (
-              "CONTAINS: ", " fixrule ", " PURPOSE: ", " ALWAYS LOAD WHEN: ",
-              " DO NOT LOAD WHEN: ")),
+          + json.dumps(
+              "CONTAINS: the standing rule fixrule, which holds for every task in "
+              "this workspace PURPOSE: act under this rule from the first action "
+              "of a session to the last ALWAYS LOAD WHEN: a session starts, before "
+              "the first action of any task, including a short question DO NOT "
+              "LOAD WHEN: this rule is already open in this session") + "\n---\n"
+          + MANAGED_BANNER + "\n# THE RULE\n\nAlways do the thing.\n",
           (target / ".agents/skills/fixrule/SKILL.md").read_text(encoding="utf-8"))
     check("OpenCode gets the rule through opencode.json: the one rule copy, "
           "by a path relative to the installation",

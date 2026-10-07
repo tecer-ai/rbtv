@@ -28,7 +28,7 @@ TYPE_MEANING = {
     "folder-instructions": "Text added to a folder's instructions file.",
     "pack": "A named list of files a component declares.",
     "module": "A folder grouping components of one subject; list, search and show only.",
-    "component": "A folder grouping one subject's files inside a module; list, search and show only.",
+    "component": "A folder of one subject's files inside a module; list, search and show only.",
 }
 assert set(TYPE_MEANING) == set(LISTING_TYPES)
 
@@ -87,7 +87,7 @@ RBTV_FOLDERS = (
     ("config", "configuration", "core/rbtv/capabilities/glossary/config.md"),
     ("agents", "agents found by name", "core/rbtv/capabilities/glossary/agent.md"),
     ("runtime", "operational data", "core/rbtv/capabilities/glossary/runtime.md"),
-    ("memory", "shared memory", "core/ignite/capabilities/glossary/memory.md"),
+    ("memory", "shared memory", "core/rbtv/capabilities/glossary/memory-folder.md"),
 )
 
 
