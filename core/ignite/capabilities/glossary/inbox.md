@@ -8,7 +8,7 @@ Append one fact in the owner’s meaning in the same turn:
 ignite remember <text>
 ```
 
-The command adds the date, agent and available conversation provenance. It normalizes embedded newlines and never rewrites existing bytes. An agent does not edit or remove inbox lines. Follow [Remember an owner fact](../runbook.md#remember-an-owner-fact) for explicit agent/installation arguments, literal option-like text and result fields.
+The command adds the date, agent and available conversation provenance. It normalizes embedded newlines and never rewrites existing bytes. An agent does not edit or remove inbox lines. Follow [Remember an owner fact](../tools/ignite/documentation/runbook.md#remember-an-owner-fact) for explicit agent/installation arguments, literal option-like text and result fields.
 
 A correction only about this agent’s behavior belongs in [Board](board.md) watch-outs. If it also states an owner fact, use both as [Memory](memory.md#record-and-maintain-information) specifies.
 

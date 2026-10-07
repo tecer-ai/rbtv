@@ -1,6 +1,6 @@
 # Provider accounts
 
-Use `rbtv providers` to see which [provider](glossary/provider.md) logins a machine holds, to switch a harness between accounts of one provider without logging in again, and to read each account's plan usage. Use this page when running those verbs, when deciding which account to switch to, and when adding or changing a supported provider. `rbtv providers -h` and each verb's `-h` own the grammar, options and exit codes.
+Use `rbtv providers` to see which [provider](../../../glossary/provider.md) logins a machine holds, to switch a harness between accounts of one provider without logging in again, and to read each account's plan usage. Use this page when running those verbs, when deciding which account to switch to, and when adding or changing a supported provider. `rbtv providers -h` and each verb's `-h` own the grammar, options and exit codes.
 
 Run the verbs from a folder inside an installation. They take no `--target`, and a run outside an installation is refused with `installation-unknown`: saved logins belong to one installation, so an agent folder or the current folder never stands in for it.
 
@@ -42,7 +42,7 @@ A saved login is usually the only surviving copy of that account's login. Three 
 
 ## Where a saved login lives
 
-`<installation>/.rbtv/config/rbtv/providers/<provider>/<account>.json`, readable by its owner only. The first write creates the folder and a `.gitignore` holding `*` inside it, so no saved login is committed from any clone or worktree. Do not delete that file or add an exception to it. See [Configuration folder](glossary/config.md) for the folder these belong to.
+`<installation>/.rbtv/config/rbtv/providers/<provider>/<account>.json`, readable by its owner only. The first write creates the folder and a `.gitignore` holding `*` inside it, so no saved login is committed from any clone or worktree. Do not delete that file or add an exception to it. See [Configuration folder](../../../glossary/config.md) for the folder these belong to.
 
 An account name is 1 to 40 lowercase letters, digits and hyphens, and starts with a letter or a digit.
 
@@ -54,7 +54,7 @@ Which saved login is live is read from the account id inside the live files, nev
 
 ## Keys and tokens
 
-No key, token or request detail is printed, in a result or an error. A failed read carries the error's class name only. Each credential is sent only to the usage address of its own provider, the one `providers.json` names. A key provider's credential is looked up in this order: its key variable in the process environment, then in the installation's [environment file](glossary/environment-file.md), then the harness's store.
+No key, token or request detail is printed, in a result or an error. A failed read carries the error's class name only. Each credential is sent only to the usage address of its own provider, the one `providers.json` names. A key provider's credential is looked up in this order: its key variable in the process environment, then in the installation's [environment file](../../../glossary/environment-file.md), then the harness's store.
 
 ## Add or change a supported provider
 

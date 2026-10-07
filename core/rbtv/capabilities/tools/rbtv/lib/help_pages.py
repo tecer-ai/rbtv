@@ -899,7 +899,7 @@ provider holds one login or key, with nothing to switch between. Saved
 logins live in <installation>/.rbtv/config/rbtv/providers/, kept out of
 git. The installation is found from the current folder; these verbs take
 no --target.
-Guide: core/rbtv/capabilities/providers.md in the rbtv source.
+Guide: core/rbtv/capabilities/tools/rbtv/documentation/providers.md in the rbtv source.
 
 Shared options: --json  -h, --help
 Changes also accept --dry-run. This command never asks a question.

@@ -8,4 +8,4 @@ Selected does not mean usable now. A selected model also needs the login of its 
 
 Write "selected model" in full. rbtv's "saved selection" is a different thing: the files and packs an installation or an agent has chosen to install.
 
-`cast models list` prints the selected models of the installation that holds the current folder, each with what every effort number means on it. Change the selection only with `cast models add` and `cast models remove`; [Personalizing the model catalog](../personalizing-the-model-catalog.md) gives the order to follow when agents or the daemon use the model.
+`cast models list` prints the selected models of the installation that holds the current folder, each with what every effort number means on it. Change the selection only with `cast models add` and `cast models remove`; [Personalizing the model catalog](../tools/cast/documentation/personalizing-the-model-catalog.md) gives the order to follow when agents or the daemon use the model.

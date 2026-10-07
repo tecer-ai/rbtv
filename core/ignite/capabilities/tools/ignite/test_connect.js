@@ -495,7 +495,7 @@ async function run(argv, extra = {}) {
     const file = path.join(dir, '.rbtv', 'config', 'ignite', 'config.json');
     const result = await run(['connect', 'probe', '--dm', '--installation', dir]).catch((error) => error);
     assert.match(result.message, /config[/\\]ignite[/\\]config\.json/);
-    assert.match(result.message, /core\/ignite\/capabilities\/runbook\.md/);
+    assert.match(result.message, /core\/ignite\/capabilities\/tools\/ignite\/documentation\/runbook\.md/);
     assert.match(result.message, /Nothing changed\.$/);
     assert.equal(fs.existsSync(file), false);
   });

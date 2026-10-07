@@ -26,6 +26,6 @@ Character limits count Unicode code points, including frontmatter and line endin
 
 ## Check supplied memory
 
-For a missing or invalid injected file, follow [Turn memory and recovery](../runbook.md#turn-memory-and-recovery). Ignite tries a checked committed copy, preserves rejected working bytes, and continues the turn with a visible missing-memory note when recovery is unavailable. Report the missing information; do not invent it or claim that recovery rewrote the working file.
+For a missing or invalid injected file, follow [Turn memory and recovery](../tools/ignite/documentation/runbook.md#turn-memory-and-recovery). Ignite tries a checked committed copy, preserves rejected working bytes, and continues the turn with a visible missing-memory note when recovery is unavailable. Report the missing information; do not invent it or claim that recovery rewrote the working file.
 
 Verify a supported turn’s supplied files and a missing-file case in an isolated installation. Check conditional workspace loading separately. File presence alone does not show that a turn received it.

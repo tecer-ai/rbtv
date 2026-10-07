@@ -2,11 +2,11 @@
 
 The dreamer is Ignite’s shared process for turning conversation evidence into long-term [memory](memory.md). It processes agents in sequence. It is not an agent prompt or a second writer to build for each agent.
 
-Use the [Dreamer runbook](../runbook.md#dreamer) to enable, run or diagnose consolidation. Nightly runs and the watchdog depend on configuration; an explicit operator `ignite dreamer run` can run while the nightly setting is disabled. An ordinary agent turn does not invoke it or edit the files it owns.
+Use the [Dreamer runbook](../tools/ignite/documentation/runbook.md#dreamer) to enable, run or diagnose consolidation. Nightly runs and the watchdog depend on configuration; an explicit operator `ignite dreamer run` can run while the nightly setting is disabled. An ordinary agent turn does not invoke it or edit the files it owns.
 
 ## Evidence and publication
 
-The model proposes additions, replacements and archives from eligible owner conversation evidence and explicit [inbox](inbox.md) requests. Injected or recalled text and the dreamer’s own writing are not new evidence. Follow [watch-out and inbox handling](../runbook.md#dreamer-watch-outs-and-unread-messages) for required provenance, duplicate filing and cursor advancement; a board correction without the necessary evidence stays pending.
+The model proposes additions, replacements and archives from eligible owner conversation evidence and explicit [inbox](inbox.md) requests. Injected or recalled text and the dreamer’s own writing are not new evidence. Follow [watch-out and inbox handling](../tools/ignite/documentation/runbook.md#dreamer-watch-outs-and-unread-messages) for required provenance, duplicate filing and cursor advancement; a board correction without the necessary evidence stays pending.
 
 Deterministic code validates each proposal before publication. It refuses over-cap content rather than truncating it, checks that files have not changed since reading, and retains removed material or a verified filing destination with a reason. It never edits `prompt.md` or rbtv source. A conflict with those instructions goes to the owner’s digest.
 

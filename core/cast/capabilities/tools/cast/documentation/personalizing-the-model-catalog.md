@@ -1,10 +1,10 @@
 # Personalizing the model catalog
 
-Change which models an installation launches and how `cast route` ranks them, or change which models cast supports, so that every session, the Ignite daemon and every machine end on the same list. Read [Model catalog](glossary/model-catalog.md) first for what a row and each column mean; this page gives the work.
+Change which models an installation launches and how `cast route` ranks them, or change which models cast supports, so that every session, the Ignite daemon and every machine end on the same list. Read [Model catalog](../../../glossary/model-catalog.md) first for what a row and each column mean; this page gives the work.
 
 The caller supplies the harness and model names, and which of two changes is wanted:
 
-- A change for one installation: select or unselect a [supported model](glossary/supported-model.md), or edit a row's routing columns. It touches one file of the installation. Sections 1 and 5 apply.
+- A change for one installation: select or unselect a [supported model](../../../glossary/supported-model.md), or edit a row's routing columns. It touches one file of the installation. Sections 1 and 5 apply.
 - A change to what cast supports: a new model, a new version replacing an old one, or a removal. It is a change to rbtv's source. Sections 2 to 6 apply, then section 1 in each installation.
 
 When the request does not say which, or names a model without its harness, ask before changing anything.
@@ -28,7 +28,7 @@ The harness's own list is the authority for which models exist, their exact ids 
 - Codex: `codex debug models`.
 - OpenCode: `opencode models <provider> --verbose`; the ladder is the `variants` keys.
 
-The [model catalog](glossary/model-catalog.md) keeps one row per model line; take the version from the harness's list. A model line with no newer version stays as it is. Write down, per model line, the row that survives and the rows that leave, before editing.
+The [model catalog](../../../glossary/model-catalog.md) keeps one row per model line; take the version from the harness's list. A model line with no newer version stays as it is. Write down, per model line, the row that survives and the rows that leave, before editing.
 
 ## 3. Scores when a model replaces another
 
@@ -47,7 +47,7 @@ A new version takes the old row's `level`, `reasoning`, `coding`, overrides and 
 The Ignite daemon runs its own deployed copy of rbtv, with its own supported models. The commands on `PATH` run the working copy. A model the working copy supports and the deployed copy does not is refused in every daemon turn. Keep this order:
 
 1. Commit the rbtv change.
-2. Redeploy the daemon at that commit: [Ignite runbook](../../ignite/capabilities/runbook.md), Deploy.
+2. Redeploy the daemon at that commit: [Ignite runbook](../../../../../ignite/capabilities/tools/ignite/documentation/runbook.md), Deploy.
 3. In the installation: `cast models add` for a new model.
 4. Switch each agent that used an old model: `rbtv agent configure AGENT --model M`, then `cast --agent AGENT -p ok --dry-run`, which must exit 0 and name the new model.
 5. `cast models remove` for the old model, then commit the installation's changed files.

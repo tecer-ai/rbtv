@@ -82,7 +82,7 @@ General shape only. Instance ids, token paths, and launch pins are runtime confi
 
 ## Capabilities vs settings
 
-Follow [Capability](../../rbtv/capabilities/glossary/capability.md) for reusable instructions and [Choosing where to build](../../rbtv/capabilities/methods/choosing-where-to-build.md) for their component placement. They carry no agent-specific installation path, account or owner value. Agent-specific values belong in [Settings](../../rbtv/capabilities/glossary/settings-json.md), referenced from the prompt. Tools take their settings and state paths as explicit arguments or environment variables, not hardcoded paths. [Agent](../../rbtv/capabilities/glossary/agent.md) owns which agent-folder files are shared through git.
+Follow [Capability](../../../../../rbtv/capabilities/glossary/capability.md) for reusable instructions and [Choosing where to build](../../../../../rbtv/capabilities/methods/choosing-where-to-build.md) for their component placement. They carry no agent-specific installation path, account or owner value. Agent-specific values belong in [Settings](../../../../../rbtv/capabilities/glossary/settings-json.md), referenced from the prompt. Tools take their settings and state paths as explicit arguments or environment variables, not hardcoded paths. [Agent](../../../../../rbtv/capabilities/glossary/agent.md) owns which agent-folder files are shared through git.
 
 **Conversation key.** `<teamId>:<channelId>:<rootTs>`, DM and channel alike. The mapping key → agent is persisted.
 

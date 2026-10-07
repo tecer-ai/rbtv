@@ -20,7 +20,7 @@ function sourcePage(rel) {
   return { rel, abs: path.resolve(__dirname, '..', '..', '..', '..', '..', '..', rel) };
 }
 const FRAMEWORK_SKILL = sourcePage('core/rbtv/skills/framework.md');
-const MODEL_CATALOG_PAGE = sourcePage('core/cast/capabilities/personalizing-the-model-catalog.md');
+const MODEL_CATALOG_PAGE = sourcePage('core/cast/capabilities/tools/cast/documentation/personalizing-the-model-catalog.md');
 
 
 function printHelp() {

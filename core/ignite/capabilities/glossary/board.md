@@ -8,7 +8,7 @@ Keep all four headings in order: What matters now, Watch-outs, Timers, Recently 
 
 Record an owner correction of this agent’s behavior in Watch-outs in the same turn. Follow [Memory](memory.md#record-and-maintain-information) when the correction is also an owner fact. The [Dreamer](dreamer.md) folds supported watch-outs into [Learned rules](learned-rules.md), removing each folded line in the same publication. A refused watch-out still applies during the conversation; report the refusal rather than ignoring the correction.
 
-For an Ignite agent board, use the [checked board operations](../runbook.md#write-or-close-a-board-subject). Copy the current board to a candidate, edit subjects or watch-outs, then submit `ignite board write --file <candidate>`. Keep existing Flags, Timers and Recently closed unchanged; a new subject starts with Flags `none`. Use `ignite board close <subject> <outcome> [thread]` to close a subject. Archive old closed entries before closing another when all six slots are occupied; no automatic pruning or truncation occurs.
+For an Ignite agent board, use the [checked board operations](../tools/ignite/documentation/runbook.md#write-or-close-a-board-subject). Copy the current board to a candidate, edit subjects or watch-outs, then submit `ignite board write --file <candidate>`. Keep existing Flags, Timers and Recently closed unchanged; a new subject starts with Flags `none`. Use `ignite board close <subject> <outcome> [thread]` to close a subject. Archive old closed entries before closing another when all six slots are occupied; no automatic pruning or truncation occurs.
 
 ## Software-maintained content
 

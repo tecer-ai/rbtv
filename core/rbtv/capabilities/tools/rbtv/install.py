@@ -83,7 +83,7 @@ ones above it, so there is no cycle:
 
 `discovery.py` sits BESIDE this file, not in `lib/`: this directory is on
 `sys.path` and the package imports it by bare name. `selftest/` holds the runnable check, one module
-per subject. The decisions all of this was built to: `design-decisions.md`.
+per subject. The decisions all of this was built to: `documentation/design-decisions.md`.
 """
 from __future__ import annotations
 

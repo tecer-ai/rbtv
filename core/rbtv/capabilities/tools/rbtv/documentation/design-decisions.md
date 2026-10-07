@@ -1,6 +1,6 @@
 # Installer design decisions
 
-These are the installer decisions in force. The installer code is the authority for behavior. The [overview](../skills/framework.md), glossary, and schemas own the source and record formats.
+These are the installer decisions in force. The installer code is the authority for behavior. The [overview](../../../../skills/framework.md), glossary, and schemas own the source and record formats.
 
 ## D1 — Installer placement
 
@@ -8,7 +8,7 @@ The installer is the `core/rbtv` component. Its tool has a small `install.py` en
 
 ## D2 — Component source shape
 
-The installer discovers modules and components through their named JSON records and reads files from their folders. The definition and layout belong to the [overview](../skills/framework.md), [component glossary](glossary/component.md), and [component schema](templates/component-json.schema.json).
+The installer discovers modules and components through their named JSON records and reads files from their folders. The definition and layout belong to the [overview](../../../../skills/framework.md), [component glossary](../../../glossary/component.md), and [component schema](../../../templates/component-json.schema.json).
 
 ## D3 — Source trees and precedence
 
@@ -16,11 +16,11 @@ The installer scans its fixed repository root and the target's `.rbtv/mirror/` t
 
 ## D4 — Receiving harnesses
 
-The installer accepts `claude`, `codex`, and `opencode` as receiving harnesses. CLI changes require a nonempty supported set; a saved component record with no supported harness refuses on load. One supported set keeps the installed files and guidance copies consistent. The product's harness choice belongs to the [overview](../skills/framework.md).
+The installer accepts `claude`, `codex`, and `opencode` as receiving harnesses. CLI changes require a nonempty supported set; a saved component record with no supported harness refuses on load. One supported set keeps the installed files and guidance copies consistent. The product's harness choice belongs to the [overview](../../../../skills/framework.md).
 
 ## D5 — Install record
 
-The shape of `.rbtv/config/install.json` belongs to the [install record schema](templates/install-json.schema.json) and [glossary](glossary/install-json.md).
+The shape of `.rbtv/config/install.json` belongs to the [install record schema](../../../templates/install-json.schema.json) and [glossary](../../../glossary/install-json.md).
 
 When a selected file, pack, or component is absent from the local source after an update, `rbtv update scaffolding` and `rbtv update all` remove its generated files, record entry, and command shortcut. Other add and remove operations continue, warn about the stale selection, and direct the user to `rbtv update all` for reconciliation.
 
@@ -36,11 +36,11 @@ The installer recomputes claims in harness settings and instruction files from t
 
 ## D8 — Rules and folder instructions
 
-Claude Code receives a marked full rule file in `.claude/rules/`. OpenCode loads that same file: the installer lists every rule file in `opencode.json` under `instructions`, as one key it owns and refuses to take over from the user. Codex receives each rule as a skill in `.agents/skills/<name>/`, under a generated description that carries the rule's name. A component's `folder-instructions/` file becomes a labeled section in the target folder's guidance file for each selected harness. The installer also raises Codex's project document limit in `.codex/config.toml` when an installed component targets Codex. It raises that limit because Codex joins every guidance file from the project root down to the working folder. These forms keep rule text out of the guidance file, where a harness reading both would load it twice, and let several components contribute to one guidance file while preserving authored text. The source kinds and folders belong to the [overview](../skills/framework.md).
+Claude Code receives a marked full rule file in `.claude/rules/`. OpenCode loads that same file: the installer lists every rule file in `opencode.json` under `instructions`, as one key it owns and refuses to take over from the user. Codex receives each rule as a skill in `.agents/skills/<name>/`, under a generated description that carries the rule's name. A component's `folder-instructions/` file becomes a labeled section in the target folder's guidance file for each selected harness. The installer also raises Codex's project document limit in `.codex/config.toml` when an installed component targets Codex. It raises that limit because Codex joins every guidance file from the project root down to the working folder. These forms keep rule text out of the guidance file, where a harness reading both would load it twice, and let several components contribute to one guidance file while preserving authored text. The source kinds and folders belong to the [overview](../../../../skills/framework.md).
 
 ## D13 — Guidance copies
 
-The recorded basis is `CLAUDE.md`, `AGENTS.md`, or `none`. For each basis file found in the target tree, the installer generates the other filenames read by selected harnesses, deduplicated by name. It skips symlinks, nested git repositories, built-in skip folders, and configured exclusions. The basis is protected from deletion. Generated copies carry a banner; the installer can adopt a banner-bearing copy, strips a generated banner before copying from it, and keeps a copy unbooked if a partial removal cannot safely replan it. This gives each folder one authored source and avoids deleting guidance during recovery. The role of folder instructions belongs to the [glossary](glossary/folder-instructions.md).
+The recorded basis is `CLAUDE.md`, `AGENTS.md`, or `none`. For each basis file found in the target tree, the installer generates the other filenames read by selected harnesses, deduplicated by name. It skips symlinks, nested git repositories, built-in skip folders, and configured exclusions. The basis is protected from deletion. Generated copies carry a banner; the installer can adopt a banner-bearing copy, strips a generated banner before copying from it, and keeps a copy unbooked if a partial removal cannot safely replan it. This gives each folder one authored source and avoids deleting guidance during recovery. The role of folder instructions belongs to the [glossary](../../../glossary/folder-instructions.md).
 
 ## D14 — Clone-local ignore block
 
@@ -64,7 +64,7 @@ Set-valued settings use `add harness`, `remove harness`, `add guidance exclude`,
 
 ## D9 — Tools on PATH
 
-A selected tool creates a shortcut in `~/.rbtv/bin` under its tool name and creates no tool copy under the target. Planning checks the tool's CLI before writing: every system requires a shebang (`#!`) first line, so a CLI that would not run on Linux is refused on Windows too; POSIX also requires execute permission, and Windows takes its interpreter from the shebang or the script extension. This gives each installation a checked, runnable entry point while keeping the tool's CLI in its source location. The tool record and source folder belong to the [tool glossary](glossary/tool.md).
+A selected tool creates a shortcut in `~/.rbtv/bin` under its tool name and creates no tool copy under the target. Planning checks the tool's CLI before writing: every system requires a shebang (`#!`) first line, so a CLI that would not run on Linux is refused on Windows too; POSIX also requires execute permission, and Windows takes its interpreter from the shebang or the script extension. This gives each installation a checked, runnable entry point while keeping the tool's CLI in its source location. The tool record and source folder belong to the [tool glossary](../../../glossary/tool.md).
 
 ## D9b — Windows shortcuts
 

@@ -95,12 +95,12 @@ The `work-history` skill in `meta/functions` reconstructs a user-agreed project,
 > supplied; `status` displays them. `--type` filters file types; `--exclude-type` excludes them.
 > `list`, `search` and `show` also accept the types `pack`, `module` and `component`.
 > Numeric source catalog positions are not identifiers. The setting rationale and current command names
-> are recorded in `core/rbtv/capabilities/design-decisions.md`.
+> are recorded in `core/rbtv/capabilities/tools/rbtv/documentation/design-decisions.md`.
 >
 > `configure`, `add`, `remove`, and `update` accept `--dry-run`. The read and change commands
 > accept `--json`; `interactive` and `selftest` accept neither flag. Exit codes are `0` success / `1` refusal /
 > `2` usage. Its design decisions (tree precedence, the new-standard scope, the ownership marker, the collision
-> rule, the installation settings) are documented in `core/rbtv/capabilities/design-decisions.md` —
+> rule, the installation settings) are documented in `core/rbtv/capabilities/tools/rbtv/documentation/design-decisions.md` —
 > that is their one home.
 >
 

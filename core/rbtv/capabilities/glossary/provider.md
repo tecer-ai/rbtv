@@ -12,7 +12,7 @@ A saved login is a named copy of the files that make up one account's login, kep
 
 ## Work with providers
 
-Read and change provider accounts only through `rbtv providers`; follow [Provider accounts](../providers.md) for the verbs, the refusals that protect a saved login, and where saved logins live. Do not copy or edit a harness's credential files by hand, and never write a key or token into a prompt, a report or a record.
+Read and change provider accounts only through `rbtv providers`; follow [Provider accounts](../tools/rbtv/documentation/providers.md) for the verbs, the refusals that protect a saved login, and where saved logins live. Do not copy or edit a harness's credential files by hand, and never write a key or token into a prompt, a report or a record.
 
 The supported providers are data in `core/cast/capabilities/tools/cast/providers.json`. To add or change one, follow the last section of Provider accounts.
 

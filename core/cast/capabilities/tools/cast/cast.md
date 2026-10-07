@@ -38,7 +38,7 @@ cast -h | --help
 The first form launches an rbtv agent and is the form to use for any agent launched more than
 once: its folder holds the prompt and the harness, model and effort. The second form is for a
 worker chosen by `cast route`, or a throwaway. To write an agent, make an rbtv agent in any
-folder as [Agent](../../rbtv/capabilities/glossary/agent.md) says, then `rbtv agent add FOLDER
+folder as [Agent](../../../../rbtv/capabilities/glossary/agent.md) says, then `rbtv agent add FOLDER
 --harness H --model M --effort E` and `cast --agent FOLDER -p "..."`; `cast -h` prints the same
 route with the absolute path of the `framework` skill.
 
@@ -47,7 +47,7 @@ names that command and prints no model). Pass the NUMBER as `<effort>`: the laun
 only the integer, and the rung words are labels, never values a bare launch takes.
 
 A launch names a model that is **supported** (a row of `supported-models.js`) and **selected** in
-the installation that holds the launch (a row of its [model catalog](glossary/model-catalog.md);
+the installation that holds the launch (a row of its [model catalog](../../glossary/model-catalog.md);
 the refusals are under [the launch check](#the-model-catalog-and-the-launch-check)). The installation is
 found from the agent's folder for `--agent`, and from the current folder for every other launch,
 `cast api` included. A model that is not selected is refused at exit 2, and the refusal names the
@@ -190,30 +190,6 @@ to an agent, `spark list` shows it to a person, and `rbtv agent list` runs `cast
 three print the same text, so a line that names a command names all three. Each command words
 its own refusals.
 
-## spark — open an agent for a person
-
-`spark AGENT` (`capabilities/tools/spark/spark.js`) opens an agent in this terminal, for a person.
-It prints the agent's folder, harness, model and effort, then starts `cast --agent NAME --headed` with
-a one-line greeting. It passes no harness, model or effort, so cast reads them from `agent.json`.
-It needs `cast` on PATH and finds the agent the same way cast does: a name or a path. With
-`--target FOLDER`, AGENT is a name among the agents of FOLDER (the three folders `cast list --target`
-takes), and spark hands cast that agent's folder, since a launch takes no `--target`.
-
-- `--dry-run` prints the cast command and launches nothing; `--dry-run --json` prints one JSON value
-  with `agent`, `home` and `cast`. A real launch ignores `--json`.
-- Refusals, exit 1: no agent by that name or path, `agent.json` unreadable or missing, `prompt.md`
-  missing, `cast` not on PATH, or an unknown option.
-
-`spark list [AGENT]` shows the agents spark can open by name, or one of them in full: the list of
-`cast list --agents`, read in the same process, so it needs nothing on PATH and opens nothing. The
-first argument that is not an option decides the form, so `list` is never taken as an agent name:
-an agent whose name is `list` is opened by its path. `spark list --target FOLDER` shows the agents
-of FOLDER.
-
-- Refusals, exit 1: `--dry-run`, more than one agent, an agent that is not found or cannot be
-  launched, or an unknown option. A refusal is text on standard error and leaves standard output
-  empty, with or without `--json`.
-
 ## Execution
 
 The child is spawned with `cwd = <launch-folder>` for every harness (the `--cd`/`--work-dir` flags
@@ -297,8 +273,8 @@ A verdict is launched as it stands for one job. For an agent launched more than 
 verdict in the agent's record instead: `rbtv agent add FOLDER --harness H --model M --effort E` for
 a new agent, `rbtv agent configure AGENT --harness H --model M --effort E` for an existing one.
 Route ranks the rows of the model catalog in force; what its columns mean is in [Model
-catalog](glossary/model-catalog.md), and changing them is [Personalizing the model
-catalog](personalizing-the-model-catalog.md).
+catalog](../../glossary/model-catalog.md), and changing them is [Personalizing the model
+catalog](documentation/personalizing-the-model-catalog.md).
 
 | Flag | The question | Effect |
 |---|---|---|
@@ -389,16 +365,16 @@ key — which is the honest answer, not a bug.
 
 ### The model catalog and the launch check
 
-The [model catalog](glossary/model-catalog.md) is the table of the models an installation selects:
+The [model catalog](../../glossary/model-catalog.md) is the table of the models an installation selects:
 its entry defines the files (the shipped one beside `cast.js`, the installation's
 `.rbtv/config/cast/models.csv`, and which is in force), what a row selects, every column, the three
 `use` values, the two overrides and a model listed at two levels. A [supported
-model](glossary/supported-model.md) is a row of `capabilities/tools/cast/supported-models.js`; a
-[selected model](glossary/selected-model.md) is a supported model with a row in the model catalog
+model](../../glossary/supported-model.md) is a row of `capabilities/tools/cast/supported-models.js`; a
+[selected model](../../glossary/selected-model.md) is a supported model with a row in the model catalog
 in force. `cast route` joins the two on harness+model, and a row with no supported model is excluded
 with a loud stderr warning, because route must never name something cast cannot launch. To choose
 the models of an installation, or to make cast support a new model, follow [Personalizing the model
-catalog](personalizing-the-model-catalog.md).
+catalog](documentation/personalizing-the-model-catalog.md).
 
 The launch check (`lib/model-catalog.js` `gate`, called from the one lookup every launch goes
 through, `lookupModel` in `lib/core.js`) refuses at exit 2 with the reason, `Nothing changed.` and
@@ -424,7 +400,7 @@ Each supported model names its provider, a key of **`capabilities/tools/cast/pro
 holds one entry per provider: the lab, the login method (`account` or `api-key`), the key variable
 (`env_var`), the harnesses that reach it with the provider's entry in each harness's credential
 store (`harnesses.<harness>.store_key`; `harnesses.api` marks a provider `cast api` calls), the
-files a [saved login](../../rbtv/capabilities/glossary/provider.md#login-and-saved-login) is made of (`saved_login`, only where logins can be saved and switched) and
+files a [saved login](../../../../rbtv/capabilities/glossary/provider.md#login-and-saved-login) is made of (`saved_login`, only where logins can be saved and switched) and
 where its usage figure comes from (`usage`). `stores` says where a harness keeps its credentials.
 Add a provider there before a supported model names it; `test_route.js` fails on a row whose
 provider or harness the file does not list.
@@ -533,25 +509,33 @@ runs in.
 | File | What it owns |
 |---|---|
 | `capabilities/tools/cast/cast.js` | the CLI front door — argv dispatch and the bare launch path, nothing else |
+| `capabilities/tools/cast/cast.json` | the tool record: the name `cast`, its listing description and the executable `cast.js` |
 | `capabilities/tools/cast/supported-models.js` | the supported models: LAUNCH mechanics only — harness-native id, effort ladder, provider (see Spec source) |
 | `capabilities/tools/cast/providers.json` | the providers: login method, key variable, credential-store entry per harness, saved-login files, usage source |
-| `capabilities/tools/cast/lib/installation.js` | the installation a launch belongs to (first folder upward holding `.rbtv/config/install.json`) and its environment file |
 | `capabilities/tools/cast/models.csv` | the shipped model catalog — level, scores, cost, image, `use` for every supported model. In force wherever an installation has no model catalog of its own. Lives beside this tool so routing does not depend on any other tree |
+| `capabilities/tools/cast/api/` | the Python program `cast api` runs (`run.py`), its provider clients (`clients/`) and their tests (`tests/`) |
+| `capabilities/tools/cast/test_cast.js` | the suite for the CLI and its `lib/` modules, `route.js` excepted (see Self-check) |
+| `capabilities/tools/cast/test_route.js` | the suite for `cast route` (see Self-check) |
+| `capabilities/tools/cast/lib/installation.js` | the installation a launch belongs to (first folder upward holding `.rbtv/config/install.json`) and its environment file |
 | `capabilities/tools/cast/lib/model-catalog.js` | the model catalog in force for an installation: reading it strictly, replacing it in one step, the join with the supported models, and the launch check |
 | `capabilities/tools/cast/lib/models.js` | `cast models`: the three lists, `add` and `remove`, and who in the installation still uses a model |
 | `capabilities/tools/cast/lib/core.js` | shared primitives: argv parsing, model/effort/folder resolution (`lookupModel`, which runs the launch check), the words of `cast list` |
 | `capabilities/tools/cast/lib/doctor.js` | `cast doctor`: harness programs on `PATH` and the login of each model the installation selects, from local files only |
-| `core/ignite/capabilities/tools/ignite/turn.js` | `ignite turn` — exact session id, resume with the requested model/effort, result file |
 | `capabilities/tools/cast/lib/handles.js` | the launch-handle registry — the one observable a watcher uses to find a run again |
 | `capabilities/tools/cast/lib/launch.js` | spawn, `cast resume` |
+| `capabilities/tools/cast/lib/win-exec.js` | how a harness name becomes a process on Windows: finds the program on `PATH` and wraps an npm `.cmd` shortcut so that it can be started |
 | `capabilities/tools/cast/lib/agent.js` | `--agent` / `--rogue`: find the agent folder, read `agent.json` and `prompt.md`. The one place that knows where an agent's folder is (`<installation>/.rbtv/agents/<name>`), which agents a `--target FOLDER` names, what counts as a path, and how the record is read: spark, the agent list and Ignite load it |
-| `capabilities/tools/cast/lib/agent-list.js` | `cast list --agents`: the agents a name can reach, as a table, labeled blocks, or JSON; the one list, which `spark list` and `rbtv agent list` also show |
-| `capabilities/tools/spark/spark.js` | `spark AGENT`: the terminal handoff, a thin layer over `cast --agent`; `spark list`: the list of `lib/agent-list.js` (its tests: `test_spark.js`) |
+| `capabilities/tools/cast/lib/agent-list.js` | `cast list --agents`: the agents a name can reach, as a table, labeled blocks, or JSON; the one list, which [`spark list`](../spark/spark.md) and `rbtv agent list` also show |
 | `capabilities/tools/cast/lib/sessions.js` | the per-harness session-store readers and `cast sessions` |
 | `capabilities/tools/cast/lib/monitor.js` | `cast monitor` — the freeze tripwire, its witness channel, roster and watch |
+| `capabilities/tools/cast/lib/win-proc.js` | the Windows process table `cast monitor` samples, where Linux reads `/proc` |
+| `capabilities/tools/cast/lib/provider-limit.js` | recognizing a provider usage limit in a harness log, and the reason and reset time reported for it |
+| `capabilities/tools/cast/lib/optional.js` | loading `monitor.js` and `provider-limit.js` so that a failure in either leaves every other verb working |
 | `capabilities/tools/cast/lib/route.js` | `cast route` — the selector |
 | `capabilities/tools/cast/lib/api.js` | `cast api` — the API-worker runner (Google only) |
 | `capabilities/tools/cast/lib/help.js` | `-h` output: the top-level page and the per-verb pages |
+
+`ignite turn` (exact session id, resume with the requested model/effort, result file) is not in this folder: it is `core/ignite/capabilities/tools/ignite/turn.js`, in the Ignite tool. `spark` has its own folder and page: [spark](../spark/spark.md).
 
 The require graph is a DAG and `test_cast.js` asserts that it stays one — a CommonJS cycle does
 not throw, it silently hands the cycle-closing module a half-built `{}` whose imported bindings

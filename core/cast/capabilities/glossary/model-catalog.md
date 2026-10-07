@@ -2,7 +2,7 @@
 
 The model catalog is the table of the models one installation selects, with the columns `cast route` ranks them on. Each row names a harness and a model: a [supported model](supported-model.md) with a row is a [selected model](selected-model.md), so cast launches it in that installation, and the row's columns decide whether and when `cast route` names it.
 
-Read this entry before reading or editing a `models.csv`, or stating what a row, a column or a `use` value means. To choose the models of an installation, or to make cast support a new one, follow [Personalizing the model catalog](../personalizing-the-model-catalog.md).
+Read this entry before reading or editing a `models.csv`, or stating what a row, a column or a `use` value means. To choose the models of an installation, or to make cast support a new one, follow [Personalizing the model catalog](../tools/cast/documentation/personalizing-the-model-catalog.md).
 
 Three other things have nearby names. The supported models are what this copy of cast can launch; they are code, in `supported-models.js`. rbtv's source catalog is the list of modules, components and files rbtv installs, always written in full. A [routing table](../../../rbtv/capabilities/glossary/routing-table.md) is the rows that tell an agent which page to read. Write "model catalog" in full for this table and never for the other three.
 
@@ -56,7 +56,7 @@ An override never crosses a level: an `L2` row with `quality-override=Y` still l
 
 Select and unselect a model with `cast models add HARNESS MODEL` and `cast models remove HARNESS MODEL`. They keep the file's header and line ending, replace the file in one step, and `remove` first checks who in the installation still launches the model. Edit a routing cell by hand in the installation's file; cast has no command for that.
 
-cast reads the installation's file strictly, because it gates every launch there, the daemon's included. A file it cannot read as a table is refused with the file and the line, and no model launches until it is corrected. [cast](../cast.md#the-model-catalog-and-the-launch-check) lists what makes a file unreadable and the refusal of each launch case.
+cast reads the installation's file strictly, because it gates every launch there, the daemon's included. A file it cannot read as a table is refused with the file and the line, and no model launches until it is corrected. [cast](../tools/cast/cast.md#the-model-catalog-and-the-launch-check) lists what makes a file unreadable and the refusal of each launch case.
 
 ## Checks
 
