@@ -20,7 +20,7 @@ from lib.constants import (
 )
 from lib.claims import _claim_id
 from lib.apply import apply
-from lib.content import _is_ours, _mark
+from lib.content import _is_ours, _mark, rule_skill_description
 from lib.pathlinks import bin_dir, link_path, link_points_at
 from lib.state import read_state, rec_files
 from lib.operations import do_install, do_uninstall
@@ -45,6 +45,7 @@ def green_arm_all_harnesses(ctx) -> None:
         ".codex/prompts/fixcmd.md",
         ".opencode/commands/fixcmd.md",
         ".claude/rules/fixrule.md",
+        ".agents/skills/fixrule/SKILL.md",
         ".claude/agents/fixagent.md",
         ".opencode/agents/fixagent.md",
         ".codex/agents/fixagent.toml",
@@ -134,6 +135,21 @@ def green_arm_all_harnesses(ctx) -> None:
           == _mark((tree / "fixmod/goodcomp/rules/fixrule.md"
                     ).read_text(encoding="utf-8")),
           (target / ".claude/rules/fixrule.md").read_text(encoding="utf-8")[:200])
+    check("Codex gets the rule as a skill: its name, the rule-skill description, "
+          "the marker, then the rule's body",
+          (target / ".agents/skills/fixrule/SKILL.md").read_text(encoding="utf-8")
+          == "---\nname: fixrule\ndescription: "
+          + json.dumps(rule_skill_description("fixrule")) + "\n---\n"
+          + MANAGED_BANNER + "\n# THE RULE\n\nAlways do the thing.\n"
+          and all(word in rule_skill_description("fixrule") for word in (
+              "CONTAINS: ", " fixrule ", " PURPOSE: ", " ALWAYS LOAD WHEN: ",
+              " DO NOT LOAD WHEN: ")),
+          (target / ".agents/skills/fixrule/SKILL.md").read_text(encoding="utf-8"))
+    check("OpenCode gets the rule through opencode.json: the one rule copy, "
+          "by a path relative to the installation",
+          json.loads((target / "opencode.json").read_text(encoding="utf-8"))
+          ["instructions"] == [".claude/rules/fixrule.md"],
+          (target / "opencode.json").read_text(encoding="utf-8"))
     check("F3 — NO code path mints the retired .agents/rbtv2-exposure.md",
           not (target / ".agents/rbtv2-exposure.md").exists()
           and not any("exposure.md" in rel for rel in expect),
@@ -142,8 +158,8 @@ def green_arm_all_harnesses(ctx) -> None:
           res["report"]["guidance_sections"] == ["AGENTS.md", "CLAUDE.md"]
           and f"{FENCE_ID}:start fixmod/goodcomp" in (target / "CLAUDE.md").read_text(encoding="utf-8")
           and "guidance_manual" not in res["report"]
-          and f"{FENCE_ID}:start rule fixmod/goodcomp#fixrule" in (target / "AGENTS.md").read_text(encoding="utf-8")
-          and f"{FENCE_ID}:start rule" not in (target / "CLAUDE.md").read_text(encoding="utf-8")
+          and "THE RULE" not in (target / "AGENTS.md").read_text(encoding="utf-8")
+          and "THE RULE" not in (target / "CLAUDE.md").read_text(encoding="utf-8")
           and "guidance for the root" in (target / "CLAUDE.md").read_text(encoding="utf-8"),
           str(res["report"]["guidance_sections"]))
     check("managed guidance sections are installed without replacing owner files",
@@ -191,7 +207,7 @@ def green_arm_all_harnesses(ctx) -> None:
               _claim_id("opencode.json", ["mcp", "fixmcp"]),
               _claim_id(".codex/config.toml", None),
               _claim_id(".codex/config.toml", None, "codex-limits"),
-              _claim_id("AGENTS.md", None, "rule fixmod/goodcomp#fixrule"),
+              _claim_id("opencode.json", ["instructions"]),
               _claim_id("AGENTS.md", None, "fixmod/goodcomp"),
               _claim_id("CLAUDE.md", None, "fixmod/goodcomp"),
           ]), str(sorted(state["shared_claims"])))

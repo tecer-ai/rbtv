@@ -36,7 +36,7 @@ The installer recomputes claims in harness settings and instruction files from t
 
 ## D8 — Rules and folder instructions
 
-Claude Code receives a marked full rule file in `.claude/rules/`; Codex and OpenCode receive each rule's full body in a labeled section of root `AGENTS.md`. A component's `folder-instructions/` file becomes a labeled section in the target folder's guidance file for each selected harness. The installer also raises Codex's project document limit in `.codex/config.toml` when an installed component targets Codex. These forms keep rules present and let several components contribute to one guidance file while preserving authored text. The source kinds and folders belong to the [overview](../skills/framework.md).
+Claude Code receives a marked full rule file in `.claude/rules/`. OpenCode loads that same file: the installer lists every rule file in `opencode.json` under `instructions`, as one key it owns and refuses to take over from the user. Codex receives each rule as a skill in `.agents/skills/<name>/`, under a generated description that carries the rule's name. A component's `folder-instructions/` file becomes a labeled section in the target folder's guidance file for each selected harness. The installer also raises Codex's project document limit in `.codex/config.toml` when an installed component targets Codex. It raises that limit because Codex joins every guidance file from the project root down to the working folder. These forms keep rule text out of the guidance file, where a harness reading both would load it twice, and let several components contribute to one guidance file while preserving authored text. The source kinds and folders belong to the [overview](../skills/framework.md).
 
 ## D13 — Guidance copies
 
@@ -76,7 +76,7 @@ A real install that selects a PATH tool adds `~/.rbtv/bin` to the user's shell s
 
 ## D10 — Absolute source paths
 
-The installer writes resolved absolute source paths into the links of a copy and into a sub-agent pointer. The [building decisions](../decisions.md#system-and-installation-decisions) own this choice and its machine-local rationale.
+The installer writes resolved absolute source paths into the links of a copy and into a sub-agent pointer. The rule list in `opencode.json` is the exception: its paths are relative to the installation, because that file can be committed and read on another machine. The [building decisions](../decisions.md#system-and-installation-decisions) own this choice and its machine-local rationale.
 
 ## D12 — Proof of ownership
 

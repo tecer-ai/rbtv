@@ -9,7 +9,8 @@ from pathlib import Path
 
 from discovery import Refuse
 
-from .constants import FENCE_ID, GUIDANCE_FILE, LEGACY_FENCE_ID
+from .constants import (AGENT_SECTION_LABEL, FENCE_ID, GUIDANCE_FILE,
+                        LEGACY_FENCE_ID)
 
 
 # The end line of a block this installer wrote, now or under the 0.2 fence.
@@ -115,6 +116,7 @@ def owned_fence_claims(target: Path, planned: set[str], state: dict,
     one.  The plan and book identify destinations this installation has used;
     `GUIDANCE_FILE` supplies each receiving harness's fixed root destination,
     so a lost book can still release a stale root instruction section.
+    An agent folder's own section is not a claim and is never stale here.
     """
     paths = {cid.partition("::")[0] for cid in planned}
     paths.update(state.get("shared_files") or [])
@@ -132,6 +134,8 @@ def owned_fence_claims(target: Path, planned: set[str], state: dict,
         except (OSError, UnicodeDecodeError):
             continue
         for label in _OWNED_LABELS.findall(text):
+            if label == AGENT_SECTION_LABEL:
+                continue
             cid = _claim_id(rel, None, label)
             if cid not in planned and _located(text, "<!--", label):
                 found.add(cid)

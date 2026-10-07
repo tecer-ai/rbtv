@@ -1,12 +1,12 @@
 # Rule
 
-A rule is a cognitive unit supplied on every task where it is installed. The agent does not choose whether to load its body, but acts on it only when the body's condition applies.
+A rule is a cognitive unit supplied on every task where it is installed. In Claude Code and OpenCode the agent does not choose whether to load its body. Codex has no such channel: there the rule is a listed skill whose description tells the model to open it when a session starts. In every harness the agent acts on the body only when its condition applies.
 
 Use a rule for behavior that must be available across tasks and folders, without relying on the agent to select a skill. If the requirement belongs only to one folder, revisit [Choosing what to build](../choosing-what-to-build.md).
 
 ## Source and delivery
 
-Write `rules/<name>.md` using the [rule schema](../templates/rule.schema.json). Claude Code receives a copy and strips its frontmatter. Codex and OpenCode receive the body in their instructions file. The acting agent cannot rely on the description for conditions or inputs.
+Write `rules/<name>.md` using the [rule schema](../templates/rule.schema.json). Claude Code receives a copy and strips its frontmatter. OpenCode loads the same copy, which rbtv lists in `opencode.json`. Codex receives the body as a skill under a description rbtv generates from the rule's name, so the name must differ from every skill installed beside it. The acting agent cannot rely on the rule's own description for conditions or inputs. [Harness](harness.md) states what each harness loads.
 
 The description selects which agents should have the rule installed. It does not select individual tasks. A Codex permission-rule file is a different mechanism, and rbtv does not carry Claude Code path-list frontmatter as the rule's acting condition.
 
@@ -18,7 +18,7 @@ For example: “When replying to the user in chat, lead with the decision. Do no
 
 Put all required inputs and exact checks in the body. Keep only the guidance needed before a conditional method starts; place that method in a [Capability](capability.md) and route to it at the condition. Use [Entry point](entry-point.md) for the split and [Routing table](routing-table.md) for rows. Capability paths start at the repository root or `.rbtv/`, not beside the source rule, so the installer can resolve them after placement.
 
-The body is always present for installed agents. Do not repeat a task-specific method there or depend on an unlimited instructions-file size. See [Harness](harness.md) and [rbtv CLI](rbtv-cli.md) for delivery limits.
+The body is present on every task in Claude Code and OpenCode, and in Codex once the model opens it. Do not repeat a task-specific method there. See [Harness](harness.md) and [rbtv CLI](rbtv-cli.md) for delivery limits.
 
 Read the other rules and prompt the same agent receives. Give a behavior one owner and resolve in-scope contradictions together. Do not add a second independent purpose to the rule.
 

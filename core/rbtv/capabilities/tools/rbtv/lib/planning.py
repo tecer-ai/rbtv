@@ -19,7 +19,6 @@ from .constants import (
     HOOK_HARNESSES,
     MATRIX,
     OPENCODE_CONFIG_FILE,
-    RULE_SECTION_HARNESSES,
     CODEX_PROJECT_DOC_MAX_BYTES,
     SKILL_FOLDER_SKIP,
 )
@@ -32,7 +31,6 @@ from .content import (
     _opencode_mcp_entry,
     sub_agent_content,
 )
-from .link_paths import absolute_links
 from .state import _wanted_files, is_agent_target
 from .target import discover_installation
 from .recovery import vanished_component_message
@@ -64,6 +62,7 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
     hook_harnesses: set[str] = set()
     hook_owners: dict[str, list] = {}
     sections: list[dict] = []
+    instruction_owners: dict[str, list] = {}
     report: dict = {"no_realization": [], "skill_folders": [], "path_rows": [],
                     "sub_agents_unset": []}
     codex_used = False
@@ -222,20 +221,9 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                              "harness": harness})
                 continue
 
-            if method == "rule":
-                readers = [h for h in harnesses if h in RULE_SECTION_HARNESSES]
-                if readers:
-                    _front, body = frontmatter.split(
-                        (comp_dir / entry_rel).read_text(encoding="utf-8"))
-                    sections.append({"owner": (cid, pid), "harnesses": readers,
-                                     "label": f"rule {comp['module']}/{comp['component']}#{pid}",
-                                     "target": ".",
-                                     "body": absolute_links(body.strip("\r\n"), installation)})
             for harness in harnesses:
                 template = MATRIX[method].get(harness)
                 if template is None:
-                    if method == "rule" and harness in RULE_SECTION_HARNESSES:
-                        continue
                     report["no_realization"].append(
                         {"component": cid, "part": pid, "type": method,
                          "harness": harness})
@@ -244,6 +232,8 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                 claim_file(rel, _content_for(
                     rel, method, pid, desc, comp_dir, entry_rel, installation),
                     cid, pid)
+                if method == "rule" and harness == "opencode":
+                    instruction_owners.setdefault(rel, []).append((cid, pid))
 
     # ── D7/D12: shared-file claims, recomputed from the whole set ──
     claims: list[dict] = []
@@ -308,14 +298,18 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                     claim_json(CODEX_HOOKS_FILE, ["hooks", event],
                                hooks[event], owner)
         # opencode has no hooks surface — nothing is minted for it.
+    # OpenCode loads a rule only when opencode.json lists its file: one key
+    # holding every rule copy, relative to the folder opencode.json sits in
+    # (the file can be committed and read on another machine), claimed once
+    # per owning rule.
+    for owner in _all_owners(instruction_owners):
+        claim_json(OPENCODE_CONFIG_FILE, ["instructions"],
+                   sorted(instruction_owners), owner)
 
     # A component's folder instructions: one marked section per component in
     # the instructions file of every installed harness, inside the target
     # folder. Text outside the markers is never touched.
-    # Component sections first, rule sections after: AGENTS.md can be a mirror
-    # of CLAUDE.md, which carries only the component sections, so rules must be
-    # the ones appended last or their place would flip between runs.
-    for section in sorted(sections, key=lambda s: s["label"].startswith("rule ")):
+    for section in sections:
         folder = "" if section["target"] == "." else section["target"] + "/"
         for name in sorted({GUIDANCE_FILE[h] for h in section["harnesses"]
                             if h in GUIDANCE_FILE}):

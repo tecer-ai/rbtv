@@ -392,9 +392,13 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
                 # The shared claim will still be booked, but comparing a copy
                 # without its section to the finished file would rewrite it
                 # on every identical run and overstate dry-run changes.
-                files[rel] = _block_set(files[rel], claim["value"], "<!--",
-                                        preserve_outside=True,
-                                        label=claim.get("label"))
+                # A section appended to the copy ends it without a newline,
+                # while one copied in with the basis text is followed by one:
+                # the copy always ends with a newline, as `plan_mirror` wrote it.
+                text = _block_set(files[rel], claim["value"], "<!--",
+                                  preserve_outside=True,
+                                  label=claim.get("label"))
+                files[rel] = text if text.endswith("\n") else text + "\n"
         copied = {rel for rel, owner in owners.items()
                   if owner == ["<aggregate>"]}
         if copied:

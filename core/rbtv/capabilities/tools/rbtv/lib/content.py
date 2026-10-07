@@ -45,12 +45,26 @@ def _loader(part: str, desc: str, entry: str, settings: dict[str, str]) -> str:
             "instructions.\n")
 
 
-def _copy(head: str, source: Path, installation: Path | None) -> str:
-    """A skill or a command as the harness reads it: `head`, then the source's
-    body after its own frontmatter. The copy sits away from the source's
-    folder, so a link written from that folder becomes an absolute path."""
+def _copy(head: str, source: Path, installation: Path | None,
+          base: Path | None) -> str:
+    """A source as the harness reads it: `head`, then the source's body after
+    its own frontmatter. The copy sits away from the source's folder, so a
+    link written from `base` becomes an absolute path."""
     _front, body = frontmatter.split(source.read_text(encoding="utf-8"))
-    return head + absolute_links(body, installation, base=source.parent)
+    return head + absolute_links(body, installation, base=base)
+
+
+def rule_skill_description(name: str) -> str:
+    """What Codex lists a rule by. Codex has no always-loaded rules folder, so
+    the description is what makes the model open the rule in every session."""
+    return (f"CONTAINS: the user's standing rule {name} (preferences, rules "
+            "and instructions that hold for every task in this workspace) "
+            "PURPOSE: act under this rule from the first action of a session "
+            "to the last "
+            "ALWAYS LOAD WHEN: a session starts, before the first action of "
+            "any task, including a short question "
+            "DO NOT LOAD WHEN: no session is exempt; a task method lives in a "
+            "task skill, chosen separately")
 
 
 def sub_agent_settings(harness: str, values: dict) -> tuple[dict[str, str], list[dict]]:
@@ -144,17 +158,23 @@ def _content_for(rel: str, method: str, part: str, desc: str,
 def _body_for(rel: str, method: str, part: str, desc: str, source: Path,
               installation: Path | None) -> str:
     if method == "rule":
+        if rel.endswith("/" + SKILL_FILE):
+            # Codex: the rule as a skill. A rule's links are written from the
+            # repository root, so no source-folder base applies.
+            return _copy(_head(part, rule_skill_description(part), named=True),
+                         source, installation, base=None)
         # A copy — CMP-12's fallback row is a mirror, not a pointer. It differs
         # from the source in its link targets, which open from where the copy
         # sits, and in the ownership marker `_content_for` stamps on (D12).
         return absolute_links(source.read_text(encoding="utf-8"), installation)
     if method == "skill":
-        return _copy(_head(part, desc, named=True), source, installation)
+        return _copy(_head(part, desc, named=True), source, installation,
+                     base=source.parent)
     if method == "command":
         # codex prompt files are plain markdown — no frontmatter.
         head = ("" if rel.startswith(".codex/prompts/")
                 else _head(part, desc, named=False))
-        return _copy(head, source, installation)
+        return _copy(head, source, installation, base=source.parent)
     raise Refuse("internal", f"no content rule for method {method!r}")
 
 

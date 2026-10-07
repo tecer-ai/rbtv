@@ -7,7 +7,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from discovery import Refuse
+from discovery import Refuse, scan_all
 
 from lib.constants import FENCE_ID, STATE_REL
 from lib.state import read_state, write_state
@@ -16,6 +16,8 @@ from lib.parser import build_parser
 from lib.commands import _HANDLERS, main
 from lib.doctor import do_doctor
 from lib.agents import update_agent
+
+from .fixture import _component, _file_md
 
 
 def installation_settings(ctx) -> None:
@@ -214,21 +216,21 @@ def installation_settings(ctx) -> None:
           code == 0 and "fixmod/goodcomp" not in read_state(gone)["components"]
           and not (gone / ".claude/skills/fixskill/SKILL.md").exists())
 
-    rule_start = f"<!-- {FENCE_ID}:start rule fixmod/codexcomp#codexrule -->"
-    rule_end = f"<!-- {FENCE_ID}:end rule fixmod/codexcomp#codexrule -->"
+    guide_start = f"<!-- {FENCE_ID}:start fixmod/codexcomp -->"
+    guide_end = f"<!-- {FENCE_ID}:end fixmod/codexcomp -->"
 
     no_copy = installation("ws-guidance-none-rule")
     (no_copy / "AGENTS.md").write_text("Owner instructions\n", encoding="utf-8")
-    check("W28 — no guidance copying still installs the Codex rule section",
+    check("W28 — a Codex rule is installed as a skill and leaves AGENTS.md alone",
           run(no_copy, "add", "fixmod/codexcomp#codexrule",
               "--harness", "codex", "--guidance", "none")[0] == 0
-          and "Owner instructions" in
-          (no_copy / "AGENTS.md").read_text(encoding="utf-8")
-          and rule_start in (no_copy / "AGENTS.md").read_text(encoding="utf-8")
-          and "# CODEX RULE" in (no_copy / "AGENTS.md").read_text(encoding="utf-8")
-          and not (no_copy / ".agents/behavior-rules").exists())
-    check("W29 — removing the last rule keeps owner instructions",
+          and (no_copy / "AGENTS.md").read_text(encoding="utf-8")
+          == "Owner instructions\n"
+          and "# CODEX RULE" in (no_copy / ".agents/skills/codexrule/SKILL.md")
+          .read_text(encoding="utf-8"))
+    check("W29 — removing the rule removes its skill, never owner instructions",
           run(no_copy, "remove", "fixmod/codexcomp#codexrule")[0] == 0
+          and not (no_copy / ".agents/skills/codexrule").exists()
           and (no_copy / "AGENTS.md").read_text(encoding="utf-8")
           == "Owner instructions\n")
 
@@ -241,7 +243,7 @@ def installation_settings(ctx) -> None:
     owner_suffix = b"\r\n\r\nOwner end\r\n"
     do_install(legacy_section, catalog, ["fixmod/codexcomp"], ["codex"],
                dry_run=False, guidance_basis="none",
-               parts=["fixmod/codexcomp#codexrule"])
+               parts=["fixmod/codexcomp#codexguide"])
     (legacy_section / "AGENTS.md").write_bytes(
         owner_prefix + f"{start}\r\nStep 0 list\r\n{end}".encode("utf-8")
         + owner_suffix)
@@ -249,13 +251,13 @@ def installation_settings(ctx) -> None:
     book["shared_claims"] = sorted(set(book["shared_claims"]) | {"AGENTS.md::#block"})
     (legacy_section / STATE_REL).write_text(json.dumps(book), encoding="utf-8")
     do_install(legacy_section, catalog, ["fixmod/codexcomp"], ["codex"],
-               dry_run=False, parts=["fixmod/codexcomp#codexrule"])
+               dry_run=False, parts=["fixmod/codexcomp#codexguide"])
     updated = (legacy_section / "AGENTS.md").read_bytes()
     check("W30 — a booked 0.2 Step 0 section is taken back on the next install",
           updated.startswith(owner_prefix)
           and b"Step 0 list" not in updated
           and updated.count(start.encode("utf-8")) == 0
-          and rule_start.encode("utf-8") in updated
+          and guide_start.encode("utf-8") in updated
           and "AGENTS.md::#block" not in read_state(legacy_section)["shared_claims"],
           repr(updated))
     check("W31 — and the run after it is idempotent",
@@ -268,14 +270,14 @@ def installation_settings(ctx) -> None:
     (whitespace / "AGENTS.md").write_bytes(owner_bytes)
     do_install(whitespace, catalog, ["fixmod/codexcomp"], ["codex"],
                dry_run=False, guidance_basis="none",
-               parts=["fixmod/codexcomp#codexrule"])
+               parts=["fixmod/codexcomp#codexguide"])
     inserted = (whitespace / "AGENTS.md").read_bytes()
     check("W33 — first managed section retains outside CRLF and trailing blanks",
           inserted.startswith(owner_bytes)
-          and inserted.count(rule_start.encode("utf-8")) == 1,
+          and inserted.count(guide_start.encode("utf-8")) == 1,
           repr(inserted))
     do_uninstall(whitespace, catalog, ["fixmod/codexcomp"], dry_run=False,
-                 parts=["fixmod/codexcomp#codexrule"])
+                 parts=["fixmod/codexcomp#codexguide"])
     check("W34 — final section removal restores exact owner bytes",
           (whitespace / "AGENTS.md").read_bytes() == owner_bytes,
           repr((whitespace / "AGENTS.md").read_bytes()))
@@ -285,32 +287,32 @@ def installation_settings(ctx) -> None:
     (only_space / "AGENTS.md").write_bytes(whitespace_bytes)
     do_install(only_space, catalog, ["fixmod/codexcomp"], ["codex"],
                dry_run=False, guidance_basis="none",
-               parts=["fixmod/codexcomp#codexrule"])
+               parts=["fixmod/codexcomp#codexguide"])
     do_uninstall(only_space, catalog, ["fixmod/codexcomp"], dry_run=False,
-                 parts=["fixmod/codexcomp#codexrule"])
+                 parts=["fixmod/codexcomp#codexguide"])
     check("W36 — whitespace-only owner file survives final section removal",
           (only_space / "AGENTS.md").read_bytes() == whitespace_bytes)
 
     split = installation("ws-content-split")
     (split / "nested").mkdir()
     (split / "nested/CLAUDE.md").write_text("Nested source v1\n", encoding="utf-8")
-    check("W37 — fresh add puts the rule section in AGENTS.md only",
-          run(split, "add", "fixmod/codexcomp#codexrule", "--harness",
+    check("W37 — fresh add puts the component section in both instruction files",
+          run(split, "add", "fixmod/codexcomp#codexguide", "--harness",
               "claude,codex", "--guidance", "CLAUDE.md")[0] == 0
-          and rule_start in (split / "AGENTS.md").read_text(encoding="utf-8")
-          and rule_start not in (split / "CLAUDE.md").read_text(encoding="utf-8"))
+          and guide_start in (split / "AGENTS.md").read_text(encoding="utf-8")
+          and guide_start in (split / "CLAUDE.md").read_text(encoding="utf-8"))
 
     def replace_section(text: str, body: str) -> str:
         return text.split(start, 1)[0] + start + "\n" + body + "\n" + end \
             + text.split(end, 1)[1]
 
-    def replace_rule(text: str, body: str) -> str:
-        return text.split(rule_start, 1)[0] + rule_start + "\n" + body + "\n" \
-            + rule_end + text.split(rule_end, 1)[1]
+    def replace_guide(text: str, body: str) -> str:
+        return text.split(guide_start, 1)[0] + guide_start + "\n" + body + "\n" \
+            + guide_end + text.split(guide_end, 1)[1]
 
     (split / "CLAUDE.md").write_text("Source human v2\n", encoding="utf-8")
     (split / "AGENTS.md").write_text(
-        replace_rule((split / "AGENTS.md").read_text(encoding="utf-8"),
+        replace_guide((split / "AGENTS.md").read_text(encoding="utf-8"),
                      "Stale destination section"), encoding="utf-8")
     (split / "nested/CLAUDE.md").write_text(
         "Nested source v2\n" + start + "\nWrong source section\n" + end + "\n",
@@ -319,50 +321,50 @@ def installation_settings(ctx) -> None:
         replace_section((split / "nested/AGENTS.md").read_text(encoding="utf-8")
                         + "\n" + start + "\nOld nested section\n" + end + "\n",
                         "Old nested section"), encoding="utf-8")
-    rule_before = (split / ".claude/rules/codexrule.md").read_bytes()
     guide_preview = (split / "AGENTS.md").read_bytes()
     book_preview = (split / STATE_REL).read_bytes()
     check("W38 — guidance preview is write-free even with stale sections",
           run(split, "update", "guidance", "--dry-run")[0] == 0
           and (split / "AGENTS.md").read_bytes() == guide_preview
           and (split / STATE_REL).read_bytes() == book_preview)
-    check("W39 — guidance copies human text and retains destination sections",
+    check("W39 — guidance copies human text and regenerates no section",
           run(split, "update", "guidance")[0] == 0
           and "Source human v2" in (split / "AGENTS.md").read_text(encoding="utf-8")
-          and "Stale destination section" in
-          (split / "AGENTS.md").read_text(encoding="utf-8")
-          and "# CODEX RULE" not in (split / "AGENTS.md").read_text(encoding="utf-8")
+          and "# codex guidance" not in (split / "AGENTS.md").read_text(encoding="utf-8")
           and "Nested source v2" in
           (split / "nested/AGENTS.md").read_text(encoding="utf-8")
           and "Old nested section" in
           (split / "nested/AGENTS.md").read_text(encoding="utf-8")
           and "Wrong source section" not in
-          (split / "nested/AGENTS.md").read_text(encoding="utf-8")
-          and (split / ".claude/rules/codexrule.md").read_bytes()
-          == rule_before,
+          (split / "nested/AGENTS.md").read_text(encoding="utf-8"),
           (split / "AGENTS.md").read_text(encoding="utf-8")
           + "|NESTED|" + (split / "nested/AGENTS.md").read_text(encoding="utf-8"))
 
+    # The generated copy keeps its banner; its human text and its section are
+    # both made to differ from what a fresh run would write.
     (split / "AGENTS.md").write_text(
-        "Destination human only\n" + rule_start
-        + "\nStale destination section\n" + rule_end + "\n", encoding="utf-8")
-    check("W40 — scaffolding refreshes the rule section, keeps its human text",
+        (split / "AGENTS.md").read_text(encoding="utf-8")
+        .replace("Source human v2", "Destination human only") + guide_start
+        + "\nStale destination section\n" + guide_end + "\n", encoding="utf-8")
+    check("W40 — scaffolding refreshes the component section, keeps the human text",
           run(split, "update", "scaffolding")[0] == 0
-          and (split / "AGENTS.md").read_text(encoding="utf-8")
-          .startswith("Destination human only\n")
-          and "# CODEX RULE" in (split / "AGENTS.md").read_text(encoding="utf-8")
+          and "Destination human only\n" in
+          (split / "AGENTS.md").read_text(encoding="utf-8")
+          and "Source human v2" not in
+          (split / "AGENTS.md").read_text(encoding="utf-8")
+          and "# codex guidance" in (split / "AGENTS.md").read_text(encoding="utf-8")
           and "Stale destination section" not in
           (split / "AGENTS.md").read_text(encoding="utf-8")
           and (split / "CLAUDE.md").read_text(encoding="utf-8")
-          == "Source human v2\n")
+          .startswith("Source human v2\n" + guide_start))
     (split / "CLAUDE.md").write_text("Source human v3\n", encoding="utf-8")
     (split / "AGENTS.md").write_text(
-        replace_rule((split / "AGENTS.md").read_text(encoding="utf-8"),
+        replace_guide((split / "AGENTS.md").read_text(encoding="utf-8"),
                      "Stale again"), encoding="utf-8")
-    check("W41 — all copies human text and regenerates the rule section",
+    check("W41 — all copies human text and regenerates the component section",
           run(split, "update", "all")[0] == 0
           and "Source human v3" in (split / "AGENTS.md").read_text(encoding="utf-8")
-          and "# CODEX RULE" in (split / "AGENTS.md").read_text(encoding="utf-8")
+          and "# codex guidance" in (split / "AGENTS.md").read_text(encoding="utf-8")
           and "Stale again" not in (split / "AGENTS.md").read_text(encoding="utf-8")
           and "Old nested section" in
           (split / "nested/AGENTS.md").read_text(encoding="utf-8")
@@ -462,9 +464,9 @@ def file_selection_sync(ctx) -> None:
     fence_a, fence_b = home("ws-files-fence-a"), home("ws-files-fence-b")
     for target in (fence_a, fence_b):
         do_install(target, catalog, ["fixmod/codexcomp"], ["codex"],
-                   dry_run=False, guidance_basis="none", parts=["codexrule"])
+                   dry_run=False, guidance_basis="none", parts=["codexguide"])
         state = read_state(target)
-        state["files"] = ["fixmod/codexcomp#codexrule"]
+        state["files"] = ["fixmod/codexcomp#codexguide"]
         write_state(target, state)
     state = read_state(fence_a)
     state["files"] = []
@@ -473,11 +475,11 @@ def file_selection_sync(ctx) -> None:
     check("W49 — copied record removes an unbooked fenced shared section",
           run(fence_b, "update", "all")[0] == 0
           and (not (fence_b / "AGENTS.md").exists() or
-               "rule fixmod/codexcomp#codexrule" not in
+               "fixmod/codexcomp" not in
                (fence_b / "AGENTS.md").read_text(encoding="utf-8")))
 
     def foreign_fences(home: Path) -> dict[Path, bytes]:
-        label = "rule fixmod/codexcomp#codexrule"
+        label = "fixmod/codexcomp"
         quoted = (f"quoted text\n<!-- rbtv:start {label} -->\nquoted\n"
                   f"<!-- rbtv:end {label} -->\nmore text\n")
         docs = home / "docs/deep/transcript.md"
@@ -495,7 +497,7 @@ def file_selection_sync(ctx) -> None:
 
     bounded = home("ws-files-fence-bounded")
     do_install(bounded, catalog, ["fixmod/codexcomp"], ["codex"],
-               dry_run=False, guidance_basis="none", parts=["codexrule"])
+               dry_run=False, guidance_basis="none", parts=["codexguide"])
     root_foreign = foreign_fences(bounded)
     state = read_state(bounded)
     state["files"] = []
@@ -512,7 +514,7 @@ def file_selection_sync(ctx) -> None:
     (agent / "agent.json").write_text(json.dumps({
         "name": "scout", "description": "Scout.", "harness": "codex",
         "model": "c1", "effort": "high",
-        "files": ["fixmod/codexcomp#codexrule"], "packs": []}) + "\n",
+        "files": ["fixmod/codexcomp#codexguide"], "packs": []}) + "\n",
                                      encoding="utf-8")
     update_agent(agent_root, "scout", "all", catalog, False)
     agent_foreign = foreign_fences(agent)
@@ -521,7 +523,7 @@ def file_selection_sync(ctx) -> None:
     write_state(agent, state)
     agent_preview = update_agent(agent_root, "scout", "all", catalog, True)
     agent_real = update_agent(agent_root, "scout", "all", catalog, False)
-    agent_stale_released = ("rule fixmod/codexcomp#codexrule" not in
+    agent_stale_released = ("fixmod/codexcomp" not in
                             (agent / "AGENTS.md").read_text(encoding="utf-8"))
     foreign_names = [path.relative_to(bounded).as_posix() for path in root_foreign]
     check("W50 — update releases only stale shared sections, never quoted or copied documents",
@@ -530,10 +532,114 @@ def file_selection_sync(ctx) -> None:
           and all(name not in root_preview[1] and name not in root_real[1]
                   for name in foreign_names)
           and root_stale_released and agent_stale_released
-          and "AGENTS.md::#block:rule fixmod/codexcomp#codexrule" in
+          and "AGENTS.md::#block:fixmod/codexcomp" in
           agent_preview["harness_files"]["shared_removed"]
-          and "AGENTS.md::#block:rule fixmod/codexcomp#codexrule" in
+          and "AGENTS.md::#block:fixmod/codexcomp" in
           agent_real["harness_files"]["shared_removed"],
           str((root_preview, root_real,
                agent_preview["harness_files"].get("shared_removed"),
                agent_real["harness_files"].get("shared_removed"))))
+
+    agent_text = (agent / "AGENTS.md").read_text(encoding="utf-8")
+    quiet = update_agent(agent_root, "scout", "scaffolding", catalog, True)
+    check("W51 — an agent dry run with nothing to change reports no shared "
+          "removal or deletion, and its agent section is not a stale claim",
+          quiet["harness_files"]["shared_removed"] == []
+          and quiet["harness_files"]["planned_changes"]["delete_shared_files"] == []
+          and quiet["harness_files"]["planned_changes"]["write_shared_files"] == []
+          and quiet["written"] == []
+          and "AGENTS.md::#block:agent" not in
+          agent_real["harness_files"]["shared_removed"]
+          and agent_text.count(f"<!-- {FENCE_ID}:start agent -->") == 1
+          and (agent / "AGENTS.md").read_text(encoding="utf-8") == agent_text,
+          str((quiet["harness_files"], quiet["written"], agent_text)))
+
+
+def rule_channels(ctx) -> None:
+    """A rule reaches OpenCode through opencode.json and Codex as a skill."""
+    check, tmp = ctx.check, ctx.tmp
+    catalog = ctx.frame()[0]
+    print("\nRC — rules reach OpenCode and Codex outside AGENTS.md")
+
+    def run(target: Path, *argv: str) -> tuple[int | str, str]:
+        args = build_parser().parse_args(list(argv))
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            try:
+                return _HANDLERS[args.verb](args, target, catalog, []), output.getvalue()
+            except Refuse as exc:
+                return exc.code, exc.message
+
+    def instructions(target: Path):
+        return json.loads((target / "opencode.json").read_text(encoding="utf-8")
+                          ).get("instructions")
+
+    claim = 'opencode.json::["instructions"]'
+    oc = tmp / "ws-rules-opencode"
+    oc.mkdir()
+    (oc / "opencode.json").write_text('{"theme": "mine"}\n', encoding="utf-8")
+    check("RC1 — an OpenCode-only installation gets the rule file and lists it",
+          run(oc, "add", "fixrule", "--harness", "opencode", "--guidance", "none")[0] == 0
+          and (oc / ".claude/rules/fixrule.md").is_file()
+          and instructions(oc) == [".claude/rules/fixrule.md"]
+          and not (oc / "AGENTS.md").exists()
+          and not (oc / ".agents").exists(),
+          (oc / "opencode.json").read_text(encoding="utf-8"))
+    run(oc, "add", "codexrule")
+    listed = instructions(oc)
+    selected = {cid: rec["selected"] for cid, rec in read_state(oc)["components"].items()}
+    check("RC2 — a second rule grows the list: sorted, relative to the installation",
+          listed == [".claude/rules/codexrule.md", ".claude/rules/fixrule.md"]
+          and all(not Path(rel).is_absolute() and (oc / rel).is_file() for rel in listed),
+          str(listed))
+    check("RC2 — each rule owns the one claim",
+          selected["fixmod/goodcomp"]["fixrule"].get("claims") == [claim]
+          and selected["fixmod/codexcomp"]["codexrule"].get("claims") == [claim],
+          str(selected))
+    check("RC3 — a second identical run changes nothing",
+          run(oc, "update", "scaffolding")[0] == 0
+          and instructions(oc) == listed)
+    check("RC4 — removing a rule shrinks the list",
+          run(oc, "remove", "fixrule")[0] == 0
+          and instructions(oc) == [".claude/rules/codexrule.md"]
+          and not (oc / ".claude/rules/fixrule.md").exists())
+    check("RC5 — removing the last rule deletes the key and keeps the user's own",
+          run(oc, "remove", "codexrule")[0] == 0
+          and json.loads((oc / "opencode.json").read_text(encoding="utf-8"))
+          == {"theme": "mine"},
+          (oc / "opencode.json").read_text(encoding="utf-8"))
+
+    held = tmp / "ws-rules-opencode-held"
+    held.mkdir()
+    user_config = '{"instructions": ["my-notes.md"]}\n'
+    (held / "opencode.json").write_text(user_config, encoding="utf-8")
+    refused = run(held, "add", "fixrule", "--harness", "opencode", "--guidance", "none")
+    check("RC6 — a user-owned instructions key is refused before any write",
+          refused[0] == "collision" and "opencode.json::instructions" in refused[1]
+          and (held / "opencode.json").read_text(encoding="utf-8") == user_config
+          and not (held / ".claude").exists(), str(refused))
+
+    source = (tmp / "rule-skill-clash-src").resolve()
+    _file_md(_component(source, "clash", "asskill") / "skills/shared.md", "shared",
+             "A skill", "# the skill\n")
+    _file_md(_component(source, "clash", "asrule") / "rules/shared.md", "shared",
+             "A rule", "# the rule\n")
+    clash, _ = scan_all(tmp / "rule-skill-clash-no-mirror", source)
+    both = ["clash/asrule", "clash/asskill"]
+    on_claude = tmp / "ws-rule-skill-claude"
+    on_codex = tmp / "ws-rule-skill-codex"
+    on_claude.mkdir()
+    on_codex.mkdir()
+    try:
+        do_install(on_codex, clash, both, ["codex"], dry_run=False,
+                   guidance_basis="none")
+        code = None
+    except Refuse as exc:
+        code = exc.code
+    check("RC7 — for Codex a rule and a skill sharing a name are refused; "
+          "for Claude Code they are two files",
+          code == "file-collision" and not (on_codex / ".agents").exists()
+          and do_install(on_claude, clash, both, ["claude"], dry_run=False,
+                         guidance_basis="none")["ok"]
+          and (on_claude / ".claude/rules/shared.md").is_file()
+          and (on_claude / ".claude/skills/shared/SKILL.md").is_file(), str(code))

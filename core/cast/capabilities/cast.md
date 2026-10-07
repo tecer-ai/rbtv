@@ -142,7 +142,8 @@ The system prompt rides each harness's strongest channel, the same as `-s TEXT`/
   ```
 
 `-s`/`-S` cannot be combined with `--agent`/`--rogue`. Every Codex launch also passes
-`-c project_doc_max_bytes=131072`, because rules reach Codex as full text in `AGENTS.md`.
+`-c project_doc_max_bytes=131072`, because Codex joins every `AGENTS.md` from the project root down to
+the working folder and cuts the text past its 32 KiB default.
 
 `ignite turn` takes its standing prompt the same way: the `systemPromptFile` in its request is read
 with its frontmatter removed, and the model receives the body only.

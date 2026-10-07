@@ -21,8 +21,9 @@ for (const harness of Object.keys(SPECS)) {
   for (const id of Object.keys(SPECS[harness])) SHORT[harness][shortName(harness, id)] = id;
 }
 
-// Codex reads at most this many bytes of AGENTS.md (default 32 KiB); rbtv rules reach it as
-// full text there, so every Codex launch raises it. Needs no trusted folder, unlike config.toml.
+// Codex reads at most this many bytes of AGENTS.md (default 32 KiB), joined from the git root
+// down to the working folder: a guidance mirror with component sections can pass that, so every
+// Codex launch raises it. Needs no trusted folder, unlike config.toml.
 const CODEX_DOC_LIMIT = ['-c', 'project_doc_max_bytes=131072'];
 
 // headed = the harness's interactive TUI instead of its one-shot print mode. The TUI owns the

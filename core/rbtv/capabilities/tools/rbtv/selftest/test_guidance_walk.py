@@ -1,10 +1,11 @@
 """The guidance mirror across the whole tree: recursion, adoption, harness
-keying, rule sections."""
+keying, rule channels."""
 from __future__ import annotations
 
 import contextlib
 import hashlib
 import io
+import json
 
 from discovery import Refuse
 
@@ -288,7 +289,6 @@ def h_harness_keyed(ctx) -> None:
     check("H1 — the basis gets only its planned managed section",
           r1["report"]["guidance_sections"] == ["CLAUDE.md"]
           and "guidance_manual" not in r1["report"]
-          and f"{FENCE_ID}:start rule" not in (h1 / "CLAUDE.md").read_text(encoding="utf-8")
           and f"{FENCE_ID}:start" in (h1 / "CLAUDE.md").read_text(encoding="utf-8"),
           str(r1["report"]["guidance_sections"]))
     check("H1 — a claude-only re-run stays a no-op",
@@ -302,14 +302,14 @@ def h_harness_keyed(ctx) -> None:
           == ["AGENTS.md", "sub/AGENTS.md"]
           and r2["report"]["guidance_mirror"]["targets"] == ["AGENTS.md"],
           str(r2["report"]["guidance_mirror"]))
-    check("H2 — the rule's full text is IN the generated guidance file, "
-          "at the ROOT only, and no rule file is written for codex",
-          f"{FENCE_ID}:start rule fixmod/goodcomp#fixrule"
-          in (h2 / "AGENTS.md").read_text(encoding="utf-8")
-          and "Always do the thing." in (h2 / "AGENTS.md").read_text(encoding="utf-8")
-          and not (h2 / ".agents/behavior-rules").exists()
-          and "guidance for the root" in (h2 / "AGENTS.md").read_text(encoding="utf-8")
-          and f"{FENCE_ID}:start rule" not in (h2 / "sub/AGENTS.md").read_text(encoding="utf-8"),
+    check("H2 — codex gets the rule as a skill; the generated guidance file "
+          "carries the component section and no rule text",
+          "Always do the thing."
+          in (h2 / ".agents/skills/fixrule/SKILL.md").read_text(encoding="utf-8")
+          and "Always do the thing." not in (h2 / "AGENTS.md").read_text(encoding="utf-8")
+          and not (h2 / ".claude/rules").exists()
+          and not (h2 / "opencode.json").exists()
+          and "guidance for the root" in (h2 / "AGENTS.md").read_text(encoding="utf-8"),
           (h2 / "AGENTS.md").read_text(encoding="utf-8")[:400])
     check("H2 — the generated body retains the basis's human text",
           basis_body in (h2 / "AGENTS.md").read_text(encoding="utf-8"))
@@ -322,13 +322,13 @@ def h_harness_keyed(ctx) -> None:
           str(r3["report"]["guidance_mirror"]))
 
     h4, r4 = _mk("ws-no-forced", ["claude", "opencode"], "CLAUDE.md")
-    check("H4 — opencode gets the rule as a section of AGENTS.md (it reads "
-          "no rules folder); claude keeps its .claude/rules/ file",
+    check("H4 — opencode reads claude's .claude/rules/ file through "
+          "opencode.json; AGENTS.md carries no rule text",
           (h4 / "AGENTS.md").is_file()
-          and f"{FENCE_ID}:start rule fixmod/goodcomp#fixrule"
-          in (h4 / "AGENTS.md").read_text(encoding="utf-8")
-          and f"{FENCE_ID}:start rule" not in (h4 / "CLAUDE.md").read_text(encoding="utf-8")
-          and not (h4 / ".agents/behavior-rules").exists()
+          and "Always do the thing." not in (h4 / "AGENTS.md").read_text(encoding="utf-8")
+          and json.loads((h4 / "opencode.json").read_text(encoding="utf-8"))
+          ["instructions"] == [".claude/rules/fixrule.md"]
+          and not (h4 / ".agents/skills/fixrule").exists()
           and (h4 / ".claude/rules/fixrule.md").is_file(),
           str(sorted(q.relative_to(h4).as_posix()
                      for q in h4.rglob("*") if q.is_file())))
@@ -337,9 +337,9 @@ def h_harness_keyed(ctx) -> None:
     check("H5 — basis AGENTS.md + claude installed renders CLAUDE.md",
           r5["report"]["guidance_mirror"]["targets"] == ["CLAUDE.md"]
           and (h5 / "CLAUDE.md").is_file()
-          and f"{FENCE_ID}:start rule" not in (h5 / "CLAUDE.md").read_text(encoding="utf-8")
           and r5["report"]["guidance_sections"] == ["AGENTS.md", "CLAUDE.md"]
-          and f"{FENCE_ID}:start rule" in (h5 / "AGENTS.md").read_text(encoding="utf-8"),
+          and all("Always do the thing." not in (h5 / name).read_text(encoding="utf-8")
+                  for name in ("AGENTS.md", "CLAUDE.md")),
           str(r5["report"]["guidance_mirror"]))
     ctx.keep(locals())
 
@@ -374,20 +374,18 @@ def h7_block_never_stacks(ctx) -> None:
     (catalog, data, legacy, expect, basis_body, mirrors_on_disk, mtr,
      _mk, rf, pws) = ctx.frame()
 
-    print("\nH7 — a rule section never crosses into CLAUDE.md on a basis flip")
+    print("\nH7 — a managed section never stacks on a basis flip")
     h7, _ = _mk("ws-flip-block", ["claude", "codex"], "CLAUDE.md")
     (h7 / "CLAUDE.md").unlink()
     (h7 / "sub/CLAUDE.md").unlink()
     r7 = do_install(h7, catalog, ["fixmod/goodcomp"], ["claude", "codex"],
                     dry_run=False, guidance_basis="AGENTS.md")
-    # The flipped-to basis carries codex's rule section in AGENTS.md.
-    # Mirroring it back must strip that one — CLAUDE.md keeps exactly its own
-    # component section, because claude reads `.claude/rules/`.
+    # The flipped-to basis carries the component section it was generated
+    # with. Mirroring it back keeps exactly one such section in each file.
     check("H7 — the flipped file's fenced block is stripped, not stacked",
           (h7 / "CLAUDE.md").read_text(encoding="utf-8").count(f"{FENCE_ID}:start") == 1
-          and (h7 / "CLAUDE.md").read_text(encoding="utf-8").count(f"{FENCE_ID}:start rule") == 0
-          and r7["report"]["guidance_sections"] == ["AGENTS.md", "CLAUDE.md"]
-          and f"{FENCE_ID}:start rule" in (h7 / "AGENTS.md").read_text(encoding="utf-8"),
+          and (h7 / "AGENTS.md").read_text(encoding="utf-8").count(f"{FENCE_ID}:start") == 1
+          and r7["report"]["guidance_sections"] == ["AGENTS.md", "CLAUDE.md"],
           (h7 / "CLAUDE.md").read_text(encoding="utf-8")[:400])
     check("H7 — and the flipped run is idempotent",
           do_install(h7, catalog, ["fixmod/goodcomp"], ["claude", "codex"],
@@ -401,30 +399,29 @@ def rf1_forced_read_step_zero(ctx) -> None:
     (catalog, data, legacy, expect, basis_body, mirrors_on_disk, mtr,
      _mk, rf, pws) = ctx.frame()
 
-    print("\nRF1 — AGENTS.md carries ONLY the rules installed for its harness")
+    print("\nRF1 — a harness receives ONLY the rules installed for it")
     rf = tmp / "ws-mixed-harness"
     rf.mkdir()
     (rf / "CLAUDE.md").write_text(basis_body, encoding="utf-8")
     # goodcomp's rule lands under `.claude/rules/` ONLY (claude-only);
-    # codexcomp then arrives for codex, whose AGENTS.md must carry its OWN
-    # rule section and nothing else.
+    # codexcomp then arrives for codex, which gets its OWN rule as a skill
+    # and nothing else.
     do_install(rf, catalog, ["fixmod/goodcomp"], ["claude"],
                dry_run=False, guidance_basis="CLAUDE.md")
     rrf = do_install(rf, catalog, ["fixmod/codexcomp"], ["codex"],
                      dry_run=False)
     agents_md = (rf / "AGENTS.md").read_text(encoding="utf-8")
-    check("RF1 — the claude-only rule is NOT enumerated to codex",
+    check("RF1 — the claude-only rule is NOT given to codex",
           "fixrule" not in agents_md
-          and ".claude/rules" not in agents_md,
+          and not (rf / ".agents/skills/fixrule").exists()
+          and (rf / ".claude/rules/fixrule.md").is_file(),
           agents_md[:600])
-    check("RF1 — codex's own rule IS in AGENTS.md, as its full text",
-          f"{FENCE_ID}:start rule fixmod/codexcomp#codexrule" in agents_md
-          and "# CODEX RULE" in agents_md
-          and not (rf / ".agents/behavior-rules").exists(),
+    check("RF1 — codex's own rule is a skill, and is not in AGENTS.md",
+          "# CODEX RULE" in
+          (rf / ".agents/skills/codexrule/SKILL.md").read_text(encoding="utf-8")
+          and "# CODEX RULE" not in agents_md
+          and not (rf / ".claude/rules/codexrule.md").exists(),
           agents_md[:600])
-    check("RF1 — and no rule file is written for codex",
-          not (rf / ".agents/behavior-rules/fixrule.md").exists()
-          and (rf / ".claude/rules/fixrule.md").is_file())
     ctx.keep(locals())
 
 

@@ -127,7 +127,8 @@ The `work-history` skill in `meta/functions` reconstructs a user-agreed project,
 3. After install, your installation has:
    - `.claude/skills/<name>/SKILL.md` — copies of skills
    - `.claude/commands/<name>.md` — slash commands
-   - `.claude/rules/<name>.md` — rules
+   - `.claude/rules/<name>.md` — rules (OpenCode loads them through the `instructions` list in
+     `opencode.json`; Codex gets each one as a skill in `.agents/skills/<name>/`)
    - `.claude/agents/<name>.md` — sub-agents
    - `.rbtv/config/install.json` — the book: every file and every shared-config
      key rbtv wrote, and the only thing an uninstall removes

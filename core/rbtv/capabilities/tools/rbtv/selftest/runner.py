@@ -67,6 +67,7 @@ ORDER = [
     test_ownership.gitignore_block,
     test_settings.installation_settings,
     test_settings.file_selection_sync,
+    test_settings.rule_channels,
     test_files_key.old_key_read_and_rewritten,
     test_link_paths.links_rewritten_on_copy,
     test_parts.vanished_component_removable,

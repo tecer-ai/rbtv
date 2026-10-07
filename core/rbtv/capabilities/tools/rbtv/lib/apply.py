@@ -72,8 +72,6 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
                             and claim["comment"] == "<!--"
                             and claim["key"] is None)
         instruction = guidance_section and not claim.get("label")
-        # A rule section is the installer's own too: its label names the rule.
-        rule_section = guidance_section and str(claim.get("label") or "").startswith("rule ")
         if instruction:
             valid_fence = _instruction_fence(path, claim["path"])
             if (valid_fence and cid not in ours_claims
@@ -103,7 +101,7 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
             else:
                 present = start in text
             if (present
-                    and not instruction and not rule_section
+                    and not instruction
                     and not _is_ours(target, claim["path"])):
                 collisions.append(f"{claim['path']}::{FENCE_ID}-block")
     if collisions:

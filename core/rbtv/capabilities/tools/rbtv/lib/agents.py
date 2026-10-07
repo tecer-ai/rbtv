@@ -12,7 +12,7 @@ from discovery import LAUNCH_FIELDS, Refuse
 from . import frontmatter, schema, subagents
 from .catalog import check_packs, pack_files
 from .claims import _block_del
-from .constants import (AGENT_RECORD, EFFORT_INERT, GUIDANCE_FILE, HARNESSES, MATRIX,
+from .constants import (AGENT_RECORD, AGENT_SECTION_LABEL, EFFORT_INERT, GUIDANCE_FILE, HARNESSES, MATRIX,
                         SHARED_FILE_DESTINATIONS)
 from .files_key import files_key
 from .fsio import write_file
@@ -281,7 +281,7 @@ def _agent_section(home: Path, harness: str, dry: bool) -> list[str]:
     path = home / GUIDANCE_FILE[harness]
     from .claims import _block_set
     text = path.read_text(encoding="utf-8") if path.is_file() else ""
-    wanted = _block_set(text, "Your instructions are in `agent.md` in this folder. Follow them.", "<!--", preserve_outside=True, label="agent")
+    wanted = _block_set(text, "Your instructions are in `agent.md` in this folder. Follow them.", "<!--", preserve_outside=True, label=AGENT_SECTION_LABEL)
     if not dry and wanted != text:
         write_file(path, wanted, newline="\n")
     return [path.name] if wanted != text else []
@@ -308,7 +308,7 @@ def _remove_agent_section(home: Path, harness: str, dry: bool) -> list[str]:
     if not path.is_file():
         return []
     text = path.read_text(encoding="utf-8")
-    wanted = _block_del(text, "<!--", preserve_outside=True, label="agent")
+    wanted = _block_del(text, "<!--", preserve_outside=True, label=AGENT_SECTION_LABEL)
     if wanted == text:
         return []
     if not dry:

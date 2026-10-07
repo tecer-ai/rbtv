@@ -54,8 +54,8 @@ def links_rewritten_on_copy(ctx) -> None:
                 and any(f"[the note]({form})" in text for form in (note, f"<{note}>"))
                 and f"]({module}/" not in text and "](.rbtv/" not in text)
 
-    for harness, rel in (("claude", MATRIX["rule"]["claude"].format(name="linked")),
-                         ("codex", "AGENTS.md"), ("opencode", "AGENTS.md")):
+    for harness in ("claude", "codex", "opencode"):
+        rel = MATRIX["rule"][harness].format(name="linked")
         ws = tmp / f"ws-link-paths-{harness}"
         ws.mkdir()
         do_install(ws, catalog, ["moda/comp"], [harness], dry_run=False,
