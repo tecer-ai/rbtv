@@ -435,10 +435,12 @@ async function run(argv, extra = {}) {
     fs.writeFileSync(statePath, `${JSON.stringify({ ...state, files: [], packs: [] })}\n`);
     const bin = path.join(dir, 'bin');
     fs.mkdirSync(bin);
+    // The shape `cast models list --supported --json` prints, for the one model of this agent.
+    const castModels = '{"models":[{"harness":"claude","model":"m","mode":"cli","rungs":["high"],"effort_numbers":{"high":1},"selected":true}]}';
     const cast = path.join(bin, process.platform === 'win32' ? 'cast.cmd' : 'cast');
     fs.writeFileSync(cast, process.platform === 'win32'
-      ? '@echo {"claude":{"m":["high"]}}\r\n'
-      : '#!/bin/sh\nprintf \'{"claude":{"m":["high"]}}\\n\'\n');
+      ? `@echo ${castModels}\r\n`
+      : `#!/bin/sh\nprintf '%s\\n' '${castModels}'\n`);
     if (process.platform !== 'win32') fs.chmodSync(cast, 0o755);
     const before = fs.readFileSync(statePath, 'utf8');
     const oldPath = process.env.PATH;

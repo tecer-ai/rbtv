@@ -1659,7 +1659,7 @@ else {
     for (const form of [['--agents', '-h'], ['--full', '--help'], ['-h']]) {
       const help = list(form);
       assert.strictEqual(help.status, 0);
-      assert.ok(help.stdout.startsWith('usage: cast list [--agents [--full] | --agent NAME] [--json]'), `${form}: ${help.stdout}`);
+      assert.ok(help.stdout.startsWith('usage: cast list [--agents [--full] | --agent NAME] [--target FOLDER] [--json]'), `${form}: ${help.stdout}`);
     }
 
     for (const form of [[], ['--json'], ['--full']]) {
@@ -1674,7 +1674,6 @@ else {
       [['tess'], 'cast list --agent tess'],
       [['tess', '--json'], "takes no name by itself, got 'tess'"],
       [['--agents', 'tess'], 'cast list --agent tess'],
-      [['--target', root], "'--target' is not a cast list option"],
       [['--bogus'], "'--bogus' is not a cast list option"],
       // the model lists moved: the flag, and the word, name where they went
       [['--models'], 'refused: the model lists moved'],
@@ -1695,6 +1694,62 @@ else {
       assert.strictEqual(res.status, 2, `expected a refusal for: cast list ${args.join(' ')}`);
       assert.strictEqual(res.stdout, '', 'a refusal prints nothing on standard output');
       assert.ok(res.stderr.includes(text), `refusal for cast list ${args.join(' ')} must say '${text}', got: ${res.stderr}`);
+    }
+
+    // --target FOLDER: the agents of an installation, of a folder that holds agent folders (a
+    // plan's agents, which the nearest .rbtv/agents/ never shows), or of one agent folder.
+    {
+      const plan = path.join(root, 'plans', 'launch', 'agents');
+      const drafter = path.join(plan, 'drafter');
+      fs.mkdirSync(drafter, { recursive: true });
+      fs.writeFileSync(path.join(drafter, 'agent.md'), '---\nname: drafter\n---\nYou draft.');
+      fs.writeFileSync(path.join(drafter, 'agent.json'), JSON.stringify({
+        name: 'drafter', description: 'Drafts.', harness: 'claude', model: 'sonnet-5-5', effort: 'low',
+      }));
+      fs.mkdirSync(path.join(plan, 'notes'));
+      fs.writeFileSync(path.join(plan, 'notes', 'readme.md'), 'not an agent\n');
+      const empty = mkFolder('ig-no-agents');
+      const drafterRow = { name: 'drafter', description: 'Drafts.', harness: 'claude', model: 'sonnet-5-5', effort: 'low', ignite: false, home: drafter };
+      const listFrom = (cwd, args) => spawnSync('node', [TOOL, 'list', ...args], {
+        cwd, encoding: 'utf8', env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, RBTV_ASKED: asked, COLUMNS: '100' },
+      });
+      const parsed = (res) => { assert.strictEqual(res.status, 0, res.stderr); return JSON.parse(res.stdout); };
+
+      // the gap: from inside the plan's folder, no --target shows the installation's agents
+      assert.strictEqual(parsed(listFrom(plan, ['--json'])).folder, agents);
+      assert.deepStrictEqual(parsed(listFrom(plan, ['--json', '--target', '.'])), { folder: plan, agents: [drafterRow] },
+        'a folder that holds agent folders, given relative to the current folder');
+      assert.deepStrictEqual(parsed(listFrom(empty, ['--agents', '--target', plan, '--json'])), { folder: plan, agents: [drafterRow] },
+        'the same folder from outside any installation');
+      assert.deepStrictEqual(parsed(listFrom(empty, ['--target', root, '--json'])), json, 'an installation: its .rbtv/agents/');
+      assert.deepStrictEqual(parsed(listFrom(empty, ['--target', drafter, '--json'])), { folder: drafter, agents: [drafterRow] },
+        'one agent folder');
+      const text = listFrom(empty, ['--target', plan]);
+      assert.ok(text.stdout.startsWith(`rbtv agents: 1\nFolder: ${plan}\n\nName `), text.stdout);
+      assert.strictEqual(parsed(listFrom(empty, ['--agent', 'drafter', '--target', plan, '--json'])).home, drafter,
+        'one agent in full, by name among the target\'s agents');
+      assert.strictEqual(parsed(listFrom(empty, ['--agent', 'tess', '--target', root, '--json'])).home, tess);
+      const bare = mkFolder('ig-bare-installation');
+      fs.mkdirSync(path.join(bare, '.rbtv'));
+      assert.deepStrictEqual(parsed(listFrom(empty, ['--target', bare, '--json'])), { folder: path.join(bare, '.rbtv', 'agents'), agents: [] },
+        'an installation with no agent is success');
+
+      for (const [args, said] of [
+        [['--target', empty], `refused: --target ${empty} names no rbtv agents\n${empty} is not an installation (it holds no .rbtv/), `
+          + 'is not an agent folder (it holds no agent.md or agent.json), and holds no agent folder\nNothing was listed.\ncast list -h\n'],
+        [['--agent', 'drafter', '--target', empty], 'names no rbtv agents'],
+        [['--target', path.join(empty, 'absent')], 'is not a folder'],
+        [['--target'], '--target takes a folder'],
+        [['--target', '--json'], '--target takes a folder'],
+        [['--target', plan, '--target', root], '--target takes one folder'],
+        [['--agent', 'tess', '--target', plan], `looked for an agent folder named tess in --target ${plan}`],
+        [['--agent', drafter, '--target', plan], '--target goes with a name'],
+      ]) {
+        const res = listFrom(empty, args);
+        assert.strictEqual(res.status, 2, `expected a refusal for: cast list ${args.join(' ')}`);
+        assert.strictEqual(res.stdout, '');
+        assert.ok(res.stderr.includes(said), `cast list ${args.join(' ')}: ${res.stderr}`);
+      }
     }
 
     // the two results that name no agent
@@ -1752,8 +1807,10 @@ else {
     assert.ok(res.stderr.includes(`unknown flag '${retiredFlag}'`), res.stderr);
   }
   const help = spawnSync('node', [TOOL, '-h'], { encoding: 'utf8' }).stdout;
-  assert.ok(help.includes('rbtv agent configure AGENT') && !help.includes('--target'),
-    'help names rbtv agent configure and no longer mentions --target');
+  assert.ok(help.includes('rbtv agent configure AGENT'), 'help names rbtv agent configure');
+  const targetLines = help.split('\n').filter((line) => line.includes('--target'));
+  assert.ok(targetLines.length && targetLines.every((line) => line.includes('cast list')),
+    `--target is an option of cast list only, never of a launch: ${targetLines.join(' | ')}`);
 }
 
 // The launch check: a model launches only when the installation that holds the launch has selected

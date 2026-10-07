@@ -18,6 +18,8 @@ const { spawnSync } = require('node:child_process');
 const { run } = require('./manage.js');
 const { INSTALLER_ENTRY } = require('./connect.js');
 
+const CAST_MODELS = '{"models":[{"harness":"codex","model":"gpt-6.1-sol","mode":"cli","rungs":["low","medium","high"],"effort_numbers":{"low":1,"medium":2,"high":3},"selected":true}]}';
+
 async function captures(argv, flags, deps) {
   let stdout = '';
   let stderr = '';
@@ -46,14 +48,14 @@ async function captures(argv, flags, deps) {
   fs.mkdirSync(agent, { recursive: true });
   fs.writeFileSync(path.join(agent, 'agent.json'), JSON.stringify({ name: 'probe', description: 'Probe.', harness: 'codex', model: 'gpt-6.1-sol', effort: 'high', files: [], packs: [] }), 'utf8');
   fs.writeFileSync(path.join(agent, 'agent.md'), '---\nname: probe\n---\n', 'utf8');
-  // The installer checks the model and the effort word against `cast list`, so a stand-in cast answers
-  // for this one model. The effort is a word: what a number means the installer asks cast, and this
+  // The installer checks the model and the effort word against `cast models list`, so a stand-in cast
+  // answers for this one model, in the shape `cast models list --supported --json` prints. The effort is a word: what a number means the installer asks cast, and this
   // stand-in gives only the list.
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-manage-bin-'));
   const cast = path.join(bin, process.platform === 'win32' ? 'cast.cmd' : 'cast');
   fs.writeFileSync(cast, process.platform === 'win32'
-    ? '@echo {"codex":{"gpt-6.1-sol":["low","medium","high"]}}\r\n'
-    : '#!/bin/sh\nprintf \'{"codex":{"gpt-6.1-sol":["low","medium","high"]}}\\n\'\n');
+    ? `@echo ${CAST_MODELS}\r\n`
+    : `#!/bin/sh\nprintf '%s\\n' '${CAST_MODELS}'\n`);
   if (process.platform !== 'win32') fs.chmodSync(cast, 0o755);
   const oldPath = process.env.PATH;
   process.env.PATH = `${bin}${path.delimiter}${oldPath}`;
@@ -78,8 +80,24 @@ async function captures(argv, flags, deps) {
   };
   const viaHelper = await captures(['models'], {}, { env: {} });
   helperStandIn = null;
-  assert.deepEqual(started, [['cast', ['list']]]);
+  assert.deepEqual(started, [['cast', ['models', 'list']]]);
   assert.deepEqual(viaHelper, { code: 0, stdout: '[]\n', stderr: '' });
+
+  // cast runs in --installation when given, so that installation's selection answers; without it,
+  // in the current folder. Arguments pass through after `models list`.
+  const elsewhere = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-manage-cwd-')));
+  const asked = [];
+  helperStandIn = (cmd, args) => {
+    asked.push(args);
+    return { cmd: process.execPath, args: ['-e', 'process.stdout.write(process.cwd())'], opts: {} };
+  };
+  const inInstallation = await captures(['models', '--supported', '--json'], { installation: elsewhere }, { env: {} });
+  const inCurrent = await captures(['models'], {}, { env: {} });
+  helperStandIn = null;
+  fs.rmSync(elsewhere, { recursive: true, force: true });
+  assert.deepEqual(asked, [['models', 'list', '--supported', '--json'], ['models', 'list']]);
+  assert.deepEqual(inInstallation, { code: 0, stdout: elsewhere, stderr: '' });
+  assert.deepEqual(inCurrent, { code: 0, stdout: process.cwd(), stderr: '' });
 
   // (b) a start that fails is never silent: the error goes to stderr and the exit code is 1.
   const emptyPath = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-manage-empty-'));

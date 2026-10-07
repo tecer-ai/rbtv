@@ -16,17 +16,17 @@
       "minLength": 1
     },
     "harness": {
-      "description": "The harness that runs the rbtv agent. Only in an installation. Checked against cast list.",
+      "description": "The harness that runs the rbtv agent. Only in an installation. Checked against cast models list.",
       "type": "string",
       "enum": ["claude", "codex", "opencode"]
     },
     "model": {
-      "description": "The model. Only in an installation. Checked against cast list.",
+      "description": "The model. Only in an installation. Checked against cast models list.",
       "type": "string",
       "minLength": 1
     },
     "effort": {
-      "description": "The effort word that the model accepts. Only in an installation. Checked against cast list.",
+      "description": "The effort word that the model accepts. Only in an installation. Checked against cast models list.",
       "type": "string",
       "minLength": 1
     },

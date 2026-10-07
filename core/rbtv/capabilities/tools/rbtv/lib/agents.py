@@ -147,30 +147,50 @@ def _checked_agent(home: Path, state: dict) -> dict:
     return state
 
 
-def cast_catalog() -> dict[str, dict[str, list[str]]]:
+def cast_catalog(folder: Path) -> dict[str, dict[str, dict]]:
+    """The models cast supports, by harness then model: `{"rungs": the model's
+    effort words, "selected": whether the installation selected it}`. cast
+    answers `selected` for the installation that holds its current folder, so
+    it is run from `folder`: the agent's folder, or the installation."""
     exe = shutil.which("cast")
     if exe is None:
         raise _refuse("cast-missing", "cast is not on PATH, so model and effort cannot be checked "
-                      "against cast list.", "rbtv doctor")
-    done = subprocess.run([exe, "list", "--json"], capture_output=True, text=True, encoding="utf-8")
+                      "against cast models list.", "rbtv doctor")
+    done = subprocess.run([exe, "models", "list", "--supported", "--json"], cwd=folder,
+                          capture_output=True, text=True, encoding="utf-8")
     try:
-        return json.loads(done.stdout)
-    except ValueError as exc:
-        raise Refuse("cast-unreadable", "`cast list --json` did not return JSON; repair cast, then retry") from exc
+        answer = json.loads(done.stdout)
+    except ValueError:
+        answer = None
+    if done.returncode != 0:
+        # Under --json cast words its refusal on standard output.
+        said = answer["message"] if isinstance(answer, dict) and answer.get("message") else done.stderr
+        raise _refuse("cast-refused", "`cast models list` refused: " + " ".join(said.split()),
+                      "rbtv doctor")
+    try:
+        known: dict[str, dict[str, dict]] = {}
+        for row in answer["models"]:
+            known.setdefault(row["harness"], {})[row["model"]] = {
+                "rungs": row["rungs"], "selected": row["selected"]}
+        return known
+    except (KeyError, TypeError) as exc:
+        raise Refuse("cast-unreadable", "`cast models list --supported --json` did not return "
+                     "its list of models; repair cast, then retry") from exc
 
 
 def cast_model_id(harness: str, model: str, folder: Path) -> str:
     """The harness's own id for a model, as `cast` passes it on a launch: read
     from the command a `cast --dry-run` would start, so rbtv keeps no second
     model table. The effort given there is any number; the id does not depend
-    on it."""
+    on it. cast runs from `folder`, whose installation decides whether the
+    model may be launched."""
     exe = shutil.which("cast")
     if exe is None:
         raise _refuse("cast-missing", "cast is not on PATH, so the harness's own "
                       "name for the model cannot be read.", "rbtv doctor")
     done = subprocess.run(
         [exe, harness, model, "1", str(folder), "-p", "ok", "--dry-run"],
-        capture_output=True, text=True, encoding="utf-8")
+        cwd=folder, capture_output=True, text=True, encoding="utf-8")
     try:
         argv = json.loads(done.stdout)["argv"]
         return argv[next(i for i, word in enumerate(argv) if word in ("--model", "-m")) + 1]
@@ -179,16 +199,16 @@ def cast_model_id(harness: str, model: str, folder: Path) -> str:
                      "name the model; repair cast, then retry") from exc
 
 
-def cast_effort_word(harness: str, model: str, number: str) -> str | None:
+def cast_effort_word(harness: str, model: str, number: str, folder: Path) -> str | None:
     """The model's own effort word for an effort number, as `cast` resolves it
-    on a launch: read from a `cast --dry-run`, so rbtv keeps no second copy of
-    what a number means. None when cast refuses the number."""
+    on a launch: read from a `cast --dry-run` run from `folder`, so rbtv keeps
+    no second copy of what a number means. None when cast refuses the number."""
     exe = shutil.which("cast")
     if exe is None:
         raise _refuse("cast-missing", "cast is not on PATH, so the effort number cannot be "
                       "turned into the model's own word.", "rbtv doctor")
     done = subprocess.run([exe, harness, model, number, "-p", "ok", "--dry-run"],
-                          capture_output=True, text=True, encoding="utf-8")
+                          cwd=folder, capture_output=True, text=True, encoding="utf-8")
     if done.returncode:
         return None
     try:
@@ -198,18 +218,24 @@ def cast_effort_word(harness: str, model: str, number: str) -> str | None:
                      "name the effort word; repair cast, then retry") from exc
 
 
-def launch_values(harness: str, model: str, effort: str, known: dict) -> dict:
+def launch_values(harness: str, model: str, effort: str, known: dict, folder: Path) -> dict:
+    """The checked harness, model and effort word. `known` is `cast_catalog`
+    read from `folder`, where cast is also asked what an effort number means."""
     if harness not in HARNESSES or model not in (known.get(harness) or {}):
-        raise _refuse("launch-invalid", f"{harness} has no model {model!r}. "
-                      "See `cast list`", "cast list")
-    rungs = known[harness][model]
+        raise _refuse("launch-invalid", f"{harness} {model!r} is not a model cast supports. "
+                      "See `cast models list --supported`", "cast models list --supported")
+    if not known[harness][model]["selected"]:
+        raise _refuse("launch-invalid", f"{harness} {model!r} is not selected in this "
+                      f"installation. Select it with `cast models add {harness} {model}`",
+                      f"cast models add {harness} {model}")
+    rungs = known[harness][model]["rungs"]
     if not rungs:
         return {"harness": harness, "model": model, "effort": EFFORT_INERT}
     if effort.isdigit():
-        effort = cast_effort_word(harness, model, effort) or effort
+        effort = cast_effort_word(harness, model, effort, folder) or effort
     if effort not in rungs:
         raise _refuse("launch-invalid", f"{model} does not accept effort {effort!r}. "
-                      "See `cast list`", "cast list")
+                      "See `cast models list`", "cast models list")
     return {"harness": harness, "model": model, "effort": effort}
 
 
@@ -219,7 +245,7 @@ def on_values(on: list[str], named: list[dict], receiving: list[str],
     the check and the model names an rbtv agent's values get. `cast` is read
     only when there is a value to check."""
     return subagents.values_for(
-        on, named, receiving, target, known=cast_catalog() if on and named else {},
+        on, named, receiving, target, known=cast_catalog(target) if on and named else {},
         check=launch_values, model_id=cast_model_id, configure_cmd=configure_cmd)
 
 
@@ -240,7 +266,7 @@ def _launch_flags(name: str, has: bool, given: dict | None) -> dict:
             "launch-required",
             f"{name} has no harness, model or effort in its agent.json; an agent "
             "a component ships never has. Give all three: --harness, --model "
-            "and --effort", "cast list")
+            "and --effort", "cast models list")
     return flags
 
 
@@ -313,7 +339,7 @@ def configure_agent(root: Path, raw: str, harness: str | None,
         if value is not None:
             after[key] = value
     launch = launch_values(after["harness"], after["model"],
-                           str(after["effort"]), cast_catalog())
+                           str(after["effort"]), cast_catalog(home), home)
     after.update(launch)
     changed_harness = before["harness"] != after["harness"]
     wanted = _keys(list(after["files"]), catalog) | pack_files(catalog, set(after["packs"]))
@@ -352,12 +378,14 @@ def configure_agent(root: Path, raw: str, harness: str | None,
                 for key in sorted(subagents.recorded(before))] if changed_harness else []}
 
 
-def cast_agent_list(root: Path, raw: str | None, as_json: bool, full: bool, width: int) -> str:
+def cast_agent_list(root: Path, raw: str | None, as_json: bool, full: bool, width: int,
+                    folder: str | None = None) -> str:
     """What `cast list --agents` prints for this installation, or `cast list
     --agent` for one agent. The list of agents
     has one source, in cast, so nothing here reads the agent folders to list
     them. `raw` names one agent to show in full; it is resolved as for the
-    other agent verbs and handed to cast as a path."""
+    other agent verbs and handed to cast as a path. `folder` is --target: cast
+    reads it, and `raw` is then a name cast looks up among that folder's agents."""
     exe = shutil.which("cast")
     if exe is None:
         exc = _refuse("cast-missing", "cast is not on PATH, so the agents cannot be listed.",
@@ -366,9 +394,14 @@ def cast_agent_list(root: Path, raw: str | None, as_json: bool, full: bool, widt
         raise exc
     if raw is None:
         words = [exe, "list", "--agents"]
+    elif folder is not None:
+        words = [exe, "list", "--agent", raw]
     else:
         # Forward slashes on every system: cast takes a value with a slash as a path.
         words = [exe, "list", "--agent", resolve_agent(root, raw).as_posix()]
+    if folder is not None:
+        # cast runs from the installation; the folder was typed from the current one.
+        words += ["--target", str(Path(folder).expanduser().resolve())]
     if full:
         words.append("--full")
     if as_json:
@@ -377,7 +410,7 @@ def cast_agent_list(root: Path, raw: str | None, as_json: bool, full: bool, widt
                           capture_output=True, text=True, encoding="utf-8")
     if done.returncode != 0:
         exc = _refuse("cast-refused", "`cast list` refused: " + " ".join(done.stderr.split()),
-                      "rbtv doctor")
+                      "rbtv doctor" if folder is None else "rbtv agent list -h")
         exc.unchanged = "Nothing was listed."
         raise exc
     return done.stdout
@@ -400,12 +433,15 @@ def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: 
     if not launch and not part:
         _checked_agent(home, state)
     check_packs(catalog, packs, "rbtv list --type pack")
-    known = cast_catalog()
+    # A shipped agent not yet placed has no folder: its installation answers.
+    asked_from = root if part else home
+    known = cast_catalog(asked_from)
     if launch:
-        launch = launch_values(launch["harness"], launch["model"], launch["effort"], known)
+        launch = launch_values(launch["harness"], launch["model"], launch["effort"], known,
+                               asked_from)
         state.update(launch)
     else:
-        launch_values(state["harness"], state["model"], str(state["effort"]), known)
+        launch_values(state["harness"], state["model"], str(state["effort"]), known, asked_from)
     placed = None
     if part:
         placed = {"id": part["key"], "files": ["agent.md", AGENT_RECORD.name]}

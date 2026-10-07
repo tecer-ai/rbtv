@@ -22,7 +22,7 @@ from lib.state import migrate_rbtv_component_ids, read_state
 
 from .fixture import _component, _file_md, _w
 
-KNOWN = {"claude": {"m1": ["low", "high"]}}
+KNOWN = {"claude": {"m1": {"rungs": ["low", "high"], "selected": True}}}
 
 
 def _schema_8() -> dict:

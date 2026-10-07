@@ -18,7 +18,7 @@ cast route --access open|bounded --type code|text --class planner|broad|bounded|
 cast route --caps image
 cast route --batch <agents.json | -> [--explain]
 cast doctor [--json]
-cast list [--agents [--full] | --agent NAME] [--json]
+cast list [--agents [--full] | --agent NAME] [--target FOLDER] [--json]
 cast models list [--selected | --supported | --catalog] [--json]
 cast models add HARNESS MODEL [--dry-run] [--json]
 cast models remove HARNESS MODEL [--force] [--dry-run] [--json]
@@ -108,7 +108,9 @@ record without one is refused); none of them may be given on the command line:
 that is refused, and the refusal names `rbtv agent configure AGENT` as the way to change them.
 `agent.md` is the system prompt, handed to the model without its frontmatter. The launch sets
 `RBTV_AGENT_HOME` to the agent folder for the harness process. A folder that contains only one of the two
-files is refused by name, so a broken agent is never launched half-read. `--target` is gone.
+files is refused by name, so a broken agent is never launched half-read. A launch takes no
+`--target`: that option belongs to `cast list`, and an agent outside `.rbtv/agents/` is launched by
+its path.
 
 `--rogue FILE` runs a rogue agent file that is not an agent folder: the file's body, without its
 frontmatter, is the system prompt, and the launch folder is the usual one. It sets no
@@ -150,6 +152,15 @@ model the launch check refuses, as in `tiny: cannot be launched: model not selec
 `--json` prints `{folder, agents}`, where such an agent is `{name, home, problem}`. The models are
 `cast models list`: `cast list --models` is refused and names that command.
 
+`--target FOLDER` lists the agents of FOLDER instead of those above the current folder. FOLDER is
+read as the first of three things it is: an installation (it holds `.rbtv/`), whose agents are those
+in its `.rbtv/agents/`; an agent folder, which is that one agent; or a folder that holds agent
+folders, such as the `agents/` folder of a plan, whose agents are those folders. A FOLDER that is
+none of the three is refused, exit 2. `folder` in the result is where the agents were read from.
+With `--agent NAME`, NAME is a name among those agents, and a path is refused. One function reads
+the option, `targetAgents` in `lib/agent.js`: `spark list --target FOLDER`, `spark AGENT --target
+FOLDER` and `rbtv agent list --target FOLDER` take the same three folders through it.
+
 `cast list --agent NAME` shows one agent in full; AGENT is a name or a path. Besides its folder and
 whole description it lists what is installed in the agent, each under the name `rbtv show` takes:
 every pack that is on, one per row, with the skills, rules, commands, MCP servers and hooks that
@@ -175,7 +186,9 @@ its own refusals.
 `spark AGENT` (`capabilities/tools/spark/spark.js`) opens an agent in this terminal, for a person.
 It prints the agent's folder, harness, model and effort, then starts `cast --agent NAME --headed` with
 a one-line greeting. It passes no harness, model or effort, so cast reads them from `agent.json`.
-It needs `cast` on PATH and finds the agent the same way cast does: a name or a path.
+It needs `cast` on PATH and finds the agent the same way cast does: a name or a path. With
+`--target FOLDER`, AGENT is a name among the agents of FOLDER (the three folders `cast list --target`
+takes), and spark hands cast that agent's folder, since a launch takes no `--target`.
 
 - `--dry-run` prints the cast command and launches nothing; `--dry-run --json` prints one JSON value
   with `agent`, `home` and `cast`. A real launch ignores `--json`.
@@ -185,7 +198,8 @@ It needs `cast` on PATH and finds the agent the same way cast does: a name or a 
 `spark list [AGENT]` shows the agents spark can open by name, or one of them in full: the list of
 `cast list --agents`, read in the same process, so it needs nothing on PATH and opens nothing. The
 first argument that is not an option decides the form, so `list` is never taken as an agent name:
-an agent whose name is `list` is opened by its path.
+an agent whose name is `list` is opened by its path. `spark list --target FOLDER` shows the agents
+of FOLDER.
 
 - Refusals, exit 1: `--dry-run`, more than one agent, an agent that is not found or cannot be
   launched, or an unknown option. A refusal is text on standard error and leaves standard output
@@ -564,7 +578,7 @@ runs in.
 | `core/ignite/capabilities/tools/ignite/turn.js` | `ignite turn` — exact session id, resume with the requested model/effort, result file |
 | `capabilities/tools/cast/lib/handles.js` | the launch-handle registry — the one observable a watcher uses to find a run again |
 | `capabilities/tools/cast/lib/launch.js` | spawn, `cast resume` |
-| `capabilities/tools/cast/lib/agent.js` | `--agent` / `--rogue`: find the agent folder, read `agent.json` and `agent.md`. The one place that knows where an agent's folder is (`<installation>/.rbtv/agents/<name>`), what counts as a path, and how the record is read: spark, the agent list and Ignite load it |
+| `capabilities/tools/cast/lib/agent.js` | `--agent` / `--rogue`: find the agent folder, read `agent.json` and `agent.md`. The one place that knows where an agent's folder is (`<installation>/.rbtv/agents/<name>`), which agents a `--target FOLDER` names, what counts as a path, and how the record is read: spark, the agent list and Ignite load it |
 | `capabilities/tools/cast/lib/agent-list.js` | `cast list --agents`: the agents a name can reach, as a table, labeled blocks, or JSON; the one list, which `spark list` and `rbtv agent list` also show |
 | `capabilities/tools/spark/spark.js` | `spark AGENT`: the terminal handoff, a thin layer over `cast --agent`; `spark list`: the list of `lib/agent-list.js` (its tests: `test_spark.js`) |
 | `capabilities/tools/cast/lib/sessions.js` | the per-harness session-store readers and `cast sessions` |

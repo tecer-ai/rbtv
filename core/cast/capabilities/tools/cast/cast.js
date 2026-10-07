@@ -47,8 +47,8 @@ function main(rawArgv) {
       process.stdout.write(`${PAGES.list.join('\n')}\n`);
       process.exit(0);
     }
-    const { json, full, agent } = listArgs(rest);
-    return runAgentList(agent, { json, full }, fail);
+    const { json, full, agent, target } = listArgs(rest);
+    return runAgentList(agent, { json, full, target }, fail);
   }
   if (rawArgv[0] === 'models') {
     const rest = rawArgv.slice(1);

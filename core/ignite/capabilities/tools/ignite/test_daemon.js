@@ -989,7 +989,7 @@ test('runInstalledDreamer releases the installation lock before consolidation an
   const { loadConfig } = require('./config.js');
   const { acquireMemoryLock } = require('./memory-write.js');
   addOwnerMessage(home);
-  const lock = path.join(dir, '.rbtv', 'runtime', 'ignite-memory.lock');
+  const lock = path.join(dir, '.rbtv', 'runtime', 'ignite', 'memory.lock');
   let held = false;
   const ran = await daemonApi.runInstalledDreamer({
     config: loadConfig(dir),
@@ -1031,7 +1031,7 @@ for (const ending of ['\n', '\r\n']) test(`board, remember and schedule checks s
   const { runInstalledDreamer } = require('./daemon.js');
   const { loadConfig } = require('./config.js');
   const now = Date.parse('2026-10-01T12:00:00Z');
-  const lock = path.join(dir, '.rbtv', 'runtime', 'ignite-memory.lock');
+  const lock = path.join(dir, '.rbtv', 'runtime', 'ignite', 'memory.lock');
   const inboxPath = '.rbtv/memory/inbox.md'; const profilePath = '.rbtv/memory/profile.md';
   const relativeBoard = '.rbtv/agents/master/_artifacts/board.md';
   const git = (...args) => {
@@ -1124,9 +1124,10 @@ test('starts-at-boot', () => {
 linuxOnly('sigterm-clean', 'the service is stopped with SIGTERM, a signal Windows does not deliver', async () => {
   const { dir } = workspace();
   const holder = spawnDaemon(dir);
-  const lock = path.join(dir, '.rbtv', 'agents', '.daemon.lock');
+  const lock = path.join(dir, '.rbtv', 'runtime', 'ignite', 'daemon.lock');
   try {
     await waitFor(() => holder.stdout().includes('"event":"ready"') && holder.child.exitCode == null);
+    assert.equal(fs.existsSync(lock), true, 'the running daemon holds its lock under .rbtv/runtime/ignite/');
     holder.child.kill('SIGTERM');
     const code = await new Promise((resolve) => holder.child.once('exit', resolve));
     assert.equal(code, 0);

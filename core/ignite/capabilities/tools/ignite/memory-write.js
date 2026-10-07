@@ -40,8 +40,13 @@ function writeRoot(file) {
   return path.dirname(path.resolve(file));
 }
 
+// Where Ignite keeps its operational data in an installation: `.rbtv/runtime/<component>/`.
+function runtimeFolder(workspace) {
+  return path.join(workspace, '.rbtv', 'runtime', 'ignite');
+}
+
 function acquireMemoryLock(workspace) {
-  const file = safeWritePath(workspace, path.join(workspace, '.rbtv', 'runtime', 'ignite-memory.lock'));
+  const file = safeWritePath(workspace, path.join(runtimeFolder(workspace), 'memory.lock'));
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const deadline = Date.now() + 5000;
   const owner = JSON.stringify({ token: randomUUID(), pid: process.pid, hostname: os.hostname() });
@@ -90,4 +95,4 @@ function withMemoryLock(workspace, fn) {
   try { return fn(); } finally { release(); }
 }
 
-module.exports = { NOFOLLOW, safeWritePath, writeRoot, acquireMemoryLock, withMemoryLock };
+module.exports = { NOFOLLOW, safeWritePath, writeRoot, runtimeFolder, acquireMemoryLock, withMemoryLock };

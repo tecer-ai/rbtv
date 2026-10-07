@@ -1,22 +1,22 @@
 'use strict';
 
-// The rbtv agents a folder can launch by name: the one list of agents. `cast list --agents` shows it
+// The rbtv agents a folder can launch by name, or those a --target folder holds: the one list of agents. `cast list --agents` shows it
 // to an agent, `spark list` to a person, and `rbtv agent list` runs `cast list --agents`. The three
 // print the same text, so a line that names a command names all three.
-//   agentList(from)        the nearest `.rbtv/agents/` folder from `from` upward, and its agents
+//   agentList(from, target)  the nearest `.rbtv/agents/` folder from `from` upward, or the folder
+//                          `target` names (lib/agent.js `targetAgents`), and its agents
 //   agentRow(agent)        an agent read by lib/agent.js as one row of the list
 //   agentInFull(agent)     that row, with the packs and units the installer records in the agent
 //   listLines(list)        the list as text: a table, or one labeled block per agent when the
 //                          terminal is too narrow for the table or whole descriptions are asked
 //   agentLines(row)        one agent as a labeled block with its whole description
-//   runAgentList(agent, json)  what `cast list --agents | --agent NAME` prints
+//   runAgentList(agent, options)  what `cast list --agents | --agent NAME` prints
 // A refusal is worded by the caller: cast, spark and rbtv each have their own form.
 
-const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const { findAgentsFolder, holdsAgentFile, rbtvAgent, readAgent } = require('./agent');
+const { agentHomes, rbtvAgent, readAgent, targetRefusal } = require('./agent');
 const { lookupModel } = require('./core');
 const { spawnable } = require('./win-exec');
 
@@ -88,18 +88,16 @@ function modelProblem(agent) {
   return null;
 }
 
-// Alphabetical by name. An agent that cannot be launched is a row with its problem.
-function agentList(from) {
-  const folder = findAgentsFolder(from);
-  if (!folder) return { folder: null, agents: [] };
-  const agents = fs.readdirSync(folder).sort()
-    .map((name) => path.join(folder, name))
-    .filter(holdsAgentFile)
-    .map((home) => {
-      const read = readAgent(home);
-      const problem = read.problem ? read.why : modelProblem(read.agent);
-      return problem ? { name: path.basename(home), home, problem } : agentRow(read.agent);
-    });
+// Alphabetical by name. An agent that cannot be launched is a row with its problem. A `target`
+// that names no agents gives {problem}, which the caller words as its refusal.
+function agentList(from, target = null) {
+  const { folder, homes, problem: unusable } = agentHomes(from, target);
+  if (unusable) return { problem: unusable };
+  const agents = homes.map((home) => {
+    const read = readAgent(home);
+    const problem = read.problem ? read.why : modelProblem(read.agent);
+    return problem ? { name: path.basename(home), home, problem } : agentRow(read.agent);
+  });
   return { folder, agents };
 }
 
@@ -199,13 +197,14 @@ function listLines({ folder, agents }, { full = false, width = terminalWidth() }
 
 // `cast list --agents | --agent NAME`, once cast has read the arguments. `fail` comes from cast, as
 // for the other functions of lib/agent.js. One agent is always shown in full.
-function runAgentList(agent, { json, full }, fail) {
+function runAgentList(agent, { json, full, target }, fail) {
   const print = (value, lines) => process.stdout.write(json ? `${JSON.stringify(value)}\n` : `${lines.join('\n')}\n`);
   if (agent) {
-    const row = agentInFull(rbtvAgent(agent, fail));
+    const row = agentInFull(rbtvAgent(agent, fail, target));
     print(row, agentLines(row));
   } else {
-    const list = agentList(process.cwd());
+    const list = agentList(process.cwd(), target);
+    if (list.problem) fail(targetRefusal(target, list.problem));
     print(list, listLines(list, { full }));
   }
   process.exit(0);

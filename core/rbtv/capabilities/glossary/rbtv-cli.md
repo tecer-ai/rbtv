@@ -72,8 +72,8 @@ A run from a source repository with no explicit target or enclosing installation
 
 Choose agent placement deliberately:
 
-- `rbtv add NAME --on HARNESS:MODEL:EFFORT` writes a harness-native sub-agent. Repeat per selected harness. Model and effort are checked with `cast list`. The agent's requested file list is reported as unapplied; the sub-agent receives what its target already has.
-- `rbtv agent add AGENT --harness HARNESS --model MODEL --effort EFFORT` installs an rbtv agent and its requested files. Supply those launch fields only when absent from its record; change existing values with `rbtv agent configure`. Agent verbs take no `--target`. By name, the prompt and record are copied to `.rbtv/agents/<name>/`, with no other source-folder files. A path uses the folder in place.
+- `rbtv add NAME --on HARNESS:MODEL:EFFORT` writes a harness-native sub-agent. Repeat per selected harness. Model and effort are checked with `cast models list`, run from the target: the model must be one the installation selected. The agent's requested file list is reported as unapplied; the sub-agent receives what its target already has.
+- `rbtv agent add AGENT --harness HARNESS --model MODEL --effort EFFORT` installs an rbtv agent and its requested files. Supply those launch fields only when absent from its record; change existing values with `rbtv agent configure`. Agent verbs take no `--target`, except `rbtv agent list --target FOLDER`, which lists the agents of that folder as `cast list --agents --target FOLDER` reads it. By name, the prompt and record are copied to `.rbtv/agents/<name>/`, with no other source-folder files. A path uses the folder in place.
 
 A component explicitly named to `rbtv add module/component` includes its shipped agents and therefore needs `--on` when agents are present. Selections through `--all`, `--module`, `--component` or `--type` skip agents and report that skip. Use agent add for rbtv-agent placement.
 

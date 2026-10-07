@@ -629,7 +629,7 @@ def print_show(data: dict) -> None:
         print("Add it in either form, or both")
         print("  As a harness-native sub-agent: " + sel["agent"]["add"]["sub_agent"])
         print("  As an rbtv agent: " + sel["agent"]["add"]["rbtv_agent"])
-        print("  Harnesses, models and efforts: cast list")
+        print("  Harnesses, models and efforts: cast models list")
     print()
     print("Next: " + data["next"])
 

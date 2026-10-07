@@ -248,6 +248,8 @@ def build_parser() -> argparse.ArgumentParser:
         s.add_argument("--details", action="store_true")
     s_ag_list.add_argument("--json", action="store_true")
     s_ag_list.add_argument("--full", action="store_true")
+    # The folder whose agents cast lists; `rbtv --target F agent list` sets the same value.
+    s_ag_list.add_argument("--target", default=argparse.SUPPRESS, metavar="FOLDER")
 
     # Providers and accounts are checked by the handler, which names the known
     # ones. ACCOUNT is optional here for that reason: the handler refuses a

@@ -44,7 +44,7 @@ Read [Delegating work](methods/delegating-work.md) before applying this page if 
 One `cast route` call for the task sets the CLASS and EFFORT for the whole panel. When model
 diversity is a chosen axis, the top-verdict-only rule is deliberately relaxed, and the models are
 NOT chosen: the panel ALWAYS includes every model at the class's level PLUS every model at the level
-directly below it. Read them from `cast route --catalog --json`.
+directly below it. Read them from `cast models list --catalog --json`.
 
 | Class (its level) | Panel levels |
 |---|---|

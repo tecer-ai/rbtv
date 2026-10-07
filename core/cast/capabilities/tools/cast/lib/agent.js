@@ -57,24 +57,56 @@ function upward(from, pick) {
   }
 }
 
+function isFolder(folder) {
+  return fs.existsSync(folder) && fs.statSync(folder).isDirectory();
+}
+
+// The agent folders directly inside `folder`, by name.
+function agentHomesIn(folder) {
+  if (!isFolder(folder)) return [];
+  return fs.readdirSync(folder).sort().map((name) => path.join(folder, name)).filter(holdsAgentFile);
+}
+
+// The agents `--target FOLDER` names: the one place that reads that option, for cast, spark and
+// rbtv. FOLDER is one of three things, tried in this order:
+//   an installation (it holds `.rbtv/`)   the agents under its `.rbtv/agents/`
+//   an agent folder                       that one agent
+//   a folder that holds agent folders     those agents
+// Returns {folder, homes}, `folder` being where the agents were taken from, or {problem} when
+// FOLDER is none of the three.
+function targetAgents(target, from) {
+  const given = path.resolve(from, target);
+  if (!isFolder(given)) return { problem: `${given} is not a folder` };
+  if (isFolder(path.join(given, '.rbtv'))) {
+    const folder = agentsFolder(given);
+    return { folder, homes: agentHomesIn(folder) };
+  }
+  if (holdsAgentFile(given)) return { folder: given, homes: [given] };
+  const homes = agentHomesIn(given);
+  if (homes.length) return { folder: given, homes };
+  return { problem: `${given} is not an installation (it holds no .rbtv/), is not an agent folder (it holds no ${AGENT_MD} or ${AGENT_JSON}), and holds no agent folder` };
+}
+
+// The agent folders a list shows: those `target` names, else those of the nearest `.rbtv/agents/`
+// folder from `from` upward ({folder: null, homes: []} when there is none).
+function agentHomes(from, target = null) {
+  if (target) return targetAgents(target, from);
+  const folder = upward(from, (dir) => (isFolder(agentsFolder(dir)) ? agentsFolder(dir) : null));
+  return { folder, homes: agentHomesIn(folder ?? '') };
+}
+
 // The agent folder a value names, or null when neither agent file is there. A path is taken as
-// given; a name is looked up under `.rbtv/agents/` from `from` upward.
-function findAgentHome(value, from) {
+// given; a name is looked up among `homes` (the agents of a --target) when given, else under
+// `.rbtv/agents/` from `from` upward.
+function findAgentHome(value, from, homes = null) {
   if (isPath(value)) {
     const home = path.resolve(from, value);
     return holdsAgentFile(home) ? home : null;
   }
+  if (homes) return homes.find((home) => path.basename(home) === value) ?? null;
   return upward(from, (dir) => {
     const home = agentHomeIn(dir, value);
     return holdsAgentFile(home) ? home : null;
-  });
-}
-
-// The nearest `.rbtv/agents/` folder from `from` upward, or null: the folder a list shows.
-function findAgentsFolder(from) {
-  return upward(from, (dir) => {
-    const folder = agentsFolder(dir);
-    return fs.existsSync(folder) && fs.statSync(folder).isDirectory() ? folder : null;
   });
 }
 
@@ -113,13 +145,33 @@ function readAgent(home) {
   return { agent };
 }
 
-// The rbtv agent --agent names, read for launch. A refusal stops here.
-function rbtvAgent(value, fail) {
-  const home = findAgentHome(value, process.cwd());
+// cast's refusal for a --target that names no agents.
+function targetRefusal(target, problem) {
+  return `refused: --target ${target} names no rbtv agents\n${problem}\nNothing was listed.\ncast list -h`;
+}
+
+// The rbtv agent --agent names, read for launch. A refusal stops here. `target` is the --target
+// of `cast list --agent NAME`: the name is then looked up among that folder's agents.
+function rbtvAgent(value, fail, target = null) {
+  let homes = null;
+  if (target) {
+    if (isPath(value)) {
+      fail(`refused: --target goes with a name, and '${value}' is a path\na path already names the agent folder\nNothing was listed.\ncast list --agent ${value}`);
+    }
+    const found = targetAgents(target, process.cwd());
+    if (found.problem) fail(targetRefusal(target, found.problem));
+    homes = found.homes;
+  }
+  const home = findAgentHome(value, process.cwd(), homes);
   if (!home) {
-    const looked = isPath(value)
-      ? `looked for ${path.join(path.resolve(value), AGENT_JSON)}\nNothing changed.\ncheck the path, or look up a name: cast list --agents`
-      : `looked for .rbtv/agents/${value}/agent.json from the current folder upward\nNothing changed.\nlook up a name: cast list --agents`;
+    let looked;
+    if (target) {
+      looked = `looked for an agent folder named ${value} in --target ${target}\nNothing changed.\nlook up a name: cast list --agents --target ${target}`;
+    } else if (isPath(value)) {
+      looked = `looked for ${path.join(path.resolve(value), AGENT_JSON)}\nNothing changed.\ncheck the path, or look up a name: cast list --agents`;
+    } else {
+      looked = `looked for .rbtv/agents/${value}/agent.json from the current folder upward\nNothing changed.\nlook up a name: cast list --agents`;
+    }
     fail(`refused: no rbtv agent '${value}' was found\n${looked}`);
   }
   const read = readAgent(home);
@@ -159,6 +211,6 @@ function agentFilePrompt(flag, fail) {
 }
 
 module.exports = {
-  agentBody, isPath, agentsFolder, agentHomeIn, holdsAgentFile, isAgentFolder, findAgentHome, findAgentsFolder,
-  readAgent, rbtvAgent, takeAgentFlags, agentFilePrompt,
+  agentBody, isPath, agentsFolder, agentHomeIn, holdsAgentFile, isAgentFolder, targetAgents, agentHomes, findAgentHome,
+  readAgent, rbtvAgent, targetRefusal, takeAgentFlags, agentFilePrompt,
 };

@@ -60,7 +60,7 @@ function spark(args, { env = {}, cwd = root } = {}) {
   assert.strictEqual(res.status, 0, res.stderr);
   assert.ok(res.stdout.startsWith('spark — help'), res.stdout);
   assert.ok(res.stdout.includes('cast --agent'), 'help names cast --agent');
-  assert.ok(res.stdout.includes('       spark list [AGENT] [--full] [--json] [-h]\n'), 'help names the list form');
+  assert.ok(res.stdout.includes('       spark list [AGENT] [--target FOLDER] [--full] [--json] [-h]\n'), 'help names the list form');
 
   const afterList = spark(['list', '--help']);
   assert.strictEqual(afterList.status, 0, afterList.stderr);
@@ -161,9 +161,9 @@ function spark(args, { env = {}, cwd = root } = {}) {
   assert.strictEqual(fullOpen.status, 1);
   assert.ok(fullOpen.stderr.includes('`--full` is not a spark option'), fullOpen.stderr);
 
-  const listFlag = spark(['list', '--target', root]);
+  const listFlag = spark(['list', '--bogus', root]);
   assert.strictEqual(listFlag.status, 1);
-  assert.ok(listFlag.stderr.includes('`--target` is not a spark list option'), listFlag.stderr);
+  assert.ok(listFlag.stderr.includes('`--bogus` is not a spark list option'), listFlag.stderr);
 
   const noOne = spark(['list', 'nosuch', '--json']);
   assert.strictEqual(noOne.status, 1);
@@ -195,9 +195,9 @@ function spark(args, { env = {}, cwd = root } = {}) {
   assert.ok(unreadable.stderr.includes('are unreadable'), unreadable.stderr);
   assert.ok(unreadable.stderr.includes('agent.json is missing'), unreadable.stderr);
 
-  const flag = spark(['scout', '--target', root]);
+  const flag = spark(['scout', '--bogus', root]);
   assert.strictEqual(flag.status, 1);
-  assert.ok(flag.stderr.includes("`--target` is not a spark option"), flag.stderr);
+  assert.ok(flag.stderr.includes("`--bogus` is not a spark option"), flag.stderr);
 
   const none = spark([]);
   assert.strictEqual(none.status, 1);
@@ -206,6 +206,54 @@ function spark(args, { env = {}, cwd = root } = {}) {
   const noCast = spark(['scout', '--dry-run'], { env: { PATH: os.tmpdir() } });
   assert.strictEqual(noCast.status, 1);
   assert.ok(noCast.stderr.includes('cast is not on PATH'), noCast.stderr);
+}
+
+// --target FOLDER: the agents of an installation, of a folder that holds agent folders, or one
+// agent folder; cast is handed the agent's folder; a folder that is none of the three is refused
+{
+  const plans = path.join(root, 'plans', 'x', 'agents');
+  const elsewhere = mkFolder('elsewhere');
+  const from = { cwd: elsewhere };
+  const names = (args) => {
+    const res = spark(['list', '--json', ...args], from);
+    assert.strictEqual(res.status, 0, res.stderr);
+    const out = JSON.parse(res.stdout);
+    return [out.folder, out.agents.map((agent) => agent.name)];
+  };
+  assert.deepStrictEqual(names([]), [null, []], 'outside an installation, no --target lists nothing');
+  assert.deepStrictEqual(names(['--target', plans]), [plans, ['drafter']], 'a folder that holds agent folders');
+  assert.deepStrictEqual(names(['--target', root]), [path.join(root, '.rbtv', 'agents'), ['half', 'scout']], 'an installation');
+  assert.deepStrictEqual(names(['--target', drafter]), [drafter, ['drafter']], 'one agent folder');
+  // From inside the installation, the folder of agents wins over the nearest .rbtv/agents/.
+  assert.ok(spark(['list', '--target', 'plans/x/agents']).stdout.startsWith(`rbtv agents: 1\nFolder: ${plans}\n`));
+
+  const one = spark(['list', 'drafter', '--target', plans, '--json'], { ...from, env: { PATH: os.tmpdir() } });
+  assert.strictEqual(one.status, 0, one.stderr);
+  assert.strictEqual(JSON.parse(one.stdout).home, drafter);
+
+  const open = spark(['drafter', '--target', plans, '--dry-run', '--json'], from);
+  assert.strictEqual(open.status, 0, open.stderr);
+  assert.deepStrictEqual(JSON.parse(open.stdout), {
+    agent: 'drafter', home: drafter, cast: ['cast', '--agent', drafter, '--headed', '-p', OPENING],
+  });
+  assert.deepStrictEqual(JSON.parse(spark(['--target', root, 'scout', '--dry-run', '--json'], from).stdout).cast.slice(0, 3),
+    ['cast', '--agent', scout], 'the option may come before the agent');
+
+  for (const [args, text] of [
+    [['list', '--target', elsewhere], 'names no rbtv agents'],
+    [['drafter', '--target', elsewhere, '--dry-run'], 'names no rbtv agents'],
+    [['list', '--target', path.join(elsewhere, 'absent')], 'is not a folder'],
+    [['list', '--target'], '`--target` takes one folder'],
+    [['list', '--target', plans, '--target', root], '`--target` takes one folder'],
+    [['scout', '--target', plans, '--dry-run'], 'looked for an agent folder named scout in --target'],
+    [['plans/x/agents/drafter', '--target', root, '--dry-run'], '`--target` goes with a name'],
+  ]) {
+    const res = spark(args, from);
+    assert.strictEqual(res.status, 1, `expected a refusal for: spark ${args.join(' ')}`);
+    assert.strictEqual(res.stdout, '');
+    assert.ok(res.stderr.includes(text), `spark ${args.join(' ')}: ${res.stderr}`);
+  }
+  assert.ok(!fs.existsSync(shimOut), 'nothing was launched');
 }
 
 // a real launch: the handoff block, then cast with --agent and no harness, model or effort

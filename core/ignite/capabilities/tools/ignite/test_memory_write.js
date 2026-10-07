@@ -8,7 +8,7 @@ const { spawn, spawnSync } = require('node:child_process');
 const { safeWritePath, writeRoot, acquireMemoryLock, withMemoryLock } = require('./memory-write.js');
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
-const lockPath = (dir) => path.join(dir, '.rbtv', 'runtime', 'ignite-memory.lock');
+const lockPath = (dir) => path.join(dir, '.rbtv', 'runtime', 'ignite', 'memory.lock');
 
 test('all installed boards and the shared inbox resolve the same lock root', (dir) => {
   for (const name of ['.rbtv/memory/inbox.md', '.rbtv/agents/one/_artifacts/board.md', '.rbtv/agents/two/_artifacts/board.md']) {

@@ -297,7 +297,7 @@ def cmd_show(args, target: Path, catalog: dict, shadowed: list,
         # check, never a removal suggestion just because it happens to be
         # installed. An uninstalled file's next step is the setup that
         # would install it.
-        data["next"] = ("cast list" if parts[0]["type"] == "agent" else
+        data["next"] = ("cast models list" if parts[0]["type"] == "agent" else
                         f"rbtv doctor --target {_quote(target)}" if parts[0]["installed"] else
                         f"rbtv add {selected['id']} --target {_quote(target)}")
     else:
@@ -1357,7 +1357,8 @@ def cmd_agent(args, target: Path, catalog: dict, shadowed: list,
     as_json = bool(getattr(args, "json", False))
     details = bool(getattr(args, "details", False))
     if verb == "list":
-        shown = cast_agent_list(target, args.agent, as_json, args.full, present.terminal_width())
+        shown = cast_agent_list(target, args.agent, as_json, args.full, present.terminal_width(),
+                                args.target)
         if as_json:
             found = json.loads(shown)
             _emit({"ok": True, **({"agent": found} if args.agent else found), "next": "rbtv agent -h"},
@@ -1466,8 +1467,10 @@ def main(argv: list[str] | None = None, *, ask=None) -> int:
             target = found
             return cmd_providers(args, target)
         if args.verb == "agent":
-            if getattr(args, "target", None) is not None:
-                raise Refuse("usage", "agent verbs take no --target")
+            # `list` hands --target to cast, which reads it; the installation
+            # found from the current folder stays where a bare name is looked up.
+            if getattr(args, "target", None) is not None and args.agent_verb != "list":
+                raise Refuse("usage", f"rbtv agent {args.agent_verb} takes no --target")
             target, why = discover_installation(Path.cwd())
         else:
             target, why = resolve_target(getattr(args, "target", None), Path.cwd())

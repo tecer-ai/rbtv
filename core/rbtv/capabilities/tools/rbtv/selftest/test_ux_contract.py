@@ -386,7 +386,7 @@ def result_screens(ctx) -> None:
         '"files":["fixskill"],"packs":[]}\n', encoding="utf-8")
     add = ["agent", "add", "resultagent", "--dry-run"]
     with patch("lib.agents.cast_catalog",
-               return_value={"claude": {"m1": ["low", "high"]}}):
+               return_value={"claude": {"m1": {"rungs": ["low", "high"], "selected": True}}}):
         _, agent_default, _ = agent_text(*add)
         _, agent_full, _ = agent_text(*add, "--details")
     skill = ".claude/skills/fixskill/SKILL.md"

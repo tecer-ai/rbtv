@@ -60,7 +60,7 @@ def links_rewritten_on_copy(ctx) -> None:
 
     ws = tmp / "ws-link-paths-agent"
     ws.mkdir()
-    with patch("lib.agents.cast_catalog", return_value={"claude": {"m1": ["low", "high"]}}):
+    with patch("lib.agents.cast_catalog", return_value={"claude": {"m1": {"rungs": ["low", "high"], "selected": True}}}):
         add_agent(ws, "research", [], set(), catalog, False,
                   {"harness": "claude", "model": "m1", "effort": "high"})
     text = (ws / ".rbtv/agents/research/agent.md").read_text(encoding="utf-8")

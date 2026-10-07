@@ -51,7 +51,7 @@ def values_for(on: list[str], named: list[dict], receiving: list[str],
                target: Path, *, known: dict, check, model_id,
                configure_cmd: str) -> dict[str, dict]:
     """The checked `--on` values for the agents a command names, by file id then
-    harness: {model, model_id, effort}. `known` is `cast list`, `check` the
+    harness: {model, model_id, effort}. `known` is `cast models list`, `check` the
     check an rbtv agent's values get, `model_id` the harness's own id for a
     model. `configure_cmd` is the command that changes what the target receives."""
     names = ", ".join(row["file_id"] for row in named)
@@ -69,7 +69,7 @@ def values_for(on: list[str], named: list[dict], receiving: list[str],
                       f"and an effort for each harness: give --on {ON_FORM}, once "
                       "per harness. To place it as an rbtv agent instead, run "
                       f"`rbtv agent add {first} --harness HARNESS --model MODEL "
-                      "--effort EFFORT`", "cast list")
+                      "--effort EFFORT`", "cast models list")
     given = parse_on(on)
     outside = [h for h in given if h not in receiving]
     if outside:
@@ -80,7 +80,7 @@ def values_for(on: list[str], named: list[dict], receiving: list[str],
                       configure_cmd)
     values = {}
     for harness, (model, effort) in given.items():
-        launch = check(harness, model, effort, known)
+        launch = check(harness, model, effort, known, target)
         values[harness] = {"model": launch["model"], "effort": launch["effort"],
                            "model_id": model_id(harness, launch["model"], target)}
     return {row["key"]: dict(values) for row in named}

@@ -16,9 +16,9 @@ from lib.state import read_state
 
 from .fixture import FIXAGENT, _component, _file_md, _w
 
-KNOWN = {"claude": {"m1": ["low", "medium", "high"], "nodial": []},
-         "codex": {"c1": ["low", "medium", "high"]},
-         "opencode": {"o1": ["high", "max"]}}
+KNOWN = {"claude": {"m1": {"rungs": ["low", "medium", "high"], "selected": True}, "nodial": {"rungs": [], "selected": True}},
+         "codex": {"c1": {"rungs": ["low", "medium", "high"], "selected": True}},
+         "opencode": {"o1": {"rungs": ["high", "max"], "selected": True}}}
 # The word cast gives for an effort number on these made-up models.
 WORDS = {("claude", "m1", "1"): "low", ("claude", "m1", "2"): "medium",
          ("claude", "m1", "3"): "high", ("opencode", "o1", "1"): "high"}
@@ -37,7 +37,7 @@ def sub_agents(ctx) -> None:
         out, err = io.StringIO(), io.StringIO()
         with patch.object(commands, "scan_all", return_value=(cat or catalog, [])), \
                 patch("lib.agents.cast_catalog", return_value=KNOWN), \
-                patch("lib.agents.cast_effort_word", side_effect=lambda *asked: WORDS.get(asked)), \
+                patch("lib.agents.cast_effort_word", side_effect=lambda *asked: WORDS.get(asked[:3])), \
                 patch("lib.agents.cast_model_id",
                       side_effect=lambda harness, model, _folder: f"id/{model}"), \
                 patch.dict("os.environ", {"COLUMNS": columns}), \
@@ -61,7 +61,7 @@ def sub_agents(ctx) -> None:
               "model and an effort for each harness: give --on\n  HARNESS:MODEL:EFFORT, once "
               "per harness. To place it as an rbtv agent instead, run\n  `rbtv agent add "
               "fixagent --harness HARNESS --model MODEL --effort EFFORT`. Nothing was changed.\n"
-              "next: cast list\n") and not (ws / STATE_REL).exists(), err)
+              "next: cast models list\n") and not (ws / STATE_REL).exists(), err)
 
     code, preview, _err = run("add", "fixagent", "--on", "claude:m1:3", "--dry-run",
                               "--harness", "claude,codex", "--guidance", "none")
@@ -160,7 +160,8 @@ def sub_agents(ctx) -> None:
           and code == 2 and "names claude more than once" in twice, str(usage))
     code, _out, err = run("add", "fixagent", "--on", "claude:nosuch:high")
     check("SA-on-checked — model and effort get the check an rbtv agent's values get",
-          code == 1 and "[launch-invalid] claude has no model 'nosuch'" in err
+          code == 1 and "[launch-invalid] claude 'nosuch' is not a model cast supports." in err
+          and "next: cast models list --supported" in err
           and run("add", "fixagent", "--on", "claude:m1:max")[0] == 1, err)
 
     _code, status, _err = run("status")
@@ -187,7 +188,7 @@ def sub_agents(ctx) -> None:
           and "  As a harness-native sub-agent: rbtv add fixagent --on HARNESS:MODEL:EFFORT\n"
               "  As an rbtv agent: rbtv agent add fixagent --harness HARNESS --model MODEL "
               "--effort EFFORT\n" in shown
-          and shown.rstrip().endswith("Next: cast list")
+          and shown.rstrip().endswith("Next: cast models list")
           and "  Harness:" not in shown and "  Packs: none\n" in shown, shown)
     code, _out, err = run("list", "--type", "sub-agent")
     check("SA-type-retired — sub-agent is an unknown type, refused as any unknown type is",

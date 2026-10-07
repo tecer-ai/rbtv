@@ -1204,7 +1204,7 @@ async function finishCli() {
         assert.equal(body.delivered, false);
         assert.equal(body.conflictsSaved, false);
         assert.match(body.error, missing === 'dmAgent' ? /requires config\.dmAgent/ : /direct-message agent missing/);
-        assert.equal(fs.existsSync(path.join(dir, '.rbtv', 'runtime', 'ignite-memory.lock')), false);
+        assert.equal(fs.existsSync(path.join(dir, '.rbtv', 'runtime', 'ignite', 'memory.lock')), false);
       } finally { fs.rmSync(dir, { recursive: true, force: true }); }
     });
   }

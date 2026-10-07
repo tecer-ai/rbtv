@@ -769,7 +769,7 @@ for (const field of ['subject', 'timers', 'flags', 'threads']) test(`dreamer can
 
 test('snapshot and publication reads hold the lock, with the model in between unlocked', async (f) => {
   f.message();
-  const lock = path.join(f.workspace, '.rbtv', 'runtime', 'ignite-memory.lock');
+  const lock = path.join(f.workspace, '.rbtv', 'runtime', 'ignite', 'memory.lock');
   const inbox = path.join(f.workspace, ROOT, 'inbox.md');
   const read = fs.readFileSync;
   let reads = 0; let calls = 0;
@@ -826,7 +826,7 @@ for (const racing of ['inbox', 'board']) test(`a process writing ${racing} after
   else f.write(boardPath(), board({ state: 'Draft is ready.\nReview is pending.' }));
   const waiting = path.join(f.workspace, 'writer-waiting');
   const finished = path.join(f.workspace, 'writer-finished');
-  const lock = path.join(f.workspace, '.rbtv', 'runtime', 'ignite-memory.lock');
+  const lock = path.join(f.workspace, '.rbtv', 'runtime', 'ignite', 'memory.lock');
   const program = `
     const fs = require('node:fs');
     const [base, workspace, mode, lock, waiting, finished] = process.argv.slice(1);

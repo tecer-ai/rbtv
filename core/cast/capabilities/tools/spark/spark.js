@@ -3,14 +3,15 @@
 
 // spark AGENT — open an rbtv agent in this terminal, for a person. A thin layer over cast: it
 // shows the agent's harness, model and effort (read from its agent.json), then starts
-// `cast --agent NAME --headed` with a greeting. It passes no harness, model or effort: cast reads them.
+// `cast --agent NAME --headed` with a greeting (the agent's folder instead of NAME under --target). It passes no harness, model or effort: cast reads them.
 // spark list [AGENT] — the agents spark can open by name, or one of them in full. The list is
-// cast's (`cast list --agents`, lib/agent-list.js).
+// cast's (`cast list --agents`, lib/agent-list.js), and so is the reading of --target FOLDER
+// (lib/agent.js `targetAgents`).
 
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const { findAgentHome, isPath, readAgent } = require('../cast/lib/agent');
+const { findAgentHome, isPath, readAgent, targetAgents } = require('../cast/lib/agent');
 const { agentInFull, agentLines, agentList, listLines } = require('../cast/lib/agent-list');
 const { findOnPath, spawnable } = require('../cast/lib/win-exec');
 
@@ -18,8 +19,8 @@ const { findOnPath, spawnable } = require('../cast/lib/win-exec');
 const OPENING = 'You have just been started by your owner in an interactive terminal. '
   + 'Greet them in one line and wait for what they need.';
 
-const LIST_FORM = 'spark list [AGENT] [--full] [--json] [-h]';
-const USAGE = 'usage: spark AGENT [--dry-run] [--json] [-h]';
+const LIST_FORM = 'spark list [AGENT] [--target FOLDER] [--full] [--json] [-h]';
+const USAGE = 'usage: spark AGENT [--target FOLDER] [--dry-run] [--json] [-h]';
 const LIST_USAGE = `usage: ${LIST_FORM}`;
 
 const HELP = [
@@ -50,11 +51,21 @@ const HELP = [
   'rbtv show takes. Both open nothing. No agent found is success. Open',
   'an agent whose name is list by its path.',
   '',
+  '--target FOLDER makes AGENT a name among the agents of FOLDER, and',
+  'spark list show those agents. FOLDER is an installation (it holds',
+  '.rbtv/): the agents in its .rbtv/agents/. Or an agent folder: that',
+  'one agent. Or a folder that holds agent folders, such as the agents/',
+  'folder of a plan: those agents. A FOLDER that is none of the three is',
+  'refused. With --target, AGENT is never a path.',
+  '',
   'Harness, model and effort are read from the agent\'s agent.json. To',
   'change them: rbtv agent configure AGENT',
   'spark sets RBTV_AGENT_HOME to the agent folder. It hands agent.md to',
   'the model without its frontmatter.',
   '',
+  '--target FOLDER',
+  '            Take the agents from FOLDER, not from above the current',
+  '            directory.',
   '--dry-run   Print the cast command it would run. Launch nothing.',
   '            spark list refuses it.',
   '--full      With list, show every description whole.',
@@ -73,8 +84,10 @@ const HELP = [
   'Example:',
   '  spark list',
   '  spark list scout',
+  '  spark list --target plans/launch/agents',
   '  spark scout',
   '  spark plans/launch/agents/drafter',
+  '  spark drafter --target plans/launch/agents',
   '  spark scout --dry-run',
   '',
   'Exit codes: 0 success, including a list with no agent; 1 refused or',
@@ -90,10 +103,36 @@ function quote(arg) {
   return /^[\w@%+=:,./\\-]+$/.test(arg) ? arg : `"${arg.replace(/"/g, '\\"')}"`;
 }
 
-// The agent `value` names, read for launch, or null after the refusal is printed.
-function findAgent(value) {
-  const home = findAgentHome(value, process.cwd());
+// The agents `--target FOLDER` names, or null after the refusal is printed.
+function agentsOf(target) {
+  const found = targetAgents(target, process.cwd());
+  if (!found.problem) return found;
+  refuse(`--target \`${target}\` names no rbtv agents`, `${found.problem}.`,
+    'pass an installation, a folder that holds agent folders, or one agent folder.');
+  return null;
+}
+
+// The agent `value` names, read for launch, or null after the refusal is printed. Under
+// `target`, a name among that folder's agents.
+function findAgent(value, target) {
+  let homes = null;
+  if (target) {
+    if (isPath(value)) {
+      refuse(`\`--target\` goes with a name, and \`${value}\` is a path`,
+        'a path already names the agent folder.', 'drop --target, or pass the name.');
+      return null;
+    }
+    const found = agentsOf(target);
+    if (!found) return null;
+    homes = found.homes;
+  }
+  const home = findAgentHome(value, process.cwd(), homes);
   if (!home) {
+    if (target) {
+      refuse(`no rbtv agent \`${value}\` was found`, `looked for an agent folder named ${value} in --target ${target}.`,
+        `\`spark list --target ${target}\`.`);
+      return null;
+    }
     const looked = isPath(value)
       ? `looked for ${path.join(path.resolve(value), 'agent.json')}.`
       : `looked for .rbtv/agents/${value}/agent.json from the current folder upward.`;
@@ -114,7 +153,7 @@ function findAgent(value) {
 }
 
 // spark list [AGENT]: the list, or one agent in full. Nothing is opened.
-function list(named, dry, json, full) {
+function list(named, dry, json, full, target) {
   if (dry) {
     return refuse('`--dry-run` is not a spark list option',
       'spark list opens nothing, so it has nothing to preview.', LIST_USAGE);
@@ -124,12 +163,13 @@ function list(named, dry, json, full) {
   }
   const print = (value, lines) => process.stdout.write(json ? `${JSON.stringify(value)}\n` : `${lines.join('\n')}\n`);
   if (named.length) {
-    const agent = findAgent(named[0]);
+    const agent = findAgent(named[0], target);
     if (!agent) return 1;
     const row = agentInFull(agent);
     print(row, agentLines(row));
   } else {
-    const found = agentList(process.cwd());
+    if (target && !agentsOf(target)) return 1;
+    const found = agentList(process.cwd(), target);
     print(found, listLines(found, { full }));
   }
   return 0;
@@ -139,30 +179,41 @@ function spark(args) {
   let dry = false;
   let json = false;
   let full = false;
+  let target = null;
   const positional = [];
-  // The first argument that is not an option decides the form: `list`, or an agent.
-  const listing = args.find((a) => !a.startsWith('-')) === 'list';
-  for (const a of args) {
+  // The first argument that is neither an option nor --target's folder decides the form: `list`,
+  // or an agent.
+  const listing = args.find((a, i) => !a.startsWith('-') && args[i - 1] !== '--target') === 'list';
+  for (let i = 0; i < args.length; i += 1) {
+    const a = args[i];
     if (a === '-h' || a === '--help') {
       process.stdout.write(`${HELP}\n`);
       return 0;
+    } else if (a === '--target') {
+      const folder = args[i + 1];
+      if (folder === undefined || folder.startsWith('-') || target !== null) {
+        return refuse('`--target` takes one folder',
+          'an installation, a folder that holds agent folders, or one agent folder.', listing ? LIST_USAGE : USAGE);
+      }
+      target = folder;
+      i += 1;
     } else if (a === '--dry-run') dry = true;
     else if (a === '--json') json = true;
     else if (a === '--full' && listing) full = true;
     else if (a.startsWith('-')) {
       return listing
         ? refuse(`\`${a}\` is not a spark list option`,
-          'spark list takes one optional agent and the options --full, --json and -h.', LIST_USAGE)
+          'spark list takes one optional agent and the options --target, --full, --json and -h.', LIST_USAGE)
         : refuse(`\`${a}\` is not a spark option`,
-          'spark takes one agent and the options --dry-run, --json and -h.', USAGE);
+          'spark takes one agent and the options --target, --dry-run, --json and -h.', USAGE);
     } else positional.push(a);
   }
-  if (listing) return list(positional.slice(1), dry, json, full);
+  if (listing) return list(positional.slice(1), dry, json, full, target);
   if (positional.length !== 1) {
     return refuse('spark needs exactly one agent', `got ${positional.length}.`, USAGE);
   }
   const value = positional[0];
-  const agent = findAgent(value);
+  const agent = findAgent(value, target);
   if (!agent) return 1;
   const { home, harness, model, effort } = agent;
   const cast = findOnPath('cast');
@@ -170,7 +221,8 @@ function spark(args) {
     return refuse('cast is not on PATH', 'spark opens the agent through cast. Nothing was launched.', 'rbtv doctor');
   }
 
-  const castArgs = ['--agent', value, '--headed', '-p', OPENING];
+  // cast has no --target on a launch: under --target it gets the agent's folder.
+  const castArgs = ['--agent', target ? home : value, '--headed', '-p', OPENING];
   const name = path.basename(home);
   if (dry) {
     if (json) process.stdout.write(`${JSON.stringify({ agent: name, home, cast: ['cast', ...castArgs] })}\n`);

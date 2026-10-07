@@ -25,7 +25,7 @@ Change — refused outside a turn. Use rbtv agent instead.
   update     runs  rbtv agent update <this agent>
 
 Read — a calling agent is not required.
-  models     runs  cast list
+  models     runs  cast models list
   list       runs  rbtv list
   search     runs  rbtv search
   show       runs  rbtv show
@@ -40,10 +40,14 @@ A passed-through command keeps that command's exit code.
 `;
 
 function write(deps, stream, text) { (deps[stream] || process[stream].write.bind(process[stream]))(text); }
-function callCast(args, deps) {
+// cast answers for the installation that holds its current folder: --installation when given,
+// else the folder this command runs in (inside a turn, the calling agent's folder).
+function callCast(args, flags, deps) {
   if (deps.cast) return deps.cast(args);
   const win = spawnable('cast', args);
-  const result = spawnSync(win.cmd, win.args, { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024, ...win.opts });
+  const result = spawnSync(win.cmd, win.args, {
+    encoding: 'utf8', maxBuffer: 10 * 1024 * 1024, ...(flags.installation ? { cwd: flags.installation } : {}), ...win.opts,
+  });
   if (result.error) return { status: 1, stdout: '', stderr: `${result.error.message}\n` };
   return { status: result.status ?? 1, stdout: result.stdout || '', stderr: result.stderr || '' };
 }
@@ -68,7 +72,9 @@ function installerAgent(home) {
 }
 function prefixOf(command) {
   if (command === 'models') {
-    return ['ignite manage models — runs cast list.', 'Arguments and output pass through unchanged.', 'No calling agent is required.'];
+    return ['ignite manage models — runs cast models list.', 'Arguments and output pass through unchanged.',
+      'No calling agent is required. The models are those of the installation that holds the',
+      'current folder, or of --installation PATH.'];
   }
   if (CHANGE.has(command)) {
     return [
@@ -86,7 +92,7 @@ function prefixOf(command) {
 async function delegate(command, args, flags, deps, home) {
   let result;
   if (command === 'models') {
-    result = await callCast(['list', ...args], deps);
+    result = await callCast(['models', 'list', ...args], flags, deps);
   } else if (CHANGE.has(command)) {
     const agent = home ? installerAgent(home) : { args: [], cwd: null };
     result = await callInstaller(['agent', command, ...agent.args, ...args], agent.cwd || flags.installation, deps);

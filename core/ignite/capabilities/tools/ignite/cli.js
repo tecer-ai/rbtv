@@ -140,7 +140,7 @@ dreamer run [--installation <path>]
   Runs the nightly consolidation path once and exits. Never loops and never
   waits for 03:00. Does not mark or consume that slot, so the daemon can still
   run it the same night.
-  Takes the installation lock .rbtv/runtime/ignite-memory.lock for checks,
+  Takes the installation lock .rbtv/runtime/ignite/memory.lock for checks,
   snapshot reads and publication. Releases it before every model call.
   Contention at entry prints a busy result and does not start a run.
   A digest or failure notice is queued on the direct-message agent's outbox.

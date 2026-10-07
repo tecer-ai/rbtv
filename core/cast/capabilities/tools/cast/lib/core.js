@@ -130,6 +130,7 @@ function listArgs(args) {
   let agents = false;
   let full = false;
   let agent = null;
+  let target = null;
   const named = [];
   for (let i = 0; i < args.length; i += 1) {
     const a = args[i];
@@ -145,9 +146,18 @@ function listArgs(args) {
       if (agent !== null) refuse('--agent takes one agent', `got '${agent}' and '${name}'`, 'cast list -h');
       agent = name;
       i += 1;
+    } else if (a === '--target') {
+      const folder = args[i + 1];
+      if (folder === undefined || folder.startsWith('-')) {
+        refuse('--target takes a folder', 'an installation, a folder that holds agent folders, or one agent folder',
+          'cast list --agents --target FOLDER');
+      }
+      if (target !== null) refuse('--target takes one folder', `got '${target}' and '${folder}'`, 'cast list -h');
+      target = folder;
+      i += 1;
     } else if (a.startsWith('-')) {
       refuse(`'${a}' is not a cast list option`,
-        'cast list takes --agents or --agent NAME, and --full and --json', 'cast list -h');
+        'cast list takes --agents or --agent NAME, and --target FOLDER, --full and --json', 'cast list -h');
     } else named.push(a);
   }
   if (agents && agent !== null) {
@@ -158,7 +168,7 @@ function listArgs(args) {
     refuse(`cast list takes no name by itself, got '${named[0]}'`,
       'one agent in full is --agent NAME', `cast list --agent ${named[0]}`);
   }
-  return { json, full, agent };
+  return { json, full, agent, target };
 }
 
 // Rung mapping: input N (1-5) -> ladder[min(N, ladder.length) - 1]. Inert ladder -> no argv.

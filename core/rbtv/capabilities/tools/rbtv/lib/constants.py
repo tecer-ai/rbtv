@@ -220,7 +220,7 @@ SUB_AGENT_SETTINGS: dict[str, dict[str, str | None]] = {
     "opencode": {"model": "model", "effort": "variant"},
     "codex": {"model": "model", "effort": "model_reasoning_effort"},
 }
-# The effort `cast list` gives a model that has no effort dial.
+# The effort word rbtv records for a model whose `cast models list` row has no effort word.
 EFFORT_INERT = "inert"
 
 

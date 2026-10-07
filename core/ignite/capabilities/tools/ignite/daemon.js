@@ -14,7 +14,7 @@ const { Audio } = require('./audio.js');
 const { refreshBoard } = require('./board.js');
 const { runDreamer, getState, saveState } = require('./dreamer.js');
 const { checkMemory } = require('./memory.js');
-const { acquireMemoryLock } = require('./memory-write.js');
+const { acquireMemoryLock, runtimeFolder } = require('./memory-write.js');
 const cli = require('./cli.js');
 
 const TICK_MS = 30_000;
@@ -386,7 +386,7 @@ function parseArgs(argv) {
 async function start(opts = {}) {
   if (!opts.workspace) throw new Error('--installation required');
   const workspace = path.resolve(opts.workspace);
-  const lockPath = opts.lockPath || path.join(agentsFolder(workspace), '.daemon.lock');
+  const lockPath = opts.lockPath || path.join(runtimeFolder(workspace), 'daemon.lock');
   const held = acquireLock(lockPath);
   try {
     return await startLocked(opts, workspace, held);

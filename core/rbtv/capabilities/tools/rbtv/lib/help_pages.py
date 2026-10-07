@@ -350,8 +350,9 @@ An agent a component ships, named here, is written as a harness-native
 sub-agent: the harness's own sub-agent file, for the harnesses given with
 --on HARNESS:MODEL:EFFORT. --on repeats, once per harness, and is required
 when an agent is among the names. Each harness must be one this target
-receives. Model and effort are checked with cast list, so cast must be on
-PATH. Running it again for a harness replaces that harness's model and
+receives. Model and effort are checked with cast models list: the model
+must be one this installation selected (cast models add HARNESS MODEL
+selects one), so cast must be on PATH. Running it again for a harness replaces that harness's model and
 effort. The agent's own files and packs are not applied: a harness-native
 sub-agent sees what its target has. A component given as a NAME names
 its agents too. A selection by --all, --module, --component or --type
@@ -399,7 +400,7 @@ options:
                         for an agent among the names: write it as a
                         harness-native sub-agent for this harness, with
                         this model and effort; repeatable, one harness
-                        each; see cast list
+                        each; see cast models list
   --harness HARNESS     AI tools receiving files; required on first add:
                         claude,codex,opencode (comma-separated)
   --guidance {AGENTS.md,CLAUDE.md,none}
@@ -635,7 +636,8 @@ core/rbtv/capabilities/glossary/agent.md in the rbtv source.
 
 Shared options: --json  -h, --help
 Changes also accept --dry-run and --details.
-These verbs take no --target. A name is looked up in the installation
+Only list takes --target, to list the agents of another folder. For the
+other verbs a name is looked up in the installation
 found from the current folder. A path is the agent folder, used in place.
 RBTV_AGENT_HOME does not stand in for AGENT.
 Aliases ls, li and rm are root commands. They are not verbs of agent.
@@ -668,8 +670,9 @@ must agree.
 
 --harness, --model and --effort are required, all three, when agent.json
 has none: always the case for an agent a component ships. They are checked
-with cast list, so cast must be on PATH, and written into the agent's
-agent.json. When agent.json already has them, giving one is refused:
+with cast models list, so cast must be on PATH, and written into the
+agent's agent.json. The model must be one the installation selected:
+cast models add HARNESS MODEL selects one. When agent.json already has them, giving one is refused:
 change them with rbtv agent configure.
 
 A short name must be unique; otherwise pass the full id,
@@ -691,7 +694,7 @@ options:
                         the harness that runs AGENT; with --model and
                         --effort, only for an agent whose agent.json has
                         none
-  --model MODEL         a model cast list shows for that harness
+  --model MODEL         a model cast models list shows for that harness
   --effort EFFORT       1 to 5, or the model's own effort word
   --on HARNESS:MODEL:EFFORT
                         for an agent among the names: the model and
@@ -760,10 +763,11 @@ Change harness, model, effort or voice. At least one option is required.
 Each supplied option replaces that value; an omitted value stays as it
 is. The result shows before and after.
 
---model must be a name from cast list. --effort is a word that model
-accepts, or a number 1-5 stored as that model's word. Both are checked
-with cast list, so cast must be on PATH. --voice is the voice the agent
-speaks with; cast list does not check it.
+--model must be a name from cast models list: a model this installation
+selected (cast models add HARNESS MODEL selects one). --effort is a word
+that model accepts, or a number 1-5 stored as that model's word. Both are
+checked with cast models list, so cast must be on PATH. --voice is the
+voice the agent speaks with; cast does not check it.
 
 Changing --harness regenerates the harness files for the new harness.
 A harness-native sub-agent written for the old harness is deleted with its
@@ -782,7 +786,7 @@ positional arguments:
 options:
   -h, --help            show this help message and exit
   --harness HARNESS     claude, codex or opencode
-  --model MODEL         a model name from cast list
+  --model MODEL         a model name from cast models list
   --effort EFFORT       an effort word that model accepts, or 1-5
   --voice VOICE         voice the agent speaks with; any text
   --json                one JSON value on standard output, success or
@@ -846,11 +850,18 @@ Exit codes: 0 success; 1 refused or failed; 2 invalid arguments.
     "agent list": """\
 rbtv — agent list help
 
-usage: rbtv agent list [-h] [--full] [--json] [AGENT]
+usage: rbtv agent list [-h] [--target FOLDER] [--full] [--json] [AGENT]
 
 List the agents of this installation, or show one of them in full. The
 list is the one cast prints: this verb runs cast list --agents, so cast
-must be on PATH. It only reads. This verb takes no --target.
+must be on PATH. It only reads.
+
+With --target FOLDER: the agents of FOLDER instead, as cast reads it.
+FOLDER is an installation (it holds .rbtv/): the agents in its
+.rbtv/agents/. Or an agent folder: that one agent. Or a folder that
+holds agent folders, such as the agents/ folder of a plan: those agents.
+A FOLDER that is none of the three is refused. AGENT is then a name
+among those agents, never a path.
 
 With no AGENT: the agents in the installation's .rbtv/agents/, the
 installation found by walking up from the current folder. Columns:
@@ -872,6 +883,9 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
+  --target FOLDER       list the agents of FOLDER: an installation, a
+                        folder that holds agent folders, or one agent
+                        folder
   --full                show every description whole; one agent is
                         always shown in full
   --json                one JSON value on standard output, success or
@@ -882,6 +896,7 @@ Examples:
   rbtv agent list --full
   rbtv agent list scout
   rbtv agent list plans/launch/agents/drafter
+  rbtv agent list --target plans/launch/agents
 
 Next: rbtv agent configure scout -h
 Exit codes: 0 success, including no agent found; 1 refused or failed; 2 invalid arguments.

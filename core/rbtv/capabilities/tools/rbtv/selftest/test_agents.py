@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from discovery import Refuse, scan_all
 from lib.agents import (IGNORE_TEXT, add_agent, agent_home, cast_agent_list, cast_catalog,
-                        cast_effort_word, configure_agent, is_path, launch_values, remove_agent,
+                        cast_effort_word, cast_model_id, configure_agent, is_path, launch_values, remove_agent,
                         update_agent)
 from lib.constants import MATRIX, REPO_ROOT
 from lib.doctor import do_doctor
@@ -26,7 +26,7 @@ def _agent(home, *, name="scout", files=None, packs=None):
     home.mkdir(parents=True, exist_ok=True)
     _w(home / "agent.md", f"---\nname: {name}\n---\n\nScout.\n")
     _w(home / "agent.json", json.dumps({"name": name, "description": "Scout.",
-        "harness": "claude", "model": "m1", "effort": "high",
+        "harness": "claude", "model": "haiku-4-5", "effort": "high",
         "files": files or [], "packs": packs or []}) + "\n")
 
 
@@ -39,7 +39,7 @@ def _git_status(repo: Path) -> set[str]:
 
 def _ignored_agent(home: Path, harness: str) -> None:
     model, effort = {
-        "claude": ("m1", "high"),
+        "claude": ("haiku-4-5", "high"),
         "codex": ("c1", "high"),
         "opencode": ("glm-5.3", "high"),
     }[harness]
@@ -66,9 +66,9 @@ def agent_ignore_file(ctx) -> None:
     if shutil.which("git") is None:
         skip("A-ignore — git status preserves authored files", "git is unavailable")
         return
-    known = {"claude": {"m1": ["low", "high"]},
-             "codex": {"c1": ["low", "medium", "high"]},
-             "opencode": {"glm-5.3": ["low", "high"]}}
+    known = {"claude": {"haiku-4-5": {"rungs": ["low", "high"], "selected": True}},
+             "codex": {"c1": {"rungs": ["low", "medium", "high"], "selected": True}},
+             "opencode": {"glm-5.3": {"rungs": ["low", "high"], "selected": True}}}
     every_destination = ["fixskill", "fixrule", "fixcmd", "fixhook", "fixmcp"]
 
     check = ctx.check
@@ -154,24 +154,24 @@ def installed_agents(ctx) -> None:
     ws = tmp / "agent-installation"; ws.mkdir()
     home = ws / ".rbtv/agents/scout"
     _agent(home, files=["kiss"])
-    known = {"claude": {"m1": ["low", "high"]},
-             "codex": {"c1": ["low", "medium", "high"]}}
+    known = {"claude": {"haiku-4-5": {"rungs": ["low", "high"], "selected": True}},
+             "codex": {"c1": {"rungs": ["low", "medium", "high"], "selected": True}}}
     # The word cast gives for an effort number on these made-up models.
-    words = {("claude", "m1", "2"): "high", ("codex", "c1", "3"): "high"}
+    words = {("claude", "haiku-4-5", "2"): "high", ("codex", "c1", "3"): "high"}
 
     def cast_words():
-        return patch("lib.agents.cast_effort_word", side_effect=lambda *asked: words.get(asked))
+        return patch("lib.agents.cast_effort_word", side_effect=lambda *asked: words.get(asked[:3]))
 
     with patch("lib.agents.cast_catalog", return_value=known), cast_words():
         before = (home / "agent.json").read_bytes()
         planned = add_agent(ws, "scout", [], set(), catalog, True)
         check("A-add — dry run writes no agent file", (home / "agent.json").read_bytes() == before and planned["dry_run"], str(planned))
         add_agent(ws, "scout", [], set(), catalog, False)
-        launch = {"harness": "claude", "model": "m1", "effort": "2"}
+        launch = {"harness": "claude", "model": "haiku-4-5", "effort": "2"}
         research = ws / ".rbtv/agents/research"
         check("A-add-flags — a shipped agent without the three flags is refused and not placed",
               _refused(lambda: add_agent(ws, "research", [], set(), catalog, False))
-              == ("launch-required", "cast list")
+              == ("launch-required", "cast models list")
               and _refused(lambda: add_agent(ws, "research", [], set(), catalog, False,
                                              {"harness": "claude", "model": None,
                                               "effort": None}))[0] == "launch-required"
@@ -190,13 +190,13 @@ def installed_agents(ctx) -> None:
         check("A-add-flags — the three flags are checked as configure checks them and "
               "written into the placed agent.json",
               (placed_record["harness"], placed_record["model"], placed_record["effort"])
-              == ("claude", "m1", "high") and placed["launch"]["model"] == "m1",
+              == ("claude", "haiku-4-5", "high") and placed["launch"]["model"] == "haiku-4-5",
               str(placed_record))
         check("A-add-flags — a flag for an agent that has the values is refused and "
               "names rbtv agent configure",
               _refused(lambda: add_agent(ws, "research", [], set(), catalog, False,
-                                         {"harness": None, "model": "m1", "effort": None}))
-              == ("launch-already-set", "rbtv agent configure research --model m1")
+                                         {"harness": None, "model": "haiku-4-5", "effort": None}))
+              == ("launch-already-set", "rbtv agent configure research --model haiku-4-5")
               and _refused(lambda: add_agent(ws, "scout", [], set(), catalog, False, launch))[0]
               == "launch-already-set", "")
         bare = ws / ".rbtv/agents/bare"
@@ -207,7 +207,7 @@ def installed_agents(ctx) -> None:
               == "launch-required", "")
         add_agent(ws, "bare", [], set(), catalog, False, launch)
         check("A-add-flags — and the flags are written into its agent.json",
-              read_state(bare)["model"] == "m1" and read_state(bare)["effort"] == "high",
+              read_state(bare)["model"] == "haiku-4-5" and read_state(bare)["effort"] == "high",
               str(read_state(bare)))
         shutil.rmtree(bare)
     state = read_state(home)
@@ -241,7 +241,7 @@ def installed_agents(ctx) -> None:
         lifecycle_state = read_state(home)
         lifecycle_health = do_doctor(home, "fixture", catalog, [], root,
                                      home / ".rbtv/mirror")["ok"]
-        restored = configure_agent(ws, "scout", "claude", "m1", "2", None,
+        restored = configure_agent(ws, "scout", "claude", "haiku-4-5", "2", None,
                                    catalog, False)
         restored_update = update_agent(ws, "scout", "all", catalog, False)
     state = read_state(home)
@@ -275,15 +275,33 @@ def installed_agents(ctx) -> None:
         check("A-list — without cast on PATH the list is refused, not rebuilt here",
               _refused(lambda: cast_agent_list(ws, None, False, False, 100)) == ("cast-missing", "rbtv doctor"), "")
         check("A-effort — without cast on PATH an effort number is refused, not worked out here",
-              _refused(lambda: cast_effort_word("claude", "m1", "2")) == ("cast-missing", "rbtv doctor"), "")
+              _refused(lambda: cast_effort_word("claude", "haiku-4-5", "2", ws)) == ("cast-missing", "rbtv doctor"), "")
     with patch("lib.agents.shutil.which", return_value="cast"), \
             patch("lib.agents.subprocess.run",
                   return_value=subprocess.CompletedProcess([], 0, "not JSON", "")):
         check("A-effort — an answer from cast that is not its launch value is refused",
-              _refused(lambda: cast_effort_word("claude", "m1", "2"))[0] == "cast-unreadable", "")
+              _refused(lambda: cast_effort_word("claude", "haiku-4-5", "2", ws))[0] == "cast-unreadable", "")
     with patch("lib.agents.cast_effort_word", return_value=None):
         check("A-effort — a number cast refuses is refused, and no word is made up for it",
-              _refused(lambda: launch_values("claude", "m1", "2", known)) == ("launch-invalid", "cast list"), "")
+              _refused(lambda: launch_values("claude", "haiku-4-5", "2", known, ws))
+              == ("launch-invalid", "cast models list"), "")
+    check("A-model — a model cast does not support is refused with the list of those it does",
+          _refused(lambda: launch_values("claude", "nosuch", "high", known, ws))
+          == ("launch-invalid", "cast models list --supported"), "")
+    unselected = {"claude": {"haiku-4-5": {"rungs": ["low", "high"], "selected": False}}}
+    check("A-model — a model the installation has not selected is refused with the command that selects it",
+          _refused(lambda: launch_values("claude", "haiku-4-5", "high", unselected, ws))
+          == ("launch-invalid", "cast models add claude haiku-4-5"), "")
+    with patch("lib.agents.shutil.which", return_value="cast"), \
+            patch("lib.agents.subprocess.run", return_value=subprocess.CompletedProcess(
+                [], 2, '{"error":"catalog-unreadable","message":"refused: cannot read the model catalog"}\n', "")):
+        try:
+            cast_catalog(ws)
+            said = "no refusal"
+        except Refuse as exc:
+            said = f"{exc.code}: {exc.message}"
+        check("A-model — a refusal from cast models list is passed on, not read as an empty list",
+              said == "cast-refused: `cast models list` refused: refused: cannot read the model catalog", said)
     node = shutil.which("node")
     if node is None:
         for name in ("A-list — the list is the one cast prints",
@@ -342,21 +360,61 @@ def installed_agents(ctx) -> None:
             bare = tmp / "agent-list-empty"; bare.mkdir()
             check("A-list — an installation with no agent folder is successful",
                   cast_agent_list(bare, None, False, False, 100).startswith("rbtv agents: 0\n"), "")
-            # What an effort number means is cast's own. The expected words are read from the
-            # table cast prints (for each word, the smallest number that selects it), on the first
-            # model that has effort words.
-            table = cast_catalog()
-            harness, model = next((h, m) for h in table["effort_numbers"]
-                                  for m, numbers in table["effort_numbers"][h].items() if numbers)
-            numbers = table["effort_numbers"][harness][model]
-            got = {word: cast_effort_word(harness, model, str(n)) for word, n in numbers.items()}
+            plan = tmp / "plan-agents"
+            _agent(plan / "drafter", name="drafter")
+            (tmp / "elsewhere").mkdir()
+            outside = cast_agent_list(ws, None, True, False, 100, str(plan))
+            check("A-list — --target reaches cast: the agents of a folder outside .rbtv/agents/",
+                  json.loads(outside)["folder"] == str(plan)
+                  and [row["name"] for row in json.loads(outside)["agents"]] == ["drafter"], outside)
+            check("A-list — with --target, AGENT is a name among that folder's agents",
+                  json.loads(cast_agent_list(ws, "drafter", True, False, 100, str(plan)))["home"] == str(plan / "drafter"), "")
+            check("A-list — a --target that holds no agent is cast's refusal",
+                  _refused(lambda: cast_agent_list(ws, None, False, False, 100, str(tmp / "elsewhere")))
+                  == ("cast-refused", "rbtv agent list -h"), "")
+            # What cast supports and what an effort number means are cast's own. The expected
+            # words are read from the list cast prints (for each word, the number that selects
+            # it), on the first model that has effort words. cast answers from a folder outside
+            # any installation, where every supported model is selected.
+            away = tmp / "no-installation"; away.mkdir()
+            listed_models = json.loads(subprocess.run(
+                [str(cast_bin / "cast"), "models", "list", "--supported", "--json"], cwd=away,
+                capture_output=True, text=True, encoding="utf-8").stdout)["models"]
+            table = cast_catalog(away)
+            row = next(row for row in listed_models if row["effort_numbers"] and row["mode"] == "cli")
+            harness, model, numbers = row["harness"], row["model"], row["effort_numbers"]
+            check("A-model — the models rbtv checks against are the ones cast models list --supported prints",
+                  {(h, m) for h in table for m in table[h]} == {(r["harness"], r["model"]) for r in listed_models}
+                  and table[harness][model] == {"rungs": row["rungs"], "selected": True}, str(table.get(harness)))
+            got = {word: cast_effort_word(harness, model, str(n), away) for word, n in numbers.items()}
             check("A-effort — an effort number becomes the word cast gives for it",
                   got == {word: word for word in numbers}, f"{harness} {model}: {got}")
             check("A-effort — the word reaches the agent's values, and a number cast refuses is refused",
-                  launch_values(harness, model, "1", table)["effort"] == min(numbers, key=numbers.get)
-                  and cast_effort_word(harness, model, "0") is None
-                  and _refused(lambda: launch_values(harness, model, "0", table))[0] == "launch-invalid",
+                  launch_values(harness, model, "1", table, away)["effort"] == min(numbers, key=numbers.get)
+                  and cast_effort_word(harness, model, "0", away) is None
+                  and _refused(lambda: launch_values(harness, model, "0", table, away))[0] == "launch-invalid",
                   f"{harness} {model}")
+            # The installation of the folder cast is asked from decides what is selected: here
+            # one whose model catalog holds a single model.
+            pruned = tmp / "pruned"
+            _w(pruned / ".rbtv/config/install.json", "{}\n")
+            _w(pruned / ".rbtv/config/cast/models.csv", "mode,harness,model\ncli,claude,sonnet-5-5\n")
+            _agent(pruned / ".rbtv/agents/scout")
+            chosen = cast_catalog(pruned / ".rbtv/agents/scout")
+            check("A-model — cast is asked from the agent's folder, so its installation's selection answers",
+                  chosen["claude"]["sonnet-5-5"]["selected"] and not chosen["claude"]["haiku-4-5"]["selected"]
+                  and table["claude"]["haiku-4-5"]["selected"], str(chosen["claude"]))
+            check("A-model — agent configure refuses a model the agent's installation has not selected",
+                  _refused(lambda: configure_agent(pruned, "scout", None, None, "low", None, catalog, True))
+                  == ("launch-invalid", "cast models add claude haiku-4-5"), "")
+            check("A-effort — a number is asked of cast from the agent's folder: an unselected model gives no word",
+                  cast_effort_word("claude", "opus-5-5", "1", pruned / ".rbtv/agents/scout") is None
+                  and cast_effort_word("claude", "opus-5-5", "1", away) == "low"
+                  and cast_effort_word("claude", "sonnet-5-5", "1", pruned / ".rbtv/agents/scout") == "low", "")
+            check("A-model — the harness's own id is asked of cast from the same folder",
+                  cast_model_id("claude", "sonnet-5-5", pruned / ".rbtv/agents/scout") == "claude-sonnet-5-5"
+                  and _refused(lambda: cast_model_id("claude", "opus-5-5", pruned / ".rbtv/agents/scout"))[0]
+                  == "cast-unreadable", "")
     selected, source = resolve_target(None, ws, {"RBTV_AGENT_HOME": str(home)})
     retired_name = "IGNITE" + "_AGENT_HOME"
     legacy, legacy_source = resolve_target(None, ws, {retired_name: str(home)})

@@ -164,7 +164,7 @@
                       ],
                       "properties": {
                         "model": {
-                          "description": "The model, by the name `cast list` shows.",
+                          "description": "The model, by the name `cast models list` shows.",
                           "type": "string"
                         },
                         "model_id": {
@@ -186,7 +186,7 @@
                       ],
                       "properties": {
                         "model": {
-                          "description": "The model, by the name `cast list` shows.",
+                          "description": "The model, by the name `cast models list` shows.",
                           "type": "string"
                         },
                         "model_id": {
@@ -208,7 +208,7 @@
                       ],
                       "properties": {
                         "model": {
-                          "description": "The model, by the name `cast list` shows.",
+                          "description": "The model, by the name `cast models list` shows.",
                           "type": "string"
                         },
                         "model_id": {
