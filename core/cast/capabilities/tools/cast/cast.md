@@ -65,7 +65,7 @@ environment file, or the provider's entry in opencode's store, as `providers.jso
 local files and the environment only: no network call, no other program started, and no key, token
 or account name printed. A present login is not proof that the account has credit left: the report
 ends with `rbtv providers list` and `rbtv providers usage`, which answer for accounts, saved logins
-and plan usage. Each model line says where its login was found, or what was looked for. A model
+and usage limits. Each model line says where its login was found, or what was looked for. A model
 catalog that cannot be read is reported in place of the models, still at exit 0. When cells of the
 installation's own model catalog differ from the shipped one in the columns rbtv proposes, one line
 gives their number and `cast models update --dry-run`, which lists them.

@@ -5,7 +5,7 @@
 // Three checks: which harness programs are on PATH, which selected models have their provider's
 // login present, and whether the installation's model catalog still holds the values rbtv ships.
 // Local files and the environment only: no network call, no other program started.
-// Accounts, saved logins and plan usage belong to `rbtv providers`, which the report points to.
+// Accounts, saved logins and usage limits belong to `rbtv providers`, which the report points to.
 
 const fs = require('fs');
 const { ROWS } = require('../supported-models');
