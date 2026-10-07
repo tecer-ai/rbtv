@@ -25,9 +25,11 @@ description: "Run one meeting-summarizer cycle inline, in the current turn: dete
 This capability carries no values of its own: the installation supplies them as component
 configuration, never as a value typed into this skill. Resolve, ONCE per turn, before step 1:
 
-- **Tools directory** — this capability's own `tools/` folder. Find it by reading `rbtv_path` from
-  the installation's `rbtv.json` (at the installation root) and joining `office/meeting-summarizer/tools`.
-  Call this `<tools>` below.
+- **Tools** — this component's commands `artifact-bindings`, `detection-cycle`, `doubt-answer`,
+  `per-meeting-job`, `publish-job` and `verify-access`, installed in this agent beside this skill
+  and run by name.
+  If one of them is not found, report a failed cycle that names it and run nothing
+  (`rbtv agent add <agent> office/meeting-summarizer#<name>` installs it).
 - **Installation root** — the nearest folder, starting at `<agent-home>` (`$RBTV_AGENT_HOME` inside
   a turn) and walking up, that holds `.rbtv/config/install.json`. Call this `<installation>` below.
   If `$RBTV_AGENT_HOME` is unset or no folder above it holds that file, report a failed cycle that
@@ -52,7 +54,7 @@ configuration, never as a value typed into this skill. Resolve, ONCE per turn, b
   `<config>` and create it on first use: pass no flag for it and never write in it by hand.
   `detection-cycle` finds `<state>/processed-transcripts.jsonl` — the SAME file `publish-job` writes
   to — from `$RBTV_AGENT_HOME`, and refuses when that variable is unset.
-- **Channel directory** (the per-meeting routing-ask bookkeeping `per_meeting_job.py` uses; nothing
+- **Channel directory** (the per-meeting routing-ask bookkeeping `per-meeting-job` uses; nothing
   chat-specific) — `<state>/channel`.
 - **Checkout root** (where destination repos are cloned) — read `<config>/runtime.json` →
   `checkout-root`. Call this `<checkout root>` below.
@@ -64,12 +66,12 @@ configuration, never as a value typed into this skill. Resolve, ONCE per turn, b
    to the LAST grouped question you asked (if any is still open). There are two kinds of open
    question, checked and applied independently:
 
-   a. **Glossary-term doubts** — check `doubt_answer.py list-open` below; a term it no longer lists
+   a. **Glossary-term doubts** — check `doubt-answer list-open` below; a term it no longer lists
       is already resolved or was never asked, so there is nothing to apply. Match each answered term
       in the owner's reply to its open doubt by name — this is your own reading, not a lookup table,
       because there is one conversation and no per-meeting thread to key on. For each term the owner
       answered, run:
-      `python3 <tools>/doubt_answer.py apply --meeting-key <K> --term <T> --answer-text "<owner's exact words for that term>" --config-root <config> --checkout-root <checkout root> --state <state>`
+      `doubt-answer apply --meeting-key <K> --term <T> --answer-text "<owner's exact words for that term>" --config-root <config> --checkout-root <checkout root> --state <state>`
       Read the JSON result. `"landed": true` means the summary was corrected, committed and pushed —
       report it plainly. `"landed": false` means it is still open; report why and leave it — a failed
       apply is never silently retried by guessing, and it stays open for the NEXT cycle to try again.
@@ -80,12 +82,12 @@ configuration, never as a value typed into this skill. Resolve, ONCE per turn, b
       the owner may name it loosely; match it to the one route it clearly means, or treat the reply
       as not yet a clear answer and leave the question open). On a clear match:
       1. Append one line to `<state>/outcomes.jsonl`: `{"meeting-key": "<K>", "outcome": "amended", "content-entity": "<the matched entity>", "at": "<now, UTC ISO>"}` — this is the same shape
-         `per_meeting_job.py`'s own settlement rows carry; `publish_job.py` reads the LATEST row per
+         `per-meeting-job`'s own settlement rows carry; `publish-job` reads the LATEST row per
          meeting-key, so this one now wins.
-      2. Retry publishing that meeting immediately, in this same turn: run `publish_job.py precheck`
+      2. Retry publishing that meeting immediately, in this same turn: run `publish-job precheck`
          then (if it no longer refuses) `cycle`, exactly as step 5 describes, using the SAME job file
          from `<scratch>/jobs/<meeting-key>.json` if this cycle already wrote one for it, otherwise
-         reconstruct it from `detection_cycle.py status`.
+         reconstruct it from `detection-cycle status --config-dir <config>`.
       3. On success, append `{"meeting-key": "<K>", "resolved-at": "<now>"}` to
          `<state>/resolved-routing.jsonl`. On failure, report why and leave both files as they are —
          the question stays open and the same retry is attempted again next cycle once you re-read
@@ -95,7 +97,7 @@ configuration, never as a value typed into this skill. Resolve, ONCE per turn, b
       (a clarification, not a second question).
 
 2. **Run one detection tick:**
-   `python3 <tools>/detection_cycle.py tick --config-dir <config>`
+   `detection-cycle tick --config-dir <config>`
    Read the JSON result whole. A tick that refuses (REFUSED on stderr, empty stdout) is reported as
    a failed cycle — never re-run a refused tick; that is how one poll becomes two. From the result,
    keep every job whose disposition is NOT `already-done` and that is not in `skipped-parked` — that
@@ -104,7 +106,7 @@ configuration, never as a value typed into this skill. Resolve, ONCE per turn, b
    and after.
 
 3. **Stage this cycle's artifacts, once, for the whole pending set** (skip if pending is empty):
-   `python3 <tools>/artifact_bindings.py --jobs <pending-jobs.json> --out-dir <scratch>/artifacts --config-dir <config>`
+   `artifact-bindings --jobs <pending-jobs.json> --out-dir <scratch>/artifacts --config-dir <config>`
    where `<pending-jobs.json>` is the pending job list you just wrote to a scratch file. This
    downloads every Drive reference once and writes `bindings.json` in `<scratch>/artifacts/`.
 
@@ -114,7 +116,7 @@ configuration, never as a value typed into this skill. Resolve, ONCE per turn, b
    - Create its work directory `<scratch>/work/<meeting-key>/` and write a `CLAUDE.md` there
      carrying a `## Name Glossary` section naming `.user/docs/glossary.md`.
    - Run:
-     `python3 <tools>/per_meeting_job.py --job <scratch>/jobs/<meeting-key>.json --artifacts <scratch>/artifacts/bindings.json --config-root <config> --checkout-root <checkout root> --channel <state>/channel --state <state> --work <scratch>/work/<meeting-key>`
+     `per-meeting-job --job <scratch>/jobs/<meeting-key>.json --artifacts <scratch>/artifacts/bindings.json --config-root <config> --checkout-root <checkout root> --channel <state>/channel --state <state> --work <scratch>/work/<meeting-key>`
    - This call itself launches a separate, unattended `cast` turn that reads the transcript and
      writes the actual summary in the summarizer skill's own format — you do not read the
      transcript yourself and you do not draft any part of the summary. Read the JSON verdict this
@@ -135,7 +137,7 @@ configuration, never as a value typed into this skill. Resolve, ONCE per turn, b
    - A verdict `outcome: failed` that carries `"parked": true` means this meeting's job failed in
      three consecutive cycles and the call parked the meeting: later ticks list it under
      `skipped-parked` and no job runs for it. A park is lifted only when the owner asks for it, by
-     `python3 <tools>/detection_cycle.py retry --meeting-key <K> --config-dir <config>`.
+     `detection-cycle retry --meeting-key <K> --config-dir <config>`.
 
 5. **File every settled meeting.** Two kinds of meeting are due: (a) each meeting whose outcome is
    `filed` or `amended` in `outcomes.jsonl` and that carries no row yet in
@@ -144,9 +146,9 @@ configuration, never as a value typed into this skill. Resolve, ONCE per turn, b
    `processed-transcripts.jsonl`, from its first filing, and they do not cover the source that
    arrived since. A meeting with rows there whose verdict does NOT carry that field is not due:
    never run `cycle` for it. For each due meeting, run:
-   `python3 <tools>/publish_job.py precheck --job <scratch>/jobs/<meeting-key>.json --config-root <config> --checkout-root <checkout root> --state <state>`
+   `publish-job precheck --job <scratch>/jobs/<meeting-key>.json --config-root <config> --checkout-root <checkout root> --state <state>`
    then, only if the precheck does not refuse:
-   `python3 <tools>/publish_job.py cycle --job <scratch>/jobs/<meeting-key>.json --summary <the summary file the verdict named> --config-root <config> --checkout-root <checkout root> --state <state>`
+   `publish-job cycle --job <scratch>/jobs/<meeting-key>.json --summary <the summary file the verdict named> --config-root <config> --checkout-root <checkout root> --state <state>`
    Read each result. This commits and pushes inside this call — never a separate step, never
    deferred to a later turn.
 
@@ -164,15 +166,15 @@ configuration, never as a value typed into this skill. Resolve, ONCE per turn, b
    still there, only the path a prior pass reported no longer resolves (the destination folder moved,
    or this scratch dir's own job file is older than you think). This is NEVER "the file was deleted":
    do not ask the owner about it, and do not touch `resolved-doubts.jsonl`/settlement rows on this
-   premise. Re-run `per_meeting_job.py` for that meeting fresh (same as step 4) to get a CURRENT
+   premise. Re-run `per-meeting-job` for that meeting fresh (same as step 4) to get a CURRENT
    `summary-file` value, then retry `precheck`/`cycle` with it, in this same turn if time allows. If
    the refusal recurs, leave the meeting for the next cycle — report the refusal plainly, do not
    invent a reason for it.
 
 6. **Check for open questions — both kinds.**
-   - Glossary doubts: `python3 <tools>/doubt_answer.py list-open --state <state>`. For every doubt
+   - Glossary doubts: `doubt-answer list-open --state <state>`. For every doubt
      this prints that this cycle's own pending set produced (a fresh doubt from step 4), mark it
-     asked once you include it in your question: `python3 <tools>/doubt_answer.py mark-asked --meeting-key <K> --term <T> --state <state>`.
+     asked once you include it in your question: `doubt-answer mark-asked --meeting-key <K> --term <T> --state <state>`.
      A doubt already asked in an earlier cycle and still unanswered is NOT re-asked — `list-open`
      already excludes it.
    - Routing questions: read `<state>/asked-routing.jsonl` minus `<state>/resolved-routing.jsonl` —
@@ -282,8 +284,8 @@ silently dropped, and never reported as a plain refusal.
   worked around. The one exception is a routing answer the owner has actually given (step 1b) —
   that is the owner naming it, not you inventing it.
 - Never re-run a refused detection tick, and never move its watermark by hand.
-- Never draft or edit summary text yourself — `per_meeting_job.py`'s nested agent call and
-  `doubt_answer.py apply`'s amendment call are the only writers of a summary file.
+- Never draft or edit summary text yourself — `per-meeting-job`'s nested agent call and
+  `doubt-answer apply`'s amendment call are the only writers of a summary file.
 - Never ask a doubt `list-open` does not currently list, and never ask the same term twice.
 - Never report an `unroutable` precheck as a plain refusal with `disposition: continue` — it is an
   open routing question (steps 5-7), and it drives `waiting_owner`.

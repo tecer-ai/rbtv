@@ -690,7 +690,7 @@ SHARED = ["--config-dir", "EXAMPLE-config", "--fixture", "EXAMPLE-listing.json",
 
 def _skill_commands() -> list[list[str]]:
     """Every detection_cycle command line the cycle skill gives: its words after the program."""
-    marker = "`python3 <tools>/detection_cycle.py "
+    marker = "`detection-cycle "
     return [line.split(marker, 1)[1].split("`", 1)[0].split()
             for line in SKILL.read_text(encoding="utf-8").splitlines() if marker in line]
 
