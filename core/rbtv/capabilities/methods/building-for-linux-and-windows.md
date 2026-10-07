@@ -1,6 +1,6 @@
 # Building for Linux and Windows
 
-Make a change to code, a tool, a test or an installer-scanned file run on both Linux and Windows. The repository's `CLAUDE.md` states which components must run on both and the one exception; this page gives the rules that make a change do so. Each rule records a defect that has happened.
+Make a change to code, a tool or a test run on both Linux and Windows. The repository's `CLAUDE.md` states which components must run on both and the one exception; this page gives the rules that make a change do so. Each rule records a defect that has happened.
 
 ## Apply the rules
 

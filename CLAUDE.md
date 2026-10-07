@@ -18,7 +18,7 @@ When carrying a file INTO this repository from an archive or an installation:
 
 ## Hard Rule — Linux AND Windows
 
-Every component MUST work on both Linux and Windows — rbtv runs on Linux servers and Windows desktops. The one exception, by owner decision, is Ignite's waking service (`core/ignite/`'s service, its `deploy.sh`, and its systemd unit), which runs on Linux only; `rbtv agent add`, `rbtv agent update` and `ignite connect` still work on any machine. When you can only run one platform, design for both and state in your done report which platform you actually verified. The rules that make a change run on both, the WSL run and the selftest requirement are in `core/rbtv/capabilities/methods/building-for-linux-and-windows.md`: read it before writing or changing code, a tool, a test or an installer-scanned file.
+Every component MUST work on both Linux and Windows — rbtv runs on Linux servers and Windows desktops. The one exception, by owner decision, is Ignite's waking service (`core/ignite/`'s service, its `deploy.sh`, and its systemd unit), which runs on Linux only; `rbtv agent add`, `rbtv agent update` and `ignite connect` still work on any machine. When you can only run one platform, design for both and state in your done report which platform you actually verified. The rules that make a change run on both, the WSL run and the selftest requirement are in `core/rbtv/capabilities/methods/building-for-linux-and-windows.md`: read it before writing or changing code, a tool or a test.
 
 ## Command-line tools
 
