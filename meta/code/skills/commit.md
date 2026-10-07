@@ -85,22 +85,24 @@ rbtv-commit -m "<message>" -f <path> [-f <path> ...] [--push]
   no changes aborts the run. TRUST this output: do NOT run `git show`, `git log`, or any other
   command to re-verify the commit's contents. The script IS the verification.
 
-### 3. On a non-zero exit — the script made NO commit
+### 3. On a non-zero exit — no commit, unless the error says one was made
 
-Read the script's error and act:
+The script made NO commit, with one exception: an error that says `Commit <hash> was made` (see
+the last row). Read the script's error and act:
 
 | Error | Meaning | Action |
 |-------|---------|--------|
 | `no changes to commit: <paths>` | A listed file/directory had no changes | Fix the path list, retry the script for that cluster |
 | `merge conflict pulling remote changes in: <files>` | The remote diverged and conflicts with this cluster | Follow **Resolving a merge conflict** below |
 | `could not pull remote changes — NOT a merge conflict` | The remote sync failed for a NON-conflict reason; git's own error follows the message | Read that error and fix its cause — a stale `.git/index.lock` (verify NO git process is running, then remove it), a network/auth failure, a refused fast-forward. Then retry the script for that cluster. There is no conflict to resolve. When the message lists entries other sessions have staged, git refused the merge because of them: leave them staged and retry once those sessions have committed them. |
+| either pull error above, carrying `Commit <hash> was made` in place of `No commit made` | The pull failed AND another session moved the branch after this cluster's commit, so the script undid nothing — its undo removes its own commit and nothing else. The sentence says where the commit is: still on the branch under the other session's commit, still the branch tip (the undo itself failed), or off the branch | The cluster IS committed: NEVER rerun the script for it. Fix the cause the error names, then `git -C "{repo}" pull --no-edit`; on a conflict, enter **Resolving a merge conflict** at step 3. When the sentence says the branch no longer contains the commit, tell the user before running the `git cherry-pick <hash>` it names. |
 
 NEVER move to the next cluster until the current one has committed.
 
 ## Resolving a merge conflict
 
-`commit.py` exited non-zero with `merge conflict pulling remote changes in: <files>` and made NO
-commit. Follow these steps in order. NEVER skip a step.
+`commit.py` exited non-zero with `merge conflict pulling remote changes in: <files>` and
+`No commit made`. Follow these steps in order. NEVER skip a step.
 
 **State the script left:**
 

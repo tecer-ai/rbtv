@@ -6,7 +6,8 @@ repo root). The calling agent supplies the judgment — which files, what messag
 — and this script owns all the mechanics in one invocation: remote sync, staging
 the requested paths, the commit, and an optional push.
 
-It fails loudly (non-zero exit + a clear message) and makes NO commit on:
+It fails loudly (non-zero exit + a clear message) and leaves NO commit — unless
+the message says, in words, that the commit was made — on:
   - a real merge conflict while syncing the remote,
   - any OTHER remote-sync failure (stale index.lock, network/auth, refused
     fast-forward) — reported as its own class, never as a conflict,
@@ -23,11 +24,13 @@ what carries an executable bit staged with `git update-index --chmod=+x`.
 
 Remote sync is commit-first: the requested files are committed locally, THEN the
 remote is pulled. A clean auto-merge is handled silently; a real conflict aborts
-the merge and undoes the local commit (`reset --soft`), so no commit survives and
-the requested changes are left staged in the working tree — never trapped in a
-stash. Other uncommitted work in the tree is untouched throughout. Git refuses a
-merge while any entry is staged, so a pull that needs one fails, and is undone
-the same way, for as long as another session's entries are staged.
+the merge and undoes the local commit, so no commit survives and the requested
+changes are left staged in the working tree — never trapped in a stash. Other
+uncommitted work in the tree is untouched throughout. Git refuses a merge while
+any entry is staged, so a pull that needs one fails, and is undone the same way,
+for as long as another session's entries are staged. The undo removes this run's
+commit and nothing else: when another session moved the branch after that commit,
+nothing is undone and the error says the commit was made and where it is.
 
 Paths are repo-root-relative. A rename is two paths (old + new) — pass both.
 
@@ -94,11 +97,37 @@ def staged_mode_changes(root, paths):
     return changes
 
 
-def sync_after_commit(root, before):
-    """Pull remote changes on top of the just-made commit. On ANY failure, abort
-    the merge and undo the commit so NO commit survives and the requested changes
-    are left staged in the working tree. `before` is HEAD prior to the commit
-    (the undo target).
+def undo_commit(root, committed):
+    """Take the just-made commit `committed` back off the branch, and return
+    (undone, sentence) — the sentence says what the branch holds now.
+
+    The undo is one compare-and-swap: the branch moves to the commit's parent
+    ONLY while its tip is still that commit, so it removes this run's commit and
+    nothing else. The index is not touched, so the requested changes stay staged.
+    When another session moved the branch since the commit, nothing is undone."""
+    own, parent = git(["rev-parse", committed, committed + "^"], root).stdout.split()
+    undo = git(["update-ref", "-m", "rbtv-commit: undo after a failed pull", "HEAD", parent, own],
+               root, check=False)
+    if undo.returncode == 0:
+        return True, " No commit made; your changes are staged."
+    tip = git(["rev-parse", "HEAD"], root, check=False).stdout.strip()
+    if tip == own:
+        return False, (f" Commit {committed} was made and is still the branch tip: undoing it failed ("
+                       + ((undo.stderr or "").strip() or f"git update-ref exited {undo.returncode}") + ").")
+    if git_ok(["merge-base", "--is-ancestor", own, "HEAD"], root):
+        return False, (f" Commit {committed} was made and STAYS on the branch: another session "
+                       f"committed on top of it (branch tip is now {tip[:len(committed)]}), so it was not undone.")
+    return False, (f" Commit {committed} was made, but another session moved the branch to "
+                   f"{tip[:len(committed)]}, which does not contain it; nothing was undone. Recover it "
+                   f"with `git cherry-pick {committed}` if it is still wanted.")
+
+
+def sync_after_commit(root, committed):
+    """Pull remote changes on top of the just-made commit `committed`. On ANY
+    failure, abort the merge and undo that commit (see `undo_commit`), so the
+    requested changes are left staged in the working tree. The undo is skipped
+    when another session moved the branch since the commit; the message then
+    says the commit was made and where it is.
 
     A failed pull is CLASSIFIED before it is reported. A non-zero pull is not
     evidence of a conflict: a stale `.git/index.lock`, a network or auth failure,
@@ -115,24 +144,26 @@ def sync_after_commit(root, before):
     conflicts = git(["diff", "--name-only", "--diff-filter=U"], root, check=False).stdout.strip()
     git_dir = git(["rev-parse", "--absolute-git-dir"], root, check=False).stdout.strip()
     merging = bool(git_dir) and os.path.exists(os.path.join(git_dir, "MERGE_HEAD"))
-    # HEAD is still our commit, so what the index holds beyond it is what other
-    # sessions staged — the entries git refuses to merge over.
-    foreign = [p for p in git(["diff", "--cached", "--name-only", "-z"], root, check=False).stdout.split("\0") if p]
     git(["merge", "--abort"], root, check=False)
-    git(["reset", "--soft", before], root, check=False)  # undo our commit, keep changes staged
-    left = " No commit made; your changes are staged."
+    mine = set(git(["diff-tree", "--no-commit-id", "--name-only", "-r", "-z", committed], root).stdout.split("\0"))
+    undone, left = undo_commit(root, committed)
+    # What the index holds beyond HEAD, less this run's own paths, is what other
+    # sessions staged — the entries git refuses to merge over.
+    foreign = [p for p in git(["diff", "--cached", "--name-only", "-z"], root, check=False).stdout.split("\0")
+               if p and p not in mine]
+    retry = "then retry" if undone else "then run `git pull --no-edit`; do NOT rerun rbtv-commit for these paths"
     if conflicts or merging:
         msg = "merge conflict pulling remote changes"
         if conflicts:
             msg += " in: " + ", ".join(conflicts.splitlines())
-        fail(msg + "." + left + " Resolve the remote divergence, then retry.")
+        fail(msg + "." + left + f" Resolve the remote divergence, {retry}.")
     err = (pull.stderr or pull.stdout or "").strip() or f"git pull exited {pull.returncode}"
     if foreign:
         fail("could not pull remote changes — NOT a merge conflict: git refuses a merge while "
              "entries are staged, and other sessions have these staged: " + ", ".join(foreign)
-             + "." + left + " NEVER unstage them; retry once they are committed. Git reported:\n" + err)
+             + "." + left + f" NEVER unstage them; once they are committed, {retry}. Git reported:\n" + err)
     fail("could not pull remote changes — NOT a merge conflict (no unmerged paths, no merge "
-         "in progress)." + left + " Fix the cause reported by git below, then retry:\n" + err)
+         "in progress)." + left + f" Fix the cause reported by git below, {retry}:\n" + err)
 
 
 def main():
@@ -218,7 +249,7 @@ def main():
     # f9cc81fa carried 4 files for 1). The temporary index holds HEAD with the
     # requested paths replaced by their entries from the shared index, and
     # nothing else can enter it.
-    before = git(["rev-parse", "--verify", "-q", "HEAD"], root, check=False).stdout.strip()  # undo target
+    before = git(["rev-parse", "--verify", "-q", "HEAD"], root, check=False).stdout.strip()  # base of the temporary index
     with tempfile.TemporaryDirectory(prefix="rbtv-commit-") as tmp:
         own = {**os.environ, "GIT_INDEX_FILE": os.path.join(tmp, "index")}
         if before:
@@ -243,7 +274,7 @@ def main():
         git(["commit", "-m", message], root, env=own)
     committed = git(["rev-parse", "--short", "HEAD"], root).stdout.strip()  # MY commit, before any sync merge
     if behind and before:
-        sync_after_commit(root, before)
+        sync_after_commit(root, committed)
     # Read the files back from the commit OBJECT (not the input list) so the output
     # is ground truth the caller can trust without re-running `git show`.
     in_commit = [ln for ln in git(

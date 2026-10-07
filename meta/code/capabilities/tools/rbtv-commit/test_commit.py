@@ -3,8 +3,8 @@
 Each test builds a throwaway git repo in a tmp dir, performs a real working-tree
 change, then runs commit.py inside it and inspects the resulting commit object.
 No network: a repo has no remote, so the remote-sync paths are inert and only
-the staging + commit are exercised — except the one test that builds a local
-bare remote to drive a refused pull.
+the staging + commit are exercised — except the tests that build a local bare
+remote to drive a refused pull.
 """
 import importlib.util
 import os
@@ -15,9 +15,9 @@ import pytest
 
 COMMIT_PY = os.path.join(os.path.dirname(__file__), "commit.py")
 
-# Imported as a module (not just run as a subprocess) so the race test below can
-# wrap commit.py's own git helper and land a foreign `git add` inside the window
-# between the staging and the commit.
+# Imported as a module (not just run as a subprocess) so the race tests below can
+# wrap commit.py's own git helper and land a parallel session's `git add` or
+# commit at an exact point inside the run.
 _spec = importlib.util.spec_from_file_location("commit_mod", COMMIT_PY)
 commit_mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(commit_mod)
@@ -229,10 +229,9 @@ def test_staged_executable_bit_lands(repo):
     assert "v2" in git(["show", "HEAD:tool.py"], repo)
 
 
-def test_pull_refused_over_parallel_staged_entries(repo, tmp_path):
-    """The remote is ahead and a parallel session has an entry staged: git refuses
-    the merge. The run fails naming that entry, makes no commit, and leaves both
-    the parallel session's entry and the requested change staged."""
+def remote_ahead(repo, tmp_path):
+    """Seed `repo` (base.md, theirs.md), give it a local bare remote as upstream,
+    and move that remote one commit ahead, so the next commit.py run must pull."""
     write(repo, "base.md")
     write(repo, "theirs.md", "v1\n")
     git(["add", "-A"], repo)
@@ -255,6 +254,13 @@ def test_pull_refused_over_parallel_staged_entries(repo, tmp_path):
     git(["add", "-A"], other)
     git(["commit", "-q", "-m", "remote"], other)
     git(["push", "-q"], other)
+
+
+def test_pull_refused_over_parallel_staged_entries(repo, tmp_path):
+    """The remote is ahead and a parallel session has an entry staged: git refuses
+    the merge. The run fails naming that entry, makes no commit, and leaves both
+    the parallel session's entry and the requested change staged."""
+    remote_ahead(repo, tmp_path)
 
     write(repo, "theirs.md", "v2\n")
     git(["add", "theirs.md"], repo)
@@ -295,3 +301,107 @@ def test_foreign_staged_in_race_window_excluded(repo, monkeypatch):
     commit_mod.main()
 
     assert commit_files(repo) == {"mine.md"}
+
+
+def run_racing(repo, monkeypatch, at, race):
+    """Run commit.py in-process for mine.md, calling `race()` once, the instant
+    commit.py issues its first `git <at>`. Returns the exit code."""
+    real_git = commit_mod.git
+    fired = []
+
+    def racing_git(args, root, **kw):
+        if args and args[0] == at and not fired:
+            fired.append(at)
+            race()
+        return real_git(args, root, **kw)
+
+    monkeypatch.setattr(commit_mod, "git", racing_git)
+    monkeypatch.setattr(sys, "argv", ["commit.py", "-m", "mine", "-f", "mine.md"])
+    monkeypatch.chdir(repo)
+    with pytest.raises(SystemExit) as exit_info:
+        commit_mod.main()
+    assert fired == [at]
+    return exit_info.value.code
+
+
+def refused_pull_setup(repo, tmp_path):
+    """The remote is ahead and a parallel session has theirs.md staged, so the
+    pull is refused; mine.md is the requested change and foreign.md is what a
+    parallel session will commit during the run."""
+    remote_ahead(repo, tmp_path)
+    write(repo, "theirs.md", "v2\n")
+    git(["add", "theirs.md"], repo)
+    write(repo, "mine.md")
+    write(repo, "foreign.md", "parallel session\n")
+
+
+def foreign_commit(repo):
+    git(["add", "foreign.md"], repo)
+    git(["commit", "-q", "-m", "foreign", "--", "foreign.md"], repo)
+
+
+def subjects(repo):
+    """The subject of every commit reachable from the branch."""
+    return git(["log", "--format=%s"], repo).splitlines()
+
+
+def test_foreign_commit_before_own_commit_survives_failed_pull(repo, tmp_path, monkeypatch, capsys):
+    """A parallel session commits AFTER the tool read HEAD and BEFORE the tool's
+    own commit, then the pull is refused. The undo removes the tool's commit
+    alone: the branch ends on the parallel session's commit, the requested change
+    stays staged, and a retry commits once."""
+    refused_pull_setup(repo, tmp_path)
+    assert run_racing(repo, monkeypatch, "commit", lambda: foreign_commit(repo)) != 0
+    err = capsys.readouterr().err
+
+    assert subjects(repo)[0] == "foreign", subjects(repo)
+    assert "mine" not in subjects(repo)
+    assert "other sessions have these staged: theirs.md. No commit made; your changes are staged." in err, err
+    assert git(["diff", "--cached", "--name-only", "--", "mine.md"], repo).strip() == "mine.md"
+
+    # The retry the message asks for: once the staged entry is committed.
+    git(["commit", "-q", "-m", "theirs", "--", "theirs.md"], repo)
+    res = run_commit(repo, ["mine.md"], "mine")
+    assert res.returncode == 0, f"{res.stderr}\n{res.stdout}"
+    assert subjects(repo).count("mine") == 1 and "foreign" in subjects(repo), subjects(repo)
+
+
+def test_foreign_commit_after_own_commit_survives_failed_pull(repo, tmp_path, monkeypatch, capsys):
+    """A parallel session commits on top of the tool's commit, then the pull is
+    refused. Nothing is undone: both commits stay on the branch, the error says
+    the commit was made, and rerunning the tool does not commit a second time."""
+    refused_pull_setup(repo, tmp_path)
+    assert run_racing(repo, monkeypatch, "pull", lambda: foreign_commit(repo)) != 0
+    err = capsys.readouterr().err
+
+    assert subjects(repo)[:2] == ["foreign", "mine"], subjects(repo)
+    assert "was made and STAYS on the branch" in err, err
+    assert "No commit made" not in err, err
+    assert "do NOT rerun rbtv-commit" in err, err
+    assert "other sessions have these staged: theirs.md." in err, err
+
+    res = run_commit(repo, ["mine.md"], "mine")
+    assert res.returncode != 0
+    assert "no changes to commit" in res.stderr, res.stderr
+    assert subjects(repo).count("mine") == 1, subjects(repo)
+
+
+def test_branch_moved_off_own_commit_is_left_as_found(repo, tmp_path, monkeypatch, capsys):
+    """A parallel session moves the branch off the tool's commit, then the pull
+    is refused. The tool undoes nothing, leaves the branch where that session
+    put it, and names the commit so it can be recovered."""
+    refused_pull_setup(repo, tmp_path)
+    seed = git(["rev-parse", "HEAD"], repo).strip()
+
+    def replace_tip():
+        git(["update-ref", "HEAD", seed], repo)
+        foreign_commit(repo)
+
+    assert run_racing(repo, monkeypatch, "pull", replace_tip) != 0
+    err = capsys.readouterr().err
+
+    assert subjects(repo)[0] == "foreign" and "mine" not in subjects(repo), subjects(repo)
+    assert "which does not contain it; nothing was undone" in err, err
+    assert "No commit made" not in err, err
+    lost = err.split("git cherry-pick ")[1].split("`")[0]
+    assert git(["log", "-1", "--format=%s", lost], repo).strip() == "mine"
