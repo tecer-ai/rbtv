@@ -126,10 +126,15 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
      call never has the same amendment written twice.
    - A verdict `action: left-alone` means the filed summary of that meeting is no longer at the
      path it was filed at: a person moved or renamed it. By owner ruling it is left as it is. The
-     call wrote nothing and will write nothing. This is not a failure and not a refusal: never
-     report it as one, never search for the file, never edit the summary or any record yourself,
-     and never run step 5 for that meeting. Its only consequence is in step 7, and only when the
-     verdict carries `"first-report": true`.
+     call wrote no summary and parked the meeting (`"parked": true`): later ticks list it under
+     `skipped-parked`, so it is outside the pending set until the park is lifted as the next item
+     says. This is not a failure and not a refusal: never report it as one, never search for the
+     file, never edit the summary or any record yourself, and never run step 5 for that meeting.
+     Its only consequence is in step 7, and only when the verdict carries `"first-report": true`.
+   - A verdict `outcome: failed` that carries `"parked": true` means this meeting's job failed in
+     three consecutive cycles and the call parked the meeting: later ticks list it under
+     `skipped-parked` and no job runs for it. A park is lifted only when the owner asks for it, by
+     `python3 <tools>/detection_cycle.py retry --meeting-key <K> --config-dir <agent-home>/config`.
 
 5. **File every settled meeting.** Two kinds of meeting are due: (a) each meeting whose outcome is
    `filed` or `amended` in `outcomes.jsonl` and that carries no row yet in
@@ -150,8 +155,8 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
    `{"meeting-key": "<K>", "title": "<the meeting's title, for the question>", "asked-at": "<now>"}`
    and include it in step 7's grouped question. If it is already there, leave it — it is already
    asked and step 1 already checked this turn for an answer; do not run `cycle` for it and do not
-   report it again as a fresh find (step 7 still lists it among the OPEN questions, so the owner is
-   never left wondering whether it is still pending).
+   report it again as a fresh find (step 7 asks it again only when 24 hours have passed since it
+   was last asked).
 
    **A `cycle` that REFUSES (`publish_job: summary: cannot read --summary ...`, exit `EXIT_REFUSED`)**
    means the summary path a verdict named is stale — the meeting's transcript and its content are
@@ -171,7 +176,8 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
      already excludes it.
    - Routing questions: read `<state>/asked-routing.jsonl` minus `<state>/resolved-routing.jsonl` —
      every remaining meeting-key is an open routing question (step 5 already appended the fresh ones
-     and step 1 already tried to resolve them from this turn's history).
+     and step 1 already tried to resolve them from this turn's history). Step 7 asks an
+     already-asked one again only when 24 hours have passed since it was last asked.
 
 7. **Compose the report.** ONE grouped reply, in the SAME conversation this wake arrived on — never
    open a new thread for it (`ignite post` is for a proactive check that belongs to NO existing
@@ -179,7 +185,7 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
    - Nothing filed, nothing applied, nothing newly open: `replies: []`, `disposition: completed`.
      A quiet cycle is a correct cycle — never manufacture a status update.
    - Something filed or amended and/or an answer was applied, with no doubt or routing question
-     open: report it plainly (load the `slack-message-format` skill first), `disposition:
+     due to be asked: report it plainly (load the `slack-message-format` skill first), `disposition:
      completed`. A summary amended because a further source arrived is reported as such: the
      meeting, and that its filed summary was written again from every source.
    - A `left-alone` verdict that carries `"first-report": true` is told to the owner ONCE, in this
@@ -188,19 +194,29 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
      path. A `left-alone` verdict without that field was already told: it is silence, it is not
      "something filed", and by itself it leaves the cycle a quiet one (`replies: []`,
      `disposition: completed`).
-   - A doubt OR a routing question is open (whether or not something also filed this cycle): report
-     what filed, THEN ask every open item in the SAME grouped message — each doubt (term, guess,
-     meeting) and each routing question (meeting title, the declared entity choices from
-     `destination-routing.json`) — `disposition: waiting_owner`. Do not end the turn on
+   - A doubt OR a routing question is due to be asked (whether or not something also filed this
+     cycle): report what filed, THEN ask every due item in the SAME grouped message — each doubt
+     (term, guess, meeting) and each routing question (meeting title, the declared entity choices
+     from `destination-routing.json`) — `disposition: waiting_owner`. Do not end the turn on
      `waiting_owner` while a background command is still running; everything above must already be
-     finished.
+     finished. A doubt is due when step 6 listed it. An open routing question is due in three
+     cases: step 5 appended its row this cycle; step 1b asks for its clarification; or
+     24 hours have passed since the newest `asked-at` among its rows in
+     `<state>/asked-routing.jsonl`. When you ask one again in the third case, append a new row for
+     it to that file, `{"meeting-key": "<K>", "title": "<title>", "asked-at": "<now>"}`: that row
+     is when it was last asked. An open routing question that is not due is neither asked nor
+     mentioned, and by itself it leaves the cycle a quiet one (`replies: []`, `disposition:
+     completed`).
    - A stage refused for a reason that is NOT an open question (detection, a per-meeting job, a
      publish precheck/cycle failing for any reason other than `unroutable`): report the refusal
      plainly, do not retry it yourself, `disposition: continue` with `nextStep` naming the next
      scheduled wake as the retry point — unless the refusal means the whole cycle cannot proceed, in
      which case report it and still end the turn (never hold the turn open waiting for a fix).
+     A failed per-meeting job whose verdict carries `"parked": true` (step 4) has no retry point:
+     report the failure, that the meeting is now parked after three failed cycles, and that it
+     stays parked until the owner asks for a retry; later cycles say nothing more about it.
      `unroutable` is never reported this way — it is step 5/6's open routing question, and it drives
-     `disposition: waiting_owner`, never `continue`.
+     `disposition: waiting_owner` in the cycle that asks it, never `continue`.
 </procedure>
 
 <resources>
@@ -214,7 +230,9 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
 - `per-meeting-job` (`per_meeting_job.py`) — runs ONE meeting through the summarizer skill (via its
   own nested, unattended `cast` call) and records the settlement and any doubt. For an `amend` job
   it has the filed summary written again at its own path, and says when that waits for filing; a
-  filed summary that is no longer at its path it leaves alone, and says so once.
+  filed summary that is no longer at its path it leaves alone, parks, and says so once. It records
+  each run's outcome where `detection-cycle` reads it, and parks a meeting on its third
+  consecutive failed cycle.
 - `publish-job` (`publish_job.py`) — `precheck` then `cycle` files, commits and pushes one settled
   meeting. Reads the latest `content-entity` row in `outcomes.jsonl` per meeting — a routing answer
   you settle there (step 1b) is what a retried `precheck` resolves against.

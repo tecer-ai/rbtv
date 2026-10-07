@@ -44,6 +44,11 @@ Step 6 takes a HANDLER. m5 builds the spine, not the summarizer: with no handler
 the tick detects, joins, persists and disposes, and dispatches nothing. That is
 the honest seam for m6 to land in, and it is what every detection-side probe runs
 against.
+
+The command-line `tick` has no handler: the agent runs each job with
+`per_meeting_job.py`, and that command records its own outcome in the attempts
+store through `record_outcome` and `park_left_alone` below, the same two a
+handler's outcome goes through.
 """
 
 from __future__ import annotations
@@ -331,7 +336,7 @@ def load_env(config_dir: Path, seams: Path | None = None, source_map: dict | Non
         WATERMARK_ENTRY: _seam_store(seams, config_dir, WATERMARK_ENTRY),
         PROCESSED_ENTRY: processed_store_path(config_dir),
         MEETINGS_KEY: resolve_store(MEETINGS_KEY, config_dir, ".jsonl"),
-        ATTEMPTS_KEY: resolve_store(ATTEMPTS_KEY, config_dir, ".jsonl"),
+        ATTEMPTS_KEY: attempts_store(config_dir),
         CLAIMS_KEY: resolve_store(CLAIMS_KEY, config_dir, ""),
     }
     return Env(config_dir, seams, component_timezone(config_dir), stores,
@@ -418,28 +423,61 @@ def processed_for(processed: list, meeting_key: str) -> list:
     return [row for row in processed if row.get("meeting-key") == meeting_key]
 
 
-def read_attempts(env: Env) -> dict:
+def attempts_store(config_dir: Path) -> Path:
+    """The attempts store of this config-module home: the newest row per meeting rules."""
+    return resolve_store(ATTEMPTS_KEY, Path(config_dir), ".jsonl")
+
+
+def read_attempts(store: Path) -> dict:
     latest: dict = {}
-    for row in read_jsonl(env.stores[ATTEMPTS_KEY]):
+    for row in read_jsonl(store):
         latest[row["meeting-key"]] = row
     return latest
 
 
-def record_attempt(env: Env, meeting_key: str, failures: int, at: datetime) -> dict:
+def record_attempt(store: Path, meeting_key: str, failures: int, at: datetime) -> dict:
     row = {"meeting-key": meeting_key, "consecutive-failures": failures,
            "parked": failures >= PARK_AFTER, "at": _stamp(at)}
     if row["parked"]:
         row["awaiting"] = "retry"
         row["parked-at"] = _stamp(at)
-    append_jsonl(env.stores[ATTEMPTS_KEY], [row])
+    append_jsonl(store, [row])
     return row
 
 
-def clear_park(env: Env, meeting_key: str, at: datetime) -> dict:
+def clear_park(store: Path, meeting_key: str, at: datetime) -> dict:
     """The owner's `retry`: the ONE act that un-parks a meeting."""
     row = {"meeting-key": meeting_key, "consecutive-failures": 0, "parked": False,
            "at": _stamp(at), "cleared-by": "retry"}
-    append_jsonl(env.stores[ATTEMPTS_KEY], [row])
+    append_jsonl(store, [row])
+    return row
+
+
+def record_outcome(store: Path, meeting_key: str, outcome: str, at: datetime) -> dict | None:
+    """One job outcome into the attempts store, whoever ran the job.
+
+    A `failed` outcome counts one more consecutive failure and parks at
+    PARK_AFTER; any other outcome ends a run of failures. Returns the row it
+    appended, or None when there was nothing to record.
+    """
+    failures = (read_attempts(store).get(meeting_key) or {}).get("consecutive-failures", 0)
+    if outcome == "failed":
+        return record_attempt(store, meeting_key, failures + 1, at)
+    if failures:
+        return clear_park(store, meeting_key, at)
+    return None
+
+
+def park_left_alone(store: Path, meeting_key: str, at: datetime) -> dict:
+    """Park a meeting whose filed summary a person moved or renamed (owner ruling, 2026-10-07).
+
+    No failure is counted. Like every park it holds until the owner's `retry`,
+    and until then a later source for the meeting starts nothing.
+    """
+    row = {"meeting-key": meeting_key, "consecutive-failures": 0, "parked": True,
+           "awaiting": "retry", "parked-at": _stamp(at), "at": _stamp(at),
+           "reason": "left-alone"}
+    append_jsonl(store, [row])
     return row
 
 
@@ -669,7 +707,7 @@ def run_tick(env: Env, now: datetime, driver, handler=None, tick_id: str | None 
     result.minted = minted
 
     processed = read_processed(env)
-    attempts = read_attempts(env)
+    attempts = read_attempts(env.stores[ATTEMPTS_KEY])
     notes_from = notes_only_from(env)
     for entry in sets:
         if has_transcript(entry["source-set"]) or notes_admitted(entry, notes_from, env.tz):
@@ -711,7 +749,7 @@ def run_tick(env: Env, now: datetime, driver, handler=None, tick_id: str | None 
         if event:
             result.failure_events.append(event)
         result.outcomes.append(outcome)
-        _settle(env, settled, outcome, attempts, result, now)
+        _settle(env, settled, outcome, result, now)
 
     if validate and result.outcomes:
         _validate_outcomes(env, result.outcomes)
@@ -745,8 +783,7 @@ def _dispatch(env: Env, job: dict, handler, now: datetime):
     return outcome, None
 
 
-def _settle(env: Env, job: dict, outcome: dict, attempts: dict, result: TickResult,
-            now: datetime) -> None:
+def _settle(env: Env, job: dict, outcome: dict, result: TickResult, now: datetime) -> None:
     key = job["meeting-key"]
     verdict = outcome["outcome"]
     if verdict in ("filed", "amended"):
@@ -763,14 +800,9 @@ def _settle(env: Env, job: dict, outcome: dict, attempts: dict, result: TickResu
             }
             for record in job["source-set"]
         ])
-    if verdict == "failed":
-        failures = (attempts.get(key) or {}).get("consecutive-failures", 0) + 1
-        row = record_attempt(env, key, failures, now)
-        attempts[key] = row
-        if row["parked"]:
-            result.parked.append(key)
-    elif (attempts.get(key) or {}).get("consecutive-failures"):
-        attempts[key] = clear_park(env, key, now)
+    row = record_outcome(env.stores[ATTEMPTS_KEY], key, verdict, now)
+    if row and row["parked"]:
+        result.parked.append(key)
 
 
 def _validate(env: Env, records_seam: dict, jobs: list, events: list) -> None:
@@ -877,11 +909,11 @@ def main(argv: list[str] | None = None) -> int:
                              indent=2))
             return EXIT_OK
         if args.op == "retry":
-            row = clear_park(env, args.meeting_key, datetime.now(env.tz))
+            row = clear_park(env.stores[ATTEMPTS_KEY], args.meeting_key, datetime.now(env.tz))
             print(json.dumps(row, indent=2))
             return EXIT_OK
         if args.op == "status":
-            attempts = read_attempts(env)
+            attempts = read_attempts(env.stores[ATTEMPTS_KEY])
             print(json.dumps({
                 "watermark": _stamp(read_watermark(env)) if read_watermark(env) else None,
                 "watermark-count": count_watermarks(env),

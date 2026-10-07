@@ -393,7 +393,7 @@ def test_arm_g_three_failures_park_the_job_and_there_is_no_fourth_attempt(config
     assert sorted(results[3].skipped_parked) == sorted(keys)
     assert results[3].outcomes == []
 
-    attempts = dc.read_attempts(env)
+    attempts = dc.read_attempts(env.stores[dc.ATTEMPTS_KEY])
     for key in keys:
         assert attempts[key]["parked"] is True
         assert attempts[key]["awaiting"] == "retry"
@@ -407,11 +407,11 @@ def test_the_owner_retry_is_the_one_act_that_un_parks(config_dir):
     for fire in dc.fire_times(FIRST_TICK, TZ, 3):
         dc.run_tick(env, fire, sa.FixtureDriveDriver(load("drive-listing.json")),
                     handler=failing_handler(calls))
-    key = sorted(dc.read_attempts(env))[0]
-    assert dc.read_attempts(env)[key]["parked"] is True
+    key = sorted(dc.read_attempts(env.stores[dc.ATTEMPTS_KEY]))[0]
+    assert dc.read_attempts(env.stores[dc.ATTEMPTS_KEY])[key]["parked"] is True
 
-    dc.clear_park(env, key, FIRST_TICK + timedelta(hours=4))
-    assert dc.read_attempts(env)[key]["parked"] is False
+    dc.clear_park(env.stores[dc.ATTEMPTS_KEY], key, FIRST_TICK + timedelta(hours=4))
+    assert dc.read_attempts(env.stores[dc.ATTEMPTS_KEY])[key]["parked"] is False
 
     after = dc.run_tick(env, FIRST_TICK + timedelta(hours=5),
                         sa.FixtureDriveDriver(load("drive-listing.json")),
@@ -426,9 +426,79 @@ def test_a_success_resets_the_failure_count(config_dir):
                 handler=failing_handler(calls))
     dc.run_tick(env, FIRST_TICK + timedelta(hours=1),
                 sa.FixtureDriveDriver(load("drive-listing.json")), handler=filed_handler())
-    for row in dc.read_attempts(env).values():
+    for row in dc.read_attempts(env.stores[dc.ATTEMPTS_KEY]).values():
         assert row["consecutive-failures"] == 0
         assert row["parked"] is False
+
+
+
+def test_a_left_alone_meeting_is_parked_and_the_next_tick_downloads_nothing_for_it(
+        config_dir, tmp_path, capsys):
+    """The agent's own flow: a tick with no handler, then the per-meeting command line.
+
+    The filed summary is not at its path, so the job is left alone. That run parks
+    the meeting: the next tick lists it under `skipped-parked`, the pending set the
+    cycle skill stages (not `already-done`, not parked) no longer names it, and
+    nothing of it is downloaded until the owner's `retry --meeting-key`.
+    """
+    import artifact_bindings
+    import per_meeting_job
+
+    listing = load("drive-listing.json")
+    before, after = _late_twin(listing)
+    env = fresh_env(config_dir, listing)
+    settings = config_dir / "summarize.json"
+    settings.write_text(json.dumps({**json.loads(settings.read_text(encoding="utf-8")),
+                                    "skill-bindings": {}}), encoding="utf-8")
+    dc.run_tick(env, FIRST_TICK, sa.FixtureDriveDriver(before), handler=filed_handler())
+
+    def tick(hours: int) -> dict:
+        return dc.run_tick(env, FIRST_TICK + timedelta(hours=hours),
+                           sa.FixtureDriveDriver(after)).as_dict()
+
+    class Downloads:
+        def __init__(self) -> None:
+            self.refs: list = []
+
+        def download_text(self, account_key, ref, output):
+            self.refs.append(ref)
+            return {"path": str(output), "name": "EXAMPLE", "mimeType": "text/plain"}
+
+    def staged(result: dict, name: str) -> list:
+        pending = [job for job in result["jobs"] if job["disposition"] != "already-done"
+                   and job["meeting-key"] not in result["skipped-parked"]]
+        downloads = Downloads()
+        accounts = {record["account"]: "EXAMPLE-key"
+                    for job in pending for record in job["source-set"]}
+        artifact_bindings.build(pending, downloads, accounts, tmp_path / name)
+        return downloads.refs
+
+    second = tick(1)
+    (job,) = [job for job in second["jobs"] if job["disposition"] == "amend"]
+    key = job["meeting-key"]
+    refs = {record["drive-ref"] for record in job["source-set"]}
+    assert second["skipped-parked"] == [] and refs <= set(staged(second, "staged-2"))
+
+    job_file = tmp_path / "amend.json"
+    job_file.write_text(json.dumps(job), encoding="utf-8")
+    empty = tmp_path / "bindings.json"
+    empty.write_text("{}", encoding="utf-8")
+    per_meeting_job.main([
+        "--job", str(job_file), "--artifacts", str(empty), "--config-root", str(config_dir),
+        "--checkout-root", str(tmp_path / "checkouts"), "--channel", str(tmp_path / "channel"),
+        "--state", str(tmp_path / "state"), "--work", str(tmp_path / "work")])
+    verdict = json.loads(capsys.readouterr().out)
+    assert (verdict["action"], verdict["first-report"], verdict["parked"]) == (
+        "left-alone", True, True)
+
+    third = tick(2)
+    assert third["skipped-parked"] == [key]
+    assert not refs & set(staged(third, "staged-3"))
+
+    assert dc.main(["retry", "--meeting-key", key, "--config-dir", str(config_dir)]) == dc.EXIT_OK
+    capsys.readouterr()
+    fourth = tick(3)
+    assert fourth["skipped-parked"] == [] and refs <= set(staged(fourth, "staged-4"))
 
 
 # ------------------------------------------------- the watermark, and catch-up

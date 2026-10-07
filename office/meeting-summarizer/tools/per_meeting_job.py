@@ -34,6 +34,7 @@ from pathlib import Path
 import artifact_reader
 import channel_protocol
 import destination_resolver
+import detection_cycle
 import publish_job
 import transcript_merge
 from source_adapter import NOTES_SOURCE
@@ -59,7 +60,8 @@ COMPLETIONS = "completions.jsonl"
 # not seam objects. Each holds the sources it was written for:
 #   amended.json     the newest amendment was written from them, and is not written twice;
 #   left-alone.json  the filed summary was no longer at its path when they arrived, and
-#                    the owner was told so once.
+#                    the owner was told so once. The command line also parks the meeting
+#                    (`tell_detection`), so detection hands the job over no more.
 AMENDED_FILE = "amended.json"
 LEFT_ALONE_FILE = "left-alone.json"
 
@@ -833,6 +835,24 @@ def ask_or_apply(job: dict, routed: dict, bus: Bus, state: Path, verdict: dict) 
                    "nothing is written and the ask stays standing"}
 
 
+def tell_detection(config_root: Path, result: dict) -> dict:
+    """Record this run in detection's attempts store, and say so when it parks the meeting.
+
+    The agent runs this command itself, so no tick sees its verdict: this is how a
+    meeting left alone, or one whose job fails in three consecutive cycles, stops
+    being handed over. A run that reports no outcome records nothing.
+    """
+    store = detection_cycle.attempts_store(config_root)
+    now = datetime.now(timezone.utc)
+    if result["action"] == "left-alone":
+        row = detection_cycle.park_left_alone(store, result["meeting-key"], now)
+    elif "outcome" in result:
+        row = detection_cycle.record_outcome(store, result["meeting-key"], result["outcome"], now)
+    else:
+        row = None
+    return {**result, "parked": True} if row and row["parked"] else result
+
+
 # --------------------------------------------------------------------- CLI
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -870,6 +890,7 @@ def main(argv: list[str] | None = None) -> int:
                  seams=args.seams,
                  store=args.store or (args.channel / "stores" / "thread-meeting-map.jsonl"),
                  timeout=args.timeout)
+    result = tell_detection(args.config_root, result)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return EXIT_OK if result.get("wrote-summary") or result.get("settled") else EXIT_VERDICT
 

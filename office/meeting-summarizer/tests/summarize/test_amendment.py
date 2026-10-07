@@ -268,6 +268,46 @@ def test_an_amend_job_that_names_no_filed_summary_is_refused(tmp_path):
     assert refused.value.code == per_meeting_job.EXIT_REFUSED
 
 
+
+def test_three_failed_runs_of_the_command_line_park_the_meeting_and_retry_un_parks(
+        tmp_path, monkeypatch, capsys):
+    """No tick sees a job the agent runs: the command line records its own outcome in
+    detection's attempts store. The third consecutive failure parks the meeting and says so in
+    that verdict; the owner's `retry --meeting-key` is what un-parks it."""
+    case = materialise("case-a", tmp_path)
+    settings = case["config"] / "summarize.json"
+    settings.write_text(json.dumps({
+        **json.loads(settings.read_text(encoding="utf-8")),
+        "invocation": {"harness": "EXAMPLE-harness", "model": "EXAMPLE-model", "effort": 2}}),
+        encoding="utf-8")
+    monkeypatch.setattr(per_meeting_job, "invoke_agent",
+                        lambda prompt, cwd, log_dir, timeout, invocation: {"exit": 1, "text": ""})
+    job_file = tmp_path / "job.json"
+    job_file.write_text(json.dumps({**whole_job(), "disposition": "new"}), encoding="utf-8")
+
+    def per_meeting() -> dict:
+        code = per_meeting_job.main([
+            "--job", str(job_file), "--artifacts", str(case["root"] / "artifacts" / "binding.json"),
+            "--config-root", str(case["config"]), "--checkout-root", str(case["checkout"]),
+            "--channel", str(case["channel"]), "--state", str(case["state"]),
+            "--work", str(case["work"])])
+        return {"exit": code, **json.loads(capsys.readouterr().out)}
+
+    def detection(*verb: str) -> dict:
+        assert detection_cycle.main([*verb, "--config-dir", str(case["config"])]) == 0
+        return json.loads(capsys.readouterr().out)
+
+    runs = [per_meeting() for _ in range(3)]
+    assert [run["outcome"] for run in runs] == ["failed"] * 3
+    assert ["parked" in run for run in runs] == [False, False, True]
+    assert detection("status")["parked"] == [KEY]
+    row = detection_cycle.read_attempts(detection_cycle.attempts_store(case["config"]))[KEY]
+    assert (row["consecutive-failures"], row["awaiting"]) == (3, "retry")
+
+    assert detection("retry", "--meeting-key", KEY)["parked"] is False
+    assert detection("status")["parked"] == []
+
+
 # ------------------------------------------------- the whole path, command by command
 def _publish_harness():
     spec = importlib.util.spec_from_file_location(
