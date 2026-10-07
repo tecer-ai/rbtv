@@ -42,9 +42,10 @@ is always a merge (`--no-rebase`), whatever `pull.rebase` says: a rebase would
 replace this run's commit with a copy, and the undo and every statement about
 the commit hold it by its hash.
 
-A merge, rebase, cherry-pick or revert that is already in progress in the working
-tree belongs to whoever started it, and this script leaves it exactly as it is:
-it refuses a requested path that operation left in conflict, and it does not
+A merge, rebase, cherry-pick, revert or patch application (`git am`) that is
+already in progress in the working tree belongs to whoever started it, and this
+script leaves it exactly as it is: it refuses a requested path that operation
+left in conflict, and it does not
 pull (git cannot, and a failed pull would be cleaned up over that operation).
 The commit is still made, and the output says that the operation is in progress
 and what was not done because of it.
@@ -122,6 +123,11 @@ def git_ok(args, root):
     return git(args, root, check=False).returncode == 0
 
 
+def short(root, commit):
+    """Git's own short hash of `commit` — the one form a message names a commit by."""
+    return git(["rev-parse", "--short", commit], root, check=False).stdout.strip()
+
+
 def staged_mode_changes(root, paths):
     """Executable-bit changes staged under `paths`, as {path: "+x" | "-x"}. A new
     file counts from mode 100644, the mode git gives a new regular file."""
@@ -137,15 +143,18 @@ def staged_mode_changes(root, paths):
 
 
 # What git keeps in its directory for as long as an operation is unfinished.
+# `rebase-apply` is the folder of a rebase AND of `git am`; the file `applying`
+# inside it is what git's own status reads to tell `git am` from the rebase.
 OPERATION_MARKERS = (("MERGE_HEAD", "merge"), ("CHERRY_PICK_HEAD", "cherry-pick"), ("REVERT_HEAD", "revert"),
-                     ("rebase-merge", "rebase"), ("rebase-apply", "rebase"))
+                     ("rebase-merge", "rebase"), ("rebase-apply/applying", "patch application (git am)"),
+                     ("rebase-apply", "rebase"))
 
 
 def operation_in_progress(root):
     """The operation left unfinished in this working tree — "merge", "rebase",
-    "cherry-pick" or "revert" — or "" when there is none. `--absolute-git-dir`
-    (not root/.git) so this holds in a linked worktree, where .git is a file
-    pointing elsewhere."""
+    "cherry-pick", "revert" or "patch application (git am)" — or "" when there
+    is none. `--absolute-git-dir` (not root/.git) so this holds in a linked
+    worktree, where .git is a file pointing elsewhere."""
     git_dir = git(["rev-parse", "--absolute-git-dir"], root).stdout.strip()
     return next((name for marker, name in OPERATION_MARKERS
                  if os.path.exists(os.path.join(git_dir, marker))), "")
@@ -234,7 +243,7 @@ def commit_requested(root, requested, message):
             clash = [p for p in git(theirs, root, paths=requested).stdout.split("\0") if p] if tip else []
             if clash:
                 fail(f"another session committed these requested paths during this run (branch tip is now "
-                     f"{tip[:7]}): " + ", ".join(clash) + ". No commit made, so its change is not "
+                     f"{short(root, tip)}): " + ", ".join(clash) + ". No commit made, so its change is not "
                      "overwritten. Check that those paths hold what you intend to commit, then retry.")
             before = tip
     hook = git(["hook", "run", "--ignore-missing", "post-commit"], root, check=False)
@@ -245,9 +254,10 @@ def commit_requested(root, requested, message):
 
 
 def off_branch(committed, tip, undo_note=""):
-    """The sentence for a commit of this run that the branch no longer contains."""
+    """The sentence for a commit of this run that the branch no longer contains;
+    `committed` and `tip` are short hashes."""
     return (f" Commit {committed} was made, but another session moved the branch to "
-            f"{tip[:len(committed)]}, which does not contain it{undo_note}. Recover it "
+            f"{tip}, which does not contain it{undo_note}. Recover it "
             f"with `git cherry-pick {committed}` if it is still wanted.")
 
 
@@ -270,8 +280,8 @@ def undo_commit(root, committed):
                        + ((undo.stderr or "").strip() or f"git update-ref exited {undo.returncode}") + ").")
     if git_ok(["merge-base", "--is-ancestor", own, "HEAD"], root):
         return False, (f" Commit {committed} was made and STAYS on the branch: another session "
-                       f"committed on top of it (branch tip is now {tip[:len(committed)]}), so it was not undone.")
-    return False, off_branch(committed, tip, "; nothing was undone")
+                       f"committed on top of it (branch tip is now {short(root, tip)}), so it was not undone.")
+    return False, off_branch(committed, short(root, tip), "; nothing was undone")
 
 
 def sync_after_commit(root, committed):
@@ -290,13 +300,20 @@ def sync_after_commit(root, committed):
     or a refused fast-forward all exit non-zero with no conflict anywhere.
     Reporting those as a conflict sends the caller into the conflict-resolution
     workflow hunting for conflicts that do not exist, so the two cases carry
-    different messages and the real git error is surfaced verbatim."""
+    different messages and the real git error is surfaced verbatim.
+
+    Unmerged entries are a conflict of this pull only when the pull made them.
+    `git stash pop` leaves such entries with no operation in progress, and git
+    then refuses to pull before doing anything: they are read before the pull
+    and reported as what they are."""
+    unmerged = ["diff", "--name-only", "--diff-filter=U"]
+    already = git(unmerged, root, check=False).stdout.strip()
     pull = git(["pull", "--no-edit", "--no-rebase"], root, check=False)
     if pull.returncode == 0:
         return
     # Ground truth for "was this a conflict": unmerged index entries, or a merge
     # left in progress.
-    conflicts = git(["diff", "--name-only", "--diff-filter=U"], root, check=False).stdout.strip()
+    conflicts = git(unmerged, root, check=False).stdout.strip()
     merging = operation_in_progress(root) == "merge"
     git(["merge", "--abort"], root, check=False)
     mine = set(git(["diff-tree", "--no-commit-id", "--name-only", "-r", "-z", committed], root).stdout.split("\0"))
@@ -306,6 +323,11 @@ def sync_after_commit(root, committed):
     foreign = [p for p in git(["diff", "--cached", "--name-only", "-z"], root, check=False).stdout.split("\0")
                if p and p not in mine]
     retry = "then retry" if undone else "then run `git pull --no-edit --no-rebase`; do NOT rerun rbtv-commit for these paths"
+    if already:
+        fail("could not pull remote changes — the working tree already held unresolved conflicts "
+             "before the pull, in: " + ", ".join(already.splitlines()) + ". Git refuses to pull over "
+             "them; they are not a conflict with the remote, and this run did not make them and left "
+             "them as they were." + left + f" Resolve them with git itself, {retry}.")
     if conflicts or merging:
         msg = "merge conflict pulling remote changes"
         if conflicts:
@@ -406,7 +428,7 @@ def main():
 
     # --- commit the requested entries on top of the branch, then sync ---
     before, new = commit_requested(root, requested, message)
-    committed = git(["rev-parse", "--short", new], root).stdout.strip()
+    committed = short(root, new)
     # Read again, immediately before the pull: a failed pull is cleaned up with
     # `git merge --abort`, which must never reach an operation this run did not start.
     held = operation_in_progress(root)
@@ -416,8 +438,7 @@ def main():
     # `committed` is printed only while the branch holds that commit: another
     # session may have moved the branch off it since it was made.
     if not git_ok(["merge-base", "--is-ancestor", new, "HEAD"], root):
-        tip = git(["rev-parse", "HEAD"], root, check=False).stdout.strip()
-        fail(off_branch(committed, tip).strip() + " Nothing was pushed.")
+        fail(off_branch(committed, short(root, "HEAD")).strip() + " Nothing was pushed.")
     # Read the files back from the commit OBJECT (not the input list) so the output
     # is ground truth the caller can trust without re-running `git show`.
     in_commit = [ln for ln in git(
@@ -425,7 +446,7 @@ def main():
     ).stdout.split("\0") if ln]
     print(f"committed {committed}: {message.splitlines()[0]}")
     print(f"files in commit ({len(in_commit)}): " + ", ".join(in_commit))
-    merged = git(["rev-parse", "--short", "HEAD"], root).stdout.strip()
+    merged = short(root, "HEAD")
     if pulled and merged != committed:
         print(f"synced remote: merge commit {merged} created on top of {committed}")
     if held:

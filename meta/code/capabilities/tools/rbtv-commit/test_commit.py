@@ -279,6 +279,43 @@ def test_pull_refused_over_parallel_staged_entries(repo, tmp_path):
     assert git(["diff", "--cached", "--name-only", "--", "mine.md"], repo).strip() == "mine.md"
 
 
+def test_conflicts_already_in_the_working_tree_are_not_called_a_pull_conflict(repo, tmp_path):
+    """`git stash pop` left theirs.md in conflict — unmerged entries, and no merge,
+    rebase, cherry-pick or revert in progress — and the remote is ahead. Git
+    refuses to pull over those entries. The run says that, names the file, makes
+    no commit, and leaves the conflict, the files on disk and the branch as they
+    were, with the requested change staged."""
+    remote_ahead(repo, tmp_path)
+    write(repo, "theirs.md", "stashed\n")
+    git(["stash", "-q"], repo)
+    write(repo, "theirs.md", "committed\n")
+    git(["add", "theirs.md"], repo)
+    git(["commit", "-q", "-m", "local"], repo)
+    assert stop(repo, "stash", "pop") != 0
+    write(repo, "mine.md")
+
+    def state():
+        return (git(["ls-files", "-u"], repo), staged_entries(repo, "theirs.md"),
+                (repo / "theirs.md").read_text(encoding="utf-8"), (repo / "mine.md").read_text(encoding="utf-8"),
+                git(["rev-parse", "HEAD"], repo), git(["symbolic-ref", "HEAD"], repo), git(["stash", "list"], repo))
+
+    before = state()
+    assert before[0].count("theirs.md") == 3 and "<<<<<<<" in before[2], before
+    assert commit_mod.operation_in_progress(repo) == ""
+
+    res = run_commit(repo, ["mine.md"], "mine")
+
+    assert res.returncode != 0
+    assert ("could not pull remote changes — the working tree already held unresolved conflicts before the "
+            "pull, in: theirs.md. Git refuses to pull over them; they are not a conflict with the remote, and "
+            "this run did not make them and left them as they were. No commit made; your changes are staged. "
+            "Resolve them with git itself, then retry.") in res.stderr, res.stderr
+    assert "merge conflict pulling remote changes" not in res.stderr, res.stderr
+    assert state() == before
+    assert subjects(repo) == ["local", "seed"], subjects(repo)
+    assert git(["diff", "--cached", "--name-only", "--", "mine.md"], repo).strip() == "mine.md"
+
+
 def run_in_process(repo, monkeypatch, message, path):
     """Run commit.py in this process, so a test can wrap what it calls. Returns
     the exit code."""
@@ -457,7 +494,9 @@ def test_foreign_commit_to_requested_path_in_window_stops_the_run(repo, monkeypa
     """A parallel session commits a change to a REQUESTED path after the tool read
     HEAD. The tool makes no commit and says which path, rather than overwrite that
     change; the branch stays on the parallel session's commit and the requested
-    change stays staged."""
+    change stays staged. The message names that commit by git's own short hash,
+    here 12 characters long."""
+    git(["config", "core.abbrev", "12"], repo)
     write(repo, "mine.md", "v1\n")
     git(["add", "-A"], repo)
     git(["commit", "-q", "-m", "seed"], repo)
@@ -466,8 +505,10 @@ def test_foreign_commit_to_requested_path_in_window_stops_the_run(repo, monkeypa
     assert run_racing(repo, monkeypatch, "read-tree", lambda: foreign_commit_to_mine(repo)) != 0
     out = capsys.readouterr()
 
-    assert "another session committed these requested paths during this run" in out.err, out.err
-    assert "): mine.md. No commit made" in out.err, out.err
+    tip = git(["rev-parse", "--short", "HEAD"], repo).strip()
+    assert len(tip) == 12, tip
+    assert ("another session committed these requested paths during this run (branch tip is now "
+            f"{tip}): mine.md. No commit made") in out.err, out.err
     assert "committed" not in out.out
     assert subjects(repo) == ["foreign", "seed"], subjects(repo)
     assert git(["show", "HEAD:mine.md"], repo) == "theirs v2\n"
@@ -726,16 +767,19 @@ def test_merge_in_progress_with_remote_ahead_refuses_the_push(repo, tmp_path):
     ("cherry-pick", ["cherry-pick", "side"]),
     ("revert", ["revert", "--no-edit", "HEAD~1"]),
     ("rebase", ["rebase", "side"]),
+    ("patch application (git am)", ["am", "-3", ".git/side.patch"]),
 ])
 def test_operation_in_progress_is_named_and_left_as_found(repo, operation, command):
-    """A merge, cherry-pick, revert or rebase stopped on a conflict, no remote.
-    The tool commits another path, names the operation, and leaves it exactly as
-    it was. A requested path the operation left in conflict is refused instead:
+    """A merge, cherry-pick, revert, rebase or `git am` stopped on a conflict, no
+    remote. The tool commits another path, names the operation — `git am` keeps
+    its state in the rebase's folder and is still not called a rebase — and
+    leaves it exactly as it was. A requested path the operation left in conflict is refused instead:
     no commit, and nothing staged."""
     write(repo, "base.md", "v1\n")
     git(["add", "-A"], repo)
     git(["commit", "-q", "-m", "seed"], repo)
     conflicting_branches(repo)
+    write(repo, ".git/side.patch", git(["format-patch", "-1", "--stdout", "side"], repo))  # what `git am` applies
     assert stop(repo, *command) != 0
     state = operation_state(repo)
     assert state[2] and any(state[0].values()), state
