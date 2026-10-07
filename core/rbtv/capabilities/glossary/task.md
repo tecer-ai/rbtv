@@ -8,7 +8,7 @@ The recipient does not inherit the supplier's open files or full conversation. A
 
 Read the receiving agent's [Prompt](prompt.md) and description to identify required inputs. Name accessible paths and values, not “the file we were reading.” Do not paste the supplier's prompt or restate the recipient's standing method.
 
-Start with the result to produce, then use `## Scope` and `## Done contract` in that order. A task saved for later uses the same text in a file, not notes addressed to someone who remembers the conversation.
+Start with the result to produce, then use `## Scope` and `## Done contract` in that order. A task saved for later uses the same text in a file, not notes addressed to someone who remembers the conversation. A plan's task file follows this entry; [Planning a workflow](../../../../meta/plan/capabilities/methods/planning-a-workflow.md) adds the `## Phases` block above the done contract and says what a plan puts in each section.
 
 ### Scope
 
@@ -28,6 +28,7 @@ State the action on failure: stop and report the missing input or failed conditi
 |---|---|
 | Person in conversation | The message, including accessible inputs |
 | Parent agent | The launch text or task file supplied to the child |
+| Coordinating agent of a plan | The plan's task file, `tasks/<agent>.md` in the plan folder |
 | Slack-triggered work | The message, with the scope and inputs stated explicitly |
 | Timer naming a board check | The named board entry, containing the result, scope and done contract |
 
