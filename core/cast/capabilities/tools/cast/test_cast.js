@@ -367,7 +367,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.ok(/-p TEXT \/ -f FILE +the TASK/.test(res.stdout), '-p and -f are the task');
   const frameworkSkill = path.resolve(__dirname, '..', '..', '..', '..', 'rbtv', 'skills', 'framework.md');
   assert.ok(fs.existsSync(frameworkSkill), frameworkSkill);
-  assert.ok(res.stdout.includes('core/rbtv/skills/framework.md in the rbtv repository\n  ' + frameworkSkill + '\n'),
+  assert.ok(res.stdout.includes('core/rbtv/skills/framework.md in the rbtv repository;\nthe same file on this machine:\n  ' + frameworkSkill + '\n'),
     'help gives the framework skill by its repository path and by the absolute path of this copy');
   assert.ok(res.stdout.includes('  rbtv agent add FOLDER --harness H --model M --effort E\n  cast --agent FOLDER -p "..."\n'),
     'help gives the two commands that make and launch an rbtv agent');
@@ -377,9 +377,9 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.ok(!/proper agent/i.test(res.stdout), 'the term is rbtv agent');
   assert.ok(res.stdout.includes('  cast models list\n'), 'help names the command that lists the models');
   assert.ok(res.stdout.includes('\ncast models    '), 'help says what cast models is for');
-  // enumerate models from the tool's own inventory, never by re-parsing its source.
+  // enumerate models from cast's own list of supported models, never by re-parsing its source.
   const shorts = JSON.parse(models(['list', '--json']).stdout).models.map((m) => m.model);
-  assert.ok(shorts.length > 10, `sanity: expected the full inventory, got ${shorts.length}`);
+  assert.ok(shorts.length > 10, `sanity: expected every supported model, got ${shorts.length}`);
   const table = models(['list']).stdout;
   for (const short of shorts) {
     assert.ok(table.includes(` ${short} `), `the model table is missing model: ${short}`);
@@ -1904,7 +1904,7 @@ else {
     [['mode,harness,level', 'cli,claude,L2'], "line 1: no 'model' column"],
   ]) {
     const broken = installation(lines);
-    const text = `refused: cannot read the model catalog ${broken.file} ${why}\nNothing changed.\ncast models list --catalog`;
+    const text = `refused: cannot read the model catalog ${broken.file} ${why}\nNothing changed.\ncorrect ${broken.file}, then run the same command again`;
     refused(launch('claude', 'sonnet-5-5', broken.root), text);
     refused(api('gemini-3.5-flash', broken.root), text);
   }

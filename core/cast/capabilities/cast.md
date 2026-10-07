@@ -407,7 +407,7 @@ one next command:
 | not supported, not in the file | `'H M' is not a model cast supports`, with the closest supported name · `cast models list --supported` |
 | supported, file present, no row | `'H M' is not selected in <installation>`, naming the file · `cast models add H M` |
 | row in the file, not supported by this copy of cast | `'H M' is selected in <file> but this copy of cast does not support it` (the daemon runs its own deployed copy of rbtv) · `cast models remove H M` |
-| the file cannot be read as a table | `cannot read the model catalog <file> line N: <why>` · `cast models list --catalog` |
+| the file cannot be read as a table | `cannot read the model catalog <file> line N: <why>` · `correct <file>, then run the same command again` |
 
 The installation's file is read strictly, because it gates every launch in the installation, the
 daemon's included. Cells are read by header name; a column the header does not carry reads blank
@@ -422,7 +422,7 @@ Each supported model names its provider, a key of **`capabilities/tools/cast/pro
 holds one entry per provider: the lab, the login method (`account` or `api-key`), the key variable
 (`env_var`), the harnesses that reach it with the provider's entry in each harness's credential
 store (`harnesses.<harness>.store_key`; `harnesses.api` marks a provider `cast api` calls), the
-files a [saved login](../../rbtv/capabilities/glossary/provider.md) is made of (`saved_login`, only where logins can be saved and switched) and
+files a [saved login](../../rbtv/capabilities/glossary/provider.md#login-and-saved-login) is made of (`saved_login`, only where logins can be saved and switched) and
 where its usage figure comes from (`usage`). `stores` says where a harness keeps its credentials.
 Add a provider there before a supported model names it; `test_route.js` fails on a row whose
 provider or harness the file does not list.

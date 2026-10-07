@@ -28,7 +28,7 @@ The harness's own list is the authority for which models exist, their exact ids 
 - Codex: `codex debug models`.
 - OpenCode: `opencode models <provider> --verbose`; the ladder is the `variants` keys.
 
-Keep one row per model line, the latest version the harness lists. A model line with no newer version stays as it is. Write down, per model line, the row that survives and the rows that leave, before editing.
+The [model catalog](glossary/model-catalog.md) keeps one row per model line; take the version from the harness's list. A model line with no newer version stays as it is. Write down, per model line, the row that survives and the rows that leave, before editing.
 
 ## 3. Scores when a model replaces another
 

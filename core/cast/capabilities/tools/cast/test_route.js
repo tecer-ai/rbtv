@@ -6,7 +6,7 @@
 //
 // WHAT IS TESTED WHERE (owner ruling 2026-08-22):
 //   * LOGIC arms route against a FIXTURE table this suite writes and owns (FIXTURE below). The
-//     shipped models.csv is the OWNER'S DATA — they re-rank the roster whenever they like — so an
+//     shipped models.csv is the OWNER'S DATA — they re-rank the model catalog whenever they like — so an
 //     arm that pinned a verdict off it only restated a cell they had just edited. That design
 //     reddened 16 arms on the 2026-08-22 re-curation and taught nobody anything: the checks broke
 //     because the data changed, never because the selector did.
@@ -130,7 +130,7 @@ const dropped = (v, stage) => (v.explain || [])
 // Replaces the tiered SOTA/L1-on-price + L2/L3-on-quality default of 2026-08-21. Omitting
 // --optimize now means exactly `--optimize price`, so the invariant to hold is IDENTITY: for the
 // same interview, the two must answer the same thing, class by class. The class's levels are all
-// that stands between a job and the cheapest model on the roster.
+// that stands between a job and the cheapest model in the model catalog.
 {
   for (const cls of ['planner', 'broad', 'bounded', 'mechanical']) {
     for (const type of ['code', 'text']) {
@@ -409,7 +409,7 @@ const dropped = (v, stage) => (v.explain || [])
   }
 }
 
-// --- the roster left `cast route` ------------------------------------------------------------------
+// --- the model catalog left `cast route` -----------------------------------------------------------
 {
   for (const flags of [['--catalog'], ['--catalog', '--json'], ['--access', 'open', '--catalog']]) {
     const res = spawnSync('node', [TOOL, 'route', ...flags], { encoding: 'utf8', env: ENV, cwd: FIXTURE });
@@ -648,7 +648,7 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
     const at = `models.csv row ${r.harness}/${r.model}`;
     // Launchability is the join: a row cast cannot launch is a row route must never name, and the
     // tool only WARNS about it — so this is where a typo like `gemini-3.7-flash` with no
-    // supported-models.js row gets caught instead of silently shrinking the roster.
+    // supported-models.js row gets caught instead of silently shrinking the model catalog.
     assert.ok(supportedRow(r.harness, r.model), `${at} has no supported-models.js twin — route excludes it`);
     assert.ok(['cli', 'api'].includes(r.mode), `${at}: mode '${r.mode}'`);
     assert.ok(LEVELS.includes(r.level), `${at}: level '${r.level}' is not one of ${LEVELS.join('|')}`);
@@ -701,7 +701,7 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
   }
 
   // And loading it must be SILENT. Every exclusion route makes on its own is a stderr warning, so
-  // an empty stderr is the proof that nothing was quietly left out of the roster. Run from
+  // an empty stderr is the proof that nothing was quietly left out of the model catalog. Run from
   // OUTSIDE, it is the shipped table the command reads.
   const quiet = spawnSync('node', [TOOL, 'route', '--access', 'bounded', '--type', 'text', '--class', 'mechanical', '--explain'],
     { encoding: 'utf8', env: ENV, cwd: OUTSIDE });

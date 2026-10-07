@@ -43,7 +43,7 @@ List installation selections only for the rbtv-agent placement. The prompt must 
 
 ## Edit, convert and test
 
-Keep the folder name, prompt frontmatter and record name equal on renaming. Edit the authoritative source. Regenerate a harness-sub-agent placement after changing the description; its pointer reads source-body edits directly. An rbtv-agent launch reads `agent.md` in its folder. A shipped agent added by name runs from its copy in `.rbtv/agents/<name>/`: after changing the component's source, edit that copy or remove the agent and add it again. See [rbtv CLI](rbtv-cli.md) for the operation.
+Keep the folder name, prompt frontmatter and record name equal on renaming. Edit the authoritative source. Regenerate a harness-sub-agent placement after changing the description; its pointer reads source-body edits directly. An rbtv-agent launch reads `agent.md` in its folder. A shipped agent added by name is placed in `.rbtv/agents/<name>/` and runs from there: after changing the component's source, edit the placed files or remove the agent and add it again. See [rbtv CLI](rbtv-cli.md) for the operation.
 
 For an outside agent, put its standing instructions in the prompt and its description in the record. Keep model settings, permissions and tool configuration out of prompt prose; classify other content through Choosing what to build.
 

@@ -24,20 +24,18 @@
 //   api  an API worker reached by `cast api` — routable, NOT launchable
 //
 // Launch-ladder provenance:
-//   claude   — measured 2026-08-12.
+//   claude   — measured on live launches.
 //   codex    — each model's `supported_reasoning_levels` in the model manifest embedded in the
-//              codex binary (0.147.0), spot-checked against live `codex exec` runs 2026-08-12.
+//              codex binary, spot-checked against live `codex exec` runs.
 //              Excluded and why: gpt-5.2 — live 400, "not supported when using
 //              Codex with a ChatGPT account"; gpt-5.4, gpt-5.4-mini, codex-auto-review — manifest
 //              visibility "hide". sol/terra also list an `ultra` rung above max; a 1-5 dial can
 //              never reach a 6th rung, so it is left out rather than sitting here unreachable.
-//              gpt-6.1-sol read from the 0.159.3 manifest 2026-10-04 (same ladder as gpt-6-sol).
 //   opencode — the `variants` keys in `opencode models <provider> --verbose` (what `--variant`
-//              validates against), re-measured 2026-08-12/13/14. NOT ~/.cache/opencode/models.json,
-//              whose `reasoning_options` disagrees. A model with no variants is
-//              inert. kimi rides opencode since 2026-08-14 (the `kimi` CLI is gone). The k3
-//              rows are the one place `--verbose` UNDER-reports: it lists high,max, but a live
-//              `opencode run --variant low` on both returns normally (2026-08-14).
+//              validates against). NOT ~/.cache/opencode/models.json, whose
+//              `reasoning_options` disagrees. A model with no variants is inert. The k3 rows
+//              are the one place `--verbose` UNDER-reports: it lists high,max, but a live
+//              `opencode run --variant low` on both returns normally.
 //
 // One row per model line, the latest: a superseded version is deleted, not kept.
 
@@ -79,11 +77,6 @@ const ROWS = [
     rungs: ['low', 'medium', 'high'], provider: 'sakana' },
   { harness: 'opencode', model: 'gemini-3.1-pro-preview', mode: 'cli', id: 'google/gemini-3.1-pro-preview',
     rungs: ['low', 'medium', 'high'], provider: 'google' },
-  // 3.7-flash REPLACED 3.6-flash here 2026-08-22, when models.csv started routing 3.7: same
-  // provider, same ladder (variants read from `opencode models google --verbose` that day —
-  // minimal, low, medium, high), one row for one row. The swap is why 3.6 is gone rather than
-  // kept as an unrouted-but-launchable row: `cast -h` then printed the model table inside a
-  // line budget, and adding a row without removing one broke it.
   { harness: 'opencode', model: 'gemini-3.7-flash', mode: 'cli', id: 'google/gemini-3.7-flash',
     rungs: ['minimal', 'low', 'medium', 'high'], provider: 'google' },
   { harness: 'opencode', model: 'gemini-flash-latest', mode: 'cli', id: 'google/gemini-flash-latest',
@@ -96,12 +89,9 @@ const ROWS = [
     rungs: ['low', 'high', 'max'], provider: 'kimi' },
 
   // --- api workers, Google only (routable, never launched) -------------------------------------
-  // DeepSeek and Manus api rows were DELETED 2026-08-20 (route redesign §7): DeepSeek survives via
-  // its opencode cli rows above, Manus is gone entirely.
   { harness: 'api', model: 'gemini-3.5-flash', mode: 'api', id: 'gemini-3.5-flash', rungs: [],
     provider: 'google', depths: ['off', 'on'] },
-  // The Google image-generation worker — Nano Banana 2, filled in 2026-09-15 by owner direction
-  // (it was blank from the route redesign until then). `id` is the model name Google answers to on
+  // The Google image-generation worker, Nano Banana 2. `id` is the model name Google answers to on
   // generateContent; the `-preview` twin and the Pro/Lite siblings are deliberately NOT listed —
   // one image row keeps the `--caps image` short-circuit deterministic. Its models.csv twin
   // (image=Y, level L4, use=route) is what makes `cast route --caps image` return it; both files

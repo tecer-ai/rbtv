@@ -171,7 +171,7 @@ function gate(harness, model, from) {
     let selection;
     try { selection = loadSelection(root); } catch (e) {
       if (!(e instanceof CatalogError)) throw e;
-      throw refusal('catalog-unreadable', [`refused: ${e.message}`], 'cast models list --catalog');
+      throw refusal('catalog-unreadable', [`refused: ${e.message}`], `correct ${file}, then run the same command again`);
     }
     selected = selection.rows.some((r) => r.harness === harness && r.model === model);
   }
