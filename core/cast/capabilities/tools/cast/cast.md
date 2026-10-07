@@ -91,7 +91,7 @@ with is not cast's to name, so the handle's `model` field reads `resume` instead
 | Harness | Store read by `cast sessions` | `resume` argv |
 |---|---|---|
 | claude | `~/.claude/projects/<encoded-folder>/<id>.jsonl` — filename is the id | `claude -p --resume <id>` (`last` → `--continue`) + `--permission-mode bypassPermissions` |
-| codex | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` — id + cwd in the first-line `session_meta` (walked newest-first, stops at `-n` matches) | `codex exec resume <id\|--last>` + `-c sandbox_mode=danger-full-access -c approval_policy=never --skip-git-repo-check` |
+| codex | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` — id + cwd in the first-line `session_meta` (walked newest-first, stops at `-n` matches) | `codex exec resume <id\|--last>` + `-c sandbox_mode=danger-full-access -c approval_policy=never --skip-git-repo-check --dangerously-bypass-hook-trust` |
 | opencode | `opencode session list --format json` run with cwd = folder, rows filtered on their `directory` field | `opencode run -s <id>` (`last` → `-c`) |
 
 `resume` runs with cwd = launch-folder (that is also what scopes every harness's `last`), takes the
@@ -161,6 +161,14 @@ The system prompt rides each harness's strongest channel, the same as `-s TEXT`/
 `-s`/`-S` cannot be combined with `--agent`/`--rogue`. Every Codex launch also passes
 `-c project_doc_max_bytes=131072`, because Codex joins every `AGENTS.md` from the project root down to
 the working folder and cuts the text past its 32 KiB default.
+
+Every Codex launch and every Codex `resume` passes `--dangerously-bypass-hook-trust`. Codex runs a
+hook only when it holds a stored approval of that hook ("persisted hook trust" in Codex's help); a
+headless run cannot give that approval and skips every hook without a message. With the option,
+the hooks in the launch folder's `.codex/hooks.json` run. The cost: cast skips Codex's approval for
+every hook file Codex reads in that launch, so any hook file in the launch folder runs unreviewed.
+Read a folder's `.codex/hooks.json` before launching Codex in a folder whose content you did not
+write.
 
 `ignite turn` takes its standing prompt the same way: the `systemPromptFile` in its request is read
 with its frontmatter removed, and the model receives the body only.

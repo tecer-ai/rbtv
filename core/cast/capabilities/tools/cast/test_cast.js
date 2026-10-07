@@ -182,6 +182,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   const out = dryRun(['codex', 'gpt-6-luna', '5', folder, '-p', 'hello']);
   assert.ok(out.argv.includes('model_reasoning_effort=max'));
   assert.ok(out.argv.includes('--skip-git-repo-check'), 'codex launch must run outside git repos');
+  assert.ok(out.argv.includes('--dangerously-bypass-hook-trust'), `a headless codex launch must run the generated hooks: ${out.argv}`);
   assert.strictEqual(out.effort_word, 'max');
 }
 
@@ -236,6 +237,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
 
   const codex = dryRun(['codex', 'gpt-6-luna', '3', folder, '-p', 'hi', '--headed']);
   assert.ok(!codex.argv.includes('exec'), 'headed codex must drop exec');
+  assert.ok(codex.argv.includes('--dangerously-bypass-hook-trust'), `a headed codex launch must run the generated hooks: ${codex.argv}`);
   assert.strictEqual(codex.argv[codex.argv.length - 1], 'hi');
 
   const oc = dryRun(['opencode', 'glm-5.3', '3', folder, '-p', 'hi', '--headed']);
@@ -592,6 +594,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.ok(codex.argv.includes('sandbox_mode=danger-full-access'));
   assert.ok(codex.argv.includes('approval_policy=never'));
   assert.ok(codex.argv.includes('--skip-git-repo-check'), 'codex resume must run outside git repos');
+  assert.ok(codex.argv.includes('--dangerously-bypass-hook-trust'), `a codex resume must run the generated hooks: ${codex.argv}`);
 
   const oc = dryRun(['resume', 'opencode', 'ses_x1', folder, '-p', 'hi']);
   assert.deepStrictEqual(oc.argv, ['opencode', 'run', '-s', 'ses_x1', '--auto']);

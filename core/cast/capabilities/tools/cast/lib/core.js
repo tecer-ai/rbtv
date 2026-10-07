@@ -26,13 +26,20 @@ for (const harness of Object.keys(SPECS)) {
 // Codex launch raises it. Needs no trusted folder, unlike config.toml.
 const CODEX_DOC_LIMIT = ['-c', 'project_doc_max_bytes=131072'];
 
+// Codex runs a hook only when it holds a stored approval of that hook ("persisted hook trust" in
+// its help); a headless run cannot give that approval and skips every hook without a message
+// (measured on 0.159.3). Owner ruling 2026-10-07: every Codex launch and resume bypasses the
+// approval, so the hooks rbtv generates into .codex/hooks.json run. Cost: any hook file in the
+// launch folder runs unreviewed.
+const CODEX_HOOK_TRUST = ['--dangerously-bypass-hook-trust'];
+
 // headed = the harness's interactive TUI instead of its one-shot print mode. The TUI owns the
 // terminal, so the prompt rides argv (see promptArgv) instead of stdin.
 function baseArgv(harness, model, folder, headed) {
   switch (harness) {
     case 'claude': return ['claude', ...(headed ? [] : ['-p']), '--model', model, '--permission-mode', 'bypassPermissions'];
     // --skip-git-repo-check: codex refuses to start outside a git repo without it (0.154+, observed 2026-09-24).
-    case 'codex': return ['codex', ...(headed ? [] : ['exec']), '--cd', folder, '-m', model, '--sandbox', 'danger-full-access', '-c', 'approval_policy=never', '--skip-git-repo-check', ...CODEX_DOC_LIMIT];
+    case 'codex': return ['codex', ...(headed ? [] : ['exec']), '--cd', folder, '-m', model, '--sandbox', 'danger-full-access', '-c', 'approval_policy=never', '--skip-git-repo-check', ...CODEX_HOOK_TRUST, ...CODEX_DOC_LIMIT];
     // --auto: headless `opencode run` auto-REJECTS every permission.asked (observed: external_directory
     // on /tmp and on the launch folder of a resumed session — issue G-owner-console-0819-0010); --auto
     // flips that to auto-approve, per invocation. The opencode twin of the two flags above.
@@ -295,7 +302,7 @@ function resolveModel(harness, model, from) {
 }
 
 module.exports = {
-  CODEX_DOC_LIMIT, shortName, SHORT, baseArgv, promptArgv,
+  CODEX_DOC_LIMIT, CODEX_HOOK_TRUST, shortName, SHORT, baseArgv, promptArgv,
   fail, HARNESSES, USAGE, USAGE_IG,
   RESUME_USAGE, SESSIONS_USAGE, KNOWN_FLAGS, detachMarks,
   refuseIfDetached, effortMap, EFFORT_RULE,

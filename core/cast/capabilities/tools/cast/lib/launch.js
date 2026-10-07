@@ -12,7 +12,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { SPECS } = require('../supported-models');
 
-const { CODEX_DOC_LIMIT, HARNESSES, RESUME_USAGE, baseArgv, fail, parseArgs, promptArgv, refuseIfDetached, resolveFolder, shortName } = require('./core');
+const { CODEX_DOC_LIMIT, CODEX_HOOK_TRUST, HARNESSES, RESUME_USAGE, baseArgv, fail, parseArgs, promptArgv, refuseIfDetached, resolveFolder, shortName } = require('./core');
 const { claudeSlug, emitHandle, procStart, stdoutPath } = require('./handles');
 const { loadOptional } = require('./optional');
 const { spawnable } = require('./win-exec');
@@ -254,7 +254,7 @@ function resumeArgv(harness, id) {
       '--permission-mode', 'bypassPermissions'];
     case 'codex': return ['codex', 'exec', 'resume', ...(id === 'last' ? ['--last'] : [id]),
       '-c', 'sandbox_mode=danger-full-access', '-c', 'approval_policy=never', '--skip-git-repo-check',
-      ...CODEX_DOC_LIMIT];
+      ...CODEX_HOOK_TRUST, ...CODEX_DOC_LIMIT];
     case 'opencode': return ['opencode', 'run', ...(id === 'last' ? ['-c'] : ['-s', id]), '--auto'];
   }
 }
