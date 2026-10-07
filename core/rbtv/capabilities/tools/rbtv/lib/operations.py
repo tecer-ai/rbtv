@@ -135,7 +135,7 @@ def _section_paths(claims: list[dict]) -> list[str]:
 
 GITIGNORE_NOTE = (
     "install.py artifacts — MACHINE-LOCAL, never committed: the "
-    "loaders bake\nabsolute entry-point paths and the book records an absolute "
+    "copies bake\nabsolute link paths and the book records an absolute "
     "target, so a committed copy\nis wrong on every other machine "
     "(d-s15-installer2-artifacts-machine-local). Generated from\nthe book and "
     "the marked files on disk on every install and uninstall — edit nothing\n"

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from discovery import Refuse, SKILL_FILE
 
+from . import frontmatter
 from .constants import (
     EFFORT_INERT,
     GENERATED_MARKERS,
@@ -28,14 +29,28 @@ def _yq(text: str) -> str:
     return json.dumps(str(text), ensure_ascii=False)
 
 
-def _loader(part: str, desc: str, entry: str, what: str, named: bool,
-            settings: dict[str, str] | None = None) -> str:
+def _head(part: str, desc: str, named: bool,
+          settings: dict[str, str] | None = None) -> str:
+    """The frontmatter a harness lists a generated file by."""
     name_line = f"name: {part}\n" if named else ""
     extra = "".join(f"{key}: {_yq(value)}\n"
                     for key, value in (settings or {}).items())
-    return (f"---\n{name_line}description: {_yq(desc)}\n{extra}---\n\n"
-            f"Read `{entry}` NOW and follow it as this {what}'s full "
+    return f"---\n{name_line}description: {_yq(desc)}\n{extra}---\n"
+
+
+def _loader(part: str, desc: str, entry: str, settings: dict[str, str]) -> str:
+    """A harness's own sub-agent file: it points at the agent's prompt."""
+    return (_head(part, desc, named=True, settings=settings)
+            + f"\nRead `{entry}` NOW and follow it as this agent's full "
             "instructions.\n")
+
+
+def _copy(head: str, source: Path, installation: Path | None) -> str:
+    """A skill or a command as the harness reads it: `head`, then the source's
+    body after its own frontmatter. The copy sits away from the source's
+    folder, so a link written from that folder becomes an absolute path."""
+    _front, body = frontmatter.split(source.read_text(encoding="utf-8"))
+    return head + absolute_links(body, installation, base=source.parent)
 
 
 def sub_agent_settings(harness: str, values: dict) -> tuple[dict[str, str], list[dict]]:
@@ -75,7 +90,7 @@ def sub_agent_content(rel: str, harness: str, part: str, desc: str, entry: str,
             + "developer_instructions = "
             + json.dumps(f"Read `{entry}` NOW and follow it as this "
                          "agent's full instructions.") + "\n")
-    return _mark(_loader(part, desc, entry, "agent", named=True, settings=settings))
+    return _mark(_loader(part, desc, entry, settings))
 
 
 _FRONTMATTER = re.compile(r"---\r?\n(?:.*?\r?\n)?---\r?\n", re.S)
@@ -83,7 +98,7 @@ _FRONTMATTER = re.compile(r"---\r?\n(?:.*?\r?\n)?---\r?\n", re.S)
 
 def _mark(text: str) -> str:
     """Stamp *text* with the ownership marker (D12), AFTER any YAML frontmatter
-    — a marker above a loader's `---` block would stop that block parsing.
+    — a marker above a file's `---` block would stop that block parsing.
     CRLF counts: a Windows checkout (core.autocrlf) delivers `---\\r\\n`."""
     front = _FRONTMATTER.match(text)
     if front:
@@ -120,28 +135,26 @@ def _is_ours(target: Path, rel: str) -> bool:
                for i in range(len(parts) - 1, 0, -1))
 
 
-def _content_for(rel: str, method: str, part: str, desc: str, entry: str,
+def _content_for(rel: str, method: str, part: str, desc: str,
                  comp_dir: Path, entry_rel: str, installation: Path | None) -> str:
-    return _mark(_body_for(rel, method, part, desc, entry, comp_dir, entry_rel,
+    return _mark(_body_for(rel, method, part, desc, comp_dir / entry_rel,
                            installation))
 
 
-def _body_for(rel: str, method: str, part: str, desc: str, entry: str,
-              comp_dir: Path, entry_rel: str, installation: Path | None) -> str:
+def _body_for(rel: str, method: str, part: str, desc: str, source: Path,
+              installation: Path | None) -> str:
     if method == "rule":
         # A copy — CMP-12's fallback row is a mirror, not a pointer. It differs
         # from the source in its link targets, which open from where the copy
         # sits, and in the ownership marker `_content_for` stamps on (D12).
-        return absolute_links((comp_dir / entry_rel).read_text(encoding="utf-8"),
-                              installation)
+        return absolute_links(source.read_text(encoding="utf-8"), installation)
     if method == "skill":
-        return _loader(part, desc, entry, "skill", named=True)
+        return _copy(_head(part, desc, named=True), source, installation)
     if method == "command":
-        if rel.startswith(".codex/prompts/"):
-            # codex prompt files are plain markdown — no frontmatter.
-            return (f"Read `{entry}` NOW and follow it as this command's full "
-                    "instructions.\n")
-        return _loader(part, desc, entry, "command", named=False)
+        # codex prompt files are plain markdown — no frontmatter.
+        head = ("" if rel.startswith(".codex/prompts/")
+                else _head(part, desc, named=False))
+        return _copy(head, source, installation)
     raise Refuse("internal", f"no content rule for method {method!r}")
 
 

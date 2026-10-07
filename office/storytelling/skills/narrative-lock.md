@@ -7,7 +7,7 @@ description: "Locks audience, message, and structure before any visual work star
 
 Make the audience believe or do one thing. Lock that as a story spine of beats. Visual form is not this role.
 
-Embody `prompts/strategist.md` for the whole run. This capability does not run headless — the owner is live.
+Embody [strategist.md](../prompts/strategist.md) for the whole run. This capability does not run headless — the owner is live.
 
 ## Inputs
 

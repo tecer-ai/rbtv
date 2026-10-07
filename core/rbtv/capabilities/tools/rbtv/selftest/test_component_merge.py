@@ -230,8 +230,7 @@ def update_after_rewrite(ctx) -> None:
               not loaders[0].exists() and not loaders[0].parent.exists()
               and not old_skill[0].exists() and not old_skill[0].parent.exists()
               and new_skill[0].is_file()
-              and str(new_src / "core/rbtv/skills/framework.md")
-              in new_skill[0].read_text(encoding="utf-8"))
+              and "# rbtv framework\n" in new_skill[0].read_text(encoding="utf-8"))
         check("U-merge-update-record — the record is written as schema 9 with the "
               "one core/rbtv entry",
               record["schema"] == 9 and set(record["components"]) == {"core/rbtv"}

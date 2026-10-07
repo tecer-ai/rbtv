@@ -48,7 +48,7 @@ In a target with a `.git/` folder, the installer maintains its artifact list as 
 
 ## D15 — Whole-folder skills
 
-A skill in the standard shareable format — a `_skills/<name>/` folder with `SKILL.md` and its own files — is read only from an installation's `.rbtv/mirror/`, never from the rbtv repository, and is identified as `_hub/skills/<name>`. It installs as a pointer in each selected harness's skills folder: the skill's own frontmatter, verbatim so harness-specific keys survive, and a body that points at the source `SKILL.md` and its folder, from which its relative files resolve. The loader is booked in the install record and updated and removed like every other unit. The source folder is never copied or changed, so a skill kept current with `git pull` takes effect at once; a folder copied by an earlier installer is deleted on the next run.
+A skill in the standard shareable format — a `_skills/<name>/` folder with `SKILL.md` and its own files — is read only from an installation's `.rbtv/mirror/`, never from the rbtv repository, and is identified as `_hub/skills/<name>`. The installer copies its files to each selected harness's skills folder, omitting symlinks, `.git`, `node_modules` and `__pycache__`. It stamps only the copied `SKILL.md` with the ownership marker, after the skill's own frontmatter, which is kept verbatim so harness-specific keys survive; that marker governs the copied folder. Every other file arrives byte for byte, so the skill's relative files resolve inside the copy. Every copied file is booked in the install record and updated and removed like every other unit. The source folder is never changed.
 
 ## D16 — Installation settings
 
@@ -74,9 +74,9 @@ On Windows, each PATH tool gets a marked `<name>.cmd` shim and an extensionless 
 
 A real install that selects a PATH tool adds `~/.rbtv/bin` to the user's shell startup profiles on POSIX or user PATH on Windows. It leaves that PATH setup in place when an installation removes its tools. This lets new shells find installed commands and lets the same bin folder serve other installations.
 
-## D10 — Absolute loader paths
+## D10 — Absolute source paths
 
-The installer writes resolved absolute source paths into pointers. The [building decisions](../decisions.md#system-and-installation-decisions) own this choice and its machine-local rationale.
+The installer writes resolved absolute source paths into the links of a copy and into a sub-agent pointer. The [building decisions](../decisions.md#system-and-installation-decisions) own this choice and its machine-local rationale.
 
 ## D12 — Proof of ownership
 

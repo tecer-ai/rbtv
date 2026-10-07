@@ -13,6 +13,7 @@ from lib.constants import (
     FENCE_ID,
     HARNESSES,
     LEGACY_PREFIX,
+    MANAGED_BANNER,
     MANAGED_MARK,
     SCHEMA,
     STATE_REL,
@@ -114,9 +115,20 @@ def green_arm_all_harnesses(ctx) -> None:
           res["report"]["sub_agents_unset"] == ["fixmod/goodcomp#research"]
           and not (target / ".claude/agents/research.md").exists(),
           str(res["report"]["sub_agents_unset"]))
-    check("skill loader carries a YAML-safe description",
-          '"A fixture skill: with a colon"'
-          in (target / ".claude/skills/fixskill/SKILL.md").read_text(encoding="utf-8"))
+    check("a skill is a copy: the generated name and YAML-safe description, the "
+          "marker, then the source's body",
+          (target / ".claude/skills/fixskill/SKILL.md").read_text(encoding="utf-8")
+          == '---\nname: fixskill\ndescription: "A fixture skill: with a colon"\n---\n'
+          + MANAGED_BANNER + "\n# the skill\n")
+    check("a command is a copy: the description alone for Claude Code and OpenCode, "
+          "no frontmatter for Codex",
+          all((target / rel).read_text(encoding="utf-8")
+              == '---\ndescription: "The fixture command"\n---\n'
+              + MANAGED_BANNER + "\n# the command\n"
+              for rel in (".claude/commands/fixcmd.md", ".opencode/commands/fixcmd.md"))
+          and (target / ".codex/prompts/fixcmd.md").read_text(encoding="utf-8")
+          == MANAGED_BANNER + "\n# the command\n",
+          (target / ".codex/prompts/fixcmd.md").read_text(encoding="utf-8"))
     check("rule copied VERBATIM, the marker line just below its frontmatter",
           (target / ".claude/rules/fixrule.md").read_text(encoding="utf-8")
           == _mark((tree / "fixmod/goodcomp/rules/fixrule.md"

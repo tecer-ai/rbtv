@@ -77,8 +77,8 @@ apart and neither assumes the other. Use both skills for manual transcription or
 creation. Ignite's `audio: true` reply handles speech generation at delivery.
 
 For manual file transfers, use the installed `stools` command, whose source is
-`meta/communication/capabilities/tools/stools/stools_wrapper.py`. Use that wrapper rather than calling
-`3-resources/tools/stools/stools.py` directly; the wrapper enforces the send-identity rule below.
+[stools_wrapper.py](../capabilities/tools/stools/stools_wrapper.py). Use that wrapper rather than calling
+the stools program directly; the wrapper enforces the send-identity rule below.
 An Ignite agent replying in its current conversation attaches file paths through `replies[].files`.
 
 `--workspace` selects a configured account (`--account` is its alias). It is required
@@ -125,8 +125,7 @@ is where a reply belongs.
 `mrkdwn`, it leads with the outcome, and it carries `❓` or `💭` per the markers section. A file
 reply exempts nothing: an upload is still a message to the owner.
 
-Flags are documented by the CLI itself — `<path> --help` and `<path> <verb> --help` — and in
-`3-resources/tools/stools/scripts/slack_download.md` and
-`3-resources/tools/stools/scripts/slack_upload.md`. This reference does not restate them, because
+Flags are documented by the stools tool itself — `stools --help` and `stools <verb> --help` — and in
+its own download and upload pages. This reference does not restate them, because
 the second copy is the one that goes stale.
 </reference>

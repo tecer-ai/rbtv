@@ -15,12 +15,12 @@ description: "Brainstorm with the user: define something unclear, or generate ne
 
    | Mode | When it fits | Method reference |
    |------|--------------|------------------|
-   | problem structuring | the problem itself is undefined or tangled — it needs to be named, decomposed, and ordered | `references/problem-structuring.md` |
-   | ideation | the user wants options that do not exist yet — divergent generation, breadth before judgment | `references/ideation.md` |
-   | idea sparring | one raw idea exists and must survive contact — break it, research it down, shrink it, greenlight or kill it | `references/idea-sparring.md` |
-   | pre-mortem | a plan is already committed and the risk is unnamed — assume it failed, work backwards | `references/pre-mortem.md` |
-   | first principles | the reasoning rests on assumptions nobody has audited | `references/first-principles.md` |
-   | six hats | the subject needs to be seen from every angle, one angle at a time | `references/six-hats.md` |
+   | problem structuring | the problem itself is undefined or tangled — it needs to be named, decomposed, and ordered | [problem-structuring.md](../references/problem-structuring.md) |
+   | ideation | the user wants options that do not exist yet — divergent generation, breadth before judgment | [ideation.md](../references/ideation.md) |
+   | idea sparring | one raw idea exists and must survive contact — break it, research it down, shrink it, greenlight or kill it | [idea-sparring.md](../references/idea-sparring.md) |
+   | pre-mortem | a plan is already committed and the risk is unnamed — assume it failed, work backwards | [pre-mortem.md](../references/pre-mortem.md) |
+   | first principles | the reasoning rests on assumptions nobody has audited | [first-principles.md](../references/first-principles.md) |
+   | six hats | the subject needs to be seen from every angle, one angle at a time | [six-hats.md](../references/six-hats.md) |
 
    - A mode-specific ask lands DIRECTLY in that mode — "pre-mortem this", "spar this idea", "six hats", "structure this problem", "first-principles this", "give me ideas". Confirm nothing; start.
    - Otherwise INFER the fitting mode from the ask, state the pick in ONE line with the redirect left open — "This smells like a pre-mortem — going with that unless you redirect" — and proceed immediately. NEVER wait for approval, and NEVER offer the user a menu of modes to choose from.

@@ -8,10 +8,10 @@ description: "Converts documents between formats (e.g. markdown to DOCX)."
 # converter — markdown/HTML to PDF or DOCX
 
 Two engines, one purpose-independent capability: turn an authored markdown or HTML file into a
-rendered document. `capabilities/converter/tool/md-to-docx.py` is the first-party DOCX engine —
+rendered document. [md-to-docx.py](../capabilities/converter/tool/md-to-docx.py) is the first-party DOCX engine —
 **ask it for its flags (`md-to-docx.py -h`), never guess them.** PDF goes through the third-party
-`md-to-pdf` CLI (npm; pulls Puppeteer/Chromium) — this file and `engines/reference.md`,
-`engines/styling.md`, `engines/branding.md` carry what `md-to-pdf --help` does not.
+`md-to-pdf` CLI (npm; pulls Puppeteer/Chromium) — this file and [reference.md](../capabilities/converter/engines/reference.md),
+[styling.md](../capabilities/converter/engines/styling.md), [branding.md](../capabilities/converter/engines/branding.md) carry what `md-to-pdf --help` does not.
 
 ## Do you need this at all?
 
@@ -33,15 +33,15 @@ below. If you only need to READ a page, this is not that; see `web/capture`.
 **Branded.** Style artifacts resolve by reading the FIXED workspace path `.rbtv/config/office/` —
 never by scanning any workspace file to discover a brand folder's location. Expected there:
 `document-style.yaml` (feeds the DOCX engine), `document-style.css` and `document-config.js` (feed
-the PDF engine — read `engines/branding.md` for what `document-config.js` must set up: base64-encoded
+the PDF engine — read [branding.md](../capabilities/converter/engines/branding.md) for what `document-config.js` must set up: base64-encoded
 logo, header/footer templates, margins that clear the header). **A missing brand pack is never a
 parallel discovery scan** — it routes to the module's guided brand-pack setup, which is owned
 elsewhere (the first capability that needs a pack triggers it); this capability's own job stops at
 reading the fixed path and surfacing its absence.
 
 **Legal.** Skip brand discovery entirely. Use the fixed, unbranded styles shipped beside this file:
-`legal/legal-docx-style.yaml` (DOCX) and `legal/legal-pdf-style.css` (PDF) — conventions in
-`legal/legal-style.md`. Never apply a brand-pack palette, logo, or header to legal output, regardless
+[legal-docx-style.yaml](../capabilities/converter/legal/legal-docx-style.yaml) (DOCX) and [legal-pdf-style.css](../capabilities/converter/legal/legal-pdf-style.css) (PDF) — conventions in
+[legal-style.md](../capabilities/converter/legal/legal-style.md). Never apply a brand-pack palette, logo, or header to legal output, regardless
 of what the workspace's brand pack holds.
 
 ## Generate — PDF
@@ -55,7 +55,7 @@ md-to-pdf --launch-options '{"args":["--no-sandbox","--disable-setuid-sandbox"]}
 ```
 The `--launch-options` flag is REQUIRED — a caged/sandboxed seat runtime has no privilege for
 Chromium's own SUID sandbox and Chrome crashes on launch without it (confirmed 2026-09-01); it is a
-harmless no-op on an unsandboxed machine. Read `engines/reference.md` for the rest of the CLI flags
+harmless no-op on an unsandboxed machine. Read [reference.md](../capabilities/converter/engines/reference.md) for the rest of the CLI flags
 and gotchas (Windows EPERM/EBUSY, header font-size, `--stylesheet` replacing rather than extending
 built-in CSS) before running.
 
@@ -76,7 +76,7 @@ Legal:
 ```
 python3 capabilities/converter/tool/md-to-docx.py {input} {output} --style capabilities/converter/legal/legal-docx-style.yaml
 ```
-Requires `python-docx`, `pyyaml` (declared in this component's `package.json`). Pass
+Requires `python-docx`, `pyyaml` (declared in this component's [package.json](../package.json)). Pass
 `--workspace-root` only when the style yaml's logo path is relative and must resolve against the
 workspace root rather than the yaml's own folder.
 

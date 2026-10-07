@@ -1,6 +1,8 @@
 """A link written from the repository root or from `.rbtv/` is rewritten to an
-absolute path in each copy the program writes: a rule for each harness, and the
-prompt of an agent placed in an installation. A relative link stays as written."""
+absolute path in each copy the program writes: a rule for each harness, the
+prompt of an agent placed in an installation, and a skill or a command. A
+relative link stays as written in a rule and a prompt; in the copy of a skill
+or a command it becomes an absolute path into the source's folder."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -14,9 +16,12 @@ from lib.operations import do_install
 
 from .fixture import _component, _file_md, _w
 
-# Left as written: a path from the source's folder, a URL, an anchor.
-AS_WRITTEN = ("[beside](./sibling.md)", "[above](../other.md)", "[bare](bare.md)",
-              "[url](https://example.com/core/page.md)", "[anchor](#section)")
+# A path from the source's folder, written three ways.
+RELATIVE = ("[beside](./sibling.md)", "[above](../other.md)", "[bare](bare.md)")
+# Left as written in every copy.
+FIXED = ("[url](https://example.com/core/page.md)", "[anchor](#section)")
+# Left as written in a rule and a prompt.
+AS_WRITTEN = RELATIVE + FIXED
 
 
 def links_rewritten_on_copy(ctx) -> None:
@@ -30,11 +35,15 @@ def links_rewritten_on_copy(ctx) -> None:
     comp = _component(source, "moda", "comp")
     rule = comp / "rules/linked.md"
     _file_md(rule, "linked", "A rule with links", body)
+    skill = comp / "skills/linked-skill.md"
+    _file_md(skill, "linked-skill", "A skill with links", body + "A path in code: `./sibling.md`.\n")
+    command = comp / "commands/linked-command.md"
+    _file_md(command, "linked-command", "A command with links", body)
     prompt = comp / "agents/research/agent.md"
     _w(prompt, "---\nname: research\n---\n\n" + body)
     _w(comp / "agents/research/agent.json",
        '{"name": "research", "description": "Research."}\n')
-    before = {path: path.read_bytes() for path in (rule, prompt)}
+    before = {path: path.read_bytes() for path in (rule, skill, command, prompt)}
     catalog, _ = scan_all(tmp / "link-paths-mirror", source)
 
     def rewritten(text: str, installation: Path) -> bool:
@@ -57,6 +66,39 @@ def links_rewritten_on_copy(ctx) -> None:
         check(f"LP-rule-{harness}-relative — a relative link, a URL and an anchor are "
               "left as written",
               all(link in text for link in AS_WRITTEN), text)
+
+    ws = tmp / "ws-link-paths-copy"
+    ws.mkdir()
+    do_install(ws, catalog, ["moda/comp"], ["claude", "codex", "opencode"], dry_run=False,
+               parts=["moda/comp#linked-skill", "moda/comp#linked-command"])
+
+    def from_source(source: Path) -> list[str]:
+        """The three relative links as absolute paths into the source's folder."""
+        return [f"[{label}]({form})" for label, to in (
+                    ("beside", source.parent / "sibling.md"),
+                    ("above", source.parent.parent / "other.md"),
+                    ("bare", source.parent / "bare.md"))
+                for form in [to.resolve().as_posix()]]
+
+    def angled(link: str) -> str:
+        return link.replace("](", "](<").replace(")", ">)")
+
+    for kind, source in (("skill", skill), ("command", command)):
+        for harness in ("claude", "codex", "opencode"):
+            rel = MATRIX[kind][harness].format(name=source.stem)
+            text = (ws / rel).read_text(encoding="utf-8")
+            check(f"LP-{kind}-{harness} — the links from the repository root and from "
+                  f"`.rbtv/` are absolute paths in {rel}", rewritten(text, ws), text)
+            check(f"LP-{kind}-{harness}-relative — `./`, `../` and bare targets are "
+                  "absolute paths into the source's folder",
+                  all(link in text or angled(link) in text for link in from_source(source))
+                  and not any(link in text for link in RELATIVE), text)
+            check(f"LP-{kind}-{harness}-fixed — a URL and an anchor are left as written",
+                  all(link in text for link in FIXED), text)
+    text = (ws / MATRIX["skill"]["claude"].format(name="linked-skill")).read_text(
+        encoding="utf-8")
+    check("LP-skill-code — a path inside a code span is left as written",
+          "`./sibling.md`" in text, text)
 
     ws = tmp / "ws-link-paths-agent"
     ws.mkdir()

@@ -58,7 +58,7 @@ The `work-history` skill in `meta/functions` reconstructs a user-agreed project,
 > **three harnesses** (claude, codex, opencode). A component's folder instructions become a
 > marked section of the target folder's instructions file. The one unit shaped as a folder is a
 > whole skill in the installation mirror, `{target}/.rbtv/mirror/_skills/<name>/`: it is exposed
-> through a pointer in each installed harness's skills directory, and the generated loader
+> as a copy of the whole folder in each installed harness's skills directory, and the copied `SKILL.md`
 > carries the `rbtv-managed` ownership marker (files written by an earlier
 > rbtv carry `rbtv2-managed` and are still recognised).
 > Other generated artifacts are named after their bare unit name and marked as rbtv-owned.
@@ -109,7 +109,7 @@ The `work-history` skill in `meta/functions` reconstructs a user-agreed project,
    git clone <rbtv-repo-url> /path/to/rbtv
    ```
 
-   rbtv may live anywhere on the machine. The generated loaders name its files by full path, so every agent that uses the installation must be able to read that folder; keeping rbtv inside the installation guarantees it.
+   rbtv may live anywhere on the machine. The generated files name its files by full path, so every agent that uses the installation must be able to read that folder; keeping rbtv inside the installation guarantees it.
 
 2. Run rbtv:
 
@@ -125,7 +125,7 @@ The `work-history` skill in `meta/functions` reconstructs a user-agreed project,
    are in the callout at the top of this section.
 
 3. After install, your installation has:
-   - `.claude/skills/<name>/SKILL.md` — pointers for skills
+   - `.claude/skills/<name>/SKILL.md` — copies of skills
    - `.claude/commands/<name>.md` — slash commands
    - `.claude/rules/<name>.md` — rules
    - `.claude/agents/<name>.md` — sub-agents
@@ -211,15 +211,16 @@ RBTV uses Claude Code plugins for extended functionality. Install them from insi
 
 ## Updating RBTV
 
-RBTV content (agents, workflows, tasks) stays in this repo — pointers in your installation reference it by path. To get new content:
+RBTV content is authored in this repo; your installation holds generated copies of skills, commands and rules, whose links reference this repo by path. To get new content:
 
 ```bash
 cd /path/to/rbtv
 git pull
 ```
 
-Content changes behind pointers appear live. Run `rbtv update scaffolding` when an
-unit file, loader, or generated instruction section changes. This
+A page that a copy links to is read from this repo, so its changes appear live. Run
+`rbtv update scaffolding`, and `rbtv agent update AGENT scaffolding` for each agent, on each
+machine after a skill, command, rule or generated instruction section changes. This
 refreshes generated sections in every configured instruction file, including counterpart files,
 while preserving human text outside them. Use `rbtv update guidance` when maintained
 human instructions change; it copies that text to configured counterparts while preserving
@@ -262,9 +263,8 @@ installable content from each component's folders, not from a central manifest.
 ## Architecture notes
 
 - **Component source layout:** a component lives at `<module>/<component>/` with its `<component>.json` and one folder per kind of unit it exposes. The owning `<module>/<module>.json` describes the module.
-- **Thin loaders:** installed skill and command loaders point back to this repo by resolved source path. Their installed copies are generated.
-- **Rule exception:** rule files are copied as content (not loaders), because rules load passively into Claude's context and indirection is unreliable.
-- **Subagent exception:** installed subagent files are copied as content too — they are dispatched in fresh context and must be self-contained.
+- **Copies:** installed skills, commands and rules are generated copies of their source, with each link made the absolute path of its target in this repo. A mirror `_skills/<name>/` folder is copied whole.
+- **Sub-agent exception:** an installed harness-native sub-agent file is a pointer to the agent's prompt by resolved source path.
 - **Overwrite scope:** rbtv records owned files and shared settings in `.rbtv/config/install.json`; removal releases those claims while preserving unowned installation content.
 
 ## Extending RBTV

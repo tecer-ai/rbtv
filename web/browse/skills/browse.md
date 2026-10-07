@@ -20,8 +20,8 @@ Playwright script for a job a CLI does in one line (2026-08-08, this component's
 
 **The installed `playwright` package also carries an interactive CLI — `playwright cli <command>` —
 that operates a live browser the way `agent-browser` does** (snapshot/click/fill, plus network
-mocking, tracing, video, and storage state). `references/playwright/` documents it, indexed by
-`references/playwright/playwright.md`; its own help is `playwright cli --help`. **Which of the two
+mocking, tracing, video, and storage state). [references/playwright/](../references/playwright/) documents it, indexed by
+[playwright.md](../references/playwright/playwright.md); its own help is `playwright cli --help`. **Which of the two
 interactive surfaces wins for a given job is NOT yet ruled** — until it is, `agent-browser` stays the
 default this file routes to, and this CLI is reached deliberately for what the table above sends to
 Playwright.
@@ -122,7 +122,7 @@ failure this file exists to end.
 The vault's two machines are not provisioned identically, and no document records which has what —
 measure it. Run the CLI, then report *which CLI on which machine* — never "no browser available",
 which is the failure this component exists to end. What each tool requires, and the exact command
-that installs it, is `package.json` (`rbtv.install`); running that command is the owner's call on a
+that installs it, is [package.json](../package.json) (`rbtv.install`); running that command is the owner's call on a
 machine you were not asked to change. **`defuddle` is no longer declared here** — its manifest is
 `web/capture`'s.
 

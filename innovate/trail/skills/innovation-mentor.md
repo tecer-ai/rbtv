@@ -19,32 +19,32 @@ description: "Work a business venture with a blunt, evidence-demanding startup m
    - **Trail mode** — the ask is the whole journey ("start a business innovation project", "resume my venture work", "take this idea forward"). READ `../references/innovation-trail.md` and follow it: it carries the milestone sequence, the state protocol, and the resume steps. Do not improvise a sequence; the reference is the sequence.
    - **Framework mode** — the ask names one framework, or a topic that maps to one ("lean canvas", "validate my idea", "branding", "how big is this market"). Map the ask to its reference with the routing table below, READ that reference, and work it conversationally.
 
-2. Routing table — the frameworks and where they live. Every path in this file, here and above, is relative to THIS FILE (`innovate/trail/prompts/`).
+2. Routing table — the frameworks and where they live.
 
    | Milestone | Framework | Reference |
    |---|---|---|
-   | M1 Conception | Working Backwards | `../../conception/references/working-backwards.md` |
-   | M1 Conception | Jobs-to-be-Done | `../../conception/references/jobs-to-be-done.md` |
-   | M1 Conception | Competitive Landscape | `../../conception/references/competitive-landscape.md` |
-   | M1 Conception | Problem-Solution Fit | `../../conception/references/problem-solution-fit.md` |
-   | M1 Conception | Lean Canvas | `../../conception/references/lean-canvas.md` |
-   | M1 Conception | Five Whys | `../../conception/references/five-whys.md` |
-   | M1 Conception | Benchmark Analysis | `../../conception/references/benchmark-analysis.md` |
-   | M1 Conception | Product Landscape | `../../conception/references/product-landscape.md` |
-   | M2 Validation | Leap of Faith | `../../validation/references/leap-of-faith.md` |
-   | M2 Validation | Assumption Mapping | `../../validation/references/assumption-mapping.md` |
-   | M2 Validation | TAM/SAM/SOM (market sizing) | `../../validation/references/tam-sam-som.md` |
-   | M2 Validation | Unit Economics | `../../validation/references/unit-economics.md` |
-   | M2 Validation | Technology Readiness Level | `../../validation/references/technology-readiness-level.md` |
-   | M2 Validation | Pre-mortem | `../../validation/references/pre-mortem.md` |
-   | M2 Validation | V1 Scoping | `../../validation/references/v1-scoping.md` |
-   | M3 Brand | Brand Archetypes | `../../brand/references/brand-archetypes.md` |
-   | M3 Brand | Brand Prism | `../../brand/references/brand-prism.md` |
-   | M3 Brand | Golden Circle | `../../brand/references/golden-circle.md` |
-   | M3 Brand | Brand Positioning | `../../brand/references/brand-positioning.md` |
-   | M3 Brand | Tone of Voice | `../../brand/references/tone-of-voice.md` |
-   | M3 Brand | Messaging Architecture | `../../brand/references/messaging-architecture.md` |
-   | M3 Brand | Brandbook | `../../brand/references/brandbook.md` |
+   | M1 Conception | Working Backwards | [working-backwards.md](../../conception/references/working-backwards.md) |
+   | M1 Conception | Jobs-to-be-Done | [jobs-to-be-done.md](../../conception/references/jobs-to-be-done.md) |
+   | M1 Conception | Competitive Landscape | [competitive-landscape.md](../../conception/references/competitive-landscape.md) |
+   | M1 Conception | Problem-Solution Fit | [problem-solution-fit.md](../../conception/references/problem-solution-fit.md) |
+   | M1 Conception | Lean Canvas | [lean-canvas.md](../../conception/references/lean-canvas.md) |
+   | M1 Conception | Five Whys | [five-whys.md](../../conception/references/five-whys.md) |
+   | M1 Conception | Benchmark Analysis | [benchmark-analysis.md](../../conception/references/benchmark-analysis.md) |
+   | M1 Conception | Product Landscape | [product-landscape.md](../../conception/references/product-landscape.md) |
+   | M2 Validation | Leap of Faith | [leap-of-faith.md](../../validation/references/leap-of-faith.md) |
+   | M2 Validation | Assumption Mapping | [assumption-mapping.md](../../validation/references/assumption-mapping.md) |
+   | M2 Validation | TAM/SAM/SOM (market sizing) | [tam-sam-som.md](../../validation/references/tam-sam-som.md) |
+   | M2 Validation | Unit Economics | [unit-economics.md](../../validation/references/unit-economics.md) |
+   | M2 Validation | Technology Readiness Level | [technology-readiness-level.md](../../validation/references/technology-readiness-level.md) |
+   | M2 Validation | Pre-mortem | [pre-mortem.md](../../validation/references/pre-mortem.md) |
+   | M2 Validation | V1 Scoping | [v1-scoping.md](../../validation/references/v1-scoping.md) |
+   | M3 Brand | Brand Archetypes | [brand-archetypes.md](../../brand/references/brand-archetypes.md) |
+   | M3 Brand | Brand Prism | [brand-prism.md](../../brand/references/brand-prism.md) |
+   | M3 Brand | Golden Circle | [golden-circle.md](../../brand/references/golden-circle.md) |
+   | M3 Brand | Brand Positioning | [brand-positioning.md](../../brand/references/brand-positioning.md) |
+   | M3 Brand | Tone of Voice | [tone-of-voice.md](../../brand/references/tone-of-voice.md) |
+   | M3 Brand | Messaging Architecture | [messaging-architecture.md](../../brand/references/messaging-architecture.md) |
+   | M3 Brand | Brandbook | [brandbook.md](../../brand/references/brandbook.md) |
 
    When the ask is a topic rather than a framework name, pick the fitting framework, state the pick in ONE line with the redirect left open, and start. Never present a menu of frameworks.
 

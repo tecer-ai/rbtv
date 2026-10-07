@@ -6,7 +6,7 @@ description: "Use when committing changes to git. Triggers: user says \"commit\"
 # commit — deterministic git commit
 
 The agent supplies the judgment — which files belong together, what each message says — and the
-deterministic command `rbtv-commit` (`tool/commit.py` in this component) owns every git mechanic in
+deterministic command `rbtv-commit` ([commit.py](../capabilities/tools/rbtv-commit/commit.py) in this component) owns every git mechanic in
 ONE invocation per commit: remote sync, the staging gate, the commit,
 and the optional push. The agent NEVER runs the stage / sync / commit git commands by hand.
 

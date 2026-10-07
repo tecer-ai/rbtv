@@ -373,6 +373,13 @@ def _report_rows(out: _Out, report: dict, planned: bool, target: str) -> None:
                    f"{kind} file(s) — {tail} for: " + ", ".join(keys))
     for key in report.get("sub_agents_unset") or []:
         out.bullet("Warnings", subagents.unset_note(key, target))
+    folders = report.get("skill_folders") or []
+    copy = "would copy" if planned else "copied"
+    out.group([f"{copy} skill folder {row['component']} whole — "
+               f"{row['files']} file(s) into " + ", ".join(row["roots"])
+               for row in folders],
+              f"{copy} {len(folders)} skill folder(s) whole "
+              f"({sum(row['files'] for row in folders)} files)")
     gone = report.get("source_gone") or []
     if gone:
         out.bullet("Notes", f"{'would remove' if planned else 'removed'} "

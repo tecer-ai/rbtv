@@ -415,7 +415,10 @@ def result_screens(ctx) -> None:
            "skipped": unchanged, "shared_written": [".codex/config.toml"],
            "shared_deleted": [], "shared_skipped": [],
            "shared_removed": [f".mcp.json::[\"mcpServers\", \"m{n}\"]" for n in range(5)],
-           "report": {"no_realization": [{"harness": "codex", "type": "reference",
+           "report": {"skill_folders": [{"component": f"_hub/skills/p{n}",
+                                         "files": 1, "roots": [".agents/skills"]}
+                                        for n in range(5)],
+                      "no_realization": [{"harness": "codex", "type": "reference",
                                           "component": "office/meeting", "part": f"r{n}"}
                                          for n in range(12)],
                       "path": {"legacy_preserved": kept},
@@ -452,6 +455,7 @@ def result_screens(ctx) -> None:
     ctx.check("RESULT-routine-lists-are-counts-by-default",
               "File list" not in compact and "Files" not in compact.split("\n")
               and "released 5 claim(s)" in flat
+              and "copied 5 skill folder(s) whole" in flat
               and "--dry-run --details" in flat, compact)
     ctx.check("RESULT-details-lists-every-item-and-file",
               all(f"\n  {i}\n" in full for i in files)

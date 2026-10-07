@@ -15,13 +15,13 @@ art-direction brief is also a refusal — the brief is the visual contract. Do n
 
 ## Load — by load, never by copy
 
-Before any markup, load `skills/html-standards.md`. That router reaches quality + production +
-design-system + the Presentation profile (`references/html-page-presentation.md`). Load
-`references/html-charts.md` IFF a slide carries a chart.
+Before any markup, load [html-standards.md](html-standards.md). That router reaches quality + production +
+design-system + the Presentation profile ([html-page-presentation.md](../references/html-page-presentation.md)). Load
+[html-charts.md](../references/html-charts.md) IFF a slide carries a chart.
 
 MUST NEVER restate a design-system token or a Presentation-profile number. Tokens live in
-`references/html-design-system.md`. Other numeric floors live in
-`references/html-page-presentation.md`. Where a value is needed, read the file that owns it.
+[html-design-system.md](../references/html-design-system.md). Other numeric floors live in
+[html-page-presentation.md](../references/html-page-presentation.md). Where a value is needed, read the file that owns it.
 
 ## Brand pack — runtime overlay
 
@@ -37,7 +37,7 @@ Files this capability reads: `palette.json`, `templates/presentation.md`. This i
 MUST NEVER search. MUST NEVER discover a brand folder.
 
 A missing pack MUST trigger the guided setup whose one home is
-`skills/email-voice.md`. MUST NEVER halt. MUST NEVER run a discovery scan. MUST
+[email-voice.md](email-voice.md). MUST NEVER halt. MUST NEVER run a discovery scan. MUST
 NEVER invent a palette or a second token vocabulary. The pack overlays the design-system; it does
 not replace it. `templates/presentation.md` informs structure; V1 still authors bespoke HTML.
 
@@ -55,14 +55,14 @@ Print CSS MUST also include `@media print`, `page-break-inside: avoid`, and `pri
    - one top-level `<section>` per slide
    - static markup — slide bodies MUST NEVER be JavaScript-built
    - charts hand-authored SVG or CSS, no charting library
-   - binaries in a sibling `{name}-assets/` as ruled by `references/html-production.md`
+   - binaries in a sibling `{name}-assets/` as ruled by [html-production.md](../references/html-production.md)
 2. Generate slice-by-slice: one slide per fresh-context worker; splice each section into the one
    deck file.
 3. V1 builds bespoke. MUST NEVER use persona/XML menus, a rendered template-trio stage, a
    role-token or `assemble.py` slide-library engine, or a slide-library probe.
 4. Imagery is owner-gated and real-provenance only. A deck with none is valid. MUST NEVER fabricate
    an image. MUST NEVER base64-embed a deck.
-5. Jargon is not allowed — `references/html-quality.md` owns the bar.
+5. Jargon is not allowed — [html-quality.md](../references/html-quality.md) owns the bar.
 
 ## Surgical patch
 
@@ -80,7 +80,7 @@ browser. MUST NEVER fall back to `file://`. MUST NEVER inspect headless as the r
 
 ## PDF
 
-PDF MUST be produced by invoking `converter` (`skills/converter.md`) on the authored
+PDF MUST be produced by invoking `converter` ([converter.md](converter.md)) on the authored
 HTML file — converter's HTML→PDF input; Marked is skipped because the deck is already HTML. MUST
 NEVER stand up a second engine.
 

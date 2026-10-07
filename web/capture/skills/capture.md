@@ -7,7 +7,7 @@ description: "Read a web page and keep it — fetch a URL, extract it to clean p
 
 # capture — read a page, and keep it
 
-`capabilities/capture/capture.py` — one CLI, JSON on stdout, exit 0 only when a page was actually
+[capture.py](../capabilities/capture/capture.py) — one CLI, JSON on stdout, exit 0 only when a page was actually
 captured. **Ask it for its flags — `capture.py -h` — and never guess them.** This file carries only
 what `-h` cannot: which extractor is right, and what a `blocked` result actually means.
 
@@ -22,7 +22,7 @@ what `-h` cannot: which extractor is right, and what a `blocked` result actually
 - **Just glancing at a plain, static, public page** → the harness's `WebFetch` is cheaper. Come here
   when you need the page ON DISK, when `WebFetch` failed, or when you need to KNOW whether what came
   back was the article or a wall.
-- **Only "what is this link?"** → don't read the page at all. `references/link-preview.md`, one
+- **Only "what is this link?"** → don't read the page at all. [link-preview.md](../references/link-preview.md), one
   folder up, is the four-step chain that gets a title and description for almost nothing.
 - **Operating or measuring a page** — clicking, logging in, screenshotting, reading network or
   console — → the sibling `web/browse` component. This one reads; that one drives.
@@ -39,7 +39,7 @@ error rather than a silent fall-through — which is exactly what you want when 
 | `trafilatura` | **Recall.** The strongest boilerplate stripper of the three on odd layouts, paginated articles and non-English pages — it gets prose out of pages the other two give up on. Best when defuddle came back thin and you only need the WORDS. | Output is flatter: structure and links are largely gone. | A Python import, lazy. |
 | `bs4` | **The last resort, and it earns it.** Renders every plausible content container AND `<body>`, keeps whichever yielded most text. Rescues a server-rendered page whose prose sits in a sibling of the semantic wrapper the other two trusted — the exact 2026-06-08 regression it was written for. | It is not smart. Expect some chrome to survive. | A Python import, lazy. |
 
-**An absent rung is skipped, not fatal.** All three are optional (`../../package.json` § `rbtv.system`); the
+**An absent rung is skipped, not fatal.** All three are optional ([package.json](../package.json) § `rbtv.system`); the
 ordering exists so a machine with only `defuddle` still captures. If a capture came out poor, the
 first thing to check is which rung actually ran — the JSON's `extractor` field says.
 

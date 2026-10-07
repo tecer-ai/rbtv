@@ -6,11 +6,11 @@ description: "Renders a structured vault document as a polished static HTML page
 
 Turns a structured vault document into a polished HTML page by machine-filling a shipped
 template — the **schema + deterministic builder** production model of
-`skills/html-standards.md`. The agent NEVER writes HTML here; the template owns the look,
+[html-standards.md](html-standards.md). The agent NEVER writes HTML here; the template owns the look,
 the CLI owns the filling, and the markdown source files remain the source of truth.
 
 Document types are CLI subcommands, each pairing a parser with a template in
-`templates/`. v1 ships ONE type: `plan`.
+[templates/](../capabilities/posh/templates/). v1 ships ONE type: `plan`.
 
 ## Procedure
 
@@ -47,6 +47,6 @@ found in the folder is silently dropped.
 
 A new type is a parser + template pair: a `templates/<type>.html` template (markup blocks
 delimited `<!-- posh:<name> -->` … `<!-- /posh:<name> -->`), a `render_<type>` function and
-subcommand in `tool/posh.py`. The page MUST meet `references/html-quality.md` (self-explanatory,
+subcommand in [posh.py](../capabilities/posh/tool/posh.py). The page MUST meet [html-quality.md](../references/html-quality.md) (self-explanatory,
 jargon defined on the page) — the template carries the explanations, so a reader with zero
 project context can follow the output.

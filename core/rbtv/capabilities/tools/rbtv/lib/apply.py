@@ -177,8 +177,6 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
     written, skipped = [], []
     for rel in sorted(files):
         path, body = target / rel, files[rel]
-        # D15 — a copied skill folder may carry a binary asset, so a planned
-        # file is bytes OR text; everything else on this path is text.
         if path.is_file() and _same(path, body):
             skipped.append(rel)
             continue

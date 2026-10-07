@@ -22,7 +22,7 @@ python3 tool/capture.py --url <URL> [--url <URL> ...] --refs <reference-set-path
   [--viewport <WxH>] [--selector <css-selector>]
 ```
 
-Full flag reference is self-documented: `python3 tool/capture.py -h`.
+Full flag reference is self-documented: run [capture.py](../capabilities/screenshot-capture/tool/capture.py) with `-h`.
 
 ## Procedure
 

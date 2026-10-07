@@ -6,7 +6,7 @@ Use a skill when an agent needs instructions for a particular kind of task but d
 
 ## Source and installed file
 
-Write `skills/<name>.md` in the owning component. The [skill schema](../templates/skill.schema.json) governs its frontmatter. The installer creates a pointer containing the name, description and instruction to read the source. The body stays in the source; supporting resources are not copied beside the pointer.
+Write `skills/<name>.md` in the owning component. The [skill schema](../templates/skill.schema.json) governs its frontmatter. The installer writes a copy for each harness: the name and description, then the source body with each link made the absolute path of its target. Supporting resources stay in the source; they are not copied beside the installed file.
 
 This differs from an outside skill packaged as a folder. A whole-folder skill uses the separate [Self-contained skill](self-contained-skill.md) convention.
 
@@ -16,7 +16,7 @@ Follow [Cognitive unit](cognitive-unit.md) for the body: purpose, inputs, missin
 
 - **Make discovery work without the name.** Establish one task that needs the skill, another supported task phrased differently and a nearby task that must not select it. The description must separate those cases.
 - **Take inputs from the task.** Do not require arguments typed after the skill's name. The agent may have selected it without a named invocation. State the action for missing inputs in the body.
-- **Resolve supporting paths from the source.** A path beside the installed pointer does not reach a supporting page. Link from the source skill to the capability that contains the instructions.
+- **Reach supporting pages through links.** Write a Markdown link from the source skill to the capability that contains the instructions, relative to the source file. The installed copy sits in another folder: rbtv rewrites a link for it, and leaves a path written in a code span unresolved.
 - **Keep enforcement at the right place.** A body instruction runs only after the skill is opened. A requirement that must hold even when the skill is not opened cannot rely on that body alone; return to Choosing what to build for the required mechanism.
 - **Cover all supported work.** If the skill routes to several capabilities, its description must cover their shared purpose and all supported cases. Use [Entry point](entry-point.md) for the body and [Nested exposure](../nested-exposure.md) for grouping.
 
@@ -39,9 +39,9 @@ description: "CONTAINS: <instructions or supported choice> PURPOSE: <result> ALW
 
 ## Edit or convert
 
-Change the source. A body edit is read on the next use. A name or description edit also requires regenerating the installed pointer so discovery uses the new value; follow [rbtv CLI](rbtv-cli.md).
+Change the source, then regenerate the installed copy; follow [rbtv CLI](rbtv-cli.md). Until then the agent reads the earlier body, name and description.
 
-When converting an outside skill, retain its purpose and operational requirements. Put its instructions in this file and classify supporting content through Choosing what to build. Do not copy supporting resources beside the pointer. Remove unsupported metadata rather than pretending it controls rbtv discovery, tool access or argument passing. Record how each requirement is preserved.
+When converting an outside skill, retain its purpose and operational requirements. Put its instructions in this file and classify supporting content through Choosing what to build. Do not copy supporting resources beside the installed file. Remove unsupported metadata rather than pretending it controls rbtv discovery, tool access or argument passing. Record how each requirement is preserved.
 
 ## Verify
 

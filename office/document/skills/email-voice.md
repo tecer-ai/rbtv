@@ -62,7 +62,7 @@ Mission and core directives are the minimum. If those two are refused, treat as 
 
 ## Language
 
-Language is an input. If it is not given, ask. NEVER assume Portuguese. When the language is Portuguese (pt-BR), load `references/email-voice-pt-br.md` as an additive overlay AFTER `voice.md` and `voice-email.md`. When the language is not Portuguese, do not load it. That overlay is not the default and is not this capability.
+Language is an input. If it is not given, ask. NEVER assume Portuguese. When the language is Portuguese (pt-BR), load [email-voice-pt-br.md](../references/email-voice-pt-br.md) as an additive overlay AFTER `voice.md` and `voice-email.md`. When the language is not Portuguese, do not load it. That overlay is not the default and is not this capability.
 
 ## Procedure
 

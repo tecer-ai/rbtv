@@ -11,7 +11,7 @@ description: "Chains storytelling and document capabilities into a meeting-prep 
 
 **Goal.** Produce a print-ready strategic cheat sheet for an upcoming meeting.
 
-**Scope.** Inputs are meeting basics from the user (topic, other party, why a cheat sheet is wanted). Output is one cheat sheet, adapted to the meeting type and written in the language of the sitting. The eight files in `data/` are type skeletons loaded by classify and generate; they are not skills. This workflow NEVER summarises a past meeting.
+**Scope.** Inputs are meeting basics from the user (topic, other party, why a cheat sheet is wanted). Output is one cheat sheet, adapted to the meeting type and written in the language of the sitting. The eight files in [data/](../workflows/meeting-prep/data/) are type skeletons loaded by classify and generate; they are not skills. This workflow NEVER summarises a past meeting.
 
 **The chain (`meeting-prep.csv` is the DAG).** Three seats, serial, guard-free:
 
@@ -50,7 +50,7 @@ Present the type and a 1–2 sentence why. If the user disagrees, reclassify.
 
 Search the workspace for files about the other party (names, folders, notes, prior cheat sheets, correspondence). Present a table of hits — path and why it might matter — and ask **once** which to read (all / numbers / none). Read only those. If nothing is found, say so and continue.
 
-Load `data/type-{slug}.md` from this workflow folder. Write `planning/meeting-class.md` (first line `MEETING-CLASS`) with type, topic, other party, why, files read, and the type-data path. Then discover starts — no extra confirmation.
+Load `type-{slug}.md` from [data/](../workflows/meeting-prep/data/). Write `planning/meeting-class.md` (first line `MEETING-CLASS`) with type, topic, other party, why, files read, and the type-data path. Then discover starts — no extra confirmation.
 
 ## Discover
 

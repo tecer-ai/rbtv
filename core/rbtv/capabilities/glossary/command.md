@@ -6,9 +6,9 @@ Use a command when the human must choose when an action starts and supply its in
 
 ## File and loading
 
-Write `commands/<name>.md` with frontmatter matching the [command schema](../templates/command.schema.json). The installer writes a short harness file telling the agent to read the source. It does not copy the source body or expand argument placeholders there.
+Write `commands/<name>.md` with frontmatter matching the [command schema](../templates/command.schema.json). The installer writes a copy for each harness: the source body with each link made the absolute path of its target. It does not expand argument placeholders there.
 
-Claude Code and OpenCode pointers carry the description. The current Codex pointer does not, so the name must identify the action without relying on the description. Check [Harness](harness.md) for platform details.
+The Claude Code and OpenCode copies carry the description. The Codex copy does not, so the name must identify the action without relying on the description. Check [Harness](harness.md) for platform details.
 
 ## Write for an invocation already made
 
@@ -35,6 +35,6 @@ description: "CONTAINS: <instructions> PURPOSE: <result and typed inputs> ALWAYS
 
 ## Edit, convert and test
 
-Edit the source body; the next invocation reads it. Regenerate the pointer after changing the name or description, following [rbtv CLI](rbtv-cli.md). On conversion, replace argument placeholders with instructions to read invocation text and preserve each input in the description. Classify other content using [Choosing what to build](../choosing-what-to-build.md).
+Edit the source, then regenerate the installed copy, following [rbtv CLI](rbtv-cli.md). Until then an invocation reads the earlier body and description. On conversion, replace argument placeholders with instructions to read invocation text and preserve each input in the description. Classify other content using [Choosing what to build](../choosing-what-to-build.md).
 
 Test the name and description without revealing the body. A human should select it for the intended action, avoid it for a neighboring action and supply its inputs. Then run a complete invocation and one missing an input. Check the action and missing-input result. Validate the frontmatter separately; acceptance does not establish usability or behavior.

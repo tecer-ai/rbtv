@@ -9,10 +9,10 @@ You are about to write, edit, fix, or refactor code. Read the four references be
 
 | Reference | Governs |
 |---|---|
-| `3-resources/tools/rbtv/meta/code/references/no-dead-code.md` | nothing your change made unused is left behind |
-| `3-resources/tools/rbtv/meta/code/references/no-duplicate.md` | one authored source per fact and per behaviour |
-| `3-resources/tools/rbtv/meta/code/references/no-monolith.md` | one responsibility per file |
-| `3-resources/tools/rbtv/meta/code/references/no-patches.md` | a fix lands at the cause, never at the symptom |
+| [no-dead-code.md](../references/no-dead-code.md) | nothing your change made unused is left behind |
+| [no-duplicate.md](../references/no-duplicate.md) | one authored source per fact and per behaviour |
+| [no-monolith.md](../references/no-monolith.md) | one responsibility per file |
+| [no-patches.md](../references/no-patches.md) | a fix lands at the cause, never at the symptom |
 
 ## Rules that hold across all four
 

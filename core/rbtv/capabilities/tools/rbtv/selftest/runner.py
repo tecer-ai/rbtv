@@ -60,7 +60,7 @@ ORDER = [
     test_interactive.guided_flow,
     test_interactive.fumbled_answers_reask,
     test_interactive.zero_width_terminal,
-    test_hub.skills_folder_thin_loaded,
+    test_hub.skills_folder_copied_whole,
     test_hub.hub_alias,
     test_hub.hub_book_key_rewrite,
     test_ownership.the_marker_is_ownership,

@@ -13,9 +13,9 @@ the sibling components; this file carries only the order, the ownership map, and
 
 | Milestone | Goal | Recommended framework order | References live in |
 |---|---|---|---|
-| **M1 Conception** | Structure a raw idea into a comprehensive business concept | Working Backwards → Jobs-to-be-Done → Competitive Landscape → Problem-Solution Fit → Lean Canvas → Five Whys. Optional, when the market is crowded enough to warrant it: Benchmark Analysis and Product Landscape (folded in from the old product-discovery workflow) — run them after Competitive Landscape. | `3-resources/tools/rbtv/innovate/conception/references/` |
-| **M2 Validation** | Validate technical and financial feasibility | Leap of Faith → Assumption Mapping → TAM/SAM/SOM → Unit Economics → Technology Readiness Level → Pre-mortem. Optional, when a build follows: V1 Scoping (folded in from the old product-discovery workflow) — run it last, its output feeds product planning. | `3-resources/tools/rbtv/innovate/validation/references/` |
-| **M3 Brand** | Produce a comprehensive brand book | Brand Archetypes → Brand Prism → Golden Circle → Brand Positioning → Tone of Voice → Messaging Architecture → Brandbook | `3-resources/tools/rbtv/innovate/brand/references/` |
+| **M1 Conception** | Structure a raw idea into a comprehensive business concept | Working Backwards → Jobs-to-be-Done → Competitive Landscape → Problem-Solution Fit → Lean Canvas → Five Whys. Optional, when the market is crowded enough to warrant it: Benchmark Analysis and Product Landscape (folded in from the old product-discovery workflow) — run them after Competitive Landscape. | [conception/references/](../../conception/references/) |
+| **M2 Validation** | Validate technical and financial feasibility | Leap of Faith → Assumption Mapping → TAM/SAM/SOM → Unit Economics → Technology Readiness Level → Pre-mortem. Optional, when a build follows: V1 Scoping (folded in from the old product-discovery workflow) — run it last, its output feeds product planning. | [validation/references/](../../validation/references/) |
+| **M3 Brand** | Produce a comprehensive brand book | Brand Archetypes → Brand Prism → Golden Circle → Brand Positioning → Tone of Voice → Messaging Architecture → Brandbook | [brand/references/](../../brand/references/) |
 
 The order is RECOMMENDED, never enforced. It is the order in which each framework's inputs become
 available, so running it forward costs the least backtracking — but the founder may run any subset,

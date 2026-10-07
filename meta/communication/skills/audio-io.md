@@ -29,9 +29,9 @@ to repair that link only when the task is to maintain the older local link.
 
 | What | Where |
 |---|---|
-| the CLI | `3-resources/tools/rbtv/meta/communication/capabilities/tools/audio/audio.py` |
+| the CLI | [audio.py](../capabilities/tools/audio/audio.py) |
 | the ElevenLabs key | `ELEVENLABS_API_KEY` in the installation env file (`env_file` in `rbtv.json`) |
-| the language, for both directions | `3-resources/tools/rbtv/meta/communication/capabilities/tools/audio/config.json` |
+| the language, for both directions | [config.json](../capabilities/tools/audio/config.json) |
 
 Every verb prints ONE JSON object on stdout; refusals print `what / why / fix` on stderr and exit
 non-zero — **2** when the CLI refused locally (no key, unreadable input, unusable `--out`), **1**
@@ -81,6 +81,6 @@ directions at once — with the `language` verb; the change persists and the nex
 `tts` reads it.
 
 Flags are documented by the CLI itself — `<path> --help`, and `<path> <verb> --help` — and in
-`3-resources/tools/rbtv/meta/communication/capabilities/tools/audio/README.md`. This reference does not
+[README.md](../capabilities/tools/audio/README.md). This reference does not
 restate them, because the second copy is the one that goes stale.
 </reference>

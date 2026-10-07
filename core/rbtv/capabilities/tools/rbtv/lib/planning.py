@@ -3,7 +3,6 @@ would write.
 """
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from discovery import Refuse, SKILL_FILE, file_rows
@@ -22,6 +21,7 @@ from .constants import (
     OPENCODE_CONFIG_FILE,
     RULE_SECTION_HARNESSES,
     CODEX_PROJECT_DOC_MAX_BYTES,
+    SKILL_FOLDER_SKIP,
 )
 from .catalog import _file_specs
 from .content import (
@@ -48,14 +48,14 @@ def _installation_of(target: Path | None) -> Path | None:
 
 def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                target: Path | None = None
-               ) -> tuple[dict[str, str], dict[str, list], list[dict], dict]:
+               ) -> tuple[dict[str, str | bytes], dict[str, list], list[dict], dict]:
     """The COMPLETE set of whole files AND shared-file claims the installed set
     implies (D7). Every gate fires here, before any write — a refusal leaves
     zero files.
 
     Returns (rel -> content, rel -> owning component ids, claims, report).
     """
-    files: dict[str, str] = {}
+    files: dict[str, str | bytes] = {}
     owners: dict[str, list] = {}
     servers: dict[str, dict] = {}
     server_harnesses: set[str] = set()
@@ -64,11 +64,12 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
     hook_harnesses: set[str] = set()
     hook_owners: dict[str, list] = {}
     sections: list[dict] = []
-    report: dict = {"no_realization": [], "path_rows": [], "sub_agents_unset": []}
+    report: dict = {"no_realization": [], "skill_folders": [], "path_rows": [],
+                    "sub_agents_unset": []}
     codex_used = False
     installation = _installation_of(target)
 
-    def claim_file(rel: str, content: str, cid: str, pid: str) -> None:
+    def claim_file(rel: str, content: str | bytes, cid: str, pid: str) -> None:
         if rel in files and files[rel] != content:
             other = owners[rel][0]
             other_cid = other[0] if isinstance(other, tuple) else other
@@ -83,11 +84,11 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
         owners.setdefault(rel, []).append((cid, pid))
 
     def claim_skill_folder(comp: dict, cid: str, harnesses: list[str]) -> None:
-        """D15 — a `_skills/<name>/` skill installs as a thin loader per harness:
-        the skill's own frontmatter, verbatim (harness-specific keys survive),
-        and a body pointing at the source `SKILL.md`. The folder stays where it
-        is, so its relative files resolve from it and a `git pull` there takes
-        effect at once (owner ruling J1)."""
+        """D15 — a `_skills/<name>/` skill is copied whole into each harness's
+        skills folder. `SKILL.md` is the one file stamped (`_mark`), with its
+        own frontmatter kept (harness-specific keys survive); every other
+        member arrives byte for byte, so its relative files resolve inside the
+        copy."""
         comp_dir = Path(comp["path"])
         named = comp["component"]
         if named.startswith("rbtv-"):
@@ -99,17 +100,22 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                 str(comp_dir))
         source = comp_dir / SKILL_FILE
         text = source.read_text(encoding="utf-8")
-        head = re.match(r"---\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|$)", text, re.S)
-        if head is None:
+        if frontmatter.split(text)[0] is None:
             raise Refuse("file-invalid", f"{source}: no frontmatter", str(source))
-        body = (f"---\n{head.group(1)}\n---\n\n"
-                f"Read `{source.resolve()}` NOW and follow it as this skill's full "
-                "instructions. Relative paths in it resolve from its own folder, "
-                f"`{comp_dir.resolve()}`.\n")
-        rels = {MATRIX["skill"][h].format(name=named)
-                for h in harnesses if MATRIX["skill"].get(h)}
-        for rel in sorted(rels):
-            claim_file(rel, _mark(body), cid, named)
+        members: list[tuple[str, str | bytes]] = [(SKILL_FILE, _mark(text))]
+        for path in sorted(comp_dir.rglob("*")):
+            member = path.relative_to(comp_dir)
+            if (path.is_symlink() or not path.is_file() or path == source
+                    or any(part in SKILL_FOLDER_SKIP for part in member.parts)):
+                continue
+            members.append((member.as_posix(), path.read_bytes()))
+        roots = {MATRIX["skill"][h].rsplit("/", 1)[0].format(name=named)
+                 for h in harnesses if MATRIX["skill"].get(h)}
+        for root_rel in sorted(roots):
+            for member, body in members:
+                claim_file(f"{root_rel}/{member}", body, cid, named)
+        report["skill_folders"].append(
+            {"component": cid, "files": len(members), "roots": sorted(roots)})
 
     for cid in sorted(records):
         rec = records[cid]
@@ -157,7 +163,6 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                     "under that name would be deleted behind rbtv's "
                     "back. Rename the file (D12)",
                     str(comp_dir / entry_rel))
-            entry_abs = str((comp_dir / entry_rel).resolve())
             data = row["data"]
 
             if method == "agent":
@@ -165,6 +170,7 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                 # only for the harnesses its record holds a model and an effort for.
                 values = ((rec.get("selected") or {}).get(pid) or {}).get("sub_agent") or {}
                 written = [h for h in harnesses if h in values]
+                entry_abs = str((comp_dir / entry_rel).resolve())
                 if not written:
                     report["sub_agents_unset"].append(f"{cid}#{pid}")
                 for harness in written:
@@ -236,8 +242,7 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                     continue
                 rel = template.format(name=pid)
                 claim_file(rel, _content_for(
-                    rel, method, pid, desc, entry_abs, comp_dir, entry_rel,
-                    installation),
+                    rel, method, pid, desc, comp_dir, entry_rel, installation),
                     cid, pid)
 
     # ── D7/D12: shared-file claims, recomputed from the whole set ──

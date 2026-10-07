@@ -9,16 +9,16 @@ This file is the router for the HTML standards family. It states which siblings 
 Two production models exist. Do not flatten them.
 
 - **Agent-authored HTML** — the agent writes the HTML itself. V1 page-types: Review, Presentation.
-- **Schema + deterministic builder** — the agent writes markdown page-source to a schema; a builder renders it. The agent never writes HTML, CSS, or JS. V1 page-types: Learning, and the posh document pages (v1: the seat-plan dashboard — builder and profile live with `skills/posh.md`).
+- **Schema + deterministic builder** — the agent writes markdown page-source to a schema; a builder renders it. The agent never writes HTML, CSS, or JS. V1 page-types: Learning, and the posh document pages (v1: the seat-plan dashboard — builder and profile live with [posh.md](posh.md)).
 
 V1 page-types are exactly those four. Website, Dashboards, and UI/UX are named futures — no profile ships for them.
 
 ## Load contract
 
-1. ALWAYS load `html-quality.md`.
-2. Load `html-production.md` + `html-design-system.md` IFF the page-type uses agent-authored HTML.
-3. Load `html-page-<type>.md` for the page being made or reviewed.
-4. Load `html-charts.md` IFF the page contains a chart AND the type is agent-authored HTML.
+1. ALWAYS load [html-quality.md](../references/html-quality.md).
+2. Load [html-production.md](../references/html-production.md) + [html-design-system.md](../references/html-design-system.md) IFF the page-type uses agent-authored HTML.
+3. Load `html-page-<type>.md`, beside those files, for the page being made or reviewed.
+4. Load [html-charts.md](../references/html-charts.md) IFF the page contains a chart AND the type is agent-authored HTML.
 
 Stop at this contract. Load only what it names for the page in front of you.
 
@@ -28,12 +28,12 @@ Each child is a separate subject. Reach it through this router; none is a skill 
 
 | Request | Child |
 |---|---|
-| Make or review any HTML page | `html-quality.md` |
-| Make or review Review HTML | `html-production.md`, `html-design-system.md`, `html-page-review.md` |
-| Make or review Presentation HTML | `html-production.md`, `html-design-system.md`, `html-page-presentation.md` |
-| Make or review Learning HTML | `html-page-learning.md` |
-| Make or review a seat-plan dashboard | `skills/posh.md` |
-| Add or review a chart in agent-authored HTML | `html-charts.md` |
+| Make or review any HTML page | [html-quality.md](../references/html-quality.md) |
+| Make or review Review HTML | [html-production.md](../references/html-production.md), [html-design-system.md](../references/html-design-system.md), [html-page-review.md](../references/html-page-review.md) |
+| Make or review Presentation HTML | [html-production.md](../references/html-production.md), [html-design-system.md](../references/html-design-system.md), [html-page-presentation.md](../references/html-page-presentation.md) |
+| Make or review Learning HTML | [html-page-learning.md](../references/html-page-learning.md) |
+| Make or review a seat-plan dashboard | [posh.md](posh.md) |
+| Add or review a chart in agent-authored HTML | [html-charts.md](../references/html-charts.md) |
 
 A page-type file never restates a cross-type rule; it points here.
 

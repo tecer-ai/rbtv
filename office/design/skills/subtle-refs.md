@@ -24,7 +24,7 @@ own slice and none restates another's output.
 python tool/extract.py --url <URL> [--url <URL2> ...] --out <report.md> [--json-out <report.json>] [--headed]
 ```
 
-Full flag reference is the tool's own `--help` (`python tool/extract.py -h`) — this file does not
+Full flag reference is the tool's own `--help` (run [extract.py](../capabilities/subtle-refs/tool/extract.py) with `-h`) — this file does not
 restate it.
 
 ## Dependencies
