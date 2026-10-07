@@ -12,7 +12,17 @@ Use this page for their shared authoring method. Use the entry of the particular
 4. **Make the decisions usable.** Follow the framework's simplicity principle: settle task-independent choices, give a default for task-dependent choices, and state the conditions and evidence that change it. Name an exact detail when a wrong value fails the task. Do not present several equivalent methods and make each reader choose again.
 5. **Name tools for exact answers.** Apply [Deterministic first](../principles/deterministic-first.md). Give the tool and invocation needed for the step. Avoid relying exclusively on a tool available in only one harness when the instructions must run elsewhere.
 6. **Keep shared work in one place.** Reuse an existing capability rather than copying its instructions. When several cognitive units need the same new instructions, put them in a capability and name when each caller reads it. Keep one purpose; a separate independently useful result needs its own instructions.
-7. **Make findings actionable.** When the work produces a review or diagnosis, require the relevant passage or location, its consequence and the proposed correction. “This section is unclear” is not a finding a reader can act on.
+7. **Make findings actionable.** When the work produces a review or diagnosis, require the location of each finding, what is wrong there with its consequence, and the proposed correction. “This section is unclear” is not a finding a reader can act on. A review writes one row per finding and closes with one verdict line:
+
+   ```markdown
+   | Location | What is wrong | Rule broken | Correction |
+   |---|---|---|---|
+   | <file>:<line> | <the defect and its consequence> | <page>:<line> | <the replacement text or action> |
+
+   Verdict: <whether the reviewed work is accepted as it stands>
+   ```
+
+   The rule broken names the page and line of the rule the passage breaks.
 
 Apply [Scaffolding language](scaffolding-language.md) for wording and examples. Do not reteach a familiar domain merely to fill a section. Include facts needed to perform this particular work. State current instructions rather than date-triggered changes that a later reader must interpret.
 

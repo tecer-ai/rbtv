@@ -6,9 +6,11 @@ Keep rbtv's instructions and discovery routes accurate in the same change as its
 
 Keep each changed file's name and description aligned with its purpose and use. Update the component or module record when that purpose changes, and the repository README when it describes the affected behavior.
 
-Search current documentation for the affected names and behavior. When a field, file layout or operation changes, update its schema, glossary entry and inline template, capability guidance, framework route and standing decision wherever they describe the affected contract. Do not create another maintained explanation beside the owning page.
+Search current documentation for the affected names and behavior. When a field, file layout or operation changes, update its schema, glossary entry and inline template, capability guidance, framework route and standing decision wherever they describe the affected contract. Do not create another maintained explanation beside the owning page. Every shared term has exactly one glossary entry, in its owning component.
 
 For a new file kind, folder convention, field or shared term, obtain the owner's agreement before building it. Then define the term before another file uses it. Keep authoring instructions in its entry, or a capability for a routed method; include an inline template for a fixed-layout authored file and a separate schema when software checks fields. Add a direct route from the appropriate entry point and record the decision and reason in `decisions.md`. If a required design choice is missing, raise it with the owner rather than writing a placeholder.
+
+A decisions file holds standing decisions only, written as current: replace a superseded decision, do not append to it. [Component](../glossary/component.md) says where the file sits.
 
 ## Rename or remove
 
@@ -20,4 +22,4 @@ For a renamed installed file, each affected installation adds it under the new n
 
 For changed scanned records, verify installer acceptance with `rbtv add` or `rbtv update scaffolding`, following rbtv CLI. For unscanned capability prose, follow the owning page's content and behavior checks; component installation does not validate it.
 
-Search again for each changed name and the behavior it replaced. Confirm that current statements agree, required new terms have definitions, and links resolve. Raise inconsistencies outside the authorized change with the owner; do not silently widen the work to fix them.
+Search again for each changed name and the behavior it replaced. Confirm that current statements agree, required new terms have definitions, and links resolve. Raise every inconsistency found outside the authorized change with the owner; never fix it silently.

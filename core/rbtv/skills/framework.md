@@ -32,7 +32,7 @@ A skill, command, rule or folder-instructions file routes to capabilities, not t
 
 Apply the same routes in create, edit, review and convert modes; there is no separate page per mode. Read mandatory pages first. For conditional rows, match the work and honor the exclusion. If [Choosing what to build](../capabilities/methods/choosing-what-to-build.md) settles a different kind from the request's wording, follow the settled kind's row too.
 
-On create or conversion, start in the user's named module and component and use [Choosing where to build](../capabilities/methods/choosing-where-to-build.md) to check its boundary. Object only for a boundary violation. Editing an existing file does not reopen placement.
+On create or conversion, start in the user's named module and component and use [Choosing where to build](../capabilities/methods/choosing-where-to-build.md) to check its boundary. Object only for a boundary violation. An agent folder outside a component, such as a plan's or a project's agent, is placed by [Agent](../capabilities/glossary/agent.md), not by Choosing where to build. Editing an existing file does not reopen placement.
 
 If a required page is absent, report the missing path and stop that work. Do not substitute an older entry or build from this folder map alone. If no row covers the intended kind, ask for the missing definition rather than guessing.
 
@@ -51,6 +51,8 @@ Then read every matching conditional page:
 | File | CONTAINS | PURPOSE | ALWAYS LOAD WHEN | DO NOT LOAD WHEN |
 |---|---|---|---|---|
 | [rbtv CLI](../capabilities/glossary/rbtv-cli.md) | Recognition, generation and refresh commands | Validate and deliver source changes | creating or converting a file; changing the installer; reviewing or editing scanned source | only changing an unscanned capability body without renaming or moving it |
+| [Documenting a change](../capabilities/methods/documenting-a-change.md) | Pages, records and routes to update with a change, and the checks before it is done | Keep instructions and routes accurate with the source | any change lands in the repository, before it is called done | nothing is written yet |
+| [Building for Linux and Windows](../capabilities/methods/building-for-linux-and-windows.md) | Rules for encoding, line endings, executables, file attributes and names, and the run on both systems | Make a change run on Linux and Windows | writing or changing code, a tool, a test or an installer-scanned file | only prose changes |
 | [Choosing what to build](../capabilities/methods/choosing-what-to-build.md) | Choice of kind | Match the mechanism to the work | creating, reviewing or converting; editing when the current kind cannot support the required behavior | editing with the kind unchanged |
 | [Choosing where to build](../capabilities/methods/choosing-where-to-build.md) | Repository, mirror, module and component choice | Place work inside the right boundary | creating or converting | editing |
 | [Nested exposure](../capabilities/methods/nested-exposure.md) | Several capabilities under one exposure method | Group related methods without premature reading | one exposure method may route to multiple capabilities | only one capability is exposed |
@@ -103,6 +105,7 @@ Then read every matching conditional page:
 | [Schema](../capabilities/glossary/schema.md) | Validator constraints and actual callers | Enforce the record’s contract | writing or changing a schema or adding a record field | only filling an existing record |
 | [Template](../capabilities/glossary/template.md) | Layout and placeholders | Fill the required structure | writing or filling a page’s template |  |
 | [Principle](../capabilities/glossary/principle.md) | Cross-kind design tests | Settle recurring design choices | writing or changing a principle | only applying an existing principle |
+| [Testing Ignite](../../ignite/capabilities/methods/testing-ignite.md) | Ignite's testing method | Verify a change to Ignite before it is called done | changing any file under `core/ignite/` | only its glossary prose changes |
 | [Memory](../../ignite/capabilities/glossary/memory.md) | General and agent memory, writer boundaries and record checks | Preserve memory across Ignite turns | creating, editing, reviewing or converting any Ignite memory record | only ordinary agent settings change |
 | [Ignite configuration](../../ignite/capabilities/glossary/ignite-config.md) | Machine-local connections and consolidation settings | Configure Ignite through its actual validator | working with Ignite config.json | only agent.json changes |
 | [Board](../../ignite/capabilities/glossary/board.md) | Subjects, watch-outs and software-maintained fields | Maintain short-term agent memory | working with an Ignite board or its convention | only long-term records change |
