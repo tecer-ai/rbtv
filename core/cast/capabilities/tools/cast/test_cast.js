@@ -380,21 +380,109 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.match(res.stdout, /words are labels/i, 'help must say the words are labels only');
 }
 
-// doctor: exits 0, --json parses
+// doctor: cast's own data only. Hermetic: a scratch home, opencode store, installation and PATH, so
+// this machine's real logins and programs cannot decide an assertion, and the two programs on that
+// PATH (a fake claude and a fake rbtv) leave a marker if anything ever starts them.
 {
-  const res = spawnSync('node', [TOOL, 'doctor'], { encoding: 'utf8' });
-  assert.strictEqual(res.status, 0, 'doctor must exit 0');
-}
-{
-  const res = spawnSync('node', [TOOL, 'doctor', '--json'], { encoding: 'utf8' });
-  assert.strictEqual(res.status, 0, 'doctor --json must exit 0');
-  // doctor delegates to `acct doctor`: harnesses installed + providers enabled, one view
-  const parsed = JSON.parse(res.stdout);
-  const h = parsed.harnesses;
-  assert.ok(h && 'claude' in h && 'codex' in h && 'opencode' in h);
-  assert.ok(parsed.providers && 'claude' in parsed.providers);
-  assert.ok(parsed.installation, 'doctor --json names the installation');
-  assert.equal('workspace' in parsed, false);
+  const home = mkFolder('doctor-home');
+  const xdg = mkFolder('doctor-xdg');
+  const bin = mkFolder('doctor-bin');
+  const inst = mkFolder('doctor-inst');
+  const outside = mkFolder('doctor-outside');
+  const started = path.join(bin, 'started');
+  // Not installFake: its wrappers need node on PATH, and this PATH holds the scratch bin alone.
+  for (const name of ['claude', 'rbtv']) {
+    fs.writeFileSync(path.join(bin, `${name}.cmd`), `@echo ${name}> "${started}"\r\n`);
+    fs.writeFileSync(path.join(bin, name), `#!/bin/sh\necho ${name} > "${started}"\n`);
+    fs.chmodSync(path.join(bin, name), 0o755);
+  }
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', '.credentials.json'), '{}');
+  const claudeJson = path.join(home, '.claude.json');
+  fs.writeFileSync(claudeJson, JSON.stringify({ oauthAccount: {} }));
+  fs.mkdirSync(path.join(xdg, 'opencode'), { recursive: true });
+  fs.writeFileSync(path.join(xdg, 'opencode', 'auth.json'), JSON.stringify({ sakana: { type: 'api' } }));
+  fs.mkdirSync(path.join(inst, '.rbtv', 'config', 'env'), { recursive: true });
+  fs.writeFileSync(path.join(inst, '.rbtv', 'config', 'install.json'), '{}\n');
+  fs.writeFileSync(path.join(inst, '.rbtv', 'config', 'env', '.env'), 'KIMI_API_KEY=test-fake-not-real\n');
+  const env = { ...process.env, ...homeEnv(home), XDG_DATA_HOME: xdg, PATH: bin };
+  for (const provider of Object.values(require('./providers.json').providers)) delete env[provider.env_var];
+  env.DEEPSEEK_API_KEY = 'test-fake-not-real';
+  // node is started by its full path: the PATH under test holds the scratch bin and nothing else
+  const doctor = (args, cwd = inst) => spawnSync(process.execPath, [TOOL, 'doctor', ...args], { encoding: 'utf8', env, cwd });
+  const report = (cwd) => {
+    const res = doctor(['--json'], cwd);
+    assert.strictEqual(res.status, 0, `doctor --json must exit 0: ${res.stderr}`);
+    const parsed = JSON.parse(res.stdout);
+    return { parsed, login: Object.fromEntries(parsed.models.map((m) => [`${m.harness}/${m.model}`, m])) };
+  };
+
+  const { parsed, login } = report(inst);
+  assert.deepStrictEqual(Object.keys(parsed), ['installation', 'harnesses', 'models', 'next']);
+  assert.strictEqual(parsed.installation, fs.realpathSync(inst), 'doctor names the installation it read');
+  // harness programs: found on PATH with the path, or missing
+  assert.deepStrictEqual(Object.keys(parsed.harnesses), ['claude', 'codex', 'opencode']);
+  assert.strictEqual(parsed.harnesses.claude.ok, true);
+  assert.ok(path.basename(parsed.harnesses.claude.path).startsWith('claude'), parsed.harnesses.claude.path);
+  assert.deepStrictEqual(parsed.harnesses.codex, { ok: false, path: null });
+  assert.deepStrictEqual(parsed.harnesses.opencode, { ok: false, path: null });
+  // one row per selected model: every model cast can launch
+  const inv = JSON.parse(spawnSync('node', [TOOL, 'list', '--json'], { encoding: 'utf8' }).stdout);
+  const launchable = ['claude', 'codex', 'opencode'].flatMap((h) => Object.keys(inv[h]).map((m) => `${h}/${m}`));
+  assert.deepStrictEqual(Object.keys(login), launchable);
+  // claude: its login files are in the scratch home. codex: its login file is not.
+  assert.deepStrictEqual(login['claude/opus-5-5'],
+    { harness: 'claude', model: 'opus-5-5', provider: 'claude', login: true, reason: null });
+  assert.strictEqual(login['codex/gpt-6-luna'].login, false);
+  assert.ok(login['codex/gpt-6-luna'].reason.includes('~/.codex/auth.json'), login['codex/gpt-6-luna'].reason);
+  // the three places a key provider's login is looked for, one row each
+  assert.strictEqual(login['opencode/deepseek-v4-pro'].login, true, 'key variable in the OS environment');
+  assert.strictEqual(login['opencode/k3'].login, true, "key variable in the installation's environment file");
+  assert.strictEqual(login['opencode/fugu-ultra'].login, true, "the provider's entry in opencode's store");
+  // nowhere: missing, and the reason names what was looked for
+  assert.strictEqual(login['opencode/glm-5.3'].login, false);
+  assert.ok(login['opencode/glm-5.3'].reason.includes('ZHIPU_API_KEY'), login['opencode/glm-5.3'].reason);
+  assert.strictEqual(login['opencode/grok-4.7'].login, false);
+  // it ends with where accounts and usage are answered
+  assert.deepStrictEqual(parsed.next, ['rbtv providers list', 'rbtv providers usage']);
+
+  // the text report: the same facts, ending with the two rbtv providers commands
+  const text = doctor([]);
+  assert.strictEqual(text.status, 0, `doctor must exit 0: ${text.stderr}`);
+  assert.match(text.stdout, /^ {2}claude +found +\S/m);
+  assert.match(text.stdout, /^ {2}codex +missing$/m);
+  assert.match(text.stdout, /^ {2}opencode +k3 +kimi +present$/m);
+  assert.match(text.stdout, /^ {2}opencode +glm-5\.3 +zai +missing\n {6}.*ZHIPU_API_KEY/m);
+  assert.ok(text.stdout.includes(`installation: ${fs.realpathSync(inst)}`), text.stdout);
+  assert.ok(text.stdout.endsWith('\n  rbtv providers list\n  rbtv providers usage\n'), text.stdout);
+  // a key's value never reaches either report
+  assert.ok(!text.stdout.includes('test-fake-not-real') && !JSON.stringify(parsed).includes('test-fake-not-real'));
+
+  // outside an installation no environment file is read: the row it served is missing
+  const out = report(outside);
+  assert.strictEqual(out.parsed.installation, null);
+  assert.strictEqual(out.login['opencode/k3'].login, false);
+  assert.strictEqual(out.login['opencode/deepseek-v4-pro'].login, true);
+  assert.ok(doctor([], outside).stdout.includes('no installation found'));
+
+  // a login file that lacks the entry providers.json names is not a login
+  fs.writeFileSync(claudeJson, '{}');
+  const gap = report(inst).login['claude/opus-5-5'];
+  assert.strictEqual(gap.login, false);
+  assert.ok(gap.reason.includes('oauthAccount'), gap.reason);
+
+  // any word it does not take is refused in cast's form, with or without --json
+  for (const [args, named] of [[['gaming'], "'gaming'"], [['--nope'], "'--nope'"], [['--json', 'gaming'], "'gaming'"]]) {
+    const res = doctor(args);
+    assert.strictEqual(res.status, 2, `cast doctor ${args.join(' ')} must exit 2`);
+    assert.strictEqual(res.stdout, '', 'a refused doctor prints no report');
+    assert.ok(res.stderr.startsWith('cast: refused: ') && res.stderr.includes(named), res.stderr);
+    assert.ok(res.stderr.includes('Nothing was checked.') && res.stderr.trimEnd().endsWith('cast doctor -h'), res.stderr);
+  }
+  // -h beside another word is still help
+  assert.match(doctor(['--json', '-h']).stdout, /^usage: cast doctor \[--json\]/);
+
+  assert.ok(!fs.existsSync(started), `doctor started a program: ${fs.existsSync(started) && fs.readFileSync(started, 'utf8')}`);
 }
 
 // list --json: parses, matches SPECS keys, and carries effort_numbers + usage (additive)

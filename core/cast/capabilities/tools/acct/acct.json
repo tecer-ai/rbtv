@@ -1,5 +1,0 @@
-{
-  "name": "acct",
-  "description": "Parks provider logins in named slots, switches between them, and reports each account's plan windows and renewal times.",
-  "entry": "acct.py"
-}

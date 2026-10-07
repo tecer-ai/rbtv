@@ -1,15 +1,13 @@
 'use strict';
 
-// cast — shared primitives: argv parsing, model/effort/folder resolution, the model table, doctor + list.
+// cast — shared primitives: argv parsing, model/effort/folder resolution, the model table, list.
 // Split out of cast.js 2026-08-20 on the file's own section banners; the code below is
 // unchanged from that file. Every composed argv and every stdout surface stayed
 // byte-identical across the split (163-invocation corpus, both self-check suites).
 
 const fs = require('fs');
 const path = require('path');
-const { spawnSync } = require('child_process');
 const { SPECS, ROWS } = require('../supported-models');
-const { spawnable } = require('./win-exec');
 
 // CLI model names are short: the provider prefix and the `claude-` prefix are dropped
 // (`zai-coding-plan/glm-5.3` -> `glm-5.3`, `claude-opus-5-5` -> `opus-5-5`). SPECS stays keyed by
@@ -184,28 +182,6 @@ function suggest(input, candidates) {
     }
   }
   return best;
-}
-
-// Both halves live in acct — `doctor` (harnesses installed + providers enabled) and `usage`
-// (what is left on each) — so cast doctor runs them rather than keeping a second copy of either.
-// `usage` hits the network; it is the slow half of this command.
-function runDoctor(args) {
-  const json = args.includes('--json');
-  const run = (sub) => {
-    const win = spawnable('acct', [sub, ...(json ? ['--json'] : [])]);
-    const res = spawnSync(win.cmd, win.args, { ...win.opts, encoding: 'utf8' });
-    if (res.error) fail('doctor needs `acct` on PATH — it owns the harness/provider inventory');
-    if (res.status !== 0) fail(`acct ${sub} failed:\n${(res.stderr || res.stdout).trim()}`);
-    return res.stdout;
-  };
-  const doctor = run('doctor');
-  const usage = run('usage');
-  if (json) {
-    process.stdout.write(`${JSON.stringify({ ...JSON.parse(doctor), usage: JSON.parse(usage) })}\n`);
-  } else {
-    process.stdout.write(`${doctor.trimEnd()}\n\nusage now\n${usage.replace(/^/gm, '  ').trimEnd()}\n`);
-  }
-  process.exit(0);
 }
 
 // The words of `cast list`: which list (--models, --agents, or --agent NAME), --full for whole
@@ -384,6 +360,6 @@ module.exports = {
   fail, HARNESSES, USAGE, USAGE_IG,
   RESUME_USAGE, SESSIONS_USAGE, KNOWN_FLAGS, detachMarks,
   refuseIfDetached, effortMap, modelTable, buildInventory, EFFORT_RULE, effortNumbers,
-  suggest, runDoctor, listArgs, runList, resolveEffort, resolveEffortValue,
+  suggest, listArgs, runList, resolveEffort, resolveEffortValue,
   parseArgs, resolveFolder, refuseIfNotLaunchable, lookupModel, resolveModel,
 };

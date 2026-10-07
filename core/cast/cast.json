@@ -1,5 +1,5 @@
 {
-  "description": "cast: launches an agent on any harness and model, opens an agent for a person (spark), routes a task to the right model, and manages the provider accounts the harnesses run on.",
+  "description": "cast: launches an agent on any harness and model, opens an agent for a person (spark), routes a task to the right model, and reports which harness programs and provider logins this machine has.",
   "dependencies": [
     "node"
   ]

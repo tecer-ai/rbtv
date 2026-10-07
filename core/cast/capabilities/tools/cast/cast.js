@@ -10,7 +10,8 @@
 const { agentFilePrompt, rbtvAgent, takeAgentFlags } = require('./lib/agent');
 const { runAgentList } = require('./lib/agent-list');
 const { runApi } = require('./lib/api');
-const { USAGE, USAGE_IG, fail, listArgs, parseArgs, resolveEffort, resolveEffortValue, resolveFolder, resolveModel, runDoctor, runList } = require('./lib/core');
+const { USAGE, USAGE_IG, fail, listArgs, parseArgs, resolveEffort, resolveEffortValue, resolveFolder, resolveModel, runList } = require('./lib/core');
+const { runDoctor } = require('./lib/doctor');
 const { printHelp, verbHelpPages } = require('./lib/help');
 const { SYSTEM_WRAPPER, launch, runResume } = require('./lib/launch');
 const { loadOptional } = require('./lib/optional');
@@ -31,7 +32,14 @@ function main(rawArgv) {
     process.stdout.write(`${PAGES[rawArgv[0]].join('\n')}\n`);
     process.exit(0);
   }
-  if (rawArgv[0] === 'doctor') return runDoctor(rawArgv.slice(1));
+  if (rawArgv[0] === 'doctor') {
+    const rest = rawArgv.slice(1);
+    if (rest.includes('-h') || rest.includes('--help')) {
+      process.stdout.write(`${PAGES.doctor.join('\n')}\n`);
+      process.exit(0);
+    }
+    return runDoctor(rest);
+  }
   if (rawArgv[0] === 'list') {
     const rest = rawArgv.slice(1);
     if (rest.includes('-h') || rest.includes('--help')) {

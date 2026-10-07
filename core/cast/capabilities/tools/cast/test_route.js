@@ -538,6 +538,26 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
   }
 }
 
+// --- a row whose provider cannot be looked up is refused by name ----------------------------------
+// The check above keeps the shipped rows sound; this arm keeps the failure readable if one ever is
+// not: one line naming the row, exit 2, never a program error with a stack.
+{
+  const probe = (row) => spawnSync(process.execPath, ['-e',
+    `require(${JSON.stringify(path.join(__dirname, 'lib', 'route.js'))}).isAvailable(${JSON.stringify(row)}, null)`],
+  { encoding: 'utf8', env: ENV });
+  for (const [row, provider] of [
+    [{ harness: 'opencode', model: 'no-such-model', provider: 'no-such-provider' }, 'no-such-provider'],
+    [{ harness: 'opencode', model: 'no-such-model', provider: 'claude' }, 'claude'],
+  ]) {
+    const res = probe(row);
+    assert.strictEqual(res.status, 2, `expected a refusal, got ${res.status}: ${res.stderr}`);
+    assert.strictEqual(res.stderr.trimEnd().split('\n').length, 1, `one line, got: ${res.stderr}`);
+    assert.ok(res.stderr.startsWith('cast: refused: supported-models.js row opencode/no-such-model '), res.stderr);
+    assert.ok(res.stderr.includes(`'${provider}'`) && res.stderr.includes('providers.json'), res.stderr);
+  }
+  assert.strictEqual(probe({ harness: 'claude', model: 'opus-5-5', provider: 'claude' }).status, 0);
+}
+
 // --- where a login is looked for -------------------------------------------------------------------
 // Its own scratch installation, table and opencode store, so each source is the ONLY thing that
 // can make a row available: the installation's env file, or the provider's entry in the store.

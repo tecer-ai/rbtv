@@ -39,11 +39,17 @@ top-level keys: `effort_numbers` — `{harness: {model: {word: number}}}`, each 
 smallest number that selects it (`glm-5.3` → `{"high":1,"max":2}`; a model with no dial → `{}`) —
 and `usage`, which says to pass the NUMBER as `<effort>` because the launch path accepts only the
 integer. The rung words are labels, never values a bare launch takes.
-`cast doctor` is the pre-launch view: which harness binaries are on `PATH`, which providers are
-enabled behind them, and what is left on each. It runs `acct doctor` + `acct usage`, which own
-those answers, so it needs `acct` on `PATH` — and it hits the network for the usage half.
-`cast doctor --json` merges both: `{installation, harnesses: {name: {ok, path}},
-providers: {name: {enabled, via, slots, active}}, usage: [...]}`.
+`cast doctor` is the pre-launch view of cast's own data: which harness programs are on `PATH`, and,
+for each selected model (every model `cast list --models` shows), whether the login of its provider
+is present. For claude and codex that is the login files the harness keeps in the home folder; for
+every other provider it is the key variable in the OS environment or in the installation's
+environment file, or the provider's entry in opencode's store, as `providers.json` says. It reads
+local files and the environment only: no network call, no other program started, and no key, token
+or account name printed. A present login is not proof that the account has credit left: the report
+ends with `rbtv providers list` and `rbtv providers usage`, which answer for accounts, saved logins
+and plan usage. `cast doctor --json` prints `{installation, harnesses: {name: {ok, path}},
+models: [{harness, model, provider, login, reason}], next: [command, ...]}`. It takes `--json` and
+nothing else: any other word is refused at exit 2.
 
 ## Effort mapping (1-5 → the harness's own ladder)
 
@@ -469,7 +475,8 @@ runs in.
 | `capabilities/tools/cast/providers.json` | the providers: login method, key variable, credential-store entry per harness, saved-login files, usage source |
 | `capabilities/tools/cast/lib/installation.js` | the installation a launch belongs to (first folder upward holding `.rbtv/config/install.json`) and its environment file |
 | `capabilities/tools/cast/models.csv` | the routing table — level, scores, cost, image. Owner-editable; overridable per vault. Lives beside this tool so routing does not depend on any other tree |
-| `capabilities/tools/cast/lib/core.js` | shared primitives: argv parsing, model/effort/folder resolution, the model table, `doctor`, `list` |
+| `capabilities/tools/cast/lib/core.js` | shared primitives: argv parsing, model/effort/folder resolution, the model table, `list` |
+| `capabilities/tools/cast/lib/doctor.js` | `cast doctor`: harness programs on `PATH` and the login of each selected model, from local files only |
 | `core/ignite/capabilities/tools/ignite/turn.js` | `ignite turn` — exact session id, resume with the requested model/effort, result file |
 | `capabilities/tools/cast/lib/handles.js` | the launch-handle registry — the one observable a watcher uses to find a run again |
 | `capabilities/tools/cast/lib/launch.js` | spawn, `cast resume` |

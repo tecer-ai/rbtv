@@ -100,13 +100,18 @@ function readJson(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
 }
 
+// providers.json writes a path under the user's home folder with a leading `~`.
+function expandHome(file) {
+  return file.replace(/^~(?=\/|$)/, os.homedir());
+}
+
 // A harness that keeps its own credential store has an entry in providers.json `stores`, keyed by
 // the harness name. Presence of the provider's key in that file IS the login — cast never spends
 // a call to test availability.
 function storePath(harness) {
   const store = STORES[harness];
   if (!store) return null;
-  const base = process.env[store.base_env] || store.base_default.replace(/^~(?=\/|$)/, os.homedir());
+  const base = process.env[store.base_env] || expandHome(store.base_default);
   return path.join(base, store.path);
 }
 
@@ -118,10 +123,16 @@ function storedCredential(harness, key) {
 }
 
 // What a row's login check can look at: the provider's key variable (when it has one) and the
-// provider's entry in the harness's own store (when the harness keeps one).
+// provider's entry in the harness's own store (when the harness keeps one). A row that names a
+// provider providers.json does not hold, or a harness that provider does not list, is a broken
+// table: refused by name, because no login can be looked up for it.
 function loginSources(spec) {
   const provider = PROVIDERS[spec.provider];
-  return { envVar: provider.env_var, storeKey: provider.harnesses[spec.harness].store_key };
+  const harness = provider && provider.harnesses[spec.harness];
+  if (!harness) {
+    fail(`refused: supported-models.js row ${spec.harness}/${spec.model} names provider '${spec.provider}', which providers.json does not list for harness '${spec.harness}'`);
+  }
+  return { envVar: provider.env_var, storeKey: harness.store_key };
 }
 
 // Availability: an explicit `available: false` drops the row. A row with nothing to look at (a
@@ -641,7 +652,7 @@ function runRoute(rawArgv) {
 module.exports = {
   ROUTE_USAGE, ROUTE_FORMS, CSV_NAME, CSV_LOCAL, CSV_OVERRIDE_REL, COLUMNS, CLASSES,
   ACCESS, TYPES, OPTIMIZE, CAPS,
-  readJson, storePath, storedCredential, isAvailable, unavailableReason,
+  readJson, expandHome, storePath, storedCredential, isAvailable, unavailableReason,
   parseCsv, csvPath, loadCsv, joinCatalog,
   scoreOf, pick, selectRoute, runCatalog, parseRouteArgs, validateRequest, runRoute,
   AGENT_KEYS, readBatchInput, batchAgents, validateAgent, runBatch,
