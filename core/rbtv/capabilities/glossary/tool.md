@@ -6,7 +6,7 @@ Use a tool when a step needs an operation performed or an exact result calculate
 
 ## Files and interface
 
-Put the program and its record in `capabilities/tools/<tool>/`. Use [tool-json.schema.json](../templates/tool-json.schema.json) for its fields; the record names the executable and supplies its name and one-line listing description. If it has not already been read for this task, read [Building a command-line interface](../../../../meta/code/capabilities/methods/building-a-cli.md) when designing the commands, help, structured output or color behavior.
+Put the program and its record in `capabilities/tools/<tool>/`. Use [Tool record](tool-json.md) for its fields; the record names the executable and supplies its name and one-line listing description. If it has not already been read for this task, read [Building a command-line interface](../../../../meta/code/capabilities/methods/building-a-cli.md) when designing the commands, help, structured output or color behavior.
 
 Start with the invocation the calling step will use and the result it needs. Return that result as a named field on standard output of that invocation. Do not bury it in a sentence or require an extra output flag the caller was never told to pass. For example, `date-cmp FILE` can return `match true`. Use the structured form specified through Building a command-line interface when the caller needs several fields.
 

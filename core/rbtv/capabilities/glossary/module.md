@@ -14,7 +14,7 @@ The record is the boundary's owner. Do not duplicate it in an index, a glossary 
 
 ## Build and update
 
-Write the module record using [module-json.schema.json](../templates/module-json.schema.json) and the first [Component](component.md) in the same change. A folder containing only the record and no component is skipped by discovery. Use [rbtv CLI](rbtv-cli.md) for validation behavior.
+Write the module record using [Module record](module-json.md) and the first [Component](component.md) in the same change. A folder containing only the record and no component is skipped by discovery. Use [rbtv CLI](rbtv-cli.md) for validation behavior.
 
 Do not add a file whose sole purpose is listing components. A decisions file is optional and records actual standing decisions, not another boundary definition.
 

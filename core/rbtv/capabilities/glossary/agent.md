@@ -11,6 +11,7 @@ An agent folder contains:
 - `prompt.md`: the prompt; its body starts at the first line.
 - `agent.json`: the record, with the agent's name, which equals the folder name, its description and any installation selections. Follow [Agent record](agent-json.md) when writing or changing the record.
 - `task.md`: the task of an agent launched once with no supplier delivering one, such as a plan agent or any agent built for one task. An agent whose launcher supplies each task has no `task.md`. Write the file using [Task](task.md).
+- `settings.json`: the job-specific values the agent's tasks use, machine-local and kept out of git. Write it using [Agent settings](settings-json.md).
 
 A component ships an agent folder as `agents/<name>/`. Any other agent folder may sit anywhere, such as a plan's `agents/` folder.
 
