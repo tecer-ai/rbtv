@@ -404,7 +404,7 @@ New facts cite only the supplied owner conversations with (YYYY-MM-DD · agent/[
 Rules: - [correction] Rule. Why: reason. (date · agent/[thread](URL)); inferred rules use [inferred] and TWO distinct conversations in that tail.
 Retain existing facts unless an explained replacement or archive accounts for them. Report conflicting rules/claims in conflicts. reportedConflicts lists conflicts included in earlier digests; do not rephrase or report them again.
 Shorten board subjects only by preserving every old state line in a subject topic, reason detail, to that topic, keeping a ../memory/<slug>.md Detail link. Exact copied state may cite the relative board path as preservation, never as evidence for a new claim or rule.
-Do not add/close subjects, change titles, Threads, Flags, Timers, or invent watch-outs/Recently closed. Never edit agent.md or source code.
+Do not add/close subjects, change titles, Threads, Flags, Timers, or invent watch-outs/Recently closed. Never edit prompt.md or source code.
 Use existing file forms. Profile <=4000 characters; learned <=30 rules; board <=90 nonempty lines excluding Timers, <=8 subjects/6 watch-outs/6 closed.
 Topics/entities/knowledge/workspaces <=3000 characters: YAML description: when ..., type and aliases, heading, dated bullets. Agent topic types subject/procedure/reference.
 General knowledge files are knowledge/{facts,preferences,decisions,self,health}.md. Entities are entities/{people,orgs,places,devices}/<slug>.md.

@@ -266,7 +266,7 @@ def sub_agents(ctx) -> None:
     src = tmp / "sa-source"
     comp = _component(src, "moda", "comp")
     _file_md(comp / "skills/plain.md", "plain", "Plain", "body\n")
-    _w(comp / "agents/named/agent.md", "---\nname: named\n---\n\nNamed.\n")
+    _w(comp / "agents/named/prompt.md", "---\nname: named\n---\n\nNamed.\n")
     _w(comp / "agents/named/agent.json", json.dumps({
         "name": "named", "description": "Named.", "harness": "claude", "model": "m1"}) + "\n")
     bad, _ = scan_all(tmp / "sa-mirror", src)
@@ -305,7 +305,7 @@ def sub_agents(ctx) -> None:
           refusal is not None and refusal.code == "agent-source-retired"
           and refusal.message.endswith("an agent is no longer shipped as one file in "
                                        "sub-agents/. Ship it as the folder agents/old/ "
-                                       "with agent.md and agent.json"),
+                                       "with prompt.md and agent.json"),
           str(refusal and refusal.message))
 
     print("\nSA — a record written before this schema")

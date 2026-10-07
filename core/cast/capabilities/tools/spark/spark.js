@@ -60,7 +60,7 @@ const HELP = [
   '',
   'Harness, model and effort are read from the agent\'s agent.json. To',
   'change them: rbtv agent configure AGENT',
-  'spark sets RBTV_AGENT_HOME to the agent folder. It hands agent.md to',
+  'spark sets RBTV_AGENT_HOME to the agent folder. It hands prompt.md to',
   'the model without its frontmatter.',
   '',
   '--target FOLDER',
@@ -146,7 +146,7 @@ function findAgent(value, target) {
     return null;
   }
   if (read.problem === 'prompt') {
-    refuse(`the agent \`${value}\` has no agent.md`, read.why, 'restore that file, then run spark again.');
+    refuse(`the agent \`${value}\` has no prompt.md`, read.why, 'restore that file, then run spark again.');
     return null;
   }
   return read.agent;

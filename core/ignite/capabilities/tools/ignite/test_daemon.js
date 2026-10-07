@@ -74,7 +74,7 @@ function workspace() {
   fs.writeFileSync(path.join(home, 'agent.json'), JSON.stringify({
     harness: 'claude', model: 'sonnet-5-5', effort: 'low',
   }));
-  fs.writeFileSync(path.join(home, 'agent.md'), '---\nname: master\n---\n', 'utf8');
+  fs.writeFileSync(path.join(home, 'prompt.md'), '---\nname: master\n---\n', 'utf8');
   fs.mkdirSync(path.dirname(boardPath(home)), { recursive: true });
   fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
   fs.mkdirSync(path.join(home, 'memory'));
@@ -1205,7 +1205,7 @@ test('launch-json-drives-preflight', async () => {
   fs.writeFileSync(path.join(side, 'agent.json'), JSON.stringify({
     harness: 'missing-side', model: 'm', effort: 'low',
   }));
-  fs.writeFileSync(path.join(side, 'agent.md'), '---\nname: side\n---\n', 'utf8');
+  fs.writeFileSync(path.join(side, 'prompt.md'), '---\nname: side\n---\n', 'utf8');
   const empty = fs.mkdtempSync(path.join(dir, 'empty-'));
   const child = spawn(process.execPath, [daemonPath, '--installation', dir], {
     env: { ...process.env, IGNITE_DAEMON_FAKE: '1', PATH: empty },
@@ -1227,6 +1227,34 @@ test('launch-json-drives-preflight', async () => {
     assert.equal(stdout.includes('"event":"ready"'), false);
     assert.match(stderr, /harness not on PATH: missing-home/);
     assert.match(stderr, /harness not on PATH: missing-side/);
+  } finally {
+    if (child.exitCode == null) child.kill('SIGKILL');
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a folder still holding the old prompt name is logged at start, once, with the rename command', async () => {
+  const { dir } = workspace();
+  const old = path.join(dir, '.rbtv', 'agents', 'old');
+  fs.mkdirSync(old, { recursive: true });
+  fs.writeFileSync(path.join(old, 'agent.json'), JSON.stringify({ harness: 'claude', model: 'm', effort: 'low' }));
+  fs.writeFileSync(path.join(old, 'agent.md'), '---\nname: old\n---\n', 'utf8');
+  const empty = fs.mkdtempSync(path.join(dir, 'empty-'));
+  const child = spawn(process.execPath, [daemonPath, '--installation', dir], {
+    env: { ...process.env, IGNITE_DAEMON_FAKE: '1', PATH: empty },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  child.stdout.setEncoding('utf8').on('data', (chunk) => { stdout += chunk; });
+  try {
+    await new Promise((resolve) => child.once('exit', resolve));
+    const home = path.join(fs.realpathSync(dir), '.rbtv', 'agents', 'old');
+    const logged = stdout.split('\n').filter(Boolean).map((line) => JSON.parse(line)).filter((line) => line.slug === 'old');
+    assert.deepEqual(logged.map(({ event, slug, message }) => ({ event, slug, message })), [{
+      event: 'error',
+      slug: 'old',
+      message: `${path.join(home, 'prompt.md')} is missing. This folder still has agent.md, the old name of the prompt file. If another machine already renamed it, pull first; otherwise rename it with: git mv agent.md prompt.md (inside ${home}), and change any .gitignore line that names agent.md.`,
+    }]);
   } finally {
     if (child.exitCode == null) child.kill('SIGKILL');
     fs.rmSync(dir, { recursive: true, force: true });
@@ -1418,7 +1446,7 @@ linuxOnly('route-after-start', 'the stopped service keeps its database open whil
     fs.writeFileSync(path.join(home, 'agent.json'), JSON.stringify({
       harness: 'claude', model: 'sonnet-5-5', effort: 'low',
     }));
-    fs.writeFileSync(path.join(home, 'agent.md'), '---\nname: probe\n---\n', 'utf8');
+    fs.writeFileSync(path.join(home, 'prompt.md'), '---\nname: probe\n---\n', 'utf8');
     setRoutes(dir, { CNEW: 'probe' });
     const saved = await box.socket.inject(mention('CNEW'));
     assert.equal(saved.queued, true);

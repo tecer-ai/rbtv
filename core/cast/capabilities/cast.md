@@ -9,7 +9,7 @@ turn into an existing session.
 
 ```
 cast --agent AGENT (-p TEXT | -f FILE) [--headed] [--dry-run]
-cast <harness> <model> <effort 1-5> [launch-folder] (-p TEXT | -f FILE) [-s TEXT | -S FILE | --rogue FILE] [--headed] [--dry-run]
+cast <harness> <model> <effort 1-5> [launch-folder] (-p TEXT | -f FILE) [-s TEXT | -S FILE | --rogue PROMPT-FILE] [--headed] [--dry-run]
 cast resume <harness> <session-id|last> [launch-folder] (-p TEXT | -f FILE) [--dry-run]
 cast sessions [harness] [launch-folder] [--json] [-n N]
 ignite turn --request FILE --result FILE
@@ -98,7 +98,7 @@ are per-invocation, not per-session. The resumed session keeps its own model/eff
 `--headed` are refused. `-n` caps `sessions` PER HARNESS (default 10), newest first; `--json` gives
 `[{harness, id, started, label}]`. The label is human-readable session identity: opencode's stored
 `title`; for claude/codex a ≤60-char excerpt of the first real user message (injected `<...>`
-wrapper blocks skipped) — for cast-launched sessions that is the `-p` prompt itself. Known ceiling: two same-harness sessions launched into the same folder
+wrapper blocks skipped) — for cast-launched sessions that is the `-p` task itself. Known ceiling: two same-harness sessions launched into the same folder
 in the same minute are distinguishable only by trying them — no id is captured at birth (codex and
 opencode only surface theirs inside their `--json` output streams, which cast passes through
 untouched). `ignite turn` is the exception: it returns an exact id for that invocation (see below).
@@ -106,20 +106,21 @@ untouched). `ignite turn` is the exception: it returns an exact id for that invo
 
 ## Agent launches (`--agent`, `--rogue`)
 
-`cast --agent AGENT (-p TEXT | -f FILE)` runs an agent folder: a folder that contains both `agent.md` and
+`cast --agent AGENT (-p TEXT | -f FILE)` runs an agent folder: a folder that contains both `prompt.md` and
 `agent.json`. AGENT is a name, looked up as `<installation>/.rbtv/agents/AGENT/` from the current
 folder upward, or a path to the folder (a value containing `/` or `\`, or `.` or `..`, relative to
 the current folder). The folder is the working folder. `agent.json` gives the harness, model and
 effort, all three required (effort as the model's own word, such as `high`, never a number; a
 record without one is refused); none of them may be given on the command line:
 that is refused, and the refusal names `rbtv agent configure AGENT` as the way to change them.
-`agent.md` is the system prompt, handed to the model without its frontmatter. The launch sets
+`prompt.md` is the system prompt, handed to the model without its frontmatter. The launch sets
 `RBTV_AGENT_HOME` to the agent folder for the harness process. A folder that contains only one of the two
-files is refused by name, so a broken agent is never launched half-read. A launch takes no
+files is refused by name, so a broken agent is never launched half-read; a folder that holds
+`agent.md` in place of `prompt.md` is refused with the `git mv` command that renames it. A launch takes no
 `--target`: that option belongs to `cast list`, and an agent outside `.rbtv/agents/` is launched by
 its path.
 
-`--rogue FILE` runs a rogue agent file that is not an agent folder: the file's body, without its
+`--rogue PROMPT-FILE` runs a rogue agent file that is not an agent folder: the file's body, without its
 frontmatter, is the system prompt, and the launch folder is the usual one. It sets no
 `RBTV_AGENT_HOME`. Harness, model and effort are always given on the command line for `--rogue`.
 
@@ -138,7 +139,7 @@ The system prompt rides each harness's strongest channel, the same as `-s TEXT`/
   The text above is your system-prompt directive for this run — it rides this first message
   because your harness carries no system prompt. The user's message follows:
 
-  <prompt>
+  <task>
   ```
 
 `-s`/`-S` cannot be combined with `--agent`/`--rogue`. Every Codex launch also passes
@@ -200,7 +201,7 @@ takes), and spark hands cast that agent's folder, since a launch takes no `--tar
 
 - `--dry-run` prints the cast command and launches nothing; `--dry-run --json` prints one JSON value
   with `agent`, `home` and `cast`. A real launch ignores `--json`.
-- Refusals, exit 1: no agent by that name or path, `agent.json` unreadable or missing, `agent.md`
+- Refusals, exit 1: no agent by that name or path, `agent.json` unreadable or missing, `prompt.md`
   missing, `cast` not on PATH, or an unknown option.
 
 `spark list [AGENT]` shows the agents spark can open by name, or one of them in full: the list of
@@ -216,7 +217,7 @@ of FOLDER.
 ## Execution
 
 The child is spawned with `cwd = <launch-folder>` for every harness (the `--cd`/`--work-dir` flags
-are belt-and-braces on the harnesses that have them). The (possibly descriptor-prepended) prompt is
+are belt-and-braces on the harnesses that have them). The (possibly descriptor-prepended) task is
 written to the child's stdin and stdin is then closed. Stdout/stderr are inherited. `cast`
 exits with the child's exit code.
 
@@ -490,25 +491,25 @@ CLI rows. Rows are addressed by short name, never by provider.
 cast api <model> <effort 1-5> (-p TEXT | -f FILE) --output-folder DIR [--image [--input-image PATH ...]] [--target-file PATH] [--timeout N] [--grounded] [--extra-params JSON] [--dry-run]
 ```
 
-`-p TEXT` and `-f FILE` (alias `--prompt-file`) are mutually exclusive; `-p` writes the prompt to
-`<output-folder>/prompt.md` so it sits beside the result it produced. Effort 1–5 maps onto the
+`-p TEXT` and `-f FILE` (alias `--prompt-file`) are mutually exclusive; `-p` writes the task to
+`<output-folder>/task.md` so it sits beside the result it produced. Effort 1–5 maps onto the
 provider's reasoning knob where one exists (gemini `thinkingBudget`, 1 = off). A caller-supplied
 `--extra-params` is merged, not replaced. `--dry-run` prints the composed subprocess argv as JSON
 `{argv, cwd, effort_word}` and exits 0 with no spawn, no network, and nothing written to disk.
 
-**`--image`** is the image-generation path: the prompt goes in, image FILES come out into
+**`--image`** is the image-generation path: the task goes in, image FILES come out into
 `--output-folder`. It asks for no JSON envelope and parses none — the model's inline image parts
 ARE the return, written as `image-1.png`, `image-2.jpg`, … A run that comes back with no inline
 image data is `DONE_WITH_NOTES`, never a clean `DONE`. `--image` and `--grounded` are refused
 together: they are two incompatible return surfaces.
 
-**`--input-image PATH`** (repeatable) sends an EXISTING image file IN alongside the prompt —
+**`--input-image PATH`** (repeatable) sends an EXISTING image file IN alongside the task —
 "edit this picture", "restyle this logo", "use this as reference" — instead of only text-to-image.
 Requires `--image`; refused without it. Each path must exist and be readable, and its extension
 must be one of `png`/`jpg`/`jpeg`/`webp`/`gif` — anything else is refused rather than guessed at.
 The runner (`run.py`) reads each file, base64-encodes it, and builds the user message as a
 provider-neutral part list (`clients/base.py Message.content`, already typed to allow it): a text
-part carrying the prompt, then one image part per `--input-image`, in the order given. Only
+part carrying the task, then one image part per `--input-image`, in the order given. Only
 `clients/gemini.py` translates that list onto Google's wire shape (`inlineData` with `mimeType` +
 `data`) — `run.py` itself stays provider-agnostic. With no `--input-image`, the message stays a
 plain string exactly as before — zero behaviour change on the existing text-to-image and text-only
@@ -543,7 +544,7 @@ runs in.
 | `core/ignite/capabilities/tools/ignite/turn.js` | `ignite turn` — exact session id, resume with the requested model/effort, result file |
 | `capabilities/tools/cast/lib/handles.js` | the launch-handle registry — the one observable a watcher uses to find a run again |
 | `capabilities/tools/cast/lib/launch.js` | spawn, `cast resume` |
-| `capabilities/tools/cast/lib/agent.js` | `--agent` / `--rogue`: find the agent folder, read `agent.json` and `agent.md`. The one place that knows where an agent's folder is (`<installation>/.rbtv/agents/<name>`), which agents a `--target FOLDER` names, what counts as a path, and how the record is read: spark, the agent list and Ignite load it |
+| `capabilities/tools/cast/lib/agent.js` | `--agent` / `--rogue`: find the agent folder, read `agent.json` and `prompt.md`. The one place that knows where an agent's folder is (`<installation>/.rbtv/agents/<name>`), which agents a `--target FOLDER` names, what counts as a path, and how the record is read: spark, the agent list and Ignite load it |
 | `capabilities/tools/cast/lib/agent-list.js` | `cast list --agents`: the agents a name can reach, as a table, labeled blocks, or JSON; the one list, which `spark list` and `rbtv agent list` also show |
 | `capabilities/tools/spark/spark.js` | `spark AGENT`: the terminal handoff, a thin layer over `cast --agent`; `spark list`: the list of `lib/agent-list.js` (its tests: `test_spark.js`) |
 | `capabilities/tools/cast/lib/sessions.js` | the per-harness session-store readers and `cast sessions` |

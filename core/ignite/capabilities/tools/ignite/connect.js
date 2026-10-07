@@ -3,7 +3,7 @@
 // API — ignite connect | disconnect. run(command, argv, flags, deps) → Promise<exit code>.
 // flags.installation / flags.json / flags.help come from cli.js parseGlobal.
 // deps.slack stubs Slack. deps.afterChannel() runs after the route write and before the bot joins.
-// The agent must already be installed (agent.md and agent.json). Config must already exist; this does not create it.
+// The agent must already be installed (prompt.md and agent.json). Config must already exist; this does not create it.
 // Slack tokens come from slackToken(config, …) and are never printed.
 // A re-run reuses the channel already routed; config.json is the only record of a connection.
 // disconnect removes routes and dmAgent, optionally archives the channel, and cancels timers.
@@ -53,7 +53,7 @@ does not write that file. See ${RUNBOOK}.
 
 Steps, in order:
   1. rbtv agent add AGENT --pack ignite
-     Turns the pack on. Units already recorded stay. A unit listed
+     Turns the pack on. Files already recorded stay. A file listed
      by two packs counts once.
   2. Create working files if missing. An existing board is not
      overwritten.
@@ -115,7 +115,7 @@ rule as connect. ignite does not copy an agent.
 
 Pack off runs:
   rbtv agent remove AGENT --pack ignite
-This command does not remove the agent. To remove units by name:
+This command does not remove the agent. To remove files by name:
   rbtv agent remove AGENT NAME
 
 The installation is found by walking up from the current folder to
@@ -247,7 +247,7 @@ function requireInstalled(config, raw, command) {
     fail(`agent ${agent} is not installed (no folder at ${home}).\nAdd it with: rbtv agent add ${agent} --harness HARNESS --model MODEL --effort EFFORT\nNothing changed.`);
   }
   if (!isAgentFolder(home)) {
-    fail(`agent ${agent} is not installed (needs agent.md and agent.json at ${home})`);
+    fail(`agent ${agent} is not installed (needs prompt.md and agent.json at ${home})`);
   }
   return resolved;
 }
@@ -284,8 +284,8 @@ function installerResult(result) {
   fail((result.stderr || result.stdout || 'rbtv agent failed').trim());
 }
 
-// The installer's JSON carries the units after the change and the units it added or removed; the
-// count before it is the difference. Every unit is counted once, packs' units included.
+// The installer's JSON carries the files after the change and the files it added or removed; the
+// count before it is the difference. Every file is counted once, packs' files included.
 async function setIgnitePack(verb, home, workspace, dryRun, deps) {
   const args = ['agent', verb, home, '--pack', 'ignite', '--json'];
   if (dryRun) args.push('--dry-run');
@@ -420,7 +420,7 @@ function connectPlan(opts, home, schedule, pack) {
     `connect: ${opts.agent}`,
     `home: ${home}`,
     'pack: ignite',
-    `units: ${pack.before}${pack.after === pack.before ? '' : ` -> ${pack.after}`}`,
+    `files: ${pack.before}${pack.after === pack.before ? '' : ` -> ${pack.after}`}`,
     'working files: would create',
     opts.dm ? 'channel: none (dm)' : `channel: ${opts['channel-name']}`,
     `schedule: ${schedule ? `${schedule.cadence} ${schedule.timezone}` : 'none'}`,
@@ -483,14 +483,14 @@ async function connectAgent(opts, flags, deps) {
     }
     ({ scheduleId, warning } = await bindSchedule({ config, opts, home, schedule, channel }));
   } catch (error) {
-    const details = [`failed: Slack, after the pack and the working files`, `units: ${pack.before}${pack.after === pack.before ? '' : ` -> ${pack.after}`}`, 'pack: ignite', runtimeText(created)];
+    const details = [`failed: Slack, after the pack and the working files`, `files: ${pack.before}${pack.after === pack.before ? '' : ` -> ${pack.after}`}`, 'pack: ignite', runtimeText(created)];
     details.push(`Slack failed: ${error.message}`, 'The pack and the working files stay.',
       channel ? `The route ${channel.id} stays and will be reused.` : 'No route was written.',
       `Rerun: ignite connect ${agent}${opts.dm ? ' --dm' : ` --channel-name ${opts['channel-name']}`}`);
     fail(details.join('\n'));
   }
   const link = channel ? `https://slack.com/app_redirect?channel=${channel.id}&team=${config.slack.team}` : null;
-  const lines = [`connected ${opts.agent}`, 'pack: ignite', `units: ${pack.before}${pack.after === pack.before ? '' : ` -> ${pack.after}`}`, runtimeText(created)];
+  const lines = [`connected ${opts.agent}`, 'pack: ignite', `files: ${pack.before}${pack.after === pack.before ? '' : ` -> ${pack.after}`}`, runtimeText(created)];
   if (opts.dm) {
     lines.push('channel: none (dm)', `dmAgent: ${opts.agent}`);
   } else {
@@ -520,7 +520,7 @@ async function disconnectAgent(opts, flags, deps) {
     const pack = await setIgnitePack('remove', home, workspace, true, deps);
     emit(deps, flags, {
       dryRun: true, agent: opts.agent, home, routes, dm, archive: opts.archiveChannel, writes: 'none',
-    }, `dry-run\ndisconnect: ${opts.agent}\nhome: ${home}\nroutes: ${routes.join(', ') || 'none'}\ndm: ${dm}\narchive: ${opts.archiveChannel}\npack: ignite\nunits: ${pack.before}${pack.after === pack.before ? '' : ` -> ${pack.after}`}\nwrites: none\n`);
+    }, `dry-run\ndisconnect: ${opts.agent}\nhome: ${home}\nroutes: ${routes.join(', ') || 'none'}\ndm: ${dm}\narchive: ${opts.archiveChannel}\npack: ignite\nfiles: ${pack.before}${pack.after === pack.before ? '' : ` -> ${pack.after}`}\nwrites: none\n`);
     return 0;
   }
   const archived = [];
@@ -542,7 +542,7 @@ async function disconnectAgent(opts, flags, deps) {
   const pack = await setIgnitePack('remove', home, workspace, false, deps);
   emit(deps, flags, {
     disconnected: opts.agent, archived, timers, home, kept: true, ...(warning ? { warning } : {}),
-  }, `disconnected ${opts.agent}\nroutes: ${routes.length ? `removed ${routes.join(', ')}` : 'none'}\ndmAgent: ${dm ? 'cleared' : 'unchanged'}\narchived: ${opts.archiveChannel ? archived.join(', ') || 'none' : 'no'}\ntimers: ${timers.join(', ') || 'none'}\npack: ignite ${wasOn ? 'off' : 'already off'}\nunits: ${pack.before}${pack.after === pack.before ? '' : ` -> ${pack.after}`}\nhome: kept\n${warning ? `${warning}\n` : ''}`);
+  }, `disconnected ${opts.agent}\nroutes: ${routes.length ? `removed ${routes.join(', ')}` : 'none'}\ndmAgent: ${dm ? 'cleared' : 'unchanged'}\narchived: ${opts.archiveChannel ? archived.join(', ') || 'none' : 'no'}\ntimers: ${timers.join(', ') || 'none'}\npack: ignite ${wasOn ? 'off' : 'already off'}\nfiles: ${pack.before}${pack.after === pack.before ? '' : ` -> ${pack.after}`}\nhome: kept\n${warning ? `${warning}\n` : ''}`);
   return 0;
 }
 

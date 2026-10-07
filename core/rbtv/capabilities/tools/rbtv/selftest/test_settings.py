@@ -509,7 +509,7 @@ def file_selection_sync(ctx) -> None:
     agent_root = home("ws-files-fence-agent-root")
     agent = agent_root / ".rbtv/agents/scout"
     agent.mkdir(parents=True)
-    (agent / "agent.md").write_text("---\nname: scout\n---\n\nScout.\n",
+    (agent / "prompt.md").write_text("---\nname: scout\n---\n\nScout.\n",
                                      encoding="utf-8")
     (agent / "agent.json").write_text(json.dumps({
         "name": "scout", "description": "Scout.", "harness": "codex",

@@ -17,7 +17,7 @@ Before adding a file, check that boundary. A different file kind does not make a
 | Content | Folder |
 |---|---|
 | Skills, rules and commands | `skills/`, `rules/`, `commands/` |
-| Agents | `agents/<name>/`, containing `agent.md` and `agent.json` |
+| Agents | `agents/<name>/`, containing `prompt.md` and `agent.json` |
 | Hooks, MCP servers and packs | `hooks/`, `mcp-servers/`, `packs/` |
 | Guidance shipped into other folders | `folder-instructions/` |
 | Methods, principles and glossary entries | `capabilities/`, with the glossary in `capabilities/glossary/` |

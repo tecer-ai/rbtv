@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "agent frontmatter",
-  "description": "discovery.py and agents.py validate agent.md frontmatter with this schema. Prompt authoring and its body template are in ../glossary/prompt.md.",
+  "title": "prompt frontmatter",
+  "description": "discovery.py and agents.py validate prompt.md frontmatter with this schema. Prompt authoring and its body template are in ../glossary/prompt.md.",
   "type": "object",
   "required": [
     "name"

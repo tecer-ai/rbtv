@@ -7,7 +7,7 @@
 //   (recovery) before the next claim. ignite turn cwd is realpath(home). Same harness + stored
 //   session id resumes that id; a harness change or no id starts a new session and the prompt
 //   carries stored history and work state. Every cast request includes systemPromptFile
-//   <home>/agent.md (absolute). This file does not read or require CLAUDE.md.
+//   <home>/prompt.md (absolute). This file does not read or require CLAUDE.md.
 //   failRun enqueues the one blocker — this file does not.
 // DEFAULT_HISTORY_WINDOW — re-exported for callers
 
@@ -44,7 +44,7 @@ function isAudio(file) {
 // stops the turn here.
 function readAgent(home) {
   const read = castAgent.readAgent(home);
-  if (read.problem) throw fail(`agent.json: ${read.why}`, 'agent');
+  if (read.problem) throw fail(read.problem === 'launch' ? `agent.json: ${read.why}` : read.why, 'agent');
   const { harness, model, effort, voice } = read.agent;
   return { harness, model, effort, voice };
 }
@@ -310,7 +310,7 @@ async function execute(slug, claim, deps) {
     effort: setting.effort,
     cwd: home,
     prompt,
-    systemPromptFile: path.join(home, 'agent.md'),
+    systemPromptFile: path.join(home, castAgent.PROMPT_MD),
     session,
     env: {
       RBTV_AGENT_HOME: home,

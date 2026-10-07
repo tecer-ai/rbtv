@@ -1,6 +1,6 @@
 # `settings.json`
 
-`settings.json` holds the job-specific values an agent’s tasks use, beside `agent.md` and [agent.json](agent-json.md). It is configuration data, not a [cognitive unit](cognitive-unit.md).
+`settings.json` holds the job-specific values an agent’s tasks use, beside `prompt.md` and [agent.json](agent-json.md). It is configuration data, not a [cognitive unit](cognitive-unit.md).
 
 Add a value when a current task needs it and it changes independently of the prompt. Do not repeat a value already owned by the prompt, agent record or another configuration file. Group values by tool or concern, with one top-level key for each.
 

@@ -6,7 +6,7 @@
 //   agentList(from, target)  the nearest `.rbtv/agents/` folder from `from` upward, or the folder
 //                          `target` names (lib/agent.js `targetAgents`), and its agents
 //   agentRow(agent)        an agent read by lib/agent.js as one row of the list
-//   agentInFull(agent)     that row, with the packs and units the installer records in the agent
+//   agentInFull(agent)     that row, with the packs and files the installer records in the agent
 //   listLines(list)        the list as text: a table, or one labeled block per agent when the
 //                          terminal is too narrow for the table or whole descriptions are asked
 //   agentLines(row)        one agent as a labeled block with its whole description
@@ -26,8 +26,8 @@ const GAP = 2;
 // Below this many columns for the description, each agent is a labeled block instead.
 const MIN_DESCRIPTION = 20;
 
-// The kinds of unit the installer records in an agent, under the installer's own type names, and
-// the label each is shown with. A pack is a named list of such units.
+// The kinds of file the installer records in an agent, under the installer's own type names, and
+// the label each is shown with. A pack is a named list of such files.
 const KINDS = [['skill', 'Skills'], ['rule', 'Rules'], ['command', 'Commands'], ['mcp-server', 'MCP servers'],
   ['hook', 'Hooks']];
 // The most rows one `rbtv list` call returns.
@@ -38,13 +38,13 @@ function agentRow(agent) {
   return { name: path.basename(home), description, harness, model, effort, ignite, home };
 }
 
-// The names in `units`, by kind: `{skill: [...], rule: [...], ...}`.
-function byKind(units) {
-  return Object.fromEntries(KINDS.map(([type]) => [type, units.filter((unit) => unit.type === type).map((unit) => unit.id)]));
+// The names in `files`, by kind: `{skill: [...], rule: [...], ...}`.
+function byKind(files) {
+  return Object.fromEntries(KINDS.map(([type]) => [type, files.filter((file) => file.type === type).map((file) => file.id)]));
 }
 
 // What is installed in the agent at `home`, under the names `rbtv show` takes: each pack that is on
-// with the units it installs, then, by kind, the units installed outside a pack. Only the installer
+// with the files it installs, then, by kind, the files installed outside a pack. Only the installer
 // knows it, since it reads rbtv's source catalog and what each pack lists, so this asks it:
 // `rbtv list --installed --target HOME`. `problem` says why there is no answer.
 function installedIn(home) {
@@ -61,14 +61,14 @@ function installedIn(home) {
     offset += page.returned;
     if (!page.returned || offset >= page.total) break;
   }
-  const units = rows.filter((row) => row.type !== 'pack');
+  const files = rows.filter((row) => row.type !== 'pack');
   const listedBy = (pack) => new Set(pack.files ?? []);
   const packs = rows.filter((row) => row.type === 'pack');
   const inAPack = new Set(packs.flatMap((pack) => pack.files ?? []));
   return {
     installed: {
-      pack: packs.map((pack) => ({ name: pack.id, ...byKind(units.filter((unit) => listedBy(pack).has(unit.id))) })),
-      ...byKind(units.filter((unit) => !inAPack.has(unit.id))),
+      pack: packs.map((pack) => ({ name: pack.id, ...byKind(files.filter((file) => listedBy(pack).has(file.id))) })),
+      ...byKind(files.filter((file) => !inAPack.has(file.id))),
     },
   };
 }
@@ -159,12 +159,12 @@ function agentLines(row, width = terminalWidth()) {
     lines.push('Outside a pack:');
     for (const text of kindTexts(row.installed, true)) lines.push(...wrap(text, width, '  '));
     // With the agent's folder as target, `rbtv show` answers for this agent; without it, for the
-    // installation, where the same unit may not be installed.
+    // installation, where the same file may not be installed.
     const target = /\s/.test(row.home) ? `"${row.home}"` : row.home;
     lines.push('', `More about a pack: rbtv show --pack NAME --target ${target}`,
       `More about any other name: rbtv show NAME --target ${target}`);
   } else if (row.installed_problem) {
-    lines.push('', ...wrap(`Installed packs and units: not shown. ${row.installed_problem}`, width));
+    lines.push('', ...wrap(`Installed packs and files: not shown. ${row.installed_problem}`, width));
   }
   return lines;
 }
@@ -172,7 +172,7 @@ function agentLines(row, width = terminalWidth()) {
 function listLines({ folder, agents }, { full = false, width = terminalWidth() } = {}) {
   if (!folder) return ['rbtv agents: 0', '', 'No .rbtv/agents/ folder was found from the current folder upward.'];
   const lines = [`rbtv agents: ${agents.length}`, `Folder: ${folder}`, ''];
-  if (!agents.length) return [...lines, 'No agent found. An agent folder holds agent.md and agent.json.'];
+  if (!agents.length) return [...lines, 'No agent found. An agent folder holds prompt.md and agent.json.'];
   const ready = agents.filter((row) => !row.problem);
   for (const row of agents) if (row.problem) lines.push(`${row.name}: cannot be launched: ${row.problem}`);
   if (!ready.length) return lines;

@@ -45,10 +45,10 @@ def _fixture(root: Path, mirror: Path) -> None:
              "# the command\n")
     _file_md(good / "rules/fixrule.md", "fixrule", "the fixture rule",
              "# THE RULE\n\nAlways do the thing.\n")
-    _w(good / "agents/fixagent/agent.md", "---\nname: fixagent\n---\n\n## Role\n\nthe agent\n")
+    _w(good / "agents/fixagent/prompt.md", "---\nname: fixagent\n---\n\n## Role\n\nthe agent\n")
     _w(good / "agents/fixagent/agent.json", json.dumps({
         "name": "fixagent", "description": "The fixture agent"}) + "\n")
-    _w(good / "agents/research/agent.md", "---\nname: research\n---\n\nResearch.\n")
+    _w(good / "agents/research/prompt.md", "---\nname: research\n---\n\nResearch.\n")
     _w(good / "agents/research/agent.json", json.dumps({
         "name": "research", "description": "The fixture research agent",
         "files": ["fixskill"], "packs": []}) + "\n")

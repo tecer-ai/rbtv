@@ -1,6 +1,6 @@
 # rbtv
 
-This repository is rbtv's source: the modules and components that `rbtv` (the rbtv CLI, `core/rbtv/capabilities/tools/rbtv/install.py`) exposes to a target folder by managing its units. To learn what rbtv is and how its folders are laid out, read `core/rbtv/skills/framework.md`.
+This repository is rbtv's source: the modules and components that `rbtv` (the rbtv CLI, `core/rbtv/capabilities/tools/rbtv/install.py`) exposes to a target folder by managing its files. To learn what rbtv is and how its folders are laid out, read `core/rbtv/skills/framework.md`.
 
 ## Hard Rule — Build and Document Every Change
 
@@ -8,7 +8,7 @@ Before creating, changing, renaming, or deleting anything in this repository —
 
 ## Hard Rule — rbtv Content Must Be General
 
-rbtv ships to any user; an installation is one instance of it. Every unit, capability, and tool here MUST be usable by any user and MUST NOT contain anything specific to one installation: no hardcoded installation, vault, or host paths, no client or project names, no build-time task IDs or hypothesis/decision markers. Per-installation inputs (a project's reference set, an output location, a Slack identity) are resolved at runtime from configuration — never written into the file. Content that belongs to one installation only is built in that installation's `.rbtv/mirror/`, never here (`core/rbtv/capabilities/choosing-what-to-build.md`).
+rbtv ships to any user; an installation is one instance of it. Every file, capability, and tool here MUST be usable by any user and MUST NOT contain anything specific to one installation: no hardcoded installation, vault, or host paths, no client or project names, no build-time task IDs or hypothesis/decision markers. Per-installation inputs (a project's reference set, an output location, a Slack identity) are resolved at runtime from configuration — never written into the file. Content that belongs to one installation only is built in that installation's `.rbtv/mirror/`, never here (`core/rbtv/capabilities/choosing-what-to-build.md`).
 
 When carrying a file INTO this repository from an archive or an installation:
 
@@ -36,4 +36,4 @@ Every new or edited rbtv command-line tool follows the `cli-creator` skill (`met
 
 ## Installed is a subset
 
-An installation carries only the units its user selected, chosen just in time, so a unit missing from an installation is normal, not a defect. Check what is installed with `rbtv list --installed` before treating anything as missing.
+An installation carries only the files its user selected, chosen just in time, so a file missing from an installation is normal, not a defect. Check what is installed with `rbtv list --installed` before treating anything as missing.

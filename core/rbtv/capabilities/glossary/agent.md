@@ -1,6 +1,6 @@
 # Agent
 
-An agent is a model at an effort, a harness and scaffolding, launched with a task. For an rbtv agent, `agent.json` holds the model, effort and harness, and the scaffolding is its prompt (`agent.md`) plus the files and packs `agent.json` selects. [Scaffolding](scaffolding.md) includes the prompt and other material the agent receives; the harness itself is not scaffolding.
+An agent is a model at an effort, a harness and scaffolding, launched with a task. For an rbtv agent, `agent.json` holds the model, effort and harness, and the scaffolding is its prompt (`prompt.md`) plus the files and packs `agent.json` selects. [Scaffolding](scaffolding.md) includes the prompt and other material the agent receives; the harness itself is not scaffolding.
 
 Use an agent when work needs a separate context and a standing prompt must support different tasks. The description must let a caller select the agent and supply its task without first reading the prompt.
 
@@ -8,7 +8,7 @@ Use an agent when work needs a separate context and a standing prompt must suppo
 
 An agent folder contains:
 
-- `agent.md`: the prompt, with name-only frontmatter matching the folder name.
+- `prompt.md`: the prompt, with name-only frontmatter matching the folder name.
 - `agent.json`: the record, with the same name, its description and any installation selections. Follow [Agent record](agent-json.md) when writing or changing the record.
 
 A component ships an agent folder as `agents/<name>/`. Any other agent folder may sit anywhere, such as a plan's `agents/` folder.
@@ -17,8 +17,8 @@ Write the prompt using [Prompt](prompt.md). A shipped record contains no harness
 
 | Placement | Prompt read by the model | Installation selections |
 |---|---|---|
-| rbtv agent | `agent.md` in the agent folder, which is the working folder. A shipped agent added by name is first copied to `.rbtv/agents/<name>/` | The record's files and packs are installed in that folder |
-| Harness sub-agent | The generated harness file points to source `agent.md` and copies the description | The record's selections are not installed; the sub-agent uses what the target already has |
+| rbtv agent | `prompt.md` in the agent folder, which is the working folder. A shipped agent added by name is first placed in `.rbtv/agents/<name>/` | The record's files and packs are installed in that folder |
+| Harness sub-agent | The generated harness file points to source `prompt.md` and copies the description | The record's selections are not installed; the sub-agent uses what the target already has |
 
 An agent folder may be anywhere and is addressed by its path. A name without a path resolves under `.rbtv/agents/`. For an rbtv-agent placement, the installer supplies missing launch settings and a generated pointer to the prompt in folder instructions.
 
@@ -43,7 +43,7 @@ List installation selections only for the rbtv-agent placement. The prompt must 
 
 ## Edit, convert and test
 
-Keep the folder name, prompt frontmatter and record name equal on renaming. Edit the authoritative source. Regenerate a harness-sub-agent placement after changing the description; its pointer reads source-body edits directly. An rbtv-agent launch reads `agent.md` in its folder. A shipped agent added by name is placed in `.rbtv/agents/<name>/` and runs from there: after changing the component's source, edit the placed files or remove the agent and add it again. See [rbtv CLI](rbtv-cli.md) for the operation.
+Keep the folder name, prompt frontmatter and record name equal on renaming. Edit the authoritative source. Regenerate a harness-sub-agent placement after changing the description; its pointer reads source-body edits directly. An rbtv-agent launch reads `prompt.md` in its folder. A shipped agent added by name is placed in `.rbtv/agents/<name>/` and runs from there: after changing the component's source, edit the placed files or remove the agent and add it again. See [rbtv CLI](rbtv-cli.md) for the operation.
 
 For an outside agent, put its standing instructions in the prompt and its description in the record. Keep model settings, permissions and tool configuration out of prompt prose; classify other content through Choosing what to build.
 

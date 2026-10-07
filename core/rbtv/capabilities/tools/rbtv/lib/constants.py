@@ -48,6 +48,7 @@ WS_PREFIX = "ws:"
 
 STATE_REL = Path(".rbtv") / "config" / "install.json"
 AGENT_RECORD = Path("agent.json")
+PROMPT_FILE = Path("prompt.md")
 # D14: the per-clone ignore file git reads beside .gitignore - never committed,
 # so one machine's artifact list never overwrites another's.
 EXCLUDE_REL = ".git/info/exclude"

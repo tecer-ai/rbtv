@@ -136,7 +136,7 @@ function harness(ctx, setting = {}) {
   fs.mkdirSync(home, { recursive: true });
   const launch = { harness: 'claude', model: 'sonnet-5-5', effort: 'low', voice: 'voice-a', ...setting };
   fs.writeFileSync(path.join(home, 'agent.json'), `${JSON.stringify(launch)}\n`);
-  fs.writeFileSync(path.join(home, 'agent.md'), '---\nname: master\n---\n', 'utf8');
+  fs.writeFileSync(path.join(home, 'prompt.md'), '---\nname: master\n---\n', 'utf8');
   fs.writeFileSync(path.join(home, 'board.md'), TEST_BOARD, 'utf8');
   fs.mkdirSync(path.dirname(boardPath(home)), { recursive: true });
   fs.writeFileSync(boardPath(home), TEST_BOARD, 'utf8');
@@ -296,7 +296,7 @@ test('owner retry clears it', async (ctx) => {
 test('request carries systemPromptFile', async (ctx) => {
   const box = harness(ctx);
   const home = fs.realpathSync(box.home);
-  const agentMd = path.join(home, 'agent.md');
+  const agentMd = path.join(home, 'prompt.md');
   fs.writeFileSync(agentMd, 'STANDING_SECRET\n');
   assert.equal(fs.existsSync(path.join(box.home, 'CLAUDE.md')), false);
   seed(box.store, { text: 'hello' });
@@ -794,6 +794,21 @@ test('a record cast would not launch stops the turn: no effort value', async (ct
   box.sync();
   const result = await runOnce('master', box.deps);
   assert.equal(result.failure.scope, 'agent');
+  const { error } = box.store.db.prepare('SELECT error FROM runs WHERE id=?').get(result.runId);
+  assert.equal(error, `agent.json: ${path.join(box.home, 'agent.json')} names no harness, model or effort`);
+  assert.equal(seen(box).length, 0, 'nothing was launched');
+});
+
+test('a folder still holding the old prompt name stops the turn with the rename command', async (ctx) => {
+  const box = harness(ctx);
+  seed(box.store);
+  fs.renameSync(path.join(box.home, 'prompt.md'), path.join(box.home, 'agent.md'));
+  box.sync();
+  const result = await runOnce('master', box.deps);
+  assert.equal(result.failure.scope, 'agent');
+  const { error } = box.store.db.prepare('SELECT error FROM runs WHERE id=?').get(result.runId);
+  const home = box.home;
+  assert.equal(error, `${path.join(home, 'prompt.md')} is missing. This folder still has agent.md, the old name of the prompt file. If another machine already renamed it, pull first; otherwise rename it with: git mv agent.md prompt.md (inside ${home}), and change any .gitignore line that names agent.md.`);
   assert.equal(seen(box).length, 0, 'nothing was launched');
 });
 

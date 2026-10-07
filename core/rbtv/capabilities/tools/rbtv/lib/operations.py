@@ -39,9 +39,9 @@ from .state import (
     read_state,
     upgrade_book,
     write_state,
-    is_agent_target,
     state_path,
 )
+from .target import is_agent_target
 from .planning import plan_files
 from .recovery import shell_quote, vanished_component_message
 from .apply import _clean_bases, _prune, apply
@@ -242,7 +242,7 @@ def _files_for_cid(cid: str, parts: list[str] | None) -> list[str] | None:
 def _scaffold_rbtv(target: Path) -> None:
     """An installation's `.rbtv/` holds its mirror folder, created empty on the
     first real run. A component that writes operational data or memory creates
-    its own folder when it first writes. An installed agent's folder (agent.md
+    its own folder when it first writes. An installed agent's folder (prompt.md
     beside agent.json) is not an installation and gets none."""
     if is_agent_target(target):
         return

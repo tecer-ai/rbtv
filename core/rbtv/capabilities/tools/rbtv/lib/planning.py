@@ -31,8 +31,8 @@ from .content import (
     _opencode_mcp_entry,
     sub_agent_content,
 )
-from .state import _wanted_files, is_agent_target
-from .target import discover_installation
+from .state import _wanted_files
+from .target import discover_installation, is_agent_target
 from .recovery import vanished_component_message
 
 

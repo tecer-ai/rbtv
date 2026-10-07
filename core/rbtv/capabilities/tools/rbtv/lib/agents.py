@@ -13,6 +13,7 @@ from . import frontmatter, schema, subagents
 from .catalog import check_packs, pack_files
 from .claims import _block_del
 from .constants import (AGENT_RECORD, AGENT_SECTION_LABEL, EFFORT_INERT, GUIDANCE_FILE, HARNESSES, MATRIX,
+                        PROMPT_FILE,
                         SHARED_FILE_DESTINATIONS)
 from .files_key import files_key
 from .fsio import write_file
@@ -77,11 +78,24 @@ def resolve_agent(root: Path, raw: str) -> Path:
         raise Refuse("agent-folder-invalid", f"{home} is not an agent folder")
     if not (home / AGENT_RECORD).is_file():
         raise _refuse("agent-json-missing", f"no agent.json in {home}. An agent folder holds "
-                      "agent.md and agent.json.", "rbtv agent add -h", str(home))
-    if not (home / "agent.md").is_file():
-        raise _refuse("agent-md-missing", f"no agent.md in {home}. An agent folder holds "
-                      "agent.md and agent.json.", "rbtv agent add -h", str(home))
+                      f"{PROMPT_FILE} and agent.json.", "rbtv agent add -h", str(home))
+    require_prompt(home)
     return home
+
+
+def require_prompt(home: Path) -> None:
+    """Refuse an agent folder without its prompt file. A folder that still
+    holds the file under its old name gets the rename command."""
+    if (home / PROMPT_FILE).is_file():
+        return
+    old = "agent.md"
+    message = f"{home / PROMPT_FILE} is missing."
+    if (home / old).is_file():
+        message += (f" This folder still has {old}, the old name of the prompt file. If another "
+                    "machine already renamed it, pull first; otherwise rename it with: "
+                    f"git mv {old} {PROMPT_FILE} (inside {home}), and change any .gitignore "
+                    f"line that names {old}.")
+    raise _refuse("prompt-missing", message, "rbtv agent add -h", str(home))
 
 
 def unplaced_shipped_agent(root: Path, raw: str, catalog: dict) -> dict | None:
@@ -95,12 +109,13 @@ def unplaced_shipped_agent(root: Path, raw: str, catalog: dict) -> dict | None:
 
 
 def _agent_front(home: Path) -> dict:
-    path = home / "agent.md"
+    require_prompt(home)
+    path = home / PROMPT_FILE
     try:
         front, _body = frontmatter.split(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError) as exc:
         raise Refuse("agent-file-unreadable", f"cannot read {path}: {exc}", str(path)) from exc
-    problems = schema.errors(front or {}, schema.load("agent"))
+    problems = schema.errors(front or {}, schema.load("prompt"))
     if problems:
         raise Refuse("agent-file-invalid", f"{path}: " + "; ".join(problems), str(path))
     return front
@@ -134,10 +149,10 @@ def _checked_agent(home: Path, state: dict) -> dict:
         raise Refuse("agent-record-invalid", "agent.json is missing " + ", ".join(missing)
                      + ". Add those fields, then retry", str(home / AGENT_RECORD))
     front = _agent_front(home)
-    names = {"folder": home.name, "agent.md": front["name"], "agent.json": state["name"]}
+    names = {"folder": home.name, "prompt": front["name"], "agent.json": state["name"]}
     if len(set(names.values())) != 1:
         raise _refuse("agent-name-mismatch", "the three names disagree.\n"
-                      f"folder name:  {names['folder']}\nagent.md:     {names['agent.md']}\n"
+                      f"folder name:  {names['folder']}\n{PROMPT_FILE}:    {names['prompt']}\n"
                       f"agent.json:   {names['agent.json']}",
                       "make the three names the same, then retry the same command", str(home))
     problems = schema.errors({key: state[key] for key in required}, schema.load("agent-json"))
@@ -281,7 +296,7 @@ def _agent_section(home: Path, harness: str, dry: bool) -> list[str]:
     path = home / GUIDANCE_FILE[harness]
     from .claims import _block_set
     text = path.read_text(encoding="utf-8") if path.is_file() else ""
-    wanted = _block_set(text, "Your instructions are in `agent.md` in this folder. Follow them.", "<!--", preserve_outside=True, label=AGENT_SECTION_LABEL)
+    wanted = _block_set(text, f"Your instructions are in `{PROMPT_FILE}` in this folder. Follow them.", "<!--", preserve_outside=True, label=AGENT_SECTION_LABEL)
     if not dry and wanted != text:
         write_file(path, wanted, newline="\n")
     return [path.name] if wanted != text else []
@@ -446,11 +461,11 @@ def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: 
         launch_values(state["harness"], state["model"], str(state["effort"]), known, asked_from)
     placed = None
     if part:
-        placed = {"id": part["key"], "files": ["agent.md", AGENT_RECORD.name]}
+        placed = {"id": part["key"], "files": [PROMPT_FILE.name, AGENT_RECORD.name]}
         if not dry:
             home.mkdir(parents=True, exist_ok=True)
-            write_file(home / "agent.md",
-                       absolute_links((source / "agent.md").read_text(encoding="utf-8"), root),
+            write_file(home / PROMPT_FILE,
+                       absolute_links((source / PROMPT_FILE).read_text(encoding="utf-8"), root),
                        newline="\n")
             write_file(home / AGENT_RECORD, json.dumps(state, indent=2) + "\n", newline="\n")
             state = agent_state(home)
@@ -546,6 +561,6 @@ def remove_agent(root: Path, raw: str, names: list[str], packs: set[str], all_fi
     packs_off = sorted(set(state["packs"]) if all_files else set(state["packs"]) & packs)
     return {"ok": True, "agent": state["name"], "home": str(home), "launch": _launch(state),
             "packs": sorted(enabled), "written": [], "files": sorted(wanted),
-            "files_removed": sorted(gone), "harness_files": result, "kept": ["agent.md", AGENT_RECORD.name],
+            "files_removed": sorted(gone), "harness_files": result, "kept": [PROMPT_FILE.name, AGENT_RECORD.name],
             "dry_run": dry, "was": len(before), "all": all_files, "packs_off": packs_off,
             "absent_packs": sorted(packs - set(state["packs"]))}

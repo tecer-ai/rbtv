@@ -8,7 +8,7 @@ RBTV is a self-contained set of agents, workflows, skills, and rules. A module i
 
 ## Modules
 
-Browse the source catalog with `rbtv list`, then inspect one module, component, unit, or pack with `rbtv show NAME`.
+Browse the source catalog with `rbtv list`, then inspect one module, component, file, or pack with `rbtv show NAME`.
 
 | Module | Description |
 |---|---|
@@ -26,7 +26,7 @@ Browse the source catalog with `rbtv list`, then inspect one module, component, 
 
 ## Install
 
-For a first run, point rbtv at an existing installation directory. `status` shows which directory it selected and which harnesses are configured. `list` opens the exact module, component, or unit hierarchy; `search` finds names and descriptions broadly; `show` explains one choice; `add` installs its stable name; `remove` takes that same name.
+For a first run, point rbtv at an existing installation directory. `status` shows which directory it selected and which harnesses are configured. `list` opens the exact module, component, or file hierarchy; `search` finds names and descriptions broadly; `show` explains one choice; `add` installs its stable name; `remove` takes that same name.
 
 ```bash
 rbtv status --target /path/to/installation
@@ -37,9 +37,9 @@ rbtv status --target /path/to/installation
 rbtv remove brainstorm --target /path/to/installation
 ```
 
-On a fresh installation, run `configure --harness NAMES --guidance NAME` or supply both settings on the first `add`. A named guidance file must already exist at the installation root; use `none` when no such file is maintained. A short name selects one exposed unit such as a skill or rule when unique; a full `module/component` name selects a component. `list NAME` opens that exact scope, while `search WORDS` looks across names and descriptions. For another agent, set `--target` to its home directory on each command. Use `--dry-run` to preview a change and `--json` for a machine-readable result. Bare `rbtv` prints help; `rbtv interactive` starts the guided flow.
+On a fresh installation, run `configure --harness NAMES --guidance NAME` or supply both settings on the first `add`. A named guidance file must already exist at the installation root; use `none` when no such file is maintained. A short name selects one exposed file such as a skill or rule when unique; a full `module/component` name selects a component. `list NAME` opens that exact scope, while `search WORDS` looks across names and descriptions. For another agent, set `--target` to its home directory on each command. Use `--dry-run` to preview a change and `--json` for a machine-readable result. Bare `rbtv` prints help; `rbtv interactive` starts the guided flow.
 
-Change results show a compact summary and important warnings by default. Add `--details` to include the complete grouped unit and file lists; combine it with `--dry-run` to inspect a plan before applying it. `--json` retains the full structured result regardless of text verbosity. A file-operation failure reports `changed: null` when earlier writes may have applied; inspect the target before retrying.
+Change results show a compact summary and important warnings by default. Add `--details` to include the complete grouped lists of selected and generated files; combine it with `--dry-run` to inspect a plan before applying it. `--json` retains the full structured result regardless of text verbosity. A file-operation failure reports `changed: null` when earlier writes may have applied; inspect the target before retrying.
 
 Agent results also include `harness_files` (file outcomes from installing or removing the agent's skills and rules) and `files_removed` (their full identifiers). These supplement the existing agent fields. An agent-removal preview's `kept` list predicts what remains after removal.
 
@@ -51,17 +51,17 @@ The `work-history` skill in `meta/functions` reconstructs a user-agreed project,
 >
 > rbtv manages **components**: a `<module>/<component>/` folder holding its own
 > `<component>.json`, inside a `<module>/` folder holding its own `<module>.json`, on BOTH the
-> installation mirror (`{target}/.rbtv/mirror`) and this repo. It finds a component's units by the
+> installation mirror (`{target}/.rbtv/mirror`) and this repo. It finds a component's files by the
 > folder each sits in (`skills/`, `rules/`, `commands/`, `agents/<name>/`, `sub-agents/`, `hooks/`, `mcp-servers/`,
 > `capabilities/tools/<tool>/`, `folder-instructions/`), checks each file's frontmatter or record
-> against the schemas in `core/rbtv/capabilities/templates/`, and realizes the units for
+> against the schemas in `core/rbtv/capabilities/templates/`, and realizes the files for
 > **three harnesses** (claude, codex, opencode). A component's folder instructions become a
-> marked section of the target folder's instructions file. The one unit shaped as a folder is a
+> marked section of the target folder's instructions file. The one file shaped as a folder is a
 > whole skill in the installation mirror, `{target}/.rbtv/mirror/_skills/<name>/`: it is exposed
 > as a copy of the whole folder in each installed harness's skills directory, and the copied `SKILL.md`
 > carries the `rbtv-managed` ownership marker (files written by an earlier
 > rbtv carry `rbtv2-managed` and are still recognised).
-> Other generated artifacts are named after their bare unit name and marked as rbtv-owned.
+> Other generated artifacts are named after their bare file name and marked as rbtv-owned.
 > Installation state lives at
 > `{target}/.rbtv/config/install.json`, recording every file and every shared-config key it
 > wrote; `rbtv remove` releases exactly those claims. It exposes at the
@@ -92,7 +92,7 @@ The `work-history` skill in `meta/functions` reconstructs a user-agreed project,
 > files, and `--guidance` chooses the root instruction file you maintain. On a fresh target, set
 > both with `configure` or on the first `add`. A named guidance file must already exist at the
 > installation root; choose `none` when no such file is maintained. A later `configure` replaces only the settings
-> supplied; `status` displays them. `--type` filters unit types; `--exclude-type` excludes them.
+> supplied; `status` displays them. `--type` filters file types; `--exclude-type` excludes them.
 > `list`, `search` and `show` also accept the types `pack`, `module` and `component`.
 > Numeric source catalog positions are not identifiers. The setting rationale and current command names
 > are recorded in `core/rbtv/capabilities/design-decisions.md`.
@@ -226,9 +226,9 @@ machine after a skill, command, rule or generated instruction section changes. T
 refreshes generated sections in every configured instruction file, including counterpart files,
 while preserving human text outside them. Use `rbtv update guidance` when maintained
 human instructions change; it copies that text to configured counterparts while preserving
-their generated sections. `rbtv update all` does both from local source. It also removes generated
-files for units that `install.json` no longer lists, so `rbtv update scaffolding` and `rbtv update all`
-make the folder match that file. Use `add` or `remove` when you want to change the selected units.
+their generated sections. `rbtv update all` does both from local source. It also removes what was
+generated for files that `install.json` no longer lists, so `rbtv update scaffolding` and `rbtv update all`
+make the folder match that file. Use `add` or `remove` when you want to change the selected files.
 
 When `rbtv` is not found after a pull, its shortcut in `~/.rbtv/bin` points at a path where the
 program is not. Start the program by its full path once; each run points the shortcut at the
@@ -264,7 +264,7 @@ installable content from each component's folders, not from a central manifest.
 
 ## Architecture notes
 
-- **Component source layout:** a component lives at `<module>/<component>/` with its `<component>.json` and one folder per kind of unit it exposes. The owning `<module>/<module>.json` describes the module.
+- **Component source layout:** a component lives at `<module>/<component>/` with its `<component>.json` and one folder per kind of file it exposes. The owning `<module>/<module>.json` describes the module.
 - **Copies:** installed skills, commands and rules are generated copies of their source, with each link made the absolute path of its target in this repo. A mirror `_skills/<name>/` folder is copied whole.
 - **Sub-agent exception:** an installed harness-native sub-agent file is a pointer to the agent's prompt by resolved source path.
 - **Overwrite scope:** rbtv records owned files and shared settings in `.rbtv/config/install.json`; removal releases those claims while preserving unowned installation content.

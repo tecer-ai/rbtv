@@ -440,7 +440,7 @@ process.exit(0);
 // The agent's standing prompt rides each harness's strongest channel.
 {
   const { stdinFor } = require('./turn.js');
-  const file = path.join(cwd, 'agent.md');
+  const file = path.join(cwd, 'prompt.md');
   fs.writeFileSync(file, '# Role\nYou are the agent.\n');
   const sys = (over) => validate({ ...base(), systemPromptFile: file, ...over });
 

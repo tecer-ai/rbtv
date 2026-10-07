@@ -1,6 +1,6 @@
 # Prompt
 
-A prompt is the standing text an agent follows across launches. In rbtv it is the body of `agent.md`; the frontmatter is not part of the prompt. Each launch supplies a separate task.
+A prompt is the standing text an agent follows across launches. In rbtv it is the body of `prompt.md`; the frontmatter is not part of the prompt. Each launch supplies a separate task.
 
 Use the prompt for the agent's standing function, method and limits. Put one task's files, goal, scope and completion criteria in [Task](task.md). Follow [Cognitive unit](cognitive-unit.md) for shared instruction-writing requirements and [Agent](agent.md) for placement.
 
@@ -62,7 +62,7 @@ name: <same name as folder and agent record>
 <Standing limits and alternative actions; omit when none remain.>
 ```
 
-The [agent-frontmatter schema](../templates/agent.schema.json) owns the permitted fields. Do not add model settings, tool permissions or a description to this frontmatter.
+The [prompt-frontmatter schema](../templates/prompt.schema.json) owns the permitted fields. Do not add model settings, tool permissions or a description to this frontmatter.
 
 ## Review and test
 

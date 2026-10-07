@@ -4,7 +4,7 @@
 
 Record an owner correction as a [Board](board.md) watch-out in the same turn and follow it immediately. The [Dreamer](dreamer.md) folds it into a rule when the required evidence is available; an explicit correction needs no repeat occurrence. An inferred lesson needs two distinct conversations. Mark the two sources of learning differently.
 
-Do not edit the file during a turn or repeat `agent.md` in it. A conflict with the prompt or another learned rule belongs in the owner’s digest. The dreamer never rewrites the prompt to fit a lesson. [Memory](memory.md#record-and-maintain-information) owns publication and correction boundaries.
+Do not edit the file during a turn or repeat `prompt.md` in it. A conflict with the prompt or another learned rule belongs in the owner’s digest. The dreamer never rewrites the prompt to fit a lesson. [Memory](memory.md#record-and-maintain-information) owns publication and correction boundaries.
 
 ## Record format
 

@@ -39,7 +39,7 @@ def links_rewritten_on_copy(ctx) -> None:
     _file_md(skill, "linked-skill", "A skill with links", body + "A path in code: `./sibling.md`.\n")
     command = comp / "commands/linked-command.md"
     _file_md(command, "linked-command", "A command with links", body)
-    prompt = comp / "agents/research/agent.md"
+    prompt = comp / "agents/research/prompt.md"
     _w(prompt, "---\nname: research\n---\n\n" + body)
     _w(comp / "agents/research/agent.json",
        '{"name": "research", "description": "Research."}\n')
@@ -105,7 +105,7 @@ def links_rewritten_on_copy(ctx) -> None:
     with patch("lib.agents.cast_catalog", return_value={"claude": {"m1": {"rungs": ["low", "high"], "selected": True}}}):
         add_agent(ws, "research", [], set(), catalog, False,
                   {"harness": "claude", "model": "m1", "effort": "high"})
-    text = (ws / ".rbtv/agents/research/agent.md").read_text(encoding="utf-8")
+    text = (ws / ".rbtv/agents/research/prompt.md").read_text(encoding="utf-8")
     check("LP-prompt — the two links of a placed agent's prompt are absolute paths",
           rewritten(text, ws), text)
     check("LP-prompt-relative — a relative link, a URL and an anchor are left as written",

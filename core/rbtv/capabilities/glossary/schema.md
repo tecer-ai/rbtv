@@ -10,8 +10,8 @@ Write `<name>.schema.json` in `core/rbtv/capabilities/templates/`, the directory
 
 | Caller | What reaches validation |
 |---|---|
-| `discovery.py` | Whole frontmatter or JSON for `module-json`, `component-json`, `pack`, `skill`, `rule`, `command`, `agent`, `agent-json`, `hook`, `mcp-server`, `folder-instructions` and `tool-json`. |
-| `agents.py` | Agent frontmatter through `agent`; only `name`, `description`, `harness`, `model`, `effort`, `files` and `packs` through `agent-json`. |
+| `discovery.py` | Whole frontmatter or JSON for `module-json`, `component-json`, `pack`, `skill`, `rule`, `command`, `prompt`, `agent-json`, `hook`, `mcp-server`, `folder-instructions` and `tool-json`. |
+| `agents.py` | Prompt frontmatter through `prompt`; only `name`, `description`, `harness`, `model`, `effort`, `files` and `packs` through `agent-json`. |
 | `selftest/test_subagents.py` | Loads `install-json` in tests. The production writer in `state.py` uses `_validate_state`, not that schema. |
 | `shared_links.py` | Uses `_read_owners`; does not load `path-owners-json`. |
 | Ignite's `config.js` | Uses `validate`; does not load `ignite-config.schema.json`. |

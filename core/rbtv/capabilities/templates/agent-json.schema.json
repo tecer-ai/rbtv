@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "agent.json",
-  "description": "The record of an agent, in its folder beside agent.md. The author writes name and description, and may write files and packs. An agent a component ships holds only those: its agent.json names no harness, no model and no effort, and rbtv refuses a component whose shipped agent names one. In an installation, an rbtv agent's agent.json also holds harness, model and effort: rbtv agent add writes them from its --harness, --model and --effort flags when the file has none, and rbtv agent configure changes them. rbtv writes voice through rbtv agent configure, files and packs through rbtv agent add and remove, and the record of generated files. Programs read it, and the agent's own commands read it too.",
+  "description": "The record of an agent, in its folder beside prompt.md. The author writes name and description, and may write files and packs. An agent a component ships holds only those: its agent.json names no harness, no model and no effort, and rbtv refuses a component whose shipped agent names one. In an installation, an rbtv agent's agent.json also holds harness, model and effort: rbtv agent add writes them from its --harness, --model and --effort flags when the file has none, and rbtv agent configure changes them. rbtv writes voice through rbtv agent configure, files and packs through rbtv agent add and remove, and the record of generated files. Programs read it, and the agent's own commands read it too.",
   "type": "object",
   "required": ["name", "description"],
   "properties": {
     "name": {
-      "description": "The agent's name. It equals the agent folder's name and the name in agent.md.",
+      "description": "The agent's name. It equals the agent folder's name and the name in prompt.md.",
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9-]*$"
     },
@@ -55,11 +55,11 @@
       "type": "string"
     },
     "marker": {
-      "description": "The per-unit generated-file ownership marker, `rbtv-managed`.",
+      "description": "The per-file generated-file ownership marker, `rbtv-managed`.",
       "type": "string"
     },
     "components": {
-      "description": "Each component that generated files for this agent, keyed by its id. Under a component, `selected` maps each installed file to its type (`method`) and its generated `files`. A unit of type agent, installed as a harness-native sub-agent, also holds `sub_agent`: for each harness the file is written for, the `model` (cast's name for it), the `model_id` (the harness's own name for it) and the `effort`.",
+      "description": "Each component that generated files for this agent, keyed by its id. Under a component, `selected` maps each installed file to its type (`method`) and its generated `files`. A file of type agent, installed as a harness-native sub-agent, also holds `sub_agent`: for each harness the file is written for, the `model` (cast's name for it), the `model_id` (the harness's own name for it) and the `effort`.",
       "type": "object"
     },
     "shared_files": {

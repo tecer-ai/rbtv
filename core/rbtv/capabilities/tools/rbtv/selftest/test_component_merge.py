@@ -120,7 +120,7 @@ def record_rewrite(ctx) -> None:
           and half["files"] == ["core/rbtv#rbtv", "core/rbtv#framework"], str(half))
 
     home = tmp / "ws-merge-agent"
-    _w(home / "agent.md", "---\nname: scout\n---\n\nScout.\n")
+    _w(home / "prompt.md", "---\nname: scout\n---\n\nScout.\n")
     record = _schema_8()
     record.pop("harnesses")
     record.update(name="scout", description="A scout", harness="claude",
@@ -159,7 +159,7 @@ def update_after_rewrite(ctx) -> None:
     ws = tmp / "ws-merge-update"
     ws.mkdir()
     home = ws / ".rbtv/agents/scout"
-    _w(home / "agent.md", "---\nname: scout\n---\n\nScout.\n")
+    _w(home / "prompt.md", "---\nname: scout\n---\n\nScout.\n")
     _w(home / AGENT_RECORD, json.dumps({
         "name": "scout", "description": "A scout", "packs": [],
         "files": ["core/build#build", "core/install#manage-components",

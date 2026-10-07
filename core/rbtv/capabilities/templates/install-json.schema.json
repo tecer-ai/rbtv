@@ -22,7 +22,7 @@
       "type": "string"
     },
     "marker": {
-      "description": "The per-unit generated-file ownership marker, `rbtv-managed`. Shared files use booked keys or fenced sections; guidance copies use a generated banner. The install record tracks installed units and files.",
+      "description": "The per-file generated-file ownership marker, `rbtv-managed`. Shared files use booked keys or fenced sections; guidance copies use a generated banner. The install record tracks installed files and what was generated for them.",
       "type": "string"
     },
     "harnesses": {
@@ -151,7 +151,7 @@
                   }
                 },
                 "sub_agent": {
-                  "description": "Only on a unit of method `agent` installed as a harness-native sub-agent: the model and effort its file is written with, keyed by harness. A harness with no entry has no sub-agent file. Absent when no harness has values.",
+                  "description": "Only on a file of method `agent` installed as a harness-native sub-agent: the model and effort its file is written with, keyed by harness. A harness with no entry has no sub-agent file. Absent when no harness has values.",
                   "type": "object",
                   "additionalProperties": false,
                   "properties": {

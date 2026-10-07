@@ -88,7 +88,7 @@ def old_key_read_and_rewritten(ctx) -> None:
 
     agent_root = tmp / "ws-files-key-agent"
     agent = agent_root / ".rbtv/agents/scout"
-    _w(agent / "agent.md", "---\nname: scout\n---\n\nScout.\n")
+    _w(agent / "prompt.md", "---\nname: scout\n---\n\nScout.\n")
     _w(agent / AGENT_RECORD, json.dumps({
         "name": "scout", "description": "Scout.", "harness": "claude",
         "model": "m1", "effort": "high",
@@ -119,7 +119,7 @@ def old_key_read_and_rewritten(ctx) -> None:
     _w(comp / "packs/old.json", json.dumps({
         "description": "A pack written with the old key",
         "units": ["moda/comp#kiss"]}))
-    _w(comp / "agents/research/agent.md", "---\nname: research\n---\n\nResearch.\n")
+    _w(comp / "agents/research/prompt.md", "---\nname: research\n---\n\nResearch.\n")
     _w(comp / "agents/research/agent.json", json.dumps({
         "name": "research", "description": "Research.", "units": ["kiss"], "packs": []}) + "\n")
     old_catalog, _ = scan_all(tmp / "files-key-mirror", source)

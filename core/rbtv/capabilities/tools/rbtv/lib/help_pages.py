@@ -597,10 +597,10 @@ rbtv — agent help
 Manage one agent: which files it is exposed to, and its harness, model and
 effort. AGENT is a name under the installation's .rbtv/agents/, found by
 walking up from the current folder, or a path to a folder that holds
-agent.md and agent.json.
+prompt.md and agent.json.
 
-To write a new agent, create a folder with agent.md (its prompt) and
-agent.json (its description, files and packs), then run rbtv agent add
+To write a new agent, create a folder with prompt.md (the standing text the
+agent follows) and agent.json (its description, files and packs), then run rbtv agent add
 AGENT --harness HARNESS --model MODEL --effort EFFORT to apply it. Guide:
 core/rbtv/capabilities/glossary/agent.md in the rbtv source.
 
@@ -641,7 +641,7 @@ To write a new agent first, see the new-agent passage in rbtv agent -h.
 A name is looked up in <installation>/.rbtv/agents/, then among agents a
 component ships. A shipped agent with no folder there is placed in
 .rbtv/agents/<name>/, then applied. A path is used in place: nothing is
-copied. The folder name, the name in agent.md, and the name in agent.json
+copied. The folder name, the name in prompt.md, and the name in agent.json
 must agree.
 
 --harness, --model and --effort are required, all three, when agent.json
@@ -702,7 +702,7 @@ pack off. A pack is named only with --pack; a bare NAME is always a file.
 --all removes every file and turns every pack off; it requires --yes.
 A named file or a named pack needs no --yes. Give one of NAME, --pack or
 --all. This verb takes no --target. It never asks a question and never
-deletes the agent folder, agent.md or agent.json.
+deletes the agent folder, prompt.md or agent.json.
 
 positional arguments:
   AGENT                 name or path of the agent

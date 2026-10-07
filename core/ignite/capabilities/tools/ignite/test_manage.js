@@ -47,7 +47,7 @@ async function captures(argv, flags, deps) {
   const agent = path.join(installation, '.rbtv', 'agents', 'probe');
   fs.mkdirSync(agent, { recursive: true });
   fs.writeFileSync(path.join(agent, 'agent.json'), JSON.stringify({ name: 'probe', description: 'Probe.', harness: 'codex', model: 'gpt-6.1-sol', effort: 'high', files: [], packs: [] }), 'utf8');
-  fs.writeFileSync(path.join(agent, 'agent.md'), '---\nname: probe\n---\n', 'utf8');
+  fs.writeFileSync(path.join(agent, 'prompt.md'), '---\nname: probe\n---\n', 'utf8');
   // The installer checks the model and the effort word against `cast models list`, so a stand-in cast
   // answers for this one model, in the shape `cast models list --supported --json` prints. The effort is a word: what a number means the installer asks cast, and this
   // stand-in gives only the list.

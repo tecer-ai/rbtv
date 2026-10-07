@@ -24,7 +24,7 @@ from .fixture import _component, _file_md, _w
 
 def _agent(home, *, name="scout", files=None, packs=None):
     home.mkdir(parents=True, exist_ok=True)
-    _w(home / "agent.md", f"---\nname: {name}\n---\n\nScout.\n")
+    _w(home / "prompt.md", f"---\nname: {name}\n---\n\nScout.\n")
     _w(home / "agent.json", json.dumps({"name": name, "description": "Scout.",
         "harness": "claude", "model": "haiku-4-5", "effort": "high",
         "files": files or [], "packs": packs or []}) + "\n")
@@ -44,11 +44,11 @@ def _ignored_agent(home: Path, harness: str) -> None:
         "opencode": ("glm-5.3", "high"),
     }[harness]
     name = home.name
-    _w(home / "agent.md", f"---\nname: {name}\n---\n\nAgent.\n")
+    _w(home / "prompt.md", f"---\nname: {name}\n---\n\nAgent.\n")
     _w(home / "agent.json", json.dumps({
         "name": name, "description": "Agent.", "harness": harness,
         "model": model, "effort": effort, "files": [], "packs": []}) + "\n")
-    _w(home / "agent.pre-split.md", "Author file.\n")
+    _w(home / "prompt.pre-split.md", "Author file.\n")
     _w(home / "notes/own.md", "Author note.\n")
 
 
@@ -106,8 +106,8 @@ def agent_ignore_file(ctx) -> None:
         return status, planned - ignored
 
     expected_a = {
-        ".rbtv/agents/a1/agent.md", ".rbtv/agents/a1/agent.json",
-        ".rbtv/agents/a1/settings.json", ".rbtv/agents/a1/agent.pre-split.md",
+        ".rbtv/agents/a1/prompt.md", ".rbtv/agents/a1/agent.json",
+        ".rbtv/agents/a1/settings.json", ".rbtv/agents/a1/prompt.pre-split.md",
         ".rbtv/agents/a1/notes/own.md",
     }
     for harness in ("codex", "claude", "opencode"):
@@ -120,12 +120,12 @@ def agent_ignore_file(ctx) -> None:
               status_a == expected_a, repr(sorted(status_a)))
         check(f"A-ignore — {harness} ignores every destination in its plan",
               not uncovered, repr(sorted(uncovered)))
-        _w(repo / ".gitignore", ".rbtv/agents/*/*\n!.rbtv/agents/*/agent.md\n"
+        _w(repo / ".gitignore", ".rbtv/agents/*/*\n!.rbtv/agents/*/prompt.md\n"
                               "!.rbtv/agents/*/agent.json\n")
         prefix = agent.relative_to(repo).as_posix() + "/"
         status_b = {path for path in _git_status(repo) if path.startswith(prefix)}
         check(f"A-ignore — {harness} agent folder keeps root ignore rules",
-              status_b == {".rbtv/agents/a1/agent.md", ".rbtv/agents/a1/agent.json"},
+              status_b == {".rbtv/agents/a1/prompt.md", ".rbtv/agents/a1/agent.json"},
               repr(sorted(status_b)))
 
     repo = tmp / "agent-ignore-outside"
@@ -147,7 +147,7 @@ def installed_agents(ctx) -> None:
     comp = _component(root, "moda", "comp")
     _file_md(comp / "rules/kiss.md", "kiss", "Kiss", "body\n")
     _file_md(comp / "rules/other.md", "other", "Other", "body\n")
-    _w(comp / "agents/research/agent.md", "---\nname: research\n---\n\nResearch.\n")
+    _w(comp / "agents/research/prompt.md", "---\nname: research\n---\n\nResearch.\n")
     _w(comp / "agents/research/agent.json", json.dumps({
         "name": "research", "description": "Research.", "files": ["kiss"], "packs": []}) + "\n")
     catalog, _ = scan_all(tmp / "agent-mirror", root)
@@ -200,7 +200,7 @@ def installed_agents(ctx) -> None:
               and _refused(lambda: add_agent(ws, "scout", [], set(), catalog, False, launch))[0]
               == "launch-already-set", "")
         bare = ws / ".rbtv/agents/bare"
-        _w(bare / "agent.md", "---\nname: bare\n---\n\nBare.\n")
+        _w(bare / "prompt.md", "---\nname: bare\n---\n\nBare.\n")
         _w(bare / "agent.json", json.dumps({"name": "bare", "description": "Bare."}) + "\n")
         check("A-add-flags — a hand-written agent without the values needs the flags too",
               _refused(lambda: add_agent(ws, "bare", [], set(), catalog, False))[0]
@@ -215,7 +215,7 @@ def installed_agents(ctx) -> None:
     check("A-add — harness files, settings and ignore file are present", (home / ".claude/rules/kiss.md").is_file() and (home / "settings.json").is_file() and (home / ".gitignore").is_file(), "")
     check("A-add — a shipped agent is placed then applied",
           placed["placed"]["id"] == "moda/comp#research"
-          and (research / "agent.md").is_file() and (research / "agent.json").is_file()
+          and (research / "prompt.md").is_file() and (research / "agent.json").is_file()
           and (research / ".claude/rules/kiss.md").is_file(), str(placed))
     update_agent(ws, "scout", "all", catalog, False)
     check("A-update — shared update keeps the authored record", (home / "agent.json").is_file() and (home / ".claude/rules/kiss.md").is_file(), "")
@@ -431,7 +431,7 @@ def installed_agents(ctx) -> None:
           and legacy_source != retired_name, f"{selected} / {legacy}")
     remove_agent(ws, "scout", ["kiss"], set(), False, False, catalog, False)
     check("A-remove — removes harness files but preserves authored files",
-          (home / "agent.md").is_file() and (home / "agent.json").is_file()
+          (home / "prompt.md").is_file() and (home / "agent.json").is_file()
           and (home / ".gitignore").read_text(encoding="utf-8") == IGNORE_TEXT
           and not (home / ".agents/behavior-rules/kiss.md").exists(), "")
     _w(home / ".gitignore", "# author edited\n")
@@ -455,16 +455,38 @@ def installed_agents(ctx) -> None:
     refused = _refused
 
     no_record = ws / ".rbtv/agents/norecord"
-    _w(no_record / "agent.md", "---\nname: norecord\n---\n\nNo record.\n")
+    _w(no_record / "prompt.md", "---\nname: norecord\n---\n\nNo record.\n")
     check("A-refusal — a folder without agent.json is agent-json-missing",
           refused(lambda: add_agent(ws, "norecord", [], set(), catalog, True))
           == ("agent-json-missing", "rbtv agent add -h"), "")
     broken = ws / ".rbtv/agents/brokenjson"
-    _w(broken / "agent.md", "---\nname: brokenjson\n---\n\nBroken.\n")
+    _w(broken / "prompt.md", "---\nname: brokenjson\n---\n\nBroken.\n")
     _w(broken / "agent.json", '{"name": "brokenjson",\n}\n')
     code, nxt = refused(lambda: add_agent(ws, "brokenjson", [], set(), catalog, True))
     check("A-refusal — invalid agent.json is agent-json-invalid with its line",
           code == "agent-json-invalid" and nxt == "rbtv agent add -h", str((code, nxt)))
+    old_named = ws / ".rbtv/agents/oldname"
+    _agent(old_named, name="oldname")
+    (old_named / "prompt.md").rename(old_named / "agent.md")
+    try:
+        add_agent(ws, "oldname", [], set(), catalog, True)
+        got = None
+    except Refuse as exc:
+        got = (exc.code, exc.message)
+    check("A-refusal — a folder still holding agent.md is prompt-missing with the rename command",
+          got == ("prompt-missing", f"{old_named / 'prompt.md'} is missing. This folder still has "
+                  "agent.md, the old name of the prompt file. If another machine already renamed "
+                  "it, pull first; otherwise rename it with: git mv agent.md prompt.md (inside "
+                  f"{old_named}), and change any .gitignore line that names agent.md."), str(got))
+    check("A-refusal — a run inside that folder targets the folder, never the installation above",
+          resolve_target(None, old_named, {})[0] == old_named.resolve(), "")
+    cli = subprocess.run([sys.executable, str(REPO_ROOT / "core/rbtv/capabilities/tools/rbtv/install.py"),
+                          "status", "--json"], cwd=old_named, capture_output=True, text=True,
+                         encoding="utf-8", env={k: v for k, v in os.environ.items() if k != "RBTV_AGENT_HOME"})
+    check("A-refusal — rbtv status inside that folder refuses with prompt-missing",
+          cli.returncode != 0 and '"prompt-missing"' in cli.stdout + cli.stderr,
+          (cli.stdout + cli.stderr)[:300])
+    shutil.rmtree(old_named)
     check("A-refusal — an unknown pack is pack-unknown",
           refused(lambda: add_agent(ws, "scout", [], {"nosuchpack"}, catalog, True))
           == ("pack-unknown", "rbtv list --type pack"), "")

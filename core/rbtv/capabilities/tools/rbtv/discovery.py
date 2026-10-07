@@ -19,6 +19,7 @@ import json
 from pathlib import Path
 
 from lib import frontmatter, schema
+from lib.constants import AGENT_RECORD, PROMPT_FILE
 from lib.files_key import files_key
 
 
@@ -288,14 +289,14 @@ def file_rows(comp: dict) -> list[dict]:
         raise Refuse("agent-source-retired",
                      f"{path}: an agent is no longer shipped as one file in "
                      f"{RETIRED_AGENT_FOLDER}/. Ship it as the folder "
-                     f"agents/{path.stem}/ with agent.md and agent.json",
+                     f"agents/{path.stem}/ with {PROMPT_FILE} and {AGENT_RECORD}",
                      str(path))
     for home in sorted((comp_dir / "agents").glob("*/")):
-        prompt, record = home / "agent.md", home / "agent.json"
+        prompt, record = home / PROMPT_FILE, home / AGENT_RECORD
         if not (prompt.is_file() and record.is_file()):
-            raise Refuse("file-invalid", f"{home}: an agent needs agent.md and agent.json", str(home))
+            raise Refuse("file-invalid", f"{home}: an agent needs {PROMPT_FILE} and {AGENT_RECORD}", str(home))
         front, _body = frontmatter.split(prompt.read_text(encoding="utf-8"))
-        _checked(front or {}, "agent", prompt, "file-invalid")
+        _checked(front or {}, "prompt", prompt, "file-invalid")
         data = files_key(_read_json(record, "file-invalid"))
         _checked(data, "agent-json", record, "file-invalid")
         launch = [name for name in LAUNCH_FIELDS if name in data]
@@ -305,7 +306,7 @@ def file_rows(comp: dict) -> list[dict]:
                          "model or effort; they exist only in an installation. "
                          "Remove: " + ", ".join(launch), str(record))
         if home.name != front["name"] or home.name != data["name"]:
-            raise Refuse("file-invalid", f"{home}: folder, agent.md and agent.json names must agree", str(home))
+            raise Refuse("file-invalid", f"{home}: folder, {PROMPT_FILE} and {AGENT_RECORD} names must agree", str(home))
         rows.append({"id": home.name, "method": "agent",
                      "entry": prompt.relative_to(comp_dir).as_posix(),
                      "description": data["description"], "data": data})

@@ -108,7 +108,7 @@ def ls_li_doctor(ctx) -> None:
 
     agent = tmp / "ws-surf-agent"
     agent.mkdir()
-    (agent / "agent.md").write_text("---\nname: ws-surf-agent\n---\n\nPrompt.\n",
+    (agent / "prompt.md").write_text("---\nname: ws-surf-agent\n---\n\nPrompt.\n",
                                      encoding="utf-8")
     (agent / "agent.json").write_text("{}\n", encoding="utf-8")
     write_state(agent, {"name": "ws-surf-agent", "description": "Checks scope labels.",

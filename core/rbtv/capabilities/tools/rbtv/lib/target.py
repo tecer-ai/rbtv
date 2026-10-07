@@ -24,13 +24,18 @@ def is_user_home(cand: Path) -> bool:
     return cand == Path.home().resolve()
 
 
+def is_agent_target(target: Path) -> bool:
+    """An agent folder is recognised by its record alone, as the root is by its
+    own; a folder whose prompt is missing is refused by the agent checks."""
+    return (target / AGENT_RECORD).is_file()
+
+
 def discover_target(start: Path) -> tuple[Path, str]:
     """Resolve the install root from `start` upward. Returns (root, why)."""
     here = start.resolve()
     chain = [here, *here.parents]
     for cand in chain:
-        if (cand / STATE_REL).is_file() or ((cand / "agent.md").is_file()
-                                            and (cand / AGENT_RECORD).is_file()):
+        if (cand / STATE_REL).is_file() or is_agent_target(cand):
             return cand, DISCOVER_STATE
     for cand in chain:
         if (cand / ".rbtv").is_dir() and not is_user_home(cand):

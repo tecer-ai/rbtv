@@ -3,9 +3,9 @@
 // Launching an agent by its agent folder.
 //   --agent NAME   an agent folder. AGENT is a name, looked up as `.rbtv/agents/<name>/` from the
 //               current folder upward, or a path to the folder (a value with `/`, or `.` or `..`).
-//               agent.json gives harness, model and effort; agent.md, without its frontmatter, is
+//               agent.json gives harness, model and effort; prompt.md, without its frontmatter, is
 //               the system prompt; the folder is the working folder.
-//   --rogue FILE    a rogue agent with no folder: the body of FILE (frontmatter ignored) is
+//   --rogue PROMPT-FILE  a rogue agent with no folder: the body of the file (frontmatter ignored) is
 //               the system prompt, and the launch folder is the usual one.
 // Both ride the ordinary launch. This file is the one place that knows where an agent's folder
 // is and how its record is read: spark, lib/agent-list.js and Ignite all use the functions below.
@@ -13,8 +13,10 @@
 const fs = require('fs');
 const path = require('path');
 
-const AGENT_MD = 'agent.md';
+const PROMPT_MD = 'prompt.md';
 const AGENT_JSON = 'agent.json';
+// The prompt file's old name: read by nothing, named only in the refusal for a folder that still holds it.
+const OLD_PROMPT_MD = 'agent.md';
 
 // An agent file's body: what follows its leading `---` block.
 function agentBody(text) {
@@ -40,12 +42,12 @@ function agentHomeIn(root, name) {
 // A folder holding either agent file counts as an agent folder, so a folder with one file missing
 // is named as broken rather than skipped.
 function holdsAgentFile(home) {
-  return fs.existsSync(path.join(home, AGENT_MD)) || fs.existsSync(path.join(home, AGENT_JSON));
+  return fs.existsSync(path.join(home, PROMPT_MD)) || fs.existsSync(path.join(home, AGENT_JSON));
 }
 
 // An agent folder holds both files: only such a folder can be run.
 function isAgentFolder(home) {
-  return fs.existsSync(path.join(home, AGENT_MD)) && fs.existsSync(path.join(home, AGENT_JSON));
+  return fs.existsSync(path.join(home, PROMPT_MD)) && fs.existsSync(path.join(home, AGENT_JSON));
 }
 
 // The first value `pick` returns for a folder, from `from` upward, or null.
@@ -84,7 +86,7 @@ function targetAgents(target, from) {
   if (holdsAgentFile(given)) return { folder: given, homes: [given] };
   const homes = agentHomesIn(given);
   if (homes.length) return { folder: given, homes };
-  return { problem: `${given} is not an installation (it holds no .rbtv/), is not an agent folder (it holds no ${AGENT_MD} or ${AGENT_JSON}), and holds no agent folder` };
+  return { problem: `${given} is not an installation (it holds no .rbtv/), is not an agent folder (it holds no ${PROMPT_MD} or ${AGENT_JSON}), and holds no agent folder` };
 }
 
 // The agent folders a list shows: those `target` names, else those of the nearest `.rbtv/agents/`
@@ -110,14 +112,22 @@ function findAgentHome(value, from, homes = null) {
   });
 }
 
+// Why an agent folder without its prompt file cannot be launched. A folder that still holds the
+// file under its old name gets the rename command.
+function promptMissing(home) {
+  const missing = `${path.join(home, PROMPT_MD)} is missing.`;
+  if (!fs.existsSync(path.join(home, OLD_PROMPT_MD))) return missing;
+  return `${missing} This folder still has ${OLD_PROMPT_MD}, the old name of the prompt file. If another machine already renamed it, pull first; otherwise rename it with: git mv ${OLD_PROMPT_MD} ${PROMPT_MD} (inside ${home}), and change any .gitignore line that names ${OLD_PROMPT_MD}.`;
+}
+
 // The agent in `home`: its launch values, voice, standing prompt, description and whether it is an
 // Ignite agent (its `ignite` pack is on, which `ignite connect` does), or the problem that stops a
 // launch.
 // problem 'launch' = agent.json is missing, unreadable, names no harness, model or effort, or
 //                    gives the effort as a number where the record holds the model's own word;
-// problem 'prompt' = agent.md is missing.
+// problem 'prompt' = prompt.md is missing.
 function readAgent(home) {
-  const mdPath = path.join(home, AGENT_MD);
+  const mdPath = path.join(home, PROMPT_MD);
   const jsonPath = path.join(home, AGENT_JSON);
   if (!fs.existsSync(jsonPath)) return { problem: 'launch', why: `${jsonPath} is missing` };
   let values;
@@ -131,7 +141,7 @@ function readAgent(home) {
   if (/^\d+$/.test(values.effort)) {
     return { problem: 'launch', why: `${jsonPath} gives effort as the number ${values.effort}; it holds the model's own effort word` };
   }
-  if (!fs.existsSync(mdPath)) return { problem: 'prompt', why: `${mdPath} is missing` };
+  if (!fs.existsSync(mdPath)) return { problem: 'prompt', why: promptMissing(home) };
   const agent = {
     home,
     harness: values.harness,
@@ -179,7 +189,7 @@ function rbtvAgent(value, fail, target = null) {
     fail(`refused: the launch values of '${value}' are unreadable\n${read.why}\nNothing changed.\nrestore that file, then run the same command again`);
   }
   if (read.problem === 'prompt') {
-    fail(`refused: the agent '${value}' has no agent.md\n${read.why}\nNothing changed.\nrestore that file, then run the same command again`);
+    fail(`refused: the agent '${value}' has no prompt.md\n${read.why}\nNothing changed.\nrestore that file, then run the same command again`);
   }
   return read.agent;
 }
@@ -211,6 +221,6 @@ function agentFilePrompt(flag, fail) {
 }
 
 module.exports = {
-  agentBody, isPath, agentsFolder, agentHomeIn, holdsAgentFile, isAgentFolder, targetAgents, agentHomes, findAgentHome,
+  PROMPT_MD, agentBody, isPath, agentsFolder, agentHomeIn, holdsAgentFile, isAgentFolder, targetAgents, agentHomes, findAgentHome,
   readAgent, rbtvAgent, targetRefusal, takeAgentFlags, agentFilePrompt,
 };

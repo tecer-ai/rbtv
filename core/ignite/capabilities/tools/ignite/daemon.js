@@ -4,7 +4,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { loadConfig, agentHome, storePath, slackToken } = require('./config.js');
-const { agentsFolder, isAgentFolder, readAgent } = require('../../../../cast/capabilities/tools/cast/lib/agent');
+const { agentsFolder, holdsAgentFile, readAgent } = require('../../../../cast/capabilities/tools/cast/lib/agent');
 const { Store, procStart } = require('./store.js');
 const { handleEvent } = require('./ingress.js');
 const { runOnce } = require('./turn-loop.js');
@@ -127,6 +127,8 @@ function assertHarnesses(config) {
   throw error;
 }
 
+// Every agent folder, including one cast would not launch: a broken folder is named at start
+// (logUnlaunchable) and at each turn it receives, never dropped.
 function agentSlugs(workspace) {
   const dir = agentsFolder(workspace);
   let names;
@@ -134,7 +136,14 @@ function agentSlugs(workspace) {
   return names
     .filter((ent) => ent.isDirectory() && SLUG.test(ent.name))
     .map((ent) => ent.name)
-    .filter((name) => isAgentFolder(path.join(dir, name)));
+    .filter((name) => holdsAgentFile(path.join(dir, name)));
+}
+
+function logUnlaunchable(config) {
+  for (const slug of agentSlugs(config.workspace)) {
+    const read = readAgent(agentHome(config, slug));
+    if (read.problem) log({ event: 'error', slug, message: read.why });
+  }
 }
 
 function dreamerSlugs(config) {
@@ -661,6 +670,7 @@ async function startLocked(opts, workspace, held) {
   }
 
   try {
+    logUnlaunchable(config);
     assertHarnesses(config);
     if (!slack && !fake) {
       const appToken = slackToken(config, 'app');

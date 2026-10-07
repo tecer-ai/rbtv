@@ -14,6 +14,7 @@ from .content import _is_ours
 from .files_key import files_key
 from .fsio import write_file
 from .selection import iter_booked_files
+from .target import is_agent_target
 
 
 def _state_refuse(path: Path, detail: str) -> None:
@@ -68,11 +69,6 @@ def _validate_state(state: dict, path: Path) -> None:
     if "guidance_basis" in state and state["guidance_basis"] is not None and \
             not isinstance(state["guidance_basis"], str):
         _state_refuse(path, "guidance_basis must be a string or null")
-
-
-def is_agent_target(target: Path) -> bool:
-    """An agent is identified by its two neighbouring authored files."""
-    return (target / "agent.md").is_file() and (target / AGENT_RECORD).is_file()
 
 
 def state_path(target: Path) -> Path:

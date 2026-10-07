@@ -16,7 +16,7 @@ A module is `<module>/` with `<module>.json`; a component is `<module>/<componen
 | Kind | Source |
 |---|---|
 | Skill, rule, command | `skills/<name>.md`, `rules/<name>.md`, `commands/<name>.md` |
-| Agent | `agents/<name>/agent.md` and `agent.json` |
+| Agent | `agents/<name>/prompt.md` and `agent.json` |
 | Hook, MCP server, pack | `hooks/<name>.json`, `mcp-servers/<name>.json`, `packs/<name>.json` |
 | Tool | `capabilities/tools/<name>/<name>.json` and its executable |
 | Folder instructions | `folder-instructions/<name>.md` |
@@ -63,7 +63,7 @@ Then read every matching conditional page:
 | [Routing table](../capabilities/glossary/routing-table.md) | Descriptions and file-selection rows | Select the right reading | writing or changing a description or routing table |  |
 | [Entry point](../capabilities/glossary/entry-point.md) | Common body and conditional routes | Keep each reading focused | writing or changing the body or routes of a skill, command, rule or folder-instructions file |  |
 | [Exposure method](../capabilities/glossary/exposure-method.md) | Who selects each installed form | Choose how content reaches the agent | choosing among skill, command, rule and folder instructions |  |
-| [Prompt](../capabilities/glossary/prompt.md) | Standing instructions in agent.md | Define behavior across the agent’s tasks | writing or changing a prompt body | only agent configuration or one launch task changes |
+| [Prompt](../capabilities/glossary/prompt.md) | Standing instructions in prompt.md | Define behavior across the agent’s tasks | writing or changing a prompt body | only agent configuration or one launch task changes |
 | [Skill](../capabilities/glossary/skill.md) | Agent-selected task instructions | Open on the intended task | the selected kind or named work is a skill | only another kind is being changed |
 | [Rule](../capabilities/glossary/rule.md) | Always-supplied instructions with action conditions | Act when the condition arises | the selected kind or named work is a rule | only another kind is being changed |
 | [Command](../capabilities/glossary/command.md) | Human invocation and supplied inputs | Perform the requested action | the selected kind or named work is a command | only another kind is being changed |

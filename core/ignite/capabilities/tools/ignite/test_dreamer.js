@@ -60,7 +60,7 @@ function fixture(slugs = ['master']) {
   for (const slug of slugs) {
     write(boardPath(slug), EMPTY_BOARD);
     write(learnedPath(slug), `# Learned rules — ${slug}\n`);
-    write(`${own(slug)}agent.md`, `Owner instructions — ${slug}\r\n`);
+    write(`${own(slug)}prompt.md`, `Owner instructions — ${slug}\r\n`);
     stores.set(slug, new Store(path.join(workspace, own(slug), 'state.sqlite')));
   }
   git('add', '--', '.gitignore', '.rbtv/memory', ...slugs.map(own));
@@ -87,7 +87,7 @@ test('owner-only input, one scoped commit, persisted rowid cursor and untouched 
   f.message({ metadata: { source: 'dreamer' } });
   const owner = f.message({ text: 'I speak português — café.' });
   f.write('unrelated.md', 'staged elsewhere\n'); f.git('add', '--', 'unrelated.md');
-  const instructions = f.read(`${own()}agent.md`);
+  const instructions = f.read(`${own()}prompt.md`);
   const head = f.git('rev-parse', 'HEAD');
   const result = await f.run((input) => {
     assert.deepEqual(input.messages.map((row) => row.rowid), [owner]);
@@ -100,7 +100,7 @@ test('owner-only input, one scoped commit, persisted rowid cursor and untouched 
   assert.equal(f.git('rev-list', '--count', `${head}..HEAD`), '1');
   assert.equal(f.git('show', '--pretty=format:', '--name-only', 'HEAD'), `${ROOT}knowledge/facts.md`);
   assert.equal(f.git('diff', '--cached', '--name-only'), 'unrelated.md');
-  assert.equal(f.read(`${own()}agent.md`), instructions);
+  assert.equal(f.read(`${own()}prompt.md`), instructions);
   assert.equal(getState(f.stores.get('master')).cursor, owner);
   assert.equal(getState(f.stores.get('master')).commit, result.commit);
   assert.equal(result.digest.agent, 'master');
@@ -193,14 +193,14 @@ test('SQLite owner transcriptions remain valid evidence; unrelated conversations
   assert.equal(result.ok, true, result.alert);
 });
 
-for (const bad of ['../outside.md', '/tmp/outside.md', 'C:/outside.md', '.rbtv/memory/../agent.md',
+for (const bad of ['../outside.md', '/tmp/outside.md', 'C:/outside.md', '.rbtv/memory/../prompt.md',
   '.rbtv/memory/knowledge\\facts.md', '.rbtv/memory/knowledge/NUL.md', '.rbtv/memory/knowledge/facts.md ',
-  'core/ignite/agent.md', `${own()}agent.md`, learnedPath('other'), '4-archives/private.md']) {
+  'core/ignite/prompt.md', `${own()}prompt.md`, learnedPath('other'), '4-archives/private.md']) {
   test(`refuses out-of-scope or nonportable path ${bad}`, async (f) => {
-    f.message(); const instructions = f.read(`${own()}agent.md`);
+    f.message(); const instructions = f.read(`${own()}prompt.md`);
     const result = await f.run((input) => proposal(operation(input, bad, knowledge(fact('Unsafe.')))));
     assert.equal(result.ok, false); assert.ok(result.alert); assert.equal(result.commit, null);
-    assert.equal(getState(f.stores.get('master')).cursor, 0); assert.equal(f.read(`${own()}agent.md`), instructions);
+    assert.equal(getState(f.stores.get('master')).cursor, 0); assert.equal(f.read(`${own()}prompt.md`), instructions);
   });
 }
 

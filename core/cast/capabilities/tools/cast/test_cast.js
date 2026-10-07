@@ -138,7 +138,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     assert.ok(filesOnDisk.includes(name), `optional.js names ${name}.js, not found under lib/`);
   }
 
-  const agentFile = path.join(mkFolder('lazy-seam-fault'), 'agent.md');
+  const agentFile = path.join(mkFolder('lazy-seam-fault'), 'prompt.md');
   fs.writeFileSync(agentFile, '---\nname: z\ndescription: x\n---\nact as Z.');
 
   for (const name of OPTIONAL_MODULES) {
@@ -250,7 +250,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
 // plain mode never reads an agent file sitting in the launch-folder — that is --agent / --rogue
 {
   const folder = mkFolder('plain-ignores-agent-file');
-  fs.writeFileSync(path.join(folder, 'agent.md'), '# agent\nact as X.');
+  fs.writeFileSync(path.join(folder, 'prompt.md'), '# agent\nact as X.');
   const out = dryRun(['claude', 'haiku-4-5', '1', folder, '-p', 'wake up']);
   assert.ok(!out.argv.includes('--append-system-prompt-file'));
   assert.strictEqual(out.stdin_preview, 'wake up');
@@ -373,7 +373,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     'help gives the two commands that make and launch an rbtv agent');
   const without = res.stdout.slice(res.stdout.indexOf('Without an rbtv agent'));
   assert.ok(without.startsWith('Without an rbtv agent — for a launch that will not be repeated:\n  -s TEXT / -S FILE'), without.slice(0, 120));
-  assert.ok(without.includes('\n  --rogue FILE '), '--rogue sits under the same heading');
+  assert.ok(without.includes('\n  --rogue PROMPT-FILE '), '--rogue sits under the same heading');
   assert.ok(!/proper agent/i.test(res.stdout), 'the term is rbtv agent');
   assert.ok(res.stdout.includes('  cast models list\n'), 'help names the command that lists the models');
   assert.ok(res.stdout.includes('\ncast models    '), 'help says what cast models is for');
@@ -1518,13 +1518,13 @@ else {
 }
 
 // --agent launches an rbtv agent from its agent folder: harness, model and effort come from its
-// agent.json, agent.md (frontmatter removed) is the system prompt, RBTV_AGENT_HOME names the folder.
+// agent.json, prompt.md (frontmatter removed) is the system prompt, RBTV_AGENT_HOME names the folder.
 // --rogue launches a rogue agent with no folder; its body (frontmatter ignored) is the system prompt.
 {
   const root = mkFolder('ig-root');
   const home = path.join(root, '.rbtv', 'agents', 'sara');
   fs.mkdirSync(home, { recursive: true });
-  fs.writeFileSync(path.join(home, 'agent.md'), '---\nname: sara\n---\nYou are Sara.');
+  fs.writeFileSync(path.join(home, 'prompt.md'), '---\nname: sara\n---\nYou are Sara.');
   fs.writeFileSync(path.join(home, 'agent.json'), '{"name":"sara","harness":"claude","model":"sonnet-5-5","effort":"medium"}\n');
   const igRun = (args) => {
     const res = spawnSync('node', [TOOL, ...args, '--dry-run'], { cwd: root, encoding: 'utf8' });
@@ -1544,14 +1544,14 @@ else {
   assert.strictEqual(byPath.status, 0, byPath.stderr);
   assert.strictEqual(JSON.parse(byPath.stdout).cwd, home, 'a path names the agent folder');
 
-  const rg = dryRun(['codex', 'gpt-6-luna', '2', '--rogue', path.join(home, 'agent.md'), '-p', 'go']);
+  const rg = dryRun(['codex', 'gpt-6-luna', '2', '--rogue', path.join(home, 'prompt.md'), '-p', 'go']);
   assert.ok(rg.argv.includes(`developer_instructions=${JSON.stringify('You are Sara.')}`), `frontmatter must not reach the prompt: ${rg.argv}`);
   assert.ok(rg.argv.includes('project_doc_max_bytes=131072'), `every Codex launch raises the AGENTS.md limit: ${rg.argv}`);
   assert.ok(!('RBTV_AGENT_HOME' in rg), '--rogue is not an rbtv agent: no RBTV_AGENT_HOME');
 
   const halfHome = path.join(root, '.rbtv', 'agents', 'half');
   fs.mkdirSync(halfHome, { recursive: true });
-  fs.writeFileSync(path.join(halfHome, 'agent.md'), 'You are half.');
+  fs.writeFileSync(path.join(halfHome, 'prompt.md'), 'You are half.');
 
   // cast list, or cast list --agents: the agents `cast --agent NAME` can launch from here;
   // --agent NAME is one in full; the model lists moved to `cast models list`
@@ -1560,13 +1560,13 @@ else {
       + 'Triggered by a request to check a change. Not for writing the change.';
     const tess = path.join(root, '.rbtv', 'agents', 'tess');
     fs.mkdirSync(tess, { recursive: true });
-    fs.writeFileSync(path.join(tess, 'agent.md'), '---\nname: tess\n---\nYou are Tess.');
+    fs.writeFileSync(path.join(tess, 'prompt.md'), '---\nname: tess\n---\nYou are Tess.');
     fs.writeFileSync(path.join(tess, 'agent.json'), JSON.stringify({
       name: 'tess', description: TESS_SAYS, harness: 'codex', model: 'gpt-6-luna', effort: 'high', packs: ['ignite'],
     }));
     // An `rbtv` on PATH that stands for the installer: it records its arguments and answers
     // `list --installed` from five rows, RBTV_PAGE of them at a time, or refuses. Its pack lists
-    // two of the installed units and one unit that is not installed in this agent.
+    // two of the installed files and one file that is not installed in this agent.
     const bin = mkFolder('ig-rbtv');
     const asked = path.join(bin, 'asked.json');
     fs.writeFileSync(path.join(bin, 'rbtv.js'), `
@@ -1668,7 +1668,7 @@ else {
     // the installer cannot be asked: the view says why and shows the rest
     const refused = list(['--agent', 'tess'], '100', { RBTV_REFUSES: '1' });
     assert.strictEqual(refused.status, 0, refused.stderr);
-    assert.ok(refused.stdout.endsWith('\n\nInstalled packs and units: not shown. rbtv refused: agent.json is missing files\n'), refused.stdout);
+    assert.ok(refused.stdout.endsWith('\n\nInstalled packs and files: not shown. rbtv refused: agent.json is missing files\n'), refused.stdout);
     const alone = spawnSync(process.execPath, [TOOL, 'list', '--agent', 'tess', '--json'], { cwd: root, encoding: 'utf8', env: { ...process.env, PATH: bin + '-none' } });
     assert.deepStrictEqual(JSON.parse(alone.stdout), { ...tessRow, installed: null, installed_problem: 'rbtv is not on PATH.' });
 
@@ -1718,7 +1718,7 @@ else {
       const plan = path.join(root, 'plans', 'launch', 'agents');
       const drafter = path.join(plan, 'drafter');
       fs.mkdirSync(drafter, { recursive: true });
-      fs.writeFileSync(path.join(drafter, 'agent.md'), '---\nname: drafter\n---\nYou draft.');
+      fs.writeFileSync(path.join(drafter, 'prompt.md'), '---\nname: drafter\n---\nYou draft.');
       fs.writeFileSync(path.join(drafter, 'agent.json'), JSON.stringify({
         name: 'drafter', description: 'Drafts.', harness: 'claude', model: 'sonnet-5-5', effort: 'low',
       }));
@@ -1752,7 +1752,7 @@ else {
 
       for (const [args, said] of [
         [['--target', empty], `refused: --target ${empty} names no rbtv agents\n${empty} is not an installation (it holds no .rbtv/), `
-          + 'is not an agent folder (it holds no agent.md or agent.json), and holds no agent folder\nNothing was listed.\ncast list -h\n'],
+          + 'is not an agent folder (it holds no prompt.md or agent.json), and holds no agent folder\nNothing was listed.\ncast list -h\n'],
         [['--agent', 'drafter', '--target', empty], 'names no rbtv agents'],
         [['--target', path.join(empty, 'absent')], 'is not a folder'],
         [['--target'], '--target takes a folder'],
@@ -1773,7 +1773,7 @@ else {
     assert.deepStrictEqual(listLines({ folder: null, agents: [] }),
       ['rbtv agents: 0', '', 'No .rbtv/agents/ folder was found from the current folder upward.']);
     assert.deepStrictEqual(listLines({ folder: agents, agents: [] }),
-      ['rbtv agents: 0', `Folder: ${agents}`, '', 'No agent found. An agent folder holds agent.md and agent.json.']);
+      ['rbtv agents: 0', `Folder: ${agents}`, '', 'No agent found. An agent folder holds prompt.md and agent.json.']);
     // a description that fits is not shortened, and then nothing points to the full form
     assert.deepStrictEqual(listLines({ folder: agents, agents: [tessRow] }, { width: 400 }).slice(-2),
       ['Name  Harness  Model       Effort  Ignite  Description', `tess  codex    gpt-6-luna  high    yes     ${TESS_SAYS}`]);
@@ -1784,7 +1784,7 @@ else {
     ['blank', ' ', 'names no harness, model or effort'], ['numbered', '3', 'gives effort as the number 3']]) {
     const dir = path.join(root, '.rbtv', 'agents', name);
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'agent.md'), `---\nname: ${name}\n---\nYou are ${name}.`);
+    fs.writeFileSync(path.join(dir, 'prompt.md'), `---\nname: ${name}\n---\nYou are ${name}.`);
     fs.writeFileSync(path.join(dir, 'agent.json'), JSON.stringify({ name, harness: 'claude', model: 'sonnet-5-5', effort }));
     const res = spawnSync('node', [TOOL, '--agent', name, '-p', 'go', '--dry-run'], { cwd: root, encoding: 'utf8' });
     assert.strictEqual(res.status, 2, `an agent with effort ${JSON.stringify(effort)} must be refused`);
@@ -1815,6 +1815,25 @@ else {
     const res = spawnSync('node', [TOOL, ...args, '--dry-run'], { cwd: root, encoding: 'utf8' });
     assert.strictEqual(res.status, 2, `expected a refusal for: ${args.join(' ')}`);
     assert.ok(res.stderr.includes(text), `refusal for ${args.join(' ')} must say '${text}', got: ${res.stderr}`);
+  }
+  // a folder still holding the prompt file under its old name is refused with the rename command,
+  // by a launch and in the list
+  {
+    const oldHome = path.join(root, 'plans', 'old', 'agents', 'oldname');
+    fs.mkdirSync(oldHome, { recursive: true });
+    fs.writeFileSync(path.join(oldHome, 'agent.json'), JSON.stringify({ name: 'oldname', harness: 'codex', model: 'gpt-6.1-sol', effort: 'high' }));
+    fs.writeFileSync(path.join(oldHome, 'agent.md'), '---\nname: oldname\n---\nYou are old.');
+    const why = `${path.join(oldHome, 'prompt.md')} is missing. This folder still has agent.md, the old name of the prompt file. If another machine already renamed it, pull first; otherwise rename it with: git mv agent.md prompt.md (inside ${oldHome}), and change any .gitignore line that names agent.md.`;
+    const launch = spawnSync('node', [TOOL, '--agent', oldHome, '-p', 'go', '--dry-run'], { cwd: root, encoding: 'utf8' });
+    assert.strictEqual(launch.status, 2, launch.stderr);
+    assert.ok(launch.stderr.includes(`refused: the agent '${oldHome}' has no prompt.md\n${why}\n`), launch.stderr);
+    const listed = spawnSync('node', [TOOL, 'list', '--agents', '--target', oldHome], { cwd: root, encoding: 'utf8' });
+    assert.ok(listed.stdout.split('\n').includes(`oldname: cannot be launched: ${why}`), listed.stdout);
+    const bare = path.join(root, 'plans', 'old', 'agents', 'bare');
+    fs.mkdirSync(bare, { recursive: true });
+    fs.writeFileSync(path.join(bare, 'agent.json'), JSON.stringify({ name: 'bare', harness: 'codex', model: 'gpt-6.1-sol', effort: 'high' }));
+    const noPrompt = spawnSync('node', [TOOL, '--agent', bare, '-p', 'go', '--dry-run'], { cwd: root, encoding: 'utf8' });
+    assert.ok(noPrompt.stderr.includes(`\n${path.join(bare, 'prompt.md')} is missing.\nNothing changed.`), noPrompt.stderr);
   }
   // a whole word after one dash is no flag of cast: the launch words are --agent and --rogue
   for (const retiredFlag of ['-' + 'ig', '-' + 'rg', '-' + 'rbtv', '-' + 'rogue']) {
@@ -1847,6 +1866,18 @@ else {
   const cast = (args, cwd) => spawnSync('node', [TOOL, ...args, '--dry-run'], { cwd, encoding: 'utf8' });
   const launch = (harness, model, cwd, folder = []) => cast([harness, model, '1', ...folder, '-p', 'x'], cwd);
   const api = (model, cwd) => cast(['api', model, '1', '-p', 'x', '--output-folder', 'out'], cwd);
+  // a -p task is saved as task.md in the output folder; a dry run names that file and writes nothing
+  {
+    const outside = mkFolder('api-task');
+    const dry = spawnSync('node', [TOOL, 'api', 'gemini-3.5-flash', '1', '-p', 'x', '--output-folder', 'out', '--dry-run'], { cwd: outside, encoding: 'utf8' });
+    assert.strictEqual(dry.status, 0, dry.stderr);
+    const { argv } = JSON.parse(dry.stdout);
+    assert.strictEqual(argv[argv.indexOf('--prompt-file') + 1], path.join(outside, 'out', 'task.md'));
+    assert.ok(!fs.existsSync(path.join(outside, 'out')), 'a dry run writes nothing');
+    const { materializeTask } = require('./lib/api');
+    assert.strictEqual(materializeTask('x', path.join(outside, 'out')), path.join(outside, 'out', 'task.md'));
+    assert.strictEqual(fs.readFileSync(path.join(outside, 'out', 'task.md'), 'utf8'), 'x\n');
+  }
   const refused = (res, text) => {
     assert.strictEqual(res.status, 2, `expected a refusal, got ${res.status}: ${res.stdout}${res.stderr}`);
     assert.strictEqual(res.stdout, '');
@@ -1878,7 +1909,7 @@ else {
   for (const [name, model] of [['tiny', 'haiku-4-5'], ['sound', 'sonnet-5-5']]) {
     const home = path.join(pruned.root, '.rbtv', 'agents', name);
     fs.mkdirSync(home, { recursive: true });
-    fs.writeFileSync(path.join(home, 'agent.md'), `---\nname: ${name}\n---\nYou are ${name}.`);
+    fs.writeFileSync(path.join(home, 'prompt.md'), `---\nname: ${name}\n---\nYou are ${name}.`);
     fs.writeFileSync(path.join(home, 'agent.json'), `${JSON.stringify({ name, harness: 'claude', model, effort: model === 'haiku-4-5' ? 'inert' : 'low' })}\n`);
   }
   const agent = (name, cwd) => cast(['--agent', path.join(pruned.root, '.rbtv', 'agents', name), '-p', 'x'], cwd);
@@ -2094,7 +2125,7 @@ else {
   for (const [name, record] of [['tiny', { harness: 'claude', model: 'claude-haiku-4-5', effort: 'inert' }],
     ['sound', { harness: 'claude', model: 'sonnet-5-5', effort: 'low' }], ['torn', null]]) {
     fs.mkdirSync(path.dirname(agentFile(name)), { recursive: true });
-    fs.writeFileSync(path.join(path.dirname(agentFile(name)), 'agent.md'), `---\nname: ${name}\n---\nYou are ${name}.`);
+    fs.writeFileSync(path.join(path.dirname(agentFile(name)), 'prompt.md'), `---\nname: ${name}\n---\nYou are ${name}.`);
     fs.writeFileSync(agentFile(name), record ? JSON.stringify({ name, ...record }) : '{not json');
   }
   const igniteConfig = path.join(used.root, '.rbtv', 'config', 'ignite', 'config.json');

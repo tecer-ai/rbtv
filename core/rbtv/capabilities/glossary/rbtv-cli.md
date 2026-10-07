@@ -17,7 +17,7 @@ The scan validates frontmatter or JSON. It does not evaluate prose bodies. Under
 | `skills/<name>.md` | [Skill](skill.md) | [skill](../templates/skill.schema.json) |
 | `commands/<name>.md` | [Command](command.md) | [command](../templates/command.schema.json) |
 | `rules/<name>.md` | [Rule](rule.md) | [rule](../templates/rule.schema.json) |
-| `agents/<name>/agent.md` and `agent.json` | [Agent](agent.md); [Prompt](prompt.md) for the body | [agent](../templates/agent.schema.json), [agent-json](../templates/agent-json.schema.json) |
+| `agents/<name>/prompt.md` and `agent.json` | [Agent](agent.md); [Prompt](prompt.md) for the body | [prompt](../templates/prompt.schema.json), [agent-json](../templates/agent-json.schema.json) |
 | `folder-instructions/<name>.md` | [Folder instructions](folder-instructions.md) | [folder-instructions](../templates/folder-instructions.schema.json) |
 | `hooks/<name>.json` | [Hook](hook.md) | [hook](../templates/hook.schema.json) |
 | `mcp-servers/<name>.json` | [MCP server](mcp-server.md) | [mcp-server](../templates/mcp-server.schema.json) |
@@ -67,7 +67,7 @@ For a file not yet installed, use `rbtv add NAME`. The first add also needs `--h
 Use `--target D` to select the installation explicitly, especially for a test. Without it, selection is:
 
 1. `RBTV_AGENT_HOME` when set. An empty value or nonexistent directory is refused as `agent-home-invalid`.
-2. Otherwise, the first ancestor of the current directory containing `.rbtv/config/install.json`, or both `agent.md` and `agent.json`.
+2. Otherwise, the first ancestor of the current directory containing `.rbtv/config/install.json` or `agent.json`. An agent folder found this way without its `prompt.md` is refused as `prompt-missing`.
 3. Otherwise, the first ancestor containing a `.rbtv/` directory, excluding the home directory.
 4. Otherwise, the current directory.
 

@@ -27,7 +27,7 @@ const SCOUT_SAYS = 'Scouts the repository for the files a task needs and reports
 const root = mkFolder('root');
 function writeAgent(folder, values) {
   fs.mkdirSync(folder, { recursive: true });
-  fs.writeFileSync(path.join(folder, 'agent.md'), '---\nname: scout\n---\nYou are Scout.\n');
+  fs.writeFileSync(path.join(folder, 'prompt.md'), '---\nname: scout\n---\nYou are Scout.\n');
   if (values) fs.writeFileSync(path.join(folder, 'agent.json'), JSON.stringify(values));
 }
 const scout = path.join(root, '.rbtv', 'agents', 'scout');
@@ -133,7 +133,7 @@ function spark(args, { env = {}, cwd = root } = {}) {
   // what is installed in the agent is asked of rbtv, as cast does; without rbtv the view says so
   const alone = spark(['list', 'scout'], { env: { PATH: os.tmpdir() } });
   assert.strictEqual(alone.status, 0, alone.stderr);
-  assert.ok(alone.stdout.endsWith('\n\nInstalled packs and units: not shown. rbtv is not on PATH.\n'), alone.stdout);
+  assert.ok(alone.stdout.endsWith('\n\nInstalled packs and files: not shown. rbtv is not on PATH.\n'), alone.stdout);
 
   const all = JSON.parse(spark(['--json', 'list']).stdout);
   assert.strictEqual(all.folder, path.join(root, '.rbtv', 'agents'));
@@ -194,6 +194,13 @@ function spark(args, { env = {}, cwd = root } = {}) {
   assert.strictEqual(unreadable.status, 1);
   assert.ok(unreadable.stderr.includes('are unreadable'), unreadable.stderr);
   assert.ok(unreadable.stderr.includes('agent.json is missing'), unreadable.stderr);
+
+  const oldHome = path.join(root, 'plans', 'old', 'agents', 'oldname');
+  writeAgent(oldHome, { name: 'oldname', harness: 'codex', model: 'gpt-6.1-sol', effort: 'high' });
+  fs.renameSync(path.join(oldHome, 'prompt.md'), path.join(oldHome, 'agent.md'));
+  const oldNamed = spark([oldHome, '--dry-run']);
+  assert.strictEqual(oldNamed.status, 1);
+  assert.ok(oldNamed.stderr.includes(`${path.join(oldHome, 'prompt.md')} is missing. This folder still has agent.md, the old name of the prompt file. If another machine already renamed it, pull first; otherwise rename it with: git mv agent.md prompt.md (inside ${oldHome}), and change any .gitignore line that names agent.md.`), oldNamed.stderr);
 
   const flag = spark(['scout', '--bogus', root]);
   assert.strictEqual(flag.status, 1);

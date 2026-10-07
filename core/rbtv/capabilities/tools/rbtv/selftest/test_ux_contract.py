@@ -378,7 +378,7 @@ def result_screens(ctx) -> None:
 
     agent_home = target / ".rbtv" / "agents" / "resultagent"
     agent_home.mkdir(parents=True)
-    (agent_home / "agent.md").write_text("---\nname: resultagent\n---\n\nCheck.\n",
+    (agent_home / "prompt.md").write_text("---\nname: resultagent\n---\n\nCheck.\n",
                                             encoding="utf-8")
     (agent_home / "agent.json").write_text(
         '{"name":"resultagent","description":"Result check.",'

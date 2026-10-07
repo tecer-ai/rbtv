@@ -50,7 +50,7 @@ function writeConfig(dir, extra = {}) {
 function installAgent(dir, name = 'probe') {
   const home = path.join(dir, '.rbtv', 'agents', name);
   fs.mkdirSync(path.join(home, 'conversations'), { recursive: true });
-  fs.writeFileSync(path.join(home, 'agent.md'), `---\nname: ${name}\n---\n\n## Role\n\nFixture.\n`);
+  fs.writeFileSync(path.join(home, 'prompt.md'), `---\nname: ${name}\n---\n\n## Role\n\nFixture.\n`);
   fs.writeFileSync(path.join(home, 'agent.json'), JSON.stringify({
     name, description: 'fixture', harness: 'claude', model: 'm', effort: 'high',
     files: ['fixture/a#one', 'fixture/a#two', 'fixture/a#web'], packs: ['research-kit'],
@@ -63,7 +63,7 @@ function installAgent(dir, name = 'probe') {
 
 const IGNITE_UNITS = ['core/ignite#a', 'core/ignite#b', 'core/ignite#c', 'core/ignite#d', 'core/ignite#e', 'core/ignite#f', 'core/ignite#g', 'core/ignite#h'];
 
-// Mirrors the installer's JSON for a pack change: the units after it, and the units it added (add)
+// Mirrors the installer's JSON for a pack change: the files after it, and the files it added (add)
 // or removed (remove). The count before the change is not in that JSON; ignite derives it.
 function fakeInstaller(calls = []) {
   return (args) => {
@@ -72,17 +72,17 @@ function fakeInstaller(calls = []) {
     const dryRun = args.includes('--dry-run');
     const state = JSON.parse(fs.readFileSync(path.join(home, 'agent.json'), 'utf8'));
     const packs = new Set(state.packs);
-    const units = new Set(state.files);
+    const files = new Set(state.files);
     const adding = args[1] === 'add';
-    const changed = IGNITE_UNITS.filter((unit) => units.has(unit) !== adding);
+    const changed = IGNITE_UNITS.filter((file) => files.has(file) !== adding);
     if (adding) {
       packs.add('ignite');
-      for (const unit of IGNITE_UNITS) units.add(unit);
+      for (const file of IGNITE_UNITS) files.add(file);
     } else {
       packs.delete('ignite');
-      for (const unit of IGNITE_UNITS) units.delete(unit);
+      for (const file of IGNITE_UNITS) files.delete(file);
     }
-    const next = { ...state, packs: [...packs].sort(), files: [...units].sort() };
+    const next = { ...state, packs: [...packs].sort(), files: [...files].sort() };
     if (!dryRun) fs.writeFileSync(path.join(home, 'agent.json'), `${JSON.stringify(next)}\n`);
     const change = adding ? { added: changed } : { files_removed: changed };
     return { status: 0, stdout: JSON.stringify({ files: next.files, packs: next.packs, ...change }) };
@@ -146,7 +146,7 @@ async function run(argv, extra = {}) {
       assert.match(result.out, /route: CNEW -> probe/);
       assert.match(result.out, /bot=joined owner=invited/);
       assert.match(result.out, /link: https:\/\/slack.com\/app_redirect\?channel=CNEW&team=T1/);
-      assert.equal(fs.existsSync(path.join(home, 'agent.md')), true);
+      assert.equal(fs.existsSync(path.join(home, 'prompt.md')), true);
     } finally {
       delete process.env.SLACK_BOT_TOKEN;
     }
@@ -399,7 +399,7 @@ async function run(argv, extra = {}) {
     assert.deepEqual(readConfig(dir).routes, {});
     assert.equal(readConfig(dir).dmAgent, undefined);
     assert.equal(slack.calls.some((call) => call[0] === 'archive' && call[1] === 'CNEW'), true);
-    assert.equal(fs.existsSync(path.join(home, 'agent.md')), true);
+    assert.equal(fs.existsSync(path.join(home, 'prompt.md')), true);
     assert.equal(fs.readFileSync(path.join(home, 'conversations', 'kept.md'), 'utf8'), 'history\n');
     assert.match(removed.out, /home: kept/);
     const store = new Store(path.join(home, 'state.sqlite'));
@@ -423,7 +423,7 @@ async function run(argv, extra = {}) {
     assert.equal(readConfig(dir).dmAgent, undefined);
     assert.equal(slack.calls.some((call) => call[0] === 'archive'), false);
     assert.match(removed.out, /archived: no/);
-    assert.equal(fs.existsSync(path.join(dir, '.rbtv', 'agents', 'probe', 'agent.md')), true);
+    assert.equal(fs.existsSync(path.join(dir, '.rbtv', 'agents', 'probe', 'prompt.md')), true);
   });
 
   await test('connect dry-run calls the real installer with the ignite pack and writes nothing', async () => {
@@ -449,7 +449,7 @@ async function run(argv, extra = {}) {
       const result = await run(['connect', 'probe', '--dm', '--installation', dir, '--dry-run'], { realInstaller: true });
       assert.equal(result.code, 0, result.out + result.err);
       assert.match(result.out, /pack: ignite/);
-      assert.match(result.out, /units: 0 -> 9/);
+      assert.match(result.out, /files: 0 -> 9/);
       assert.equal(fs.readFileSync(statePath, 'utf8'), before);
       assert.equal(fs.existsSync(path.join(home, 'state.sqlite')), false);
     } finally {
@@ -479,7 +479,7 @@ async function run(argv, extra = {}) {
     writeConfig(dir);
     const outside = path.join(dir, 'plans', 'agent');
     fs.mkdirSync(outside, { recursive: true });
-    fs.writeFileSync(path.join(outside, 'agent.md'), '---\nname: agent\n---\n');
+    fs.writeFileSync(path.join(outside, 'prompt.md'), '---\nname: agent\n---\n');
     fs.writeFileSync(path.join(outside, 'agent.json'), '{}\n');
     const args = command === 'connect'
       ? [command, outside, '--dm', '--installation', dir]
@@ -569,22 +569,22 @@ async function run(argv, extra = {}) {
     }
   });
 
-  await test('connect and disconnect count every unit the agent has, once, and say already off when the pack was off', async () => {
+  await test('connect and disconnect count every file the agent has, once, and say already off when the pack was off', async () => {
     const dir = workspace();
     writeConfig(dir);
     installAgent(dir);
     const install = fakeInstaller();
     const connected = await run(['connect', 'probe', '--dm', '--installation', dir], { install, slack: fakeSlack() });
     assert.equal(connected.code, 0, connected.out + connected.err);
-    assert.match(connected.out, /units: 3 -> 11\n/);
+    assert.match(connected.out, /files: 3 -> 11\n/);
     const again = await run(['connect', 'probe', '--dm', '--installation', dir], { install, slack: fakeSlack() });
-    assert.match(again.out, /units: 11\n/);
+    assert.match(again.out, /files: 11\n/);
     const removed = await run(['disconnect', 'probe', '--installation', dir], { install, slack: fakeSlack() });
     assert.match(removed.out, /pack: ignite off\n/);
-    assert.match(removed.out, /units: 11 -> 3\n/);
+    assert.match(removed.out, /files: 11 -> 3\n/);
     const off = await run(['disconnect', 'probe', '--installation', dir], { install, slack: fakeSlack() });
     assert.match(off.out, /pack: ignite already off\n/);
-    assert.match(off.out, /units: 3\n/);
+    assert.match(off.out, /files: 3\n/);
     fs.rmSync(dir, { recursive: true, force: true });
   });
 

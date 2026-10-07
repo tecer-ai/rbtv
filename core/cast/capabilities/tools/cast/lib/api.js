@@ -87,11 +87,14 @@ function parseApiArgs(rawArgv) {
     timeout, extraParamsRaw, inputImages, positional };
 }
 
+// The file a `-p TEXT` task is saved to, in the output folder.
+const TASK_MD = 'task.md';
+
 // The runner is file-in, so `-p TEXT` is materialized into the output folder next to the run's own
 // artifacts — one file, beside the result it produced, instead of a temp nobody can find later.
-function materializePrompt(text, outputFolder) {
+function materializeTask(text, outputFolder) {
   fs.mkdirSync(outputFolder, { recursive: true });
-  const file = path.join(path.resolve(outputFolder), 'prompt.md');
+  const file = path.join(path.resolve(outputFolder), TASK_MD);
   fs.writeFileSync(file, text.endsWith('\n') ? text : `${text}\n`, 'utf8');
   return file;
 }
@@ -157,12 +160,12 @@ function runApi(rawArgv) {
     ? { extra: { ...(callerExtra || {}) }, effortWord: null }
     : mergeApiEffort(row, n, callerExtra);
 
-  // --dry-run composes the argv and prints it WITHOUT writing the -p prompt file or calling
+  // --dry-run composes the argv and prints it WITHOUT writing the -p task file or calling
   // anything: a dry run must spend nothing and leave nothing behind.
   const promptFile = parsed.promptFile !== null
     ? parsed.promptFile
-    : (parsed.dryRun ? path.join(path.resolve(parsed.outputFolder), 'prompt.md')
-      : materializePrompt(parsed.promptText, parsed.outputFolder));
+    : (parsed.dryRun ? path.join(path.resolve(parsed.outputFolder), TASK_MD)
+      : materializeTask(parsed.promptText, parsed.outputFolder));
 
   const argv = [
     'python', API_RUNNER,
@@ -191,5 +194,5 @@ function runApi(rawArgv) {
 
 module.exports = {
   API_USAGE, API_RUNNER, apiRows, apiProvider,
-  parseApiArgs, materializePrompt, mergeApiEffort, runApi,
+  parseApiArgs, materializeTask, mergeApiEffort, runApi,
 };

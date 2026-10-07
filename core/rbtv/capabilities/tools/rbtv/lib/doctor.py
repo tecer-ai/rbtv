@@ -35,7 +35,8 @@ from .pathlinks import (
 )
 from .planning import plan_files
 from .shared_links import _read_owners, _installation_key, path_ownership_status
-from .state import is_agent_target, known_claims, known_files, read_state, upgrade_book
+from .state import known_claims, known_files, read_state, upgrade_book
+from .target import is_agent_target
 from .recovery import shell_quote
 
 _WIN = os.name == "nt"

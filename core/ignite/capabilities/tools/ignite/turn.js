@@ -54,7 +54,7 @@ function readPrompt(request) {
   return request.prompt;
 }
 
-// The agent's standing prompt (`agent.md`) as the model receives it: its body, without the
+// The agent's standing prompt (`prompt.md`) as the model receives it: its body, without the
 // frontmatter. Every harness gets the text, so the file's frontmatter never reaches the model.
 function readSystemPrompt(request) {
   if (!Object.prototype.hasOwnProperty.call(request, 'systemPromptFile')) return null;

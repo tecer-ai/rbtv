@@ -20,8 +20,9 @@ from .constants import (
     UPDATE_SCOPES,
 )
 from .guidance import _norm_prefix
-from .target import DISCOVER_CWD, DISCOVER_STATE, discover_installation, resolve_target
-from .state import (book_harnesses, is_agent_target, read_state, selected_packs,
+from .target import (DISCOVER_CWD, DISCOVER_STATE, discover_installation, is_agent_target,
+                     resolve_target)
+from .state import (book_harnesses, read_state, selected_packs,
                     selected_files, state_path, file_membership, write_state)
 from .catalog import catalog_packs, check_packs, module_id, pack_files
 from .selection import (
@@ -39,7 +40,7 @@ from .shared_links import release_installation_links, installation_mutation_lock
 from .listing import (_description, build_list, build_show, do_list, json_view,
                       pack_members, print_list, print_show, single_group_type)
 from .agents import (OWN_FILES, add_agent, agent_state, cast_agent_list, configure_agent,
-                     is_path, on_values, remove_agent, update_agent)
+                     is_path, on_values, remove_agent, require_prompt, update_agent)
 from .doctor import do_doctor, doctor_exit
 from .report import LIST_LIMIT, print_result
 from .recovery import shell_quote
@@ -1504,6 +1505,8 @@ def main(argv: list[str] | None = None, *, ask=None) -> int:
             target, why = discover_installation(Path.cwd())
         else:
             target, why = resolve_target(getattr(args, "target", None), Path.cwd())
+            if is_agent_target(target):
+                require_prompt(target)
         args._why = why
         repo_tree = REPO_ROOT
         mirror_tree = target / ".rbtv" / "mirror"

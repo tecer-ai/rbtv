@@ -3,7 +3,7 @@
 // API
 // composeTurn({ board, work, inputs, recent, stored, historyPath, resultPath, nonce, rehydrate })
 //   → turn message. Standing instructions are not copied here; turn-loop passes
-//   <home>/agent.md as systemPromptFile on the cast request. This file does not read CLAUDE.md.
+//   <home>/prompt.md as systemPromptFile on the cast request. This file does not read CLAUDE.md.
 // readTurnMemory(home, cwd, store?, now?) → board, memory sections and owner alerts
 
 const fs = require('node:fs');
