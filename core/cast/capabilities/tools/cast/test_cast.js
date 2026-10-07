@@ -2485,7 +2485,9 @@ process.exit(code);\n`);
     assert.strictEqual(res.status, 2, res.stdout);
     assert.ok(res.stderr.startsWith(`cast: refused: ${first}\n`) && res.stderr.includes('\nNothing changed.\n'), res.stderr);
   };
-  const rowsOf = (file, model) => fs.readFileSync(file, 'utf8').split('\n').filter((l) => l.split(',')[2] === model);
+  // The lines of a file, whichever line ending it has: a Windows checkout ships the catalog with CRLF.
+  const linesOf = (file) => fs.readFileSync(file, 'utf8').trim().split(/\r?\n/);
+  const rowsOf = (file, model) => linesOf(file).filter((l) => l.split(',')[2] === model);
   const { root, file, defaults } = fresh();
 
   // set: a dry run writes nothing; the first real one copies the shipped file, then changes it
@@ -2495,7 +2497,7 @@ process.exit(code);\n`);
   text(at(root, ['models', 'set', 'codex', 'gpt-6-luna', '--use', 'off', '--price-override', 'Y']));
   assert.deepStrictEqual(rowsOf(file, 'gpt-6-luna'), ['cli,codex,gpt-6-luna,5,N,L3,3,3,0.5,off,N,Y']);
   // every other line is the shipped one, as written
-  assert.deepStrictEqual(fs.readFileSync(file, 'utf8').trim().split('\n').filter((l) => !l.includes('gpt-6-luna')), shipped.filter((l) => !l.includes('gpt-6-luna')));
+  assert.deepStrictEqual(linesOf(file).filter((l) => !l.includes('gpt-6-luna')), shipped.filter((l) => !l.includes('gpt-6-luna')));
   assert.ok(text(at(root, ['models', 'set', 'codex', 'gpt-6-luna', '--use', 'off'])).endsWith("already set: 'codex gpt-6-luna' use=off\nNothing changed.\n"));
   // --use holds for every level of a model; an override of a model at two levels names its level
   text(at(root, ['models', 'set', 'claude', 'sonnet-5-5', '--use', 'panel']));
