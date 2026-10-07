@@ -12,6 +12,7 @@ const { providers: PROVIDERS } = require('../providers.json');
 const { HARNESSES, fail } = require('./core');
 const { installationRoot } = require('./installation');
 const { CatalogError, loadSelection } = require('./model-catalog');
+const { ownFileComesFrom } = require('./models');
 const { expandHome, loginFoundIn, readJson, unavailableReason } = require('./route');
 const { findOnPath } = require('./win-exec');
 
@@ -92,6 +93,7 @@ function runDoctor(args) {
   const lines = ['cast doctor — can this machine launch the selected models? Local files only; nothing is started.', '',
     root ? `installation: ${root}` : `installation: none above ${process.cwd()} (no environment file is read)`,
     `model catalog: ${selection || 'the one shipped with cast (every supported model is selected)'}`,
+    ...(root && !selection && !problem ? [ownFileComesFrom(root)] : []),
     '', 'harnesses'];
   for (const name of HARNESSES) lines.push(`  ${name.padEnd(hw)}  ${harnesses[name] || 'MISSING'}`);
   lines.push('', 'selected models');

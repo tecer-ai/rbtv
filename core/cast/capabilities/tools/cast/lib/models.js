@@ -53,12 +53,15 @@ function context(json, closing) {
   }
 }
 
+// How an installation that reads the shipped model catalog gets one of its own.
+const ownFileComesFrom = (root) => `The installation's own file is created by the first cast models remove, or by copying ${SHIPPED_CATALOG} to ${path.join(root, CATALOG_REL)}.`;
+
 function headLines(selection) {
   const shipped = `${selection.file} (shipped with cast: every supported model is selected)`;
   if (!selection.root) return [`installation: none above ${process.cwd()}`, `model catalog: ${shipped}`];
   return [`installation: ${selection.root}`,
-    selection.shipped ? `model catalog: ${shipped}`
-      : `model catalog: ${selection.file}`];
+    ...(selection.shipped ? [`model catalog: ${shipped}`, ownFileComesFrom(selection.root)]
+      : [`model catalog: ${selection.file}`])];
 }
 
 const ownFile = (selection) => (selection.shipped ? null : selection.file);
@@ -173,7 +176,8 @@ function addModel(selection, harness, model, { dryRun, json }) {
   const done = (lines) => (json ? result : [...headLines(selection), '', ...lines]);
   if (selection.shipped) {
     return done([`already selected: '${harness} ${model}'`,
-      'No model catalog was saved: while this installation has none of its own, every supported model is selected.']);
+      'No model catalog was saved: while this installation has none of its own, every supported model is selected.',
+      ownFileComesFrom(selection.root)]);
   }
   if (selection.rows.some(isRow(harness, model))) return done([`already selected: '${harness} ${model}'`, 'Nothing changed.']);
 
@@ -305,4 +309,4 @@ function runModels(args) {
   process.exit(0);
 }
 
-module.exports = { USAGE, runModels };
+module.exports = { USAGE, ownFileComesFrom, runModels };

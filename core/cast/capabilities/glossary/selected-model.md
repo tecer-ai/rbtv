@@ -1,6 +1,6 @@
 # Selected model
 
-A selected model is a [supported model](supported-model.md) that one installation chose to launch: a model with a row in that installation's [model catalog](model-catalog.md). While an installation has no model catalog of its own, every supported model is selected.
+A selected model is a [supported model](supported-model.md) that one installation chose to launch: a model with a row in that installation's [model catalog](model-catalog.md). While an installation has no model catalog of its own, every supported model is selected. Its own file is created by the first `cast models remove`, or by copying the shipped file to `.rbtv/config/cast/models.csv`.
 
 Selection gates every launch in the installation. `cast <harness> <model>`, `cast --agent`, an Ignite turn and `cast api` refuse a model that is not selected, and the refusal names `cast models add HARNESS MODEL`. `rbtv agent add` and `rbtv agent configure` check an agent's model the same way. `cast route` names only selected models, and among them only rows whose `use` is `route`.
 

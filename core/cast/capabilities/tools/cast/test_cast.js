@@ -474,7 +474,8 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.match(text.stdout, /^ {2}codex +MISSING$/m);
   assert.match(text.stdout, /^ {2}✓ opencode +k3 +KIMI_API_KEY in the installation's environment file$/m);
   assert.match(text.stdout, /^ {2}· opencode +glm-5\.3 +no login: .*ZHIPU_API_KEY/m);
-  assert.ok(text.stdout.includes(`\ninstallation: ${fs.realpathSync(inst)}\nmodel catalog: the one shipped with cast`), text.stdout);
+  assert.ok(text.stdout.includes(`\ninstallation: ${fs.realpathSync(inst)}\nmodel catalog: the one shipped with cast (every supported model is selected)\n`
+    + `The installation's own file is created by the first cast models remove, or by copying ${path.join(__dirname, 'models.csv')} to ${path.join(fs.realpathSync(inst), '.rbtv', 'config', 'cast', 'models.csv')}.\n\nharnesses\n`), text.stdout);
   assert.ok(text.stdout.includes(`\n  ${Object.values(login).filter((m) => m.login).length} of ${ROWS.length} selected models have a login present.\n`), text.stdout);
   assert.ok(text.stdout.endsWith('\n\nAccounts and usage: rbtv providers list · rbtv providers usage\n'), text.stdout);
   // a key's value never reaches either report
@@ -2020,6 +2021,8 @@ else {
   const HAIKU = 'cli,claude,haiku-4-5,0,N,L4,0,0,999,off,N,N';
   const shippedFile = path.join(__dirname, 'models.csv');
   const shippedNote = `model catalog: ${shippedFile} (shipped with cast: every supported model is selected)`;
+  // how an installation with no model catalog of its own gets one: said wherever its absence is
+  const ownFileNote = (root) => `The installation's own file is created by the first cast models remove, or by copying ${shippedFile} to ${path.join(root, '.rbtv', 'config', 'cast', 'models.csv')}.`;
 
   // list: the three views of a pruned installation, each naming the installation and the file
   const some = installation([HEAD, SONNET, 'cli,opencode,not-a-real-model,3,N,L2,6,6,1,route,N,N']);
@@ -2051,7 +2054,7 @@ else {
   assert.ok(catalogText.startsWith(`${head}  mode  harness   model `), catalogText);
   assert.match(catalogText, /^ {2}cli +opencode +not-a-real-model .* no +-$/m);
   // with no file of its own, and outside any installation, the shipped model catalog is the source
-  assert.ok(ok(models(['list'], fresh.root)).startsWith(`installation: ${fresh.root}\n${shippedNote}\n`));
+  assert.ok(ok(models(['list'], fresh.root)).startsWith(`installation: ${fresh.root}\n${shippedNote}\n${ownFileNote(fresh.root)}\n\n  harness `));
   const outsideCatalog = JSON.parse(ok(models(['list', '--catalog', '--json'])));
   assert.deepStrictEqual([outsideCatalog.installation, outsideCatalog.source, outsideCatalog.rows.length], [null, shippedFile, shipped.rows.length]);
 
@@ -2081,8 +2084,8 @@ else {
   assert.ok(ok(models(['add', 'opencode', 'k3', '--dry-run'], adding.root)).includes('\n      use=off: launchable, never named by cast route: edit the use column to route it\n'));
   // no file of its own: every supported model is already selected, and no file is saved
   const addFresh = ok(unchanged(fresh.root, () => models(['add', 'claude', 'haiku-4-5'], fresh.root)));
-  assert.strictEqual(addFresh, `installation: ${fresh.root}\n${shippedNote}\n\nalready selected: 'claude haiku-4-5'\n`
-    + 'No model catalog was saved: while this installation has none of its own, every supported model is selected.\n');
+  assert.strictEqual(addFresh, `installation: ${fresh.root}\n${shippedNote}\n${ownFileNote(fresh.root)}\n\nalready selected: 'claude haiku-4-5'\n`
+    + `No model catalog was saved: while this installation has none of its own, every supported model is selected.\n${ownFileNote(fresh.root)}\n`);
   assert.deepStrictEqual(JSON.parse(ok(unchanged(fresh.root, () => models(['add', 'claude', 'haiku-4-5', '--json'], fresh.root)))),
     { installation: fresh.root, selection: null, harness: 'claude', model: 'haiku-4-5', changed: false, added: [], dry_run: false });
   // a file with fewer columns in another order gets the row under ITS header, and stays readable
