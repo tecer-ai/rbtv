@@ -10,7 +10,10 @@ full, one entry per line. `--json` always carries the full data either way.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from . import present, subagents
+from .state import read_state
 
 _UPDATE_LABEL = {"guidance": "guidance", "scaffolding": "scaffolding",
                  "all": "all selected files"}
@@ -298,11 +301,33 @@ def _changes(out: _Out, data: dict, preview: bool) -> None:
                                             f"{len(s_same)} already up to date"))
     out.files("Would write" if preview else "Written", write)
     out.files("Would delete" if preview else "Deleted", delete)
-    out.files("Already up to date", same)
+    named = _named_files(data)
+    if named is None:
+        out.files("Already up to date", same)
+    else:
+        out.files("Already up to date, of the files named",
+                  [path for path in same if path in named])
     out.files("Shared, would change" if preview else "Shared, changed", s_write)
     out.files("Shared, would delete whole files" if preview
               else "Shared, deleted whole files", s_delete)
     out.files("Shared, already up to date", s_same)
+
+
+def _named_files(data: dict) -> set[str] | None:
+    """The harness files the record books to the files an `add` named, or
+    None for a run that named none. An `add` plans the whole installation,
+    so its unchanged list holds every other selected file and every guidance
+    copy; the screen lists the named files' own (the count stays whole)."""
+    names = data.get("selected_files")
+    if data.get("_verb") != "add" or not names or not data.get("target"):
+        return None
+    components = read_state(Path(data["target"])).get("components") or {}
+    booked: set[str] = set()
+    for name in names:
+        cid, _, pid = name.partition("#")
+        part = ((components.get(cid) or {}).get("selected") or {}).get(pid) or {}
+        booked |= set(part.get("files") or [])
+    return booked
 
 
 def _warnings(out: _Out, data: dict, preview: bool) -> None:

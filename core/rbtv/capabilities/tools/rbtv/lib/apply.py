@@ -122,7 +122,8 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
                 f"`rbtv configure --guidance {BASIS_NONE}` to leave both root "
                 "guidance files alone, or point the basis at the file you "
                 "author and retire the other tool's copy of the one it "
-                "generates. "
+                "generates, or `rbtv add guidance exclude <folder>` to leave "
+                "the guidance files of the folder that holds it alone. "
                 "Nothing was written",
                 mirrors[0])
         raise Refuse(
