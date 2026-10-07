@@ -13,9 +13,29 @@ const { checkMemory } = require('./memory.js');
 const { FIXED_TZ } = require('./schedule.js');
 const { EMPTY_BOARD, boardPath, parseBoard } = require('./board.js');
 
-const daemonPath = __filename.replace(/test_daemon\.js$/, 'daemon.js');
+const daemonPath = path.join(__dirname, 'daemon.js');
 const failures = [];
 const pending = [];
+
+// Every folder and every daemon process of this run has one owner, released however the run ends.
+// A run killed outright (SIGKILL, or any kill on Windows, which delivers no signal) leaves this one folder.
+const runRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-daemon-')));
+const daemons = new Set();
+process.on('exit', () => {
+  for (const child of daemons) if (child.exitCode == null) child.kill('SIGKILL');
+  fs.rmSync(runRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+});
+for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(signal, () => process.exit(1));
+
+function launchDaemon(dir, env) {
+  const child = spawn(process.execPath, [daemonPath, '--installation', dir], {
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  daemons.add(child);
+  child.once('exit', () => daemons.delete(child));
+  return child;
+}
 
 function test(name, fn) { pending.push([name, fn]); }
 
@@ -49,7 +69,7 @@ function configFile(dir) {
 }
 
 function workspace() {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-daemon-')));
+  const dir = fs.mkdtempSync(path.join(runRoot, 'w-'));
   const agents = path.join(dir, '.rbtv', 'agents');
   fs.mkdirSync(path.dirname(configFile(dir)), { recursive: true });
   fs.mkdirSync(agents, { recursive: true });
@@ -176,10 +196,7 @@ function harnessBin(dir, names) {
 }
 
 function spawnDaemon(dir, pathEnv = harnessBin(dir, ['claude', 'ignite'])) {
-  const child = spawn(process.execPath, [daemonPath, '--installation', dir], {
-    env: { ...process.env, IGNITE_DAEMON_FAKE: '1', PATH: pathEnv },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  const child = launchDaemon(dir, { ...process.env, IGNITE_DAEMON_FAKE: '1', PATH: pathEnv });
   let stderr = '';
   let stdout = '';
   child.stderr.setEncoding('utf8').on('data', (chunk) => { stderr += chunk; });
@@ -1207,10 +1224,7 @@ test('launch-json-drives-preflight', async () => {
   }));
   fs.writeFileSync(path.join(side, 'prompt.md'), '---\nname: side\n---\n', 'utf8');
   const empty = fs.mkdtempSync(path.join(dir, 'empty-'));
-  const child = spawn(process.execPath, [daemonPath, '--installation', dir], {
-    env: { ...process.env, IGNITE_DAEMON_FAKE: '1', PATH: empty },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  const child = launchDaemon(dir, { ...process.env, IGNITE_DAEMON_FAKE: '1', PATH: empty });
   let stdout = '';
   let stderr = '';
   child.stdout.setEncoding('utf8').on('data', (chunk) => { stdout += chunk; });
@@ -1240,10 +1254,7 @@ test('a folder still holding the old prompt name is logged at start, once, with 
   fs.writeFileSync(path.join(old, 'agent.json'), JSON.stringify({ harness: 'claude', model: 'm', effort: 'low' }));
   fs.writeFileSync(path.join(old, 'agent.md'), '---\nname: old\n---\n', 'utf8');
   const empty = fs.mkdtempSync(path.join(dir, 'empty-'));
-  const child = spawn(process.execPath, [daemonPath, '--installation', dir], {
-    env: { ...process.env, IGNITE_DAEMON_FAKE: '1', PATH: empty },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  const child = launchDaemon(dir, { ...process.env, IGNITE_DAEMON_FAKE: '1', PATH: empty });
   let stdout = '';
   child.stdout.setEncoding('utf8').on('data', (chunk) => { stdout += chunk; });
   try {
@@ -1278,10 +1289,7 @@ test('unset-token-refuses', async () => {
   delete env.IGNITE_DAEMON_FAKE;
   delete env[appName];
   delete env[botName];
-  const child = spawn(process.execPath, [daemonPath, '--installation', dir], {
-    env,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  const child = launchDaemon(dir, env);
   let stdout = '';
   let stderr = '';
   child.stdout.setEncoding('utf8').on('data', (chunk) => { stdout += chunk; });
@@ -1305,10 +1313,7 @@ test('stools-workspace-missing', async () => {
   const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
   delete cfg.slack.stoolsWorkspace;
   fs.writeFileSync(cfgPath, JSON.stringify(cfg));
-  const child = spawn(process.execPath, [daemonPath, '--installation', dir], {
-    env: { ...process.env, IGNITE_DAEMON_FAKE: '1' },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  const child = launchDaemon(dir, { ...process.env, IGNITE_DAEMON_FAKE: '1' });
   let stdout = '';
   let stderr = '';
   child.stdout.setEncoding('utf8').on('data', (chunk) => { stdout += chunk; });
@@ -1327,10 +1332,7 @@ test('stools-workspace-missing', async () => {
 test('ignite-missing', async () => {
   const { dir } = workspace();
   const bin = harnessBin(dir, ['claude']);
-  const child = spawn(process.execPath, [daemonPath, '--installation', dir], {
-    env: { ...process.env, IGNITE_DAEMON_FAKE: '1', PATH: bin },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  const child = launchDaemon(dir, { ...process.env, IGNITE_DAEMON_FAKE: '1', PATH: bin });
   let stdout = '';
   child.stdout.setEncoding('utf8').on('data', (chunk) => { stdout += chunk; });
   child.stderr.resume();
