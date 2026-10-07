@@ -51,7 +51,7 @@ ones above it, so there is no cycle:
     frontmatter   reading the `---` block at the top of a source file
     fsio          the one way a file's content is replaced
     locks         bounded cross-platform locks for mutations
-    files_key     the keys `files` and `selected` of a record, read from one that says `units`
+    record_keys   the keys `files` and `selected` of a record, read from one that says `units`
     catalog       reading one discovered component record and its parts
     claims        one key or one fenced block inside a shared config file
     link_paths    a link from the repository root or `.rbtv/`, made absolute

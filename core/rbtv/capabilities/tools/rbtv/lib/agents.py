@@ -15,7 +15,7 @@ from .claims import _block_del
 from .constants import (AGENT_RECORD, AGENT_SECTION_LABEL, EFFORT_INERT, GUIDANCE_FILE, HARNESSES, MATRIX,
                         PROMPT_FILE,
                         SHARED_FILE_DESTINATIONS)
-from .files_key import files_key
+from .record_keys import current_keys
 from .fsio import write_file
 from .link_paths import absolute_links
 from .operations import do_install, do_uninstall
@@ -445,7 +445,7 @@ def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: 
     if part:
         source = Path(catalog[part["component"]]["path"]) / "agents" / raw
         state = {"files": [], "packs": [],
-                 **files_key(json.loads((source / AGENT_RECORD.name).read_text(encoding="utf-8")))}
+                 **current_keys(json.loads((source / AGENT_RECORD.name).read_text(encoding="utf-8")))}
     else:
         state = _read_agent(home)
     launch = _launch_flags(raw, all(key in state for key in LAUNCH_FIELDS), given)

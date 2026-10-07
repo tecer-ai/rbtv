@@ -11,7 +11,7 @@ from discovery import HUB_DIR, Refuse, SKILLS_DIR
 from .constants import (AGENT_RECORD, HARNESSES, MANAGED_MARK, SCHEMA, STATE_REL, VERSION)
 from .claims import _jget, _located
 from .content import _is_ours
-from .files_key import files_key
+from .record_keys import current_keys
 from .fsio import write_file
 from .selection import iter_booked_files
 from .target import is_agent_target
@@ -250,7 +250,7 @@ def read_state(target: Path) -> dict:
     if not isinstance(state, dict):
         raise Refuse("state-unreadable",
                      f"rbtv state must be a JSON object: {path}", str(path))
-    files_key(state)
+    current_keys(state)
     migrate_legacy_record(state)
     migrate_portable_record(state)
     migrate_install_component_ids(state)

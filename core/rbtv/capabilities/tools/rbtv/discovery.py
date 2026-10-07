@@ -20,7 +20,7 @@ from pathlib import Path
 
 from lib import frontmatter, schema
 from lib.constants import AGENT_RECORD, PROMPT_FILE
-from lib.files_key import files_key
+from lib.record_keys import current_keys
 
 
 WS_PREFIX = "ws:"
@@ -228,7 +228,7 @@ def pack_rows(catalog: dict[str, dict]) -> list[dict]:
     for cid, comp in sorted(catalog.items()):
         packs = Path(comp["path"]) / "packs"
         for path in sorted(packs.glob("*.json")):
-            data = files_key(_read_json(path, "pack-invalid"))
+            data = current_keys(_read_json(path, "pack-invalid"))
             _checked(data, "pack", path, "pack-invalid")
             if path.stem in names:
                 raise Refuse("pack-duplicate",
@@ -297,7 +297,7 @@ def file_rows(comp: dict) -> list[dict]:
             raise Refuse("file-invalid", f"{home}: an agent needs {PROMPT_FILE} and {AGENT_RECORD}", str(home))
         front, _body = frontmatter.split(prompt.read_text(encoding="utf-8"))
         _checked(front or {}, "prompt", prompt, "file-invalid")
-        data = files_key(_read_json(record, "file-invalid"))
+        data = current_keys(_read_json(record, "file-invalid"))
         _checked(data, "agent-json", record, "file-invalid")
         launch = [name for name in LAUNCH_FIELDS if name in data]
         if launch:

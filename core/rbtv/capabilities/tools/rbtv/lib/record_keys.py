@@ -12,7 +12,7 @@ def _renamed(record: dict, key: str) -> None:
         record.setdefault(key, named_units)
 
 
-def files_key(record: object) -> object:
+def current_keys(record: object) -> object:
     """`record` with its chosen files under `files`, and each component's map
     of what was installed under `selected`. A record whose key is `units` in
     either place is read as if it had the new key; the record is written with
