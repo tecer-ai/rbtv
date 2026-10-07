@@ -386,7 +386,7 @@ def installed_agents(ctx) -> None:
             # any installation, where every supported model is selected.
             away = tmp / "no-installation"; away.mkdir()
             listed_models = json.loads(subprocess.run(
-                [str(cast_bin / "cast"), "models", "list", "--supported", "--json"], cwd=away,
+                [shutil.which("cast", path=str(cast_bin)), "models", "list", "--supported", "--json"], cwd=away,
                 capture_output=True, text=True, encoding="utf-8").stdout)["models"]
             table = cast_catalog(away)
             row = next(row for row in listed_models if row["effort_numbers"] and row["mode"] == "cli")
