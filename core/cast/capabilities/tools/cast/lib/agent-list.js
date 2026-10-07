@@ -45,7 +45,7 @@ function byKind(units) {
 
 // What is installed in the agent at `home`, under the names `rbtv show` takes: each pack that is on
 // with the units it installs, then, by kind, the units installed outside a pack. Only the installer
-// knows it, since it reads the catalog and what each pack lists, so this asks it:
+// knows it, since it reads rbtv's source catalog and what each pack lists, so this asks it:
 // `rbtv list --installed --target HOME`. `problem` says why there is no answer.
 function installedIn(home) {
   const rows = [];

@@ -52,7 +52,7 @@ const OPTIMIZE = ['price', 'quality'];
 // 2026-08-22, replacing the tiered SOTA/L1-on-price + L2/L3-on-quality rule of 2026-08-21: one
 // rule the owner can hold in their head beat two bands). Omitting the flag is now exactly
 // `--optimize price` — same ranking, same blank-cost exclusion, same tie-breaks — and the class's
-// levels remain the only thing standing between a job and the cheapest model on the roster.
+// levels remain the only thing standing between a job and the cheapest model in the model catalog.
 // Consequence to keep in view: `price-override` fires in the default, `quality-override` does not.
 const DEFAULT_OPTIMIZE = 'default';
 const CAPS = ['image'];
@@ -506,7 +506,7 @@ function runBatch(source, explain, root) {
   if (parsed.error) envelopeError(parsed.error);
 
   const csv = loadCatalog(root);
-  // ONE load, ONE join, ONE round of warnings — N agents share the catalog.
+  // ONE load, ONE join, ONE round of warnings — N agents share the model catalog.
   const warnings = [];
   const joined = joinCatalog(csv.rows, warnings);
   for (const w of warnings) process.stderr.write(`cast route: WARNING: ${w}\n`);

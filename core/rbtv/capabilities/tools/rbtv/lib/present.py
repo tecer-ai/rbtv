@@ -60,7 +60,7 @@ COMMAND_GROUPS = (
     ("Discover", (
         ("status", "Show target, saved settings, and recorded selections."),
         ("list [NAME]", "Browse exact module, component, or file scope."),
-        ("search WORDS", "Search catalog names and descriptions broadly."),
+        ("search WORDS", "Search source catalog names and descriptions broadly."),
         ("show NAME", "Show description, included files, and installation details."),
     )),
     ("Change this installation", (

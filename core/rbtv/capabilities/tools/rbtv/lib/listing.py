@@ -564,7 +564,7 @@ def print_show(data: dict) -> None:
         print("Next: " + data["next"])
         return
     if sel["scope"] == "module":
-        _say(f"Description: {sel['description'] or '(no catalog description)'}")
+        _say(f"Description: {sel['description'] or '(no description in the source catalog)'}")
         _say(f"Local source: {sel['source_files']} files; "
               f"installed here: {sel['installed_files']} saved selections. "
               "Harness files not checked.")
@@ -578,7 +578,7 @@ def print_show(data: dict) -> None:
         print("Next: " + data["next"])
         return
     if sel["scope"] == "component":
-        _say(f"Description: {sel.get('description') or '(no catalog description)'}")
+        _say(f"Description: {sel.get('description') or '(no description in the source catalog)'}")
         _say("Dependencies: " + (", ".join(sel.get("dependencies") or []) or "none"))
         if sel.get("source_entry"):
             print("Source entry (local RBTV source): " + sel['source_entry'])
@@ -623,7 +623,7 @@ def print_show(data: dict) -> None:
         print("  rbtv agent: " + ("placed at " if agent["placed"] else "no folder at ")
               + agent["home"])
     if not part["source_available"]:
-        print("  Source: no longer present in the local catalog")
+        print("  Source: no longer present in the local source catalog")
     if part["type"] == "agent":
         print()
         print("Add it in either form, or both")

@@ -354,11 +354,27 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.ok(!/^usage: cast resume/.test(res.stdout), `"-h" as prompt text must not print usage: ${res.stdout}`);
 }
 
-// -h: exit 0. The page names where the models are and prints none of them: the model inventory
-// is `cast models list`, so a newly supported model never changes the help page.
+// -h: exit 0. The page leads with the rbtv-agent form and says how to make an rbtv agent. It names
+// where the models are and prints none of them: the list is `cast models list`, so a newly
+// supported model never changes the help page.
 {
   const res = spawnSync('node', [TOOL, '-h'], { encoding: 'utf8' });
   assert.strictEqual(res.status, 0, 'cast -h must exit 0');
+  const usage = res.stdout.slice(res.stdout.indexOf('Usage:\n'));
+  assert.ok(usage.startsWith('Usage:\n  cast --agent AGENT (-p TEXT | -f FILE)'), 'the first usage line is the rbtv-agent form');
+  assert.ok(usage.indexOf('cast --agent AGENT') < usage.indexOf('cast <harness> <model>'), 'the raw form comes second');
+  assert.ok(res.stdout.includes('for a worker chosen by `cast route`, or a throwaway'), 'the raw form says what it is for');
+  assert.ok(/-p TEXT \/ -f FILE +the TASK/.test(res.stdout), '-p and -f are the task');
+  const frameworkSkill = path.resolve(__dirname, '..', '..', '..', '..', 'rbtv', 'skills', 'framework.md');
+  assert.ok(fs.existsSync(frameworkSkill), frameworkSkill);
+  assert.ok(res.stdout.includes('core/rbtv/skills/framework.md in the rbtv repository\n  ' + frameworkSkill + '\n'),
+    'help gives the framework skill by its repository path and by the absolute path of this copy');
+  assert.ok(res.stdout.includes('  rbtv agent add FOLDER --harness H --model M --effort E\n  cast --agent FOLDER -p "..."\n'),
+    'help gives the two commands that make and launch an rbtv agent');
+  const without = res.stdout.slice(res.stdout.indexOf('Without an rbtv agent'));
+  assert.ok(without.startsWith('Without an rbtv agent — for a launch that will not be repeated:\n  -s TEXT / -S FILE'), without.slice(0, 120));
+  assert.ok(without.includes('\n  --rogue FILE '), '--rogue sits under the same heading');
+  assert.ok(!/proper agent/i.test(res.stdout), 'the term is rbtv agent');
   assert.ok(res.stdout.includes('  cast models list\n'), 'help names the command that lists the models');
   assert.ok(res.stdout.includes('\ncast models    '), 'help says what cast models is for');
   // enumerate models from the tool's own inventory, never by re-parsing its source.

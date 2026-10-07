@@ -13,7 +13,7 @@ rbtv — help
 Discover
   status        Show target, saved settings, and recorded selections.
   list [NAME]   Browse exact module, component, or file scope.
-  search WORDS  Search catalog names and descriptions broadly.
+  search WORDS  Search source catalog names and descriptions broadly.
   show NAME     Show description, included files, and installation details.
 
 Change this installation
@@ -141,8 +141,8 @@ Search names and descriptions in the local source catalog. Results are files and
   ids. A word matches any part of the id or the description, so a component name matches every entry
   in that component. Search does not choose anything. Use list NAME when you know an exact module,
   component, file, or pack name. WORDS is required; an empty search is refused. A search with no
-  hit prints no rows and up to five words of the catalog nearest to each word that matched nothing,
-  as "Did you mean: ...?"; with --json they are the list did_you_mean.
+  hit prints no rows and up to five words of the source catalog nearest to each word that matched
+  nothing, as "Did you mean: ...?"; with --json they are the list did_you_mean.
 
 Types (--type; comma-separated or repeatable):
   skill                Ability an agent can invoke for a task.
@@ -183,12 +183,12 @@ usage: rbtv show [-h] [--type TYPE] [--pack PACK] [--full]
                   [--target TARGET] [--json]
                   [NAME]
 
-Show the catalog description, included files or component summaries, and the saved selection for one
-  file, pack, component, or module. It does not print source-file contents. A short name must be
-  unique. A bare name never resolves to a pack. show --pack NAME shows that pack and prints the
-  declaration file, <component>/packs/<pack>.json in the rbtv source. For an agent a component
-  ships, it shows the harnesses it is written for as a harness-native sub-agent, whether it is
-  placed as an rbtv agent, and the command that adds it in each form.
+Show the source catalog description, included files or component summaries, and the saved
+  selection for one file, pack, component, or module. It does not print source-file contents. A
+  short name must be unique. A bare name never resolves to a pack. show --pack NAME shows that pack
+  and prints the declaration file, <component>/packs/<pack>.json in the rbtv source. For an agent a
+  component ships, it shows the harnesses it is written for as a harness-native sub-agent, whether
+  it is placed as an rbtv agent, and the command that adds it in each form.
 
 Types (--type; comma-separated or repeatable):
   skill                Ability an agent can invoke for a task.
@@ -281,7 +281,7 @@ usage: rbtv configure [-h] [--harness HARNESS]
                       [--target TARGET] [--json] [--dry-run] [--details]
 
 Initialize a fresh target or change saved receiving tools and guidance.
-This command selects no catalog files. Changing settings regenerates
+This command selects no source catalog files. Changing settings regenerates
 the harness files of files already selected; it does not add new files.
 On first setup, give both --harness and --guidance. A named guidance file
 must already exist at the installation root; choose none when you maintain
@@ -384,7 +384,7 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
-  --all, -A             choose every file in the catalog
+  --all, -A             choose every file in the source catalog
   --module, -m MODULE   choose a module; comma-separated or repeatable
   --component, -c COMPONENT
                         choose a component; full ids are accepted too

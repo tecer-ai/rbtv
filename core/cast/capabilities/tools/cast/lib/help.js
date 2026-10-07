@@ -3,9 +3,10 @@
 // cast — the help pages: `cast -h` and `cast <verb> -h`.
 
 const { API_USAGE } = require('./api');
-const { RESUME_USAGE, SESSIONS_USAGE, USAGE, USAGE_IG } = require('./core');
+const { RESUME_USAGE, SESSIONS_USAGE, USAGE_IG } = require('./core');
 const { USAGE: MODELS_USAGE } = require('./models');
 const { loadOptional } = require('./optional');
+const path = require('path');
 const { ROUTE_FORMS, ROUTE_USAGE } = require('./route');
 
 const { module: monitorMod } = loadOptional('monitor');
@@ -13,19 +14,27 @@ const MONITOR_USAGE = monitorMod
   ? monitorMod.MONITOR_USAGE
   : 'cast monitor — unavailable: lib/monitor.js failed to load (run `cast monitor` for the error)';
 
+// The two pages of the rbtv repository the help sends a reader to: the path from the repository
+// root, and the absolute path in the copy of rbtv this cast runs from.
+function sourcePage(rel) {
+  return { rel, abs: path.resolve(__dirname, '..', '..', '..', '..', '..', '..', rel) };
+}
+const FRAMEWORK_SKILL = sourcePage('core/rbtv/skills/framework.md');
+const MODEL_CATALOG_PAGE = sourcePage('core/cast/capabilities/personalizing-the-model-catalog.md');
+
 
 function printHelp() {
   const lines = [
-    "cast — launch one headless sub-agent turn in a harness, model and effort.",
-    "Prints the child's stdout/stderr and exits with its exit code.",
-    "--headed launches the harness's interactive TUI instead (prompt becomes the first message).",
+    'cast — launch one headless agent turn. Prints the child\'s stdout/stderr and exits',
+    'with its exit code. --headed opens the harness\'s interactive TUI instead (the task',
+    'becomes the first message).',
     '',
     'Usage:',
-    '  cast <harness> <model> <effort 1-5> [launch-folder]',
-    '      (-p TEXT | -f FILE)',
-    '      [-s TEXT | -S FILE | --rogue AGENT-FILE]',
-    '      [--headed] [--dry-run]',
     `  ${USAGE_IG}`,
+    '      an rbtv agent: its folder holds the prompt and the harness, model and effort.',
+    '  cast <harness> <model> <effort 1-5> [launch-folder] (-p TEXT | -f FILE)',
+    '      [-s TEXT | -S FILE | --rogue FILE] [--headed] [--dry-run]',
+    '      for a worker chosen by `cast route`, or a throwaway.',
     '',
     '  cast resume <harness> <session-id|last> [launch-folder]',
     '      (-p TEXT | -f FILE) [--dry-run]',
@@ -40,32 +49,41 @@ function printHelp() {
     '  cast models list | add HARNESS MODEL | remove HARNESS MODEL',
     '  cast api <model> ...   |   cast doctor [--json]   |   cast -h',
     '',
+    '-p TEXT / -f FILE  the TASK: what this one launch must do. -f - reads standard input.',
+    '--agent AGENT      a name under <installation>/.rbtv/agents/, or the path of an agent',
+    '                   folder. Do not pass harness, model or effort; to change them:',
+    '                   rbtv agent configure AGENT. Sets RBTV_AGENT_HOME.',
+    '<effort 1-5>       N picks the Nth rung, clamped to the model\'s top — pass the number,',
+    '                   the words are labels only.',
+    '[launch-folder]    defaults to the current directory.',
     'Harnesses, models, and what each effort number means on each model:',
     '  cast models list',
     '',
-    'effort is an integer 1-5: N picks the Nth rung, clamped to the model\'s',
-    'top — pass the number, the words are labels only.',
-    '[launch-folder] defaults to the current directory.',
-    '-s TEXT / -S FILE: system prompt — real for claude, developer instructions',
-    'for codex, prepended to the first message for opencode.',
+    'Writing an agent to launch? Make it an rbtv agent: a folder, anywhere, that holds',
+    'agent.md (its prompt) and agent.json (its record). First load the framework skill',
+    `and follow it: ${FRAMEWORK_SKILL.rel} in the rbtv repository`,
+    `  ${FRAMEWORK_SKILL.abs}`,
+    'Then:',
+    '  rbtv agent add FOLDER --harness H --model M --effort E',
+    '  cast --agent FOLDER -p "..."',
     '',
-    '--agent NAME     rbtv agent, with its own harness, model and effort, read',
-    '               from agent.json. A name is under <installation>/.rbtv/agents/.',
-    '               A path is the agent folder. Do not pass harness, model or',
-    '               effort. To change them: rbtv agent configure AGENT',
-    '               Sets RBTV_AGENT_HOME. Hands agent.md to the model without',
-    '               its frontmatter.',
-    '--rogue FILE      rogue agent: the body of the agent file is the system prompt',
+    'Without an rbtv agent — for a launch that will not be repeated:',
+    '  -s TEXT / -S FILE  system prompt: real for claude, developer instructions for codex,',
+    '                     prepended to the first message for opencode.',
+    '  --rogue FILE       rogue agent: FILE\'s body is the system prompt. For a prompt you',
+    '                     will not keep.',
+    '',
     'cast list      the rbtv agents `cast --agent NAME` can launch from here, or those in --target FOLDER',
     'cast models    the models this installation selected for launching: list, add, remove',
+    'cast doctor    harness programs found; logins present for the selected models',
     'cast resume    one more turn into a session id, or `last` for the folder newest',
     'cast sessions  what ran in a folder — harness, id, started, first-prompt label',
     'cast route     answer 4 questions about the job, get (harness, model, mode, effort)',
     'cast monitor   live cast jobs; --watch exits 3 on stall, 4 on ENDED.',
     '',
-    'Example: cast claude sonnet-5-5 3 -p "reply with exactly: ok"',
-    '         cast --agent scout -p "reply with exactly: ok"',
-    '         cast --agent plans/launch/agents/drafter -p "reply with exactly: ok"',
+    'Example: cast --agent scout -p "reply with exactly: ok"',
+    '         cast --agent plans/launch/agents/drafter -f task.md',
+    '         cast claude sonnet-5-5 3 -p "reply with exactly: ok"',
     '',
     'next: cast <verb> -h   # every flag of one verb, with examples',
     'Exit codes: the child\'s code on a launch; 2 refused or invalid arguments.',
@@ -76,7 +94,7 @@ function printHelp() {
 
 // --- per-verb help: `cast <verb> -h` -----------------------------------------------------------
 //
-// The top-level -h is the model table and the shape of a launch; these pages are the flags. Each
+// The top-level -h is the shape of a launch and where an agent is made; these pages are the flags. Each
 // one states what the verb DOES, what every flag means, and one example that runs as pasted.
 // ponytail: plain string map, no help framework. Keep each page under a screen.
 
@@ -157,12 +175,12 @@ function verbHelpPages() {
       '',
       'Route answers ONE question: which worker runs this job. You answer four about the job.',
       'Deterministic — no network, no clock, no randomness: the same answers against the same',
-      'catalog always give the same verdict. One JSON verdict on stdout, exit 1 on error.',
+      'model catalog always give the same verdict. One JSON verdict on stdout, exit 1 on error.',
       'Three flags are REQUIRED (--access, --type, --class). There are no silent defaults: an',
       'unanswered question is a guess, and a guess is what this command exists to remove. The',
       'one RULED default is --optimize (owner 2026-08-22): omit it and you get PRICE, for',
       'every class alike. The class\'s levels are all that stands between a job and the',
-      'cheapest model on the roster.',
+      'cheapest model in the model catalog.',
       '',
       'THE INTERVIEW',
       '',
@@ -211,6 +229,9 @@ function verbHelpPages() {
       '  The top-level worker IS the choice — launch it. `alternates` is the next two of the same',
       '  ranking, as backups for when the first cannot be launched; they share the same effort.',
       '  Fewer than two alternates (or none) just means the ranking was that short.',
+      '  For an agent launched more than once, put the verdict in its record instead of typing it',
+      '  at each launch: `rbtv agent add FOLDER --harness H --model M --effort E` for a new agent,',
+      '  `rbtv agent configure AGENT --harness H --model M --effort E` for an existing one.',
       '  errors: {"error":"malformed_request"|"zero_candidates"|"no_models","details":...}',
       '',
       'BATCH — a whole team in one call',
@@ -236,31 +257,10 @@ function verbHelpPages() {
       '  none of the interview flags, nor with --caps.',
       '',
       'THE MODEL CATALOG',
-      '  The routing axes (mode, harness, model, efforts, image, level, reasoning, coding, cost,',
-      '  use, quality-override, price-override) are read from the installation\'s model catalog,',
-      '  <installation>/.rbtv/config/cast/models.csv, where a row also selects its model for',
-      '  launching. While an installation has no such file, and outside any installation, the',
-      '  shipped one beside cast.js is read. The installation is the first folder, from the',
-      '  current one upward, that holds .rbtv/config/install.json.',
-      '  Launch mechanics stay in supported-models.js and the two are joined on harness+model —',
-      '  a model catalog row with no twin there is excluded with a warning, because route must',
-      '  never name something cast cannot launch. A file that cannot be read as a table (an',
-      '  unknown column, a row with the wrong number of cells) answers no_models with the line.',
-      '  Whether a row is available comes from providers.json beside them: the login of the row\'s',
-      '  provider is looked for in the OS environment, then in the installation\'s environment file',
-      '  (.rbtv/config/env/.env), then in the harness\'s own credential store.',
-      '',
-      '  use — WHO may see a row (blank, or no use column, reads as route):',
-      '    route  the normal state: the row competes for verdicts.',
-      '    panel  no verdict may name it; it stays in `cast models list --catalog`, where a panel',
-      '           picks its seats. For a model worth a second opinion, never the one answer.',
-      '    off    routing ignores it entirely. Still launchable by hand, still in that list.',
-      '  quality-override / price-override — Y means: inside ITS OWN LEVEL, this row wins that',
-      '  ranking whatever the numbers say. It never crosses a level (an L2 quality-override still',
-      '  loses to every eligible L1) and never bypasses a filter — availability, --access, --caps',
-      '  and the class levels all run first, so an override only reorders survivors. Under the',
-      '  default — which is a price ranking — price-override fires and quality-override does',
-      '  not; making a quality-override bite takes an explicit --optimize quality.',
+      '  Route ranks the rows of the installation\'s model catalog, the table',
+      '  `cast models list --catalog` prints. What its columns and `use` values mean, and how to',
+      `  change them: ${MODEL_CATALOG_PAGE.rel} in the rbtv repository`,
+      `  ${MODEL_CATALOG_PAGE.abs}`,
       '',
       'flags',
       '  --explain   attach the full trace: every row that dropped, at which stage, and why.',
@@ -401,6 +401,10 @@ function verbHelpPages() {
       'with --json one value on standard output, {error, message, next}. No refusal changes',
       'anything.',
       '',
+      'Changing the routing columns of a row, or the models cast supports:',
+      `  ${MODEL_CATALOG_PAGE.rel} in the rbtv repository`,
+      `  ${MODEL_CATALOG_PAGE.abs}`,
+      '',
       'examples: cast models list',
       '          cast models list --supported --json',
       '          cast models add claude haiku-4-5',
@@ -414,13 +418,12 @@ function verbHelpPages() {
       '',
       '--agents, or no flag: the rbtv agents `cast --agent NAME` can launch from here, which are',
       'the agents in the nearest .rbtv/agents/ folder above the current directory. Columns: name,',
-      'harness, model,',
-      'effort, Ignite (yes when the agent\'s ignite pack is on, which `ignite connect` does; such an',
-      'agent also wakes from Slack), and description. The description is shortened to fit the line;',
-      'with --full, or on a narrow terminal, each agent is a labeled block with its whole',
-      'description. An agent that cannot be launched is named with the reason: an unreadable',
-      'record, or a model the installation has not selected, with the command that selects it. No',
-      'agent found is success.',
+      'harness, model, effort, Ignite (yes when the agent\'s ignite pack is on, which `ignite',
+      'connect` does; such an agent also wakes from Slack), and description. The description is',
+      'shortened to fit the line; with --full, or on a narrow terminal, each agent is a labeled',
+      'block with its whole description. An agent that cannot be launched is named with the',
+      'reason: an unreadable record, or a model the installation has not selected, with the',
+      'command that selects it. No agent found is success.',
       '',
       '--agent NAME: that one agent in full: its folder, its whole description, and what is',
       'installed in it, under the names `rbtv show` takes: each pack on its own row, with the',

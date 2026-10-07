@@ -8,7 +8,7 @@ RBTV is a self-contained set of agents, workflows, skills, and rules. A module i
 
 ## Modules
 
-Browse the current catalog with `rbtv list`, then inspect one module, component, unit, or pack with `rbtv show NAME`.
+Browse the source catalog with `rbtv list`, then inspect one module, component, unit, or pack with `rbtv show NAME`.
 
 | Module | Description |
 |---|---|
@@ -93,7 +93,7 @@ The `work-history` skill in `meta/functions` reconstructs a user-agreed project,
 > both with `configure` or on the first `add`. A named guidance file must already exist at the
 > installation root; choose `none` when no such file is maintained. A later `configure` replaces only the settings
 > supplied; `status` displays them. `--type` filters unit types; `--exclude-type` excludes them.
-> Numeric catalog positions are not identifiers. The setting rationale and current command names
+> Numeric source catalog positions are not identifiers. The setting rationale and current command names
 > are recorded in `core/rbtv/capabilities/design-decisions.md`.
 >
 > `configure`, `add`, `remove`, and `update` accept `--dry-run`. The read and change commands

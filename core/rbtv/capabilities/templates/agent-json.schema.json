@@ -35,7 +35,7 @@
       "type": "string"
     },
     "files": {
-      "description": "The files chosen on their own, as full ids <module>/<component>#<name>. A short name is accepted on input when it is unique in the catalog.",
+      "description": "The files chosen on their own, as full ids <module>/<component>#<name>. A short name is accepted on input when it is unique in the source catalog.",
       "type": "array",
       "items": {"type": "string"},
       "uniqueItems": true
