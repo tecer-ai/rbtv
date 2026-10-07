@@ -700,7 +700,7 @@ def test_the_command_the_cycle_skill_gives_is_one_the_tool_accepts(config_dir):
     commands = _skill_commands()
     assert commands, "the cycle skill gives no detection_cycle command line, so nothing was checked"
     for words in commands:
-        words = [str(config_dir) if word == "<agent-home>/config" else word for word in words]
+        words = [str(config_dir) if word == "<config>" else word for word in words]
         args = dc._parser().parse_args(words)
         assert args.op in {verb[0] for verb in VERBS}
         assert args.config_dir == str(config_dir)
@@ -724,4 +724,4 @@ def test_the_command_line_runs_a_verb_with_its_options_after_it(config_dir):
         capture_output=True, text=True, encoding="utf-8")
     assert done.returncode == 0, done.stderr
     stores = json.loads(done.stdout)
-    assert stores and all(Path(path).is_relative_to(config_dir.parent) for path in stores.values())
+    assert stores and all(Path(path).is_relative_to(config_dir.parents[1]) for path in stores.values())

@@ -3,7 +3,8 @@
 
 Establishes, by running against the live accounts, that every transcript source
 this workflow watches is reachable and pinned by its Drive **id**. Produces the
-four grounding artifacts under the component's config-module home:
+four grounding artifacts under the component's runtime folder
+(`.rbtv/runtime/<component>/` of the installation the config-module home is in):
 
   verify-access-verdict.json   per-account, per-precondition verdicts + observations
   verified-source-map.json     the source map the live poll reads, keyed by Drive id
@@ -97,6 +98,21 @@ def workspace_root(start: Path) -> Path | None:
         if (candidate / ".rbtv" / "config").is_dir():
             return candidate
     return None
+
+
+def runtime_dir(config_dir: Path) -> Path:
+    """The runtime folder of the installation whose config-module home this is.
+
+    The config-module home is `<installation>/.rbtv/config/<component>/`; what the
+    tools write while running goes in `<installation>/.rbtv/runtime/<component>/`.
+    The tool that writes there creates it.
+    """
+    home = Path(config_dir).expanduser().resolve()
+    if home.parent.name != "config" or home.parent.parent.name != ".rbtv":
+        refuse(f"{home} is not an installation's .rbtv/config/<component>/ folder, "
+               "so it names no runtime folder",
+               "pass the installation's .rbtv/config/meeting-summarizer as the config-module home")
+    return home.parent.parent / "runtime" / home.name
 
 
 def seam_schema(seams_dir: Path, entry_id: str) -> dict:
@@ -772,7 +788,7 @@ def cmd_run(args) -> int:
         refuse("no config-module home could be resolved",
                f"pass --config-dir, or set {CONFIG_ROOT_ENV}")
     config_dir = Path(config_dir)
-    out_dir = Path(args.out_dir) if args.out_dir else config_dir
+    out_dir = Path(args.out_dir) if args.out_dir else runtime_dir(config_dir)
 
     ids = precondition_ids(seams_dir)
     layouts = layout_names(seams_dir)
@@ -851,7 +867,8 @@ def main(argv=None) -> int:
                        help=f"component config dir holding {CONFIG_FILE} "
                             f"(default: ${CONFIG_ROOT_ENV})")
     run_p.add_argument("--out-dir", type=Path, default=None,
-                       help="where the four artifacts land (default: the config dir)")
+                       help="where the four artifacts land (default: the installation's "
+                            ".rbtv/runtime/<component>/ beside the config dir)")
     run_p.add_argument("--seams", type=Path, default=None,
                        help="seam set the vocabulary and the artifacts bind to "
                             "(default: ../seams beside this tool)")

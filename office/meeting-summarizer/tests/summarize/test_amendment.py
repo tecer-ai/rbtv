@@ -275,6 +275,8 @@ def test_three_failed_runs_of_the_command_line_park_the_meeting_and_retry_un_par
     detection's attempts store. The third consecutive failure parks the meeting and says so in
     that verdict; the owner's `retry --meeting-key` is what un-parks it."""
     case = materialise("case-a", tmp_path)
+    # Detection's verbs find the agent's state/ from the agent folder a turn names.
+    monkeypatch.setenv(detection_cycle.AGENT_HOME_ENV, str(case["root"]))
     settings = case["config"] / "summarize.json"
     settings.write_text(json.dumps({
         **json.loads(settings.read_text(encoding="utf-8")),

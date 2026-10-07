@@ -22,39 +22,40 @@ description: "Run one meeting-summarizer cycle inline, in the current turn: dete
 </role>
 
 <procedure>
-This capability carries no settings of its own — an agent that adds this unit supplies a settings file
-and a state folder, never a value typed into this skill (owner ruling 2026-09-28, "Agent settings
-vs capabilities"). Resolve, ONCE per turn, before step 1:
+This capability carries no values of its own: the installation supplies them as component
+configuration, never as a value typed into this skill. Resolve, ONCE per turn, before step 1:
 
 - **Tools directory** — this capability's own `tools/` folder. Find it by reading `rbtv_path` from
   the installation's `rbtv.json` (at the installation root) and joining `office/meeting-summarizer/tools`.
   Call this `<tools>` below.
-- **State directory** — `<agent-home>/state/` (`<agent-home>` is `$RBTV_AGENT_HOME` inside a turn;
-  starts empty on a new agent, nothing migrates from a prior instance). `doubts.jsonl`,
-  `outcomes.jsonl`, `resolved-doubts.jsonl`, `asked-doubts.jsonl`, `processed-transcripts.jsonl`,
+- **Installation root** — the nearest folder, starting at `<agent-home>` (`$RBTV_AGENT_HOME` inside
+  a turn) and walking up, that holds `.rbtv/config/install.json`. Call this `<installation>` below.
+  If `$RBTV_AGENT_HOME` is unset or no folder above it holds that file, report a failed cycle that
+  names what is missing and run nothing.
+- **Config root** — `<installation>/.rbtv/config/meeting-summarizer/`; call this `<config>` below.
+  It holds one file per subject, which the tools read directly: `sources.json`,
+  `destination-routing.json`, `destination-repos.json`, `publish-targets.json`, `runtime.json` and
+  `summarize.json`. An owner edit to one of them takes effect on the next cycle. Every tool call
+  below passes `--config-root`/`--config-dir <config>` explicitly; never rely on a tool's own
+  default. If the folder is absent, report a failed cycle that names it and run nothing.
+- **State directory** — `<agent-home>/state/`, the agent's live data (starts empty on a new agent,
+  nothing migrates from a prior instance). `doubts.jsonl`, `outcomes.jsonl`,
+  `resolved-doubts.jsonl`, `asked-doubts.jsonl`, `processed-transcripts.jsonl`,
   `asked-routing.jsonl`, `resolved-routing.jsonl` all live directly under it — call this `<state>`
   below. The last two are this skill's own plain JSONL files (one line per row, appended with your
   own file tools — no CLI owns them) tracking which meetings have an open routing question and which
   are settled; they do not exist until the first routing question.
-- **Config root** — `<agent-home>/config/`. Every tool call below passes `--config-root`/
-  `--config-dir <agent-home>/config` explicitly; never rely on a tool's own default. **EVERY cycle,
-  before anything else, run:**
-  `python3 <tools>/materialize_config.py --settings <agent-home>/settings.json --config-root <agent-home>/config`
-  It overwrites `config/*.json` fresh from `settings.json` (the agent's own settings, and its ONLY
-  copy — standing instructions already tell you to read it) every time it runs. NEVER skip this
-  because `config/` already exists from a prior cycle: it is a DERIVED cache, rebuilt every cycle,
-  never a second copy an owner edit could leave stale. Nothing under `config/` is ever hand-edited or
-  read as authoritative on its own. `detection-cycle` finds `<state>/processed-transcripts.jsonl` — the
-  SAME file `publish-job` writes to — by itself, from `--config-dir` alone: it needs no flag from this
-  command and no particular call order, because `<state>` is always `config_dir`'s sibling in the
-  fixed agent-home layout. (Rounds 3-4 tried making this reachable only through a `--state` flag this
-  command had to be given, before the tick, in the same turn — correctly judged "a prompt, not a fix":
-  a turn that ran the tick FIRST, before reading this far, still ticked on the stale default. There is
-  nothing left to pass or order for this specific store any more.)
+- **Runtime folder** — `<installation>/.rbtv/runtime/meeting-summarizer/`, the tools' own records.
+  `detection-cycle` keeps its `stores/` there (the poll watermark, the detected meetings, the job
+  attempts, the in-flight claims); `verify-access` writes its four outputs there, and
+  `detection-cycle` reads `verified-source-map.json` from it. The tools find this folder from
+  `<config>` and create it on first use: pass no flag for it and never write in it by hand.
+  `detection-cycle` finds `<state>/processed-transcripts.jsonl` — the SAME file `publish-job` writes
+  to — from `$RBTV_AGENT_HOME`, and refuses when that variable is unset.
 - **Channel directory** (the per-meeting routing-ask bookkeeping `per_meeting_job.py` uses; nothing
   chat-specific) — `<state>/channel`.
-- **Checkout root** (where destination repos are cloned) — read `<agent-home>/config/runtime.json` →
-  `checkout-root` once config root is materialized. Call this `<checkout root>` below.
+- **Checkout root** (where destination repos are cloned) — read `<config>/runtime.json` →
+  `checkout-root`. Call this `<checkout root>` below.
 - **Scratch** — a fresh working directory for this cycle's own job files, artifact downloads and
   per-meeting work folders: `<agent-home>/tmp/<a timestamp you pick>/`. Call this `<scratch>` below;
   it is yours to create and never shared with another cycle.
@@ -68,13 +69,13 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
       in the owner's reply to its open doubt by name — this is your own reading, not a lookup table,
       because there is one conversation and no per-meeting thread to key on. For each term the owner
       answered, run:
-      `python3 <tools>/doubt_answer.py apply --meeting-key <K> --term <T> --answer-text "<owner's exact words for that term>" --config-root <agent-home>/config --checkout-root <checkout root> --state <state>`
+      `python3 <tools>/doubt_answer.py apply --meeting-key <K> --term <T> --answer-text "<owner's exact words for that term>" --config-root <config> --checkout-root <checkout root> --state <state>`
       Read the JSON result. `"landed": true` means the summary was corrected, committed and pushed —
       report it plainly. `"landed": false` means it is still open; report why and leave it — a failed
       apply is never silently retried by guessing, and it stays open for the NEXT cycle to try again.
 
    b. **Routing questions** — read `<state>/asked-routing.jsonl` for a meeting-key with no matching
-      row in `<state>/resolved-routing.jsonl`. For each one still open, read `<agent-home>/config/destination-routing.json`'s
+      row in `<state>/resolved-routing.jsonl`. For each one still open, read `<config>/destination-routing.json`'s
       routes and match the owner's reply against a declared route `entity` name (your own reading —
       the owner may name it loosely; match it to the one route it clearly means, or treat the reply
       as not yet a clear answer and leave the question open). On a clear match:
@@ -94,7 +95,7 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
       (a clarification, not a second question).
 
 2. **Run one detection tick:**
-   `python3 <tools>/detection_cycle.py tick --config-dir <agent-home>/config`
+   `python3 <tools>/detection_cycle.py tick --config-dir <config>`
    Read the JSON result whole. A tick that refuses (REFUSED on stderr, empty stdout) is reported as
    a failed cycle — never re-run a refused tick; that is how one poll becomes two. From the result,
    keep every job whose disposition is NOT `already-done` and that is not in `skipped-parked` — that
@@ -103,7 +104,7 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
    and after.
 
 3. **Stage this cycle's artifacts, once, for the whole pending set** (skip if pending is empty):
-   `python3 <tools>/artifact_bindings.py --jobs <pending-jobs.json> --out-dir <scratch>/artifacts --config-dir <agent-home>/config`
+   `python3 <tools>/artifact_bindings.py --jobs <pending-jobs.json> --out-dir <scratch>/artifacts --config-dir <config>`
    where `<pending-jobs.json>` is the pending job list you just wrote to a scratch file. This
    downloads every Drive reference once and writes `bindings.json` in `<scratch>/artifacts/`.
 
@@ -113,7 +114,7 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
    - Create its work directory `<scratch>/work/<meeting-key>/` and write a `CLAUDE.md` there
      carrying a `## Name Glossary` section naming `.user/docs/glossary.md`.
    - Run:
-     `python3 <tools>/per_meeting_job.py --job <scratch>/jobs/<meeting-key>.json --artifacts <scratch>/artifacts/bindings.json --config-root <agent-home>/config --checkout-root <checkout root> --channel <state>/channel --state <state> --work <scratch>/work/<meeting-key>`
+     `python3 <tools>/per_meeting_job.py --job <scratch>/jobs/<meeting-key>.json --artifacts <scratch>/artifacts/bindings.json --config-root <config> --checkout-root <checkout root> --channel <state>/channel --state <state> --work <scratch>/work/<meeting-key>`
    - This call itself launches a separate, unattended `cast` turn that reads the transcript and
      writes the actual summary in the summarizer skill's own format — you do not read the
      transcript yourself and you do not draft any part of the summary. Read the JSON verdict this
@@ -134,7 +135,7 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
    - A verdict `outcome: failed` that carries `"parked": true` means this meeting's job failed in
      three consecutive cycles and the call parked the meeting: later ticks list it under
      `skipped-parked` and no job runs for it. A park is lifted only when the owner asks for it, by
-     `python3 <tools>/detection_cycle.py retry --meeting-key <K> --config-dir <agent-home>/config`.
+     `python3 <tools>/detection_cycle.py retry --meeting-key <K> --config-dir <config>`.
 
 5. **File every settled meeting.** Two kinds of meeting are due: (a) each meeting whose outcome is
    `filed` or `amended` in `outcomes.jsonl` and that carries no row yet in
@@ -143,9 +144,9 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
    `processed-transcripts.jsonl`, from its first filing, and they do not cover the source that
    arrived since. A meeting with rows there whose verdict does NOT carry that field is not due:
    never run `cycle` for it. For each due meeting, run:
-   `python3 <tools>/publish_job.py precheck --job <scratch>/jobs/<meeting-key>.json --config-root <agent-home>/config --checkout-root <checkout root> --state <state>`
+   `python3 <tools>/publish_job.py precheck --job <scratch>/jobs/<meeting-key>.json --config-root <config> --checkout-root <checkout root> --state <state>`
    then, only if the precheck does not refuse:
-   `python3 <tools>/publish_job.py cycle --job <scratch>/jobs/<meeting-key>.json --summary <the summary file the verdict named> --config-root <agent-home>/config --checkout-root <checkout root> --state <state>`
+   `python3 <tools>/publish_job.py cycle --job <scratch>/jobs/<meeting-key>.json --summary <the summary file the verdict named> --config-root <config> --checkout-root <checkout root> --state <state>`
    Read each result. This commits and pushes inside this call — never a separate step, never
    deferred to a later turn.
 
@@ -220,8 +221,6 @@ vs capabilities"). Resolve, ONCE per turn, before step 1:
 </procedure>
 
 <resources>
-- `materialize-config` (`materialize_config.py`) — overwrites `<agent-home>/config/*.json` from
-  `settings.json`, every cycle. Run this FIRST; every tool below reads what it wrote.
 - `detection-cycle` (`detection_cycle.py`) — `tick` polls every watched account and source once,
   settles meeting identity, advances the one whole-poll watermark, and emits this cycle's pending
   jobs; `status`/`retry`/`schedule`/`keys` read back state without polling.
@@ -267,13 +266,12 @@ silently dropped, and never reported as a plain refusal.
 </io-spec>
 
 <permissions>
-- Read: this agent's `settings.json`, its materialized `<agent-home>/config/*.json`, `<state>` and
+- Read: `<config>/*.json`, `<state>` and
   its `channel` subfolder, and every summary/transcript file the tools above name.
-- Run: `materialize-config` (every cycle, first), `detection-cycle`, `artifact-bindings`,
+- Run: `detection-cycle`, `artifact-bindings`,
   `per-meeting-job`, `publish-job`, `doubt-answer`, and `verify-access` when a tick refuses at the
   account boundary.
-- Write: `<agent-home>/config/*.json` (via `materialize-config`, every cycle — never by hand),
-  `<scratch>`, and `<state>/asked-routing.jsonl` / `<state>/resolved-routing.jsonl` / the one
+- Write: `<scratch>`, and `<state>/asked-routing.jsonl` / `<state>/resolved-routing.jsonl` / the one
   synthetic settlement line you append to `<state>/outcomes.jsonl` for a resolved routing answer
   (step 1b) — every other write (doubt/outcome rows a tool produces itself, filed summaries, git
   commits/pushes) is a tool's own, never done by hand.

@@ -73,7 +73,7 @@ import file_lock  # noqa: E402
 import meeting_matcher  # noqa: E402
 import source_adapter  # noqa: E402
 from source_adapter import DriverError, Refused, failure_event  # noqa: E402
-from verify_access import build_validator, seam_schema  # noqa: E402
+from verify_access import build_validator, runtime_dir, seam_schema  # noqa: E402
 
 EXIT_OK = 0
 EXIT_FAIL = 1
@@ -89,7 +89,7 @@ MEETING_ENTRY = "meeting-key-and-source-set"
 
 # The cycle's OWN durable state. These are not crossings between pieces — no other
 # piece of the product reads them — so the seam set declares no shape for them and
-# they are config keys of this module. They are deliberately NOT watermark-shaped:
+# they are store keys of this module. They are deliberately NOT watermark-shaped:
 # the whole-poll watermark is the seam's single record and has no sibling here.
 MEETINGS_KEY = "stores/detected-meetings"
 ATTEMPTS_KEY = "stores/job-attempts"
@@ -107,6 +107,9 @@ TIMEZONE_FIELD = "timezone"
 # the owner has since stopped watching (owner ruling 2026-09-26).
 SOURCES_FILE = "sources.json"
 SOURCE_MAP_FILE = "verified-source-map.json"
+
+# The agent folder, set inside a turn. Its `state/` holds the agent's live data.
+AGENT_HOME_ENV = "RBTV_AGENT_HOME"
 
 # goal.md clause 25b. The one place the park threshold is written down.
 PARK_AFTER = 3
@@ -127,7 +130,7 @@ def _parse(stamp: str) -> datetime:
 
 
 # --------------------------------------------------------------------------
-# stores — a config KEY resolves to a file; no literal path is written here
+# stores — a store KEY resolves to a file; no literal path is written here
 # --------------------------------------------------------------------------
 
 
@@ -173,59 +176,35 @@ def store_container(seams: Path, entry_id: str) -> dict:
 
 
 def resolve_store(key: str, config_dir: Path, suffix: str) -> Path:
-    """THE binding: a store config KEY -> the file it names.
+    """THE binding: a store key -> the file it names.
 
-    The rule is the component's live one, read off `channel_protocol.resolve_store`
-    rather than invented here: a key `<group>/<leaf>` is looked up in
-    `<group>.json` under the config-module home at object key `<leaf>`. Absent
-    there, the key's own relative form under that home is the default, so the
-    cycle is runnable before anyone writes a `stores.json` and every location is
-    still a key rather than a path in code.
+    A key `<group>/<leaf>` is the file `<group>/<leaf><suffix>` under the runtime
+    folder of the installation the config-module home is in. The first write
+    creates the folder.
     """
     group, _, leaf = key.partition("/")
     if not leaf:
         _refuse(f"store key {key!r} is not of the form <group>/<leaf>",
-                "name the store by the config key its seam declares")
-    declared = config_dir / f"{group}.json"
-    if declared.is_file():
-        value = json.loads(declared.read_text(encoding="utf-8"))
-        if isinstance(value, dict) and isinstance(value.get(leaf), str):
-            path = Path(value[leaf]).expanduser()
-            return path if path.is_absolute() else (config_dir / path)
-    return config_dir / group / f"{leaf}{suffix}"
+                "name the store by the key its seam declares")
+    return runtime_dir(config_dir) / group / f"{leaf}{suffix}"
 
 
-def processed_store_path(config_dir: Path) -> Path:
-    """Where `publish_job.py` already writes every settled meeting's record.
+def processed_store_path() -> Path:
+    """Where `publish_job.py` writes every settled meeting's record.
 
-    Not resolved through `resolve_store`'s generic `<config_dir>/<group>/<leaf>`
-    default: that default landed this store UNDER THE CONFIG ROOT
-    (`<config_dir>/stores/processed-transcripts.jsonl`), a file nothing else in
-    this capability ever writes to — `publish_job.py` writes
-    `<state>/processed-transcripts.jsonl` (`PROCESSED`). Two files, one tick
-    reading the always-empty one, forever re-emitting a filed meeting as `new`
-    (measured live, rounds 3 and 4: a fix that made the STATE-dir location
-    reachable only through an extra flag the agent's own turn had to remember
-    to pass, in the right order, before the tick — dead the moment a turn ran
-    the tick first — was correctly judged "a prompt, not a fix").
-
-    The agent home's layout is FIXED, not a per-deployment choice this
-    capability guesses at: `<home>/config/` (materialized from settings.json)
-    and `<home>/state/` (durable) are always siblings. `--config-dir` is
-    always `<home>/config`, so `<home>/state` is ALWAYS `config_dir.parent /
-    "state"` — derived here directly, needing no flag, no call order, and no
-    file anything has to write first. A `stores.json` override (the same
-    config-key redirect every other store here still honours) wins if one is
-    ever declared, for a deployment where this derivation would be wrong;
-    absent one — the ordinary case — the sibling `state/` is used directly.
+    That file is the agent's live data: `publish_job.py` writes
+    `<state>/processed-transcripts.jsonl`, and `<state>` is the `state/` folder of
+    the agent folder. Detection reads the SAME file, so it is not a runtime store:
+    it is found from the agent folder a turn names in `RBTV_AGENT_HOME`. Without
+    that variable there is no agent folder to read, and a tick reading an empty
+    record would re-emit every filed meeting as `new`, so it is refused.
     """
-    declared = config_dir / "stores.json"
-    if declared.is_file():
-        value = json.loads(declared.read_text(encoding="utf-8"))
-        if isinstance(value, dict) and isinstance(value.get("processed-transcripts"), str):
-            path = Path(value["processed-transcripts"]).expanduser()
-            return path if path.is_absolute() else (config_dir / path)
-    return Path(config_dir).resolve().parent / "state" / "processed-transcripts.jsonl"
+    home = os.environ.get(AGENT_HOME_ENV)
+    if not home:
+        _refuse(f"{AGENT_HOME_ENV} is not set, so the agent's state/ folder is unknown",
+                f"run inside the agent's turn, or set {AGENT_HOME_ENV} to the agent folder "
+                "whose state/ holds processed-transcripts.jsonl")
+    return Path(home).expanduser() / "state" / "processed-transcripts.jsonl"
 
 
 # --------------------------------------------------------------------------
@@ -267,9 +246,9 @@ class Env:
     @property
     def source_map(self) -> dict:
         if self._source_map is None:
-            path = self.config_dir / SOURCE_MAP_FILE
+            path = runtime_dir(self.config_dir) / SOURCE_MAP_FILE
             if not path.is_file():
-                _refuse(f"no {SOURCE_MAP_FILE} under the config-module home",
+                _refuse(f"no {SOURCE_MAP_FILE} under the runtime folder",
                         "run verify-access: the poll watches folders by the Drive ids it pins, "
                         "and there is no second way to learn them")
             self._source_map = json.loads(path.read_text(encoding="utf-8"))
@@ -334,7 +313,7 @@ def load_env(config_dir: Path, seams: Path | None = None, source_map: dict | Non
     seams = seams or source_adapter.seams_dir()
     stores = {
         WATERMARK_ENTRY: _seam_store(seams, config_dir, WATERMARK_ENTRY),
-        PROCESSED_ENTRY: processed_store_path(config_dir),
+        PROCESSED_ENTRY: processed_store_path(),
         MEETINGS_KEY: resolve_store(MEETINGS_KEY, config_dir, ".jsonl"),
         ATTEMPTS_KEY: attempts_store(config_dir),
         CLAIMS_KEY: resolve_store(CLAIMS_KEY, config_dir, ""),
@@ -424,7 +403,7 @@ def processed_for(processed: list, meeting_key: str) -> list:
 
 
 def attempts_store(config_dir: Path) -> Path:
-    """The attempts store of this config-module home: the newest row per meeting rules."""
+    """The attempts store beside this config-module home: the newest row per meeting rules."""
     return resolve_store(ATTEMPTS_KEY, Path(config_dir), ".jsonl")
 
 
@@ -884,7 +863,7 @@ def _parser() -> argparse.ArgumentParser:
     retry.add_argument("--meeting-key", required=True)
 
     status = sub.add_parser("status", help="the watermark, the meetings, the parked jobs")
-    keys = sub.add_parser("keys", help="the config keys this cycle reads and the files they name")
+    keys = sub.add_parser("keys", help="the stores this cycle keeps and the files they name")
 
     for verb in (tick, schedule, retry, status, keys):
         _shared_options(verb, argparse.SUPPRESS)

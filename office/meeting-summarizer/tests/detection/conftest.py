@@ -1,8 +1,9 @@
 """Shared ground for the detection-cycle arms.
 
-Every arm runs against a throwaway config-module home under `tmp_path`, so the
-stores a tick writes are this test's and nothing else's, and against a FIXTURE
-Drive listing rather than live Drive. Nothing here reaches the network.
+Every arm runs against a throwaway installation under `tmp_path` (its
+`.rbtv/config/meeting-summarizer/` and an agent folder), so the stores a tick
+writes are this test's and nothing else's, and against a FIXTURE Drive listing
+rather than live Drive. Nothing here reaches the network.
 """
 
 from __future__ import annotations
@@ -31,14 +32,28 @@ def load(name: str) -> dict:
     return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
 
 
-@pytest.fixture
-def config_dir(tmp_path: Path) -> Path:
-    """A writable config-module home carrying only what the cycle reads."""
-    home = tmp_path / "config-home"
-    home.mkdir()
+def scratch_installation(root: Path) -> Path:
+    """An installation's config-module home under `root`, carrying only what the cycle reads."""
+    home = root / ".rbtv" / "config" / "meeting-summarizer"
+    home.mkdir(parents=True)
     for name in ("destination-routing.json", "sources.json", "summarize.json"):
         shutil.copyfile(FIXTURES / "config" / name, home / name)
     return home
+
+
+@pytest.fixture
+def agent_home(tmp_path: Path, monkeypatch) -> Path:
+    """The agent folder the turn names; its `state/` holds the agent's live data."""
+    home = tmp_path / ".rbtv" / "agents" / "EXAMPLE-agent"
+    (home / "state").mkdir(parents=True)
+    monkeypatch.setenv("RBTV_AGENT_HOME", str(home))
+    return home
+
+
+@pytest.fixture
+def config_dir(tmp_path: Path, agent_home: Path) -> Path:
+    """A writable config-module home inside a throwaway installation."""
+    return scratch_installation(tmp_path)
 
 
 def watch(config_dir: Path, accounts: list) -> None:

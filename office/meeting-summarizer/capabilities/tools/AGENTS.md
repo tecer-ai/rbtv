@@ -1,6 +1,6 @@
 # meeting-summarizer tools
 
-This folder holds the tools of the `meeting-summarizer` component: `artifact-bindings`, `detection-cycle`, `doubt-answer`, `materialize-config`, `per-meeting-job`, `publish-job` and `verify-access`. Each tool has its record here; its program is at the path the record's `entry` names, in `../../tools/`. No tool of this component has a page. A tool's record, tests, data, its page `<tool>/<tool>.md` and its `documentation/` folder belong here. Prose methods belong in `../methods/`; glossary entries belong in `../glossary/`.
+This folder holds the tools of the `meeting-summarizer` component: `artifact-bindings`, `detection-cycle`, `doubt-answer`, `per-meeting-job`, `publish-job` and `verify-access`. Each tool has its record here; its program is at the path the record's `entry` names, in `../../tools/`. No tool of this component has a page. A tool's record, tests, data, its page `<tool>/<tool>.md` and its `documentation/` folder belong here. Prose methods belong in `../methods/`; glossary entries belong in `../glossary/`.
 
 | File | CONTAINS | PURPOSE | ALWAYS LOAD WHEN |
 |---|---|---|---|

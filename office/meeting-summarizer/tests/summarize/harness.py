@@ -152,7 +152,10 @@ def materialise(case: str, runs_root: Path) -> dict:
     if root.exists():
         shutil.rmtree(root)
     root.mkdir(parents=True)
-    shutil.copytree(FIXTURES / "config", root / "config")
+    # The config-module home sits where an installation keeps it, so the tools
+    # find that installation's runtime folder beside it.
+    config = root / ".rbtv" / "config" / "meeting-summarizer"
+    shutil.copytree(FIXTURES / "config", config)
     shutil.copytree(FIXTURES / "scope", root / "work")
     shutil.copytree(FIXTURES / "checkout", root / "checkout")
     shutil.copytree(FIXTURES / "artifacts", root / "artifacts")
@@ -161,6 +164,6 @@ def materialise(case: str, runs_root: Path) -> dict:
         entry["location"] = entry["location"].replace("FIXTURES/artifacts", str(root / "artifacts"))
     (root / "artifacts" / "binding.json").write_text(
         json.dumps(binding, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {"root": root, "config": root / "config", "work": root / "work",
+    return {"root": root, "config": config, "work": root / "work",
             "checkout": root / "checkout", "binding": binding,
             "channel": root / "channel", "state": root / "state"}

@@ -1,5 +1,0 @@
-{
-  "name": "materialize-config",
-  "description": "materialize-config command",
-  "entry": "../../../tools/materialize_config.py"
-}

@@ -101,8 +101,8 @@ def config_root(override: str | Path | None = None) -> Path:
 
     No workspace-relative default: this capability carries no vault path of its
     own (it moved into rbtv, reusable by any agent). The caller names its config
-    home explicitly, or sets `MEETING_SUMMARIZER_CONFIG_ROOT` — the agent home's
-    settings folder, in the ignite-0.2 design that reaches this resolver.
+    home explicitly, or sets `MEETING_SUMMARIZER_CONFIG_ROOT` — the installation's
+    `.rbtv/config/meeting-summarizer/`.
     """
     if override:
         return Path(override).expanduser()
