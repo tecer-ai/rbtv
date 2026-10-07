@@ -14,8 +14,8 @@ When the list of changed files is missing, stop and ask for it. When a deploy or
 
 | The change touches | Run |
 |---|---|
-| Any file under `core/ignite/` | The 17 Ignite test programs |
-| `turn.js`, `store.js`, or a file under `core/cast/capabilities/tools/cast/lib/` (Ignite imports `agent`, `core`, `handles`, `launch`, `optional` and `win-exec` from there) | The 17 programs and also `test_cast.js`, `test_route.js` and `test_spark.js` |
+| Any file under `core/ignite/` | The 18 Ignite test programs |
+| `turn.js`, `store.js`, or a file under `core/cast/capabilities/tools/cast/lib/` (Ignite imports `agent`, `core`, `handles`, `launch`, `optional` and `win-exec` from there) | The 18 programs and also `test_cast.js`, `test_route.js` and `test_spark.js` |
 | A file the installer scans (a skill, rule, pack, agent, hook, component record or tool record, or the first line of a tool's program; [rbtv CLI](../../../rbtv/capabilities/glossary/rbtv-cli.md) owns the list) or rbtv's install code | The installer selftest, on Linux and on Windows |
 | Code the waking service runs, `deploy.sh` or the systemd unit | All of the above, then deploy and live checks when the caller put them in scope |
 
@@ -29,7 +29,7 @@ Save the outputs before the first edit, in a folder outside the repository, then
 
 ```
 cd core/ignite/capabilities/tools/ignite
-for t in audio board cli config connect daemon dreamer ingress manage memory memory_write outbox prompt slack store turn turn_loop; do
+for t in audio board cli config connect daemon deploy dreamer ingress manage memory memory_write outbox prompt slack store turn turn_loop; do
   node test_$t.js > "$OUT/test_$t.out" 2> "$OUT/test_$t.err"; echo "test_$t $?"
 done
 ```
@@ -55,7 +55,7 @@ The pass signal is exit 0 for every program, plus the line named here. Seconds w
 | `test_audio.js`, `test_config.js`, `test_ingress.js`, `test_manage.js`, `test_memory.js`, `test_outbox.js`, `test_prompt.js`, `test_slack.js` | One line `PASS <name>` per test, no line starting `FAIL` | under 1 each |
 | `test_board.js`, `test_store.js` | Same | 1 and 2 |
 | `test_memory_write.js`, `test_turn_loop.js` | Same | 5 each |
-| `test_connect.js`, `test_cli.js` | Same, and the last line is `ok` | 17 and 29 |
+| `test_connect.js`, `test_cli.js`, `test_deploy.js` | Same, and the last line is `ok` | 17, 29 and 3 |
 | `test_dreamer.js` | Same | 20 |
 | `test_daemon.js` | Same. It also prints the service's log lines, each starting with `{`; ignore them, and do not read its last line as the result | 25 |
 | `test_turn.js` | Its only line: `test_turn: ok` | 1 |
@@ -81,7 +81,7 @@ All four hold, or the report says which does not:
 
    and `diff` the two files against the ones saved before the edit. Every added or removed name is explained by the change. `LC_ALL=C` keeps the order identical between runs. The selftest line `D2-scope` carries a temporary folder name and differs on every run; it is the one expected difference. Never count on a total alone: one removed test and one added test leave the total unchanged.
 2. **Each touched test can fail.** For every test the change adds or edits, break the behaviour it checks once, see that test print `FAIL` and the program exit non-zero, then restore the file. A test never seen red proves nothing about its subject.
-3. **Windows.** Every obliged program exits 0 there, and every skipped test prints `skip: <name> is Linux-only: <reason>`. Exactly four Ignite tests are skipped, each for something Windows does not have: in `test_daemon.js`, `sigterm-clean`, `unit-path-filled` and `unit-path-has-link-bin`; in `test_turn_loop.js`, `old colon history folder is found`. `test_cast.js` prints one more skip, for the `setsid` launch check. Any other skip, or a fifth, is a finding.
+3. **Windows.** Every obliged program exits 0 there, and every skipped test prints `skip: <name> is Linux-only: <reason>`. Exactly fifteen Ignite tests are skipped, each for something Windows does not have: in `test_daemon.js`, `sigterm-clean`, `unit-path-filled` and `unit-path-has-link-bin`; in `test_turn_loop.js`, `old colon history folder is found`; in `test_deploy.js`, the eleven tests that run a deploy, which is every test except `help-needs-nothing`, `refuses-off-linux` and `unknown-words-refused`. `test_cast.js` prints one more skip, for the `setsid` launch check. Any other skip, or a sixteenth, is a finding.
 4. **Who ran what.** The report names each system, the commit, and who ran it: you, or the Windows session whose reply you quote.
 
 Never skip a whole program, delete or weaken a test, or loosen an assertion to make a run pass. The repository's [Linux and Windows rule](../../../../CLAUDE.md) states what a change must respect on both systems.
@@ -104,7 +104,7 @@ A message to that session returns no delivery receipt, and its reply arrives min
 
 These apply only when the caller put them in scope, and only on the Linux machine that runs the service. Follow the [operator runbook](../tools/ignite/documentation/runbook.md) for every command; this section states the order and what each check observes.
 
-1. **Commit**, then **deploy at that commit** (runbook, Deploy). Observe: the commit `deploy.sh` prints is the commit that was tested. A deploy restarts the service for every agent of the installation; it needs the authority of section 6.
+1. **Commit**, then **deploy at that commit** (runbook, Deploy). Observe: the commit `ignite deploy` prints as the commit now is the commit that was tested, and the service state it prints is active. A deploy restarts the service for every agent of the installation; it needs the authority of section 6.
 2. **Status** (runbook, Status). Observe: the unit is active, and its log shows a `ready` event after the restart and no `error` event for an agent that was launchable before.
 3. **Per-agent state** (runbook, Inspect). Observe: `work status` answers for each agent the change can affect, with no hold the change introduced.
 4. **The changed behaviour itself.** Name, before acting, the clause to show, the stimulus and the stored state that will show it: a `turn` log event, the outbox row, the board or memory diff. The runbook gives no pass criteria for a live Slack turn, so a live turn is its own claim with its own authority; when it is not run, report it as not exercised.

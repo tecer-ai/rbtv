@@ -12,11 +12,12 @@ One line from each file's header. A file with no header comment is marked.
 |---|---|
 | `audio.js` | `Audio({ command, voice?, spawn? })`, `command` being the audio tool's name on PATH (config `tools.audio`), run directly. `transcribe(file)` runs `<command> transcribe` and throws on empty or failed output. `speak(text, { voice?, out? })` runs `<command> tts`. |
 | `board.js` | Checks the four-section board, writes subjects and watch-outs, closes subjects, and refreshes Timers and Flags. |
-| `cli.js` | Entry `ignite`. Home from `RBTV_AGENT_HOME`, or `--agent <slug>` plus `--installation <path>`. Connect, disconnect, and `dreamer run|enable|disable`: see `ignite -h`. |
+| `cli.js` | Entry `ignite`. Home from `RBTV_AGENT_HOME`, or `--agent <slug>` plus `--installation <path>`. Connect, disconnect, deploy and `dreamer run|enable|disable`: see `ignite -h`. |
 | `config.js` | `loadConfig(workspace)` reads and validates `<installation>/.rbtv/config/ignite/config.json` and returns it plus `workspace`. `envValue` and `slackToken` resolve named environment variables (process environment, then `.rbtv/config/env/.env`). `agentHome(config, slug)` and `storePath(config, slug)`; where an agent's folder is comes from cast's `lib/agent.js`. |
 | `connect.js` | `ignite connect|disconnect`: turns the `ignite` pack on or off through `rbtv`, creates working files before connecting Slack, and manages the route in `config.json` and an optional timer. It accepts only agents below the installation's `.rbtv/agents/`. Flags: see `ignite -h`. |
 | `daemon.js` | No header comment. Exports `start`, `expiredUntilDate`, and `runInstalledDreamer`. Usage line: `daemon.js --installation <path>`. Startup logs one `error` event, with the agent's name and the reason, for each agent folder cast would not launch, checks each agent's `agent.json` harness on PATH and resolves the app and bot tokens with `slackToken`. An unset variable refuses startup and names the variable. When `dreamer.enabled` is true, the same daemon calls `runInstalledDreamer` for one slot per process in each 03:00 `America/Sao_Paulo` hour. Busy attempts retry on later ticks. The daemon watches for a success older than 48 hours. |
-| `deploy.sh` | `deploy.sh <commit>`. Requires `RBTV_DEPLOY` (deploy worktree) and `RBTV_INSTALLATION` (installation root). |
+| `deploy.js` | `ignite deploy [COMMIT] [--deploy-folder PATH] [--dry-run]`: resolves the commit, the installation and the deploy folder, runs `deploy.sh` once, then confirms the service stays active at that commit. Linux only. Flags: see `ignite deploy -h`. |
+| `deploy.sh` | `deploy.sh <commit>`, run by `ignite deploy`. Requires `RBTV_DEPLOY` (deploy worktree) and `RBTV_INSTALLATION` (installation root). |
 | `dreamer.js` | `runDreamer({ config, openStore?, model?, now? })` processes agents in sequence, validates memory proposals, applies writes, commits net changes, and returns a digest or alert. It locks snapshot reads and publication separately, releasing the lock before every model call. `getState(store)` reads each agent's cursor, success and reported-conflict state; `saveState(store, state, now)` persists it, including a quiet run's success. |
 | `history.js` | `historyPath(home, key)` is `<home>/conversations/<safe>/history.md`. `safe` is the key with Windows-forbidden characters replaced by `-`. A folder still named with the raw key is renamed on first access. `writeHistory` regenerates that file from the store. `DEFAULT_HISTORY_WINDOW` is the recent slice in every turn prompt. |
 | `ingress.js` | No header comment. Exports `handleEvent`. |
@@ -33,6 +34,7 @@ One line from each file's header. A file with no header comment is marked.
 | `test_config.js` | Suite for `config.js`. No API header. |
 | `test_connect.js` | Suite for `connect.js` via `cli.js`. No API header. |
 | `test_daemon.js` | Suite for `daemon.js`. No API header. |
+| `test_deploy.js` | Suite for `deploy.js` via `cli.js`. The real `deploy.sh` runs against scratch git folders, a scratch HOME and stand-in `systemctl` and `journalctl` programs. |
 | `test_dreamer.js` | Fixture SQLite stores and disposable Git workspaces; no live model or Slack calls. |
 | `test_ingress.js` | Suite for `ingress.js`. No API header. |
 | `test_memory.js` | Suite for memory checking, recovery, workspace selection, append concurrency and path boundaries. |

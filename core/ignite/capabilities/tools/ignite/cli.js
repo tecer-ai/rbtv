@@ -2,7 +2,7 @@
 'use strict';
 
 // API — entry `ignite`. Home from RBTV_AGENT_HOME, or --agent <slug> + --installation <path>.
-// main(argv, deps) → exit code, or a Promise for connect/disconnect/dreamer.
+// main(argv, deps) → exit code, or a Promise for connect/disconnect/dreamer/deploy.
 // deps.slack stubs Slack.
 // deps.stdout / deps.stderr / deps.env optional.
 // schedule next-occurrence lives in schedule.js.
@@ -22,8 +22,8 @@ const REPORTS = new Set(['always', 'when-useful']);
 
 const HELP = `ignite — help
 
-Connect an agent to Slack, run one turn, or let the calling agent
-manage itself.
+Connect an agent to Slack, run one turn, let the calling agent
+manage itself, or deploy the waking service.
 
 Connect
   connect        Turn the ignite pack on, create working files, connect Slack.
@@ -45,12 +45,18 @@ Timers, work, messages and memory
   dreamer        Run one memory consolidation, or enable or disable the
                  nightly consolidation for the whole installation.
 
+Waking service
+  deploy         Check the service's folder out at a commit, restart the
+                 service and confirm it is active. Linux only.
+
 Usage
   ignite connect AGENT (--channel-name NAME | --dm)
       [--schedule-json FILE] [--installation PATH] [--dry-run]
   ignite disconnect AGENT [--archive-channel]
       [--installation PATH] [--dry-run]
   ignite turn --request FILE --result FILE
+  ignite deploy [COMMIT] [--deploy-folder PATH]
+      [--installation PATH] [--dry-run]
 
 Home: RBTV_AGENT_HOME, or --agent NAME --installation PATH.
   The installation defaults to the directory walk that finds
@@ -63,7 +69,7 @@ AGENT on connect and disconnect is a name under
 <installation>/.rbtv/agents/, or a path to an agent folder there.
 
 Shared options: --json  -h, --help
-connect and disconnect also take --dry-run and --installation.
+connect, disconnect and deploy also take --dry-run and --installation.
 --json selects JSON on stdout for a success.
 A refusal is a message on stderr, exit 1, with or without --json.
 -h and --help work before or after the verb, with no setup.
@@ -668,7 +674,7 @@ function cmdBoard(rest, flags, deps) {
   }
 }
 
-function resolveDreamerWorkspace(flags, deps) {
+function resolveInstallation(flags, deps) {
   if (flags.installation) return path.resolve(flags.installation);
   const env = deps.env || process.env;
   if (env.RBTV_AGENT_HOME) {
@@ -683,7 +689,7 @@ function resolveDreamerWorkspace(flags, deps) {
 // Installation-wide: the daemon reads dreamer.enabled on its next tick. A call
 // that asks for the state already in force writes nothing.
 function setDreamerEnabled(enabled, flags, deps) {
-  const workspace = resolveDreamerWorkspace(flags, deps);
+  const workspace = resolveInstallation(flags, deps);
   const file = configPath(workspace);
   let config;
   let changed;
@@ -736,7 +742,7 @@ async function cmdDreamer(rest, flags, deps) {
   let started = false;
   let result;
   try {
-    const workspace = resolveDreamerWorkspace(flags, deps);
+    const workspace = resolveInstallation(flags, deps);
     const config = loadConfig(workspace);
     enabled = config.dreamer.enabled === true;
     if (!config.dreamer.model) throw new Error(dreamerModelRequired('to run a consolidation'));
@@ -825,7 +831,7 @@ function main(argv, deps = {}) {
     emit(deps, { json: false }, { help: COMMANDS }, HELP);
     return 0;
   }
-  if (rest.length === 0) fail(`usage: ignite ${['connect', 'disconnect', 'manage', 'turn', ...COMMANDS].join('|')}`);
+  if (rest.length === 0) fail(`usage: ignite ${['connect', 'disconnect', 'manage', 'turn', ...COMMANDS, 'deploy'].join('|')}`);
   const [command, ...tail] = rest;
   if (command === 'connect' || command === 'disconnect') return require('./connect.js').run(command, tail, flags, deps);
   if (command === 'manage') return require('./manage.js').run(tail, flags, deps);
@@ -839,7 +845,8 @@ function main(argv, deps = {}) {
   if (command === 'board') return cmdBoard(tail, flags, deps);
   if (command === 'remember') return cmdRemember(tail, flags, deps);
   if (command === 'dreamer') return cmdDreamer(tail, flags, deps);
-  if (!COMMANDS.includes(command)) fail(`unknown command: ${command}\nchoose from connect, disconnect, manage, turn,\nschedule, schedules-due, work, wake, post, board, remember, dreamer\nNothing changed.\nignite -h`);
+  if (command === 'deploy') return require('./deploy.js').run(tail, flags, deps, () => resolveInstallation(flags, deps));
+  if (!COMMANDS.includes(command)) fail(`unknown command: ${command}\nchoose from connect, disconnect, manage, turn,\nschedule, schedules-due, work, wake, post, board, remember, dreamer, deploy\nNothing changed.\nignite -h`);
   if (flags.help) {
     const page = UNCHANGED_HELP[command];
     if (page) {
