@@ -431,7 +431,7 @@ process.exit(0);
   // a model catalog that cannot be read stops the turn, for a selected model too
   const broken = agentHome([HEAD, 'cli,claude,sonnet-5-5,5,N,L2,3,3,1,0,route,N,N']);
   rejects(turn(broken.home, 'claude', 'sonnet-5-5'),
-    `refused: cannot read the model catalog ${broken.file} line 2: 13 cells where the header has 12\nNothing changed.\ncast models list --catalog`);
+    `refused: cannot read the model catalog ${broken.file} line 2: 13 cells where the header has 12\nNothing changed.\ncorrect ${broken.file}, then run the same command again`);
 
   // the cwd is checked before the model: a missing folder is the answer, not a lookup from it
   rejects(turn(path.join(pruned.root, 'missing'), 'claude', 'haiku-4-5'), 'absolute directory');
