@@ -687,8 +687,13 @@ function resolveInstallation(flags, deps) {
     const found = workspaceFromHome(env.RBTV_AGENT_HOME);
     if (found) return found;
   }
-  const found = findWorkspace(env.RBTV_AGENT_HOME ? path.dirname(env.RBTV_AGENT_HOME) : process.cwd());
-  if (!found) fail('--installation required');
+  const start = env.RBTV_AGENT_HOME ? path.dirname(env.RBTV_AGENT_HOME) : process.cwd();
+  const found = findWorkspace(start);
+  if (!found) {
+    fail(env.RBTV_AGENT_HOME
+      ? `no installation found: ${configPath(start)} is not in the folder that holds RBTV_AGENT_HOME or above.\nPass --installation PATH.`
+      : `no installation found: ${configPath(start)} is not in this folder or above.\nRun from inside an installation, or pass --installation PATH.`);
+  }
   return found;
 }
 

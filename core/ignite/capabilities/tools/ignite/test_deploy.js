@@ -317,7 +317,8 @@ linuxOnly('installation-from-walk', () => withScratch(async (s) => {
     assert.equal(named.code, 0, named.stderr);
     process.chdir(s.root);
     const none = await deploy(['--dry-run', '--deploy-folder', folder], { env: s.env });
-    assert.equal(none.stderr, '--installation required\nNothing changed.\nignite deploy -h');
+    const sought = path.join(process.cwd(), '.rbtv', 'config', 'ignite', 'config.json');
+    assert.equal(none.stderr, `no installation found: ${sought} is not in this folder or above.\nRun from inside an installation, or pass --installation PATH.\nNothing changed.\nignite deploy -h`);
   } finally {
     process.chdir(cwd);
   }

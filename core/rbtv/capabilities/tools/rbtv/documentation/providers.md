@@ -1,6 +1,6 @@
 # Provider accounts
 
-Use `rbtv providers` to see which [provider](../../../glossary/provider.md) logins a machine holds, to switch a harness between accounts of one provider without logging in again, and to read each account's plan usage. Use this page when running those verbs, when deciding which account to switch to, and when adding or changing a supported provider. `rbtv providers -h` and each verb's `-h` own the grammar, options and exit codes.
+Use `rbtv providers` to manage the AI [provider](../../../glossary/provider.md) accounts and subscriptions a machine uses: to see which provider logins it holds, to switch a harness between accounts of one provider without logging in again, and to read each account's plan usage. Use this page when running those verbs, when deciding which account to switch to, and when adding or changing a supported provider. `rbtv providers -h` and each verb's `-h` own the grammar, options and exit codes.
 
 Run the verbs from a folder inside an installation. They take no `--target`, and a run outside an installation is refused with `installation-unknown`: saved logins belong to one installation, so an agent folder or the current folder never stands in for it.
 

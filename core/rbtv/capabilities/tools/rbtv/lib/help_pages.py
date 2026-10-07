@@ -34,9 +34,9 @@ Agents
   agent VERB    Act on one agent instead of this installation: create it, change its
                 files, harness, model or effort, or list the agents. See: rbtv agent -h
 
-Provider accounts
-  providers VERB  List providers, save and switch account logins, read plan
-                  usage. See: rbtv providers -h
+AI provider accounts (a provider is the lab whose models a harness runs)
+  providers VERB  Manage the AI provider accounts and subscriptions this machine uses:
+                  list, save and switch logins, read plan usage. See: rbtv providers -h
 
 Check and guided use
   doctor       Check harness files and selected command shortcuts.
@@ -881,10 +881,11 @@ rbtv — providers help
 
 usage: rbtv providers [-h] COMMAND ...
 
-Manage the AI provider accounts this machine uses. A provider is the lab
-whose models a harness runs (claude, codex, zai, google, ...). List the
-supported providers, save the current login under a name, switch between
-saved logins without logging in again, and read each account's plan usage.
+Manage the AI provider accounts and subscriptions this machine uses. A
+provider is the lab whose models a harness runs (claude, codex, zai,
+google, ...). List the supported providers, save the current login under
+a name, switch between saved logins without logging in again, and read
+each account's plan usage.
 
   list [PROVIDER]               Login state and saved names; --supported
                                 lists what rbtv supports instead.
