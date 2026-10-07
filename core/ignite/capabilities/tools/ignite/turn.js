@@ -114,14 +114,17 @@ function readEnv(env) {
   return out;
 }
 
-// The turn `request.fallback` describes: this request with the harness, model, effort, session
-// and prompt that object gives. null when the request names none.
-function readFallback(request) {
-  const given = request.fallback;
+// The turns `request.fallbacks` describes, in the order to try them: this request with the
+// harness, model, effort, session and prompt each object gives. null when the request names none.
+function readFallbacks(request) {
+  const given = request.fallbacks;
   if (given === undefined) return null;
-  if (!given || typeof given !== 'object' || Array.isArray(given)) throw new Error('fallback must be an object');
-  const { harness, model, effort, session, prompt } = given;
-  return validate({ ...request, harness, model, effort, session, prompt, fallback: undefined });
+  if (!Array.isArray(given)) throw new Error('fallbacks must be an array');
+  return given.map((one) => {
+    if (!one || typeof one !== 'object' || Array.isArray(one)) throw new Error('a fallback must be an object');
+    const { harness, model, effort, session, prompt } = one;
+    return validate({ ...request, harness, model, effort, session, prompt, fallbacks: undefined });
+  });
 }
 
 function validate(request) {
@@ -134,7 +137,7 @@ function validate(request) {
   const env = readEnv(request.env);
   const resolved = resolveEffortValue(spec, request.effort, request.harness, request.model);
   return {
-    fallback: readFallback(request),
+    fallbacks: readFallbacks(request),
     harness: request.harness,
     modelId,
     model: shortName(request.harness, modelId),
@@ -349,11 +352,18 @@ async function runTurnAsync(args) {
     const v = validate(request);
     let outcome = await spawnTurn(v, resultFile);
     let result = buildResult(v, outcome);
-    if (!result.ok && v.fallback && startFailure(attemptEnd(outcome))) {
-      const from = { harness: result.harness, model: result.model, error: result.error };
-      outcome = await spawnTurn(v.fallback, `${resultFile}.fallback`);
-      result = { ...buildResult(v.fallback, outcome), fallbackFrom: from };
+    // While a run fails to start, the next fallback runs in its place. A request that names
+    // fallbacks, even none, gets `failed`, the runs before the one the result describes, and
+    // `exhausted`, true when that last run failed to start too.
+    const failed = [];
+    const failedToStart = () => !result.ok && startFailure(attemptEnd(outcome));
+    for (const next of v.fallbacks || []) {
+      if (!failedToStart()) break;
+      failed.push({ harness: result.harness, model: result.model, error: result.error });
+      outcome = await spawnTurn(next, `${resultFile}.fallback${failed.length}`);
+      result = buildResult(next, outcome);
     }
+    if (v.fallbacks) result = { ...result, failed, exhausted: failedToStart() };
     writeResult(resultFile, result);
     process.exitCode = result.ok ? 0 : 1;
     return process.exitCode;

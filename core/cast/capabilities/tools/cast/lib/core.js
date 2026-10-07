@@ -231,6 +231,15 @@ function taskText(text, source) {
   return text;
 }
 
+// The text of a -f task file. A file that is not there, or cannot be read, is refused by its path.
+function taskFile(file) {
+  try { return fs.readFileSync(file, 'utf8'); } catch (e) {
+    const at = path.resolve(process.cwd(), file);
+    return fail(`refused: cannot read the task file ${at}: ${e.code === 'ENOENT' ? 'it does not exist' : e.message}\n`
+      + 'Nothing changed.\ngive -f a file that exists, or give the task with -p TEXT');
+  }
+}
+
 // Launch flags: -p/-f prompt, -s/-S system prompt, --headed, --dry-run, --detached.
 function parseArgs(rawArgv, usage, requirePrompt) {
   let dryRun = false;
@@ -258,7 +267,7 @@ function parseArgs(rawArgv, usage, requirePrompt) {
       } else if (val === '-') {
         promptText = taskText(fs.readFileSync(0, 'utf8'), 'standard input (-f -)');
       } else {
-        promptText = taskText(fs.readFileSync(val, 'utf8'), `the -f file ${val}`);
+        promptText = taskText(taskFile(val), `the -f file ${val}`);
       }
     } else if (a === '-s' || a === '-S') {
       if (system) fail('refused: -s and -S are mutually exclusive — pass exactly one');

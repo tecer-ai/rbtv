@@ -438,7 +438,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   };
 
   const { parsed, login } = report(inst);
-  assert.deepStrictEqual(Object.keys(parsed), ['installation', 'selection', 'catalog_problem', 'harnesses', 'models', 'next']);
+  assert.deepStrictEqual(Object.keys(parsed), ['installation', 'selection', 'catalog_problem', 'catalog_drift', 'harnesses', 'models', 'next']);
   assert.strictEqual(parsed.installation, fs.realpathSync(inst), 'doctor names the installation it read');
   assert.deepStrictEqual([parsed.selection, parsed.catalog_problem], [null, null], 'no model catalog of its own: the shipped one');
   // harness programs: the path PATH finds each at, or null
@@ -477,7 +477,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.match(text.stdout, /^ {2}✓ opencode +k3 +KIMI_API_KEY in the installation's environment file$/m);
   assert.match(text.stdout, /^ {2}· opencode +glm-5\.3 +no login: .*ZHIPU_API_KEY/m);
   assert.ok(text.stdout.includes(`\ninstallation: ${fs.realpathSync(inst)}\nmodel catalog: the one shipped with cast (every supported model is selected)\n`
-    + `The installation's own file is created by the first cast models remove, or by copying ${path.join(__dirname, 'models.csv')} to ${path.join(fs.realpathSync(inst), '.rbtv', 'config', 'cast', 'models.csv')}.\n\nharnesses\n`), text.stdout);
+    + `The installation's own file, ${path.join(fs.realpathSync(inst), '.rbtv', 'config', 'cast', 'models.csv')}, is created by the first cast models set or cast models remove.\n\nharnesses\n`), text.stdout);
   assert.ok(text.stdout.includes(`\n  ${Object.values(login).filter((m) => m.login).length} of ${ROWS.length} selected models have a login present.\n`), text.stdout);
   assert.ok(text.stdout.endsWith('\n\nAccounts and usage: rbtv providers list · rbtv providers usage\n'), text.stdout);
   // a key's value never reaches either report
@@ -536,7 +536,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   const res = models(['list', '--json']);
   assert.strictEqual(res.status, 0, `cast models list --json must exit 0: ${res.stderr}`);
   const parsed = JSON.parse(res.stdout);
-  assert.deepStrictEqual(Object.keys(parsed), ['installation', 'selection', 'view', 'models', 'usage']);
+  assert.deepStrictEqual(Object.keys(parsed), ['installation', 'selection', 'defaults', 'view', 'models', 'usage']);
   assert.deepStrictEqual([parsed.installation, parsed.selection, parsed.view], [null, null, 'selected']);
   const { ROWS } = require('./supported-models');
   assert.deepStrictEqual(parsed.models.map((m) => `${m.harness} ${m.model} ${m.mode}`), ROWS.map((r) => `${r.harness} ${r.model} ${r.mode}`));
@@ -561,7 +561,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   const res = models(['list']);
   assert.strictEqual(res.status, 0, 'cast models list must exit 0');
   assert.strictEqual(res.stdout, models(['list', '--selected']).stdout, '--selected is the default view');
-  assert.ok(res.stdout.startsWith(`installation: none above ${process.cwd()}\nmodel catalog: ${path.join(__dirname, 'models.csv')} (shipped with cast: every supported model is selected)\n\n  harness `), res.stdout);
+  assert.ok(res.stdout.startsWith(`installation: none above ${process.cwd()}\nmodel catalog: ${path.join(__dirname, 'models.csv')} (shipped with cast: every supported model is selected)\ndefaults: cast route ranks by price; fallback is off (cast's own values; cast models defaults)\n\n  harness `), res.stdout);
   assert.ok(res.stdout.includes('1=high 2-5=max'), 'plain list shows each word\'s number');
   assert.match(res.stdout, /^ {2}api +gemini-3\.5-flash +1=off 2-5=on$/m);
   const count = require('./supported-models').ROWS.length;
@@ -2029,7 +2029,7 @@ else {
   // a model catalog that cannot be read stops every launch in the installation, selected or not
   for (const [lines, why] of [
     [[HEAD, SONNET, 'cli,claude,opus-5-5,5,N,L1,6,6,2,5,route,N,N'], 'line 3: 13 cells where the header has 12'],
-    [[`${HEAD},notes`, `${SONNET},x`], "line 1: unknown column 'notes' (the columns are mode, harness, model, efforts, image, level, reasoning, coding, cost, use, quality-override, price-override, fallback-harness, fallback-model)"],
+    [[`${HEAD},notes`, `${SONNET},x`], "line 1: unknown column 'notes' (the columns are mode, harness, model, efforts, image, level, reasoning, coding, cost, use, quality-override, price-override)"],
     [['mode,harness,level', 'cli,claude,L2'], "line 1: no 'model' column"],
   ]) {
     const broken = installation(lines);
@@ -2104,11 +2104,12 @@ else {
   const shippedFile = path.join(__dirname, 'models.csv');
   const shippedNote = `model catalog: ${shippedFile} (shipped with cast: every supported model is selected)`;
   // how an installation with no model catalog of its own gets one: said wherever its absence is
-  const ownFileNote = (root) => `The installation's own file is created by the first cast models remove, or by copying ${shippedFile} to ${path.join(root, '.rbtv', 'config', 'cast', 'models.csv')}.`;
+  const ownFileNote = (root) => `The installation's own file, ${path.join(root, '.rbtv', 'config', 'cast', 'models.csv')}, is created by the first cast models set or cast models remove.`;
 
   // list: the three views of a pruned installation, each naming the installation and the file
   const some = installation([HEAD, SONNET, 'cli,opencode,not-a-real-model,3,N,L2,6,6,1,route,N,N']);
-  const head = `installation: ${some.root}\nmodel catalog: ${some.file}\n\n`;
+  const DEFAULTS_LINE = "defaults: cast route ranks by price; fallback is off (cast's own values; cast models defaults)";
+  const head = `installation: ${some.root}\nmodel catalog: ${some.file}\n${DEFAULTS_LINE}\n\n`;
   const selectedText = ok(unchanged(some.root, () => models(['list'], some.root)));
   assert.strictEqual(selectedText, `${head}  harness  model       effort\n  claude   sonnet-5-5  1=low 2=medium 3=high 4=xhigh 5=max\n\n`
     + `1 of ${ROWS.length} supported models are selected.\n`
@@ -2127,16 +2128,16 @@ else {
   assert.deepStrictEqual(JSON.parse(ok(models(['list', '--json'], some.root))).models.map((m) => m.model), ['sonnet-5-5']);
   // --catalog: every row of the file in force, the one cast does not support included
   const catalogJson = JSON.parse(ok(models(['list', '--catalog', '--json'], some.root)));
-  assert.deepStrictEqual(Object.keys(catalogJson), ['installation', 'source', 'rows']);
+  assert.deepStrictEqual(Object.keys(catalogJson), ['installation', 'source', 'defaults', 'rows']);
   assert.deepStrictEqual([catalogJson.installation, catalogJson.source], [some.root, some.file]);
   assert.deepStrictEqual(catalogJson.rows[0], { mode: 'cli', harness: 'claude', model: 'sonnet-5-5', efforts: '5', image: 'N', level: 'L2',
-    reasoning: '3', coding: '3', cost: '10', use: 'route', 'quality-override': 'N', 'price-override': 'N', 'fallback-harness': '', 'fallback-model': '', launchable: 'yes', available: 'true' });
+    reasoning: '3', coding: '3', cost: '10', use: 'route', 'quality-override': 'N', 'price-override': 'N', launchable: 'yes', available: 'true' });
   assert.deepStrictEqual([catalogJson.rows[1].model, catalogJson.rows[1].launchable, catalogJson.rows[1].available], ['not-a-real-model', 'no', '-']);
   const catalogText = ok(models(['list', '--catalog'], some.root));
   assert.ok(catalogText.startsWith(`${head}  mode  harness   model `), catalogText);
   assert.match(catalogText, /^ {2}cli +opencode +not-a-real-model .* no +-$/m);
   // with no file of its own, and outside any installation, the shipped model catalog is the source
-  assert.ok(ok(models(['list'], fresh.root)).startsWith(`installation: ${fresh.root}\n${shippedNote}\n${ownFileNote(fresh.root)}\n\n  harness `));
+  assert.ok(ok(models(['list'], fresh.root)).startsWith(`installation: ${fresh.root}\n${shippedNote}\n${ownFileNote(fresh.root)}\n${DEFAULTS_LINE}\n\n  harness `));
   const outsideCatalog = JSON.parse(ok(models(['list', '--catalog', '--json'])));
   assert.deepStrictEqual([outsideCatalog.installation, outsideCatalog.source, outsideCatalog.rows.length], [null, shippedFile, shipped.rows.length]);
 
@@ -2200,7 +2201,7 @@ else {
   const wouldRemove = ok(unchanged(pruning.root, () => models(['remove', 'claude', 'sonnet-5-5', '--dry-run'], pruning.root)));
   assert.ok(wouldRemove.startsWith(`installation: ${pruning.root}\nmodel catalog: ${pruning.file}\n\n`
     + 'would copy the model catalog shipped with cast to that file first: every other supported model stays selected.\n'
-    + "would unselect: 'claude sonnet-5-5', 2 rows to remove\n  cli,claude,sonnet-5-5,5,N,L3,3,3,10,route,Y,Y,,\n  cli,claude,sonnet-5-5,5,N,L2,3,3,10,route,N,N,,\nnot checked:\n"), wouldRemove);
+    + "would unselect: 'claude sonnet-5-5', 2 rows to remove\n  cli,claude,sonnet-5-5,5,N,L3,3,3,10,route,Y,Y\n  cli,claude,sonnet-5-5,5,N,L2,3,3,10,route,N,N\nnot checked:\n"), wouldRemove);
   assert.ok(wouldRemove.endsWith('\nNothing changed: this was a dry run.\n'), wouldRemove);
   const removedText = ok(models(['remove', 'claude', 'sonnet-5-5'], pruning.root));
   assert.ok(removedText.includes('\ncopied the model catalog shipped with cast to that file first') && removedText.includes("\nunselected: 'claude sonnet-5-5', 2 rows removed\n"), removedText);
@@ -2273,8 +2274,8 @@ else {
   }
   // the words: a verb is required, each verb takes its own flags, -h anywhere is the help page
   for (const [args, first] of [
-    [[], 'refused: cast models needs a verb\nchoose from list, add, remove\nNothing changed.'],
-    [['prune'], "refused: unknown verb 'models prune'\nchoose from list, add, remove\nNothing changed."],
+    [[], 'refused: cast models needs a verb\nchoose from list, add, remove, set, update, defaults\nNothing changed.'],
+    [['prune'], "refused: unknown verb 'models prune'\nchoose from list, add, remove, set, update, defaults\nNothing changed."],
     [['list', 'claude'], "refused: cast models list takes no name, got 'claude'\nit lists every model of one view\nNothing was listed."],
     [['list', '--selected', '--catalog'], 'refused: --selected and --catalog are different lists\npass one of them\nNothing was listed.'],
     [['list', '--force'], "refused: '--force' is not a cast models list option\ncast models list takes --json, --selected, --supported, --catalog\nNothing was listed."],
@@ -2289,162 +2290,301 @@ else {
 }
 
 // --- the fallback of a launch (lib/fallback.js) -------------------------------------------------
-// A row of the model catalog names the harness and model a launch runs when its own fails to
-// start. The harnesses here are fakes on PATH: `claude` ends as FAKE_CLAUDE says, `codex` records
-// its arguments and prints a report.
+// Where the installation's defaults turn it on, a launch whose model fails to start runs the
+// other models of its level in ranking order. The harnesses here are fakes on PATH: `claude` ends
+// as FAKE_CLAUDE says, `codex` ends as FAKE_CODEX says for the model it was given and prints a
+// report naming that model.
 {
   const { START_WINDOW_MS, startFailure, dial } = require('./lib/fallback');
-  const { parseCatalog } = require('./lib/model-catalog');
   const { SPECS } = require('./supported-models');
-  const HEAD = 'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override,fallback-harness,fallback-model';
-  const row = (harness, model, fallback = ',') => `cli,${harness},${model},5,N,L2,3,3,10,route,N,N,${fallback}`;
-  const installation = (lines) => {
+  const HEAD = 'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override';
+  // Level L2 holds three models at three prices; glm is there for the launches that start on it,
+  // and off, so that no arm depends on a login this machine may hold. L1 holds one model.
+  const ROWS_L2 = ['cli,claude,sonnet-5-5,5,N,L2,3,3,10,route,N,N', 'cli,codex,gpt-5.6-terra,5,N,L2,5,5,8,route,N,N',
+    'cli,codex,gpt-6.1-sol,5,N,L2,4,4,5,route,N,N', 'cli,opencode,glm-5.3,2,N,L2,3,3,4,off,N,N'];
+  const OTHER = ['cli,claude,opus-5-5,5,N,L1,6,6,25,route,N,N', 'cli,codex,gpt-6-luna,5,N,L3,3,3,1,route,N,N',
+    'cli,claude,haiku-4-5,0,N,L3,3,3,,route,N,N'];
+  const installation = (fallback, rows = [...ROWS_L2, ...OTHER]) => {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(BASE, 'cast-test-fallback-')));
     fs.mkdirSync(path.join(root, '.rbtv', 'config', 'cast'), { recursive: true });
     fs.writeFileSync(path.join(root, '.rbtv', 'config', 'install.json'), '{}\n');
-    const file = path.join(root, '.rbtv', 'config', 'cast', 'models.csv');
-    fs.writeFileSync(file, `${[HEAD, ...lines].join('\n')}\n`);
-    return { root, file };
+    fs.writeFileSync(path.join(root, '.rbtv', 'config', 'cast', 'models.csv'), `${[HEAD, ...rows].join('\n')}\n`);
+    if (fallback) fs.writeFileSync(path.join(root, '.rbtv', 'config', 'cast', 'defaults.json'), JSON.stringify({ fallback }));
+    return root;
   };
   const home = mkFolder('fallback-home');
   const bin = mkFolder('fallback-bin');
   const log = path.join(home, 'started.log');
-  const fake = (name, body) => installFake(bin, name, `${drainStdin}require('fs').appendFileSync(${JSON.stringify(log)}, ${JSON.stringify(name)} + ' ' + process.argv.slice(2).join(' ') + '\\n');\n${body}`);
+  // one JSON line per start: the harness and its arguments
+  const fake = (name, body) => installFake(bin, name, `${drainStdin}const argv = process.argv.slice(2);
+require('fs').appendFileSync(${JSON.stringify(log)}, JSON.stringify({ harness: ${JSON.stringify(name)}, argv }) + '\\n');\n${body}`);
   fake('claude', `const [code, wait] = (process.env.FAKE_CLAUDE || '1').split(':').map(Number);
-if (code === 0) console.log('PRIMARY REPORT');
+if (code === 0) console.log('REPORT claude');
 setTimeout(() => process.exit(code), wait || 0);\n`);
-  fake('codex', `console.log('FALLBACK REPORT');\nprocess.exit(Number(process.env.FAKE_CODEX || 0));\n`);
-  const started = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').map((l) => l.split(' ')[0]) : []);
+  fake('codex', `const model = argv[argv.indexOf('-m') + 1];
+const code = JSON.parse(process.env.FAKE_CODEX || '{}')[model] || 0;
+if (code === 0) console.log('REPORT ' + model);
+process.exit(code);\n`);
+  fake('opencode', 'process.exit(1);\n');
+  const starts = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []);
+  const started = () => starts().map((r) => (r.harness === 'codex' ? r.argv[r.argv.indexOf('-m') + 1] : r.harness));
   const run = (cwd, args, extra = {}) => {
     fs.rmSync(log, { force: true });
     return spawnSync('node', [TOOL, ...args], { cwd, encoding: 'utf8', timeout: 60000,
-      env: { ...process.env, ...homeEnv(home), PATH: pathEnv(bin), ...extra } });
+      env: { ...process.env, ...homeEnv(home), XDG_DATA_HOME: path.join(home, 'xdg'), PATH: pathEnv(bin), ...extra } });
   };
-  const direct = ['claude', 'sonnet-5-5', '5', '-p', 'do the task'];
-  const named = installation([row('claude', 'sonnet-5-5', 'codex,gpt-6.1-sol'), row('codex', 'gpt-6.1-sol')]);
+  const castLines = (res) => res.stderr.split('\n').filter((l) => l.startsWith('cast: ') && !l.startsWith('cast: handle')).map((l) => l.replace(/after \d+s/, 'after Ns'));
+  const sonnet = ['claude', 'sonnet-5-5', '5', '-p', 'do the task'];
+  const byPrice = installation('price');
 
-  // a start failure runs the fallback once: its report is the launch's stdout, its exit the launch's
-  let res = run(named.root, direct);
+  // off, which is also what an installation with no defaults file reads: the launch ends on its failure
+  for (const root of [installation(null), installation('off')]) {
+    const res = run(root, sonnet);
+    assert.strictEqual(res.status, 1);
+    assert.deepStrictEqual([started(), castLines(res)], [['claude'], []]);
+  }
+
+  // by price: the cheapest other model of the level runs, and its report is the launch's stdout
+  let res = run(byPrice, sonnet);
   assert.strictEqual(res.status, 0, res.stderr);
-  assert.strictEqual(res.stdout, 'FALLBACK REPORT\n');
-  assert.ok(/\ncast: claude sonnet-5-5 did not start \(exit 1 after \d+s\); launching its fallback codex gpt-6\.1-sol\n/.test(res.stderr), res.stderr);
-  assert.deepStrictEqual(started(), ['claude', 'codex']);
+  assert.strictEqual(res.stdout, 'REPORT gpt-6.1-sol\n');
+  assert.deepStrictEqual(castLines(res), ['cast: claude sonnet-5-5 did not start (exit 1 after Ns); launching fallback 1 of 2 at level L2 by price: codex gpt-6.1-sol']);
+  assert.deepStrictEqual(started(), ['claude', 'gpt-6.1-sol']);
   // same folder, same task, the dial number carried over: 5 is the top rung of both ladders
-  const codexLine = fs.readFileSync(log, 'utf8').trim().split('\n')[1];
-  assert.ok(codexLine.includes(`--cd ${named.root} -m gpt-6.1-sol`), codexLine);
-  assert.ok(codexLine.includes(SPECS.codex['gpt-6.1-sol'].effort.flag('max').join(' ')), codexLine);
+  const solArgv = starts()[1].argv.join(' ');
+  assert.ok(solArgv.includes(`--cd ${byPrice} -m gpt-6.1-sol`), solArgv);
+  assert.ok(solArgv.includes(SPECS.codex['gpt-6.1-sol'].effort.flag('max').join(' ')), solArgv);
   // both runs are in the registry under cast's one process, and the monitor reads the later one
   const handles = fs.readFileSync(path.join(home, '.cast', 'handles.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).slice(-2);
   assert.deepStrictEqual(handles.map((h) => h.harness), ['claude', 'codex']);
   assert.strictEqual(handles[0].pid, handles[1].pid);
 
-  // a launch that succeeds, and a row that names no fallback, start one harness
-  res = run(named.root, direct, { FAKE_CLAUDE: '0' });
-  assert.strictEqual(res.stdout, 'PRIMARY REPORT\n');
-  assert.deepStrictEqual(started(), ['claude']);
-  const bare = installation([row('claude', 'sonnet-5-5'), row('codex', 'gpt-6.1-sol'), row('opencode', 'glm-5.3')]);
-  res = run(bare.root, direct);
-  assert.strictEqual(res.status, 1);
-  assert.deepStrictEqual(started(), ['claude']);
-  assert.ok(!res.stderr.includes('its fallback'), res.stderr);
+  // a fallback that fails to start is followed by the next one
+  res = run(byPrice, sonnet, { FAKE_CODEX: '{"gpt-6.1-sol":1}' });
+  assert.strictEqual(res.stdout, 'REPORT gpt-5.6-terra\n', res.stderr);
+  assert.deepStrictEqual(castLines(res), [
+    'cast: claude sonnet-5-5 did not start (exit 1 after Ns); launching fallback 1 of 2 at level L2 by price: codex gpt-6.1-sol',
+    'cast: codex gpt-6.1-sol did not start (exit 1 after Ns); launching fallback 2 of 2 at level L2 by price: codex gpt-5.6-terra']);
 
-  // the fallback's own failure is final: its exit code, and no third run
-  const chained = installation([row('claude', 'sonnet-5-5', 'codex,gpt-6.1-sol'), row('codex', 'gpt-6.1-sol', 'claude,sonnet-5-5')]);
-  res = run(chained.root, direct, { FAKE_CODEX: '7' });
+  // none starts: the last exit code, what was tried, and the model one level down, which is not
+  // launched. haiku-4-5 has no cost, so a price ranking of L3 leaves it out.
+  res = run(byPrice, sonnet, { FAKE_CODEX: '{"gpt-6.1-sol":1,"gpt-5.6-terra":7}' });
   assert.strictEqual(res.status, 7, res.stderr);
-  assert.deepStrictEqual(started(), ['claude', 'codex']);
+  assert.strictEqual(res.stdout, '');
+  assert.deepStrictEqual(castLines(res).slice(2), [
+    'cast: codex gpt-5.6-terra did not start (exit 7 after Ns)',
+    'cast: no model of level L2 started: tried claude sonnet-5-5, codex gpt-6.1-sol, codex gpt-5.6-terra',
+    'cast: the next model by price is one level down (L3) and was not launched: codex gpt-6-luna']);
+  assert.deepStrictEqual(started(), ['claude', 'gpt-6.1-sol', 'gpt-5.6-terra']);
+
+  // the order is the level's ranking, not a direction from the failed model: the middle price
+  // fails, the cheaper one is tried first and the dearer one second
+  res = run(byPrice, ['codex', 'gpt-5.6-terra', '2', '-p', 'do the task'], { FAKE_CODEX: '{"gpt-5.6-terra":1,"gpt-6.1-sol":1}', FAKE_CLAUDE: '0' });
+  assert.strictEqual(res.stdout, 'REPORT claude\n', res.stderr);
+  assert.deepStrictEqual(started(), ['gpt-5.6-terra', 'gpt-6.1-sol', 'claude']);
+
+  // by quality: the two scores added, so terra (10) comes before sol (8)
+  res = run(installation('quality'), sonnet);
+  assert.strictEqual(res.stdout, 'REPORT gpt-5.6-terra\n', res.stderr);
+  assert.ok(castLines(res)[0].endsWith('launching fallback 1 of 2 at level L2 by quality: codex gpt-5.6-terra'), res.stderr);
+
+  // a level with no other model, and no level below with one: the launch says so and stops
+  res = run(byPrice, ['claude', 'opus-5-5', '3', '-p', 'do the task']);
+  assert.strictEqual(res.status, 1);
+  assert.deepStrictEqual(castLines(res), ['cast: claude opus-5-5 did not start (exit 1 after Ns)',
+    'cast: no model of level L1 started: tried claude opus-5-5',
+    'cast: the next model by price is one level down (L2) and was not launched: codex gpt-6.1-sol']);
+  res = run(byPrice, ['codex', 'gpt-6-luna', '1', '-p', 'do the task'], { FAKE_CODEX: '{"gpt-6-luna":1}' });
+  assert.deepStrictEqual(castLines(res).slice(1), ['cast: no model of level L3 started: tried codex gpt-6-luna', 'cast: no level below L3 holds a model to launch']);
+
+  // only a row cast route may name is a candidate: a model set to off is skipped
+  ((r) => assert.strictEqual(r.status, 0, r.stderr))(spawnSync('node', [TOOL, 'models', 'set', 'codex', 'gpt-6.1-sol', '--use', 'off'], { cwd: byPrice, encoding: 'utf8' }));
+  res = run(byPrice, sonnet);
+  assert.strictEqual(res.stdout, 'REPORT gpt-5.6-terra\n', res.stderr);
+  assert.ok(castLines(res)[0].endsWith('launching fallback 1 of 1 at level L2 by price: codex gpt-5.6-terra'), res.stderr);
+  ((r) => assert.strictEqual(r.status, 0, r.stderr))(spawnSync('node', [TOOL, 'models', 'set', 'codex', 'gpt-6.1-sol', '--use', 'route'], { cwd: byPrice, encoding: 'utf8' }));
 
   // a failure after the start window is not a start failure: the launch ends with it
-  res = run(named.root, direct, { FAKE_CLAUDE: `3:${START_WINDOW_MS + 1500}` });
+  res = run(byPrice, sonnet, { FAKE_CLAUDE: `3:${START_WINDOW_MS + 1500}` });
   assert.strictEqual(res.status, 3, res.stderr);
-  assert.deepStrictEqual(started(), ['claude']);
-  assert.ok(!res.stderr.includes('its fallback'), res.stderr);
+  assert.deepStrictEqual([started(), castLines(res)], [['claude'], []]);
   assert.ok(startFailure({ error: 'spawn claude ENOENT' }));
   assert.ok(startFailure({ code: 1, elapsedMs: START_WINDOW_MS - 1 }));
   assert.ok(!startFailure({ code: 1, elapsedMs: START_WINDOW_MS }));
   assert.ok(!startFailure({ code: 0, elapsedMs: 10 }));
   assert.ok(!startFailure({ code: 1, signal: 'SIGINT', elapsedMs: 10 }));
 
-  // opencode: the failed run's closing note goes to stderr, so stdout holds the fallback's report alone
-  fake('opencode', 'process.exit(1);\n');
-  const fromOpencode = installation([row('opencode', 'glm-5.3', 'codex,gpt-6.1-sol'), row('codex', 'gpt-6.1-sol')]);
-  const xdg = { XDG_DATA_HOME: path.join(home, 'xdg') };
-  res = run(fromOpencode.root, ['opencode', 'glm-5.3', '1', '-p', 'do the task'], xdg);
+  // a dry run and a headed launch never run a fallback
+  res = run(byPrice, [...sonnet, '--dry-run']);
+  assert.strictEqual(res.status, 0);
+  assert.deepStrictEqual(started(), []);
+  res = run(byPrice, [...sonnet, '--headed']);
+  assert.strictEqual(res.status, 1);
+  assert.deepStrictEqual(started(), ['claude']);
+
+  // opencode: the failed run's closing note goes to stderr, so stdout holds the next run's report alone
+  res = run(byPrice, ['opencode', 'glm-5.3', '1', '-p', 'do the task']);
   assert.strictEqual(res.status, 0, res.stderr);
-  assert.strictEqual(res.stdout, 'FALLBACK REPORT\n');
-  assert.ok(res.stderr.includes('cast: no-report') && res.stderr.includes('; launching its fallback codex gpt-6.1-sol\n'), res.stderr);
-  // with no fallback named, that note stays on stdout
-  res = run(bare.root, ['opencode', 'glm-5.3', '1', '-p', 'do the task'], xdg);
+  assert.strictEqual(res.stdout, 'REPORT gpt-6.1-sol\n');
+  assert.ok(res.stderr.includes('cast: no-report') && castLines(res).pop().endsWith('launching fallback 1 of 3 at level L2 by price: codex gpt-6.1-sol'), res.stderr);
+  // with the fallback off, that note stays on stdout
+  res = run(installation(null), ['opencode', 'glm-5.3', '1', '-p', 'do the task']);
   assert.strictEqual(res.status, 1);
   assert.ok(res.stdout.startsWith('cast: no-report'), res.stdout);
 
-  // a dry run and a headed launch never run the fallback
-  res = run(named.root, [...direct, '--dry-run']);
-  assert.strictEqual(res.status, 0);
-  assert.deepStrictEqual(started(), []);
-  res = run(named.root, [...direct, '--headed']);
+  // defaults cast cannot read: the launch says so and ends with its own failure
+  const broken = installation(null);
+  fs.writeFileSync(path.join(broken, '.rbtv', 'config', 'cast', 'defaults.json'), '{"fallback":"cheapest"}');
+  res = run(broken, sonnet);
   assert.strictEqual(res.status, 1);
+  assert.deepStrictEqual(castLines(res), [`cast: claude sonnet-5-5 did not start (exit 1 after Ns), and no fallback can be chosen: cannot read cast's defaults ${path.join(broken, '.rbtv', 'config', 'cast', 'defaults.json')}: fallback is "cheapest" (one of off, price, quality)`]);
   assert.deepStrictEqual(started(), ['claude']);
-
-  // a fallback this copy of cast cannot launch is named, and the launch ends with its own failure
-  const orphan = installation([row('claude', 'sonnet-5-5', 'codex,no-such-model'), row('codex', 'no-such-model')]);
-  res = run(orphan.root, direct);
-  assert.strictEqual(res.status, 1);
-  assert.deepStrictEqual(started(), ['claude']);
-  assert.ok(res.stderr.includes("cast: claude sonnet-5-5 did not start (exit 1 after 0s), and its fallback cannot be launched: refused: 'codex no-such-model' is selected in"), res.stderr);
 
   // a harness that is not on PATH is a start failure. Skipped where a real claude sits beside node.
   const { findOnPath } = require('./lib/win-exec');
   const emptyBin = mkFolder('fallback-bin-no-claude');
-  installFake(emptyBin, 'codex', "console.log('FALLBACK REPORT');\n");
+  installFake(emptyBin, 'codex', "console.log('REPORT codex');\n");
   if (findOnPath('claude', { ...process.env, PATH: pathEnv(emptyBin) }) === null) {
-    res = run(named.root, direct, { PATH: pathEnv(emptyBin) });
+    res = run(byPrice, sonnet, { PATH: pathEnv(emptyBin) });
     assert.strictEqual(res.status, 0, res.stderr);
-    assert.strictEqual(res.stdout, 'FALLBACK REPORT\n');
-    assert.ok(res.stderr.includes('; launching its fallback codex gpt-6.1-sol\n'), res.stderr);
+    assert.strictEqual(res.stdout, 'REPORT codex\n');
+    assert.ok(res.stderr.includes('; launching fallback 1 of 2 at level L2 by price: codex gpt-6.1-sol\n'), res.stderr);
   } else {
     console.log('skipped: fallback on a missing harness (a claude is on the PATH of node)');
   }
 
   // an agent's effort is its model's own rung word: its place on the ladder is the dial number
-  const agentHome = path.join(named.root, '.rbtv', 'agents', 'ada');
+  const agentHome = path.join(byPrice, '.rbtv', 'agents', 'ada');
   fs.mkdirSync(agentHome, { recursive: true });
   fs.writeFileSync(path.join(agentHome, 'prompt.md'), 'You are ada.\n');
   fs.writeFileSync(path.join(agentHome, 'agent.json'), JSON.stringify({ name: 'ada', description: 'd', harness: 'claude', model: 'sonnet-5-5', effort: 'low' }));
-  res = run(named.root, ['--agent', 'ada', '-p', 'do the task']);
-  assert.strictEqual(res.stdout, 'FALLBACK REPORT\n', res.stderr);
-  // the last line: the prompt in claude's arguments ends with a line break of its own
-  const agentLine = fs.readFileSync(log, 'utf8').trim().split('\n').pop();
-  assert.ok(agentLine.includes(`--cd ${agentHome} `) && agentLine.includes('developer_instructions="You are ada.'), agentLine);
-  assert.ok(agentLine.includes(SPECS.codex['gpt-6.1-sol'].effort.flag('low').join(' ')), agentLine);
+  res = run(byPrice, ['--agent', 'ada', '-p', 'do the task']);
+  assert.strictEqual(res.stdout, 'REPORT gpt-6.1-sol\n', res.stderr);
+  const agentArgv = starts()[1].argv.join(' ');
+  assert.ok(agentArgv.includes(`--cd ${agentHome} `) && agentArgv.includes('developer_instructions="You are ada.'), agentArgv);
+  assert.ok(agentArgv.includes(SPECS.codex['gpt-6.1-sol'].effort.flag('low').join(' ')), agentArgv);
   const ladder = (rungs) => ({ effort: rungs.length ? { rungs } : { inert: true } });
   assert.strictEqual(dial(ladder(['low', 'medium', 'high']), 4), 4);
   assert.strictEqual(dial(ladder(['low', 'medium', 'high']), 'medium'), 2);
   assert.strictEqual(dial(ladder(['low', 'medium', 'high']), 'high'), 5);
   assert.strictEqual(dial(ladder([]), 'inert'), 3);
+}
 
-  // the two cells are read strictly, with the file and the line
-  for (const [lines, why] of [
-    [[row('claude', 'sonnet-5-5', 'codex,'), row('codex', 'gpt-6.1-sol')], 'line 2: fallback-harness and fallback-model go together: fill both or neither'],
-    [[row('claude', 'sonnet-5-5', 'claude,sonnet-5-5')], "line 2: 'claude sonnet-5-5' is its own fallback"],
-    [[row('claude', 'sonnet-5-5', 'codex,gpt-6.1-sol')], "line 2: the fallback 'codex gpt-6.1-sol' has no row in this file"],
-    [[row('claude', 'sonnet-5-5', 'api,gemini-3.5-flash'), 'api,api,gemini-3.5-flash,0,Y,L4,0,0,1,off,N,N,,'], "line 2: the fallback 'api gemini-3.5-flash' is a mode=api row: a fallback is launched, so it is a cli row"],
-    [[row('claude', 'sonnet-5-5', 'codex,gpt-6.1-sol'), row('codex', 'gpt-6.1-sol'), row('claude', 'sonnet-5-5')], "line 4: 'claude sonnet-5-5' names another fallback here than on line 2"],
-  ]) {
-    assert.throws(() => parseCatalog(`${[HEAD, ...lines].join('\n')}\n`, 'F'), { message: `cannot read the model catalog F ${why}` });
-  }
-  // a file without the two columns reads them blank
-  assert.strictEqual(parseCatalog('mode,harness,model\ncli,claude,sonnet-5-5\n', 'F').rows[0]['fallback-model'], '');
-
-  // a model that is a row's fallback is not removed, with or without --force
-  for (const extra of [[], ['--force']]) {
-    const before = fs.readFileSync(named.file, 'utf8');
-    res = spawnSync('node', [TOOL, 'models', 'remove', 'codex', 'gpt-6.1-sol', ...extra], { cwd: named.root, encoding: 'utf8' });
+// --- cast models set, update, defaults, and the doctor's count of differing cells ---------------
+{
+  const shipped = fs.readFileSync(path.join(__dirname, 'models.csv'), 'utf8').trim().split(/\r?\n/);
+  const fresh = () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(BASE, 'cast-test-set-')));
+    fs.mkdirSync(path.join(root, '.rbtv', 'config'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.rbtv', 'config', 'install.json'), '{}\n');
+    return { root, file: path.join(root, '.rbtv', 'config', 'cast', 'models.csv'), defaults: path.join(root, '.rbtv', 'config', 'cast', 'defaults.json') };
+  };
+  const at = (root, args) => spawnSync('node', [TOOL, ...args], { cwd: root, encoding: 'utf8' });
+  const text = (res) => { assert.strictEqual(res.status, 0, res.stderr); assert.strictEqual(res.stderr, ''); return res.stdout; };
+  const refusedWith = (res, first) => {
     assert.strictEqual(res.status, 2, res.stdout);
-    assert.strictEqual(res.stderr, `cast: refused: 'codex gpt-6.1-sol' is the fallback of 'claude sonnet-5-5' in ${named.file}\n`
-      + 'blank the fallback-harness and fallback-model cells of each row first, by hand\nNothing changed.\ncast models list --catalog\n');
-    assert.strictEqual(fs.readFileSync(named.file, 'utf8'), before);
+    assert.ok(res.stderr.startsWith(`cast: refused: ${first}\n`) && res.stderr.includes('\nNothing changed.\n'), res.stderr);
+  };
+  const rowsOf = (file, model) => fs.readFileSync(file, 'utf8').split('\n').filter((l) => l.split(',')[2] === model);
+  const { root, file, defaults } = fresh();
+
+  // set: a dry run writes nothing; the first real one copies the shipped file, then changes it
+  let out = text(at(root, ['models', 'set', 'codex', 'gpt-6-luna', '--use', 'off', '--price-override', 'Y', '--dry-run']));
+  assert.ok(out.includes('would copy the model catalog shipped with cast') && out.endsWith("would set: 'codex gpt-6-luna'\n  level L3  use  route -> off\n  level L3  price-override  N -> Y\nNothing changed: this was a dry run.\n"), out);
+  assert.ok(!fs.existsSync(file));
+  text(at(root, ['models', 'set', 'codex', 'gpt-6-luna', '--use', 'off', '--price-override', 'Y']));
+  assert.deepStrictEqual(rowsOf(file, 'gpt-6-luna'), ['cli,codex,gpt-6-luna,5,N,L3,3,3,0.5,off,N,Y']);
+  // every other line is the shipped one, as written
+  assert.deepStrictEqual(fs.readFileSync(file, 'utf8').trim().split('\n').filter((l) => !l.includes('gpt-6-luna')), shipped.filter((l) => !l.includes('gpt-6-luna')));
+  assert.ok(text(at(root, ['models', 'set', 'codex', 'gpt-6-luna', '--use', 'off'])).endsWith("already set: 'codex gpt-6-luna' use=off\nNothing changed.\n"));
+  // --use holds for every level of a model; an override of a model at two levels names its level
+  text(at(root, ['models', 'set', 'claude', 'sonnet-5-5', '--use', 'panel']));
+  refusedWith(at(root, ['models', 'set', 'claude', 'sonnet-5-5', '--quality-override', 'Y']), "'claude sonnet-5-5' has rows at levels L3 and L2");
+  text(at(root, ['models', 'set', 'claude', 'sonnet-5-5', '--level', 'L2', '--quality-override', 'Y']));
+  assert.deepStrictEqual(rowsOf(file, 'sonnet-5-5'), ['cli,claude,sonnet-5-5,5,N,L3,3,3,10,panel,Y,Y', 'cli,claude,sonnet-5-5,5,N,L2,3,3,10,panel,Y,N']);
+  const setJson = JSON.parse(text(at(root, ['models', 'set', 'claude', 'sonnet-5-5', '--level', 'L2', '--quality-override', 'N', '--json'])));
+  assert.deepStrictEqual([setJson.changed, setJson.set, setJson.copied_shipped], [true, [{ level: 'L2', column: 'quality-override', from: 'Y', to: 'N' }], false]);
+  // refusals: nothing to set, a bad value, a level the model has no row at, --level with --use alone, a model not selected
+  refusedWith(at(root, ['models', 'set', 'codex', 'gpt-6-luna']), 'cast models set needs a value to set');
+  refusedWith(at(root, ['models', 'set', 'codex', 'gpt-6-luna', '--use', 'on']), "--use takes one of route, panel, off, got 'on'");
+  refusedWith(at(root, ['models', 'set', 'codex', 'gpt-6-luna', '--level', 'L1', '--price-override', 'N']), "'codex gpt-6-luna' has no row at level L1");
+  refusedWith(at(root, ['models', 'set', 'codex', 'gpt-6-luna', '--level', 'L3', '--use', 'off']), '--level goes with an override');
+  text(at(root, ['models', 'remove', 'claude', 'haiku-4-5']));
+  refusedWith(at(root, ['models', 'set', 'claude', 'haiku-4-5', '--use', 'off']), `'claude haiku-4-5' is not selected in ${root}`);
+  // a column the header lacks is added, blank on the rows that get no value
+  const slim = fresh();
+  fs.mkdirSync(path.dirname(slim.file), { recursive: true });
+  fs.writeFileSync(slim.file, 'mode,harness,model,cost\r\ncli,codex,gpt-6-luna,9\r\ncli,claude,sonnet-5-5,10\r\n');
+  text(at(slim.root, ['models', 'set', 'codex', 'gpt-6-luna', '--use', 'off']));
+  assert.strictEqual(fs.readFileSync(slim.file, 'utf8'), 'mode,harness,model,cost,use\r\ncli,codex,gpt-6-luna,9,off\r\ncli,claude,sonnet-5-5,10,\r\n');
+
+  // update: the cells rbtv proposes come from the shipped file; use and the overrides stay
+  const edited = fs.readFileSync(file, 'utf8').replace('cli,codex,gpt-6-luna,5,N,L3,3,3,0.5,off,N,Y', 'cli,codex,gpt-6-luna,5,N,L2,3,4,0.9,off,N,Y')
+    .replace('cli,codex,gpt-6.1-sol,5,N,L1,4,4,10', 'cli,codex,gpt-6.1-sol,5,N,L1,4,4,11');
+  assert.notStrictEqual(edited, fs.readFileSync(file, 'utf8'));
+  fs.writeFileSync(file, edited);
+  assert.ok(text(at(root, ['doctor'])).includes('\n  4 cells of the model catalog differ from the one shipped with cast: cast models update --dry-run\n'));
+  assert.strictEqual(JSON.parse(text(at(root, ['doctor', '--json']))).catalog_drift, 4);
+  out = text(at(root, ['models', 'update', 'codex', 'gpt-6-luna', '--dry-run']));
+  assert.ok(out.includes('would update 3 cells from ') && out.includes('  codex gpt-6-luna  level L2  level  L2 -> L3\n  codex gpt-6-luna  level L2  coding  4 -> 3\n  codex gpt-6-luna  level L2  cost  0.9 -> 0.5\n'), out);
+  assert.strictEqual(fs.readFileSync(file, 'utf8'), edited);
+  text(at(root, ['models', 'update', 'codex', 'gpt-6-luna']));
+  assert.deepStrictEqual(rowsOf(file, 'gpt-6-luna'), ['cli,codex,gpt-6-luna,5,N,L3,3,3,0.5,off,N,Y']);
+  assert.deepStrictEqual(rowsOf(file, 'gpt-6.1-sol'), ['cli,codex,gpt-6.1-sol,5,N,L1,4,4,11,route,N,N'], 'a model update does not name stays as it is');
+  const updated = JSON.parse(text(at(root, ['models', 'update', '--json'])));
+  assert.deepStrictEqual([updated.changed, updated.updated], [true, [{ harness: 'codex', model: 'gpt-6.1-sol', level: 'L1', column: 'cost', from: '11', to: '10' }]]);
+  assert.deepStrictEqual(rowsOf(file, 'sonnet-5-5'), ['cli,claude,sonnet-5-5,5,N,L3,3,3,10,panel,Y,Y', 'cli,claude,sonnet-5-5,5,N,L2,3,3,10,panel,N,N']);
+  assert.ok(text(at(root, ['models', 'update'])).includes('\nup to date with '));
+  assert.ok(!text(at(root, ['doctor'])).includes('differ'));
+  // rows update cannot pair are named and left alone; no file of its own means nothing to update
+  fs.writeFileSync(file, `${fs.readFileSync(file, 'utf8')}cli,claude,sonnet-5-5,5,N,L1,3,3,10,panel,N,N\ncli,codex,not-a-model,5,N,L3,3,3,1,off,N,N\n`);
+  out = text(at(root, ['models', 'update']));
+  assert.ok(out.includes("not compared: 'claude sonnet-5-5': its levels here are L3, L2, L1 and the shipped ones are L3, L2; update adds and removes no row\n")
+    && out.includes("not compared: 'codex not-a-model': the shipped model catalog has no row for it\n"), out);
+  // update writes only the columns the header carries, and keeps the file's line ending
+  text(at(slim.root, ['models', 'update']));
+  assert.strictEqual(fs.readFileSync(slim.file, 'utf8'), 'mode,harness,model,cost,use\r\ncli,codex,gpt-6-luna,0.5,off\r\ncli,claude,sonnet-5-5,10,\r\n');
+  assert.ok(text(at(fresh().root, ['models', 'update'])).endsWith('Nothing to update: this installation reads the shipped model catalog itself.\nNothing changed.\n'));
+
+  // defaults: shown, set, kept key by key, and shown by the model lists
+  out = text(at(root, ['models', 'defaults']));
+  assert.ok(out.startsWith(`installation: ${root}\ndefaults: ${defaults} (not written yet: cast's own values are in force)\n\n  route     price  `) && out.includes('\n  fallback  off    '), out);
+  out = text(at(root, ['models', 'defaults', '--fallback', 'quality', '--dry-run']));
+  assert.ok(out.endsWith('would set: fallback=quality\nNothing changed: this was a dry run.\n') && !fs.existsSync(defaults), out);
+  assert.ok(text(at(root, ['models', 'defaults', '--fallback', 'quality'])).endsWith('\nset: fallback=quality\n'));
+  assert.deepStrictEqual(JSON.parse(text(at(root, ['models', 'defaults', '--route', 'quality', '--json']))),
+    { installation: root, file: defaults, route: 'quality', fallback: 'quality', changed: true, dry_run: false });
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(defaults, 'utf8')), { fallback: 'quality', route: 'quality' });
+  assert.ok(text(at(root, ['models', 'defaults', '--route', 'quality'])).endsWith('\nNothing changed: already set.\n'));
+  assert.strictEqual(text(at(root, ['models', 'list'])).split('\n')[2], `defaults: cast route ranks by quality; fallback ranks by quality (${defaults}; cast models defaults)`);
+  assert.deepStrictEqual(JSON.parse(text(at(root, ['models', 'list', '--catalog', '--json']))).defaults, { route: 'quality', fallback: 'quality', file: defaults });
+  refusedWith(at(root, ['models', 'defaults', '--fallback', 'cheapest']), "--fallback takes one of off, price, quality, got 'cheapest'");
+  refusedWith(at(root, ['models', 'defaults', 'claude']), "cast models defaults takes no name, got 'claude'");
+  // outside an installation: cast's own values are shown, and none can be set
+  assert.ok(text(spawnSync('node', [TOOL, 'models', 'defaults'], { encoding: 'utf8' })).includes("defaults: cast's own values\n"));
+  refusedWith(spawnSync('node', [TOOL, 'models', 'defaults', '--fallback', 'price'], { encoding: 'utf8' }), `no rbtv installation above ${process.cwd()} (no .rbtv/config/install.json)`);
+  // a defaults file cast cannot use is refused by this verb and shown by the lists
+  fs.writeFileSync(defaults, '{"route":"best"}');
+  refusedWith(at(root, ['models', 'defaults']), `cannot read cast's defaults ${defaults}: route is "best" (one of price, quality)`);
+  assert.strictEqual(text(at(root, ['models', 'list'])).split('\n')[2], `defaults: cannot read cast's defaults ${defaults}: route is "best" (one of price, quality)`);
+}
+
+// --- a -f task file that is not there is refused in words, never a program error ----------------
+{
+  const missing = path.join(mkFolder('no-task'), 'no-such-task.md');
+  for (const args of [['claude', 'sonnet-5-5', '1', '-f', missing, '--dry-run'], ['resume', 'claude', 'last', '-f', missing, '--dry-run']]) {
+    const res = spawnSync('node', [TOOL, ...args], { encoding: 'utf8' });
+    assert.strictEqual(res.status, 2, res.stderr);
+    assert.strictEqual(res.stdout, '');
+    assert.strictEqual(res.stderr, `cast: refused: cannot read the task file ${missing}: it does not exist\nNothing changed.\ngive -f a file that exists, or give the task with -p TEXT\n`);
   }
+  // a relative path is named in full
+  const rel = spawnSync('node', [TOOL, 'claude', 'sonnet-5-5', '1', '-f', 'no-such-task.md', '--dry-run'], { encoding: 'utf8' });
+  assert.ok(rel.stderr.startsWith(`cast: refused: cannot read the task file ${path.join(process.cwd(), 'no-such-task.md')}: it does not exist\n`), rel.stderr);
+  // a path that is there and is not a file names what the system said
+  const folder = spawnSync('node', [TOOL, 'claude', 'sonnet-5-5', '1', '-f', path.dirname(missing), '--dry-run'], { encoding: 'utf8' });
+  assert.strictEqual(folder.status, 2);
+  assert.ok(folder.stderr.startsWith(`cast: refused: cannot read the task file ${path.dirname(missing)}: `) && !folder.stderr.includes('    at '), folder.stderr);
 }
 
 console.log('all cast tests passed');

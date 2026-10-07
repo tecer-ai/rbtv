@@ -505,65 +505,82 @@ rejects(base({ systemPromptFile: path.join(cwd, 'missing.md') }), 'cannot read s
   assert.strictEqual(JSON.parse(fs.readFileSync(resultFile, 'utf8')).ok, false);
 }
 
-// The fallback of a turn: run once, in place of the turn, when its harness fails to start.
+// The fallbacks of a turn: run in order, each in place of the one before, while a harness fails
+// to start. The stand-in codex ends as FAKE_CODEX says for the model it was given.
 {
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-turn-bin-'));
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-turn-home-'));
-  const argvFile = path.join(bin, 'argv.json');
+  const ranFile = path.join(bin, 'ran.jsonl');
   installFake(bin, 'claude', `
     try { require('fs').readFileSync(0); } catch {}
-    const [code, wait] = (process.env.FAKE_CLAUDE || '1').split(':').map(Number);
-    setTimeout(() => process.exit(code), wait || 0);
+    process.exit(Number(process.env.FAKE_CLAUDE || 1));
   `);
   installFake(bin, 'codex', `
     const fs = require('fs');
     const prompt = fs.readFileSync(0, 'utf8');
-    fs.writeFileSync(process.env.ARGV_FILE, JSON.stringify({ argv: process.argv.slice(2), prompt }));
+    const argv = process.argv.slice(2);
+    const model = argv[argv.indexOf('-m') + 1];
+    fs.appendFileSync(process.env.RAN_FILE, JSON.stringify({ model, argv, prompt }) + '\\n');
     process.stdout.write('{"type":"thread.started","thread_id":"019fecad-4ff4-7761-a2eb-46d2b4172db3"}\\n');
-    process.exit(Number(process.env.FAKE_CODEX || 0));
+    process.exit(JSON.parse(process.env.FAKE_CODEX || '{}')[model] || 0);
   `);
   const env = {
-    ...process.env, HOME: home, USERPROFILE: home, ARGV_FILE: argvFile,
+    ...process.env, HOME: home, USERPROFILE: home, RAN_FILE: ranFile,
     PATH: [bin, path.dirname(process.execPath)].join(path.delimiter),
   };
-  const fallback = { harness: 'codex', model: 'gpt-6-luna', effort: 2, session: { mode: 'new' }, prompt: 'the fallback prompt' };
-  const ran = () => (fs.existsSync(argvFile) ? JSON.parse(fs.readFileSync(argvFile, 'utf8')) : null);
+  const fallbacks = [
+    { harness: 'codex', model: 'gpt-6-luna', effort: 2, session: { mode: 'new' }, prompt: 'the first fallback prompt' },
+    { harness: 'codex', model: 'gpt-5.6-terra', effort: 2, session: { mode: 'new' }, prompt: 'the second fallback prompt' },
+  ];
+  const ran = () => (fs.existsSync(ranFile) ? fs.readFileSync(ranFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []);
+  const turn = (request, extra = {}) => {
+    fs.rmSync(ranFile, { force: true });
+    return runTurn(request, { ...env, ...extra });
+  };
+  const claudeFailed = { harness: 'claude', model: 'sonnet-5-5', error: 'harness_exit_1' };
 
-  // the harness exits with a failure at once: the fallback runs, and the result is its run
-  let { res, written, resultFile } = runTurn(base({ fallback }), env);
+  // the harness exits with a failure at once: the first fallback runs, and the result is its run
+  let { res, written, resultFile } = turn(base({ fallbacks }));
   assert.strictEqual(res.status, 0, res.stderr);
   assert.strictEqual(written.ok, true);
-  assert.strictEqual(written.harness, 'codex');
-  assert.strictEqual(written.model, 'gpt-6-luna');
-  assert.strictEqual(written.sessionId, '019fecad-4ff4-7761-a2eb-46d2b4172db3');
-  assert.deepStrictEqual(written.fallbackFrom, { harness: 'claude', model: 'sonnet-5-5', error: 'harness_exit_1' });
-  assert.strictEqual(written.stdoutPath, `${resultFile}.fallback.stdout`);
+  assert.deepStrictEqual([written.harness, written.model, written.sessionId], ['codex', 'gpt-6-luna', '019fecad-4ff4-7761-a2eb-46d2b4172db3']);
+  assert.deepStrictEqual([written.failed, written.exhausted], [[claudeFailed], false]);
+  assert.strictEqual(written.stdoutPath, `${resultFile}.fallback1.stdout`);
   assert.ok(fs.existsSync(`${resultFile}.stderr`), 'the failed run keeps its own capture files');
-  assert.strictEqual(ran().prompt, 'the fallback prompt');
-  assert.ok(ran().argv.includes('gpt-6-luna') && ran().argv.includes('model_reasoning_effort=medium'), JSON.stringify(ran().argv));
+  assert.deepStrictEqual(ran().map((r) => [r.model, r.prompt]), [['gpt-6-luna', 'the first fallback prompt']]);
+  assert.ok(ran()[0].argv.includes('model_reasoning_effort=medium'), JSON.stringify(ran()[0].argv));
 
-  // the fallback's own failure is the turn's failure
-  fs.rmSync(argvFile);
-  ({ res, written } = runTurn(base({ fallback }), { ...env, FAKE_CODEX: '4' }));
+  // the first fallback fails to start too: the second runs
+  ({ written, resultFile } = turn(base({ fallbacks }), { FAKE_CODEX: '{"gpt-6-luna":1}' }));
+  assert.deepStrictEqual([written.ok, written.model, written.exhausted], [true, 'gpt-5.6-terra', false]);
+  assert.deepStrictEqual(written.failed, [claudeFailed, { harness: 'codex', model: 'gpt-6-luna', error: 'harness_exit_1' }]);
+  assert.strictEqual(written.stdoutPath, `${resultFile}.fallback2.stdout`);
+  assert.deepStrictEqual(ran().map((r) => r.prompt), ['the first fallback prompt', 'the second fallback prompt']);
+
+  // none starts: the result is the last run's failure, and says nothing is left
+  ({ res, written } = turn(base({ fallbacks }), { FAKE_CODEX: '{"gpt-6-luna":1,"gpt-5.6-terra":4}' }));
   assert.strictEqual(res.status, 1);
-  assert.strictEqual(written.ok, false);
-  assert.strictEqual(written.error, 'harness_exit_4');
-  assert.strictEqual(written.fallbackFrom.harness, 'claude');
+  assert.deepStrictEqual([written.ok, written.model, written.error, written.exhausted], [false, 'gpt-5.6-terra', 'harness_exit_4', true]);
+  assert.strictEqual(written.failed.length, 2);
 
-  // a turn that succeeds, and a request with no fallback, start one harness
-  fs.rmSync(argvFile);
-  ({ written } = runTurn(base({ fallback }), { ...env, FAKE_CLAUDE: '0' }));
-  assert.strictEqual(written.ok, true);
-  assert.strictEqual(written.fallbackFrom, undefined);
-  ({ written } = runTurn(base(), env));
-  assert.strictEqual(written.error, 'harness_exit_1');
-  assert.strictEqual(ran(), null);
+  // an empty list still says the level is used up; a request without the key says nothing
+  ({ written } = turn(base({ fallbacks: [] })));
+  assert.deepStrictEqual([written.error, written.failed, written.exhausted], ['harness_exit_1', [], true]);
+  ({ written } = turn(base()));
+  assert.deepStrictEqual([written.error, written.failed, written.exhausted], ['harness_exit_1', undefined, undefined]);
+  assert.deepStrictEqual(ran(), []);
 
-  // the fallback is validated with the request
-  rejects(base({ fallback: 'codex' }), 'fallback must be an object');
-  rejects(base({ fallback: { ...fallback, model: 'no-such' } }), "'codex no-such' is not a model cast supports");
-  assert.strictEqual(validate(base({ fallback })).fallback.modelId, 'gpt-6-luna');
-  assert.strictEqual(validate(base()).fallback, null);
+  // a turn that succeeds starts one harness
+  ({ written } = turn(base({ fallbacks }), { FAKE_CLAUDE: '0' }));
+  assert.deepStrictEqual([written.ok, written.harness, written.failed, written.exhausted], [true, 'claude', [], false]);
+  assert.deepStrictEqual(ran(), []);
+
+  // the fallbacks are validated with the request
+  rejects(base({ fallbacks: 'codex' }), 'fallbacks must be an array');
+  rejects(base({ fallbacks: ['codex'] }), 'a fallback must be an object');
+  rejects(base({ fallbacks: [{ ...fallbacks[0], model: 'no-such' }] }), "'codex no-such' is not a model cast supports");
+  assert.deepStrictEqual(validate(base({ fallbacks })).fallbacks.map((f) => f.modelId), ['gpt-6-luna', 'gpt-5.6-terra']);
+  assert.strictEqual(validate(base()).fallbacks, null);
 }
 
 {

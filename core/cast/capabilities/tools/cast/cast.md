@@ -14,7 +14,7 @@ cast resume <harness> <session-id|last> [launch-folder] (-p TEXT | -f FILE) [--d
 cast sessions [harness] [launch-folder] [--json] [-n N]
 ignite turn --request FILE --result FILE
 cast api <model> <effort 1-5> (-p TEXT | -f FILE) --output-folder DIR [--image [--input-image PATH ...]] [--target-file PATH] [--timeout N] [--grounded] [--extra-params JSON] [--dry-run]
-cast route --access open|bounded --type code|text --class planner|broad|bounded|mechanical --optimize price|quality [--caps image] [--explain]
+cast route --access open|bounded --type code|text --class planner|broad|bounded|mechanical [--optimize price|quality] [--caps image] [--explain]
 cast route --caps image
 cast route --batch <agents.json | -> [--explain]
 cast doctor [--json]
@@ -22,6 +22,9 @@ cast list [--agents [--full] | --agent NAME] [--target FOLDER] [--json]
 cast models list [--selected | --supported | --catalog] [--json]
 cast models add HARNESS MODEL [--dry-run] [--json]
 cast models remove HARNESS MODEL [--force] [--dry-run] [--json]
+cast models set HARNESS MODEL [--use route|panel|off] [--quality-override Y|N] [--price-override Y|N] [--level LEVEL] [--dry-run] [--json]
+cast models update [HARNESS MODEL] [--dry-run] [--json]
+cast models defaults [--route price|quality] [--fallback off|price|quality] [--dry-run] [--json]
 cast -h | --help
 ```
 
@@ -63,8 +66,10 @@ local files and the environment only: no network call, no other program started,
 or account name printed. A present login is not proof that the account has credit left: the report
 ends with `rbtv providers list` and `rbtv providers usage`, which answer for accounts, saved logins
 and plan usage. Each model line says where its login was found, or what was looked for. A model
-catalog that cannot be read is reported in place of the models, still at exit 0.
-`cast doctor --json` prints `{installation, selection, catalog_problem, harnesses: {name: path},
+catalog that cannot be read is reported in place of the models, still at exit 0. When cells of the
+installation's own model catalog differ from the shipped one in the columns rbtv proposes, one line
+gives their number and `cast models update --dry-run`, which lists them.
+`cast doctor --json` prints `{installation, selection, catalog_problem, catalog_drift, harnesses: {name: path},
 models: [{harness, model, provider, login, via, reason}], next: [command, ...]}`; `selection` is
 the installation's model catalog, `null` while the shipped one is in force. It takes `--json` and
 nothing else: any other word is refused at exit 2.
@@ -237,13 +242,27 @@ for no remaining gain.
 
 ## Fallback
 
-A model's fallback is the harness and model its row of the [model catalog](../../glossary/model-catalog.md#fallback) names in `fallback-harness` and `fallback-model`. A headless launch whose model fails to start runs the fallback once, in the same launch folder, with the same task and the same system prompt, and exits with the fallback's exit code. The fallback's own failure ends the launch: its row's fallback is not read.
+A headless launch whose model fails to start can run another model in its place. The installation turns this on and says how to rank, with `fallback` in its defaults: `off` (cast's own value), `price` or `quality`, set by `cast models defaults --fallback VALUE`.
 
 A launch fails to start in two cases: the harness program cannot be started, or the harness exits with a failure, and without a signal, less than 15 seconds after cast started it. A harness that cannot reach its model ends in 2.4 to 3.2 seconds on `claude`, `codex` and `opencode` (measured 2026-10-07 with a model name no provider has). A failure after 15 seconds can follow work the agent already did, and a second run would repeat that work, so the launch ends with that failure and exit code. A job that stays alive without progress is not a failure to start: `cast monitor` reports it and nothing relaunches it.
 
-The fallback launches at the effort the launch asked for. A dial number is passed as given. An agent's own rung word becomes its place on its model's ladder, and the top rung becomes 5, so the highest effort stays the highest; a model with no dial gives 3.
+The candidates are the other models of the failed model's level in the [model catalog](../../glossary/model-catalog.md): `cli` rows with `use` `route` whose login is present, models of the provider that just failed included. A model listed at two levels falls back inside the higher one. They are ranked as `cast route` ranks a level, overrides included: by `price`, cheapest first, a row with a blank cost left out; by `quality`, on the reasoning and coding scores added, because a launch does not say which kind of task it runs. The order does not depend on the failed model, so with three models at three prices a failure of the middle one tries the cheapest first and the dearest second.
 
-On a fallback, cast writes one line to standard error, `cast: <harness> <model> did not start (<exit N after Ns, or the start error>); launching its fallback <harness> <model>`, and a second `cast: handle` line for the new run. Standard output holds the fallback's report alone: a closing note of the failed run (`cast: no-report`, a provider limit) goes to standard error. Both handle lines carry cast's one process id, and `cast monitor` reads the later one. When the catalog names a fallback that cannot be launched (the launch check refuses it), the line ends `, and its fallback cannot be launched: <the refusal>` and the launch ends with its own failure.
+The launch tries the candidates in that order, each in the same launch folder with the same task and the same system prompt, while each one fails to start. The first one that starts is the launch: cast exits with its exit code, whatever that is. A fallback launches at the effort the launch asked for. A dial number is passed as given. An agent's own rung word becomes its place on its model's ladder, and the top rung becomes 5, so the highest effort stays the highest; a model with no dial gives 3.
+
+A fallback never leaves the level. When no candidate starts, or the level holds none, the launch ends with the last failure and exit code, and standard error names what was tried and the best model of the next level down that holds one, which is not launched:
+
+```
+cast: claude sonnet-5-5 did not start (exit 1 after 2s); launching fallback 1 of 2 at level L2 by price: codex gpt-5.6-terra
+cast: codex gpt-5.6-terra did not start (exit 1 after 3s); launching fallback 2 of 2 at level L2 by price: opencode glm-5.3
+cast: opencode glm-5.3 did not start (exit 1 after 2s)
+cast: no model of level L2 started: tried claude sonnet-5-5, codex gpt-5.6-terra, opencode glm-5.3
+cast: the next model by price is one level down (L3) and was not launched: codex gpt-6-luna
+```
+
+Each run writes its own `cast: handle` line; all carry cast's one process id, and `cast monitor` reads the latest. Standard output holds the report of the run that started, alone: a closing note of a failed run (`cast: no-report`, a provider limit) goes to standard error when another run follows it. When the defaults or the model catalog cannot be read at that moment, one line says so and the launch ends with its own failure.
+
+An rbtv agent's folder holds the installed files of its own harness only. An agent that falls back to a model of another harness receives its prompt and its task, and none of the skills, rules, hooks and folder instructions installed in its folder.
 
 A launch with `--headed`, a `--dry-run`, `cast resume` and `cast api` never run a fallback. An Ignite turn applies the same rule through `ignite turn`: [Ignite architecture](../../../../ignite/capabilities/tools/ignite/documentation/architecture.md).
 
@@ -303,7 +322,11 @@ cast route --batch agents.json  # a whole team in one call; `--batch -` reads st
 
 Three flags are REQUIRED (`--access`, `--type`, `--class`). There are no silent defaults: an
 unanswered question is a guess, and a guess is what this command exists to remove. The ONE ruled
-default is `--optimize` (owner ruling 2026-08-22): omitted, it is **price**, for every class alike.
+default is `--optimize`: omitted, a call ranks as the installation's defaults say (`cast models
+defaults --route price|quality`), and where the installation sets none, by **price**, for every
+class alike (owner ruling 2026-08-22). Every verdict states the ranking it used in `optimize` and
+where it came from in `optimize_from`: `--optimize`, the installation's defaults file, or `cast's
+default`.
 `cast route -h` IS the interview in full.
 
 A verdict is launched as it stands for one job. For an agent launched more than once, put the
@@ -318,7 +341,7 @@ catalog](documentation/personalizing-the-model-catalog.md).
 | `--access` | Must the agent navigate and DISCOVER files on disk? | `open` drops every api row — an API worker has no disk. `bounded` (known files only, or no disk at all) keeps them. |
 | `--type` | Code, or prose/analysis? | Picks the tie-break axis (`coding` vs `reasoning`). **Planning is TEXT**, even for a coding job. |
 | `--class` | How bounded is the work? | Picks BOTH the ONE eligible level and the effort (table below). |
-| `--optimize` | Cheapest that qualifies, or best that qualifies? (optional) | The selection rule among survivors. Omitted → price, identical to passing `--optimize price`. |
+| `--optimize` | Cheapest that qualifies, or best that qualifies? (optional) | The selection rule among survivors. Omitted → the installation's default, and price where it sets none, identical to passing that value. |
 | `--caps` | A specific capability? (optional) | `image` SHORT-CIRCUITS to the L4 image row and skips every other question. |
 
 | `--class` | Eligible levels | Effort (code / text) |
@@ -336,10 +359,11 @@ gets one line per level, and its override columns are set per line. haiku is nor
 
 **Price, a total order.** `price`: lowest `cost` → higher score → alphabetical harness, then model.
 `quality`: highest level within the class's own levels → higher score → lower cost → alphabetical.
-**Default (flag omitted) — owner ruling 2026-08-22: PRICE, for every class alike.** It is the
+**Default (flag omitted, no installation default) — owner ruling 2026-08-22: PRICE, for every class alike.** It is the
 `price` ranking above in every respect — same order, same blank-cost exclusion, same tie-breaks —
 carrying its own `"optimize":"default"` trace label so an `--explain` reader can still tell an
-omitted flag from an explicit one. This REPLACED the two-band rule of 2026-08-21 (SOTA/L1 on price,
+omitted flag from an explicit one. An installation default ranks under its own name, after a trace
+entry `{"stage":"optimize","action":"default","optimize":…,"source":<the defaults file>}`. This REPLACED the two-band rule of 2026-08-21 (SOTA/L1 on price,
 L2/L3 on quality), which is gone: one rule the owner can remember beat two bands. The
 class's level is the ONLY thing standing between a job and the cheapest model in the model catalog, which
 is what makes level curation load-bearing.
@@ -376,9 +400,9 @@ interview flags, nor with `--caps`.
 
 | Verdict | Shape | Exit |
 |---|---|---|
-| route | `{"verdict":"route","harness":…,"model":…,"mode":"cli"\|"api","effort":1-5,"effort_is_floor":false,"alternates":[{"harness":…,"model":…,"mode":…}]}` | 0 |
+| route | `{"verdict":"route","harness":…,"model":…,"mode":"cli"\|"api","effort":1-5,"effort_is_floor":false,"optimize":"price"\|"quality","optimize_from":…,"alternates":[{"harness":…,"model":…,"mode":…}]}` | 0 |
 | route-batch | `{"verdict":"route-batch","agents":[{"name":…,"verdict":"route",…} \| {"name":…,"error":…,"details":…}]}` — agents in input order | 0 only when EVERY agent routed, else 1 |
-| error | `{"error":"malformed_request"\|"zero_candidates"\|"no_models","details":…}` | 1 |
+| error | `{"error":"malformed_request"\|"zero_candidates"\|"no_models"\|"bad_defaults","details":…}`; `bad_defaults` is an installation defaults file that cannot be used | 1 |
 
 The top-level worker IS the verdict — launch it. `alternates` carries the next two of the same
 ranking (fewer if the ranking is shorter) as BACKUPS for when the first cannot be launched; they
@@ -428,8 +452,7 @@ The installation's file is read strictly, because it gates every launch in the i
 daemon's included. Cells are read by header name; a column the header does not carry reads blank
 (a blank `use` is `route`, a blank `level` is not routed). An unknown column, a missing `mode`,
 `harness` or `model` column, a row whose cell count is not the header's (what a decimal comma
-makes), a blank `mode`, `harness` or `model` cell, or a fallback that breaks a rule of the
-[model catalog](../../glossary/model-catalog.md#fallback) refuses with the file and the line: a skipped
+makes), or a blank `mode`, `harness` or `model` cell refuses with the file and the line: a skipped
 row would silently unselect a model. `cast route` answers the same failure as
 `{"error":"no_models"}`. cast replaces the file in one step (a temporary file, then a rename) and
 keeps the file's own line ending.
@@ -451,7 +474,7 @@ columns, whether it is launchable (cast supports it) and whether its login is pr
 ### `cast models`: list, add, remove
 
 `cast models` is the one home of every list of models, and the only command that changes which
-models an installation selects. It acts on the installation that holds the current folder; it takes
+models an installation selects, the cells of its model catalog and its defaults. It acts on the installation that holds the current folder; it takes
 no `--target`, so a caller sets the working folder. Every result starts with that installation and
 the model catalog it read or changed.
 
@@ -462,13 +485,22 @@ the model catalog it read or changed.
 | `cast models list --catalog` | every row of the model catalog in force with its routing columns, `launchable` and `available`; a row cast does not support is shown |
 | `cast models add HARNESS MODEL` | selects a supported model: appends its row from the shipped model catalog (every level it is listed at) under the installation file's own header, and prints each row with what its `use` value means. No login is checked |
 | `cast models remove HARNESS MODEL` | deletes the model's rows from the installation's file; a row cast does not support can be removed |
+| `cast models set HARNESS MODEL [--use route\|panel\|off] [--quality-override Y\|N] [--price-override Y\|N] [--level LEVEL]` | writes the cells an installation owns. `--use` holds for every level of the model. An override belongs to one level: a model listed at two levels takes `--level`. A column the file's header lacks is added |
+| `cast models update [HARNESS MODEL]` | copies the cells rbtv proposes (`efforts`, `image`, `level`, `reasoning`, `coding`, `cost`) from the shipped model catalog, for every selected model or for one, and lists each changed cell. It writes only columns the file's header carries, adds and removes no row, and never changes `use` or an override |
+| `cast models defaults [--route price\|quality] [--fallback off\|price\|quality]` | shows the installation's defaults, or sets the ones named: how `cast route` ranks when a call gives no `--optimize`, and how a launch ranks the [fallback](#fallback) of a model that fails to start (`off`: it runs none). They are kept in `.rbtv/config/cast/defaults.json`; a key the file lacks reads cast's own value, `price` and `off` |
 
-HARNESS and MODEL are the words of a launch; an api model takes harness `api`. `--dry-run` on `add`
-and `remove` prints what would change and writes nothing.
+HARNESS and MODEL are the words of a launch; an api model takes harness `api`. `--dry-run` on every
+form but `list` prints what would change and writes nothing. Both lists of `cast models list` and
+`--catalog` show the defaults in force on a line under the model catalog.
 
 - **No file yet.** `add` changes nothing and saves no file, because every supported model is
-  already selected. `remove` first copies the shipped model catalog into the installation, then
-  deletes the rows, so every other model stays selected.
+  already selected. `remove` and `set` first copy the shipped model catalog into the installation,
+  then change it, so every other model stays selected. `update` has nothing to do: the shipped
+  model catalog is the one in force.
+- **How update pairs rows.** A row is compared with the shipped row of the same model and level. A
+  model with one row here and one shipped is compared whatever the levels, so a level rbtv changed
+  is updated. A model whose levels cannot be paired, or that has no shipped row, is named under
+  `not compared` and left as it is.
 - **No-ops exit 0.** `add` of a selected model and `remove` of a model that is not selected say so
   and write nothing.
 - **Who still uses a model.** `remove` is refused while an agent under `<installation>/.rbtv/agents/`
@@ -479,18 +511,21 @@ and `remove` prints what would change and writes nothing.
   settings of a component that name a model.
 - **Writes.** The file is replaced in one step (a temporary file beside it, then a rename) and
   keeps its own line ending; a file the installation did not have is written with the machine's.
-- **A model that is a fallback.** `remove` is refused while another row names the model in its
-  `fallback-harness` and `fallback-model` cells, and names those rows: the file would no longer be
-  readable. `--force` does not pass this refusal; blank the cells by hand first.
 - **Refusals** exit 2 and change nothing: outside an installation (`add`, `remove`), a model cast
-  does not support (`add`), a model still in use or named as a fallback (`remove`), a model
-  catalog that cannot be read, and a word the verb does not take.
+  does not support (`add`), a model still in use (`remove`), a model that is not selected or an
+  override with no level named for a model listed at two (`set`), a model catalog or a defaults
+  file that cannot be read, and a word or a value the verb does not take.
 
 `--json` prints one value. Lists: `{installation, selection, view, models: [{harness, model, mode,
 rungs, effort_numbers, selected}], usage}`, where `selection` is the installation's file, `null`
 while the shipped one is in force; `--catalog`: `{installation, source, rows}`. `add`:
 `{installation, selection, harness, model, changed, added, dry_run}`. `remove`: `{installation,
-selection, harness, model, changed, removed, copied_shipped, users, not_checked, dry_run}`. A
+selection, harness, model, changed, removed, copied_shipped, users, not_checked, dry_run}`. `set`:
+`{installation, selection, harness, model, changed, set: [{level, column, from, to}],
+copied_shipped, dry_run}`. `update`: `{installation, selection, changed, updated: [{harness, model,
+level, column, from, to}], not_updated: [text], dry_run}`. `defaults`: `{installation, file, route,
+fallback, changed, dry_run}`. The lists also carry `defaults: {route, fallback, file}`, `file`
+being `null` while the installation sets none. A
 refusal under `--json` is `{error, message, next}` on standard output, with nothing on standard
 error.
 
@@ -553,18 +588,19 @@ runs in.
 | `capabilities/tools/cast/cast.json` | the tool record: the name `cast`, its listing description and the executable `cast.js` |
 | `capabilities/tools/cast/supported-models.js` | the supported models: LAUNCH mechanics only — harness-native id, effort ladder, provider (see Spec source) |
 | `capabilities/tools/cast/providers.json` | the providers: login method, key variable, credential-store entry per harness, saved-login files, usage source |
-| `capabilities/tools/cast/models.csv` | the shipped model catalog — level, scores, cost, image, `use` and a blank fallback for every supported model. In force wherever an installation has no model catalog of its own. Lives beside this tool so routing does not depend on any other tree |
+| `capabilities/tools/cast/models.csv` | the shipped model catalog — level, scores, cost, image, `use` for every supported model. In force wherever an installation has no model catalog of its own. Lives beside this tool so routing does not depend on any other tree |
 | `capabilities/tools/cast/api/` | the Python program `cast api` runs (`run.py`), its provider clients (`clients/`) and their tests (`tests/`) |
 | `capabilities/tools/cast/test_cast.js` | the suite for the CLI and its `lib/` modules, `route.js` excepted (see Self-check) |
 | `capabilities/tools/cast/test_route.js` | the suite for `cast route` (see Self-check) |
 | `capabilities/tools/cast/lib/installation.js` | the installation a launch belongs to (first folder upward holding `.rbtv/config/install.json`) and its environment file |
-| `capabilities/tools/cast/lib/model-catalog.js` | the model catalog in force for an installation: reading it strictly, replacing it in one step, the join with the supported models, and the launch check |
-| `capabilities/tools/cast/lib/models.js` | `cast models`: the three lists, `add` and `remove`, and who in the installation still uses a model |
+| `capabilities/tools/cast/lib/model-catalog.js` | the model catalog in force for an installation: reading it strictly, changing cells, replacing it in one step, who owns each column, the join with the supported models, and the launch check |
+| `capabilities/tools/cast/lib/models.js` | `cast models`: the three lists, `add`, `remove`, `set`, `update` and `defaults`, who in the installation still uses a model, and where its model catalog differs from the shipped one |
 | `capabilities/tools/cast/lib/core.js` | shared primitives: argv parsing, model/effort/folder resolution (`lookupModel`, which runs the launch check), the words of `cast list` |
-| `capabilities/tools/cast/lib/doctor.js` | `cast doctor`: harness programs on `PATH` and the login of each model the installation selects, from local files only |
+| `capabilities/tools/cast/lib/doctor.js` | `cast doctor`: harness programs on `PATH`, the login of each model the installation selects and the count of cells that differ from the shipped model catalog, from local files only |
 | `capabilities/tools/cast/lib/handles.js` | the launch-handle registry — the one observable a watcher uses to find a run again |
-| `capabilities/tools/cast/lib/launch.js` | spawn, the one run of a model's fallback, `cast resume` |
-| `capabilities/tools/cast/lib/fallback.js` | the fallback of a launch: what counts as a failure to start, the fallback the model catalog names for a model, and the effort it launches at. `launch.js` and `ignite turn` both use it |
+| `capabilities/tools/cast/lib/launch.js` | spawn, the fallback runs of a launch, `cast resume` |
+| `capabilities/tools/cast/lib/fallback.js` | the fallback of a launch: what counts as a failure to start, the candidates of a model in the order to try them, the effort they launch at, and the words that close a level with none left. `launch.js` and Ignite's turn both use it |
+| `capabilities/tools/cast/lib/defaults.js` | the installation's defaults, `.rbtv/config/cast/defaults.json`: the default ranking of `cast route` and the ranking of a fallback, read and replaced in one step |
 | `capabilities/tools/cast/lib/win-exec.js` | how a harness name becomes a process on Windows: finds the program on `PATH` and wraps an npm `.cmd` shortcut so that it can be started |
 | `capabilities/tools/cast/lib/agent.js` | `--agent` / `--rogue`: find the agent folder, read `agent.json` and `prompt.md`. The one place that knows where an agent's folder is (`<installation>/.rbtv/agents/<name>`), which agents a `--target FOLDER` names, what counts as a path, and how the record is read: spark, the agent list and Ignite load it |
 | `capabilities/tools/cast/lib/agent-list.js` | `cast list --agents`: the agents a name can reach, as a table, labeled blocks, or JSON; the one list, which [`spark list`](../spark/spark.md) and `rbtv agent list` also show |

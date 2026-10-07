@@ -6,9 +6,10 @@
 //   Refuses when liveRun() matches a live pid. A running row that is not live is failRun'd
 //   (recovery) before the next claim. ignite turn cwd is realpath(home). Same harness + stored
 //   session id resumes that id; a harness change or no id starts a new session and the prompt
-//   carries stored history and work state. A model whose row of the model catalog names a
-//   fallback gets `fallback` in its request: `ignite turn` runs it once when the model fails to
-//   start, and the run's session is saved under the harness that ran. Every cast request includes systemPromptFile
+//   carries stored history and work state. Where the installation's cast defaults turn the
+//   fallback on, the request carries `fallbacks`, the models cast would try in order when the
+//   agent's model fails to start; `ignite turn` runs them, and the run's session is saved under
+//   the harness that ran. Every cast request includes systemPromptFile
 //   <home>/prompt.md (absolute). This file does not read or require CLAUDE.md.
 //   failRun enqueues the one blocker — this file does not.
 // DEFAULT_HISTORY_WINDOW — re-exported for callers
@@ -18,7 +19,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { procStart } = require('../../../../cast/capabilities/tools/cast/lib/handles');
 const castAgent = require('../../../../cast/capabilities/tools/cast/lib/agent');
-const { fallbackOf } = require('../../../../cast/capabilities/tools/cast/lib/fallback');
+const { exhausted, fallbackPlan, nameOf } = require('../../../../cast/capabilities/tools/cast/lib/fallback');
 const { composeTurn, readTurnMemory } = require('./prompt.js');
 const { DEFAULT_HISTORY_WINDOW, historyPath, listAll, writeHistory } = require('./history.js');
 
@@ -82,11 +83,13 @@ function launchScope(exitCode, launcher) {
   return 'work';
 }
 
-function concrete(exitCode, launcher, fallback) {
+// `plan` is cast's fallback plan for the turn, or null when it has none.
+function concrete(exitCode, launcher, fallback, plan = null) {
   const parts = [];
-  if (launcher?.fallbackFrom) {
-    const from = launcher.fallbackFrom;
-    parts.push(`${from.harness} ${from.model} did not start (${from.error}), and its fallback ${launcher.harness} ${launcher.model} failed`);
+  if (launcher?.exhausted && plan) parts.push(...exhausted(plan, [...launcher.failed, launcher]));
+  else if (launcher?.failed?.length) {
+    const failed = launcher.failed.map((f) => `${nameOf(f)} (${f.error})`).join(', ');
+    parts.push(`did not start: ${failed}; ${nameOf(launcher)} ran in their place and failed`);
   }
   if (launcher?.error) parts.push(String(launcher.error));
   if (launcher?.exitCode != null) parts.push(`exitCode ${launcher.exitCode}`);
@@ -326,16 +329,20 @@ async function execute(slug, claim, deps) {
       IGNITE_CONVERSATION: claim.conversation_key,
     },
   };
-  // The model's fallback in the model catalog, which `ignite turn` runs once when the model fails
-  // to start: on that harness's own session of this conversation.
-  const fallback = fallbackOf(setting.harness, setting.model, setting.effort, home);
-  if (fallback?.problem) {
-    if (typeof deps.log === 'function') deps.log({ event: 'fallback-unavailable', message: fallback.problem });
-  } else if (fallback) {
-    const id = store.getSession(claim.conversation_key, fallback.harness);
-    const target = id ? { mode: 'resume', id } : { mode: 'new' };
-    request.fallback = { harness: fallback.harness, model: fallback.model, effort: fallback.effort,
-      session: target, prompt: promptFor(target) };
+  // The models cast would run, in order, when the agent's model fails to start: each on its
+  // harness's own session of this conversation.
+  let plan = fallbackPlan(setting.harness, setting.model, setting.effort, home);
+  if (plan?.problem) {
+    if (typeof deps.log === 'function') deps.log({ event: 'fallback-unavailable', message: plan.problem });
+    plan = null;
+  }
+  if (plan) {
+    request.fallbacks = plan.candidates.map((candidate) => {
+      const id = store.getSession(claim.conversation_key, candidate.harness);
+      const target = id ? { mode: 'resume', id } : { mode: 'new' };
+      return { harness: candidate.harness, model: candidate.model, effort: candidate.effort,
+        session: target, prompt: promptFor(target) };
+    });
   }
   fs.writeFileSync(requestPath, JSON.stringify(request));
 
@@ -359,11 +366,11 @@ async function execute(slug, claim, deps) {
     throw fail(error.message, 'agent');
   }
   const launcher = readJson(launcherPath);
-  if (launcher?.fallbackFrom && typeof deps.log === 'function') {
-    deps.log({ event: 'fallback', from: launcher.fallbackFrom, to: { harness: launcher.harness, model: launcher.model } });
+  if (launcher?.failed?.length && typeof deps.log === 'function') {
+    deps.log({ event: 'fallback', failed: launcher.failed, ran: { harness: launcher.harness, model: launcher.model } });
   }
   const scope = launchScope(exitCode, launcher);
-  if (scope) throw fail(concrete(exitCode, launcher, 'launch failed'), scope);
+  if (scope) throw fail(concrete(exitCode, launcher, 'launch failed', plan), scope);
 
   let agent;
   try {

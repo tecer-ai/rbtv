@@ -97,16 +97,18 @@ Request JSON:
   prompt|promptFile  exactly one
   session          {"mode":"new"} or {"mode":"resume","id":"<exact id>"}
   env              optional string map merged over the process environment
-  fallback         optional {harness, model, effort, session, prompt}: the turn to run
-                   once, in place of this one, when the harness fails to start
+  fallbacks        optional list of {harness, model, effort, session, prompt}: the turns
+                   to run in this order, each in place of the one before, while a harness
+                   fails to start
 
 Result JSON (written even on failure):
   ok, harness, model, effort, sessionId, exitCode,
-  startedAt, endedAt, pid, pidStart, stdoutPath, stderrPath, error?, fallbackFrom?
+  startedAt, endedAt, pid, pidStart, stdoutPath, stderrPath, error?, failed?, exhausted?
 A harness fails to start when it cannot be started or exits with a failure in its
-first 15 seconds. The result then describes the fallback's run, its output is in
-<result>.fallback.stdout and .stderr, and fallbackFrom holds the harness, model and
-error of the run that failed.
+first 15 seconds. The result describes the last run. A request with fallbacks gets
+failed, the harness, model and error of each run before the last, and exhausted, true
+when the last run failed to start as well with no fallback left. The output of
+fallback N is in <result>.fallbackN.stdout and .stderr.
 pid + pidStart (starttime from /proc/<pid>/stat, read while alive) distinguish a
 live run from a reused pid. stdout/stderr are captured to files, not inherited.
 

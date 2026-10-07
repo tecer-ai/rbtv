@@ -46,7 +46,7 @@ const control = JSON.parse(fs.readFileSync(process.env.FAKE_CAST_CONTROL, 'utf8'
 fs.appendFileSync(process.env.FAKE_CAST_SEEN, JSON.stringify({
   harness: request.harness, model: request.model, effort: request.effort,
   cwd: request.cwd, session: request.session, prompt: request.prompt, env: request.env,
-  systemPromptFile: request.systemPromptFile, fallback: request.fallback,
+  systemPromptFile: request.systemPromptFile, fallbacks: request.fallbacks,
 }) + '\\n');
 const prompt = request.prompt || '';
 const resultLine = prompt.split('\\n').find((line) => line.startsWith('RESULT_FILE: '));
@@ -74,10 +74,14 @@ if (control.writeLauncher !== false) {
     stdoutPath: started ? stdoutPath : null,
     stderrPath: control.stderr ? stderrPath : null,
   };
-  // ranFallback: the turn's own model did not start and the request's fallback ran.
+  // ranFallback N: the turn's own model and the fallbacks before number N did not start, and
+  // fallback N (counted from 1) is the run this result describes.
   if (control.ranFallback) {
-    Object.assign(launcher, { harness: request.fallback.harness, model: request.fallback.model,
-      fallbackFrom: { harness: request.harness, model: request.model, error: 'harness_exit_1' } });
+    const ran = request.fallbacks[control.ranFallback - 1];
+    const before = [request, ...request.fallbacks.slice(0, control.ranFallback - 1)];
+    Object.assign(launcher, { harness: ran.harness, model: ran.model,
+      failed: before.map((r) => ({ harness: r.harness, model: r.model, error: 'harness_exit_1' })) });
+    if (control.exhausted) launcher.exhausted = true;
   }
   if (launcher.ok === false && !launcher.error) launcher.error = control.error || 'harness_exit_1';
   if (control.error) launcher.error = control.error;
@@ -398,85 +402,97 @@ test('settings changed between turns → next run snapshots the new setting', as
   assert.equal(still.effort, 'low');
 });
 
-// The installation of the test agent, with a model catalog whose claude row names `fallback`.
-function catalogWithFallback(ctx, fallback) {
+// The installation of the test agent: a model catalog with the agent's model and two others at
+// level L2, one model a level down, and cast defaults holding `defaults` (null = no file).
+function installationWithFallback(ctx, defaults) {
   const config = path.join(ctx.dir, '.rbtv', 'config');
   fs.mkdirSync(path.join(config, 'cast'), { recursive: true });
   fs.writeFileSync(path.join(config, 'install.json'), '{}\n');
   fs.writeFileSync(path.join(config, 'cast', 'models.csv'), [
-    'mode,harness,model,fallback-harness,fallback-model',
-    `cli,claude,sonnet-5-5,${fallback}`,
-    'cli,codex,gpt-6.1-sol,,',
-    'cli,codex,not-a-model,,',
+    'mode,harness,model,level,reasoning,coding,cost,use',
+    'cli,claude,sonnet-5-5,L2,3,3,10,route',
+    'cli,codex,gpt-5.6-terra,L2,3,3,8,route',
+    'cli,codex,gpt-6.1-sol,L2,3,3,5,route',
+    'cli,codex,gpt-6-luna,L3,3,3,1,route',
     '',
   ].join('\n'));
+  if (defaults !== null) fs.writeFileSync(path.join(config, 'cast', 'defaults.json'), defaults);
 }
 
-test('the model catalog fallback rides the request, and the session is saved under the harness that ran', async (ctx) => {
+test('the fallbacks of the model ride the request in order, and the session is saved under the harness that ran', async (ctx) => {
   const box = harness(ctx);
-  catalogWithFallback(ctx, 'codex,gpt-6.1-sol');
+  installationWithFallback(ctx, '{"fallback":"price"}');
   seed(box.store, { text: 'TRIGGER', createdAt: 100 });
   box.store.setSession('T1:C1:1.1', 'claude', 'claude-session-1');
-  box.writeControl({ agent: agentOf('completed'), sessionId: 'codex-session-1', ranFallback: true });
+  box.writeControl({ agent: agentOf('completed'), sessionId: 'codex-session-1', ranFallback: 1 });
   box.sync();
   const result = await runOnce('master', box.deps);
   const request = seen(box)[0];
-  // the request: the agent's own model on its own session, and the fallback on a new session
-  // with the stored thread context; the agent's rung word `low` is place 1 on the dial
+  // the request: the agent's own model on its own session, then the other models of its level,
+  // cheapest first, each on a new session with the stored thread context; the agent's rung word
+  // `low` is place 1 on the dial
   assert.deepEqual(request.session, { mode: 'resume', id: 'claude-session-1' });
   assert.doesNotMatch(request.prompt, /Stored thread context/);
-  assert.equal(request.fallback.harness, 'codex');
-  assert.equal(request.fallback.model, 'gpt-6.1-sol');
-  assert.equal(request.fallback.effort, 1);
-  assert.deepEqual(request.fallback.session, { mode: 'new' });
-  assert.match(request.fallback.prompt, /Stored thread context/);
-  assert.match(request.fallback.prompt, /TRIGGER/);
-  // the run that happened is the fallback's: its session is codex's, claude's stays as it was
+  assert.deepEqual(request.fallbacks.map((f) => `${f.harness} ${f.model} ${f.effort}`), ['codex gpt-6.1-sol 1', 'codex gpt-5.6-terra 1']);
+  assert.deepEqual(request.fallbacks[0].session, { mode: 'new' });
+  assert.match(request.fallbacks[0].prompt, /Stored thread context/);
+  assert.match(request.fallbacks[0].prompt, /TRIGGER/);
+  // the run that happened is the first fallback's: its session is codex's, claude's stays as it was
   assert.equal(result.disposition, 'completed');
   assert.equal(box.store.getSession('T1:C1:1.1', 'codex'), 'codex-session-1');
   assert.equal(box.store.getSession('T1:C1:1.1', 'claude'), 'claude-session-1');
   assert.deepEqual(box.logs.filter((l) => l.event === 'fallback'), [{ event: 'fallback',
-    from: { harness: 'claude', model: 'sonnet-5-5', error: 'harness_exit_1' }, to: { harness: 'codex', model: 'gpt-6.1-sol' } }]);
+    failed: [{ harness: 'claude', model: 'sonnet-5-5', error: 'harness_exit_1' }], ran: { harness: 'codex', model: 'gpt-6.1-sol' } }]);
 
-  // the next turn asks for the agent's own model again, and resumes the fallback's session if needed
+  // the next turn asks for the agent's own model again, and its fallbacks resume codex's session
   seed(box.store, { id: '5.5', text: 'AFTER', createdAt: 500 });
   box.writeControl({ agent: agentOf('completed'), sessionId: 'claude-session-1' });
   box.sync();
   await runOnce('master', box.deps);
   const next = seen(box)[1];
   assert.equal(next.harness, 'claude');
-  assert.deepEqual(next.fallback.session, { mode: 'resume', id: 'codex-session-1' });
-  assert.doesNotMatch(next.fallback.prompt, /Stored thread context/);
+  assert.deepEqual(next.fallbacks[0].session, { mode: 'resume', id: 'codex-session-1' });
+  assert.doesNotMatch(next.fallbacks[0].prompt, /Stored thread context/);
 });
 
-test('a failed fallback names both runs in the failure', async (ctx) => {
+test('a level with no model left names what was tried and the model one level down', async (ctx) => {
   const box = harness(ctx);
-  catalogWithFallback(ctx, 'codex,gpt-6.1-sol');
+  installationWithFallback(ctx, '{"fallback":"price"}');
   seed(box.store);
-  box.writeControl({ ok: false, exitCode: 1, childExit: 1, error: 'harness_exit_1', ranFallback: true });
+  box.writeControl({ ok: false, exitCode: 1, childExit: 1, error: 'harness_exit_1', ranFallback: 2, exhausted: true });
   box.sync();
   const result = await runOnce('master', box.deps);
   assert.equal(result.failed, true);
   const { error } = box.store.db.prepare('SELECT error FROM runs WHERE id=?').get(result.runId);
-  assert.match(error, /^claude sonnet-5-5 did not start \(harness_exit_1\), and its fallback codex gpt-6.1-sol failed; harness_exit_1; exitCode 1/);
+  assert.equal(error.split('; harness_exit_1')[0], 'no model of level L2 started: tried claude sonnet-5-5, codex gpt-6.1-sol, codex gpt-5.6-terra; '
+    + 'the next model by price is one level down (L3) and was not launched: codex gpt-6-luna');
+
+  // a fallback that started and then failed is an ordinary failure of that run
+  seed(box.store, { id: '5.5', text: 'AFTER', createdAt: 500 });
+  box.writeControl({ ok: false, exitCode: 1, childExit: 1, error: 'harness_exit_1', ranFallback: 1 });
+  box.setNow(Date.now() + 3600_000);
+  const late = await runOnce('master', box.deps);
+  const row = box.store.db.prepare('SELECT error FROM runs WHERE id=?').get(late.runId);
+  assert.match(row.error, /^did not start: claude sonnet-5-5 \(harness_exit_1\); codex gpt-6.1-sol ran in their place and failed; /);
 });
 
-test('no fallback named, or one cast cannot launch → the request carries none', async (ctx) => {
+test('fallback off, or defaults cast cannot read → the request carries none', async (ctx) => {
   const box = harness(ctx);
+  installationWithFallback(ctx, null);
   seed(box.store);
   box.writeControl({ agent: agentOf('completed'), sessionId: 's1' });
   box.sync();
   await runOnce('master', box.deps);
-  assert.equal(seen(box)[0].fallback, undefined);
+  assert.equal(seen(box)[0].fallbacks, undefined);
   assert.deepEqual(box.logs.filter((l) => String(l.event).startsWith('fallback')), []);
 
-  catalogWithFallback(ctx, 'codex,not-a-model');
+  installationWithFallback(ctx, '{"fallback":"cheapest"}');
   seed(box.store, { id: '5.5', text: 'AFTER', createdAt: 500 });
   box.sync();
   await runOnce('master', box.deps);
-  assert.equal(seen(box)[1].fallback, undefined);
+  assert.equal(seen(box)[1].fallbacks, undefined);
   const [unavailable] = box.logs.filter((l) => l.event === 'fallback-unavailable');
-  assert.match(unavailable.message, /^refused: 'codex not-a-model' is selected in /);
+  assert.match(unavailable.message, /defaults\.json: fallback is "cheapest" \(one of off, price, quality\)$/);
 });
 
 test('harness change → new session with re-hydrated prompt', async (ctx) => {

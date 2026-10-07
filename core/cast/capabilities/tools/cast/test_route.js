@@ -138,7 +138,10 @@ const dropped = (v, stage) => (v.explain || [])
       const dflt = route(base);
       const priced = route([...base, '--optimize', 'price']);
       assert.strictEqual(dflt._status, 0, JSON.stringify(dflt));
-      assert.deepStrictEqual({ ...dflt, _stderr: '' }, { ...priced, _stderr: '' },
+      // identical but for where the ranking came from, which every verdict states
+      assert.strictEqual(dflt.optimize_from, "cast's default");
+      assert.strictEqual(priced.optimize_from, '--optimize');
+      assert.deepStrictEqual({ ...dflt, _stderr: '', optimize_from: null }, { ...priced, _stderr: '', optimize_from: null },
         `${cls}/${type}: the default must answer exactly what --optimize price answers`);
     }
   }
@@ -707,6 +710,42 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
     { encoding: 'utf8', env: ENV, cwd: OUTSIDE });
   assert.strictEqual(quiet.stderr, '', `loading the shipped table must warn about nothing:\n${quiet.stderr}`);
   assert.strictEqual(JSON.parse(quiet.stdout).explain[0].source, source);
+}
+
+// --- the installation's default ranking (lib/defaults.js, key `route`) --------------------------
+// A call with no --optimize ranks as the installation says, and every verdict states the ranking
+// and where it came from. class=bounded on text: price answers terra, quality answers sonnet-5-5.
+{
+  const root = scratchInstallation('cast-route-defaults-');
+  fs.copyFileSync(catalogOf(FIXTURE), catalogOf(root));
+  const file = path.join(root, '.rbtv', 'config', 'cast', 'defaults.json');
+  const ask = ['--access', 'bounded', '--type', 'text', '--class', 'bounded'];
+
+  const none = route(ask, root);
+  assert.deepStrictEqual([pair(none), none.optimize, none.optimize_from], ['codex/gpt-5.6-terra/cli', 'price', "cast's default"]);
+
+  fs.writeFileSync(file, '{"route":"quality"}\n');
+  const set = route([...ask, '--explain'], root);
+  assert.deepStrictEqual([pair(set), set.optimize, set.optimize_from], ['claude/sonnet-5-5/cli', 'quality', file]);
+  assert.deepStrictEqual(set.explain.find((e) => e.action === 'default'), { stage: 'optimize', action: 'default', optimize: 'quality', source: file });
+  // the call's own flag wins over the installation
+  const flag = route([...ask, '--optimize', 'price'], root);
+  assert.deepStrictEqual([pair(flag), flag.optimize, flag.optimize_from], ['codex/gpt-5.6-terra/cli', 'price', '--optimize']);
+  // a batch agent with no optimize takes the same default
+  const batchFile = path.join(root, 'agents.json');
+  fs.writeFileSync(batchFile, JSON.stringify([{ name: 'a', access: 'bounded', type: 'text', class: 'bounded' }]));
+  const batch = route(['--batch', batchFile], root);
+  assert.deepStrictEqual([batch.agents[0].model, batch.agents[0].optimize_from], ['sonnet-5-5', file]);
+  // a file that sets only the fallback leaves the route default cast's own
+  fs.writeFileSync(file, '{"fallback":"price"}\n');
+  assert.strictEqual(route(ask, root).optimize_from, "cast's default");
+
+  // a defaults file cast cannot use answers bad_defaults, naming the file
+  for (const [text, why] of [['{"route":"best"}', 'route is "best" (one of price, quality)'], ['{"rout":"price"}', "unknown key 'rout' (the keys are route, fallback)"], ['[]', 'it holds no object']]) {
+    fs.writeFileSync(file, text);
+    const bad = route(ask, root);
+    assert.deepStrictEqual([bad._status, bad.error, bad.details], [1, 'bad_defaults', `cannot read cast's defaults ${file}: ${why}`]);
+  }
 }
 
 process.stdout.write('all route tests passed\n');

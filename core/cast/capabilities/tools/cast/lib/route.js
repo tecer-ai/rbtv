@@ -22,6 +22,7 @@ const { stores: STORES, providers: PROVIDERS } = require('../providers.json');
 
 const { fail } = require('./core');
 const { installationRoot, envFileHasKey } = require('./installation');
+const { DefaultsError, loadDefaults } = require('./defaults');
 const { CatalogError, loadSelection, supportedRow } = require('./model-catalog');
 
 const ROUTE_USAGE = 'cast route --access open|bounded --type code|text --class planner|broad|bounded|mechanical [--optimize price|quality] [--caps image] [--explain]';
@@ -45,10 +46,14 @@ const CLASSES = {
   mechanical: { levels: ['L3'], effort: { code: 1, text: 1 } },
 };
 
+// The levels a class reaches, best first: the ones a routed job, and a fallback, can land on.
+const LEVELS = Object.values(CLASSES).flatMap((c) => c.levels);
+
 const ACCESS = ['open', 'bounded'];
 const TYPES = ['code', 'text'];
 const OPTIMIZE = ['price', 'quality'];
-// The default when --optimize is omitted is PRICE, for every class alike (owner ruling
+// A call that omits --optimize ranks as the installation's defaults say (lib/defaults.js, key
+// `route`). Where the installation sets none, the default is PRICE, for every class alike (owner ruling
 // 2026-08-22, replacing the tiered SOTA/L1-on-price + L2/L3-on-quality rule of 2026-08-21: one
 // rule the owner can hold in their head beat two bands). Omitting the flag is now exactly
 // `--optimize price` — same ranking, same blank-cost exclusion, same tie-breaks — and the class's
@@ -158,6 +163,15 @@ function loadCatalog(root) {
   }
 }
 
+// The installation's defaults, or the `bad_defaults` answer when its file cannot be used.
+function loadRouteDefaults(root) {
+  try { return loadDefaults(root); } catch (e) {
+    if (!(e instanceof DefaultsError)) throw e;
+    process.stdout.write(`${JSON.stringify({ error: 'bad_defaults', details: e.message })}\n`);
+    return process.exit(1);
+  }
+}
+
 const num = (v) => (v === '' ? null : Number(v));
 
 // JOIN — the model catalog row carries the axes, its supported-models.js twin carries the launch
@@ -208,7 +222,9 @@ function drop(trace, stage, row, reason) {
 }
 
 // Blank score = 0 in tie-breaks (spec §5). Type absent (image short-circuit) reads as text.
-const scoreOf = (r, type) => ((type === 'code' ? r.coding : r.reasoning) ?? 0);
+// `both` is the type of a fallback, which does not know its task: the two scores added.
+const scoreOf = (r, type) => (type === 'both' ? (r.coding ?? 0) + (r.reasoning ?? 0)
+  : ((type === 'code' ? r.coding : r.reasoning) ?? 0));
 
 function byKey(rows, keyFn) {
   return rows.slice().sort((a, b) => {
@@ -271,7 +287,7 @@ function pick(rows, optimize, type, levels, trace) {
 // The verdict IS the top pick; `alternates` carries the next two of the SAME ranking as backups
 // for when the first cannot be launched. They share the effort — effort comes from the class, not
 // from the row.
-function verdictFor(ranked, effort, isFloor) {
+function verdictFor(ranked, effort, isFloor, optimize) {
   const [row] = ranked;
   return {
     verdict: 'route',
@@ -280,13 +296,24 @@ function verdictFor(ranked, effort, isFloor) {
     mode: row.mode,
     effort,
     effort_is_floor: !!isFloor,
+    optimize: optimize.value,
+    optimize_from: optimize.from,
     alternates: ranked.slice(1, 3).map((r) => ({ harness: r.harness, model: r.model, mode: r.mode })),
   };
 }
 
 // The pipeline, in the spec's order: availability -> image short-circuit -> access ->
 // class levels -> optimize -> effort. Every filter records why each row left.
-function selectRoute(req, joined, root, trace) {
+// The ranking of one request and where it came from: the call's own --optimize, else the
+// installation's defaults file when it sets `route`, else cast's default.
+function optimizeOf(req, defaults) {
+  if (req.optimize) return { value: req.optimize, from: '--optimize', rank: req.optimize };
+  if (defaults.own.route) return { value: defaults.route, from: defaults.file, rank: defaults.route };
+  return { value: defaults.route, from: "cast's default", rank: DEFAULT_OPTIMIZE };
+}
+
+function selectRoute(req, joined, root, trace, defaults) {
+  const optimize = optimizeOf(req, defaults);
   if (!joined.length) {
     return { error: 'no_models', details: 'no models.csv row has a supported-models.js twin' };
   }
@@ -325,8 +352,8 @@ function selectRoute(req, joined, root, trace) {
     // `|| images[0]` is the all-blank-cost case: --optimize price can pick nothing, so CSV order
     // (deterministic) decides rather than the call failing over a tie-break input the owner
     // has not filled in yet.
-    const chosen = pick(images, req.optimize || 'price', req.type, ['L4'], trace);
-    return { verdict: verdictFor(chosen.length ? chosen : images, 1, false) };
+    const chosen = pick(images, optimize.value, req.type, ['L4'], trace);
+    return { verdict: verdictFor(chosen.length ? chosen : images, 1, false, optimize) };
   }
 
   if (req.access === 'open') {
@@ -350,11 +377,12 @@ function selectRoute(req, joined, root, trace) {
     return { error: 'zero_candidates', details: `no available row survives access=${req.access}, caps=${[...req.caps].join(',') || 'none'}, class=${req.class}` };
   }
 
-  const chosen = pick(rows, req.optimize || DEFAULT_OPTIMIZE, req.type, cls.levels, trace);
+  if (optimize.from === defaults.file) trace.push({ stage: 'optimize', action: 'default', optimize: optimize.value, source: defaults.file });
+  const chosen = pick(rows, optimize.rank, req.type, cls.levels, trace);
   if (!chosen.length) {
     return { error: 'zero_candidates', details: 'every surviving row has a blank cost, so a price-ranked pick can pick none — use --optimize quality or fill the cost column' };
   }
-  return { verdict: verdictFor(chosen, cls.effort[req.type], cls.floor) };
+  return { verdict: verdictFor(chosen, cls.effort[req.type], cls.floor, optimize) };
 }
 
 // --- surfaces ----------------------------------------------------------------------------------
@@ -506,6 +534,7 @@ function runBatch(source, explain, root) {
   if (parsed.error) envelopeError(parsed.error);
 
   const csv = loadCatalog(root);
+  const defaults = loadRouteDefaults(root);
   // ONE load, ONE join, ONE round of warnings — N agents share the model catalog.
   const warnings = [];
   const joined = joinCatalog(csv.rows, warnings);
@@ -522,7 +551,7 @@ function runBatch(source, explain, root) {
     }
     const req = { access: agent.access ?? null, type: agent.type ?? null, class: agent.class ?? null,
       optimize: agent.optimize ?? null, caps };
-    const result = selectRoute(req, joined, root, trace);
+    const result = selectRoute(req, joined, root, trace, defaults);
     if (!result.verdict) allRouted = false;
     const entry = { name: agent.name, ...(result.verdict || { error: result.error, details: result.details }) };
     if (explain) entry.explain = trace;
@@ -557,6 +586,7 @@ function runRoute(rawArgv) {
   }
 
   const csv = loadCatalog(root);
+  const defaults = loadRouteDefaults(root);
 
   const warnings = [];
   const joined = joinCatalog(csv.rows, warnings);
@@ -564,7 +594,7 @@ function runRoute(rawArgv) {
 
   const trace = [{ stage: 'catalog', source: csv.file, csv_rows: csv.rows.length, joined: joined.length,
     excluded: warnings }];
-  const result = selectRoute(req, joined, root, trace);
+  const result = selectRoute(req, joined, root, trace, defaults);
   const out = result.verdict || { error: result.error, details: result.details };
   if (req.explain) out.explain = trace;
   process.stdout.write(`${JSON.stringify(out)}\n`);
@@ -572,7 +602,7 @@ function runRoute(rawArgv) {
 }
 
 module.exports = {
-  ROUTE_USAGE, ROUTE_FORMS, CLASSES,
+  ROUTE_USAGE, ROUTE_FORMS, CLASSES, LEVELS,
   ACCESS, TYPES, OPTIMIZE, CAPS,
   readJson, expandHome, storePath, storedCredential, isAvailable, loginFoundIn, unavailableReason,
   loadCatalog, joinCatalog,

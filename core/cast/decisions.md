@@ -4,16 +4,28 @@ Standing decisions about cast. Each states the decision and its reason; the page
 
 ## A launch falls back only on a failure to start
 
-A launch runs its model's fallback when the harness cannot be started or exits with a failure in its first 15 seconds, and in no other case. Reason: a later failure can follow work the agent already did, and running the task again on another model would repeat or collide with that work. The 15 seconds are a bound on "no work yet", taken from measured start failures of 2.4 to 3.2 seconds; a harness that retries a provider limit for longer than that ends as an ordinary failure.
+A launch runs a fallback when the harness cannot be started or exits with a failure in its first 15 seconds, and in no other case. Reason: a later failure can follow work the agent already did, and running the task again on another model would repeat or collide with that work. The 15 seconds are a bound on "no work yet", taken from measured start failures of 2.4 to 3.2 seconds; a harness that retries a provider limit for longer than that ends as an ordinary failure.
 
 ## A stalled job is never relaunched
 
 `cast monitor` reports a job that is alive without progress, and nothing kills or relaunches a job on that report. Reason: the monitor's stall verdict has been wrong on a healthy job, and a fallback on a stall would need to kill the first run.
 
-## The fallback belongs to the model, in the model catalog
+## The fallback is chosen from the model catalog, not named per model or per agent
 
-The fallback is two cells of the model's row, not a field of an agent's record. Reason: a provider's limit or outage stops every agent and every launch on that model together, and a launch that names a harness and a model has no agent record to read.
+A launch finds its fallback by ranking the other models of the failed model's level, the way `cast route` ranks. Reason: a column or an agent field that names one stand-in per model is a second table to fill and to keep valid each time a model is replaced, and the model catalog already holds what the choice needs.
 
-## The fallback's own failure is final
+## A fallback stays inside its level, and may try the same provider
 
-A launch runs at most one fallback. Reason: two rows that name each other would otherwise relaunch without end, and a second stand-in for a stand-in has no stated use.
+A launch tries every candidate of the level in ranking order, including models of the provider that just failed, and stops when the level is used up; it names the best model of the next level down and does not launch it. Reason: a model of a lower level is a silent drop in quality, which the owner decides, and trying a model whose provider is down costs a few seconds while a rule that skips providers would also skip a model that works.
+
+## Fallback is off until an installation turns it on
+
+`fallback` in the installation's defaults is `off` unless set. Reason: a fallback launches models on other providers' plans, and an installation that never asked for that must not start spending them.
+
+## A fallback ranks quality on both scores added
+
+Reason: a launch does not say whether its task is code or text, so the stand-in has to be good at both.
+
+## An installation decides `use` and the two overrides; rbtv proposes the rest
+
+`cast models update` copies level, scores, cost, effort count and image flag from the shipped model catalog and never changes `use`, an override or which models are selected. Reason: the first group describes the model and changes when the model does; the second records what this installation wants routed, and an update that reset it would route a model the owner had turned off.

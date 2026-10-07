@@ -13,7 +13,7 @@ const { spawnSync } = require('child_process');
 const { SPECS } = require('../supported-models');
 
 const { HARNESSES, RESUME_USAGE, baseArgv, codexArgv, fail, parseArgs, promptArgv, refuseIfDetached, resolveFolder, shortName } = require('./core');
-const { startFailure } = require('./fallback');
+const { exhausted, nameOf, startFailure } = require('./fallback');
 const { claudeSlug, emitHandle, procStart, stdoutPath } = require('./handles');
 const { loadOptional } = require('./optional');
 const { spawnable } = require('./win-exec');
@@ -57,24 +57,37 @@ function spawnWithDeadline(cmd, args, opts) {
   return { code: res.status === null ? 1 : res.status, signal: res.signal };
 }
 
-// One launch. `fallback`, when given, returns the launch values of the model's fallback
-// (lib/fallback.js `fallbackOf`); a headless launch that fails to start runs it once, in the same
-// folder with the same task.
+// One launch. `fallback`, when given, returns the fallback plan of the model (lib/fallback.js
+// `fallbackPlan`), which is asked for at the first failure to start. A headless launch then runs
+// the plan's candidates in order, in the same folder with the same task, while each one fails to
+// start; with none left it ends on the last failure and says what the level and the next one hold.
 function launch({ harness, modelId, effortWord, effortArgv, fallback, ...run }) {
-  attempt({ harness, modelId, effortWord, effortArgv, ...run }, (out) => {
-    const next = fallback && !run.headed && startFailure(out) ? fallback() : null;
-    if (!next) return ended('launch failed')(out);
+  const tried = [];
+  let plan;
+  const start = (target) => attempt({ ...run, ...target }, (out) => {
+    if (!fallback || run.headed || !startFailure(out)) return ended('launch failed')(out);
+    if (plan === undefined) plan = fallback();
+    if (plan === null) return ended('launch failed')(out);
+    const say = (text) => process.stderr.write(`cast: ${text}\n`);
     const how = out.error || `exit ${out.code} after ${Math.round(out.elapsedMs / 1000)}s`;
-    const failed = `cast: ${harness} ${shortName(harness, modelId)} did not start (${how})`;
-    if (next.problem) {
-      process.stderr.write(`${failed}, and its fallback cannot be launched: ${next.problem}\n`);
+    const failed = `${target.harness} ${shortName(target.harness, target.modelId)} did not start (${how})`;
+    if (plan.problem) {
+      say(`${failed}, and no fallback can be chosen: ${plan.problem}`);
+      return ended('launch failed')(out);
+    }
+    tried.push({ harness: target.harness, model: shortName(target.harness, target.modelId) });
+    const next = plan.candidates[tried.length - 1];
+    if (!next) {
+      say(failed);
+      for (const line of exhausted(plan, tried)) say(line);
       return ended('launch failed')(out);
     }
     // The failed run's closing note goes to stderr: stdout is the report of the run that follows.
     if (out.note) process.stderr.write(out.note);
-    process.stderr.write(`${failed}; launching its fallback ${next.harness} ${next.model}\n`);
-    return attempt({ ...run, ...next }, ended('launch failed'));
+    say(`${failed}; launching fallback ${tried.length} of ${plan.candidates.length} at level ${plan.level} by ${plan.optimize}: ${nameOf(next)}`);
+    return start(next);
   });
+  start({ harness, modelId, effortWord, effortArgv });
 }
 
 // Composes one harness run and starts it; `done` receives how it ended, with `elapsedMs`.

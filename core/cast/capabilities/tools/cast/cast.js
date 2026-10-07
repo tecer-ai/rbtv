@@ -12,7 +12,7 @@ const { runAgentList } = require('./lib/agent-list');
 const { runApi } = require('./lib/api');
 const { USAGE, USAGE_IG, fail, listArgs, parseArgs, resolveEffort, resolveEffortValue, resolveFolder, resolveModel, taskText } = require('./lib/core');
 const { runDoctor } = require('./lib/doctor');
-const { fallbackOf } = require('./lib/fallback');
+const { fallbackPlan } = require('./lib/fallback');
 const { printHelp, verbHelpPages } = require('./lib/help');
 const { SYSTEM_WRAPPER, launch, runResume } = require('./lib/launch');
 const { runModels } = require('./lib/models');
@@ -118,7 +118,7 @@ function main(rawArgv) {
 
   launch({ harness, modelId, folder, effortWord: effort.word, effortArgv: effort.argv, system, promptText, headed, dryRun, detached,
     agentHome: agent ? agent.home : null,
-    fallback: () => fallbackOf(harness, modelId, asked, agent ? agent.home : process.cwd()) });
+    fallback: () => fallbackPlan(harness, modelId, asked, agent ? agent.home : process.cwd()) });
 }
 
 main(process.argv.slice(2));

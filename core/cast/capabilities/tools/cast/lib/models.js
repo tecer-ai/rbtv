@@ -4,8 +4,12 @@
 //   cast models list [--selected | --supported | --catalog] [--json]
 //   cast models add HARNESS MODEL [--dry-run] [--json]
 //   cast models remove HARNESS MODEL [--force] [--dry-run] [--json]
-// `list` only reads. `add` and `remove` change one file, the installation's model catalog
-// (lib/model-catalog.js reads and writes it); every result names the installation and that file.
+//   cast models set HARNESS MODEL [--use V] [--quality-override V] [--price-override V] [--level L]
+//   cast models update [HARNESS MODEL] [--dry-run] [--json]
+//   cast models defaults [--route V] [--fallback V] [--dry-run] [--json]
+// `list` only reads. `add`, `remove`, `set` and `update` change one file, the installation's model
+// catalog (lib/model-catalog.js reads and writes it); `defaults` changes the installation's
+// defaults (lib/defaults.js). Every result names the installation and the file.
 
 const fs = require('fs');
 const path = require('path');
@@ -13,16 +17,25 @@ const { ROWS } = require('../supported-models');
 
 const { agentsFolder } = require('./agent');
 const { EFFORT_RULE, effortMap, resolveEffort } = require('./core');
+const { DefaultsError, VALUES: DEFAULT_VALUES, loadDefaults, saveDefaults } = require('./defaults');
 const { installationRoot } = require('./installation');
-const { CATALOG_REL, COLUMNS, CatalogError, SHIPPED_CATALOG, loadSelection, notSupported, saveSelection, supportedRow } = require('./model-catalog');
+const { CATALOG_REL, COLUMNS, CatalogError, OWN_COLUMNS, SHIPPED_CATALOG, SHIPPED_COLUMNS, editCells, loadSelection, notSupported, saveSelection, supportedRow } = require('./model-catalog');
 const { isAvailable, readJson } = require('./route');
 
 const USAGE = [
   'cast models list [--selected | --supported | --catalog] [--json]',
   'cast models add HARNESS MODEL [--dry-run] [--json]',
   'cast models remove HARNESS MODEL [--force] [--dry-run] [--json]',
+  'cast models set HARNESS MODEL [--use route|panel|off] [--quality-override Y|N] [--price-override Y|N] [--level LEVEL] [--dry-run] [--json]',
+  'cast models update [HARNESS MODEL] [--dry-run] [--json]',
+  'cast models defaults [--route price|quality] [--fallback off|price|quality] [--dry-run] [--json]',
 ];
-const VERBS = ['list', 'add', 'remove'];
+const VERBS = ['list', 'add', 'remove', 'set', 'update', 'defaults'];
+// The options of each verb that take a value, with the values each accepts (null = any word).
+const VALUED = {
+  set: { '--use': ['route', 'panel', 'off'], '--quality-override': ['Y', 'N'], '--price-override': ['Y', 'N'], '--level': null },
+  defaults: { '--route': DEFAULT_VALUES.route, '--fallback': DEFAULT_VALUES.fallback },
+};
 const VIEWS = ['selected', 'supported', 'catalog'];
 const JSON_USAGE = 'Pass the NUMBER (integer 1-5) as <effort>, not the word — example: '
   + 'cast opencode glm-5.3 2 -p "hello". rungs are labels only; each model\'s effort_numbers maps '
@@ -54,7 +67,7 @@ function context(json, closing) {
 }
 
 // How an installation that reads the shipped model catalog gets one of its own.
-const ownFileComesFrom = (root) => `The installation's own file is created by the first cast models remove, or by copying ${SHIPPED_CATALOG} to ${path.join(root, CATALOG_REL)}.`;
+const ownFileComesFrom = (root) => `The installation's own file, ${path.join(root, CATALOG_REL)}, is created by the first cast models set or cast models remove.`;
 
 function headLines(selection) {
   const shipped = `${selection.file} (shipped with cast: every supported model is selected)`;
@@ -62,6 +75,19 @@ function headLines(selection) {
   return [`installation: ${selection.root}`,
     ...(selection.shipped ? [`model catalog: ${shipped}`, ownFileComesFrom(selection.root)]
       : [`model catalog: ${selection.file}`])];
+}
+
+// The installation's defaults as the line a list shows under its head lines, and as a value.
+function defaultsOf(root) {
+  try {
+    const d = loadDefaults(root);
+    const from = Object.keys(d.own).length ? d.file : "cast's own values";
+    return { value: { route: d.route, fallback: d.fallback, file: Object.keys(d.own).length ? d.file : null },
+      line: `defaults: cast route ranks by ${d.route}; fallback ${d.fallback === 'off' ? 'is off' : `ranks by ${d.fallback}`} (${from}; cast models defaults)` };
+  } catch (e) {
+    if (!(e instanceof DefaultsError)) throw e;
+    return { value: { problem: e.message }, line: `defaults: ${e.message}` };
+  }
 }
 
 const ownFile = (selection) => (selection.shipped ? null : selection.file);
@@ -111,13 +137,14 @@ function table(header, rows) {
 function listModels(selection, view, json) {
   const all = supportedModels(selection);
   const models = view === 'selected' ? all.filter((m) => m.selected) : all;
+  const defaults = defaultsOf(selection.root);
   if (json) {
-    return { installation: selection.root, selection: ownFile(selection), view, models, usage: JSON_USAGE };
+    return { installation: selection.root, selection: ownFile(selection), defaults: defaults.value, view, models, usage: JSON_USAGE };
   }
   const byName = new Map(ROWS.map((row) => [`${row.harness} ${row.model}`, row]));
   const cells = (m) => [m.harness, m.model, ...(view === 'supported' ? [m.selected ? 'yes' : 'no'] : []),
     effortMap(ladder(byName.get(`${m.harness} ${m.model}`)))];
-  const lines = [...headLines(selection), ''];
+  const lines = [...headLines(selection), defaults.line, ''];
   if (models.length) {
     lines.push(...table(['harness', 'model', ...(view === 'supported' ? ['selected'] : []), 'effort'], models.map(cells)), '');
   }
@@ -139,9 +166,10 @@ function listCatalog(selection, json) {
     const spec = supportedRow(c.harness, c.model);
     return { ...publicRow(c), launchable: spec ? 'yes' : 'no', available: spec ? String(isAvailable(spec, selection.root)) : '-' };
   });
-  if (json) return { installation: selection.root, source: selection.file, rows };
+  const defaults = defaultsOf(selection.root);
+  if (json) return { installation: selection.root, source: selection.file, defaults: defaults.value, rows };
   const cols = [...COLUMNS, 'launchable', 'available'];
-  return [...headLines(selection), '', ...table(cols, rows.map((r) => cols.map((c) => (r[c] === '' ? '-' : r[c]))))];
+  return [...headLines(selection), defaults.line, '', ...table(cols, rows.map((r) => cols.map((c) => (r[c] === '' ? '-' : r[c]))))];
 }
 
 // --- add ---------------------------------------------------------------------------------------
@@ -242,15 +270,6 @@ function removeModel(selection, harness, model, { force, dryRun, json }) {
     return json ? result : [...headLines(selection), '', `not selected: '${harness} ${model}'`,
       ...(supportedRow(harness, model) ? [] : ['It is not a model cast supports either: cast models list --supported']), 'Nothing changed.'];
   }
-  // Rows that name it as their fallback would name a model with no row: a file cast refuses to
-  // read, which stops every launch. --force does not pass this.
-  const fallbackOf = [...new Set(selection.rows.filter((r) => r['fallback-harness'] === harness && r['fallback-model'] === model)
-    .map((r) => `${r.harness} ${r.model}`))];
-  if (fallbackOf.length) {
-    refuse(json, 'is-fallback', [`'${harness} ${model}' is the fallback of ${fallbackOf.map((n) => `'${n}'`).join(', ')} in ${file}`,
-      'blank the fallback-harness and fallback-model cells of each row first, by hand'],
-    'cast models list --catalog');
-  }
   const { users, unread } = usersOf(selection.root, harness, model);
   if (users.length && !force) {
     refuse(json, 'in-use', [`'${harness} ${model}' is still used in ${selection.root}`, ...users.map((u) => `  ${userLine(u)}`),
@@ -275,6 +294,168 @@ function removeModel(selection, harness, model, { force, dryRun, json }) {
   return lines;
 }
 
+// --- set ---------------------------------------------------------------------------------------
+
+// The refusal for a verb that acts on a selected model when the installation has no row for it.
+function needSelected(selection, harness, model, json) {
+  const rows = selection.rows.filter(isRow(harness, model));
+  if (rows.length) return rows;
+  return refuse(json, 'not-selected', [`'${harness} ${model}' is not selected in ${selection.root}`,
+    ...(supportedRow(harness, model) ? [] : ['It is not a model cast supports either: cast models list --supported'])],
+  `cast models add ${harness} ${model}`);
+}
+
+// Writes the cells an installation owns: `use`, which holds for every level of a model, and the
+// two overrides, which belong to one level.
+function setModel(selection, harness, model, { values, dryRun, json }) {
+  needInstallation(selection, json);
+  const rows = needSelected(selection, harness, model, json);
+  const file = path.join(selection.root, CATALOG_REL);
+  const level = values['--level'];
+  const overrides = ['--quality-override', '--price-override'].filter((f) => values[f] !== undefined);
+  const next = `cast models set ${harness} ${model}`;
+  if (values['--use'] === undefined && !overrides.length) {
+    refuse(json, 'invalid-arguments', ['cast models set needs a value to set', 'give --use, --quality-override or --price-override'], `${next} --use off`);
+  }
+  const levels = rows.map((r) => r.level);
+  if (level !== undefined && !overrides.length) {
+    refuse(json, 'invalid-arguments', ['--level goes with an override', '--use holds for every level of a model'], `${next} --use ${values['--use']}`);
+  }
+  if (level !== undefined && !levels.includes(level)) {
+    refuse(json, 'no-such-level', [`'${harness} ${model}' has no row at level ${level}`, `its level${levels.length === 1 ? ' is' : 's are'} ${levels.join(', ')}`],
+      `${next} --level ${levels[0]} ${overrides.map((f) => `${f} ${values[f]}`).join(' ')}`);
+  }
+  if (overrides.length && rows.length > 1 && level === undefined) {
+    refuse(json, 'level-needed', [`'${harness} ${model}' has rows at levels ${levels.join(' and ')}`, 'an override belongs to one level: name it with --level'],
+      `${next} --level ${levels[0]} ${overrides.map((f) => `${f} ${values[f]}`).join(' ')}`);
+  }
+  const edits = [];
+  if (values['--use'] !== undefined) for (const row of rows) edits.push({ row, column: 'use', value: values['--use'] });
+  for (const flag of overrides) {
+    edits.push({ row: level === undefined ? rows[0] : rows.find((r) => r.level === level), column: flag.slice(2), value: values[flag] });
+  }
+  const changes = edits.filter((e) => e.row[e.column] !== e.value);
+  const set = changes.map((e) => ({ level: e.row.level, column: e.column, from: e.row[e.column], to: e.value }));
+  const result = { installation: selection.root, selection: file, harness, model, changed: false, set, copied_shipped: false, dry_run: dryRun };
+  const head = [`installation: ${selection.root}`, `model catalog: ${file}`, ''];
+  if (!changes.length) {
+    Object.assign(result, { selection: ownFile(selection) });
+    return json ? result : [...headLines(selection), '', `already set: '${harness} ${model}' ${edits.map((e) => `${e.column}=${e.value}`).join(', ')}`, 'Nothing changed.'];
+  }
+  if (!dryRun) saveSelection(selection.root, editCells(selection, changes), selection.eol);
+  Object.assign(result, { changed: !dryRun, copied_shipped: selection.shipped });
+  if (json) return result;
+  if (selection.shipped) {
+    head.push(`${dryRun ? 'would copy' : 'copied'} the model catalog shipped with cast to that file first: every supported model stays selected.`);
+  }
+  return [...head, `${dryRun ? 'would set' : 'set'}: '${harness} ${model}'`,
+    ...set.map((c) => `  level ${c.level || '-'}  ${c.column}  ${c.from || '-'} -> ${c.to}`),
+    dryRun ? 'Nothing changed: this was a dry run.' : 'cast route and a fallback read the new values from their next call.'];
+}
+
+// --- update ------------------------------------------------------------------------------------
+
+// Where the installation's model catalog differs from the shipped one in the cells rbtv proposes
+// (SHIPPED_COLUMNS), for every model or for one. A row is compared with the shipped row of the
+// same model and level; a model with one row here and one there is compared whatever the levels,
+// so a changed level is a difference. `unmatched` names what update leaves alone.
+function catalogDrift(selection, only = null) {
+  const shipped = loadSelection(null);
+  const columns = SHIPPED_COLUMNS.filter((c) => selection.header.includes(c));
+  const changes = [];
+  const unmatched = [];
+  const names = [...new Set(selection.rows.map((r) => `${r.harness} ${r.model}`))];
+  for (const name of names) {
+    const [harness, model] = name.split(' ');
+    if (only && !(only.harness === harness && only.model === model)) continue;
+    const mine = selection.rows.filter(isRow(harness, model));
+    const theirs = shipped.rows.filter(isRow(harness, model));
+    if (!theirs.length) { unmatched.push(`'${name}': the shipped model catalog has no row for it`); continue; }
+    const pairs = [];
+    const left = theirs.slice();
+    const alone = [];
+    for (const row of mine) {
+      const at = left.findIndex((t) => t.level === row.level);
+      if (at === -1) alone.push(row);
+      else pairs.push([row, left.splice(at, 1)[0]]);
+    }
+    if (alone.length === 1 && left.length === 1) pairs.push([alone.pop(), left.pop()]);
+    if (alone.length || left.length) {
+      unmatched.push(`'${name}': its levels here are ${mine.map((r) => r.level || '-').join(', ')} and the shipped ones are ${theirs.map((r) => r.level || '-').join(', ')}; update adds and removes no row`);
+    }
+    for (const [row, source] of pairs) {
+      for (const column of columns) {
+        if (row[column] !== source[column]) changes.push({ row, column, value: source[column] });
+      }
+    }
+  }
+  return { changes, unmatched, shipped: shipped.file };
+}
+
+function updateModels(selection, only, { dryRun, json }) {
+  needInstallation(selection, json);
+  if (only) needSelected(selection, only.harness, only.model, json);
+  const result = { installation: selection.root, selection: ownFile(selection), changed: false, updated: [], not_updated: [], dry_run: dryRun };
+  if (selection.shipped) {
+    return json ? result : [...headLines(selection), '', 'Nothing to update: this installation reads the shipped model catalog itself.', 'Nothing changed.'];
+  }
+  const { changes, unmatched, shipped } = catalogDrift(selection, only);
+  const updated = changes.map((c) => ({ harness: c.row.harness, model: c.row.model, level: c.row.level, column: c.column, from: c.row[c.column], to: c.value }));
+  Object.assign(result, { updated, not_updated: unmatched });
+  const kept = `never changed by update: ${OWN_COLUMNS.join(', ')}, and which models are selected`;
+  if (!changes.length) {
+    return json ? result : [...headLines(selection), '', `up to date with ${shipped}${only ? `: '${only.harness} ${only.model}'` : ''}`,
+      ...unmatched.map((u) => `not compared: ${u}`), 'Nothing changed.'];
+  }
+  if (!dryRun) saveSelection(selection.root, editCells(selection, changes), selection.eol);
+  result.changed = !dryRun;
+  if (json) return result;
+  const width = Math.max(...updated.map((u) => `${u.harness} ${u.model}`.length));
+  return [...headLines(selection), '', `${dryRun ? 'would update' : 'updated'} ${updated.length} cell${updated.length === 1 ? '' : 's'} from ${shipped}`,
+    ...updated.map((u) => `  ${`${u.harness} ${u.model}`.padEnd(width)}  level ${u.level || '-'}  ${u.column}  ${u.from || '-'} -> ${u.to || '-'}`),
+    ...unmatched.map((u) => `not compared: ${u}`), kept,
+    dryRun ? 'Nothing changed: this was a dry run.' : 'cast route and a fallback read the new values from their next call.'];
+}
+
+// --- defaults ----------------------------------------------------------------------------------
+
+const DEFAULT_NOTES = {
+  route: 'how cast route ranks when a call gives no --optimize',
+  fallback: 'how a launch picks the model that replaces one that fails to start; off = it never does',
+};
+
+function runDefaults(root, { values, dryRun, json }) {
+  let defaults;
+  try { defaults = loadDefaults(root); } catch (e) {
+    if (!(e instanceof DefaultsError)) throw e;
+    return refuse(json, 'defaults-unreadable', [e.message], `correct that file, then run the same command again`);
+  }
+  const asked = Object.fromEntries(Object.keys(DEFAULT_VALUES).filter((k) => values[`--${k}`] !== undefined).map((k) => [k, values[`--${k}`]]));
+  const keys = Object.keys(asked);
+  if (keys.length && !root) {
+    refuse(json, 'no-installation', [`no rbtv installation above ${process.cwd()} (no .rbtv/config/install.json)`,
+      'the defaults belong to an installation; outside one, cast uses its own values'],
+    'rbtv configure --harness claude --guidance none --target FOLDER');
+  }
+  const changed = keys.filter((k) => defaults[k] !== asked[k] || defaults.own[k] === undefined);
+  const now = dryRun ? defaults : { ...defaults, ...asked };
+  if (changed.length && !dryRun) saveDefaults(root, { ...defaults.own, ...asked });
+  const written = fs.existsSync(defaults.file || '') || (changed.length > 0 && !dryRun);
+  const result = { installation: root, file: defaults.file, route: now.route, fallback: now.fallback,
+    changed: changed.length > 0 && !dryRun, dry_run: dryRun };
+  if (json) return result;
+  const lines = [root ? `installation: ${root}` : `installation: none above ${process.cwd()}`,
+    root ? `defaults: ${defaults.file}${written ? '' : " (not written yet: cast's own values are in force)"}` : "defaults: cast's own values", ''];
+  for (const key of Object.keys(DEFAULT_VALUES)) {
+    lines.push(`  ${key.padEnd(8)}  ${now[key].padEnd(7)}  ${DEFAULT_NOTES[key]} (${DEFAULT_VALUES[key].join(' | ')})`);
+  }
+  if (keys.length) {
+    lines.push('', !changed.length ? 'Nothing changed: already set.'
+      : (dryRun ? `would set: ${changed.map((k) => `${k}=${asked[k]}`).join(', ')}\nNothing changed: this was a dry run.` : `set: ${changed.map((k) => `${k}=${asked[k]}`).join(', ')}`));
+  } else lines.push('', 'change one: cast models defaults --fallback price');
+  return lines;
+}
+
 // --- the words of `cast models` ----------------------------------------------------------------
 
 function modelsArgs(args) {
@@ -284,38 +465,61 @@ function modelsArgs(args) {
   if (verb === undefined || verb.startsWith('-')) bad('cast models needs a verb', `choose from ${VERBS.join(', ')}`);
   if (!VERBS.includes(verb)) bad(`unknown verb 'models ${verb}'`, `choose from ${VERBS.join(', ')}`);
   const closing = verb === 'list' ? 'Nothing was listed.' : 'Nothing changed.';
+  const valued = VALUED[verb] || {};
   const flags = verb === 'list' ? ['--json', ...VIEWS.map((v) => `--${v}`)]
-    : ['--json', '--dry-run', ...(verb === 'remove' ? ['--force'] : [])];
+    : ['--json', '--dry-run', ...(verb === 'remove' ? ['--force'] : []), ...Object.keys(valued)];
   const given = new Set();
+  const values = {};
   const named = [];
-  for (const a of args.slice(1)) {
+  for (let i = 1; i < args.length; i += 1) {
+    const a = args[i];
     if (!a.startsWith('-')) named.push(a);
-    else if (flags.includes(a)) given.add(a);
+    else if (a in valued) {
+      const value = args[i + 1];
+      const allowed = valued[a];
+      if (value === undefined || value.startsWith('-') || (allowed && !allowed.includes(value))) {
+        bad(`${a} takes ${allowed ? `one of ${allowed.join(', ')}` : 'a value'}, got ${value === undefined ? 'nothing' : `'${value}'`}`,
+          `cast models ${verb} takes ${flags.join(', ')}`, closing);
+      }
+      values[a] = value;
+      i += 1;
+    } else if (flags.includes(a)) given.add(a);
     else bad(`'${a}' is not a cast models ${verb} option`, `cast models ${verb} takes ${flags.join(', ')}`, closing);
   }
+  const common = { verb, json, values, dryRun: given.has('--dry-run'), force: given.has('--force'), closing };
   if (verb === 'list') {
     if (named.length) bad(`cast models list takes no name, got '${named[0]}'`, 'it lists every model of one view', closing);
     const views = VIEWS.filter((v) => given.has(`--${v}`));
     if (views.length > 1) bad(`${views.map((v) => `--${v}`).join(' and ')} are different lists`, 'pass one of them', closing);
     return { verb, json, view: views[0] || 'selected', closing };
   }
+  if (verb === 'defaults') {
+    if (named.length) bad(`cast models defaults takes no name, got '${named[0]}'`, 'the defaults hold for every model of the installation', closing);
+    return common;
+  }
+  if (verb === 'update' && named.length === 0) return common;
   if (named.length !== 2) {
     bad(`cast models ${verb} takes a harness and a model, got ${named.length} name${named.length === 1 ? '' : 's'}`,
-      `as in a launch: cast models ${verb} claude haiku-4-5`, closing);
+      verb === 'update' ? 'every model: cast models update; one model, as in a launch: cast models update claude haiku-4-5'
+        : `as in a launch: cast models ${verb} claude haiku-4-5`, closing);
   }
-  return { verb, json, harness: named[0], model: shortModel(named[0], named[1]),
-    dryRun: given.has('--dry-run'), force: given.has('--force'), closing };
+  return { ...common, harness: named[0], model: shortModel(named[0], named[1]) };
 }
 
 function runModels(args) {
   const asked = modelsArgs(args);
-  const selection = context(asked.json, asked.closing);
   let out;
-  if (asked.verb === 'add') out = addModel(selection, asked.harness, asked.model, asked);
-  else if (asked.verb === 'remove') out = removeModel(selection, asked.harness, asked.model, asked);
-  else out = asked.view === 'catalog' ? listCatalog(selection, asked.json) : listModels(selection, asked.view, asked.json);
+  if (asked.verb === 'defaults') out = runDefaults(installationRoot(process.cwd()), asked);
+  else {
+    const selection = context(asked.json, asked.closing);
+    if (asked.verb === 'add') out = addModel(selection, asked.harness, asked.model, asked);
+    else if (asked.verb === 'remove') out = removeModel(selection, asked.harness, asked.model, asked);
+    else if (asked.verb === 'set') out = setModel(selection, asked.harness, asked.model, asked);
+    else if (asked.verb === 'update') out = updateModels(selection, asked.harness ? { harness: asked.harness, model: asked.model } : null, asked);
+    else out = asked.view === 'catalog' ? listCatalog(selection, asked.json) : listModels(selection, asked.view, asked.json);
+  }
   process.stdout.write(asked.json ? `${JSON.stringify(out)}\n` : `${out.join('\n')}\n`);
   process.exit(0);
 }
 
-module.exports = { USAGE, ownFileComesFrom, runModels };
+module.exports = { USAGE, ownFileComesFrom, catalogDrift, runModels };
