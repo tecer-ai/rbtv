@@ -50,6 +50,8 @@ The commit is still made, and the output says that the operation is in progress
 and what was not done because of it.
 
 Paths are repo-root-relative. A rename is two paths (old + new) — pass both.
+A path is a NAME, never a pattern: `*`, `?`, `[`, `]` and a leading `:` in it are
+ordinary characters, so `f[1].md` is that one file and never `f1.md`.
 
 A path may be a FILE or a DIRECTORY. A directory includes every changed file
 beneath it (added, modified, deleted) — use it when a cluster touches more files
@@ -94,7 +96,17 @@ def warn(msg):
 # under the locale codec (cp1252 on Windows) a non-ASCII path read from git never
 # matches the same path from argv. `env` selects the index a command works on
 # (GIT_INDEX_FILE); `stdin` feeds it; `root=None` runs in the current directory.
-def git(args, root, check=True, capture=True, env=None, stdin=None):
+#
+# `paths` are the requested paths a command is limited to. Git reads a path it is
+# limited to as a PATTERN (`f[1].md` also selects `f1.md`; a leading `:` starts
+# its own syntax), and a requested path is a name: each one is handed over as
+# `:(literal)<path>`, here and nowhere else, so it selects that file, or
+# everything under that folder, and nothing more. The magic is per path, not
+# `--literal-pathspecs`: that option sets GIT_LITERAL_PATHSPECS for everything git
+# starts, so the repository's hooks would read their own patterns as names.
+def git(args, root, check=True, capture=True, env=None, stdin=None, paths=None):
+    if paths is not None:
+        args = [*args, "--", *(":(literal)" + p for p in paths)]
     res = subprocess.run(["git", *args], cwd=root, capture_output=capture, env=env,
                          input=None if stdin is None else stdin.encode("utf-8", "surrogateescape"))
     if capture:
@@ -113,7 +125,7 @@ def git_ok(args, root):
 def staged_mode_changes(root, paths):
     """Executable-bit changes staged under `paths`, as {path: "+x" | "-x"}. A new
     file counts from mode 100644, the mode git gives a new regular file."""
-    raw = git(["diff", "--cached", "--raw", "--no-renames", "-z", "--", *paths], root).stdout.split("\0")
+    raw = git(["diff", "--cached", "--raw", "--no-renames", "-z"], root, paths=paths).stdout.split("\0")
     changes = {}
     for meta, path in zip(raw[0::2], raw[1::2]):
         old, new = meta[1:].split(" ")[:2]
@@ -173,12 +185,12 @@ def commit_requested(root, requested, message):
     with tempfile.TemporaryDirectory(prefix="rbtv-commit-") as tmp:
         own = {**os.environ, "GIT_INDEX_FILE": os.path.join(tmp, "index")}
         msg_file = os.path.join(tmp, "COMMIT_EDITMSG")
-        entries = git(["ls-files", "-s", "-z", "--", *requested], root).stdout
+        entries = git(["ls-files", "-s", "-z"], root, paths=requested).stdout
         while True:
             git(["read-tree", before or "--empty"], root, env=own)
             # -f: git otherwise refuses to drop an entry that differs from both HEAD
             # and the file on disk, which it does once another session moved HEAD.
-            git(["rm", "-r", "-q", "-f", "--cached", "--ignore-unmatch", "--", *requested], root, env=own)
+            git(["rm", "-r", "-q", "-f", "--cached", "--ignore-unmatch"], root, env=own, paths=requested)
             git(["update-index", "-z", "--index-info"], root, env=own, stdin=entries)
 
             # --no-renames so a rename reads as delete(old) + add(new) — both requested
@@ -219,7 +231,7 @@ def commit_requested(root, requested, message):
             # in its tree when this run started on an empty branch.
             theirs = (["diff", "--name-only", "-z", before, tip] if before
                       else ["ls-tree", "-r", "--name-only", "-z", tip])
-            clash = [p for p in git([*theirs, "--", *requested], root).stdout.split("\0") if p] if tip else []
+            clash = [p for p in git(theirs, root, paths=requested).stdout.split("\0") if p] if tip else []
             if clash:
                 fail(f"another session committed these requested paths during this run (branch tip is now "
                      f"{tip[:7]}): " + ", ".join(clash) + ". No commit made, so its change is not "
@@ -319,7 +331,9 @@ def main():
                         "Mutually exclusive with -m.")
     p.add_argument("-f", "--file", dest="files", action="append", required=True,
                    help="A repo-root-relative file OR directory to include (a directory "
-                        "includes every changed file beneath it). Repeat for each path.")
+                        "includes every changed file beneath it). Taken as a name, never as "
+                        "a pattern: * ? [ ] and a leading : are ordinary characters. "
+                        "Repeat for each path.")
     p.add_argument("--push", action="store_true", help="Push after a successful commit.")
     args = p.parse_args()
 
@@ -367,7 +381,7 @@ def main():
     held = operation_in_progress(root)
     if held:
         unmerged = sorted({ln.split("\t", 1)[1] for ln in git(
-            ["ls-files", "-u", "-z", "--", *requested], root).stdout.split("\0") if ln})
+            ["ls-files", "-u", "-z"], root, paths=requested).stdout.split("\0") if ln})
         if unmerged:
             fail(f"a {held} is in progress in this working tree and left these requested paths in "
                  "conflict: " + ", ".join(unmerged) + f". No commit made and nothing was staged: the "
@@ -376,7 +390,7 @@ def main():
     staged_modes = staged_mode_changes(root, requested)
     for f in requested:
         if os.path.exists(os.path.join(root, f)):
-            git(["add", "-A", "--", f], root)
+            git(["add", "-A"], root, paths=[f])
         else:
             # A move/deletion SOURCE: the path is gone from the working tree, so
             # `git add -A -- <gone-path>` errors ("pathspec did not match any
@@ -385,7 +399,7 @@ def main():
             # cover a whole directory; --ignore-unmatch: a path neither on disk
             # nor tracked stages nothing (caught by the unmatched gate below)
             # rather than erroring here.
-            git(["rm", "-r", "--cached", "--ignore-unmatch", "--", f], root)
+            git(["rm", "-r", "--cached", "--ignore-unmatch"], root, paths=[f])
     for path, change in staged_modes.items():
         if os.path.lexists(os.path.join(root, path)):
             git(["update-index", f"--chmod={change}", "--", path], root)

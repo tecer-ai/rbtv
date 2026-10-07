@@ -67,6 +67,9 @@ rbtv-commit -m "<message>" -f <path> [-f <path> ...] [--push]
     markers land in the commit). `-m` and `-F` are mutually exclusive; give exactly one.
 - Pass each path with its own `-f`, repo-root-relative. List every path the cluster touches
   (including both sides of a rename).
+- A `-f` path is a NAME, never a pattern: `*`, `?`, `[`, `]` and a leading `:` in it are ordinary
+  characters, so `-f 'f[1].md'` commits that one file and never `f1.md`. Quote such a path for the
+  shell; add no escaping for git.
 - A `-f` path may be a FILE or a DIRECTORY. A directory includes every changed file beneath it —
   use it when a cluster touches more files than fit on one command line (a long explicit `-f` list
   overflows the OS argument limit at a few hundred files). CAUTION: a directory commits whatever

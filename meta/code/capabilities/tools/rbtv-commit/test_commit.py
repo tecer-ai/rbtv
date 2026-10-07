@@ -291,8 +291,8 @@ def run_in_process(repo, monkeypatch, message, path):
         return exit_info.code
 
 
-def run_racing(repo, monkeypatch, at, race):
-    """Run commit.py in-process for mine.md, calling `race()` once, the instant
+def run_racing(repo, monkeypatch, at, race, path="mine.md"):
+    """Run commit.py in-process for `path`, calling `race()` once, the instant
     commit.py issues its first `git <at>`. Returns the exit code."""
     real_git = commit_mod.git
     fired = []
@@ -304,7 +304,7 @@ def run_racing(repo, monkeypatch, at, race):
         return real_git(args, root, **kw)
 
     monkeypatch.setattr(commit_mod, "git", racing_git)
-    code = run_in_process(repo, monkeypatch, "mine", "mine.md")
+    code = run_in_process(repo, monkeypatch, "mine", path)
     assert fired == [at]
     return code
 
@@ -756,3 +756,154 @@ def test_operation_in_progress_is_named_and_left_as_found(repo, operation, comma
     assert (f"WARNING: a {operation} is in progress in this working tree. This run did not start it and "
             f"left it exactly as it was. Commit {tip} was made.") in res.stderr, res.stderr
     assert "NOT pulled" not in res.stderr
+
+
+# A requested path is a NAME. Git reads a path it is limited to as a pattern, so
+# each case pairs the requested name with a sibling that the pattern reading
+# selects too (or, for the leading colon, a name git refuses to read at all).
+NO_STAR = "Windows refuses a file name that holds * or ?"
+NO_COLON = "Windows refuses a file name that holds a colon"
+VAULT_NAME = "Mario Kart 64 (E) (V1.1) [!]-2BB149A5.eep"
+LITERAL_NAMES = [
+    pytest.param("f[1].md", "f1.md", id="brackets"),
+    pytest.param("saves/n64/" + VAULT_NAME, "saves/n64/Mario Kart 64 (E) (V1.1) 2-2BB149A5.eep", id="vault name"),
+    pytest.param("a*b.md", "axb.md", id="star", marks=pytest.mark.skipif(os.name == "nt", reason=NO_STAR)),
+    pytest.param("a?b.md", "axb.md", id="question mark", marks=pytest.mark.skipif(os.name == "nt", reason=NO_STAR)),
+    pytest.param(":top.md", "top.md", id="leading colon", marks=pytest.mark.skipif(os.name == "nt", reason=NO_COLON)),
+]
+
+
+def tracked(repo, ref="HEAD"):
+    """Every path in `ref`'s tree."""
+    return {p for p in git(["ls-tree", "-r", "--name-only", "-z", ref], repo).split("\0") if p}
+
+
+def changed_on_disk(repo):
+    """The tracked paths whose file differs from the index, or is gone."""
+    return {p for p in git(["diff", "--name-only", "-z"], repo).split("\0") if p}
+
+
+@pytest.mark.parametrize("name, sibling", LITERAL_NAMES)
+def test_requested_name_is_never_read_as_a_pattern(repo, name, sibling):
+    """Two files changed, one requested by a name that git would read as a
+    pattern: the commit holds that file alone, and the sibling is as it was —
+    changed on disk, not staged."""
+    write(repo, name, "v1\n")
+    write(repo, sibling, "v1\n")
+    git(["add", "-A"], repo)
+    git(["commit", "-q", "-m", "seed"], repo)
+    write(repo, name, "v2\n")
+    write(repo, sibling, "v2\n")
+
+    res = run_commit(repo, [name], "one name")
+    assert res.returncode == 0, f"{res.stderr}\n{res.stdout}"
+    assert commit_files(repo) == {name}
+    assert git(["show", "HEAD:./" + sibling], repo) == "v1\n"
+    assert staged_entries(repo) == ""
+    assert changed_on_disk(repo) == {sibling}
+
+
+def test_requested_folder_commits_everything_under_it_and_nothing_beside_it(repo):
+    """A folder named with brackets: every changed file under it is committed —
+    a changed one with brackets in its name, a new one, a deleted one — and the
+    file its name selects as a pattern is left as it was."""
+    for rel in ("d[x]/in[1].md", "d[x]/gone.md", "dx"):
+        write(repo, rel, "v1\n")
+    git(["add", "-A"], repo)
+    git(["commit", "-q", "-m", "seed"], repo)
+    write(repo, "d[x]/in[1].md", "v2\n")
+    write(repo, "d[x]/new[2].md", "new\n")
+    os.remove(repo / "d[x]" / "gone.md")
+    write(repo, "dx", "v2\n")
+
+    res = run_commit(repo, ["d[x]"], "one folder")
+    assert res.returncode == 0, f"{res.stderr}\n{res.stdout}"
+    assert commit_files(repo) == {"d[x]/in[1].md", "d[x]/new[2].md", "d[x]/gone.md"}
+    assert tracked(repo) == {"d[x]/in[1].md", "d[x]/new[2].md", "dx"}
+    assert staged_entries(repo) == ""
+    assert changed_on_disk(repo) == {"dx"}
+
+
+def test_deleted_file_with_brackets_is_committed_alone(repo):
+    """A deleted file requested by a name with brackets is committed as a
+    deletion; the deleted sibling its name selects as a pattern stays tracked."""
+    write(repo, "gone[1].md")
+    write(repo, "gone1.md")
+    git(["add", "-A"], repo)
+    git(["commit", "-q", "-m", "seed"], repo)
+    os.remove(repo / "gone[1].md")
+    os.remove(repo / "gone1.md")
+
+    res = run_commit(repo, ["gone[1].md"], "delete one")
+    assert res.returncode == 0, f"{res.stderr}\n{res.stdout}"
+    assert commit_files(repo) == {"gone[1].md"}
+    assert tracked(repo) == {"gone1.md"}
+    assert staged_entries(repo) == ""
+    assert changed_on_disk(repo) == {"gone1.md"}
+
+
+def test_renamed_file_with_brackets_is_committed_alone(repo):
+    """A rename whose old and new names both hold brackets is committed from its
+    two names; the siblings those names select as patterns are left as they were."""
+    write(repo, "old[1].md", "moved\n")
+    write(repo, "old1.md", "v1\n")
+    write(repo, "new1.md", "v1\n")
+    git(["add", "-A"], repo)
+    git(["commit", "-q", "-m", "seed"], repo)
+    git(["mv", "old[1].md", "new[1].md"], repo)
+    write(repo, "old1.md", "v2\n")
+    write(repo, "new1.md", "v2\n")
+
+    res = run_commit(repo, ["old[1].md", "new[1].md"], "rename one")
+    assert res.returncode == 0, f"{res.stderr}\n{res.stdout}"
+    assert commit_files(repo) == {"old[1].md", "new[1].md"}
+    assert tracked(repo) == {"new[1].md", "old1.md", "new1.md"}
+    assert staged_entries(repo) == ""
+    assert changed_on_disk(repo) == {"old1.md", "new1.md"}
+
+
+def test_foreign_commit_to_a_pattern_sibling_in_window_does_not_stop_the_run(repo, monkeypatch, capsys):
+    """A parallel session commits f1.md after the tool read HEAD, while the
+    requested path is f[1].md. That commit changed no requested path, so the
+    tool's commit is rebuilt on top of it and carries f[1].md alone."""
+    write(repo, "f[1].md", "v1\n")
+    write(repo, "f1.md", "v1\n")
+    git(["add", "-A"], repo)
+    git(["commit", "-q", "-m", "seed"], repo)
+    write(repo, "f[1].md", "v2\n")
+
+    def foreign_commit_to_sibling():
+        write(repo, "f1.md", "theirs v2\n")
+        git(["add", "f1.md"], repo)
+        git(["commit", "-q", "-m", "foreign", "--", "f1.md"], repo)
+
+    assert run_racing(repo, monkeypatch, "read-tree", foreign_commit_to_sibling, path="f[1].md") == 0, \
+        capsys.readouterr().err
+    assert subjects(repo) == ["mine", "foreign", "seed"], subjects(repo)
+    assert commit_files(repo) == {"f[1].md"}
+    assert git(["show", "HEAD:f1.md"], repo) == "theirs v2\n"
+    assert git(["show", "HEAD:f[1].md"], repo) == "v2\n"
+
+
+def test_requested_path_left_in_conflict_is_named_not_its_pattern_sibling(repo):
+    """A merge left f1.md in conflict; f[1].md is requested. The path in conflict
+    is not a requested one, so the commit is made and the merge is as it was."""
+    write(repo, "f[1].md", "v1\n")
+    write(repo, "f1.md", "v1\n")
+    git(["add", "-A"], repo)
+    git(["commit", "-q", "-m", "seed"], repo)
+    git(["checkout", "-q", "-b", "other"], repo)
+    write(repo, "f1.md", "other\n")
+    git(["commit", "-q", "-am", "other"], repo)
+    git(["checkout", "-q", "-"], repo)
+    write(repo, "f1.md", "ours\n")
+    git(["commit", "-q", "-am", "ours"], repo)
+    assert stop(repo, "merge", "other") != 0
+    unmerged = git(["ls-files", "-u", "-z"], repo)
+    assert "f1.md" in unmerged
+
+    write(repo, "f[1].md", "v2\n")
+    res = run_commit(repo, ["f[1].md"], "mine")
+    assert res.returncode == 0, f"{res.stderr}\n{res.stdout}"
+    assert commit_files(repo) == {"f[1].md"}
+    assert git(["ls-files", "-u", "-z"], repo) == unmerged
