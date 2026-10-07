@@ -120,6 +120,20 @@ rejects(base({ env: { A: 1 } }), 'must be a string');
   assert.ok(resume.includes('--dangerously-bypass-hook-trust'), `a resumed codex turn must run the generated hooks: ${resume}`);
   assert.ok(!resume.includes('--last'));
   assert.ok(!resume.includes('last'));
+
+  // One builder makes every Codex command line: an option added to cast's shared list reaches
+  // the daemon's fresh and resumed turn. test_cast.js holds the same arm for cast's own lists.
+  const { CODEX_ALWAYS } = require('../../../../cast/capabilities/tools/cast/lib/core');
+  CODEX_ALWAYS.push('--probe-option');
+  try {
+    for (const [name, list] of [['fresh', argvFor(codex, null, null)], ['resumed', argvFor(back, null, null)]]) {
+      for (const option of CODEX_ALWAYS) {
+        assert.ok(list.includes(option), `the daemon's ${name} codex turn lacks the shared option ${option}: ${list}`);
+      }
+    }
+  } finally {
+    CODEX_ALWAYS.pop();
+  }
 }
 
 {

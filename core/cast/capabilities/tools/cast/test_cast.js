@@ -602,6 +602,29 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.deepStrictEqual(ocLast.argv, ['opencode', 'run', '-c', '--auto']);
 }
 
+// One builder makes every Codex command line: an option added to the shared list reaches cast's
+// launch (headless and headed) and cast's resume. test_turn.js holds the same arm for the daemon.
+{
+  const { CODEX_ALWAYS, baseArgv } = require('./lib/core');
+  const { resumeArgv } = require('./lib/launch');
+  CODEX_ALWAYS.push('--probe-option');
+  try {
+    const lists = {
+      'headless launch': baseArgv('codex', 'gpt-6-luna', '/x', false),
+      'headed launch': baseArgv('codex', 'gpt-6-luna', '/x', true),
+      'resume by id': resumeArgv('codex', 'tid-1'),
+      'resume last': resumeArgv('codex', 'last'),
+    };
+    for (const [name, argv] of Object.entries(lists)) {
+      for (const option of CODEX_ALWAYS) {
+        assert.ok(argv.includes(option), `cast's codex ${name} lacks the shared option ${option}: ${argv}`);
+      }
+    }
+  } finally {
+    CODEX_ALWAYS.pop();
+  }
+}
+
 // cast resume: launch-folder omitted -> caller's cwd
 {
   const out = dryRun(['resume', 'claude', 'last', '-p', 'hi']);

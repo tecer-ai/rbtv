@@ -33,13 +33,35 @@ const CODEX_DOC_LIMIT = ['-c', 'project_doc_max_bytes=131072'];
 // launch folder runs unreviewed.
 const CODEX_HOOK_TRUST = ['--dangerously-bypass-hook-trust'];
 
+// The options every Codex start carries: a launch or a resume, from cast or from the Ignite daemon.
+// --skip-git-repo-check: codex refuses to start outside a git repo without it (0.154+, observed 2026-09-24).
+const CODEX_ALWAYS = ['-c', 'approval_policy=never', '--skip-git-repo-check', ...CODEX_HOOK_TRUST, ...CODEX_DOC_LIMIT];
+
+// The one builder of a Codex command line; an option every Codex start needs goes in CODEX_ALWAYS.
+//   resume      the token that picks the session to continue (an id, or `--last`); absent = a new
+//               session. `exec resume` has no --cd/--sandbox: the caller sets the working folder
+//               on the process, and the sandbox rides -c.
+//   headed      the interactive TUI instead of `exec` (new session only).
+//   folder      the launch folder (new session only).
+//   model       the model id; a resume without one keeps the session's model.
+//   settings    the caller's own `-c` pairs (effort, developer instructions).
+//   jsonEvents  the daemon's form: events as JSON lines on stdout, the prompt on stdin (`-`).
+function codexArgv({ resume, headed, folder, model, settings = [], jsonEvents }) {
+  const tail = jsonEvents ? ['--json', '-'] : [];
+  if (resume) {
+    return ['codex', 'exec', 'resume', resume, ...(model ? ['-m', model] : []), ...settings,
+      '-c', 'sandbox_mode=danger-full-access', ...CODEX_ALWAYS, ...tail];
+  }
+  return ['codex', ...(headed ? [] : ['exec']), '--cd', folder, '-m', model, '--sandbox', 'danger-full-access',
+    ...CODEX_ALWAYS, ...settings, ...tail];
+}
+
 // headed = the harness's interactive TUI instead of its one-shot print mode. The TUI owns the
 // terminal, so the prompt rides argv (see promptArgv) instead of stdin.
 function baseArgv(harness, model, folder, headed) {
   switch (harness) {
     case 'claude': return ['claude', ...(headed ? [] : ['-p']), '--model', model, '--permission-mode', 'bypassPermissions'];
-    // --skip-git-repo-check: codex refuses to start outside a git repo without it (0.154+, observed 2026-09-24).
-    case 'codex': return ['codex', ...(headed ? [] : ['exec']), '--cd', folder, '-m', model, '--sandbox', 'danger-full-access', '-c', 'approval_policy=never', '--skip-git-repo-check', ...CODEX_HOOK_TRUST, ...CODEX_DOC_LIMIT];
+    case 'codex': return codexArgv({ headed, folder, model });
     // --auto: headless `opencode run` auto-REJECTS every permission.asked (observed: external_directory
     // on /tmp and on the launch folder of a resumed session — issue G-owner-console-0819-0010); --auto
     // flips that to auto-approve, per invocation. The opencode twin of the two flags above.
@@ -302,7 +324,7 @@ function resolveModel(harness, model, from) {
 }
 
 module.exports = {
-  CODEX_DOC_LIMIT, CODEX_HOOK_TRUST, shortName, SHORT, baseArgv, promptArgv,
+  CODEX_ALWAYS, codexArgv, shortName, SHORT, baseArgv, promptArgv,
   fail, HARNESSES, USAGE, USAGE_IG,
   RESUME_USAGE, SESSIONS_USAGE, KNOWN_FLAGS, detachMarks,
   refuseIfDetached, effortMap, EFFORT_RULE,

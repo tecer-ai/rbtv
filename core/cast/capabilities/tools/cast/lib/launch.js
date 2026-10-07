@@ -12,7 +12,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { SPECS } = require('../supported-models');
 
-const { CODEX_DOC_LIMIT, CODEX_HOOK_TRUST, HARNESSES, RESUME_USAGE, baseArgv, fail, parseArgs, promptArgv, refuseIfDetached, resolveFolder, shortName } = require('./core');
+const { HARNESSES, RESUME_USAGE, baseArgv, codexArgv, fail, parseArgs, promptArgv, refuseIfDetached, resolveFolder, shortName } = require('./core');
 const { startFailure } = require('./fallback');
 const { claudeSlug, emitHandle, procStart, stdoutPath } = require('./handles');
 const { loadOptional } = require('./optional');
@@ -284,14 +284,12 @@ const SYSTEM_WRAPPER = 'The text above is your system-prompt directive for this 
 // cast resume: send one more turn into an existing headless session. `last` = the harness's own
 // "most recent session in this folder" affordance, so no id bookkeeping is needed for the common
 // case. Permission/sandbox flags are per-invocation, not per-session, so they ride again here.
-// codex has no --cd/--sandbox on `exec resume`; cwd comes from spawnSync and sandbox via -c.
+// codex's cwd comes from spawnSync (see codexArgv).
 function resumeArgv(harness, id) {
   switch (harness) {
     case 'claude': return ['claude', '-p', ...(id === 'last' ? ['--continue'] : ['--resume', id]),
       '--permission-mode', 'bypassPermissions'];
-    case 'codex': return ['codex', 'exec', 'resume', ...(id === 'last' ? ['--last'] : [id]),
-      '-c', 'sandbox_mode=danger-full-access', '-c', 'approval_policy=never', '--skip-git-repo-check',
-      ...CODEX_HOOK_TRUST, ...CODEX_DOC_LIMIT];
+    case 'codex': return codexArgv({ resume: id === 'last' ? '--last' : id });
     case 'opencode': return ['opencode', 'run', ...(id === 'last' ? ['-c'] : ['-s', id]), '--auto'];
   }
 }
