@@ -148,7 +148,11 @@ configuration, never as a value typed into this skill. Resolve, ONCE per turn, b
    never run `cycle` for it. For each due meeting, run:
    `publish-job precheck --job <scratch>/jobs/<meeting-key>.json --config-root <config> --checkout-root <checkout root> --state <state>`
    then, only if the precheck does not refuse:
-   `publish-job cycle --job <scratch>/jobs/<meeting-key>.json --summary <the summary file the verdict named> --config-root <config> --checkout-root <checkout root> --state <state>`
+   `publish-job cycle --job <scratch>/jobs/<meeting-key>.json --summary <the summary file the verdict named> --summary-path <destination path> --config-root <config> --checkout-root <checkout root> --state <state>`
+   `<destination path>` is the meeting's `destination.path`, the place in the destination repo
+   where its summary goes: take it from the per-meeting job's verdict, or, for a meeting settled
+   in an earlier cycle, from its latest row in `<state>/outcomes.jsonl`. Pass it on every `cycle`
+   call: a destination whose route has no path template is refused without it.
    Read each result. This commits and pushes inside this call — never a separate step, never
    deferred to a later turn.
 
