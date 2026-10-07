@@ -22,18 +22,19 @@ ROOT = Path(__file__).resolve().parent
 CONFIG = ROOT / "config.json"
 
 
-def _env_file():
-    # The workspace env file: the `env_file` field of the workspace's rbtv.json —
-    # the one recorded address of the machine-local key store (owner ruling
-    # 2026-09-27: every key lives in one gitignored .env). The workspace is the
-    # directory holding rbtv.json, found by walking up. None when no workspace
-    # root is found (the env var is then the only source).
-    for p in ROOT.parents:
-        config = p / "rbtv.json"
-        if config.is_file():
-            env_file = json.loads(config.read_text(encoding="utf-8")).get(
-                "env_file", ".rbtv/config/env/.env")
-            return p / env_file
+INSTALL_RECORD_REL = Path(".rbtv") / "config" / "install.json"
+ENV_FILE_REL = Path(".rbtv") / "config" / "env" / ".env"
+
+
+def _env_file(start=None):
+    # The installation's environment file. The installation is the first folder,
+    # from the working folder upward, that holds the installer's record
+    # `.rbtv/config/install.json`. None when the working folder is inside no
+    # installation (the process environment is then the only source).
+    folder = Path(start or Path.cwd()).resolve()
+    for p in (folder, *folder.parents):
+        if (p / INSTALL_RECORD_REL).is_file():
+            return p / ENV_FILE_REL
     return None
 
 
@@ -99,7 +100,7 @@ def emit(**payload):
 # ────────────────────────────────────────────────────────────── key and config
 
 def api_key():
-    """The workspace env file FIRST (`_env_file` above), its `ELEVENLABS_API_KEY`
+    """The installation's environment file FIRST (`_env_file` above), its `ELEVENLABS_API_KEY`
     line; the process environment when the file holds none. `ELEVENLABS_API_KEY`
     in the environment stays accepted — a seat that cannot read the env file is
     handed the key that way.
@@ -115,6 +116,14 @@ def api_key():
     key = os.environ.get(KEY_ENV, "").strip()
     if key:
         return key, "env"
+    if ENV_FILE is None:
+        die("no ElevenLabs API key",
+            f"{Path.cwd()} is inside no rbtv installation (no folder above it holds "
+            f"{INSTALL_RECORD_REL.as_posix()}) and {KEY_ENV} is unset or empty — "
+            "every verb of this CLI calls the ElevenLabs API",
+            f"run this from a folder inside the installation whose {ENV_FILE_REL.as_posix()} "
+            f"holds a line {KEY_ENV}=<key>, or export {KEY_ENV}; "
+            f"see {ROOT / 'README.md'} section 'The key'")
     die("no ElevenLabs API key",
         f"{ENV_FILE} has no {KEY_ENV} line and {KEY_ENV} is unset or empty — "
         "every verb of this CLI calls the ElevenLabs API",

@@ -30,7 +30,7 @@ to repair that link only when the task is to maintain the older local link.
 | What | Where |
 |---|---|
 | the CLI | [audio.py](../capabilities/tools/audio/audio.py) |
-| the ElevenLabs key | `ELEVENLABS_API_KEY` in the installation env file (`env_file` in `rbtv.json`) |
+| the ElevenLabs key | `ELEVENLABS_API_KEY` in the installation's environment file (`.rbtv/config/env/.env`) |
 | the language, for both directions | [config.json](../capabilities/tools/audio/config.json) |
 
 Every verb prints ONE JSON object on stdout; refusals print `what / why / fix` on stderr and exit

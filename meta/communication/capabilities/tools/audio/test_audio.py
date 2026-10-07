@@ -251,6 +251,45 @@ def no_language_literal_lives_outside_the_one_constant():
     assert hits == [f'"{audio.DEFAULT_LANGUAGE}"'], hits
 
 
+@check
+def the_key_file_is_the_installations_environment_file():
+    """Found from a folder inside an installation; none outside one."""
+    root = Path(tempfile.mkdtemp()).resolve()
+    (root / ".rbtv" / "config").mkdir(parents=True)
+    (root / ".rbtv" / "config" / "install.json").write_text("{}", encoding="utf-8")
+    inside = root / "a" / "b"
+    inside.mkdir(parents=True)
+    assert audio._env_file(inside) == root / ".rbtv" / "config" / "env" / ".env"
+    assert audio._env_file(root) == root / ".rbtv" / "config" / "env" / ".env"
+    outside = Path(tempfile.mkdtemp()).resolve()
+    found = audio._env_file(outside)
+    assert found is None or not str(found).startswith(str(outside)), found
+
+
+@check
+def the_key_is_read_from_the_environment_file():
+    """A key only in the file is used; with no key anywhere the refusal names the file."""
+    import os
+    envfile, previous = audio.ENV_FILE, os.environ.pop(audio.KEY_ENV, None)
+    try:
+        audio.ENV_FILE = Path(tempfile.mkdtemp()) / ".env"
+        audio.ENV_FILE.write_text("# comment\n" + audio.KEY_ENV + "='file-key'\n", encoding="utf-8")
+        assert audio.api_key() == ("file-key", "env-file")
+        audio.ENV_FILE.write_text("", encoding="utf-8")
+        err = io.StringIO()
+        try:
+            with redirect_stderr(err):
+                audio.api_key()
+            raise AssertionError("no refusal")
+        except SystemExit as exc:
+            assert exc.code, exc.code
+        assert str(audio.ENV_FILE) in err.getvalue(), err.getvalue()
+    finally:
+        audio.ENV_FILE = envfile
+        if previous is not None:
+            os.environ[audio.KEY_ENV] = previous
+
+
 def main():
     failures = []
     for fn in CHECKS:

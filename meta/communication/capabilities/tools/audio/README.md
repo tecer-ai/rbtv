@@ -10,7 +10,7 @@ as separate steps.
 |------|-------|
 | the CLI | `3-resources/tools/rbtv/meta/communication/capabilities/tools/audio/audio.py` |
 | the config | `3-resources/tools/rbtv/meta/communication/capabilities/tools/audio/config.json` |
-| the key | `ELEVENLABS_API_KEY` in the workspace env file (`env_file` in `rbtv.json` — see "The key") |
+| the key | `ELEVENLABS_API_KEY` in the installation's environment file (`.rbtv/config/env/.env` — see "The key") |
 | the checks | `3-resources/tools/rbtv/meta/communication/capabilities/tools/audio/test_audio.py` — `python3 test_audio.py`, no network |
 
 Run it by path, or install `meta/communication` and use the bare `audio`
@@ -49,10 +49,11 @@ with an empty transcript or a 0-byte audio file.
 
 ## The key
 
-The key lives in the WORKSPACE's env file, outside the component's folder and outside every repo
-push (owner ruling 2026-09-27: every key lives in one gitignored `.env`). `audio.py` finds the
-workspace by walking up from its own location to the directory holding `rbtv.json`, and reads the
-env file that file's `env_file` field names (default `.rbtv/config/env/.env`).
+The key lives in the installation's environment file, `.rbtv/config/env/.env`, outside the
+component's folder and outside every repo push (owner ruling 2026-09-27: every key lives in one
+gitignored `.env`). `audio.py` finds the installation by walking up from the working folder to the
+first folder that holds `.rbtv/config/install.json`. Run from a folder inside no installation, it
+reads the process environment only.
 
 1. **`ELEVENLABS_API_KEY=<key>`** — one line in that env file. This is the primary source; when it
    holds a key, that key is used. The vault `.gitignore` excludes the file.

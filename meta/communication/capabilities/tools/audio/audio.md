@@ -30,8 +30,8 @@ does the README.
 
 ## What a reader needs before entering
 
-- **The key is the capability's own.** It is read as `ELEVENLABS_API_KEY` from the workspace env
-  file — `env_file` in the workspace's `rbtv.json` (owner-ruled 2026-09-27: every key lives in one
+- **The key is the capability's own.** It is read as `ELEVENLABS_API_KEY` from the installation's
+  environment file, `.rbtv/config/env/.env` (owner-ruled 2026-09-27: every key lives in one
   gitignored `.env`). `ELEVENLABS_API_KEY` in the process environment is accepted when that file
   holds none. Neither present → every verb refuses, exit != 0,
   naming both places. `README.md` is the one home of that detail.
