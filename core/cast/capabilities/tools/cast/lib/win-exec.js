@@ -56,12 +56,19 @@ function escapeArgument(arg, doubleEscapeMetaChars) {
 }
 // --- end vendored ----------------------------------------------------------------------------
 
-// What Windows itself would start for this name. Extensions come from PATHEXT, never from a
-// guess — and a name with no extension is NEVER matched against the extensionless file, because
-// on Windows that file is the POSIX sh script the same npm install wrote, which Windows cannot
-// run at all. Absolute or path-bearing names are taken as given.
+// The extensions spawnable() below knows how to start: a program directly, a batch file through
+// cmd.exe. PATHEXT may list more (.JS, .VBS, .WSF on a stock Windows) — those are files Windows
+// hands to its own script host, which is never the harness.
+const STARTABLE_EXTS = ['.com', '.exe', '.bat', '.cmd'];
+
+// What cast can start for this name on Windows. Extensions come from PATHEXT, in its order,
+// narrowed to STARTABLE_EXTS — any other match is "not found". A name with no extension is NEVER
+// matched against the extensionless file, because on Windows that file is the POSIX sh script
+// the same npm install wrote, which Windows cannot run at all. Absolute or path-bearing names
+// are taken as given.
 function resolveWindowsExecutable(name, env) {
-  const exts = (env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean);
+  const exts = (env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';')
+    .filter((e) => STARTABLE_EXTS.includes(e.toLowerCase()));
   const isFile = (p) => { try { return fs.statSync(p).isFile(); } catch { return false; } };
   const hasKnownExt = exts.some((e) => name.toLowerCase().endsWith(e.toLowerCase()));
 

@@ -1467,6 +1467,21 @@ else {
   assert.strictEqual(resolveWindowsExecutable('claude', env), path.join(bin, 'claude.exe'));
   assert.strictEqual(resolveWindowsExecutable('absent', env), null);
 
+  // PATHEXT on a real Windows lists .JS. A folder holding only `claude.js` (and the extensionless
+  // POSIX script) holds nothing cast can start: the finder answers "not found" and the name is
+  // passed through for Node's own ENOENT, never handed to cmd.exe as if it were a batch file.
+  const jsBin = mkFolder('winbin-js');
+  for (const f of ['claude', 'claude.js']) fs.writeFileSync(path.join(jsBin, f), '');
+  const jsEnv = { PATH: jsBin, PATHEXT: '.com;.exe;.bat;.cmd;.js', comspec: 'cmd.exe' };
+  assert.strictEqual(resolveWindowsExecutable('claude', jsEnv), null,
+    'win32 finder: a PATHEXT match cast cannot start (claude.js) must be "not found"');
+  assert.deepStrictEqual(spawnable('claude', ['-p', 'x'], 'win32', jsEnv), { cmd: 'claude', args: ['-p', 'x'], opts: {} });
+  assert.strictEqual(resolveWindowsExecutable('claude.js', jsEnv), null,
+    'win32 finder: a name carrying an extension cast cannot start must be "not found"');
+  // A startable file later on PATH is still found past the .js folder.
+  assert.strictEqual(resolveWindowsExecutable('claude', { ...jsEnv, PATH: [jsBin, bin].join(path.delimiter) }),
+    path.join(bin, 'claude.exe'));
+
   // POSIX is untouched: same command, same args, no added options.
   const posix = spawnable('codex', ['exec', 'a b'], 'linux', env);
   assert.deepStrictEqual(posix, { cmd: 'codex', args: ['exec', 'a b'], opts: {} });
