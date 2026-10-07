@@ -969,6 +969,12 @@ const OWNER_WORDING = 'Enable and disable affect automatic Dreamer operation for
   'Do not disable Dreamer as a workaround for an individual agent\'s problem.';
 
 // model null leaves dreamer.model out of the file.
+// updateConfig writes by rename, so any write gives the file a new inode.
+function configIdentity(file) {
+  const { ino, mtimeMs } = fs.statSync(file);
+  return { ino, mtimeMs };
+}
+
 function dreamerInstall(enabled = false, model = DREAMER_TEST_MODEL) {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-dreamer-cli-')));
   const home = writeConfig(dir, 'master', {});
@@ -1031,6 +1037,9 @@ async function finishCli() {
     for (const argv of [['dreamer'], ['dreamer', 'status'], ['dreamer', 'enable', 'master'], ['dreamer', 'run', 'now']]) {
       await assert.rejects(() => runAsync(argv), /dreamer requires exactly one of run, enable, disable\nNothing changed\.\nignite dreamer -h/);
     }
+    for (const argv of [['dreamer', 'enable', '--bogus'], ['dreamer', 'disable', '--bogus'], ['dreamer', 'run', '--bogus'], ['dreamer', '--bogus', 'enable']]) {
+      await assert.rejects(() => runAsync(argv), /^Error: '--bogus' is not a dreamer option\nNothing changed\.\nignite dreamer -h$/);
+    }
   });
 
   await testAsync('dreamer enable records the model, preserves every other setting and repeats without writing', async () => {
@@ -1048,16 +1057,16 @@ async function finishCli() {
       assert.match(first.out, /^Dreamer enabled for the entire installation .*, not only the calling agent\.\n/);
       assert.match(first.out, /Model: codex gpt-6\.1-sol effort 3 \(recorded now in dreamer\.model\)\./);
       assert.ok(first.out.includes(`To use another model, edit dreamer.model in ${file}.`));
-      const written = fs.readFileSync(file, 'utf8');
+      const written = configIdentity(file);
       const again = await runAsync(['dreamer', 'enable', '--installation', dir]);
       assert.equal(again.code, 0);
       assert.match(again.out, /^Dreamer was already enabled for the entire installation .*\. Nothing changed\.\n/);
       assert.match(again.out, /Model: codex gpt-6\.1-sol effort 3 \(from dreamer\.model\)\./);
-      assert.equal(fs.readFileSync(file, 'utf8'), written);
+      assert.deepEqual(configIdentity(file), written);
       const json = JSON.parse((await runAsync(['dreamer', 'enable', '--installation', dir, '--json'])).out);
       assert.deepEqual(json, { installation: dir, config: file, enabled: true, changed: false,
         model: { harness: 'codex', model: 'gpt-6.1-sol', effort: 3 }, modelRecorded: false });
-      assert.equal(fs.readFileSync(file, 'utf8'), written);
+      assert.deepEqual(configIdentity(file), written);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 
@@ -1082,13 +1091,14 @@ async function finishCli() {
       assert.match(first.out, /^Dreamer disabled for the entire installation .*, not only the calling agent\.\n/);
       assert.match(first.out, /A consolidation already in progress is not cancelled\./);
       assert.match(first.out, /Model: claude example-model effort 2 \(from dreamer\.model, kept\)\./);
-      const written = fs.readFileSync(file, 'utf8');
+      const written = configIdentity(file);
       const again = await runAsync(['dreamer', 'disable', '--installation', dir]);
       assert.equal(again.code, 0);
       assert.match(again.out, /^Dreamer was already disabled for the entire installation .*\. Nothing changed\.\n/);
-      assert.equal(fs.readFileSync(file, 'utf8'), written);
+      assert.deepEqual(configIdentity(file), written);
       const json = JSON.parse((await runAsync(['dreamer', 'disable', '--installation', dir, '--json'])).out);
       assert.deepEqual(json, { installation: dir, config: file, enabled: false, changed: false, model: { ...DREAMER_TEST_MODEL }, modelRecorded: false });
+      assert.deepEqual(configIdentity(file), written);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 
@@ -1128,7 +1138,7 @@ async function finishCli() {
     const enabled = dreamerInstall(true, null);
     try {
       const off = JSON.parse((await runAsync(['--installation', disabled.dir, 'dreamer', 'run'])).out);
-      assert.equal(off.ok, false); assert.equal(off.enabled, false);
+      assert.equal(off.ok, false); assert.equal(off.enabled, false); assert.equal(off.note, null);
       assert.match(off.error, /^dreamer\.model required to run a consolidation: add "model": \{"harness":"codex","model":"gpt-6\.1-sol","effort":3\} under "dreamer"/);
       const on = await runAsync(['--installation', enabled.dir, 'dreamer', 'run']);
       assert.equal(on.code, 1); assert.equal(JSON.parse(on.out).enabled, null);

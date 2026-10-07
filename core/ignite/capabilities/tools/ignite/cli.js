@@ -166,7 +166,7 @@ records it. Every other setting and the schedule stay as they are.
 Success: exit 0, the new state in plain text, or with --json
 {installation, config, enabled, changed, model, modelRecorded}.
 Refusal: exit 1, reason on stderr, nothing written. An unreadable or invalid
-configuration is refused.
+configuration is refused, and so is an option this command does not have.
 
 run
   Runs the nightly consolidation path once and exits. Never loops and never
@@ -725,12 +725,15 @@ async function cmdDreamer(rest, flags, deps) {
     emit(deps, { json: false }, null, DREAMER_HELP);
     return 0;
   }
+  const flag = rest.find((arg) => arg.startsWith('-'));
+  if (flag) fail(`'${flag}' is not a dreamer option\nNothing changed.\nignite dreamer -h`);
   const [verb, ...extra] = rest;
   if (!['run', 'enable', 'disable'].includes(verb) || extra.length) {
     fail('dreamer requires exactly one of run, enable, disable\nNothing changed.\nignite dreamer -h');
   }
   if (verb !== 'run') return setDreamerEnabled(verb === 'enable', flags, deps);
   let enabled = null;
+  let started = false;
   let result;
   try {
     const workspace = resolveDreamerWorkspace(flags, deps);
@@ -739,6 +742,7 @@ async function cmdDreamer(rest, flags, deps) {
     if (!config.dreamer.model) throw new Error(dreamerModelRequired('to run a consolidation'));
     const daemon = require('./daemon.js');
     const run = deps.runInstalledDreamer || daemon.runInstalledDreamer;
+    started = true;
     result = await run({ config, now: deps.now, runDreamer: deps.runDreamer });
   } catch (error) {
     result = {
@@ -749,7 +753,7 @@ async function cmdDreamer(rest, flags, deps) {
   const payload = {
     ...result,
     enabled,
-    note: enabled === false ? 'dreamer.enabled is false; ran because this command was called' : null,
+    note: started && enabled === false ? 'dreamer.enabled is false; ran because this command was called' : null,
   };
   const write = deps.stdout || ((text) => process.stdout.write(text));
   write(`${JSON.stringify(payload)}\n`);
