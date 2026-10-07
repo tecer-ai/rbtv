@@ -14,6 +14,8 @@ Keep progress and warnings on standard error, or omit them. Color must not conta
 
 Resolve files shipped with the program from the program's own location. Receive task files as arguments. The caller runs the tool from its task folder, which may be anywhere.
 
+Keep nothing the tool writes beside the program. What the user chose or supplied (settings, choices, credentials, keys) goes in `.rbtv/config/<component>/`, under the name of the tool's component; read [Config](config.md) before saving any. What the tool writes while running (state, caches, locks, logs) goes in `.rbtv/runtime/<component>/`; read [Runtime](runtime.md) before writing any.
+
 Perform the operation in the program. Printing commands for the agent to execute returns another procedure, not the requested result. The calling skill, rule, command, folder instructions or prompt must name when to run the tool and the invocation to use. Putting that information only in a source comment or the tool's record does not deliver it to the agent.
 
 ## Editing, conversion and review

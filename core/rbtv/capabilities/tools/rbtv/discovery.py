@@ -190,6 +190,17 @@ def scan_all(mirror_root: Path, repo_root: Path) -> tuple[dict[str, dict], list[
     ]
     merged = dict(repo)
     merged.update(mirror)
+    # A component's name alone names its folders under `.rbtv/config/` and
+    # `.rbtv/runtime/`, so two modules cannot each hold one of the same name.
+    owners: dict[str, str] = {}
+    for cid, comp in sorted(merged.items()):
+        if comp["kind"] != "component":
+            continue
+        first = owners.setdefault(comp["component"], cid)
+        if first != cid:
+            raise Refuse("component-duplicate",
+                         f"components {first} and {cid} share the name "
+                         f"{comp['component']!r}; rename one", comp["path"])
     pack_rows(merged)
     return merged, shadowed
 

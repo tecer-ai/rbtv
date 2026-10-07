@@ -27,6 +27,8 @@ Use the concrete kind's entry for its file and schema. [rbtv CLI](rbtv-cli.md) i
 
 The component's glossary defines its own terms and the [Folder artifacts](folder-artifact.md) used by work it organizes. Write those entries with the first use. Shared rbtv terms remain in rbtv's glossary. Do not keep work-folder conventions only in one skill.
 
+What a component's programs write in an installation lives outside its source, under the component's name: what the user chose or supplied (settings, choices, credentials, keys) in `.rbtv/config/<component>/`, as [Config](config.md) specifies, and operational data (state, caches, locks, logs) in `.rbtv/runtime/<component>/`, as [Runtime](runtime.md) specifies. Those folders carry the name without the module, so no component of another module may use the same name.
+
 Do not create `capabilities.md`, `principles.md`, `glossary.md` or another directory index. Routes name pages directly.
 
 ## Local instructions and decisions

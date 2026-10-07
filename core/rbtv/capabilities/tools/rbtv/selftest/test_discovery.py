@@ -94,6 +94,18 @@ def depth_two_is_the_marker(ctx) -> None:
               exc.code == "component-record-missing" and "c.json" in exc.message,
               f"{exc.code}: {exc.message}")
 
+    same = tmp / "same-name"
+    _component(same, "m", "c")
+    _component(same, "n", "c")
+    try:
+        scan_all(tmp / "same-name-mirror", same)
+        check("one component name in two modules refuses, naming both",
+              False, "no refusal")
+    except Refuse as exc:
+        check("one component name in two modules refuses, naming both",
+              exc.code == "component-duplicate" and "m/c" in exc.message
+              and "n/c" in exc.message, f"{exc.code}: {exc.message}")
+
     cache = tmp / "cache-leftover"
     _w(cache / "m" / "m.json", json.dumps({"description": "m"}))
     _w(cache / "m" / "former" / "capabilities" / "tools" / "old" /
