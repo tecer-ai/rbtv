@@ -23,8 +23,8 @@ commit_mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(commit_mod)
 
 
-def git(args, cwd):
-    res = subprocess.run(["git", *args], cwd=cwd, text=True, capture_output=True)
+def git(args, cwd, stdin=None):
+    res = subprocess.run(["git", *args], cwd=cwd, text=True, capture_output=True, input=stdin)
     assert res.returncode == 0, f"git {' '.join(args)} failed: {res.stderr or res.stdout}"
     return res.stdout
 
@@ -276,33 +276,6 @@ def test_pull_refused_over_parallel_staged_entries(repo, tmp_path):
     assert git(["diff", "--cached", "--name-only", "--", "mine.md"], repo).strip() == "mine.md"
 
 
-def test_foreign_staged_in_race_window_excluded(repo, monkeypatch):
-    """A parallel session's `git add` landing AFTER the staging and BEFORE the
-    commit must not ride along (measured leak: f9cc81fa carried 4 files for 1).
-    The race is made deterministic by wrapping commit.py's own git helper: the
-    foreign file is staged the instant the `commit` call is issued."""
-    write(repo, "mine.md", "v1\n")
-    git(["add", "-A"], repo)
-    git(["commit", "-q", "-m", "seed"], repo)
-
-    write(repo, "mine.md", "v2\n")
-    write(repo, "foreign.md", "parallel session\n")
-
-    real_git = commit_mod.git
-
-    def racing_git(args, root, **kw):
-        if args and args[0] == "commit":
-            subprocess.run(["git", "add", "foreign.md"], cwd=root, check=True)
-        return real_git(args, root, **kw)
-
-    monkeypatch.setattr(commit_mod, "git", racing_git)
-    monkeypatch.setattr(sys, "argv", ["commit.py", "-m", "mine only", "-f", "mine.md"])
-    monkeypatch.chdir(repo)
-    commit_mod.main()
-
-    assert commit_files(repo) == {"mine.md"}
-
-
 def run_racing(repo, monkeypatch, at, race):
     """Run commit.py in-process for mine.md, calling `race()` once, the instant
     commit.py issues its first `git <at>`. Returns the exit code."""
@@ -318,10 +291,32 @@ def run_racing(repo, monkeypatch, at, race):
     monkeypatch.setattr(commit_mod, "git", racing_git)
     monkeypatch.setattr(sys, "argv", ["commit.py", "-m", "mine", "-f", "mine.md"])
     monkeypatch.chdir(repo)
-    with pytest.raises(SystemExit) as exit_info:
+    try:
         commit_mod.main()
+        code = 0
+    except SystemExit as exit_info:
+        code = exit_info.code
     assert fired == [at]
-    return exit_info.value.code
+    return code
+
+
+def test_foreign_staged_in_race_window_excluded(repo, monkeypatch):
+    """A parallel session's `git add` landing AFTER the staging and BEFORE the
+    commit must not ride along (measured leak: f9cc81fa carried 4 files for 1).
+    The race is made deterministic by wrapping commit.py's own git helper: the
+    foreign file is staged the instant commit.py reads its own entries back from
+    the shared index (`ls-files`), which it does once, after its staging."""
+    write(repo, "mine.md", "v1\n")
+    git(["add", "-A"], repo)
+    git(["commit", "-q", "-m", "seed"], repo)
+
+    write(repo, "mine.md", "v2\n")
+    write(repo, "foreign.md", "parallel session\n")
+
+    assert run_racing(repo, monkeypatch, "ls-files", lambda: git(["add", "foreign.md"], repo)) == 0
+
+    assert commit_files(repo) == {"mine.md"}
+    assert git(["diff", "--cached", "--name-only"], repo).strip() == "foreign.md"
 
 
 def refused_pull_setup(repo, tmp_path):
@@ -351,7 +346,7 @@ def test_foreign_commit_before_own_commit_survives_failed_pull(repo, tmp_path, m
     alone: the branch ends on the parallel session's commit, the requested change
     stays staged, and a retry commits once."""
     refused_pull_setup(repo, tmp_path)
-    assert run_racing(repo, monkeypatch, "commit", lambda: foreign_commit(repo)) != 0
+    assert run_racing(repo, monkeypatch, "read-tree", lambda: foreign_commit(repo)) != 0
     err = capsys.readouterr().err
 
     assert subjects(repo)[0] == "foreign", subjects(repo)
@@ -405,3 +400,113 @@ def test_branch_moved_off_own_commit_is_left_as_found(repo, tmp_path, monkeypatc
     assert "No commit made" not in err, err
     lost = err.split("git cherry-pick ")[1].split("`")[0]
     assert git(["log", "-1", "--format=%s", lost], repo).strip() == "mine"
+
+
+# `read-tree` is the first thing commit.py does after it reads HEAD, and it does
+# it nowhere else: a race fired there lands between that read and the commit.
+def test_foreign_commit_in_window_keeps_its_content(repo, monkeypatch, capsys):
+    """A parallel session commits — one file added, one changed — AFTER the tool
+    read HEAD and BEFORE the tool's own commit. The tool's commit lands on top of
+    that commit and carries the requested path alone: both of the parallel
+    session's changes are in the branch tip."""
+    write(repo, "base.md", "v1\n")
+    write(repo, "mine.md", "v1\n")
+    git(["add", "-A"], repo)
+    git(["commit", "-q", "-m", "seed"], repo)
+    write(repo, "mine.md", "v2\n")
+
+    def foreign_add_and_change():
+        write(repo, "foreign.md", "parallel session\n")
+        write(repo, "base.md", "v2\n")
+        git(["add", "foreign.md", "base.md"], repo)
+        git(["commit", "-q", "-m", "foreign", "--", "foreign.md", "base.md"], repo)
+
+    assert run_racing(repo, monkeypatch, "read-tree", foreign_add_and_change) == 0
+
+    assert git(["show", "HEAD:foreign.md"], repo) == "parallel session\n"
+    assert git(["show", "HEAD:base.md"], repo) == "v2\n"
+    assert git(["show", "HEAD:mine.md"], repo) == "v2\n"
+    assert commit_files(repo) == {"mine.md"}
+    assert subjects(repo) == ["mine", "foreign", "seed"], subjects(repo)
+    foreign = git(["rev-parse", "HEAD~1"], repo).strip()
+    git(["merge-base", "--is-ancestor", foreign, "HEAD"], repo)  # asserts exit 0
+    assert git(["status", "--porcelain"], repo) == ""
+    tip = git(["rev-parse", "--short", "HEAD"], repo).strip()
+    assert f"committed {tip}: mine" in capsys.readouterr().out
+
+
+def test_foreign_commit_to_requested_path_in_window_stops_the_run(repo, monkeypatch, capsys):
+    """A parallel session commits a change to a REQUESTED path after the tool read
+    HEAD. The tool makes no commit and says which path, rather than overwrite that
+    change; the branch stays on the parallel session's commit and the requested
+    change stays staged."""
+    write(repo, "mine.md", "v1\n")
+    git(["add", "-A"], repo)
+    git(["commit", "-q", "-m", "seed"], repo)
+    write(repo, "mine.md", "mine v2\n")
+
+    def foreign_commit_to_mine():
+        # Built from objects alone, so the shared index and the file on disk keep
+        # what this session has in them.
+        blob = git(["hash-object", "-w", "--stdin"], repo, stdin="theirs v2\n").strip()
+        tree = git(["mktree"], repo, stdin=f"100644 blob {blob}\tmine.md\n").strip()
+        commit = git(["commit-tree", tree, "-p", "HEAD", "-m", "foreign"], repo).strip()
+        git(["update-ref", "HEAD", commit], repo)
+
+    assert run_racing(repo, monkeypatch, "read-tree", foreign_commit_to_mine) != 0
+    out = capsys.readouterr()
+
+    assert "another session committed these requested paths during this run" in out.err, out.err
+    assert "): mine.md. No commit made" in out.err, out.err
+    assert "committed" not in out.out
+    assert subjects(repo) == ["foreign", "seed"], subjects(repo)
+    assert git(["show", "HEAD:mine.md"], repo) == "theirs v2\n"
+    assert git(["show", ":mine.md"], repo) == "mine v2\n"
+
+
+def test_branch_moved_off_own_commit_before_successful_pull(repo, tmp_path, monkeypatch, capsys):
+    """A parallel session moves the branch back off the tool's commit, then the
+    pull SUCCEEDS (a fast-forward). The tool does not print `committed`: it
+    fails, naming the commit so it can be recovered."""
+    remote_ahead(repo, tmp_path)
+    seed = git(["rev-parse", "HEAD"], repo).strip()
+    write(repo, "mine.md")
+
+    assert run_racing(repo, monkeypatch, "pull", lambda: git(["update-ref", "HEAD", seed], repo)) != 0
+    out = capsys.readouterr()
+
+    assert "committed" not in out.out and "synced remote" not in out.out, out.out
+    assert subjects(repo) == ["remote", "seed"], subjects(repo)  # the pull succeeded
+    assert "which does not contain it. Recover it" in out.err, out.err
+    lost = out.err.split("git cherry-pick ")[1].split("`")[0]
+    assert git(["log", "-1", "--format=%s", lost], repo).strip() == "mine"
+
+
+def hook(repo, name, body):
+    path = repo / ".git" / "hooks" / name
+    path.parent.mkdir(exist_ok=True)
+    path.write_text("#!/bin/sh\n" + body + "\n", encoding="utf-8", newline="\n")
+    path.chmod(0o755)
+    return path
+
+
+def test_commit_hooks_run(repo):
+    """The repository's pre-commit and commit-msg hooks run, as under `git
+    commit`: a failing pre-commit hook stops the run with no commit, and what the
+    commit-msg hook writes into the message is committed."""
+    write(repo, "seed.md")
+    git(["add", "-A"], repo)
+    git(["commit", "-q", "-m", "seed"], repo)
+    write(repo, "file.md")
+
+    pre_commit = hook(repo, "pre-commit", "echo refused by hook >&2; exit 1")
+    res = run_commit(repo, ["file.md"], "add file")
+    assert res.returncode != 0
+    assert "refused by hook" in res.stderr, res.stderr
+    assert subjects(repo) == ["seed"]
+
+    os.remove(pre_commit)
+    hook(repo, "commit-msg", 'echo "added by hook" >> "$1"')
+    res = run_commit(repo, ["file.md"], "add file")
+    assert res.returncode == 0, f"{res.stderr}\n{res.stdout}"
+    assert commit_message(repo).split() == ["add", "file", "added", "by", "hook"]

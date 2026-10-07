@@ -22,6 +22,13 @@ another session stages outside the requested paths, before or during the run, is
 never committed. Committing from the index, not from the working tree, is also
 what carries an executable bit staged with `git update-index --chmod=+x`.
 
+The commit names the commit its tree was built from as its parent, and the
+branch moves to it only while its tip is still that parent. A commit another
+session makes during the run is therefore never reverted: this run's commit is
+rebuilt on top of it, or — when that commit changed a requested path — the run
+fails with no commit, rather than overwrite it. `committed <hash>` is printed
+only while the branch holds that commit.
+
 Remote sync is commit-first: the requested files are committed locally, THEN the
 remote is pulled. A clean auto-merge is handled silently; a real conflict aborts
 the merge and undoes the local commit, so no commit survives and the requested
@@ -97,6 +104,99 @@ def staged_mode_changes(root, paths):
     return changes
 
 
+def covers(path, file):
+    """A requested path covers a file when it IS that file, or is a parent
+    directory of it."""
+    return file == path or file.startswith(path + "/")
+
+
+def commit_requested(root, requested, message):
+    """Commit the requested paths' entries of the shared index on top of the
+    branch, and return (parent, commit) — full hashes, parent "" for a first commit.
+
+    A bare `git commit` commits the whole shared index, so whatever a parallel
+    session has staged rides along silently (measured 2026-08-11: commit
+    f9cc81fa carried 4 files for 1). The commit is made from a temporary index
+    instead: the parent's tree with the requested paths replaced by their entries
+    from the shared index, and nothing else can enter it.
+
+    The parent is NAMED (`git commit-tree -p`), never left to whatever the branch
+    holds when the commit is written, and the branch advances by one
+    compare-and-swap that git refuses unless its tip is still that parent. So the
+    commit always carries exactly its parent's tree plus the requested paths. When
+    another session committed in between, the commit is rebuilt on that session's
+    commit — unless that commit changed a requested path, which stops the run:
+    rebuilding would overwrite its change with the staged entry.
+
+    `git commit-tree` runs no hook, so the hooks that `git commit` runs are run
+    here: pre-commit and commit-msg (either refuses the commit by failing) and
+    post-commit. prepare-commit-msg is not run."""
+    subject = message.splitlines()[0]
+    before = git(["rev-parse", "--verify", "-q", "HEAD"], root, check=False).stdout.strip()
+    with tempfile.TemporaryDirectory(prefix="rbtv-commit-") as tmp:
+        own = {**os.environ, "GIT_INDEX_FILE": os.path.join(tmp, "index")}
+        msg_file = os.path.join(tmp, "COMMIT_EDITMSG")
+        entries = git(["ls-files", "-s", "-z", "--", *requested], root).stdout
+        while True:
+            git(["read-tree", before or "--empty"], root, env=own)
+            # -f: git otherwise refuses to drop an entry that differs from both HEAD
+            # and the file on disk, which it does once another session moved HEAD.
+            git(["rm", "-r", "-q", "-f", "--cached", "--ignore-unmatch", "--", *requested], root, env=own)
+            git(["update-index", "-z", "--index-info"], root, env=own, stdin=entries)
+
+            # --no-renames so a rename reads as delete(old) + add(new) — both requested
+            # paths then appear, instead of git collapsing them into a single destination name.
+            # -z: NUL-separated, UNQUOTED paths. Without it git quote-escapes any path
+            # with non-ASCII bytes (default core.quotepath=true), so a file like
+            # "Relatório.pdf" reads back escaped and never matches the raw requested
+            # path — a spurious unmatched mismatch. -z sidesteps quoting entirely.
+            to_commit = {p for p in git(["diff", "--cached", "--name-only", "--no-renames", "-z"],
+                                        root, env=own).stdout.split("\0") if p}
+            # A directory path is satisfied when it covers >=1 file to commit; an exact
+            # file path when it equals one. Either way: no covered change → nothing to commit.
+            unmatched = [p for p in requested if not any(covers(p, s) for s in to_commit)]
+            if unmatched:
+                fail("these requested paths have no changes to commit: " + ", ".join(sorted(unmatched)))
+
+            git(["hook", "run", "--ignore-missing", "pre-commit"], root, env=own)
+            with open(msg_file, "w", encoding="utf-8", newline="") as fh:
+                fh.write(message.rstrip("\n") + "\n")  # a whole last line, as `git commit` hands it over
+            git(["hook", "run", "--ignore-missing", "commit-msg", "--", msg_file], root, env=own)
+            with open(msg_file, encoding="utf-8", newline="") as fh:
+                # `git stripspace` is the cleanup `git commit -m` applies to a message.
+                text = git(["stripspace"], root, stdin=fh.read()).stdout
+            tree = git(["write-tree"], root, env=own).stdout.strip()
+            new = git(["commit-tree", tree, *(["-p", before] if before else []), "-F", "-"],
+                      root, stdin=text).stdout.strip()
+            swap = git(["update-ref", "-m", f"commit: {subject}", "HEAD", new, before], root, check=False)
+            if swap.returncode == 0:
+                break
+            tip = git(["rev-parse", "--verify", "-q", "HEAD"], root, check=False).stdout.strip()
+            if tip == before:
+                fail("could not move the branch to the new commit. No commit made; your changes are "
+                     "staged. Git reported:\n" + ((swap.stderr or "").strip() or f"git update-ref exited {swap.returncode}"))
+            # Another session moved the branch during this run. What it did to the
+            # requested paths: the diff from this run's parent, or every such path
+            # in its tree when this run started on an empty branch.
+            theirs = (["diff", "--name-only", "-z", before, tip] if before
+                      else ["ls-tree", "-r", "--name-only", "-z", tip])
+            clash = [p for p in git([*theirs, "--", *requested], root).stdout.split("\0") if p] if tip else []
+            if clash:
+                fail(f"another session committed these requested paths during this run (branch tip is now "
+                     f"{tip[:7]}): " + ", ".join(clash) + ". No commit made, so its change is not "
+                     "overwritten. Check that those paths hold what you intend to commit, then retry.")
+            before = tip
+    git(["hook", "run", "--ignore-missing", "post-commit"], root)
+    return before, new
+
+
+def off_branch(committed, tip, undo_note=""):
+    """The sentence for a commit of this run that the branch no longer contains."""
+    return (f" Commit {committed} was made, but another session moved the branch to "
+            f"{tip[:len(committed)]}, which does not contain it{undo_note}. Recover it "
+            f"with `git cherry-pick {committed}` if it is still wanted.")
+
+
 def undo_commit(root, committed):
     """Take the just-made commit `committed` back off the branch, and return
     (undone, sentence) — the sentence says what the branch holds now.
@@ -117,9 +217,7 @@ def undo_commit(root, committed):
     if git_ok(["merge-base", "--is-ancestor", own, "HEAD"], root):
         return False, (f" Commit {committed} was made and STAYS on the branch: another session "
                        f"committed on top of it (branch tip is now {tip[:len(committed)]}), so it was not undone.")
-    return False, (f" Commit {committed} was made, but another session moved the branch to "
-                   f"{tip[:len(committed)]}, which does not contain it; nothing was undone. Recover it "
-                   f"with `git cherry-pick {committed}` if it is still wanted.")
+    return False, off_branch(committed, tip, "; nothing was undone")
 
 
 def sync_after_commit(root, committed):
@@ -207,11 +305,6 @@ def main():
         if f and f not in requested:
             requested.append(f)
 
-    def covers(path, file):
-        """A requested path covers a file when it IS that file, or is a parent
-        directory of it."""
-        return file == path or file.startswith(path + "/")
-
     # --- fetch + learn whether the remote is ahead (sync happens after commit) ---
     no_upstream = True
     behind = False
@@ -243,38 +336,17 @@ def main():
         if os.path.lexists(os.path.join(root, path)):
             git(["update-index", f"--chmod={change}", "--", path], root)
 
-    # --- commit from a temporary index (HEAD + the requested entries), then sync ---
-    # A bare `git commit` commits the whole shared index, so whatever a parallel
-    # session has staged rides along silently (measured 2026-08-11: commit
-    # f9cc81fa carried 4 files for 1). The temporary index holds HEAD with the
-    # requested paths replaced by their entries from the shared index, and
-    # nothing else can enter it.
-    before = git(["rev-parse", "--verify", "-q", "HEAD"], root, check=False).stdout.strip()  # base of the temporary index
-    with tempfile.TemporaryDirectory(prefix="rbtv-commit-") as tmp:
-        own = {**os.environ, "GIT_INDEX_FILE": os.path.join(tmp, "index")}
-        if before:
-            git(["read-tree", before], root, env=own)
-        git(["rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", *requested], root, env=own)
-        entries = git(["ls-files", "-s", "-z", "--", *requested], root).stdout
-        git(["update-index", "-z", "--index-info"], root, env=own, stdin=entries)
-
-        # --no-renames so a rename reads as delete(old) + add(new) — both requested
-        # paths then appear, instead of git collapsing them into a single destination name.
-        # -z: NUL-separated, UNQUOTED paths. Without it git quote-escapes any path
-        # with non-ASCII bytes (default core.quotepath=true), so a file like
-        # "Relatório.pdf" reads back escaped and never matches the raw requested
-        # path — a spurious unmatched mismatch. -z sidesteps quoting entirely.
-        to_commit = {p for p in git(["diff", "--cached", "--name-only", "--no-renames", "-z"],
-                                    root, env=own).stdout.split("\0") if p}
-        # A directory path is satisfied when it covers >=1 file to commit; an exact
-        # file path when it equals one. Either way: no covered change → nothing to commit.
-        unmatched = [p for p in requested if not any(covers(p, s) for s in to_commit)]
-        if unmatched:
-            fail("these requested paths have no changes to commit: " + ", ".join(sorted(unmatched)))
-        git(["commit", "-m", message], root, env=own)
-    committed = git(["rev-parse", "--short", "HEAD"], root).stdout.strip()  # MY commit, before any sync merge
-    if behind and before:
+    # --- commit the requested entries on top of the branch, then sync ---
+    before, new = commit_requested(root, requested, message)
+    committed = git(["rev-parse", "--short", new], root).stdout.strip()
+    pulled = bool(behind and before)
+    if pulled:
         sync_after_commit(root, committed)
+    # `committed` is printed only while the branch holds that commit: another
+    # session may have moved the branch off it since it was made.
+    if not git_ok(["merge-base", "--is-ancestor", new, "HEAD"], root):
+        tip = git(["rev-parse", "HEAD"], root, check=False).stdout.strip()
+        fail(off_branch(committed, tip).strip() + " Nothing was pushed.")
     # Read the files back from the commit OBJECT (not the input list) so the output
     # is ground truth the caller can trust without re-running `git show`.
     in_commit = [ln for ln in git(
@@ -283,7 +355,7 @@ def main():
     print(f"committed {committed}: {message.splitlines()[0]}")
     print(f"files in commit ({len(in_commit)}): " + ", ".join(in_commit))
     merged = git(["rev-parse", "--short", "HEAD"], root).stdout.strip()
-    if merged != committed:
+    if pulled and merged != committed:
         print(f"synced remote: merge commit {merged} created on top of {committed}")
 
     # --- push ---
