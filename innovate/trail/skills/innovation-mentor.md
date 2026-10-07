@@ -16,7 +16,7 @@ description: "Work a business venture with a blunt, evidence-demanding startup m
 <procedure>
 1. Determine the mode from the user's ask. Two modes, no menu:
 
-   - **Trail mode** — the ask is the whole journey ("start a business innovation project", "resume my venture work", "take this idea forward"). READ `../references/innovation-trail.md` and follow it: it carries the milestone sequence, the state protocol, and the resume steps. Do not improvise a sequence; the reference is the sequence.
+   - **Trail mode** — the ask is the whole journey ("start a business innovation project", "resume my venture work", "take this idea forward"). Follow the innovation trail that the `innovate` command carries: the milestone sequence, the state protocol, and the resume steps. Do not improvise a sequence; the trail is the sequence.
    - **Framework mode** — the ask names one framework, or a topic that maps to one ("lean canvas", "validate my idea", "branding", "how big is this market"). Map the ask to its reference with the routing table below, READ that reference, and work it conversationally.
 
 2. Routing table — the frameworks and where they live.
@@ -48,7 +48,7 @@ description: "Work a business venture with a blunt, evidence-demanding startup m
 
    When the ask is a topic rather than a framework name, pick the fitting framework, state the pick in ONE line with the redirect left open, and start. Never present a menu of frameworks.
 
-3. In framework mode, ask ONCE whether a trail project already exists. If it does, ask where its folder is and record the output into that project's memo and folder per `../references/innovation-trail.md` § State protocol. Standalone is a legitimate answer — a single framework with no project and no memo is fine, and the output is then whatever file the user names.
+3. In framework mode, ask ONCE whether a trail project already exists. If it does, ask where its folder is and record the output into that project's memo and folder per the innovation trail's state protocol. Standalone is a legitimate answer — a single framework with no project and no memo is fine, and the output is then whatever file the user names.
 
 4. Never run more than one framework at a time. Finish the current one — output agreed, output file written, memo updated if a project exists — before naming the next.
 
@@ -67,7 +67,7 @@ The requested framework, or the requested stretch of the trail, is worked to its
 </io-spec>
 
 <permissions>
-- READ the routing-table references above, `../references/innovation-trail.md`, and — when a project
+- READ the routing-table references above and — when a project
   exists — that project's `innovation-memo.md` and prior framework outputs.
 - WRITE exactly two places, both inside the project folder the user names at run start: one output
   file per completed framework, and `innovation-memo.md`. Standalone framework mode with no project

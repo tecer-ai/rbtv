@@ -105,7 +105,7 @@ continue. A resume never re-derives state from the output files; the memo is the
 
 ## Run protocol
 
-1. Adopt the persona from `../prompts/innovation-mentor.md`.
+1. Adopt the persona from [innovation-mentor.md](../skills/innovation-mentor.md).
 2. Ask where the project folder lives. New run: create the folder if needed and write
    `innovation-memo.md` with `completed: []`. Resume: read the memo and confirm the position.
 3. Work ONE framework at a time. Read that framework's reference from the sibling component before

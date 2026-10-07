@@ -164,7 +164,7 @@ def update_after_rewrite(ctx) -> None:
         "name": "scout", "description": "A scout", "packs": [],
         "files": ["core/build#build", "core/install#manage-components",
                   "core/install#rbtv"]}) + "\n")
-    loaders = [ws / ".claude/skills/manage-components/SKILL.md",
+    copies = [ws / ".claude/skills/manage-components/SKILL.md",
                home / ".claude/skills/manage-components/SKILL.md"]
     old_skill = [ws / ".claude/skills/build/SKILL.md",
                  home / ".claude/skills/build/SKILL.md"]
@@ -209,7 +209,7 @@ def update_after_rewrite(ctx) -> None:
               set(saved(ws / STATE_REL)["components"]) == {"core/build", "core/install"}
               and set(saved(home / AGENT_RECORD)["components"])
               == {"core/build", "core/install"}
-              and all(path.is_file() for path in loaders + old_skill)
+              and all(path.is_file() for path in copies + old_skill)
               and owners["links"]["rbtv"]["target"] == str(old_entry), str(owners))
 
         # The move: the old program's file is gone, so the shortcut points nowhere.
@@ -218,7 +218,7 @@ def update_after_rewrite(ctx) -> None:
         check("U-merge-preview — a preview names the file that would leave and "
               "writes nothing",
               code == 0 and "Would remove: core/rbtv#manage-components" in text
-              and loaders[0].is_file()
+              and copies[0].is_file()
               and set(saved(ws / STATE_REL)["components"])
               == {"core/build", "core/install"}, text + err)
         code, text, err = run(new_catalog, "update", "all")
@@ -227,7 +227,7 @@ def update_after_rewrite(ctx) -> None:
               code == 0 and "Removed: core/rbtv#manage-components" in text, text + err)
         check("U-merge-update-files — the harness files of manage-components and of "
               "the old build skill are deleted, and those of framework are written",
-              not loaders[0].exists() and not loaders[0].parent.exists()
+              not copies[0].exists() and not copies[0].parent.exists()
               and not old_skill[0].exists() and not old_skill[0].parent.exists()
               and new_skill[0].is_file()
               and "# rbtv framework\n" in new_skill[0].read_text(encoding="utf-8"))
@@ -256,7 +256,7 @@ def update_after_rewrite(ctx) -> None:
         check("U-merge-agent-update — `agent update AGENT all` says the file left, "
               "deletes its files, and writes the record with core/rbtv",
               code == 0 and "Removed: core/rbtv#manage-components" in text
-              and not loaders[1].exists() and not old_skill[1].exists()
+              and not copies[1].exists() and not old_skill[1].exists()
               and new_skill[1].is_file()
               and record["schema"] == 9 and set(record["components"]) == {"core/rbtv"}
               and sorted(record["files"])

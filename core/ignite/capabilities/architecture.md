@@ -78,7 +78,7 @@ General shape only. Instance ids, token paths, and launch pins are runtime confi
 | `memory/` | Tracked learned rules and topic files, written by the dreamer; `learned.md` is injected every turn |
 | `state.sqlite` | The store. Authoritative |
 | `conversations/<windows-safe key>/history.md` | Derived full thread history. Folder name is the key with `:` and other Windows-forbidden characters replaced by `-`. Regenerable from the store |
-| skill loaders | Written per harness by `rbtv agent add` |
+| skill copies | Written per harness by `rbtv agent add` |
 
 ## Capabilities vs settings
 
