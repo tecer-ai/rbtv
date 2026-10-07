@@ -510,3 +510,180 @@ def test_commit_hooks_run(repo):
     res = run_commit(repo, ["file.md"], "add file")
     assert res.returncode == 0, f"{res.stderr}\n{res.stdout}"
     assert commit_message(repo).split() == ["add", "file", "added", "by", "hook"]
+
+
+def test_failing_post_commit_hook_is_a_warning(repo):
+    """A post-commit hook that fails changes nothing, as under `git commit`: the
+    commit stands, the result is reported, and the failure is shown as a warning."""
+    write(repo, "seed.md")
+    git(["add", "-A"], repo)
+    git(["commit", "-q", "-m", "seed"], repo)
+    write(repo, "file.md")
+
+    hook(repo, "post-commit", "echo post failed >&2; exit 3")
+    res = run_commit(repo, ["file.md"], "add file")
+    assert res.returncode == 0, f"{res.stderr}\n{res.stdout}"
+    tip = git(["rev-parse", "--short", "HEAD"], repo).strip()
+    assert f"committed {tip}: add file" in res.stdout, res.stdout
+    assert "files in commit (1): file.md" in res.stdout, res.stdout
+    assert "WARNING: the post-commit hook failed (exit 3). The commit was made and stands." in res.stderr, res.stderr
+    assert "post failed" in res.stderr, res.stderr
+    assert subjects(repo) == ["add file", "seed"]
+
+
+def test_commit_msg_hook_emptying_the_message_refuses_the_commit(repo):
+    """A commit-msg hook that leaves the message empty refuses the commit, as
+    under `git commit`: no commit, and the requested change stays staged."""
+    write(repo, "seed.md")
+    git(["add", "-A"], repo)
+    git(["commit", "-q", "-m", "seed"], repo)
+    write(repo, "file.md")
+
+    hook(repo, "commit-msg", ': > "$1"')
+    res = run_commit(repo, ["file.md"], "add file")
+    assert res.returncode != 0
+    assert "the commit-msg hook left the commit message empty. No commit made" in res.stderr, res.stderr
+    assert "committed" not in res.stdout
+    assert subjects(repo) == ["seed"]
+    assert git(["diff", "--cached", "--name-only"], repo).strip() == "file.md"
+
+
+def test_own_commit_reported_under_pull_rebase(repo, tmp_path):
+    """The repository sets pull.rebase=true and the remote is ahead. The commit
+    the tool reports is the commit the branch holds: the pull is a merge, so the
+    commit is not replaced by a rebased copy."""
+    remote_ahead(repo, tmp_path)
+    git(["config", "pull.rebase", "true"], repo)
+    write(repo, "mine.md")
+
+    res = run_commit(repo, ["mine.md"], "mine")
+    assert res.returncode == 0, f"{res.stderr}\n{res.stdout}"
+    reported = res.stdout.split("committed ")[1].split(":")[0]
+    assert git(["log", "-1", "--format=%s", reported], repo).strip() == "mine"
+    git(["merge-base", "--is-ancestor", reported, "HEAD"], repo)  # asserts exit 0
+    tip = git(["rev-parse", "--short", "HEAD"], repo).strip()
+    assert f"synced remote: merge commit {tip} created on top of {reported}" in res.stdout, res.stdout
+    assert git(["rev-list", "--parents", "-1", "HEAD"], repo).split()[1] == git(["rev-parse", reported], repo).strip()
+    assert sorted(subjects(repo)[1:]) == ["mine", "remote", "seed"], subjects(repo)
+
+
+def conflicting_branches(repo):
+    """On top of the current commit: the branch gains `one` then `two` in c.md,
+    and a branch `side` gains s.md and its own c.md. Merging, cherry-picking or
+    rebasing onto `side` conflicts in c.md, and so does reverting `one`."""
+    branch = git(["rev-parse", "--abbrev-ref", "HEAD"], repo).strip()
+    git(["checkout", "-q", "-b", "side"], repo)
+    write(repo, "s.md", "side\n")
+    write(repo, "c.md", "side\n")
+    git(["add", "s.md", "c.md"], repo)
+    git(["commit", "-q", "-m", "side"], repo)
+    git(["checkout", "-q", branch], repo)
+    for content in ("one", "two"):
+        write(repo, "c.md", content + "\n")
+        git(["add", "c.md"], repo)
+        git(["commit", "-q", "-m", content], repo)
+
+
+def stop(repo, *command):
+    """Run a git operation that stops unfinished."""
+    res = subprocess.run(["git", *command], cwd=repo, text=True, capture_output=True)
+    return res.returncode
+
+
+def operation_state(repo):
+    """Everything an unfinished operation consists of: git's markers for it, the
+    staged entries, the unmerged entries, and the files it wrote on disk."""
+    git_dir = repo / ".git"
+    markers = {name: (git_dir / name).read_text() if (git_dir / name).is_file() else (git_dir / name).is_dir()
+               for name in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply")}
+    on_disk = {name: (repo / name).read_text() if (repo / name).exists() else None for name in ("c.md", "s.md")}
+    return markers, staged_entries(repo), git(["ls-files", "-u"], repo), on_disk
+
+
+@pytest.mark.parametrize("conflict", [True, False], ids=["conflict resolved on disk", "clean merge"])
+def test_merge_in_progress_with_remote_ahead_is_left_as_found(repo, tmp_path, conflict):
+    """Another session has a merge open — stopped on a conflict it resolved by
+    hand on disk, or clean and not yet committed — and the remote is ahead. The
+    tool commits its own path, does not pull, says so, and leaves the merge
+    exactly as it was: MERGE_HEAD, the staged entries, the resolved file."""
+    remote_ahead(repo, tmp_path)
+    conflicting_branches(repo)
+    if conflict:
+        assert stop(repo, "merge", "--no-commit", "--no-ff", "side") != 0
+        write(repo, "c.md", "RESOLVED-BY-HAND\n")
+    else:
+        git(["merge", "-q", "--no-commit", "--no-ff", "side", "-X", "ours"], repo)
+    state = operation_state(repo)
+    assert state[0]["MERGE_HEAD"] and "s.md" in state[1], state
+    assert bool(state[2]) == conflict, state
+    write(repo, "base.md", "v2\n")
+
+    res = run_commit(repo, ["base.md"], "mine")
+
+    assert operation_state(repo) == state, res.stderr
+    assert res.returncode == 0, f"{res.stderr}\n{res.stdout}"
+    assert subjects(repo)[0] == "mine" and "remote" not in subjects(repo), subjects(repo)
+    assert commit_files(repo) == {"base.md"}
+    tip = git(["rev-parse", "--short", "HEAD"], repo).strip()
+    assert f"committed {tip}: mine" in res.stdout, res.stdout
+    assert "merge conflict" not in res.stderr, res.stderr
+    assert (f"WARNING: a merge is in progress in this working tree. This run did not start it and left it "
+            f"exactly as it was. Commit {tip} was made. The remote is ahead and was NOT pulled") in res.stderr, res.stderr
+
+
+def test_merge_in_progress_with_remote_ahead_refuses_the_push(repo, tmp_path):
+    """Same state, with --push: the commit is made, nothing is pushed, and the
+    run fails saying both; the merge is exactly as it was."""
+    remote_ahead(repo, tmp_path)
+    conflicting_branches(repo)
+    assert stop(repo, "merge", "--no-commit", "--no-ff", "side") != 0
+    state = operation_state(repo)
+    remote_tip = git(["rev-parse", "HEAD"], tmp_path / "origin.git")
+    write(repo, "base.md", "v2\n")
+
+    res = subprocess.run([sys.executable, COMMIT_PY, "-m", "mine", "-f", "base.md", "--push"],
+                         cwd=repo, text=True, capture_output=True)
+    assert res.returncode != 0
+    assert operation_state(repo) == state
+    tip = git(["rev-parse", "--short", "HEAD"], repo).strip()
+    assert subjects(repo)[0] == "mine"
+    assert f"Commit {tip} was made." in res.stderr and "Nothing was pushed" in res.stderr, res.stderr
+    assert "pushed." not in res.stdout
+    assert git(["rev-parse", "HEAD"], tmp_path / "origin.git") == remote_tip
+
+
+@pytest.mark.parametrize("operation, command", [
+    ("merge", ["merge", "side"]),
+    ("cherry-pick", ["cherry-pick", "side"]),
+    ("revert", ["revert", "--no-edit", "HEAD~1"]),
+    ("rebase", ["rebase", "side"]),
+])
+def test_operation_in_progress_is_named_and_left_as_found(repo, operation, command):
+    """A merge, cherry-pick, revert or rebase stopped on a conflict, no remote.
+    The tool commits another path, names the operation, and leaves it exactly as
+    it was. A requested path the operation left in conflict is refused instead:
+    no commit, and nothing staged."""
+    write(repo, "base.md", "v1\n")
+    git(["add", "-A"], repo)
+    git(["commit", "-q", "-m", "seed"], repo)
+    conflicting_branches(repo)
+    assert stop(repo, *command) != 0
+    state = operation_state(repo)
+    assert state[2] and any(state[0].values()), state
+    head = git(["rev-parse", "HEAD"], repo)
+
+    res = run_commit(repo, ["c.md"], "theirs to finish")
+    assert res.returncode != 0
+    assert (f"a {operation} is in progress in this working tree and left these requested paths in "
+            "conflict: c.md. No commit made and nothing was staged") in res.stderr, res.stderr
+    assert operation_state(repo) == state and git(["rev-parse", "HEAD"], repo) == head
+
+    write(repo, "base.md", "v2\n")
+    res = run_commit(repo, ["base.md"], "mine")
+    assert res.returncode == 0, f"{res.stderr}\n{res.stdout}"
+    assert operation_state(repo) == state
+    tip = git(["rev-parse", "--short", "HEAD"], repo).strip()
+    assert subjects(repo)[0] == "mine" and f"committed {tip}: mine" in res.stdout
+    assert (f"WARNING: a {operation} is in progress in this working tree. This run did not start it and "
+            f"left it exactly as it was. Commit {tip} was made.") in res.stderr, res.stderr
+    assert "NOT pulled" not in res.stderr

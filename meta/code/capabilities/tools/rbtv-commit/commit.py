@@ -37,7 +37,17 @@ uncommitted work in the tree is untouched throughout. Git refuses a merge while
 any entry is staged, so a pull that needs one fails, and is undone the same way,
 for as long as another session's entries are staged. The undo removes this run's
 commit and nothing else: when another session moved the branch after that commit,
-nothing is undone and the error says the commit was made and where it is.
+nothing is undone and the error says the commit was made and where it is. The pull
+is always a merge (`--no-rebase`), whatever `pull.rebase` says: a rebase would
+replace this run's commit with a copy, and the undo and every statement about
+the commit hold it by its hash.
+
+A merge, rebase, cherry-pick or revert that is already in progress in the working
+tree belongs to whoever started it, and this script leaves it exactly as it is:
+it refuses a requested path that operation left in conflict, and it does not
+pull (git cannot, and a failed pull would be cleaned up over that operation).
+The commit is still made, and the output says that the operation is in progress
+and what was not done because of it.
 
 Paths are repo-root-relative. A rename is two paths (old + new) — pass both.
 
@@ -69,6 +79,10 @@ import tempfile
 def fail(msg, code=1):
     print(f"commit.py: ERROR: {msg}", file=sys.stderr)
     sys.exit(code)
+
+
+def warn(msg):
+    print(f"commit.py: WARNING: {msg}", file=sys.stderr)
 
 
 # Decode git output as UTF-8 (git emits UTF-8 path bytes regardless of the OS
@@ -104,6 +118,21 @@ def staged_mode_changes(root, paths):
     return changes
 
 
+# What git keeps in its directory for as long as an operation is unfinished.
+OPERATION_MARKERS = (("MERGE_HEAD", "merge"), ("CHERRY_PICK_HEAD", "cherry-pick"), ("REVERT_HEAD", "revert"),
+                     ("rebase-merge", "rebase"), ("rebase-apply", "rebase"))
+
+
+def operation_in_progress(root):
+    """The operation left unfinished in this working tree — "merge", "rebase",
+    "cherry-pick" or "revert" — or "" when there is none. `--absolute-git-dir`
+    (not root/.git) so this holds in a linked worktree, where .git is a file
+    pointing elsewhere."""
+    git_dir = git(["rev-parse", "--absolute-git-dir"], root).stdout.strip()
+    return next((name for marker, name in OPERATION_MARKERS
+                 if os.path.exists(os.path.join(git_dir, marker))), "")
+
+
 def covers(path, file):
     """A requested path covers a file when it IS that file, or is a parent
     directory of it."""
@@ -129,8 +158,10 @@ def commit_requested(root, requested, message):
     rebuilding would overwrite its change with the staged entry.
 
     `git commit-tree` runs no hook, so the hooks that `git commit` runs are run
-    here: pre-commit and commit-msg (either refuses the commit by failing) and
-    post-commit. prepare-commit-msg is not run."""
+    here, with the outcomes `git commit` gives them: pre-commit and commit-msg
+    each refuse the commit by failing, a message that commit-msg leaves empty
+    refuses it too, and post-commit runs after the branch moved, so its failure
+    is a warning and the commit stands. prepare-commit-msg is not run."""
     subject = message.splitlines()[0]
     before = git(["rev-parse", "--verify", "-q", "HEAD"], root, check=False).stdout.strip()
     with tempfile.TemporaryDirectory(prefix="rbtv-commit-") as tmp:
@@ -165,6 +196,8 @@ def commit_requested(root, requested, message):
             with open(msg_file, encoding="utf-8", newline="") as fh:
                 # `git stripspace` is the cleanup `git commit -m` applies to a message.
                 text = git(["stripspace"], root, stdin=fh.read()).stdout
+            if not text.strip():
+                fail("the commit-msg hook left the commit message empty. No commit made; your changes are staged.")
             tree = git(["write-tree"], root, env=own).stdout.strip()
             new = git(["commit-tree", tree, *(["-p", before] if before else []), "-F", "-"],
                       root, stdin=text).stdout.strip()
@@ -186,7 +219,10 @@ def commit_requested(root, requested, message):
                      f"{tip[:7]}): " + ", ".join(clash) + ". No commit made, so its change is not "
                      "overwritten. Check that those paths hold what you intend to commit, then retry.")
             before = tip
-    git(["hook", "run", "--ignore-missing", "post-commit"], root)
+    hook = git(["hook", "run", "--ignore-missing", "post-commit"], root, check=False)
+    if hook.returncode != 0:
+        warn(f"the post-commit hook failed (exit {hook.returncode}). The commit was made and stands. "
+             "The hook reported:\n" + (hook.stderr or hook.stdout or "").strip())
     return before, new
 
 
@@ -227,21 +263,23 @@ def sync_after_commit(root, committed):
     when another session moved the branch since the commit; the message then
     says the commit was made and where it is.
 
+    The caller runs this ONLY while no operation is in progress in the working
+    tree (`operation_in_progress`): that is what makes the merge found after a
+    failed pull this pull's own, and so this function's to abort.
+
     A failed pull is CLASSIFIED before it is reported. A non-zero pull is not
     evidence of a conflict: a stale `.git/index.lock`, a network or auth failure,
     or a refused fast-forward all exit non-zero with no conflict anywhere.
     Reporting those as a conflict sends the caller into the conflict-resolution
     workflow hunting for conflicts that do not exist, so the two cases carry
     different messages and the real git error is surfaced verbatim."""
-    pull = git(["pull", "--no-edit"], root, check=False)
+    pull = git(["pull", "--no-edit", "--no-rebase"], root, check=False)
     if pull.returncode == 0:
         return
     # Ground truth for "was this a conflict": unmerged index entries, or a merge
-    # left in progress. `--absolute-git-dir` (not root/.git) so this holds in a
-    # worktree, where .git is a file pointing elsewhere.
+    # left in progress.
     conflicts = git(["diff", "--name-only", "--diff-filter=U"], root, check=False).stdout.strip()
-    git_dir = git(["rev-parse", "--absolute-git-dir"], root, check=False).stdout.strip()
-    merging = bool(git_dir) and os.path.exists(os.path.join(git_dir, "MERGE_HEAD"))
+    merging = operation_in_progress(root) == "merge"
     git(["merge", "--abort"], root, check=False)
     mine = set(git(["diff-tree", "--no-commit-id", "--name-only", "-r", "-z", committed], root).stdout.split("\0"))
     undone, left = undo_commit(root, committed)
@@ -249,7 +287,7 @@ def sync_after_commit(root, committed):
     # sessions staged — the entries git refuses to merge over.
     foreign = [p for p in git(["diff", "--cached", "--name-only", "-z"], root, check=False).stdout.split("\0")
                if p and p not in mine]
-    retry = "then retry" if undone else "then run `git pull --no-edit`; do NOT rerun rbtv-commit for these paths"
+    retry = "then retry" if undone else "then run `git pull --no-edit --no-rebase`; do NOT rerun rbtv-commit for these paths"
     if conflicts or merging:
         msg = "merge conflict pulling remote changes"
         if conflicts:
@@ -319,6 +357,17 @@ def main():
     # `git add` takes the mode from the file on disk, so an executable bit staged
     # with `git update-index --chmod` (the only way to record one on Windows) is
     # read before the add and put back after it.
+    # Staging a path that an operation in progress left in conflict would mark
+    # that conflict resolved, in an operation this run did not start.
+    held = operation_in_progress(root)
+    if held:
+        unmerged = sorted({ln.split("\t", 1)[1] for ln in git(
+            ["ls-files", "-u", "-z", "--", *requested], root).stdout.split("\0") if ln})
+        if unmerged:
+            fail(f"a {held} is in progress in this working tree and left these requested paths in "
+                 "conflict: " + ", ".join(unmerged) + f". No commit made and nothing was staged: the "
+                 f"{held} is exactly as it was. Resolve the paths and finish the {held} with git "
+                 "itself; rbtv-commit never finishes an operation it did not start.")
     staged_modes = staged_mode_changes(root, requested)
     for f in requested:
         if os.path.exists(os.path.join(root, f)):
@@ -339,7 +388,10 @@ def main():
     # --- commit the requested entries on top of the branch, then sync ---
     before, new = commit_requested(root, requested, message)
     committed = git(["rev-parse", "--short", new], root).stdout.strip()
-    pulled = bool(behind and before)
+    # Read again, immediately before the pull: a failed pull is cleaned up with
+    # `git merge --abort`, which must never reach an operation this run did not start.
+    held = operation_in_progress(root)
+    pulled = bool(behind and before and not held)
     if pulled:
         sync_after_commit(root, committed)
     # `committed` is printed only while the branch holds that commit: another
@@ -357,6 +409,16 @@ def main():
     merged = git(["rev-parse", "--short", "HEAD"], root).stdout.strip()
     if pulled and merged != committed:
         print(f"synced remote: merge commit {merged} created on top of {committed}")
+    if held:
+        unpulled = behind and bool(before)
+        note = (f"a {held} is in progress in this working tree. This run did not start it and left it "
+                f"exactly as it was. Commit {committed} was made.")
+        if unpulled:
+            note += (f" The remote is ahead and was NOT pulled: git cannot pull while a {held} is in "
+                     f"progress. Run `git pull --no-edit --no-rebase` once the {held} is finished.")
+        if unpulled and args.push:
+            fail(note + " Nothing was pushed; do NOT rerun rbtv-commit for these paths.")
+        warn(note)
 
     # --- push ---
     if args.push:

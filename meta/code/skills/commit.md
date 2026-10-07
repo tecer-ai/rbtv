@@ -77,10 +77,18 @@ rbtv-commit -m "<message>" -f <path> [-f <path> ...] [--push]
   else — so an entry a parallel session staged is never committed, not even one staged *during*
   the run, and it stays staged exactly as that session left it. An executable bit staged on a
   listed path with `git update-index --chmod=+x` is committed. The script syncs the remote
-  commit-first (a clean auto-merge is silent), commits, and pushes when `--push` is given.
+  commit-first (a clean auto-merge is silent), commits, and pushes when `--push` is given. Its pull
+  is always a merge, also where the repository sets `pull.rebase`.
 - A commit a parallel session makes during the run is never reverted: the script's commit lands on
   top of it and differs from it by the listed paths alone. The repository's `pre-commit`,
-  `commit-msg` and `post-commit` hooks run; `prepare-commit-msg` does not.
+  `commit-msg` and `post-commit` hooks run, with the outcomes `git commit` gives them: a failing
+  `pre-commit` or `commit-msg`, or a message `commit-msg` leaves empty, refuses the commit; a
+  failing `post-commit` is a `WARNING` and the commit stands. `prepare-commit-msg` does not run.
+- A merge, rebase, cherry-pick or revert already in progress in `{repo}` is never aborted, finished
+  or changed by the script. It still commits the listed paths, then prints
+  `WARNING: a <operation> is in progress in this working tree … Commit <hash> was made`. When that
+  warning adds `The remote is ahead and was NOT pulled`, the cluster is committed and the remote is
+  not merged: run `git -C "{repo}" pull --no-edit --no-rebase` once the operation is finished.
 - On exit 0 the script prints `committed <hash>` (only while the branch holds that commit), then `files in commit (<n>): …` read back from
   the commit OBJECT, and a `synced remote: merge commit …` line if a sync merge was created. The
   temporary index guarantees the committed files fall exactly under the paths you listed (a listed
@@ -91,7 +99,7 @@ rbtv-commit -m "<message>" -f <path> [-f <path> ...] [--push]
 ### 3. On a non-zero exit — no commit, unless the error says one was made
 
 The script made NO commit, with one exception: an error that says `Commit <hash> was made` (see
-the last row). Read the script's error and act:
+the last three rows). Read the script's error and act:
 
 | Error | Meaning | Action |
 |-------|---------|--------|
@@ -99,8 +107,11 @@ the last row). Read the script's error and act:
 | `merge conflict pulling remote changes in: <files>` | The remote diverged and conflicts with this cluster | Follow **Resolving a merge conflict** below |
 | `could not pull remote changes — NOT a merge conflict` | The remote sync failed for a NON-conflict reason; git's own error follows the message | Read that error and fix its cause — a stale `.git/index.lock` (verify NO git process is running, then remove it), a network/auth failure, a refused fast-forward. Then retry the script for that cluster. There is no conflict to resolve. When the message lists entries other sessions have staged, git refused the merge because of them: leave them staged and retry once those sessions have committed them. |
 | `another session committed these requested paths during this run: <paths>` | A parallel session committed a change to a listed path while the script ran. The script made no commit, so that change is not overwritten; this cluster's changes are still staged | Read `git -C "{repo}" diff --cached -- <paths>`, which now shows this cluster's change against the other session's commit. When it is what the cluster intends, retry the script; when it would undo the other session's change, tell the user before retrying |
+| `the commit-msg hook left the commit message empty` | The repository's `commit-msg` hook emptied the message, so the commit was refused; this cluster's changes are staged | Tell the user: the hook rejects this message. Retry the script with a message the hook accepts |
+| `a <operation> is in progress in this working tree and left these requested paths in conflict: <paths>` | A listed path is one that an unfinished merge, rebase, cherry-pick or revert left in conflict. The script made no commit and staged nothing | NEVER commit those paths with the script: they are finished with git itself, by whoever started the operation (for a merge this skill left open: **Resolving a merge conflict**, steps 5 to 7). Retry the script without them |
+| `a <operation> is in progress in this working tree … Commit <hash> was made. The remote is ahead and was NOT pulled … Nothing was pushed` | `--push` was given, the commit was made, and the script could not pull because of the unfinished operation, so it pushed nothing | The cluster IS committed: NEVER rerun the script for it. Once the operation is finished, `git -C "{repo}" pull --no-edit --no-rebase`, then `git -C "{repo}" push` |
 | `Commit <hash> was made, but another session moved the branch to <tip>, which does not contain it`, with no pull error | The commit was made and the remote sync did not fail, but a parallel session then moved the branch off the commit. Nothing was pushed | The cluster is NOT on the branch: NEVER rerun the script for it. Tell the user before running the `git cherry-pick <hash>` the error names |
-| either pull error above, carrying `Commit <hash> was made` in place of `No commit made` | The pull failed AND another session moved the branch after this cluster's commit, so the script undid nothing — its undo removes its own commit and nothing else. The sentence says where the commit is: still on the branch under the other session's commit, still the branch tip (the undo itself failed), or off the branch | The cluster IS committed: NEVER rerun the script for it. Fix the cause the error names, then `git -C "{repo}" pull --no-edit`; on a conflict, enter **Resolving a merge conflict** at step 3. When the sentence says the branch no longer contains the commit, tell the user before running the `git cherry-pick <hash>` it names. |
+| either pull error above, carrying `Commit <hash> was made` in place of `No commit made` | The pull failed AND another session moved the branch after this cluster's commit, so the script undid nothing — its undo removes its own commit and nothing else. The sentence says where the commit is: still on the branch under the other session's commit, still the branch tip (the undo itself failed), or off the branch | The cluster IS committed: NEVER rerun the script for it. Fix the cause the error names, then `git -C "{repo}" pull --no-edit --no-rebase`; on a conflict, enter **Resolving a merge conflict** at step 3. When the sentence says the branch no longer contains the commit, tell the user before running the `git cherry-pick <hash>` it names. |
 
 NEVER move to the next cluster until the current one has committed.
 
@@ -126,8 +137,9 @@ NEVER move to the next cluster until the current one has committed.
    The paths bound the commit to this cluster; without them it carries every staged entry,
    including a parallel session's. This form drops an executable bit staged with
    `git update-index --chmod=+x`: stage it again and commit it after step 7.
-3. Pull to merge the remote: `git -C "{repo}" pull --no-edit`. This re-creates the conflict, now as
-   a real merge with conflict markers in the working tree.
+3. Pull to merge the remote: `git -C "{repo}" pull --no-edit --no-rebase`. This re-creates the
+   conflict, now as a real merge with conflict markers in the working tree. While this merge is
+   open, a parallel session's `rbtv-commit` run leaves it exactly as it is.
 4. List the conflicting files: `git -C "{repo}" diff --name-only --diff-filter=U`.
 5. Present EVERY conflicting file to the user. Ask how to resolve each one — NEVER resolve silently
    or guess.
