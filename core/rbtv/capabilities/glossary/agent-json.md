@@ -1,6 +1,6 @@
 # `agent.json`
 
-`agent.json` is an agent’s setup record beside `prompt.md`. rbtv reads its selections to generate the agent’s files; launchers read its installed launch settings. The prompt’s instructions belong in `prompt.md`.
+`agent.json` is an agent’s setup record beside `prompt.md`. rbtv reads its selections to generate the agent’s files; launchers read its installed launch settings. The record is the one home of the agent's name, which equals the folder name. The prompt’s instructions belong in `prompt.md`.
 
 Use the [schema](../templates/agent-json.schema.json) for fields. Before creating the record or changing its description or selections, follow [Agent](agent.md) for the prompt-first writing order, matching names and placement. A component’s shipped record has no harness, model or effort; the person installing it chooses all three.
 
@@ -14,7 +14,7 @@ The author-written record starts with this layout. Include selection lists only 
 
 ```json
 {
-  "name": "<folder name, also used in prompt.md>",
+  "name": "<folder name>",
   "description": "<description written using Agent>"
 }
 ```

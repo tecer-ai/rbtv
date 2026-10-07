@@ -1,6 +1,6 @@
 # Prompt
 
-A prompt is the standing text an agent follows across launches. In rbtv it is the body of `prompt.md`; the frontmatter is not part of the prompt. Each launch supplies a separate task.
+A prompt is the standing text an agent follows across launches. In rbtv it is the text of `prompt.md`. Each launch supplies a separate task.
 
 Use the prompt for the agent's standing function, method and limits. Put one task's files, goal, scope and completion criteria in [Task](task.md). Follow [Cognitive unit](cognitive-unit.md) for shared instruction-writing requirements and [Agent](agent.md) for placement.
 
@@ -10,7 +10,7 @@ Identify who launches the agent and two different tasks it must handle. Do not a
 
 An interactive user can answer questions. A noninteractive launch must return a missing-input result instead of waiting for a later answer. When any supported launch is noninteractive, state what the next launch must supply. Checks needed for the conclusion must complete within that turn.
 
-Keep instructions out of frontmatter: rbtv and Ignite launches strip it. Harness sub-agent placement instead directs the model to read the source file.
+`prompt.md` has no frontmatter: the body starts at the first line. A frontmatter block that still opens a file is ignored at an rbtv or Ignite launch and reported by `rbtv doctor`; remove it. Harness sub-agent placement directs the model to read the source file.
 
 ## Sections
 
@@ -45,10 +45,6 @@ Keep one-task limits in the task. Put tool-enforced checks in Procedure. Combine
 ## Template
 
 ```markdown
----
-name: <same name as folder and agent record>
----
-
 ## Role
 <Standing function and purpose; decision-shaping standpoint only if needed.>
 
@@ -62,12 +58,10 @@ name: <same name as folder and agent record>
 <Standing limits and alternative actions; omit when none remain.>
 ```
 
-The [prompt-frontmatter schema](../templates/prompt.schema.json) owns the permitted fields. Do not add model settings, tool permissions or a description to this frontmatter.
-
 ## Review and test
 
 Read all sections together and remove conflicting or repeated orders. Verify that Role applies to an unfamiliar task, paths resolve under each supported placement, and no section assumes one task's inputs.
 
-Launch with a task not used while writing and with one required input absent. Check the function followed, paths opened, dependency handling and whether a noninteractive agent returns instead of waiting. Review the body without the caller's prompt or frontmatter. Installer acceptance does not test any of these behaviors.
+Launch with a task not used while writing and with one required input absent. Check the function followed, paths opened, dependency handling and whether a noninteractive agent returns instead of waiting. Review the prompt without the caller's prompt. Installer acceptance does not test any of these behaviors.
 
 Edit the source and update copied placements as Agent specifies. For an outside prompt, separate the standing body, launch task and record fields; preserve requirements while removing duplicated headings and unsupported assumptions.

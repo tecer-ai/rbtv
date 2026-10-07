@@ -3,9 +3,9 @@
 // Launching an agent by its agent folder.
 //   --agent NAME   an agent folder. AGENT is a name, looked up as `.rbtv/agents/<name>/` from the
 //               current folder upward, or a path to the folder (a value with `/`, or `.` or `..`).
-//               agent.json gives harness, model and effort; prompt.md, without its frontmatter, is
-//               the system prompt; the folder is the working folder. With neither -p nor -f,
-//               task.md in the folder is the task.
+//               agent.json gives harness, model and effort; the body of prompt.md is the system
+//               prompt, and a leading `---` block, when present, is ignored; the folder is the
+//               working folder. With neither -p nor -f, task.md in the folder is the task.
 //   --rogue PROMPT-FILE  a rogue agent with no folder: the body of the file (frontmatter ignored) is
 //               the system prompt, and the launch folder is the usual one.
 // Both ride the ordinary launch. This file is the one place that knows where an agent's folder

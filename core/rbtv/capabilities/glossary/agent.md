@@ -8,8 +8,8 @@ Use an agent when work needs a separate context and a standing prompt must suppo
 
 An agent folder contains:
 
-- `prompt.md`: the prompt, with name-only frontmatter matching the folder name.
-- `agent.json`: the record, with the same name, its description and any installation selections. Follow [Agent record](agent-json.md) when writing or changing the record.
+- `prompt.md`: the prompt; its body starts at the first line.
+- `agent.json`: the record, with the agent's name, which equals the folder name, its description and any installation selections. Follow [Agent record](agent-json.md) when writing or changing the record.
 - `task.md`: the task of an agent launched once with no supplier delivering one, such as a plan agent or any agent built for one task. An agent whose launcher supplies each task has no `task.md`. Write the file using [Task](task.md).
 
 A component ships an agent folder as `agents/<name>/`. Any other agent folder may sit anywhere, such as a plan's `agents/` folder.
@@ -44,7 +44,7 @@ List installation selections only for the rbtv-agent placement. The prompt must 
 
 ## Edit, convert and test
 
-Keep the folder name, prompt frontmatter and record name equal on renaming. Edit the authoritative source. Regenerate a harness-sub-agent placement after changing the description; its pointer reads source-body edits directly. An rbtv-agent launch reads `prompt.md` in its folder. A shipped agent added by name is placed in `.rbtv/agents/<name>/` and runs from there: after changing the component's source, edit the placed files or remove the agent and add it again. See [rbtv CLI](rbtv-cli.md) for the operation.
+Keep the folder name and the record name equal on renaming. Edit the authoritative source. Regenerate a harness-sub-agent placement after changing the description; its pointer reads source-body edits directly. An rbtv-agent launch reads `prompt.md` in its folder. A shipped agent added by name is placed in `.rbtv/agents/<name>/` and runs from there: after changing the component's source, edit the placed files or remove the agent and add it again. See [rbtv CLI](rbtv-cli.md) for the operation.
 
 For an outside agent, put its standing instructions in the prompt and its description in the record. Keep model settings, permissions and tool configuration out of prompt prose; classify other content through Choosing what to build.
 

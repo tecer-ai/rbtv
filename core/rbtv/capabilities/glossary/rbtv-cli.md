@@ -17,7 +17,7 @@ The scan validates frontmatter or JSON. It does not evaluate prose bodies. Under
 | `skills/<name>.md` | [Skill](skill.md) | [skill](../templates/skill.schema.json) |
 | `commands/<name>.md` | [Command](command.md) | [command](../templates/command.schema.json) |
 | `rules/<name>.md` | [Rule](rule.md) | [rule](../templates/rule.schema.json) |
-| `agents/<name>/prompt.md` and `agent.json` | [Agent](agent.md); [Prompt](prompt.md) for the body | [prompt](../templates/prompt.schema.json), [agent-json](../templates/agent-json.schema.json) |
+| `agents/<name>/prompt.md` and `agent.json` | [Agent](agent.md); [Prompt](prompt.md) for the body | [agent-json](../templates/agent-json.schema.json) |
 | `folder-instructions/<name>.md` | [Folder instructions](folder-instructions.md) | [folder-instructions](../templates/folder-instructions.schema.json) |
 | `hooks/<name>.json` | [Hook](hook.md) | [hook](../templates/hook.schema.json) |
 | `mcp-servers/<name>.json` | [MCP server](mcp-server.md) | [mcp-server](../templates/mcp-server.schema.json) |
