@@ -295,8 +295,6 @@ def file_rows(comp: dict) -> list[dict]:
         prompt, record = home / PROMPT_FILE, home / AGENT_RECORD
         if not (prompt.is_file() and record.is_file()):
             raise Refuse("file-invalid", f"{home}: an agent needs {PROMPT_FILE} and {AGENT_RECORD}", str(home))
-        front, _body = frontmatter.split(prompt.read_text(encoding="utf-8"))
-        _checked(front or {}, "prompt", prompt, "file-invalid")
         data = current_keys(_read_json(record, "file-invalid"))
         _checked(data, "agent-json", record, "file-invalid")
         launch = [name for name in LAUNCH_FIELDS if name in data]
@@ -305,8 +303,8 @@ def file_rows(comp: dict) -> list[dict]:
                          f"{record}: an agent a component ships names no harness, "
                          "model or effort; they exist only in an installation. "
                          "Remove: " + ", ".join(launch), str(record))
-        if home.name != front["name"] or home.name != data["name"]:
-            raise Refuse("file-invalid", f"{home}: folder, {PROMPT_FILE} and {AGENT_RECORD} names must agree", str(home))
+        if home.name != data["name"]:
+            raise Refuse("file-invalid", f"{home}: the folder name and the {AGENT_RECORD} name must agree", str(home))
         rows.append({"id": home.name, "method": "agent",
                      "entry": prompt.relative_to(comp_dir).as_posix(),
                      "description": data["description"], "data": data})

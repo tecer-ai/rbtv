@@ -110,17 +110,12 @@ def unplaced_shipped_agent(root: Path, raw: str, catalog: dict) -> dict | None:
     return matches[0] if len(matches) == 1 else None
 
 
-def _agent_front(home: Path) -> dict:
-    require_prompt(home)
-    path = home / PROMPT_FILE
-    try:
-        front, _body = frontmatter.split(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError) as exc:
-        raise Refuse("agent-file-unreadable", f"cannot read {path}: {exc}", str(path)) from exc
-    problems = schema.errors(front or {}, schema.load("prompt"))
-    if problems:
-        raise Refuse("agent-file-invalid", f"{path}: " + "; ".join(problems), str(path))
-    return front
+def _prompt_body(home: Path) -> str:
+    """The prompt of the agent folder *home*. A frontmatter block that still
+    opens the file is left out, with the blank lines after it, so the body
+    starts at the first line."""
+    front, body = frontmatter.split((home / PROMPT_FILE).read_text(encoding="utf-8"))
+    return body if front is None else body.lstrip("\r\n")
 
 
 def agent_state(home: Path) -> dict:
@@ -150,13 +145,11 @@ def _checked_agent(home: Path, state: dict) -> dict:
     if missing:
         raise Refuse("agent-record-invalid", "agent.json is missing " + ", ".join(missing)
                      + ". Add those fields, then retry", str(home / AGENT_RECORD))
-    front = _agent_front(home)
-    names = {"folder": home.name, "prompt": front["name"], "agent.json": state["name"]}
-    if len(set(names.values())) != 1:
-        raise _refuse("agent-name-mismatch", "the three names disagree.\n"
-                      f"folder name:  {names['folder']}\n{PROMPT_FILE}:    {names['prompt']}\n"
-                      f"agent.json:   {names['agent.json']}",
-                      "make the three names the same, then retry the same command", str(home))
+    require_prompt(home)
+    if home.name != state["name"]:
+        raise _refuse("agent-name-mismatch", "the two names disagree.\n"
+                      f"folder name:  {home.name}\nagent.json:   {state['name']}",
+                      "make the two names the same, then retry the same command", str(home))
     problems = schema.errors({key: state[key] for key in required}, schema.load("agent-json"))
     if problems:
         raise Refuse("agent-record-invalid", f"{home / AGENT_RECORD}: " + "; ".join(problems)
@@ -467,7 +460,7 @@ def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: 
         if not dry:
             home.mkdir(parents=True, exist_ok=True)
             write_file(home / PROMPT_FILE,
-                       absolute_links((source / PROMPT_FILE).read_text(encoding="utf-8"), root),
+                       absolute_links(_prompt_body(source), root),
                        newline="\n")
             write_file(home / AGENT_RECORD, json.dumps(state, indent=2) + "\n", newline="\n")
             state = agent_state(home)

@@ -20,11 +20,15 @@ from lib.state import read_state
 from lib.target import resolve_target
 
 from .fixture import _component, _file_md, _w
+from .test_rulings_ops import _run
+
+# A frontmatter block that still opens a prompt, naming another agent.
+_BLOCK = "---\nname: someone-else\n---\n\n"
 
 
 def _agent(home, *, name="scout", files=None, packs=None):
     home.mkdir(parents=True, exist_ok=True)
-    _w(home / "prompt.md", f"---\nname: {name}\n---\n\nScout.\n")
+    _w(home / "prompt.md", "Scout.\n")
     _w(home / "agent.json", json.dumps({"name": name, "description": "Scout.",
         "harness": "claude", "model": "haiku-4-5", "effort": "high",
         "files": files or [], "packs": packs or []}) + "\n")
@@ -44,7 +48,7 @@ def _ignored_agent(home: Path, harness: str) -> None:
         "opencode": ("glm-5.3", "high"),
     }[harness]
     name = home.name
-    _w(home / "prompt.md", f"---\nname: {name}\n---\n\nAgent.\n")
+    _w(home / "prompt.md", "Agent.\n")
     _w(home / "agent.json", json.dumps({
         "name": name, "description": "Agent.", "harness": harness,
         "model": model, "effort": effort, "files": [], "packs": []}) + "\n")
@@ -147,9 +151,12 @@ def installed_agents(ctx) -> None:
     comp = _component(root, "moda", "comp")
     _file_md(comp / "rules/kiss.md", "kiss", "Kiss", "body\n")
     _file_md(comp / "rules/other.md", "other", "Other", "body\n")
-    _w(comp / "agents/research/prompt.md", "---\nname: research\n---\n\nResearch.\n")
+    _w(comp / "agents/research/prompt.md", "Research.\n")
     _w(comp / "agents/research/agent.json", json.dumps({
         "name": "research", "description": "Research.", "files": ["kiss"], "packs": []}) + "\n")
+    _w(comp / "agents/blocked/prompt.md", _BLOCK + "Blocked.\n")
+    _w(comp / "agents/blocked/agent.json", json.dumps({
+        "name": "blocked", "description": "Blocked.", "files": [], "packs": []}) + "\n")
     catalog, _ = scan_all(tmp / "agent-mirror", root)
     ws = tmp / "agent-installation"; ws.mkdir()
     home = ws / ".rbtv/agents/scout"
@@ -200,7 +207,7 @@ def installed_agents(ctx) -> None:
               and _refused(lambda: add_agent(ws, "scout", [], set(), catalog, False, launch))[0]
               == "launch-already-set", "")
         bare = ws / ".rbtv/agents/bare"
-        _w(bare / "prompt.md", "---\nname: bare\n---\n\nBare.\n")
+        _w(bare / "prompt.md", "Bare.\n")
         _w(bare / "agent.json", json.dumps({"name": "bare", "description": "Bare."}) + "\n")
         check("A-add-flags — a hand-written agent without the values needs the flags too",
               _refused(lambda: add_agent(ws, "bare", [], set(), catalog, False))[0]
@@ -455,12 +462,12 @@ def installed_agents(ctx) -> None:
     refused = _refused
 
     no_record = ws / ".rbtv/agents/norecord"
-    _w(no_record / "prompt.md", "---\nname: norecord\n---\n\nNo record.\n")
+    _w(no_record / "prompt.md", "No record.\n")
     check("A-refusal — a folder without agent.json is agent-json-missing",
           refused(lambda: add_agent(ws, "norecord", [], set(), catalog, True))
           == ("agent-json-missing", "rbtv agent add -h"), "")
     broken = ws / ".rbtv/agents/brokenjson"
-    _w(broken / "prompt.md", "---\nname: brokenjson\n---\n\nBroken.\n")
+    _w(broken / "prompt.md", "Broken.\n")
     _w(broken / "agent.json", '{"name": "brokenjson",\n}\n')
     code, nxt = refused(lambda: add_agent(ws, "brokenjson", [], set(), catalog, True))
     check("A-refusal — invalid agent.json is agent-json-invalid with its line",
@@ -490,3 +497,35 @@ def installed_agents(ctx) -> None:
     check("A-refusal — an unknown pack is pack-unknown",
           refused(lambda: add_agent(ws, "scout", [], {"nosuchpack"}, catalog, True))
           == ("pack-unknown", "rbtv list --type pack"), "")
+
+    legacy = ws / ".rbtv/agents/legacy"
+    _agent(legacy, name="legacy", files=["kiss"])
+    _w(legacy / "prompt.md", _BLOCK + "Legacy.\n")
+    blocked = ws / ".rbtv/agents/blocked"
+    sentence = (f"{legacy / 'prompt.md'}: remove the frontmatter block; the body "
+                "starts at the first line")
+    with patch("lib.agents.cast_catalog", return_value=known), cast_words():
+        try:
+            steps = [add_agent(ws, "legacy", [], set(), catalog, False),
+                     update_agent(ws, "legacy", "all", catalog, False),
+                     add_agent(ws, "blocked", [], set(), catalog, False, launch)]
+            _code, said = _run(ws, catalog, "doctor")
+            rows = [c for c in do_doctor(legacy, "fixture", catalog, [], root,
+                                         legacy / ".rbtv/mirror")["checks"]
+                    if c["name"] == "Prompt frontmatter"]
+            steps.append(remove_agent(ws, "legacy", [], set(), True, True, catalog, False))
+            got = None
+        except Refuse as exc:
+            got = exc.code
+    check("R23-ignore — an agent whose prompt opens with a block naming another agent is "
+          "added, updated and removed, and a placed prompt carries no block",
+          got is None and all(step["ok"] for step in steps)
+          and (legacy / "prompt.md").read_text(encoding="utf-8") == _BLOCK + "Legacy.\n"
+          and (blocked / "prompt.md").read_text(encoding="utf-8") == "Blocked.\n", str(got))
+    _w(legacy / "prompt.md", "Legacy.\n")
+    _code, clean = _run(ws, catalog, "doctor")
+    check("R23-doctor — doctor names each prompt that opens with a block and says to remove "
+          "it, for an installation and for an agent folder, and says nothing without one",
+          got is None and said.count("remove the frontmatter block") == 1 and sentence in said
+          and [(c["level"], c["scope"], c["detail"]) for c in rows] == [("warn", "Agent", sentence)]
+          and "Prompt frontmatter" not in clean, said[:400])

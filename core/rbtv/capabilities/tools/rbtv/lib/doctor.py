@@ -13,12 +13,15 @@ from pathlib import Path
 
 from discovery import Refuse, scan_tree
 
+from . import frontmatter
+from .agents import AGENTS_REL
 from .constants import (
     BASIS_NONE,
     GUIDANCE_NAMES,
     LEGACY_PATH_FENCE,
     PATH_FENCE_END,
     PATH_FENCE_START,
+    PROMPT_FILE,
     SCHEMA,
     STATE_REL,
     VERSION,
@@ -159,6 +162,24 @@ def _dependencies(catalog: dict, state: dict) -> list[dict]:
              "components": needed[name]} for name in sorted(needed)]
 
 
+def _prompt_frontmatter(target: Path, scope: str) -> list[dict]:
+    """One warning per agent folder of *target* whose prompt still opens with
+    a frontmatter block. Every agent operation ignores the block; this row is
+    what asks for its removal."""
+    homes = ([target] if is_agent_target(target)
+             else sorted((target / AGENTS_REL).glob("*/")))
+    checks = []
+    for home in homes:
+        prompt = home / PROMPT_FILE
+        if prompt.is_file() and frontmatter.split(
+                prompt.read_text(encoding="utf-8", errors="replace"))[0] is not None:
+            checks.append(_check(
+                "Prompt frontmatter", "warn", scope,
+                f"{prompt}: remove the frontmatter block; the body starts at "
+                "the first line"))
+    return checks
+
+
 def doctor_exit(checks: list[dict]) -> int:
     return 1 if any(c["level"] == "fail" for c in checks) else 0
 
@@ -252,6 +273,8 @@ def do_doctor(target: Path, why: str, catalog: dict, shadowed: list,
                 f"installation: {', '.join(stale)}. Drop "
                 f"{'it' if len(stale) == 1 else 'them'}: rbtv update all "
                 f"--target {_quote_target(target)}"))
+
+        checks.extend(_prompt_frontmatter(target, target_scope))
 
     repo_found = scan_tree(repo_tree, "repo")
     detail = f"{len(repo_found)} components discovered"
