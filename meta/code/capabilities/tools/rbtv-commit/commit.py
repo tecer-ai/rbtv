@@ -3,8 +3,8 @@
 
 Runs INSIDE the target repo (uses the current working directory to locate the
 repo root). The calling agent supplies the judgment — which files, what message
-— and this script owns all the mechanics in one invocation: remote sync, a clean
-staging gate, the commit, and an optional push.
+— and this script owns all the mechanics in one invocation: remote sync, staging
+the requested paths, the commit, and an optional push.
 
 It fails loudly (non-zero exit + a clear message) and makes NO commit on:
   - a real merge conflict while syncing the remote,
@@ -12,24 +12,28 @@ It fails loudly (non-zero exit + a clear message) and makes NO commit on:
     fast-forward) — reported as its own class, never as a conflict,
   - a requested file that has no changes to commit.
 
-Staging is made deterministic by unstaging EVERYTHING first, then staging only
-the requested files. The COMMIT itself is bounded independently, by passing the
-requested paths as a pathspec (`git commit -- <paths>`), which re-resolves them
-at commit time: a file a parallel session stages in the window between the gate
-and the commit is therefore never committed either — its working-tree changes
-are preserved, simply left unstaged.
+The repository's index is shared with every parallel session, so this script
+stages the requested paths and touches NO other entry: what another session
+staged (a changed file, a `git mv`, a new file) stays staged exactly as it was.
+The COMMIT is bounded by a temporary index (`GIT_INDEX_FILE`) built from HEAD
+plus the requested paths' entries, and is made from that index alone: an entry
+another session stages outside the requested paths, before or during the run, is
+never committed. Committing from the index, not from the working tree, is also
+what carries an executable bit staged with `git update-index --chmod=+x`.
 
 Remote sync is commit-first: the requested files are committed locally, THEN the
 remote is pulled. A clean auto-merge is handled silently; a real conflict aborts
 the merge and undoes the local commit (`reset --soft`), so no commit survives and
 the requested changes are left staged in the working tree — never trapped in a
-stash. Other uncommitted work in the tree is untouched throughout.
+stash. Other uncommitted work in the tree is untouched throughout. Git refuses a
+merge while any entry is staged, so a pull that needs one fails, and is undone
+the same way, for as long as another session's entries are staged.
 
 Paths are repo-root-relative. A rename is two paths (old + new) — pass both.
 
 A path may be a FILE or a DIRECTORY. A directory includes every changed file
 beneath it (added, modified, deleted) — use it when a cluster touches more files
-than fit on a command line. The staging gate stays exact: only changes UNDER a
+than fit on a command line. The commit stays exact: only changes UNDER a
 listed path are committed, but a directory sweeps in whatever currently lives
 there, including a parallel session's files — prefer explicit file paths when
 precision matters.
@@ -49,6 +53,7 @@ import argparse
 import os
 import subprocess
 import sys
+import tempfile
 
 
 def fail(msg, code=1):
@@ -59,10 +64,11 @@ def fail(msg, code=1):
 # Decode git output as UTF-8 (git emits UTF-8 path bytes regardless of the OS
 # locale). Without this, text=True uses the locale codec — cp1252 on Windows —
 # so a non-ASCII path read from git never matches the same path from argv
-# (already proper Unicode), breaking the staging gate's exact comparison.
-def git(args, root, check=True, capture=True):
+# (already proper Unicode), breaking the exact comparison with requested paths.
+# `env` selects the index a command works on (GIT_INDEX_FILE); `stdin` feeds it.
+def git(args, root, check=True, capture=True, env=None, stdin=None):
     res = subprocess.run(["git", *args], cwd=root, text=True, capture_output=capture,
-                         encoding="utf-8", errors="surrogateescape")
+                         encoding="utf-8", errors="surrogateescape", env=env, input=stdin)
     if check and res.returncode != 0:
         out = (res.stderr or res.stdout or "").strip()
         fail(f"git {' '.join(args)} failed: {out}")
@@ -72,6 +78,20 @@ def git(args, root, check=True, capture=True):
 def git_ok(args, root):
     return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True,
                           encoding="utf-8", errors="surrogateescape").returncode == 0
+
+
+def staged_mode_changes(root, paths):
+    """Executable-bit changes staged under `paths`, as {path: "+x" | "-x"}. A new
+    file counts from mode 100644, the mode git gives a new regular file."""
+    raw = git(["diff", "--cached", "--raw", "--no-renames", "-z", "--", *paths], root).stdout.split("\0")
+    changes = {}
+    for meta, path in zip(raw[0::2], raw[1::2]):
+        old, new = meta[1:].split(" ")[:2]
+        if new == "100755" and old != "100755":
+            changes[path] = "+x"
+        elif new == "100644" and old == "100755":
+            changes[path] = "-x"
+    return changes
 
 
 def sync_after_commit(root, before):
@@ -95,6 +115,9 @@ def sync_after_commit(root, before):
     conflicts = git(["diff", "--name-only", "--diff-filter=U"], root, check=False).stdout.strip()
     git_dir = git(["rev-parse", "--absolute-git-dir"], root, check=False).stdout.strip()
     merging = bool(git_dir) and os.path.exists(os.path.join(git_dir, "MERGE_HEAD"))
+    # HEAD is still our commit, so what the index holds beyond it is what other
+    # sessions staged — the entries git refuses to merge over.
+    foreign = [p for p in git(["diff", "--cached", "--name-only", "-z"], root, check=False).stdout.split("\0") if p]
     git(["merge", "--abort"], root, check=False)
     git(["reset", "--soft", before], root, check=False)  # undo our commit, keep changes staged
     left = " No commit made; your changes are staged."
@@ -104,6 +127,10 @@ def sync_after_commit(root, before):
             msg += " in: " + ", ".join(conflicts.splitlines())
         fail(msg + "." + left + " Resolve the remote divergence, then retry.")
     err = (pull.stderr or pull.stdout or "").strip() or f"git pull exited {pull.returncode}"
+    if foreign:
+        fail("could not pull remote changes — NOT a merge conflict: git refuses a merge while "
+             "entries are staged, and other sessions have these staged: " + ", ".join(foreign)
+             + "." + left + " NEVER unstage them; retry once they are committed. Git reported:\n" + err)
     fail("could not pull remote changes — NOT a merge conflict (no unmerged paths, no merge "
          "in progress)." + left + " Fix the cause reported by git below, then retry:\n" + err)
 
@@ -149,10 +176,10 @@ def main():
         if f and f not in requested:
             requested.append(f)
 
-    def covers(path, staged_file):
-        """A requested path covers a staged file when it IS that file, or is a
-        parent directory of it."""
-        return staged_file == path or staged_file.startswith(path + "/")
+    def covers(path, file):
+        """A requested path covers a file when it IS that file, or is a parent
+        directory of it."""
+        return file == path or file.startswith(path + "/")
 
     # --- fetch + learn whether the remote is ahead (sync happens after commit) ---
     no_upstream = True
@@ -164,8 +191,11 @@ def main():
             count = git(["rev-list", "HEAD..@{u}", "--count"], root).stdout.strip()
             behind = count not in ("", "0")
 
-    # --- clean staging gate: unstage all, then stage ONLY the requested files ---
-    git(["reset", "-q"], root)
+    # --- stage ONLY the requested paths; every other index entry is left as it is ---
+    # `git add` takes the mode from the file on disk, so an executable bit staged
+    # with `git update-index --chmod` (the only way to record one on Windows) is
+    # read before the add and put back after it.
+    staged_modes = staged_mode_changes(root, requested)
     for f in requested:
         if os.path.exists(os.path.join(root, f)):
             git(["add", "-A", "--", f], root)
@@ -178,30 +208,39 @@ def main():
             # nor tracked stages nothing (caught by the unmatched gate below)
             # rather than erroring here.
             git(["rm", "-r", "--cached", "--ignore-unmatch", "--", f], root)
+    for path, change in staged_modes.items():
+        if os.path.lexists(os.path.join(root, path)):
+            git(["update-index", f"--chmod={change}", "--", path], root)
 
-    # --no-renames so a staged rename reads as delete(old) + add(new) — both requested
-    # paths then appear, instead of git collapsing them into a single destination name.
-    # -z: NUL-separated, UNQUOTED paths. Without it git quote-escapes any path
-    # with non-ASCII bytes (default core.quotepath=true), so a staged file like
-    # "Relatório.pdf" reads back escaped and never matches the raw requested
-    # path — a spurious foreign/unmatched mismatch. -z sidesteps quoting entirely.
-    staged = {p for p in git(["diff", "--cached", "--name-only", "--no-renames", "-z"], root).stdout.split("\0") if p}
-    # A directory path is satisfied when it covers >=1 staged file; an exact file
-    # path when it equals one. Either way: no covered change → nothing to commit.
-    unmatched = [p for p in requested if not any(covers(p, s) for s in staged)]
-    if unmatched:
-        fail("these requested paths have no changes to commit: " + ", ".join(sorted(unmatched)))
+    # --- commit from a temporary index (HEAD + the requested entries), then sync ---
+    # A bare `git commit` commits the whole shared index, so whatever a parallel
+    # session has staged rides along silently (measured 2026-08-11: commit
+    # f9cc81fa carried 4 files for 1). The temporary index holds HEAD with the
+    # requested paths replaced by their entries from the shared index, and
+    # nothing else can enter it.
+    before = git(["rev-parse", "--verify", "-q", "HEAD"], root, check=False).stdout.strip()  # undo target
+    with tempfile.TemporaryDirectory(prefix="rbtv-commit-") as tmp:
+        own = {**os.environ, "GIT_INDEX_FILE": os.path.join(tmp, "index")}
+        if before:
+            git(["read-tree", before], root, env=own)
+        git(["rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", *requested], root, env=own)
+        entries = git(["ls-files", "-s", "-z", "--", *requested], root).stdout
+        git(["update-index", "-z", "--index-info"], root, env=own, stdin=entries)
 
-    # --- commit (capturing the undo target first), then sync the remote on top ---
-    before = git(["rev-parse", "HEAD"], root, check=False).stdout.strip()
-    # `-- <requested>` is what BOUNDS the commit. A bare `git commit` commits the
-    # whole index as it stands at commit time, so a parallel session's `git add`
-    # landing in the window between the gate above and this line rides along
-    # silently (measured 2026-08-11: commit f9cc81fa carried 4 files for 1). The
-    # pathspec re-resolves the paths AT COMMIT TIME, so nothing outside them can
-    # enter. It commits working-tree content at those paths (the `add` above
-    # still matters: an UNTRACKED path is not matched by a pathspec commit).
-    git(["commit", "-m", message, "--", *requested], root)
+        # --no-renames so a rename reads as delete(old) + add(new) — both requested
+        # paths then appear, instead of git collapsing them into a single destination name.
+        # -z: NUL-separated, UNQUOTED paths. Without it git quote-escapes any path
+        # with non-ASCII bytes (default core.quotepath=true), so a file like
+        # "Relatório.pdf" reads back escaped and never matches the raw requested
+        # path — a spurious unmatched mismatch. -z sidesteps quoting entirely.
+        to_commit = {p for p in git(["diff", "--cached", "--name-only", "--no-renames", "-z"],
+                                    root, env=own).stdout.split("\0") if p}
+        # A directory path is satisfied when it covers >=1 file to commit; an exact
+        # file path when it equals one. Either way: no covered change → nothing to commit.
+        unmatched = [p for p in requested if not any(covers(p, s) for s in to_commit)]
+        if unmatched:
+            fail("these requested paths have no changes to commit: " + ", ".join(sorted(unmatched)))
+        git(["commit", "-m", message], root, env=own)
     committed = git(["rev-parse", "--short", "HEAD"], root).stdout.strip()  # MY commit, before any sync merge
     if behind and before:
         sync_after_commit(root, before)

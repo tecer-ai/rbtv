@@ -7,7 +7,7 @@ description: "Use when committing changes to git. Triggers: user says \"commit\"
 
 The agent supplies the judgment — which files belong together, what each message says — and the
 deterministic command `rbtv-commit` ([commit.py](../capabilities/tools/rbtv-commit/commit.py) in this component) owns every git mechanic in
-ONE invocation per commit: remote sync, the staging gate, the commit,
+ONE invocation per commit: remote sync, staging the listed paths, the commit,
 and the optional push. The agent NEVER runs the stage / sync / commit git commands by hand.
 
 ## When to use
@@ -21,8 +21,9 @@ and the optional push. The agent NEVER runs the stage / sync / commit git comman
 
 ### 1. Analyze and plan (agent judgment)
 
-1. `git -C "{repo}" status` — see which files changed (modified, new, deleted). Staged-vs-unstaged
-   does not matter here: the script re-stages from scratch.
+1. `git -C "{repo}" status` — see which files changed (modified, new, deleted). The script stages
+   the listed paths from the working tree itself. Entries staged outside your clusters belong to
+   parallel sessions: NEVER unstage them.
 2. `git -C "{repo}" diff` — review the changes
 3. Cluster the changes by concern — files serving the same feature, fix, or content batch form one
    cluster:
@@ -72,14 +73,14 @@ rbtv-commit -m "<message>" -f <path> [-f <path> ...] [--push]
   currently lives under it, so a parallel session's file dropped there rides along — prefer
   explicit file paths when the cluster must be exact.
 - Add `--push` ONLY if the user asked to push.
-- The script unstages everything, stages ONLY the listed files, then commits with the listed paths
-  as a pathspec (`git commit -- <paths>`) — so a parallel session's staged file is never
-  committed, not even one staged *during* the run, and its changes stay in the working tree. It
-  syncs the remote commit-first (a clean auto-merge is silent), commits, and pushes when `--push`
-  is given.
+- The script stages ONLY the listed paths and commits from a temporary index that holds nothing
+  else — so an entry a parallel session staged is never committed, not even one staged *during*
+  the run, and it stays staged exactly as that session left it. An executable bit staged on a
+  listed path with `git update-index --chmod=+x` is committed. The script syncs the remote
+  commit-first (a clean auto-merge is silent), commits, and pushes when `--push` is given.
 - On exit 0 the script prints `committed <hash>`, then `files in commit (<n>): …` read back from
   the commit OBJECT, and a `synced remote: merge commit …` line if a sync merge was created. The
-  commit pathspec guarantees the committed files fall exactly under the paths you listed (a listed
+  temporary index guarantees the committed files fall exactly under the paths you listed (a listed
   DIRECTORY still sweeps everything changed beneath it — see the CAUTION above); a listed path with
   no changes aborts the run. TRUST this output: do NOT run `git show`, `git log`, or any other
   command to re-verify the commit's contents. The script IS the verification.
@@ -92,7 +93,7 @@ Read the script's error and act:
 |-------|---------|--------|
 | `no changes to commit: <paths>` | A listed file/directory had no changes | Fix the path list, retry the script for that cluster |
 | `merge conflict pulling remote changes in: <files>` | The remote diverged and conflicts with this cluster | Follow **Resolving a merge conflict** below |
-| `could not pull remote changes — NOT a merge conflict` | The remote sync failed for a NON-conflict reason; git's own error follows the message | Read that error and fix its cause — a stale `.git/index.lock` (verify NO git process is running, then remove it), a network/auth failure, a refused fast-forward. Then retry the script for that cluster. There is no conflict to resolve. |
+| `could not pull remote changes — NOT a merge conflict` | The remote sync failed for a NON-conflict reason; git's own error follows the message | Read that error and fix its cause — a stale `.git/index.lock` (verify NO git process is running, then remove it), a network/auth failure, a refused fast-forward. Then retry the script for that cluster. There is no conflict to resolve. When the message lists entries other sessions have staged, git refused the merge because of them: leave them staged and retry once those sessions have committed them. |
 
 NEVER move to the next cluster until the current one has committed.
 
@@ -106,14 +107,18 @@ commit. Follow these steps in order. NEVER skip a step.
 - This cluster's changes are STAGED. The working tree is clean — no conflict markers (the script
   aborted the merge and undid its commit).
 - The remote divergence is NOT integrated — local is still behind the remote.
-- Any other unrelated changes in the working tree are untouched and still unstaged.
+- Any other unrelated changes in the working tree are untouched, and an entry a parallel session
+  staged is still staged.
 
 **Procedure:**
 
 1. STOP. Do NOT retry `commit.py` and do NOT commit anything until the conflict is resolved —
    retrying only reproduces the same conflict.
 2. Capture this cluster as a local commit so the work cannot be lost:
-   `git -C "{repo}" commit -m "<this cluster's confirmed message>"`.
+   `git -C "{repo}" commit -m "<this cluster's confirmed message>" -- <this cluster's paths>`.
+   The paths bound the commit to this cluster; without them it carries every staged entry,
+   including a parallel session's. This form drops an executable bit staged with
+   `git update-index --chmod=+x`: stage it again and commit it after step 7.
 3. Pull to merge the remote: `git -C "{repo}" pull --no-edit`. This re-creates the conflict, now as
    a real merge with conflict markers in the working tree.
 4. List the conflicting files: `git -C "{repo}" diff --name-only --diff-filter=U`.

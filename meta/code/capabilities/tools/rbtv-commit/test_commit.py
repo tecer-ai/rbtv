@@ -2,8 +2,9 @@
 
 Each test builds a throwaway git repo in a tmp dir, performs a real working-tree
 change, then runs commit.py inside it and inspects the resulting commit object.
-No network: every repo is local with no remote, so the remote-sync paths are
-inert and only the staging gate + commit are exercised.
+No network: a repo has no remote, so the remote-sync paths are inert and only
+the staging + commit are exercised — except the one test that builds a local
+bare remote to drive a refused pull.
 """
 import importlib.util
 import os
@@ -16,7 +17,7 @@ COMMIT_PY = os.path.join(os.path.dirname(__file__), "commit.py")
 
 # Imported as a module (not just run as a subprocess) so the race test below can
 # wrap commit.py's own git helper and land a foreign `git add` inside the window
-# between the staging gate and the commit.
+# between the staging and the commit.
 _spec = importlib.util.spec_from_file_location("commit_mod", COMMIT_PY)
 commit_mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(commit_mod)
@@ -159,31 +160,118 @@ def test_no_message_fails_loud(repo):
     assert "exactly one of" in (res.stderr + res.stdout)
 
 
-def test_move_excludes_parallel_staged_file(repo):
-    """A move commit must not carry an unrelated file a parallel session left
-    staged. The reset gate unstages it; the commit holds only the move, and the
-    unrelated file's working-tree change is preserved (left unstaged)."""
+def staged_entries(repo, *paths):
+    """The staged changes (mode, blob and status per path), whole index or under `paths`."""
+    return git(["diff", "--cached", "--raw", "--no-abbrev", "--no-renames", "--", *paths], repo)
+
+
+def test_parallel_staged_entries_stay_staged(repo):
+    """What a parallel session staged — a changed file, a `git mv` pair, a new
+    file — is neither committed nor unstaged by a commit of other paths: after
+    the commit the index holds exactly those entries, unchanged."""
     write(repo, "old/a.md", "alpha\n")
+    write(repo, "theirs/changed.md", "v1\n")
+    write(repo, "theirs/from.md", "moved\n")
     git(["add", "-A"], repo)
     git(["commit", "-q", "-m", "seed"], repo)
 
-    git(["mv", "old", "new"], repo)
-    # An unrelated change left staged by a "parallel session".
-    write(repo, "unrelated.md", "noise\n")
-    git(["add", "unrelated.md"], repo)
+    # The "parallel session": one changed file, one move, one new file, all staged.
+    write(repo, "theirs/changed.md", "v2\n")
+    git(["add", "theirs/changed.md"], repo)
+    git(["mv", "theirs/from.md", "theirs/to.md"], repo)
+    write(repo, "theirs/new.md", "new\n")
+    git(["add", "theirs/new.md"], repo)
+    theirs = staged_entries(repo, "theirs")
+    assert len(theirs.splitlines()) == 4, theirs  # changed + move (delete, add) + new
 
+    # This session: its own move, staged in the same index.
+    git(["mv", "old", "new"], repo)
     res = run_commit(repo, ["old", "new"], "move only")
     assert res.returncode == 0, f"{res.stderr}\n{res.stdout}"
-    # Only the move is committed — the foreign file is not.
+
     assert commit_files(repo) == {"old/a.md", "new/a.md"}
-    # Its working-tree change survives, simply left unstaged.
-    assert (repo / "unrelated.md").read_text(encoding="utf-8") == "noise\n"
-    status = git(["status", "--porcelain", "unrelated.md"], repo)
-    assert status.startswith("??") or status.startswith(" "), status
+    assert staged_entries(repo) == theirs
+
+
+def test_deleted_file_commits(repo):
+    """A file removed from disk is committed as a deletion from its path alone."""
+    write(repo, "keep.md")
+    write(repo, "gone.md")
+    git(["add", "-A"], repo)
+    git(["commit", "-q", "-m", "seed"], repo)
+
+    os.remove(repo / "gone.md")
+    res = run_commit(repo, ["gone.md"], "delete")
+    assert res.returncode == 0, f"{res.stderr}\n{res.stdout}"
+    assert commit_files(repo) == {"gone.md"}
+    assert git(["ls-tree", "-r", "--name-only", "HEAD"], repo).split() == ["keep.md"]
+
+
+def test_staged_executable_bit_lands(repo):
+    """An executable bit that exists only in the index (`git update-index
+    --chmod=+x`, the one way to record it on Windows) is committed, on a tracked
+    file whose content also changed and on a new file. The files on disk are
+    never made executable."""
+    write(repo, "tool.py", "#!/usr/bin/env python3\n")
+    git(["add", "-A"], repo)
+    git(["commit", "-q", "-m", "seed"], repo)
+
+    git(["update-index", "--chmod=+x", "tool.py"], repo)
+    write(repo, "tool.py", "#!/usr/bin/env python3\nprint('v2')\n")
+    write(repo, "new-tool.py", "#!/usr/bin/env python3\n")
+    git(["add", "new-tool.py"], repo)
+    git(["update-index", "--chmod=+x", "new-tool.py"], repo)
+
+    res = run_commit(repo, ["tool.py", "new-tool.py"], "executable tools")
+    assert res.returncode == 0, f"{res.stderr}\n{res.stdout}"
+    modes = {ln.split("\t")[1]: ln.split()[0] for ln in git(["ls-tree", "HEAD"], repo).splitlines()}
+    assert modes == {"tool.py": "100755", "new-tool.py": "100755"}, modes
+    assert "v2" in git(["show", "HEAD:tool.py"], repo)
+
+
+def test_pull_refused_over_parallel_staged_entries(repo, tmp_path):
+    """The remote is ahead and a parallel session has an entry staged: git refuses
+    the merge. The run fails naming that entry, makes no commit, and leaves both
+    the parallel session's entry and the requested change staged."""
+    write(repo, "base.md")
+    write(repo, "theirs.md", "v1\n")
+    git(["add", "-A"], repo)
+    git(["commit", "-q", "-m", "seed"], repo)
+    origin = tmp_path / "origin.git"
+    git(["clone", "-q", "--bare", str(repo), str(origin)], tmp_path)
+    git(["remote", "add", "origin", str(origin)], repo)
+    git(["fetch", "-q", "origin"], repo)
+    branch = git(["rev-parse", "--abbrev-ref", "HEAD"], repo).strip()
+    git(["branch", "-q", f"--set-upstream-to=origin/{branch}"], repo)
+    git(["config", "pull.rebase", "false"], repo)
+
+    # The remote moves ahead (a commit pushed from a second clone).
+    other = tmp_path / "other"
+    git(["clone", "-q", str(origin), str(other)], tmp_path)
+    git(["config", "user.email", "t@t.test"], other)
+    git(["config", "user.name", "test"], other)
+    git(["config", "commit.gpgsign", "false"], other)
+    write(other, "remote.md")
+    git(["add", "-A"], other)
+    git(["commit", "-q", "-m", "remote"], other)
+    git(["push", "-q"], other)
+
+    write(repo, "theirs.md", "v2\n")
+    git(["add", "theirs.md"], repo)
+    theirs = staged_entries(repo, "theirs.md")
+    head = git(["rev-parse", "HEAD"], repo)
+    write(repo, "mine.md")
+
+    res = run_commit(repo, ["mine.md"], "mine")
+    assert res.returncode != 0
+    assert "other sessions have these staged: theirs.md." in res.stderr, res.stderr
+    assert git(["rev-parse", "HEAD"], repo) == head
+    assert staged_entries(repo, "theirs.md") == theirs
+    assert git(["diff", "--cached", "--name-only", "--", "mine.md"], repo).strip() == "mine.md"
 
 
 def test_foreign_staged_in_race_window_excluded(repo, monkeypatch):
-    """A parallel session's `git add` landing AFTER the staging gate and BEFORE the
+    """A parallel session's `git add` landing AFTER the staging and BEFORE the
     commit must not ride along (measured leak: f9cc81fa carried 4 files for 1).
     The race is made deterministic by wrapping commit.py's own git helper: the
     foreign file is staged the instant the `commit` call is issued."""
