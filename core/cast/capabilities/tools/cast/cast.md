@@ -8,7 +8,7 @@ turn into an existing session.
 ## Usage
 
 ```
-cast --agent AGENT (-p TEXT | -f FILE) [--headed] [--dry-run]
+cast --agent AGENT [-p TEXT | -f FILE] [--headed] [--dry-run]
 cast <harness> <model> <effort 1-5> [launch-folder] (-p TEXT | -f FILE) [-s TEXT | -S FILE | --rogue PROMPT-FILE] [--headed] [--dry-run]
 cast resume <harness> <session-id|last> [launch-folder] (-p TEXT | -f FILE) [--dry-run]
 cast sessions [harness] [launch-folder] [--json] [-n N]
@@ -33,6 +33,7 @@ cast -h | --help
 | `launch-folder` | working directory for the agent, resolved relative to the caller's CWD; MUST already exist |
 | `-p TEXT` | the task of this launch, as literal text |
 | `-f FILE` | read the task from a file; `-f -` reads it from stdin |
+| neither, with `--agent` | the task is `task.md` in the agent folder; every other form requires `-p` or `-f` |
 | `--dry-run` | print the composed argv as JSON and exit 0 without launching |
 
 The first form launches an rbtv agent and is the form to use for any agent launched more than
@@ -106,7 +107,7 @@ untouched). `ignite turn` is the exception: it returns an exact id for that invo
 
 ## Agent launches (`--agent`, `--rogue`)
 
-`cast --agent AGENT (-p TEXT | -f FILE)` runs an agent folder: a folder that contains both `prompt.md` and
+`cast --agent AGENT [-p TEXT | -f FILE]` runs an agent folder: a folder that contains both `prompt.md` and
 `agent.json`. AGENT is a name, looked up as `<installation>/.rbtv/agents/AGENT/` from the current
 folder upward, or a path to the folder (a value containing `/` or `\`, or `.` or `..`, relative to
 the current folder). The folder is the working folder. `agent.json` gives the harness, model and
@@ -119,6 +120,15 @@ files is refused by name, so a broken agent is never launched half-read; a folde
 `agent.md` in place of `prompt.md` is refused with the `git mv` command that renames it. A launch takes no
 `--target`: that option belongs to `cast list`, and an agent outside `.rbtv/agents/` is launched by
 its path.
+
+The task of an `--agent` launch comes from one of three places. `-p TEXT` or `-f FILE` gives it, and
+either one wins whether or not the folder holds a `task.md`. With neither, cast sends `task.md` in
+the agent folder, read exactly as `-f <agent folder>/task.md` reads it. With neither and no
+`task.md`, the launch is refused with exit 2 and names the absent file:
+`refused: no task: pass -p TEXT or -f FILE, or write task.md in <agent folder>`. An agent launched
+once keeps its task in that file, so the folder holds everything the launch needs; an agent launched
+with different tasks is given each one with `-p` or `-f`. `--rogue`, `cast resume` and the
+`<harness> <model> <effort>` form have no agent folder and always require `-p` or `-f`.
 
 `--rogue PROMPT-FILE` runs a rogue agent file that is not an agent folder: the file's body, without its
 frontmatter, is the system prompt, and the launch folder is the usual one. It sets no

@@ -50,6 +50,7 @@ function printHelp() {
     '  cast api <model> ...   |   cast doctor [--json]   |   cast -h',
     '',
     '-p TEXT / -f FILE  the TASK: what this one launch must do. -f - reads standard input.',
+    '                   With --agent, omitting both sends the agent folder\'s task.md.',
     '--agent AGENT      a name under <installation>/.rbtv/agents/, or the path of an agent',
     '                   folder. Do not pass harness, model or effort; to change them:',
     '                   rbtv agent configure AGENT. Sets RBTV_AGENT_HOME.',

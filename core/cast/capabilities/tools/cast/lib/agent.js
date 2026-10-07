@@ -4,7 +4,8 @@
 //   --agent NAME   an agent folder. AGENT is a name, looked up as `.rbtv/agents/<name>/` from the
 //               current folder upward, or a path to the folder (a value with `/`, or `.` or `..`).
 //               agent.json gives harness, model and effort; prompt.md, without its frontmatter, is
-//               the system prompt; the folder is the working folder.
+//               the system prompt; the folder is the working folder. With neither -p nor -f,
+//               task.md in the folder is the task.
 //   --rogue PROMPT-FILE  a rogue agent with no folder: the body of the file (frontmatter ignored) is
 //               the system prompt, and the launch folder is the usual one.
 // Both ride the ordinary launch. This file is the one place that knows where an agent's folder
@@ -14,6 +15,8 @@ const fs = require('fs');
 const path = require('path');
 
 const PROMPT_MD = 'prompt.md';
+// The task of an agent launched with neither -p nor -f.
+const TASK_MD = 'task.md';
 const AGENT_JSON = 'agent.json';
 // The prompt file's old name: read by nothing, named only in the refusal for a folder that still holds it.
 const OLD_PROMPT_MD = 'agent.md';
@@ -194,6 +197,16 @@ function rbtvAgent(value, fail, target = null) {
   return read.agent;
 }
 
+// The task of an rbtv agent launched with neither -p nor -f: the text of task.md in its folder,
+// read as -f reads a file. A folder without the file is refused.
+function agentTask(agent, fail) {
+  const file = path.join(agent.home, TASK_MD);
+  if (!fs.existsSync(file)) {
+    fail(`refused: no task: pass -p TEXT or -f FILE, or write ${TASK_MD} in ${agent.home}\nNothing changed.`);
+  }
+  return fs.readFileSync(file, 'utf8');
+}
+
 // Pull --agent / --rogue out of argv, leaving the ordinary launch arguments.
 function takeAgentFlags(argv, fail) {
   const rest = [];
@@ -221,6 +234,6 @@ function agentFilePrompt(flag, fail) {
 }
 
 module.exports = {
-  PROMPT_MD, AGENT_JSON, agentBody, isPath, agentsFolder, agentHomeIn, holdsAgentFile, isAgentFolder, targetAgents, agentHomes, findAgentHome,
-  readAgent, rbtvAgent, targetRefusal, takeAgentFlags, agentFilePrompt, promptMissing,
+  PROMPT_MD, TASK_MD, AGENT_JSON, agentBody, isPath, agentsFolder, agentHomeIn, holdsAgentFile, isAgentFolder, targetAgents, agentHomes, findAgentHome,
+  readAgent, rbtvAgent, agentTask, targetRefusal, takeAgentFlags, agentFilePrompt, promptMissing,
 };

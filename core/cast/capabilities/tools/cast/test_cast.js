@@ -361,7 +361,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   const res = spawnSync('node', [TOOL, '-h'], { encoding: 'utf8' });
   assert.strictEqual(res.status, 0, 'cast -h must exit 0');
   const usage = res.stdout.slice(res.stdout.indexOf('Usage:\n'));
-  assert.ok(usage.startsWith('Usage:\n  cast --agent AGENT (-p TEXT | -f FILE)'), 'the first usage line is the rbtv-agent form');
+  assert.ok(usage.startsWith('Usage:\n  cast --agent AGENT [-p TEXT | -f FILE]'), 'the first usage line is the rbtv-agent form');
   assert.ok(usage.indexOf('cast --agent AGENT') < usage.indexOf('cast <harness> <model>'), 'the raw form comes second');
   assert.ok(res.stdout.includes('for a worker chosen by `cast route`, or a throwaway'), 'the raw form says what it is for');
   assert.ok(/-p TEXT \/ -f FILE +the TASK/.test(res.stdout), '-p and -f are the task');
@@ -1831,6 +1831,35 @@ else {
     const res = spawnSync('node', [TOOL, ...args, '--dry-run'], { cwd: root, encoding: 'utf8' });
     assert.strictEqual(res.status, 2, `expected a refusal for: ${args.join(' ')}`);
     assert.ok(res.stderr.includes(text), `refusal for ${args.join(' ')} must say '${text}', got: ${res.stderr}`);
+  }
+  // with neither -p nor -f, an rbtv agent's task is task.md in its folder
+  {
+    const once = path.join(root, 'plans', 'once', 'agents', 'once');
+    fs.mkdirSync(once, { recursive: true });
+    fs.writeFileSync(path.join(once, 'prompt.md'), '---\nname: once\n---\nYou are Once.');
+    fs.writeFileSync(path.join(once, 'agent.json'), '{"name":"once","harness":"claude","model":"sonnet-5-5","effort":"medium"}\n');
+    const taskFile = path.join(once, 'task.md');
+    const other = path.join(root, 'other-task.txt');
+    fs.writeFileSync(other, 'OTHER-TASK-ARM\n');
+    const launchOnce = (args) => spawnSync('node', [TOOL, '--agent', once, ...args, '--dry-run'], { cwd: root, encoding: 'utf8' });
+    const preview = (args) => {
+      const res = launchOnce(args);
+      assert.strictEqual(res.status, 0, res.stderr);
+      return JSON.parse(res.stdout).stdin_preview;
+    };
+
+    // a folder without task.md is refused, and the refusal names the file and the folder
+    const none = launchOnce([]);
+    assert.strictEqual(none.status, 2, 'no task.md and no task flag must be refused');
+    assert.ok(none.stderr.includes(`refused: no task: pass -p TEXT or -f FILE, or write task.md in ${once}\n`), none.stderr);
+
+    // task.md is sent as the task: the dry run prints its text, never its path
+    fs.writeFileSync(taskFile, 'TASK-HOME-ARM\n');
+    assert.strictEqual(preview([]), 'TASK-HOME-ARM\n');
+    // an explicit -p wins over task.md
+    assert.strictEqual(preview(['-p', 'x']), 'x');
+    // an explicit -f wins over task.md
+    assert.strictEqual(preview(['-f', other]), 'OTHER-TASK-ARM\n');
   }
   // a folder still holding the prompt file under its old name is refused with the rename command,
   // by a launch and in the list
