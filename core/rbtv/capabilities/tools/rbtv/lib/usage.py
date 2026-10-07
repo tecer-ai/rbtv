@@ -1,4 +1,4 @@
-"""Plan usage of provider accounts: the readers, the parsers and the two views.
+"""Usage limits and balances of provider accounts: the readers, the parsers and the two views.
 
 Each key is sent only to its own provider's usage address, the one
 providers.json names. A stored token is never refreshed here: an expired one is

@@ -1,5 +1,5 @@
 {
   "name": "rbtv",
-  "description": "Manages the files an agent is exposed to, and the provider accounts a machine uses: saved logins, switching and plan usage.",
+  "description": "Manages the files an agent is exposed to, and the provider accounts a machine uses: saved logins, switching and usage limits.",
   "entry": "install.py"
 }

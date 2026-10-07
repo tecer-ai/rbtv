@@ -1,6 +1,6 @@
 # Provider accounts
 
-Use `rbtv providers` to manage the AI [provider](../../../glossary/provider.md) accounts and subscriptions a machine uses: to see which provider logins it holds, to switch a harness between accounts of one provider without logging in again, and to read each account's plan usage. Use this page when running those verbs, when deciding which account to switch to, and when adding or changing a supported provider. `rbtv providers -h` and each verb's `-h` own the grammar, options and exit codes.
+Use `rbtv providers` to manage the AI [provider](../../../glossary/provider.md) accounts a machine uses: to see which provider logins it holds, to switch a harness between accounts of one provider without logging in again, and to read each account's usage limits or balance. Use this page when running those verbs, when deciding which account to switch to, and when adding or changing a supported provider. `rbtv providers -h` and each verb's `-h` own the grammar, options and exit codes.
 
 Run the verbs from a folder inside an installation. They take no `--target`, and a run outside an installation is refused with `installation-unknown`: saved logins belong to one installation, so an agent folder or the current folder never stands in for it.
 
@@ -8,7 +8,7 @@ Run the verbs from a folder inside an installation. They take no `--target`, and
 
 `rbtv providers list` reads local files only. Each provider has a row whether or not it is logged in. For a provider whose login can be saved it shows every saved name, `*` on the live one, the account's e-mail and how long the saved login stays valid. `rbtv providers list --supported` shows what rbtv supports instead: lab, harness, login method, key variable and usage source. Models are listed by cast, not here.
 
-`rbtv providers usage` reads plan usage. Its sources differ by provider, and the difference decides how to read a row:
+`rbtv providers usage` reads each account's usage limits or balance. Its sources differ by provider, and the difference decides how to read a row:
 
 | Provider | Row | Source |
 |---|---|---|

@@ -9,7 +9,7 @@ The program is `install.py` in this folder: a small entry point, one module per 
 | File | CONTAINS | PURPOSE | ALWAYS LOAD WHEN |
 |---|---|---|---|
 | [rbtv CLI](../../glossary/rbtv-cli.md) | What the scan recognizes, what is generated for each harness, target and placement, results and refresh | Validate and deliver a source change | creating, moving or converting a scanned file, or reading what a command reported |
-| [Provider accounts](documentation/providers.md) | The `rbtv providers` verbs, where a saved login lives and the providers file | Save, switch and read provider accounts | listing or switching provider logins, reading plan usage, or adding a supported provider |
+| [Provider accounts](documentation/providers.md) | The `rbtv providers` verbs, where a saved login lives and the providers file | Save, switch and read provider accounts | listing or switching provider logins, reading usage limits, or adding a supported provider |
 | [Installer design decisions](documentation/design-decisions.md) | The decisions in force for the installer, each with its reason | Change the installer without undoing a settled choice | changing `install.py`, `lib/`, `discovery.py` or `selftest/` |
 
 ## Self-check

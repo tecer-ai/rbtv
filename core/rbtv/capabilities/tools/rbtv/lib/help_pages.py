@@ -35,8 +35,8 @@ Agents
                 files, harness, model or effort, or list the agents. See: rbtv agent -h
 
 AI provider accounts (a provider is the lab whose models a harness runs)
-  providers VERB  Manage the AI provider accounts and subscriptions this machine uses:
-                  list, save and switch logins, read plan usage. See: rbtv providers -h
+  providers VERB  Manage the AI provider accounts this machine uses: list, save and
+                  switch logins, read usage limits. See: rbtv providers -h
 
 Check and guided use
   doctor       Check harness files and selected command shortcuts.
@@ -881,18 +881,18 @@ rbtv — providers help
 
 usage: rbtv providers [-h] COMMAND ...
 
-Manage the AI provider accounts and subscriptions this machine uses. A
-provider is the lab whose models a harness runs (claude, codex, zai,
-google, ...). List the supported providers, save the current login under
-a name, switch between saved logins without logging in again, and read
-each account's plan usage.
+Manage the AI provider accounts this machine uses. A provider is the lab
+whose models a harness runs (claude, codex, zai, google, ...). List the
+supported providers, save the current login under a name, switch between
+saved logins without logging in again, and read each account's usage
+limits or balance.
 
   list [PROVIDER]               Login state and saved names; --supported
                                 lists what rbtv supports instead.
   switch PROVIDER ACCOUNT       Make a saved login the live one.
   name PROVIDER ACCOUNT         Save the current login under ACCOUNT.
   remove-name PROVIDER ACCOUNT  Delete a saved login. It cannot be undone.
-  usage [PROVIDER] [ACCOUNT]    Plan usage and renewal times.
+  usage [PROVIDER] [ACCOUNT]    Usage limits and renewal times.
 
 Only claude and codex logins can be saved and switched; every other
 provider holds one login or key, with nothing to switch between. Saved
@@ -1018,14 +1018,14 @@ rbtv — providers usage help
 usage: rbtv providers usage [-h] [--posh] [--interval SECONDS] [--json]
                             [PROVIDER] [ACCOUNT]
 
-Plan usage of each account with a readable source: used percent and renewal
-time of each window (claude, codex, zai, kimi), the balance (deepseek), or
-the console address where no source exists (google, sakana, xai). claude
-reads every saved name through its own stored token; an expired token is
-reported as expired, never as 0%. Each key is sent only to its own
-provider's usage address and is never printed. codex usage comes from this
-machine's session files: whichever account ran last. A row that cannot be
-read is reported in its place, and the command still exits 0.
+Usage limits or balance of each account with a readable source: the used
+percent and renewal time of each window (claude, codex, zai, kimi), the
+balance (deepseek), or the console address where no source exists (google,
+sakana, xai). claude reads every saved name through its own stored token;
+an expired token is reported as expired, never as 0%. Each key is sent only
+to its own provider's usage address and is never printed. codex usage comes
+from this machine's session files: whichever account ran last. A row that
+cannot be read is reported in its place, and the command still exits 0.
 
 positional arguments:
   PROVIDER            only this provider

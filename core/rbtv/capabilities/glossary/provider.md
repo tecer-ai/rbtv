@@ -1,8 +1,8 @@
 # Provider
 
-A provider is the AI lab account system whose models a [harness](harness.md) runs and whose plan or balance a launch spends. rbtv names eight: `claude`, `codex`, `zai`, `deepseek`, `kimi`, `google`, `sakana` and `xai`. A provider is not a harness: `claude` and `codex` are each reached through the harness of the same name, and the other six through OpenCode.
+A provider is the AI lab account system whose models a [harness](harness.md) runs and whose usage limit or balance a launch draws on. rbtv names eight: `claude`, `codex`, `zai`, `deepseek`, `kimi`, `google`, `sakana` and `xai`. A provider is not a harness: `claude` and `codex` are each reached through the harness of the same name, and the other six through OpenCode.
 
-Name the provider when the question is whose login or key is used, whether this machine holds it, or how much of a plan is left. Name the harness when the question is how instructions and tools reach the agent. Name the model, through cast, when choosing what to launch; only cast lists models.
+Name the provider when the question is whose login or key is used, whether this machine holds it, or how much of a usage limit or balance is left. Name the harness when the question is how instructions and tools reach the agent. Name the model, through cast, when choosing what to launch; only cast lists models.
 
 ## Login and saved login
 

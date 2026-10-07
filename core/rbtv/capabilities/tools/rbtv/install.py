@@ -76,7 +76,7 @@ ones above it, so there is no cycle:
     report        printing what a run planned or did
     tui           the arrow-key widgets the interactive flow is built from
     providers     the supported providers, an installation's saved logins, their verbs
-    usage         plan usage of provider accounts: readers, parsers, both views, its verb
+    usage         usage limits of provider accounts: readers, parsers, both views, its verb
     interactive   the guided flow
     parser        the command grammar
     commands      one handler per verb, and the dispatch
