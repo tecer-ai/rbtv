@@ -57,6 +57,15 @@ REPO_ROOT = Path(__file__).resolve().parents[6]
 
 INDEX_REL = Path(".rbtv") / "config" / "install-index.json"
 
+# The supported providers: one file, kept beside cast's supported models and
+# read by both programs. `core/rbtv/capabilities/providers.md` documents it.
+PROVIDERS_FILE = (REPO_ROOT / "core" / "cast" / "capabilities" / "tools" / "cast"
+                  / "providers.json")
+# An installation's saved logins, one folder per provider.
+PROVIDERS_REL = Path(".rbtv") / "config" / "rbtv" / "providers"
+# The installation's environment file, where a provider's key variable may sit.
+ENV_FILE_REL = Path(".rbtv") / "config" / "env" / ".env"
+
 FENCE_ID = "rbtv"
 # The fence the 0.2 installer wrote; read as ours, never written.
 LEGACY_FENCE_ID = "rbtv2"

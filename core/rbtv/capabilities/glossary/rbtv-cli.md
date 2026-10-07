@@ -1,6 +1,6 @@
 # rbtv CLI
 
-The rbtv command-line interface scans source files, validates their records and writes the files each harness receives. Authors maintain the source. A successful install proves recognition and field validation, not that an agent will select or follow the instructions correctly.
+The rbtv command-line interface scans source files, validates their records and writes the files each harness receives. Its `providers` verbs manage [provider](provider.md) accounts instead: they read no source and write no harness file, and [Provider accounts](../providers.md) owns them. Authors maintain the source. A successful install proves recognition and field validation, not that an agent will select or follow the instructions correctly.
 
 The program is `core/rbtv/capabilities/tools/rbtv/install.py`. Use `rbtv -h` and its Discover commands to list, search and show existing material before creating another file for the same work.
 

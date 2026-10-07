@@ -2,7 +2,7 @@
 the review screens (`1-projects/rbtv-agent-cli-unification/build/screens/review/`),
 kept verbatim. Each page is named by its command path; `root` is the bare command.
 
-The selftest checks that every option a command takes is named on its page.
+The selftest checks that every option a `providers` command takes is named on its page.
 """
 from __future__ import annotations
 
@@ -25,6 +25,10 @@ Change this installation
 Agents
   agent VERB    Act on one agent instead of this installation: create it, change its
                 files, harness, model or effort, or list the agents. See: rbtv agent -h
+
+Provider accounts
+  providers VERB  List providers, save and switch account logins, read plan
+                  usage. See: rbtv providers -h
 
 Check and guided use
   doctor       Check harness files and selected command shortcuts.
@@ -881,5 +885,176 @@ Examples:
 
 Next: rbtv agent configure scout -h
 Exit codes: 0 success, including no agent found; 1 refused or failed; 2 invalid arguments.
+""",
+    "providers": """\
+rbtv — providers help
+
+usage: rbtv providers [-h] COMMAND ...
+
+Manage the AI provider accounts this machine uses. A provider is the lab
+whose models a harness runs (claude, codex, zai, google, ...). List the
+supported providers, save the current login under a name, switch between
+saved logins without logging in again, and read each account's plan usage.
+
+  list [PROVIDER]               Login state and saved names; --supported
+                                lists what rbtv supports instead.
+  switch PROVIDER ACCOUNT       Make a saved login the live one.
+  name PROVIDER ACCOUNT         Save the current login under ACCOUNT.
+  remove-name PROVIDER ACCOUNT  Delete a saved login. It cannot be undone.
+  usage [PROVIDER] [ACCOUNT]    Plan usage and renewal times.
+
+Only claude and codex logins can be saved and switched; every other
+provider holds one login or key, with nothing to switch between. Saved
+logins live in <installation>/.rbtv/config/rbtv/providers/, kept out of
+git. The installation is found from the current folder; these verbs take
+no --target.
+Guide: core/rbtv/capabilities/providers.md in the rbtv source.
+
+Shared options: --json  -h, --help
+Changes also accept --dry-run. This command never asks a question.
+
+Start: rbtv providers list
+More:  rbtv providers COMMAND -h
+Exit codes: 0 success; 1 refused or failed; 2 invalid arguments.
+""",
+    "providers list": """\
+rbtv — providers list help
+
+usage: rbtv providers list [-h] [--supported] [--json] [PROVIDER]
+
+Every supported provider and whether this machine is logged in to it. For
+claude and codex: each saved name, * on the live one, its e-mail and how
+long the saved login stays valid. A live login saved under no name is
+flagged: save it with name before you switch. Local files only; no network.
+
+--supported lists what rbtv supports instead: each provider's lab, the
+harness that runs it, its login method (account or API key), its key
+variable, and where its usage figure comes from. Models: cast list --models.
+
+positional arguments:
+  PROVIDER     only this provider, for example claude
+
+options:
+  -h, --help   show this help message and exit
+  --supported  supported providers instead of login state
+  --json       one JSON value on standard output, success or failure
+
+Examples:
+  rbtv providers list
+  rbtv providers list claude --json
+  rbtv providers list --supported
+
+Next: rbtv providers usage
+Exit codes: 0 success; 1 refused or failed; 2 invalid arguments.
+""",
+    "providers switch": """\
+rbtv — providers switch help
+
+usage: rbtv providers switch [-h] [--json] [--dry-run] PROVIDER ACCOUNT
+
+Make the login saved as ACCOUNT the live login of PROVIDER (claude or
+codex). The live login is first saved back under its own name, because
+tokens change as they are used. Refused when the live login is saved under
+no name: run rbtv providers name PROVIDER NAME first. Running sessions keep
+their account; new sessions use ACCOUNT.
+
+positional arguments:
+  PROVIDER    claude or codex
+  ACCOUNT     a saved name; rbtv providers list PROVIDER shows them
+
+options:
+  -h, --help  show this help message and exit
+  --json      one JSON value on standard output, success or failure
+  --dry-run   say what would change without writing
+
+Example: rbtv providers switch claude work
+Next: rbtv providers usage claude
+Exit codes: 0 success; 1 refused or failed; 2 invalid arguments.
+""",
+    "providers name": """\
+rbtv — providers name help
+
+usage: rbtv providers name [-h] [--json] [--dry-run] PROVIDER ACCOUNT
+
+Save PROVIDER's current login as ACCOUNT, in
+<installation>/.rbtv/config/rbtv/providers/PROVIDER/ACCOUNT.json. Log in
+with the harness first (claude, then /login; codex login). ACCOUNT is 1 to
+40 lowercase letters, digits and hyphens. A name that already holds a
+different account is refused: remove it first. The same account is
+refreshed.
+
+positional arguments:
+  PROVIDER    claude or codex
+  ACCOUNT     the name to save the current login under
+
+options:
+  -h, --help  show this help message and exit
+  --json      one JSON value on standard output, success or failure
+  --dry-run   say what would be written without writing
+
+Example: rbtv providers name claude work
+Next: rbtv providers list claude
+Exit codes: 0 success; 1 refused or failed; 2 invalid arguments.
+""",
+    "providers remove-name": """\
+rbtv — providers remove-name help
+
+usage: rbtv providers remove-name [-h] [--yes] [--json] [--dry-run]
+                                  PROVIDER ACCOUNT
+
+Delete the login saved as ACCOUNT. That file is the only copy of the
+account's login: to use it again, log in to it again. The live name is
+refused; switch first. Without --yes, nothing is deleted: the refusal names
+the file and the command that confirms (exit 1).
+
+positional arguments:
+  PROVIDER    claude or codex
+  ACCOUNT     a saved name; rbtv providers list PROVIDER shows them
+
+options:
+  -h, --help  show this help message and exit
+  --yes       confirm the deletion
+  --json      one JSON value on standard output, success or failure
+  --dry-run   name the file that would be deleted without deleting it
+
+Example: rbtv providers remove-name claude work --yes
+Next: rbtv providers list claude
+Exit codes: 0 success; 1 refused or failed; 2 invalid arguments.
+""",
+    "providers usage": """\
+rbtv — providers usage help
+
+usage: rbtv providers usage [-h] [--posh] [--interval SECONDS] [--json]
+                            [PROVIDER] [ACCOUNT]
+
+Plan usage of each account with a readable source: used percent and renewal
+time of each window (claude, codex, zai, kimi), the balance (deepseek), or
+the console address where no source exists (google, sakana, xai). claude
+reads every saved name through its own stored token; an expired token is
+reported as expired, never as 0%. Each key is sent only to its own
+provider's usage address and is never printed. codex usage comes from this
+machine's session files: whichever account ran last. A row that cannot be
+read is reported in its place, and the command still exits 0.
+
+positional arguments:
+  PROVIDER            only this provider
+  ACCOUNT             only this saved name; needs PROVIDER
+
+options:
+  -h, --help          show this help message and exit
+  --posh              a full-screen view with bars and countdowns, redrawn
+                      every second; ctrl-c exits; needs a terminal; not
+                      with --json
+  --interval SECONDS  with --posh, seconds between reads, 30 or more
+                      (default 120)
+  --json              one JSON value on standard output, success or failure
+
+Examples:
+  rbtv providers usage
+  rbtv providers usage claude work
+  rbtv providers usage --posh
+
+Next: rbtv providers list
+Exit codes: 0 success; 1 refused or failed; 2 invalid arguments.
 """,
 }

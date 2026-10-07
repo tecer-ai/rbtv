@@ -19,6 +19,7 @@ INSTALLATION ROOT only. Python 3 stdlib only.
     rbtv update guidance       copy maintained instructions
     rbtv update scaffolding    refresh selected installed files
     rbtv update all            do both updates
+    rbtv providers list        provider accounts: logins, saved names, usage
     rbtv doctor               read-only health and recovery checks
     rbtv interactive           explicitly start the guided flow
     rbtv selftest              run isolated regression checks
@@ -72,6 +73,8 @@ ones above it, so there is no cycle:
     doctor        the read-only health check
     report        printing what a run planned or did
     tui           the arrow-key widgets the interactive flow is built from
+    providers     the supported providers, an installation's saved logins, their verbs
+    usage         plan usage of provider accounts: readers, parsers, both views, its verb
     interactive   the guided flow
     parser        the command grammar
     commands      one handler per verb, and the dispatch

@@ -399,6 +399,12 @@ def ls_li_doctor(ctx) -> None:
         (["doctor", "-h"], "doctor"),
         (["interactive", "-h"], "interactive"),
         (["selftest", "-h"], "selftest"),
+        (["providers", "-h"], "providers"),
+        (["providers", "list", "-h"], "providers list"),
+        (["providers", "switch", "-h"], "providers switch"),
+        (["providers", "name", "-h"], "providers name"),
+        (["providers", "remove-name", "-h"], "providers remove-name"),
+        (["providers", "usage", "-h"], "providers usage"),
     ):
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):

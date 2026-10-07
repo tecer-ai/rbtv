@@ -1,7 +1,6 @@
 """One handler per verb, and the dispatch that runs them."""
 from __future__ import annotations
 
-import argparse
 import json
 import sys
 from functools import wraps
@@ -9,12 +8,11 @@ from pathlib import Path
 
 from discovery import LAUNCH_FIELDS, Refuse, scan_all
 
-from . import present, subagents
+from . import present, providers, subagents, usage
 from .constants import (
     AGENT_RECORD,
     ANSI,
     BASIS_NONE,
-    GUIDANCE_FILE,
     GUIDANCE_NAMES,
     HARNESSES,
     REPO_ROOT,
@@ -22,7 +20,7 @@ from .constants import (
     UPDATE_SCOPES,
 )
 from .guidance import _norm_prefix
-from .target import DISCOVER_CWD, discover_installation, resolve_target
+from .target import DISCOVER_CWD, DISCOVER_STATE, discover_installation, resolve_target
 from .state import (book_harnesses, is_agent_target, read_state, selected_packs,
                     selected_files, state_path, file_membership, write_state)
 from .catalog import catalog_packs, check_packs, pack_files
@@ -1398,6 +1396,12 @@ def cmd_agent(args, target: Path, catalog: dict, shadowed: list,
     return 0
 
 
+def cmd_providers(args, target: Path) -> int:
+    """The provider-account verbs. They read no source catalog."""
+    handler = usage if args.providers_verb == "usage" else providers
+    return handler.command(args, providers.load(), target)
+
+
 _HANDLERS = {
     "add": cmd_add,
     "rm": cmd_rm,
@@ -1448,6 +1452,19 @@ def main(argv: list[str] | None = None, *, ask=None) -> int:
         return selftest()
 
     try:
+        if args.verb == "providers":
+            if getattr(args, "target", None) is not None:
+                raise Refuse("usage", "providers verbs take no --target")
+            # Saved logins belong to an installation: an agent folder, a bare
+            # `.rbtv/` or the current folder never stands in for one.
+            found, why = discover_installation(Path.cwd())
+            if why != DISCOVER_STATE:
+                raise Refuse("installation-unknown",
+                             f"no installation holds {Path.cwd()}: no folder from there "
+                             f"upward has {STATE_REL.as_posix()}. Run this from a folder "
+                             "inside an installation")
+            target = found
+            return cmd_providers(args, target)
         if args.verb == "agent":
             if getattr(args, "target", None) is not None:
                 raise Refuse("usage", "agent verbs take no --target")
@@ -1480,7 +1497,7 @@ def main(argv: list[str] | None = None, *, ask=None) -> int:
                 "--type, or --pack")
         return handler(args, target, catalog, shadowed, ask=ask)
     except Refuse as exc:
-        takes_target = args.verb != "agent"
+        takes_target = args.verb not in ("agent", "providers")
         if as_json:
             print(json.dumps(_error_data(exc, locals().get("target"),
                                          locals().get("catalog"),

@@ -248,4 +248,30 @@ def build_parser() -> argparse.ArgumentParser:
         s.add_argument("--details", action="store_true")
     s_ag_list.add_argument("--json", action="store_true")
     s_ag_list.add_argument("--full", action="store_true")
+
+    # Providers and accounts are checked by the handler, which names the known
+    # ones. ACCOUNT is optional here for that reason: the handler refuses a
+    # call without it and lists the saved names.
+    s_prov = sub.add_parser("providers")
+    prov_sub = s_prov.add_subparsers(dest="providers_verb", metavar="COMMAND")
+    prov_sub.required = True
+    page(s_prov, "providers")
+    s_pr_list = prov_sub.add_parser("list")
+    s_pr_list.add_argument("provider", nargs="?", metavar="PROVIDER")
+    s_pr_list.add_argument("--supported", action="store_true")
+    s_pr_usage = prov_sub.add_parser("usage")
+    s_pr_usage.add_argument("provider", nargs="?", metavar="PROVIDER")
+    s_pr_usage.add_argument("account", nargs="?", metavar="ACCOUNT")
+    s_pr_usage.add_argument("--posh", action="store_true")
+    s_pr_usage.add_argument("--interval", type=int, metavar="SECONDS")
+    for name in ("switch", "name", "remove-name"):
+        sp = prov_sub.add_parser(name)
+        sp.add_argument("provider", metavar="PROVIDER")
+        sp.add_argument("account", nargs="?", metavar="ACCOUNT")
+        sp.add_argument("--dry-run", action="store_true")
+        if name == "remove-name":
+            sp.add_argument("--yes", action="store_true")
+    for name, sp in prov_sub.choices.items():
+        sp.add_argument("--json", action="store_true")
+        page(sp, f"providers {name}")
     return p
