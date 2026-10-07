@@ -67,11 +67,10 @@ test('loads a valid config from the runtime path', (dir) => {
   assert.equal(Object.hasOwn(config, 'defaultLaunch'), false);
 });
 
-test('dreamer defaults off and accepts only a boolean enable setting', (dir) => {
-  for (const dreamer of [undefined, {}, { enabled: false }, { enabled: true }]) {
+test('dreamer defaults off with no model and accepts only a boolean enable setting', (dir) => {
+  for (const dreamer of [undefined, {}, { enabled: false }]) {
     writeConfig(dir, { dreamer });
-    assert.equal(loadConfig(dir).dreamer.enabled, dreamer?.enabled ?? false);
-    assert.deepEqual(loadConfig(dir).dreamer.model, { harness: 'codex', model: 'gpt-6.1-sol', effort: 3 });
+    assert.deepEqual(loadConfig(dir).dreamer, { enabled: false });
   }
   for (const dreamer of [null, [], true, { enabled: 'true' }, { enabled: 1 }, { hour: 3 }]) {
     writeConfig(dir, { dreamer });
@@ -87,9 +86,20 @@ test('dreamer model accepts a complete override and survives config updates', (d
     assert.deepEqual(updateConfig(dir, (config) => { config.routes.C2 = 'sample'; }).dreamer.model, model);
     assert.deepEqual(loadConfig(dir).dreamer.model, model);
   }
-  const reset = updateConfig(dir, (config) => { delete config.dreamer.model; });
-  assert.deepEqual(reset.dreamer.model, { harness: 'codex', model: 'gpt-6.1-sol', effort: 3 });
-  assert.deepEqual(loadConfig(dir).dreamer.model, reset.dreamer.model);
+});
+
+test('an enabled dreamer without a model is refused, naming the key and an example value', (dir) => {
+  const required = /^dreamer\.model required when dreamer\.enabled is true: add "model": \{"harness":"codex","model":"gpt-6\.1-sol","effort":3\} under "dreamer" in \.rbtv\/config\/ignite\/config\.json$/;
+  writeConfig(dir, { dreamer: { enabled: true } });
+  assert.throws(() => loadConfig(dir), (error) => required.test(error.message));
+  const model = { harness: 'claude', model: 'example-model', effort: 2 };
+  writeConfig(dir, { dreamer: { enabled: true, model } });
+  const before = fs.readFileSync(configPath(dir), 'utf8');
+  assert.throws(() => updateConfig(dir, (config) => { delete config.dreamer.model; }), (error) => required.test(error.message));
+  assert.equal(fs.readFileSync(configPath(dir), 'utf8'), before);
+  const off = updateConfig(dir, (config) => { config.dreamer.enabled = false; delete config.dreamer.model; });
+  assert.deepEqual(off.dreamer, { enabled: false });
+  assert.deepEqual(loadConfig(dir).dreamer, { enabled: false });
 });
 
 test('dreamer model rejects malformed or incomplete overrides without writing', (dir) => {

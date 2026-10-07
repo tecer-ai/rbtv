@@ -34,18 +34,32 @@ Managing an agent's files and launch values uses `rbtv agent`; connecting and di
 
 ## Dreamer
 
-The proposal model is configured in the existing `.rbtv/config/ignite/config.json`:
+The Dreamer's settings are in the existing `.rbtv/config/ignite/config.json`:
 
 ```json
 "dreamer": {
-  "enabled": false,
+  "enabled": true,
   "model": { "harness": "codex", "model": "gpt-6.1-sol", "effort": 3 }
 }
 ```
 
-Omitting `dreamer.model` selects `codex gpt-6.1-sol 3`. An override must supply all three fields: `harness` is `codex`, `opencode` or `claude`; `model` is a nonempty cast model name without whitespace or a leading dash; `effort` is a JSON integer from 1 to 5. Unknown fields and invalid values are refused. Cast checks model availability and its supported effort mapping when called. Manual and nightly runs use the same setting; the daemon reloads it on each tick. Agent `agent.json` settings are independent.
+`dreamer.model` is the proposal model. It must supply all three fields: `harness` is `codex`, `opencode` or `claude`; `model` is a nonempty cast model name without whitespace or a leading dash; `effort` is a JSON integer from 1 to 5. Unknown fields and invalid values are refused. Ignite has no built-in model at run time: while `dreamer.enabled` is true the configuration is refused without `dreamer.model`, and the refusal names the key and an example value. `ignite dreamer run` is refused the same way when the key is absent. To use another model, edit `dreamer.model` in that file. Cast runs from the installation folder, so the installation's model selection applies, and the model works in a temporary launch folder whose task text is `task.md`. Cast checks model availability and its supported effort mapping when called. Manual and nightly runs use the same setting; the daemon reloads it on each tick. Agent `agent.json` settings are independent.
 
-Dreamer ships disabled: omit `dreamer` or keep `"dreamer": { "enabled": false }` in `.rbtv/config/ignite/config.json` for the initial deploy. Both nightly consolidation and the 48-hour watchdog stay off. After `ready`, verify one fresh timer wake has a new threadless conversation and harness session, input equal to its schedule id, and all five checked memory files in its prompt. Only after that proof, with the owner present for the first consolidation, set `"dreamer": { "enabled": true }` in the existing config. The daemon reloads it on the next tick (normally within 30 seconds); enabling during the 03:00 hour can run consolidation immediately. Otherwise attend the next nightly slot. Set it back to false to disable both calls.
+Dreamer ships disabled: omit `dreamer` or keep `"dreamer": { "enabled": false }` for the initial deploy. Both nightly consolidation and the 48-hour watchdog stay off. After `ready`, verify one fresh timer wake has a new threadless conversation and harness session, input equal to its schedule id, and all five checked memory files in its prompt. Only after that proof, with the owner present for the first consolidation, run:
+
+```
+ignite dreamer enable --installation <installation>
+```
+
+It sets `dreamer.enabled` to true and, when `dreamer.model` is absent, records `codex gpt-6.1-sol 3` there; the result names the model in use. The daemon reloads the configuration on the next tick (normally within 30 seconds); enabling during the 03:00 hour can run consolidation immediately. Otherwise attend the next nightly slot. To turn both the nightly consolidation and the watchdog off:
+
+```
+ignite dreamer disable --installation <installation>
+```
+
+It sets `dreamer.enabled` to false and keeps `dreamer.model`. It does not cancel a consolidation already in progress. Both commands change only those keys, leave every other setting and the schedule as they are, and write nothing when the requested state is already in force; the result says so. An unreadable or invalid configuration is refused with nothing written. `--json` prints `{installation, config, enabled, changed, model, modelRecorded}`.
+
+Enable and disable affect automatic Dreamer operation for the entire installation, not only the calling agent. Agents must use these commands only when explicitly requested by the owner. Do not disable Dreamer as a workaround for an individual agent's problem.
 
 To consolidate once without waiting for 03:00, and without marking that slot consumed, run:
 
@@ -53,7 +67,7 @@ To consolidate once without waiting for 03:00, and without marking that slot con
 ignite dreamer run --installation <installation>
 ```
 
-It is one shot: it runs the same quiet-or-consolidation path as the nightly pass, then exits. It does not loop. It takes `.rbtv/runtime/ignite/memory.lock` for the initial work check, each snapshot read and publication, releasing it before every model call. Contention during the initial check prints a busy result and does not start a run. It runs even when `dreamer.enabled` is false, and the result says so. Use it for the owner-present first consolidation, or for a deliberate catch-up, including while the nightly runner is still off. It queues a digest or failure notice on the direct-message agent's outbox; the running daemon delivers that row. It does not confirm delivery itself, so it does not save new reported conflicts. Ordinary daemon outbox delivery saves the thread key but has no conflict metadata. Only a later consolidation whose own digest delivery is confirmed saves those conflicts. The result is one JSON line, including installation, config, and run-setup failures. Exit 0 means the run finished without an alert or error. A required digest or failure notice that cannot be queued returns `ok: false`, a non-null `error`, and exit 1; this includes a missing `dmAgent` or DM agent store. See `ignite dreamer --help`.
+It is one shot: it runs the same quiet-or-consolidation path as the nightly pass, then exits. It does not loop. It takes `.rbtv/runtime/ignite/memory.lock` for the initial work check, each snapshot read and publication, releasing it before every model call. Contention during the initial check prints a busy result and does not start a run. It runs even when `dreamer.enabled` is false, does not enable the nightly run, and the result says so. Use it for the owner-present first consolidation, or for a deliberate catch-up, including while the nightly runner is still off. It queues a digest or failure notice on the direct-message agent's outbox; the running daemon delivers that row. It does not confirm delivery itself, so it does not save new reported conflicts. Ordinary daemon outbox delivery saves the thread key but has no conflict metadata. Only a later consolidation whose own digest delivery is confirmed saves those conflicts. The result is one JSON line, including installation, config, and run-setup failures. Exit 0 means the run finished without an alert or error. A required digest or failure notice that cannot be queued returns `ok: false`, a non-null `error`, and exit 1; this includes a missing `dmAgent` or DM agent store. See `ignite dreamer --help`.
 
 The JSON result distinguishes `digestQueued` (a consolidation digest was queued) from `noticeQueued` (a failure notice was queued). Both are false for quiet, busy, or setup-failure results, or when enqueueing fails. `delivered` says whether the digest or notice was confirmed delivered; it is always false for the manual command. The daemon's `dreamer-watchdog` JSON log uses the same queue fields for watchdog notices: `digestQueued: false`, `noticeQueued: true` after enqueueing.
 

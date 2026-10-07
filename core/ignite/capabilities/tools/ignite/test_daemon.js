@@ -65,7 +65,7 @@ function workspace() {
     },
     tools: { cast: 'cast', stools: 'stools', audio: 'audio' },
     dmAgent: 'master',
-    dreamer: { enabled: true },
+    dreamer: { enabled: true, model: { harness: 'codex', model: 'example-model', effort: 3 } },
     routes: {},
   };
   fs.writeFileSync(configFile(dir), JSON.stringify(body));
@@ -386,10 +386,11 @@ test('watchdog excludes disabled time, resets on re-enable and survives an enabl
   const { dir, home } = workspace();
   const day = 86400_000;
   let now = Date.parse('2026-10-01T12:00:00Z'); // Outside the nightly slot.
-  const config = JSON.parse(fs.readFileSync(configFile(dir), 'utf8'));
-  const enable = (enabled) => {
-    config.dreamer.enabled = enabled;
-    fs.writeFileSync(configFile(dir), JSON.stringify(config), 'utf8');
+  // The running service picks up `ignite dreamer enable|disable` on its next tick.
+  const enable = async (enabled) => {
+    const code = await require('./cli.js').main(['dreamer', enabled ? 'enable' : 'disable', '--installation', dir], { stdout: () => {} });
+    assert.equal(code, 0);
+    assert.equal(JSON.parse(fs.readFileSync(configFile(dir), 'utf8')).dreamer.enabled, enabled);
   };
   const since = () => {
     const store = new Store(path.join(home, 'state.sqlite'));
@@ -406,10 +407,10 @@ test('watchdog excludes disabled time, resets on re-enable and survives an enabl
     runtime = await start(opts);
     assert.equal(slack.posts.length, 0); // Old success cannot count disabled time.
     now += day;
-    enable(false);
+    await enable(false);
     await waitFor(() => since() === null);
     now += 10 * day;
-    enable(true);
+    await enable(true);
     await waitFor(() => since() === now);
     const enabledAt = now;
     now += day;
@@ -422,7 +423,7 @@ test('watchdog excludes disabled time, resets on re-enable and survives an enabl
     now++;
     await waitFor(() => slack.posts.length === 1);
     assert.match(slack.posts[0].text, /48 hours/);
-    enable(false);
+    await enable(false);
     await waitFor(() => since() === null);
     now += 10 * day;
     await new Promise((resolve) => setTimeout(resolve, 70));

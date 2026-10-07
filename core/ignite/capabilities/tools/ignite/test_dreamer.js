@@ -33,12 +33,14 @@ function operation(input, name, text, extra = {}) {
   return { op: Object.hasOwn(input.files, name) ? 'supersede' : 'add', path: name, text,
     sources: input.messages.map((row) => row.rowid), reason: 'owner', explanation: 'Owner supplied this fact.', ...extra };
 }
+const MODEL = Object.freeze({ harness: 'codex', model: 'example-model', effort: 3 });
+
 function proposal(...operations) { return { operations, conflicts: [] }; }
 
 function fixture(slugs = ['master']) {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-dreamer-test space-'));
   const stores = new Map();
-  const config = { workspace, tools: { cast: 'cast' }, dmAgent: 'master', routes: Object.fromEntries(slugs.map((slug, i) => [`C${i + 1}`, slug])) };
+  const config = { workspace, tools: { cast: 'cast' }, dreamer: { enabled: false, model: { ...MODEL } }, dmAgent: 'master', routes: Object.fromEntries(slugs.map((slug, i) => [`C${i + 1}`, slug])) };
   function write(name, text) { const file = path.join(workspace, name); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text, 'utf8'); }
   function read(name) { return fs.readFileSync(path.join(workspace, name), 'utf8'); }
   function git(...args) {
@@ -1172,7 +1174,7 @@ for (const ending of ['\n', '\r\n']) test(`prompt lists every writable file budg
     [`${ROOT}_artifacts/index.md`]: '# Memory\n| Open | When |\n|---|---|\n',
   };
   for (const name of Object.keys(files)) files[name] = files[name].replaceAll('\n', ending);
-  await castProposal({ agent: 'master', files }, { run: async (_command, args) => {
+  await castProposal({ agent: 'master', files }, { workspace: os.tmpdir(), model: MODEL, run: async (_command, args) => {
     const prompt = fs.readFileSync(args.at(-1), 'utf8');
     const budgets = prompt.split('Current file sizes and remaining room (recomputed for each proposal):\n')[1].split('\nInput:')[0];
     for (const [name, text] of Object.entries(files)) {
@@ -1200,11 +1202,14 @@ for (const ending of ['\n', '\r\n']) test(`prompt lists every writable file budg
   } });
 });
 
-test('cast adapter defaults to codex gpt-6.1-sol effort 3 in a disposable folder and parses JSON', async (f) => {
+test('cast adapter runs cast from the installation with the given model, a disposable launch folder and task.md', async (f) => {
   let temp;
-  const result = await castProposal({ agent: 'master', messages: [], files: {} }, { command: 'cast-test.js', run: async (command, args, opts) => {
-    assert.equal(command, process.execPath); assert.deepEqual(args.slice(0, 4), [path.resolve('cast-test.js'), 'codex', 'gpt-6.1-sol', '3']);
-    temp = args[4]; assert.equal(opts.cwd, temp); assert.equal(args[5], '-f'); assert.equal(opts.encoding, 'utf8');
+  const model = { harness: 'opencode', model: 'example/model-v1', effort: 2 };
+  const result = await castProposal({ agent: 'master', messages: [], files: {} }, { workspace: f.workspace, model, command: 'cast-test.js', run: async (command, args, opts) => {
+    assert.equal(command, process.execPath); assert.deepEqual(args.slice(0, 4), [path.resolve('cast-test.js'), 'opencode', 'example/model-v1', '2']);
+    temp = args[4]; assert.equal(opts.cwd, f.workspace); assert.equal(opts.env.PWD, f.workspace);
+    assert.equal(args[5], '-f'); assert.equal(args[6], path.join(temp, 'task.md')); assert.equal(opts.encoding, 'utf8');
+    assert.deepEqual(fs.readdirSync(temp), ['task.md']);
     const prompt = fs.readFileSync(args[6], 'utf8'); assert.match(prompt, /Only owner messages and explicit remember lines in inbox.md are evidence/); assert.match(prompt, /never use tools or edit files/);
     assert.match(prompt, /cite its exact line in sources on both filing operations/);
     assert.match(prompt, /keep its date and attach this agent's Slack thread links backed by this operation's owner sources/);
@@ -1219,9 +1224,10 @@ test('cast adapter defaults to codex gpt-6.1-sol effort 3 in a disposable folder
   assert.deepEqual(result, proposal()); assert.equal(fs.existsSync(temp), false);
 });
 
-test('cast adapter cleans its temporary prompt after failure', async () => {
+test('cast adapter cleans its temporary launch folder after failure', async (f) => {
   let temp;
-  await assert.rejects(castProposal({}, { run: async (_command, _args, opts) => { temp = opts.cwd; throw new Error('provider failure'); } }));
+  await assert.rejects(castProposal({}, { workspace: f.workspace, model: MODEL, run: async (_command, args) => { temp = args[3]; throw new Error('provider failure'); } }));
+  assert.ok(temp);
   assert.equal(fs.existsSync(temp), false);
 });
 
@@ -1229,18 +1235,18 @@ test('cast adapter accepts the OpenCode banner and recovered final JSON, but ref
   for (const stdout of ['OpenCode model banner\n\n{"operations":[],"conflicts":[]}',
     'OpenCode model banner\n\n```json\n{"operations":[],"conflicts":[]}\n```',
     'OpenCode model banner\ncast: recovered final message from the opencode session store (absent from stdout):\n{"operations":[],"conflicts":[]}']) {
-    assert.deepEqual(await castProposal({}, { run: async () => ({ stdout }) }), proposal());
+    assert.deepEqual(await castProposal({}, { workspace: os.tmpdir(), model: MODEL, run: async () => ({ stdout }) }), proposal());
   }
-  await assert.rejects(castProposal({}, { run: async () => ({ stdout: '{"operations":[],"conflicts":[]}\nnot a final report' }) }), /model did not return JSON/);
+  await assert.rejects(castProposal({}, { workspace: os.tmpdir(), model: MODEL, run: async () => ({ stdout: '{"operations":[],"conflicts":[]}\nnot a final report' }) }), /model did not return JSON/);
 });
 
 test('Windows cast shim resolves to Node without shell parsing or losing path arguments', async (f) => {
   const entry = path.join(f.workspace, 'cast entry.js'); f.write('cast entry.js', '// fixture\n');
   f.write('cast.cmd', `@rem rbtv-shim -> ${entry}\r\n@"node" "${entry}" %*\r\n`);
   let launched = false;
-  const result = await castProposal({}, { command: 'cast', platform: 'win32', env: { PATH: f.workspace }, run: async (command, args, opts) => {
+  const result = await castProposal({}, { workspace: f.workspace, model: MODEL, command: 'cast', platform: 'win32', env: { PATH: f.workspace }, run: async (command, args, opts) => {
     launched = true; assert.equal(command, process.execPath); assert.equal(args[0], entry);
-    assert.deepEqual(args.slice(1, 4), ['codex', 'gpt-6.1-sol', '3']); assert.equal(opts.shell, undefined);
+    assert.deepEqual(args.slice(1, 4), ['codex', 'example-model', '3']); assert.equal(opts.shell, undefined);
     return { stdout: JSON.stringify(proposal()) };
   } });
   assert.ok(launched); assert.deepEqual(result, proposal());
@@ -1251,14 +1257,15 @@ test('runner can open and close its own SQLite stores', async (f) => {
   assert.equal(result.ok, true, result.alert); assert.equal(getState(f.stores.get('master')).lastSuccessAt, NOW);
 });
 
-for (const model of [undefined, { harness: 'opencode', model: 'example/model-v1', effort: 2 }]) test(`runner executes configured cast and model (${model ? 'override' : 'default'}) through the real adapter`, async (f) => {
+test('runner executes configured cast and dreamer.model through the real adapter, from the installation', async (f) => {
+  const model = { harness: 'opencode', model: 'example/model-v1', effort: 2 };
   f.message(); const name = `${ROOT}knowledge/facts.md`;
   const output = proposal({ op: 'add', path: name, text: knowledge(fact('Confirmed by owner.')),
     sources: [1], reason: 'owner', explanation: 'Owner confirmed this fact.' });
-  const args = model ? [model.harness, model.model, String(model.effort)] : ['codex', 'gpt-6.1-sol', '3'];
-  f.write('fake cast.js', `const assert = require('node:assert/strict');\nassert.deepEqual(process.argv.slice(2,5), ${JSON.stringify(args)});\nprocess.stdout.write(${JSON.stringify(JSON.stringify(output))});\n`);
+  const args = [model.harness, model.model, String(model.effort)];
+  f.write('fake cast.js', `const assert = require('node:assert/strict');\nconst path = require('node:path');\nassert.deepEqual(process.argv.slice(2,5), ${JSON.stringify(args)});\nassert.equal(process.cwd(), ${JSON.stringify(fs.realpathSync(f.workspace))});\nassert.notEqual(process.argv[5], process.cwd());\nassert.equal(process.argv[7], path.join(process.argv[5], 'task.md'));\nprocess.stdout.write(${JSON.stringify(JSON.stringify(output))});\n`);
   f.config.tools.cast = path.join(f.workspace, 'fake cast.js');
-  f.config.dreamer = { model };
+  f.config.dreamer = { enabled: true, model };
   const result = await f.run(undefined);
   assert.equal(result.ok, true, result.alert); assert.equal(f.read(name), output.operations[0].text);
   assert.equal(f.git('show', '--pretty=format:', '--name-only', 'HEAD'), name);

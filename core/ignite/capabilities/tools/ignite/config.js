@@ -3,12 +3,15 @@
 // API
 // configPath(workspace)        — <installation>/.rbtv/config/ignite/config.json
 // loadConfig(workspace)        — read and validate that file directly (field reference: core/rbtv/capabilities/templates/ignite-config.schema.json);
-//                                returns the parsed object plus `workspace` (the absolute path it was read for)
+//                                returns the parsed object plus `workspace` (the absolute path it was read for);
+//                                refuses dreamer.enabled true without dreamer.model
 // updateConfig(workspace, fn)  — read, let fn(config) change it, validate, write atomically; returns the new config
 // agentHome(config, slug)      — <installation>/.rbtv/agents/<slug>
 // storePath(config, slug)      — <agentHome>/state.sqlite
 // envValue(workspace, name)    — a variable's value: the OS environment first, then <installation>/.rbtv/config/env/.env; null when unset
 // slackToken(config, key)      — the token the config names under slack.<key>Env ('app' | 'bot' | 'owner'); throws when unset
+// DREAMER_MODEL                — the model `ignite dreamer enable` records when dreamer.model is absent; never read at run time
+// dreamerModelRequired(when)   — the refusal text for a missing dreamer.model: the key and an example value
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -34,6 +37,10 @@ function findWorkspace(start) {
     if (parent === dir) return null;
     dir = parent;
   }
+}
+
+function dreamerModelRequired(when) {
+  return `dreamer.model required ${when}: add "model": ${JSON.stringify(DREAMER_MODEL)} under "dreamer" in .rbtv/config/ignite/config.json`;
 }
 
 function rejectUnknown(obj, allowed, label) {
@@ -90,6 +97,8 @@ function validate(raw) {
       const name = reqString(model, 'model', 'dreamer.model.model');
       if (/\s/.test(name) || name.startsWith('-')) throw new Error('dreamer.model.model must be a cast model name');
       if (!Number.isInteger(model.effort) || model.effort < 1 || model.effort > 5) throw new Error('dreamer.model.effort must be an integer 1-5');
+    } else if (raw.dreamer.enabled === true) {
+      throw new Error(dreamerModelRequired('when dreamer.enabled is true'));
     }
   }
   if (raw.dmAgent !== undefined) reqSlug(raw.dmAgent, 'dmAgent');
@@ -112,7 +121,7 @@ function loadConfig(workspace) {
     throw new Error(`cannot load Ignite config: ${error.message}`);
   }
   validate(raw);
-  return { ...raw, dreamer: { enabled: false, model: { ...DREAMER_MODEL }, ...raw.dreamer }, workspace: path.resolve(workspace) };
+  return { ...raw, dreamer: { enabled: false, ...raw.dreamer }, workspace: path.resolve(workspace) };
 }
 
 function updateConfig(workspace, change) {
@@ -123,7 +132,7 @@ function updateConfig(workspace, change) {
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
   fs.renameSync(tmp, file);
-  return { ...next, dreamer: { enabled: false, model: { ...DREAMER_MODEL }, ...next.dreamer }, workspace: path.resolve(workspace) };
+  return { ...next, dreamer: { enabled: false, ...next.dreamer }, workspace: path.resolve(workspace) };
 }
 
 function agentHome(config, slug) {
@@ -161,4 +170,4 @@ function slackToken(config, key) {
   return value;
 }
 
-module.exports = { configPath, findWorkspace, loadConfig, updateConfig, agentHome, storePath, envValue, slackToken, DREAMER_MODEL };
+module.exports = { configPath, findWorkspace, loadConfig, updateConfig, agentHome, storePath, envValue, slackToken, DREAMER_MODEL, dreamerModelRequired };

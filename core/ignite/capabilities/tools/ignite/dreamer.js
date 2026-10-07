@@ -21,7 +21,7 @@ const path = require('node:path');
 const { execFile, spawnSync } = require('node:child_process');
 const { promisify, stripVTControlCharacters } = require('node:util');
 const { Store } = require('./store.js');
-const { agentHome, storePath, DREAMER_MODEL } = require('./config.js');
+const { agentHome, storePath } = require('./config.js');
 const { parseBoard, CAPS } = require('./board.js');
 const { checkMemory } = require('./memory.js');
 const { acquireMemoryLock, withMemoryLock } = require('./memory-write.js');
@@ -450,16 +450,18 @@ function castOutput(stdout) {
   throw new Refusal('model did not return JSON');
 }
 
-async function castProposal(input, { command = 'cast', model = DREAMER_MODEL, run = execute, platform = process.platform, env = process.env } = {}) {
+// cast starts from the installation, so the installation's model selection
+// applies; the model itself works in the temporary launch folder.
+async function castProposal(input, { workspace, model, command = 'cast', run = execute, platform = process.platform, env = process.env }) {
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-dreamer-'));
   try {
-    const prompt = path.join(folder, 'prompt.md');
-    fs.writeFileSync(prompt, modelPrompt(input), { encoding: 'utf8', mode: 0o600 });
-    const args = [model.harness, model.model, String(model.effort), folder, '-f', prompt];
+    const task = path.join(folder, 'task.md');
+    fs.writeFileSync(task, modelPrompt(input), { encoding: 'utf8', mode: 0o600 });
+    const args = [model.harness, model.model, String(model.effort), folder, '-f', task];
     const [program, prefix] = castCommand(command, platform, env);
     const result = await run(program, [...prefix, ...args],
-      { cwd: folder, encoding: 'utf8', windowsHide: true, timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024,
-        env: { ...env, PWD: folder } });
+      { cwd: workspace, encoding: 'utf8', windowsHide: true, timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024,
+        env: { ...env, PWD: workspace } });
     return castOutput(result.stdout);
   } finally { fs.rmSync(folder, { recursive: true, force: true }); }
 }
@@ -537,7 +539,7 @@ async function runDreamer({ config, openStore, model, now = Date.now() }) {
     // Capture every ceiling before the first model call, including later agents.
     for (const agent of agents) agent.messages = ownerRows(agent.store, agent.slug, agent.state.cursor, agent.ceiling);
     const reported = new Set(agents.flatMap((agent) => agent.state.reportedConflicts || []));
-    const propose = model || ((input) => castProposal(input, { command: config.tools.cast, model: config.dreamer?.model }));
+    const propose = model || ((input) => castProposal(input, { workspace, command: config.tools.cast, model: config.dreamer.model }));
     for (let attempt = 0; attempt < 2; attempt++) {
       phase = 'read';
       const original = withMemoryLock(workspace, () => snapshot(workspace, agents));

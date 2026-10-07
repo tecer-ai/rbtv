@@ -115,16 +115,31 @@
       }
     },
     "dreamer": {
-      "description": "Optional shared memory-consolidation settings, separate from each agent’s launch settings.",
+      "description": "Optional shared memory-consolidation settings, separate from each agent’s launch settings. config.js refuses enabled true without model.",
       "type": "object",
       "additionalProperties": false,
+      "if": {
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "model"
+        ]
+      },
       "properties": {
         "enabled": {
-          "description": "Enable the nightly runner and watchdog; defaults to false. An explicit operator run is separate.",
+          "description": "Enable the nightly runner and watchdog for the whole installation; defaults to false. Set by ignite dreamer enable and ignite dreamer disable. An explicit operator run is separate.",
           "type": "boolean"
         },
         "model": {
-          "description": "Optional proposal model override; supply all three fields. Without an override Ignite uses its configured software default.",
+          "description": "Proposal model; supply all three fields. Required when enabled is true and for an explicit operator run: Ignite has no model of its own at run time. ignite dreamer enable records one when the key is absent.",
           "type": "object",
           "required": [
             "harness",

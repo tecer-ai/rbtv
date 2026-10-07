@@ -2,7 +2,7 @@
 'use strict';
 
 // API — entry `ignite`. Home from RBTV_AGENT_HOME, or --agent <slug> + --installation <path>.
-// main(argv, deps) → exit code, or a Promise for connect/disconnect/dreamer run.
+// main(argv, deps) → exit code, or a Promise for connect/disconnect/dreamer.
 // deps.slack stubs Slack.
 // deps.stdout / deps.stderr / deps.env optional.
 // schedule next-occurrence lives in schedule.js.
@@ -12,7 +12,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { Store } = require('./store.js');
-const { loadConfig, agentHome, configPath, findWorkspace } = require('./config.js');
+const { loadConfig, updateConfig, agentHome, configPath, findWorkspace, DREAMER_MODEL, dreamerModelRequired } = require('./config.js');
 const { cadenceSpec, nextOccurrence, FIXED_TZ } = require('./schedule.js');
 const { writeBoard, closeSubject, boardPath, preflightBoard, refreshBoard, refreshBoardAfterCommit } = require('./board.js');
 const { workspaceFromHome, remember } = require('./memory.js');
@@ -42,7 +42,8 @@ Timers, work, messages and memory
   post           Queue a Slack message in this agent's channel.
   board          Write or close a subject on the board.
   remember       Append one owner fact to the installation memory inbox.
-  dreamer        Run one memory consolidation, then exit.
+  dreamer        Run one memory consolidation, or enable or disable the
+                 nightly consolidation for the whole installation.
 
 Usage
   ignite connect AGENT (--channel-name NAME | --dm)
@@ -134,9 +135,40 @@ when none. Failure: exit 1, reason on stderr, or {path, error} on stdout with
 Example: ignite remember "Prefers afternoon appointments"
 `;
 
-const DREAMER_HELP = `ignite dreamer run — one consolidation, then stop
+const DREAMER_HELP = `ignite dreamer — memory consolidation for the whole installation
 
-dreamer run [--installation <path>]
+usage: ignite dreamer run [--installation PATH]
+       ignite dreamer enable [--installation PATH] [--json]
+       ignite dreamer disable [--installation PATH] [--json]
+
+Enable and disable affect automatic Dreamer operation for the entire
+installation, not only the calling agent. Agents must use these commands only
+when explicitly requested by the owner. Do not disable Dreamer as a workaround
+for an individual agent's problem.
+
+enable
+  Sets dreamer.enabled to true in .rbtv/config/ignite/config.json. The running
+  service reads it on its next tick and turns on the nightly consolidation
+  (03:00 America/Sao_Paulo) and the 48-hour watchdog for every agent.
+  When dreamer.model is absent, records ${DREAMER_MODEL.harness} ${DREAMER_MODEL.model} effort ${DREAMER_MODEL.effort} there.
+  The result names the model in use. To change it, edit dreamer.model
+  (harness, model, effort) in that file.
+  Already enabled: nothing is written, and the result says so.
+
+disable
+  Sets dreamer.enabled to false. The nightly consolidation and the watchdog
+  stop for every agent on the service's next tick. A consolidation already in
+  progress is not cancelled. dreamer.model is kept.
+  Already disabled: nothing is written, and the result says so.
+
+enable and disable change only dreamer.enabled, and dreamer.model when enable
+records it. Every other setting and the schedule stay as they are.
+Success: exit 0, the new state in plain text, or with --json
+{installation, config, enabled, changed, model, modelRecorded}.
+Refusal: exit 1, reason on stderr, nothing written. An unreadable or invalid
+configuration is refused.
+
+run
   Runs the nightly consolidation path once and exits. Never loops and never
   waits for 03:00. Does not mark or consume that slot, so the daemon can still
   run it the same night.
@@ -149,12 +181,18 @@ dreamer run [--installation <path>]
   The running daemon delivers it. Reported conflicts are saved only after
   delivery is confirmed. This command does not confirm delivery, so it leaves
   new conflicts unsaved, the same as an unconfirmed nightly digest.
-  Runs even when dreamer.enabled is false. The result says so.
+  Runs even when dreamer.enabled is false, and does not enable it. The result
+  says so. Uses dreamer.model; without that key the run is refused.
   Prints one JSON line and nothing else. Exit 0 when the run finished without
   an alert. Exit 1 when the run failed or the lock was busy.
 
 Installation: --installation, otherwise the installation containing RBTV_AGENT_HOME,
 or the walk up to .rbtv/config/ignite/config.json. No agent flag. No Slack call.
+
+Examples:
+  ignite dreamer enable --installation /path/to/installation
+  ignite dreamer disable --installation /path/to/installation
+  ignite dreamer run --installation /path/to/installation
 `;
 
 const BOARD_HELP = `ignite board — checked short-term memory
@@ -642,18 +680,63 @@ function resolveDreamerWorkspace(flags, deps) {
   return found;
 }
 
+// Installation-wide: the daemon reads dreamer.enabled on its next tick. A call
+// that asks for the state already in force writes nothing.
+function setDreamerEnabled(enabled, flags, deps) {
+  const workspace = resolveDreamerWorkspace(flags, deps);
+  const file = configPath(workspace);
+  let config;
+  let changed;
+  let modelRecorded = false;
+  try {
+    config = loadConfig(workspace);
+    changed = config.dreamer.enabled !== enabled;
+    if (changed) {
+      modelRecorded = enabled && !config.dreamer.model;
+      config = updateConfig(workspace, (raw) => {
+        raw.dreamer.enabled = enabled;
+        if (modelRecorded) raw.dreamer.model = { ...DREAMER_MODEL };
+      });
+    }
+  } catch (error) {
+    fail(`${error.message}\nNothing changed.\nignite dreamer -h`);
+  }
+  const model = config.dreamer.model || null;
+  const state = enabled ? 'enabled' : 'disabled';
+  const lines = [changed
+    ? `Dreamer ${state} for the entire installation ${workspace}, not only the calling agent.`
+    : `Dreamer was already ${state} for the entire installation ${workspace}. Nothing changed.`];
+  if (changed) {
+    lines.push(enabled
+      ? 'The nightly consolidation and the 48-hour watchdog turn on for every agent on the running service\'s next tick.'
+      : 'The nightly consolidation and the 48-hour watchdog stop for every agent on the running service\'s next tick.');
+  }
+  if (!enabled) lines.push('A consolidation already in progress is not cancelled. ignite dreamer run still runs one consolidation.');
+  lines.push(model
+    ? `Model: ${model.harness} ${model.model} effort ${model.effort} (${modelRecorded ? 'recorded now in' : 'from'} dreamer.model${enabled ? '' : ', kept'}).`
+    : 'Model: dreamer.model is not set; ignite dreamer enable records one.');
+  if (enabled) lines.push(`To use another model, edit dreamer.model in ${file}.`);
+  emit(deps, flags, { installation: workspace, config: file, enabled, changed, model, modelRecorded }, `${lines.join('\n')}\n`);
+  return 0;
+}
+
 async function cmdDreamer(rest, flags, deps) {
   if (flags.help) {
     emit(deps, { json: false }, null, DREAMER_HELP);
     return 0;
   }
-  if (rest[0] !== 'run' || rest.length > 1) fail('dreamer requires run');
+  const [verb, ...extra] = rest;
+  if (!['run', 'enable', 'disable'].includes(verb) || extra.length) {
+    fail('dreamer requires exactly one of run, enable, disable\nNothing changed.\nignite dreamer -h');
+  }
+  if (verb !== 'run') return setDreamerEnabled(verb === 'enable', flags, deps);
   let enabled = null;
   let result;
   try {
     const workspace = resolveDreamerWorkspace(flags, deps);
     const config = loadConfig(workspace);
     enabled = config.dreamer.enabled === true;
+    if (!config.dreamer.model) throw new Error(dreamerModelRequired('to run a consolidation'));
     const daemon = require('./daemon.js');
     const run = deps.runInstalledDreamer || daemon.runInstalledDreamer;
     result = await run({ config, now: deps.now, runDreamer: deps.runDreamer });
