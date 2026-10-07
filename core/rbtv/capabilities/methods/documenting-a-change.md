@@ -14,7 +14,7 @@ For a new file kind, folder convention, field or shared term, obtain the owner's
 
 Update every current caller and dependent statement in the same change: glossary entries, capabilities, templates, schemas, framework routes, README, records and descriptions. Remove references to the retired name, record the decision, and check links from their final locations. Historical accounts retain their historical claims under the component's documentation rules.
 
-For a renamed installed file, each affected installation adds it under the new name; follow [rbtv CLI](glossary/rbtv-cli.md) for installation and refresh operations.
+For a renamed installed file, each affected installation adds it under the new name; follow [rbtv CLI](../glossary/rbtv-cli.md) for installation and refresh operations.
 
 ## Verify before calling the change done
 

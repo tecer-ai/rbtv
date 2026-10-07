@@ -8,11 +8,11 @@ Apply this before adding content and whenever a change affects something another
 
 Search for the existing statement, including in other components. Search by meaning, not just the word being used. When it exists, link it. When it does not, place it with the facts that change for the same reason, in the file the author must change when that behavior changes. The file currently open is not a reason to choose it.
 
-For glossary entries, [Writing a glossary entry](../writing-a-glossary-entry.md) assigns ownership. [rbtv CLI](../glossary/rbtv-cli.md) owns how the installer is run and what it recognizes or enforces. A type-specific instruction may name a field or an installer fact needed to make that instruction executable; it must not reproduce the owning field list or installation reference.
+For glossary entries, [Writing a glossary entry](../methods/writing-a-glossary-entry.md) assigns ownership. [rbtv CLI](../glossary/rbtv-cli.md) owns how the installer is run and what it recognizes or enforces. A type-specific instruction may name a field or an installer fact needed to make that instruction executable; it must not reproduce the owning field list or installation reference.
 
 Default to a link. If the current sentence cannot be understood without stating the fact, use the home's exact words and link it. Keep that dependent statement aligned whenever the home changes. Do not change the home merely to justify a conflicting restatement. [Terminology is king](terminology-is-king.md) governs the term and its meaning; [Scaffolding language](../glossary/scaffolding-language.md) governs the sentence.
 
-When two files need the same method, give it one home and route both readers there. Follow [Cognitive unit](../glossary/cognitive-unit.md) for shared instructions and [Choosing what to build](../choosing-what-to-build.md) when the kind is unsettled. Multiple routes may lead to one capability.
+When two files need the same method, give it one home and route both readers there. Follow [Cognitive unit](../glossary/cognitive-unit.md) for shared instructions and [Choosing what to build](../methods/choosing-what-to-build.md) when the kind is unsettled. Multiple routes may lead to one capability.
 
 ## Operations, state and generated text
 

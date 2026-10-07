@@ -1,6 +1,6 @@
 # Delegating work
 
-Before launching agents for a broad task with parallel investigation, open the [swarm capability](../swarm.md). Before seeking independent judgments on one subject, open the [panel capability](../panel.md).
+Before launching agents for a broad task with parallel investigation, open the [swarm capability](swarm.md). Before seeking independent judgments on one subject, open the [panel capability](panel.md).
 
 - Your role is that of a MANAGER, never an executor. You coordinate others' work and verify it, or have some other agent verify it. Your work is to get the right models, to the right agents, to do the right job. You must enforce and ensure it.
 
@@ -43,7 +43,7 @@ Before launching agents for a broad task with parallel investigation, open the [
   - Ask for checkable reports in the task itself: numbers come from a tool or script, never an estimate; each factual claim names its source; anything the sub-agent did not verify is marked UNVERIFIED.
 
 - Staffing:
-  - Give each sub-agent a [task](../../../../core/rbtv/capabilities/glossary/task.md) with its [scope](../scope.md) and [done contract](../done-contract.md). For several tasks with dependencies, follow [Workflow](../../../../core/rbtv/capabilities/glossary/workflow.md) for the scheduling instructions and inline table. If the tasks run as rbtv agents, follow [Planning a workflow](../../../plan/capabilities/methods/planning-a-workflow.md) instead (its format carries the Install line for each agent).
+  - Give each sub-agent a [task](../../../../core/rbtv/capabilities/glossary/task.md) with its [scope](scope.md) and [done contract](done-contract.md). For several tasks with dependencies, follow [Workflow](../../../../core/rbtv/capabilities/glossary/workflow.md) for the scheduling instructions and inline table. If the tasks run as rbtv agents, follow [Planning a workflow](../../../plan/capabilities/methods/planning-a-workflow.md) instead (its format carries the Install line for each agent).
   - Give each agent a bounded and small scope: keeps its context optimized (low context usage, better answers).
     - More critical on L2-level models and below; mandatory on L3 (model levels per `cast route -h`: SOTA > L1 > L2 > L3).
     - The small-scope test — a scope is one agent's ONLY when ALL three hold; fail one and it is NOT one agent's scope:

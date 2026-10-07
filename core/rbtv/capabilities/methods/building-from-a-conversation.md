@@ -18,11 +18,11 @@ A remembered personal fact or a correction unrelated to this method does not bec
 
 ## Select and draft the result
 
-Search for an existing file that owns the method before creating another. Use [rbtv CLI](glossary/rbtv-cli.md) to list or show installed material when needed. Edit the existing home rather than maintaining a second method.
+Search for an existing file that owns the method before creating another. Use [rbtv CLI](../glossary/rbtv-cli.md) to list or show installed material when needed. Edit the existing home rather than maintaining a second method.
 
 Use [Choosing what to build](choosing-what-to-build.md) for the kind and [Choosing where to build](choosing-where-to-build.md) for its location. Commands run during the conversation are evidence, not automatically a reusable script. A task's path does not decide whether the result belongs in the repository or mirror.
 
-Draft only the settled actions, in the order a later task needs. Use the accepted result as the completion check, not the story of the successful run. Name required inputs and what happens when they are missing, following [Cognitive unit](glossary/cognitive-unit.md).
+Draft only the settled actions, in the order a later task needs. Use the accepted result as the completion check, not the story of the successful run. Name required inputs and what happens when they are missing, following [Cognitive unit](../glossary/cognitive-unit.md).
 
 Separate independent jobs before drafting. Use [Writing a capability](writing-a-capability.md) for each method and [Nested exposure](nested-exposure.md) if several belong under one exposure method. Do not paste the transcript into one file and call its chronology the procedure.
 

@@ -8,7 +8,7 @@ Apply this before accepting the kind of file named in a request and when adding 
 
 For each exact step, identify the inputs, operation and result. Check for an existing implementation first. The calling step names the program and inputs and uses its returned result, rather than a number or comparison the agent estimates. Keep interpretation of that result in the agent's instructions.
 
-Take the exact steps to [Choosing what to build](../choosing-what-to-build.md). If a skill, rule, command, folder instructions or agent will repeatedly instruct the operation, provide a [tool](../glossary/tool.md). If the operation is needed only in one conversation and no rbtv file instructs it, use a short script. [Keep it stupidly simple](keep-it-stupidly-simple.md) refuses a durable tool for an unstated recurring need. If the operation must run even when the agent ignores instructions, the choice page must account for that too.
+Take the exact steps to [Choosing what to build](../methods/choosing-what-to-build.md). If a skill, rule, command, folder instructions or agent will repeatedly instruct the operation, provide a [tool](../glossary/tool.md). If the operation is needed only in one conversation and no rbtv file instructs it, use a short script. [Keep it stupidly simple](keep-it-stupidly-simple.md) refuses a durable tool for an unstated recurring need. If the operation must run even when the agent ignores instructions, the choice page must account for that too.
 
 ## Make the result usable
 

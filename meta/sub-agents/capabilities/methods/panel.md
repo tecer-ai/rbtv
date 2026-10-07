@@ -17,7 +17,7 @@ averaged away.
 - Trivial and settled by one read → one agent, no panel. Do not convene four lenses to confirm
   a value.
 
-Read [Delegating work](methods/delegating-work.md) before applying this page if it has not already been read for this task. It owns staffing, launch mechanics, report requirements and output location. This page adds the panel-specific instructions.
+Read [Delegating work](delegating-work.md) before applying this page if it has not already been read for this task. It owns staffing, launch mechanics, report requirements and output location. This page adds the panel-specific instructions.
 
 ## Interview — tiered
 

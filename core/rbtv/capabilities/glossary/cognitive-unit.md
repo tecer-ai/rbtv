@@ -2,7 +2,7 @@
 
 A cognitive unit is a set of instructions an agent follows. In rbtv, skills, rules, commands and prompts are cognitive units. There is no separate cognitive-unit file.
 
-Use this page for their shared authoring method. Use the entry of the particular kind for how it reaches the agent and what that kind requires. [Choosing what to build](../choosing-what-to-build.md) settles the kind before this method is applied.
+Use this page for their shared authoring method. Use the entry of the particular kind for how it reaches the agent and what that kind requires. [Choosing what to build](../methods/choosing-what-to-build.md) settles the kind before this method is applied.
 
 ## Write the instructions
 

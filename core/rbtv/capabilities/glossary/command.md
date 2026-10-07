@@ -18,7 +18,7 @@ Choose a name specific to the action and distinct from built-in harness commands
 
 Use [Routing table](routing-table.md) for the description. PURPOSE includes every input the human must type, in the human's terms. ALWAYS LOAD WHEN identifies the action for which to invoke it; DO NOT LOAD WHEN identifies the nearest different action and its alternative. Keep tool invocations and procedure steps in the body, not in the description the human uses to choose.
 
-When the action must also run without a human invocation, put its reusable instructions in a [Capability](capability.md). The command supplies the invocation's inputs and directs the agent there. Use [Entry point](entry-point.md) for a routing body and [Nested exposure](../nested-exposure.md) for grouping capabilities. Any input that selects a route must be part of the invocation, not a second menu after it.
+When the action must also run without a human invocation, put its reusable instructions in a [Capability](capability.md). The command supplies the invocation's inputs and directs the agent there. Use [Entry point](entry-point.md) for a routing body and [Nested exposure](../methods/nested-exposure.md) for grouping capabilities. Any input that selects a route must be part of the invocation, not a second menu after it.
 
 ## Template
 
@@ -35,6 +35,6 @@ description: "CONTAINS: <instructions> PURPOSE: <result and typed inputs> ALWAYS
 
 ## Edit, convert and test
 
-Edit the source, then regenerate the installed copy, following [rbtv CLI](rbtv-cli.md). Until then an invocation reads the earlier body and description. On conversion, replace argument placeholders with instructions to read invocation text and preserve each input in the description. Classify other content using [Choosing what to build](../choosing-what-to-build.md).
+Edit the source, then regenerate the installed copy, following [rbtv CLI](rbtv-cli.md). Until then an invocation reads the earlier body and description. On conversion, replace argument placeholders with instructions to read invocation text and preserve each input in the description. Classify other content using [Choosing what to build](../methods/choosing-what-to-build.md).
 
 Test the name and description without revealing the body. A human should select it for the intended action, avoid it for a neighboring action and supply its inputs. Then run a complete invocation and one missing an input. Check the action and missing-input result. Validate the frontmatter separately; acceptance does not establish usability or behavior.

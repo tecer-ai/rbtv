@@ -10,7 +10,7 @@ Identify the work that needs the artifact and neighboring work in the same folde
 
 Use a file when its records are read for the same work. Use a folder when different records need separate reading conditions. A folder artifact that is a folder has its own [Folder instructions](folder-instructions.md).
 
-State the artifact's convention in the glossary of the component organizing that work, following [Writing a glossary entry](../writing-a-glossary-entry.md). Do not add every component's artifact to the rbtv glossary. The entry owns the record format and the first-section wording used in instances.
+State the artifact's convention in the glossary of the component organizing that work, following [Writing a glossary entry](../methods/writing-a-glossary-entry.md). Do not add every component's artifact to the rbtv glossary. The entry owns the record format and the first-section wording used in instances.
 
 ## First section and records
 
@@ -43,6 +43,6 @@ Add its row to the containing folder's instructions in the same change. Use [Rou
 
 Changing the convention requires an authorized update to the glossary entry and every affected instance's first section together. Routine additions change only the records. Keep routes synchronized with purpose and location.
 
-For conversion, separate independently used purposes, retain the standing first-section contract and move sibling-file lists into folder routes. Classify other kinds through [Choosing what to build](../choosing-what-to-build.md).
+For conversion, separate independently used purposes, retain the standing first-section contract and move sibling-file lists into folder routes. Classify other kinds through [Choosing what to build](../methods/choosing-what-to-build.md).
 
 Review the first section before its records. Then test one task that should find and update the artifact and another that should not read it, starting from folder instructions without supplying the path again. Check that updates preserve the first section. No installer validates this behavior.

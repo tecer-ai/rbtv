@@ -2,7 +2,7 @@
 
 `.rbtv/mirror/` holds component source local to one installation. rbtv scans it alongside repository source and installs its selected files through the same process.
 
-Use [Choosing where to build](../choosing-where-to-build.md) to settle whether the source belongs here. Write a local component with the [Component](component.md) layout. For an imported or shareable skill that keeps its own supporting files, follow [Self-contained skill](self-contained-skill.md) instead.
+Use [Choosing where to build](../methods/choosing-where-to-build.md) to settle whether the source belongs here. Write a local component with the [Component](component.md) layout. For an imported or shareable skill that keeps its own supporting files, follow [Self-contained skill](self-contained-skill.md) instead.
 
 Follow Choosing where to build’s identity rule for additions and whole-component replacements. For a replacement, include the files its users still need and make every omission intentional. Scanner acceptance validates recognized records and files, not whether the replacement preserves users’ work; [rbtv CLI](rbtv-cli.md) owns those checks.
 

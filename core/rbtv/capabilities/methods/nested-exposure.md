@@ -14,7 +14,7 @@ Split a group when one description, rule-installation condition or folder bounda
 
 ## Build the group
 
-Choose the exposure method with [Choosing what to build](choosing-what-to-build.md). Write its body using [Entry point](glossary/entry-point.md), its rows using [Routing table](glossary/routing-table.md), and each target using [Capability](glossary/capability.md).
+Choose the exposure method with [Choosing what to build](choosing-what-to-build.md). Write its body using [Entry point](../glossary/entry-point.md), its rows using [Routing table](../glossary/routing-table.md), and each target using [Capability](../glossary/capability.md).
 
 | Method | What grouping requires |
 |---|---|

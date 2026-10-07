@@ -2,7 +2,7 @@
 
 Write one page that defines a term and teaches an agent how to build or use what it names. The entry belongs in the glossary of the component that owns the term. It must work with the framework's required reading and the additional pages it names.
 
-An entry is successful when an agent can use it to produce the intended result. Headings and installer acceptance alone do not establish that. Follow [Scaffolding language](glossary/scaffolding-language.md) for wording, reasons and examples; follow the framework's principles without repeating them in every entry.
+An entry is successful when an agent can use it to produce the intended result. Headings and installer acceptance alone do not establish that. Follow [Scaffolding language](../glossary/scaffolding-language.md) for wording, reasons and examples; follow the framework's principles without repeating them in every entry.
 
 ## Establish the requirements
 
@@ -20,9 +20,9 @@ Compare the entry with its containing concept, its parts and the nearest related
 
 - A part never built, edited or reviewed independently belongs in its containing entry. Teach that part where the builder writes it; do not create a separate term for each heading.
 - A part built independently has its own entry. Its containing entry says where it belongs, what must agree between them, and when to read its instructions. It does not reteach them.
-- Instructions shared by skills, rules, commands and prompts belong in [Cognitive unit](glossary/cognitive-unit.md). An entry of one kind adds only the requirements that differ for that kind.
-- Description and routing-table structure belongs in [Routing table](glossary/routing-table.md). Each kind explains only what the fields mean for its particular use.
-- Each entry defines its own term. Follow [Single source of truth](principles/single-source-of-truth.md) for a fact owned elsewhere.
+- Instructions shared by skills, rules, commands and prompts belong in [Cognitive unit](../glossary/cognitive-unit.md). An entry of one kind adds only the requirements that differ for that kind.
+- Description and routing-table structure belongs in [Routing table](../glossary/routing-table.md). Each kind explains only what the fields mean for its particular use.
+- Each entry defines its own term. Follow [Single source of truth](../principles/single-source-of-truth.md) for a fact owned elsewhere.
 
 The owning entry is the one that must change when the fact changes. If an entry has almost nothing of its own after shared material is removed, report the overlap to the user before merging or removing the term.
 
@@ -53,7 +53,7 @@ Do not teach the builder how you researched the entry. Do not repeat general wri
 
 Use examples as Scaffolding language specifies. Do not add whole instances as templates to copy. A template describes the layout and each required decision; a schema used by software remains a separate file and is the authority for checked fields.
 
-Keep facts about what software exposes to an agent when they determine an authoring choice. Put invocation syntax, flags, enforced naming rules and refusal messages in [rbtv CLI](glossary/rbtv-cli.md) or the relevant record's entry. Link those instructions instead of duplicating them.
+Keep facts about what software exposes to an agent when they determine an authoring choice. Put invocation syntax, flags, enforced naming rules and refusal messages in [rbtv CLI](../glossary/rbtv-cli.md) or the relevant record's entry. Link those instructions instead of duplicating them.
 
 Give editing, conversion or review a separate instruction only for requirements specific to that mode. For conversion, record whether each source requirement was kept, moved or dropped and why. Preserve actions, conditions, inputs, outputs, limits and exceptions. A source heading, repeated reason or illustrative story is not by itself a requirement. Retain an explanation or example only under Scaffolding language’s conditions; record removed text without pretending its removal deletes the behavior it illustrated. Use [Choosing what to build](choosing-what-to-build.md) for content that belongs to a different kind.
 
@@ -65,7 +65,7 @@ Review the entry with the related pages the same task reads. Check that every re
 
 Follow every link and verify software facts against their sources. Report an inconsistency outside the authorized change. Correct in-scope contradictions together rather than leaving two designs active.
 
-Use fresh test agents with the entry, its required prior reading, conditional pages available through their routes, and a realistic task. Keep the answer and authoring work record out of their inputs. Follow [Delegating work](../../../meta/sub-agents/capabilities/methods/delegating-work.md) to launch them and verify their reports.
+Use fresh test agents with the entry, its required prior reading, conditional pages available through their routes, and a realistic task. Keep the answer and authoring work record out of their inputs. Follow [Delegating work](../../../../meta/sub-agents/capabilities/methods/delegating-work.md) to launch them and verify their reports.
 
 | Kind | Test tasks |
 |---|---|

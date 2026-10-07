@@ -2,7 +2,7 @@
 
 A rule is a cognitive unit supplied on every task where it is installed. In Claude Code and OpenCode the agent does not choose whether to load its body. Codex has no such channel: there the rule is a listed skill whose description tells the model to open it when a session starts. In every harness the agent acts on the body only when its condition applies.
 
-Use a rule for behavior that must be available across tasks and folders, without relying on the agent to select a skill. If the requirement belongs only to one folder, revisit [Choosing what to build](../choosing-what-to-build.md).
+Use a rule for behavior that must be available across tasks and folders, without relying on the agent to select a skill. If the requirement belongs only to one folder, revisit [Choosing what to build](../methods/choosing-what-to-build.md).
 
 ## Source and delivery
 

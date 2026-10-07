@@ -11,7 +11,7 @@ An exposure method determines how guidance reaches an agent. rbtv has four: a sk
 
 These are rbtv's authoring distinctions. A harness may support other invocation paths—for example, typing a skill's name—but that does not make a shipped rbtv skill and command interchangeable.
 
-An agent, prompt, hook, tool or MCP server is not an exposure method. A prompt step may nevertheless direct the agent to a capability. Use [Choosing what to build](../choosing-what-to-build.md) to select among these kinds, then the concrete entry for authoring and delivery details.
+An agent, prompt, hook, tool or MCP server is not an exposure method. A prompt step may nevertheless direct the agent to a capability. Use [Choosing what to build](../methods/choosing-what-to-build.md) to select among these kinds, then the concrete entry for authoring and delivery details.
 
 When changing who should initiate the work, reconsider the exposure method. When converting an outside file used both by human invocation and agent discovery, treat those as separate selection needs rather than assuming one rbtv source provides both.
 

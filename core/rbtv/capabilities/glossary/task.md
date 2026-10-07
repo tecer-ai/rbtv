@@ -53,4 +53,4 @@ May change: <closed list, or no files>
 
 Read the task beside its prompt without relying on the supplier's conversation. Classify a proposed action from Scope alone and a result from the done contract. Test a missing input. A successful launch proves only that text was supplied, not that the work was bounded.
 
-When converting a ticket, put the result first, boundaries in Scope and acceptance criteria in Done contract. Classify standing instructions through [Choosing what to build](../choosing-what-to-build.md). Preserve the task's requirements, not its old headings.
+When converting a ticket, put the result first, boundaries in Scope and acceptance criteria in Done contract. Classify standing instructions through [Choosing what to build](../methods/choosing-what-to-build.md). Preserve the task's requirements, not its old headings.

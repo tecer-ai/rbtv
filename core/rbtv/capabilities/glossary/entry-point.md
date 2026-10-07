@@ -16,7 +16,7 @@ For an initial choice among routes, use this order:
 2. Required readings owned by other pages.
 3. Conditional readings, each with a condition the reader can recognize now.
 
-The [Routing table](routing-table.md) entry owns description fields and table columns. Each row names the instructions directly, not another entry point or a list of links. A row can name a folder, or an agent to launch by name. Use [Nested exposure](../nested-exposure.md) to decide whether a set belongs under one entry point; separate entry points do not route to one another.
+The [Routing table](routing-table.md) entry owns description fields and table columns. Each row names the instructions directly, not another entry point or a list of links. A row can name a folder, or an agent to launch by name. Use [Nested exposure](../methods/nested-exposure.md) to decide whether a set belongs under one entry point; separate entry points do not route to one another.
 
 ## Cover the whole purpose in the description
 

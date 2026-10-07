@@ -28,7 +28,7 @@ An agent written for one task or one plan is an rbtv agent too. Write its folder
 
 ## Build the agent
 
-Identify the work that needs separate context and two tasks the same prompt must support. Use the user's stated purpose rather than inventing a reason for delegation. If the work can stay in the caller and needs no standing function, revisit [Choosing what to build](../choosing-what-to-build.md).
+Identify the work that needs separate context and two tasks the same prompt must support. Use the user's stated purpose rather than inventing a reason for delegation. If the work can stay in the caller and needs no standing function, revisit [Choosing what to build](../methods/choosing-what-to-build.md).
 
 Write the prompt first. Then use [Routing table](routing-table.md) for the record's description:
 

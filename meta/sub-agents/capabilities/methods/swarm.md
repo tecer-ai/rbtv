@@ -11,7 +11,7 @@ A swarm saves the coordinator's context (it reads one synthesis, not the evidenc
 results (a fresh focused context per question), and costs less (cheap models on the wide base,
 strong ones only at the top) — all three at once, or the shape is wrong.
 
-Read [Delegating work](methods/delegating-work.md) before applying this page if it has not already been read for this task. It owns staffing, launch mechanics, report requirements and output location. This page adds the swarm-specific instructions.
+Read [Delegating work](delegating-work.md) before applying this page if it has not already been read for this task. It owns staffing, launch mechanics, report requirements and output location. This page adds the swarm-specific instructions.
 
 ## Quick interview — always
 

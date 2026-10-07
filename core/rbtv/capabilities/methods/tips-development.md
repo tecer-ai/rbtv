@@ -31,7 +31,7 @@ A request for a later principle page is recorded without interrupting the curren
 
 Preserve an earlier formulation with the period when it governed, and mark the corrected formulation and when it takes effect. This record is history; the file that owns current state must separately say only what governs now. Do not rewrite the history to pretend the earlier decision never existed.
 
-When a subject moves elsewhere, retain the learning relevant here and a pointer. Its current decisions, evidence, hypotheses and execution limits move to their own home under [Single source of truth](principles/single-source-of-truth.md). Do not duplicate them or continue that subject's tests from this record merely because it was moved.
+When a subject moves elsewhere, retain the learning relevant here and a pointer. Its current decisions, evidence, hypotheses and execution limits move to their own home under [Single source of truth](../principles/single-source-of-truth.md). Do not duplicate them or continue that subject's tests from this record merely because it was moved.
 
 ## Close and review
 

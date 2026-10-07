@@ -12,7 +12,7 @@ Apply this before adding or keeping a file, folder, field, option, step, task, a
 4. Give each task, cognitive unit, agent and component one purpose. Split work when its results can be judged independently; do not split to meet a file or step count. Related limits serving one purpose stay together.
 5. Run independent tasks in parallel only when they do not change the same file or record. Order tasks that share writes or consume one another's results. Pass reusable results as files or records rather than keeping the producing agent involved.
 
-A different file type or exposure method does not justify a new component. Use [Choosing where to build](../choosing-where-to-build.md) for placement. Use [Nested exposure](../nested-exposure.md) when capabilities share a purpose or the same documents. Do not combine unrelated purposes merely to reduce the number of entry points.
+A different file type or exposure method does not justify a new component. Use [Choosing where to build](../methods/choosing-where-to-build.md) for placement. Use [Nested exposure](../methods/nested-exposure.md) when capabilities share a purpose or the same documents. Do not combine unrelated purposes merely to reduce the number of entry points.
 
 ## Reduce unnecessary decisions
 

@@ -8,7 +8,7 @@ Use a pack when at least two agents or installations need the same group. A list
 
 Name the targets that need the group and a neighboring target that should not receive it. Include only files every intended target needs. Put target-specific additions in that target's selections or in a separate shared pack.
 
-Declare the pack in the component whose work it supports, using [Choosing where to build](../choosing-where-to-build.md). Refer to files owned by other components without copying them. A same-name mirror replacement must still contain the referenced files.
+Declare the pack in the component whose work it supports, using [Choosing where to build](../methods/choosing-where-to-build.md). Refer to files owned by other components without copying them. A same-name mirror replacement must still contain the referenced files.
 
 Write `packs/<name>.json` to the [pack schema](../templates/pack.schema.json). The filename supplies the pack name; do not add a name field. Names are unique across components. Choose one that identifies the shared use, not a generic label such as “tools.”
 

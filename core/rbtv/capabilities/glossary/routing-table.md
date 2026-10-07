@@ -39,7 +39,7 @@ Add `DO NOT LOAD WHEN` only if at least one row has a plausible neighboring case
 
 A file, folder or capability is a link. An agent is its launch name, with required task inputs in PURPOSE. Do not give a prompt-file path where the reader needs to launch an agent.
 
-An entry point's table names capabilities, files, folders or agents. It does not nest skills, rules, commands or folder instructions. Link directly to the instructions, not to a file whose only purpose is listing other files. Use [Entry point](entry-point.md) for the order of shared text and conditional readings, and [Nested exposure](../nested-exposure.md) when deciding which capabilities belong together.
+An entry point's table names capabilities, files, folders or agents. It does not nest skills, rules, commands or folder instructions. Link directly to the instructions, not to a file whose only purpose is listing other files. Use [Entry point](entry-point.md) for the order of shared text and conditional readings, and [Nested exposure](../methods/nested-exposure.md) when deciding which capabilities belong together.
 
 For links in a skill or command, use the source file as the base. In a rule, a capability path starts at the repository root or `.rbtv/`, so the installer can derive its destination. Use [Folder instructions](folder-instructions.md) for paths from an installed folder-instructions file.
 

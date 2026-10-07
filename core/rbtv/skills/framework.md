@@ -20,7 +20,7 @@ A module is `<module>/` with `<module>.json`; a component is `<module>/<componen
 | Hook, MCP server, pack | `hooks/<name>.json`, `mcp-servers/<name>.json`, `packs/<name>.json` |
 | Tool | `capabilities/tools/<name>/<name>.json` and its executable |
 | Folder instructions | `folder-instructions/<name>.md` |
-| Capability | Markdown under `capabilities/`; read from source, not installed |
+| Capability | Markdown under `capabilities/`: a method page in `capabilities/methods/`, a tool page at `capabilities/tools/<tool>/<tool>.md`; read from source, not installed |
 | Glossary entry | `capabilities/glossary/<term>.md` in the owning component |
 | rbtv principle | `core/rbtv/capabilities/principles/<name>.md` |
 
@@ -30,9 +30,9 @@ A skill, command, rule or folder-instructions file routes to capabilities, not t
 
 ## Read for this work
 
-Apply the same routes in create, edit, review and convert modes; there is no separate page per mode. Read mandatory pages first. For conditional rows, match the work and honor the exclusion. If [Choosing what to build](../capabilities/choosing-what-to-build.md) settles a different kind from the request's wording, follow the settled kind's row too.
+Apply the same routes in create, edit, review and convert modes; there is no separate page per mode. Read mandatory pages first. For conditional rows, match the work and honor the exclusion. If [Choosing what to build](../capabilities/methods/choosing-what-to-build.md) settles a different kind from the request's wording, follow the settled kind's row too.
 
-On create or conversion, start in the user's named module and component and use [Choosing where to build](../capabilities/choosing-where-to-build.md) to check its boundary. Object only for a boundary violation. Editing an existing file does not reopen placement.
+On create or conversion, start in the user's named module and component and use [Choosing where to build](../capabilities/methods/choosing-where-to-build.md) to check its boundary. Object only for a boundary violation. Editing an existing file does not reopen placement.
 
 If a required page is absent, report the missing path and stop that work. Do not substitute an older entry or build from this folder map alone. If no row covers the intended kind, ask for the missing definition rather than guessing.
 
@@ -51,13 +51,13 @@ Then read every matching conditional page:
 | File | CONTAINS | PURPOSE | ALWAYS LOAD WHEN | DO NOT LOAD WHEN |
 |---|---|---|---|---|
 | [rbtv CLI](../capabilities/glossary/rbtv-cli.md) | Recognition, generation and refresh commands | Validate and deliver source changes | creating or converting a file; changing the installer; reviewing or editing scanned source | only changing an unscanned capability body without renaming or moving it |
-| [Choosing what to build](../capabilities/choosing-what-to-build.md) | Choice of kind | Match the mechanism to the work | creating, reviewing or converting; editing when the current kind cannot support the required behavior | editing with the kind unchanged |
-| [Choosing where to build](../capabilities/choosing-where-to-build.md) | Repository, mirror, module and component choice | Place work inside the right boundary | creating or converting | editing |
-| [Nested exposure](../capabilities/nested-exposure.md) | Several capabilities under one exposure method | Group related methods without premature reading | one exposure method may route to multiple capabilities | only one capability is exposed |
-| [Building from a conversation](../capabilities/building-from-a-conversation.md) | Extraction of settled reusable instructions | Preserve the corrected method | asked to build from a completed conversation | capture during an ongoing conversation |
-| [Tips development](../capabilities/tips-development.md) | Capture of decisions and evidence during work | Preserve distinctions without starting another build | setting up or continuing capture during a conversation | extracting instructions after the conversation |
-| [Writing a glossary entry](../capabilities/writing-a-glossary-entry.md) | Entry structure, ownership and verification | Define a term and teach its authoring | creating, editing or converting an entry, or introducing a term without one | no term entry is added or changed |
-| [Writing a capability](../capabilities/writing-a-capability.md) | Writing routed methods and knowledge | Continue from the caller’s supplied context | creating, editing or converting a capability or procedure | writing a term definition |
+| [Choosing what to build](../capabilities/methods/choosing-what-to-build.md) | Choice of kind | Match the mechanism to the work | creating, reviewing or converting; editing when the current kind cannot support the required behavior | editing with the kind unchanged |
+| [Choosing where to build](../capabilities/methods/choosing-where-to-build.md) | Repository, mirror, module and component choice | Place work inside the right boundary | creating or converting | editing |
+| [Nested exposure](../capabilities/methods/nested-exposure.md) | Several capabilities under one exposure method | Group related methods without premature reading | one exposure method may route to multiple capabilities | only one capability is exposed |
+| [Building from a conversation](../capabilities/methods/building-from-a-conversation.md) | Extraction of settled reusable instructions | Preserve the corrected method | asked to build from a completed conversation | capture during an ongoing conversation |
+| [Tips development](../capabilities/methods/tips-development.md) | Capture of decisions and evidence during work | Preserve distinctions without starting another build | setting up or continuing capture during a conversation | extracting instructions after the conversation |
+| [Writing a glossary entry](../capabilities/methods/writing-a-glossary-entry.md) | Entry structure, ownership and verification | Define a term and teach its authoring | creating, editing or converting an entry, or introducing a term without one | no term entry is added or changed |
+| [Writing a capability](../capabilities/methods/writing-a-capability.md) | Writing routed methods and knowledge | Continue from the caller’s supplied context | creating, editing or converting a capability or procedure | writing a term definition |
 | [Capability](../capabilities/glossary/capability.md) | Capability boundary and caller contract | Write the work that follows a route | the selected kind or named work is a capability | only writing an exposure method |
 | [Cognitive unit](../capabilities/glossary/cognitive-unit.md) | Actionable instructions and their parts | Make instructions usable on another task | writing or changing instructions in a skill, rule, command, prompt or capability |  |
 | [Routing table](../capabilities/glossary/routing-table.md) | Descriptions and file-selection rows | Select the right reading | writing or changing a description or routing table |  |

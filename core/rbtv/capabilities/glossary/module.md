@@ -2,7 +2,7 @@
 
 A module is a folder grouping components of one subject. It sits at the repository root or mirror root and contains `<module>.json` plus at least one component folder.
 
-Use [Choosing where to build](../choosing-where-to-build.md) before adding a module. It owns the placement decision and the requirement to identify a second component that could belong to the subject without building it speculatively.
+Use [Choosing where to build](../methods/choosing-where-to-build.md) before adding a module. It owns the placement decision and the requirement to identify a second component that could belong to the subject without building it speculatively.
 
 ## Name and boundary
 

@@ -2,7 +2,7 @@
 
 A component is a folder grouping one subject's files inside a module: `<module>/<component>/`, with the record `<component>.json`. The record identifies the component; subfolders determine how its files are exposed.
 
-Use [Choosing where to build](../choosing-where-to-build.md) to decide whether the work needs a component and whether it belongs in the repository or mirror. This entry describes the component once that placement is settled.
+Use [Choosing where to build](../methods/choosing-where-to-build.md) to decide whether the work needs a component and whether it belongs in the repository or mirror. This entry describes the component once that placement is settled.
 
 ## Boundary and record
 
@@ -20,10 +20,12 @@ Before adding a file, check that boundary. A different file kind does not make a
 | Agents | `agents/<name>/`, containing `prompt.md` and `agent.json` |
 | Hooks, MCP servers and packs | `hooks/`, `mcp-servers/`, `packs/` |
 | Guidance shipped into other folders | `folder-instructions/` |
-| Methods, principles and glossary entries | `capabilities/`, with the glossary in `capabilities/glossary/` |
+| Methods | `capabilities/methods/` |
+| Glossary entries, principles and templates | `capabilities/glossary/`, `capabilities/principles/`, `capabilities/templates/` |
 | Tools | `capabilities/tools/<tool>/` |
+| Tool documentation | `capabilities/tools/<tool>/<tool>.md`, with `documentation/` beside it when a tool needs more than one page |
 
-Use the concrete kind's entry for its file and schema. [rbtv CLI](rbtv-cli.md) is authoritative for discovery and validation. Root-level `references/`, `prompts/`, `workflows/` and `tools/` do not replace the scanned folders. Capability prose is read from source through routes, not installed.
+Use the concrete kind's entry for its file and schema; [Capability](capability.md) states which sub-folders `capabilities/` may hold. [rbtv CLI](rbtv-cli.md) is authoritative for discovery and validation. Root-level `references/`, `prompts/`, `workflows/` and `tools/` do not replace the scanned folders. Capability prose is read from source through routes, not installed.
 
 The component's glossary defines its own terms and the [Folder artifacts](folder-artifact.md) used by work it organizes. Write those entries with the first use. Shared rbtv terms remain in rbtv's glossary. Do not keep work-folder conventions only in one skill.
 
@@ -33,7 +35,7 @@ Do not create `capabilities.md`, `principles.md`, `glossary.md` or another direc
 
 ## Local instructions and decisions
 
-Instructions for editing this component belong in its own folder-instructions file. Sources in `folder-instructions/` are for guidance shipped to target folders; the two purposes are different.
+A component that ships a tool keeps a hand-written `CLAUDE.md` and an identical `AGENTS.md` in `capabilities/tools/`. They route to the tools' pages and methods. A component without a tool has no instructions file. Sources in `folder-instructions/` are for guidance shipped to target folders; the two purposes are different.
 
 Create `decisions.md` at the component root only when there are standing decisions to record. Operational pages describe the current design. Comparisons with older designs belong in decisions; replace superseded decisions rather than retaining conflicting rulings.
 

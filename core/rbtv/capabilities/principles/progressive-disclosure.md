@@ -14,7 +14,7 @@ Split work into phase files when the later method is unnecessary during the earl
 
 ## Use the existing forms
 
-- Several capabilities sharing a purpose or source documents may belong under one exposure method. Follow [Nested exposure](../nested-exposure.md); do not automatically create one skill per page.
+- Several capabilities sharing a purpose or source documents may belong under one exposure method. Follow [Nested exposure](../methods/nested-exposure.md); do not automatically create one skill per page.
 - Text that must already be present when a condition can arise on any task belongs in a [rule](../glossary/rule.md). Its condition determines when the agent acts. Route a conditional method from it rather than pasting the whole method into every task.
 - For content supplied by entering a folder, follow [Folder instructions](../glossary/folder-instructions.md). Existing workspace records are [folder artifacts](../glossary/folder-artifact.md), not missing indexes.
 

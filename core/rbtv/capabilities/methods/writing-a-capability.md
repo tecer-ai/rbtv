@@ -1,6 +1,6 @@
 # Writing a capability
 
-Write the method or knowledge an agent needs after a route sends it to this page. Follow [Capability](glossary/capability.md) for its location, inputs and relationship to the caller. Use [Writing a glossary entry](writing-a-glossary-entry.md) for a page that defines a term; use [Principle](glossary/principle.md), [Template](glossary/template.md) or [Schema](glossary/schema.md) for those forms.
+Write the method or knowledge an agent needs after a route sends it to this page. Follow [Capability](../glossary/capability.md) for its location, inputs and relationship to the caller. Use [Writing a glossary entry](writing-a-glossary-entry.md) for a page that defines a term; use [Principle](../glossary/principle.md), [Template](../glossary/template.md) or [Schema](../glossary/schema.md) for those forms.
 
 ## Establish what the reader receives
 
@@ -14,7 +14,7 @@ Start with the result and required inputs. Write steps in the order the agent pe
 
 Use headings for the work itself. Add a separate failure section only for consequences not already explained beside the relevant instructions. Name the files produced when their structure is part of the work. Include a template only when the result is one file with a fixed layout; do not insert a template of the capability page itself.
 
-Apply [Scaffolding language](glossary/scaffolding-language.md) for reasons and examples. Follow the framework's principles for defaults, conditional decisions and shared ownership; do not copy their rules into this page. Keep the decisions specific to this work and route to shared instructions where needed.
+Apply [Scaffolding language](../glossary/scaffolding-language.md) for reasons and examples. Follow the framework's principles for defaults, conditional decisions and shared ownership; do not copy their rules into this page. Keep the decisions specific to this work and route to shared instructions where needed.
 
 When several routes use the page, retain only the work they need in common. A step may read another capability when its condition is met; it must name that page directly, not send the agent to a directory index. Keep the current page responsible for doing its work rather than becoming another list of links.
 
