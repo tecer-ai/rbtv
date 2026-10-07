@@ -13,4 +13,4 @@ The terms these pages use (memory, board, Dreamer, Ignite configuration and the 
 
 ## After a change
 
-See testing-ignite.
+After any change to a file under `core/ignite/`, or to the cast code Ignite imports, follow [Testing Ignite after a change](../../methods/testing-ignite.md) with the list of changed files before calling the change done. It names the suites the change obliges, the proof required on Linux and on Windows, and the deploy and live checks.
