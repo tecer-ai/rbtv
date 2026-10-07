@@ -106,6 +106,7 @@ rejects(base({ env: { A: 1 } }), 'must be a string');
   assert.ok(argv.includes('model_reasoning_effort=high'));
   assert.ok(argv.includes('--skip-git-repo-check'), 'codex turn must run outside git repos');
   assert.ok(argv.includes('project_doc_max_bytes=131072'), 'codex turn must raise the AGENTS.md limit');
+  assert.ok(argv.includes('--dangerously-bypass-hook-trust'), `a fresh codex turn must run the generated hooks: ${argv}`);
   assert.ok(argv.includes('--json'));
   assert.ok(!argv.includes('resume'));
   assert.ok(!argv.includes('last'));
@@ -116,6 +117,7 @@ rejects(base({ env: { A: 1 } }), 'must be a string');
   assert.ok(resume.includes('resume') && resume.includes('tid-2'));
   assert.ok(resume.includes('-m') && resume.includes('gpt-6-luna'));
   assert.ok(resume.includes('model_reasoning_effort=medium'));
+  assert.ok(resume.includes('--dangerously-bypass-hook-trust'), `a resumed codex turn must run the generated hooks: ${resume}`);
   assert.ok(!resume.includes('--last'));
   assert.ok(!resume.includes('last'));
 }

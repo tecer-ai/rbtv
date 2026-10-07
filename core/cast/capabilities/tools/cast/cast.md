@@ -162,13 +162,14 @@ The system prompt rides each harness's strongest channel, the same as `-s TEXT`/
 `-c project_doc_max_bytes=131072`, because Codex joins every `AGENTS.md` from the project root down to
 the working folder and cuts the text past its 32 KiB default.
 
-Every Codex launch and every Codex `resume` passes `--dangerously-bypass-hook-trust`. Codex runs a
+Every Codex launch and every Codex `resume` passes `--dangerously-bypass-hook-trust`, and so does
+every Codex turn the Ignite waking service runs through `ignite turn`. Codex runs a
 hook only when it holds a stored approval of that hook ("persisted hook trust" in Codex's help); a
 headless run cannot give that approval and skips every hook without a message. With the option,
-the hooks in the launch folder's `.codex/hooks.json` run. The cost: cast skips Codex's approval for
-every hook file Codex reads in that launch, so any hook file in the launch folder runs unreviewed.
-Read a folder's `.codex/hooks.json` before launching Codex in a folder whose content you did not
-write.
+the hooks in the launch folder's `.codex/hooks.json` run. The cost: cast and `ignite turn` skip
+Codex's approval for every hook file Codex reads in that launch, so any hook file in the launch
+folder runs unreviewed. Read a folder's `.codex/hooks.json` before launching Codex, or running an
+Ignite agent on Codex, in a folder whose content you did not write.
 
 `ignite turn` takes its standing prompt the same way: the `systemPromptFile` in its request is read
 with its frontmatter removed, and the model receives the body only.

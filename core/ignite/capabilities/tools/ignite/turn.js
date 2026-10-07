@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const CAST_LIB = '../../../../cast/capabilities/tools/cast/lib';
-const { CODEX_DOC_LIMIT, lookupModel, shortName, resolveEffortValue } = require(`${CAST_LIB}/core`);
+const { CODEX_DOC_LIMIT, CODEX_HOOK_TRUST, lookupModel, shortName, resolveEffortValue } = require(`${CAST_LIB}/core`);
 const { agentBody } = require(`${CAST_LIB}/agent`);
 const { procStart, emitHandle } = require(`${CAST_LIB}/handles`);
 const { launchEnv, opencodeTagged, SYSTEM_WRAPPER } = require(`${CAST_LIB}/launch`);
@@ -151,9 +151,9 @@ function argvFor(v, freshId, tag) {
         ? ['-c', `developer_instructions=${JSON.stringify(v.systemPrompt.text)}`] : [];
       return v.mode === 'resume'
         ? ['codex', 'exec', 'resume', v.sessionId, '-m', v.modelId, ...effort, ...developer,
-          '-c', 'sandbox_mode=danger-full-access', '-c', 'approval_policy=never', '--skip-git-repo-check', ...CODEX_DOC_LIMIT, '--json', '-']
+          '-c', 'sandbox_mode=danger-full-access', '-c', 'approval_policy=never', '--skip-git-repo-check', ...CODEX_HOOK_TRUST, ...CODEX_DOC_LIMIT, '--json', '-']
         : ['codex', 'exec', '--cd', v.cwd, '-m', v.modelId, '--sandbox', 'danger-full-access',
-          '-c', 'approval_policy=never', '--skip-git-repo-check', ...CODEX_DOC_LIMIT, ...effort, ...developer, '--json', '-'];
+          '-c', 'approval_policy=never', '--skip-git-repo-check', ...CODEX_HOOK_TRUST, ...CODEX_DOC_LIMIT, ...effort, ...developer, '--json', '-'];
     }
     case 'opencode':
       return ['opencode', 'run', '-m', v.modelId, '--auto', ...effort,
