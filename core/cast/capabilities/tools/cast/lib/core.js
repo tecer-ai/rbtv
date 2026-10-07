@@ -8,7 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { SPECS, ROWS } = require('../catalog');
+const { SPECS, ROWS } = require('../supported-models');
 const { spawnable } = require('./win-exec');
 
 // CLI model names are short: the provider prefix and the `claude-` prefix are dropped

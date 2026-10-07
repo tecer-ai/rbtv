@@ -12,17 +12,20 @@
 // the same flags against the same CSV always yield the same verdict.
 //
 // Two inputs, deliberately split by who edits them:
-//   models.csv   the ROUTING axes (level, scores, cost, image) — owner-editable data.
-//   catalog.js   the LAUNCH mechanics (harness-native id, effort ladder, auth) — code.
-// Route JOINS them on harness+model. A CSV row with no catalog twin is EXCLUDED with a loud stderr
-// warning: route must never answer with something cast cannot launch.
+//   models.csv            the ROUTING axes (level, scores, cost, image) — owner-editable data.
+//   supported-models.js   the LAUNCH mechanics (harness-native id, effort ladder, provider) — code.
+// Route JOINS them on harness+model. A CSV row with no supported-models.js twin is EXCLUDED with a
+// loud stderr warning: route must never answer with something cast cannot launch.
+// Availability reads `providers.json`: which login each row's provider needs and where it is kept.
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { ROWS } = require('../catalog');
+const { ROWS } = require('../supported-models');
+const { stores: STORES, providers: PROVIDERS } = require('../providers.json');
 
 const { fail } = require('./core');
+const { installationRoot, envFileHasKey } = require('./installation');
 
 const ROUTE_USAGE = 'cast route --access open|bounded --type code|text --class planner|broad|bounded|mechanical [--optimize price|quality] [--caps image] [--explain]';
 // The forms that ask nothing as flags. Kept OUT of ROUTE_USAGE so the top-level `cast -h` stays
@@ -93,69 +96,56 @@ const USE_DEFAULT = 'route';
 // levels carries its overrides per line, so it can win one level and not the other.
 const OVERRIDE = { quality: 'quality_override', price: 'price_override' };
 
-// The vault root = the nearest ancestor carrying rbtv.json, from cwd first (a workspace may sit
-// elsewhere) and from this module second (cast is installed inside the vault it serves).
-function vaultRoot() {
-  for (const start of [process.cwd(), __dirname]) {
-    let dir = path.resolve(start);
-    for (let i = 0; i < 12; i++) {
-      if (fs.existsSync(path.join(dir, 'rbtv.json'))) return dir;
-      const up = path.dirname(dir);
-      if (up === dir) break;
-      dir = up;
-    }
-  }
-  return null;
-}
-
 function readJson(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
 }
 
-function envFileHasKey(root, cfg, name) {
-  const pointer = cfg && cfg.env_file;
-  if (!root || !pointer) return false;
-  let text;
-  try { text = fs.readFileSync(path.join(root, pointer), 'utf8'); } catch { return false; }
-  return text.split('\n').some((l) => {
-    const t = l.trim();
-    return t && !t.startsWith('#') && t.split('=')[0].trim() === name;
-  });
+// A harness that keeps its own credential store has an entry in providers.json `stores`, keyed by
+// the harness name. Presence of the provider's key in that file IS the login — cast never spends
+// a call to test availability.
+function storePath(harness) {
+  const store = STORES[harness];
+  if (!store) return null;
+  const base = process.env[store.base_env] || store.base_default.replace(/^~(?=\/|$)/, os.homedir());
+  return path.join(base, store.path);
 }
 
-// opencode persists `opencode auth login` credentials in the store its own `auth list` header
-// names: $XDG_DATA_HOME/opencode/auth.json, else ~/.local/share/opencode/auth.json. Presence of
-// the provider key IS the credential — cast never spends a call to test availability.
-const CREDENTIAL_STORES = {
-  opencode: () => path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'),
-    'opencode', 'auth.json'),
-};
-
-function storedCredential(store, key) {
-  const resolver = CREDENTIAL_STORES[store];
-  if (!resolver || !key) return false;
-  const data = readJson(resolver());
+function storedCredential(harness, key) {
+  const file = storePath(harness);
+  if (!file || !key) return false;
+  const data = readJson(file);
   return !!(data && Object.prototype.hasOwnProperty.call(data, key));
 }
 
-// Availability: an explicit `available: false` drops the row; otherwise an api-key row needs its
-// key to RESOLVE (OS env first, then rbtv.json's env_file dotenv, then a stored CLI login), and
-// cli-login rows are always available. An absent key drops the row — never an error.
-function isAvailable(spec, root, cfg) {
+// What a row's login check can look at: the provider's key variable (when it has one) and the
+// provider's entry in the harness's own store (when the harness keeps one).
+function loginSources(spec) {
+  const provider = PROVIDERS[spec.provider];
+  return { envVar: provider.env_var, storeKey: provider.harnesses[spec.harness].store_key };
+}
+
+// Availability: an explicit `available: false` drops the row. A row with nothing to look at (a
+// claude or codex harness row: the harness holds its own account login) is always available.
+// Otherwise the key variable must be set, in the OS environment first and then in the
+// installation's environment file, or the harness's store must hold the provider's entry. An
+// `api` row has no store, so only the key variable can serve it. An absent login drops the row —
+// never an error.
+function isAvailable(spec, root) {
   if (spec.available === false) return false;
-  const auth = spec.auth || {};
-  if (auth.method !== 'api-key') return true;
-  if (auth.env_var && process.env[auth.env_var]) return true;
-  if (auth.env_var && envFileHasKey(root, cfg, auth.env_var)) return true;
-  return storedCredential(auth.credential_store, auth.credential_store_key);
+  const { envVar, storeKey } = loginSources(spec);
+  if (!envVar && !storeKey) return true;
+  if (envVar && (process.env[envVar] || envFileHasKey(root, envVar))) return true;
+  return storedCredential(spec.harness, storeKey);
 }
 
 function unavailableReason(spec) {
-  if (spec.available === false) return 'marked available: false in the catalog';
-  const auth = spec.auth || {};
-  return auth.credential_store
-    ? `${auth.env_var} absent in OS env and env_file, and no stored '${auth.credential_store_key}' credential in the ${auth.credential_store} store`
-    : `${auth.env_var} absent in both OS env and env_file`;
+  if (spec.available === false) return 'marked available: false in supported-models.js';
+  const { envVar, storeKey } = loginSources(spec);
+  const noStore = `no stored '${storeKey}' credential in the ${spec.harness} store`;
+  if (!envVar) return noStore;
+  return storeKey
+    ? `${envVar} absent in OS env and the env file, and ${noStore}`
+    : `${envVar} absent in both OS env and the env file`;
 }
 
 // --- the CSV -----------------------------------------------------------------------------------
@@ -195,7 +185,7 @@ function loadCsv(root) {
 
 const num = (v) => (v === '' ? null : Number(v));
 
-// JOIN — the CSV row carries the axes, its catalog.js twin carries the launch spec. No twin means
+// JOIN — the CSV row carries the axes, its supported-models.js twin carries the launch spec. No twin means
 // route could name something cast cannot run, so the row is dropped and the drop is LOUD.
 function joinCatalog(csvRows, warnings) {
   const joined = [];
@@ -203,11 +193,11 @@ function joinCatalog(csvRows, warnings) {
     const spec = ROWS.find((r) => r.harness === c.harness && r.model === c.model);
     const label = `${c.harness}/${c.model || '(blank model)'}`;
     if (!spec) {
-      warnings.push(`models.csv line ${c._line}: no catalog.js row for ${label} — excluded (cast cannot launch it)`);
+      warnings.push(`models.csv line ${c._line}: no supported-models.js row for ${label} — excluded (cast cannot launch it)`);
       continue;
     }
     if (spec.mode !== c.mode) {
-      warnings.push(`models.csv line ${c._line}: ${label} says mode=${c.mode}, catalog.js says mode=${spec.mode} — using catalog.js`);
+      warnings.push(`models.csv line ${c._line}: ${label} says mode=${c.mode}, supported-models.js says mode=${spec.mode} — using supported-models.js`);
     }
     const rawUse = (c.use === undefined ? '' : c.use).trim();
     const use = rawUse === '' ? USE_DEFAULT : rawUse;
@@ -321,9 +311,9 @@ function verdictFor(ranked, effort, isFloor) {
 
 // The pipeline, in the spec's order: availability -> image short-circuit -> access ->
 // class levels -> optimize -> effort. Every filter records why each row left.
-function selectRoute(req, joined, root, cfg, trace) {
+function selectRoute(req, joined, root, trace) {
   if (!joined.length) {
-    return { error: 'no_models', details: 'no models.csv row has a catalog.js twin' };
+    return { error: 'no_models', details: 'no models.csv row has a supported-models.js twin' };
   }
 
   // `use` runs FIRST: a row the owner has taken out of routing is never weighed, never explained
@@ -343,7 +333,7 @@ function selectRoute(req, joined, root, cfg, trace) {
 
   let rows = [];
   for (const r of routable) {
-    if (isAvailable(r.spec, root, cfg)) rows.push(r);
+    if (isAvailable(r.spec, root)) rows.push(r);
     else drop(trace, 'availability', r, unavailableReason(r.spec));
   }
   if (!rows.length) return { error: 'zero_candidates', details: 'every row dropped at availability' };
@@ -394,10 +384,10 @@ function selectRoute(req, joined, root, cfg, trace) {
 
 // --- surfaces ----------------------------------------------------------------------------------
 
-// cast route --catalog: the roster. Shows EVERY models.csv row, including one with no catalog.js
-// twin (`launchable: no`) — an owner filling the CSV needs to see a row that route is ignoring,
+// cast route --catalog: the roster. Shows EVERY models.csv row, including one with no
+// supported-models.js twin (`launchable: no`) — an owner filling the CSV needs to see a row that route is ignoring,
 // not have it vanish.
-function runCatalog(json, root, cfg) {
+function runCatalog(json, root) {
   const csv = loadCsv(root);
   if (csv.error) {
     process.stdout.write(`${JSON.stringify({ error: 'no_models', details: csv.error })}\n`);
@@ -408,7 +398,7 @@ function runCatalog(json, root, cfg) {
     const out = {};
     for (const col of COLUMNS) out[col] = c[col];
     out.launchable = spec ? 'yes' : 'no';
-    out.available = spec ? String(isAvailable(spec, root, cfg)) : '-';
+    out.available = spec ? String(isAvailable(spec, root)) : '-';
     return out;
   });
   if (json) {
@@ -561,7 +551,7 @@ function validateAgent(agent) {
   return { errors, caps };
 }
 
-function runBatch(source, explain, root, cfg) {
+function runBatch(source, explain, root) {
   const envelopeError = (details) => {
     process.stdout.write(`${JSON.stringify({ error: 'malformed_request', details: [].concat(details) })}\n`);
     process.exit(1);
@@ -592,7 +582,7 @@ function runBatch(source, explain, root, cfg) {
     }
     const req = { access: agent.access ?? null, type: agent.type ?? null, class: agent.class ?? null,
       optimize: agent.optimize ?? null, caps };
-    const result = selectRoute(req, joined, root, cfg, trace);
+    const result = selectRoute(req, joined, root, trace);
     if (!result.verdict) allRouted = false;
     const entry = { name: agent.name, ...(result.verdict || { error: result.error, details: result.details }) };
     if (explain) entry.explain = trace;
@@ -604,8 +594,7 @@ function runBatch(source, explain, root, cfg) {
 
 function runRoute(rawArgv) {
   const req = parseRouteArgs(rawArgv);
-  const root = vaultRoot();
-  const cfg = root ? (readJson(path.join(root, 'rbtv.json')) || {}) : {};
+  const root = installationRoot(process.cwd());
 
   if (req.batch !== null) {
     // The batch carries the interview as JSON — mixing it with the flag interview (or the roster
@@ -620,9 +609,9 @@ function runRoute(rawArgv) {
     if (mixed.length) {
       fail(`refused: --batch takes the whole interview as JSON — do not combine it with ${mixed.join(', ')}\nusage: cast route --batch agents.json  # or --batch - for stdin\n       ${ROUTE_USAGE}`);
     }
-    return runBatch(req.batch, req.explain, root, cfg);
+    return runBatch(req.batch, req.explain, root);
   }
-  if (req.catalog) return runCatalog(req.json, root, cfg);
+  if (req.catalog) return runCatalog(req.json, root);
 
   const errors = validateRequest(req);
   if (errors.length) {
@@ -642,7 +631,7 @@ function runRoute(rawArgv) {
 
   const trace = [{ stage: 'catalog', source: csv.file, csv_rows: csv.rows.length, joined: joined.length,
     excluded: warnings }];
-  const result = selectRoute(req, joined, root, cfg, trace);
+  const result = selectRoute(req, joined, root, trace);
   const out = result.verdict || { error: result.error, details: result.details };
   if (req.explain) out.explain = trace;
   process.stdout.write(`${JSON.stringify(out)}\n`);
@@ -652,8 +641,7 @@ function runRoute(rawArgv) {
 module.exports = {
   ROUTE_USAGE, ROUTE_FORMS, CSV_NAME, CSV_LOCAL, CSV_OVERRIDE_REL, COLUMNS, CLASSES,
   ACCESS, TYPES, OPTIMIZE, CAPS,
-  vaultRoot, readJson, envFileHasKey, CREDENTIAL_STORES, storedCredential,
-  isAvailable, unavailableReason,
+  readJson, storePath, storedCredential, isAvailable, unavailableReason,
   parseCsv, csvPath, loadCsv, joinCatalog,
   scoreOf, pick, selectRoute, runCatalog, parseRouteArgs, validateRequest, runRoute,
   AGENT_KEYS, readBatchInput, batchAgents, validateAgent, runBatch,

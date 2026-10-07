@@ -11,15 +11,15 @@
 //     reddened 16 arms on the 2026-08-22 re-curation and taught nobody anything: the checks broke
 //     because the data changed, never because the selector did.
 //   * The SHIPPED table gets ONE arm, at the bottom: VALIDATION, not verdicts — every row joins
-//     catalog.js, every cell is in its vocabulary, no duplicates, every class still has a routable
+//     supported-models.js, every cell is in its vocabulary, no duplicates, every class still has a routable
 //     row, and loading it emits NO warning. That is the half that can be wrong without anyone
 //     noticing (a decimal comma silently shifted four rows out of routing that same day).
 //
 // Hermetic environment (availability is a PRESENCE test, never a spend): api keys are pinned to
 // synthetic placeholders and XDG_DATA_HOME points at an empty dir, so this box's real opencode
 // credential store cannot decide a verdict. Available in these runs: every claude + codex row
-// (cli-login), the opencode deepseek + google rows and both api rows (env keys). Unavailable:
-// zai (glm), sakana (fugu), xai (grok), kimi (k3).
+// (the harness holds its own account login), the opencode deepseek + google rows and both api rows
+// (env keys). Unavailable: zai (glm), sakana (fugu), xai (grok), kimi (k3).
 
 const assert = require('assert');
 const fs = require('fs');
@@ -37,16 +37,23 @@ const ENV = {
 };
 
 // --- the fixture table -------------------------------------------------------------------------
-// cwd is what selects a table: route resolves the vault root from cwd first, and a per-vault
-// override file there REPLACES the shipped CSV. So the suite makes itself a scratch vault, writes
-// its own table into it, and every logic arm runs there — the shipped models.csv is reached only
-// by the validation arm, which passes __dirname explicitly.
+// cwd is what selects a table: route finds the installation from cwd (the first folder upward
+// holding .rbtv/config/install.json), and an override file there REPLACES the shipped CSV. So the
+// suite makes itself a scratch installation, writes its own table into it, and every logic arm
+// runs there — the shipped models.csv is reached only by the arms that run from OUTSIDE, a fresh
+// folder inside no installation.
 //
 // The table is built so each arm has ONE right answer and no tie, and so every axis has a
 // discriminating pair: cli vs api, a blank cost, an image row, and one row (k3, on a
 // kimi credential ENV does not fake) that must drop at availability.
-const FIXTURE = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-route-fixture-'));
-fs.writeFileSync(path.join(FIXTURE, 'rbtv.json'), '{"rbtv_version":"test"}\n');
+function scratchInstallation(prefix) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  fs.mkdirSync(path.join(root, '.rbtv', 'config'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.rbtv', 'config', 'install.json'), '{}\n');
+  return root;
+}
+const OUTSIDE = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-route-outside-'));
+const FIXTURE = scratchInstallation('cast-route-fixture-');
 const FIXTURE_CSV = path.join(FIXTURE, '.rbtv', 'config', 'modules', 'core', 'sub-agents', 'models.csv');
 fs.mkdirSync(path.dirname(FIXTURE_CSV), { recursive: true });
 fs.writeFileSync(FIXTURE_CSV, [
@@ -224,8 +231,7 @@ const dropped = (v, stage) => (v.explain || [])
   // the missing axis — NEVER a malformed_request over the flags the short-circuit deliberately
   // skips. Its own one-row table: whether the SHIPPED table happens to carry an image row is the
   // owner's data, and this arm is about the code path.
-  const noImage = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-route-noimage-'));
-  fs.writeFileSync(path.join(noImage, 'rbtv.json'), '{"rbtv_version":"test"}\n');
+  const noImage = scratchInstallation('cast-route-noimage-');
   const noImageCsv = path.join(noImage, '.rbtv', 'config', 'modules', 'core', 'sub-agents', 'models.csv');
   fs.mkdirSync(path.dirname(noImageCsv), { recursive: true });
   fs.writeFileSync(noImageCsv, [
@@ -254,11 +260,10 @@ const dropped = (v, stage) => (v.explain || [])
 }
 
 // --- the per-vault override REPLACES the shipped CSV --------------------------------------------
-// A scratch vault root (rbtv.json + the override path) — never the real .rbtv/config. Route
-// resolves the root from cwd first, so running there is what selects the override.
+// A scratch installation (the install record + the override path) — never the real .rbtv/config.
+// Route finds the installation from cwd, so running there is what selects the override.
 {
-  const vault = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-route-vault-'));
-  fs.writeFileSync(path.join(vault, 'rbtv.json'), '{"rbtv_version":"test"}\n');
+  const vault = scratchInstallation('cast-route-vault-');
   const overrideDir = path.join(vault, '.rbtv', 'config', 'modules', 'core', 'sub-agents');
   fs.mkdirSync(overrideDir, { recursive: true });
   const overrideFile = path.join(overrideDir, 'models.csv');
@@ -277,7 +282,7 @@ const dropped = (v, stage) => (v.explain || [])
 
   const cheap = route(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'price', '--explain'], vault);
   assert.strictEqual(pair(cheap), 'claude/sonnet-5-5/cli', 'the override IS the catalog — cost 3 beats cost 9');
-  assert.ok(/no catalog\.js row for opencode\/not-a-real-model/.test(cheap._stderr),
+  assert.ok(/no supported-models\.js row for opencode\/not-a-real-model/.test(cheap._stderr),
     `an unjoinable CSV row must warn LOUDLY on stderr: ${cheap._stderr}`);
   // A blank cost sits OUT of every price pick — unknown is not cheap. It stays eligible for
   // quality, where opus-5-5's reasoning 7 beats every priced row.
@@ -300,8 +305,7 @@ const dropped = (v, stage) => (v.explain || [])
 // arm changes exactly one cell and pins what moved. Every row is a claude/codex model, which the
 // hermetic env makes available, so nothing here can be decided by a credential.
 {
-  const vault = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-route-use-'));
-  fs.writeFileSync(path.join(vault, 'rbtv.json'), '{"rbtv_version":"test"}\n');
+  const vault = scratchInstallation('cast-route-use-');
   const dir = path.join(vault, '.rbtv', 'config', 'modules', 'core', 'sub-agents');
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, 'models.csv');
@@ -500,7 +504,7 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cast-route-batch-')), 'agents.json');
   fs.writeFileSync(file, JSON.stringify([FIXER_AGENT]));
   for (const flags of [['--access', 'open'], ['--caps', 'image'], ['--catalog']]) {
-    const res = spawnSync('node', [TOOL, 'route', '--batch', file, ...flags], { encoding: 'utf8', env: ENV, cwd: __dirname });
+    const res = spawnSync('node', [TOOL, 'route', '--batch', file, ...flags], { encoding: 'utf8', env: ENV, cwd: OUTSIDE });
     assert.strictEqual(res.status, 2, `batch + ${flags[0]} must be refused: ${res.stdout}`);
     assert.ok(/--batch takes the whole interview as JSON/.test(res.stderr),
       `the refusal must teach the correct form: ${res.stderr}`);
@@ -520,6 +524,62 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
   assert.notStrictEqual(plannerDrops, fixerDrops, 'each trace is the agent\'s own pipeline, not a shared one');
 }
 
+// --- every supported model names a provider that serves its harness ------------------------------
+// supported-models.js rows point into providers.json by name; a row whose provider is missing, or
+// whose harness that provider does not list, would crash the availability check at route time.
+{
+  const { ROWS } = require('./supported-models');
+  const { providers } = require('./providers.json');
+  for (const r of ROWS) {
+    const at = `supported-models.js row ${r.harness}/${r.model}`;
+    assert.ok(providers[r.provider], `${at}: provider '${r.provider}' is not in providers.json`);
+    assert.ok(Object.prototype.hasOwnProperty.call(providers[r.provider].harnesses, r.harness),
+      `${at}: providers.json does not list harness '${r.harness}' under provider '${r.provider}'`);
+  }
+}
+
+// --- where a login is looked for -------------------------------------------------------------------
+// Its own scratch installation, table and opencode store, so each source is the ONLY thing that
+// can make a row available: the installation's env file, or the provider's entry in the store.
+{
+  const inst = scratchInstallation('cast-route-login-');
+  const csv = path.join(inst, '.rbtv', 'config', 'modules', 'core', 'sub-agents', 'models.csv');
+  fs.mkdirSync(path.dirname(csv), { recursive: true });
+  fs.writeFileSync(csv, [
+    'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override',
+    'cli,opencode,k3,3,N,L2,5,5,15,route,N,N',
+    'cli,opencode,glm-5.3,2,N,L2,5,5,15,route,N,N',
+    'cli,opencode,fugu-ultra,3,N,L2,5,5,15,route,N,N',
+    'cli,opencode,grok-4.7,3,N,L2,5,5,15,route,N,N',
+    ''].join('\n'));
+  const xdg = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-route-store-'));
+  fs.mkdirSync(path.join(xdg, 'opencode'));
+  const envFile = path.join(inst, '.rbtv', 'config', 'env', '.env');
+  fs.mkdirSync(path.dirname(envFile), { recursive: true });
+  const available = (store, envText, extraEnv = {}) => {
+    fs.writeFileSync(path.join(xdg, 'opencode', 'auth.json'), JSON.stringify(store));
+    fs.writeFileSync(envFile, envText);
+    const res = spawnSync('node', [TOOL, 'route', '--catalog', '--json'],
+      { encoding: 'utf8', env: { ...ENV, XDG_DATA_HOME: xdg, ...extraEnv }, cwd: path.join(inst, '.rbtv') });
+    assert.strictEqual(res.status, 0, res.stderr);
+    return Object.fromEntries(JSON.parse(res.stdout).rows.map((r) => [r.model, r.available]));
+  };
+
+  // Nothing anywhere: every row is unavailable. `KEY=` with no value is NOT a key, quoted or not.
+  assert.deepStrictEqual(available({}, 'KIMI_API_KEY=\nZHIPU_API_KEY=""\n'),
+    { k3: 'false', 'glm-5.3': 'false', 'fugu-ultra': 'false', 'grok-4.7': 'false' });
+  // The env file of the installation found from cwd (a folder BELOW the root) serves a key row.
+  assert.deepStrictEqual(available({}, '# comment\nKIMI_API_KEY=test-fake-not-real\n'),
+    { k3: 'true', 'glm-5.3': 'false', 'fugu-ultra': 'false', 'grok-4.7': 'false' });
+  // The store serves sakana (an API key kept by opencode) and xai (an account login kept by
+  // opencode) alike: what counts is the provider's entry in the harness's store.
+  assert.deepStrictEqual(available({ sakana: { type: 'api' }, xai: { type: 'oauth' } }, ''),
+    { k3: 'false', 'glm-5.3': 'false', 'fugu-ultra': 'true', 'grok-4.7': 'true' });
+  // xai has no key variable: an account login is never "always available", and a stray
+  // XAI_API_KEY does not stand in for the missing store entry.
+  assert.strictEqual(available({}, '', { XAI_API_KEY: 'test-fake-not-real' })['grok-4.7'], 'false');
+}
+
 // --- the SHIPPED table: validation, never verdicts ----------------------------------------------
 // The one arm that reads the real models.csv. It asserts nothing about WHO wins — that is the
 // owner's data and theirs to change — only that the table is well-formed enough to be obeyed:
@@ -528,7 +588,7 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
 // on which keys this box happens to have, and a table is not malformed because a key is missing.
 {
   const shipped = spawnSync('node', [TOOL, 'route', '--catalog', '--json'],
-    { encoding: 'utf8', env: ENV, cwd: __dirname });
+    { encoding: 'utf8', env: ENV, cwd: OUTSIDE });
   assert.strictEqual(shipped.status, 0, shipped.stderr);
   const { source, rows } = JSON.parse(shipped.stdout);
   assert.ok(source.endsWith(path.join('core', 'cast', 'capabilities', 'tools', 'cast', 'models.csv')), `expected the shipped table, got ${source}`);
@@ -543,9 +603,9 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
   for (const r of rows) {
     const at = `models.csv row ${r.harness}/${r.model || '(blank model)'}`;
     // Launchability is the join: a row cast cannot launch is a row route must never name, and the
-    // tool only WARNS about it — so this is where a typo like `gemini-3.7-flash` with no catalog
-    // entry gets caught instead of silently shrinking the roster.
-    assert.strictEqual(r.launchable, 'yes', `${at} has no catalog.js twin — route excludes it`);
+    // tool only WARNS about it — so this is where a typo like `gemini-3.7-flash` with no
+    // supported-models.js row gets caught instead of silently shrinking the roster.
+    assert.strictEqual(r.launchable, 'yes', `${at} has no supported-models.js twin — route excludes it`);
     assert.ok(['cli', 'api'].includes(r.mode), `${at}: mode '${r.mode}'`);
     assert.ok(LEVELS.includes(r.level), `${at}: level '${r.level}' is not one of ${LEVELS.join('|')}`);
     assert.ok(YN.includes(r.image), `${at}: image '${r.image}'`);
@@ -563,7 +623,7 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
       `${at}: cost is '${r.cost}' — a number, or blank for unknown (a decimal comma shifts the whole row)`);
     // A model MAY appear on more than one line, once per level it is admitted at (owner ruling
     // 2026-08-23: claude/sonnet-5-5 sits at L2 and L3 so `bounded` and `mechanical` can both reach
-    // it, its subscription making the L3 list price misleading). The join onto catalog.js is on
+    // it, its subscription making the L3 list price misleading). The join onto supported-models.js is on
     // harness+model and both copies resolve to the same launch spec, so this is unambiguous where
     // it matters. What stays forbidden is the ACCIDENTAL duplicate: two lines for one model that
     // disagree on any other axis — that is a typo, and route would rank the same model twice with
@@ -599,7 +659,7 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
   // And loading it must be SILENT. Every exclusion route makes on its own is a stderr warning, so
   // an empty stderr is the proof that nothing was quietly left out of the roster.
   const quiet = spawnSync('node', [TOOL, 'route', '--access', 'bounded', '--type', 'text', '--class', 'mechanical'],
-    { encoding: 'utf8', env: ENV, cwd: __dirname });
+    { encoding: 'utf8', env: ENV, cwd: OUTSIDE });
   assert.strictEqual(quiet.stderr, '', `loading the shipped table must warn about nothing:\n${quiet.stderr}`);
 }
 

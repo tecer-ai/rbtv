@@ -1,0 +1,74 @@
+{
+  "stores": {
+    "opencode": {"base_env": "XDG_DATA_HOME", "base_default": "~/.local/share", "path": "opencode/auth.json"}
+  },
+  "providers": {
+    "claude": {
+      "lab": "Anthropic",
+      "login": "account",
+      "harnesses": {"claude": {}},
+      "saved_login": {
+        "files": {
+          "credentials": {"path": "~/.claude/.credentials.json"},
+          "oauthAccount": {"path": "~/.claude.json", "key": "oauthAccount"}
+        },
+        "id": ["oauthAccount", "accountUuid"],
+        "email": ["oauthAccount", "emailAddress"],
+        "valid_until_ms": ["credentials", "claudeAiOauth", "refreshTokenExpiresAt"]
+      },
+      "usage": {"source": "endpoint", "url": "https://api.anthropic.com/api/oauth/usage", "per_account": true}
+    },
+    "codex": {
+      "lab": "OpenAI",
+      "login": "account",
+      "harnesses": {"codex": {}},
+      "saved_login": {
+        "files": {"auth": {"path": "~/.codex/auth.json"}},
+        "id": ["auth", "tokens", "account_id"],
+        "email": {"jwt": ["auth", "tokens", "id_token"], "claim": "email"}
+      },
+      "usage": {"source": "local", "path": "~/.codex/sessions"}
+    },
+    "zai": {
+      "lab": "Z.ai",
+      "login": "api-key",
+      "env_var": "ZHIPU_API_KEY",
+      "harnesses": {"opencode": {"store_key": "zai-coding-plan"}},
+      "usage": {"source": "endpoint", "url": "https://api.z.ai/api/monitor/usage/quota/limit"}
+    },
+    "deepseek": {
+      "lab": "DeepSeek",
+      "login": "api-key",
+      "env_var": "DEEPSEEK_API_KEY",
+      "harnesses": {"opencode": {"store_key": "deepseek"}},
+      "usage": {"source": "endpoint", "url": "https://api.deepseek.com/user/balance"}
+    },
+    "kimi": {
+      "lab": "Moonshot AI",
+      "login": "api-key",
+      "env_var": "KIMI_API_KEY",
+      "harnesses": {"opencode": {"store_key": "kimi-for-coding"}},
+      "usage": {"source": "endpoint", "url": "https://api.kimi.com/coding/v1/usages"}
+    },
+    "google": {
+      "lab": "Google",
+      "login": "api-key",
+      "env_var": "GEMINI_API_KEY",
+      "harnesses": {"opencode": {"store_key": "google"}, "api": {}},
+      "usage": {"source": "console", "url": "aistudio.google.com"}
+    },
+    "sakana": {
+      "lab": "Sakana AI",
+      "login": "api-key",
+      "env_var": "SAKANA_API_KEY",
+      "harnesses": {"opencode": {"store_key": "sakana"}},
+      "usage": {"source": "console", "url": "console.sakana.ai"}
+    },
+    "xai": {
+      "lab": "xAI",
+      "login": "account",
+      "harnesses": {"opencode": {"store_key": "xai"}},
+      "usage": {"source": "console", "url": "grok.com/?_s=usage"}
+    }
+  }
+}

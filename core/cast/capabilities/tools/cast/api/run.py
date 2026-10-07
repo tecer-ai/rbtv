@@ -21,10 +21,14 @@ sys.path.insert(0, str(_API_DIR))
 from clients.base import ProviderClient, ProviderConfig, RequestOptions, Message  # noqa: E402
 
 
-def _find_rbtv_json_dir(start: pathlib.Path) -> Optional[pathlib.Path]:
-    """Walk up from *start* looking for the first dir containing rbtv.json."""
+_INSTALL_RECORD = pathlib.Path(".rbtv", "config", "install.json")
+_ENV_FILE = pathlib.Path(".rbtv", "config", "env", ".env")
+
+
+def _find_installation(start: pathlib.Path) -> Optional[pathlib.Path]:
+    """Walk up from *start* to the first folder holding the installation record."""
     for parent in [start, *start.parents]:
-        if (parent / "rbtv.json").is_file():
+        if (parent / _INSTALL_RECORD).is_file():
             return parent
     return None
 
@@ -46,34 +50,30 @@ def _parse_dotenv(env_path: pathlib.Path) -> Dict[str, str]:
     return result
 
 
-def _resolve_key(provider: str, api_dir: pathlib.Path) -> str:
-    """Resolve the API key for *provider* without ever exposing it."""
+def _resolve_key(provider: str, launch_dir: pathlib.Path) -> str:
+    """Resolve the API key for *provider* without ever exposing it.
+
+    The OS environment first, then the environment file of the installation
+    that holds *launch_dir*.
+    """
     key_var = f"{provider.upper()}_API_KEY"
     key = os.environ.get(key_var)
     if key:
         return key
 
-    rbtv_dir = _find_rbtv_json_dir(api_dir)
-    if rbtv_dir:
-        rbtv_path = rbtv_dir / "rbtv.json"
+    installation = _find_installation(launch_dir.resolve())
+    if installation:
         try:
-            with rbtv_path.open("r", encoding="utf-8") as fh:
-                rbtv_data = json.load(fh)
-        except (json.JSONDecodeError, OSError):
-            rbtv_data = {}
-        env_file = rbtv_data.get("env_file")
-        if env_file:
-            env_path = (rbtv_dir / env_file).resolve()
-            try:
-                env_vars = _parse_dotenv(env_path)
-            except OSError:
-                env_vars = {}
-            key = env_vars.get(key_var)
-            if key:
-                return key
+            env_vars = _parse_dotenv(installation / _ENV_FILE)
+        except OSError:
+            env_vars = {}
+        key = env_vars.get(key_var)
+        if key:
+            return key
 
     print(
-        f"ERROR: missing API key {key_var} (not in OS env, not in env_file)",
+        f"ERROR: missing API key {key_var} (not in OS env, not in the "
+        f"installation's {_ENV_FILE.as_posix()})",
         file=sys.stderr,
     )
     sys.exit(1)
@@ -297,7 +297,7 @@ def main() -> None:
     client = client_cls()
 
     # --- key discovery ---
-    key = _resolve_key(args.provider, _API_DIR)
+    key = _resolve_key(args.provider, pathlib.Path.cwd())
 
     # --- read prompt (and optional target file) ---
     prompt_path = pathlib.Path(args.prompt_file)

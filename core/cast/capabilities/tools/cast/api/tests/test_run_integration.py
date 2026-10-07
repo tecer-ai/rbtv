@@ -51,7 +51,7 @@ def test_main_writes_artifacts_end_to_end(tmp_path, monkeypatch):
     fake_mod.FakeManusClient = FakeManusClient
     monkeypatch.setattr(run.importlib, "import_module", lambda name: fake_mod)
     # Skip real key resolution (no env, no .env needed).
-    monkeypatch.setattr(run, "_resolve_key", lambda provider, api_dir: "fake-key")
+    monkeypatch.setattr(run, "_resolve_key", lambda provider, launch_dir: "fake-key")
 
     argv = [
         "run.py",

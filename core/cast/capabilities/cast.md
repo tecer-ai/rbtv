@@ -47,7 +47,7 @@ providers: {name: {enabled, via, slots, active}}, usage: [...]}`.
 
 ## Effort mapping (1-5 → the harness's own ladder)
 
-Each (harness, model) has its own rung ladder in `capabilities/tools/cast/catalog.js`. Rule:
+Each (harness, model) has its own rung ladder in `capabilities/tools/cast/supported-models.js`. Rule:
 `rung = ladder[min(N, ladder.length) - 1]`
 — asking for 5 on a 3-rung ladder clamps to that ladder's top rung, never a refusal. An `inert`
 ladder (`haiku-4-5`) accepts any N and emits no effort argv at all. `cast list --models` prints the
@@ -229,16 +229,16 @@ xai is authenticated via opencode oauth as of 2026-08-13 and both grok ladders a
 (`low,medium,high`). A model with no variants at all (`zai-coding-plan/glm-4.7`) is inert: any
 effort number, no `--variant` argv.
 
-The (harness, model) → argv/effort table lives in `capabilities/tools/cast/catalog.js`; `capabilities/tools/cast/models.csv` contains
+The (harness, model) → argv/effort table lives in `capabilities/tools/cast/supported-models.js`; `capabilities/tools/cast/models.csv` contains
 the routing catalog. `cast list --models` and `cast list --json` read the current launch table. Update
-`capabilities/tools/cast/catalog.js` when a harness model or effort ladder changes, then run `test_cast.js` and
+`capabilities/tools/cast/supported-models.js` when a harness model or effort ladder changes, then run `test_cast.js` and
 `test_route.js`.
 
 ## `cast route`
 
 The deterministic worker selector, REDESIGNED 2026-08-20: you answer four questions about the job
 and route names ONE `(harness, model, mode, effort)`. It is a pure function of those flags,
-`capabilities/tools/cast/models.csv` and `capabilities/tools/cast/catalog.js` — no network, no clock, no randomness, so the same answers
+`capabilities/tools/cast/models.csv` and `capabilities/tools/cast/supported-models.js` — no network, no clock, no randomness, so the same answers
 always give the same verdict. The old JSON-task-profile interface is DELETED with no back-compat
 path, and with it the boundedness bands, pinned roles, halt seams, stakes tier-up, the haiku
 clause, footprint/window gating and evidence ranking.
@@ -291,7 +291,7 @@ is what makes level curation load-bearing.
 pick — `--optimize price` AND the default — and stays eligible for `quality` — unknown is not cheap; a blank `level` excludes the row entirely; a
 blank score reads as 0 in tie-breaks. Every exclusion appears in `--explain`.
 
-Pipeline order: parse flags → load CSV (override-aware) → join `catalog.js` → availability →
+Pipeline order: parse flags → load CSV (override-aware) → join `supported-models.js` → availability →
 image short-circuit → access → caps → class levels → optimize → effort. `--explain` attaches the full
 trace with a reason on every dropped row.
 
@@ -330,18 +330,34 @@ share the verdict's effort. `mode: cli` is launchable by `cast <harness> <model>
 a cast 1-5 integer mapped onto the picked row's own ladder at launch — an inert ladder still takes
 the number and emits no argv.
 
-Availability is a PRESENCE test, never a spend: an api-key row resolves from the OS environment
-first, then the dotenv at `rbtv.json`'s `env_file`, then a stored CLI login in the harness's own
-credential store. An absent key drops the row; it is never an error. ⚠ Consequence worth naming:
+Availability is a PRESENCE test, never a spend. Each row names its provider, and
+`capabilities/tools/cast/providers.json` says what that provider's login is: its key variable, and
+its entry in the harness's own credential store. A claude or codex harness row is always
+available (the harness holds its own account login). An opencode row is available when the key
+variable is set in the OS environment, else in the installation's environment file
+(`.rbtv/config/env/.env`), else when opencode's store holds the provider's entry. An `api` row
+needs the key variable, in the OS environment or the environment file. A variable set to an empty
+value is not a key. The installation is the first folder, from the folder cast runs in upward,
+that holds `.rbtv/config/install.json`; outside any installation there is no environment file. An
+absent login drops the row; it is never an error. ⚠ Consequence worth naming:
 with no `GEMINI_API_KEY` on the box, `cast route --caps image` answers `zero_candidates` naming the
 key — which is the honest answer, not a bug.
 
-### The catalog: two files, joined
+### The catalog: two files, joined, and the providers file
 
 Routing axes live in **`capabilities/tools/cast/models.csv`** — data the owner edits without touching code. It sits beside this tool so `cast route` keeps working when no other tree is present. A per-vault file still replaces it whole (below). Launch
-mechanics (harness-native id, effort ladder, auth) stay in **`capabilities/tools/cast/catalog.js`**. Route joins them
-on `harness`+`model`, and a CSV row with no `catalog.js` twin is excluded with a loud stderr
+mechanics (harness-native id, effort ladder, provider) stay in **`capabilities/tools/cast/supported-models.js`**, the supported models. Route joins them
+on `harness`+`model`, and a CSV row with no `supported-models.js` twin is excluded with a loud stderr
 warning: route must never name something cast cannot launch.
+
+Each supported model names its provider, a key of **`capabilities/tools/cast/providers.json`**. That file
+holds one entry per provider: the lab, the login method (`account` or `api-key`), the key variable
+(`env_var`), the harnesses that reach it with the provider's entry in each harness's credential
+store (`harnesses.<harness>.store_key`; `harnesses.api` marks a provider `cast api` calls), the
+files a saved login is made of (`saved_login`, only where logins can be saved and switched) and
+where its usage figure comes from (`usage`). `stores` says where a harness keeps its credentials.
+Add a provider there before a supported model names it; `test_route.js` fails on a row whose
+provider or harness the file does not list.
 
 Columns: `mode` (cli|api) · `harness` · `model` · `efforts` (max N, 0 = inert) · `image` (Y/N) ·
 `level` (SOTA|L1|L2|L3|L4) · `reasoning` (1-7) · `coding` (1-7) · `cost` ($ per M
@@ -378,7 +394,7 @@ cell (owner ruling 2026-08-23). `level` is normally the model's single quality t
 line is the deliberate exception for a model whose list price misrepresents what it actually costs
 this vault: `claude/sonnet-5-5` carries a Claude subscription that makes it cost about 5x less
 than its $10 list price, so it sits at **L2 and L3** and is reachable by both `bounded` and `mechanical`, winning
-each on its `price-override=Y`. The join onto `catalog.js` is on harness+model and every copy
+each on its `price-override=Y`. The join onto `supported-models.js` is on harness+model and every copy
 resolves to the same launch spec, so nothing about launching is ambiguous. What remains forbidden
 is the ACCIDENTAL duplicate: two lines for one model that disagree on any cell other than `level` —
 `test_route.js` fails on it, because route would otherwise rank the same model twice under
@@ -391,7 +407,7 @@ If that file exists it IS the catalog and the shipped CSV is ignored entirely.
 The CSV carries **the latest models only, per provider**. Pruning it does NOT remove launch
 support — `cast claude haiku-4-5 1` still launches, it just stops being an answer route can give.
 `cast route --catalog` shows every CSV row with its axes, whether it is launchable (has a
-`catalog.js` twin) and whether its credential resolves right now.
+`supported-models.js` twin) and whether its login is present right now.
 
 L4 is the image tier and no class admits it, so an L4 row is reachable ONLY through
 `--caps image`.
@@ -433,7 +449,7 @@ paths. An unrecognised part type in the neutral list raises rather than being si
 
 ⚠ **The image row ships with a BLANK model id** — the owner has not picked the model yet. While it
 is blank, `cast route --caps image` returns a verdict with an empty `model` and `cast api` refuses
-to call it. Filling the id in BOTH `models.csv` and `catalog.js` (identically) is all that is
+to call it. Filling the id in BOTH `models.csv` and `supported-models.js` (identically) is all that is
 needed. ⚠ **The image call has never been made live** — `GEMINI_API_KEY` is absent on this box, so
 the path is verified by `--dry-run` and by unit tests over the request payload and the
 inline-image parsing, not by a real call.
@@ -441,14 +457,17 @@ inline-image parsing, not by a real call.
 The runner always writes `return.json` `{status: DONE|DONE_WITH_NOTES|BLOCKED, landed, validation,
 concerns, open_questions}` under `--output-folder`, prints `"{status} | N file(s)"`, and exits 0
 unless `BLOCKED` (then 1). Key resolution is `{PROVIDER}_API_KEY` in the OS env first, then the
-dotenv at `rbtv.json`'s `env_file`.
+environment file (`.rbtv/config/env/.env`) of the installation that holds the folder `cast api`
+runs in.
 
 ## Layout
 
 | File | What it owns |
 |---|---|
 | `capabilities/tools/cast/cast.js` | the CLI front door — argv dispatch and the bare launch path, nothing else |
-| `capabilities/tools/cast/catalog.js` | LAUNCH mechanics only — harness-native id, effort ladder, auth (see Spec source) |
+| `capabilities/tools/cast/supported-models.js` | the supported models: LAUNCH mechanics only — harness-native id, effort ladder, provider (see Spec source) |
+| `capabilities/tools/cast/providers.json` | the providers: login method, key variable, credential-store entry per harness, saved-login files, usage source |
+| `capabilities/tools/cast/lib/installation.js` | the installation a launch belongs to (first folder upward holding `.rbtv/config/install.json`) and its environment file |
 | `capabilities/tools/cast/models.csv` | the routing table — level, scores, cost, image. Owner-editable; overridable per vault. Lives beside this tool so routing does not depend on any other tree |
 | `capabilities/tools/cast/lib/core.js` | shared primitives: argv parsing, model/effort/folder resolution, the model table, `doctor`, `list` |
 | `core/ignite/capabilities/tools/ignite/turn.js` | `ignite turn` — exact session id, resume with the requested model/effort, result file |

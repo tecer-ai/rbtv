@@ -208,7 +208,7 @@ def _run_gemini(monkeypatch, tmp_path, *, grounded, content, finish="stop",
     fake_mod = types.ModuleType("clients.gemini")
     fake_mod.TheClient = FakeGemini
     monkeypatch.setattr(run.importlib, "import_module", lambda name: fake_mod)
-    monkeypatch.setattr(run, "_resolve_key", lambda provider, api_dir: "fake-key")
+    monkeypatch.setattr(run, "_resolve_key", lambda provider, launch_dir: "fake-key")
 
     argv = [
         "run.py",
@@ -445,7 +445,7 @@ def test_input_image_without_image_flag_is_refused(monkeypatch, tmp_path):
     img.write_bytes(b"PNGDATA")
     out = tmp_path / "out"
 
-    monkeypatch.setattr(run, "_resolve_key", lambda provider, api_dir: "fake-key")
+    monkeypatch.setattr(run, "_resolve_key", lambda provider, launch_dir: "fake-key")
     argv = [
         "run.py",
         "--provider", "gemini",
@@ -470,7 +470,7 @@ def test_input_image_bad_extension_is_refused(monkeypatch, tmp_path):
     fake_mod = types.ModuleType("clients.gemini")
     fake_mod.TheClient = FakeGemini
     monkeypatch.setattr(run.importlib, "import_module", lambda name: fake_mod)
-    monkeypatch.setattr(run, "_resolve_key", lambda provider, api_dir: "fake-key")
+    monkeypatch.setattr(run, "_resolve_key", lambda provider, launch_dir: "fake-key")
     argv = [
         "run.py",
         "--provider", "gemini",
@@ -495,7 +495,7 @@ def test_input_image_missing_file_is_refused(monkeypatch, tmp_path):
     fake_mod = types.ModuleType("clients.gemini")
     fake_mod.TheClient = FakeGemini
     monkeypatch.setattr(run.importlib, "import_module", lambda name: fake_mod)
-    monkeypatch.setattr(run, "_resolve_key", lambda provider, api_dir: "fake-key")
+    monkeypatch.setattr(run, "_resolve_key", lambda provider, launch_dir: "fake-key")
     argv = [
         "run.py",
         "--provider", "gemini",
@@ -527,7 +527,7 @@ def test_input_image_run_builds_list_form_message(monkeypatch, tmp_path):
     fake_mod = types.ModuleType("clients.gemini")
     fake_mod.TheClient = FakeGemini
     monkeypatch.setattr(run.importlib, "import_module", lambda name: fake_mod)
-    monkeypatch.setattr(run, "_resolve_key", lambda provider, api_dir: "fake-key")
+    monkeypatch.setattr(run, "_resolve_key", lambda provider, launch_dir: "fake-key")
     argv = [
         "run.py",
         "--provider", "gemini",

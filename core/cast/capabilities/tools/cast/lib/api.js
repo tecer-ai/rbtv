@@ -10,7 +10,8 @@
 const path = require('path');
 const fs = require('fs');
 const { spawnSync } = require('child_process');
-const { ROWS } = require('../catalog');
+const { ROWS } = require('../supported-models');
+const { providers: PROVIDERS } = require('../providers.json');
 
 const { fail } = require('./core');
 
@@ -21,9 +22,9 @@ function apiRows() {
   return ROWS.filter((r) => r.mode === 'api');
 }
 
+// The runner names a provider by the stem of its key variable (GEMINI_API_KEY -> gemini).
 function apiProvider(row) {
-  const env = (row.auth && row.auth.env_var) || '';
-  return env.replace(/_API_KEY$/i, '').toLowerCase();
+  return PROVIDERS[row.provider].env_var.replace(/_API_KEY$/i, '').toLowerCase();
 }
 
 function parseApiArgs(rawArgv) {
@@ -133,7 +134,7 @@ function runApi(rawArgv) {
   // A blank id is the not-yet-chosen image model. Refuse HERE rather than sending an empty model
   // name at the provider and reading its 404 as something else.
   if (!row.id) {
-    fail('refused: that api row has no model id yet — the owner fills it in models.csv and catalog.js (both, identically)');
+    fail('refused: that api row has no model id yet — the owner fills it in models.csv and supported-models.js (both, identically)');
   }
 
   let callerExtra = null;
