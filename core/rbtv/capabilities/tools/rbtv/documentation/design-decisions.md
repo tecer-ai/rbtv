@@ -76,7 +76,7 @@ A real install that selects a PATH tool adds `~/.rbtv/bin` to the user's shell s
 
 ## D10 — Absolute source paths
 
-The installer writes resolved absolute source paths into the links of a copy and into a sub-agent pointer. The rule list in `opencode.json` is the exception: its paths are relative to the installation, because that file can be committed and read on another machine.
+The installer writes resolved absolute source paths into the links of a copy and into a sub-agent pointer. The rule list in `opencode.json` is the exception: its paths are relative to the installation. D30 gives the reason for each form.
 
 ## D12 — Proof of ownership
 
@@ -117,3 +117,11 @@ A component ships an agent in one format: the folder `agents/<name>/`, which con
 The model and effort live in the target's record, on the file's entry: `components.<component>.selected.<name>.sub_agent` maps each harness to `model` (cast's name), `model_id` (the harness's name) and `effort`. Nothing there is tied to one machine. `rbtv update` regenerates the files from that record alone, without `cast`. Running `rbtv add NAME --on` again for a harness replaces its values and the result shows the old ones. Removing the agent from the target removes its sub-agent file for every harness and the values. A harness that leaves the target loses its files and its values. A harness that joins it gets no sub-agent file: rbtv cannot choose a model and an effort, so the result of `rbtv configure` names each such agent and the command that adds it. An agent that is chosen with no model and effort for any receiving harness (through a pack, a whole component, the guided menu, or a record written by an earlier schema) writes no file, and the result warns with the command to run. A record of schema 7 is read unchanged, its former `sub-agent` file read as the `agent` file with no values.
 
 Both forms may exist together for one agent in one installation. Only an agent a component ships is a file of the source catalog: an agent written by hand in an installation is not offered as a sub-agent. `rbtv status`, `rbtv list` and `rbtv show` name, for each agent installed as a sub-agent, the harnesses it is written for with the model and effort of each.
+
+## D29 — The installer belongs to `core`
+
+The installer is a component of the `core` module because [`core`](../../../glossary/core.md) is the module for rbtv’s own operation, installation, configuration and editing, and installing and configuring are the installer's work. The provider accounts (`rbtv providers`) are verbs of the same CLI, so they belong to `core` with it. The program shares the `core/rbtv` component with the building documentation, whose entry point is the [`framework` skill](../../../../skills/framework.md), so the installer and the instructions for writing what it installs are in one component.
+
+## D30 — Why generated paths are absolute, and the OpenCode rule list relative
+
+A generated file names a source file by its absolute path because the generated file belongs to one machine: the installer lists the files it generates in `.git/info/exclude` (D14), each machine regenerates its own, and the path is therefore right on the machine that reads it. The rule list in `opencode.json` is not such a file. `opencode.json` is a shared file (D7) that holds the user's own settings beside the one key the installer owns, so it can be committed and read on another machine, where an absolute path from the first machine names nothing. Each entry is therefore relative to the folder `opencode.json` sits in, and names the rule copy that the installer generates at the same relative place in every installation.
