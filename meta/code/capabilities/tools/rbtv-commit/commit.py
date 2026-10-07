@@ -68,6 +68,10 @@ never has to quote a multi-line string — this sidesteps the here-string / here
 quoting footguns (e.g. PowerShell `@'...'@` syntax pasted into a POSIX shell) that
 silently corrupt the message. Exactly one of `-m` / `-F` must be given.
 
+Everything this script prints is UTF-8, whatever the system's settings say, and
+its own sentences hold only ASCII, so they read the same in every console and
+to every program. A path or a commit subject it echoes is printed as given.
+
 Usage:
     python commit.py -m "feat: ..." -f path/a -f dir/b [--push]
     python commit.py -F msg.txt    -f path/a -f dir/b [--push]
@@ -324,7 +328,7 @@ def sync_after_commit(root, committed):
                if p and p not in mine]
     retry = "then retry" if undone else "then run `git pull --no-edit --no-rebase`; do NOT rerun rbtv-commit for these paths"
     if already:
-        fail("could not pull remote changes — the working tree already held unresolved conflicts "
+        fail("could not pull remote changes: the working tree already held unresolved conflicts "
              "before the pull, in: " + ", ".join(already.splitlines()) + ". Git refuses to pull over "
              "them; they are not a conflict with the remote, and this run did not make them and left "
              "them as they were." + left + f" Resolve them with git itself, {retry}.")
@@ -335,10 +339,10 @@ def sync_after_commit(root, committed):
         fail(msg + "." + left + f" Resolve the remote divergence, {retry}.")
     err = (pull.stderr or pull.stdout or "").strip() or f"git pull exited {pull.returncode}"
     if foreign:
-        fail("could not pull remote changes — NOT a merge conflict: git refuses a merge while "
+        fail("could not pull remote changes. NOT a merge conflict: git refuses a merge while "
              "entries are staged, and other sessions have these staged: " + ", ".join(foreign)
              + "." + left + f" NEVER unstage them; once they are committed, {retry}. Git reported:\n" + err)
-    fail("could not pull remote changes — NOT a merge conflict (no unmerged paths, no merge "
+    fail("could not pull remote changes. NOT a merge conflict (no unmerged paths, no merge "
          "in progress)." + left + f" Fix the cause reported by git below, {retry}:\n" + err)
 
 
@@ -357,6 +361,12 @@ def main():
                         "a pattern: * ? [ ] and a leading : are ordinary characters. "
                         "Repeat for each path.")
     p.add_argument("--push", action="store_true", help="Push after a successful commit.")
+    # The output encoding is set here, never left to the system: a Windows pipe
+    # defaults to cp1252, which mangles a non-ASCII path or subject and cannot
+    # encode most of them at all. `surrogateescape` writes back the exact bytes
+    # of a path that is not UTF-8, as the `git` helper read them.
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="surrogateescape")
     args = p.parse_args()
 
     # Exactly one message source. Reading from a file is the shell-quoting-proof path.

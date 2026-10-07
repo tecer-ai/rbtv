@@ -6,6 +6,7 @@ No network: a repo has no remote, so the remote-sync paths are inert and only
 the staging + commit are exercised — except the tests that build a local bare
 remote to drive a refused pull.
 """
+import ast
 import importlib.util
 import os
 import subprocess
@@ -32,12 +33,18 @@ def git(args, cwd, stdin=None):
     return res.stdout.decode("utf-8")
 
 
-def run_commit(repo, files, message="test commit"):
+def run_tool(repo, *args, env=None):
+    """Run commit.py inside `repo` with `args`. Returns the CompletedProcess, its
+    output decoded as UTF-8: the locale codec (cp1252 on Windows) would misread
+    every non-ASCII path or subject the tool echoes. `surrogateescape` reads the
+    bytes of a path that is not UTF-8 as Python itself names that path."""
+    return subprocess.run([sys.executable, COMMIT_PY, *args], cwd=repo, capture_output=True,
+                          encoding="utf-8", errors="surrogateescape", env=env)
+
+
+def run_commit(repo, files, message="test commit", env=None):
     """Run commit.py inside `repo` requesting `files`. Returns the CompletedProcess."""
-    argv = [sys.executable, COMMIT_PY, "-m", message]
-    for f in files:
-        argv += ["-f", f]
-    return subprocess.run(argv, cwd=repo, text=True, capture_output=True)
+    return run_tool(repo, "-m", message, *(arg for f in files for arg in ("-f", f)), env=env)
 
 
 def commit_message(repo, ref="HEAD"):
@@ -135,8 +142,7 @@ def test_message_file_multiline(repo, tmp_path):
     msg_file = tmp_path / "commit-msg.txt"
     msg_file.write_text(msg, encoding="utf-8")
 
-    argv = [sys.executable, COMMIT_PY, "-F", str(msg_file), "-f", "file.md"]
-    res = subprocess.run(argv, cwd=repo, text=True, capture_output=True)
+    res = run_tool(repo, "-F", str(msg_file), "-f", "file.md")
     assert res.returncode == 0, f"{res.stderr}\n{res.stdout}"
     assert commit_files(repo) == {"file.md"}
     # Committed message equals the file content (git strips only the trailing newline).
@@ -148,8 +154,7 @@ def test_message_and_message_file_mutually_exclusive(repo, tmp_path):
     write(repo, "file.md", "content\n")
     msg_file = tmp_path / "m.txt"
     msg_file.write_text("from file\n", encoding="utf-8")
-    argv = [sys.executable, COMMIT_PY, "-m", "inline", "-F", str(msg_file), "-f", "file.md"]
-    res = subprocess.run(argv, cwd=repo, text=True, capture_output=True)
+    res = run_tool(repo, "-m", "inline", "-F", str(msg_file), "-f", "file.md")
     assert res.returncode != 0
     assert "exactly one of" in (res.stderr + res.stdout)
 
@@ -157,8 +162,7 @@ def test_message_and_message_file_mutually_exclusive(repo, tmp_path):
 def test_no_message_fails_loud(repo):
     """Neither -m nor -F is a loud error."""
     write(repo, "file.md", "content\n")
-    argv = [sys.executable, COMMIT_PY, "-f", "file.md"]
-    res = subprocess.run(argv, cwd=repo, text=True, capture_output=True)
+    res = run_tool(repo, "-f", "file.md")
     assert res.returncode != 0
     assert "exactly one of" in (res.stderr + res.stdout)
 
@@ -273,7 +277,8 @@ def test_pull_refused_over_parallel_staged_entries(repo, tmp_path):
 
     res = run_commit(repo, ["mine.md"], "mine")
     assert res.returncode != 0
-    assert "other sessions have these staged: theirs.md." in res.stderr, res.stderr
+    assert ("could not pull remote changes. NOT a merge conflict: git refuses a merge while entries are "
+            "staged, and other sessions have these staged: theirs.md.") in res.stderr, res.stderr
     assert git(["rev-parse", "HEAD"], repo) == head
     assert staged_entries(repo, "theirs.md") == theirs
     assert git(["diff", "--cached", "--name-only", "--", "mine.md"], repo).strip() == "mine.md"
@@ -306,7 +311,7 @@ def test_conflicts_already_in_the_working_tree_are_not_called_a_pull_conflict(re
     res = run_commit(repo, ["mine.md"], "mine")
 
     assert res.returncode != 0
-    assert ("could not pull remote changes — the working tree already held unresolved conflicts before the "
+    assert ("could not pull remote changes: the working tree already held unresolved conflicts before the "
             "pull, in: theirs.md. Git refuses to pull over them; they are not a conflict with the remote, and "
             "this run did not make them and left them as they were. No commit made; your changes are staged. "
             "Resolve them with git itself, then retry.") in res.stderr, res.stderr
@@ -696,8 +701,7 @@ def conflicting_branches(repo):
 
 def stop(repo, *command):
     """Run a git operation that stops unfinished."""
-    res = subprocess.run(["git", *command], cwd=repo, text=True, capture_output=True)
-    return res.returncode
+    return subprocess.run(["git", *command], cwd=repo, capture_output=True).returncode
 
 
 def operation_state(repo):
@@ -751,8 +755,7 @@ def test_merge_in_progress_with_remote_ahead_refuses_the_push(repo, tmp_path):
     remote_tip = git(["rev-parse", "HEAD"], tmp_path / "origin.git")
     write(repo, "base.md", "v2\n")
 
-    res = subprocess.run([sys.executable, COMMIT_PY, "-m", "mine", "-f", "base.md", "--push"],
-                         cwd=repo, text=True, capture_output=True)
+    res = run_tool(repo, "-m", "mine", "-f", "base.md", "--push")
     assert res.returncode != 0
     assert operation_state(repo) == state
     tip = git(["rev-parse", "--short", "HEAD"], repo).strip()
@@ -951,3 +954,50 @@ def test_requested_path_left_in_conflict_is_named_not_its_pattern_sibling(repo):
     assert res.returncode == 0, f"{res.stderr}\n{res.stdout}"
     assert commit_files(repo) == {"f[1].md"}
     assert git(["ls-files", "-u", "-z"], repo) == unmerged
+
+
+def test_every_text_the_tool_writes_itself_is_ascii():
+    """No string in commit.py's code holds a character outside ASCII, so every
+    sentence the tool prints (`fail`, `warn`, `print`, the argument help, and what
+    they are built from) reads the same whatever codec the reader decodes with.
+    Docstrings and comments are not printed and are not checked."""
+    with open(COMMIT_PY, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    documented = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+    docstrings = {id(node.body[0].value) for node in ast.walk(tree)
+                  if isinstance(node, documented) and ast.get_docstring(node, clean=False) is not None}
+    found = [(node.lineno, node.value) for node in ast.walk(tree)
+             if isinstance(node, ast.Constant) and isinstance(node.value, str)
+             and id(node) not in docstrings and not node.value.isascii()]
+    assert not found, found
+
+
+@pytest.mark.parametrize("stream_encoding", [None, "cp1252"], ids=["system default", "cp1252, as a Windows pipe"])
+def test_non_ascii_name_and_subject_are_printed_as_utf8(repo, stream_encoding):
+    """A file name and a commit subject outside ASCII are committed and echoed
+    exactly, whatever encoding the system gives the tool's output: the tool sets
+    UTF-8 itself. PYTHONIOENCODING=cp1252 is what a Windows pipe defaults to."""
+    name, subject = "caf\u00e9.md", "docs: cr\u00e8me br\u00fbl\u00e9e"
+    env = None if stream_encoding is None else {**os.environ, "PYTHONIOENCODING": stream_encoding}
+    write(repo, name)
+
+    res = run_commit(repo, [name], subject, env=env)
+    assert res.returncode == 0, f"{res.stderr}\n{res.stdout}"
+    tip = git(["rev-parse", "--short", "HEAD"], repo).strip()
+    assert res.stdout.splitlines() == [f"committed {tip}: {subject}", f"files in commit (1): {name}"], res.stdout
+    assert tracked(repo) == {name}
+    assert subjects(repo) == [subject]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="a Windows file name is never bytes outside UTF-8")
+def test_name_that_is_not_utf8_is_committed_and_printed(repo):
+    """A file whose name is bytes that are not UTF-8 is committed and the run
+    ends well: the tool prints the name's exact bytes instead of failing, after
+    the commit, on a name its output could not encode."""
+    name = os.fsdecode(b"caf\xe9.md")
+    write(repo, name)
+
+    res = run_commit(repo, [name], "bytes in a name")
+    assert res.returncode == 0, f"{res.stderr}\n{res.stdout}"
+    assert res.stdout.splitlines()[1] == f"files in commit (1): {name}", res.stdout
+    assert git(["status", "--porcelain"], repo) == ""
