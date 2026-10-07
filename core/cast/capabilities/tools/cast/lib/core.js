@@ -193,6 +193,15 @@ function resolveEffortValue(spec, effort, harness, model) {
   throw new Error(`unsupported effort for ${harness}/${model}: ${effort}`);
 }
 
+// The task of a launch or a resume, from the one place it was read. Text that is empty or only
+// whitespace is refused, and the refusal names that place.
+function taskText(text, source) {
+  if (!text.trim()) {
+    fail(`refused: the task is empty: ${source} holds no text\nNothing changed.\ngive the task its text, then run the same command again`);
+  }
+  return text;
+}
+
 // Launch flags: -p/-f prompt, -s/-S system prompt, --headed, --dry-run, --detached.
 function parseArgs(rawArgv, usage, requirePrompt) {
   let dryRun = false;
@@ -216,11 +225,11 @@ function parseArgs(rawArgv, usage, requirePrompt) {
       const val = rawArgv[++i];
       if (val === undefined) fail(`refused: ${a} requires an argument`);
       if (a === '-p') {
-        promptText = val;
+        promptText = taskText(val, 'the -p text');
       } else if (val === '-') {
-        promptText = fs.readFileSync(0, 'utf8');
+        promptText = taskText(fs.readFileSync(0, 'utf8'), 'standard input (-f -)');
       } else {
-        promptText = fs.readFileSync(val, 'utf8');
+        promptText = taskText(fs.readFileSync(val, 'utf8'), `the -f file ${val}`);
       }
     } else if (a === '-s' || a === '-S') {
       if (system) fail('refused: -s and -S are mutually exclusive — pass exactly one');
@@ -291,5 +300,5 @@ module.exports = {
   RESUME_USAGE, SESSIONS_USAGE, KNOWN_FLAGS, detachMarks,
   refuseIfDetached, effortMap, EFFORT_RULE,
   listArgs, resolveEffort, resolveEffortValue,
-  parseArgs, resolveFolder, refuseIfNotLaunchable, lookupModel, resolveModel,
+  parseArgs, taskText, resolveFolder, refuseIfNotLaunchable, lookupModel, resolveModel,
 };

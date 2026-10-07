@@ -1860,6 +1860,33 @@ else {
     assert.strictEqual(preview(['-p', 'x']), 'x');
     // an explicit -f wins over task.md
     assert.strictEqual(preview(['-f', other]), 'OTHER-TASK-ARM\n');
+
+    // a task that is empty or only whitespace is refused, and the refusal names where it came from:
+    // the -f file, the -p text, standard input, or task.md in the agent folder; a resume is refused
+    // the same way. Every arm is a dry run, which is refused like a launch.
+    const empty = path.join(root, 'empty-task.txt');
+    const blank = path.join(root, 'blank-task.txt');
+    fs.writeFileSync(empty, '');
+    fs.writeFileSync(blank, ' \n\t\n');
+    fs.writeFileSync(taskFile, '');
+    const emptyTask = (args, source, input) => {
+      const res = spawnSync('node', [TOOL, ...args, '--dry-run'], { cwd: root, encoding: 'utf8', input });
+      const label = `empty task from ${source}`;
+      assert.strictEqual(res.status, 2, `${label} must be refused, got exit ${res.status}: ${res.stdout}`);
+      assert.strictEqual(res.stdout, '', label);
+      assert.strictEqual(res.stderr, `cast: refused: the task is empty: ${source} holds no text\n`
+        + 'Nothing changed.\ngive the task its text, then run the same command again\n', label);
+    };
+    const bare = ['claude', 'sonnet-5-5', '1'];
+    emptyTask([...bare, '-f', empty], `the -f file ${empty}`);
+    emptyTask([...bare, '-f', blank], `the -f file ${blank}`);
+    emptyTask([...bare, '-p', ''], 'the -p text');
+    emptyTask([...bare, '-p', ' \n'], 'the -p text');
+    emptyTask([...bare, '-f', '-'], 'standard input (-f -)', '');
+    emptyTask(['--agent', once], `task.md in ${once}`);
+    emptyTask(['--agent', once, '-f', empty], `the -f file ${empty}`);
+    emptyTask(['resume', 'claude', 'last', '-f', empty], `the -f file ${empty}`);
+    emptyTask(['resume', 'claude', 'last', '-p', ''], 'the -p text');
   }
   // a folder still holding the prompt file under its old name is refused with the rename command,
   // by a launch and in the list

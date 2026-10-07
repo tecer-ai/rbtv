@@ -10,7 +10,7 @@
 const { agentFilePrompt, agentTask, rbtvAgent, takeAgentFlags } = require('./lib/agent');
 const { runAgentList } = require('./lib/agent-list');
 const { runApi } = require('./lib/api');
-const { USAGE, USAGE_IG, fail, listArgs, parseArgs, resolveEffort, resolveEffortValue, resolveFolder, resolveModel } = require('./lib/core');
+const { USAGE, USAGE_IG, fail, listArgs, parseArgs, resolveEffort, resolveEffortValue, resolveFolder, resolveModel, taskText } = require('./lib/core');
 const { runDoctor } = require('./lib/doctor');
 const { printHelp, verbHelpPages } = require('./lib/help');
 const { SYSTEM_WRAPPER, launch, runResume } = require('./lib/launch');
@@ -94,7 +94,7 @@ function main(rawArgv) {
   if (agentFlags.file) system = agentFilePrompt(agentFlags.file, fail);
   const agent = agentFlags.rbtv ? rbtvAgent(agentFlags.rbtv, fail) : null;
   if (agent) system = { text: agent.prompt };
-  if (agent && promptText === null) promptText = agentTask(agent, fail);
+  if (agent && promptText === null) promptText = taskText(agentTask(agent, fail), `task.md in ${agent.home}`);
   if (system) system.wrapper = SYSTEM_WRAPPER;
   if (!agent && (positional.length < 3 || positional.length > 4)) {
     fail(`usage: ${USAGE}\n       ${USAGE_IG}\nrun cast -h for full help`);

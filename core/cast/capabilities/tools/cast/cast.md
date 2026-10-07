@@ -34,6 +34,7 @@ cast -h | --help
 | `-p TEXT` | the task of this launch, as literal text |
 | `-f FILE` | read the task from a file; `-f -` reads it from stdin |
 | neither, with `--agent` | the task is `task.md` in the agent folder; every other form requires `-p` or `-f` |
+| a task with no text | refused with exit 2, by a launch, a `cast resume` and a `--dry-run` alike: text that is empty or only whitespace is no task. The refusal names where the text came from: `the -p text`, `the -f file FILE`, `standard input (-f -)` or `task.md in <agent folder>` |
 | `--dry-run` | print the composed argv as JSON and exit 0 without launching |
 
 The first form launches an rbtv agent and is the form to use for any agent launched more than
@@ -94,7 +95,7 @@ with is not cast's to name, so the handle's `model` field reads `resume` instead
 | opencode | `opencode session list --format json` run with cwd = folder, rows filtered on their `directory` field | `opencode run -s <id>` (`last` → `-c`) |
 
 `resume` runs with cwd = launch-folder (that is also what scopes every harness's `last`), takes the
-message via `-p`/`-f` on stdin like a launch, and re-passes the permission/sandbox flags — those
+message via `-p`/`-f` on stdin like a launch (an empty message is refused as an empty task is), and re-passes the permission/sandbox flags — those
 are per-invocation, not per-session. The resumed session keeps its own model/effort; `-s`/`-S` and
 `--headed` are refused. `-n` caps `sessions` PER HARNESS (default 10), newest first; `--json` gives
 `[{harness, id, started, label}]`. The label is human-readable session identity: opencode's stored
@@ -114,7 +115,9 @@ the current folder). The folder is the working folder. `agent.json` gives the ha
 effort, all three required (effort as the model's own word, such as `high`, never a number; a
 record without one is refused); none of them may be given on the command line:
 that is refused, and the refusal names `rbtv agent configure AGENT` as the way to change them.
-`prompt.md` is the system prompt, handed to the model without its frontmatter. The launch sets
+`prompt.md` is the system prompt. It has no frontmatter: the body starts at the first line, and the
+agent's name lives in `agent.json` only. A frontmatter block that still opens the file is ignored at
+the launch and reported by `rbtv doctor`; remove it. The launch sets
 `RBTV_AGENT_HOME` to the agent folder for the harness process. A folder that contains only one of the two
 files is refused by name, so a broken agent is never launched half-read; a folder that holds
 `agent.md` in place of `prompt.md` is refused with the `git mv` command that renames it. A launch takes no
@@ -125,7 +128,10 @@ The task of an `--agent` launch comes from one of three places. `-p TEXT` or `-f
 either one wins whether or not the folder holds a `task.md`. With neither, cast sends `task.md` in
 the agent folder, read exactly as `-f <agent folder>/task.md` reads it. With neither and no
 `task.md`, the launch is refused with exit 2 and names the absent file:
-`refused: no task: pass -p TEXT or -f FILE, or write task.md in <agent folder>`. An agent launched
+`refused: no task: pass -p TEXT or -f FILE, or write task.md in <agent folder>`. A task that is empty
+or only whitespace is refused with exit 2 from each of the three places, and the refusal names the
+one it came from: `refused: the task is empty: task.md in <agent folder> holds no text`, or
+`the -p text`, `the -f file FILE` or `standard input (-f -)` in place of the `task.md` clause. An agent launched
 once keeps its task in that file, so the folder holds everything the launch needs; an agent launched
 with different tasks is given each one with `-p` or `-f`. `--rogue`, `cast resume` and the
 `<harness> <model> <effort>` form have no agent folder and always require `-p` or `-f`.
