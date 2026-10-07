@@ -85,14 +85,21 @@ def warn(msg):
     print(f"commit.py: WARNING: {msg}", file=sys.stderr)
 
 
-# Decode git output as UTF-8 (git emits UTF-8 path bytes regardless of the OS
-# locale). Without this, text=True uses the locale codec — cp1252 on Windows —
-# so a non-ASCII path read from git never matches the same path from argv
-# (already proper Unicode), breaking the exact comparison with requested paths.
-# `env` selects the index a command works on (GIT_INDEX_FILE); `stdin` feeds it.
+# Git reads and writes BYTES, and the pipes carry them unchanged: the text is
+# encoded and decoded here, never by a text-mode pipe. A text-mode pipe also
+# rewrites line endings — on Windows it writes every "\n" as "\r\n", which git
+# then stores (`commit-tree -F -` keeps a message byte for byte), and on every
+# system it reads a "\r" as "\n", so a path holding a carriage return comes back
+# as another path. UTF-8, whatever the OS locale: git emits UTF-8 path bytes, and
+# under the locale codec (cp1252 on Windows) a non-ASCII path read from git never
+# matches the same path from argv. `env` selects the index a command works on
+# (GIT_INDEX_FILE); `stdin` feeds it; `root=None` runs in the current directory.
 def git(args, root, check=True, capture=True, env=None, stdin=None):
-    res = subprocess.run(["git", *args], cwd=root, text=True, capture_output=capture,
-                         encoding="utf-8", errors="surrogateescape", env=env, input=stdin)
+    res = subprocess.run(["git", *args], cwd=root, capture_output=capture, env=env,
+                         input=None if stdin is None else stdin.encode("utf-8", "surrogateescape"))
+    if capture:
+        res.stdout = res.stdout.decode("utf-8", "surrogateescape")
+        res.stderr = res.stderr.decode("utf-8", "surrogateescape")
     if check and res.returncode != 0:
         out = (res.stderr or res.stdout or "").strip()
         fail(f"git {' '.join(args)} failed: {out}")
@@ -100,8 +107,7 @@ def git(args, root, check=True, capture=True, env=None, stdin=None):
 
 
 def git_ok(args, root):
-    return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True,
-                          encoding="utf-8", errors="surrogateescape").returncode == 0
+    return git(args, root, check=False).returncode == 0
 
 
 def staged_mode_changes(root, paths):
@@ -331,8 +337,7 @@ def main():
     if not message.strip():
         fail("commit message is empty.")
 
-    res = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True,
-                         encoding="utf-8", errors="surrogateescape")
+    res = git(["rev-parse", "--show-toplevel"], None, check=False)
     if res.returncode != 0:
         fail("not inside a git repository (run this from within the target repo).")
     root = res.stdout.strip()

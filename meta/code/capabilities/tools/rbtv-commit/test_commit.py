@@ -23,10 +23,13 @@ commit_mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(commit_mod)
 
 
+# Bytes on both pipes, encoded and decoded here: a text-mode pipe writes "\n" as
+# "\r\n" on Windows, so `git mktree` would read the entry name "mine.md\r".
 def git(args, cwd, stdin=None):
-    res = subprocess.run(["git", *args], cwd=cwd, text=True, capture_output=True, input=stdin)
-    assert res.returncode == 0, f"git {' '.join(args)} failed: {res.stderr or res.stdout}"
-    return res.stdout
+    res = subprocess.run(["git", *args], cwd=cwd, capture_output=True,
+                         input=None if stdin is None else stdin.encode("utf-8"))
+    assert res.returncode == 0, f"git {' '.join(args)} failed: {(res.stderr or res.stdout).decode('utf-8', 'replace')}"
+    return res.stdout.decode("utf-8")
 
 
 def run_commit(repo, files, message="test commit"):
@@ -62,7 +65,7 @@ def repo(tmp_path):
 def write(repo, rel, content="x\n"):
     p = repo / rel
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(content, encoding="utf-8")
+    p.write_text(content, encoding="utf-8", newline="\n")  # the same bytes on Windows
 
 
 def test_folder_move_stages_delete_and_add(repo):
@@ -276,6 +279,18 @@ def test_pull_refused_over_parallel_staged_entries(repo, tmp_path):
     assert git(["diff", "--cached", "--name-only", "--", "mine.md"], repo).strip() == "mine.md"
 
 
+def run_in_process(repo, monkeypatch, message, path):
+    """Run commit.py in this process, so a test can wrap what it calls. Returns
+    the exit code."""
+    monkeypatch.setattr(sys, "argv", ["commit.py", "-m", message, "-f", path])
+    monkeypatch.chdir(repo)
+    try:
+        commit_mod.main()
+        return 0
+    except SystemExit as exit_info:
+        return exit_info.code
+
+
 def run_racing(repo, monkeypatch, at, race):
     """Run commit.py in-process for mine.md, calling `race()` once, the instant
     commit.py issues its first `git <at>`. Returns the exit code."""
@@ -289,13 +304,7 @@ def run_racing(repo, monkeypatch, at, race):
         return real_git(args, root, **kw)
 
     monkeypatch.setattr(commit_mod, "git", racing_git)
-    monkeypatch.setattr(sys, "argv", ["commit.py", "-m", "mine", "-f", "mine.md"])
-    monkeypatch.chdir(repo)
-    try:
-        commit_mod.main()
-        code = 0
-    except SystemExit as exit_info:
-        code = exit_info.code
+    code = run_in_process(repo, monkeypatch, "mine", "mine.md")
     assert fired == [at]
     return code
 
@@ -435,6 +444,15 @@ def test_foreign_commit_in_window_keeps_its_content(repo, monkeypatch, capsys):
     assert f"committed {tip}: mine" in capsys.readouterr().out
 
 
+def foreign_commit_to_mine(repo):
+    """A parallel session's commit of mine.md, built from objects alone, so the
+    shared index and the file on disk keep what this session has in them."""
+    blob = git(["hash-object", "-w", "--stdin"], repo, stdin="theirs v2\n").strip()
+    tree = git(["mktree"], repo, stdin=f"100644 blob {blob}\tmine.md\n").strip()
+    commit = git(["commit-tree", tree, "-p", "HEAD", "-m", "foreign"], repo).strip()
+    git(["update-ref", "HEAD", commit], repo)
+
+
 def test_foreign_commit_to_requested_path_in_window_stops_the_run(repo, monkeypatch, capsys):
     """A parallel session commits a change to a REQUESTED path after the tool read
     HEAD. The tool makes no commit and says which path, rather than overwrite that
@@ -445,15 +463,7 @@ def test_foreign_commit_to_requested_path_in_window_stops_the_run(repo, monkeypa
     git(["commit", "-q", "-m", "seed"], repo)
     write(repo, "mine.md", "mine v2\n")
 
-    def foreign_commit_to_mine():
-        # Built from objects alone, so the shared index and the file on disk keep
-        # what this session has in them.
-        blob = git(["hash-object", "-w", "--stdin"], repo, stdin="theirs v2\n").strip()
-        tree = git(["mktree"], repo, stdin=f"100644 blob {blob}\tmine.md\n").strip()
-        commit = git(["commit-tree", tree, "-p", "HEAD", "-m", "foreign"], repo).strip()
-        git(["update-ref", "HEAD", commit], repo)
-
-    assert run_racing(repo, monkeypatch, "read-tree", foreign_commit_to_mine) != 0
+    assert run_racing(repo, monkeypatch, "read-tree", lambda: foreign_commit_to_mine(repo)) != 0
     out = capsys.readouterr()
 
     assert "another session committed these requested paths during this run" in out.err, out.err
@@ -480,6 +490,65 @@ def test_branch_moved_off_own_commit_before_successful_pull(repo, tmp_path, monk
     assert "which does not contain it. Recover it" in out.err, out.err
     lost = out.err.split("git cherry-pick ")[1].split("`")[0]
     assert git(["log", "-1", "--format=%s", lost], repo).strip() == "mine"
+
+
+TWO_PARAGRAPHS = "fix: two paragraphs\n\nfirst body line\nsecond body line"
+
+
+def test_git_standard_input_is_bytes_without_carriage_return(repo, monkeypatch):
+    """Everything this file's helper and commit.py's helper hand to git on
+    standard input is bytes, with no carriage return — a `str` there is a
+    text-mode pipe, which writes "\n" as "\r\n" on Windows. Covered: the
+    fixture's blob and `mktree` line, and the tool's index entries and commit
+    message, which reaches `git commit-tree` byte for byte."""
+    write(repo, "mine.md", "v1\n")
+    git(["add", "-A"], repo)
+    git(["commit", "-q", "-m", "seed"], repo)
+    write(repo, "other.md")
+
+    real_run = subprocess.run
+    fed = []
+
+    def recording_run(argv, **kw):
+        if kw.get("input") is not None:
+            fed.append((argv[1], kw["input"]))
+        return real_run(argv, **kw)
+
+    monkeypatch.setattr(subprocess, "run", recording_run)
+    foreign_commit_to_mine(repo)
+    assert run_in_process(repo, monkeypatch, TWO_PARAGRAPHS, "other.md") == 0
+
+    assert [command for command, _ in fed] == [
+        "hash-object", "mktree", "update-index", "stripspace", "commit-tree"], fed
+    for command, data in fed:
+        assert isinstance(data, bytes), (command, data)
+        assert b"\r" not in data, (command, data)
+    assert fed[1][1].endswith(b"\tmine.md\n"), fed[1]
+    assert fed[4][1] == TWO_PARAGRAPHS.encode() + b"\n", fed[4]
+
+
+def test_two_paragraph_message_is_stored_without_carriage_return(repo):
+    """The commit object holds the message with "\n" line endings and nothing
+    else, as `git commit -m` stores it. On Linux this held before the helpers
+    passed bytes; a Windows run is what tells the two apart."""
+    write(repo, "file.md")
+    res = run_commit(repo, ["file.md"], TWO_PARAGRAPHS)
+    assert res.returncode == 0, f"{res.stderr}\n{res.stdout}"
+    stored = git(["cat-file", "commit", "HEAD"], repo)
+    assert "\r" not in stored, repr(stored)
+    assert stored.split("\n\n", 1)[1] == TWO_PARAGRAPHS + "\n", repr(stored)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows refuses a file name that holds a carriage return")
+def test_path_holding_a_carriage_return_is_committed(repo):
+    """A path with a carriage return in its name is committed under that name:
+    what git prints is read byte for byte, where a text-mode pipe reads "\r" as
+    "\n" on every system and the path no longer matches the requested one."""
+    write(repo, "a\rb.md")
+    res = run_commit(repo, ["a\rb.md"], "carriage return in a name")
+    assert res.returncode == 0, f"{res.stderr}\n{res.stdout}"
+    assert git(["ls-tree", "-r", "--name-only", "-z", "HEAD"], repo) == "a\rb.md\0"
+    assert git(["status", "--porcelain"], repo) == ""
 
 
 def hook(repo, name, body):
