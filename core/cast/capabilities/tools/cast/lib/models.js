@@ -242,6 +242,15 @@ function removeModel(selection, harness, model, { force, dryRun, json }) {
     return json ? result : [...headLines(selection), '', `not selected: '${harness} ${model}'`,
       ...(supportedRow(harness, model) ? [] : ['It is not a model cast supports either: cast models list --supported']), 'Nothing changed.'];
   }
+  // Rows that name it as their fallback would name a model with no row: a file cast refuses to
+  // read, which stops every launch. --force does not pass this.
+  const fallbackOf = [...new Set(selection.rows.filter((r) => r['fallback-harness'] === harness && r['fallback-model'] === model)
+    .map((r) => `${r.harness} ${r.model}`))];
+  if (fallbackOf.length) {
+    refuse(json, 'is-fallback', [`'${harness} ${model}' is the fallback of ${fallbackOf.map((n) => `'${n}'`).join(', ')} in ${file}`,
+      'blank the fallback-harness and fallback-model cells of each row first, by hand'],
+    'cast models list --catalog');
+  }
   const { users, unread } = usersOf(selection.root, harness, model);
   if (users.length && !force) {
     refuse(json, 'in-use', [`'${harness} ${model}' is still used in ${selection.root}`, ...users.map((u) => `  ${userLine(u)}`),

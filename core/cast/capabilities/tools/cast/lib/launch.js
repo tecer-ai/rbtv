@@ -13,6 +13,7 @@ const { spawnSync } = require('child_process');
 const { SPECS } = require('../supported-models');
 
 const { CODEX_DOC_LIMIT, CODEX_HOOK_TRUST, HARNESSES, RESUME_USAGE, baseArgv, fail, parseArgs, promptArgv, refuseIfDetached, resolveFolder, shortName } = require('./core');
+const { startFailure } = require('./fallback');
 const { claudeSlug, emitHandle, procStart, stdoutPath } = require('./handles');
 const { loadOptional } = require('./optional');
 const { spawnable } = require('./win-exec');
@@ -35,17 +36,49 @@ function launchEnv(folder, extra) {
   return { ...process.env, ...(extra || {}), PWD: folder };
 }
 
-function spawnWithDeadline(cmd, args, opts, failLabel) {
+// How one harness run ended: `error` when the harness could not be started, else its exit `code`
+// and the `signal` that ended it if one did. `note` is text the run owes its caller's stdout.
+// `ended` closes cast on it, the way every run without a fallback ends.
+function ended(failLabel) {
+  return (out) => {
+    if (out.note) process.stdout.write(out.note);
+    if (out.error) fail(`${failLabel}: ${out.error}`);
+    process.exit(out.code);
+  };
+}
+
+function spawnWithDeadline(cmd, args, opts) {
   const win = spawnable(cmd, args);
   const spawned = { ...opts, ...win.opts, timeout: DEADLINE_MS, killSignal: 'SIGTERM' };
   if (opts.cwd) spawned.env = launchEnv(opts.cwd, opts.env);
   const res = spawnSync(win.cmd, win.args, spawned);
   if (res.error && res.error.code === 'ETIMEDOUT') exitDeadline();
-  if (res.error) fail(`${failLabel}: ${res.error.message}`);
-  process.exit(res.status === null ? 1 : res.status);
+  if (res.error) return { error: res.error.message };
+  return { code: res.status === null ? 1 : res.status, signal: res.signal };
 }
 
-function launch({ harness, modelId, folder, effortWord, effortArgv, system, promptText, headed, dryRun, detached, agentHome }) {
+// One launch. `fallback`, when given, returns the launch values of the model's fallback
+// (lib/fallback.js `fallbackOf`); a headless launch that fails to start runs it once, in the same
+// folder with the same task.
+function launch({ harness, modelId, effortWord, effortArgv, fallback, ...run }) {
+  attempt({ harness, modelId, effortWord, effortArgv, ...run }, (out) => {
+    const next = fallback && !run.headed && startFailure(out) ? fallback() : null;
+    if (!next) return ended('launch failed')(out);
+    const how = out.error || `exit ${out.code} after ${Math.round(out.elapsedMs / 1000)}s`;
+    const failed = `cast: ${harness} ${shortName(harness, modelId)} did not start (${how})`;
+    if (next.problem) {
+      process.stderr.write(`${failed}, and its fallback cannot be launched: ${next.problem}\n`);
+      return ended('launch failed')(out);
+    }
+    // The failed run's closing note goes to stderr: stdout is the report of the run that follows.
+    if (out.note) process.stderr.write(out.note);
+    process.stderr.write(`${failed}; launching its fallback ${next.harness} ${next.model}\n`);
+    return attempt({ ...run, ...next }, ended('launch failed'));
+  });
+}
+
+// Composes one harness run and starts it; `done` receives how it ended, with `elapsedMs`.
+function attempt({ harness, modelId, folder, effortWord, effortArgv, system, promptText, headed, dryRun, detached, agentHome }, done) {
   if (headed && harness === 'opencode' && effortArgv.length) {
     // measured 2026-08-14: --variant exists only on `opencode run`, not the TUI
     process.stderr.write('cast: note: opencode TUI has no --variant flag — effort ignored in headed mode\n');
@@ -134,16 +167,17 @@ function launch({ harness, modelId, folder, effortWord, effortArgv, system, prom
     t0,
   });
 
+  const finish = (out) => done({ ...out, elapsedMs: Date.now() - t0 });
   if (harness === 'opencode' && !headed) {
     return runOpencodeChecked(argv, { cwd: folder, env: agentEnv, stdinText, t0,
       model: shortName(harness, modelId),
-      bind: () => opencodeTagged(folder, tag) });
+      bind: () => opencodeTagged(folder, tag) }, finish);
   }
 
   const [cmd, ...args] = argv;
-  return spawnWithDeadline(cmd, args, stdinText === null
+  return finish(spawnWithDeadline(cmd, args, stdinText === null
     ? { cwd: folder, env: agentEnv, stdio: 'inherit' }
-    : { cwd: folder, env: agentEnv, input: stdinText, stdio: ['pipe', 'inherit', 'inherit'] }, 'launch failed');
+    : { cwd: folder, env: agentEnv, input: stdinText, stdio: ['pipe', 'inherit', 'inherit'] }));
 }
 
 // opencode/grok sometimes swallows the run's final message: the child exits 0 with stdout ending
@@ -151,8 +185,8 @@ function launch({ harness, modelId, folder, effortWord, effortArgv, system, prom
 // The session store still holds the final assistant message when stdout lost it, so every opencode
 // headless run gets stdout tee'd through a capture and reconciled against the store after exit:
 // a final message absent from stdout is appended from the store; a run whose store holds NO final
-// message exits non-zero with an explicit no-report marker.
-function runOpencodeChecked(argv, { cwd, env, stdinText, t0, bind, model }) {
+// message exits non-zero with an explicit no-report marker. `done` receives how the run ended.
+function runOpencodeChecked(argv, { cwd, env, stdinText, t0, bind, model }, done) {
   const { spawn } = require('child_process');
   const [cmd, ...args] = argv;
   const win = spawnable(cmd, args);
@@ -162,34 +196,37 @@ function runOpencodeChecked(argv, { cwd, env, stdinText, t0, bind, model }) {
     stdio: [stdinText === null ? 'inherit' : 'pipe', 'pipe', 'inherit'],
     ...win.opts,
   });
-  child.on('error', (e) => fail(`launch failed: ${e.message}`));
+  // A harness that cannot be started emits `error` and then `close`: the first one ends the run.
+  let over = false;
+  const end = (out) => {
+    if (over) return;
+    over = true;
+    done(out);
+  };
+  child.on('error', (e) => end({ error: e.message }));
   if (stdinText !== null) child.stdin.end(stdinText);
   let captured = '';
   let timedOut = false;
   const timer = setTimeout(() => { timedOut = true; child.kill('SIGTERM'); }, DEADLINE_MS);
   child.stdout.on('data', (d) => { captured += d; process.stdout.write(d); });
-  child.on('close', (status) => {
+  child.on('close', (status, signal) => {
     clearTimeout(timer);
     if (timedOut) exitDeadline();
+    if (over) return;
     const code = status === null ? 1 : status;
     const sessionId = bind();
     const final = sessionId ? opencodeFinalMessage(sessionId, t0) : null;
     if (final === null) {
       const hit = providerLimitMod
         && providerLimitMod.detectProviderLimit({ harness: 'opencode', model, t0, text: captured });
-      if (hit) {
-        process.stdout.write(`${providerLimitMod.formatReason(hit)}\n`);
-        process.exit(code || 1);
-      }
-      process.stdout.write('cast: no-report — the opencode session store holds no final assistant'
-        + ` message for this run${sessionId ? ` (session ${sessionId})` : ''}\n`);
-      process.exit(code || 1);
+      const note = hit ? `${providerLimitMod.formatReason(hit)}\n`
+        : 'cast: no-report — the opencode session store holds no final assistant'
+          + ` message for this run${sessionId ? ` (session ${sessionId})` : ''}\n`;
+      return end({ code: code || 1, signal, note });
     }
-    if (!captured.includes(final)) {
-      process.stdout.write('\ncast: recovered final message from the opencode session store'
-        + ` (absent from stdout):\n${final}\n`);
-    }
-    process.exit(code);
+    const note = captured.includes(final) ? null
+      : `\ncast: recovered final message from the opencode session store (absent from stdout):\n${final}\n`;
+    return end({ code, signal, note });
   });
 }
 
@@ -300,11 +337,11 @@ function runResume(rawArgv) {
   });
   if (harness === 'opencode') {
     return runOpencodeChecked(argv, { cwd: folder, stdinText: promptText, t0, model: 'resume',
-      bind: () => (id === 'last' ? opencodeTouched(folder, t0) : id) });
+      bind: () => (id === 'last' ? opencodeTouched(folder, t0) : id) }, ended('launch failed'));
   }
   const [cmd, ...args] = argv;
-  return spawnWithDeadline(cmd, args, { cwd: folder, input: promptText,
-    stdio: ['pipe', 'inherit', 'inherit'] }, 'resume failed');
+  return ended('resume failed')(spawnWithDeadline(cmd, args, { cwd: folder, input: promptText,
+    stdio: ['pipe', 'inherit', 'inherit'] }));
 }
 
 module.exports = {

@@ -2006,7 +2006,7 @@ else {
   // a model catalog that cannot be read stops every launch in the installation, selected or not
   for (const [lines, why] of [
     [[HEAD, SONNET, 'cli,claude,opus-5-5,5,N,L1,6,6,2,5,route,N,N'], 'line 3: 13 cells where the header has 12'],
-    [[`${HEAD},notes`, `${SONNET},x`], "line 1: unknown column 'notes' (the columns are mode, harness, model, efforts, image, level, reasoning, coding, cost, use, quality-override, price-override)"],
+    [[`${HEAD},notes`, `${SONNET},x`], "line 1: unknown column 'notes' (the columns are mode, harness, model, efforts, image, level, reasoning, coding, cost, use, quality-override, price-override, fallback-harness, fallback-model)"],
     [['mode,harness,level', 'cli,claude,L2'], "line 1: no 'model' column"],
   ]) {
     const broken = installation(lines);
@@ -2107,7 +2107,7 @@ else {
   assert.deepStrictEqual(Object.keys(catalogJson), ['installation', 'source', 'rows']);
   assert.deepStrictEqual([catalogJson.installation, catalogJson.source], [some.root, some.file]);
   assert.deepStrictEqual(catalogJson.rows[0], { mode: 'cli', harness: 'claude', model: 'sonnet-5-5', efforts: '5', image: 'N', level: 'L2',
-    reasoning: '3', coding: '3', cost: '10', use: 'route', 'quality-override': 'N', 'price-override': 'N', launchable: 'yes', available: 'true' });
+    reasoning: '3', coding: '3', cost: '10', use: 'route', 'quality-override': 'N', 'price-override': 'N', 'fallback-harness': '', 'fallback-model': '', launchable: 'yes', available: 'true' });
   assert.deepStrictEqual([catalogJson.rows[1].model, catalogJson.rows[1].launchable, catalogJson.rows[1].available], ['not-a-real-model', 'no', '-']);
   const catalogText = ok(models(['list', '--catalog'], some.root));
   assert.ok(catalogText.startsWith(`${head}  mode  harness   model `), catalogText);
@@ -2177,7 +2177,7 @@ else {
   const wouldRemove = ok(unchanged(pruning.root, () => models(['remove', 'claude', 'sonnet-5-5', '--dry-run'], pruning.root)));
   assert.ok(wouldRemove.startsWith(`installation: ${pruning.root}\nmodel catalog: ${pruning.file}\n\n`
     + 'would copy the model catalog shipped with cast to that file first: every other supported model stays selected.\n'
-    + "would unselect: 'claude sonnet-5-5', 2 rows to remove\n  cli,claude,sonnet-5-5,5,N,L3,3,3,10,route,Y,Y\n  cli,claude,sonnet-5-5,5,N,L2,3,3,10,route,N,N\nnot checked:\n"), wouldRemove);
+    + "would unselect: 'claude sonnet-5-5', 2 rows to remove\n  cli,claude,sonnet-5-5,5,N,L3,3,3,10,route,Y,Y,,\n  cli,claude,sonnet-5-5,5,N,L2,3,3,10,route,N,N,,\nnot checked:\n"), wouldRemove);
   assert.ok(wouldRemove.endsWith('\nNothing changed: this was a dry run.\n'), wouldRemove);
   const removedText = ok(models(['remove', 'claude', 'sonnet-5-5'], pruning.root));
   assert.ok(removedText.includes('\ncopied the model catalog shipped with cast to that file first') && removedText.includes("\nunselected: 'claude sonnet-5-5', 2 rows removed\n"), removedText);
@@ -2262,6 +2262,165 @@ else {
   jsonRefusal(models(['prune', '--json'], used.root), 'invalid-arguments', 'cast models -h');
   for (const args of [['-h'], ['add', '--help'], ['remove', 'claude', '-h']]) {
     assert.ok(ok(models(args)).startsWith('usage: cast models list [--selected | --supported | --catalog] [--json]\n       cast models add HARNESS MODEL'), args.join(' '));
+  }
+}
+
+// --- the fallback of a launch (lib/fallback.js) -------------------------------------------------
+// A row of the model catalog names the harness and model a launch runs when its own fails to
+// start. The harnesses here are fakes on PATH: `claude` ends as FAKE_CLAUDE says, `codex` records
+// its arguments and prints a report.
+{
+  const { START_WINDOW_MS, startFailure, dial } = require('./lib/fallback');
+  const { parseCatalog } = require('./lib/model-catalog');
+  const { SPECS } = require('./supported-models');
+  const HEAD = 'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override,fallback-harness,fallback-model';
+  const row = (harness, model, fallback = ',') => `cli,${harness},${model},5,N,L2,3,3,10,route,N,N,${fallback}`;
+  const installation = (lines) => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(BASE, 'cast-test-fallback-')));
+    fs.mkdirSync(path.join(root, '.rbtv', 'config', 'cast'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.rbtv', 'config', 'install.json'), '{}\n');
+    const file = path.join(root, '.rbtv', 'config', 'cast', 'models.csv');
+    fs.writeFileSync(file, `${[HEAD, ...lines].join('\n')}\n`);
+    return { root, file };
+  };
+  const home = mkFolder('fallback-home');
+  const bin = mkFolder('fallback-bin');
+  const log = path.join(home, 'started.log');
+  const fake = (name, body) => installFake(bin, name, `${drainStdin}require('fs').appendFileSync(${JSON.stringify(log)}, ${JSON.stringify(name)} + ' ' + process.argv.slice(2).join(' ') + '\\n');\n${body}`);
+  fake('claude', `const [code, wait] = (process.env.FAKE_CLAUDE || '1').split(':').map(Number);
+if (code === 0) console.log('PRIMARY REPORT');
+setTimeout(() => process.exit(code), wait || 0);\n`);
+  fake('codex', `console.log('FALLBACK REPORT');\nprocess.exit(Number(process.env.FAKE_CODEX || 0));\n`);
+  const started = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').map((l) => l.split(' ')[0]) : []);
+  const run = (cwd, args, extra = {}) => {
+    fs.rmSync(log, { force: true });
+    return spawnSync('node', [TOOL, ...args], { cwd, encoding: 'utf8', timeout: 60000,
+      env: { ...process.env, ...homeEnv(home), PATH: pathEnv(bin), ...extra } });
+  };
+  const direct = ['claude', 'sonnet-5-5', '5', '-p', 'do the task'];
+  const named = installation([row('claude', 'sonnet-5-5', 'codex,gpt-6.1-sol'), row('codex', 'gpt-6.1-sol')]);
+
+  // a start failure runs the fallback once: its report is the launch's stdout, its exit the launch's
+  let res = run(named.root, direct);
+  assert.strictEqual(res.status, 0, res.stderr);
+  assert.strictEqual(res.stdout, 'FALLBACK REPORT\n');
+  assert.ok(/\ncast: claude sonnet-5-5 did not start \(exit 1 after \d+s\); launching its fallback codex gpt-6\.1-sol\n/.test(res.stderr), res.stderr);
+  assert.deepStrictEqual(started(), ['claude', 'codex']);
+  // same folder, same task, the dial number carried over: 5 is the top rung of both ladders
+  const codexLine = fs.readFileSync(log, 'utf8').trim().split('\n')[1];
+  assert.ok(codexLine.includes(`--cd ${named.root} -m gpt-6.1-sol`), codexLine);
+  assert.ok(codexLine.includes(SPECS.codex['gpt-6.1-sol'].effort.flag('max').join(' ')), codexLine);
+  // both runs are in the registry under cast's one process, and the monitor reads the later one
+  const handles = fs.readFileSync(path.join(home, '.cast', 'handles.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).slice(-2);
+  assert.deepStrictEqual(handles.map((h) => h.harness), ['claude', 'codex']);
+  assert.strictEqual(handles[0].pid, handles[1].pid);
+
+  // a launch that succeeds, and a row that names no fallback, start one harness
+  res = run(named.root, direct, { FAKE_CLAUDE: '0' });
+  assert.strictEqual(res.stdout, 'PRIMARY REPORT\n');
+  assert.deepStrictEqual(started(), ['claude']);
+  const bare = installation([row('claude', 'sonnet-5-5'), row('codex', 'gpt-6.1-sol'), row('opencode', 'glm-5.3')]);
+  res = run(bare.root, direct);
+  assert.strictEqual(res.status, 1);
+  assert.deepStrictEqual(started(), ['claude']);
+  assert.ok(!res.stderr.includes('its fallback'), res.stderr);
+
+  // the fallback's own failure is final: its exit code, and no third run
+  const chained = installation([row('claude', 'sonnet-5-5', 'codex,gpt-6.1-sol'), row('codex', 'gpt-6.1-sol', 'claude,sonnet-5-5')]);
+  res = run(chained.root, direct, { FAKE_CODEX: '7' });
+  assert.strictEqual(res.status, 7, res.stderr);
+  assert.deepStrictEqual(started(), ['claude', 'codex']);
+
+  // a failure after the start window is not a start failure: the launch ends with it
+  res = run(named.root, direct, { FAKE_CLAUDE: `3:${START_WINDOW_MS + 1500}` });
+  assert.strictEqual(res.status, 3, res.stderr);
+  assert.deepStrictEqual(started(), ['claude']);
+  assert.ok(!res.stderr.includes('its fallback'), res.stderr);
+  assert.ok(startFailure({ error: 'spawn claude ENOENT' }));
+  assert.ok(startFailure({ code: 1, elapsedMs: START_WINDOW_MS - 1 }));
+  assert.ok(!startFailure({ code: 1, elapsedMs: START_WINDOW_MS }));
+  assert.ok(!startFailure({ code: 0, elapsedMs: 10 }));
+  assert.ok(!startFailure({ code: 1, signal: 'SIGINT', elapsedMs: 10 }));
+
+  // opencode: the failed run's closing note goes to stderr, so stdout holds the fallback's report alone
+  fake('opencode', 'process.exit(1);\n');
+  const fromOpencode = installation([row('opencode', 'glm-5.3', 'codex,gpt-6.1-sol'), row('codex', 'gpt-6.1-sol')]);
+  const xdg = { XDG_DATA_HOME: path.join(home, 'xdg') };
+  res = run(fromOpencode.root, ['opencode', 'glm-5.3', '1', '-p', 'do the task'], xdg);
+  assert.strictEqual(res.status, 0, res.stderr);
+  assert.strictEqual(res.stdout, 'FALLBACK REPORT\n');
+  assert.ok(res.stderr.includes('cast: no-report') && res.stderr.includes('; launching its fallback codex gpt-6.1-sol\n'), res.stderr);
+  // with no fallback named, that note stays on stdout
+  res = run(bare.root, ['opencode', 'glm-5.3', '1', '-p', 'do the task'], xdg);
+  assert.strictEqual(res.status, 1);
+  assert.ok(res.stdout.startsWith('cast: no-report'), res.stdout);
+
+  // a dry run and a headed launch never run the fallback
+  res = run(named.root, [...direct, '--dry-run']);
+  assert.strictEqual(res.status, 0);
+  assert.deepStrictEqual(started(), []);
+  res = run(named.root, [...direct, '--headed']);
+  assert.strictEqual(res.status, 1);
+  assert.deepStrictEqual(started(), ['claude']);
+
+  // a fallback this copy of cast cannot launch is named, and the launch ends with its own failure
+  const orphan = installation([row('claude', 'sonnet-5-5', 'codex,no-such-model'), row('codex', 'no-such-model')]);
+  res = run(orphan.root, direct);
+  assert.strictEqual(res.status, 1);
+  assert.deepStrictEqual(started(), ['claude']);
+  assert.ok(res.stderr.includes("cast: claude sonnet-5-5 did not start (exit 1 after 0s), and its fallback cannot be launched: refused: 'codex no-such-model' is selected in"), res.stderr);
+
+  // a harness that is not on PATH is a start failure. Skipped where a real claude sits beside node.
+  const { findOnPath } = require('./lib/win-exec');
+  const emptyBin = mkFolder('fallback-bin-no-claude');
+  installFake(emptyBin, 'codex', "console.log('FALLBACK REPORT');\n");
+  if (findOnPath('claude', { ...process.env, PATH: pathEnv(emptyBin) }) === null) {
+    res = run(named.root, direct, { PATH: pathEnv(emptyBin) });
+    assert.strictEqual(res.status, 0, res.stderr);
+    assert.strictEqual(res.stdout, 'FALLBACK REPORT\n');
+    assert.ok(res.stderr.includes('; launching its fallback codex gpt-6.1-sol\n'), res.stderr);
+  } else {
+    console.log('skipped: fallback on a missing harness (a claude is on the PATH of node)');
+  }
+
+  // an agent's effort is its model's own rung word: its place on the ladder is the dial number
+  const agentHome = path.join(named.root, '.rbtv', 'agents', 'ada');
+  fs.mkdirSync(agentHome, { recursive: true });
+  fs.writeFileSync(path.join(agentHome, 'prompt.md'), 'You are ada.\n');
+  fs.writeFileSync(path.join(agentHome, 'agent.json'), JSON.stringify({ name: 'ada', description: 'd', harness: 'claude', model: 'sonnet-5-5', effort: 'low' }));
+  res = run(named.root, ['--agent', 'ada', '-p', 'do the task']);
+  assert.strictEqual(res.stdout, 'FALLBACK REPORT\n', res.stderr);
+  // the last line: the prompt in claude's arguments ends with a line break of its own
+  const agentLine = fs.readFileSync(log, 'utf8').trim().split('\n').pop();
+  assert.ok(agentLine.includes(`--cd ${agentHome} `) && agentLine.includes('developer_instructions="You are ada.'), agentLine);
+  assert.ok(agentLine.includes(SPECS.codex['gpt-6.1-sol'].effort.flag('low').join(' ')), agentLine);
+  const ladder = (rungs) => ({ effort: rungs.length ? { rungs } : { inert: true } });
+  assert.strictEqual(dial(ladder(['low', 'medium', 'high']), 4), 4);
+  assert.strictEqual(dial(ladder(['low', 'medium', 'high']), 'medium'), 2);
+  assert.strictEqual(dial(ladder(['low', 'medium', 'high']), 'high'), 5);
+  assert.strictEqual(dial(ladder([]), 'inert'), 3);
+
+  // the two cells are read strictly, with the file and the line
+  for (const [lines, why] of [
+    [[row('claude', 'sonnet-5-5', 'codex,'), row('codex', 'gpt-6.1-sol')], 'line 2: fallback-harness and fallback-model go together: fill both or neither'],
+    [[row('claude', 'sonnet-5-5', 'claude,sonnet-5-5')], "line 2: 'claude sonnet-5-5' is its own fallback"],
+    [[row('claude', 'sonnet-5-5', 'codex,gpt-6.1-sol')], "line 2: the fallback 'codex gpt-6.1-sol' has no row in this file"],
+    [[row('claude', 'sonnet-5-5', 'api,gemini-3.5-flash'), 'api,api,gemini-3.5-flash,0,Y,L4,0,0,1,off,N,N,,'], "line 2: the fallback 'api gemini-3.5-flash' is a mode=api row: a fallback is launched, so it is a cli row"],
+    [[row('claude', 'sonnet-5-5', 'codex,gpt-6.1-sol'), row('codex', 'gpt-6.1-sol'), row('claude', 'sonnet-5-5')], "line 4: 'claude sonnet-5-5' names another fallback here than on line 2"],
+  ]) {
+    assert.throws(() => parseCatalog(`${[HEAD, ...lines].join('\n')}\n`, 'F'), { message: `cannot read the model catalog F ${why}` });
+  }
+  // a file without the two columns reads them blank
+  assert.strictEqual(parseCatalog('mode,harness,model\ncli,claude,sonnet-5-5\n', 'F').rows[0]['fallback-model'], '');
+
+  // a model that is a row's fallback is not removed, with or without --force
+  for (const extra of [[], ['--force']]) {
+    const before = fs.readFileSync(named.file, 'utf8');
+    res = spawnSync('node', [TOOL, 'models', 'remove', 'codex', 'gpt-6.1-sol', ...extra], { cwd: named.root, encoding: 'utf8' });
+    assert.strictEqual(res.status, 2, res.stdout);
+    assert.strictEqual(res.stderr, `cast: refused: 'codex gpt-6.1-sol' is the fallback of 'claude sonnet-5-5' in ${named.file}\n`
+      + 'blank the fallback-harness and fallback-model cells of each row first, by hand\nNothing changed.\ncast models list --catalog\n');
+    assert.strictEqual(fs.readFileSync(named.file, 'utf8'), before);
   }
 }
 

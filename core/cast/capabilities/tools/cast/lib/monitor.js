@@ -56,7 +56,10 @@ function liveJobs(prefix) {
   }
   // One pin lookup for the whole registry (on Windows each lookup is a process spawn).
   const starts = procStarts(rows.filter((h) => h.start != null).map((h) => h.pid));
-  return rows.filter((h) => h.start != null && starts.get(h.pid) === h.start
+  // A launch that ran its fallback wrote two rows under one process: the later row is the run
+  // still alive, the earlier one a run that already ended.
+  const latest = new Map(rows.map((h) => [`${h.pid}:${h.start}`, h]));
+  return [...latest.values()].filter((h) => h.start != null && starts.get(h.pid) === h.start
     && !(prefix && !String(h.folder).startsWith(prefix)));
 }
 

@@ -12,6 +12,7 @@ const { runAgentList } = require('./lib/agent-list');
 const { runApi } = require('./lib/api');
 const { USAGE, USAGE_IG, fail, listArgs, parseArgs, resolveEffort, resolveEffortValue, resolveFolder, resolveModel, taskText } = require('./lib/core');
 const { runDoctor } = require('./lib/doctor');
+const { fallbackOf } = require('./lib/fallback');
 const { printHelp, verbHelpPages } = require('./lib/help');
 const { SYSTEM_WRAPPER, launch, runResume } = require('./lib/launch');
 const { runModels } = require('./lib/models');
@@ -103,19 +104,21 @@ function main(rawArgv) {
 
   const { modelId, spec } = resolveModel(harness, model, agent ? agent.home : process.cwd());
 
+  // The effort the launch asks for: the agent's own rung word, or the dial number.
+  const asked = agent ? agent.effort : Number(effortArg);
   let effort;
   if (agent) {
-    try { effort = resolveEffortValue(spec, agent.effort, harness, model); } catch (e) { fail(e.message); }
+    try { effort = resolveEffortValue(spec, asked, harness, model); } catch (e) { fail(e.message); }
   } else {
-    const n = Number(effortArg);
-    if (!Number.isInteger(n) || n < 1 || n > 5) fail(`effort must be an integer 1-5, got: ${effortArg}`);
-    effort = resolveEffort(spec, n);
+    if (!Number.isInteger(asked) || asked < 1 || asked > 5) fail(`effort must be an integer 1-5, got: ${effortArg}`);
+    effort = resolveEffort(spec, asked);
   }
 
   const folder = agent ? agent.home : resolveFolder(folderArg);
 
   launch({ harness, modelId, folder, effortWord: effort.word, effortArgv: effort.argv, system, promptText, headed, dryRun, detached,
-    agentHome: agent ? agent.home : null });
+    agentHome: agent ? agent.home : null,
+    fallback: () => fallbackOf(harness, modelId, asked, agent ? agent.home : process.cwd()) });
 }
 
 main(process.argv.slice(2));

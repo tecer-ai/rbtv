@@ -235,6 +235,18 @@ session identity without stdout (claude: minted id; codex: rollout store; openco
 Adopting ignite's flags here would multiply stdout ~380x (measured) and break the report contract
 for no remaining gain.
 
+## Fallback
+
+A model's fallback is the harness and model its row of the [model catalog](../../glossary/model-catalog.md#fallback) names in `fallback-harness` and `fallback-model`. A headless launch whose model fails to start runs the fallback once, in the same launch folder, with the same task and the same system prompt, and exits with the fallback's exit code. The fallback's own failure ends the launch: its row's fallback is not read.
+
+A launch fails to start in two cases: the harness program cannot be started, or the harness exits with a failure, and without a signal, less than 15 seconds after cast started it. A harness that cannot reach its model ends in 2.4 to 3.2 seconds on `claude`, `codex` and `opencode` (measured 2026-10-07 with a model name no provider has). A failure after 15 seconds can follow work the agent already did, and a second run would repeat that work, so the launch ends with that failure and exit code. A job that stays alive without progress is not a failure to start: `cast monitor` reports it and nothing relaunches it.
+
+The fallback launches at the effort the launch asked for. A dial number is passed as given. An agent's own rung word becomes its place on its model's ladder, and the top rung becomes 5, so the highest effort stays the highest; a model with no dial gives 3.
+
+On a fallback, cast writes one line to standard error, `cast: <harness> <model> did not start (<exit N after Ns, or the start error>); launching its fallback <harness> <model>`, and a second `cast: handle` line for the new run. Standard output holds the fallback's report alone: a closing note of the failed run (`cast: no-report`, a provider limit) goes to standard error. Both handle lines carry cast's one process id, and `cast monitor` reads the later one. When the catalog names a fallback that cannot be launched (the launch check refuses it), the line ends `, and its fallback cannot be launched: <the refusal>` and the launch ends with its own failure.
+
+A launch with `--headed`, a `--dry-run`, `cast resume` and `cast api` never run a fallback. An Ignite turn applies the same rule through `ignite turn`: [Ignite architecture](../../../../ignite/capabilities/tools/ignite/documentation/architecture.md).
+
 ## Exit codes
 
 | Code | Meaning |
@@ -416,7 +428,8 @@ The installation's file is read strictly, because it gates every launch in the i
 daemon's included. Cells are read by header name; a column the header does not carry reads blank
 (a blank `use` is `route`, a blank `level` is not routed). An unknown column, a missing `mode`,
 `harness` or `model` column, a row whose cell count is not the header's (what a decimal comma
-makes), or a blank `mode`, `harness` or `model` cell refuses with the file and the line: a skipped
+makes), a blank `mode`, `harness` or `model` cell, or a fallback that breaks a rule of the
+[model catalog](../../glossary/model-catalog.md#fallback) refuses with the file and the line: a skipped
 row would silently unselect a model. `cast route` answers the same failure as
 `{"error":"no_models"}`. cast replaces the file in one step (a temporary file, then a rename) and
 keeps the file's own line ending.
@@ -466,9 +479,12 @@ and `remove` prints what would change and writes nothing.
   settings of a component that name a model.
 - **Writes.** The file is replaced in one step (a temporary file beside it, then a rename) and
   keeps its own line ending; a file the installation did not have is written with the machine's.
+- **A model that is a fallback.** `remove` is refused while another row names the model in its
+  `fallback-harness` and `fallback-model` cells, and names those rows: the file would no longer be
+  readable. `--force` does not pass this refusal; blank the cells by hand first.
 - **Refusals** exit 2 and change nothing: outside an installation (`add`, `remove`), a model cast
-  does not support (`add`), a model still in use (`remove`), a model catalog that cannot be read,
-  and a word the verb does not take.
+  does not support (`add`), a model still in use or named as a fallback (`remove`), a model
+  catalog that cannot be read, and a word the verb does not take.
 
 `--json` prints one value. Lists: `{installation, selection, view, models: [{harness, model, mode,
 rungs, effort_numbers, selected}], usage}`, where `selection` is the installation's file, `null`
@@ -537,7 +553,7 @@ runs in.
 | `capabilities/tools/cast/cast.json` | the tool record: the name `cast`, its listing description and the executable `cast.js` |
 | `capabilities/tools/cast/supported-models.js` | the supported models: LAUNCH mechanics only — harness-native id, effort ladder, provider (see Spec source) |
 | `capabilities/tools/cast/providers.json` | the providers: login method, key variable, credential-store entry per harness, saved-login files, usage source |
-| `capabilities/tools/cast/models.csv` | the shipped model catalog — level, scores, cost, image, `use` for every supported model. In force wherever an installation has no model catalog of its own. Lives beside this tool so routing does not depend on any other tree |
+| `capabilities/tools/cast/models.csv` | the shipped model catalog — level, scores, cost, image, `use` and a blank fallback for every supported model. In force wherever an installation has no model catalog of its own. Lives beside this tool so routing does not depend on any other tree |
 | `capabilities/tools/cast/api/` | the Python program `cast api` runs (`run.py`), its provider clients (`clients/`) and their tests (`tests/`) |
 | `capabilities/tools/cast/test_cast.js` | the suite for the CLI and its `lib/` modules, `route.js` excepted (see Self-check) |
 | `capabilities/tools/cast/test_route.js` | the suite for `cast route` (see Self-check) |
@@ -547,7 +563,8 @@ runs in.
 | `capabilities/tools/cast/lib/core.js` | shared primitives: argv parsing, model/effort/folder resolution (`lookupModel`, which runs the launch check), the words of `cast list` |
 | `capabilities/tools/cast/lib/doctor.js` | `cast doctor`: harness programs on `PATH` and the login of each model the installation selects, from local files only |
 | `capabilities/tools/cast/lib/handles.js` | the launch-handle registry — the one observable a watcher uses to find a run again |
-| `capabilities/tools/cast/lib/launch.js` | spawn, `cast resume` |
+| `capabilities/tools/cast/lib/launch.js` | spawn, the one run of a model's fallback, `cast resume` |
+| `capabilities/tools/cast/lib/fallback.js` | the fallback of a launch: what counts as a failure to start, the fallback the model catalog names for a model, and the effort it launches at. `launch.js` and `ignite turn` both use it |
 | `capabilities/tools/cast/lib/win-exec.js` | how a harness name becomes a process on Windows: finds the program on `PATH` and wraps an npm `.cmd` shortcut so that it can be started |
 | `capabilities/tools/cast/lib/agent.js` | `--agent` / `--rogue`: find the agent folder, read `agent.json` and `prompt.md`. The one place that knows where an agent's folder is (`<installation>/.rbtv/agents/<name>`), which agents a `--target FOLDER` names, what counts as a path, and how the record is read: spark, the agent list and Ignite load it |
 | `capabilities/tools/cast/lib/agent-list.js` | `cast list --agents`: the agents a name can reach, as a table, labeled blocks, or JSON; the one list, which [`spark list`](../spark/spark.md) and `rbtv agent list` also show |

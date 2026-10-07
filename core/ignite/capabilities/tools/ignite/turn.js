@@ -9,6 +9,7 @@ const { spawn } = require('child_process');
 const CAST_LIB = '../../../../cast/capabilities/tools/cast/lib';
 const { CODEX_DOC_LIMIT, CODEX_HOOK_TRUST, lookupModel, shortName, resolveEffortValue } = require(`${CAST_LIB}/core`);
 const { agentBody } = require(`${CAST_LIB}/agent`);
+const { startFailure } = require(`${CAST_LIB}/fallback`);
 const { procStart, emitHandle } = require(`${CAST_LIB}/handles`);
 const { launchEnv, opencodeTagged, SYSTEM_WRAPPER } = require(`${CAST_LIB}/launch`);
 const { loadOptional } = require(`${CAST_LIB}/optional`);
@@ -113,6 +114,16 @@ function readEnv(env) {
   return out;
 }
 
+// The turn `request.fallback` describes: this request with the harness, model, effort, session
+// and prompt that object gives. null when the request names none.
+function readFallback(request) {
+  const given = request.fallback;
+  if (given === undefined) return null;
+  if (!given || typeof given !== 'object' || Array.isArray(given)) throw new Error('fallback must be an object');
+  const { harness, model, effort, session, prompt } = given;
+  return validate({ ...request, harness, model, effort, session, prompt, fallback: undefined });
+}
+
 function validate(request) {
   if (!request || typeof request !== 'object' || Array.isArray(request)) throw new Error('request must be an object');
   existingDir(request.cwd);
@@ -123,6 +134,7 @@ function validate(request) {
   const env = readEnv(request.env);
   const resolved = resolveEffortValue(spec, request.effort, request.harness, request.model);
   return {
+    fallback: readFallback(request),
     harness: request.harness,
     modelId,
     model: shortName(request.harness, modelId),
@@ -232,6 +244,13 @@ function buildResult(v, o) {
   return body;
 }
 
+// How one harness run ended, in the shape cast's `startFailure` reads: `error` only for a
+// harness that never started.
+function attemptEnd(o) {
+  if (o.pid == null) return { error: o.spawnError || 'spawn_failed' };
+  return { code: o.exitCode, signal: o.signal, elapsedMs: Date.parse(o.endedAt) - Date.parse(o.startedAt) };
+}
+
 function writeResult(file, result) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const temp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
@@ -274,14 +293,14 @@ function spawnTurn(v, resultFile) {
         session: minted || v.sessionId, tag, folder: v.cwd, t0: Date.now(),
       });
     }
-    const finish = (exitCode, spawnError) => {
+    const finish = (exitCode, spawnError, signal = null) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       if (carry) noteLine(carry, acc);
       const closeStreams = () => {
         resolve({
-          exitCode, spawnError, minted, tag, pid, pidStart, startedAt,
+          exitCode, spawnError, signal, minted, tag, pid, pidStart, startedAt,
           endedAt: new Date().toISOString(),
           stdoutPath, stderrPath,
           codexId: acc.codexId,
@@ -315,7 +334,7 @@ function spawnTurn(v, resultFile) {
       for (const line of lines) noteLine(line, acc);
     });
     child.stderr.on('data', (d) => { err.write(d); });
-    child.on('close', (status) => finish(status === null ? 1 : status, null));
+    child.on('close', (status, signal) => finish(status === null ? 1 : status, null, signal));
     child.stdin.on('error', () => {});
     child.stdin.end(stdinFor(v));
   });
@@ -328,8 +347,13 @@ async function runTurnAsync(args) {
     resultFile = paths.resultFile;
     const request = JSON.parse(fs.readFileSync(paths.requestFile, 'utf8'));
     const v = validate(request);
-    const outcome = await spawnTurn(v, resultFile);
-    const result = buildResult(v, outcome);
+    let outcome = await spawnTurn(v, resultFile);
+    let result = buildResult(v, outcome);
+    if (!result.ok && v.fallback && startFailure(attemptEnd(outcome))) {
+      const from = { harness: result.harness, model: result.model, error: result.error };
+      outcome = await spawnTurn(v.fallback, `${resultFile}.fallback`);
+      result = { ...buildResult(v.fallback, outcome), fallbackFrom: from };
+    }
     writeResult(resultFile, result);
     process.exitCode = result.ok ? 0 : 1;
     return process.exitCode;

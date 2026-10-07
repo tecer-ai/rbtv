@@ -41,6 +41,7 @@ Keep one row per model line: the latest version of that model. A model may have 
 | `use` | `route`, `panel`, `off` | Who may see the row; see below. Blank reads as `route`. |
 | `quality-override` | `Y`, `N` | `Y`: inside its own level, the row wins a `--optimize quality` ranking whatever the scores say. |
 | `price-override` | `Y`, `N` | `Y`: inside its own level, the row wins a price ranking whatever the costs say. |
+| `fallback-harness`, `fallback-model` | a harness and a model, or both blank | The row's fallback: the model a launch runs when this row's model fails to start. See below. |
 
 `use` has three values:
 
@@ -51,6 +52,14 @@ Keep one row per model line: the latest version of that model. A model may have 
 A `use` value that is none of the three drops the row from routing with a warning on standard error. One column carries the three states because two yes-or-no columns would allow a row that is both routed and panel-only, a state with no meaning.
 
 An override never crosses a level: an `L2` row with `quality-override=Y` still loses to every eligible `L1` row. It never bypasses a filter either: login presence, `--access`, `--caps` and the class's level all run first, so an override only reorders rows that already qualify. `cast route` ranks on price when `--optimize` is omitted, so `price-override` acts there and `quality-override` acts only under `--optimize quality`. Several overriding rows in one level keep the normal tie-breaks among themselves.
+
+## Fallback
+
+A row's fallback is the harness and model a launch of that row's model runs, once, when the model fails to start. It belongs to the model, so it holds for every agent and every launch that names the model: `cast <harness> <model>`, `cast --agent` and an Ignite turn. [cast](../tools/cast/cast.md#fallback) states what counts as a failure to start and what the fallback launch receives. `cast route` does not read the two columns.
+
+Fill both cells or leave both blank; blank means the model has no fallback. The fallback names another `cli` row of the same file, never the row's own model. A model with a second row at another level carries the same two cells on both rows. A file that breaks one of these rules cannot be read, with the consequence below. The shipped model catalog leaves every fallback blank: which model stands in for another is the installation's choice.
+
+Set a fallback by editing the two cells by hand in the installation's file. `cast models remove` is refused for a model another row names as its fallback, with or without `--force`: blank those cells first.
 
 ## How to work with it
 

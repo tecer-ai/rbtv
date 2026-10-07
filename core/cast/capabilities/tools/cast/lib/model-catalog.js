@@ -33,7 +33,8 @@ const CATALOG_REL = path.join('.rbtv', 'config', 'cast', CATALOG_NAME);
 const SUPPORTED_FILE = path.join(__dirname, '..', 'supported-models.js');
 
 const COLUMNS = ['mode', 'harness', 'model', 'efforts', 'image', 'level',
-  'reasoning', 'coding', 'cost', 'use', 'quality-override', 'price-override'];
+  'reasoning', 'coding', 'cost', 'use', 'quality-override', 'price-override',
+  'fallback-harness', 'fallback-model'];
 // A row is nothing without these three; every other column may be absent and then reads blank.
 const REQUIRED_COLUMNS = ['mode', 'harness', 'model'];
 
@@ -80,7 +81,28 @@ function parseCatalog(text, file) {
     rows.push(row);
   });
   if (!header) throw unreadable(file, null, 'the file is empty');
+  checkFallbacks(rows, file);
   return { eol, lines, header, rows };
+}
+
+// A row's fallback is the harness and model lib/fallback.js launches when the row's own model
+// fails to start. The two cells go together and name another `cli` row of the same file; the rows
+// of one model name the same fallback.
+function checkFallbacks(rows, file) {
+  for (const row of rows) {
+    const [harness, model] = [row['fallback-harness'], row['fallback-model']];
+    const twin = rows.find((r) => r.harness === row.harness && r.model === row.model);
+    if (twin['fallback-harness'] !== harness || twin['fallback-model'] !== model) {
+      throw unreadable(file, row._line, `'${row.harness} ${row.model}' names another fallback here than on line ${twin._line}`);
+    }
+    if (!harness && !model) continue;
+    const name = `${harness} ${model}`;
+    if (!harness || !model) throw unreadable(file, row._line, 'fallback-harness and fallback-model go together: fill both or neither');
+    if (harness === row.harness && model === row.model) throw unreadable(file, row._line, `'${name}' is its own fallback`);
+    const target = rows.find((r) => r.harness === harness && r.model === model);
+    if (!target) throw unreadable(file, row._line, `the fallback '${name}' has no row in this file`);
+    if (target.mode !== 'cli') throw unreadable(file, row._line, `the fallback '${name}' is a mode=${target.mode} row: a fallback is launched, so it is a cli row`);
+  }
 }
 
 // The installation's own model catalog, or null while it has none (or there is no installation).

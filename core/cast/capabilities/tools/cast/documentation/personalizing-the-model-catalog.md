@@ -4,7 +4,7 @@ Change which models an installation launches and how `cast route` ranks them, or
 
 The caller supplies the harness and model names, and which of two changes is wanted:
 
-- A change for one installation: select or unselect a [supported model](../../../glossary/supported-model.md), or edit a row's routing columns. It touches one file of the installation. Sections 1 and 5 apply.
+- A change for one installation: select or unselect a [supported model](../../../glossary/supported-model.md), or edit a row's routing columns or its fallback. It touches one file of the installation. Sections 1 and 5 apply.
 - A change to what cast supports: a new model, a new version replacing an old one, or a removal. It is a change to rbtv's source. Sections 2 to 6 apply, then section 1 in each installation.
 
 When the request does not say which, or names a model without its harness, ask before changing anything.
@@ -16,8 +16,9 @@ Run every command from a folder inside the installation; `cast models` acts on t
 1. List what can be chosen and what is chosen: `cast models list --supported`.
 2. Select a model with `cast models add HARNESS MODEL`. Unselect one with `cast models remove HARNESS MODEL`. Run either with `--dry-run` first and read what would change. `remove` is refused while an agent under `.rbtv/agents/` or the Dreamer still launches the model, and lists them: give each another model with `rbtv agent configure AGENT --model M` first. `--force` removes the model anyway and leaves those agents refused at launch. `remove` does not see agents kept outside `.rbtv/agents/` or a component's settings that name a model; the result says so, and you check those yourself.
 3. To keep a model launchable by name and out of routing, leave its row and set `use` to `off`. To change how a model ranks, edit `level`, `reasoning`, `coding`, `cost`, `use` or an override cell of its row by hand in `.rbtv/config/cast/models.csv`. An installation that has no such file yet gets one in one of two ways. The first `cast models remove` creates it from the shipped file, without the rows of the removed model. To get an editable file without removing a model, copy the shipped file, which `cast models list --catalog` names, to `.rbtv/config/cast/models.csv`. `cast models add` does not create the file.
-4. Run `cast models list --catalog` and read every row: a file cast cannot read as a table stops every launch in the installation. Then run `cast doctor`; it shows which selected models have the login of their provider on this machine.
-5. Commit `.rbtv/config/cast/models.csv` with the installation. The file is the one choice every machine and the daemon read; a change counts from the next launch.
+4. To give a model a fallback, fill `fallback-harness` and `fallback-model` on every row of that model, by hand, with a model that has a `cli` row in the same file: [Model catalog](../../../glossary/model-catalog.md#fallback) gives the rules. Two facts decide the choice. A provider's limit or outage can stop every model of that provider, so a fallback on another provider covers more failures. An rbtv agent's folder holds the installed files of its own harness only, so an agent that falls back to another harness receives its prompt and its task, and none of the skills, rules, hooks and folder instructions installed in its folder; a fallback on the same harness keeps them. On `opencode` one harness reaches several providers, so both hold at once there.
+5. Run `cast models list --catalog` and read every row: a file cast cannot read as a table stops every launch in the installation. Then run `cast doctor`; it shows which selected models have the login of their provider on this machine.
+6. Commit `.rbtv/config/cast/models.csv` with the installation. The file is the one choice every machine and the daemon read; a change counts from the next launch.
 
 A changed level, score, cost or override changes verdicts of `cast route`. Tell the owner which classes are affected; adding a level to a model is the owner's decision.
 

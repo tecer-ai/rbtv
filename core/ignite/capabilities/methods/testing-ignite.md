@@ -15,7 +15,7 @@ When the list of changed files is missing, stop and ask for it. When a deploy or
 | The change touches | Run |
 |---|---|
 | Any file under `core/ignite/` | The 18 Ignite test programs |
-| `turn.js`, `store.js`, or a file under `core/cast/capabilities/tools/cast/lib/` (Ignite imports `agent`, `core`, `handles`, `launch`, `optional` and `win-exec` from there) | The 18 programs and also `test_cast.js`, `test_route.js` and `test_spark.js` |
+| `turn.js`, `store.js`, or a file under `core/cast/capabilities/tools/cast/lib/` (Ignite imports `agent`, `core`, `fallback`, `handles`, `launch`, `optional` and `win-exec` from there) | The 18 programs and also `test_cast.js`, `test_route.js` and `test_spark.js` |
 | A file the installer scans (a skill, rule, pack, agent, hook, component record or tool record, or the first line of a tool's program; [rbtv CLI](../../../rbtv/capabilities/glossary/rbtv-cli.md) owns the list) or rbtv's install code | The installer selftest, on Linux and on Windows |
 | Code the waking service runs, `deploy.sh` or the systemd unit | All of the above, then deploy and live checks when the caller put them in scope |
 
