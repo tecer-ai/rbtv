@@ -8,8 +8,7 @@ const os = require('os');
 const { spawnSync } = require('child_process');
 
 const TOOL = path.join(__dirname, 'spark.js');
-const SCRATCH_ROOT = '/tmp/claude-1000/-home-henri-ht-wkdir-second-brain/204266c9-ba58-4854-b838-016c8b55cc42/scratchpad';
-const BASE = fs.existsSync(SCRATCH_ROOT) ? SCRATCH_ROOT : os.tmpdir();
+const BASE = os.tmpdir();
 
 const OPENING = 'You have just been started by your owner in an interactive terminal. '
   + 'Greet them in one line and wait for what they need.';
