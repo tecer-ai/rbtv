@@ -179,7 +179,7 @@ def _add_gitignore(target: Path, owners: dict[str, list], claims: list[dict],
 def _stray_artifacts(target: Path, booked: set[str]) -> set[str]:
     """Marked artifacts on disk that the book does not know — output of an
     earlier run whose record entry was lost, which the book alone would leave
-    out of the block and so up for commit (D14, 2026-09-27). A booked file is
+    out of the block and so up for commit. A booked file is
     left to `owners`: this run either re-plans it or prunes it. A skill is
     listed as its FOLDER, which is what D15 owns."""
     out = set()
@@ -240,13 +240,13 @@ def _files_for_cid(cid: str, parts: list[str] | None) -> list[str] | None:
 
 
 def _scaffold_rbtv(target: Path) -> None:
-    """An installation's `.rbtv/` holds its mirror, runtime data and memory
-    folders, created empty on the first real run. An installed agent's folder
-    (agent.md beside agent.json) is not an installation and gets none."""
+    """An installation's `.rbtv/` holds its mirror folder, created empty on the
+    first real run. A component that writes operational data or memory creates
+    its own folder when it first writes. An installed agent's folder (agent.md
+    beside agent.json) is not an installation and gets none."""
     if is_agent_target(target):
         return
-    for name in ("mirror", "runtime", "memory"):
-        (target / ".rbtv" / name).mkdir(parents=True, exist_ok=True)
+    (target / ".rbtv" / "mirror").mkdir(parents=True, exist_ok=True)
 
 
 def _select_files(comp: dict, existing_parts, requested: list[str] | None

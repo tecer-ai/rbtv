@@ -1,6 +1,7 @@
 """Shared terminal-presentation vocabulary: the `--type` value table, the
-title line every command starts with, source-of-target labels, and plain-text
-table rendering (with the narrow-terminal labeled-block fallback). One
+`.rbtv/` folder table, the title line every command starts with,
+source-of-target labels, and plain-text table rendering (with the
+narrow-terminal labeled-block fallback). One
 authored place so list/search/show/add/remove/doctor never spell the same
 vocabulary or table shape three ways.
 """
@@ -11,7 +12,7 @@ import re
 import shutil
 import textwrap
 
-from .constants import CATALOG_TYPES, HARNESSES
+from .constants import CANONICAL_METHODS, HARNESSES, LISTING_TYPES, REPO_ROOT
 from .target import DISCOVER_FLAG
 
 # --type / --exclude-type value -> short meaning, in the one order every
@@ -26,8 +27,22 @@ TYPE_MEANING = {
     "tool": "Runnable CLI exposed through a command shortcut.",
     "folder-instructions": "Text added to a folder's instructions file.",
     "pack": "A named list of files a component declares.",
+    "module": "A folder grouping components of one subject; list, search and show only.",
+    "component": "A folder grouping one subject's files inside a module; list, search and show only.",
 }
-assert set(TYPE_MEANING) == set(CATALOG_TYPES)
+assert set(TYPE_MEANING) == set(LISTING_TYPES)
+
+# The agent row on the `add` and `remove` pages, where an agent is always
+# written as a harness-native sub-agent.
+CHANGE_AGENT_MEANING = {
+    "add": "An agent a component ships. Named here with --on, it\n"
+           "is written as a harness-native sub-agent.",
+    "remove": "An agent a component ships, installed here as a\n"
+              "harness-native sub-agent.",
+}
+# Those two pages set their meanings at the column where their options' help
+# starts.
+OPTION_HELP_COLUMN = 24
 
 HARNESS_MEANING = {"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode"}
 assert set(HARNESS_MEANING) == set(HARNESSES)
@@ -38,10 +53,19 @@ GUIDANCE_MEANING = {
 }
 
 
-def types_block(values=CATALOG_TYPES, *, indent: str = "  ") -> str:
-    """The accepted --type values with their meanings, one per line."""
-    width = max(len(v) for v in values)
-    return "\n".join(f"{indent}{v.ljust(width)}  {TYPE_MEANING[v]}" for v in values)
+def types_block(values=LISTING_TYPES, *, indent: str = "  ",
+                change: str | None = None) -> str:
+    """The accepted --type values with their meanings, one per line. `change`
+    names `add` or `remove`: the exposure methods only, as that page words
+    and sets them."""
+    if change is None:
+        width = max(len(v) for v in values)
+        return "\n".join(f"{indent}{v.ljust(width)}  {TYPE_MEANING[v]}" for v in values)
+    meaning = {**TYPE_MEANING, "agent": CHANGE_AGENT_MEANING[change]}
+    hang = "\n" + " " * OPTION_HELP_COLUMN
+    width = OPTION_HELP_COLUMN - len(indent) - 2
+    return "\n".join(f"{indent}{v.ljust(width)}  {meaning[v].replace(chr(10), hang)}"
+                     for v in CANONICAL_METHODS)
 
 
 def harness_block(*, indent: str = "  ") -> str:
@@ -53,55 +77,38 @@ def title(command: str) -> str:
     return f"rbtv — {command}"
 
 
-# The root command inventory, grouped by what a reader is trying to DO.
-# `root_help()` owns the full root `-h` / bare-command screen; argparse
-# owns every per-command `-h`.
-COMMAND_GROUPS = (
-    ("Discover", (
-        ("status", "Show target, saved settings, and recorded selections."),
-        ("list [NAME]", "Browse exact module, component, or file scope."),
-        ("search WORDS", "Search source catalog names and descriptions broadly."),
-        ("show NAME", "Show description, included files, and installation details."),
-    )),
-    ("Change this installation", (
-        ("configure", "Initialize or change receiving tools and guidance settings."),
-        ("add [NAME...]", "Add named or filtered files, or turn a pack on."),
-        ("remove [NAME...]", "Remove installed files, or turn a pack off."),
-        ("update SCOPE", "Make the folder match the file. The scope is required."),
-    )),
-    ("Agents", (
-        ("agent VERB", "Act on one agent instead of this installation: create it, change its\n"
-                       "                files, harness, model or effort, or list the agents. See: rbtv agent -h"),
-    )),
-    ("Check and guided use", (
-        ("doctor", "Check harness files and selected command shortcuts."),
-        ("interactive", "Choose files through a guided menu (asks questions)."),
-        ("selftest", "Run checks in isolated temporary installations."),
-    )),
+# The folders of an installation's `.rbtv/`, in the order and words of the
+# first sentence of the glossary page `rbtv-folder.md`, each with the glossary
+# page that owns it. A reword of that sentence changes this table in the same
+# change.
+RBTV_FOLDER_PAGE = "core/rbtv/capabilities/glossary/rbtv-folder.md"
+RBTV_FOLDERS = (
+    ("mirror", "local component source", "core/rbtv/capabilities/glossary/mirror.md"),
+    ("config", "configuration", "core/rbtv/capabilities/glossary/config.md"),
+    ("agents", "agents found by name", "core/rbtv/capabilities/glossary/agent.md"),
+    ("runtime", "operational data", "core/rbtv/capabilities/glossary/runtime.md"),
+    ("memory", "shared memory", "core/ignite/capabilities/glossary/memory.md"),
 )
 
 
-def root_help() -> str:
-    """The full `rbtv -h` / bare-command screen (approved screen 100)."""
-    lines = [title("help"), ""]
-    for heading, rows in COMMAND_GROUPS:
-        width = max(max(len(name) for name, _ in rows), 12 if heading == "Agents" else 0)
-        lines.append(heading)
-        lines.extend(f"  {name.ljust(width)}  {desc}" for name, desc in rows)
-        lines.append("")
-    lines.append("Shared options: --target PATH  --json  -h, --help  --version")
-    lines.append("Non-interactive changes also accept --dry-run and --details.")
-    lines.append("Only interactive asks questions.")
-    lines.append("Target order: --target, then RBTV_AGENT_HOME, then discovery from the current folder.")
-    lines.append("Aliases: ls=list; li=list --installed; rm=remove.")
-    lines.append("A file id is module/component#name. A pack is named only with --pack.")
-    lines.append("A bare name never resolves to a pack.")
-    lines.append("With no command, this page is printed.")
-    lines.append("")
-    lines.append("Start: rbtv status")
-    lines.append("More:  rbtv COMMAND -h")
-    lines.append("Exit codes: 0 success; 1 refused or check failed; 2 invalid arguments.")
-    return "\n".join(lines) + "\n"
+def rbtv_folders(target) -> dict:
+    """The `.rbtv/` folders that exist in `target`: what each holds and the
+    page that owns it, a path inside the rbtv source."""
+    return {name: {"holds": holds, "page": page}
+            for name, holds, page in RBTV_FOLDERS
+            if (target / ".rbtv" / name).is_dir()}
+
+
+def rbtv_folder_lines(folders: dict) -> list[str]:
+    """One line per existing `.rbtv/` folder, under a heading that says where
+    the pages are; nothing when no folder exists."""
+    if not folders:
+        return []
+    width = max(len(name) for name in folders) + 1
+    return ([f"Installation folder .rbtv/ (pages are in the rbtv source, {REPO_ROOT})"]
+            + [f"  {(name + '/').ljust(width)}  {entry['holds']}. Page: {entry['page']}"
+               for name, entry in folders.items()]
+            + [f"  The folder as a whole: {RBTV_FOLDER_PAGE}"])
 
 
 def target_source_label(why: str | None) -> str:

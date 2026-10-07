@@ -107,10 +107,13 @@ def _pool(catalog: dict, book: dict | None = None) -> list[dict]:
 def resolve_name(token: str, catalog: dict, book: dict | None = None,
                  *, methods: set[str] | None = None,
                  component_only: bool = False,
-                 suggest_installed: bool = False) -> dict:
+                 suggest_installed: bool = False,
+                 empty_ok: bool = False) -> dict:
     """One name -> one exposed part or one component with its parts. A name
     that is unknown is refused with the close names: of the whole catalog, or,
-    with `suggest_installed`, of what `book` records as installed."""
+    with `suggest_installed`, of what `book` records as installed. A component
+    that holds no installable file is refused unless `empty_ok`, which a
+    reader of the catalog passes."""
     _retire_number(token)
     token = _norm_comp(token)
     pool = _pool(catalog, book)
@@ -134,6 +137,8 @@ def resolve_name(token: str, catalog: dict, book: dict | None = None,
             return {"kind": "component", "id": token, "files": parts}
         if token in catalog:
             _file_specs(catalog[token])     # an invalid component says why
+            if empty_ok and not methods:
+                return {"kind": "component", "id": token, "files": []}
         raise Refuse("kind-mismatch", f"{token!r} has no file of the requested type")
     if not component_only:
         hits = [p for p in allowed if p["file_id"] == token]
@@ -146,7 +151,8 @@ def resolve_name(token: str, catalog: dict, book: dict | None = None,
         if len(hits_c) == 1:
             return resolve_name(hits_c[0], catalog, book, methods=methods,
                                 component_only=True,
-                                suggest_installed=suggest_installed)
+                                suggest_installed=suggest_installed,
+                                empty_ok=empty_ok)
         if len(hits_c) > 1:
             raise _ambiguous(token, hits_c)
     choices = ([p["key"] for p in suggested] + [p["file_id"] for p in suggested]

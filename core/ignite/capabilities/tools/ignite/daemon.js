@@ -208,7 +208,13 @@ function hasNewOwnerMessage(config, openStore) {
 }
 
 function hasInboxWork(workspace) {
-  const text = fs.readFileSync(path.join(workspace, '.rbtv', 'memory', 'inbox.md'), 'utf8');
+  let text;
+  try { text = fs.readFileSync(path.join(workspace, '.rbtv', 'memory', 'inbox.md'), 'utf8'); }
+  catch (error) {
+    // The inbox is created by the first remembered fact; until then nothing waits.
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  }
   checkMemory('inbox', text);
   return text.split(/\r?\n/).some((line) => line.startsWith('- '));
 }

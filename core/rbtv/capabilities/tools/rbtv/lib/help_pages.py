@@ -1,10 +1,15 @@
 """The `-h` pages, one per command path: the approved help text of
 the review screens (`1-projects/rbtv-agent-cli-unification/build/screens/review/`),
 kept verbatim. Each page is named by its command path; `root` is the bare command.
+The `--type` values and their meanings are written once, in `present.py`.
 
 The selftest checks that every option a `providers` command takes is named on its page.
 """
 from __future__ import annotations
+
+from .present import types_block
+
+_LISTING_TYPES = types_block()
 
 PAGES = {
     "root": """\
@@ -12,15 +17,18 @@ rbtv — help
 
 Discover
   status        Show target, saved settings, and recorded selections.
-  list [NAME]   Browse exact module, component, or file scope.
-  search WORDS  Search source catalog names and descriptions broadly.
-  show NAME     Show description, included files, and installation details.
+  list [NAME]   Table of many entries, browsed by exact name: modules, a module's
+                components, a component's files.
+  search WORDS  Find modules, components, files and packs whose name or description
+                holds every word.
+  show NAME     Everything about one named entry: description, files, dependencies,
+                where it is installed.
 
 Change this installation
   configure         Initialize or change receiving tools and guidance settings.
   add [NAME...]     Add named or filtered files, or turn a pack on.
   remove [NAME...]  Remove installed files, or turn a pack off.
-  update SCOPE      Make the folder match the file. The scope is required.
+  update SCOPE      Make the folder match install.json. The scope is required.
 
 Agents
   agent VERB    Act on one agent instead of this installation: create it, change its
@@ -58,7 +66,8 @@ Show the selected installation or agent and its saved settings. The target is --
   was selected. An agent result shows harness, model, effort, voice, packs and installed files.
   It does not show a Slack connection. A root result shows none of name, description, harness,
   model or effort. Both results name each agent installed as a harness-native sub-agent, with the
-  model and the effort of every harness it is written for.
+  model and the effort of every harness it is written for. A root result names each folder of
+  .rbtv/ that exists, what it holds and the page of the rbtv source that explains it.
 
 options:
   -h, --help            show this help message and exit
@@ -86,24 +95,19 @@ Browse the local source catalog. No NAME shows modules; a module shows its compo
 
 A file id is module/component#name. A pack is a name. The listing names the component that declares
   it. Turn a pack on or off with add --pack and remove --pack. --type pack lists packs; it does not
-  turn one on.
+  turn one on. --type module lists the modules, the table no NAME shows. --type component lists every
+  component across modules; with a module as NAME, that module's components. Each of the two is
+  named without another type.
 
 Types (--type; comma-separated or repeatable):
-  skill                Ability an agent can invoke for a task.
-  rule                 Standing instruction applied to an agent.
-  command              Explicit command an operator or agent can invoke.
-  agent                Agent a component ships; an rbtv agent or a harness-native sub-agent.
-  hook                 Action triggered by a tool event.
-  mcp-server           Server an agent tool connects to for extra tools.
-  tool                 Runnable CLI exposed through a command shortcut.
-  folder-instructions  Text added to a folder's instructions file.
-  pack                 A named list of files a component declares.
+""" + _LISTING_TYPES + """
 
 Examples:
   rbtv list core
   rbtv list core/ignite
   rbtv list --type agent
   rbtv list --type pack
+  rbtv list --type component
   rbtv list --installed
   rbtv list --limit 20 --offset 20
 
@@ -137,23 +141,16 @@ usage: rbtv search [-h] [--module MODULE] [--component COMPONENT]
                    
                     WORDS
 
-Search names and descriptions in the local source catalog. Results are files and packs with full
-  ids. A word matches any part of the id or the description, so a component name matches every entry
-  in that component. Search does not choose anything. Use list NAME when you know an exact module,
-  component, file, or pack name. WORDS is required; an empty search is refused. A search with no
-  hit prints no rows and up to five words of the source catalog nearest to each word that matched
-  nothing, as "Did you mean: ...?"; with --json they are the list did_you_mean.
+Search names and descriptions in the local source catalog. Results are modules, components, files
+  and packs, with full ids. A word matches any part of the id or the description, so a component
+  name matches every entry in that component. Search does not choose anything. Use list NAME when
+  you know an exact module, component, file, or pack name. WORDS is required; an empty search is
+  refused. A search with no hit prints no rows and up to five words of the source catalog nearest
+  to each word that matched nothing, as "Did you mean: ...?"; with --json they are the list
+  did_you_mean.
 
 Types (--type; comma-separated or repeatable):
-  skill                Ability an agent can invoke for a task.
-  rule                 Standing instruction applied to an agent.
-  command              Explicit command an operator or agent can invoke.
-  agent                Agent a component ships; an rbtv agent or a harness-native sub-agent.
-  hook                 Action triggered by a tool event.
-  mcp-server           Server an agent tool connects to for extra tools.
-  tool                 Runnable CLI exposed through a command shortcut.
-  folder-instructions  Text added to a folder's instructions file.
-  pack                 A named list of files a component declares.
+""" + _LISTING_TYPES + """
 
 Example: rbtv search research
 
@@ -188,18 +185,12 @@ Show the source catalog description, included files or component summaries, and 
   short name must be unique. A bare name never resolves to a pack. show --pack NAME shows that pack
   and prints the declaration file, <component>/packs/<pack>.json in the rbtv source. For an agent a
   component ships, it shows the harnesses it is written for as a harness-native sub-agent, whether
-  it is placed as an rbtv agent, and the command that adds it in each form.
+  it is placed as an rbtv agent, and the command that adds it in each form. A name that is no file
+  is read as a component's short name; --type component reads it so when a file has the same name.
+  --type module requires a module.
 
 Types (--type; comma-separated or repeatable):
-  skill                Ability an agent can invoke for a task.
-  rule                 Standing instruction applied to an agent.
-  command              Explicit command an operator or agent can invoke.
-  agent                Agent a component ships; an rbtv agent or a harness-native sub-agent.
-  hook                 Action triggered by a tool event.
-  mcp-server           Server an agent tool connects to for extra tools.
-  tool                 Runnable CLI exposed through a command shortcut.
-  folder-instructions  Text added to a folder's instructions file.
-  pack                 A named list of files a component declares.
+""" + _LISTING_TYPES + """
 
 Examples:
   rbtv show kiss
@@ -360,15 +351,7 @@ skips agents and says so. To place the agent as an rbtv agent in its own
 folder instead, use rbtv agent add.
 
 Types (--type; comma-separated or repeatable):
-  skill                 Ability an agent can invoke for a task.
-  rule                  Standing instruction applied to an agent.
-  command               Explicit command an operator or agent can invoke.
-  agent                 An agent a component ships. Named here with --on, it
-                        is written as a harness-native sub-agent.
-  hook                  Action triggered by a tool event.
-  mcp-server            Server an agent tool connects to for extra tools.
-  tool                  Runnable CLI exposed through a command shortcut.
-  folder-instructions   Text added to a folder's instructions file.
+""" + types_block(change="add") + """
 
 First add in an installation needs both --harness and --guidance:
   rbtv add brainstorm --harness claude,codex --guidance none
@@ -449,15 +432,7 @@ installation still uses it.
 Alias: rm
 
 Types (--type; comma-separated or repeatable):
-  skill                 Ability an agent can invoke for a task.
-  rule                  Standing instruction applied to an agent.
-  command               Explicit command an operator or agent can invoke.
-  agent                 An agent a component ships, installed here as a
-                        harness-native sub-agent.
-  hook                  Action triggered by a tool event.
-  mcp-server            Server an agent tool connects to for extra tools.
-  tool                  Runnable CLI exposed through a command shortcut.
-  folder-instructions   Text added to a folder's instructions file.
+""" + types_block(change="remove") + """
 
 Remove a named file:
   rbtv remove root-cause

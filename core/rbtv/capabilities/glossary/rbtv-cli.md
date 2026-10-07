@@ -2,7 +2,7 @@
 
 The rbtv command-line interface scans source files, validates their records and writes the files each harness receives. Its `providers` verbs manage [provider](provider.md) accounts instead: they read no source and write no harness file, and [Provider accounts](../providers.md) owns them. Authors maintain the source. A successful install proves recognition and field validation, not that an agent will select or follow the instructions correctly.
 
-The program is `core/rbtv/capabilities/tools/rbtv/install.py`. Use `rbtv -h` and its Discover commands to list, search and show existing material before creating another file for the same work.
+The program is `core/rbtv/capabilities/tools/rbtv/install.py`. Use `rbtv -h` and its Discover commands to list, search and show existing material before creating another file for the same work: `list` gives a table of the entries under an exact name, `search` finds the modules, components, files and packs whose name or description holds every word, and `show` gives everything about one named entry.
 
 ## Source recognition
 
@@ -32,7 +32,7 @@ For named records, `name` equals the file stem; folder instructions have no `nam
 
 An agent's folder, prompt name and record name must agree. Shipped component records cannot name `harness`, `model` or `effort`. The obsolete source folder `sub-agents/` is refused; use the agent folder format.
 
-A self-contained mirror skill is the exception: `.rbtv/mirror/_skills/<name>/SKILL.md`. It is recognized only there, requires a frontmatter block and is not checked against the skill schema; extra keys are retained in its copy. Its folder name cannot start with the reserved `rbtv-` prefix.
+A self-contained mirror skill is the exception: `.rbtv/mirror/_skills/<name>/SKILL.md`. It is recognized only there, requires a frontmatter block and is not checked against the skill schema; extra keys are retained in its copy. Listings show its `description`, written on one line or as a `>` or `|` block. Its folder name cannot start with the reserved `rbtv-` prefix.
 
 ## What is generated
 

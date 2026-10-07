@@ -7,7 +7,7 @@ import json
 
 from discovery import Refuse, scan_all
 
-from lib.constants import CATALOG_TYPES, STATE_REL
+from lib.constants import LISTING_TYPES, STATE_REL
 from lib.selection import (
     _sel,
     resolve_selection,
@@ -459,7 +459,7 @@ def cli_defects(ctx) -> None:
           f"{escaped} / {code} / {err[:200]}")
     crashed = []
     for verb in ("list", "li", "ls"):
-        for kind in CATALOG_TYPES:
+        for kind in LISTING_TYPES:
             code, _out, _err, escaped = run([verb, "--type", kind, "--installed", "--target", str(inst)])
             if escaped or code != 0:
                 crashed.append(f"{verb} --type {kind}: {escaped or code}")

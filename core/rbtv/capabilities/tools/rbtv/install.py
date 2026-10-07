@@ -38,14 +38,6 @@ INSTALLATION ROOT only. Python 3 stdlib only.
     inside the installation finds the installation, and a run from inside this repo
     finds nothing to install only when the repo really is outside one.
 
-THE NAME. This file was `install2.py` from its first commit until 2026-08-23,
-because a DIFFERENT installer held the name `install.py` — the repo-root entry
-plus its `admin/install/` package, which served the old flat-module standard.
-This tool never read or wrote that one's state file (`rbtv.json` at the target
-root); its own book is `{target}/.rbtv/config/install.json`. It tolerates files
-at the install root it did not write — see D6 and D12 — and it sees only
-new-standard component folders (D2).
-
 BOUNDARY. The installer exposes components at the INSTALL ROOT and NEVER
 writes under `.rbtv/goals/`. It does not import the Ignite 0.1 seat
 materializer. The forms below are re-implemented against CMP-12, the one form
@@ -56,19 +48,29 @@ responsibility under `lib/`, in import order — each may import only from the
 ones above it, so there is no cycle:
 
     constants     every literal: names, paths, banners, harnesses, the matrix
+    frontmatter   reading the `---` block at the top of a source file
+    fsio          the one way a file's content is replaced
+    locks         bounded cross-platform locks for mutations
+    files_key     the keys `files` and `selected` of a record, read from one that says `units`
     catalog       reading one discovered component record and its parts
     claims        one key or one fenced block inside a shared config file
-    files_key     the keys `files` and `selected` of a record, read from one that says `units`
     link_paths    a link from the repository root or `.rbtv/`, made absolute
+    schema        checking a record against one of the JSON Schemas in `templates/`
+    recovery      the recovery wording refusals share
     content       rendering the body of every file written, recognising ours
     guidance      the root guidance mirror (D13)
-    pathlinks     the `~/.rbtv/bin` shortcuts and the shell PATH line
     target        finding the install root when no --target was given
+    pathlinks     the `~/.rbtv/bin` shortcuts and the shell PATH line
+    shared_links  which installation owns a shortcut, and one mutation at a time
+    selection     what the human typed -> the component and part keys it names
     state         the install book: read, migrate, write, query
+    present       terminal vocabulary: the --type table, the `.rbtv/` folders, titles, tables
+    help_pages    the `-h` page of every command path
+    subagents     an agent written as a harness-native sub-agent: its --on values
     planning      chosen components -> the exact files and claims of a run
     apply         writing that set to disk, and removing what the book records
-    selection     what the human typed -> the component and part keys it names
     operations    performing one install or one uninstall
+    agents        one agent's folder: add, configure, update, remove
     listing       available/installed file views and file details
     doctor        the read-only health check
     report        printing what a run planned or did

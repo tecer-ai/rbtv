@@ -193,7 +193,7 @@ def sub_agents(ctx) -> None:
     code, _out, err = run("list", "--type", "sub-agent")
     check("SA-type-retired — sub-agent is an unknown type, refused as any unknown type is",
           code == 2 and "--type 'sub-agent' is unknown. Did you mean agent?" in err
-          and "sub-agent" not in constants.CATALOG_TYPES, err)
+          and "sub-agent" not in constants.LISTING_TYPES, err)
 
     claude.unlink()
     codex.unlink()

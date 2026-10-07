@@ -93,6 +93,7 @@ The `work-history` skill in `meta/functions` reconstructs a user-agreed project,
 > both with `configure` or on the first `add`. A named guidance file must already exist at the
 > installation root; choose `none` when no such file is maintained. A later `configure` replaces only the settings
 > supplied; `status` displays them. `--type` filters unit types; `--exclude-type` excludes them.
+> `list`, `search` and `show` also accept the types `pack`, `module` and `component`.
 > Numeric source catalog positions are not identifiers. The setting rationale and current command names
 > are recorded in `core/rbtv/capabilities/design-decisions.md`.
 >

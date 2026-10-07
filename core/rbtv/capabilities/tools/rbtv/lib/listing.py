@@ -9,12 +9,13 @@ from pathlib import Path
 
 from discovery import Refuse, file_rows
 
-from . import present, subagents
-from .constants import BASIS_NONE, MANAGED_MARK, STATE_REL
+from . import frontmatter, present, subagents
+from .constants import BASIS_NONE, GROUP_TYPES, MANAGED_MARK, STATE_REL
 from .catalog import (
     _file_specs,
     catalog_packs,
     catalog_files_map,
+    module_id,
 )
 from .state import (_file_in, book_harnesses, read_state, selected_packs,
                     upgrade_book)
@@ -39,12 +40,11 @@ def _file_description(comp: dict, pid: str) -> str:
             source /= "SKILL.md"
         if source.is_file() and source.suffix == ".md":
             try:
-                lines = source.read_text(encoding="utf-8").splitlines()
+                front, _body = frontmatter.split(source.read_text(encoding="utf-8"))
             except (OSError, UnicodeDecodeError):
                 return ""
-            for line in lines[:20]:
-                if line.startswith("description:"):
-                    return line.partition(":")[2].strip().strip('"')
+            description = (front or {}).get("description")
+            return description.strip() if isinstance(description, str) else ""
     return ""
 
 
@@ -186,19 +186,32 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
                installed: bool = False,
                search: bool = False, full: bool = False,
                limit: int = 20, offset: int = 0) -> dict:
-    """Browse exact hierarchy, or search the same file pool broadly."""
+    """Browse exact hierarchy, or search the same file pool broadly. The type
+    `module` or `component` asks for that table of groups, alone: a list of
+    them, or the search rows of that kind."""
     view = build_ls(catalog, [], state)
     book = state.get("components") or {}
     sub_agents = subagents.recorded(state)
     want_m = module_names(modules or [], catalog, book)
     want_c = component_keys(components or [], catalog, book) if components else set()
     want_x = set(methods or [])
+    group = single_group_type(want_x)
+    if group and not search:
+        want_x = set()
     words = query.casefold().split() if search else []
     rows: list[dict] = []
+    # Every module and component of the source, with or without installable files.
+    groups: dict[str, dict[str, dict]] = {"module": {}, "component": {}}
     for comp in view["components"]:
         source_comp = catalog.get(comp["id"]) or {}
         comp_desc = _description(source_comp.get("description", ""), full)
         mod_desc = _description(source_comp.get("module_description", ""), full)
+        groups["component"][comp["id"]] = {
+            "module": comp["module"], "description": comp_desc,
+            "whole": source_comp.get("description", "")}
+        groups["module"].setdefault(comp["module"], {
+            "module": comp["module"], "description": mod_desc,
+            "whole": source_comp.get("module_description", "")})
         for part in comp["files"]:
             rows.append({"id": part["id"], "component": comp["id"],
                          "module": comp["module"], "type": part["method"],
@@ -222,6 +235,9 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
                      "tree": "missing"})
     if "pack" in want_x or query or components or search:
         rows += [_pack_row(pack, state, full) for pack in catalog_packs(catalog).values()]
+    if search:
+        rows += [row for field in GROUP_TYPES
+                 for row in _group_search_rows(rows, field, groups[field])]
     matched = []
     for row in sorted(rows, key=lambda file: file["id"]):
         if want_m and row["module"] not in want_m:
@@ -235,7 +251,23 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
         matched.append({key: value for key, value in row.items()
                         if key != "_search"})
     scope = "files"
-    if not search:
+    if group and not search:
+        scope = group + "s"
+        files = [r for r in matched if r["type"] != "pack"]
+        named = {name for name, known in groups[group].items()
+                 if not want_m or known["module"] in want_m}
+        if query and (group == "module" or module_id(query) in groups["module"]):
+            modules_named = module_names([query], catalog, book)
+            files = [r for r in files if r["module"] in modules_named]
+            named = {name for name in named
+                     if groups[group][name]["module"] in modules_named}
+        elif query:
+            chosen = resolve_name(query, catalog, book, component_only=True,
+                                  empty_ok=True)["id"]
+            files = [r for r in files if r["component"] == chosen]
+            named &= {chosen}
+        matched = _group_rows(files, group, {name: groups[group][name] for name in named})
+    elif not search:
         if query:
             try:
                 named_module = module_names([query], catalog, book)
@@ -245,7 +277,9 @@ def build_list(catalog: dict, state: dict, *, query: str = "",
                 scope = "components"
                 matched = [r for r in matched if r["module"] in named_module
                            and r["type"] != "pack"]
-                matched = _group_rows(matched, "component")
+                matched = _group_rows(matched, "component", {
+                    name: known for name, known in groups["component"].items()
+                    if known["module"] in named_module})
             elif named_module and want_x:
                 matched = [r for r in matched if r["module"] in named_module]
             else:
@@ -301,6 +335,33 @@ def _pack_row(pack: dict, state: dict, full: bool) -> dict:
             "files": list(pack["files"])}
 
 
+def single_group_type(types: set[str]) -> str | None:
+    """`module` or `component` when --type names one, which it does alone: each
+    is its own table, so a second type beside it is refused."""
+    named = [kind for kind in GROUP_TYPES if kind in types]
+    if not named:
+        return None
+    if len(types) > 1:
+        raise Refuse("usage", f"--type {named[0]} stands alone: its rows are "
+                     f"{named[0]}s, a table of their own. Name it without another type.")
+    return named[0]
+
+
+def _group_search_rows(rows: list[dict], field: str, known: dict[str, dict]) -> list[dict]:
+    """The modules or the components as search rows: matched on the name and
+    the whole description, shown with their count of installed files."""
+    out = []
+    for entry in _group_rows([row for row in rows if row["type"] != "pack"], field, known):
+        name = module_id(entry["id"]) if field == "module" else entry["id"]
+        source = known.get(name) or {}
+        out.append({**entry, "type": field, "component": name,
+                    "module": source.get("module", name.split("/")[0]),
+                    "_search": source.get("whole", ""),
+                    "installed": entry["installed_files"] > 0,
+                    "source_available": name in known, "tree": ""})
+    return out
+
+
 def _search_text(row: dict) -> str:
     """What a search word is matched against: the id, the name, the description."""
     return " ".join((row["id"], row["id"].split("#", 1)[-1],
@@ -329,15 +390,20 @@ def nearest_words(words: list[str], rows: list[dict]) -> list[str]:
     return near[:NEAREST_WORDS]
 
 
-def _group_rows(rows: list[dict], field: str) -> list[dict]:
-    grouped: dict[str, list[dict]] = {}
+def _group_rows(rows: list[dict], field: str,
+                known: dict[str, dict] | None = None) -> list[dict]:
+    """One row per module or component of `rows`, and one per name of `known`
+    that holds none of them: a component of capabilities only has no
+    installable file and is still a component."""
+    grouped: dict[str, list[dict]] = {name: [] for name in known or {}}
     for row in rows:
         grouped.setdefault(row[field], []).append(row)
     desc_field = "module_description" if field == "module" else "component_description"
     return [{"id": "hub" if name == "_hub" and field == "module" else name,
              "installed_files": sum(r["installed"] for r in parts),
              "source_files": sum(r["source_available"] for r in parts),
-             "description": next((r[desc_field] for r in parts if r[desc_field]), "")}
+             "description": next((r[desc_field] for r in parts if r[desc_field]),
+                                 ((known or {}).get(name) or {}).get("description", ""))}
             for name, parts in sorted(grouped.items())]
 
 
@@ -371,20 +437,15 @@ def _list_context_line(data: dict) -> str | None:
                 f"{n} match{'es' if n != 1 else ''}")
     start = data["offset"] + 1 if data["returned"] else 0
     end = data["offset"] + data["returned"]
-    if scope == "modules":
+    if scope != "files":
         paged = data.get("has_more") or data["offset"]
         return f"Showing {start}-{end} of {data['total']}" if paged else None
-    if scope != "files":
-        return None
     if query and data["total"] == 1:
         return f"Exact file: {data['files'][0]['id']}"
     parts = ([query] if query else []) + (
         [f"type {', '.join(methods)}"] if methods else [])
     scope_txt = f"Scope: {'; '.join(parts)}; " if parts else ""
     return f"{scope_txt}showing {start}-{end} of {data['total']}"
-
-
-_PACK_MEANING = "A named list of files a component declares."
 
 
 def print_list(data: dict) -> None:
@@ -419,7 +480,8 @@ def print_list(data: dict) -> None:
         print(line)
     if not files and data.get("searching"):
         near = data["did_you_mean"]
-        print("No file or pack matches." + (f" Did you mean: {', '.join(near)}?" if near else ""))
+        print("No module, component, file or pack matches."
+              + (f" Did you mean: {', '.join(near)}?" if near else ""))
     elif not files:
         print("No installed files in this target." if data.get("installed_only")
               else "No matching files.")
@@ -427,6 +489,10 @@ def print_list(data: dict) -> None:
         print()
         if data["scope"] != "files":
             text = "Installed files is the saved selection; run doctor to check harness files."
+        elif any(row["type"] in GROUP_TYPES for row in files):
+            text = ("State is installed or not installed for a file, on or off for a "
+                    "pack, and installed files out of source files for a module or "
+                    "component.\nSaved selection; run doctor to check files.")
         elif any(row["type"] == "pack" for row in files):
             if all(row["type"] == "pack" for row in files):
                 text = ("State is on or off for this target. Saved selection; "
@@ -450,6 +516,8 @@ def print_list(data: dict) -> None:
 
 
 def _file_state(row: dict) -> str:
+    if row["type"] in GROUP_TYPES:
+        return f"{row['installed_files']}/{row['source_files']} files"
     if row["type"] == "pack":
         return "on" if row["installed"] else "off"
     return "installed" if row["installed"] else "not installed"
@@ -458,12 +526,17 @@ def _file_state(row: dict) -> str:
 def json_view(data: dict, *, searching: bool) -> dict:
     """The list/search envelope with the per-row JSON shape the approved
     screens show: list and search carry different keys for a file row and for
-    a pack row. Module and component rows are returned unchanged."""
+    a pack row. A table of modules or of components is returned unchanged; a
+    module or a component among search results carries its counts of files."""
     if data["scope"] != "files":
         return data
     shaped = []
     for row in data["files"]:
-        if row["type"] == "pack" and searching:
+        if row["type"] in GROUP_TYPES:
+            shape = {"id": row["id"], "type": row["type"], "description": row["description"],
+                     "installed_files": row["installed_files"],
+                     "source_files": row["source_files"]}
+        elif row["type"] == "pack" and searching:
             shape = {"id": row["id"], "type": "pack", "description": row["description"],
                      "tree": row["tree"], "source_available": row["source_available"],
                      "on": row["installed"], "declared_by": row["component"]}
@@ -545,7 +618,7 @@ def print_show(data: dict) -> None:
     print(f"Target: {data['target']} "
           f"({present.target_source_label(data.get('source'))})")
     if sel["scope"] == "pack":
-        print(f"Type: pack ({_PACK_MEANING})")
+        print(f"Type: pack ({present.TYPE_MEANING['pack']})")
         print("Name: " + sel["id"])
         print("Declared by: " + sel["component"])
         print("Declaration: " + sel["path"])
@@ -583,11 +656,12 @@ def print_show(data: dict) -> None:
         if sel.get("source_entry"):
             print("Source entry (local RBTV source): " + sel['source_entry'])
         _say(f"Local source: {len(sel['files'])} file(s) in this component.")
-        print()
         headers = ["ID", "Type", "State", "Description"]
         rows = [[p["key"], p["type"],
                  "installed" if p["installed"] else "not installed",
                  p["description"]] for p in sel["files"]]
+        if rows:
+            print()
         for line in present.render_table(headers, rows):
             print(line)
         print()

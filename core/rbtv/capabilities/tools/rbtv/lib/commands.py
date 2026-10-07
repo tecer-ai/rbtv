@@ -23,20 +23,21 @@ from .guidance import _norm_prefix
 from .target import DISCOVER_CWD, DISCOVER_STATE, discover_installation, resolve_target
 from .state import (book_harnesses, is_agent_target, read_state, selected_packs,
                     selected_files, state_path, file_membership, write_state)
-from .catalog import catalog_packs, check_packs, pack_files
+from .catalog import catalog_packs, check_packs, module_id, pack_files
 from .selection import (
     _has_negative,
     _split_part_keys,
     iter_catalog_parts,
     iter_booked_files,
+    module_names,
     resolve_name,
     resolve_selection,
 )
 from .operations import do_install, do_uninstall
 from .pathlinks import bin_dir
 from .shared_links import release_installation_links, installation_mutation_lock
-from .listing import (_description, build_list, build_show,
-                      do_list, json_view, pack_members, print_list, print_show)
+from .listing import (_description, build_list, build_show, do_list, json_view,
+                      pack_members, print_list, print_show, single_group_type)
 from .agents import (OWN_FILES, add_agent, agent_state, cast_agent_list, configure_agent,
                      is_path, on_values, remove_agent, update_agent)
 from .doctor import do_doctor, doctor_exit
@@ -226,6 +227,25 @@ def cmd_li(args, target: Path, catalog: dict, shadowed: list,
     return cmd_list(args, target, catalog, shadowed, ask=ask)
 
 
+def _resolve_shown(name: str, catalog: dict, book: dict | None,
+                   methods: set[str] | None, *, component_only: bool) -> dict:
+    """The file or component `show NAME` names. A name that is no file and no
+    full component id is read as a component's short name, unless a type was
+    asked for."""
+    if component_only:
+        return resolve_name(name, catalog, book, component_only=True, empty_ok=True)
+    try:
+        return resolve_name(name, catalog, book, methods=methods, empty_ok=True)
+    except Refuse as unknown:
+        if unknown.code != "name-unknown" or methods:
+            raise
+        try:
+            return resolve_name(name, catalog, book, component_only=True, empty_ok=True)
+        except Refuse as as_component:
+            raise (unknown if as_component.code == "component-unknown"
+                   else as_component) from None
+
+
 def cmd_show(args, target: Path, catalog: dict, shadowed: list,
              *, ask=None) -> int:
     del ask, shadowed
@@ -257,9 +277,12 @@ def cmd_show(args, target: Path, catalog: dict, shadowed: list,
     if not args.name:
         raise Refuse("usage", "show needs NAME or --pack PACK")
     known_modules = {part["module"] for part in iter_catalog_parts(catalog)}
-    named_module = ("_hub" if args.name == "hub" else args.name)
-    if named_module in known_modules:
-        if args.method:
+    named_module = module_id(args.name)
+    group = single_group_type(set(args.method))
+    if group == "module":
+        module_names([args.name], catalog, state.get("components"))
+    if named_module in known_modules and group != "component":
+        if args.method and not group:
             raise Refuse("type-mismatch", "--type requires the name of a file; list "
                          + args.name + " --type " + args.method[0])
         view = build_list(catalog, state, query=args.name, full=args.full, limit=100)
@@ -286,8 +309,9 @@ def cmd_show(args, target: Path, catalog: dict, shadowed: list,
         else:
             print_show(data)
         return 0
-    selected = resolve_name(args.name, catalog, state.get("components"),
-                            methods=set(args.method) or None)
+    selected = _resolve_shown(args.name, catalog, state.get("components"),
+                              None if group else set(args.method) or None,
+                              component_only=group == "component")
     data = {"ok": True, "target": str(target.resolve()),
             "source": getattr(args, "_why", "unknown"),
             "selection": build_show(selected, catalog, state, args.full)}
@@ -305,7 +329,7 @@ def cmd_show(args, target: Path, catalog: dict, shadowed: list,
         # included files, never a generic re-listing of itself.
         data["next"] = (f"rbtv show {parts[0]['key']} --target {_quote(target)}"
                         if parts else
-                        f"rbtv list {selected['id']} --target {_quote(target)}")
+                        f"rbtv list {selected['id'].split('/')[0]} --target {_quote(target)}")
     if args.json:
         print(json.dumps(data, indent=2))
     else:
@@ -411,6 +435,8 @@ def cmd_status(args, target: Path, catalog: dict, shadowed: list,
                              "installed_components": len(comps),
                              "installed_files": count,
                              "health": "not_checked"},
+            "installation_folder": present.rbtv_folders(target),
+            "rbtv_source": str(REPO_ROOT),
             "source_catalog": counts,
             "next": f"rbtv doctor --target {_quote(target)}"}
     if args.json:
@@ -444,6 +470,10 @@ def cmd_status(args, target: Path, catalog: dict, shadowed: list,
                                     for h in HARNESSES))
             _prose("CLAUDE.md or AGENTS.md must exist in this target; "
                    "none disables copying.", indent="  ")
+        folder_lines = present.rbtv_folder_lines(data["installation_folder"])
+        if folder_lines:
+            print()
+            print("\n".join(folder_lines))
         print()
         _print_catalog(counts)
         print()

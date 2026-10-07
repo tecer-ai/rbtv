@@ -30,6 +30,17 @@ def schema_and_frontmatter(ctx) -> None:
     check("U-frontmatter — CRLF, quoted scalars, inline and block lists",
           crlf == ({"name": "x", "description": "a: b", "skills": ["p", "q"],
                     "rules": ["r"]}, "body"), str(crlf))
+    blocks = frontmatter.split(
+        "---\nname: x\ndescription: >\n  Folded over\n  two lines, with a colon: inside.\n\n"
+        "  A second paragraph.\nnotes: |\n  kept\n  line: breaks\nstripped: >-\n  no\n  break\n"
+        "kept: |+\n  all\n\nafter: z\n---\nbody")
+    check("U-frontmatter — folded and literal blocks, their chomping marks, and a "
+          "continuation line that holds a colon",
+          blocks == ({"name": "x",
+                      "description": "Folded over two lines, with a colon: inside.\n"
+                                     "A second paragraph.\n",
+                      "notes": "kept\nline: breaks\n", "stripped": "no break",
+                      "kept": "all\n\n", "after": "z"}, "body"), str(blocks))
     check("U-frontmatter — a file with none says so",
           frontmatter.split("# title\n") == (None, "# title\n"))
 

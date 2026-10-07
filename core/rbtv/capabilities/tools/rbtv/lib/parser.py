@@ -10,7 +10,8 @@ import difflib
 from discovery import Refuse
 
 from . import present
-from .constants import BASIS_NONE, CATALOG_TYPES, GUIDANCE_NAMES, HARNESSES, VERSION
+from .constants import (BASIS_NONE, CANONICAL_METHODS, GUIDANCE_NAMES, HARNESSES,
+                        LISTING_TYPES, VERSION)
 from .help_pages import PAGES
 from .subagents import ON_FORM
 
@@ -82,8 +83,11 @@ def build_parser() -> argparse.ArgumentParser:
             setattr(namespace, self.dest, cur)
 
     class MethodsAction(ListAction):
-        VALID = CATALOG_TYPES
+        VALID = CANONICAL_METHODS
         NOUN = "type"
+
+    class ListingTypesAction(MethodsAction):
+        VALID = LISTING_TYPES
 
     def selectors(dest) -> None:
         dest.add_argument("--all", "-A", action="store_true", dest="all")
@@ -109,7 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest.add_argument("--module", "-m", action=ListAction, default=[], metavar="MODULE")
         dest.add_argument("--component", "-c", action=ListAction, default=[],
                           metavar="COMPONENT")
-        dest.add_argument("--type", "-x", action=MethodsAction, default=[],
+        dest.add_argument("--type", "-x", action=ListingTypesAction, default=[],
                           dest="method", metavar="TYPE")
         dest.add_argument("--installed", action="store_true", default=installed_default)
         dest.add_argument("--limit", type=int, default=20)
@@ -137,7 +141,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     s_show = sub.add_parser("show")
     s_show.add_argument("name", nargs="?", default="", metavar="NAME")
-    s_show.add_argument("--type", "-x", action=MethodsAction, default=[],
+    s_show.add_argument("--type", "-x", action=ListingTypesAction, default=[],
                         dest="method", metavar="TYPE")
     s_show.add_argument("--pack", action=ListAction, default=[], metavar="PACK")
     s_show.add_argument("--full", action="store_true")

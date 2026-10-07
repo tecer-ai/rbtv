@@ -736,6 +736,22 @@ for (const [diagnostic, cause] of [
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('an installation with no memory or runtime folder yet has no inbox work', async () => {
+  const { dir } = workspace();
+  const { loadConfig } = require('./config.js');
+  const { runInstalledDreamer } = require('./daemon.js');
+  fs.rmSync(path.join(dir, '.rbtv', 'memory'), { recursive: true });
+  assert.equal(fs.existsSync(path.join(dir, '.rbtv', 'runtime')), false);
+  const logs = []; let calls = 0;
+  try {
+    const result = await runInstalledDreamer({ config: loadConfig(dir), log: (row) => logs.push(row),
+      runDreamer: () => { calls++; return { ok: true, changed: false, digest: null, alert: null }; } });
+    assert.equal(calls, 0); assert.equal(result.ok, true); assert.equal(result.changed, false);
+    assert.equal(logs.some((row) => row.event === 'dreamer-check'), false);
+    assert.equal(fs.existsSync(path.join(dir, '.rbtv', 'memory')), false);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 for (const deliver of [false, true]) test(`cap refusal names only the path and sizes in the log and ${deliver ? 'delivered' : 'queued'} notice`, async () => {
   const { dir, home } = workspace();
   const { loadConfig } = require('./config.js');

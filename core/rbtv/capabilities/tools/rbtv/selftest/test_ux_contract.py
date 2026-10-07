@@ -353,11 +353,11 @@ def result_screens(ctx) -> None:
     code, no_hit_text, _ = text("search", "fixskilz")
     ctx.check("RESULT-search-no-hit-names-nearest-words",
               code == 0 and "0 matches" in no_hit_text
-              and "No file or pack matches. Did you mean: fixskill" in no_hit_text
+              and "No module, component, file or pack matches. Did you mean: fixskill" in no_hit_text
               and "fixmod/goodcomp#" not in no_hit_text, no_hit_text)
     _, far_text, _ = text("search", "zzzzqqqq")
     ctx.check("RESULT-search-no-close-word-says-only-no-match",
-              "No file or pack matches.\n" in far_text and "Did you mean" not in far_text,
+              "No module, component, file or pack matches.\n" in far_text and "Did you mean" not in far_text,
               far_text)
     _, found, _ = text("search", "fixture")
     next_line = found.rstrip().splitlines()[-1]

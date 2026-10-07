@@ -167,8 +167,12 @@ CANONICAL_METHODS = (
     "folder-instructions",
 )
 
-# `pack` is a catalog view, not an exposure method: it never reaches planning.
-CATALOG_TYPES = (*CANONICAL_METHODS, "pack")
+# What `list`, `search` and `show` take as --type: the exposure methods, and
+# three views of the source catalog that are never installed by type. `add` and
+# `remove` take the exposure methods only.
+LISTING_TYPES = (*CANONICAL_METHODS, "pack", "module", "component")
+# The two listing types whose rows are groups of files, each its own table.
+GROUP_TYPES = ("module", "component")
 
 # Methods realized as ONE file per part, per harness. Target templates are
 # install-root-relative; `{name}` is the bare part-id (D12). None = this

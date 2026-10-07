@@ -93,9 +93,8 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
         if named.startswith("rbtv-"):
             raise Refuse(
                 "name-reserved",
-                f"{cid}: a skill folder named {named!r} would land under "
-                "`rbtv-*`, which the prior rbtv program sweeps out of "
-                "`.claude/skills/` on every run — rename the folder (D12)",
+                f"{cid}: a skill folder named {named!r} starts with `rbtv-`, "
+                "a prefix reserved for rbtv's own files. Rename the folder",
                 str(comp_dir))
         source = comp_dir / SKILL_FILE
         text = source.read_text(encoding="utf-8")
@@ -155,12 +154,8 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
             if pid.startswith("rbtv-"):
                 raise Refuse(
                     "name-reserved",
-                    f"{cid}: file {pid!r} starts with `rbtv-`, the "
-                    "prefix the prior rbtv program sweeps out of "
-                    "`.claude/{rules,commands,agents,skills}` on every run "
-                    "(generator.py::clear_previous_install) — a file minted "
-                    "under that name would be deleted behind rbtv's "
-                    "back. Rename the file (D12)",
+                    f"{cid}: file {pid!r} starts with `rbtv-`, a prefix "
+                    "reserved for rbtv's own files. Rename the file",
                     str(comp_dir / entry_rel))
             data = row["data"]
 
