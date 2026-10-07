@@ -61,7 +61,7 @@ function installAgent(dir, name = 'probe') {
   return home;
 }
 
-const IGNITE_UNITS = ['core/ignite#a', 'core/ignite#b', 'core/ignite#c', 'core/ignite#d', 'core/ignite#e', 'core/ignite#f', 'core/ignite#g', 'core/ignite#h'];
+const IGNITE_FILES = ['core/ignite#a', 'core/ignite#b', 'core/ignite#c', 'core/ignite#d', 'core/ignite#e', 'core/ignite#f', 'core/ignite#g', 'core/ignite#h'];
 
 // Mirrors the installer's JSON for a pack change: the files after it, and the files it added (add)
 // or removed (remove). The count before the change is not in that JSON; ignite derives it.
@@ -74,13 +74,13 @@ function fakeInstaller(calls = []) {
     const packs = new Set(state.packs);
     const files = new Set(state.files);
     const adding = args[1] === 'add';
-    const changed = IGNITE_UNITS.filter((file) => files.has(file) !== adding);
+    const changed = IGNITE_FILES.filter((file) => files.has(file) !== adding);
     if (adding) {
       packs.add('ignite');
-      for (const file of IGNITE_UNITS) files.add(file);
+      for (const file of IGNITE_FILES) files.add(file);
     } else {
       packs.delete('ignite');
-      for (const file of IGNITE_UNITS) files.delete(file);
+      for (const file of IGNITE_FILES) files.delete(file);
     }
     const next = { ...state, packs: [...packs].sort(), files: [...files].sort() };
     if (!dryRun) fs.writeFileSync(path.join(home, 'agent.json'), `${JSON.stringify(next)}\n`);
@@ -507,6 +507,17 @@ async function run(argv, extra = {}) {
     assert.match(result.message, /not installed/);
     assert.match(result.message, /no folder/);
     assert.match(result.message, /Add it with: rbtv agent add probe --harness HARNESS --model MODEL --effort EFFORT\n/);
+    assert.equal(readConfig(dir).dmAgent, undefined);
+  });
+
+  await test('connect refuses an agent folder that still holds the old prompt name, with the rename command', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const home = installAgent(dir);
+    fs.renameSync(path.join(home, 'prompt.md'), path.join(home, 'agent.md'));
+    const result = await run(['connect', 'probe', '--dm', '--installation', dir]).catch((error) => error);
+    assert.match(result.message, /cannot be launched: .*prompt\.md is missing\. This folder still has agent\.md/);
+    assert.match(result.message, /git mv agent\.md prompt\.md/);
     assert.equal(readConfig(dir).dmAgent, undefined);
   });
 

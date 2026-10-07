@@ -221,6 +221,6 @@ function agentFilePrompt(flag, fail) {
 }
 
 module.exports = {
-  PROMPT_MD, agentBody, isPath, agentsFolder, agentHomeIn, holdsAgentFile, isAgentFolder, targetAgents, agentHomes, findAgentHome,
-  readAgent, rbtvAgent, targetRefusal, takeAgentFlags, agentFilePrompt,
+  PROMPT_MD, AGENT_JSON, agentBody, isPath, agentsFolder, agentHomeIn, holdsAgentFile, isAgentFolder, targetAgents, agentHomes, findAgentHome,
+  readAgent, rbtvAgent, targetRefusal, takeAgentFlags, agentFilePrompt, promptMissing,
 };

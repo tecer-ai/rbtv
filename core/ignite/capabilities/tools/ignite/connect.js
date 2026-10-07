@@ -14,7 +14,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
 const { loadConfig, updateConfig, agentHome, configPath, findWorkspace, slackToken } = require('./config.js');
-const { agentsFolder, isAgentFolder, isPath, readAgent } = require('../../../../cast/capabilities/tools/cast/lib/agent');
+const { agentsFolder, isAgentFolder, isPath, readAgent, promptMissing, AGENT_JSON } = require('../../../../cast/capabilities/tools/cast/lib/agent');
 const { Slack } = require('./slack.js');
 const { Store, conversationKey } = require('./store.js');
 const { cadenceSpec, nextOccurrence, FIXED_TZ } = require('./schedule.js');
@@ -247,6 +247,7 @@ function requireInstalled(config, raw, command) {
     fail(`agent ${agent} is not installed (no folder at ${home}).\nAdd it with: rbtv agent add ${agent} --harness HARNESS --model MODEL --effort EFFORT\nNothing changed.`);
   }
   if (!isAgentFolder(home)) {
+    if (fs.existsSync(path.join(home, AGENT_JSON))) fail(`agent ${agent} cannot be launched: ${promptMissing(home)}`);
     fail(`agent ${agent} is not installed (needs prompt.md and agent.json at ${home})`);
   }
   return resolved;

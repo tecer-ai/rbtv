@@ -90,12 +90,14 @@ def require_prompt(home: Path) -> None:
         return
     old = "agent.md"
     message = f"{home / PROMPT_FILE} is missing."
+    next_cmd = "rbtv agent add -h"
     if (home / old).is_file():
         message += (f" This folder still has {old}, the old name of the prompt file. If another "
                     "machine already renamed it, pull first; otherwise rename it with: "
                     f"git mv {old} {PROMPT_FILE} (inside {home}), and change any .gitignore "
                     f"line that names {old}.")
-    raise _refuse("prompt-missing", message, "rbtv agent add -h", str(home))
+        next_cmd = f"git mv {old} {PROMPT_FILE}"
+    raise _refuse("prompt-missing", message, next_cmd, str(home))
 
 
 def unplaced_shipped_agent(root: Path, raw: str, catalog: dict) -> dict | None:
