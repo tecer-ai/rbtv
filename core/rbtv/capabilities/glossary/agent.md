@@ -1,6 +1,6 @@
 # Agent
 
-An agent is a model at an effort, a harness and scaffolding, launched with a task. For an rbtv agent, `agent.json` holds the model, effort and harness, and the scaffolding is its prompt (`prompt.md`) plus the files and packs `agent.json` selects. [Scaffolding](scaffolding.md) includes the prompt and other material the agent receives; the harness itself is not scaffolding.
+An agent is a model at an effort, a harness, and a prompt with its task; the prompt and the other material the agent receives are its [scaffolding](scaffolding.md), and the harness is not. For an rbtv agent, `agent.json` holds the model, effort and harness, and the scaffolding is its prompt (`prompt.md`) plus the files and packs `agent.json` selects. Each launch carries one [task](task.md).
 
 Use an agent when work needs a separate context and a standing prompt must support different tasks. The description must let a caller select the agent and supply its task without first reading the prompt.
 
@@ -10,6 +10,7 @@ An agent folder contains:
 
 - `prompt.md`: the prompt, with name-only frontmatter matching the folder name.
 - `agent.json`: the record, with the same name, its description and any installation selections. Follow [Agent record](agent-json.md) when writing or changing the record.
+- `task.md`: the task of an agent launched once with no supplier delivering one, such as a plan agent or any agent built for one task. An agent whose launcher supplies each task has no `task.md`. Write the file using [Task](task.md).
 
 A component ships an agent folder as `agents/<name>/`. Any other agent folder may sit anywhere, such as a plan's `agents/` folder.
 
@@ -24,7 +25,7 @@ An agent folder may be anywhere and is addressed by its path. A name without a p
 
 When sharing an agent folder through git, track its prompt, record and any memory or board it maintains. Keep machine-local [settings](settings-json.md) and harness session data out of that shared content; regenerate harness files in each installation.
 
-An agent written for one task or one plan is an rbtv agent too. Write its folder where the work is, install it in place with `rbtv agent add FOLDER --harness H --model M --effort E`, and launch it with `cast --agent FOLDER`. [rbtv CLI](rbtv-cli.md) owns those options; the model is one of the installation's [selected models](../../../cast/capabilities/glossary/selected-model.md), which `cast models list` prints.
+An agent written for one task or one plan is an rbtv agent too. Write its folder where the work is, write its task as `task.md` in that folder, install it in place with `rbtv agent add FOLDER --harness H --model M --effort E`, and launch it with `cast --agent FOLDER`, which sends `task.md` as the task. [rbtv CLI](rbtv-cli.md) owns those options; the model is one of the installation's [selected models](../../../cast/capabilities/glossary/selected-model.md), which `cast models list` prints.
 
 ## Build the agent
 

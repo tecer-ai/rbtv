@@ -24,11 +24,13 @@ State the action on failure: stop and report the missing input or failed conditi
 
 ## Deliver the task where the launch reads it
 
+A launch always carries a task; the supplier decides where it is written.
+
 | Supplier | Where the task belongs |
 |---|---|
 | Person in conversation | The message, including accessible inputs |
 | Parent agent | The launch text or task file supplied to the child |
-| Coordinating agent of a plan | The plan's task file, `tasks/<agent>.md` in the plan folder |
+| No one at launch (a plan agent, or any agent built for one task) | `task.md` in its agent folder, sent by `cast --agent FOLDER` when no `-p`/`-f` is given |
 | Slack-triggered work | The message, with the scope and inputs stated explicitly |
 | Timer naming a board check | The named board entry, containing the result, scope and done contract |
 

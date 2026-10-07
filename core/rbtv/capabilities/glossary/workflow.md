@@ -13,16 +13,16 @@ For each row, put in Needs every agent whose result it reads. Add an order betwe
 ```markdown
 # <Workflow result>
 
-| Agent | Task | Needs | Status |
-|---|---|---|---|
-| <agent name> | <task-file path> | <agent names, comma-separated; — for none> | open |
+| Agent | Needs | Status |
+|---|---|---|
+| <agent name> | <agent names, comma-separated; — for none> | open |
 
 ## Scheduling rules
 
 <Shared-write order and the exact files or records it protects, when applicable.>
 ```
 
-Task paths resolve from the workflow folder. Needs names rows in the same table. Status is `open`, `running`, `done` or `failed`; keep result evidence in the task's report rather than the cell.
+Each agent's task is `task.md` in its agent folder. Needs names rows in the same table. Status is `open`, `running`, `done` or `failed`; keep result evidence in the task's report rather than the cell.
 
 ## Coordinate and verify
 

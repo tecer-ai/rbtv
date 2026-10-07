@@ -85,7 +85,7 @@ function printHelp() {
     'cast monitor   live cast jobs; --watch exits 3 on stall, 4 on ENDED.',
     '',
     'Example: cast --agent scout -p "reply with exactly: ok"',
-    '         cast --agent plans/launch/agents/drafter -f task.md',
+    '         cast --agent plans/launch/agents/drafter   # sends its task.md',
     '         cast claude sonnet-5-5 3 -p "reply with exactly: ok"',
     '',
     'next: cast <verb> -h   # every flag of one verb, with examples',
