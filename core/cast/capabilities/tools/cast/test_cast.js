@@ -2482,8 +2482,41 @@ process.exit(code);\n`);
     console.log('skipped: fallback on a missing harness (a claude is on the PATH of node)');
   }
 
+  // A harness that exits without reading its task ends the run with its own exit code, on each of
+  // the three harness paths and on a resume. The task is larger than a pipe holds, so cast's write
+  // of it fails on every run, whenever the harness exits.
+  const unreadBin = mkFolder('fallback-bin-unread');
+  for (const name of ['claude', 'codex', 'opencode']) {
+    installFake(unreadBin, name, `require('fs').appendFileSync(${JSON.stringify(log)}, JSON.stringify({ harness: ${JSON.stringify(name)}, argv: process.argv.slice(2) }) + '\\n');
+process.exit(3);\n`);
+  }
+  const largeTask = path.join(home, 'large-task.txt');
+  fs.writeFileSync(largeTask, 'x'.repeat(200 * 1024));
+  const unread = { PATH: pathEnv(unreadBin), ZHIPU_API_KEY: 'test-fake-not-real' };
+  const NO_REPORT = 'cast: no-report — the opencode session store holds no final assistant message for this run\n';
+  for (const [args, stdout] of [
+    [['claude', 'sonnet-5-5', '5'], ''], [['codex', 'gpt-5.6-terra', '5'], ''], [['opencode', 'glm-5.3', '1'], NO_REPORT],
+    [['resume', 'claude', 'last', '.'], ''], [['resume', 'codex', 'last', '.'], ''], [['resume', 'opencode', 'last', '.'], NO_REPORT],
+  ]) {
+    res = run(installation('off'), [...args, '-f', largeTask], unread);
+    assert.deepStrictEqual([res.status, res.stdout, castLines(res)], [3, stdout, []], `${args.join(' ')}: ${res.stderr}`);
+    assert.ok(!res.stderr.includes('EPIPE') && !res.stderr.includes('    at '), res.stderr);
+  }
+  // with the fallback on, each such exit is a failure to start and the next model of the level runs
+  const allRouted = installation('price', ['cli,claude,sonnet-5-5,5,N,L2,3,3,10,route,N,N',
+    'cli,codex,gpt-5.6-terra,5,N,L2,5,5,8,route,N,N', 'cli,opencode,glm-5.3,2,N,L2,3,3,4,route,N,N']);
+  res = run(allRouted, ['codex', 'gpt-5.6-terra', '5', '-f', largeTask], unread);
+  assert.strictEqual(res.status, 3, res.stderr);
+  assert.deepStrictEqual(started(), ['gpt-5.6-terra', 'opencode', 'claude']);
+  assert.deepStrictEqual(castLines(res).slice(0, 4), [
+    'cast: codex gpt-5.6-terra did not start (exit 3 after Ns); launching fallback 1 of 2 at level L2 by price: opencode glm-5.3',
+    NO_REPORT.trimEnd(),
+    'cast: opencode glm-5.3 did not start (exit 3 after Ns); launching fallback 2 of 2 at level L2 by price: claude sonnet-5-5',
+    'cast: claude sonnet-5-5 did not start (exit 3 after Ns)']);
+  assert.ok(!res.stderr.includes('EPIPE') && !res.stderr.includes('    at '), res.stderr);
+
   // an agent's effort is its model's own rung word: its place on the ladder is the dial number
-  const agentHome = path.join(byPrice, '.rbtv', 'agents', 'ada');
+  const agentHome =path.join(byPrice, '.rbtv', 'agents', 'ada');
   fs.mkdirSync(agentHome, { recursive: true });
   fs.writeFileSync(path.join(agentHome, 'prompt.md'), 'You are ada.\n');
   fs.writeFileSync(path.join(agentHome, 'agent.json'), JSON.stringify({ name: 'ada', description: 'd', harness: 'claude', model: 'sonnet-5-5', effort: 'low' }));

@@ -53,7 +53,9 @@ function spawnWithDeadline(cmd, args, opts) {
   if (opts.cwd) spawned.env = launchEnv(opts.cwd, opts.env);
   const res = spawnSync(win.cmd, win.args, spawned);
   if (res.error && res.error.code === 'ETIMEDOUT') exitDeadline();
-  if (res.error) return { error: res.error.message };
+  // A harness that exits without reading its task leaves an error on the write beside its exit
+  // status: the harness ran, so the status is how the run ended.
+  if (res.error && res.status === null && !res.signal) return { error: res.error.message };
   return { code: res.status === null ? 1 : res.status, signal: res.signal };
 }
 
@@ -217,7 +219,11 @@ function runOpencodeChecked(argv, { cwd, env, stdinText, t0, bind, model }, done
     done(out);
   };
   child.on('error', (e) => end({ error: e.message }));
-  if (stdinText !== null) child.stdin.end(stdinText);
+  if (stdinText !== null) {
+    // A harness that exits without reading its task fails this write; `close` still says how it ended.
+    child.stdin.on('error', () => {});
+    child.stdin.end(stdinText);
+  }
   let captured = '';
   let timedOut = false;
   const timer = setTimeout(() => { timedOut = true; child.kill('SIGTERM'); }, DEADLINE_MS);
