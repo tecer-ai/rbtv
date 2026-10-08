@@ -1,4 +1,4 @@
 {
-  "description": "Skills for thinking a subject through with the user (thinking-partner) and for owner-ruled triage of a backlog (triage).",
+  "description": "The triage skill: owner-ruled triage of a backlog file, mid-project or at a close.",
   "dependencies": []
 }

@@ -14,7 +14,7 @@ Run it LAST in validation. It consumes the output of every other framework in th
 first, it produces generic worries instead of specific risks.
 
 > Boundary: the generic conversational pre-mortem — pre-mortem as a thinking move on any plan,
-> decision or design — is a mode of the `thinking-partner` skill in `meta/functions`. THIS reference is
+> decision or design — is a mode of the `thinking-partner` skill in `meta/thinking-partner`. THIS reference is
 > the validation-milestone application to a venture: seven business failure categories, a scored
 > risk register, and mitigations wired to the venture's kill criteria.
 

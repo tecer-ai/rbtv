@@ -363,8 +363,8 @@ off. Later adds can omit both.
 
 positional arguments:
   NAME                  short name (thinking-partner), full id
-                        (meta/functions#thinking-partner), or whole component
-                        (meta/functions)
+                        (meta/thinking-partner#thinking-partner), or whole component
+                        (meta/thinking-partner)
 
 options:
   -h, --help            show this help message and exit
@@ -401,7 +401,7 @@ options:
 Examples:
   rbtv add thinking-partner
   rbtv add --pack research-kit
-  rbtv add meta/functions#thinking-partner --dry-run --details
+  rbtv add meta/thinking-partner#thinking-partner --dry-run --details
   rbtv add fact-checker --on claude:sonnet-5:high --on codex:gpt-6-sol:medium
 
 Different filters narrow together. --module web --type skill chooses only
