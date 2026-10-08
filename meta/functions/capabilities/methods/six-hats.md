@@ -1,73 +1,68 @@
----
-description: "Read when the brainstorm lands on six hats — walking one topic through Blue, Green, Red, Yellow, Black, White in fixed order, closing with a cross-hat summary and re-running the affected hats as new information arrives."
-tags: [functions]
----
+# Six hats
 
-# Six Hats
+The result: one topic examined through De Bono's six thinking hats, each a single filter, in a fixed order, followed by a summary that compares them. The user has what their goal asked for: a decision, a mapped set of options, or a clear picture of risks and benefits.
 
-De Bono's Six Thinking Hats. ONE topic, six single-filter perspectives, in fixed order. The value is the full set: no hat is right alone, and the summary that compares them is where the insight lands — NEVER stop after the six passes.
+Inputs: the topic and the goal, each confirmed by the user. Step 1 asks for whichever the conversation has not given. This mode does not generate options (that is [ideation](ideation.md)) and does not try to kill an idea (that is [idea sparring](idea-sparring.md)).
 
-Use it when the user has a topic, decision, or dilemma they want seen from every side before they move. NOT for generating options (that is ideation) and NOT for killing an idea (that is idea-sparring).
+No hat is right alone: the value is in the full set and in the summary that compares the hats. Do not stop after the six passes.
 
-This mode benefits most from the `coordinate` skill's panel capability: the hats can run as parallel independent sub-agents, one hat each, so no hat's output anchors another. When the topic carries enough weight, propose this to the user; sequential remains the default.
+This mode benefits most from the `coordinate` skill's panel capability: the hats can run as parallel independent sub-agents, one hat each, so that no hat's output anchors another. When the topic carries enough weight, propose this to the user; running the hats in sequence yourself is the default.
 
-## Frame before any hat
+Every question you ask in this mode carries two or three concrete examples of what an answer could look like.
 
-Get three things, ONE question per message, and WAIT for each answer:
+## 1. Frame before any hat
 
-1. The topic — the decision, problem, or question being examined.
-2. The goal — decide, explore options, or understand risks and benefits. The goal steers every hat afterwards.
-3. Confirmation — restate topic and goal in your own plain words and ask what you got wrong.
+Get three things, one question per message, and wait for each answer:
 
-Every question you ask in this mode MUST carry 2-3 concrete examples of what an answer could look like. A hat question with no example gets an empty answer.
+1. The topic: the decision, problem or question being examined.
+2. The goal: decide, explore options, or understand risks and benefits. The goal directs every hat afterwards.
+3. Confirmation: restate the topic and the goal in your own plain words and ask what you got wrong.
 
-## The order is fixed
+## 2. Run the hats in the fixed order
 
-**Blue → Green → Red → Yellow → Black → White.** NEVER reorder, NEVER skip one because it looks thin — a thin hat is itself a finding.
+The order is Blue → Green → Red → Yellow → Black → White. Do not reorder the hats, and do not skip one because it has little to say: a hat with little to say is a finding.
 
 | Hat | Role | Filter |
-|-----|------|--------|
-| Blue | The Conductor | Process and big picture: what are we actually deciding, and what would a good answer look like? |
+|---|---|---|
+| Blue | The Conductor | Process and the whole question: what are we deciding, and what would a good answer look like? |
 | Green | The Creator | New angles, alternatives, options nobody has named yet. |
 | Red | The Heart | Feelings and gut reaction, stated without justification. |
 | Yellow | The Advocate | Benefits, upside, best realistic case. |
 | Black | The Judge | Risks, weak spots, what breaks. |
-| White | The Analyst | Facts, numbers, knowns — and named unknowns. |
+| White | The Analyst | Facts, numbers, knowns, and named unknowns. |
 
-The order does work: Green runs before any judging hat so options exist to judge; Red runs before the reasoning hats so the gut reaction is captured before it gets rationalized; Yellow runs before Black so the upside is not pre-killed; White runs last so facts are gathered against everything already on the table.
-
-## What each hat produces
+The order has reasons: Green runs before any judging hat so that options exist to judge; Red runs before the reasoning hats so that the gut reaction is recorded before it is rationalized; Yellow runs before Black so that the upside is stated before the risks; White runs last so that facts are gathered against everything already stated.
 
 For each hat, in order, write two labelled parts:
 
-- **Analysis** — what this hat focuses on here (1-2 sentences); 3-5 keywords this hat's filter surfaces; one concrete mini-scenario; how it connects to the stated goal; one line on how it differs from or completes another hat; 2-3 questions someone wearing it would ask.
-- **Perspective** — a short paragraph written *as* the hat, plain language, concrete.
+- Analysis: what this hat focuses on here, in one or two sentences; three to five keywords its filter surfaces; one concrete mini-scenario; how it connects to the stated goal; one line on how it differs from or completes another hat; two or three questions someone wearing it would ask.
+- Perspective: a short paragraph written as the hat, in plain and concrete language.
 
-Complete all six before the summary.
+Two requirements apply to every point of every hat:
 
-Two rules bind every point:
+- Mark each point as fact, opinion, guess or creative idea. An unmarked guess reads as a fact in the summary.
+- Use plain language and define each term on first use. When a fifteen-year-old could not follow the sentence, rewrite it.
 
-- MARK each point as fact, opinion, guess, or creative idea. An unmarked guess reads as a fact and poisons the summary.
-- Plain language, defined on first use. If a fifteen-year-old could not follow the sentence, rewrite it.
+When White needs evidence the conversation does not hold, or Black needs real failure rates or precedent, the lookup goes to a sub-agent while you continue with the hats. Mark what comes back as fact. Name what does not come back as an open unknown under White.
 
-**Facts you do not have.** When White (or Black, on real-world failure rates and precedent) needs evidence the session does not carry, DELEGATE the lookup to a sub-agent and keep running the hats while it works. NEVER go read at length yourself mid-exercise — the conversation is the deliverable and it dies when you leave it. What comes back is marked as fact; what does not come back is named as an open unknown under White.
+Complete all six hats before the summary.
 
-## Cross-hat summary
+## 3. Cross-hat summary
 
-After the sixth hat, write a summary carrying all of:
+After the sixth hat, write a summary that contains all of:
 
 - One or two key insights per hat, one line each.
-- Themes that appeared under more than one hat.
-- Direct conflicts — name them as conflicts, NEVER average them away.
+- The themes that appeared under more than one hat.
+- The direct conflicts, named as conflicts and not averaged.
 - The gaps White wants filled before this can be decided.
-- A short closing paragraph tying the most important points to the user's stated goal, plus the main tensions and synergies.
+- A short closing paragraph that ties the most important points to the user's stated goal, with the main tensions and synergies.
 
-## Iterate
+## 4. Iterate
 
-1. Ask 2-4 focused questions, ONE per message, starting with the biggest gap or sharpest conflict from the summary.
-2. When new information arrives, say which hats it moves and which it leaves alone, rewrite ONLY the moved hats, then write a fresh summary. Re-running all six on every input burns the user's attention and hides what actually changed.
-3. Offer the next move explicitly: another full round from a different angle, a deep pass on one hat, or a decision recap.
+1. Ask two to four focused questions, one per message, starting with the largest gap or the sharpest conflict of the summary.
+2. When new information arrives, say which hats it changes and which it leaves as they are, rewrite only the changed hats, then write a fresh summary. Rewriting all six on every input hides what changed.
+3. Offer the next move explicitly: another full round from a different angle, a deeper pass on one hat, or a decision recap.
 
-## Done
+## Done when
 
-Done when the user has what the goal asked for — a decision, a mapped option space, or a clear risk-benefit picture. Close with a recap of 3-5 lines, each drawn from one or two hats and pointed back at the original goal, and state plainly which conflicts remain unresolved.
+The user has what the goal asked for: a decision, a mapped set of options, or a clear picture of risks and benefits. Close with a recap of three to five lines, each drawn from one or two hats and related to the original goal, and state which conflicts remain unresolved.

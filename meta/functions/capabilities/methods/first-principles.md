@@ -1,68 +1,55 @@
----
-description: "Read when the ask is to pressure-test a plan, belief, or strategy rather than build one — surfacing the assumptions under it, classifying each by epistemic status, and rebuilding from what survives."
-tags: [functions]
----
+# First principles
 
-# First principles — audit the assumptions, rebuild from what survives
+The result: the user's position is reduced to what is known and rebuilt from only that. The user can name which parts of the position rest on evidence, which are convenience, and the one thing they would find out first.
 
-The user holds a position: a plan, a thesis, a decision, a belief about how something works. This mode takes it apart down to what is actually known, and puts back only what the evidence carries.
+Inputs: the position under audit (a plan, a thesis, a decision, or a belief about how something works), stated as one specific claim in one sentence. When the user brings a general unease and not a claim, have them state the claim before the audit starts. Ask what a good outcome looks like only where the conversation has not already made it evident.
 
-Reason from what is demonstrably true. NEVER from convention, precedent, industry norm, or "this is how it's done" — those are the assumptions under audit, never the ground under the audit.
+Reason from what is demonstrably true. Convention, precedent, industry norm and "this is how it's done" are assumptions under audit, not grounds for it. Pair every assumption you find unsupported with the question that would settle it.
 
-Critical and constructive in the same breath: every assumption you puncture, you MUST pair with the question that would settle it. An audit that only demolishes has done half the work.
+The default depth is the audit: stages 1 to 4. Run stage 5 only when the user asks for an execution plan.
 
-## Before starting
+Run the stages in order, as a conversation and not as a report: each uses the result of the one before it. Pause at the end of stage 1 and of stage 2 for the user to correct you; the user holds the domain knowledge.
 
-Confirm the **position under audit** — the specific claim, plan, or decision, stated in one sentence. A fuzzy target produces a fuzzy audit; if the user's ask is a general unease rather than a claim, make them state the claim first.
+## 1. Surface the assumptions
 
-Ask what a good outcome looks like ONLY where the session has not already made it evident.
+List every assumption the position rests on, across people, process, resources, constraints, timing, customers, costs, tools, market conditions, causal relationships and expected outcomes.
 
-Depth is **audit** by default — surface, classify, question, rebuild. Extend into an execution plan ONLY when the user asks for one.
+Look specifically for the assumptions nobody states because they are familiar: what the position treats as background fact, what the user says in passing as needing no defence, and whatever the word "obviously" is attached to.
 
-## The sequence
+Show the list and ask what is missing before you classify anything.
 
-Each stage consumes the one before it, so the order is not negotiable. Run it as a conversation, not a report: pause at the end of stages 1 and 2 for the user to correct you, because they hold the domain knowledge and you hold the method.
+## 2. Classify each by epistemic status
 
-### 1. Surface the assumptions
-
-List every assumption the position rests on. Cast the net wide — people, process, resources, constraints, timing, customers, costs, tools, market conditions, causal relationships, expected outcomes.
-
-The assumptions that matter most are the ones so familiar nobody states them. Hunt those specifically: whatever the position treats as background fact, whatever the user says in passing as though it needs no defending, whatever "obviously" attaches to.
-
-Show the list and ask what is missing before classifying anything.
-
-### 2. Classify each by epistemic status
-
-One label per assumption, ALWAYS with the evidence — or the absence of evidence — that drives the label. A label without its evidence is an opinion wearing a table.
+Give each assumption one label, with the evidence, or the absence of evidence, that determines the label.
 
 | Label | Meaning |
 |---|---|
-| **True** | Direct, recent evidence. Unlikely to be wrong. |
-| **Partial** | Holds under some conditions and not others. Needs a scope qualifier naming which. |
-| **Unproven** | Plausible, untested. No direct evidence either way. |
-| **Outdated** | Was true. Conditions have since changed. |
-| **Convenience** | Accepted because it makes the position work or the analysis simpler, not because it is grounded. |
+| True | Direct, recent evidence. Unlikely to be wrong. |
+| Partial | Holds under some conditions and not others. Needs a scope qualifier that names which. |
+| Unproven | Plausible, untested. No direct evidence either way. |
+| Outdated | Was true. Conditions have since changed. |
+| Convenience | Accepted because it makes the position work or the analysis simpler, not because it is grounded. |
 
-**Convenience is the most valuable label and the one people resist.** Look for it wherever an assumption is load-bearing and conveniently unexamined.
+Convenience is the most valuable label and the one users resist. Look for it wherever the position depends on an assumption that nobody has examined.
 
-Where a label turns on evidence neither of you holds — what a system actually does, a current number, whether a fact has since changed — DELEGATE the check to the `coordinate` skill's digest capability, when present, or to sub-agents, and keep working the other assumptions while it runs. NEVER go read things yourself mid-audit; the conversation dies when you leave it. Where the check cannot be run now, classify **Unproven** and say what would settle it.
+When a label depends on evidence neither of you holds (what a system does, a current number, whether a fact has since changed), the check goes to a sub-agent while you continue with the other assumptions. When the check cannot be run now, classify the assumption Unproven and say what would settle it.
 
-### 3. Rewrite each as a testable question
+## 3. Rewrite each as a testable question
 
-Every assumption becomes a falsifiable question that names the observable evidence AND the threshold at which the answer flips. "Do customers value this?" is not a question; "do more than 30% of trial users invoke it in week one?" is.
+Turn every assumption into a falsifiable question that names the observable evidence and the threshold at which the answer changes. "Do customers value this?" is not such a question; "do more than 30% of trial users invoke it in week one?" is.
 
-Order them by damage: the questions whose "no" would overturn or most weaken the position come first. Those are what the user should go find out, and the ordering is the deliverable — an unranked question list is a to-do list nobody works.
+Order the questions by damage: first the ones whose "no" would overturn or most weaken the position. The ordered list is the deliverable of this stage; it tells the user what to find out first.
 
-### 4. Rebuild from the fundamentals
+## 4. Rebuild from the fundamentals
 
-Reconstruct the strongest defensible version of the position using ONLY the **True** assumptions and the **Partial** ones inside their stated scopes. Everything Unproven, Outdated, or Convenience stays out of the rebuild.
+Reconstruct the strongest defensible version of the position from only the True assumptions and the Partial ones inside their stated scopes. Leave every Unproven, Outdated and Convenience assumption out of the rebuild.
 
-Then name the gap: where the rebuilt position differs materially from the original, say so plainly, including the case where it barely survives. Unanswered stage-3 questions are the highest-priority things to find out before acting — say which ones block the decision and which merely inform it.
+Then name the gap: state where the rebuilt position differs materially from the original, including when the original barely survives. The unanswered questions of stage 3 are what to find out before acting; say which ones block the decision and which only inform it.
 
-### 5. Execution plan — only when asked
+## 5. Execution plan, only when asked
 
-From the rebuilt position, a step-by-step path that strips out complexity the audit showed to be unnecessary and aims at the real constraint. Reasoning behind each step, key risks and trade-offs, priorities, owners, timelines, success metrics, and the next action. Practical and direct — this stage is not a second audit.
+From the rebuilt position, write a step-by-step path that leaves out the complexity the audit showed to be unnecessary and addresses the real constraint. Give the reasoning behind each step, the key risks and trade-offs, priorities, owners, timelines, success metrics and the next action. This stage does not audit again.
 
 ## Done when
 
-The user can name which parts of their position are load-bearing evidence, which are convenience, and what one thing they would go find out first. If nothing was reclassified and no question was raised, the audit was too shallow — go back to stage 1 and hunt the unstated assumptions harder.
+The user can name which parts of their position rest on evidence, which are convenience, and the one thing they would find out first. When no assumption was reclassified and no question was raised, the audit was too shallow: return to stage 1 and look again for the unstated assumptions.
