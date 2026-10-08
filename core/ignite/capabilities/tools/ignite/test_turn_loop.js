@@ -80,7 +80,8 @@ if (control.writeLauncher !== false) {
     const ran = request.fallbacks[control.ranFallback - 1];
     const before = [request, ...request.fallbacks.slice(0, control.ranFallback - 1)];
     Object.assign(launcher, { harness: ran.harness, model: ran.model,
-      failed: before.map((r) => ({ harness: r.harness, model: r.model, error: 'harness_exit_1' })) });
+      failed: before.map((r) => ({ harness: r.harness, model: r.model, error: 'harness_exit_1',
+        end: control.failedEnd || { code: 1, signal: null, elapsedMs: 4200 } })) });
     if (control.exhausted) launcher.exhausted = true;
   }
   if (launcher.ok === false && !launcher.error) launcher.error = control.error || 'harness_exit_1';
@@ -442,7 +443,8 @@ test('the fallbacks of the model ride the request in order, and the session is s
   assert.equal(box.store.getSession('T1:C1:1.1', 'codex'), 'codex-session-1');
   assert.equal(box.store.getSession('T1:C1:1.1', 'claude'), 'claude-session-1');
   assert.deepEqual(box.logs.filter((l) => l.event === 'fallback'), [{ event: 'fallback',
-    failed: [{ harness: 'claude', model: 'sonnet-5-5', error: 'harness_exit_1' }], ran: { harness: 'codex', model: 'gpt-6.1-sol' } }]);
+    failed: [{ harness: 'claude', model: 'sonnet-5-5', error: 'harness_exit_1', end: { code: 1, signal: null, elapsedMs: 4200 } }],
+    ran: { harness: 'codex', model: 'gpt-6.1-sol' } }]);
 
   // the next turn asks for the agent's own model again, and its fallbacks resume codex's session
   seed(box.store, { id: '5.5', text: 'AFTER', createdAt: 500 });
@@ -474,6 +476,95 @@ test('a level with no model left names what was tried and the model one level do
   const late = await runOnce('master', box.deps);
   const row = box.store.db.prepare('SELECT error FROM runs WHERE id=?').get(late.runId);
   assert.match(row.error, /^did not start: claude sonnet-5-5 \(harness_exit_1\); codex gpt-6.1-sol ran in their place and failed; /);
+});
+
+// The outbox rows that are Ignite's own words about a fallback, oldest first.
+function systemMessages(store) {
+  return store.db.prepare(`SELECT id, conversation_key, payload, state FROM outbox
+    WHERE id LIKE 'fallback:%' OR id LIKE 'no-model:%' ORDER BY created_at, id`).all()
+    .map((row) => ({ ...row, payload: JSON.parse(row.payload) }));
+}
+
+test('a turn that ran on a fallback tells the owner before the agent reply', async (ctx) => {
+  const box = harness(ctx);
+  installationWithFallback(ctx, '{"fallback":"price"}');
+  seed(box.store);
+  box.writeControl({ agent: agentOf('completed'), sessionId: 'codex-session-1', ranFallback: 2 });
+  box.sync();
+  const result = await runOnce('master', box.deps);
+  assert.equal(result.disposition, 'completed');
+  const rows = box.store.pendingOutbox();
+  assert.deepEqual(rows.map((row) => [row.id, row.conversation_key, row.payload]), [
+    [`fallback:${result.runId}`, 'T1:C1:1.1', { text: 'System message: the model claude sonnet-5-5 has failed (exit 1 after 4s), '
+      + 'the model codex gpt-6.1-sol has failed (exit 1 after 4s), routing to codex gpt-5.6-terra', audio: false, files: [] }],
+    [`reply:${result.runId}:0`, 'T1:C1:1.1', { text: 'reply-completed', audio: false, files: [] }],
+  ]);
+  const delivered = await deliverPending(box.store, { slack: box.slack });
+  assert.deepEqual(delivered.map((row) => row.delivered), [true, true]);
+  assert.deepEqual(box.slack.posts.map((post) => [post.threadTs, post.text.split(':')[0]]),
+    [['1.1', 'System message'], ['1.1', 'reply-completed']]);
+
+  // a harness that could not be started has no exit code: its error is the reason
+  seed(box.store, { id: '5.5', text: 'AFTER', createdAt: 500 });
+  box.writeControl({ agent: agentOf('completed'), sessionId: 'codex-session-1', ranFallback: 1, failedEnd: { error: 'spawn claude ENOENT' } });
+  box.sync();
+  const second = await runOnce('master', box.deps);
+  assert.equal(box.store.pendingOutbox()[0].payload.text,
+    'System message: the model claude sonnet-5-5 has failed (spawn claude ENOENT), routing to codex gpt-6.1-sol');
+  assert.deepEqual(systemMessages(box.store).map((row) => row.id), [`fallback:${result.runId}`, `fallback:${second.runId}`]);
+});
+
+test('no model started on three attempts tells the owner once, then the blocker', async (ctx) => {
+  const box = harness(ctx);
+  installationWithFallback(ctx, '{"fallback":"price"}');
+  seed(box.store);
+  box.writeControl({ ok: false, exitCode: 1, childExit: 1, error: 'harness_exit_1', ranFallback: 2, exhausted: true });
+  box.sync();
+  const first = await runOnce('master', box.deps);
+  assert.equal(first.failure.held, false);
+  const told = [{ id: `no-model:1.1`, conversation_key: 'T1:C1:1.1', state: 'pending',
+    payload: { text: 'System message: no model of level L2 started: tried claude sonnet-5-5, codex gpt-6.1-sol, codex gpt-5.6-terra; '
+      + 'the next model by price is one level down (L3) and was not launched: codex gpt-6-luna', audio: false, files: [] } }];
+  assert.deepEqual(systemMessages(box.store), told);
+  box.setNow(box.now() + 5000);
+  await runOnce('master', box.deps);
+  box.setNow(box.now() + 30000);
+  const third = await runOnce('master', box.deps);
+  assert.equal(third.failure.held, true);
+  assert.equal(seen(box).length, 3);
+  assert.deepEqual(systemMessages(box.store), told);
+  const outbox = box.store.pendingOutbox(box.now() + 1);
+  assert.deepEqual(outbox.map((row) => row.id), [`no-model:1.1`, `hold:1.1`]);
+  assert.match(outbox[1].payload.text, /^Work is on hold after three technical attempts\. no model of level L2 started: /);
+  assert.match(outbox[1].payload.text, /Repair: ignite work retry /);
+});
+
+test('the agent\'s own model started, or no fallback is on → no system message', async (ctx) => {
+  const box = harness(ctx);
+  installationWithFallback(ctx, '{"fallback":"price"}');
+  seed(box.store);
+  box.writeControl({ agent: agentOf('completed'), sessionId: 'claude-session-1' });
+  box.sync();
+  await runOnce('master', box.deps);
+  assert.equal(seen(box)[0].fallbacks.length, 2);
+  assert.deepEqual(box.store.pendingOutbox().map((row) => row.payload.text), ['reply-completed']);
+
+  // the agent's own model started and then failed: an ordinary failure
+  seed(box.store, { id: '5.5', text: 'AFTER', createdAt: 500 });
+  box.writeControl({ ok: false, exitCode: 1, childExit: 1, error: 'harness_exit_1' });
+  box.sync();
+  assert.equal((await runOnce('master', box.deps)).failed, true);
+  assert.deepEqual(systemMessages(box.store), []);
+
+  // fallback off: a model that fails is an ordinary failure too
+  const off = harness({ ...ctx, dir: path.join(ctx.dir, 'off') });
+  installationWithFallback({ dir: path.join(ctx.dir, 'off') }, null);
+  seed(off.store);
+  off.writeControl({ ok: false, exitCode: 1, childExit: 1, error: 'harness_exit_1' });
+  off.sync();
+  assert.equal((await runOnce('master', off.deps)).failed, true);
+  assert.equal(seen(off)[0].fallbacks, undefined);
+  assert.deepEqual(off.store.db.prepare('SELECT id FROM outbox').all(), []);
 });
 
 test('fallback off, or defaults cast cannot read → the request carries none', async (ctx) => {

@@ -538,13 +538,20 @@ rejects(base({ systemPromptFile: path.join(cwd, 'missing.md') }), 'cannot read s
     return runTurn(request, { ...env, ...extra });
   };
   const claudeFailed = { harness: 'claude', model: 'sonnet-5-5', error: 'harness_exit_1' };
+  // The entries of `failed` without `end`, once each `end` says how that run ended: the exit code
+  // in `error`, no signal, and the time the run took.
+  const withoutEnd = (failed) => failed.map(({ end, ...entry }) => {
+    assert.deepStrictEqual([`harness_exit_${end.code}`, end.signal], [entry.error, null]);
+    assert.ok(Number.isInteger(end.elapsedMs) && end.elapsedMs >= 0 && end.elapsedMs < 15_000, JSON.stringify(end));
+    return entry;
+  });
 
   // the harness exits with a failure at once: the first fallback runs, and the result is its run
   let { res, written, resultFile } = turn(base({ fallbacks }));
   assert.strictEqual(res.status, 0, res.stderr);
   assert.strictEqual(written.ok, true);
   assert.deepStrictEqual([written.harness, written.model, written.sessionId], ['codex', 'gpt-6-luna', '019fecad-4ff4-7761-a2eb-46d2b4172db3']);
-  assert.deepStrictEqual([written.failed, written.exhausted], [[claudeFailed], false]);
+  assert.deepStrictEqual([withoutEnd(written.failed), written.exhausted], [[claudeFailed], false]);
   assert.strictEqual(written.stdoutPath, `${resultFile}.fallback1.stdout`);
   assert.ok(fs.existsSync(`${resultFile}.stderr`), 'the failed run keeps its own capture files');
   assert.deepStrictEqual(ran().map((r) => [r.model, r.prompt]), [['gpt-6-luna', 'the first fallback prompt']]);
@@ -553,7 +560,7 @@ rejects(base({ systemPromptFile: path.join(cwd, 'missing.md') }), 'cannot read s
   // the first fallback fails to start too: the second runs
   ({ written, resultFile } = turn(base({ fallbacks }), { FAKE_CODEX: '{"gpt-6-luna":1}' }));
   assert.deepStrictEqual([written.ok, written.model, written.exhausted], [true, 'gpt-5.6-terra', false]);
-  assert.deepStrictEqual(written.failed, [claudeFailed, { harness: 'codex', model: 'gpt-6-luna', error: 'harness_exit_1' }]);
+  assert.deepStrictEqual(withoutEnd(written.failed), [claudeFailed, { harness: 'codex', model: 'gpt-6-luna', error: 'harness_exit_1' }]);
   assert.strictEqual(written.stdoutPath, `${resultFile}.fallback2.stdout`);
   assert.deepStrictEqual(ran().map((r) => r.prompt), ['the first fallback prompt', 'the second fallback prompt']);
 

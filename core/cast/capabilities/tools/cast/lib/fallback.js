@@ -93,6 +93,10 @@ function fallbackPlan(harness, model, effort, from) {
 
 const nameOf = (m) => `${m.harness} ${m.model}`;
 
+// How one attempt ended, in words: the error of a harness that could not be started, else its
+// exit code and the seconds it ran. `out` is what `startFailure` reads.
+const howEnded = (out) => out.error || `exit ${out.code} after ${Math.round(out.elapsedMs / 1000)}s`;
+
 // The words that close a launch whose level is used up: what was tried, and the model of the
 // next level down, which is named and never launched.
 function exhausted(plan, tried) {
@@ -103,4 +107,4 @@ function exhausted(plan, tried) {
   return lines;
 }
 
-module.exports = { START_WINDOW_MS, startFailure, dial, fallbackPlan, exhausted, nameOf };
+module.exports = { START_WINDOW_MS, startFailure, dial, fallbackPlan, exhausted, nameOf, howEnded };

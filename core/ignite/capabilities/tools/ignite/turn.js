@@ -353,13 +353,13 @@ async function runTurnAsync(args) {
     let outcome = await spawnTurn(v, resultFile);
     let result = buildResult(v, outcome);
     // While a run fails to start, the next fallback runs in its place. A request that names
-    // fallbacks, even none, gets `failed`, the runs before the one the result describes, and
-    // `exhausted`, true when that last run failed to start too.
+    // fallbacks, even none, gets `failed`, the runs before the one the result describes, each
+    // with `end`, how it ended, and `exhausted`, true when that last run failed to start too.
     const failed = [];
     const failedToStart = () => !result.ok && startFailure(attemptEnd(outcome));
     for (const next of v.fallbacks || []) {
       if (!failedToStart()) break;
-      failed.push({ harness: result.harness, model: result.model, error: result.error });
+      failed.push({ harness: result.harness, model: result.model, error: result.error, end: attemptEnd(outcome) });
       outcome = await spawnTurn(next, `${resultFile}.fallback${failed.length}`);
       result = buildResult(next, outcome);
     }

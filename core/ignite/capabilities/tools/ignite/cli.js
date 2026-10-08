@@ -119,9 +119,10 @@ Result JSON (written even on failure):
   startedAt, endedAt, pid, pidStart, stdoutPath, stderrPath, error?, failed?, exhausted?
 A harness fails to start when it cannot be started or exits with a failure in its
 first 15 seconds. The result describes the last run. A request with fallbacks gets
-failed, the harness, model and error of each run before the last, and exhausted, true
-when the last run failed to start as well with no fallback left. The output of
-fallback N is in <result>.fallbackN.stdout and .stderr.
+failed, the harness, model and error of each run before the last, each with end, how
+that run ended (error when the harness could not be started, else code, signal and
+elapsedMs), and exhausted, true when the last run failed to start as well with no
+fallback left. The output of fallback N is in <result>.fallbackN.stdout and .stderr.
 pid + pidStart (starttime from /proc/<pid>/stat, read while alive) distinguish a
 live run from a reused pid. stdout/stderr are captured to files, not inherited.
 
