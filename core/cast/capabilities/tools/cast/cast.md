@@ -225,7 +225,7 @@ its own refusals.
 The child is spawned with `cwd = <launch-folder>` for every harness (the `--cd`/`--work-dir` flags
 are belt-and-braces on the harnesses that have them). The (possibly descriptor-prepended) task is
 written to the child's stdin and stdin is then closed. Stdout/stderr are inherited. `cast`
-exits with the child's exit code.
+exits with the child's exit code; where a [fallback](#fallback) ran, that is the last run's.
 
 **Output format is deliberately the harness default — no `--output-format`/`--json` flag on a bare
 launch (owner-ruled 1a, 2026-08-18, closing a measured divergence with ignite).** `ignite turn` is the exception: it captures stdout to a file and passes those flags so it can read an exact session id. The contract for every other verb is
