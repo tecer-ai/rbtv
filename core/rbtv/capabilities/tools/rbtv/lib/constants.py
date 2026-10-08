@@ -215,6 +215,11 @@ MATRIX: dict[str, dict[str, str | None]] = {
     },
 }
 
+# The rule the installer writes from the installed tools, one file per harness
+# through the `rule` row above. It has no source file; the `rbtv-` prefix is
+# reserved, so no component's file can take the name.
+TOOLS_RULE = "rbtv-tools"
+
 # The setting each harness's own sub-agent file has for a model and for an
 # effort. None = that file has no such setting: the value is recorded and not
 # applied. Read 2026-10-04 from claude 2.1.289 (its agent frontmatter fields),

@@ -327,7 +327,8 @@ def h_harness_keyed(ctx) -> None:
           (h4 / "AGENTS.md").is_file()
           and "Always do the thing." not in (h4 / "AGENTS.md").read_text(encoding="utf-8")
           and json.loads((h4 / "opencode.json").read_text(encoding="utf-8"))
-          ["instructions"] == [".claude/rules/fixrule.md"]
+          ["instructions"] == [".claude/rules/fixrule.md",
+                               ".claude/rules/rbtv-tools.md"]
           and not (h4 / ".agents/skills/fixrule").exists()
           and (h4 / ".claude/rules/fixrule.md").is_file(),
           str(sorted(q.relative_to(h4).as_posix()

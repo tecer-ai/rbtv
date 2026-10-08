@@ -75,6 +75,7 @@ ORDER = [
     test_parts.vanished_component_removable,
     test_parts.part_level_install_remove,
     test_parts.part_level_claim_release,
+    test_parts.tools_rule,
     test_parts.vanished_component_part_rm,
     test_parts.v1_to_v2_upgrade,
     test_parts.legacy_records_gain_selection_fields_on_write,

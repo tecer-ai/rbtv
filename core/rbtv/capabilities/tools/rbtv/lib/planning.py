@@ -21,6 +21,7 @@ from .constants import (
     OPENCODE_CONFIG_FILE,
     CODEX_PROJECT_DOC_MAX_BYTES,
     SKILL_FOLDER_SKIP,
+    TOOLS_RULE,
 )
 from .catalog import _file_specs
 from .content import (
@@ -30,6 +31,7 @@ from .content import (
     _mark,
     _opencode_mcp_entry,
     sub_agent_content,
+    tools_rule_content,
 )
 from .state import _wanted_files
 from .target import discover_installation, is_agent_target
@@ -63,6 +65,7 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
     hook_owners: dict[str, list] = {}
     sections: list[dict] = []
     instruction_owners: dict[str, list] = {}
+    tools: list[dict] = []
     report: dict = {"no_realization": [], "skill_folders": [], "path_rows": [],
                     "sub_agents_unset": []}
     codex_used = False
@@ -150,6 +153,8 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                 report["path_rows"].append(
                     {"component": cid, "part": pid, "type": method,
                      "entry_point": entry_rel, "comp_dir": str(comp_dir)})
+                tools.append({"owner": (cid, pid), "harnesses": harnesses,
+                              "row": (comp["module"], pid, desc)})
                 continue
             if pid.startswith("rbtv-"):
                 raise Refuse(
@@ -229,6 +234,17 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                     cid, pid)
                 if method == "rule" and harness == "opencode":
                     instruction_owners.setdefault(rel, []).append((cid, pid))
+
+    # D31: the installed tools, listed in one rule that every one of them owns,
+    # so the file is rewritten when the set changes and leaves with the last.
+    listed = [tool["row"] for tool in tools]
+    for tool in tools:
+        for harness in tool["harnesses"]:
+            rel = MATRIX["rule"][harness].format(name=TOOLS_RULE)
+            claim_file(rel, tools_rule_content(rel, TOOLS_RULE, listed),
+                       *tool["owner"])
+            if harness == "opencode":
+                instruction_owners.setdefault(rel, []).append(tool["owner"])
 
     # ── D7/D12: shared-file claims, recomputed from the whole set ──
     claims: list[dict] = []

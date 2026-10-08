@@ -66,6 +66,41 @@ def rule_skill_description(name: str) -> str:
             "DO NOT LOAD WHEN: this rule is already open in this session")
 
 
+TOOLS_RULE_DESCRIPTION = (
+    "CONTAINS: the rbtv tools installed here, each with its description, one "
+    "table per module "
+    "PURPOSE: find an installed tool before writing a script or concluding "
+    "that none exists "
+    "ALWAYS LOAD WHEN: an agent works where an rbtv tool is installed "
+    "DO NOT LOAD WHEN: no rbtv tool is installed")
+
+
+def tools_rule_content(rel: str, name: str,
+                       tools: list[tuple[str, str, str]]) -> str:
+    """The rule that lists the installed tools, written whole from their
+    records: `tools` is (module, tool name, description), and each module gets
+    one table. Codex receives it as a skill, like every rule."""
+    lines = [
+        "# rbtv tools", "",
+        "When a step needs an operation run or an exact result computed, read "
+        "the tables below before you write a script for it or conclude that no "
+        "tool exists. Each row is an rbtv tool installed here: run it by its "
+        "name, and run it with `-h` to read its commands. When no row fits the "
+        "step, continue without one.",
+    ]
+    module = None
+    for tool_module, tool, desc in sorted(tools):
+        if tool_module != module:
+            module = tool_module
+            lines += ["", f"## {module}", "", "| Tool | Description |", "|---|---|"]
+        cell = " ".join(desc.split()).replace("|", "\\|")
+        lines.append(f"| `{tool}` | {cell} |")
+    codex = rel.endswith("/" + SKILL_FILE)
+    head = _head(name, rule_skill_description(name) if codex
+                 else TOOLS_RULE_DESCRIPTION, named=True)
+    return _mark(head + "\n" + "\n".join(lines) + "\n")
+
+
 def sub_agent_settings(harness: str, values: dict) -> tuple[dict[str, str], list[dict]]:
     """One harness's model and effort as its own sub-agent file names them,
     and the values that file cannot carry: [{setting, value, reason}]. The

@@ -46,6 +46,8 @@ def green_arm_all_harnesses(ctx) -> None:
         ".opencode/commands/fixcmd.md",
         ".claude/rules/fixrule.md",
         ".agents/skills/fixrule/SKILL.md",
+        ".claude/rules/rbtv-tools.md",
+        ".agents/skills/rbtv-tools/SKILL.md",
         ".claude/agents/fixagent.md",
         ".opencode/agents/fixagent.md",
         ".codex/agents/fixagent.toml",
@@ -147,10 +149,11 @@ def green_arm_all_harnesses(ctx) -> None:
               "LOAD WHEN: this rule is already open in this session") + "\n---\n"
           + MANAGED_BANNER + "\n# THE RULE\n\nAlways do the thing.\n",
           (target / ".agents/skills/fixrule/SKILL.md").read_text(encoding="utf-8"))
-    check("OpenCode gets the rule through opencode.json: the one rule copy, "
-          "by a path relative to the installation",
+    check("OpenCode gets each rule through opencode.json: the one copy of "
+          "each, by a path relative to the installation",
           json.loads((target / "opencode.json").read_text(encoding="utf-8"))
-          ["instructions"] == [".claude/rules/fixrule.md"],
+          ["instructions"] == [".claude/rules/fixrule.md",
+                               ".claude/rules/rbtv-tools.md"],
           (target / "opencode.json").read_text(encoding="utf-8"))
     check("F3 — NO code path mints the retired .agents/rbtv2-exposure.md",
           not (target / ".agents/rbtv2-exposure.md").exists()
@@ -209,6 +212,7 @@ def green_arm_all_harnesses(ctx) -> None:
               _claim_id("opencode.json", ["mcp", "fixmcp"]),
               _claim_id(".codex/config.toml", None),
               _claim_id(".codex/config.toml", None, "codex-limits"),
+              _claim_id("opencode.json", ["instructions"]),
               _claim_id("opencode.json", ["instructions"]),
               _claim_id("AGENTS.md", None, "fixmod/goodcomp"),
               _claim_id("CLAUDE.md", None, "fixmod/goodcomp"),

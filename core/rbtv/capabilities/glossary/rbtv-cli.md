@@ -56,6 +56,8 @@ Codex joins every `AGENTS.md` from the project root down to the working folder, 
 
 A tool gets a shortcut in `~/.rbtv/bin` pointing to its executable, not an installed executable copy. The `entry` resolves inside the component. A `ws:` entry instead resolves from the installation root, must be relative and cannot contain `..`. Missing shebang or, on POSIX, missing executable permission yields `path-not-runnable`. JSON files in the tool folder whose stem differs from the folder name are skipped.
 
+When at least one tool is installed, rbtv also writes the rule `rbtv-tools`. It has no source file: its body lists every installed tool with the description from its record, in one table per module. It reaches each harness as every rule does. rbtv rewrites it when the installed tools change and removes it with the last tool. An installation lists its own tools and an agent folder lists the tools installed in that folder.
+
 A pack generates no file of its own. `rbtv add --pack NAME` installs its members; a bare name never selects a pack.
 
 ## Select the target and placement
@@ -92,6 +94,7 @@ Edit the source, then choose the refresh that reaches the reader:
 |---|---|
 | Skill or command body, name or description, or a file of a self-contained skill | `rbtv update scaffolding`, and `rbtv agent update AGENT scaffolding` for each agent that has it. Each machine runs them after it receives the source change; the copies are machine-local. `rbtv add NAME` and `rbtv update all` also rewrite the copy. |
 | Rule body, name or description | `rbtv update scaffolding`, and `rbtv agent update AGENT scaffolding` for each agent that has it, on each machine. It rewrites the rule file Claude Code and OpenCode read, the Codex skill and the `opencode.json` list; a hand edit to any of them is lost. |
+| Tool record description | `rbtv update scaffolding`, and `rbtv agent update AGENT scaffolding` for each agent that has the tool, on each machine. It rewrites the `rbtv-tools` rule; a hand edit to that rule is lost. |
 | Component folder-instruction section | Add or scaffolding regeneration; a hand edit inside generated markers is lost. |
 | Maintained folder instruction file's copy under the other harness name | `rbtv update guidance`. It rebuilds no copy or managed section; with guidance `none` it can succeed without writing anything. |
 | Both scaffolding and guidance | `rbtv update all`, in that order. |

@@ -11,10 +11,13 @@ from discovery import HUB_DIR, Refuse, scan_all
 from lib.constants import (
     HARNESSES,
     MANAGED_BANNER,
+    MANAGED_MARK,
     REPO_ROOT,
     SCHEMA,
     STATE_REL,
+    TOOLS_RULE,
 )
+from lib.content import rule_skill_description, tools_rule_content
 from lib.catalog import catalog_files_map
 from lib.record_keys import current_keys
 from lib.claims import _claim_id
@@ -195,6 +198,61 @@ def part_level_claim_release(ctx) -> None:
     check("P-rm — removing the last parts unbooks the component",
           "fixmod/goodcomp" not in (read_state(pws).get("components") or {})
           or not (pws / STATE_REL).exists())
+    ctx.keep(locals())
+
+
+def tools_rule(ctx) -> None:
+    check, tmp = ctx.check, ctx.tmp
+    (catalog, data, legacy, expect, basis_body, mirrors_on_disk, mtr,
+     _mk, rf, pws) = ctx.frame()
+
+    print("\nT — the rule that lists the installed tools")
+    body = tools_rule_content(
+        ".claude/rules/rbtv-tools.md", TOOLS_RULE,
+        [("zmod", "ztool", "Does z."), ("amod", "btool", "Splits a|b\nlines."),
+         ("amod", "atool", "Does a.")])
+    check("T-tables — one table per module, modules and tools sorted, a "
+          "description on one line with its bar escaped",
+          body.endswith(
+              "\n## amod\n\n| Tool | Description |\n|---|---|\n"
+              "| `atool` | Does a. |\n| `btool` | Splits a\\|b lines. |\n"
+              "\n## zmod\n\n| Tool | Description |\n|---|---|\n"
+              "| `ztool` | Does z. |\n")
+          and body.startswith("---\nname: rbtv-tools\ndescription: ")
+          and MANAGED_MARK in body, body)
+
+    tws = tmp / "ws-tools-rule"
+    tws.mkdir()
+    rules = (".claude/rules/rbtv-tools.md", ".agents/skills/rbtv-tools/SKILL.md")
+    do_install(tws, catalog, ["fixmod/goodcomp"], list(HARNESSES),
+               dry_run=False, parts=["fixskill"])
+    check("T-none — an installation with no tool gets no tools rule",
+          not any((tws / rel).exists() for rel in rules))
+    do_install(tws, catalog, ["fixmod/goodcomp"], list(HARNESSES),
+               dry_run=False, parts=["fixtool"])
+    written = (tws / rules[0]).read_text(encoding="utf-8") \
+        if (tws / rules[0]).is_file() else ""
+    codex = (tws / rules[1]).read_text(encoding="utf-8") \
+        if (tws / rules[1]).is_file() else ""
+    check("T-add — adding a tool writes the rule with that tool's "
+          "description under its module, for every harness",
+          "\n## fixmod\n" in written
+          and "| `fixtool` | The fixture tool |" in written
+          and "| `fixtool` | The fixture tool |" in codex
+          and json.dumps(rule_skill_description(TOOLS_RULE)) in codex
+          and json.loads((tws / "opencode.json").read_text(encoding="utf-8"))
+          ["instructions"] == [rules[0]], written)
+    booked = read_state(tws)["components"]["fixmod/goodcomp"]["selected"]
+    check("T-book — the tool owns the rule's files in the record",
+          set(booked["fixtool"]["files"]) == set(rules),
+          str(booked["fixtool"]))
+    do_uninstall(tws, catalog, ["fixmod/goodcomp"], dry_run=False,
+                 parts=["fixtool"])
+    check("T-rm — removing the last tool removes the rule and its "
+          "opencode.json entry",
+          not any((tws / rel).exists() for rel in rules)
+          and not (tws / "opencode.json").exists()
+          and (tws / ".claude/skills/fixskill/SKILL.md").is_file())
     ctx.keep(locals())
 
 

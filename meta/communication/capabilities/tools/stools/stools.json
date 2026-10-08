@@ -1,5 +1,5 @@
 {
   "name": "stools",
-  "description": "The stools entry point every seat resolves — gates send/upload/react/canvas to --workspace ignite-owner behind an active grant (d-slack-identity-a, 2026-08-31); reads and --workspace ignite (bot) stay ungated.",
+  "description": "Slack from one command: reads and searches messages, downloads and uploads files, sends messages, adds reactions and edits canvases. A write to a workspace configured as read-only is refused unless a recorded grant covers it.",
   "entry": "stools_wrapper.py"
 }
