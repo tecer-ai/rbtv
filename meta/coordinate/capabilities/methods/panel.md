@@ -1,89 +1,54 @@
 # Panel
 
-Open for a judgment that needs independent perspectives on one subject.
+A panel sends N sub-agents at the same subject, each contributing an independent point of view, and a synthesis that keeps their disagreements visible. Where a swarm layers waves to cover breadth, a panel is flat: one round of peers whose value is diversity, of perspective, of model, or both. It surfaces what any single viewpoint misses, and makes disagreement a finding instead of averaging it away.
 
-A panel dispatches N sub-agents at the SAME subject, each contributing an independent point
-of view. Where swarm layers waves to cover breadth, a panel is FLAT: one round of peers whose
-value is diversity — different perspectives (agent roles), different models, or both. The
-point: surface what any single viewpoint misses, and make disagreement visible instead of
-averaged away.
+## When a panel pays
 
-## Trigger — a judgment call is in front of you
+A judgment is in front of you: a diagnosis, a verdict, a review, a recommendation, or a design, over more than a trivial evidence base. The test: does answering require weighing evidence that no single file read settles? Then a panel, never one agent and never you. A judgment over N reports handed to one agent both overloads its scope and throws away the independence that makes the answer trustworthy.
 
-- A diagnosis, a verdict, a review, or a recommendation over more than a trivial evidence base
-  is a PANEL. Never one agent, and never the manager itself.
-- The test: does answering require weighing evidence that no single file read settles? Yes →
-  panel. A judgment over N reports handed to one agent both breaks small scope (Delegating work, Staffing) and throws away the independence that makes the answer trustworthy.
-- Trivial and settled by one read → one agent, no panel. Do not convene four lenses to confirm
-  a value.
-
-Read [Delegating work](delegating-work.md) before applying this page if it has not already been read for this task. It owns staffing, launch mechanics, report requirements and output location. This page adds the panel-specific instructions.
-
-## Interview — tiered
-
-- **Always**: propose ONE composition to the user and get a confirm/adjust —
-  the diversity axis (perspectives | models | both), the panelists (each one's angle; on the
-  model axis the models are fixed by the class — Routing below), and whether a rebuttal round is on the table. One short round, then go.
-- **Generative panels** (the panel produces solutions, designs, or drafts — not reviews):
-  FIRST interview the user until the problem and their desired functioning are pinned.
-  Every panelist inherits the problem statement; a vague one wastes the whole panel.
+A fact that one read settles is one agent, or your own read. Four lenses convened to confirm a value spend four agents on nothing.
 
 ## Composition
 
-- Panelists are ALWAYS sub-agents — the manager never takes an angle itself. A viewpoint
-  produced inside the coordinator's context is not independent.
-- Each panelist gets the same subject, a bounded scope, and ONE viewpoint stated in its
-  task. Output schema is REQUIRED — panel outputs are always piped into synthesis.
+- Panelists are always sub-agents. A viewpoint produced inside your own context is not independent, and you are the one who must judge the synthesis.
+- Each panelist gets the same subject, a bounded scope, and one viewpoint stated in its task. An output format is required: panel outputs are always piped into a synthesis.
 - Diversity axes:
-  - **Perspective** — same model, different roles/angles.
-  - **Model** — same task, different models (ideally different providers).
-  - **Both** — the strongest form when the subject warrants the spend.
+  - **Perspective**: same model, different roles or angles.
+  - **Model**: same task, different models, from different providers where the catalog has them.
+  - **Both**: the strongest form, when the subject warrants the spend.
 
-## Routing — the panel's models are fixed by the class (owner ruling 2026-09-24)
+A generative panel (one that produces solutions, designs or drafts rather than reviews) needs the problem pinned first: interview the user until the problem statement and the desired functioning are settled, because every panelist inherits that statement and a vague one wastes the whole panel.
 
-One `cast route` call for the task sets the CLASS and EFFORT for the whole panel. When model
-diversity is a chosen axis, the top-verdict-only rule is deliberately relaxed, and the models are
-NOT chosen: the panel ALWAYS includes every model at the class's level PLUS every model at the level
-directly below it. Read them from `cast models list --catalog --json`.
+## Models
+
+One `cast route` call for the task sets the class and effort for the whole panel. On the model axis the roster is, by default, every model at the class's level plus every model at the level directly below it, read from `cast models list --catalog --json`; the top-verdict-only rule is relaxed for a panel because its point is to hear several models, not the best one.
 
 | Class (its level) | Panel levels |
 |---|---|
 | planner (SOTA) | SOTA + L1 |
 | broad (L1) | L1 + L2 |
 | bounded (L2) | L2 + L3 |
-| mechanical (L3) | L3 only — L4 is the image tier, never used in a panel |
+| mechanical (L3) | L3 only; L4 is the image tier, never on a panel |
 
-- Eligible rows: `use` reads `route` or `panel` — a `panel` row is in the roster FOR this, a
-  model the owner wants heard in a panel but never named as a single verdict. A `use: off` row
-  is out: routing and panels both ignore it.
-- A model listed at both panel levels is used once.
-- A row that cannot run the job drops, and the drop is named in the synthesis: `--access open`
-  drops api rows, and a row whose credential does not resolve cannot launch.
-- Never above the class's own level. The route verdict's effort applies to every panelist.
+- Eligible rows: `use` reads `route` or `panel`. A `panel` row is a model the owner wants heard on a panel but never named as a single verdict. A `use: off` row is out.
+- A model listed at both levels sits once. A row that cannot run the job drops, and the drop is named in the synthesis (`--access open` drops api rows; a row whose credential does not resolve cannot launch).
+- Never above the class's own level. The verdict's effort applies to every panelist.
+
+The full roster is the default because a hand-picked panel drifts toward the models the coordinator already trusts, and an agreement among two models of one provider is weaker than it looks. Show the roster in the plan you present before launching (coordinate skill, rule 1); the user's budget answer is where it narrows. When you narrow it yourself, say which models were left out and why in the synthesis.
 
 ## Synthesis
 
-One run folder per panel (location specified in Delegating work); every
-panelist's raw output file is KEPT there — synthesis condenses, the raw files preserve.
-A synthesis task goes to a sub-agent when the panel has more than two panelists. The
-manager synthesizes a 2-panelist panel only when it can hold the outputs in one page. Either way the synthesis is:
+One run folder per panel; every panelist's raw output file is kept there, because the synthesis condenses and the raw files preserve. A synthesis task goes to a sub-agent when the panel has more than two panelists; you synthesize a two-panelist panel yourself only when both outputs fit one page. Either way the synthesis carries:
 
-- **Convergence** — what multiple viewpoints independently agree on (the strongest findings).
-- **Divergence** — where viewpoints conflict, with EACH side's argument. Never silently
-  merged: a disagreement between independent viewpoints is signal, not noise.
-- **Recommendation** — the manager's call, with its reason.
+- **Convergence**: what several viewpoints independently agree on, the strongest findings.
+- **Divergence**: where viewpoints conflict, with each side's argument. Never silently merged: a disagreement between independent viewpoints is signal.
+- **Recommendation**: your call, with its reason.
 
-## Modes
+A rebuttal round (each panelist reads the others' pages and answers) is worth its cost when the divergence is the finding; propose it in the plan when you expect one.
 
-The mode is whatever the subject needs; compose viewpoints freely. Two worked shapes:
+## Shapes
 
-- **Review panel** — panelists review one artifact, each through a different lens. Example
-  lenses: adversarial (try to break it), consistency, bug hunt, design quality, root cause,
-  first principles, customer/user, investor, completeness (edge cases, states), references
-  (do the cited things exist and say what's claimed). The planning module's checks
-  (clarity, consistency, edges, permissions, resources, scope) are ready-made lenses to
-  reuse when the subject is a plan.
-- **Design panel** — after the deep interview, 2+ panelists each produce an independent
-  solution to the same pinned problem (route class planner/broad — strong models), each with
-  a small bounded scope and a shared output schema. Synthesis compares the designs and
-  recommends one, grafting the best ideas from the others.
+Compose viewpoints freely; two shapes recur:
+
+- **Review panel**: panelists review one artifact, each through a different lens. Lenses that have served: adversarial (try to break it), consistency, bug hunt, design quality, root cause, first principles, customer or user, investor, completeness (edge cases, states), references (do the cited things exist and say what is claimed). The `plan` skill's checks (clarity, consistency, edges, permissions, resources, scope) are ready-made lenses when the subject is a plan.
+- **Design panel**: after the problem is pinned, two or more panelists each produce an independent solution to the same problem, on strong models (class planner or broad), each with a small bounded scope and one output format. The synthesis compares the designs and recommends one, grafting the best ideas from the others.

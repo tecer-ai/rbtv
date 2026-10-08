@@ -1,65 +1,44 @@
 # Swarm
 
-Open for a broad task that needs waves of parallel investigators.
+A swarm attacks one problem with structured waves of sub-agents: a wide base of cheap, fast models does the broad work, and each wave above it is smaller and stronger, building on the files the wave below wrote. It gives breadth and depth at low cost, with every agent's context kept small, and the coordinator reads one synthesis instead of the evidence.
 
-A swarm dispatches structured WAVES of sub-agents for one problem: a wide base of cheap, fast
-models does the broad work, and each wave above it is smaller and stronger, building on the
-wave below. The point: optimal breadth and depth at lower cost, with every agent's context
-kept small.
+A swarm is the wrong block when the problem is one question (one agent answers it) or when what is needed is a verdict over evidence already gathered (a [panel](panel.md)).
 
-A swarm saves the coordinator's context (it reads one synthesis, not the evidence), gets better
-results (a fresh focused context per question), and costs less (cheap models on the wide base,
-strong ones only at the top) — all three at once, or the shape is wrong.
+## Unit and lanes
 
-Read [Delegating work](delegating-work.md) before applying this page if it has not already been read for this task. It owns staffing, launch mechanics, report requirements and output location. This page adds the swarm-specific instructions.
+- One swarm attacks one problem. Its base wave is one agent per independently answerable question of that problem, each with the material that question needs ([Building a scope](scope.md)). Several problems are several swarms, run in parallel when independent; never one swarm whose base agents each hold a whole problem.
+- One lane is one facet, never one problem. A lane whose task names a problem ("investigate issue 3") is not a lane: decompose it into facets and those are the wave.
+- The inverse failure: a question one file read or one command answers is one agent, or your own read. A run folder and a synthesis pass around it cost more than the answer.
 
-## Quick interview — always
+## Waves
 
-Before dispatching, propose ONE architecture to the user and get a confirm/adjust:
-waves (count and size), `cast route` model suggestion for each wave, and depth. One short round, then go.
+One to N waves. Within a wave, agents run in parallel, all working the same direction, each bounded. Waves run in sequence, each built on the previous wave's files. Shapes that fit most jobs:
 
-## Architecture
+- One wave of investigators, when their pages answer the problem directly.
+- Investigators and a summarizer wave, when you would otherwise open more than one lane file.
+- Wide cheap investigators, then fewer stronger investigators acting on their findings, then a summarizer, when the first wave's facts raise a second round of questions.
 
-- Unit: ONE swarm attacks ONE problem. Its base wave is one agent per independently-answerable
-  question of that problem (the small-scope test — Delegating work, Staffing). Several
-  problems are several swarms (run in parallel when independent) — never one swarm whose base
-  agents each hold a whole problem.
-- Lane membership: **ONE LANE = ONE FACET, never one problem.** A lane's scope is a single
-  independently-answerable question about the problem — where a value is written, what a reader
-  parses, which callers exist. If a lane's task names a problem ("investigate issue 3"),
-  it is not a lane; decompose it into facets and those ARE the wave. Inverse guard: a question
-  one file read or one command answers is ONE agent — do not build a wave, a run folder and a
-  synthesis pass around it.
-- **The coordinator never reads the wave's outputs to combine them.** The moment you would open
-  more than one lane's output file to summarize, compare or judge across them, the next wave IS
-  a summarizer wave — dispatch it over those files and read its ONE page. A judgment across the
-  wave (diagnosis, verdict, recommendation) goes to a panel (`panel.md`), not to the coordinator
-  and not to a single agent.
-- 1..N waves. Within a wave, agents run in PARALLEL, each with a bounded, small scope,
-  all working the same direction. Waves run in sequence: each builds on the previous wave's
-  outputs. Shape the pyramid to the job — examples:
-  - A: one wave of investigators
-  - B: investigators + a summarizer wave
-  - C: wide cheap investigators → fewer stronger investigators acting on their findings → summarizer
-- Model per wave comes from `cast route` — the existing classes, no swarm-special routing:
+The coordinator never reads the wave's outputs to combine them. The moment you would open more than one lane's file to summarize, compare or judge across them, the next wave is a summarizer wave: dispatch it over those files and read its one page. A judgment across the wave (a diagnosis, a verdict, a recommendation) goes to a panel, not to you and not to a single agent.
 
-  | Wave role | Route call |
-  |---|---|
-  | base investigators (wide, cheap) | `cast route --access … --type … --class mechanical --optimize price` |
-  | middle investigators | `--class bounded --optimize price` |
-  | summarizer / synthesis | `--class broad --optimize quality` |
+## Model per wave
 
-  Effort is the route verdict's — no override.
+`cast route` names the model per wave from the job's class; the levels are its (`cast route -h`), and there is no swarm-special routing:
+
+| Wave role | Route call |
+|---|---|
+| base investigators (wide, cheap) | `cast route --access … --type … --class mechanical --optimize price` |
+| middle investigators | `--class bounded --optimize price` |
+| summarizer / synthesis | `--class broad --optimize quality` |
+
+Effort is the verdict's. A base lane on a mechanical-class model works only when its scope is tight and its read-set named; when the lane needs judgment, it is a middle lane.
 
 ## Depth
 
-- **balanced** (default): the wave sizes you judge necessary — no overspend on investigators.
-- **deep** (user asks for it): investigator waves unbounded; the summarizer wave stays contained.
+- **balanced** (default): the wave sizes you judge the problem needs; no spend on investigators beyond the questions you can name.
+- **deep** (the user asks for it): investigator waves unbounded; the summarizer wave stays contained.
 
 ## Handoff between waves
 
-One run folder per swarm (location specified in Delegating work). Every
-agent writes its findings to a file there; the next wave's tasks point at the previous
-wave's files — the coordinator composes tasks, it does not relay findings through its own
-context. Give same-wave agents task text with a shared prefix (same structure, per-agent scope
-at the end) to optimize KV cache.
+One run folder per swarm (location as the coordinate skill says). Every agent writes its findings to a file there, and the next wave's tasks point at the previous wave's files: you compose tasks, you do not relay findings through your own context. Give same-wave agents task text with a shared prefix (same structure, the per-agent scope at the end), so the shared part is served from the model's cache.
+
+The plan you show the user before the first launch (coordinate skill, rule 1) is the swarm's architecture: the waves, their sizes, the model per wave and the depth.
