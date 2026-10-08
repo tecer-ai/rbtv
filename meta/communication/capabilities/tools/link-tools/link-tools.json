@@ -1,5 +1,0 @@
-{
-  "name": "link-tools",
-  "description": "Creates or repairs the link in ~/.local/bin that runs the audio tool by its name; --check reports a missing or stale link and writes nothing.",
-  "entry": "link-tools.py"
-}

@@ -14,7 +14,7 @@ as separate steps.
 | the checks | `3-resources/tools/rbtv/meta/communication/capabilities/tools/audio/test_audio.py` — `python3 test_audio.py`, no network |
 
 Run it by path, or install `meta/communication` and use the bare `audio`
-command from a new shell. `link-tools.py` is the older `~/.local/bin` helper.
+command from a new shell.
 `python3` and `requests` are the only requirements (`dependencies.txt`).
 
 ## The three verbs

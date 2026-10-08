@@ -1,6 +1,6 @@
 ---
 name: audio-io
-description: "Use to transcribe or speak with audio, set its language, or check the older local audio PATH link with link-tools. Channel-agnostic: takes and returns file paths."
+description: "Use to transcribe or speak with audio, or set its language. Channel-agnostic: takes and returns file paths."
 ---
 
 <reference>
@@ -23,9 +23,6 @@ skills. Never look for a channel id, a workspace flag or an upload verb here: no
 After installing `meta/communication`, run `audio` by name from a new shell:
 rbtv links it into `~/.rbtv/bin` and puts that directory on PATH.
 The full script path below also works without an install.
-
-`link-tools --check` inspects the older `~/.local/bin/audio` link. Run `link-tools`
-to repair that link only when the task is to maintain the older local link.
 
 | What | Where |
 |---|---|

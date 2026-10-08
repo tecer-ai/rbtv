@@ -1,6 +1,6 @@
 # communication tools
 
-This folder holds the tools of the `communication` component: `audio` (transcribes audio to text and speaks text as audio), `gtools` (Google Workspace from one command), `link-tools` (puts this component's commands on PATH) and `stools` (the entry point for the Slack command, which allows a post made as the owner only under a recorded grant). The program of `gtools` is outside this repository, at the path its record names. Only `audio` has a page. A tool's program, record, tests, data, its page `<tool>/<tool>.md` and its `documentation/` folder belong here. Prose methods belong in `../methods/`; glossary entries belong in `../glossary/`.
+This folder holds the tools of the `communication` component: `audio` (transcribes audio to text and speaks text as audio), `gtools` (Google Workspace from one command) and `stools` (the entry point for the Slack command, which allows a post made as the owner only under a recorded grant). The program of `gtools` is outside this repository, at the path its record names. Only `audio` has a page. A tool's program, record, tests, data, its page `<tool>/<tool>.md` and its `documentation/` folder belong here. Prose methods belong in `../methods/`; glossary entries belong in `../glossary/`.
 
 | File | CONTAINS | PURPOSE | ALWAYS LOAD WHEN |
 |---|---|---|---|
