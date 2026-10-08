@@ -2,7 +2,7 @@
 
 The result: the done entries of the task files in scope are out of those files, deleted or moved verbatim to a file the user names. Open work is untouched.
 
-Inputs: the scope (default: the task files this session changed; otherwise the files or folder the user names); the mode, delete or move; for move, the destination file. Ask for what the user has not said, once, in one question with the list of step 1 in front of them.
+Inputs: the scope (default: the task files this session changed; otherwise the files or folder the user names); the mode, delete or move; for move, the destination file. Ask for what the user has not said, once, in one question with the list of step 1 in front of them. When no user can answer (a headless, scheduled or daemon seat), put the list in your final message and sweep nothing: a sweep removes lines, and nobody confirmed which.
 
 ## 1. Find the done entries
 
