@@ -1,5 +1,5 @@
 {
   "name": "rbtv",
-  "description": "Manages the files an agent is exposed to, and the provider accounts a machine uses: saved logins, switching and usage limits.",
+  "description": "Installs and manages the skills, rules, commands, tools and other files rbtv provides, for an installation or an agent, and the provider accounts a machine uses: saved logins, switching and usage limits.",
   "entry": "install.py"
 }

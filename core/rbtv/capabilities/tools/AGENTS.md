@@ -1,6 +1,6 @@
 # rbtv tools
 
-This folder holds the tool of the `rbtv` component: `rbtv` (manages the files an agent is exposed to, an installation's agents and the provider accounts a machine uses). A tool's program, record, tests, data, its page `<tool>/<tool>.md` and its `documentation/` folder belong here. Prose methods belong in `../methods/`; glossary entries belong in `../glossary/`.
+This folder holds the tool of the `rbtv` component: `rbtv` (installs and manages the skills, rules, commands, tools and other files rbtv provides, an installation's agents and the provider accounts a machine uses). A tool's program, record, tests, data, its page `<tool>/<tool>.md` and its `documentation/` folder belong here. Prose methods belong in `../methods/`; glossary entries belong in `../glossary/`.
 
 | File | CONTAINS | PURPOSE | ALWAYS LOAD WHEN |
 |---|---|---|---|
