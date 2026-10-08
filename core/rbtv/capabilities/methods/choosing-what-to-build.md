@@ -12,13 +12,13 @@ State what content is needed, who needs it and when. If the timing cannot be ide
 
 Apply the framework's deterministic-first principle to counts, dates, comparisons, formats and existence checks. Reuse an existing [Tool](../glossary/tool.md), or build one for a reusable exact operation. Keep judgment in instructions. A one-off computation for one conversation does not require a durable rbtv tool.
 
-A tool's presence does not tell an agent when to run it. Continue to choose the instructions that name its use. A capability likewise needs an explicit route; the installer does not make its prose discoverable.
+An installed tool is listed for every agent by its record's description, so it needs no skill, rule or command to be found; [Tool](../glossary/tool.md) states what that description must carry. A procedure that runs the tool at a fixed step names that step. A capability needs an explicit route; the installer does not make its prose discoverable.
 
 | Need | Kind and required follow-through |
 |---|---|
 | An exact command must run on a harness event even if the agent skips its instructions | [Hook](../glossary/hook.md). Confirm event support. OpenCode receives no rbtv hooks; follow the Hook entry’s unsupported-enforcement action. A prose fallback is not equivalent enforcement. |
 | A server provides actions through the Model Context Protocol | [MCP server](../glossary/mcp-server.md). Configure its local command or address and secret-variable names, never secret values. |
-| One local command-line operation supplies a result | Tool, plus reachable instructions for when to run it |
+| One local command-line operation supplies a result | Tool, with a record description an agent can choose it by |
 
 A model prompt in an outside hook is not an rbtv hook. Classify its instruction content separately.
 
@@ -62,4 +62,4 @@ Write or change a [Prompt](../glossary/prompt.md) when the standing function or 
 
 Check that the selected mechanism delivers the content on a task that needs it and avoids applying it on a task that does not. Review from the requirement, not from the file's current folder. In a conversion, classify each distinct part before opening its authoring entry.
 
-For an exact-answer request phrased as “build a skill,” the result must use a tool for that answer and guidance naming when to run it. Installer acceptance verifies recognized layout, not whether the kind fits the work.
+For an exact-answer request phrased as “build a skill,” the result must use a tool for that answer, found by its record description. Installer acceptance verifies recognized layout, not whether the kind fits the work.

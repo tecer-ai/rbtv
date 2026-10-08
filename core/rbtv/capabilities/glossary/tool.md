@@ -16,7 +16,12 @@ Resolve files shipped with the program from the program's own location. Receive 
 
 Keep nothing the tool writes beside the program. What the user chose or supplied (settings, choices, credentials, keys) goes in `.rbtv/config/<component>/`, under the name of the tool's component; read [Config](config.md) before saving any. What the tool writes while running (state, caches, locks, logs) goes in `.rbtv/runtime/<component>/`; read [Runtime](runtime.md) before writing any.
 
-Perform the operation in the program. Printing commands for the agent to execute returns another procedure, not the requested result. The calling skill, rule, command, folder instructions or prompt must name when to run the tool and the invocation to use. Putting that information only in a source comment or the tool's record does not deliver it to the agent.
+Perform the operation in the program. Printing commands for the agent to execute returns another procedure, not the requested result.
+## How an agent finds the tool
+
+Do not write a skill, rule or command only to tell agents that the tool exists. rbtv writes the `rbtv-tools` rule from the records of the installed tools and supplies it to every agent working where the tool is installed; [rbtv CLI](rbtv-cli.md) describes that rule. The description in the [Tool record](tool-json.md) is the tool's row in it, and `-h` gives the commands. An agent decides from that one line whether the tool fits its step, so write the description as Tool record specifies.
+
+When a procedure needs the tool at a fixed step, the skill, rule, command, folder instructions or prompt that owns the procedure names that step and the invocation. That sentence belongs to the procedure; the tool is found without it.
 
 ## Documentation
 
@@ -28,7 +33,7 @@ When the tool needs a second page, put it under `documentation/` in the same fol
 
 Edit the executable named in the record. The installer creates a launcher, not a second copy of the program, so the next run uses the changed source. See [rbtv CLI](rbtv-cli.md) when changing installation details.
 
-When converting a human-facing program, turn questions into explicit inputs and remove dependence on its working directory. Preserve the caller's needed result. Route instructions about when to use it through [Choosing what to build](../methods/choosing-what-to-build.md); they do not belong in the tool's record.
+When converting a human-facing program, turn questions into explicit inputs and remove dependence on its working directory. Preserve the caller's needed result. State what the program does and returns in the record's description. A procedure that must run it at a fixed step is placed through [Choosing what to build](../methods/choosing-what-to-build.md), not in the record.
 
 Run the named invocation from another folder with a known input, a missing input and an invalid input. Check the result against the known answer, the exit status and each output stream. Confirm that the operation actually occurred and that failure neither waits nor returns a success-shaped result.
 
