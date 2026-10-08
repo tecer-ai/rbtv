@@ -68,8 +68,9 @@ Writes this agent's state.sqlite and refreshes Timers on _artifacts/board.md. A 
 <home>/_artifacts/board.md must exist before SQLite is opened; otherwise the command refuses
 and changes nothing.
 ${SCHEDULE_COMMIT}
-Success: exit 0, "<id> <cadence> <timezone> next=<next fire>"; --json {schedule, warning?}.
-Refusal: exit 1, reason on stderr, with or without --json. No Slack request or prompt.
+Success: exit 0, "<id> <cadence> <timezone> next=<next fire in epoch milliseconds>"; --json {schedule, warning?}.
+Refusal: exit 1, reason on stderr, with or without --json. An option given twice is refused
+("duplicate flag --<name>"). No Slack request or prompt.
 
 Example: ignite schedule add --cron "0 9 * * 1-5" --tz America/Sao_Paulo --note "Check the inbox"
 Next: ignite schedule list
@@ -79,8 +80,9 @@ Next: ignite schedule list
 
 usage: ignite schedule list [--json]
 
-Prints one line per timer, "<id> <cadence> <timezone> next=<next fire> enabled=<0|1> <note>", or
-"no schedules" when there are none. --json prints {schedules}. A read: nothing is written.
+Prints one line per timer, "<id> <cadence> <timezone> next=<next fire in epoch milliseconds>
+enabled=<true|false> <note>", or "no schedules" when there are none. --json prints {schedules}.
+A read: it changes no timer, but it creates state.sqlite when the agent has none.
 
 ${SCHEDULE_CONTEXT}
 Exit 0, or 1 with the reason on stderr when the home cannot be resolved.
@@ -98,8 +100,9 @@ Changes the timer <id>, as printed by ignite schedule list. An option left out k
 The board subject the timer is linked to is kept.
 
 Cadence: give one of --at, --cron, --every to replace it, with the rules of ignite schedule add -h.
-With none of them the cadence is kept. --tz alone changes the zone of a cron timer, and --cron alone
-keeps its zone. A recurring timer cannot be left without a cadence.
+With none of them the cadence is kept. --tz alone changes the zone of a cron timer; on an at or
+every timer it is refused. --cron alone keeps the zone of a cron timer; turning an at or every timer
+into a cron timer needs --tz. A recurring timer cannot be left without a cadence.
 
 Other options:
   --note <text>                 Replace the note.
@@ -109,10 +112,12 @@ Other options:
 ${SCHEDULE_CONTEXT}
 Writes this agent's state.sqlite and refreshes Timers on _artifacts/board.md. A valid
 <home>/_artifacts/board.md must exist before SQLite is opened; otherwise the command refuses
-and changes nothing. An unknown <id> is refused: "unknown schedule: <id>".
+and changes nothing. A missing <id> is refused: "schedule change requires an id"; an unknown one:
+"unknown schedule: <id>".
 ${SCHEDULE_COMMIT}
-Success: exit 0, "<id> <cadence> <timezone> next=<next fire>"; --json {schedule, warning?}.
-Refusal: exit 1, reason on stderr, with or without --json.
+Success: exit 0, "<id> <cadence> <timezone> next=<next fire in epoch milliseconds>"; --json {schedule, warning?}.
+Refusal: exit 1, reason on stderr, with or without --json. An option given twice is refused
+("duplicate flag --<name>").
 
 Example: ignite schedule change 7f3c2a10 --every 2h --enabled true
 `,
@@ -126,7 +131,8 @@ _artifacts/board.md.
 
 ${SCHEDULE_CONTEXT}
 A valid <home>/_artifacts/board.md must exist before SQLite is opened; otherwise the command refuses
-and changes nothing. An unknown <id> is refused: "unknown schedule: <id>".
+and changes nothing. A missing <id> is refused: "schedule cancel requires an id"; an unknown one:
+"unknown schedule: <id>".
 ${SCHEDULE_COMMIT}
 Success: exit 0, "cancelled <id>"; --json {cancelled, warning?}.
 Refusal: exit 1, reason on stderr, with or without --json.
@@ -162,9 +168,12 @@ Next: ignite work COMMAND -h
 usage: ignite work status [--conversation <key>] [--json]
 
 Prints "agentHold=yes" or "agentHold=no", then one line per assignment,
-"<id> <state> <conversation key>", the most recently updated first. State is one of open, held,
-stopped, waiting_owner or waiting_workers. --conversation <key> lists only that conversation's
-assignments. --json prints {agentHold, works}. A read: nothing is written.
+"<id> <state> <conversation key>", the most recently updated first. State is one of open, continue,
+held, stopped, completed, waiting_owner or waiting_workers. --conversation <key> lists only that
+conversation's assignments. --json prints {agentHold, works}: agentHold is the hold record
+{reason, at} or null, and works holds one record per assignment. A read: it changes no assignment,
+but it creates state.sqlite when the agent has none. An option given twice is refused
+("duplicate flag --<name>").
 
 ${HOME}
 Exit 0, or 1 with the reason on stderr when the home cannot be resolved.
@@ -338,7 +347,8 @@ waits for 03:00. Does not mark or consume that slot, so the daemon can still
 run it the same night.
 Takes the installation lock .rbtv/runtime/ignite/memory.lock for checks,
 snapshot reads and publication. Releases it before every model call.
-Contention at entry prints a busy result and does not start a run.
+Contention at entry waits 5 seconds, then prints a busy result and does not start a run.
+A run with nothing to consolidate is quiet: it calls no model.
 A digest or failure notice is queued on the direct-message agent's outbox.
 digestQueued reports a queued digest; noticeQueued reports a queued failure
 notice. Both are false for quiet, busy, or setup-failure results.
@@ -349,10 +359,14 @@ Runs even when dreamer.enabled is false, and does not enable it. The result
 says so. Uses dreamer.model; without that key the run is refused.
 
 Installation: --installation, otherwise the installation containing RBTV_AGENT_HOME,
-or the walk up to .rbtv/config/ignite/config.json. No agent flag. No Slack call.
-Output: one JSON line and nothing else. Exit 0 when the run finished without
-an alert. Exit 1 when the run failed or the lock was busy.
-An option this command does not have is refused with exit 1 and nothing run.
+or the walk up to .rbtv/config/ignite/config.json. No Slack call.
+Output: one JSON line and nothing else, with the fields ok, busy, quiet, changed, alert,
+digestQueued, noticeQueued, delivered (always false here), conflictsSaved, error, enabled
+and note. Exit 0 when the run finished without an alert. Exit 1 when the run failed or the
+lock was busy. A failure before the run (no installation, an invalid configuration, no
+dreamer.model) is the same line, with ok false and the reason in error, and exit 1.
+--agent and --json are accepted and have no effect. Any other option is refused with
+exit 1 and nothing run.
 
 Example: ignite dreamer run --installation /path/to/installation
 Next: ignite dreamer enable -h
@@ -376,11 +390,12 @@ Only dreamer.enabled, and dreamer.model when it is recorded, change. Every other
 the schedule stay as they are.
 
 Installation: --installation, otherwise the installation containing RBTV_AGENT_HOME,
-or the walk up to .rbtv/config/ignite/config.json. No agent flag. No Slack call.
+or the walk up to .rbtv/config/ignite/config.json. No Slack call. --agent is accepted and
+has no effect.
 Success: exit 0, the new state in plain text, or with --json
 {installation, config, enabled, changed, model, modelRecorded}.
 Refusal: exit 1, reason on stderr, nothing written. An unreadable or invalid
-configuration is refused, and so is an option this command does not have.
+configuration is refused, and so is any option other than --installation, --json and --agent.
 
 Example: ignite dreamer enable --installation /path/to/installation
 Next: ignite dreamer run -h
@@ -401,11 +416,12 @@ Already disabled: nothing is written, and the result says so.
 Only dreamer.enabled changes. Every other setting and the schedule stay as they are.
 
 Installation: --installation, otherwise the installation containing RBTV_AGENT_HOME,
-or the walk up to .rbtv/config/ignite/config.json. No agent flag. No Slack call.
+or the walk up to .rbtv/config/ignite/config.json. No Slack call. --agent is accepted and
+has no effect.
 Success: exit 0, the new state in plain text, or with --json
 {installation, config, enabled, changed, model, modelRecorded}.
 Refusal: exit 1, reason on stderr, nothing written. An unreadable or invalid
-configuration is refused, and so is an option this command does not have.
+configuration is refused, and so is any option other than --installation, --json and --agent.
 
 Example: ignite dreamer disable --installation /path/to/installation
 Next: ignite dreamer enable -h

@@ -439,6 +439,27 @@ test('root and group help print no usage form of a child; each verb prints its o
   }
 });
 
+test('schedule list and work status pages describe what the commands print', () => {
+  const home = tempHome();
+  try {
+    fs.mkdirSync(path.dirname(boardPath(home)));
+    fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
+    const store = new Store(path.join(home, 'state.sqlite'));
+    store.upsertConversation({ key: 'T1:C1:1.1', agent: 'a', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
+    store.close();
+    const env = { RBTV_AGENT_HOME: home };
+    const now = () => Date.parse('2026-10-03T12:00:00Z');
+    run(['schedule', 'add', '--every', '1h', '--note', 'n', '--conversation', 'T1:C1:1.1'], { env, now });
+    const list = run(['schedule', 'list'], { env });
+    assert.match(list.out, /^\S+ every:1h fixed next=1791032400000 enabled=true n\n$/);
+    const page = run(['schedule', 'list', '-h'], { env: {} }).out;
+    assert.match(page, /next=<next fire in epoch milliseconds>\nenabled=<true\|false> <note>/);
+    const status = run(['work', 'status', '-h'], { env: {} }).out;
+    assert.match(status, /open, continue,\s+held, stopped, completed, waiting_owner or waiting_workers/);
+    assert.match(status, /agentHold is the hold record\s+\{reason, at\} or null/);
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
 test('retired verbs are unknown', () => {
   for (const verb of ['install', 'update', 'settings']) {
     assert.throws(() => run([verb]), new RegExp(`unknown command: ${verb}`));
