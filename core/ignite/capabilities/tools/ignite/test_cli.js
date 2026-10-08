@@ -7,7 +7,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { Store } = require('./store.js');
-const { main } = require('./cli.js');
+const { main, OPTIONS } = require('./cli.js');
+const { PAGES } = require('./help.js');
 const { getState } = require('./dreamer.js');
 const { nextCron, FIXED_TZ } = require('./schedule.js');
 const { EMPTY_BOARD, parseBoard, boardPath } = require('./board.js');
@@ -458,6 +459,121 @@ test('schedule list and work status pages describe what the commands print', () 
     assert.match(status, /open, continue,\s+held, stopped, completed, waiting_owner or waiting_workers/);
     assert.match(status, /agentHold is the hold record\s+\{reason, at\} or null/);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
+function filesUnder(dir) {
+  return fs.readdirSync(dir, { recursive: true }).map(String).sort()
+    .filter((name) => fs.statSync(path.join(dir, name)).isFile())
+    .map((name) => [name, fs.readFileSync(path.join(dir, name)).toString('base64')]);
+}
+
+const OPTION_KEY = 'T1:C1:1.1';
+
+// Each group runs its refusals twice from the real executable: against a home with a database,
+// then against a home with none. Every file under the installation must stay byte-identical.
+function optionRefusals(group, cases) {
+  test(`${group} refuses an option the verb does not have and writes nothing`, () => {
+    const workspace = tempHome();
+    try {
+      const home = writeConfig(workspace, 'sample', { C1: 'sample' });
+      fs.mkdirSync(path.dirname(boardPath(home)));
+      fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
+      const candidate = path.join(workspace, 'candidate.md');
+      fs.writeFileSync(candidate, EMPTY_BOARD, 'utf8');
+      const db = path.join(home, 'state.sqlite');
+      const store = new Store(db);
+      store.upsertConversation({ key: OPTION_KEY, agent: 'sample', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
+      store.upsertSchedule({ id: 'existing', conversationKey: OPTION_KEY, cadence: 'every:1h', timezone: FIXED_TZ, nextAt: 1000, note: 'Original' });
+      store.close();
+      const env = { ...process.env, RBTV_AGENT_HOME: home, IGNITE_CONVERSATION: OPTION_KEY, NODE_NO_WARNINGS: '1' };
+      const invoke = (args) => spawnSync(process.execPath, [path.join(__dirname, 'cli.js'), ...args], { cwd: workspace, env, encoding: 'utf8' });
+      for (const withDatabase of [true, false]) {
+        if (!withDatabase) fs.rmSync(db);
+        const before = filesUnder(workspace);
+        for (const [verb, option, args] of cases) {
+          const label = `${args.join(' ')} (${withDatabase ? 'database' : 'no database'})`;
+          const message = `'${option}' is not a ${verb} option\nNothing changed.\nignite ${verb} -h`;
+          const result = invoke(args.map((arg) => (arg === 'CANDIDATE' ? candidate : arg)));
+          assert.equal(result.status, 1, label);
+          assert.equal(result.stdout, '', label);
+          assert.equal(result.stderr, `${message}\n`, label);
+          assert.deepEqual(filesUnder(workspace), before, label);
+        }
+      }
+    } finally { fs.rmSync(workspace, { recursive: true, force: true }); }
+  });
+}
+
+optionRefusals('schedule', [
+  ['schedule add', '--bogus', ['schedule', 'add', '--every', '1h', '--note', 'n', '--bogus', '1']],
+  ['schedule add', '--enabled', ['schedule', 'add', '--every', '1h', '--note', 'n', '--enabled', 'false']],
+  ['schedule add', '--audio', ['schedule', 'add', '--every', '1h', '--note', 'n', '--audio']],
+  ['schedule add', '--note=n', ['schedule', 'add', '--every', '1h', '--note=n']],
+  ['schedule list', '--bogus', ['schedule', 'list', '--bogus', '1']],
+  ['schedule change', '--subject', ['schedule', 'change', 'existing', '--subject', 'x']],
+  ['schedule change', '--conversation', ['schedule', 'change', 'existing', '--note', 'Changed', '--conversation', 'x']],
+  ['schedule cancel', '--bogus', ['schedule', 'cancel', 'existing', '--bogus', '1']],
+]);
+optionRefusals('schedules-due', [
+  ['schedules-due', '--bogus', ['schedules-due', '--now', '2026-10-01T13:00:00Z', '--bogus', '1']],
+]);
+optionRefusals('work', [
+  ['work status', '--bogus', ['work', 'status', '--bogus', '1']],
+  ['work retry', '--conversation', ['work', 'retry', '--conversation', OPTION_KEY]],
+  ['work resume', '--bogus', ['work', 'resume', '--bogus', '1']],
+  ['work stop', '--bogus', ['work', 'stop', 'existing', '--bogus', '1']],
+]);
+optionRefusals('wake', [
+  ['wake', '--bogus', ['wake', '--conversation', OPTION_KEY, '--note', 'n', '--bogus', '1']],
+]);
+optionRefusals('post', [
+  ['post', '--bogus', ['post', '--text', 'hi', '--bogus', '1']],
+  ['post', '--note', ['post', '--text', 'hi', '--note', 'n']],
+]);
+optionRefusals('board', [
+  ['board write', '--bogus', ['board', 'write', '--file', 'CANDIDATE', '--bogus', '1']],
+  ['board close', '--file', ['board', 'close', 'Subject', 'Outcome', '--file', 'CANDIDATE']],
+  ['board close', '--audio', ['board', 'close', 'Subject', 'Outcome', '--audio']],
+]);
+optionRefusals('remember', [
+  ['remember', '--bogus', ['remember', 'fact', '--bogus', '1']],
+]);
+
+test('each verb takes exactly the options its help page names', () => {
+  for (const [verb, options] of Object.entries(OPTIONS)) {
+    if (verb === 'remember') {
+      assert.deepEqual(options, []);
+      continue;
+    }
+    const usage = PAGES[verb].match(/^usage: [^]*?\n\n/m)[0];
+    const named = new Set([...usage.matchAll(/--([a-z-]+)/g)].map((match) => match[1]));
+    named.delete('json');
+    assert.deepEqual([...named].sort(), [...options].sort(), verb);
+  }
+});
+
+test('schedule change refuses each empty note schedule add refuses', () => {
+  const home = tempHome();
+  fs.mkdirSync(path.dirname(boardPath(home)));
+  fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
+  const store = new Store(path.join(home, 'state.sqlite'));
+  const deps = { env: { RBTV_AGENT_HOME: home, IGNITE_CONVERSATION: OPTION_KEY } };
+  try {
+    store.upsertConversation({ key: OPTION_KEY, agent: 'sample', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
+    store.upsertSchedule({ id: 'existing', conversationKey: OPTION_KEY, cadence: 'every:1h', timezone: FIXED_TZ, nextAt: 1000, note: 'Original' });
+    const board = fs.readFileSync(boardPath(home), 'utf8');
+    for (const note of ['', '  ', '\n\t']) {
+      for (const args of [['add', '--every', '1h'], ['change', 'existing']]) {
+        assert.throws(() => run(['schedule', ...args, '--note', note], deps),
+          (error) => error.message === '--note requires non-empty text' && error.exitCode === 1, `${args[0]} ${JSON.stringify(note)}`);
+      }
+    }
+    assert.throws(() => run(['schedule', 'add', '--every', '1h'], deps), /^Error: --note is required$/);
+    assert.deepEqual(store.listSchedules().map((row) => row.note), ['Original']);
+    assert.equal(fs.readFileSync(boardPath(home), 'utf8'), board);
+    assert.equal(run(['schedule', 'change', 'existing', '--report', 'always'], deps).code, 0);
+    assert.equal(store.getSchedule('existing').note, 'Original');
+  } finally { store.close(); fs.rmSync(home, { recursive: true, force: true }); }
 });
 
 test('retired verbs are unknown', () => {

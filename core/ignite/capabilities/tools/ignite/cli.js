@@ -21,6 +21,24 @@ const { PAGES, helpPage } = require('./help.js');
 const COMMANDS = ['schedule', 'schedules-due', 'work', 'wake', 'post', 'board', 'remember', 'dreamer'];
 const REPORTS = new Set(['always', 'when-useful']);
 
+// The options each verb takes, beside --json, --agent, --installation and -h. parseOpts refuses any other.
+const OPTIONS = {
+  'schedule add': ['at', 'cron', 'tz', 'every', 'note', 'subject', 'report', 'conversation'],
+  'schedule list': [],
+  'schedule change': ['at', 'cron', 'tz', 'every', 'note', 'report', 'enabled'],
+  'schedule cancel': [],
+  'schedules-due': ['now'],
+  'work status': ['conversation'],
+  'work retry': [],
+  'work resume': [],
+  'work stop': [],
+  wake: ['conversation', 'note', 'work'],
+  post: ['text', 'text-file', 'file', 'audio', 'thread'],
+  'board write': ['file'],
+  'board close': [],
+  remember: [],
+};
+
 const HELP = `ignite — help
 
 Connect an agent to Slack, run one turn, let the calling agent
@@ -132,7 +150,7 @@ Home: RBTV_AGENT_HOME, otherwise --agent <slug> --installation <path>.
 Installation: explicit --installation, otherwise the installation containing the home.
 IGNITE_CONVERSATION supplies thread provenance and the alert target inside a turn.
 Outside a turn, alerts use this agent's configured channel or owner DM.
---help/-h needs no home. Use -- before literal option-like text.
+--help/-h needs no home. An option is refused; use -- before literal option-like text.
 Success: exit 0, "remembered in <path>", then any warning.
 --json: {path, appended, lines, warning}; lines counts bullet lines, warning is null
 when none. Failure: exit 1, reason on stderr, or {path, error} on stdout with
@@ -162,15 +180,19 @@ function parseGlobal(argv) {
   return { flags, rest };
 }
 
-function parseOpts(argv) {
+function parseOpts(argv, verb) {
   const opts = {};
   const positionals = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--') { positionals.push(...argv.slice(i + 1)); break; }
-    if (arg === '--audio') opts.audio = true;
-    else if (arg.startsWith('--')) {
+    if (arg.startsWith('--')) {
       const key = arg.slice(2);
+      if (!OPTIONS[verb].includes(key)) fail(`'${arg}' is not a ${verb} option\nNothing changed.\nignite ${verb} -h`);
+      if (key === 'audio') {
+        opts.audio = true;
+        continue;
+      }
       const value = take(argv, i, arg);
       i += 1;
       if (key === 'file') {
@@ -226,8 +248,9 @@ function openContext(flags, deps, requireBoard = false) {
   };
 }
 
-function requireNote(opts) {
-  if (!opts.note || !opts.note.trim()) fail('--note is required');
+// The note --note gives, or undefined when the option is absent.
+function noteOf(opts) {
+  if (opts.note != null && !opts.note.trim()) fail('--note requires non-empty text');
   return opts.note;
 }
 
@@ -250,7 +273,7 @@ function addSpec(opts, fromMs) {
   return { ...spec, nextAt };
 }
 
-function cmdSchedule(rest, ctx, flags, deps) {
+function cmdSchedule(rest, ctx, flags, deps, parsed) {
   const action = rest[0];
   if (!action || action === '--help') {
     emit(deps, flags, { help: 'schedule' }, PAGES.schedule);
@@ -264,8 +287,8 @@ function cmdSchedule(rest, ctx, flags, deps) {
     return 0;
   }
   if (action === 'add') {
-    const { opts } = parseOpts(rest.slice(1));
-    const note = requireNote(opts);
+    const { opts } = parsed;
+    const note = noteOf(opts) ?? fail('--note is required');
     if (opts.subject != null && (!opts.subject.trim() || /[\r\n]/.test(opts.subject))) fail('--subject requires a non-empty one-line title');
     const key = conversationOf(opts, deps);
     if (!ctx.store.getConversation(key)) fail(`unknown conversation: ${key}`);
@@ -289,7 +312,7 @@ function cmdSchedule(rest, ctx, flags, deps) {
     return 0;
   }
   if (action === 'change') {
-    const { opts, positionals } = parseOpts(rest.slice(1));
+    const { opts, positionals } = parsed;
     const id = positionals[0];
     if (!id) fail('schedule change requires an id');
     const existing = ctx.store.getSchedule(id);
@@ -323,7 +346,7 @@ function cmdSchedule(rest, ctx, flags, deps) {
       timezone,
       nextAt,
       enabled,
-      note: opts.note ?? existing.note,
+      note: noteOf(opts) ?? existing.note,
       report: reportOf(opts, existing.report),
       subject: existing.subject,
     });
@@ -333,8 +356,7 @@ function cmdSchedule(rest, ctx, flags, deps) {
     return 0;
   }
   if (action === 'cancel') {
-    const { positionals } = parseOpts(rest.slice(1));
-    const id = positionals[0];
+    const id = parsed.positionals[0];
     if (!id) fail('schedule cancel requires an id');
     preflightBoard(ctx.home);
     if (!ctx.store.deleteSchedule(id)) fail(`unknown schedule: ${id}`);
@@ -354,8 +376,7 @@ function blockedReason(store, sched) {
   return null;
 }
 
-function cmdDue(rest, ctx, flags, deps) {
-  const { opts } = parseOpts(rest);
+function cmdDue(ctx, flags, deps, { opts }) {
   if (!opts.now) fail('schedules-due requires --now <ISO datetime>');
   const now = Date.parse(opts.now);
   if (Number.isNaN(now)) fail(`bad --now datetime: ${opts.now}`);
@@ -397,13 +418,14 @@ function cmdDue(rest, ctx, flags, deps) {
   return 0;
 }
 
-function cmdWork(rest, ctx, flags, deps) {
+function cmdWork(rest, ctx, flags, deps, parsed) {
   const action = rest[0];
   if (!action || action === '--help') {
     emit(deps, flags, { help: 'work' }, PAGES.work);
     return 0;
   }
-  const { opts, positionals } = parseOpts(rest.slice(1));
+  if (!parsed) fail('work requires status, retry, resume, or stop');
+  const { opts, positionals } = parsed;
   if (action === 'status') {
     const works = ctx.store.listWork({ conversationKey: opts.conversation || null });
     const hold = ctx.store.agentHold();
@@ -421,18 +443,14 @@ function cmdWork(rest, ctx, flags, deps) {
     emit(deps, flags, { cleared: id }, `cleared ${id}\n`);
     return 0;
   }
-  if (action === 'stop') {
-    const id = positionals[0];
-    if (!id) fail('work stop requires an id');
-    const work = ctx.store.stopWork(id);
-    emit(deps, flags, { work }, `stopped ${work.id}\n`);
-    return 0;
-  }
-  fail('work requires status, retry, resume, or stop');
+  const id = positionals[0];
+  if (!id) fail('work stop requires an id');
+  const work = ctx.store.stopWork(id);
+  emit(deps, flags, { work }, `stopped ${work.id}\n`);
+  return 0;
 }
 
-function cmdWake(rest, ctx, flags, deps) {
-  const { opts } = parseOpts(rest);
+function cmdWake(ctx, flags, deps, { opts }) {
   if (!opts.conversation) fail('wake requires --conversation');
   if (!opts.note) fail('wake requires --note');
   const result = ctx.store.wake({ conversationKey: opts.conversation, workId: opts.work || null, note: opts.note });
@@ -449,8 +467,7 @@ function agentChannel(config, slug) {
   fail(`no channel route for agent ${slug}`);
 }
 
-function cmdPost(rest, ctx, flags, deps) {
-  const { opts } = parseOpts(rest);
+function cmdPost(ctx, flags, deps, { opts }) {
   let text = opts.text || '';
   if (opts['text-file']) text = fs.readFileSync(opts['text-file'], 'utf8');
   const files = opts.file || [];
@@ -497,8 +514,7 @@ function cmdBoard(rest, flags, deps) {
   try {
     const [action, ...tail] = rest;
     if (!['write', 'close'].includes(action)) fail('board requires write or close; see ignite board --help');
-    const { opts, positionals } = parseOpts(tail);
-    if (Object.keys(opts).some((key) => action !== 'write' || key !== 'file')) fail('unsupported board option; see ignite board --help');
+    const { opts, positionals } = parseOpts(tail, `board ${action}`);
     if (action === 'write' && (opts.file?.length !== 1 || positionals.length)) fail('board write requires exactly one --file <path>');
     if (action === 'close' && (positionals.length < 2 || positionals.length > 3)) fail('board close requires <subject> <outcome> [thread]');
     const { home, slug } = resolveHome(flags, deps);
@@ -624,8 +640,8 @@ function cmdRemember(rest, flags, deps) {
   }
   let file = null;
   try {
-    const { opts, positionals } = parseOpts(rest);
-    if (Object.keys(opts).length || !positionals.length) fail('remember requires <text>; use -- before option-like text');
+    const { positionals } = parseOpts(rest, 'remember');
+    if (!positionals.length) fail('remember requires <text>; use -- before option-like text');
     const text = positionals.join(' ').replace(/[\r\n\u2028\u2029]+/g, ' ').trim();
     if (!text) fail('remember requires non-empty text');
     const { home, slug, workspace } = resolveHome(flags, deps);
@@ -667,12 +683,12 @@ function cmdRemember(rest, flags, deps) {
   }
 }
 
-function dispatch(command, rest, ctx, flags, deps) {
-  if (command === 'schedule') return cmdSchedule(rest, ctx, flags, deps);
-  if (command === 'schedules-due') return cmdDue(rest, ctx, flags, deps);
-  if (command === 'work') return cmdWork(rest, ctx, flags, deps);
-  if (command === 'wake') return cmdWake(rest, ctx, flags, deps);
-  if (command === 'post') return cmdPost(rest, ctx, flags, deps);
+function dispatch(command, rest, ctx, flags, deps, parsed) {
+  if (command === 'schedule') return cmdSchedule(rest, ctx, flags, deps, parsed);
+  if (command === 'schedules-due') return cmdDue(ctx, flags, deps, parsed);
+  if (command === 'work') return cmdWork(rest, ctx, flags, deps, parsed);
+  if (command === 'wake') return cmdWake(ctx, flags, deps, parsed);
+  if (command === 'post') return cmdPost(ctx, flags, deps, parsed);
   fail(`unknown command: ${command}`);
 }
 
@@ -705,9 +721,12 @@ function main(argv, deps = {}) {
   if (command === 'dreamer') return cmdDreamer(tail, flags, deps);
   if (command === 'deploy') return require('./deploy.js').run(tail, flags, deps, () => resolveInstallation(flags, deps));
   if (!COMMANDS.includes(command)) fail(`unknown command: ${command}\nchoose from connect, disconnect, manage, turn,\nschedule, schedules-due, work, wake, post, board, remember, dreamer, deploy\nNothing changed.\nignite -h`);
+  // The words are checked before the home is opened: a refused option creates no database.
+  const verb = OPTIONS[`${command} ${tail[0]}`] ? `${command} ${tail[0]}` : command;
+  const parsed = OPTIONS[verb] && parseOpts(verb === command ? tail : tail.slice(1), verb);
   const ctx = openContext(flags, deps, command === 'schedule' && ['add', 'change', 'cancel'].includes(tail[0]));
   try {
-    return dispatch(command, tail, ctx, flags, deps);
+    return dispatch(command, tail, ctx, flags, deps, parsed);
   } finally {
     ctx.store.close();
   }
@@ -723,4 +742,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { main, HELP };
+module.exports = { main, HELP, OPTIONS };
