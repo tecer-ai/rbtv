@@ -1,4 +1,4 @@
 {
-  "description": "Standalone skills for brainstorming, interviewing, investigation and backlog triage.",
+  "description": "Skills for thinking a subject through with the user (thinking-partner) and for owner-ruled triage of a backlog (triage).",
   "dependencies": []
 }

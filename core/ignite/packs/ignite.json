@@ -4,7 +4,6 @@
     "meta/communication#slack-message-format",
     "meta/communication#audio-aware",
     "meta/coordinate#coordinate",
-    "meta/functions#investignosis",
     "core/ignite#agent-controls",
     "web/browse#web",
     "office/document#office",
