@@ -1,5 +1,5 @@
 ---
-name: sub-agents
+name: coordinate
 description: "CONTAINS: delegation instructions and routes for swarms, panels and long-source mining PURPOSE: assign bounded work, launch agents and verify their results ALWAYS LOAD WHEN: delegating or launching sub-agents, including through native tools; seeking independent reviews or several perspectives; about to read several supporting files, reports or logs to answer one question; receiving sub-agent results; extracting decisions or concepts from a source too long to read directly DO NOT LOAD WHEN: one read settles the task and no agent is launched"
 ---
 

@@ -1,4 +1,0 @@
-{
-  "description": "How an agent launches sub-agents through cast: one sub-agents skill covering swarm, panel and source mining.",
-  "dependencies": ["python3"]
-}
