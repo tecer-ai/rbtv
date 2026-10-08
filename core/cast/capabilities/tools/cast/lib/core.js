@@ -338,5 +338,5 @@ module.exports = {
   RESUME_USAGE, SESSIONS_USAGE, KNOWN_FLAGS, detachMarks,
   refuseIfDetached, effortMap, EFFORT_RULE,
   listArgs, resolveEffort, resolveEffortValue,
-  parseArgs, taskText, resolveFolder, refuseIfNotLaunchable, lookupModel, resolveModel,
+  parseArgs, taskFile, taskText, resolveFolder, refuseIfNotLaunchable, lookupModel, resolveModel,
 };

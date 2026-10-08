@@ -13,7 +13,7 @@ const { spawnSync } = require('child_process');
 const { ROWS } = require('../supported-models');
 const { providers: PROVIDERS } = require('../providers.json');
 
-const { fail } = require('./core');
+const { fail, taskFile, taskText } = require('./core');
 const { gate } = require('./model-catalog');
 
 const API_USAGE = 'cast api <model> <effort 1-5> (-p TEXT | -f FILE) --output-folder DIR [--image [--input-image PATH ...]] [--target-file PATH] [--timeout N] [--grounded] [--extra-params JSON] [--dry-run]';
@@ -124,6 +124,10 @@ function runApi(rawArgv) {
   if (parsed.promptFile === null && parsed.promptText === null) {
     fail(`refused: exactly one of -p TEXT or -f FILE is required\nusage: ${API_USAGE}`);
   }
+  // The task is read as a launch reads it, before anything is written or started: a -f file that
+  // cannot be read and a task with no text are refused here, with and without --dry-run.
+  if (parsed.promptFile !== null) taskText(taskFile(parsed.promptFile), `the -f file ${parsed.promptFile}`);
+  else taskText(parsed.promptText, 'the -p text');
   if (!parsed.outputFolder) fail(`refused: --output-folder DIR is required\nusage: ${API_USAGE}`);
   if (parsed.image && parsed.grounded) fail('refused: --image and --grounded are mutually exclusive');
   if (parsed.inputImages.length && !parsed.image) fail('refused: --input-image requires --image — it has no effect without image mode');

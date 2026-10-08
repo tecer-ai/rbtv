@@ -272,7 +272,7 @@ A launch with `--headed`, a `--dry-run`, `cast resume` and `cast api` never run 
 | Code | Meaning |
 |---|---|
 | `0` | child ran to completion (its own exit code); also `-h`, `doctor`, `list`, `sessions`, and `models` for a result, a change or no change |
-| `2` | unknown harness/model, launch-folder missing, effort outside 1-5, bad/missing flags, any refusal of `models` |
+| `2` | unknown harness/model, launch-folder missing, effort outside 1-5, bad/missing flags, a task file that cannot be read, a task with no text, any refusal of `models` |
 
 ## Spec source
 
@@ -547,7 +547,10 @@ cast api <model> <effort 1-5> (-p TEXT | -f FILE) --output-folder DIR [--image [
 ```
 
 `-p TEXT` and `-f FILE` (alias `--prompt-file`) are mutually exclusive; `-p` writes the task to
-`<output-folder>/task.md` so it sits beside the result it produced. Effort 1–5 maps onto the
+`<output-folder>/task.md` so it sits beside the result it produced. A `-f` file that is not there or
+cannot be read, and a task that is empty or only whitespace, are refused with exit 2 in the words
+of a launch, with and without `--dry-run`, before the output folder is written and before the
+Python program starts. Effort 1–5 maps onto the
 provider's reasoning knob where one exists (gemini `thinkingBudget`, 1 = off). A caller-supplied
 `--extra-params` is merged, not replaced. `--dry-run` prints the composed subprocess argv as JSON
 `{argv, cwd, effort_word}` and exits 0 with no spawn, no network, and nothing written to disk.

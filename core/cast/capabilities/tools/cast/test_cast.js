@@ -2676,7 +2676,7 @@ process.exit(3);\n`);
   assert.strictEqual(text(at(root, ['models', 'list'])).split('\n')[2], `defaults: cannot read cast's defaults ${defaults}: route is "best" (one of price, quality)`);
 }
 
-// --- a -f task file that is not there is refused in words, never a program error ----------------
+// --- a task that cannot be read, or holds no text, is refused in words, never a program error ---
 {
   const missing = path.join(mkFolder('no-task'), 'no-such-task.md');
   for (const args of [['claude', 'sonnet-5-5', '1', '-f', missing, '--dry-run'], ['resume', 'claude', 'last', '-f', missing, '--dry-run']]) {
@@ -2692,6 +2692,36 @@ process.exit(3);\n`);
   const folder = spawnSync('node', [TOOL, 'claude', 'sonnet-5-5', '1', '-f', path.dirname(missing), '--dry-run'], { encoding: 'utf8' });
   assert.strictEqual(folder.status, 2);
   assert.ok(folder.stderr.startsWith(`cast: refused: cannot read the task file ${path.dirname(missing)}: `) && !folder.stderr.includes('    at '), folder.stderr);
+
+  // `cast api` refuses the same tasks in the same words, with and without --dry-run, before it
+  // writes the output folder or starts its Python program
+  const scratch = path.dirname(missing);
+  const empty = path.join(scratch, 'empty-task.md');
+  fs.writeFileSync(empty, ' \n');
+  // no arm may reach a provider, whatever this machine holds: the folder is in no installation and the key is taken out
+  const env = { ...process.env };
+  delete env.GEMINI_API_KEY;
+  const noFile = `cast: refused: cannot read the task file ${missing}: it does not exist\nNothing changed.\ngive -f a file that exists, or give the task with -p TEXT\n`;
+  const noText = (source) => `cast: refused: the task is empty: ${source} holds no text\nNothing changed.\ngive the task its text, then run the same command again\n`;
+  for (const [task, refusal] of [
+    [['-f', missing], noFile],
+    [['-f', empty], noText(`the -f file ${empty}`)],
+    [['-p', '   '], noText('the -p text')],
+    [['-p', ''], noText('the -p text')],
+  ]) {
+    for (const dry of [[], ['--dry-run']]) {
+      const args = ['api', 'gemini-3.5-flash', '1', ...task, '--output-folder', 'out', ...dry];
+      const res = spawnSync('node', [TOOL, ...args], { cwd: scratch, env, encoding: 'utf8' });
+      assert.strictEqual(res.status, 2, `cast ${args.join(' ')} must be refused: ${res.stdout}${res.stderr}`);
+      assert.strictEqual(res.stdout, '', `cast ${args.join(' ')}`);
+      assert.strictEqual(res.stderr, refusal, `cast ${args.join(' ')}`);
+      assert.ok(!fs.existsSync(path.join(scratch, 'out')), `cast ${args.join(' ')} wrote the output folder`);
+    }
+  }
+  const apiFolder = spawnSync('node', [TOOL, 'api', 'gemini-3.5-flash', '1', '-f', scratch, '--output-folder', 'out'], { cwd: scratch, env, encoding: 'utf8' });
+  assert.strictEqual(apiFolder.status, 2, `cast api -f <a folder> must be refused: ${apiFolder.stdout}${apiFolder.stderr}`);
+  assert.ok(apiFolder.stderr.startsWith(`cast: refused: cannot read the task file ${scratch}: `) && !apiFolder.stderr.includes('    at '), `cast api -f <a folder>: ${apiFolder.stderr}`);
+  assert.ok(!fs.existsSync(path.join(scratch, 'out')), 'cast api -f <a folder> wrote the output folder');
 }
 
 console.log('all cast tests passed');
