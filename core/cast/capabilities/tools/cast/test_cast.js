@@ -367,6 +367,11 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.ok(usage.indexOf('cast --agent AGENT') < usage.indexOf('cast <harness> <model>'), 'the raw form comes second');
   assert.ok(res.stdout.includes('for a worker chosen by `cast route`, or a throwaway'), 'the raw form says what it is for');
   assert.ok(/-p TEXT \/ -f FILE +the TASK/.test(res.stdout), '-p and -f are the task');
+  // the root prints only the forms it runs itself; a verb's usage is printed by `cast <verb> -h`
+  for (const verb of ['resume', 'sessions', 'monitor', 'route', 'list', 'models', 'api', 'doctor']) {
+    assert.ok(!new RegExp(`^ {2}cast ${verb}\\b.*(\\[|<|--|\\|)`, 'm').test(res.stdout), `cast -h must not print a usage form of ${verb}`);
+    assert.ok(new RegExp(`^cast ${verb} {2,}\\S`, 'm').test(res.stdout), `cast -h names ${verb} and what it does`);
+  }
   const frameworkSkill = path.resolve(__dirname, '..', '..', '..', '..', 'rbtv', 'skills', 'framework.md');
   assert.ok(fs.existsSync(frameworkSkill), frameworkSkill);
   assert.ok(res.stdout.includes('core/rbtv/skills/framework.md in the rbtv repository;\nthe same file on this machine:\n  ' + frameworkSkill + '\n'),
@@ -2284,9 +2289,27 @@ else {
     [['remove', 'claude', 'haiku-4-5', 'x'], 'refused: cast models remove takes a harness and a model, got 3 names\nas in a launch: cast models remove claude haiku-4-5\nNothing changed.'],
   ]) refused(unchanged(used.root, () => models(args, used.root)), `${first}\ncast models -h`);
   jsonRefusal(models(['prune', '--json'], used.root), 'invalid-arguments', 'cast models -h');
-  for (const args of [['-h'], ['add', '--help'], ['remove', 'claude', '-h']]) {
-    assert.ok(ok(models(args)).startsWith('usage: cast models list [--selected | --supported | --catalog] [--json]\n       cast models add HARNESS MODEL'), args.join(' '));
+  // The group page prints the usage of no verb; each verb's page prints its own complete usage form.
+  const FORMS = {
+    list: 'cast models list [--selected | --supported | --catalog] [--json]',
+    add: 'cast models add HARNESS MODEL [--dry-run] [--json]',
+    remove: 'cast models remove HARNESS MODEL [--force] [--dry-run] [--json]',
+    set: 'cast models set HARNESS MODEL [--use route|panel|off] [--quality-override Y|N] [--price-override Y|N] [--level LEVEL] [--dry-run] [--json]',
+    update: 'cast models update [HARNESS MODEL] [--dry-run] [--json]',
+    defaults: 'cast models defaults [--route price|quality] [--fallback off|price|quality] [--dry-run] [--json]',
+  };
+  const group = ok(models(['-h']));
+  assert.ok(group.startsWith('usage: cast models VERB [options]\n'), group);
+  for (const [verb, form] of Object.entries(FORMS)) {
+    assert.ok(!group.includes(form), `the group page must not print the usage of models ${verb}`);
+    assert.ok(group.includes(`\n  ${verb} `), `the group page names ${verb}`);
+    for (const args of [[verb, '-h'], [verb, '--help'], ['-h', verb], [verb, 'claude', 'haiku-4-5', '-h']]) {
+      const page = ok(models(args));
+      assert.ok(page.startsWith(`usage: ${form}\n`), `${args.join(' ')}: ${page}`);
+      assert.ok(!Object.values(FORMS).some((other) => other !== form && page.includes(other)), `${args.join(' ')} prints another verb's usage`);
+    }
   }
+  assert.strictEqual(ok(models(['prune', '-h'])), group, 'an unknown verb with -h gets the group page');
 }
 
 // --- the fallback of a launch (lib/fallback.js) -------------------------------------------------

@@ -22,15 +22,15 @@ const { installationRoot } = require('./installation');
 const { CATALOG_REL, COLUMNS, CatalogError, OWN_COLUMNS, SHIPPED_CATALOG, SHIPPED_COLUMNS, editCells, loadSelection, notSupported, saveSelection, supportedRow } = require('./model-catalog');
 const { isAvailable, readJson } = require('./route');
 
-const USAGE = [
-  'cast models list [--selected | --supported | --catalog] [--json]',
-  'cast models add HARNESS MODEL [--dry-run] [--json]',
-  'cast models remove HARNESS MODEL [--force] [--dry-run] [--json]',
-  'cast models set HARNESS MODEL [--use route|panel|off] [--quality-override Y|N] [--price-override Y|N] [--level LEVEL] [--dry-run] [--json]',
-  'cast models update [HARNESS MODEL] [--dry-run] [--json]',
-  'cast models defaults [--route price|quality] [--fallback off|price|quality] [--dry-run] [--json]',
-];
-const VERBS = ['list', 'add', 'remove', 'set', 'update', 'defaults'];
+const USAGE = {
+  list: 'cast models list [--selected | --supported | --catalog] [--json]',
+  add: 'cast models add HARNESS MODEL [--dry-run] [--json]',
+  remove: 'cast models remove HARNESS MODEL [--force] [--dry-run] [--json]',
+  set: 'cast models set HARNESS MODEL [--use route|panel|off] [--quality-override Y|N] [--price-override Y|N] [--level LEVEL] [--dry-run] [--json]',
+  update: 'cast models update [HARNESS MODEL] [--dry-run] [--json]',
+  defaults: 'cast models defaults [--route price|quality] [--fallback off|price|quality] [--dry-run] [--json]',
+};
+const VERBS = Object.keys(USAGE);
 // The options of each verb that take a value, with the values each accepts (null = any word).
 const VALUED = {
   set: { '--use': ['route', 'panel', 'off'], '--quality-override': ['Y', 'N'], '--price-override': ['Y', 'N'], '--level': null },

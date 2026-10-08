@@ -611,7 +611,7 @@ runs in.
 | `capabilities/tools/cast/lib/optional.js` | loading `monitor.js` and `provider-limit.js` so that a failure in either leaves every other verb working |
 | `capabilities/tools/cast/lib/route.js` | `cast route` — the selector |
 | `capabilities/tools/cast/lib/api.js` | `cast api` — the API-worker runner (Google only) |
-| `capabilities/tools/cast/lib/help.js` | `-h` output: the top-level page and the per-verb pages |
+| `capabilities/tools/cast/lib/help.js` | `-h` output: the top-level page, the per-verb pages, and one page for each verb of `cast models` |
 
 `ignite turn` (exact session id, resume with the requested model/effort, result file) is not in this folder: it is `core/ignite/capabilities/tools/ignite/turn.js`, in the Ignite tool. `spark` has its own folder and page: [spark](../spark/spark.md).
 

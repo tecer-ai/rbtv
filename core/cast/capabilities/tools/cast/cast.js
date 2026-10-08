@@ -13,7 +13,7 @@ const { runApi } = require('./lib/api');
 const { USAGE, USAGE_IG, fail, listArgs, parseArgs, resolveEffort, resolveEffortValue, resolveFolder, resolveModel, taskText } = require('./lib/core');
 const { runDoctor } = require('./lib/doctor');
 const { fallbackPlan } = require('./lib/fallback');
-const { printHelp, verbHelpPages } = require('./lib/help');
+const { modelsVerbPages, printHelp, verbHelpPages } = require('./lib/help');
 const { SYSTEM_WRAPPER, launch, runResume } = require('./lib/launch');
 const { runModels } = require('./lib/models');
 const { loadOptional } = require('./lib/optional');
@@ -54,7 +54,11 @@ function main(rawArgv) {
   if (rawArgv[0] === 'models') {
     const rest = rawArgv.slice(1);
     if (rest.includes('-h') || rest.includes('--help')) {
-      process.stdout.write(`${PAGES.models.join('\n')}\n`);
+      // The page of the verb named, wherever -h stands; the group page when none is named.
+      const verb = rest.find((a) => !a.startsWith('-'));
+      const pages = modelsVerbPages();
+      const page = Object.hasOwn(pages, verb) ? pages[verb] : PAGES.models;
+      process.stdout.write(`${page.join('\n')}\n`);
       process.exit(0);
     }
     return runModels(rest);
