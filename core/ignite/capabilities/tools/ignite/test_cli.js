@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { Store } = require('./store.js');
-const { main, OPTIONS } = require('./cli.js');
+const { main, VERBS } = require('./cli.js');
 const { PAGES } = require('./help.js');
 const { getState } = require('./dreamer.js');
 const { nextCron, FIXED_TZ } = require('./schedule.js');
@@ -469,10 +469,13 @@ function filesUnder(dir) {
 
 const OPTION_KEY = 'T1:C1:1.1';
 
-// Each group runs its refusals twice from the real executable: against a home with a database,
-// then against a home with none. Every file under the installation must stay byte-identical.
-function optionRefusals(group, cases) {
-  test(`${group} refuses an option the verb does not have and writes nothing`, () => {
+// Runs each refusal twice from the real executable: against a home with a database, then against
+// a home with none. Every file under the installation must stay byte-identical. A case is
+// [message, args, env]: message and env may be functions of the installation folder, CANDIDATE in
+// args is a valid board candidate file, WORKSPACE the installation folder, and env overrides the
+// environment. No case may create the agent folder "ghost".
+function refusals(name, cases) {
+  test(name, () => {
     const workspace = tempHome();
     try {
       const home = writeConfig(workspace, 'sample', { C1: 'sample' });
@@ -486,22 +489,31 @@ function optionRefusals(group, cases) {
       store.upsertSchedule({ id: 'existing', conversationKey: OPTION_KEY, cadence: 'every:1h', timezone: FIXED_TZ, nextAt: 1000, note: 'Original' });
       store.close();
       const env = { ...process.env, RBTV_AGENT_HOME: home, IGNITE_CONVERSATION: OPTION_KEY, NODE_NO_WARNINGS: '1' };
-      const invoke = (args) => spawnSync(process.execPath, [path.join(__dirname, 'cli.js'), ...args], { cwd: workspace, env, encoding: 'utf8' });
+      const invoke = (args, extra) => spawnSync(process.execPath, [path.join(__dirname, 'cli.js'), ...args], { cwd: workspace, env: { ...env, ...(typeof extra === 'function' ? extra(workspace) : extra) }, encoding: 'utf8' });
       for (const withDatabase of [true, false]) {
         if (!withDatabase) fs.rmSync(db);
         const before = filesUnder(workspace);
-        for (const [verb, option, args] of cases) {
-          const label = `${args.join(' ')} (${withDatabase ? 'database' : 'no database'})`;
-          const message = `'${option}' is not a ${verb} option\nNothing changed.\nignite ${verb} -h`;
-          const result = invoke(args.map((arg) => (arg === 'CANDIDATE' ? candidate : arg)));
+        for (const [message, args, extra] of cases) {
+          const label = `${args.map((arg) => JSON.stringify(arg)).join(' ')} (${withDatabase ? 'database' : 'no database'})`;
+          const result = invoke(args.map((arg) => ({ CANDIDATE: candidate, WORKSPACE: workspace }[arg] ?? arg)), extra);
+          assert.equal(result.stderr, `${typeof message === 'function' ? message(workspace) : message}\n`, label);
           assert.equal(result.status, 1, label);
           assert.equal(result.stdout, '', label);
-          assert.equal(result.stderr, `${message}\n`, label);
           assert.deepEqual(filesUnder(workspace), before, label);
+          assert.equal(fs.existsSync(ghostHome(workspace)), false, label);
         }
       }
     } finally { fs.rmSync(workspace, { recursive: true, force: true }); }
   });
+}
+
+function ghostHome(workspace) {
+  return path.join(workspace, '.rbtv', 'agents', 'ghost');
+}
+
+function optionRefusals(group, cases) {
+  refusals(`${group} refuses an option the verb does not have and writes nothing`,
+    cases.map(([verb, option, args]) => [`'${option}' is not a ${verb} option\nNothing changed.\nignite ${verb} -h`, args]));
 }
 
 optionRefusals('schedule', [
@@ -540,7 +552,7 @@ optionRefusals('remember', [
 ]);
 
 test('each verb takes exactly the options its help page names', () => {
-  for (const [verb, options] of Object.entries(OPTIONS)) {
+  for (const [verb, { options }] of Object.entries(VERBS)) {
     if (verb === 'remember') {
       assert.deepEqual(options, []);
       continue;
@@ -549,6 +561,83 @@ test('each verb takes exactly the options its help page names', () => {
     const named = new Set([...usage.matchAll(/--([a-z-]+)/g)].map((match) => match[1]));
     named.delete('json');
     assert.deepEqual([...named].sort(), [...options].sort(), verb);
+  }
+});
+
+test('each verb takes exactly the positional words its help page names', () => {
+  for (const [verb, { words }] of Object.entries(VERBS)) {
+    if (verb === 'remember') {
+      assert.equal(words, Infinity);
+      continue;
+    }
+    const usage = PAGES[verb].match(/^usage: [^]*?\n\n/m)[0];
+    assert.equal(words, [...usage.matchAll(/(?<!--[a-z-]+) \[?<[a-z]+>| \[thread\]/g)].length, verb);
+  }
+});
+
+const emptyValue = (option, help) => `${option} requires a value that is not empty or only spaces\nNothing changed.\n${help}`;
+
+refusals('an option given an empty value is refused and writes nothing', [
+  [emptyValue('--tz', 'ignite schedule add -h'), ['schedule', 'add', '--every', '1h', '--note', 'n', '--tz', '']],
+  [emptyValue('--tz', 'ignite schedule change -h'), ['schedule', 'change', 'existing', '--tz', '']],
+  [emptyValue('--conversation', 'ignite schedule add -h'), ['schedule', 'add', '--every', '1h', '--note', 'n', '--conversation', '']],
+  [emptyValue('--note', 'ignite wake -h'), ['wake', '--conversation', OPTION_KEY, '--note', '  ']],
+  [emptyValue('--work', 'ignite wake -h'), ['wake', '--conversation', OPTION_KEY, '--note', 'n', '--work', '']],
+  [emptyValue('--conversation', 'ignite work status -h'), ['work', 'status', '--conversation', '']],
+  [emptyValue('--text', 'ignite post -h'), ['post', '--file', 'CANDIDATE', '--text', '']],
+  [emptyValue('--text-file', 'ignite post -h'), ['post', '--text', 'hi', '--text-file', '']],
+  [emptyValue('--file', 'ignite post -h'), ['post', '--text', 'hi', '--file', '']],
+  [emptyValue('--agent', 'ignite -h'), ['schedule', 'list', '--agent', '']],
+  [emptyValue('--installation', 'ignite -h'), ['schedule', 'list', '--installation', '  ']],
+  ...Object.entries(VERBS).flatMap(([verb, { options }]) => options.filter((option) => option !== 'audio')
+    .flatMap((option) => ['', '  ', '\t'].map((value) => [emptyValue(`--${option}`, `ignite ${verb} -h`), [...verb.split(' '), `--${option}`, value]]))),
+]);
+
+refusals('a positional word beyond those a verb takes is refused and writes nothing', [
+  ["unexpected word 'extra': schedule cancel takes at most 1 positional word\nNothing changed.\nignite schedule cancel -h", ['schedule', 'cancel', 'existing', 'extra']],
+  ["unexpected word 'extra': schedule list takes no positional words\nNothing changed.\nignite schedule list -h", ['schedule', 'list', 'extra']],
+  ["unexpected word 'extra': work stop takes at most 1 positional word\nNothing changed.\nignite work stop -h", ['work', 'stop', 'existing', 'extra']],
+  ["unexpected word 'extra': board close takes at most 3 positional words\nNothing changed.\nignite board close -h", ['board', 'close', 'Subject', 'Outcome', '[t](https://example.com/t)', 'extra']],
+  ["unexpected word 'extra': board write takes no positional words\nNothing changed.\nignite board write -h", ['board', 'write', '--file', 'CANDIDATE', 'extra']],
+  ["unexpected word '-x': schedule list takes no positional words\nNothing changed.\nignite schedule list -h", ['schedule', 'list', '--', '-x']],
+  ...Object.entries(VERBS).filter(([, { words }]) => Number.isFinite(words)).map(([verb, { words }]) => [
+    `unexpected word 'extra': ${verb} takes ${words ? `at most ${words} positional word${words > 1 ? 's' : ''}` : 'no positional words'}\nNothing changed.\nignite ${verb} -h`,
+    [...verb.split(' '), ...Array(words).fill('word'), 'extra'],
+  ]),
+]);
+
+const GHOST_COMMANDS = [
+  ['schedule', 'list'],
+  ['schedule', 'add', '--every', '1h', '--note', 'n', '--conversation', OPTION_KEY],
+  ['schedule', 'change', 'existing', '--note', 'Changed'],
+  ['schedule', 'cancel', 'existing'],
+  ['schedules-due', '--now', '2026-10-01T13:00:00Z'],
+  ['work', 'status'],
+  ['work', 'retry'],
+  ['work', 'resume', 'existing'],
+  ['work', 'stop', 'existing'],
+  ['wake', '--conversation', OPTION_KEY, '--note', 'n'],
+  ['post', '--text', 'hi'],
+  ['board', 'write', '--file', 'CANDIDATE'],
+  ['board', 'close', 'Subject', 'Outcome'],
+  ['remember', 'fact'],
+];
+const noAgentFolder = (workspace) => `agent folder not found: ${ghostHome(workspace)}\nNothing changed.\nignite -h`;
+
+refusals('a verb pointed at an agent folder that does not exist refuses and creates nothing', [
+  ...GHOST_COMMANDS.map((args) => [noAgentFolder, [...args, '--agent', 'ghost', '--installation', 'WORKSPACE'], { RBTV_AGENT_HOME: '' }]),
+  ...GHOST_COMMANDS.map((args) => [noAgentFolder, args, (workspace) => ({ RBTV_AGENT_HOME: ghostHome(workspace) })]),
+]);
+
+test('an existing agent folder with no database gets one from a read', () => {
+  for (const args of [['schedule', 'list'], ['work', 'status']]) {
+    const workspace = tempHome();
+    try {
+      const home = writeConfig(workspace, 'sample', { C1: 'sample' });
+      const result = run([...args, '--agent', 'sample', '--installation', workspace], { env: {} });
+      assert.equal(result.code, 0, args.join(' '));
+      assert.equal(fs.existsSync(path.join(home, 'state.sqlite')), true, args.join(' '));
+    } finally { fs.rmSync(workspace, { recursive: true, force: true }); }
   }
 });
 
@@ -565,7 +654,7 @@ test('schedule change refuses each empty note schedule add refuses', () => {
     for (const note of ['', '  ', '\n\t']) {
       for (const args of [['add', '--every', '1h'], ['change', 'existing']]) {
         assert.throws(() => run(['schedule', ...args, '--note', note], deps),
-          (error) => error.message === '--note requires non-empty text' && error.exitCode === 1, `${args[0]} ${JSON.stringify(note)}`);
+          (error) => error.message === emptyValue('--note', `ignite schedule ${args[0]} -h`) && error.exitCode === 1, `${args[0]} ${JSON.stringify(note)}`);
       }
     }
     assert.throws(() => run(['schedule', 'add', '--every', '1h'], deps), /^Error: --note is required$/);

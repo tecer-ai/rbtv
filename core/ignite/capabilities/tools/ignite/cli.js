@@ -21,22 +21,23 @@ const { PAGES, helpPage } = require('./help.js');
 const COMMANDS = ['schedule', 'schedules-due', 'work', 'wake', 'post', 'board', 'remember', 'dreamer'];
 const REPORTS = new Set(['always', 'when-useful']);
 
-// The options each verb takes, beside --json, --agent, --installation and -h. parseOpts refuses any other.
-const OPTIONS = {
-  'schedule add': ['at', 'cron', 'tz', 'every', 'note', 'subject', 'report', 'conversation'],
-  'schedule list': [],
-  'schedule change': ['at', 'cron', 'tz', 'every', 'note', 'report', 'enabled'],
-  'schedule cancel': [],
-  'schedules-due': ['now'],
-  'work status': ['conversation'],
-  'work retry': [],
-  'work resume': [],
-  'work stop': [],
-  wake: ['conversation', 'note', 'work'],
-  post: ['text', 'text-file', 'file', 'audio', 'thread'],
-  'board write': ['file'],
-  'board close': [],
-  remember: [],
+// What each verb takes beside --json, --agent, --installation and -h: its options, and the most
+// positional words. parseOpts refuses any other option and one word more.
+const VERBS = {
+  'schedule add': { options: ['at', 'cron', 'tz', 'every', 'note', 'subject', 'report', 'conversation'], words: 0 },
+  'schedule list': { options: [], words: 0 },
+  'schedule change': { options: ['at', 'cron', 'tz', 'every', 'note', 'report', 'enabled'], words: 1 },
+  'schedule cancel': { options: [], words: 1 },
+  'schedules-due': { options: ['now'], words: 0 },
+  'work status': { options: ['conversation'], words: 0 },
+  'work retry': { options: [], words: 1 },
+  'work resume': { options: [], words: 1 },
+  'work stop': { options: [], words: 1 },
+  wake: { options: ['conversation', 'note', 'work'], words: 0 },
+  post: { options: ['text', 'text-file', 'file', 'audio', 'thread'], words: 0 },
+  'board write': { options: ['file'], words: 0 },
+  'board close': { options: [], words: 3 },
+  remember: { options: [], words: Infinity },
 };
 
 const HELP = `ignite — help
@@ -74,6 +75,7 @@ Home: RBTV_AGENT_HOME, or --agent NAME --installation PATH.
   manage's four change verbs, and schedule, work, wake, post, board,
   remember, and dreamer, use that agent. Help needs neither value.
   Inside a turn the waking program also sets IGNITE_CONVERSATION.
+  A home that is not an existing folder is refused, and nothing is created.
 
 AGENT on connect and disconnect is a name under
 <installation>/.rbtv/agents/, or a path to an agent folder there.
@@ -82,6 +84,7 @@ Shared options: --json  -h, --help
 connect, disconnect and deploy also take --dry-run and --installation.
 --json selects JSON on stdout for a success.
 A refusal is a message on stderr, exit 1, with or without --json.
+An option whose value is empty or only spaces is refused.
 -h and --help work before or after the verb, with no setup.
 
 Start: ignite connect -h
@@ -146,7 +149,8 @@ remember <text>
   No Slack request or interactive prompt. Missing alert configuration does not
   undo the append; the result warns that the owner alert could not be queued.
 
-Home: RBTV_AGENT_HOME, otherwise --agent <slug> --installation <path>.
+Home: RBTV_AGENT_HOME, otherwise --agent <slug> --installation <path>. A home that is not an
+existing folder is refused, and nothing is appended.
 Installation: explicit --installation, otherwise the installation containing the home.
 IGNITE_CONVERSATION supplies thread provenance and the alert target inside a turn.
 Outside a turn, alerts use this agent's configured channel or owner DM.
@@ -154,14 +158,16 @@ Outside a turn, alerts use this agent's configured channel or owner DM.
 Success: exit 0, "remembered in <path>", then any warning.
 --json: {path, appended, lines, warning}; lines counts bullet lines, warning is null
 when none. Failure: exit 1, reason on stderr, or {path, error} on stdout with
---json. Missing or empty text, an unresolved installation root or a filesystem write can fail.
+--json. Missing or empty text, a missing agent folder, an unresolved installation root or a
+filesystem write can fail.
 
 Example: ignite remember "Prefers afternoon appointments"
 `;
 
-function take(argv, i, flag) {
+function take(argv, i, flag, help = 'ignite -h') {
   const value = argv[i + 1];
   if (value == null || value.startsWith('--')) throw new Error(`${flag} requires a value`);
+  if (!value.trim()) fail(`${flag} requires a value that is not empty or only spaces\nNothing changed.\n${help}`);
   return value;
 }
 
@@ -188,12 +194,12 @@ function parseOpts(argv, verb) {
     if (arg === '--') { positionals.push(...argv.slice(i + 1)); break; }
     if (arg.startsWith('--')) {
       const key = arg.slice(2);
-      if (!OPTIONS[verb].includes(key)) fail(`'${arg}' is not a ${verb} option\nNothing changed.\nignite ${verb} -h`);
+      if (!VERBS[verb].options.includes(key)) fail(`'${arg}' is not a ${verb} option\nNothing changed.\nignite ${verb} -h`);
       if (key === 'audio') {
         opts.audio = true;
         continue;
       }
-      const value = take(argv, i, arg);
+      const value = take(argv, i, arg, `ignite ${verb} -h`);
       i += 1;
       if (key === 'file') {
         opts.file = opts.file || [];
@@ -206,6 +212,11 @@ function parseOpts(argv, verb) {
     } else {
       positionals.push(arg);
     }
+  }
+  const { words } = VERBS[verb];
+  if (positionals.length > words) {
+    const limit = words ? `at most ${words} positional word${words > 1 ? 's' : ''}` : 'no positional words';
+    fail(`unexpected word '${positionals[words]}': ${verb} takes ${limit}\nNothing changed.\nignite ${verb} -h`);
   }
   return { opts, positionals };
 }
@@ -221,7 +232,7 @@ function fail(message) {
   throw error;
 }
 
-function resolveHome(flags, deps) {
+function locateHome(flags, deps) {
   const env = deps.env || process.env;
   if (env.RBTV_AGENT_HOME) {
     const home = env.RBTV_AGENT_HOME;
@@ -232,6 +243,15 @@ function resolveHome(flags, deps) {
   if (!workspace) fail('--installation required with --agent');
   const config = loadConfig(workspace);
   return { home: agentHome(config, flags.agent), slug: flags.agent, workspace, config };
+}
+
+// No verb creates the agent folder: a home that is not an existing folder is refused before anything is opened.
+function resolveHome(flags, deps) {
+  const located = locateHome(flags, deps);
+  if (!fs.statSync(located.home, { throwIfNoEntry: false })?.isDirectory()) {
+    fail(`agent folder not found: ${located.home}\nNothing changed.\nignite -h`);
+  }
+  return located;
 }
 
 function openContext(flags, deps, requireBoard = false) {
@@ -246,12 +266,6 @@ function openContext(flags, deps, requireBoard = false) {
     store: new Store(path.join(located.home, 'state.sqlite')),
     castCmd: config?.tools?.cast || 'cast',
   };
-}
-
-// The note --note gives, or undefined when the option is absent.
-function noteOf(opts) {
-  if (opts.note != null && !opts.note.trim()) fail('--note requires non-empty text');
-  return opts.note;
 }
 
 function reportOf(opts, fallback) {
@@ -288,8 +302,8 @@ function cmdSchedule(rest, ctx, flags, deps, parsed) {
   }
   if (action === 'add') {
     const { opts } = parsed;
-    const note = noteOf(opts) ?? fail('--note is required');
-    if (opts.subject != null && (!opts.subject.trim() || /[\r\n]/.test(opts.subject))) fail('--subject requires a non-empty one-line title');
+    const note = opts.note ?? fail('--note is required');
+    if (/[\r\n]/.test(opts.subject ?? '')) fail('--subject requires a one-line title');
     const key = conversationOf(opts, deps);
     if (!ctx.store.getConversation(key)) fail(`unknown conversation: ${key}`);
     const now = deps.now ? deps.now() : Date.now();
@@ -346,7 +360,7 @@ function cmdSchedule(rest, ctx, flags, deps, parsed) {
       timezone,
       nextAt,
       enabled,
-      note: noteOf(opts) ?? existing.note,
+      note: opts.note ?? existing.note,
       report: reportOf(opts, existing.report),
       subject: existing.subject,
     });
@@ -515,8 +529,8 @@ function cmdBoard(rest, flags, deps) {
     const [action, ...tail] = rest;
     if (!['write', 'close'].includes(action)) fail('board requires write or close; see ignite board --help');
     const { opts, positionals } = parseOpts(tail, `board ${action}`);
-    if (action === 'write' && (opts.file?.length !== 1 || positionals.length)) fail('board write requires exactly one --file <path>');
-    if (action === 'close' && (positionals.length < 2 || positionals.length > 3)) fail('board close requires <subject> <outcome> [thread]');
+    if (action === 'write' && opts.file?.length !== 1) fail('board write requires exactly one --file <path>');
+    if (action === 'close' && positionals.length < 2) fail('board close requires <subject> <outcome> [thread]');
     const { home, slug } = resolveHome(flags, deps);
     file = boardPath(home);
     const db = path.join(home, 'state.sqlite');
@@ -722,8 +736,8 @@ function main(argv, deps = {}) {
   if (command === 'deploy') return require('./deploy.js').run(tail, flags, deps, () => resolveInstallation(flags, deps));
   if (!COMMANDS.includes(command)) fail(`unknown command: ${command}\nchoose from connect, disconnect, manage, turn,\nschedule, schedules-due, work, wake, post, board, remember, dreamer, deploy\nNothing changed.\nignite -h`);
   // The words are checked before the home is opened: a refused option creates no database.
-  const verb = OPTIONS[`${command} ${tail[0]}`] ? `${command} ${tail[0]}` : command;
-  const parsed = OPTIONS[verb] && parseOpts(verb === command ? tail : tail.slice(1), verb);
+  const verb = VERBS[`${command} ${tail[0]}`] ? `${command} ${tail[0]}` : command;
+  const parsed = VERBS[verb] && parseOpts(verb === command ? tail : tail.slice(1), verb);
   const ctx = openContext(flags, deps, command === 'schedule' && ['add', 'change', 'cancel'].includes(tail[0]));
   try {
     return dispatch(command, tail, ctx, flags, deps, parsed);
@@ -742,4 +756,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { main, HELP, OPTIONS };
+module.exports = { main, HELP, VERBS };

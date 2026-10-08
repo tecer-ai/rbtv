@@ -30,6 +30,8 @@ class Audio {
         if (code !== 0) return reject(new Error(`audio exited ${code}: ${stderr.trim()}`));
         try { resolve(JSON.parse(stdout)); } catch { reject(new Error('audio returned invalid JSON')); }
       });
+      // A child that exits without reading fails this write; its exit decides the result.
+      child.stdin.on('error', () => {});
       if (input == null) child.stdin.end();
       else child.stdin.end(input);
     });

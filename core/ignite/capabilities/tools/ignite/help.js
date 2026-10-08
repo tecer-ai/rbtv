@@ -8,7 +8,8 @@
 
 const { DREAMER_MODEL } = require('./config.js');
 
-const HOME = 'Home: RBTV_AGENT_HOME, otherwise --agent <slug> --installation <path>.';
+const HOME = `Home: RBTV_AGENT_HOME, otherwise --agent <slug> --installation <path>. A home that is not an
+existing folder is refused, and nothing is created.`;
 
 const SCHEDULE_CONTEXT = `${HOME}
 Installation may be discovered by walking up to .rbtv/config/ignite/config.json.`;
@@ -16,7 +17,8 @@ Installation may be discovered by walking up to .rbtv/config/ignite/config.json.
 const SCHEDULE_COMMIT = `If SQLite commits but board refresh fails, exit 0 reports the id and "committed; board refresh pending"
 (--json adds warning). Do not repeat the mutation. The next board write or turn refreshes Timers from SQLite.`;
 
-const UNKNOWN_OPTION = 'An option this command does not have is refused, and nothing changes.';
+const REFUSED_WORDS = `An option this command does not have, an option whose value is empty or only spaces, and a word
+beyond those in the usage line are each refused, and nothing changes.`;
 
 const CADENCE = `Cadence (exactly one of --at, --cron, --every; an empty cadence is refused):
   --at <ISO datetime with offset>
@@ -72,7 +74,8 @@ and changes nothing.
 ${SCHEDULE_COMMIT}
 Success: exit 0, "<id> <cadence> <timezone> next=<next fire in epoch milliseconds>"; --json {schedule, warning?}.
 Refusal: exit 1, reason on stderr, with or without --json. An option given twice is refused
-("duplicate flag --<name>"). ${UNKNOWN_OPTION}
+("duplicate flag --<name>").
+${REFUSED_WORDS}
 No Slack request or prompt.
 
 Example: ignite schedule add --cron "0 9 * * 1-5" --tz America/Sao_Paulo --note "Check the inbox"
@@ -88,7 +91,8 @@ enabled=<true|false> <note>", or "no schedules" when there are none. --json prin
 A read: it changes no timer, but it creates state.sqlite when the agent has none.
 
 ${SCHEDULE_CONTEXT}
-Exit 0, or 1 with the reason on stderr when the home cannot be resolved. ${UNKNOWN_OPTION}
+Exit 0, or 1 with the reason on stderr when the home cannot be resolved.
+${REFUSED_WORDS}
 
 Example: ignite schedule list
 Next: ignite schedule change -h
@@ -120,7 +124,8 @@ and changes nothing. A missing <id> is refused: "schedule change requires an id"
 ${SCHEDULE_COMMIT}
 Success: exit 0, "<id> <cadence> <timezone> next=<next fire in epoch milliseconds>"; --json {schedule, warning?}.
 Refusal: exit 1, reason on stderr, with or without --json. An option given twice is refused
-("duplicate flag --<name>"). ${UNKNOWN_OPTION}
+("duplicate flag --<name>").
+${REFUSED_WORDS}
 
 Example: ignite schedule change 7f3c2a10 --every 2h --enabled true
 `,
@@ -138,7 +143,8 @@ and changes nothing. A missing <id> is refused: "schedule cancel requires an id"
 "unknown schedule: <id>".
 ${SCHEDULE_COMMIT}
 Success: exit 0, "cancelled <id>"; --json {cancelled, warning?}.
-Refusal: exit 1, reason on stderr, with or without --json. ${UNKNOWN_OPTION}
+Refusal: exit 1, reason on stderr, with or without --json.
+${REFUSED_WORDS}
 
 Example: ignite schedule cancel 7f3c2a10
 `,
@@ -149,7 +155,7 @@ usage: ignite schedules-due --now <ISO datetime>
 
 Enqueue a fresh conversation with no thread or resumed session; input is the schedule id only.
 While one schedule wake is pending, further dues are de-duplicated. Never enqueues for a held or stopped schedule, and never clears a hold.
-${UNKNOWN_OPTION}
+${REFUSED_WORDS}
 `,
 
   work: `ignite work — assignments and holds
@@ -177,7 +183,8 @@ held, stopped, completed, waiting_owner or waiting_workers. --conversation <key>
 conversation's assignments. --json prints {agentHold, works}: agentHold is the hold record
 {reason, at} or null, and works holds one record per assignment. A read: it changes no assignment,
 but it creates state.sqlite when the agent has none. An option given twice is refused
-("duplicate flag --<name>"). ${UNKNOWN_OPTION}
+("duplicate flag --<name>").
+${REFUSED_WORDS}
 
 ${HOME}
 Exit 0, or 1 with the reason on stderr when the home cannot be resolved.
@@ -199,7 +206,8 @@ the failed model before retrying. ignite work resume does the same.
 ${HOME}
 Success: exit 0, "cleared <id>" or "cleared agent hold"; --json {cleared} with the id or "agent".
 Refusal: exit 1, reason on stderr: "work <id> is not held", or "no agent hold" when no id was given.
-Nothing is changed on a refusal. ${UNKNOWN_OPTION}
+Nothing is changed on a refusal.
+${REFUSED_WORDS}
 No Slack request or prompt.
 
 Example: ignite work retry
@@ -218,7 +226,8 @@ assignment is open again and its held queue items run again. With no id, clears 
 ${HOME}
 Success: exit 0, "cleared <id>" or "cleared agent hold"; --json {cleared} with the id or "agent".
 Refusal: exit 1, reason on stderr: "work <id> is not held", or "no agent hold" when no id was given.
-Nothing is changed on a refusal. ${UNKNOWN_OPTION}
+Nothing is changed on a refusal.
+${REFUSED_WORDS}
 No Slack request or prompt.
 
 Example: ignite work resume 4d1e9b
@@ -236,7 +245,8 @@ ignite schedule cancel) and does not clear an agent hold.
 ${HOME}
 Success: exit 0, "stopped <id>"; --json {work}.
 Refusal: exit 1, reason on stderr: "work stop requires an id", or "unknown work" for an id this
-agent does not have. ${UNKNOWN_OPTION}
+agent does not have.
+${REFUSED_WORDS}
 
 Example: ignite work stop 4d1e9b
 Next: ignite work status
@@ -247,7 +257,7 @@ Next: ignite work status
 usage: ignite wake --conversation <key> --note <text> [--work <id>]
 
 Worker completion. Enqueues a continuation. Does not clear a hold.
-${UNKNOWN_OPTION}
+${REFUSED_WORDS}
 `,
 
   post: `ignite — post help
@@ -256,7 +266,9 @@ usage: ignite post (--text <text> | --text-file <path> | --file <path>)... [--au
 
 Without --thread, opens a new thread in the agent's channel. --thread selects an existing conversation in this agent's stored history: its full team:channel:root-ts key or a unique root timestamp. Unknown or ambiguous targets are refused.
 The post joins that conversation's history after delivery; its session and prior history stay intact.
-Enqueues delivery and activates the target. Prints "<conversation key> activated"; --json returns conversationKey, outboxId, clientMsgId, activated and channel. Exit 0 means queued; errors go to stderr with exit 1. ${UNKNOWN_OPTION} No Slack request or interactive prompt in this command.
+Enqueues delivery and activates the target. Prints "<conversation key> activated"; --json returns conversationKey, outboxId, clientMsgId, activated and channel. Exit 0 means queued; errors go to stderr with exit 1.
+${REFUSED_WORDS}
+No Slack request or interactive prompt in this command.
 Example: ignite post --thread T1:C1:123.456 --text "Check complete"
 `,
 
@@ -296,7 +308,8 @@ Caps: 90 non-empty lines excluding the Timers table; 8 subjects, 6 watch-outs,
 ${HOME}
 Installation may be discovered by walking up to .rbtv/config/ignite/config.json.
 No Slack access. Reads an existing state.sqlite to refresh Timers and Flags as part of the
-write; never creates a database. -- ends options. ${UNKNOWN_OPTION}
+write; never creates a database. -- ends options.
+${REFUSED_WORDS}
 Success: exit 0, "written <path>" or "unchanged <path>". Failure: exit 1, reason on stderr; fix
 the candidate and retry. Validation leaves the board unchanged. --json emits {path, changed} or
 {path, error} on stdout; path is null if home resolution failed. No interactive prompts.
@@ -319,7 +332,7 @@ ${HOME}
 Installation may be discovered by walking up to .rbtv/config/ignite/config.json.
 No Slack access. Reads an existing state.sqlite to refresh Timers and Flags as part of the
 change; never creates a database. -- ends options, so a subject or outcome may begin with a dash.
-${UNKNOWN_OPTION}
+${REFUSED_WORDS}
 Success: exit 0, "closed <subject> in <path>". Failure: exit 1, reason on stderr; the board
 stays unchanged. --json emits {path, changed, subject} or {path, error} on stdout; path is null
 if home resolution failed. No interactive prompts.

@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
+const { spawnSync } = require('node:child_process');
 const { Audio } = require('./audio.js');
 
 const tests = [];
@@ -15,7 +16,7 @@ function fakeSpawn(script) {
     child.stderr = new EventEmitter();
     child.stdout.setEncoding = () => child.stdout;
     child.stderr.setEncoding = () => child.stderr;
-    child.stdin = { ended: null, end(data) { this.ended = data == null ? null : String(data); } };
+    child.stdin = { ended: null, on() {}, end(data) { this.ended = data == null ? null : String(data); } };
     calls.push({ cmd, args, child });
     return child;
   }
@@ -81,6 +82,22 @@ test('speak-default-voice', async () => {
   assert.equal(fake.calls[0].args.at(-1), 'V0');
   finish(fake.calls[0].child, { stdout: JSON.stringify({ path: 'out.mp3' }) });
   assert.equal(await pending, 'out.mp3');
+});
+
+// A real child that exits without reading 1 MiB of input. The write fails; the program that
+// called speak must still be running to report the child's exit.
+test('speak-child-exits-without-reading', () => {
+  const script = `
+    const { spawn } = require('node:child_process');
+    const { Audio } = require(${JSON.stringify(require.resolve('./audio.js'))});
+    const audio = new Audio({ command: 'audio', spawn: (cmd, args, opts) => spawn(process.execPath, ['-e', 'process.exit(3)'], opts) });
+    audio.speak('x'.repeat(1024 * 1024), { out: 'unused.mp3' }).then(
+      () => console.log('resolved'),
+      (error) => console.log('rejected: ' + error.message));`;
+  const result = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8' });
+  assert.equal(result.stderr, '');
+  assert.equal(result.stdout, 'rejected: audio exited 3: \n');
+  assert.equal(result.status, 0);
 });
 
 (async () => {
