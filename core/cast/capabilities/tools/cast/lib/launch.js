@@ -13,7 +13,7 @@ const { spawnSync } = require('child_process');
 const { SPECS } = require('../supported-models');
 
 const { HARNESSES, RESUME_USAGE, baseArgv, codexArgv, fail, parseArgs, promptArgv, refuseIfDetached, resolveFolder, shortName } = require('./core');
-const { exhausted, nameOf, startFailure } = require('./fallback');
+const { exhausted, howEnded, nameOf, startFailure } = require('./fallback');
 const { claudeSlug, emitHandle, procStart, stdoutPath } = require('./handles');
 const { loadOptional } = require('./optional');
 const { spawnable } = require('./win-exec');
@@ -71,8 +71,7 @@ function launch({ harness, modelId, effortWord, effortArgv, fallback, ...run }) 
     if (plan === undefined) plan = fallback();
     if (plan === null) return ended('launch failed')(out);
     const say = (text) => process.stderr.write(`cast: ${text}\n`);
-    const how = out.error || `exit ${out.code} after ${Math.round(out.elapsedMs / 1000)}s`;
-    const failed = `${target.harness} ${shortName(target.harness, target.modelId)} did not start (${how})`;
+    const failed = `${target.harness} ${shortName(target.harness, target.modelId)} did not start (${howEnded(out)})`;
     if (plan.problem) {
       say(`${failed}, and no fallback can be chosen: ${plan.problem}`);
       return ended('launch failed')(out);
