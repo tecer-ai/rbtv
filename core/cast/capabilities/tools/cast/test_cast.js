@@ -383,6 +383,12 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.ok(without.includes('\n  --rogue PROMPT-FILE '), '--rogue sits under the same heading');
   assert.ok(!/proper agent/i.test(res.stdout), 'the term is rbtv agent');
   assert.ok(res.stdout.includes('  cast models list\n'), 'help names the command that lists the models');
+  assert.ok(/headless launch of\s+a model that fails to start/.test(res.stdout) && res.stdout.includes('--headed never falls back.'), 'help says only a headless launch falls back');
+  // the writing verbs refuse outside an installation, and each page says so
+  for (const verb of ['add', 'remove', 'set', 'update', 'defaults']) {
+    const page = spawnSync('node', [TOOL, 'models', verb, '-h'], { encoding: 'utf8' }).stdout;
+    assert.ok(page.includes('Outside any installation') || page.includes('outside any installation'), `cast models ${verb} -h says it refuses outside an installation`);
+  }
   assert.ok(res.stdout.includes('\ncast models    '), 'help says what cast models is for');
   // enumerate models from cast's own list of supported models, never by re-parsing its source.
   const shorts = JSON.parse(models(['list', '--json']).stdout).models.map((m) => m.model);
