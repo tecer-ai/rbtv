@@ -18,7 +18,7 @@ on Claude Code ask each round through AskUserQuestion (≤4 questions per call, 
    - The depth the user wants:
      - relentless — 15–25 questions. Recommended to structure, design, or understand a product, problem, or solution.
      - quick — 5–10 questions. Recommended to sanity-check a decision or work a small scope.
-   - Context the user wants to share: attention points, documents, areas to focus, etc. For any mid-interview research or evidence need, including large contexts, delegate to the `investignosis` function (a sibling of this one) or the `coordinate` skill's digest capability, when present or sub-agents so you stay focused on the interview without blowing your own context.
+   - Context the user wants to share: attention points, documents, areas to focus, etc. For any mid-interview research or evidence need, including large contexts, delegate to the `investignosis` function (a sibling of this one) or the `coordinate` skill's digest capability, when present, or to sub-agents so you stay focused on the interview without blowing your own context.
    - Optionally, a role for you to play — designer, investor, client, etc.
 2. Interview:
    - Start with the big questions — the ones whose answers may change the other questions you had in mind.
