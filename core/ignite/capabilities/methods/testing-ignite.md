@@ -55,7 +55,7 @@ The pass signal is exit 0 for every program, plus the line named here. Seconds w
 | `test_audio.js`, `test_config.js`, `test_ingress.js`, `test_manage.js`, `test_memory.js`, `test_outbox.js`, `test_prompt.js`, `test_slack.js` | One line `PASS <name>` per test, no line starting `FAIL` | under 1 each |
 | `test_board.js`, `test_store.js` | Same | 1 and 2 |
 | `test_memory_write.js`, `test_turn_loop.js` | Same | 5 each |
-| `test_connect.js`, `test_cli.js`, `test_deploy.js` | Same, and the last line is `ok` | 17, 29 and 3 |
+| `test_connect.js`, `test_cli.js`, `test_deploy.js` | Same, and the last line is `ok` | 17, 51 and 3 |
 | `test_dreamer.js` | Same | 20 |
 | `test_daemon.js` | Same. It also prints the service's log lines, each starting with `{`; ignore them, and do not read its last line as the result | 25 |
 | `test_turn.js` | Its only line: `test_turn: ok` | 1 |
