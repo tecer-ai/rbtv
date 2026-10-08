@@ -45,7 +45,7 @@ Agent results also include `harness_files` (file outcomes from installing or rem
 
 The `cli-creator` skill in `meta/code` covers both help and actual command results. Its output review checks tables, spacing, wrapping, bulk-result summaries, structured output, and real outcomes against observed state; help coverage alone is insufficient.
 
-The `work-history` skill in `meta/functions` reconstructs a user-agreed project, plan, or session history. It preserves visible transcripts, intermediate and final outputs, and saved working notes in one folder per agent/session, with a linked root timeline, provenance manifest, and explicit recovery gaps. It researches historical evidence; `handoff` transfers current session knowledge for continuation. Install it with `rbtv add work-history` in a configured installation.
+The `final-act` skill in `meta/final-act` closes a session: it checks every request of the conversation was finished, re-checks the files left for later agents, and routes to handoff (what a successor needs), loose ends (executed, filed or disclosed), compound (corrections as improvement entries), archivist (done tasks swept) and work history (the evidence-backed record of a session and its sub-agents, in one folder per agent with a linked timeline and manifest). Install it with `rbtv add final-act` in a configured installation.
 
 > **rbtv is `core/rbtv/capabilities/tools/rbtv/install.py`, run as `rbtv`.**
 >

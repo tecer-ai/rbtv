@@ -15,3 +15,5 @@ When it comes, before you end the change:
 - A page that an agent follows describes the design as it is. Delete a sentence whose only job is to say what the file used to be called or where it was copied from; a comparison with an earlier design goes in the file of decisions, where a superseded decision is replaced, not appended.
 
 Then give the state to a reader with no memory of the work, and ask what it would do first, what it thinks is still running, and what it would open the history for. When an answer is not what you meant, rewrite that place.
+
+The whole of this principle, how it fails and its checks, is [State hygiene](meta/final-act/capabilities/methods/state-hygiene.md): read it when a line above is not enough to settle the file in front of you.
