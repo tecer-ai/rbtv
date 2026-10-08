@@ -1,6 +1,6 @@
 ---
 name: interview
-description: "Interview the user with hard, critical questions to excavate and pressure-test their thinking on an idea, plan, or problem. Use when the user says 'interview me', 'grill me', 'question me', 'ask me questions about', 'pressure-test my thinking', 'poke holes in this' — and whenever the job is to extract something already formed in the user's head, even when they never say 'interview'. Do NOT improvise the questioning: this skill carries the question protocol (rounds, question count, challenge standard). Intent test: the subject is already CLEAR in the user's head and the job is to understand and align on it — where it is still unclear and needs defining, or the user wants new ideas, use `brainstorm` instead."
+description: "Interview the user with hard, critical questions to excavate and pressure-test their thinking on an idea, plan, or problem. Use when the user says 'interview me', 'grill me', 'question me', 'ask me questions about', 'pressure-test my thinking', 'poke holes in this' — and whenever the job is to extract something already formed in the user's head, even when they never say 'interview'. Do NOT improvise the questioning: this skill carries the question protocol (rounds, question count, challenge standard). Intent test: the subject is already CLEAR in the user's head and the job is to understand and align on it — where it is still unclear and needs defining, or the user wants new ideas, use another mode of the `thinking-partner` skill instead."
 ---
 
 on Claude Code ask each round through AskUserQuestion (≤4 questions per call, ≤4 options each, recommendation first and labeled), and put all
@@ -18,7 +18,7 @@ on Claude Code ask each round through AskUserQuestion (≤4 questions per call, 
    - The depth the user wants:
      - relentless — 15–25 questions. Recommended to structure, design, or understand a product, problem, or solution.
      - quick — 5–10 questions. Recommended to sanity-check a decision or work a small scope.
-   - Context the user wants to share: attention points, documents, areas to focus, etc. For any mid-interview research or evidence need, including large contexts, delegate to the `investignosis` function (a sibling of this one) or the `coordinate` skill's digest capability, when present, or to sub-agents so you stay focused on the interview without blowing your own context.
+   - Context the user wants to share: attention points, documents, areas to focus, etc. For any mid-interview research or evidence need, including large contexts, delegate to the `coordinate` skill's digest capability, when present, or to sub-agents so you stay focused on the interview without blowing your own context.
    - Optionally, a role for you to play — designer, investor, client, etc.
 2. Interview:
    - Start with the big questions — the ones whose answers may change the other questions you had in mind.

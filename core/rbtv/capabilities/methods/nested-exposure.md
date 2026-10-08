@@ -8,7 +8,7 @@ Use it when capabilities share a purpose or the same working documents. It reduc
 
 Group capabilities when one purpose covers them without including a neighboring job, or when they operate on the same documents. Do not group them when the reader must distinguish their mutually exclusive situations before choosing either entry point.
 
-For example, questioning an already-formed idea and helping define an unformed idea may need separate descriptions if that distinction determines the initial selection. Do not hide that distinction inside a shared skill.
+For example, committing a change and reviewing a change need separate descriptions when the reader must know which of the two it is doing before it selects an entry point. Do not hide that distinction inside a shared skill.
 
 Split a group when one description, rule-installation condition or folder boundary cannot cover it without matching unrelated work. The resulting entry points do not route to one another.
 

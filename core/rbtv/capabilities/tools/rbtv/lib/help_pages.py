@@ -193,8 +193,8 @@ Types (--type; comma-separated or repeatable):
 """ + _LISTING_TYPES + """
 
 Examples:
-  rbtv show kiss
-  rbtv show meta/behaviour#kiss
+  rbtv show critical-partner
+  rbtv show meta/behaviour#critical-partner
   rbtv show --pack ignite
   rbtv show research
   rbtv show web/research
@@ -355,15 +355,15 @@ Types (--type; comma-separated or repeatable):
 """ + types_block(change="add") + """
 
 First add in an installation needs both --harness and --guidance:
-  rbtv add brainstorm --harness claude,codex --guidance none
+  rbtv add thinking-partner --harness claude,codex --guidance none
 
 --harness chooses which AI tools receive files.
 --guidance chooses the instruction file you maintain. none turns copies
 off. Later adds can omit both.
 
 positional arguments:
-  NAME                  short name (brainstorm), full id
-                        (meta/functions#brainstorm), or whole component
+  NAME                  short name (thinking-partner), full id
+                        (meta/functions#thinking-partner), or whole component
                         (meta/functions)
 
 options:
@@ -399,9 +399,9 @@ options:
   --details             list every file and harness file instead of counting
 
 Examples:
-  rbtv add brainstorm
+  rbtv add thinking-partner
   rbtv add --pack research-kit
-  rbtv add meta/functions#brainstorm --dry-run --details
+  rbtv add meta/functions#thinking-partner --dry-run --details
   rbtv add fact-checker --on claude:sonnet-5:high --on codex:gpt-6-sol:medium
 
 Different filters narrow together. --module web --type skill chooses only
@@ -436,7 +436,7 @@ Types (--type; comma-separated or repeatable):
 """ + types_block(change="remove") + """
 
 Remove a named file:
-  rbtv remove root-cause
+  rbtv remove critical-partner
 
 Turn a pack off:
   rbtv remove --pack research-kit
@@ -683,7 +683,7 @@ options:
 Examples:
   rbtv agent add plans/launch/agents/drafter
   rbtv agent add research --harness opencode --model glm-5.3 --effort high
-  rbtv agent add plans/launch/agents/drafter investignosis
+  rbtv agent add plans/launch/agents/drafter thinking-partner
   rbtv agent add plans/launch/agents/drafter --pack research-kit --dry-run
 
 Next: rbtv agent list
@@ -718,7 +718,7 @@ options:
   --details             list every file and harness file instead of counting
 
 Examples:
-  rbtv agent remove scout interview
+  rbtv agent remove scout thinking-partner
   rbtv agent remove scout --pack ignite --dry-run
   rbtv agent remove scout --all --yes
 

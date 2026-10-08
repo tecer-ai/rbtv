@@ -13,7 +13,7 @@ Create a project design system, or evolve an existing one. Instruction-only — 
 | Read visual identity out of a reference image | `vision-to-json`, `subtle-refs` (same component) |
 | Verify produced HTML against the finished system | `visual-check` (same component) — never this capability |
 | Multi-lens adversarial review | the environment's `panel` capability |
-| The relentless owner interview | the environment's `interview` function |
+| The relentless owner interview | the `thinking-partner` skill's interview mode |
 
 `design-tokens` extracts what a site HAS; this capability decides, with the owner, what the system SHOULD BE — it consumes extraction output as evidence, never replaces it.
 
@@ -52,7 +52,7 @@ Write the gathered evidence into a working note at the output path. Evidence is 
 
 ### 3. Relentless owner interview
 
-Invoke the environment's `interview` function in **relentless** mode (15–25 questions). This step is MANDATORY — the interview is where the system's semantics come from, and no evidence pile replaces it. Cover at minimum:
+Open the `thinking-partner` skill's interview mode at **relentless** depth (15–25 questions). This step is MANDATORY — the interview is where the system's semantics come from, and no evidence pile replaces it. Cover at minimum:
 
 - Principles — what the design optimizes for, and what it deliberately refuses.
 - Color semantics — what each palette layer MEANS (status, kind/category, interaction), not just which hexes exist.

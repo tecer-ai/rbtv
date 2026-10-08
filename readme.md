@@ -30,11 +30,11 @@ For a first run, point rbtv at an existing installation directory. `status` show
 
 ```bash
 rbtv status --target /path/to/installation
-rbtv list brainstorm --target /path/to/installation
-rbtv show brainstorm --target /path/to/installation
-rbtv add brainstorm --target /path/to/installation --harness claude,codex --guidance none
+rbtv list thinking-partner --target /path/to/installation
+rbtv show thinking-partner --target /path/to/installation
+rbtv add thinking-partner --target /path/to/installation --harness claude,codex --guidance none
 rbtv status --target /path/to/installation
-rbtv remove brainstorm --target /path/to/installation
+rbtv remove thinking-partner --target /path/to/installation
 ```
 
 On a fresh installation, run `configure --harness NAMES --guidance NAME` or supply both settings on the first `add`. A named guidance file must already exist at the installation root; use `none` when no such file is maintained. A short name selects one exposed file such as a skill or rule when unique; a full `module/component` name selects a component. `list NAME` opens that exact scope, while `search WORDS` looks across names and descriptions. For another agent, set `--target` to its home directory on each command. Use `--dry-run` to preview a change and `--json` for a machine-readable result. Bare `rbtv` prints help; `rbtv interactive` starts the guided flow.

@@ -45,7 +45,7 @@ One label per assumption, ALWAYS with the evidence — or the absence of evidenc
 
 **Convenience is the most valuable label and the one people resist.** Look for it wherever an assumption is load-bearing and conveniently unexamined.
 
-Where a label turns on evidence neither of you holds — what a system actually does, a current number, whether a fact has since changed — DELEGATE the check to the `investignosis` function (a sibling of this one) or the `coordinate` skill's digest capability, when present, or to sub-agents, and keep working the other assumptions while it runs. NEVER go read things yourself mid-audit; the conversation dies when you leave it. Where the check cannot be run now, classify **Unproven** and say what would settle it.
+Where a label turns on evidence neither of you holds — what a system actually does, a current number, whether a fact has since changed — DELEGATE the check to the `coordinate` skill's digest capability, when present, or to sub-agents, and keep working the other assumptions while it runs. NEVER go read things yourself mid-audit; the conversation dies when you leave it. Where the check cannot be run now, classify **Unproven** and say what would settle it.
 
 ### 3. Rewrite each as a testable question
 

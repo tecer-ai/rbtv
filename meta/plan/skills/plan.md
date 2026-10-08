@@ -1,6 +1,6 @@
 ---
 name: plan
-description: "CONTAINS: the method for writing a plan folder: workflow table, agent folders, task files, owner checkpoints, judge agents and the review before handover PURPOSE: turn settled work into a workflow of rbtv agents that a coordinating agent executes without its author ALWAYS LOAD WHEN: work whose scope and decisions are settled is to run as several rbtv agents with dependencies or shared files DO NOT LOAD WHEN: scope or decisions are still open, which the interview or brainstorm skill settles; or the tasks launch without agent folders, which the coordinate skill covers"
+description: "CONTAINS: the method for writing a plan folder: workflow table, agent folders, task files, owner checkpoints, judge agents and the review before handover PURPOSE: turn settled work into a workflow of rbtv agents that a coordinating agent executes without its author ALWAYS LOAD WHEN: work whose scope and decisions are settled is to run as several rbtv agents with dependencies or shared files DO NOT LOAD WHEN: scope or decisions are still open, which the thinking-partner skill settles; or the tasks launch without agent folders, which the coordinate skill covers"
 ---
 
 # Plan

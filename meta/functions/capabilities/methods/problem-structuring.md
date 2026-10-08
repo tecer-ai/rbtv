@@ -62,7 +62,7 @@ State your read back — type, how clear the problem currently is, whether it is
 
 Cover root cause, impact and cost of inaction, what has been tried, constraints, success criteria, and who decides. Ask in rounds — the highest-impact questions first, then follow-ups that the answers unlocked. Two or three rounds, four or five questions in the first, fewer after.
 
-Where an answer depends on evidence neither of you holds — a number in the files, what a system actually does, market or competitor facts — DELEGATE it to the `investignosis` function (a sibling of this one) or the `coordinate` skill's digest capability, when present, or to sub-agents, and keep questioning while it runs. NEVER halt the conversation to go read things yourself; the brainstorm dies when you leave it.
+Where an answer depends on evidence neither of you holds — a number in the files, what a system actually does, market or competitor facts — DELEGATE it to the `coordinate` skill's digest capability, when present, or to sub-agents, and keep questioning while it runs. NEVER halt the conversation to go read things yourself; the brainstorm dies when you leave it.
 
 Close the stage by stating back the core issue, the key drivers, the constraints, and what "solved" looks like. Get confirmation.
 
