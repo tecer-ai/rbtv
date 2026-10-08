@@ -10,6 +10,10 @@ A launch runs a fallback when the harness cannot be started or exits with a fail
 
 `cast monitor` reports a job that is alive without progress, and nothing kills or relaunches a job on that report. Reason: the monitor's stall verdict has been wrong on a healthy job, and a fallback on a stall would need to kill the first run.
 
+## A job's first verdict never reports a freeze
+
+The first time `cast monitor` judges a job, it has watched the job's processes for 1.2 seconds only, and a job that shows no life in that time reads `SUSPECT`, never `STALLED` or `NO-SIGNAL`. A one-shot roster therefore never shows those two states, and `cast monitor --watch` reports a frozen job on its second poll of that job at the earliest. Reason: a read of one instant or of 1.2 seconds has been wrong on healthy jobs, which stay quiet for longer while they wait on a reply or a sleeping child, and a wrong "frozen" has cost a killed job. `provider-limit` and `DEADLINE` are reported on the first verdict, because neither rests on that read.
+
 ## The fallback is chosen from the model catalog, not named per model or per agent
 
 A launch finds its fallback by ranking the other models of the failed model's level, the way `cast route` ranks. Reason: a column or an agent field that names one stand-in per model is a second table to fill and to keep valid each time a model is replaced, and the model catalog already holds what the choice needs.

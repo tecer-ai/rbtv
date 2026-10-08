@@ -19,7 +19,9 @@ const { winTreeSample } = require('./win-proc');
 // it has seen alive that left liveJobs() is ENDED — not finished-vs-died; cast does not record
 // wrapper exit codes. Terminal freeze states: STALLED (no life for --stall) and NO-SIGNAL (no
 // signal and no work ever, --grace past launch). SUSPECT is the non-terminal middle: the
-// harness signal is silent but a second channel still shows life.
+// harness signal is silent but a second channel still shows life, or has been read over the
+// baseline window only. A one-shot roster therefore never shows a terminal freeze state, and a
+// watch reports a freeze on its second poll of a job at the earliest.
 //
 // Two channels per job. S1, the harness progress signal (transcript/rollout/session mtime), goes
 // silent whenever the agent blocks on one long tool call — a probe suite writing to a --summary
@@ -196,7 +198,8 @@ function primeWitness(jobs, cache) {
 function witness(h, now, memo, pollMs = FLOOR_POLL_MS) {
   const s = treeSample(h);
   const prev = memo.prev; // primeWitness gave every job its baseline
-  if (memo.primedMs) { pollMs = memo.primedMs; memo.primedMs = 0; }
+  const first = Boolean(memo.primedMs); // this delta spans the baseline window, not a poll
+  if (first) { pollMs = memo.primedMs; memo.primedMs = 0; }
   const dCpu = s.cpu - prev.cpu;
   const dIo = s.io - prev.io;
   const evidence = dCpu >= cpuFloor(h, pollMs)
@@ -205,7 +208,7 @@ function witness(h, now, memo, pollMs = FLOOR_POLL_MS) {
   memo.prev = s;
   if (evidence) { memo.lastEvidenceAt = now; memo.hadWork = true; }
   if (s.capSize !== null && s.capSize >= OUT_BANNER_BYTES) memo.hadWork = true;
-  return { evidence, sample: s, dCpu: Math.max(0, dCpu), dIo: Math.max(0, dIo) };
+  return { evidence, first, sample: s, dCpu: Math.max(0, dCpu), dIo: Math.max(0, dIo) };
 }
 
 // claude: the parent transcript goes FLAT while subagents work, so the subagent subtree is a
@@ -297,6 +300,9 @@ function progressAt(h, cache) {
 // A terminal verdict needs BOTH channels silent, held across a confirm window of two polls.
 // A job's first verdict judges the short delta primeWitness took, so the one-shot roster and the
 // first poll of a watch read life over FIRST_DELTA_MS where a later poll reads it over --poll.
+// That window is too short to prove silence — a healthy job waiting on a reply or a sleeping
+// child is quiet for longer — so a first verdict is never STALLED or NO-SIGNAL: it holds SUSPECT
+// and the next poll decides. provider-limit and DEADLINE do not rest on the witness.
 function classify(h, now, stallMs, graceMs, pollMs, cache, deadlineMs = DEADLINE_MS) {
   const memo = jobMemo(cache, h);
   const w = witness(h, now, memo, pollMs);
@@ -311,21 +317,23 @@ function classify(h, now, stallMs, graceMs, pollMs, cache, deadlineMs = DEADLINE
     sessionId: h.harness === 'opencode' ? cache.get(`bind:${h.pid}:${h.start}`) : undefined,
   });
   const base = { witness: w, evAge, limit };
+  const held = w.evidence || w.first || evAge < confirmMs;
   if (limit) return { state: 'provider-limit', age: at === null ? evAge : now - at, ...base };
   if (now - h.t0 >= deadlineMs) return { state: 'DEADLINE', age: at === null ? evAge : now - at, ...base };
   if (at !== null) {
     const age = now - at;
     if (age < stallMs) return { state: 'ok', age, ...base };
-    if (w.evidence || evAge < confirmMs) return { state: 'SUSPECT', age, ...base };
+    if (held) return { state: 'SUSPECT', age, ...base };
     return { state: 'STALLED', age, ...base };
   }
   if (memo.hadWork) {
     // unbound but demonstrably worked (§3b 2026-08-19): rides the stall clock from its last
     // evidence, never the grace clock — NO-SIGNAL is reserved for never-any-work.
-    return { state: evAge >= stallMs ? 'STALLED' : 'ok', age: evAge, ...base };
+    if (evAge < stallMs) return { state: 'ok', age: evAge, ...base };
+    return { state: w.first ? 'SUSPECT' : 'STALLED', age: evAge, ...base };
   }
   if (now - h.t0 <= graceMs) return { state: 'ok', age: null, ...base };
-  if (w.evidence || evAge < confirmMs) return { state: 'SUSPECT', age: null, ...base };
+  if (held) return { state: 'SUSPECT', age: null, ...base };
   return { state: 'NO-SIGNAL', age: null, ...base };
 }
 

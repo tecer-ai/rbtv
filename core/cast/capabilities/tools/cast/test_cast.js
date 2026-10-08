@@ -772,7 +772,8 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.ok(!res.stderr.includes('unreadable'), 'an absent opencode store is silent, not an error');
 }
 
-// cast monitor: roster drops dead pids, --watch fires STALL on a live-but-frozen job
+// cast monitor: roster drops dead pids and never shows a freeze; --watch fires STALL on a
+// live-but-frozen job, on a poll after its first
 {
   const folder = mkFolder('monitor');
   const home = mkFolder('monitor-home');
@@ -787,7 +788,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.strictEqual(noReg.status, 0, 'no live rows must exit 0');
   assert.strictEqual(noReg.stdout, '', 'watch must be silent with nothing to report');
 
-  // a live process we own, with a stale transcript -> STALLED
+  // a live process we own, with a stale transcript -> frozen
   const sleeper = spawnSleeper();
   try {
     const { start } = sleeper;
@@ -808,11 +809,13 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     fs.mkdirSync(path.join(home, '.cast'), { recursive: true });
     fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'), `${dead}\n${row()}\n`);
 
-    // roster: the dead pid is gone, the live one is STALLED (transcript an hour old)
+    // roster: the dead pid is gone; the live one is frozen (transcript an hour old), and a first
+    // verdict rests on the baseline window only, so it holds SUSPECT
     const rows = JSON.parse(monitor(['--json']).stdout);
     assert.strictEqual(rows.length, 1, `dead pid must drop from the roster: ${JSON.stringify(rows)}`);
     assert.strictEqual(rows[0].pid, sleeper.pid);
-    assert.strictEqual(rows[0].state, 'STALLED');
+    assert.strictEqual(rows[0].state, 'SUSPECT',
+      `a first verdict must never be STALLED: ${JSON.stringify(rows)}`);
     assert.ok(rows[0].progress_age_s >= 3500, `progress age should be ~1h: ${rows[0].progress_age_s}`);
     assert.strictEqual(monitor([]).status, 0, 'roster always exits 0');
 
@@ -820,9 +823,13 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     assert.strictEqual(JSON.parse(monitor(['--json', '--folder', BASE]).stdout).length, 1);
     assert.strictEqual(JSON.parse(monitor(['--json', '--folder', '/nowhere']).stdout).length, 0);
 
-    // --watch fires the STALL line and exits 3
+    // --watch fires the STALL line and exits 3 — on a poll after the first, so no sooner than
+    // one --poll after it started
+    const armed = Date.now();
     const watch = monitor(['--watch', '--stall', '60', '--poll', '1']);
     assert.strictEqual(watch.status, 3, `stall must exit 3, got ${watch.status}: ${watch.stdout}`);
+    assert.ok(Date.now() - armed >= 1000,
+      `the first poll must not fire STALL: fired after ${Date.now() - armed}ms`);
     assert.ok(watch.stdout.startsWith(`STALL ${sleeper.pid} claude ${session} ${folder} alive=`),
       `unexpected stall line: ${watch.stdout}`);
     assert.ok(/progress-age=\d+s desc=\d+ cpu\+\d+ io\+\d+ out=(-|\d+)$/m.test(watch.stdout),
@@ -838,12 +845,26 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     assert.strictEqual(monitor(['--json'])
       .stdout.includes('"state":"ok"'), true, 'fresh progress -> ok');
 
-    // NO-SIGNAL: transcript absent and past --grace
+    // NO-SIGNAL: transcript absent and past --grace — SUSPECT on the first verdict, the event
+    // on a later poll
     fs.unlinkSync(transcript);
+    assert.strictEqual(JSON.parse(monitor(['--json', '--grace', '1']).stdout)[0].state, 'SUSPECT',
+      'a first verdict must never be NO-SIGNAL');
     const noSig = monitor(['--watch', '--grace', '1', '--poll', '1']);
     assert.strictEqual(noSig.status, 3, 'dead-at-launch must exit 3');
     assert.ok(noSig.stdout.startsWith(`NO-SIGNAL ${sleeper.pid} claude ${folder} alive=`),
       `unexpected no-signal line: ${noSig.stdout}`);
+    // no signal, but a capture that holds work: the job rides the stall clock — SUSPECT on the
+    // first verdict, STALL on a later poll
+    const worked = path.join(folder, 'worked.txt');
+    fs.writeFileSync(worked, 'x'.repeat(4096));
+    fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'), `${row({ out: worked })}\n`);
+    assert.strictEqual(JSON.parse(monitor(['--json']).stdout)[0].state, 'SUSPECT',
+      'a first verdict must never be STALLED for a job that worked');
+    const workedWatch = monitor(['--watch', '--stall', '60', '--poll', '1']);
+    assert.strictEqual(workedWatch.status, 3, `worked-then-silent must exit 3: ${workedWatch.stdout}`);
+    assert.ok(workedWatch.stdout.startsWith(`STALL ${sleeper.pid} claude `),
+      `unexpected stall line: ${workedWatch.stdout}`);
     // ...but not before --grace elapses
     fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'), `${row({ t0: Date.now() })}\n`);
     const young = monitor(['--watch', '--grace', '600', '--poll', '1'], { timeout: T(2500) });
@@ -990,9 +1011,8 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     assert.ok(roster.every((r) => r.state === 'ok'), `both must be ok: ${JSON.stringify(roster)}`);
     assert.ok(roster.every((r) => r.progress_age_s !== null), `signal must resolve: ${JSON.stringify(roster)}`);
 
-    // age only ses_b: that handle leaves ok (SUSPECT — launched <2*poll ago, so the one-shot
-    // confirm window still holds terminal STALLED back), the other stays ok; distinct ages
-    // prove no shared bind
+    // age only ses_b: that handle leaves ok (SUSPECT — a roster's verdict is a first verdict,
+    // never terminal), the other stays ok; distinct ages prove no shared bind
     ageOc('ses_b', now - 3600_000);
     const aged = JSON.parse(monitor(['--json']).stdout);
     const byPid = Object.fromEntries(aged.map((r) => [r.pid, r]));
