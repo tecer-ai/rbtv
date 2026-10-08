@@ -501,7 +501,9 @@ form but `list` prints what would change and writes nothing. Both lists of `cast
 - **How update pairs rows.** A row is compared with the shipped row of the same model and level. A
   model with one row here and one shipped is compared whatever the levels, so a level rbtv changed
   is updated. A model whose levels cannot be paired, or that has no shipped row, is named under
-  `not compared` and left as it is.
+  `not compared` and left as it is. `up to date` is said of the rows that were compared: when a
+  model is named under `not compared` the line reads `the rows compared are up to date`, and when
+  no row was compared it is left out.
 - **No-ops exit 0.** `add` of a selected model and `remove` of a model that is not selected say so
   and write nothing.
 - **Who still uses a model.** `remove` is refused while an agent under `<installation>/.rbtv/agents/`

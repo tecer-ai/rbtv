@@ -290,6 +290,36 @@ def the_key_is_read_from_the_environment_file():
             os.environ[audio.KEY_ENV] = previous
 
 
+@check
+def the_key_file_is_named_only_inside_an_installation():
+    """Help and the 401 refusal name the environment file where there is one, and only
+    the environment variable outside an installation."""
+    envfile, real = audio.ENV_FILE, audio.requests
+    inside = Path(tempfile.mkdtemp()) / ".env"
+    unauthorized = Stub({("POST", "/v1/speech-to-text"): Response(status_code=401, body={"detail": "no"})})
+
+    def refusal():
+        err = io.StringIO()
+        try:
+            with redirect_stderr(err):
+                audio.call("POST", "https://api.elevenlabs.io/v1/speech-to-text", "test-key")
+            raise AssertionError("no refusal")
+        except SystemExit as exc:
+            assert exc.code == audio.EXIT_FAILED, exc.code
+        return err.getvalue()
+
+    try:
+        audio.requests = unauthorized
+        audio.ENV_FILE = None
+        for text in (audio.build_parser().format_help(), refusal()):
+            assert "None" not in text and "$" + audio.KEY_ENV in text, text
+        audio.ENV_FILE = inside
+        for text in (audio.build_parser().format_help(), refusal()):
+            assert f"{audio.KEY_ENV} in {inside} first" in text, text
+    finally:
+        audio.ENV_FILE, audio.requests = envfile, real
+
+
 def main():
     failures = []
     for fn in CHECKS:

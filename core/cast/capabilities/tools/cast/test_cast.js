@@ -2175,7 +2175,7 @@ else {
   assert.deepStrictEqual([addedJson.installation, addedJson.selection, addedJson.changed, addedJson.dry_run, addedJson.added.length, addedJson.added[0].use],
     [adding.root, adding.file, true, false, 1, 'off']);
   assert.strictEqual(api('gemini-3.5-flash', adding.root).status, 0);
-  assert.ok(ok(models(['add', 'opencode', 'k3', '--dry-run'], adding.root)).includes('\n      use=off: launchable, never named by cast route: edit the use column to route it\n'));
+  assert.ok(ok(models(['add', 'opencode', 'k3', '--dry-run'], adding.root)).includes('\n      use=off: launchable, never named by cast route; to route it: cast models set opencode k3 --use route\n'));
   // no file of its own: every supported model is already selected, and no file is saved
   const addFresh = ok(unchanged(fresh.root, () => models(['add', 'claude', 'haiku-4-5'], fresh.root)));
   assert.strictEqual(addFresh, `installation: ${fresh.root}\n${shippedNote}\n${ownFileNote(fresh.root)}\n\nalready selected: 'claude haiku-4-5'\n`
@@ -2605,6 +2605,13 @@ process.exit(3);\n`);
   out = text(at(root, ['models', 'update']));
   assert.ok(out.includes("not compared: 'claude sonnet-5-5': its levels here are L3, L2, L1 and the shipped ones are L3, L2; update adds and removes no row\n")
     && out.includes("not compared: 'codex not-a-model': the shipped model catalog has no row for it\n"), out);
+  assert.ok(out.includes('\nthe rows compared are up to date with ') && !out.includes('\nup to date with '), out);
+  // a model update could compare with nothing says only that, in text and in --json
+  out = text(at(root, ['models', 'update', 'codex', 'not-a-model']));
+  assert.ok(out.endsWith(`models.csv\n\nnot compared: 'codex not-a-model': the shipped model catalog has no row for it\nNothing changed.\n`) && !out.includes('up to date'), out);
+  const notCompared = JSON.parse(text(at(root, ['models', 'update', 'codex', 'not-a-model', '--json'])));
+  assert.deepStrictEqual([notCompared.changed, notCompared.updated, notCompared.not_updated],
+    [false, [], ["'codex not-a-model': the shipped model catalog has no row for it"]]);
   // update writes only the columns the header carries, and keeps the file's line ending
   text(at(slim.root, ['models', 'update']));
   assert.strictEqual(fs.readFileSync(slim.file, 'utf8'), 'mode,harness,model,cost,use\r\ncli,codex,gpt-6-luna,0.5,off\r\ncli,claude,sonnet-5-5,10,\r\n');

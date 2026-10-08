@@ -175,9 +175,9 @@ function listCatalog(selection, json) {
 // --- add ---------------------------------------------------------------------------------------
 
 const USE_NOTE = {
-  route: 'launchable, and cast route may name it',
-  panel: 'launchable, listed for panels, never named by cast route',
-  off: 'launchable, never named by cast route: edit the use column to route it',
+  route: () => 'launchable, and cast route may name it',
+  panel: () => 'launchable, listed for panels, never named by cast route',
+  off: (harness, model) => `launchable, never named by cast route; to route it: cast models set ${harness} ${model} --use route`,
 };
 
 // The short name of a supported model given by that name or by the harness's own id; a name cast
@@ -223,7 +223,7 @@ function addModel(selection, harness, model, { dryRun, json }) {
   const lines = [`${dryRun ? 'would select' : 'selected'}: '${harness} ${model}', ${added.length} row${added.length === 1 ? '' : 's'} ${dryRun ? 'to add' : 'added'}`];
   rows.forEach((row, i) => {
     const use = selection.header.includes('use') && row.use ? row.use : 'route';
-    lines.push(`  ${added[i]}`, `      use=${use}: ${USE_NOTE[use]}`);
+    lines.push(`  ${added[i]}`, `      use=${use}: ${USE_NOTE[use](harness, model)}`);
   });
   lines.push(dryRun ? 'Nothing changed: this was a dry run.' : `launch it: cast ${harness === 'api' ? `api ${model} 1` : `${harness} ${model} 1`} -p "reply with exactly: ok"${harness === 'api' ? ' --output-folder out/' : ''}`);
   return done(lines);
@@ -358,12 +358,14 @@ function setModel(selection, harness, model, { values, dryRun, json }) {
 // Where the installation's model catalog differs from the shipped one in the cells rbtv proposes
 // (SHIPPED_COLUMNS), for every model or for one. A row is compared with the shipped row of the
 // same model and level; a model with one row here and one there is compared whatever the levels,
-// so a changed level is a difference. `unmatched` names what update leaves alone.
+// so a changed level is a difference. `unmatched` names what update leaves alone, and `compared`
+// counts the rows that had a shipped row to be compared with.
 function catalogDrift(selection, only = null) {
   const shipped = loadSelection(null);
   const columns = SHIPPED_COLUMNS.filter((c) => selection.header.includes(c));
   const changes = [];
   const unmatched = [];
+  let compared = 0;
   const names = [...new Set(selection.rows.map((r) => `${r.harness} ${r.model}`))];
   for (const name of names) {
     const [harness, model] = name.split(' ');
@@ -383,13 +385,14 @@ function catalogDrift(selection, only = null) {
     if (alone.length || left.length) {
       unmatched.push(`'${name}': its levels here are ${mine.map((r) => r.level || '-').join(', ')} and the shipped ones are ${theirs.map((r) => r.level || '-').join(', ')}; update adds and removes no row`);
     }
+    compared += pairs.length;
     for (const [row, source] of pairs) {
       for (const column of columns) {
         if (row[column] !== source[column]) changes.push({ row, column, value: source[column] });
       }
     }
   }
-  return { changes, unmatched, shipped: shipped.file };
+  return { changes, unmatched, compared, shipped: shipped.file };
 }
 
 function updateModels(selection, only, { dryRun, json }) {
@@ -399,12 +402,14 @@ function updateModels(selection, only, { dryRun, json }) {
   if (selection.shipped) {
     return json ? result : [...headLines(selection), '', 'Nothing to update: this installation reads the shipped model catalog itself.', 'Nothing changed.'];
   }
-  const { changes, unmatched, shipped } = catalogDrift(selection, only);
+  const { changes, unmatched, compared, shipped } = catalogDrift(selection, only);
   const updated = changes.map((c) => ({ harness: c.row.harness, model: c.row.model, level: c.row.level, column: c.column, from: c.row[c.column], to: c.value }));
   Object.assign(result, { updated, not_updated: unmatched });
   const kept = `never changed by update: ${OWN_COLUMNS.join(', ')}, and which models are selected`;
   if (!changes.length) {
-    return json ? result : [...headLines(selection), '', `up to date with ${shipped}${only ? `: '${only.harness} ${only.model}'` : ''}`,
+    // "up to date" is said of the rows that were compared, and of none when there were none.
+    const upToDate = `${unmatched.length ? 'the rows compared are up to date' : 'up to date'} with ${shipped}${only ? `: '${only.harness} ${only.model}'` : ''}`;
+    return json ? result : [...headLines(selection), '', ...(unmatched.length && !compared ? [] : [upToDate]),
       ...unmatched.map((u) => `not compared: ${u}`), 'Nothing changed.'];
   }
   if (!dryRun) saveSelection(selection.root, editCells(selection, changes), selection.eol);

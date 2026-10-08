@@ -131,6 +131,14 @@ def api_key():
         f"see {ROOT / 'README.md'} section 'The key'")
 
 
+def key_sources():
+    """Where `api_key` reads the key, in its order, as words for help and refusals.
+    Outside an installation there is no environment file to name."""
+    if ENV_FILE is None:
+        return f"${KEY_ENV} (the process environment; this folder is inside no rbtv installation)"
+    return f"{KEY_ENV} in {ENV_FILE} first, ${KEY_ENV} when it holds none"
+
+
 def config_read():
     """The config as a dict. A missing file is not an error — the default is the
     default. A corrupt one IS an error: silently falling back would hide a
@@ -186,8 +194,8 @@ def call(method, url, key, **kw):
     if response.status_code >= 400:
         die(f"ElevenLabs refused the request (HTTP {response.status_code})",
             api_error(response),
-            "401 means the key is invalid or revoked — check the key in "
-            f"{ENV_FILE}; 4xx otherwise means the request was; 5xx means retry",
+            "401 means the key is invalid or revoked — check the key: "
+            f"{key_sources()}; 4xx otherwise means the request was; 5xx means retry",
             code=EXIT_FAILED)
     return response
 
@@ -401,7 +409,7 @@ def first_voice(key):
 def build_parser():
     parser = argparse.ArgumentParser(
         prog=Path(__file__).name, description=__doc__.splitlines()[0],
-        epilog=f"key: {KEY_ENV} in {ENV_FILE} first, ${KEY_ENV} when it holds none.\n"
+        epilog=f"key: {key_sources()}.\n"
                f"language: the '{LANGUAGE_KEY}' key of {CONFIG.name} "
                f"(default '{DEFAULT_LANGUAGE}') — the language verb changes it "
                "for both other verbs.\nevery verb prints one JSON object on "
