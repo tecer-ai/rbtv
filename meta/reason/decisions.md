@@ -1,6 +1,14 @@
-# behaviour decisions
+# reason decisions
 
-Standing decisions about the behaviour component. Each states the decision and its reason; the rules describe the resulting design.
+Standing decisions about the reason component. Each states the decision and its reason; the rule, the skill and the pages of `capabilities/methods/` describe the resulting design.
+
+## One skill for thinking a subject through: thinking-partner
+
+Interview and the six brainstorm modes are method pages under the `thinking-partner` skill, not skills of their own. Reason: they serve one purpose, thinking a subject through with the user, and the user often cannot say whether their subject is already clear; the clear/unclear test is a mode pick inside the skill, where the agent can switch when the subject turns out otherwise, and nested exposure forbids a skill inside a skill.
+
+## One component for the rule and the skill
+
+The `critical-partner` rule and the `thinking-partner` skill form the `meta/reason` component. Reason: owner decision, 2026-10-08; the always-on stance and the invoked session are the two faces of one subject, how an agent reasons with the user, and `behaviour` keeps only the state-hygiene rule.
 
 ## One always-on rule for the critical stance: critical-partner
 

@@ -4,7 +4,7 @@ Standing decisions about the triage component. Each states the decision and its 
 
 ## Triage is a component of its own
 
-Reason: its trigger is a backlog file to rule on, which shares nothing with thinking a subject through (the `thinking-partner` component); one description would have to cover unrelated work, and a component named for its one skill states its boundary (owner decision, 2026-10-08).
+Reason: its trigger is a backlog file to rule on, which shares nothing with thinking a subject through (the `reason` component); one description would have to cover unrelated work, and a component named for its one skill states its boundary (owner decision, 2026-10-08).
 
 ## Investigation has no skill here
 
