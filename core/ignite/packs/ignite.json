@@ -3,7 +3,7 @@
   "files": [
     "meta/communication#slack-message-format",
     "meta/communication#audio-aware",
-    "meta/sub-agents#sub-agents",
+    "meta/coordinate#coordinate",
     "meta/functions#investignosis",
     "core/ignite#agent-controls",
     "web/browse#web",
