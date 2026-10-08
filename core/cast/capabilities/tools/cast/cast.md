@@ -263,7 +263,7 @@ cast: the next model by price is one level down (L3) and was not launched: codex
 
 Each run writes its own `cast: handle` line; all carry cast's one process id, and `cast monitor` reads the latest. Standard output holds the report of the run that started, alone: a closing note of a failed run (`cast: no-report`, a provider limit) goes to standard error when another run follows it. When the defaults or the model catalog cannot be read at that moment, one line says so and the launch ends with its own failure.
 
-An rbtv agent's folder holds the installed files of its own harness only. An agent that falls back to a model of another harness receives its prompt and its task, and none of the skills, rules, hooks and folder instructions installed in its folder.
+An rbtv agent's folder holds the installed files of every harness, so an agent that falls back to a model of another harness receives its prompt, its task and the skills, rules, hooks and folder instructions installed in its folder. A harness-native sub-agent is the exception: it exists only for the harnesses it was given a model and an effort for. A folder installed before this was so holds one harness's files until `rbtv agent update AGENT scaffolding` runs.
 
 A launch with `--headed`, a `--dry-run`, `cast resume` and `cast api` never run a fallback. An Ignite turn applies the same rule through `ignite turn`: [Ignite architecture](../../../../ignite/capabilities/tools/ignite/documentation/architecture.md).
 

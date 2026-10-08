@@ -636,7 +636,7 @@ def _save_selected_files(target: Path, add: set[str] | None = None,
 
 def _require_recorded(target: Path, state: dict) -> list[str]:
     if is_agent_target(target):
-        return [state["harness"]]
+        return list(HARNESSES)
     booked = book_harnesses(state)
     if booked is None:
         raise Refuse(
@@ -871,7 +871,7 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
             "and --guidance (CLAUDE.md, AGENTS.md, or none). Example: "
             "rbtv add " + (parts[0] if parts else "--pack <name>")
             + " --harness codex --guidance none --target " + _quote(target))
-    harnesses = ([state["harness"]] if is_agent_target(target)
+    harnesses = (list(HARNESSES) if is_agent_target(target)
                  else _gate_add_harness(target, state, getattr(args, "harness", None)))
     basis = ("none" if is_agent_target(target)
              else _gate_add_artifact(target, state, getattr(args, "artifact", None)))

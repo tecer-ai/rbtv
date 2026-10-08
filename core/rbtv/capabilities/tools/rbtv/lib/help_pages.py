@@ -744,9 +744,10 @@ that model accepts, or a number 1-5 stored as that model's word. Both are
 checked with cast models list, so cast must be on PATH. --voice is the
 voice the agent speaks with; cast does not check it.
 
-Changing --harness regenerates the harness files for the new harness.
-A harness-native sub-agent written for the old harness is deleted with its
-model and effort; the result names the command that adds it for the new one.
+The agent's folder holds the files of every harness, so changing --harness
+changes the harness that launches the agent and keeps the files. A
+harness-native sub-agent that has no model and effort for the new harness
+is named in the result with the command that adds them.
 Changing model, effort or voice updates agent.json only.
 This verb takes no --target. It never changes files or packs.
 

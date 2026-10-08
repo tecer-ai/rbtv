@@ -11,7 +11,6 @@ from discovery import LAUNCH_FIELDS, Refuse
 
 from . import frontmatter, schema, subagents
 from .catalog import check_packs, pack_files
-from .claims import _block_del
 from .constants import (AGENT_RECORD, AGENT_SECTION_LABEL, EFFORT_INERT, GUIDANCE_FILE, HARNESSES, MATRIX,
                         PROMPT_FILE,
                         SHARED_FILE_DESTINATIONS)
@@ -287,8 +286,8 @@ def _keys(names: list[str], catalog: dict, book: dict | None = None,
                                      suggest_installed=suggest_installed)["files"]}
 
 
-def _agent_section(home: Path, harness: str, dry: bool) -> list[str]:
-    path = home / GUIDANCE_FILE[harness]
+def _agent_section(home: Path, name: str, dry: bool) -> list[str]:
+    path = home / name
     from .claims import _block_set
     text = path.read_text(encoding="utf-8") if path.is_file() else ""
     wanted = _block_set(text, f"Your instructions are in `{PROMPT_FILE}` in this folder. Follow them.", "<!--", preserve_outside=True, label=AGENT_SECTION_LABEL)
@@ -299,8 +298,8 @@ def _agent_section(home: Path, harness: str, dry: bool) -> list[str]:
 
 def _agent_files(home: Path, state: dict, dry: bool) -> list[str]:
     """Create the folder's own settings and ignore files when missing, then write
-    the harness instruction section. Returns the names written: the own files
-    that were missing, then the instruction file. Own files are not harness
+    the instruction section in every harness's instruction file. Returns the
+    names written: the own files that were missing, then the instruction files. Own files are not harness
     files; the result lists them apart (see commands._print_agent)."""
     created = []
     for name, body in OWN_BODIES.items():
@@ -309,24 +308,8 @@ def _agent_files(home: Path, state: dict, dry: bool) -> list[str]:
             created.append(name)
             if not dry:
                 write_file(path, body, newline="\n")
-    return created + _agent_section(home, state["harness"], dry)
-
-
-def _remove_agent_section(home: Path, harness: str, dry: bool) -> list[str]:
-    """Release only the generated agent section from a former harness file."""
-    path = home / GUIDANCE_FILE[harness]
-    if not path.is_file():
-        return []
-    text = path.read_text(encoding="utf-8")
-    wanted = _block_del(text, "<!--", preserve_outside=True, label=AGENT_SECTION_LABEL)
-    if wanted == text:
-        return []
-    if not dry:
-        if wanted.strip():
-            write_file(path, wanted, newline="\n")
-        else:
-            path.unlink()
-    return [path.name]
+    return created + [name for file in sorted(set(GUIDANCE_FILE.values()))
+                      for name in _agent_section(home, file, dry)]
 
 
 def _launch(state: dict) -> dict:
@@ -337,7 +320,9 @@ def _launch(state: dict) -> dict:
 def configure_agent(root: Path, raw: str, harness: str | None,
                     model: str | None, effort: str | None, voice: str | None,
                     catalog: dict, dry: bool) -> dict:
-    """Change an agent's authored launch settings and replan only a harness flip."""
+    """Change an agent's authored launch settings. The folder holds every
+    harness's files, so a harness flip reapplies them only to bring a folder
+    written for one harness up to all of them."""
     if all(value is None for value in (harness, model, effort, voice)):
         raise _refuse("usage", "at least one of --harness, --model, --effort, --voice is required",
                       "rbtv agent configure -h")
@@ -354,17 +339,13 @@ def configure_agent(root: Path, raw: str, harness: str | None,
     changed_harness = before["harness"] != after["harness"]
     wanted = _keys(list(after["files"]), catalog) | pack_files(catalog, set(after["packs"]))
     picked, parts = _split_part_keys(wanted)
-    harness_files = (do_install(home, catalog, picked, [after["harness"]], dry,
+    harness_files = (do_install(home, catalog, picked, list(HARNESSES), dry,
                              guidance_basis="none", parts=parts,
                              selected=parts) if changed_harness else {
-                                 "harnesses": [after["harness"]], "written": [],
+                                 "harnesses": list(HARNESSES), "written": [],
                                  "deleted": [], "skipped": [], "selected_files": []})
     written = ["agent.json"] if before != after else []
     if changed_harness:
-        if GUIDANCE_FILE[before["harness"]] != GUIDANCE_FILE[after["harness"]]:
-            released = _remove_agent_section(home, before["harness"], dry)
-            if released:
-                harness_files["deleted"] = sorted(set(harness_files.get("deleted", [])) | set(released))
         written += _agent_files(home, after, dry)
     if not dry and before != after:
         # `do_install` has already booked every harness file and shared claim.
@@ -379,13 +360,14 @@ def configure_agent(root: Path, raw: str, harness: str | None,
             "files": sorted(wanted), "files_removed": [],
             "harness_files": harness_files, "dry_run": dry,
             "harness_changed": changed_harness,
-            # A sub-agent written for the former harness has no model and no
-            # effort for the new one: each is named with the command that adds it.
+            # A sub-agent with no model and no effort for the new harness is
+            # named with the command that adds them.
             "sub_agents_missing": [
                 {"id": key, "name": key.split("#", 1)[1], "harness": after["harness"],
                  "command": f"rbtv agent add {raw} {key.split('#', 1)[1]} "
                             f"--on {after['harness']}:MODEL:EFFORT"}
-                for key in sorted(subagents.recorded(before))] if changed_harness else []}
+                for key, values in sorted(subagents.recorded(before).items())
+                if after["harness"] not in values] if changed_harness else []}
 
 
 def cast_agent_list(root: Path, raw: str | None, as_json: bool, full: bool, width: int,
@@ -471,7 +453,7 @@ def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: 
     before = declared | pack_files(catalog, set(state["packs"]))
     enabled = set(state["packs"]) | packs
     wanted = declared | explicit | pack_files(catalog, enabled)
-    receiving = [state["harness"]]
+    receiving = list(HARNESSES)
     named = subagents.named_agents(catalog, explicit)
     sub_agents = on_values(list(on), named, receiving, home, f"rbtv agent configure {raw} -h")
     written = _agent_files(home, state, dry)
@@ -504,7 +486,7 @@ def update_agent(root: Path, raw: str, scope: str, catalog: dict, dry: bool) -> 
     wanted = _keys(list(state["files"]), catalog) | pack_files(catalog, set(state["packs"]))
     members = file_membership(home, catalog, state, wanted)
     picked, parts = _split_part_keys(wanted)
-    result = do_install(home, catalog, picked, [state["harness"]], dry, guidance_basis="none", parts=parts, scope=scope, selected=parts if scope in ("scaffolding", "all") else None)
+    result = do_install(home, catalog, picked, list(HARNESSES), dry, guidance_basis="none", parts=parts, scope=scope, selected=parts if scope in ("scaffolding", "all") else None)
     written = _agent_files(home, state, dry) if scope != "guidance" else []
     guidance = scope == "guidance"
     return {"ok": True, "agent": state["name"], "home": str(home), "launch": _launch(state),

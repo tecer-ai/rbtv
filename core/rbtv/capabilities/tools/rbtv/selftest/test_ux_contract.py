@@ -391,11 +391,12 @@ def result_screens(ctx) -> None:
         _, agent_full, _ = agent_text(*add, "--details")
     skill = ".claude/skills/fixskill/SKILL.md"
     ctx.check("RESULT-agent-preview-reports-harness-files-default-and-details",
-              "Harness files:    would write 2" in agent_default
+              "Harness files:    would write 4" in agent_default
               and "File list" not in agent_default and skill not in agent_default
               and "Add --details to this preview" in agent_default
               and "File list" in agent_full
               and f"\n    {skill}\n" in agent_full
+              and "\n    .agents/skills/fixskill/SKILL.md\n" in agent_full
               and "fixmod/goodcomp#fixskill" in agent_full
               and "guidance copies" not in agent_full,
               agent_default + "\n=====\n" + agent_full)

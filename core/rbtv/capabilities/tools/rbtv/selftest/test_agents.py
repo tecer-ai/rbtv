@@ -220,6 +220,14 @@ def installed_agents(ctx) -> None:
     state = read_state(home)
     check("A-add — agent.json is the sole record and normalizes files", state["files"] == ["moda/comp#kiss"] and not (home / "launch.json").exists() and not (home / ".rbtv/config/install.json").exists(), str(state))
     check("A-add — harness files, settings and ignore file are present", (home / ".claude/rules/kiss.md").is_file() and (home / "settings.json").is_file() and (home / ".gitignore").is_file(), "")
+    opencode = json.loads((home / "opencode.json").read_text(encoding="utf-8"))
+    check("A-add — the folder holds every harness's files, whatever harness the agent runs on",
+          state["harness"] == "claude"
+          and (home / ".agents/skills/kiss/SKILL.md").is_file()
+          and opencode["instructions"] == [".claude/rules/kiss.md"]
+          and opencode["permission"] == {"skill": {"kiss": "deny"}}
+          and all("prompt.md" in (home / name).read_text(encoding="utf-8")
+                  for name in ("CLAUDE.md", "AGENTS.md")), str(opencode))
     check("A-add — a shipped agent is placed then applied",
           placed["placed"]["id"] == "moda/comp#research"
           and (research / "prompt.md").is_file() and (research / "agent.json").is_file()
@@ -235,10 +243,11 @@ def installed_agents(ctx) -> None:
               str(configured))
         switched = configure_agent(ws, "scout", "codex", "c1", "3", None, catalog, False)
     state = read_state(home)
-    check("A-configure — harness flip replaces generated harness files",
+    check("A-configure — a harness flip keeps every harness's files",
           state["harness"] == "codex" and state["model"] == "c1"
-          and state["effort"] == "high" and not (home / ".claude/rules/kiss.md").exists()
-          and not (home / "CLAUDE.md").exists() and (home / "AGENTS.md").is_file()
+          and state["effort"] == "high" and (home / ".claude/rules/kiss.md").is_file()
+          and (home / ".agents/skills/kiss/SKILL.md").is_file()
+          and (home / "CLAUDE.md").is_file() and (home / "AGENTS.md").is_file()
           and switched["harness_changed"], str(switched))
     with patch("lib.agents.cast_catalog", return_value=known), cast_words():
         updated = update_agent(ws, "scout", "all", catalog, False)
@@ -256,9 +265,10 @@ def installed_agents(ctx) -> None:
           updated["ok"] and added["ok"] and removed["ok"]
           and lifecycle_health and lifecycle_state["shared_claims"]
           and lifecycle_state.get("shared_files"), str(lifecycle_state))
-    check("A-configure — changing back removes Codex files and remains updateable",
+    check("A-configure — changing back keeps the Codex files and remains updateable",
           restored["ok"] and restored_update["ok"]
-          and state["harness"] == "claude" and not (home / "AGENTS.md").exists(),
+          and state["harness"] == "claude" and (home / "AGENTS.md").is_file()
+          and (home / ".agents/skills/kiss/SKILL.md").is_file(),
           str(restored))
     before_bad = (home / "agent.json").read_bytes()
     with patch("lib.agents.cast_catalog", return_value=known):

@@ -20,6 +20,6 @@ For exact authoring and installation behavior, open the entry for the kind being
 
 ## Configuration and verification
 
-An installation selects its harnesses in `.rbtv/config/install.json`, under `harnesses`. An installed rbtv agent chooses one with `harness` in `agent.json`. Component-shipped agent records do not fix that choice; follow [Agent](agent.md) when writing them.
+An installation selects its harnesses in `.rbtv/config/install.json`, under `harnesses`. An installed rbtv agent chooses the one that launches it with `harness` in `agent.json`; its folder receives the files of all three, so a launch that falls back to a model of another harness finds the same skills, rules, hooks and folder instructions. Component-shipped agent records do not fix that choice; follow [Agent](agent.md) when writing them.
 
 When a design depends on loading order, discovery, a size limit or an event, verify that behavior on the target harness and settings. Keep unverified behavior explicit. A file generated for a harness is evidence of installation, not evidence that a session read it. Do not prescribe one harness's tool as the only way to perform a shared instruction; [Cognitive unit](cognitive-unit.md) governs that wording.
