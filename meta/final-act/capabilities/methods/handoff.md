@@ -21,7 +21,7 @@ A handoff is not necessarily a new file. Take the first case that fits:
 | The work | Destination |
 |---|---|
 | Is tracked in a file you already know of from this session (a project, a plan, a state doc, an existing handoff doc) | Update that file. Never create a new file when one exists. |
-| Is quick, one-off work with no such file | The specific file the user confirms. Ask where: not knowing of a file means asking, not investigating. Never write to a destination the user has not confirmed. |
+| Is quick, one-off work with no such file | The specific file the user confirms. Ask where: not knowing of a file means asking, not investigating. Never write to a destination the user has not confirmed. When no user can answer (a headless, scheduled or daemon seat), write it in your own scratch folder and name that path in your final message. |
 | Is finished | No handoff file. Step 2 already brought the homes current. A loose end that still has no home, or exists only in chat, first becomes a task as [Loose ends](loose-ends.md) files one. Then answer "nothing to hand off", listing every doc, memory and task file you checked and what you updated. Never give that answer without the check, and never create a file just to have one. |
 
 A partial handoff follows the same order: a new file only when the handed-off part has no home, at a location the user confirms.
