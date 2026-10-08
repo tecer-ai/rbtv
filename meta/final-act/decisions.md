@@ -16,7 +16,7 @@ The requests check asks finish, hand off or drop per undone item and never finis
 
 ## Triage stays a skill of its own; the value bar is one page
 
-`triage` remains in `meta/functions` for a backlog cleaned mid-project; the loose-ends method and `triage` both link `capabilities/methods/value-bar.md`. Reason: the bar must not be stated twice, and the close is not the only moment a backlog is judged.
+`triage` remains a component of its own, `meta/triage`, for a backlog cleaned mid-project; the loose-ends method and `triage` both link `capabilities/methods/value-bar.md`. Reason: the bar must not be stated twice, and the close is not the only moment a backlog is judged.
 
 ## The state-hygiene principle is a method page here, routed from the rule
 

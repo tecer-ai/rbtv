@@ -8,4 +8,4 @@ Interview and the six brainstorm modes are method pages under the `thinking-part
 
 ## One component per skill
 
-The skill and its seven mode pages form the `meta/thinking-partner` component, like `coordinate`, `plan` and `final-act`. Reason: the component's boundary is then the skill's purpose, and `functions` is left to the triage skill alone.
+The skill and its seven mode pages form the `meta/thinking-partner` component, like `coordinate`, `plan` and `final-act`. Reason: the component's boundary is then the skill's purpose, and the triage skill is the `triage` component.
