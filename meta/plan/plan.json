@@ -1,4 +1,4 @@
 {
-  "description": "Structuring already-decided work as a workflow of rbtv agents: the plan skill.",
+  "description": "Writing settled work as a plan folder of rbtv agents that a coordinating agent executes, not launching or verifying agents, which is coordinate: the plan skill and its method.",
   "dependencies": []
 }
