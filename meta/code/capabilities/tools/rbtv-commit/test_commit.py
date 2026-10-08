@@ -321,6 +321,42 @@ def test_conflicts_already_in_the_working_tree_are_not_called_a_pull_conflict(re
     assert git(["diff", "--cached", "--name-only", "--", "mine.md"], repo).strip() == "mine.md"
 
 
+def test_requested_path_in_conflict_with_no_operation_in_progress_is_refused(repo):
+    """`git stash pop` left c.md in conflict — unmerged entries, and no merge,
+    rebase, cherry-pick or revert in progress. Requesting c.md makes no commit
+    and stages nothing: the conflict, the file and the branch are as they were.
+    Once the path is resolved and marked so with `git add`, it is committed."""
+    write(repo, "c.md", "seed\n")
+    git(["add", "c.md"], repo)
+    git(["commit", "-q", "-m", "seed"], repo)
+    write(repo, "c.md", "stashed\n")
+    git(["stash", "-q"], repo)
+    write(repo, "c.md", "committed\n")
+    git(["commit", "-q", "-am", "local"], repo)
+    assert stop(repo, "stash", "pop") != 0
+
+    def state():
+        return (git(["ls-files", "-u"], repo), staged_entries(repo),
+                (repo / "c.md").read_text(encoding="utf-8"), git(["rev-parse", "HEAD"], repo))
+
+    before = state()
+    assert before[0].count("c.md") == 3 and "<<<<<<<" in before[2], before
+    assert commit_mod.operation_in_progress(repo) == ""
+
+    res = run_commit(repo, ["c.md"], "mine")
+    assert res.returncode != 0
+    assert ("these requested paths are in conflict, with no merge, rebase, cherry-pick, revert or patch "
+            "application in progress: c.md. No commit made and nothing was staged: the conflict is exactly "
+            "as it was. Resolve each path and mark it resolved with `git add`, then retry.") in res.stderr, res.stderr
+    assert state() == before
+
+    write(repo, "c.md", "resolved\n")
+    git(["add", "c.md"], repo)
+    res = run_commit(repo, ["c.md"], "mine")
+    assert res.returncode == 0, f"{res.stderr}\n{res.stdout}"
+    assert subjects(repo)[0] == "mine" and git(["show", "HEAD:c.md"], repo) == "resolved\n"
+
+
 def run_in_process(repo, monkeypatch, message, path):
     """Run commit.py in this process, so a test can wrap what it calls. Returns
     the exit code."""

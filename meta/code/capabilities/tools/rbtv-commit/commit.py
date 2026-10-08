@@ -11,6 +11,7 @@ the message says, in words, that the commit was made — on:
   - a real merge conflict while syncing the remote,
   - any OTHER remote-sync failure (stale index.lock, network/auth, refused
     fast-forward) — reported as its own class, never as a conflict,
+  - a requested path that git records as in conflict,
   - a requested file that has no changes to commit.
 
 The repository's index is shared with every parallel session, so this script
@@ -44,15 +45,19 @@ the commit hold it by its hash.
 
 A merge, rebase, cherry-pick, revert or patch application (`git am`) that is
 already in progress in the working tree belongs to whoever started it, and this
-script leaves it exactly as it is: it refuses a requested path that operation
-left in conflict, and it does not
-pull (git cannot, and a failed pull would be cleaned up over that operation).
+script leaves it exactly as it is: it does not pull (git cannot, and a failed
+pull would be cleaned up over that operation).
 The commit is still made, and the output says that the operation is in progress
 and what was not done because of it.
 
 Paths are repo-root-relative. A rename is two paths (old + new) — pass both.
 A path is a NAME, never a pattern: `*`, `?`, `[`, `]` and a leading `:` in it are
 ordinary characters, so `f[1].md` is that one file and never `f1.md`.
+
+A requested path that git records as in conflict is refused, with nothing staged:
+staging it is how git is told that a conflict is resolved, and that statement
+belongs to whoever resolves it. This holds whether an operation in progress left
+the conflict or none is in progress (`git stash pop` leaves one that way).
 
 A path may be a FILE or a DIRECTORY. A directory includes every changed file
 beneath it (added, modified, deleted) — use it when a cluster touches more files
@@ -408,17 +413,22 @@ def main():
     # `git add` takes the mode from the file on disk, so an executable bit staged
     # with `git update-index --chmod` (the only way to record one on Windows) is
     # read before the add and put back after it.
-    # Staging a path that an operation in progress left in conflict would mark
-    # that conflict resolved, in an operation this run did not start.
+    # Staging a path that git records as in conflict would mark that conflict
+    # resolved, with whatever the file holds — and, when an operation is in
+    # progress, in an operation this run did not start.
     held = operation_in_progress(root)
-    if held:
-        unmerged = sorted({ln.split("\t", 1)[1] for ln in git(
-            ["ls-files", "-u", "-z"], root, paths=requested).stdout.split("\0") if ln})
-        if unmerged:
-            fail(f"a {held} is in progress in this working tree and left these requested paths in "
-                 "conflict: " + ", ".join(unmerged) + f". No commit made and nothing was staged: the "
-                 f"{held} is exactly as it was. Resolve the paths and finish the {held} with git "
-                 "itself; rbtv-commit never finishes an operation it did not start.")
+    unmerged = sorted({ln.split("\t", 1)[1] for ln in git(
+        ["ls-files", "-u", "-z"], root, paths=requested).stdout.split("\0") if ln})
+    if unmerged and held:
+        fail(f"a {held} is in progress in this working tree and left these requested paths in "
+             "conflict: " + ", ".join(unmerged) + f". No commit made and nothing was staged: the "
+             f"{held} is exactly as it was. Resolve the paths and finish the {held} with git "
+             "itself; rbtv-commit never finishes an operation it did not start.")
+    if unmerged:
+        fail("these requested paths are in conflict, with no merge, rebase, cherry-pick, revert or "
+             "patch application in progress: " + ", ".join(unmerged) + ". No commit made and nothing "
+             "was staged: the conflict is exactly as it was. Resolve each path and mark it resolved "
+             "with `git add`, then retry.")
     staged_modes = staged_mode_changes(root, requested)
     for f in requested:
         if os.path.exists(os.path.join(root, f)):
