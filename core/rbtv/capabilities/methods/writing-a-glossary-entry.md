@@ -65,7 +65,7 @@ Review the entry with the related pages the same task reads. Check that every re
 
 Follow every link and verify software facts against their sources. Report an inconsistency outside the authorized change. Correct in-scope contradictions together rather than leaving two designs active.
 
-Use fresh test agents with the entry, its required prior reading, conditional pages available through their routes, and a realistic task. Keep the answer and authoring work record out of their inputs. Follow [Delegating work](../../../../meta/sub-agents/capabilities/methods/delegating-work.md) to launch them and verify their reports.
+Use fresh test agents with the entry, its required prior reading, conditional pages available through their routes, and a realistic task. Keep the answer and authoring work record out of their inputs. Follow [the coordinate skill](../../../../meta/coordinate/skills/coordinate.md) to launch them and verify their reports.
 
 | Kind | Test tasks |
 |---|---|

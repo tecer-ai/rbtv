@@ -26,6 +26,6 @@ Each agent's task is `task.md` in its agent folder. Needs names rows in the same
 
 ## Coordinate and verify
 
-Use [Delegating work](../../../../meta/sub-agents/capabilities/methods/delegating-work.md) for worker selection, launch and verification. Launch every open task whose needs are done and whose declared scheduling conditions allow it. Set running at launch; verify its result against its done contract before setting done. A failed result is failed and blocks its dependents. Reconsider ready rows whenever a result returns.
+Use [the coordinate skill](../../../../meta/coordinate/skills/coordinate.md) for worker selection, launch and verification. Launch every open task whose needs are done and whose declared scheduling conditions allow it. Set running at launch; verify its result against its done contract before setting done. A failed result is failed and blocks its dependents. Reconsider ready rows whenever a result returns.
 
 Before handover, check that task files exist, Needs names real rows, dependencies have no cycles and shared writes cannot overlap. Give a fresh reader the workflow and task inputs, then ask which tasks launch first, which become ready after a named result and which remain blocked after a failure. Correct any difference from the intended schedule. A successful agent launch alone does not verify these decisions.

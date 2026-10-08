@@ -45,7 +45,7 @@ Keep one row per model line: the latest version of that model. A model may have 
 `use` has three values:
 
 - `route`: the row competes for verdicts.
-- `panel`: no verdict names it. It stays in `cast models list --catalog`, where a panel takes its seats: [Panel](../../../../meta/sub-agents/capabilities/methods/panel.md). Use it for a model worth a second opinion and never worth being the single answer.
+- `panel`: no verdict names it. It stays in `cast models list --catalog`, where a panel takes its seats: [Panel](../../../../meta/coordinate/capabilities/methods/panel.md). Use it for a model worth a second opinion and never worth being the single answer.
 - `off`: routing ignores the row. The model stays selected, so it launches by name and stays in `cast models list --catalog`.
 
 A `use` value that is none of the three drops the row from routing with a warning on standard error. One column carries the three states because two yes-or-no columns would allow a row that is both routed and panel-only, a state with no meaning.

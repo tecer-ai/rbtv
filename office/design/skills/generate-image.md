@@ -7,7 +7,7 @@ description: "Generates a new image from a text prompt, or edits an existing one
 
 Generates a new image from a text prompt, or edits an existing image, through the first-party
 `cast` CLI (on PATH as `cast`) — Google's image models answer it via `cast api`. Instruction-only:
-this capability has no CLI of its own. It consumes the `sub-agents` component's `cast` CLI as
+this capability has no CLI of its own. It consumes the core `cast` tool as
 infrastructure — image generation is the job, `cast` is the means.
 
 ## Open this first when the picture belongs to a SET

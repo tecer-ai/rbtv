@@ -9,7 +9,7 @@ De Bono's Six Thinking Hats. ONE topic, six single-filter perspectives, in fixed
 
 Use it when the user has a topic, decision, or dilemma they want seen from every side before they move. NOT for generating options (that is ideation) and NOT for killing an idea (that is idea-sparring).
 
-This mode benefits most from the `sub-agents` skill's panel capability: the hats can run as parallel independent sub-agents, one hat each, so no hat's output anchors another. When the topic carries enough weight, propose this to the user; sequential remains the default.
+This mode benefits most from the `coordinate` skill's panel capability: the hats can run as parallel independent sub-agents, one hat each, so no hat's output anchors another. When the topic carries enough weight, propose this to the user; sequential remains the default.
 
 ## Frame before any hat
 

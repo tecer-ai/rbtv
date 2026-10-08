@@ -23,7 +23,7 @@ point is a research pile rather than a raw idea.
 Every read of a raw benchmark file is delegated to a sub-agent, which returns only its
 structured extraction. The reason is context: a handful of raw benchmark documents will
 crowd out the analysis they are meant to feed. Route the delegation through
-`../../../meta/sub-agents/skills/sub-agents.md`.
+`../../../meta/coordinate/skills/coordinate.md`.
 
 ## The sequence
 

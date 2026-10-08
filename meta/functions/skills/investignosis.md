@@ -41,7 +41,7 @@ The user's words pick it. "Investigate" alone → mode 1 only, and stop. "Diagno
    - Which mode the request asks for, per `<modes>`.
 2. Propose the format and align before starting — one short round:
    - **self** — you investigate in-session. Right for narrow scopes a single context holds comfortably.
-   - **swarm** — load the `sub-agents` skill and follow its swarm capability. Architecture, wave sizes, per-wave model routing, depth (balanced | deep), and wave handoff are ALL the swarm capability's — do not restate or reinvent them. What investigate adds on top:
+   - **swarm** — load the `coordinate` skill and follow its swarm capability. Architecture, wave sizes, per-wave model routing, depth (balanced | deep), and wave handoff are ALL the swarm capability's — do not restate or reinvent them. What investigate adds on top:
      - Every investigator sub-agent gets a mandated output format in its prompt, so findings parse and merge mechanically.
      - The summarizer's output format is your choice — impose one or let it write freely.
 3. Run the pass, against the mode's contract in `<modes>`.
@@ -65,7 +65,7 @@ Mode 1: the user's question is answered with facts grounded in the actual files 
 <restrictions>
 - Never start reading broadly before the goal is pinned — an unaimed investigation burns context and returns noise.
 - Never re-ask what the session's context already answers.
-- Never restate or override the `sub-agents` skill's swarm capability mechanics (architecture, routing, effort, depth) — delegate to it.
+- Never restate or override the `coordinate` skill's swarm capability mechanics (architecture, routing, effort, depth) — delegate to it.
 - In investigate mode, never name a committed cause and never rank untested hypotheses — "consistent with Y" is the strongest form allowed.
 - In diagnose mode, never present a candidate cause as confirmed without a falsifying test and evidence that discriminates it from its rivals.
 - In diagnose mode, never close with an undiscriminated list of candidates presented as an answer — that is a failed job and must be reported as one.

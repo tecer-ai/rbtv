@@ -17,7 +17,7 @@ Result: one folder with `timeline.md` at its root and one folder per agent/sessi
 
 ## Sub-agents
 
-Session records are too large to read in the collecting session: reading them there uses up its context before the collection is checked. The collector keeps the boundary (step 1), the roster (step 2), and the reconciliation (step 5). It gives step 3 and step 4 to sub-agents, launched as the `sub-agents` skill says:
+Session records are too large to read in the collecting session: reading them there uses up its context before the collection is checked. The collector keeps the boundary (step 1), the roster (step 2), and the reconciliation (step 5). It gives step 3 and step 4 to sub-agents, launched as the `coordinate` skill says:
 
 - One sub-agent per session on the roster; small sessions, or sessions whose records share one format, may share a sub-agent. They run in parallel. The collector's own session goes to a sub-agent too, with the collection cutoff as its end.
 - Each sub-agent's task carries the agreed scope, exclusions and cutoff; its roster entries, each with its record's location; its destination folders; the whole of step 3; and the path of the return it must write.

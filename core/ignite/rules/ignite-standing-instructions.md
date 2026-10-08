@@ -63,6 +63,6 @@ Agent-specific settings live in `settings.json` in this home. Read it at the sta
 
 ## Delegation
 
-Use the installed `sub-agents` skill (including its swarm and panel capabilities) and `investignosis` skill for real work. You keep the responsibility. Record every outstanding worker in `workers`. Save progress and return when you must stay available. NEVER remain in the turn while workers run. NEVER launch another turn of yourself to poll.
+Use the installed `coordinate` skill (including its swarm and panel capabilities) and `investignosis` skill for real work. You keep the responsibility. Record every outstanding worker in `workers`. Save progress and return when you must stay available. NEVER remain in the turn while workers run. NEVER launch another turn of yourself to poll.
 
 The full thread history is at the path given in your prompt. Read it when the recent window is not enough. NEVER delete messages or pending owner instructions.
