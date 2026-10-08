@@ -74,7 +74,9 @@ const mtimeOf = (f) => { try { return fs.statSync(f).mtimeMs; } catch { return n
 //   opencode idle 103–114 ticks, busy 276–659
 //   codex    idle 0–2 ticks, busy 204 ticks in ~5s generation
 // IO dropped: idle TUI 120B–80KB, busy 0.7–245MB, retry-hang 108MB — a byte bar cannot
-// separate hang from work. Capture growth + descendants + CPU remain. Scale by poll/30s.
+// separate hang from work. Capture growth + new descendants + CPU remain. Scale by poll/30s.
+// A job's first verdict applies the floors scaled to FIRST_DELTA_MS (claude 2, codex 1,
+// opencode 6 ticks) — a window no harness was measured at.
 const CPU_FLOOR_TICKS = { claude: 50, codex: 20, opencode: 150 };
 const FLOOR_POLL_MS = 30_000;
 const DEFAULT_DEADLINE_S = 4 * 60 * 60;
@@ -82,13 +84,13 @@ const DEADLINE_MS = Number(process.env.CAST_DEADLINE_MS) > 0
   ? Number(process.env.CAST_DEADLINE_MS)
   : DEFAULT_DEADLINE_S * 1000;
 const OUT_BANNER_BYTES = 2048; // below this, stdout is a launch banner, not work
-const WIN_FIRST_DELTA_MS = 1200; // > win-proc TABLE_TTL_MS, so the second sample is a fresh read
+const FIRST_DELTA_MS = 1200; // > win-proc TABLE_TTL_MS, so the second Windows sample is a fresh read
 
 function readProcStat(pid) {
   try {
     const txt = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
     const rest = txt.slice(txt.lastIndexOf(') ') + 2).split(' ');
-    return { state: rest[0], cpu: Number(rest[11]) + Number(rest[12]), start: Number(rest[19]) };
+    return { cpu: Number(rest[11]) + Number(rest[12]), start: Number(rest[19]) };
   } catch { return null; }
 }
 
@@ -154,17 +156,15 @@ function treeSample(h) {
   const members = new Set();
   let cpu = 0;
   let io = 0;
-  let running = false;
   for (const p of pids) {
     const st = readProcStat(p);
     if (!st) continue; // unreadable = no sample, never "idle"
     members.add(`${p}:${st.start}`);
     cpu += st.cpu;
-    if (st.state === 'R') running = true;
     const i = readProcIo(p);
     if (i !== null) io += i;
   }
-  return { cpu, io, members, running, desc: pids.length - 1, capSize: captureSize(h) };
+  return { cpu, io, members, desc: pids.length - 1, capSize: captureSize(h) };
 }
 
 function jobMemo(cache, h) {
@@ -175,41 +175,33 @@ function jobMemo(cache, h) {
   return cache.get(key);
 }
 
-// Evidence of life this poll. First sample has no deltas: live descendants or a running root
-// count once; every later poll needs a floored delta, so a busy-spin can't ride a stale snapshot.
-// Windows exposes no run state, so a childless first sample has no instant life to read. Before a
-// poll classifies, take a baseline for every job not yet sampled and wait ONCE (not once per job:
-// every baseline comes off the same cached table read, and one delay covers them all) — the first
-// witness call then judges a short delta, and the one-shot roster sees a busy root the way Linux
-// sees state R. No-op off Windows and when every job already carries a sample.
+// Evidence of life is always a change between two samples: a floored CPU delta, a new tree member
+// or capture growth. One instant read proves nothing — a live descendant may be as frozen as its
+// root, and a healthy root sleeps or blocks on a write at any given instant (Linux reports the run
+// state of the main thread only, Windows none). Before a poll classifies, take a baseline for
+// every job not yet sampled and wait ONCE (not once per job: on Windows every baseline comes off
+// the same cached table read, and one delay covers them all) — the first witness call then judges
+// a short delta. No-op when every job already carries a sample.
 function primeWitness(jobs, cache) {
-  if (process.platform !== 'win32') return;
   const fresh = jobs.filter((h) => !jobMemo(cache, h).prev);
   if (!fresh.length) return;
   for (const h of fresh) {
     const memo = jobMemo(cache, h);
     memo.prev = treeSample(h);
-    memo.primedMs = WIN_FIRST_DELTA_MS;
+    memo.primedMs = FIRST_DELTA_MS;
   }
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, WIN_FIRST_DELTA_MS);
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, FIRST_DELTA_MS);
 }
 
 function witness(h, now, memo, pollMs = FLOOR_POLL_MS) {
   const s = treeSample(h);
-  const prev = memo.prev;
-  let dCpu = 0;
-  let dIo = 0;
-  let evidence;
+  const prev = memo.prev; // primeWitness gave every job its baseline
   if (memo.primedMs) { pollMs = memo.primedMs; memo.primedMs = 0; }
-  if (!prev) {
-    evidence = s.desc > 0 || s.running;
-  } else {
-    dCpu = s.cpu - prev.cpu;
-    dIo = s.io - prev.io;
-    evidence = dCpu >= cpuFloor(h, pollMs)
-      || [...s.members].some((m) => !prev.members.has(m))
-      || (s.capSize !== null && prev.capSize !== null && s.capSize > prev.capSize);
-  }
+  const dCpu = s.cpu - prev.cpu;
+  const dIo = s.io - prev.io;
+  const evidence = dCpu >= cpuFloor(h, pollMs)
+    || [...s.members].some((m) => !prev.members.has(m))
+    || (s.capSize !== null && prev.capSize !== null && s.capSize > prev.capSize);
   memo.prev = s;
   if (evidence) { memo.lastEvidenceAt = now; memo.hadWork = true; }
   if (s.capSize !== null && s.capSize >= OUT_BANNER_BYTES) memo.hadWork = true;
@@ -303,8 +295,8 @@ function progressAt(h, cache) {
 }
 
 // A terminal verdict needs BOTH channels silent, held across a confirm window of two polls.
-// One-shot roster calls have no delta history, so their first sample leans on instant life
-// (descendants / running root) — honest but coarser than a watch.
+// A job's first verdict judges the short delta primeWitness took, so the one-shot roster and the
+// first poll of a watch read life over FIRST_DELTA_MS where a later poll reads it over --poll.
 function classify(h, now, stallMs, graceMs, pollMs, cache, deadlineMs = DEADLINE_MS) {
   const memo = jobMemo(cache, h);
   const w = witness(h, now, memo, pollMs);

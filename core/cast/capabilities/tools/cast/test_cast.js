@@ -34,9 +34,8 @@ const { procStart } = require('./lib/handles');
 // A home the tool under test will actually use: os.homedir() reads HOME on POSIX and USERPROFILE
 // on Windows. Setting only HOME left every Windows run reading the REAL registry and stores.
 const homeEnv = (home) => ({ HOME: home, USERPROFILE: home });
-// Watch budgets are tuned to Linux poll speed; a Windows poll pays a ~0.7s process-table read
-// plus the first-sample delta, so its budgets get twice the time — the assertions are about
-// behaviour, never speed.
+// Watch budgets are tuned to Linux poll speed; a Windows poll also pays a ~0.7s process-table
+// read, so its budgets get twice the time — the assertions are about behaviour, never speed.
 const T = (ms) => (IS_WIN ? ms * 2 : ms);
 const pathEnv = (...dirs) => [...dirs, path.dirname(process.execPath)].join(path.delimiter);
 
@@ -899,6 +898,23 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     const watch = monitor(['--watch', '--stall', '2', '--poll', '1'], { timeout: T(6000) });
     assert.strictEqual(watch.stdout, '', `busy subtree must not fire an event: ${watch.stdout}`);
     assert.strictEqual(watch.signal, 'SIGTERM', `watch must still be polling, got exit ${watch.status}`);
+
+    // the first verdict judges a delta between two samples, never one read of the process: a job
+    // asleep between writes to its capture (root not running, no descendant) still shows life
+    const ticks = path.join(folder, 'ticks.txt');
+    const quiet = orphan("setInterval(() => require('fs').writeSync(1, 'tick\\n'), 50);", ticks);
+    try {
+      fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'), `${JSON.stringify({
+        pid: quiet.pid, start: quiet.start, harness: 'claude', model: 'haiku-4-5', session,
+        folder, transcript, t0: Date.now() - 3600_000, ...(IS_WIN ? { out: ticks } : {}),
+      })}\n`);
+      const first = JSON.parse(monitor(['--json']).stdout);
+      assert.strictEqual(first.length, 1, `quiet writer must be on the roster: ${JSON.stringify(first)}`);
+      assert.strictEqual(first[0].state, 'SUSPECT',
+        `a growing capture must hold SUSPECT on the first verdict: ${JSON.stringify(first)}`);
+    } finally {
+      quiet.kill();
+    }
   } finally {
     busy.kill();
   }

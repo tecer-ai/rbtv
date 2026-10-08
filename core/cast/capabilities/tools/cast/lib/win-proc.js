@@ -82,10 +82,9 @@ function winTreeSample(pid) {
     io += row.io;
     queue.push(...(kids.get(p) || []));
   }
-  // running: Windows exposes no per-process run state. capSize is filled by the caller from the
-  // handle's recorded `out` path (monitor.js captureSize) — fd 1 of another process is not
-  // resolvable here.
-  return { cpu, io, members, running: false, desc: Math.max(0, members.size - 1), capSize: null };
+  // capSize is filled by the caller from the handle's recorded `out` path (monitor.js
+  // captureSize) — fd 1 of another process is not resolvable here.
+  return { cpu, io, members, desc: Math.max(0, members.size - 1), capSize: null };
 }
 
 // Where THIS process's stdout goes, as a file path — or null for a console, pipe or socket. The
