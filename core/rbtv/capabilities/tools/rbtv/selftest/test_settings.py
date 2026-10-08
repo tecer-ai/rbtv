@@ -582,6 +582,8 @@ def rule_channels(ctx) -> None:
           run(oc, "add", "fixrule", "--harness", "opencode", "--guidance", "none")[0] == 0
           and (oc / ".claude/rules/fixrule.md").is_file()
           and instructions(oc) == [".claude/rules/fixrule.md"]
+          and "permission" not in json.loads(
+              (oc / "opencode.json").read_text(encoding="utf-8"))
           and not (oc / "AGENTS.md").exists()
           and not (oc / ".agents").exists(),
           (oc / "opencode.json").read_text(encoding="utf-8"))

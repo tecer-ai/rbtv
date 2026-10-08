@@ -155,6 +155,11 @@ def green_arm_all_harnesses(ctx) -> None:
           ["instructions"] == [".claude/rules/fixrule.md",
                                ".claude/rules/rbtv-tools.md"],
           (target / "opencode.json").read_text(encoding="utf-8"))
+    check("OpenCode is denied Codex's skill copy of each rule it already "
+          "loads, and no other skill",
+          json.loads((target / "opencode.json").read_text(encoding="utf-8"))
+          ["permission"] == {"skill": {"fixrule": "deny", "rbtv-tools": "deny"}},
+          (target / "opencode.json").read_text(encoding="utf-8"))
     check("F3 — NO code path mints the retired .agents/rbtv2-exposure.md",
           not (target / ".agents/rbtv2-exposure.md").exists()
           and not any("exposure.md" in rel for rel in expect),
@@ -214,6 +219,8 @@ def green_arm_all_harnesses(ctx) -> None:
               _claim_id(".codex/config.toml", None, "codex-limits"),
               _claim_id("opencode.json", ["instructions"]),
               _claim_id("opencode.json", ["instructions"]),
+              _claim_id("opencode.json", ["permission", "skill", "fixrule"]),
+              _claim_id("opencode.json", ["permission", "skill", "rbtv-tools"]),
               _claim_id("AGENTS.md", None, "fixmod/goodcomp"),
               _claim_id("CLAUDE.md", None, "fixmod/goodcomp"),
           ]), str(sorted(state["shared_claims"])))

@@ -65,6 +65,7 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
     hook_owners: dict[str, list] = {}
     sections: list[dict] = []
     instruction_owners: dict[str, list] = {}
+    denied_skill_owners: dict[str, list] = {}
     tools: list[dict] = []
     report: dict = {"no_realization": [], "skill_folders": [], "path_rows": [],
                     "sub_agents_unset": []}
@@ -234,6 +235,8 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                     cid, pid)
                 if method == "rule" and harness == "opencode":
                     instruction_owners.setdefault(rel, []).append((cid, pid))
+                    if "codex" in harnesses:
+                        denied_skill_owners.setdefault(pid, []).append((cid, pid))
 
     # D31: the installed tools, listed in one rule that every one of them owns,
     # so the file is rewritten when the set changes and leaves with the last.
@@ -245,6 +248,8 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                        *tool["owner"])
             if harness == "opencode":
                 instruction_owners.setdefault(rel, []).append(tool["owner"])
+                if "codex" in tool["harnesses"]:
+                    denied_skill_owners.setdefault(TOOLS_RULE, []).append(tool["owner"])
 
     # ── D7/D12: shared-file claims, recomputed from the whole set ──
     claims: list[dict] = []
@@ -316,6 +321,14 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
     for owner in _all_owners(instruction_owners):
         claim_json(OPENCODE_CONFIG_FILE, ["instructions"],
                    sorted(instruction_owners), owner)
+    # OpenCode also lists the skills in `.agents/skills/`, where Codex's copy
+    # of a rule sits. A rule both harnesses receive is denied there as a
+    # skill, so OpenCode holds it once, through `instructions`. Measured
+    # 2026-10-08, opencode 1.17.18: a denied skill leaves the agent's list.
+    for name in sorted(denied_skill_owners):
+        for owner in denied_skill_owners[name]:
+            claim_json(OPENCODE_CONFIG_FILE, ["permission", "skill", name],
+                       "deny", owner)
 
     # A component's folder instructions: one marked section per component in
     # the instructions file of every installed harness, inside the target
