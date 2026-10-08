@@ -1,6 +1,6 @@
-# source-mining
+# digest
 
-`source-mining` performs the exact steps of [Source mining](../../methods/source-mining.md): it measures a long source, cuts it into line-numbered chunks, computes chunk boundaries from boundary reviews, checks the extraction files and merges answers into a questions file. That page and its two mode pages, [Source mining: reconcile](../../methods/source-mining-reconcile.md) and [Source mining: study](../../methods/source-mining-study.md), name when to run each verb. `source-mining -h` and `source-mining VERB -h` are the interface reference.
+`digest` performs the exact steps of [Digest](../../methods/digest.md): it measures a long source, cuts it into line-numbered chunks, computes chunk boundaries from boundary reviews, checks the extraction files and merges answers into a questions file. [Running a digest](../../methods/digest/run.md) and the two mode pages, [Digest: reconcile](../../methods/digest/reconcile.md) and [Digest: study](../../methods/digest/study.md), name when to run each verb. `digest -h` and `digest VERB -h` are the interface reference.
 
 ## What the verbs share
 
@@ -12,6 +12,6 @@ The tool writes only where its arguments say: the `--out` folder of `slice`, and
 
 ## Maintenance
 
-The program is one file, `source-mining.py`, using the Python 3 standard library only. Each verb's help is the docstring of the function that implements it. The chunk-size numbers (30,000, 45,000 and 60,000 characters) are the constants at the top of the program; `inspect`'s help and the "Plan and confirm" section of Source mining state them, so change all three together.
+The program is one file, `digest.py`, using the Python 3 standard library only. Each verb's help is the docstring of the function that implements it. The chunk-size numbers (30,000, 45,000 and 60,000 characters) are the constants at the top of the program; `inspect`'s help and the "Plan and confirm" section of Running a digest state them, so change all three together.
 
 The program has no test file. After a change, run each verb from another folder with a known input, a missing input and an invalid input, as [Tool](../../../../../core/rbtv/capabilities/glossary/tool.md) specifies, and follow [Building a command-line interface](../../../../code/capabilities/methods/building-a-cli.md) for a change to its verbs, help or output.

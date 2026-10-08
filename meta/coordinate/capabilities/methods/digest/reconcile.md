@@ -1,6 +1,6 @@
-# Source mining: reconcile
+# Digest: reconcile
 
-Update the target documents so they reflect the decisions in the source and the user's line-comments. Continue from the run folder that [Source mining](source-mining.md) prepared, with extraction finished and `extractions/grouping.yaml` written, or start at Write for a run whose questions are answered. `<run>` is the run folder.
+Update the target documents so they reflect the decisions in the source and the user's line-comments. Continue from the run folder that [Running a digest](run.md) prepared, with extraction finished and `extractions/grouping.yaml` written, or start at Write for a run whose questions are answered. `<run>` is the run folder.
 
 ## Task text for extraction and grouping
 
@@ -128,7 +128,7 @@ A recommendation based on general best practice, one that is more structured tha
 
 With a user present, print the question count and the first two questions, name the questions file, and wait. Accept answers in any order and present two more at a time until none are left. Append each answer to the file as `- Answer: <response>`. Start Write only when every question has an answer. A user choosing to proceed without confirmations never skips this step.
 
-With no user present, stop after writing the file. Report the run folder, `open-questions.md` and the question count, and ask the caller to supply a JSON object mapping `Q<N>` to answer text. On a later task that supplies it, run `source-mining merge-answers --questions <run>/synthesis/open-questions.md --answers ANSWERS_JSON --in-place` and start at Write. A nonzero exit wrote nothing and names the unmatched, already answered or unanswered keys.
+With no user present, stop after writing the file. Report the run folder, `open-questions.md` and the question count, and ask the caller to supply a JSON object mapping `Q<N>` to answer text. On a later task that supplies it, run `digest merge-answers --questions <run>/synthesis/open-questions.md --answers ANSWERS_JSON --in-place` and start at Write. A nonzero exit wrote nothing and names the unmatched, already answered or unanswered keys.
 
 ## Write
 
@@ -137,4 +137,4 @@ Needs `manifest.json`, `synthesis/delta-draft.md` and `synthesis/open-questions.
 1. For each answered question, add a `### Change` block to `delta-draft.md` with the answer as Source.
 2. Apply every `### Change` block to its target and overwrite the target in place; the earlier version is the version-control record.
 3. Count the applied blocks (not considered-and-unchanged items) and the targets modified. At 3 or more applied changes, or more than one target, write the delta file: `delta-draft.md` to `<target-dir>/<target-name>-delta.md`, or to the output location the installation's instructions set. Otherwise write no delta file and put the change summary and any "considered, no change" notes in the final report.
-4. Continue at Finish in [Source mining](source-mining.md#finish); the delta files line of the report lists the delta file or `none`.
+4. Continue at Finish in [Running a digest](run.md#finish); the delta files line of the report lists the delta file or `none`.

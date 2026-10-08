@@ -1,6 +1,6 @@
-# Source mining: study
+# Digest: study
 
-Produce a study note from the source. Continue from the run folder that [Source mining](source-mining.md) prepared, with extraction finished and `extractions/grouping.yaml` written, or start at Write for a run whose reflection prompts are answered. `<run>` is the run folder.
+Produce a study note from the source. Continue from the run folder that [Running a digest](run.md) prepared, with extraction finished and `extractions/grouping.yaml` written, or start at Write for a run whose reflection prompts are answered. `<run>` is the run folder.
 
 ## Task text for extraction and grouping
 
@@ -91,7 +91,7 @@ Read `manifest.json`, `grouping.yaml` and every context reference (for a URL, us
 
 ## Ask
 
-Write `<run>/synthesis/reflection-prompts.md` in the question-block form of [Source mining: reconcile](source-mining-reconcile.md#ask) (`### Q{N}` with Source, Context, Options, Recommendation, Rationale), one block per trigger:
+Write `<run>/synthesis/reflection-prompts.md` in the question-block form of [Digest: reconcile](reconcile.md#ask) (`### Q{N}` with Source, Context, Options, Recommendation, Rationale), one block per trigger:
 
 | Trigger | Prompt |
 |---|---|
@@ -108,4 +108,4 @@ Needs `manifest.json`, `synthesis/study-draft.md` and `synthesis/reflection-prom
 
 1. Integrate each answer into `study-draft.md`: reorder sections, expand the chosen tensions, drop deprioritized themes.
 2. Write `study-draft.md` to `inputs.study_destination` as a new file.
-3. Continue at Finish in [Source mining](source-mining.md#finish); the report names the study note.
+3. Continue at Finish in [Running a digest](run.md#finish); the report names the study note.

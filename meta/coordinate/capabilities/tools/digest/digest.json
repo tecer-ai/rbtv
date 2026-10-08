@@ -1,5 +1,5 @@
 {
-  "name": "source-mining",
+  "name": "digest",
   "description": "Slices a long source into line-numbered chunks, adjusts chunk boundaries, checks extraction files and merges answers into a questions file.",
-  "entry": "source-mining.py"
+  "entry": "digest.py"
 }

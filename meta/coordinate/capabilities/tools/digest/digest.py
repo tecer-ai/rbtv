@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""source-mining: the exact steps of mining a source too long to read directly.
+"""digest: the exact steps of mining a source too long to read directly.
 
 Verbs:
   inspect         measure a source and suggest a chunk size
@@ -11,7 +11,7 @@ Verbs:
 Result fields print on standard output as `name value` lines. A run that fails
 prints nothing on standard output and prints `error:` and `next:` (the next
 invocation) on standard error. Exit status: 0 success, 1 the operation failed,
-2 the invocation itself is invalid. `source-mining VERB -h` describes one verb.
+2 the invocation itself is invalid. `digest VERB -h` describes one verb.
 """
 
 import argparse
@@ -54,9 +54,9 @@ def inspect(args):
     60,000), chunk_lines_dense and chunks_dense (the same, sized by the densest
     bucket), then one `bucket FIRST-LAST chars N avg N` line per bucket.
 
-    Example: source-mining inspect transcript.txt
+    Example: digest inspect transcript.txt
     """
-    retry = "source-mining inspect SOURCE"
+    retry = "digest inspect SOURCE"
     if args.bucket < 1:
         raise Fail("--bucket must be at least 1", retry + " --bucket 100")
     src, lines = read_lines(args.source, args.encoding, retry)
@@ -102,9 +102,9 @@ def slice_source(args):
 
     Prints: chunks, then one `chunk-NN FIRST-LAST` line per chunk.
 
-    Example: source-mining slice transcript.txt --out run/chunks --size 400
+    Example: digest slice transcript.txt --out run/chunks --size 400
     """
-    retry = "source-mining slice SOURCE --out DIR"
+    retry = "digest slice SOURCE --out DIR"
     src, lines = read_lines(args.source, args.encoding, retry + " --size 400")
     total = len(lines)
     if args.size is not None:
@@ -149,8 +149,8 @@ def load_chunks(directory, next_invocation):
         chunks = json.loads(path.read_text(encoding="utf-8"))["chunks"]
         return {chunk_id: (int(first), int(last)) for chunk_id, (first, last) in chunks.items()}
     except (ValueError, KeyError, TypeError, AttributeError):
-        raise Fail(f"{path} is not a manifest written by source-mining slice",
-                   "source-mining slice SOURCE --out DIR --size 400, then " + next_invocation)
+        raise Fail(f"{path} is not a manifest written by digest slice",
+                   "digest slice SOURCE --out DIR --size 400, then " + next_invocation)
 
 
 def yaml_value(text, key):
@@ -184,9 +184,9 @@ def adjust(args):
     Prints: breaks (the value for `slice --breaks`), then one
     `boundary ORIGINAL ADJUSTED REASON` line per boundary.
 
-    Example: source-mining adjust --chunks run/chunks-naive --boundaries run/boundaries
+    Example: digest adjust --chunks run/chunks-naive --boundaries run/boundaries
     """
-    retry = "source-mining adjust --chunks CHUNKS_DIR --boundaries BOUNDARIES_DIR"
+    retry = "digest adjust --chunks CHUNKS_DIR --boundaries BOUNDARIES_DIR"
     chunks = load_chunks(args.chunks, retry)
     ids = list(chunks)
     reviews = {}
@@ -234,9 +234,9 @@ def check(args):
     `findings:`, or when no chunk holds a finding; the error lists every chunk
     as `missing`, `malformed` or `findings N`.
 
-    Example: source-mining check --chunks run/chunks --extractions run/extractions
+    Example: digest check --chunks run/chunks --extractions run/extractions
     """
-    retry = "source-mining check --chunks CHUNKS_DIR --extractions EXTRACTIONS_DIR"
+    retry = "digest check --chunks CHUNKS_DIR --extractions EXTRACTIONS_DIR"
     chunks = load_chunks(args.chunks, retry)
     report, problems, total = [], [], 0
     for chunk_id in chunks:
@@ -270,9 +270,9 @@ def merge_answers(args):
 
     Prints: merged (the keys written), already_answered, questions_file.
 
-    Example: source-mining merge-answers --questions run/synthesis/open-questions.md --answers answers.json --in-place
+    Example: digest merge-answers --questions run/synthesis/open-questions.md --answers answers.json --in-place
     """
-    retry = ("source-mining merge-answers --questions QUESTIONS_FILE --answers ANSWERS_JSON "
+    retry = ("digest merge-answers --questions QUESTIONS_FILE --answers ANSWERS_JSON "
              "--in-place")
     questions, answers_file = Path(args.questions), Path(args.answers)
     for path in (questions, answers_file):
@@ -326,7 +326,7 @@ class Parser(argparse.ArgumentParser):
 
 
 def parser():
-    p = Parser(prog="source-mining", description=__doc__,
+    p = Parser(prog="digest", description=__doc__,
                formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="verb", required=True, metavar="VERB")
 
