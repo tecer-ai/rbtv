@@ -10,7 +10,7 @@ In each task file in scope, a done entry is a top-level entry the file's format 
 
 When a tool owns the file's format (the task says so, or the file names one), list and remove through that tool and never hand-edit around it.
 
-Show the list: per file, how many entries, and the first line of each.
+Find them with a search for the marker (`grep -n '^- \[x\]' <file>` for checked boxes), not by reading, and show the list: per file, how many entries, and the first line of each.
 
 ## 2. Sweep
 
