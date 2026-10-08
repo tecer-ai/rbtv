@@ -21,7 +21,8 @@ const { CatalogError, loadSelection } = require('./model-catalog');
 const { LEVELS, isAvailable, joinCatalog, pick } = require('./route');
 
 // Measured 2026-10-07: a model the harness cannot reach ends claude, codex and opencode with
-// exit 1 in 2.4 to 3.2 seconds.
+// exit 1 in 2.4 to 3.2 seconds. Measured 2026-10-08: a provider's spending limit ends opencode
+// with exit 1 in about 4 seconds.
 const START_WINDOW_MS = 15_000;
 
 // `out` is how one attempt ended: `error` when the harness could not be started, else its exit

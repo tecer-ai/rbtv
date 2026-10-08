@@ -4,7 +4,7 @@ Standing decisions about cast. Each states the decision and its reason; the page
 
 ## A launch falls back only on a failure to start
 
-A launch runs a fallback when the harness cannot be started or exits with a failure in its first 15 seconds, and in no other case. Reason: a later failure can follow work the agent already did, and running the task again on another model would repeat or collide with that work. The 15 seconds are a bound on "no work yet", taken from measured start failures of 2.4 to 3.2 seconds; a harness that retries a provider limit for longer than that ends as an ordinary failure.
+A launch runs a fallback when the harness cannot be started or exits with a failure in its first 15 seconds, and in no other case. Reason: a later failure can follow work the agent already did, and running the task again on another model would repeat or collide with that work. The 15 seconds are a bound on "no work yet", taken from measured start failures of 2.4 to 4 seconds; a harness that retries a provider limit for longer than that ends as an ordinary failure.
 
 ## A stalled job is never relaunched
 
