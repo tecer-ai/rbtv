@@ -117,7 +117,7 @@ test('cron + tz next-occurrence across a DST change', () => {
 });
 
 test('--every without tz documented as fixed-interval', () => {
-  assert.match(run(['schedule', '-h']).out, /fixed-interval/);
+  assert.match(run(['schedule', 'add', '-h']).out, /fixed-interval/);
   const home = tempHome();
   fs.mkdirSync(path.dirname(boardPath(home)));
   fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
@@ -406,11 +406,37 @@ test('post help explains thread targeting without requiring a home', () => {
 test('help names connect and disconnect but not retired verbs', () => {
   const result = run(['--help']);
   assert.equal(result.code, 0);
-  assert.match(result.out, /ignite connect AGENT/);
-  assert.match(result.out, /ignite disconnect AGENT/);
+  assert.match(result.out, /^ {2}connect {8}Turn the ignite pack on/m);
+  assert.match(result.out, /^ {2}disconnect {5}Remove the Slack route/m);
+  assert.doesNotMatch(result.out, /^ *ignite (connect|disconnect|turn|deploy) [A-Z-]/m);
   assert.doesNotMatch(result.out, /\binstall\b|\bupdate\b|\bsettings\b/);
   assert.doesNotMatch(result.out, /ignite create/);
-  assert.match(run(['schedule', '-h']).out, /fixed-interval/);
+  assert.match(run(['schedule', 'add', '-h']).out, /fixed-interval/);
+});
+
+test('root and group help print no usage form of a child; each verb prints its own', () => {
+  const groups = {
+    schedule: ['add', 'list', 'change', 'cancel'],
+    work: ['status', 'retry', 'resume', 'stop'],
+    board: ['write', 'close'],
+    dreamer: ['run', 'enable', 'disable'],
+  };
+  for (const [group, verbs] of Object.entries(groups)) {
+    const page = run([group, '-h'], { env: {} });
+    assert.equal(page.code, 0);
+    assert.doesNotMatch(page.out, /usage:/);
+    assert.doesNotMatch(page.out, new RegExp(`^ *(ignite )?${group} (${verbs.join('|')}) [-<\\[(A-Z]`, 'm'));
+    for (const verb of verbs) {
+      assert.match(page.out, new RegExp(`^ {2}${verb} +\\S`, 'm'));
+      for (const argv of [[group, verb, '-h'], ['-h', group, verb], [group, '--help', verb]]) {
+        const leaf = run(argv, { env: {} });
+        assert.equal(leaf.code, 0);
+        assert.equal(leaf.err, '');
+        assert.match(leaf.out, new RegExp(`^ignite ${group} ${verb} — `));
+        assert.match(leaf.out, new RegExp(`^usage: ignite ${group} ${verb}\\b`, 'm'));
+      }
+    }
+  }
 });
 
 test('retired verbs are unknown', () => {
@@ -522,15 +548,20 @@ test('board rejects invalid arguments, missing input and missing home', () => {
 });
 
 test('board help works before and after every command depth without context or writes', () => {
-  assert.match(run(['board', '--help']).out, /board write --file/);
-  for (const args of [[], ['write'], ['close'], ['close', 'Subject', 'Outcome']]) {
+  assert.match(run(['board', '--help']).out, /^ {2}write +Replace the board/m);
+  for (const [args, usage, text] of [
+    [[], null, /checked short-term memory/],
+    [['write'], /^usage: ignite board write --file <path>/m, /90 non-empty lines/],
+    [['close'], /^usage: ignite board close <subject> <outcome> \[thread\]/m, /Recently closed/],
+    [['close', 'Subject', 'Outcome'], /^usage: ignite board close <subject> <outcome> \[thread\]/m, /Recently closed/],
+  ]) {
     for (const flag of ['--help', '-h']) {
       for (const argv of [[flag, 'board', ...args], ['board', flag, ...args], ['board', ...args, flag]]) {
         const result = run(argv, { env: {} });
         assert.equal(result.code, 0);
-        assert.match(result.out, /board write --file <path>/);
-        assert.match(result.out, /board close <subject> <outcome>/);
-        assert.match(result.out, /90 non-empty lines/);
+        if (usage) assert.match(result.out, usage);
+        else assert.doesNotMatch(result.out, /usage:/);
+        assert.match(result.out, text);
         assert.equal(result.err, '');
       }
     }
@@ -635,7 +666,7 @@ test('schedule subjects and generated timers survive changes and dues; cancellat
       assert.throws(() => run(['schedule', 'add', '--every', '1h', '--note', 'x', '--subject', subject], deps), /--subject/);
     }
     assert.equal(store.listSchedules().length, 1);
-    assert.match(run(['schedule', '--help']).out, /--subject <title>/);
+    assert.match(run(['schedule', 'add', '--help']).out, /--subject <title>/);
   } finally { store.close(); fs.rmSync(home, { recursive: true, force: true }); }
 });
 
@@ -1015,25 +1046,36 @@ async function finishCli() {
   await testAsync('dreamer help needs no home, carries the owner wording at every verb and rejects a missing or unknown verb', async () => {
     const help = await runAsync(['dreamer', '--help']);
     assert.equal(help.code, 0);
-    for (const argv of [['dreamer', '-h'], ['dreamer', 'run', '-h'], ['dreamer', 'enable', '-h'], ['dreamer', 'disable', '--help'], ['-h', 'dreamer', 'enable']]) {
+    for (const argv of [['dreamer', '-h'], ['dreamer', 'status', '-h'], ['-h', 'dreamer']]) {
       const page = await runAsync(argv);
       assert.equal(page.code, 0);
       assert.equal(page.out, help.out);
     }
-    assert.ok(help.out.replace(/\s+/g, ' ').includes(OWNER_WORDING));
-    assert.match(help.out, /ignite dreamer enable \[--installation PATH\] \[--json\]/);
-    assert.match(help.out, /ignite dreamer disable \[--installation PATH\] \[--json\]/);
-    assert.match(help.out, /A consolidation already in\s+progress is not cancelled/);
-    assert.match(help.out, /records codex gpt-6\.1-sol effort 3/);
+    assert.doesNotMatch(help.out, /usage:/);
     assert.doesNotMatch(help.out, /dreamer status/);
+    const pages = {};
+    for (const verb of ['run', 'enable', 'disable']) {
+      assert.match(help.out, new RegExp(`^ {2}${verb} +\\S`, 'm'));
+      for (const argv of [['dreamer', verb, '-h'], ['dreamer', verb, '--help'], ['-h', 'dreamer', verb], ['dreamer', verb, '--installation', '/x', '-h']]) {
+        const page = await runAsync(argv);
+        assert.equal(page.code, 0);
+        pages[verb] = pages[verb] || page.out;
+        assert.equal(page.out, pages[verb]);
+      }
+      assert.match(pages[verb], new RegExp(`^usage: ignite dreamer ${verb} \\[--installation PATH\\]`, 'm'));
+    }
+    assert.ok(help.out.replace(/\s+/g, ' ').includes(OWNER_WORDING));
+    assert.match(pages.enable, /^usage: ignite dreamer enable \[--installation PATH\] \[--json\]/m);
+    assert.match(pages.disable, /^usage: ignite dreamer disable \[--installation PATH\] \[--json\]/m);
+    assert.match(pages.disable, /A consolidation already in\s+progress is not cancelled/);
+    assert.match(pages.enable, /records codex gpt-6\.1-sol effort 3/);
     const top = run(['-h']).out;
     assert.match(top, /dreamer +Run one memory consolidation, or enable or disable the\n +nightly consolidation for the whole installation\./);
-    assert.match(help.out, /dreamer run/);
-    assert.match(help.out, /dreamer.enabled is false/);
-    assert.match(help.out, /snapshot reads and publication/);
-    assert.match(help.out, /Releases it before every model call/);
-    assert.match(help.out, /digestQueued/);
-    assert.match(help.out, /noticeQueued/);
+    assert.match(pages.run, /dreamer.enabled is false/);
+    assert.match(pages.run, /snapshot reads and publication/);
+    assert.match(pages.run, /Releases it before every model call/);
+    assert.match(pages.run, /digestQueued/);
+    assert.match(pages.run, /noticeQueued/);
     for (const argv of [['dreamer'], ['dreamer', 'status'], ['dreamer', 'enable', 'master'], ['dreamer', 'run', 'now']]) {
       await assert.rejects(() => runAsync(argv), /dreamer requires exactly one of run, enable, disable\nNothing changed\.\nignite dreamer -h/);
     }

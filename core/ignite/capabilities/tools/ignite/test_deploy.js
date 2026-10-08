@@ -116,7 +116,7 @@ test('help-needs-nothing', async () => {
   let root = '';
   assert.equal(main(['-h'], { stdout: (text) => { root += text; } }), 0);
   assert.match(root, /^ {2}deploy {9}Check the service's folder out at a commit/m);
-  assert.match(root, /^ {2}ignite deploy \[COMMIT\] \[--deploy-folder PATH\]$/m);
+  assert.doesNotMatch(root, /ignite deploy \[COMMIT\]/);
 });
 
 test('refuses-off-linux', async () => {

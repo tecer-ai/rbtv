@@ -16,6 +16,7 @@ const { loadConfig, updateConfig, agentHome, configPath, findWorkspace, DREAMER_
 const { cadenceSpec, nextOccurrence, FIXED_TZ } = require('./schedule.js');
 const { writeBoard, closeSubject, boardPath, preflightBoard, refreshBoard, refreshBoardAfterCommit } = require('./board.js');
 const { workspaceFromHome, remember } = require('./memory.js');
+const { PAGES, helpPage } = require('./help.js');
 
 const COMMANDS = ['schedule', 'schedules-due', 'work', 'wake', 'post', 'board', 'remember', 'dreamer'];
 const REPORTS = new Set(['always', 'when-useful']);
@@ -49,15 +50,6 @@ Waking service
   deploy         Check the service's folder out at a commit, restart the
                  service and confirm it is active. Linux only.
 
-Usage
-  ignite connect AGENT (--channel-name NAME | --dm)
-      [--schedule-json FILE] [--installation PATH] [--dry-run]
-  ignite disconnect AGENT [--archive-channel]
-      [--installation PATH] [--dry-run]
-  ignite turn --request FILE --result FILE
-  ignite deploy [COMMIT] [--deploy-folder PATH]
-      [--installation PATH] [--dry-run]
-
 Home: RBTV_AGENT_HOME, or --agent NAME --installation PATH.
   The installation defaults to the directory walk that finds
   .rbtv/config/ignite/config.json.
@@ -74,7 +66,7 @@ connect, disconnect and deploy also take --dry-run and --installation.
 A refusal is a message on stderr, exit 1, with or without --json.
 -h and --help work before or after the verb, with no setup.
 
-Start: ignite connect AGENT --channel-name NAME
+Start: ignite connect -h
 More:  ignite COMMAND -h
 Exit codes: 0 success; 1 refused, failed, or invalid arguments.
 `;
@@ -148,156 +140,6 @@ when none. Failure: exit 1, reason on stderr, or {path, error} on stdout with
 
 Example: ignite remember "Prefers afternoon appointments"
 `;
-
-const DREAMER_HELP = `ignite dreamer — memory consolidation for the whole installation
-
-usage: ignite dreamer run [--installation PATH]
-       ignite dreamer enable [--installation PATH] [--json]
-       ignite dreamer disable [--installation PATH] [--json]
-
-Enable and disable affect automatic Dreamer operation for the entire
-installation, not only the calling agent. Agents must use these commands only
-when explicitly requested by the owner. Do not disable Dreamer as a workaround
-for an individual agent's problem.
-
-enable
-  Sets dreamer.enabled to true in .rbtv/config/ignite/config.json. The running
-  service reads it on its next tick and turns on the nightly consolidation
-  (03:00 America/Sao_Paulo) and the 48-hour watchdog for every agent.
-  When dreamer.model is absent, records ${DREAMER_MODEL.harness} ${DREAMER_MODEL.model} effort ${DREAMER_MODEL.effort} there.
-  The result names the model in use. To change it, edit dreamer.model
-  (harness, model, effort) in that file.
-  Already enabled: nothing is written, and the result says so.
-
-disable
-  Sets dreamer.enabled to false. The nightly consolidation and the watchdog
-  stop for every agent on the service's next tick. A consolidation already in
-  progress is not cancelled. dreamer.model is kept.
-  Already disabled: nothing is written, and the result says so.
-
-enable and disable change only dreamer.enabled, and dreamer.model when enable
-records it. Every other setting and the schedule stay as they are.
-Success: exit 0, the new state in plain text, or with --json
-{installation, config, enabled, changed, model, modelRecorded}.
-Refusal: exit 1, reason on stderr, nothing written. An unreadable or invalid
-configuration is refused, and so is an option this command does not have.
-
-run
-  Runs the nightly consolidation path once and exits. Never loops and never
-  waits for 03:00. Does not mark or consume that slot, so the daemon can still
-  run it the same night.
-  Takes the installation lock .rbtv/runtime/ignite/memory.lock for checks,
-  snapshot reads and publication. Releases it before every model call.
-  Contention at entry prints a busy result and does not start a run.
-  A digest or failure notice is queued on the direct-message agent's outbox.
-  digestQueued reports a queued digest; noticeQueued reports a queued failure
-  notice. Both are false for quiet, busy, or setup-failure results.
-  The running daemon delivers it. Reported conflicts are saved only after
-  delivery is confirmed. This command does not confirm delivery, so it leaves
-  new conflicts unsaved, the same as an unconfirmed nightly digest.
-  Runs even when dreamer.enabled is false, and does not enable it. The result
-  says so. Uses dreamer.model; without that key the run is refused.
-  Prints one JSON line and nothing else. Exit 0 when the run finished without
-  an alert. Exit 1 when the run failed or the lock was busy.
-
-Installation: --installation, otherwise the installation containing RBTV_AGENT_HOME,
-or the walk up to .rbtv/config/ignite/config.json. No agent flag. No Slack call.
-
-Examples:
-  ignite dreamer enable --installation /path/to/installation
-  ignite dreamer disable --installation /path/to/installation
-  ignite dreamer run --installation /path/to/installation
-`;
-
-const BOARD_HELP = `ignite board — checked short-term memory
-
-board write --file <path>
-  Read a complete UTF-8 Markdown candidate; create or update <home>/_artifacts/board.md.
-  Keep all four headings in order: ## What matters now, ## Watch-outs,
-  ## Timers, ## Recently closed. Empty sections keep their headings.
-  Each subject: a unique ### Title, 1–3 state lines, then these three lines:
-    - Threads: none OR [label](https://example.com/thread) links separated by " · "
-    - Detail: none OR a Markdown page path/link (agent detail: ../memory/<slug>.md)
-    - Flags: none OR answered YYYY-MM-DD OR idle since YYYY-MM-DD
-  Watch-outs: - Rule (YYYY-MM-DD · agent[/[label](URL)])
-  Temporary facts end with until YYYY-MM-DD, before any provenance tail.
-  Only subjects and watch-outs may change. Keep Timers, Recently closed and
-  existing Flags unchanged; new Flags must be none. Remove subjects with close.
-  Caps: 90 non-empty lines excluding the Timers table; 8 subjects, 6 watch-outs,
-  6 closed entries. Invalid or over-cap writes are refused, never truncated.
-
-board close <subject> <outcome> [thread]
-  Use the exact title; quote arguments containing spaces. Outcome is one line.
-  Optional thread is a "[label](URL)" link. Removes the subject and appends its
-  outcome with today's UTC date and agent slug to Recently closed.
-  A full closed section refuses the whole change; archive old entries first.
-  Nothing is pruned automatically.
-
-Home: RBTV_AGENT_HOME, otherwise --agent <slug> --installation <path>.
-Installation may be discovered by walking up to .rbtv/config/ignite/config.json.
-No Slack access. Reads an existing state.sqlite to refresh Timers and Flags as
-part of the board write; never creates a database. --help/-h works without a home. -- ends options.
-Success: exit 0, "written <path>", "unchanged <path>" or "closed <subject> in <path>".
-Failure: exit 1, reason on stderr; fix the candidate and retry. Validation leaves
-the board unchanged. --json emits {path, changed, subject?} or {path, error} on
-stdout; path is null if home resolution failed. No interactive prompts.
-
-Examples:
-  ignite board write --file "board candidate.md"
-  ignite board close "Printer toner reorder" "Order confirmed"
-`;
-
-// These verbs keep the detailed guidance that was previously embedded in the
-// one-page help. Their pages deliberately need no agent home or installation.
-const UNCHANGED_HELP = {
-  schedule: `ignite — schedule help
-
-usage: ignite schedule add (--at <ISO datetime with offset> | --cron "<5-field>" --tz <IANA zone> | --every <duration>) --note <text> [--subject <title>] [--report always|when-useful] [--conversation <key>]
-       ignite schedule list
-       ignite schedule change <id> [same cadence flags] [--note <text>] [--report always|when-useful] [--enabled true|false]
-       ignite schedule cancel <id>
-
-Cron requires an explicit --tz. Next occurrence is timezone-aware.
---every is a fixed-interval: elapsed time, no timezone, DST does not move it.
-A recurring schedule requires a cadence (--cron or --every). An empty cadence is refused.
-Timers on _artifacts/board.md show enabled schedules with a next fire and pending/running wakes.
---subject links the timer to a board subject; omitted means none. Changes keep this association.
-Add/change/cancel require a valid <home>/_artifacts/board.md before opening SQLite.
-If SQLite commits but board refresh fails, exit 0 reports the id and "committed; board refresh pending" (--json adds warning). Do not repeat the mutation.
-The next board write or turn refreshes Timers from SQLite.
-`,
-  'schedules-due': `ignite — schedules-due help
-
-usage: ignite schedules-due --now <ISO datetime>
-
-Enqueue a fresh conversation with no thread or resumed session; input is the schedule id only.
-While one schedule wake is pending, further dues are de-duplicated. Never enqueues for a held or stopped schedule, and never clears a hold.
-`,
-  work: `ignite — work help
-
-usage: ignite work status [--conversation <key>]
-       ignite work retry|resume [<id>]
-       ignite work stop <id>
-
-With an id, retry clears only that work hold. With no id, it clears only an agent hold.
-stop stops that assignment. It does not cancel schedules and does not clear an agent hold.
-`,
-  wake: `ignite — wake help
-
-usage: ignite wake --conversation <key> --note <text> [--work <id>]
-
-Worker completion. Enqueues a continuation. Does not clear a hold.
-`,
-  post: `ignite — post help
-
-usage: ignite post (--text <text> | --text-file <path> | --file <path>)... [--audio] [--thread <thread>]
-
-Without --thread, opens a new thread in the agent's channel. --thread selects an existing conversation in this agent's stored history: its full team:channel:root-ts key or a unique root timestamp. Unknown or ambiguous targets are refused.
-The post joins that conversation's history after delivery; its session and prior history stay intact.
-Enqueues delivery and activates the target. Prints "<conversation key> activated"; --json returns conversationKey, outboxId, clientMsgId, activated and channel. Exit 0 means queued; errors go to stderr with exit 1. No Slack request or interactive prompt in this command.
-Example: ignite post --thread T1:C1:123.456 --text "Check complete"
-`,
-};
 
 function take(argv, i, flag) {
   const value = argv[i + 1];
@@ -411,7 +253,7 @@ function addSpec(opts, fromMs) {
 function cmdSchedule(rest, ctx, flags, deps) {
   const action = rest[0];
   if (!action || action === '--help') {
-    emit(deps, flags, { help: 'schedule' }, HELP);
+    emit(deps, flags, { help: 'schedule' }, PAGES.schedule);
     return 0;
   }
   if (action === 'list') {
@@ -558,7 +400,7 @@ function cmdDue(rest, ctx, flags, deps) {
 function cmdWork(rest, ctx, flags, deps) {
   const action = rest[0];
   if (!action || action === '--help') {
-    emit(deps, flags, { help: 'work' }, HELP);
+    emit(deps, flags, { help: 'work' }, PAGES.work);
     return 0;
   }
   const { opts, positionals } = parseOpts(rest.slice(1));
@@ -646,8 +488,8 @@ function cmdPost(rest, ctx, flags, deps) {
 }
 
 function cmdBoard(rest, flags, deps) {
-  if (flags.help || !rest.length) {
-    emit(deps, { json: false }, null, BOARD_HELP);
+  if (!rest.length) {
+    emit(deps, { json: false }, null, PAGES.board);
     return 0;
   }
   let file = null;
@@ -740,10 +582,6 @@ function setDreamerEnabled(enabled, flags, deps) {
 }
 
 async function cmdDreamer(rest, flags, deps) {
-  if (flags.help) {
-    emit(deps, { json: false }, null, DREAMER_HELP);
-    return 0;
-  }
   const flag = rest.find((arg) => arg.startsWith('-'));
   if (flag) fail(`'${flag}' is not a dreamer option\nNothing changed.\nignite dreamer -h`);
   const [verb, ...extra] = rest;
@@ -855,24 +693,18 @@ function main(argv, deps = {}) {
     }
     return require('./turn.js').runTurnAsync(tail);
   }
+  if (flags.help) {
+    const page = helpPage(command, tail);
+    if (page) {
+      emit(deps, { json: false }, null, page);
+      return 0;
+    }
+  }
   if (command === 'board') return cmdBoard(tail, flags, deps);
   if (command === 'remember') return cmdRemember(tail, flags, deps);
   if (command === 'dreamer') return cmdDreamer(tail, flags, deps);
   if (command === 'deploy') return require('./deploy.js').run(tail, flags, deps, () => resolveInstallation(flags, deps));
   if (!COMMANDS.includes(command)) fail(`unknown command: ${command}\nchoose from connect, disconnect, manage, turn,\nschedule, schedules-due, work, wake, post, board, remember, dreamer, deploy\nNothing changed.\nignite -h`);
-  if (flags.help) {
-    const page = UNCHANGED_HELP[command];
-    if (page) {
-      emit(deps, { json: false }, null, page);
-      return 0;
-    }
-    // board, remember and dreamer have their own complete pages above.
-    if (command === 'board') return cmdBoard(tail, flags, deps);
-    if (command === 'remember') return cmdRemember(tail, flags, deps);
-    if (command === 'dreamer') return cmdDreamer(tail, flags, deps);
-    emit(deps, { json: false }, null, HELP);
-    return 0;
-  }
   const ctx = openContext(flags, deps, command === 'schedule' && ['add', 'change', 'cancel'].includes(tail[0]));
   try {
     return dispatch(command, tail, ctx, flags, deps);
