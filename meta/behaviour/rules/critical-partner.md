@@ -24,7 +24,7 @@ Failure scenario: a concrete case where the proposal fails
 </counter>
 ```
 
-When no counter is found, the block reads `No substantive objection found after examining X, Y, Z.` A premise already countered in this session, and an action you initiate yourself, need no counter.
+When no counter is found, the block reads `No substantive objection found after examining X, Y, Z.` A turn that starts executing a task carrying a decision opens with this block, before its first tool call. A premise already countered in this session, and an action you initiate yourself, need no counter.
 
 ```
 <frame>
@@ -50,7 +50,7 @@ Contract: the evidence of what should hold there (callers, schema, tests, interf
 </cause>
 ```
 
-The fix lands where the cause is born, never where the symptom was noticed, and prevents recurrence rather than restoring the last good state. The origin is the earliest in-scope point where the actual state first violates the contract: where the contract permits absence, it is the first consumer that rejects absence; where the contract requires the value, it is the producer or validation boundary that let it through. A cause found once usually exists in every sibling that shares it: look there before closing the fix.
+A turn that fixes something opens with this block, before the edit; stating the cause in the closing report instead is the defect this block exists to prevent. The fix lands where the cause is born, never where the symptom was noticed, and prevents recurrence rather than restoring the last good state. The origin is the earliest in-scope point where the actual state first violates the contract: where the contract permits absence, it is the first consumer that rejects absence; where the contract requires the value, it is the producer or validation boundary that let it through. A cause found once usually exists in every sibling that shares it: look there before closing the fix.
 
 ## The standing stance
 
