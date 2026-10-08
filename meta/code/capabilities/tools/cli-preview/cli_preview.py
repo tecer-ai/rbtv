@@ -270,10 +270,7 @@ def build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argument
             "Never runs, executes, or crawls any command; it only reads *.md text you give it."
         ),
         epilog=(
-            "Examples:\n"
-            "  cli_preview.py init my-review/\n"
-            "  cli_preview.py check my-review/ --json\n"
-            "  cli_preview.py build my-review/ --out my-review/preview.html\n\n"
+            "Run 'cli_preview.py COMMAND -h' for a command's usage, arguments and examples.\n\n"
             "Exit codes: 0 success; 1 refused or check failed; 2 invalid arguments."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
