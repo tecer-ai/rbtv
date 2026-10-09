@@ -14,9 +14,9 @@ Reason: the requests check and the hygiene check are the point of having one ent
 
 The requests check asks finish, hand off or drop per undone item and never finishes one on its own, however small. Reason: the user may have changed their mind, and the moment a session closes is the wrong one to spend on work nobody confirmed. A blind Sonnet seat finished one itself before this line existed.
 
-## Triage stays a skill of its own; the value bar is one page
+## Triage is a method here, and loose ends files nothing before it
 
-`triage` remains a component of its own, `meta/triage`, for a backlog cleaned mid-project; the loose-ends method and `triage` both link `capabilities/methods/value-bar.md`. Reason: the bar must not be stated twice, and the close is not the only moment a backlog is judged.
+`triage` is a method page of final-act, reached only through this skill, and carries the value bar itself; the loose-ends method sends its unfiled list through triage, owner round included, before any task is filed. Reason: a backlog is judged at a close and at any other time by one protocol, and the point of the protocol is that an agent never files on its own judgment; one page holds the bar because both callers are in this component.
 
 ## State hygiene is the entry step's hygiene check, not a rule
 

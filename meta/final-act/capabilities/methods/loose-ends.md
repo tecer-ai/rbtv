@@ -29,15 +29,17 @@ Execute a loose end now, instead of filing it, when all three hold:
 
 Execute is the default for a mechanical, non-destructive, verifiable find; doubt about size resolves toward executing. Never execute inline, whatever the size: a destructive or irreversible action (a delete, an archive move, a change to git history), or anything whose fix depends on an owner decision or an open question. When an inline fix turns out non-mechanical or needs investigation, stop, revert the partial work, and take the loose end to step 3 with what the attempt revealed.
 
-## 3. The value bar, then the filing
+## 3. Triage, then file
 
-Each loose end not executed is judged by the [value bar](value-bar.md). Then:
+Each loose end not executed is one entry of a backlog: the list of this session's loose ends not yet filed. Take that list through [Triage](triage.md) in full: the value bar classifies each as keep, drop, fold, move or owner-decision, the owner rules on the list before anything is written, and the rulings are applied. Then:
 
-- **keep** → write it as a task in the backlog the project uses, cold-start sufficient as the bar states, with the context this session has and a fresh agent does not: paths, what was tried, the state left.
+- **keep** → write it as a task in the backlog the project uses, cold-start sufficient as the triage page states, with the context this session has and a fresh agent does not: paths, what was tried, the state left.
 - **fold** → enrich the existing task; no new entry.
 - **move** → file it in the other home, with a pointer from this backlog when this backlog exists.
-- **owner-decision** → ask the user now, in plain words, with the options and a recommendation; when no user can answer, file it as a task that names the decision and what waits on it.
+- **owner-decision** → the owner answered it in the round; file what waits on it as a task only when the owner said so.
 - **drop** → one line in the disclosure, named, not filed.
+
+Nothing is filed before the owner round: a task filed on your own judgment is the backlog noise this step exists to prevent.
 
 ## 4. Disclose
 
