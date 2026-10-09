@@ -43,7 +43,7 @@ Change results show a compact summary and important warnings by default. Add `--
 
 Agent results also include `harness_files` (file outcomes from installing or removing the agent's skills and rules) and `files_removed` (their full identifiers). These supplement the existing agent fields. An agent-removal preview's `kept` list predicts what remains after removal.
 
-The `cli-creator` skill in `meta/code` covers both help and actual command results. Its output review checks tables, spacing, wrapping, bulk-result summaries, structured output, and real outcomes against observed state; help coverage alone is insufficient.
+The building-a-CLI method of the `coding` skill in `meta/code` covers both help and actual command results. Its output review checks tables, spacing, wrapping, bulk-result summaries, structured output, and real outcomes against observed state; help coverage alone is insufficient.
 
 The `final-act` skill in `meta/final-act` closes a session: it checks every request of the conversation was finished, re-checks the files left for later agents, and routes to handoff (what a successor needs), loose ends (executed, filed or disclosed), compound (corrections as improvement entries), archivist (done tasks swept) and work history (the evidence-backed record of a session and its sub-agents, in one folder per agent with a linked timeline and manifest). Install it with `rbtv add final-act` in a configured installation.
 

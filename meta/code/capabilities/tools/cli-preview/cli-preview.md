@@ -65,8 +65,9 @@ itself is complete, that a screen's literal output actually matches what
 the real command prints, or that help prose is accurate or complete. The
 tool never inspects, imports, or executes the reviewed program; it only
 reads Markdown text. Real-command and semantic verification is still the
-author's and the informed reviewer's job (see the `cli-creator` skill's
-specification and verification steps).
+author's and the informed reviewer's job (see the specification and
+verification steps of the
+[building-a-CLI method](../../methods/building-a-cli.md)).
 
 ## Reuse in this vault
 

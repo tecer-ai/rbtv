@@ -1,5 +1,5 @@
 ---
-description: "Read at the moment the improve-codebase-architecture skill renders its HTML report — the scaffold, the candidate card, the diagram patterns, the style, and the tone the report must follow."
+description: "Read at the moment the improving-architecture method renders its HTML report — the scaffold, the candidate card, the diagram patterns, the style, and the tone the report must follow."
 tags: [coding]
 ---
 

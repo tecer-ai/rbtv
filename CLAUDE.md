@@ -22,7 +22,7 @@ Every component MUST work on both Linux and Windows — rbtv runs on Linux serve
 
 ## Command-line tools
 
-Every new or edited rbtv command-line tool follows the `cli-creator` skill (`meta/code/skills/cli-creator.md`; read it directly whether or not the skill is installed); no edit lowers its standard.
+Every new or edited rbtv command-line tool follows the `coding` skill's building-a-CLI method (`meta/code/capabilities/methods/building-a-cli.md`; read it directly whether or not the skill is installed); no edit lowers its standard.
 
 ## Installed is a subset
 
