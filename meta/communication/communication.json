@@ -1,4 +1,4 @@
 {
-  "description": "The communication component — how a message travels between the owner and the agents (medium capabilities; today: audio) and how agents talk to the owner (the three always-on chat style rules: plain-language, non-technical-user, concise-chat — plus the slack-message-format skill for what is written into a Slack thread).",
+  "description": "Writing and shared terminology for chat, documents and agent instructions; provider integrations belong in connectors.",
   "dependencies": []
 }

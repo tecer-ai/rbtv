@@ -10,7 +10,7 @@ from pathlib import Path
 from discovery import Refuse, file_rows
 
 from . import frontmatter, present, subagents
-from .constants import BASIS_NONE, GROUP_TYPES, MANAGED_MARK, STATE_REL
+from .constants import BASIS_NONE, GROUP_TYPES, MANAGED_MARK, REPOSITORY_DIR, STATE_REL
 from .catalog import (
     _file_specs,
     catalog_packs,
@@ -606,6 +606,13 @@ def build_show(selection: dict, catalog: dict, state: dict) -> dict:
         out.update(description=description,
                    dependencies=list(source_comp.get("dependencies") or []),
                    source_entry=(str(source_path) if source_path else ""))
+        repo = source_comp.get("repository")
+        if repo and source_path is not None:
+            checkout = source_path / REPOSITORY_DIR
+            out["repository"] = {
+                "url": repo.get("url", ""), "branch": repo.get("branch", ""),
+                "requirements": repo.get("requirements") or "",
+                "checkout": str(checkout), "present": checkout.is_dir()}
     return out
 
 
@@ -658,6 +665,13 @@ def print_show(data: dict) -> None:
     if sel["scope"] == "component":
         _say(f"Description: {sel.get('description') or '(no description in the source catalog)'}")
         _say("Dependencies: " + (", ".join(sel.get("dependencies") or []) or "none"))
+        repo = sel.get("repository") or {}
+        if repo:
+            _say(f"Repository: {repo.get('url', '')} ({repo.get('branch', '')})")
+            if repo.get("requirements"):
+                print("Requirements: " + repo["requirements"])
+            state = "present" if repo.get("present") else "missing"
+            print(f"Checkout: {repo.get('checkout', '')} ({state})")
         if sel.get("source_entry"):
             print("Source entry (local RBTV source): " + sel['source_entry'])
         _say(f"Local source: {len(sel['files'])} file(s) in this component.")

@@ -467,7 +467,10 @@ def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: 
         after["files"], after["packs"] = sorted(declared | explicit), sorted(enabled)
         write_state(home, after)
     added, packs_on = sorted(wanted - before), sorted(packs - set(state["packs"]))
-    touched = bool(added or packs_on or written or launch
+    repos = result.get("repositories") or []
+    repo_acted = any(item.get("action") == "cloned" or item.get("setup") == "installed"
+                     for item in repos)
+    touched = bool(added or packs_on or written or launch or repo_acted
                    or result.get("written") or result.get("deleted"))
     return {"ok": True, "agent": state["name"], "home": str(home), "launch": _launch(state), "placed": placed,
             "packs": sorted(enabled), "written": (["agent.json"] if touched and not dry else []) + written,

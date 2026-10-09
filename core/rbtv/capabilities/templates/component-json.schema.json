@@ -19,6 +19,32 @@
       "items": {
         "type": "string"
       }
+    },
+    "repository": {
+      "description": "Optional git checkout. discovery.py loads this object; the checkout is not required to exist.",
+      "type": "object",
+      "required": ["url", "branch"],
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "description": "Git remote stored as origin. Must equal git remote get-url origin, including spelling. Must not start with -.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!-)[^\\r\\n]*\\S[^\\r\\n]*$"
+        },
+        "branch": {
+          "description": "Branch cloned and fast-forwarded. No spaces or leading dash.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!-)[^\\s\\\\]+$"
+        },
+        "requirements": {
+          "description": "Relative pip requirements path inside the checkout. No .. segment and no absolute path.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\:*?\"<>|\\r\\n]+$"
+        }
+      }
     }
   }
 }

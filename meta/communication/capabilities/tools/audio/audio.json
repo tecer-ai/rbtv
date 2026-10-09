@@ -1,5 +1,0 @@
-{
-  "name": "audio",
-  "description": "Transcribes audio to text and speaks text as audio.",
-  "entry": "audio.py"
-}

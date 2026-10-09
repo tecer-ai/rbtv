@@ -68,3 +68,6 @@ ignite/supervisor/provider-lanes.json.tmp
 # hand another box an outage ledger and an ending store it never earned. The repo tracks no
 # `.rbtv/` path at all, so the whole tree is ignored rather than its two current leaves.
 **/.rbtv/
+
+# External connector checkouts retain their own history and local credentials.
+/connectors/*/repository/

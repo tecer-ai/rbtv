@@ -3,7 +3,7 @@
 // Exported API — other seats treat this file as read-only.
 // Slack({ botToken, appToken?, stoolsWorkspace?, stools?, fetch?, WebSocket?, run?, schedule?, cancel?, log? })
 // stools is the Slack command-line tool's command name on PATH (config.json tools.stools); it is run directly.
-//   stoolsWorkspace is the stools workspace name, never the vault path.
+//   stoolsWorkspace is the configured Slack account name, never the vault path.
 // auth() → { team, botUserId, botId }
 // normalize(event, { team, botUserId, botId }) →
 //   { team, channel, channelType, ts, threadTs, user, text, files, isBotOrSelf, mentionsBot }
@@ -12,7 +12,7 @@
 //   is not self), OR subtype message_changed / message_deleted / channel_join / group_join.
 // connect(onEvent): Socket Mode via app token. ACK only after onEvent resolves; no ACK if it
 //   rejects. Backoff 1s→60s, reset only on hello. disconnect envelopes close and reconnect.
-// postMessage({ channel, threadTs?, text, clientMsgId? }) → { channel, ts }  (mrkdwn: true)
+// postMessage({ channel, threadTs?, text, clientMsgId? }) → { channel, ts }  (standard Markdown)
 // addReaction(channel, ts) → reactions.add name=eyes
 // threadHistory(channel, threadTs) → normalized messages, oldest first (conversations.replies)
 // createChannel(name) → { id, name }
@@ -21,8 +21,8 @@
 // archiveChannel(id)   (already_archived is success)
 // uploadFile({ channel, threadTs?, file, text? }) → { ts, files }
 //   files.getUploadURLExternal + POST bytes + files.completeUploadExternal (returns message ts;
-//   stools upload does not).
-// downloadFile({ channel, ts, threadTs?, dir }) → [{ path, name }]  via stools download
+//   slack upload does not).
+// downloadFile({ channel, ts, threadTs?, dir }) → [{ path, name }]  via slack download
 // canvasCreate({ channel, markdown, title? }) → { canvasId }   bot token, conversations.canvases.create
 // canvasEdit({ canvasId, markdown, operation? }) → { canvasId }   bot token, canvases.edit
 // stop()
@@ -34,6 +34,14 @@ const { promisify } = require('node:util');
 
 const SELF_SUBTYPES = new Set(['message_changed', 'message_deleted', 'channel_join', 'group_join']);
 const API = 'https://slack.com/api';
+
+function markdown(text) {
+  if (typeof text !== 'string' || !text.trim()) throw new Error('Slack message is empty');
+  if ([...text].length > 12000) {
+    throw new Error('Slack Markdown exceeds 12,000 characters; attach the document instead');
+  }
+  return text;
+}
 
 function escapeReg(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -166,8 +174,7 @@ class Slack {
     if (!channel) throw new Error('postMessage requires channel');
     const data = await this.api('chat.postMessage', {
       channel,
-      text: text || '',
-      mrkdwn: true,
+      markdown_text: markdown(text),
       ...(threadTs ? { thread_ts: threadTs } : {}),
       ...(clientMsgId ? { client_msg_id: clientMsgId } : {}),
     });
@@ -263,6 +270,7 @@ class Slack {
 
   async uploadFile({ channel, threadTs, file, text } = {}) {
     if (!channel || !file) throw new Error('uploadFile requires channel and file');
+    const comment = text ? { blocks: [{ type: 'markdown', text: markdown(text) }] } : {};
     const stat = await fs.stat(file);
     if (!stat.isFile() || stat.size === 0) throw new Error('uploadFile requires a non-empty file');
     const filename = path.basename(file);
@@ -279,7 +287,7 @@ class Slack {
       files: [{ id: granted.file_id, title: filename }],
       channel_id: channel,
       ...(threadTs ? { thread_ts: threadTs } : {}),
-      ...(text ? { initial_comment: text } : {}),
+      ...comment,
     });
     const uploaded = (done.files || [])[0] || {};
     return {

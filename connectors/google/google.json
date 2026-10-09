@@ -1,0 +1,9 @@
+{
+  "description": "Google Workspace APIs for Gmail, Calendar, Drive and Meet; other providers belong in their own connector components.",
+  "dependencies": ["git", "python"],
+  "repository": {
+    "url": "https://github.com/tecer-ai/google-tools",
+    "branch": "feat/gtools-cli",
+    "requirements": "requirements.txt"
+  }
+}

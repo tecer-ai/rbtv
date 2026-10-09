@@ -1,5 +1,0 @@
-{
-  "name": "stools",
-  "description": "Slack from one command: reads and searches messages, downloads and uploads files, sends messages, adds reactions and edits canvases. A write to a workspace configured as read-only is refused unless a recorded grant covers it.",
-  "entry": "stools_wrapper.py"
-}

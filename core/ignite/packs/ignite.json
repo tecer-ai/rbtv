@@ -1,13 +1,15 @@
 {
   "description": "The standard units for an Ignite agent.",
   "files": [
-    "meta/communication#slack-message-format",
-    "meta/communication#audio-aware",
+    "meta/communication#communication",
+    "meta/communication#glossary",
+    "connectors/slack#slack",
+    "connectors/elevenlabs#elevenlabs",
     "meta/coordinate#coordinate",
     "core/ignite#agent-controls",
     "web/browse#web",
     "office/document#office",
-    "meta/communication#google-workspace",
+    "connectors/google#google",
     "core/ignite#ignite-standing-instructions"
   ]
 }

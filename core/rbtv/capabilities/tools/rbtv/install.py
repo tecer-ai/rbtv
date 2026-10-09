@@ -19,6 +19,7 @@ INSTALLATION ROOT only. Python 3 stdlib only.
     rbtv update guidance       copy maintained instructions
     rbtv update scaffolding    refresh selected installed files
     rbtv update all            do both updates
+    rbtv update repositories   fast-forward selected component checkouts
     rbtv providers list        provider accounts: logins, saved names, usage
     rbtv doctor               read-only health and recovery checks
     rbtv interactive           explicitly start the guided flow

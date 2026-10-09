@@ -1,0 +1,5 @@
+{
+  "name": "elevenlabs",
+  "description": "ElevenLabs from one command: transcribes an audio file to text, speaks text as a playable audio file, lists the account's voices with their ids, and reads or rewrites the one language key both directions run in.",
+  "entry": "elevenlabs.py"
+}

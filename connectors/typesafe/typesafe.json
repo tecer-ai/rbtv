@@ -1,0 +1,4 @@
+{
+  "description": "Application integrations using TypeSafe's typed judgments; agent harness and model launching belong in cast.",
+  "dependencies": []
+}

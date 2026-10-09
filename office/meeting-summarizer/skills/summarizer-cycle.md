@@ -114,7 +114,7 @@ configuration, never as a value typed into this skill. Resolve, ONCE per turn, b
    in this turn is correct — do not background any of them):
    - Write the job's JSON to `<scratch>/jobs/<meeting-key>.json`.
    - Create its work directory `<scratch>/work/<meeting-key>/` and write a `CLAUDE.md` there
-     carrying a `## Name Glossary` section naming `.user/docs/glossary.md`.
+     carrying a `## Name Glossary` section naming the same glossary declared in the operating scope’s `CLAUDE.md`; resolve its path from the installation root so the job can find it.
    - Run:
      `per-meeting-job --job <scratch>/jobs/<meeting-key>.json --artifacts <scratch>/artifacts/bindings.json --config-root <config> --checkout-root <checkout root> --channel <state>/channel --state <state> --work <scratch>/work/<meeting-key>`
    - This call itself launches a separate, unattended `cast` turn that reads the transcript and
@@ -192,7 +192,7 @@ configuration, never as a value typed into this skill. Resolve, ONCE per turn, b
    - Nothing filed, nothing applied, nothing newly open: `replies: []`, `disposition: completed`.
      A quiet cycle is a correct cycle — never manufacture a status update.
    - Something filed or amended and/or an answer was applied, with no doubt or routing question
-     due to be asked: report it plainly (load the `slack-message-format` skill first), `disposition:
+     due to be asked: report it plainly in standard Markdown, `disposition:
      completed`. A summary amended because a further source arrived is reported as such: the
      meeting, and that its filed summary was written again from every source.
    - A `left-alone` verdict that carries `"first-report": true` is told to the owner ONCE, in this
@@ -246,9 +246,9 @@ configuration, never as a value typed into this skill. Resolve, ONCE per turn, b
   Routing questions follow the same pattern with no CLI of their own (steps 1b, 5, 6).
 - `verify-access` (`verify_access.py`) — reached only when a tick refuses at the account boundary:
   says which watched folder or account grounding is missing.
-- `gtools` — the underlying Drive/Meet API client `source_adapter.py`/`artifact_bindings.py` call;
+- Google connector — the underlying Drive/Meet API client `source_adapter.py`/`artifact_bindings.py` call;
   you never call it directly.
-- `slack-message-format` skill — load it before composing any owner-facing reply.
+- `communication` and `glossary` rules — apply them when composing owner-facing replies.
 </resources>
 
 <io-spec>

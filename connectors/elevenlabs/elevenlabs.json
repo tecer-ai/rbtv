@@ -1,0 +1,4 @@
+{
+  "description": "ElevenLabs speech transcription, synthesis and voice selection; file transfer and chat delivery belong to their channel or runtime.",
+  "dependencies": ["python", "requests"]
+}

@@ -35,7 +35,8 @@ def _instruction_fence(path: Path, rel: str) -> bool:
 def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
           dry_run: bool, protect: frozenset[str] = frozenset(),
           extra_files: set[str] | None = None,
-          extra_claims: set[str] | None = None) -> dict:
+          extra_claims: set[str] | None = None,
+          before_write=None) -> dict:
     """Write the planned set and remove what the previous book held but the plan
     no longer does. Every collision (D6) refuses BEFORE the first write.
 
@@ -133,6 +134,9 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
             "hand-placed): " + ", ".join(collisions) + " — refusing before any "
             "write; move or remove it, or narrow --component/--harness",
             collisions[0])
+
+    if before_write is not None:
+        before_write()
 
     # D12 RELEASE — a booked file whose marker is gone was taken over by a
     # human between runs. It leaves the book (`_rebook` recomputes from the

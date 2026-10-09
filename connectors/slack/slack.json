@@ -1,0 +1,9 @@
+{
+  "description": "Slack messages, files, reactions and canvases; agent scheduling and reply orchestration belong in Ignite.",
+  "dependencies": ["git", "python"],
+  "repository": {
+    "url": "https://github.com/tecer-ai/slack-tools",
+    "branch": "feat/stools-cli",
+    "requirements": "requirements.txt"
+  }
+}

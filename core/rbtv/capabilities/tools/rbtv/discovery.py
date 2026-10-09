@@ -173,6 +173,8 @@ def scan_tree(root: Path, tree: str) -> dict[str, dict]:
                 "dependencies": data["dependencies"],
                 "module_description": module["description"],
             }
+            if "repository" in data:
+                found[cid]["repository"] = data["repository"]
     return found
 
 

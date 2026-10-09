@@ -1,0 +1,3 @@
+{
+  "description": "Connections to external services; agent harness and model launching belong in cast. Includes Google, Slack, ElevenLabs and TypeSafe application integrations."
+}

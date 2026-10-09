@@ -35,6 +35,7 @@ from .selection import (
     resolve_selection,
 )
 from .operations import do_install, do_uninstall
+from .repositories import apply_repositories, notes as repository_notes, public_item, repository_components
 from .pathlinks import bin_dir
 from .shared_links import release_installation_links, installation_mutation_lock
 from .listing import (_description, build_list, build_show, do_list, json_view,
@@ -127,6 +128,10 @@ def _error_data(exc: Refuse, target: Path | None = None,
     if hasattr(exc, "preview"):
         error["preview"] = exc.preview
     out = {"ok": False, "error": error, "changed": False}
+    if getattr(exc, "repositories", None):
+        out["repositories"] = [public_item(item) for item in exc.repositories]
+        if getattr(exc, "repository_changed", False):
+            out["repository_changed"] = True
     if target is not None:
         out["target"] = str(target.resolve())
     if hasattr(exc, "next"):
@@ -882,12 +887,18 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
     pack_parts = pack_files(catalog, requested_packs)
     all_parts = sorted(set(parts) | pack_parts)
     picked, _unused = _split_part_keys(all_parts)
-    data = do_install(
-        target, catalog, picked, harnesses,
-        bool(getattr(args, "dry_run", False)),
-        guidance_basis=basis,
-        parts=all_parts, sub_agents=sub_agents)
-    if not bool(getattr(args, "dry_run", False)):
+    dry = bool(getattr(args, "dry_run", False))
+    try:
+        data = do_install(
+            target, catalog, picked, harnesses,
+            dry,
+            guidance_basis=basis,
+            parts=all_parts, sub_agents=sub_agents)
+    except Refuse as exc:
+        if getattr(exc, "repositories", None):
+            return _repository_stop(args, target, exc.repositories, verb="add")
+        raise
+    if not dry:
         _save_selected_files(target, add=set(parts), add_packs=requested_packs)
     data["selected_files"] = all_parts
     data["sub_agents"] = subagents.describe(
@@ -1023,6 +1034,83 @@ def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
     return 0
 
 
+def _repository_stop(args, target: Path, items: list[dict], *, verb: str) -> int | None:
+    """Stop before installation writes when a checkout did not succeed.
+
+    One refusal with no checkout change uses the shared refusal screen.
+    A checkout that was created, or more than one component, prints the
+    result and returns 1 so every outcome stays visible.
+    """
+    failed = [item for item in items if item.get("error")]
+    if not failed:
+        return None
+    mutated = any(item.get("mutated") for item in items)
+    if len(items) == 1 and not mutated:
+        err = failed[0]["error"]
+        exc = Refuse(err["code"], err["message"], err.get("path") or "")
+        if failed[0].get("next"):
+            exc.next = failed[0]["next"]
+        raise exc
+    if len(items) == 1 and mutated:
+        err = failed[0]["error"]
+        unchanged = failed[0].get("unchanged") or (
+            "The installation was not changed. The checkout was not deleted.")
+        if bool(getattr(args, "json", False)):
+            print(json.dumps({
+                "ok": False, "error": err,
+                "repositories": [public_item(item) for item in items],
+                "changed": False, "repository_changed": True,
+                "target": str(target.resolve()),
+                "next": failed[0].get("next"),
+            }, indent=2))
+        else:
+            _print_refused(err["code"], err["message"] + " " + unchanged,
+                           outcome="failed")
+            if failed[0].get("next"):
+                print("next: " + failed[0]["next"], file=sys.stderr)
+        return 1
+    data = {
+        "ok": False, "dry_run": bool(getattr(args, "dry_run", False)),
+        "scope": "repositories" if verb == "update" else None,
+        "repositories": [public_item(item) for item in items],
+        "repository_blocked": True,
+        "message": "The installation record was not changed." if verb == "add" else "",
+    }
+    updated = [item["component"] for item in items if item.get("action") == "updated"]
+    facts = {"changed": len(updated), "unchanged": len(items) - len(updated) - len(failed),
+             "failed": len(failed)}
+    _emit(data, bool(getattr(args, "json", False)), target,
+          getattr(args, "_why", "unknown"), verb=verb,
+          details=getattr(args, "details", False), facts=facts)
+    return 1
+
+
+def _cmd_update_repositories(args, target: Path, catalog: dict,
+                             chosen: set[str], dry: bool) -> int:
+    items = apply_repositories(
+        repository_components(catalog, chosen), dry=dry, mode="update",
+        target=target)
+    stopped = _repository_stop(args, target, items, verb="update")
+    if stopped is not None:
+        return stopped
+    failed = [item for item in items if item.get("error")]
+    updated = [item["component"] for item in items if item.get("action") == "updated"]
+    data = {
+        "ok": not failed, "dry_run": dry, "scope": "repositories",
+        "repositories": [public_item(item) for item in items],
+        "repository_blocked": bool(failed),
+    }
+    facts = None
+    if len(items) > 1 and failed:
+        facts = {"changed": len(updated),
+                 "unchanged": len(items) - len(updated) - len(failed),
+                 "failed": len(failed)}
+    _emit(data, bool(getattr(args, "json", False)), target,
+          getattr(args, "_why", "unknown"), verb="update",
+          details=getattr(args, "details", False), facts=facts)
+    return 1 if failed else 0
+
+
 @mutation_locked
 def cmd_update(args, target: Path, catalog: dict, shadowed: list,
                *, ask=None) -> int:
@@ -1035,6 +1123,8 @@ def cmd_update(args, target: Path, catalog: dict, shadowed: list,
     chosen = selected | pack_files(catalog, packs)
     members = file_membership(target, catalog, state, chosen)
     dry = bool(getattr(args, "dry_run", False))
+    if args.scope == "repositories":
+        return _cmd_update_repositories(args, target, catalog, chosen, dry)
     excludes = list(state.get("guidance_excludes") or [])
     stale_excludes = missing_excludes(target, excludes)
     notices = _update_notices(
@@ -1365,6 +1455,10 @@ def _print_agent(data: dict, verb: str, target: Path, why: str | None,
         detail_blocks.insert(0, ["Files"] + [f"  {u}" for u in files])
     if verb == "add":
         detail_blocks += [present.wrap(note) for note in subagents.notes(data["sub_agents"])]
+    repo_lines = [line for item in (data.get("harness_files") or {}).get("repositories") or []
+                  for line in repository_notes(item)]
+    if repo_lines:
+        detail_blocks.append(["Notes"] + [f"  · {line}" for line in repo_lines])
     keep_note = verb == "remove" and touched and not dry
     _print_agent_blocks(_agent_tail(write, delete, dry, details, detail_blocks, keep_note),
                         data["next"])
@@ -1532,7 +1626,8 @@ def main(argv: list[str] | None = None, *, ask=None) -> int:
         if as_json:
             print(json.dumps(_error_data(exc), indent=2))
         else:
-            _print_refused(exc.code, _text_refusal(exc))
+            _print_refused(exc.code, _text_refusal(exc),
+                           outcome=getattr(exc, "outcome", "refused"))
             print(f"next: {exc.next}", file=sys.stderr)
         return 2
     except SystemExit as exc:
@@ -1605,7 +1700,8 @@ def main(argv: list[str] | None = None, *, ask=None) -> int:
                                          locals().get("catalog"),
                                          takes_target=takes_target), indent=2))
         else:
-            _print_refused(exc.code, _text_refusal(exc))
+            _print_refused(exc.code, _text_refusal(exc),
+                           outcome=getattr(exc, "outcome", "refused"))
             if exc.path:
                 print(f"  at: {exc.path}", file=sys.stderr)
             next_cmd = _error_data(exc, locals().get("target"),

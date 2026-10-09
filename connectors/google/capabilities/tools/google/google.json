@@ -1,0 +1,5 @@
+{
+  "name": "google",
+  "description": "Google Workspace: mail, calendars, Drive files and Meet records. Requires an explicit account; use google --help.",
+  "entry": "google.py"
+}

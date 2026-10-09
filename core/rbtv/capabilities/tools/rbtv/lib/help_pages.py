@@ -242,7 +242,8 @@ usage: rbtv interactive [-h] [--target TARGET]
 
 Start the guided menu. This is the only command that asks questions. For scripts or agents, use
   list, show, add and remove. --json is refused: a script cannot answer the menu. The menu installs
-  whole components and never guesses a model or an effort: an agent a component ships gets no
+  whole components through the same preparation as rbtv add, including a missing
+  component checkout, and never guesses a model or an effort: an agent a component ships gets no
   harness-native sub-agent file, and the result names the command that adds it,
   rbtv add NAME --on HARNESS:MODEL:EFFORT.
 
@@ -335,7 +336,13 @@ to a pack: rbtv add ignite is the tool core/ignite#ignite. Name a pack
 with --pack. A short name must match one file. --pack adds that pack's
 files and combines with named files. Filters narrow together, including a
 pack; values inside one filter are alternatives. An empty result is
-refused and nothing is written. Nothing fetches a newer source.
+refused and nothing is written. An existing component checkout is not
+fetched or replaced. A component whose record names a repository gets a
+missing checkout cloned from that url and branch, and a Python environment
+when the record names requirements. That preparation runs after collision
+checks and before installed files are written. rbtv agent add and
+rbtv interactive use the same preparation. rbtv update repositories pulls
+a newer checkout.
 
 An agent a component ships, named here, is written as a harness-native
 sub-agent: the harness's own sub-agent file, for the harnesses given
@@ -478,31 +485,42 @@ Next: rbtv status
     "update": """\
 rbtv — update help
 
-usage: rbtv update [-h] {guidance,scaffolding,all} ...
+usage: rbtv update [-h] {guidance,scaffolding,all,repositories} ...
 
-Make the folder match install.json, from the RBTV source already on this
-machine. Does not download a newer source, and does not select a file
-that install.json does not list. The scope is required. The root file is edited
+Make the folder match install.json. guidance, scaffolding and all use the
+rbtv source already on this machine: they do not download a newer rbtv
+source, and they do not select a file that install.json does not list.
+repositories fetches only the external checkouts of selected components
+whose records name one. The scope is required. The root file is edited
 by hand; it is not shared between machines.
 
   guidance      Copy the instruction file you maintain into each other
                 harness's file. Leaves each file's generated section as
-                it is. Adds and removes no files. If guidance is none,
+                it is. Adds and removes no files. Does not clone, fetch, or
+                install a component checkout. If guidance is none,
                 there is nothing to copy.
   scaffolding   Regenerate the harness files of the installed files. Add a
                 file that install.json lists whose harness files are
                 missing. Remove the harness files of a file it no longer
-                lists. Does not copy the text you maintain.
-  all           Run scaffolding, then guidance.
+                lists. Does not copy the text you maintain. Installs a
+                missing checkout and missing Python packages for a selected
+                component that names a repository. Does not fetch an
+                existing checkout.
+  all           Run scaffolding, then guidance. The scaffolding half installs
+                a missing checkout and missing packages, and does not fetch.
+  repositories  Fast-forward checkouts of selected components that name a
+                repository. Does not clone a missing checkout, does not
+                change harness files, and does not select files.
 
 The result names every file added and every file removed, including
-when both lists are empty.
+when both lists are empty. repositories names each checkout instead.
 
 positional arguments:
-  {guidance,scaffolding,all}
+  {guidance,scaffolding,all,repositories}
     guidance            copy maintained text; add and remove no files
     scaffolding         make harness files match the installed files
     all                 scaffolding, then guidance
+    repositories        fast-forward selected component checkouts
 
 options:
   -h, --help            show this help message and exit
@@ -510,6 +528,38 @@ options:
 Example: rbtv update all --dry-run
 Next: rbtv update all
 Exit codes: 0 success; 1 refused; 2 invalid arguments.
+""",
+    "update repositories": """\
+rbtv — update repositories help
+
+usage: rbtv update repositories [-h] [--target TARGET] [--json]
+                                [--dry-run] [--details]
+
+Fast-forward the checkouts of selected components whose records name a
+repository. A checkout is the repository/ directory inside that component,
+not a folder under the installation. The remote must be origin and must
+equal the record's url. The branch must equal the record's branch. The
+checkout must be clean, including untracked files; .venv is the installer's
+environment and is not treated as a local edit. A dirty, diverged, missing,
+or mismatched checkout is refused and left as it is: no stash, reset, clean,
+or delete. A missing checkout is not cloned (that is rbtv add). After a
+checkout moves forward, a declared requirements file is installed again.
+An unchanged checkout does not reinstall an intact environment. Does not
+change harness files and does not select files. A dry run does not fetch
+and does not write.
+
+options:
+  -h, --help       show this help message and exit
+  --target TARGET  installation or agent folder; overrides
+                   RBTV_AGENT_HOME and discovery from the current folder
+  --json           one JSON value on standard output, for success and
+                   for failure
+  --dry-run        show what would change; write and delete nothing
+  --details        list every checkout instead of counting
+
+Example: rbtv update repositories --dry-run
+Next: rbtv doctor
+Exit codes: 0 success; 1 refused or partial; 2 invalid arguments.
 """,
     "update guidance": """\
 rbtv — update guidance help
@@ -550,7 +600,9 @@ Make harness files match install.json. Regenerates the harness files
 of the files it lists, writes a listed file whose harness files are
 missing, and removes the harness files of a file it no longer lists. The
 result names what was added and what was removed. Leaves human-authored
-text alone; it does not copy that text (that is update guidance). Use
+text alone; it does not copy that text (that is update guidance). A
+selected component that names a repository gets a missing checkout and
+missing Python packages. An existing checkout is not fetched. Use
 update all when both parts of every file must be current.
 
 options:
@@ -575,7 +627,9 @@ usage: rbtv update all [-h] [--target TARGET] [--json] [--dry-run]
 Run scaffolding, then guidance. Harness files are made to match
 install.json (a listed file added when its harness files are missing,
 the harness files of a file it no longer lists removed), then maintained text is
-copied. The result names what was added and what was removed. If the
+copied. Scaffolding installs a missing checkout and missing Python
+packages for a selected component that names a repository, and does not
+fetch an existing checkout. The result names what was added and what was removed. If the
 maintained guidance file is missing, refuses before any write.
 
 options:
@@ -634,7 +688,10 @@ usage: rbtv agent add [-h] [--pack PACK]
 
 Apply what AGENT's agent.json declares, the first time or again, then add
 any NAME files and record them in agent.json. --pack turns a pack on and
-records it. Declared files are applied first; a file already on disk is
+records it. A pack or named file from a component that names a repository
+is prepared as rbtv add prepares it: a missing checkout is cloned, an
+existing checkout is not fetched, and missing requirements are installed.
+Declared files are applied first; a file already on disk is
 left as it is. A second run that finds nothing missing changes nothing.
 To write a new agent first, see the new-agent passage in rbtv agent -h.
 

@@ -449,7 +449,7 @@ async function run(argv, extra = {}) {
       const result = await run(['connect', 'probe', '--dm', '--installation', dir, '--dry-run'], { realInstaller: true });
       assert.equal(result.code, 0, result.out + result.err);
       assert.match(result.out, /pack: ignite/);
-      assert.match(result.out, /files: 0 -> 9/);
+      assert.match(result.out, /files: 0 -> 10/);
       assert.equal(fs.readFileSync(statePath, 'utf8'), before);
       assert.equal(fs.existsSync(path.join(home, 'state.sqlite')), false);
     } finally {

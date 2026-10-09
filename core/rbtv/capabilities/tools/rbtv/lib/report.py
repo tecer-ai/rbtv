@@ -13,6 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from . import present, subagents
+from .repositories import notes as repository_notes
 from .state import read_state
 
 _UPDATE_LABEL = {"guidance": "guidance", "scaffolding": "scaffolding",
@@ -43,6 +44,17 @@ def _title(data: dict) -> str:
                 return "shared shortcut claims released"
             return "nothing removed"
         return "removal preview" if dry else "files removed"
+    if verb == "update" and data.get("scope") == "repositories":
+        if data.get("repository_blocked"):
+            return "repositories update failed"
+        if dry:
+            return "repositories update preview"
+        if any(item.get("action") == "updated"
+               for item in data.get("repositories") or []):
+            return "repositories updated"
+        return "repositories update, nothing to do"
+    if verb == "add" and data.get("repository_blocked"):
+        return "add failed"
     if verb == "update":
         label = _UPDATE_LABEL.get(data.get("scope", ""), data.get("scope", "update"))
         return f"{label} update preview" if dry else f"{label} updated"
@@ -127,7 +139,12 @@ def print_result(data: dict) -> None:
         print()
         print("Next: " + data.get("next", "rbtv status"))
         return
-    if facts.get("changed") is not None:
+    if data.get("repository_blocked") and facts.get("failed") is not None:
+        print()
+        print(f"Changed {_count(facts['changed'], 'checkout')}, unchanged "
+              f"{_count(facts['unchanged'], 'checkout')}, failed "
+              f"{_count(facts['failed'], 'checkout')}.")
+    elif facts.get("changed") is not None:
         print()
         print(f"Changed {_count(facts['changed'], 'file')}, unchanged "
               f"{_count(facts['unchanged'], 'file')}, failed "
@@ -136,11 +153,18 @@ def print_result(data: dict) -> None:
     out.summary.extend(data.get("_fields") or [])
     selected = data.get("selected_files") or []
     added, removed = data.get("added") or [], data.get("removed") or []
-    if data.get("_verb") == "update":
+    if data.get("_verb") == "update" and data.get("scope") != "repositories":
         out.summary.append(("Would add" if preview else "Added",
                             out.ids(added, "files") if added else "none"))
         out.summary.append(("Would remove" if preview else "Removed",
                             out.ids(removed, "files") if removed else "none"))
+    if data.get("scope") == "repositories":
+        items = data.get("repositories") or []
+        updated = [item["component"] for item in items if item.get("action") == "updated"]
+        failed = [item["component"] for item in items if item.get("error")]
+        out.summary.append(("Scope", "repositories"))
+        out.summary.append(("Updated", ", ".join(updated) or "none"))
+        out.summary.append(("Failed", ", ".join(failed) or "none"))
     removing = data.get("_verb") == "remove"
     if selected:
         label = ("Would remove" if removing else "Would add") if preview \
@@ -174,6 +198,11 @@ def print_result(data: dict) -> None:
         out.bullet("Notes", "skipped agent(s) a component ships: " + ", ".join(skipped)
                    + f". Add one by name with --on {subagents.ON_FORM}, or place "
                    "it with `rbtv agent add NAME`.")
+    for item in data.get("repositories") or []:
+        for text in repository_notes(item):
+            out.bullet("Notes", text)
+    if data.get("repositories") and preview:
+        out.bullet("Notes", "No files were written.")
     for text in subagents.notes(data.get("sub_agents") or []):
         out.bullet("Notes", text)
     for gap in data.get("sub_agents_missing") or []:

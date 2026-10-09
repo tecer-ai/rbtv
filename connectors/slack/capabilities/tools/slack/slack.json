@@ -1,0 +1,5 @@
+{
+  "name": "slack",
+  "description": "Slack messages, files, search, reactions and canvases, with grants for accounts that restrict writes. Write messages in standard Markdown.",
+  "entry": "slack.py"
+}

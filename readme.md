@@ -13,6 +13,7 @@ Browse the source catalog with `rbtv list`, then inspect one module, component, 
 | Module | Description |
 |---|---|
 | `core` | rbtv's own operation, configuration, and editing, and the software that manages what an agent is exposed to, runs, launches, and connects agents on any harness. |
+| `connectors` | External services: Google Workspace, Slack, ElevenLabs and TypeSafe application integrations. Agent harness and model launching remain in cast. |
 | `innovate` | The innovate module — taking a business idea from conception through validation to a brand book, and the individual innovation frameworks that do that work. |
 | `meta` | How agents behave, communicate, plan, and coordinate work across tasks. |
 | `office` | The office module — daily knowledge work: narrative and visual strategy, design extraction and style checking, and document/deck/email production. |
@@ -44,6 +45,10 @@ Change results show a compact summary and important warnings by default. Add `--
 Agent results also include `harness_files` (file outcomes from installing or removing the agent's skills and rules) and `files_removed` (their full identifiers). These supplement the existing agent fields. An agent-removal preview's `kept` list predicts what remains after removal.
 
 The building-a-CLI method of the `coding` skill in `meta/code` covers both help and actual command results. Its output review checks tables, spacing, wrapping, bulk-result summaries, structured output, and real outcomes against observed state; help coverage alone is insufficient.
+
+`meta/communication` provides two rules: `communication` for concise, understandable chat and documents, and `glossary` for consistent names and terms. The installation glossary is `.rbtv/config/communication/glossary.md`. Provider operations are `google`, `slack` and `elevenlabs` in `connectors`; their help replaces the former Google Workspace, audio and Slack-formatting discovery skills. Slack messages take standard Markdown, including upload captions. Ignite owns automatic reply and speech delivery.
+
+External connector components declare their repository and branch in the component record. Installation clones missing repositories and sets up their requirements without pulling existing checkouts. Use `rbtv update repositories` explicitly to update selected repositories. Local edits are preserved by refusing an unsafe update. See [component records](core/rbtv/capabilities/glossary/component-json.md) for the metadata contract.
 
 The `final-act` skill in `meta/final-act` closes a session: it checks every request of the conversation was finished, re-checks the files left for later agents, and routes to handoff (what a successor needs), loose ends (executed, filed or disclosed), compound (corrections as improvement entries), archivist (done tasks swept) and work history (the evidence-backed record of a session and its sub-agents, in one folder per agent with a linked timeline and manifest). Install it with `rbtv add final-act` in a configured installation.
 

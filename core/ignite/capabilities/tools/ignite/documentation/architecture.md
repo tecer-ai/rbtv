@@ -59,13 +59,15 @@ General shape only. Instance ids, token paths, and launch pins are runtime confi
 ```
 { "slack": { "team": "<team id>", "botUserId": "<bot user id>", "ownerUserId": "<owner user id>",
     "appTokenEnv": "<env var name>", "botTokenEnv": "<env var name>",
-    "ownerTokenEnv": "<env var name>", "stoolsWorkspace": "<stools workspace name>" },
-  "tools": { "cast": "<cmd>", "stools": "<cmd>", "audio": "<cmd>" },
+    "ownerTokenEnv": "<env var name>", "stoolsWorkspace": "<Slack account name>" },
+  "tools": { "cast": "cast", "stools": "slack", "audio": "elevenlabs" },
   "dmAgent": "<slug>",
   "dreamer": { "enabled": false,
     "model": { "harness": "codex", "model": "gpt-6.1-sol", "effort": 3 } },
   "routes": { "<channel id>": "<agent slug>" } }
 ```
+
+The configuration keys `stools`, `stoolsWorkspace` and `audio` remain compatible with existing installations; their command values use the provider names installed by the connectors module. Reply text is standard Markdown. Slack delivery uses native `markdown_text`, and upload captions use a `markdown` block without `initial_comment`. Both paths reject empty or oversized captions before posting; the limit is 12,000 Unicode characters. Slack controls visual rendering.
 
 `dreamer.enabled` is an optional boolean, default false; unknown Dreamer settings are refused. Both the nightly runner and watchdog remain off until it is true. `dmAgent` may be absent. A direct message with none configured is refused (`config.dmAgent required`). Tokens are not in this file. `slackToken` reads the named variable from the process environment, then from `<installation>/.rbtv/config/env/.env`. An unset variable the daemon needs refuses startup and names the variable; the value is never logged. Each agent's harness, model, and effort live in that agent's `agent.json`, not here. Source MUST NEVER hardcode them.
 

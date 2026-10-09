@@ -130,13 +130,26 @@ const authOk = { ok: true, team_id: 'T1', user_id: 'UBOT', bot_id: 'BBOT' };
 
 test('postMessage', async () => {
   const { slack, calls } = harness({ 'chat.postMessage': { ok: true, ts: '9.9', channel: 'C1' } });
-  const sent = await slack.postMessage({ channel: 'C1', threadTs: '1.1', text: '*hi*', clientMsgId: 'cid-1' });
+  const markdown = '# Heading\n**bold** and *italic* [link](https://example.test)\n```js\na_b * 2\n```\n😀';
+  const sent = await slack.postMessage({ channel: 'C1', threadTs: '1.1', text: markdown, clientMsgId: 'cid-1' });
   assert.deepEqual(sent, { channel: 'C1', ts: '9.9' });
   assert.equal(calls[0].method, 'chat.postMessage');
-  assert.equal(calls[0].body.mrkdwn, 'true');
+  assert.equal(calls[0].body.mrkdwn, undefined);
   assert.equal(calls[0].body.thread_ts, '1.1');
   assert.equal(calls[0].body.client_msg_id, 'cid-1');
-  assert.equal(calls[0].body.text, '*hi*');
+  assert.equal(calls[0].body.markdown_text, markdown);
+  assert.equal(calls[0].body.text, undefined);
+  assert.equal(calls[0].body.blocks, undefined);
+});
+
+test('markdown-limit-before-any-network', async () => {
+  const { slack, calls } = harness({ 'chat.postMessage': { ok: true, ts: '1' } });
+  await assert.rejects(() => slack.postMessage({ channel: 'C1', text: 'x'.repeat(12001) }), /12,000/);
+  await assert.rejects(() => slack.postMessage({ channel: 'C1', text: '  ' }), /empty/);
+  await assert.rejects(() => slack.uploadFile({ channel: 'C1', file: 'absent', text: 'x'.repeat(12001) }), /12,000/);
+  assert.equal(calls.length, 0);
+  await slack.postMessage({ channel: 'C1', text: '😀'.repeat(12000) });
+  assert.equal(calls.length, 1);
 });
 
 test('addReaction-eyes', async () => {
@@ -236,7 +249,8 @@ test('uploadFile', async () => {
   const done = calls.find((call) => call.method === 'files.completeUploadExternal');
   assert.equal(done.body.channel_id, 'C1');
   assert.equal(done.body.thread_ts, '1.1');
-  assert.equal(done.body.initial_comment, 'note');
+  assert.equal(done.body.initial_comment, undefined);
+  assert.deepEqual(JSON.parse(done.body.blocks), [{ type: 'markdown', text: 'note' }]);
   assert.equal(JSON.parse(done.body.files)[0].id, 'F9');
 });
 

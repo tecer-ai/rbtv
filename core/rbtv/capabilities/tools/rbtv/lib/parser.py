@@ -11,7 +11,7 @@ from discovery import Refuse
 
 from . import present
 from .constants import (BASIS_NONE, CANONICAL_METHODS, GUIDANCE_NAMES, HARNESSES,
-                        LISTING_TYPES, VERSION)
+                        LISTING_TYPES, ROOT_UPDATE_SCOPES, VERSION)
 from .help_pages import PAGES
 from .subagents import ON_FORM
 
@@ -190,10 +190,11 @@ def build_parser() -> argparse.ArgumentParser:
     # The shared flags stand here too, so `update --target DIR` with no scope
     # is the same refusal as `update` alone, not a scope of DIR.
     tree_flags(s_update, on_verb=True)
-    update_sub = s_update.add_subparsers(dest="scope", metavar="{guidance,scaffolding,all}")
+    update_sub = s_update.add_subparsers(
+        dest="scope", metavar="{guidance,scaffolding,all,repositories}")
     update_sub.required = True
     page(s_update, "update")
-    for name in ("guidance", "scaffolding", "all"):
+    for name in ROOT_UPDATE_SCOPES:
         sp = update_sub.add_parser(name)
         sp.set_defaults(scope=name)
         tree_flags(sp, on_verb=True)

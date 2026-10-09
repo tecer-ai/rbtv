@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""audio — ElevenLabs speech-to-text and text-to-speech for this workspace.
+"""elevenlabs — ElevenLabs speech-to-text and text-to-speech for this workspace.
 
-Three verbs, JSON on stdout, and one language key both of the first two read.
+Four verbs, JSON on stdout, and one language key both transcribe and tts read.
 The command inventory lives in the parser below and nowhere else: `--help` and
-`<verb> --help` are the documentation (README.md points here rather than
-restating flags, which is how a second copy goes stale).
+`<verb> --help` are the documentation (elevenlabs.md, the tool's one page,
+points here rather than restating flags, which is how a second copy goes stale).
 
-Config is JSON, read with the standard library.
+The language the verbs run in is the INSTALLATION's, never this source tree's:
+a value written into the source would leak into every installation and be
+rewritten by the next pull. Config is JSON, read with the standard library.
 """
 
 import argparse
@@ -19,27 +21,31 @@ from pathlib import Path
 import requests
 
 ROOT = Path(__file__).resolve().parent
-CONFIG = ROOT / "config.json"
 
+PROG = "elevenlabs"                 # the command name on PATH once installed
 
 INSTALL_RECORD_REL = Path(".rbtv") / "config" / "install.json"
 ENV_FILE_REL = Path(".rbtv") / "config" / "env" / ".env"
+CONFIG_REL = Path(".rbtv") / "config" / "elevenlabs" / "config.json"
 
 
-def _env_file(start=None):
-    # The installation's environment file. The installation is the first folder,
-    # from the working folder upward, that holds the installer's record
+def _install_file(rel, start=None):
+    # A file of the installation. The installation is the first folder, from
+    # the working folder upward, that holds the installer's record
     # `.rbtv/config/install.json`. None when the working folder is inside no
-    # installation (the process environment is then the only source).
+    # installation (the process environment is then the only key source, and
+    # the language is the default — a persistent write is refused).
     folder = Path(start or Path.cwd()).resolve()
     for p in (folder, *folder.parents):
         if (p / INSTALL_RECORD_REL).is_file():
-            return p / ENV_FILE_REL
+            return p / rel
     return None
 
 
-ENV_FILE = _env_file()
+ENV_FILE = _install_file(ENV_FILE_REL)
+CONFIG = _install_file(CONFIG_REL)
 KEY_ENV = "ELEVENLABS_API_KEY"
+API_URL_ENV = "ELEVENLABS_API_URL"  # off-network test hook; overrides the base
 
 # The one home of a language value in this file. Every other
 # mention interpolates this constant — a literal language code anywhere else in
@@ -51,11 +57,10 @@ DEFAULT_LANGUAGE = "pt"
 # A SHAPE, not a value: it names no language.
 LANGUAGE_RE = re.compile(r"[a-z]{2,3}\Z")
 
-# ── The API, as sourced 2026-08-18 from api.elevenlabs.io/openapi.json and the
-#    docs beside it (provenance: the seat's scratchpad/probes/elevenlabs-*).
-API = "https://api.elevenlabs.io"
+# Provider endpoints and default models.
+API = os.environ.get(API_URL_ENV, "https://api.elevenlabs.io").rstrip("/")
 STT_URL = f"{API}/v1/speech-to-text"
-STT_MODEL = "scribe_v2"           # scribe_v1 is deprecated (docs/overview/models)
+STT_MODEL = "scribe_v2"
 AUTH_HEADER = "xi-api-key"        # raw key, no Bearer
 
 TTS_URL = f"{API}/v1/text-to-speech"      # + /<voice_id>
@@ -86,7 +91,7 @@ def die(what, why, fix, code=EXIT_REFUSED):
 
     stderr only, never a traceback, never the key. The caller reads stdout for
     JSON and stderr for this."""
-    print(f"audio: {what}", file=sys.stderr)
+    print(f"{PROG}: {what}", file=sys.stderr)
     print(f"  why: {why}", file=sys.stderr)
     print(f"  fix: {fix}", file=sys.stderr)
     sys.exit(code)
@@ -99,13 +104,18 @@ def emit(**payload):
 
 # ────────────────────────────────────────────────────────────── key and config
 
-def api_key():
-    """The installation's environment file FIRST (`_env_file` above), its `ELEVENLABS_API_KEY`
-    line; the process environment when the file holds none. `ELEVENLABS_API_KEY`
-    in the environment stays accepted — a seat that cannot read the env file is
-    handed the key that way.
+def api_key(required=True):
+    """The process environment FIRST (`$ELEVENLABS_API_KEY` — the workspace's
+    root rule: scripts read the OS variable before any file), then the
+    installation's environment file (`.rbtv/config/env/.env`, owner-ruled
+    2026-09-27), its `ELEVENLABS_API_KEY` line.
 
-    Returns (key, source). Refuses naming BOTH places when neither has one."""
+    Returns (key, source); (None, None) when none is configured and
+    `required` is False — help and the language verb run keyless. Refuses
+    naming BOTH places when neither has one."""
+    key = os.environ.get(KEY_ENV, "").strip()
+    if key:
+        return key, "env"
     if ENV_FILE and ENV_FILE.is_file():
         for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
             m = re.match(r"\s*(?:export\s+)?" + KEY_ENV + r"\s*=\s*(.*)$", line)
@@ -113,37 +123,40 @@ def api_key():
                 key = m.group(1).strip().strip("'\"")
                 if key:
                     return key, "env-file"
-    key = os.environ.get(KEY_ENV, "").strip()
-    if key:
-        return key, "env"
-    if ENV_FILE is None:
-        die("no ElevenLabs API key",
-            f"{Path.cwd()} is inside no rbtv installation (no folder above it holds "
-            f"{INSTALL_RECORD_REL.as_posix()}) and {KEY_ENV} is unset or empty — "
-            "every verb of this CLI calls the ElevenLabs API",
-            f"run this from a folder inside the installation whose {ENV_FILE_REL.as_posix()} "
-            f"holds a line {KEY_ENV}=<key>, or export {KEY_ENV}; "
-            f"see {ROOT / 'README.md'} section 'The key'")
-    die("no ElevenLabs API key",
-        f"{ENV_FILE} has no {KEY_ENV} line and {KEY_ENV} is unset or empty — "
-        "every verb of this CLI calls the ElevenLabs API",
-        f"add a line {KEY_ENV}=<key> to {ENV_FILE}, or export {KEY_ENV}; "
-        f"see {ROOT / 'README.md'} section 'The key'")
+    if required:
+        no_key_refusal()
+    return None, None
+
+
+def no_key_refusal():
+    if ENV_FILE is not None:
+        why = (f"${KEY_ENV} is unset or empty, and {ENV_FILE} holds no {KEY_ENV} "
+               "line — transcribe, tts and voices call the ElevenLabs API")
+        fix = (f"export {KEY_ENV}=<key>, or add a line {KEY_ENV}=<key> to {ENV_FILE}")
+    else:
+        why = (f"${KEY_ENV} is unset or empty, and this folder is inside no rbtv "
+               f"installation (no folder above it holds {INSTALL_RECORD_REL.as_posix()}), "
+               "so there is no environment file to fall back to — transcribe, tts and "
+               "voices call the ElevenLabs API")
+        fix = (f"export {KEY_ENV}=<key>, or run from a folder inside the installation "
+               f"whose {ENV_FILE_REL.as_posix()} holds a line {KEY_ENV}=<key>")
+    die("no ElevenLabs API key", why,
+        f"{fix}; the language verb and --help need no key")
 
 
 def key_sources():
-    """Where `api_key` reads the key, in its order, as words for help and refusals.
-    Outside an installation there is no environment file to name."""
+    """Where `api_key` reads the key, in its order, as words for help and
+    refusals. Outside an installation there is no environment file to name."""
     if ENV_FILE is None:
         return f"${KEY_ENV} (the process environment; this folder is inside no rbtv installation)"
-    return f"{KEY_ENV} in {ENV_FILE} first, ${KEY_ENV} when it holds none"
+    return f"${KEY_ENV} first, {KEY_ENV} in {ENV_FILE} when the environment holds none"
 
 
 def config_read():
-    """The config as a dict. A missing file is not an error — the default is the
-    default. A corrupt one IS an error: silently falling back would hide a
-    language the caller believes they set."""
-    if not CONFIG.is_file():
+    """The installation's config as a dict. No installation, or a missing file,
+    is not an error — the default is the default. A corrupt file IS an error:
+    silently falling back would hide a language the caller believes they set."""
+    if CONFIG is None or not CONFIG.is_file():
         return {LANGUAGE_KEY: DEFAULT_LANGUAGE}
     try:
         data = json.loads(CONFIG.read_text(encoding="utf-8"))
@@ -165,11 +178,20 @@ def language():
 
 
 def language_write(code):
-    """Update the language key in the component config."""
+    """Update the language key in the INSTALLATION's config — never this
+    source tree's, which the next pull would overwrite into every install."""
+    if CONFIG is None:
+        die("cannot persist the language",
+            f"no folder above {Path.cwd()} holds {INSTALL_RECORD_REL.as_posix()} — "
+            "the live language config belongs to the installation, and this "
+            "folder is inside none",
+            "run this from a folder inside the installation, or edit its "
+            f"{CONFIG_REL.as_posix()} by hand")
     data = config_read()
     data[LANGUAGE_KEY] = code
     body = json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     try:
+        CONFIG.parent.mkdir(parents=True, exist_ok=True)
         with CONFIG.open("w", encoding="utf-8") as fh:
             fh.write(body)
     except OSError as exc:
@@ -227,7 +249,7 @@ def cmd_transcribe(args):
         die(f"cannot read {source}",
             "no such file, or it is a directory" if not source.exists()
             else "it is not a regular file",
-            "pass the path of an audio file — `stools download` is what puts a "
+            "pass the path of an audio file — `slack download` is what puts a "
             "Slack voice note on disk")
     try:
         with source.open("rb"):
@@ -256,8 +278,8 @@ def cmd_transcribe(args):
             "needs re-sourcing", code=EXIT_FAILED)
     text = (body.get("text") or "").strip()
     if not text:
-        # Clause 10's silence arm. Never exit 0 with an empty transcript: a
-        # caller that pipes this into a prompt would act on nothing.
+        # Never exit 0 with an empty transcript: a caller that pipes this into
+        # a prompt would act on nothing.
         die(f"{source} produced an empty transcript",
             "the API returned no speech — a silent, near-silent or "
             "speech-free recording",
@@ -265,31 +287,30 @@ def cmd_transcribe(args):
     emit(text=text, language=body.get("language_code") or lang,
          language_requested=lang, model_id=args.model, source=str(source),
          key_source=source_of_key, chars=len(text),
-         next=f"pipe .text where it is needed; `{Path(__file__).name} "
-              "language` shows the language this ran in")
+         next=f"pipe .text where it is needed — dictated text carries "
+              "self-corrections and mangled names, so apply the workspace "
+              f"glossary before acting on it; `{PROG} language` shows the "
+              "language this ran in")
 
 
 def cmd_language(args):
-    # This verb touches no network — and still demands the key, because the
-    # contract for this component says EVERY verb refuses without one.
-    # Deliberate, not incidental: a caller who
-    # switches the language of an integration that cannot run is being told the
-    # integration cannot run. Reading the language of a keyless install is done
-    # by reading config.json, which is one JSON object.
-    _, source_of_key = api_key()
+    # This verb touches no network and needs no key: reading or rewriting a
+    # local JSON value is not an API operation.
+    source_of_key = None
     current = language()
     if args.code is None:
-        emit(**{LANGUAGE_KEY: current, "config": str(CONFIG),
+        emit(**{LANGUAGE_KEY: current, "config": str(CONFIG) if CONFIG else None,
                 "default": DEFAULT_LANGUAGE, "key_source": source_of_key,
-                "next": f"{Path(__file__).name} language <code> changes it for "
-                        "BOTH transcribe and tts"})
+                "next": f"{PROG} language <code> changes it for BOTH "
+                        "transcribe and tts"})
         return
     code = args.code.strip().lower()
     if not LANGUAGE_RE.match(code):
         die(f"'{args.code}' is not a language code",
             "the ElevenLabs API takes ISO-639-1 (2 letters) or ISO-639-3 "
-            "(3 letters), lowercase — a region subtag is not accepted here",
-            "pass a 2- or 3-letter code")
+            "(3 letters); uppercase is normalized, but a region subtag is refused "
+            "here, before anything is written",
+            "pass a 2- or 3-letter lowercase code")
     language_write(code)
     written = language()
     if written != code:
@@ -297,7 +318,8 @@ def cmd_language(args):
             f"wrote '{code}', read back '{written}'",
             "check the file is writable and not being rewritten by something "
             "else", code=EXIT_FAILED)
-    emit(**{LANGUAGE_KEY: code, "previous": current, "config": str(CONFIG),
+    emit(**{LANGUAGE_KEY: code, "previous": current,
+            "config": str(CONFIG) if CONFIG else None,
             "changed": code != current, "key_source": source_of_key,
             "next": "both transcribe and tts now run in it — no other flag or "
                     "file pins a language"})
@@ -310,7 +332,8 @@ def cmd_tts(args):
     if fmt is None:
         die(f"cannot tell an audio format from '{out.name}'",
             f"the extension '{out.suffix or '(none)'}' is not one this CLI maps "
-            "to an ElevenLabs output format",
+            "to an ElevenLabs output format — an unsupported extension is "
+            "refused before any request is made",
             f"name the output file with one of: "
             f"{', '.join(sorted(OUTPUT_FORMATS))}")
     if not out.parent.is_dir():
@@ -347,7 +370,10 @@ def cmd_tts(args):
          model_id=args.model, language=lang if MULTILINGUAL_V2 not in args.model
          else "(carried by the text — this model takes no language code)",
          key_source=source_of_key, chars=len(text),
-         next=f"`stools upload` puts {out.name} in a Slack channel")
+         next=f"write for the ear, not for the eye — speak outcomes and "
+              "reasoning, and leave paths, ids and copyable tokens in the "
+              f"accompanying text; `slack upload` puts {out.name} in a Slack "
+              "channel")
 
 
 def read_text(args):
@@ -380,22 +406,34 @@ def read_text(args):
     return text
 
 
-def first_voice(key):
-    """A voice id from the account itself.
-
-    Deliberately NOT a compiled-in default. ElevenLabs' own default voices
-    ("George", `JBFqnCBsd6RMkjVDRZzb`, the id in every docs example) expire
-    2026-12-31 and are unavailable to accounts created after March 2026
-    (docs/help-center/product/voices/my-voices/what-are-default-voices) — a
-    hardcoded id would ship broken for exactly the account this component is
-    being provisioned for. The vendor's own instruction is to resolve it from
-    the List voices endpoint, which is what this does."""
-    response = call("GET", VOICES_URL, key, timeout=60)
+def account_voices(key, timeout=60, page_token=None):
+    """Return one provider page, preserving its continuation information."""
+    params = {"page_size": 100}
+    if page_token:
+        params["next_page_token"] = page_token
+    response = call("GET", VOICES_URL, key, timeout=timeout, params=params)
     try:
-        voices = response.json().get("voices") or []
+        page = response.json()
     except ValueError:
-        voices = []
-    for voice in voices:
+        die("the ElevenLabs response was not JSON",
+            "the voices listing came back unreadable",
+            "retry; if it repeats, the API contract has moved and this CLI "
+            "needs re-sourcing", code=EXIT_FAILED)
+    return page
+
+
+def voice_row(voice):
+    """The fields that make a voice choosable: what --voice takes, what it is
+    called, and the language it speaks."""
+    return {"voice_id": voice.get("voice_id"),
+            "name": voice.get("name") or "",
+            "language": voice.get("language") or "",
+            "description": (voice.get("description") or "").strip()}
+
+
+def first_voice(key):
+    """Resolve the default from the account instead of hardcoding a voice id."""
+    for voice in account_voices(key).get("voices", []):
         if voice.get("voice_id"):
             return voice["voice_id"]
     die("this ElevenLabs account exposes no voice",
@@ -404,16 +442,31 @@ def first_voice(key):
         code=EXIT_FAILED)
 
 
+def cmd_voices(args):
+    key, source_of_key = api_key()
+    page = account_voices(key, timeout=args.timeout, page_token=args.page_token)
+    rows = [voice_row(v) for v in page.get("voices", [])
+            if v.get("voice_id")]
+    emit(voices=rows, count=len(rows), key_source=source_of_key,
+         has_more=bool(page.get("has_more")), next_page_token=page.get("next_page_token"),
+         next=(f"pass next_page_token to `{PROG} voices --page-token TOKEN`"
+               if page.get("has_more") else
+               f"copy a voice_id into `{PROG} tts --voice <id>`" if rows else
+               "No voices found; add a voice in the ElevenLabs dashboard."))
+
+
 # ──────────────────────────────────────────────────────────────────── the parser
 
 def build_parser():
     parser = argparse.ArgumentParser(
-        prog=Path(__file__).name, description=__doc__.splitlines()[0],
-        epilog=f"key: {key_sources()}.\n"
-               f"language: the '{LANGUAGE_KEY}' key of {CONFIG.name} "
-               f"(default '{DEFAULT_LANGUAGE}') — the language verb changes it "
-               "for both other verbs.\nevery verb prints one JSON object on "
-               "stdout; refusals go to stderr and exit non-zero.",
+        prog=PROG, description=__doc__.splitlines()[0],
+        epilog=f"key: {key_sources()} — no key is needed for --help or the "
+               f"language verb.\n"
+               f"language: the '{LANGUAGE_KEY}' key of the installation's "
+               f"{CONFIG_REL.as_posix()} (default '{DEFAULT_LANGUAGE}') — the "
+               "language verb changes it for transcribe and tts.\n"
+               "every verb prints one JSON object on stdout; refusals go to "
+               "stderr and exit non-zero.",
         formatter_class=argparse.RawDescriptionHelpFormatter)
     verbs = parser.add_subparsers(dest="verb", required=True, metavar="<verb>")
 
@@ -421,12 +474,13 @@ def build_parser():
         "transcribe", help="an audio file -> its text",
         description="Transcribe an audio file through ElevenLabs Scribe and "
                     "print the text as JSON.\nThe language is the config's, not "
-                    "a flag. `stools download` is what puts a Slack voice note "
+                    "a flag. `slack download` is what puts a Slack voice note "
                     "on disk.",
-        epilog=f"example:\n  %(prog)s ./voice-note.m4a\n\n"
-               "next: read .text from the JSON; a silent or speech-free "
-               "recording exits non-zero rather than printing an empty "
-               "transcript.",
+        epilog=f"example:\n  {PROG} transcribe ./voice-note.m4a\n\n"
+               "next: read .text from the JSON — it is dictated text carrying "
+               "self-corrections and mangled names, so apply the workspace "
+               "glossary before acting on it; a silent or speech-free recording "
+               "exits non-zero rather than printing an empty transcript.",
         formatter_class=argparse.RawDescriptionHelpFormatter)
     transcribe.add_argument("file", help="path to the audio file to transcribe")
     transcribe.add_argument("--model", default=STT_MODEL, metavar="ID",
@@ -441,8 +495,11 @@ def build_parser():
                     "--out.\nThe output format follows the --out extension; the "
                     "language is the config's, not a flag; the voice comes from "
                     "the account unless --voice pins one.",
-        epilog="example:\n  %(prog)s --text \"...\" --out ./answer.mp3\n\n"
-               "next: `stools upload` posts the file to a Slack channel.",
+        epilog=f"example:\n  {PROG} tts --text \"...\" --out ./answer.mp3\n\n"
+               "next: write for the ear, not for the eye — speak outcomes and "
+               "reasoning, leave paths, ids and copyable tokens in the "
+               "accompanying text. `slack upload` posts the file to a Slack "
+               "channel.",
         formatter_class=argparse.RawDescriptionHelpFormatter)
     source = tts.add_mutually_exclusive_group(required=True)
     source.add_argument("--text", metavar="TEXT",
@@ -452,35 +509,64 @@ def build_parser():
                         help="read the text from a file, or from stdin with -")
     tts.add_argument("--out", required=True, metavar="PATH",
                      help="where to write the audio; the extension picks the "
-                          f"format ({', '.join(sorted(OUTPUT_FORMATS))})")
+                          f"format ({', '.join(sorted(OUTPUT_FORMATS))}) — an "
+                          "unsupported extension is refused before any request")
     tts.add_argument("--voice", metavar="ID",
-                     help="voice id (default: the account's first voice — this "
-                          "CLI compiles none in, the vendor's own default "
-                          "voices expire)")
+                     help=f"voice id — `{PROG} voices` lists the account's "
+                          "(default: the account's first voice — this CLI "
+                          "compiles none in, the vendor's own default voices "
+                          "expire)")
     tts.add_argument("--model", default=TTS_MODEL, metavar="ID",
                      help=f"ElevenLabs TTS model (default: {TTS_MODEL})")
     tts.add_argument("--timeout", type=float, default=300, metavar="SEC",
                      help="HTTP timeout in seconds (default: 300)")
     tts.set_defaults(run=cmd_tts)
 
+    voices = verbs.add_parser(
+        "voices", help="list the account's voices, with their ids",
+        description="List the account's voices from ElevenLabs: voice_id, "
+                    "name, language and description — the ids the tts verb's "
+                    "--voice takes.",
+        epilog=f"example:\n  {PROG} voices\n\n"
+               f"next: copy a voice_id into `{PROG} tts --voice <id>`; pick a "
+               "voice whose language matches the one the language verb holds.",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    voices.add_argument("--timeout", type=float, default=60, metavar="SEC",
+                        help="HTTP timeout in seconds (default: 60)")
+    voices.add_argument("--page-token", help="Continue from next_page_token in the previous JSON result; up to 100 voices per page (the first page may include additional default voices)")
+    voices.set_defaults(run=cmd_voices)
+
     lang = verbs.add_parser(
         "language", help=f"read or rewrite the one {LANGUAGE_KEY} key",
-        description=f"Print the {LANGUAGE_KEY} both other verbs run in, or "
+        description=f"Print the {LANGUAGE_KEY} transcribe and tts run in, or "
                     "rewrite it.\nIt is the ONLY place a language is set for "
-                    "this component's whole ElevenLabs integration.",
-        epilog="example:\n  %(prog)s            (read)\n"
-               "  %(prog)s <code>     (rewrite: ISO-639-1 or ISO-639-3)\n\n"
+                    "this component's whole ElevenLabs integration, it lives "
+                    "in the installation's config, and this verb needs no API "
+                    "key.",
+        epilog=f"example:\n  {PROG} language            (read)\n"
+               f"  {PROG} language <code>     (rewrite)\n\n"
+               "code: a 2-letter (ISO-639-1) or 3-letter (ISO-639-3) lowercase "
+               "code — anything else is refused before anything is written.\n"
                "next: the change is immediate and persists — the next "
-               "transcribe or tts reads it from the config file.",
+               "transcribe or tts reads it from the installation's config. "
+               "Outside an installation this reads the default and refuses "
+               "to write.",
         formatter_class=argparse.RawDescriptionHelpFormatter)
     lang.add_argument("code", nargs="?",
-                      help="a 2- or 3-letter language code; omit to read")
+                      help="a 2- or 3-letter lowercase language code; omit to "
+                           "read")
     lang.set_defaults(run=cmd_language)
     return parser
 
 
 def main(argv=None):
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    argv = list(sys.argv[1:] if argv is None else argv)
+    verbs = next(action.choices for action in parser._actions
+                 if isinstance(action, argparse._SubParsersAction))
+    if len(argv) > 1 and argv[0] in ("-h", "--help") and argv[1] in verbs:
+        argv = [argv[1], argv[0], *argv[2:]]
+    args = parser.parse_args(argv)
     args.run(args)
 
 

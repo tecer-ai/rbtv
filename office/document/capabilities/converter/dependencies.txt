@@ -1,5 +1,5 @@
 # converter capability — EVERY external dependency with its install command; updated IN THE SAME
-# CHANGE as any dependency change (convention: meta/communication/capabilities/tools/audio/dependencies.txt).
+# CHANGE as any dependency change.
 #
 # Format: name — why — install command
 

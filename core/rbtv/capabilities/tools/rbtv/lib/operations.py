@@ -26,6 +26,12 @@ from .pathlinks import (
     booked_path_names,
     plan_path_links,
 )
+from .repositories import (
+    apply_repositories,
+    public_item,
+    refusal_for,
+    repository_components,
+)
 from .shared_links import (
     preflight_shared_links,
     reconcile_shared,
@@ -293,6 +299,24 @@ def _record_sub_agents(records: dict, given: dict[str, dict]) -> None:
                 file.pop("sub_agent", None)
 
 
+def _install_checkouts(catalog: dict[str, dict], picked: list[str],
+                       parts: list[str] | None, target: Path,
+                       dry_run: bool) -> list[dict]:
+    """Install-mode checkout preparation for the components this run selects.
+
+    Missing checkouts are cloned. Existing checkouts are not fetched. A
+    failure raises before any installation file, record, or PATH write.
+    """
+    keys = list(parts) if parts is not None else list(picked)
+    items = apply_repositories(
+        repository_components(catalog, keys), dry=dry_run, mode="install",
+        target=target)
+    blocked = refusal_for(items)
+    if blocked is not None:
+        raise blocked
+    return [public_item(item) for item in items]
+
+
 def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
                harnesses: list[str], dry_run: bool,
                guidance_basis: str | None = None,
@@ -415,8 +439,15 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
                           for c in claims}
         extra_claims = (owned_fence_claims(target, planned_claims, state, harnesses)
                         if selected is not None else set())
+        repo_items: list[dict] = []
+
+        def prepare_checkouts() -> None:
+            repo_items.extend(_install_checkouts(
+                catalog, picked, parts, target, dry_run))
+
         result = apply(target, files, claims, apply_state, dry_run, protect,
-                       extra_files=extra_files, extra_claims=extra_claims)
+                       extra_files=extra_files, extra_claims=extra_claims,
+                       before_write=prepare_checkouts)
         _clean_bases(target, report, dry_run)
         if not dry_run:
             _rebook(state, records, files, owners, claims, report,
@@ -465,7 +496,8 @@ def _do_install(target: Path, catalog: dict[str, dict], picked: list[str],
             report["path_setup"] = {"attempted": False, "ok": None,
                                     "recovery": "apply this install to persist PATH"}
     return {"ok": True, "scope": scope, "installed": picked, "harnesses": harnesses,
-            "files": sorted(files), **result, "report": report}
+            "files": sorted(files), "repositories": repo_items,
+            **result, "report": report}
 
 
 def _do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],

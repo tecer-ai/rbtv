@@ -23,7 +23,7 @@ from . import (test_agents, test_cli, test_discovery, test_doctor_ownership, tes
                test_surface, test_files, test_record_keys, test_ux_contract, test_packs,
                test_providers, test_subagents, test_component_merge,
                test_listing_types, test_rulings_ops,
-               test_rulings_messages)
+               test_rulings_messages, test_repositories)
 
 ORDER = [
     test_layout.repo_root_is_the_repo,
@@ -96,6 +96,7 @@ ORDER = [
     test_ux_contract.public_contract,
     test_ux_contract.result_screens,
     test_install.uninstall,
+    test_repositories.repositories,
 ]
 
 

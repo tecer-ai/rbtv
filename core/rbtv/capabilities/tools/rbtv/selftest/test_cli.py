@@ -482,7 +482,7 @@ def cli_defects(ctx) -> None:
         code, _out, err, escaped = run(argv)
         check(f"D2-scope — {' '.join(argv[:-1]) or argv[0]} with no scope answers as bare update",
               escaped is None and code == 2 and "invalid choice" not in err
-              and "the following arguments are required: {guidance,scaffolding,all}" in err
+              and "the following arguments are required: {guidance,scaffolding,all,repositories}" in err
               and err == bare_err, f"{code} {err[:200]}")
 
     ws = tmp / "d-agent-ws"

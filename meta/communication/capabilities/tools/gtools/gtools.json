@@ -1,5 +1,0 @@
-{
-  "name": "gtools",
-  "description": "Google Workspace from one command (Gmail, Calendar, Drive, Meet): the google-tools repo's CLI, which runs each script under that repo's own venv",
-  "entry": "ws:3-resources/tools/gtools/gtools.py"
-}
