@@ -1,4 +1,4 @@
 {
-  "description": "Creating and redesigning command-line interfaces that humans and agents can both use: the CLI creator skill, its usability capability, and the output-preview tool.",
+  "description": "Writing and leaving code, the jobs done on it and committing it; not rbtv instruction files, which the framework in core/rbtv owns. The coding skill carries the four disciplines (no dead code, no duplicate source, no monolith, no patches) and the ladder, and routes to building a command-line interface, improving a codebase's architecture, reviewing for over-engineering and the shortcut ledger; the rbtv-commit tool commits a chosen set of files, and cli-preview renders a CLI output review to one offline page.",
   "dependencies": []
 }
