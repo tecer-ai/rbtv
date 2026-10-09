@@ -352,7 +352,7 @@ def sync_after_commit(root, committed):
 
 
 def main():
-    p = argparse.ArgumentParser(description="Deterministic git commit (rbtv-commit). Run from inside the repo.")
+    p = argparse.ArgumentParser(description="Deterministic git commit (rbtv-commit). Run from inside the repo. The procedure around it (clustering the changes, the error table, resolving a merge conflict) is its page, meta/code/capabilities/tools/rbtv-commit/rbtv-commit.md in the rbtv repository.")
     p.add_argument("-m", "--message", help="Inline commit message (single-line / simple). "
                    "Mutually exclusive with -F.")
     p.add_argument("-F", "--message-file", dest="message_file",
