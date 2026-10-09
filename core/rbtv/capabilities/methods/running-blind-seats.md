@@ -7,7 +7,7 @@ Inputs: the task file, written as a user would write it and naming no skill or p
 ## Launch
 
 1. Make one folder per seat inside the installation, so that the harness lists the installed skills and rules from the folder's ancestors, and copy the fixture into each. Write the task's file paths relative to that folder.
-2. Launch each seat with `cast HARNESS MODEL EFFORT <seat folder> -f <task file>`, all seats at once, each launch's output kept in a file of its own. When the operator's shell runs inside tmux, launch with the `TMUX` variable unset, so that a seat cannot act on the operator's session.
+2. Launch each seat with `cast HARNESS MODEL EFFORT <seat folder> -f <task file>`, all seats at once, each launch as a background job the harness keeps tracked and each launch's output kept in a file of its own; `cast` refuses a launch detached from its caller (`&`, `nohup` or `setsid` in a command that returns before the seat ends). When the operator's shell runs inside tmux, launch with the `TMUX` variable unset, so that a seat cannot act on the operator's session.
 3. `cast` prints one line `cast: handle {…}` on standard error for each launch: `pid` is the seat's process, `folder` its launch folder and, for Claude Code, `transcript` the path of the session record. Keep that line.
 4. After the time limit, end each seat whose `pid` is still alive (terminate, then kill); a seat that ended on its own needs nothing. Record which seats were stopped: a stopped seat may have been about to act.
 
