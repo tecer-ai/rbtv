@@ -18,9 +18,9 @@ The requests check asks finish, hand off or drop per undone item and never finis
 
 `triage` remains a component of its own, `meta/triage`, for a backlog cleaned mid-project; the loose-ends method and `triage` both link `capabilities/methods/value-bar.md`. Reason: the bar must not be stated twice, and the close is not the only moment a backlog is judged.
 
-## The state-hygiene principle is a method page here, routed from the rule
+## State hygiene is the entry step's hygiene check, not a rule
 
-`meta/behaviour/rules/state-hygiene.md` stays the always-on rule and links `capabilities/methods/state-hygiene.md`; the skill's hygiene check applies that page to the files the session changed. Reason: the rule guards the moment a file is left in any session; the close re-checks what was left; the `principles/` folder exists only in `core/rbtv`, and this page is applied at task time, which a method page is for.
+The six checks a file left for a later agent must pass are in the skill's entry step and run on every load; the full principle, with how it fails and the weak/strong pairs, is `capabilities/methods/state-hygiene.md`, opened when a check does not settle a file. No always-on rule carries them. Reason: cleaning state is what a close is for, so every agent entering final-act does it; an always-on rule repeated the checks on every turn of every agent and was the only file left in its component.
 
 ## The archivist sweeps by hand, in two modes, and never without a confirmed list
 

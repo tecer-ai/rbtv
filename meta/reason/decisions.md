@@ -8,11 +8,11 @@ Interview and the six brainstorm modes are method pages under the `thinking-part
 
 ## One component for the rule and the skill
 
-The `critical-partner` rule and the `thinking-partner` skill form the `meta/reason` component. Reason: owner decision, 2026-10-08; the always-on stance and the invoked session are the two faces of one subject, how an agent reasons with the user, and `behaviour` keeps only the state-hygiene rule.
+The `critical-partner` rule and the `thinking-partner` skill form the `meta/reason` component. Reason: owner decision, 2026-10-08; the always-on stance and the invoked session are the two faces of one subject, how an agent reasons with the user.
 
 ## One always-on rule for the critical stance: critical-partner
 
-Challenging a proposal, framing a vague request, stating the simplest solution and stating the root cause are four tripwires of one rule, `critical-partner`, not four rules. Reason: they are one stance applied at four moments, and four files on every task repeated their motivations; the state-hygiene rule stays separate because it guards a file left for a later agent, not a moment of judgment.
+Challenging a proposal, framing a vague request, stating the simplest solution and stating the root cause are four tripwires of one rule, `critical-partner`, not four rules. Reason: they are one stance applied at four moments, and four files on every task repeated their motivations; state hygiene is not among them because it guards a file left for a later agent, not a moment of judgment; it is the hygiene step of the `final-act` skill.
 
 ## Every tripwire produces a named block in the response
 
