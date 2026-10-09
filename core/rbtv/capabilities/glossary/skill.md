@@ -14,7 +14,7 @@ This differs from an outside skill packaged as a folder. A whole-folder skill us
 
 Follow [Cognitive unit](cognitive-unit.md) for the body: purpose, inputs, missing-input behavior, tools and shared instructions. Add the skill-specific requirements below.
 
-- **Make discovery work without the name.** Establish one task that needs the skill, another supported task phrased differently and a nearby task that must not select it. The description must separate those cases.
+- **Make discovery work without the name.** Establish one task that needs the skill, another supported task phrased differently and a nearby task that must not select it. The description must separate those cases, and its ALWAYS LOAD WHEN quotes the phrases those tasks carry, as [Routing table](routing-table.md) states.
 - **Take inputs from the task.** Do not require arguments typed after the skill's name. The agent may have selected it without a named invocation. State the action for missing inputs in the body.
 - **Reach supporting pages through links.** Write a Markdown link from the source skill to the capability that contains the instructions, relative to the source file. The installed copy sits in another folder: rbtv rewrites a link for it, and leaves a path written in a code span unresolved.
 - **Keep enforcement at the right place.** A body instruction runs only after the skill is opened. A requirement that must hold even when the skill is not opened cannot rely on that body alone; return to Choosing what to build for the required mechanism.
@@ -45,6 +45,6 @@ When converting an outside skill, retain its purpose and operational requirement
 
 ## Verify
 
-Show a fresh agent only the description and neighboring descriptions. Use one task that should select the skill and one that should not, neither naming it. Then test the body without arguments after the skill name and with one required input missing. Check the result and actual paths followed.
+Test selection as [Running blind seats](../methods/running-blind-seats.md) states: ten headless seats of the weakest selected model on a task that should select the skill, and ten on the nearest task that should not, neither naming it, in an installation that lists the skill beside its neighbours. The description passes when every seat of the first task opens the skill before its first edit and no seat of the second opens it. One seat per task cannot show the rate: a description that selects one time in two passes or fails one seat by chance. Then test the body without arguments after the skill name and with one required input missing. Check the result and actual paths followed.
 
 Run installer validation for the frontmatter. This verifies the checked fields, not discovery or the quality of the instructions.
