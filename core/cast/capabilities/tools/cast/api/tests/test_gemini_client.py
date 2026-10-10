@@ -1,26 +1,9 @@
-"""Unit + runner tests for the Gemini client and the grounded dispatch path.
+"""Unit and runner tests for the Gemini image client and the image runner.
 
 NO network, NO spend. The client's HTTP call (requests.post) is mocked; the
 runner tests inject a fake ProviderClient (same pattern as test_run_integration).
-
-Regression context (2026-06-24, rbtv-tasks "Gemini grounded returns
-empty/truncated raw output"): a grounded dispatch returned an empty/truncated
-raw-output.md because
-
-  1. the default maxOutputTokens (4096) was consumed by the 3.x-flash extended-
-     thinking budget (thinking tokens are billed against maxOutputTokens), so the
-     visible answer was starved — truncated, or replaced by leaked reasoning; and
-  2. run.py sent the JSON {files:...} envelope system message even in grounded
-     mode, so the model wrapped its answer in JSON that then truncated, and a
-     parse-success would have written a model-named file instead of raw-output.md.
-
-Live repro confirmed: a grounded research brief spent 4727 thinking tokens,
-overran the 4096 cap, and landed a 612-byte truncated dump; at the raised budget
-the same call returned the full ~8.9KB answer in raw-output.md.
-
-Fix: a larger grounded maxOutputTokens default (gemini.py) + grounded mode is a
-raw-dump path — no envelope ask, output written verbatim to raw-output.md
-(run.py).
+No live image call is made here: these tests pin the two halves a live call
+exercises, the request modality and the parsing of inline images.
 """
 import json
 import sys
@@ -37,11 +20,7 @@ from clients.base import (
     RequestOptions,
     Response,
 )
-from clients.gemini import (
-    GeminiClient,
-    _DEFAULT_MAX_OUTPUT_TOKENS,
-    _GROUNDED_MAX_OUTPUT_TOKENS,
-)
+from clients.gemini import GeminiClient
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +50,7 @@ def _gemini_data(text_parts, finish="STOP"):
             "candidatesTokenCount": 2,
             "totalTokenCount": 3,
         },
-        "modelVersion": "gemini-3.5-flash",
+        "modelVersion": "gemini-3.1-flash-image",
     }
 
 
@@ -94,59 +73,25 @@ def make_client():
 
 
 # ---------------------------------------------------------------------------
-# Client payload tests — the maxOutputTokens / grounding-mode regression
+# Client tests — the request payload and the parsing of the reply
 # ---------------------------------------------------------------------------
-def test_grounded_payload_uses_large_budget_and_search_tool(monkeypatch):
+def test_explicit_max_tokens_is_sent(monkeypatch):
     post = CapturePost(_gemini_data(["ok"]))
     monkeypatch.setattr("clients.gemini.requests.post", post)
     make_client().chat(
         [Message(role="user", content="q")],
-        RequestOptions(model="gemini-3.5-flash", extra_params={"grounding": True}),
-    )
-    body = post.bodies[0]
-    # grounded swaps JSON-mime for the search tool
-    assert body["tools"] == [{"google_search": {}}]
-    assert "responseMimeType" not in body["generationConfig"]
-    # the budget is the grounded default ...
-    assert body["generationConfig"]["maxOutputTokens"] == _GROUNDED_MAX_OUTPUT_TOKENS
-    # ... and that default MUST stay well above the old thinking-starving 4096,
-    # and above the non-grounded default (grounded needs thinking headroom).
-    assert _GROUNDED_MAX_OUTPUT_TOKENS > 4096
-    assert _GROUNDED_MAX_OUTPUT_TOKENS > _DEFAULT_MAX_OUTPUT_TOKENS
-
-
-def test_default_payload_uses_json_mime_and_default_budget(monkeypatch):
-    post = CapturePost(_gemini_data(["{}"]))
-    monkeypatch.setattr("clients.gemini.requests.post", post)
-    make_client().chat(
-        [Message(role="user", content="q")],
-        RequestOptions(model="gemini-3.5-flash"),
-    )
-    body = post.bodies[0]
-    assert "tools" not in body
-    assert body["generationConfig"]["responseMimeType"] == "application/json"
-    assert body["generationConfig"]["maxOutputTokens"] == _DEFAULT_MAX_OUTPUT_TOKENS
-    # the non-grounded default also must not regress to the old starving value
-    assert _DEFAULT_MAX_OUTPUT_TOKENS > 4096
-
-
-def test_explicit_max_tokens_overrides_default(monkeypatch):
-    post = CapturePost(_gemini_data(["ok"]))
-    monkeypatch.setattr("clients.gemini.requests.post", post)
-    make_client().chat(
-        [Message(role="user", content="q")],
-        RequestOptions(model="gemini-3.5-flash", max_tokens=2000, extra_params={"grounding": True}),
+        RequestOptions(model="gemini-3.1-flash-image", max_tokens=2000),
     )
     assert post.bodies[0]["generationConfig"]["maxOutputTokens"] == 2000
 
 
 def test_parse_concatenates_all_candidate_parts(monkeypatch):
-    # A grounded answer can arrive as multiple text parts — all must be joined.
+    # Commentary can arrive as multiple text parts — all must be joined.
     post = CapturePost(_gemini_data(["Part A. ", "Part B. ", "Part C."]))
     monkeypatch.setattr("clients.gemini.requests.post", post)
     resp = make_client().chat(
         [Message(role="user", content="q")],
-        RequestOptions(model="gemini-3.5-flash", extra_params={"grounding": True}),
+        RequestOptions(model="gemini-3.1-flash-image"),
     )
     assert resp.content == "Part A. Part B. Part C."
 
@@ -157,14 +102,14 @@ def test_parse_handles_missing_parts(monkeypatch):
     monkeypatch.setattr("clients.gemini.requests.post", post)
     resp = make_client().chat(
         [Message(role="user", content="q")],
-        RequestOptions(model="gemini-3.5-flash"),
+        RequestOptions(model="gemini-3.1-flash-image"),
     )
     assert resp.content == ""
     assert resp.raw_response["choices"][0]["finish_reason"] == "length"
 
 
 # ---------------------------------------------------------------------------
-# Runner tests — the grounded raw-dump routing regression (fake client injected)
+# Runner tests (fake client injected)
 # ---------------------------------------------------------------------------
 class FakeGemini(ProviderClient):
     """A real ProviderClient subclass so run.main()'s discovery loop selects it.
@@ -172,7 +117,6 @@ class FakeGemini(ProviderClient):
     Records the messages it received and returns canned content + finish_reason.
     """
 
-    structured_output = True
     _content = ""
     _finish = "stop"
     _artifacts = None
@@ -194,15 +138,14 @@ class FakeGemini(ProviderClient):
         )
 
 
-def _run_gemini(monkeypatch, tmp_path, *, grounded, content, finish="stop",
-                image=False, artifacts=None):
+def _run_gemini(monkeypatch, tmp_path, *, content, finish="stop", artifacts=None):
     FakeGemini._content = content
     FakeGemini._finish = finish
     FakeGemini._artifacts = artifacts
     FakeGemini.received = []
 
     prompt = tmp_path / "p.md"
-    prompt.write_text("do research", encoding="utf-8")
+    prompt.write_text("a red bicycle", encoding="utf-8")
     out = tmp_path / "out"
 
     fake_mod = types.ModuleType("clients.gemini")
@@ -213,14 +156,10 @@ def _run_gemini(monkeypatch, tmp_path, *, grounded, content, finish="stop",
     argv = [
         "run.py",
         "--provider", "gemini",
-        "--model", "gemini-3.5-flash",
+        "--model", "gemini-3.1-flash-image",
         "--prompt-file", str(prompt),
         "--output-folder", str(out),
     ]
-    if grounded:
-        argv.append("--grounded")
-    if image:
-        argv.append("--image")
     monkeypatch.setattr(sys, "argv", argv)
 
     with pytest.raises(SystemExit) as exc:
@@ -228,60 +167,15 @@ def _run_gemini(monkeypatch, tmp_path, *, grounded, content, finish="stop",
     return exc.value.code, out
 
 
-def test_grounded_run_writes_raw_output_not_parsed_envelope(monkeypatch, tmp_path):
-    # Even when the content is a VALID {files:...} envelope, grounded mode must NOT
-    # parse it — it is dumped verbatim to raw-output.md (the documented surface).
-    valid_envelope = '{"files": [{"path": "should_not_be_written.md", "content": "x"}]}'
-    code, out = _run_gemini(monkeypatch, tmp_path, grounded=True, content=valid_envelope)
-    assert code == 0
-    assert (out / "raw-output.md").read_text(encoding="utf-8") == valid_envelope
-    assert not (out / "should_not_be_written.md").exists()
-    rj = json.loads((out / "return.json").read_text(encoding="utf-8"))
-    assert rj["status"] == "DONE_WITH_NOTES"
-    assert rj["landed"] == ["raw-output.md"]
-
-
-def test_grounded_run_system_message_is_markdown_not_json(monkeypatch, tmp_path):
-    _run_gemini(monkeypatch, tmp_path, grounded=True, content="# answer")
-    sys_msgs = [m for m in FakeGemini.received if m.role == "system"]
-    assert len(sys_msgs) == 1
-    # grounded mode must NOT ask for the JSON files envelope ...
-    assert '{"files"' not in sys_msgs[0].content
-    # ... it asks for clean markdown instead
-    assert "Markdown" in sys_msgs[0].content
-
-
-def test_default_run_still_parses_envelope(monkeypatch, tmp_path):
-    # Non-grounded path is unchanged: a valid envelope IS parsed and written.
-    valid_envelope = (
-        '{"files": [{"path": "deck.md", "content": "hello"}], '
-        '"concerns": [], "open_questions": []}'
-    )
-    code, out = _run_gemini(monkeypatch, tmp_path, grounded=False, content=valid_envelope)
-    assert code == 0
-    assert (out / "deck.md").read_text(encoding="utf-8") == "hello"
-    assert not (out / "raw-output.md").exists()
-    rj = json.loads((out / "return.json").read_text(encoding="utf-8"))
-    assert rj["status"] == "DONE"
-
-    sys_msgs = [m for m in FakeGemini.received if m.role == "system"]
-    assert '{"files"' in sys_msgs[0].content
-
-
 # ---------------------------------------------------------------------------
-# Image generation (added 2026-08-20, route redesign §7)
-#
-# NOT LIVE-VERIFIED: GEMINI_API_KEY is absent on this box, so no real image call
-# has ever been made. These arms pin the two halves that a live call would
-# exercise — the request MODALITY and the inline-image parsing — so the first
-# real call fails on credentials or on the model id, never on our wiring.
+# Image generation: the request modality, the inline images, the run's result
 # ---------------------------------------------------------------------------
 def test_image_payload_asks_for_the_image_modality(monkeypatch):
     post = CapturePost(_gemini_data(["ok"]))
     monkeypatch.setattr("clients.gemini.requests.post", post)
     make_client().chat(
         [Message(role="user", content="a red bicycle")],
-        RequestOptions(model="gemini-image", extra_params={"image": True}),
+        RequestOptions(model="gemini-3.1-flash-image"),
     )
     body = post.bodies[0]
     assert body["generationConfig"]["responseModalities"] == ["TEXT", "IMAGE"]
@@ -290,20 +184,16 @@ def test_image_payload_asks_for_the_image_modality(monkeypatch):
     assert "tools" not in body
     # ... and NO token cap: an image's cost is not a token budget.
     assert "maxOutputTokens" not in body["generationConfig"]
-    # the flag itself is consumed here, never forwarded as a provider parameter
-    assert "image" not in body
 
 
-def test_image_flag_is_not_forwarded_but_real_extras_are(monkeypatch):
+def test_extra_params_are_sent_as_provider_parameters(monkeypatch):
     post = CapturePost(_gemini_data(["ok"]))
     monkeypatch.setattr("clients.gemini.requests.post", post)
     make_client().chat(
         [Message(role="user", content="q")],
-        RequestOptions(model="gemini-image", extra_params={"image": True, "safetySettings": []}),
+        RequestOptions(model="gemini-3.1-flash-image", extra_params={"safetySettings": []}),
     )
-    body = post.bodies[0]
-    assert "image" not in body
-    assert body["safetySettings"] == []
+    assert post.bodies[0]["safetySettings"] == []
 
 
 def test_parse_extracts_inline_images_as_artifacts(monkeypatch):
@@ -320,7 +210,7 @@ def test_parse_extracts_inline_images_as_artifacts(monkeypatch):
     monkeypatch.setattr("clients.gemini.requests.post", post)
     resp = make_client().chat(
         [Message(role="user", content="q")],
-        RequestOptions(model="gemini-image", extra_params={"image": True}),
+        RequestOptions(model="gemini-3.1-flash-image"),
     )
     assert resp.content == "here it is", "text parts still concatenate normally"
     assert [a.filename for a in resp.artifacts] == ["image-1.png", "image-2.jpg"]
@@ -338,7 +228,7 @@ def test_parse_without_inline_data_has_no_artifacts(monkeypatch):
 def test_image_run_writes_the_image_and_asks_for_no_envelope(monkeypatch, tmp_path):
     from clients.base import Artifact
     code, out = _run_gemini(
-        monkeypatch, tmp_path, grounded=False, content="", image=True,
+        monkeypatch, tmp_path, content="",
         artifacts=[Artifact(filename="image-1.png", content=b"PNGDATA", content_type="image/png")],
     )
     assert code == 0
@@ -353,7 +243,7 @@ def test_image_run_writes_the_image_and_asks_for_no_envelope(monkeypatch, tmp_pa
 
 def test_image_run_without_an_image_says_so_instead_of_claiming_done(monkeypatch, tmp_path):
     code, out = _run_gemini(
-        monkeypatch, tmp_path, grounded=False, content="I cannot draw that.", image=True,
+        monkeypatch, tmp_path, content="I cannot draw that.",
         artifacts=None,
     )
     assert code == 0
@@ -363,13 +253,8 @@ def test_image_run_without_an_image_says_so_instead_of_claiming_done(monkeypatch
     assert any("no inline image data" in c for c in rj["concerns"]), rj["concerns"]
 
 
-def test_image_and_grounded_together_are_refused(monkeypatch, tmp_path):
-    code, _ = _run_gemini(monkeypatch, tmp_path, grounded=True, content="x", image=True)
-    assert code == 1, "the two return surfaces are incompatible — the runner refuses, never guesses"
-
-
 # ---------------------------------------------------------------------------
-# Input images (added 2026-09-15): --image --input-image sends existing image
+# Input images (added 2026-09-15): --input-image sends existing image
 # files IN alongside the prompt. Message.content becomes the provider-neutral
 # part-list form (clients/base.py); only gemini.py knows the Google wire shape.
 # ---------------------------------------------------------------------------
@@ -383,7 +268,7 @@ def test_input_image_payload_translates_to_inline_data(monkeypatch):
             {"type": "text", "text": "restyle this logo"},
             {"type": "image", "mime_type": "image/png", "data": png_b64},
         ])],
-        RequestOptions(model="gemini-image", extra_params={"image": True}),
+        RequestOptions(model="gemini-3.1-flash-image"),
     )
     body = post.bodies[0]
     parts = body["contents"][0]["parts"]
@@ -403,7 +288,7 @@ def test_input_image_payload_with_several_images_keeps_order(monkeypatch):
             {"type": "image", "mime_type": "image/png", "data": a_b64},
             {"type": "image", "mime_type": "image/jpeg", "data": b_b64},
         ])],
-        RequestOptions(model="gemini-image", extra_params={"image": True}),
+        RequestOptions(model="gemini-3.1-flash-image"),
     )
     parts = post.bodies[0]["contents"][0]["parts"]
     assert parts == [
@@ -414,13 +299,12 @@ def test_input_image_payload_with_several_images_keeps_order(monkeypatch):
 
 
 def test_string_content_still_builds_a_single_text_part(monkeypatch):
-    # No --input-image: Message.content is a plain string exactly as before, and the
-    # translation is unchanged — zero behaviour change on the existing path.
+    # No --input-image: Message.content is a plain string, sent as one text part.
     post = CapturePost(_gemini_data(["ok"]))
     monkeypatch.setattr("clients.gemini.requests.post", post)
     make_client().chat(
         [Message(role="user", content="a red bicycle")],
-        RequestOptions(model="gemini-image", extra_params={"image": True}),
+        RequestOptions(model="gemini-3.1-flash-image"),
     )
     assert post.bodies[0]["contents"][0]["parts"] == [{"text": "a red bicycle"}]
 
@@ -431,35 +315,13 @@ def test_unknown_part_type_raises_value_error(monkeypatch):
     with pytest.raises(ValueError, match="unknown message part type"):
         make_client().chat(
             [Message(role="user", content=[{"type": "video", "data": "x"}])],
-            RequestOptions(model="gemini-image"),
+            RequestOptions(model="gemini-3.1-flash-image"),
         )
 
 
 # ---------------------------------------------------------------------------
 # Runner-level: --input-image wiring (run.py)
 # ---------------------------------------------------------------------------
-def test_input_image_without_image_flag_is_refused(monkeypatch, tmp_path):
-    prompt = tmp_path / "p.md"
-    prompt.write_text("edit this", encoding="utf-8")
-    img = tmp_path / "ref.png"
-    img.write_bytes(b"PNGDATA")
-    out = tmp_path / "out"
-
-    monkeypatch.setattr(run, "_resolve_key", lambda provider, launch_dir: "fake-key")
-    argv = [
-        "run.py",
-        "--provider", "gemini",
-        "--model", "gemini-image",
-        "--prompt-file", str(prompt),
-        "--output-folder", str(out),
-        "--input-image", str(img),
-    ]
-    monkeypatch.setattr(sys, "argv", argv)
-    with pytest.raises(SystemExit) as exc:
-        run.main()
-    assert exc.value.code == 1
-
-
 def test_input_image_bad_extension_is_refused(monkeypatch, tmp_path):
     prompt = tmp_path / "p.md"
     prompt.write_text("edit this", encoding="utf-8")
@@ -474,10 +336,9 @@ def test_input_image_bad_extension_is_refused(monkeypatch, tmp_path):
     argv = [
         "run.py",
         "--provider", "gemini",
-        "--model", "gemini-image",
+        "--model", "gemini-3.1-flash-image",
         "--prompt-file", str(prompt),
         "--output-folder", str(out),
-        "--image",
         "--input-image", str(bad),
     ]
     monkeypatch.setattr(sys, "argv", argv)
@@ -499,10 +360,9 @@ def test_input_image_missing_file_is_refused(monkeypatch, tmp_path):
     argv = [
         "run.py",
         "--provider", "gemini",
-        "--model", "gemini-image",
+        "--model", "gemini-3.1-flash-image",
         "--prompt-file", str(prompt),
         "--output-folder", str(out),
-        "--image",
         "--input-image", str(missing),
     ]
     monkeypatch.setattr(sys, "argv", argv)
@@ -531,10 +391,9 @@ def test_input_image_run_builds_list_form_message(monkeypatch, tmp_path):
     argv = [
         "run.py",
         "--provider", "gemini",
-        "--model", "gemini-image",
+        "--model", "gemini-3.1-flash-image",
         "--prompt-file", str(prompt),
         "--output-folder", str(out),
-        "--image",
         "--input-image", str(img),
     ]
     monkeypatch.setattr(sys, "argv", argv)

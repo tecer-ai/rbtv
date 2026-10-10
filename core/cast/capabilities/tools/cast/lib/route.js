@@ -31,8 +31,8 @@ const ROUTE_USAGE = 'cast route --access open|bounded --type code|text --class p
 const ROUTE_FORMS = ['cast route --caps image          # short-circuit, no other flags',
   'cast route --batch agents.json    # a whole team in one call (- reads stdin)'];
 
-// Level vocabulary: SOTA > L1 > L2 > L3, plus L4 — the image tier, which NO class admits, so an
-// L4 row is reachable only through the `--caps image` short-circuit. Each class below lists its
+// Level vocabulary: SOTA > L1 > L2 > L3. An image model has no level: its cell is blank, no class
+// reaches it, and `--caps image` selects it by its `image` cell. Each class below lists its
 // eligible levels BEST FIRST; that order is what `--optimize quality` ranks on.
 // The class table (spec §4). `levels` is the eligibility filter: each class sees exactly one
 // level, so `--optimize` only reorders rows of that level. Effort is a fixed cast-normalized 1-5 number, mapped onto the picked row's own
@@ -40,6 +40,12 @@ const ROUTE_FORMS = ['cast route --caps image          # short-circuit, no other
 const CLASSES = {
   // One level per class (owner ruling 2026-09-24; promoteOverrides relies on it): with two levels eligible, price ranking let a
   // lower level's cheaper row take the job (Grok on planning, L1 rows on bounded work).
+  // What each class is for (the words of `cast route -h`):
+  //   planner     strategy and architecture: decides what gets built and what others do.
+  //   broad       a wide investigation that has to choose its own approach.
+  //   bounded     a bounded problem solved with local implementation judgment.
+  //   mechanical  an explicit bounded operation, extraction and classification included, with
+  //               checks; anything ambiguous is escalated, not decided.
   planner: { levels: ['SOTA'], effort: { code: 3, text: 3 }, floor: true },
   broad: { levels: ['L1'], effort: { code: 2, text: 3 } },
   bounded: { levels: ['L2'], effort: { code: 2, text: 2 } },
@@ -62,21 +68,10 @@ const OPTIMIZE = ['price', 'quality'];
 const DEFAULT_OPTIMIZE = 'default';
 const CAPS = ['image'];
 
-// The `use` column (owner ruling 2026-08-22) — WHO may see a row:
-//   route  the normal state; the row competes for `cast route` verdicts. A BLANK cell reads as
-//          this, so a CSV written before the column existed keeps behaving exactly as it did.
-//   panel  invisible to every verdict; the row still appears in `cast models list --catalog`, which is
-//          the surface a panel spreads its seats across (the `coordinate` skill's panel capability). For a model worth
-//          a second opinion but never worth being the single answer.
-//   off    invisible to routing entirely. Still LAUNCHABLE by hand (`cast <harness> <model> <n>`)
-//          and still listed by `cast models list --catalog` with its use value — nothing is hidden.
-// An unrecognised value is NEVER guessed: the row drops from routing with a loud warning. One
-// column rather than two flags because `route=Y` + `panel-only=Y` would be a state with no
-// meaning, and the code would have to invent a winner for it.
-const USE_VALUES = ['route', 'panel', 'off'];
-const USE_DEFAULT = 'route';
-
-// The two override columns (same ruling). `Y` means: inside ITS OWN LEVEL, this row wins the named
+// A selected model is eligible: every row of the model catalog in force competes for verdicts,
+// subject to its login, its capability and its level. No column takes a row out of routing.
+//
+// The two override columns (owner ruling 2026-08-22). `Y` means: inside ITS OWN LEVEL, this row wins the named
 // ranking whatever the numbers say. It never bypasses a filter: availability, --caps, --access and
 // the class level all run first, so an override can only reorder survivors. A model listed at two
 // levels carries its overrides per line, so it can win one level and not the other.
@@ -189,10 +184,6 @@ function joinCatalog(csvRows, warnings) {
     if (spec.mode !== c.mode) {
       warnings.push(`models.csv line ${c._line}: ${label} says mode=${c.mode}, supported-models.js says mode=${spec.mode} — using supported-models.js`);
     }
-    const use = c.use === '' ? USE_DEFAULT : c.use;
-    if (!USE_VALUES.includes(use)) {
-      warnings.push(`models.csv line ${c._line}: ${label} has use='${c.use}' — expected ${USE_VALUES.join(' | ')} (blank = ${USE_DEFAULT}) — excluded from routing`);
-    }
     joined.push({
       harness: c.harness,
       model: c.model,
@@ -203,7 +194,6 @@ function joinCatalog(csvRows, warnings) {
       reasoning: num(c.reasoning),
       coding: num(c.coding),
       cost: num(c.cost),
-      use,
       quality_override: c['quality-override'] === 'Y',
       price_override: c['price-override'] === 'Y',
       spec,
@@ -318,23 +308,8 @@ function selectRoute(req, joined, root, trace, defaults) {
     return { error: 'no_models', details: 'no models.csv row has a supported-models.js twin' };
   }
 
-  // `use` runs FIRST: a row the owner has taken out of routing is never weighed, never explained
-  // as an availability or class casualty, and never named by a verdict.
-  const routable = [];
-  for (const r of joined) {
-    if (r.use === 'route') { routable.push(r); continue; }
-    drop(trace, 'use', r, r.use === 'panel'
-      ? 'models.csv says use=panel — panel seats only, never a route verdict'
-      : (r.use === 'off'
-        ? 'models.csv says use=off — routing ignores it (still launchable by hand)'
-        : `models.csv has an unrecognised use='${r.use}' — expected ${USE_VALUES.join(' | ')}`));
-  }
-  if (!routable.length) {
-    return { error: 'zero_candidates', details: 'every models.csv row is use=panel or use=off — nothing is routable' };
-  }
-
   let rows = [];
-  for (const r of routable) {
+  for (const r of joined) {
     if (isAvailable(r.spec, root)) rows.push(r);
     else drop(trace, 'availability', r, unavailableReason(r.spec));
   }
@@ -342,7 +317,8 @@ function selectRoute(req, joined, root, trace, defaults) {
 
   // Image short-circuit: every other question is skipped. `--optimize` still breaks a tie if the
   // owner listed several image rows; absent, price ordering (which is alphabetical while costs are
-  // blank) decides. Effort is nominal 1 — image rows carry an inert ladder (efforts 0).
+  // blank) decides. Effort is nominal 1 — image rows carry an inert ladder (efforts 0). An image
+  // row has no level, so the ranking is given none.
   if (req.caps.has('image')) {
     const images = rows.filter((r) => r.image);
     trace.push({ stage: 'image', action: 'short_circuit', candidates: images.map(label) });
@@ -352,7 +328,7 @@ function selectRoute(req, joined, root, trace, defaults) {
     // `|| images[0]` is the all-blank-cost case: --optimize price can pick nothing, so CSV order
     // (deterministic) decides rather than the call failing over a tie-break input the owner
     // has not filled in yet.
-    const chosen = pick(images, optimize.value, req.type, ['L4'], trace);
+    const chosen = pick(images, optimize.value, req.type, [], trace);
     return { verdict: verdictFor(chosen.length ? chosen : images, 1, false, optimize) };
   }
 
@@ -364,8 +340,11 @@ function selectRoute(req, joined, root, trace, defaults) {
     });
   }
 
+  // An image model is selected by capability alone: it never competes for a text or code job,
+  // whatever its other cells hold.
   const cls = CLASSES[req.class];
   rows = rows.filter((r) => {
+    if (r.image) { drop(trace, 'class', r, 'image model — reached only through --caps image'); return false; }
     if (!r.level) { drop(trace, 'class', r, 'blank level in models.csv — excluded entirely'); return false; }
     if (!cls.levels.includes(r.level)) {
       drop(trace, 'class', r, `level ${r.level} is outside class ${req.class} (${cls.levels.join(', ')})`);

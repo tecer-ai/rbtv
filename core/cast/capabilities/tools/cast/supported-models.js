@@ -6,7 +6,7 @@
 // data in `providers.json` beside this file; a row names one by its key there.
 //
 // The routing columns (levels, scores, cost, image capability) live in the model catalog: the
-// shipped `models.csv` beside this file, which holds at least one row for every row here, or the
+// shipped `models.csv` beside this file, which holds one row for every row here, or the
 // installation's own `.rbtv/config/cast/models.csv`. A row of the model catalog in force SELECTS
 // its harness+model: a launch names a model that is supported (a row here) and selected, and
 // `cast route` JOINS the two on harness+model, excluding a model catalog row with no row here.
@@ -24,7 +24,9 @@
 //   api  an API worker reached by `cast api` — routable, NOT launchable
 //
 // Launch-ladder provenance:
-//   claude   — measured on live launches.
+//   claude   — measured on live launches. haiku-5-5, 2026-10-10: `--effort low` and `medium`
+//              answered with no thinking tokens and `--effort max` with thinking tokens, so its
+//              dial is live; `high` and `xhigh` were not launched.
 //   codex    — each model's `supported_reasoning_levels` in the model manifest embedded in the
 //              codex binary, spot-checked against live `codex exec` runs.
 //              Excluded and why: gpt-5.2 — live 400, "not supported when using
@@ -33,11 +35,17 @@
 //              never reach a 6th rung, so it is left out rather than sitting here unreachable.
 //   opencode — the `variants` keys in `opencode models <provider> --verbose` (what `--variant`
 //              validates against). NOT ~/.cache/opencode/models.json, whose
-//              `reasoning_options` disagrees. A model with no variants is inert. The k3 rows
-//              are the one place `--verbose` UNDER-reports: it lists high,max, but a live
-//              `opencode run --variant low` on both returns normally.
+//              `reasoning_options` disagrees. A model with no variants is inert. The k3 row
+//              is the one place `--verbose` UNDER-reports: it lists high,max, but a live
+//              `opencode run --variant low` returns normally. gemini-3.8-flash is where it
+//              OVER-reports: it lists minimal first, and a live `--variant minimal` is refused
+//              by Google ("Thinking level MINIMAL is not supported for this model"), so the
+//              rung is left out. `low` and `high` answered live on 2026-10-10; `medium` was
+//              not launched.
 //
-// One row per model line, the latest: a superseded version is deleted, not kept.
+// One row per model line, at a pinned version: a superseded version is deleted, not kept, and a
+// moving alias such as `gemini-flash-latest` is not listed, because what it launches changes
+// without a change here.
 
 const EFFORT_FLAG = {
   claude: (e) => ['--effort', e],
@@ -49,14 +57,13 @@ const CLAUDE_LADDER = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 // Row fields: harness · model (the short name cast addresses) · mode · id (what the harness itself
 // wants on argv) · rungs (cast's 1-5 effort ladder; [] = inert) · provider (a key of
-// providers.json) · available (absent = true) · depths (an api model's own reasoning-mode ladder;
-// [] = single-mode; cli rows do not use it).
+// providers.json) · available (absent = true).
 const ROWS = [
   // --- claude, cli -----------------------------------------------------------------------------
   { harness: 'claude', model: 'fable-5-1', mode: 'cli', id: 'claude-fable-5-1', rungs: CLAUDE_LADDER, provider: 'claude' },
   { harness: 'claude', model: 'opus-5-5', mode: 'cli', id: 'claude-opus-5-5', rungs: CLAUDE_LADDER, provider: 'claude' },
   { harness: 'claude', model: 'sonnet-5-5', mode: 'cli', id: 'claude-sonnet-5-5', rungs: CLAUDE_LADDER, provider: 'claude' },
-  { harness: 'claude', model: 'haiku-4-5', mode: 'cli', id: 'claude-haiku-4-5', rungs: [], provider: 'claude' },
+  { harness: 'claude', model: 'haiku-5-5', mode: 'cli', id: 'claude-haiku-5-5', rungs: CLAUDE_LADDER, provider: 'claude' },
 
   // --- codex, cli ------------------------------------------------------------------------------
   { harness: 'codex', model: 'gpt-6-astra', mode: 'cli', id: 'gpt-6-astra', rungs: CLAUDE_LADDER, provider: 'codex' },
@@ -77,28 +84,22 @@ const ROWS = [
     rungs: ['low', 'medium', 'high'], provider: 'sakana' },
   { harness: 'opencode', model: 'gemini-3.1-pro-preview', mode: 'cli', id: 'google/gemini-3.1-pro-preview',
     rungs: ['low', 'medium', 'high'], provider: 'google' },
-  { harness: 'opencode', model: 'gemini-3.7-flash', mode: 'cli', id: 'google/gemini-3.7-flash',
-    rungs: ['minimal', 'low', 'medium', 'high'], provider: 'google' },
-  { harness: 'opencode', model: 'gemini-flash-latest', mode: 'cli', id: 'google/gemini-flash-latest',
-    rungs: ['low', 'high'], provider: 'google' },
+  { harness: 'opencode', model: 'gemini-3.8-flash', mode: 'cli', id: 'google/gemini-3.8-flash',
+    rungs: ['low', 'medium', 'high'], provider: 'google' },
   { harness: 'opencode', model: 'grok-4.7', mode: 'cli', id: 'xai/grok-4.7',
     rungs: ['low', 'medium', 'high'], provider: 'xai' },
   { harness: 'opencode', model: 'k3', mode: 'cli', id: 'kimi-for-coding/k3',
     rungs: ['low', 'high', 'max'], provider: 'kimi' },
-  { harness: 'opencode', model: 'k3-256k', mode: 'cli', id: 'kimi-for-coding/k3-256k',
-    rungs: ['low', 'high', 'max'], provider: 'kimi' },
 
-  // --- api workers, Google only (routable, never launched) -------------------------------------
-  { harness: 'api', model: 'gemini-3.5-flash', mode: 'api', id: 'gemini-3.5-flash', rungs: [],
-    provider: 'google', depths: ['off', 'on'] },
+  // --- api worker, Google only (routable, never launched) --------------------------------------
   // The Google image-generation worker, Nano Banana 2. `id` is the model name Google answers to on
   // generateContent; the `-preview` twin and the Pro/Lite siblings are deliberately NOT listed —
   // one image row keeps the `--caps image` short-circuit deterministic. Its models.csv twin
-  // (image=Y, level L4, use=route) is what makes `cast route --caps image` return it; both files
-  // carry the SAME model string or the join drops the row. No `depths`: an image model has no
-  // thinking dial, so `cast api` skips the effort merge entirely.
+  // (image=Y, no level) is what makes `cast route --caps image` return it; both files
+  // carry the SAME model string or the join drops the row. No rungs: an image model has no
+  // effort dial.
   { harness: 'api', model: 'gemini-3.1-flash-image', mode: 'api', id: 'gemini-3.1-flash-image',
-    rungs: [], provider: 'google', depths: [] },
+    rungs: [], provider: 'google' },
 ];
 
 // The launch table cast.js spawns from: `mode: cli` rows, in this file's order, keyed the way the

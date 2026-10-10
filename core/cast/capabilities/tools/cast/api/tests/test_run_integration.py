@@ -1,8 +1,8 @@
 """Integration test: the runner's main() actually invokes write_artifacts.
 
 Drives run.main() end-to-end with a FAKE client injected (no provider call, no
-network, no spend). Proves the wiring: a Manus-shaped Response (narration +
-attachments + structured result) lands raw-output.md, the artifact files, and
+network, no spend). Proves the wiring: a Response with narration, a file
+artifact and a structured result lands raw-output.md, the artifact file and
 structured-output.json together, with return.json un-clobbered.
 """
 import json
@@ -16,11 +16,7 @@ from clients.base import Artifact, ProviderClient, ProviderName, Response
 
 
 class FakeManusClient(ProviderClient):
-    """A real ProviderClient subclass so run.main()'s discovery loop selects it.
-
-    structured_output=False routes through the raw-dump path (as Manus does).
-    """
-    structured_output = False
+    """A real ProviderClient subclass so run.main()'s discovery loop selects it."""
 
     @property
     def name(self) -> ProviderName:
@@ -66,7 +62,7 @@ def test_main_writes_artifacts_end_to_end(tmp_path, monkeypatch):
         run.main()
     assert exc.value.code == 0
 
-    # narration dumped (Manus has structured_output=False -> raw-dump path)
+    # the narration that came with the artifact is kept as a note
     assert (out_dir / "raw-output.md").read_text(encoding="utf-8") == "Here is your deck."
     # artifact written with bytes intact
     assert (out_dir / "deck.pdf").read_bytes() == b"DECKBYTES"

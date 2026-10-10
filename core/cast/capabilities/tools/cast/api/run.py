@@ -1,8 +1,8 @@
-"""Shared CLI runner for model API calls.
+"""The runner behind `cast api`: one image-generation call.
 
-The conductor invokes this via Bash. It resolves the provider's API key,
-calls the provider in JSON mode via a dynamically-resolved client, writes
-model-emitted envelope files into --output-folder, and writes return.json.
+`cast api` invokes this. It resolves the provider's API key, sends the prompt
+(and any input images) through a dynamically-resolved client, writes the image
+files the model returns into --output-folder, and writes return.json.
 """
 
 import argparse
@@ -211,7 +211,7 @@ def _build_input_image_parts(paths: List[str]) -> List[Dict[str, Any]]:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Shared runner for model API calls")
+    parser = argparse.ArgumentParser(description="Runner for one image-generation API call")
     parser.add_argument("--provider", required=True, help="Provider name (e.g. gemini)")
     parser.add_argument("--model", required=True, help="Model identifier")
     parser.add_argument("--prompt-file", required=True, help="Path to the prompt file")
@@ -219,14 +219,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--target-file", default=None, help="Optional target file to inline")
     parser.add_argument("--timeout", type=int, default=None,
         help="Per-call timeout in seconds passed to the client. Omit to use the client's own default.")
-    parser.add_argument("--grounded", action="store_true",
-        help="Enable web/search grounding via extra_params['grounding']=True (gemini.py reads this). Generic — never provider-specific.")
-    parser.add_argument("--image", action="store_true",
-        help="Image generation: the prompt goes in, image FILES come out into --output-folder. Requests no JSON envelope and parses none — the model's inline image parts are the deliverable.")
     parser.add_argument("--input-image", action="append", default=None,
-        help="Path to an existing image file to send INTO the model alongside the prompt (repeatable, order preserved). Requires --image. Extension must be png/jpg/jpeg/webp/gif.")
+        help="Path to an existing image file to send INTO the model alongside the prompt (repeatable, order preserved). Extension must be png/jpg/jpeg/webp/gif.")
     parser.add_argument("--extra-params", type=str, default=None,
-        help="A JSON object merged into RequestOptions.extra_params (advanced pass-through).")
+        help="A JSON object sent to the provider as RequestOptions.extra_params (advanced pass-through).")
     return parser
 
 
@@ -234,41 +230,16 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
-    extra_params: Dict[str, Any] = {}
-    if args.grounded:
-        extra_params["grounding"] = True
-    if args.image:
-        extra_params["image"] = True
+    extra_params: Optional[Dict[str, Any]] = None
     if args.extra_params:
         try:
-            parsed = json.loads(args.extra_params)
+            extra_params = json.loads(args.extra_params)
         except (json.JSONDecodeError, TypeError):
             print("ERROR: --extra-params must be a JSON object", file=sys.stderr)
             sys.exit(1)
-        if not isinstance(parsed, dict):
+        if not isinstance(extra_params, dict):
             print("ERROR: --extra-params must be a JSON object", file=sys.stderr)
             sys.exit(1)
-        extra_params.update(parsed)
-    extra_params_arg: Optional[Dict[str, Any]] = extra_params or None
-
-    # Effective grounding flag — set by --grounded OR by --extra-params {"grounding":true}.
-    # Grounded dispatches are a raw-dump research path (gemini-api manual): no JSON
-    # envelope is requested and the answer is written verbatim to raw-output.md.
-    grounded = bool(extra_params.get("grounding"))
-
-    # Image mode is the second envelope-free path: the deliverable is FILES, not text, so no JSON
-    # envelope is requested and none is parsed. Mutually exclusive with grounded (cast api refuses
-    # the pair before it ever gets here; this is the runner's own guard).
-    image = bool(extra_params.get("image"))
-    if image and grounded:
-        print("ERROR: --image and --grounded are mutually exclusive", file=sys.stderr)
-        sys.exit(1)
-
-    # An input image with no --image is a no-op nobody asked for: with no image call there is no
-    # request to put it into. Refuse loudly rather than silently dropping it.
-    if args.input_image and not image:
-        print("ERROR: --input-image requires --image", file=sys.stderr)
-        sys.exit(1)
 
     # --- dynamic client resolution ---
     try:
@@ -316,62 +287,27 @@ def main() -> None:
             sys.exit(1)
         prompt_text += f"\n\n--- TARGET FILE: {target_path} ---\n{target_content}"
 
-    # --- build messages ---
-    # Grounded mode is a raw-dump research path: the runner writes the model's answer
-    # verbatim to raw-output.md and parses NO {files:...} envelope. Asking for the JSON
-    # envelope there makes the model waste its (thinking-shared) output budget wrapping
-    # the answer in JSON and bifurcates the return surface, so grounded mode gets a
-    # plain markdown-answer instruction instead.
-    if image:
-        # No system message at all: an image model takes the prompt as the whole instruction, and
-        # a systemInstruction is not universally accepted on that endpoint.
-        system_msg = None
-    elif grounded:
-        system_msg = Message(
-            role="system",
-            content=(
-                "Answer the user's request thoroughly using web search grounding. "
-                "Write the answer in clean Markdown prose. Do NOT wrap your answer in "
-                "a JSON object or code fences."
-            ),
-        )
-    else:
-        system_msg = Message(
-            role="system",
-            content=(
-                'Respond ONLY with a single JSON object of the exact shape: '
-                '{"files": [{"path": "<relative path>", "content": "<file text>"}], '
-                '"concerns": [], "open_questions": []}. '
-                'Each file you want written goes in "files". Use relative paths only. '
-                'Do not wrap the JSON in markdown fences.'
-            ),
-        )
-    # An input image turns the user message into the provider-neutral part-list form (see
-    # clients/base.py Message.content) instead of a plain string — the ONLY behaviour change vs.
-    # today's plain-string path, and only when --input-image was actually passed.
+    # --- build the message ---
+    # One user message and no system message: an image model takes the prompt as the whole
+    # instruction, and a systemInstruction is not universally accepted on that endpoint. An input
+    # image turns the message into the provider-neutral part-list form (see clients/base.py
+    # Message.content) instead of a plain string.
     if args.input_image:
         user_content: Any = [{"type": "text", "text": prompt_text}, *_build_input_image_parts(args.input_image)]
     else:
         user_content = prompt_text
-    user_msg = Message(role="user", content=user_content)
-    messages = [user_msg] if system_msg is None else [system_msg, user_msg]
+    messages = [Message(role="user", content=user_content)]
 
     # --- call provider ---
     status = "BLOCKED"
     landed: List[str] = []
-    validation: Dict[str, Any] = {
-        "envelope_valid": False,
-        "json_parsed": False,
-        "finish_reason": None,
-        "file_count": 0,
-        "rejected_paths": [],
-    }
+    validation: Dict[str, Any] = {"finish_reason": None, "file_count": 0}
     concerns: List[str] = []
     open_questions: List[str] = []
 
     try:
         client.initialize(ProviderConfig(api_key=key, timeout=args.timeout))
-        response = client.chat(messages, RequestOptions(model=args.model, extra_params=extra_params_arg))
+        response = client.chat(messages, RequestOptions(model=args.model, extra_params=extra_params))
     except Exception as exc:
         # Never leak the key in error output
         open_questions = [str(exc)]
@@ -401,73 +337,24 @@ def main() -> None:
 
     os.makedirs(args.output_folder, exist_ok=True)
 
-    envelope_valid = False
-    # Grounded dispatches bypass envelope parsing entirely — the answer is written raw
-    # to raw-output.md per the documented grounded return surface, never parsed as a
-    # {files:...} envelope (which the grounded system prompt never requested).
-    if client.structured_output and not grounded and not image:
-        try:
-            env = json.loads(response.content)
-            validation["json_parsed"] = True
-        except (json.JSONDecodeError, TypeError):
-            env = None
-
-        if (
-            isinstance(env, dict)
-            and "files" in env
-            and isinstance(env["files"], list)
-        ):
-            envelope_valid = True
-            for f in env["files"]:
-                raw_path = f.get("path", "")
-                safe = sanitize_path(raw_path, args.output_folder)
-                if safe != raw_path:
-                    validation["rejected_paths"].append(raw_path)
-                out_path = pathlib.Path(args.output_folder) / safe
-                out_path.parent.mkdir(parents=True, exist_ok=True)
-                out_path.write_text(f.get("content", ""), encoding="utf-8")
-                landed.append(safe)
-            concerns = env.get("concerns", [])
-            open_questions = env.get("open_questions", [])
-            status = "DONE"
-        else:
-            envelope_valid = False
-
-    if image:
-        # The images ARE the return. write_artifacts sanitises and de-dups the filenames the
-        # client derived from each inline part's mime type. Any accompanying text is kept only
-        # when the model sent one — it is commentary, never the deliverable.
-        write_artifacts(response, args.output_folder, landed, validation, concerns)
-        if validation.get("artifact_count"):
-            status = "DONE"
-            if response.content:
-                note_path = pathlib.Path(args.output_folder) / "raw-output.md"
-                note_path.write_text(response.content, encoding="utf-8")
-                landed.append("raw-output.md")
-        else:
-            raw_path = pathlib.Path(args.output_folder) / "raw-output.md"
-            raw_path.write_text(response.content or "", encoding="utf-8")
+    # The images ARE the return. write_artifacts sanitises and de-dups the filenames the client
+    # derived from each inline part's mime type. Any accompanying text is kept only when the
+    # model sent one — it is commentary, never the deliverable.
+    write_artifacts(response, args.output_folder, landed, validation, concerns)
+    if validation.get("artifact_count"):
+        status = "DONE"
+        if response.content:
+            note_path = pathlib.Path(args.output_folder) / "raw-output.md"
+            note_path.write_text(response.content, encoding="utf-8")
             landed.append("raw-output.md")
-            concerns.append(
-                "image dispatch returned no inline image data — whatever the model did send "
-                "is in raw-output.md"
-            )
-            status = "DONE_WITH_NOTES"
-    elif not envelope_valid:
+    else:
         raw_path = pathlib.Path(args.output_folder) / "raw-output.md"
         raw_path.write_text(response.content or "", encoding="utf-8")
-        landed = ["raw-output.md"]
-        concerns = concerns or []
-        if grounded:
-            concerns.append(
-                "grounded dispatch — raw model answer written to raw-output.md "
-                "(grounded mode parses no {files:...} envelope)"
-            )
-        else:
-            concerns.append(
-                "model did not return the {files:...} envelope — "
-                "raw response dumped to raw-output.md"
-            )
+        landed.append("raw-output.md")
+        concerns.append(
+            "image dispatch returned no inline image data — whatever the model did send "
+            "is in raw-output.md"
+        )
         status = "DONE_WITH_NOTES"
 
     # truncation check
@@ -475,12 +362,6 @@ def main() -> None:
         concerns.append(f"finish_reason was '{finish_reason}' — response may be truncated")
         status = "DONE_WITH_NOTES"
 
-    # Write any file artifacts / structured result the provider returned. Generic across
-    # providers; no-op when there are none. Image mode already ran it above.
-    if not image:
-        write_artifacts(response, args.output_folder, landed, validation, concerns)
-
-    validation["envelope_valid"] = envelope_valid
     validation["file_count"] = len(landed)
 
     return_data = {

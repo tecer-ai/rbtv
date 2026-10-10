@@ -5,10 +5,9 @@
 //
 // The installation turns it on and says how to rank, in its defaults (lib/defaults.js, key
 // `fallback`: off, price or quality). The candidates are the other models of the failed model's
-// level in the model catalog that `cast route` may name and whose login is present, ranked as
-// `cast route` ranks them. A launch tries them in that order while each one fails to start, and
-// never leaves the level: when none starts, it stops and names the model it would take from the
-// next level down.
+// level in the model catalog whose login is present, ranked as `cast route` ranks them. A launch
+// tries them in that order while each one fails to start, and never leaves the level: when none
+// starts, it stops and names the model it would take from the next level down.
 //
 // A start failure is the only trigger: the harness could not be started, or it exited with a
 // failure inside the start window. A failure after the window may follow work the agent already
@@ -43,11 +42,12 @@ function dial(spec, effort) {
   return at === rungs.length - 1 ? 5 : at + 1;
 }
 
-// The models of one level a fallback may run, best first by `optimize`, without `skip`. A model
+// The models of one level a fallback may run, best first by `optimize`, without `skip`: the
+// selected cli models of that level whose login is present, never an image model. A model
 // listed at two levels has two rows and one place per level. A fallback does not know its task,
 // so quality ranks on the two scores added.
 function ranked(rows, level, optimize, root, skip) {
-  const pool = rows.filter((r) => r.level === level && r.mode === 'cli' && r.use === 'route'
+  const pool = rows.filter((r) => r.level === level && r.mode === 'cli' && !r.image
     && !(r.harness === skip.harness && r.model === skip.model) && isAvailable(r.spec, root));
   return pick(pool, optimize, 'both', [level], []);
 }

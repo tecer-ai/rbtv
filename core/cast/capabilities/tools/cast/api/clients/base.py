@@ -71,8 +71,6 @@ class RequestOptions:
 
 
 class ProviderClient(ABC):
-    structured_output: bool = True
-
     @property
     @abstractmethod
     def name(self) -> ProviderName: ...

@@ -10,7 +10,7 @@
 //     arm that pinned a verdict off it only restated a cell they had just edited. That design
 //     reddened 16 arms on the 2026-08-22 re-curation and taught nobody anything: the checks broke
 //     because the data changed, never because the selector did.
-//   * The SHIPPED table gets ONE arm, at the bottom: VALIDATION, not verdicts — every row joins
+//   * The SHIPPED table gets ONE arm, at the bottom: its structure and its approved levels and scores — every row joins
 //     supported-models.js, every cell is in its vocabulary, no duplicates, every class still has a routable
 //     row, and loading it emits NO warning. That is the half that can be wrong without anyone
 //     noticing (a decimal comma silently shifted four rows out of routing that same day).
@@ -18,7 +18,7 @@
 // Hermetic environment (availability is a PRESENCE test, never a spend): api keys are pinned to
 // synthetic placeholders and XDG_DATA_HOME points at an empty dir, so this box's real opencode
 // credential store cannot decide a verdict. Available in these runs: every claude + codex row
-// (the harness holds its own account login), the opencode deepseek + google rows and both api rows
+// (the harness holds its own account login), the opencode deepseek + google rows and the api row
 // (env keys). Unavailable: zai (glm), sakana (fugu), xai (grok), kimi (k3).
 
 const assert = require('assert');
@@ -46,7 +46,9 @@ const ENV = {
 //
 // The table is built so each arm has ONE right answer and no tie, and so every axis has a
 // discriminating pair: cli vs api, a blank cost, an image row, and one row (k3, on a
-// kimi credential ENV does not fake) that must drop at availability.
+// kimi credential ENV does not fake) that must drop at availability. The table is the suite's own:
+// it lists the one api model cast supports as a text worker (image=N) so that the api arms have a
+// row, and gives the image flag to another model, which carries no level and no score.
 function scratchInstallation(prefix) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   fs.mkdirSync(path.join(root, '.rbtv', 'config'), { recursive: true });
@@ -62,19 +64,19 @@ function catalogOf(root) {
 const OUTSIDE = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-route-outside-'));
 const FIXTURE = scratchInstallation('cast-route-fixture-');
 fs.writeFileSync(catalogOf(FIXTURE), [
-  'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override',
-  'cli,claude,fable-5-1,5,N,SOTA,7,7,50,route,N,N',
-  'cli,codex,gpt-6-astra,5,N,SOTA,7,7,50,route,Y,Y',
-  'cli,claude,opus-5-5,5,N,L1,6,6,25,route,N,N',
-  'cli,codex,gpt-6.1-sol,5,N,L1,5,5,20,route,N,N',
-  'cli,claude,sonnet-5-5,5,N,L2,5,5,10,route,N,N',
-  'cli,codex,gpt-5.6-terra,5,N,L2,4,4,5,route,N,N',
-  'cli,opencode,k3,3,N,L2,5,5,15,route,N,N',
-  'cli,codex,gpt-6-luna,5,N,L3,3,2,1.2,route,N,N',
-  'cli,opencode,deepseek-v4-pro,4,N,L3,3,3,3.96,route,N,N',
-  'cli,claude,haiku-4-5,0,N,L3,3,3,,route,N,N',
-  'api,api,gemini-3.5-flash,0,N,L3,3,3,9,route,N,N',
-  'cli,opencode,gemini-3.1-pro-preview,3,Y,L4,0,0,,route,N,N',
+  'mode,harness,model,efforts,image,level,reasoning,coding,cost,quality-override,price-override',
+  'cli,claude,fable-5-1,5,N,SOTA,7,7,50,N,N',
+  'cli,codex,gpt-6-astra,5,N,SOTA,7,7,50,Y,Y',
+  'cli,claude,opus-5-5,5,N,L1,6,6,25,N,N',
+  'cli,codex,gpt-6.1-sol,5,N,L1,5,5,20,N,N',
+  'cli,claude,sonnet-5-5,5,N,L2,5,5,10,N,N',
+  'cli,codex,gpt-5.6-terra,5,N,L2,4,4,5,N,N',
+  'cli,opencode,k3,3,N,L2,5,5,15,N,N',
+  'cli,codex,gpt-6-luna,5,N,L3,3,2,1.2,N,N',
+  'cli,opencode,deepseek-v4-pro,4,N,L3,3,3,3.96,N,N',
+  'cli,claude,haiku-5-5,5,N,L3,3,3,,N,N',
+  'api,api,gemini-3.1-flash-image,0,N,L3,3,3,9,N,N',
+  'cli,opencode,gemini-3.1-pro-preview,3,Y,,,,,N,N',
   '',
 ].join('\n'));
 
@@ -154,7 +156,7 @@ const dropped = (v, stage) => (v.explain || [])
   assert.strictEqual(rank.optimize, 'default');
   assert.ok(/price, for every class/.test(rank.rule || ''), JSON.stringify(rank));
   // A blank cost is excluded from the default exactly as it is from an explicit price pick.
-  assert.ok(dropped(mech, 'optimize').includes('claude/haiku-4-5'), JSON.stringify(dropped(mech, 'optimize')));
+  assert.ok(dropped(mech, 'optimize').includes('claude/haiku-5-5'), JSON.stringify(dropped(mech, 'optimize')));
 
   // ONE LEVEL PER CLASS (owner ruling 2026-09-24), pinned so it cannot drift back silently: when a
   // class spanned two levels, the price default handed it to the cheaper level's row (planning went
@@ -205,10 +207,10 @@ const dropped = (v, stage) => (v.explain || [])
   assert.strictEqual(bounded.effort, 1);
   assert.strictEqual(dropped(bounded, 'access').length, 0, 'access=bounded drops nothing at the access stage');
   const boundedOrder = bounded.explain.find((e) => e.stage === 'optimize' && e.action === 'rank').order;
-  assert.ok(boundedOrder.includes('api/gemini-3.5-flash'), `the api row must be IN the bounded ranking: ${JSON.stringify(boundedOrder)}`);
+  assert.ok(boundedOrder.includes('api/gemini-3.1-flash-image'), `the api row must be IN the bounded ranking: ${JSON.stringify(boundedOrder)}`);
 
   const open = route(['--access', 'open', '--type', 'text', '--class', 'mechanical', '--optimize', 'quality', '--explain']);
-  assert.ok(dropped(open, 'access').includes('api/gemini-3.5-flash'),
+  assert.ok(dropped(open, 'access').includes('api/gemini-3.1-flash-image'),
     `the api row must be dropped at the access stage: ${JSON.stringify(dropped(open, 'access'))}`);
   assert.strictEqual(pair(open), 'codex/gpt-6-luna/cli', 'access=open must exclude every api row');
 }
@@ -228,8 +230,8 @@ const dropped = (v, stage) => (v.explain || [])
 }
 
 // --- --caps image short-circuits everything -----------------------------------------------------
-// No other flag is needed, and no other question is asked: the image row is L4 (a level no class
-// admits), yet it is what comes back. Effort is the nominal 1.
+// No other flag is needed, and no other question is asked: the image row has no level and no
+// score, so no class reaches it, yet it is what comes back. Effort is the nominal 1.
 {
   const v = route(['--caps', 'image']);
   assert.strictEqual(v._status, 0, `the image short-circuit must answer: ${JSON.stringify(v)}`);
@@ -241,11 +243,31 @@ const dropped = (v, stage) => (v.explain || [])
   // owner's data, and this arm is about the code path.
   const noImage = scratchInstallation('cast-route-noimage-');
   fs.writeFileSync(catalogOf(noImage), [
-    'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override',
-    'cli,claude,opus-5-5,5,N,L1,6,6,25,route,N,N', ''].join('\n'));
+    'mode,harness,model,efforts,image,level,reasoning,coding,cost,quality-override,price-override',
+    'cli,claude,opus-5-5,5,N,L1,6,6,25,N,N', ''].join('\n'));
   const none = route(['--caps', 'image'], noImage);
   assert.strictEqual(none.error, 'zero_candidates', JSON.stringify(none));
   assert.ok(/image=Y/.test(none.details), none.details);
+
+  // An image model is chosen by capability and by nothing else: no class names it or ranks it,
+  // whatever its other cells hold. Here it carries a level and is the cheapest and best L3 row.
+  const leveled = scratchInstallation('cast-route-image-level-');
+  fs.writeFileSync(catalogOf(leveled), [
+    'mode,harness,model,efforts,image,level,reasoning,coding,cost,quality-override,price-override',
+    'cli,opencode,gemini-3.1-pro-preview,3,Y,L3,7,7,0.1,Y,Y',
+    'cli,codex,gpt-6-luna,5,N,L3,3,2,1.2,N,N', ''].join('\n'));
+  for (const optimize of ['price', 'quality']) {
+    const general = route(['--access', 'bounded', '--type', 'text', '--class', 'mechanical', '--optimize', optimize, '--explain'], leveled);
+    assert.strictEqual(pair(general), 'codex/gpt-6-luna/cli', `an image model must never take a ${optimize} verdict`);
+    assert.deepStrictEqual(general.alternates, [], 'nor ride along as a backup');
+    assert.deepStrictEqual(dropped(general, 'class'), ['opencode/gemini-3.1-pro-preview']);
+  }
+  assert.strictEqual(pair(route(['--caps', 'image'], leveled)), 'opencode/gemini-3.1-pro-preview/cli');
+  // In the fixture no general ranking holds the image row either, for any class.
+  for (const cls of ['planner', 'broad', 'bounded', 'mechanical']) {
+    const v = route(['--access', 'bounded', '--type', 'text', '--class', cls, '--optimize', 'quality', '--explain']);
+    assert.ok(!JSON.stringify(v.explain.filter((e) => e.stage === 'optimize')).includes('gemini-3.1-pro-preview'), cls);
+  }
 }
 
 // --- price vs quality pull the bounded class apart ---------------------------------------------
@@ -274,13 +296,12 @@ const dropped = (v, stage) => (v.explain || [])
   // Two rows only, priced, and cost is what separates them — so a wrong answer here cannot be the
   // shipped CSV leaking through.
   fs.writeFileSync(overrideFile, [
-    'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override',
-    'cli,claude,sonnet-5-5,5,N,L2,6,5,3,route,N,N',
-    'cli,claude,haiku-4-5,0,N,L2,3,2,9,route,N,N',
-    // BLANK cells on purpose: a blank use reads as route, a blank override as N, and a blank cost
-    // as unknown.
-    'cli,claude,opus-5-5,5,N,L2,7,6,,,,',
-    'cli,opencode,not-a-real-model,3,N,L2,6,6,1,route,N,N',
+    'mode,harness,model,efforts,image,level,reasoning,coding,cost,quality-override,price-override',
+    'cli,claude,sonnet-5-5,5,N,L2,6,5,3,N,N',
+    'cli,claude,haiku-5-5,5,N,L2,3,2,9,N,N',
+    // BLANK cells on purpose: a blank override reads as N, and a blank cost as unknown.
+    'cli,claude,opus-5-5,5,N,L2,7,6,,,',
+    'cli,opencode,not-a-real-model,3,N,L2,6,6,1,N,N',
     '',
   ].join('\n'));
 
@@ -302,14 +323,14 @@ const dropped = (v, stage) => (v.explain || [])
   assert.deepStrictEqual([read.csv_rows, read.joined], [4, 3], JSON.stringify(read));
 }
 
-// --- use / quality-override / price-override (owner ruling 2026-08-22) --------------------------
-// Its own scratch vault, rewritten per arm: these three columns ARE the routing decision, so each
+// --- quality-override / price-override, and selection as the one gate ---------------------------
+// Its own scratch vault, rewritten per arm: these two columns ARE the routing decision, so each
 // arm changes exactly one cell and pins what moved. Every row is a claude/codex model, which the
 // hermetic env makes available, so nothing here can be decided by a credential.
 {
-  const vault = scratchInstallation('cast-route-use-');
+  const vault = scratchInstallation('cast-route-override-');
   const file = catalogOf(vault);
-  const HEAD = 'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override';
+  const HEAD = 'mode,harness,model,efforts,image,level,reasoning,coding,cost,quality-override,price-override';
   // level/score/cost chosen so every ranking below has ONE right answer and no tie:
   //   L1: sol  cost 20 (score 5) · opus cost 25 (score 6)   -> price picks sol, quality picks opus
   //   L2: terra cost 5 (score 4) · sonnet cost 10 (score 5) -> price picks terra, quality picks sonnet
@@ -319,12 +340,13 @@ const dropped = (v, stage) => (v.explain || [])
     'sonnet-5-5': 'cli,claude,sonnet-5-5,5,N,L2,5,5,10',
     'gpt-5.6-terra': 'cli,codex,gpt-5.6-terra,5,N,L2,4,4,5',
   };
-  // tweak: {model: [use, quality-override, price-override]}; anything unnamed stays route,N,N.
-  const write = (tweak = {}) => {
+  // tweak: {model: [quality-override, price-override]}; anything unnamed stays N,N. `only` keeps
+  // the named models and leaves the others out of the file.
+  const write = (tweak = {}, only = Object.keys(BASE)) => {
     const lines = [HEAD];
-    for (const [model, cells] of Object.entries(BASE)) {
-      const [use, q, pr] = tweak[model] || ['route', 'N', 'N'];
-      lines.push(`${cells},${use},${q},${pr}`);
+    for (const model of only) {
+      const [q, pr] = tweak[model] || ['N', 'N'];
+      lines.push(`${BASE[model]},${q},${pr}`);
     }
     fs.writeFileSync(file, `${lines.join('\n')}\n`);
   };
@@ -338,13 +360,13 @@ const dropped = (v, stage) => (v.explain || [])
 
   // 2. price-override wins its OWN level: sonnet (10) jumps ahead of terra (5) inside L2, so the
   //    cheapest-first ranking now heads with sonnet.
-  write({ 'sonnet-5-5': ['route', 'N', 'Y'] });
+  write({ 'sonnet-5-5': ['N', 'Y'] });
   const priced = at(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'price', '--explain']);
   assert.strictEqual(pair(priced), 'claude/sonnet-5-5/cli', 'price-override must beat a cheaper row of its own level');
   assert.ok(ranking(priced).indexOf('claude/sonnet-5-5') < ranking(priced).indexOf('codex/gpt-5.6-terra'), JSON.stringify(ranking(priced)));
 
   // 3. quality-override wins its level against a higher score: terra (4) jumps sonnet (5).
-  write({ 'gpt-5.6-terra': ['route', 'Y', 'N'] });
+  write({ 'gpt-5.6-terra': ['Y', 'N'] });
   const q = at(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'quality', '--explain']);
   assert.deepStrictEqual(ranking(q), ['codex/gpt-5.6-terra', 'claude/sonnet-5-5'], JSON.stringify(ranking(q)));
 
@@ -355,39 +377,48 @@ const dropped = (v, stage) => (v.explain || [])
   //    that fires there — for every class, at every level.
   write();
   assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'broad'])), 'codex/gpt-6.1-sol/cli', 'default = cheapest L1');
-  write({ 'opus-5-5': ['route', 'N', 'Y'] });
+  write({ 'opus-5-5': ['N', 'Y'] });
   assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'broad'])), 'claude/opus-5-5/cli', 'price-override fires in the default');
-  write({ 'sonnet-5-5': ['route', 'N', 'Y'] });
+  write({ 'sonnet-5-5': ['N', 'Y'] });
   assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'bounded'])), 'claude/sonnet-5-5/cli', 'price-override fires in the default at the low levels too');
 
   // 6. quality-override, by the same rule, fires in NEITHER — the default no longer ranks anything
   //    on quality, so it takes an explicit --optimize quality to make one bite.
-  write({ 'sonnet-5-5': ['route', 'Y', 'N'] });
+  write({ 'sonnet-5-5': ['Y', 'N'] });
   assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'bounded'])), 'codex/gpt-5.6-terra/cli', 'quality-override must NOT fire in the default');
-  write({ 'gpt-5.6-terra': ['route', 'Y', 'N'] });
+  write({ 'gpt-5.6-terra': ['Y', 'N'] });
   assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'bounded', '--optimize', 'quality'])), 'codex/gpt-5.6-terra/cli', 'the flag DOES bite under --optimize quality');
 
-  // 7. use=panel — no verdict may name it, and it drops at its own stage with its own reason...
-  write({ 'opus-5-5': ['panel', 'N', 'N'] });
-  const panel = at(['--access', 'bounded', '--type', 'text', '--class', 'broad', '--optimize', 'quality', '--explain']);
-  assert.strictEqual(pair(panel), 'codex/gpt-6.1-sol/cli', 'a use=panel row must never be a verdict');
-  assert.ok(dropped(panel, 'use').includes('claude/opus-5-5'), JSON.stringify(dropped(panel, 'use')));
+  // 7. one favorite for both rankings: sonnet holds both overrides and heads its level under
+  //    price, under quality and in the default, while every other row keeps its place behind it.
+  write({ 'sonnet-5-5': ['Y', 'Y'] });
+  for (const optimize of [[], ['--optimize', 'price'], ['--optimize', 'quality']]) {
+    const v = at(['--access', 'bounded', '--type', 'code', '--class', 'bounded', ...optimize, '--explain']);
+    assert.deepStrictEqual(ranking(v), ['claude/sonnet-5-5', 'codex/gpt-5.6-terra'], optimize.join(' '));
+  }
+  //    ...and the override stays inside its level: class broad is untouched by it.
+  assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'broad'])), 'codex/gpt-6.1-sol/cli');
 
-  // 8. use=off — same invisibility to routing; with both L1 rows gone, class broad has nothing left.
-  write({ 'opus-5-5': ['panel', 'N', 'N'], 'gpt-6.1-sol': ['off', 'N', 'N'] });
+  // 8. selection is the one gate: every row of the file competes, and a model with no row is
+  //    never ranked, named or kept as a backup. With both L1 rows gone, class broad has nothing.
+  write({}, ['opus-5-5', 'sonnet-5-5', 'gpt-5.6-terra']);
+  const unselected = at(['--access', 'bounded', '--type', 'text', '--class', 'broad', '--optimize', 'price', '--explain']);
+  assert.strictEqual(pair(unselected), 'claude/opus-5-5/cli', 'the cheaper sol has no row, so it cannot win');
+  assert.ok(!JSON.stringify(unselected).includes('gpt-6.1-sol'), JSON.stringify(unselected));
+  write({}, ['sonnet-5-5', 'gpt-5.6-terra']);
   const none = at(['--access', 'bounded', '--type', 'text', '--class', 'broad', '--optimize', 'quality']);
-  assert.strictEqual(none.error, 'zero_candidates', JSON.stringify(none));
-  assert.strictEqual(none._status, 1);
+  assert.deepStrictEqual([none.error, none._status], ['zero_candidates', 1], JSON.stringify(none));
 
-  // 9. an unrecognised use value is never guessed: loud warning, row out of routing.
-  write({ 'opus-5-5': ['maybe', 'N', 'N'] });
-  const bad = at(['--access', 'bounded', '--type', 'text', '--class', 'broad', '--optimize', 'quality', '--explain']);
-  assert.strictEqual(pair(bad), 'codex/gpt-6.1-sol/cli');
-  assert.ok(/use='maybe'/.test(bad._stderr), `an unrecognised use must warn on stderr: ${bad._stderr}`);
-  assert.ok(dropped(bad, 'use').includes('claude/opus-5-5'), JSON.stringify(dropped(bad, 'use')));
+  // 9. no column takes a selected row out of routing: a file that still carries `use` is refused
+  //    as a file with an unknown column, never read with that column ignored.
+  fs.writeFileSync(file, ['mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override',
+    'cli,claude,opus-5-5,5,N,L1,6,6,25,off,N,N', ''].join('\n'));
+  const old = at(['--access', 'bounded', '--type', 'text', '--class', 'broad']);
+  assert.strictEqual(old.error, 'no_models', JSON.stringify(old));
+  assert.ok(old.details.includes("line 1: unknown column 'use' (the columns are mode, harness, model, efforts, image, level, reasoning, coding, cost, quality-override, price-override)"), old.details);
 
-  // 10. cells are read by header name: a table without the three columns reads them blank, which
-  //     is use=route with neither override.
+  // 10. cells are read by header name: a table without the two columns reads them blank, which
+  //     is neither override.
   fs.writeFileSync(file, ['mode,harness,model,efforts,image,level,reasoning,coding,cost',
     'cli,claude,opus-5-5,5,N,L1,6,6,25', ''].join('\n'));
   assert.strictEqual(pair(at(['--access', 'bounded', '--type', 'text', '--class', 'broad'])), 'claude/opus-5-5/cli');
@@ -396,11 +427,11 @@ const dropped = (v, stage) => (v.explain || [])
   //     an unknown column, a row whose cell count is not the header's (what a decimal comma
   //     makes), a missing harness column, a blank model, an empty file.
   for (const [lines, where, why] of [
-    [[`${HEAD},notes`, 'cli,claude,opus-5-5,5,N,L1,6,6,25,route,N,N,x'], 'line 1:', "unknown column 'notes'"],
-    [[HEAD, '', 'cli,claude,opus-5-5,5,N,L1,6,6,2,5,route,N,N'], 'line 3:', '13 cells where the header has 12'],
-    [[HEAD, 'cli,claude,opus-5-5,5,N,L1,6,6,25'], 'line 2:', '9 cells where the header has 12'],
+    [[`${HEAD},notes`, 'cli,claude,opus-5-5,5,N,L1,6,6,25,N,N,x'], 'line 1:', "unknown column 'notes'"],
+    [[HEAD, '', 'cli,claude,opus-5-5,5,N,L1,6,6,2,5,N,N'], 'line 3:', '12 cells where the header has 11'],
+    [[HEAD, 'cli,claude,opus-5-5,5,N,L1,6,6,25'], 'line 2:', '9 cells where the header has 11'],
     [['mode,model,level', 'cli,opus-5-5,L1'], 'line 1:', "no 'harness' column"],
-    [[HEAD, 'cli,claude,,5,N,L1,6,6,25,route,N,N'], 'line 2:', 'blank model'],
+    [[HEAD, 'cli,claude,,5,N,L1,6,6,25,N,N'], 'line 2:', 'blank model'],
     [[], 'models.csv:', 'the file is empty'],
   ]) {
     fs.writeFileSync(file, `${lines.join('\n')}\n`);
@@ -587,11 +618,11 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
 {
   const inst = scratchInstallation('cast-route-login-');
   fs.writeFileSync(catalogOf(inst), [
-    'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override',
-    'cli,opencode,k3,3,N,L2,5,5,15,route,N,N',
-    'cli,opencode,glm-5.3,2,N,L2,5,5,15,route,N,N',
-    'cli,opencode,fugu-ultra,3,N,L2,5,5,15,route,N,N',
-    'cli,opencode,grok-4.7,3,N,L2,5,5,15,route,N,N',
+    'mode,harness,model,efforts,image,level,reasoning,coding,cost,quality-override,price-override',
+    'cli,opencode,k3,3,N,L2,5,5,15,N,N',
+    'cli,opencode,glm-5.3,2,N,L2,5,5,15,N,N',
+    'cli,opencode,fugu-ultra,3,N,L2,5,5,15,N,N',
+    'cli,opencode,grok-4.7,3,N,L2,5,5,15,N,N',
     ''].join('\n'));
   const xdg = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-route-store-'));
   fs.mkdirSync(path.join(xdg, 'opencode'));
@@ -623,85 +654,76 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
   assert.strictEqual(available({}, '', { XAI_API_KEY: 'test-fake-not-real' })['grok-4.7'], 'false');
 }
 
-// --- the SHIPPED table: validation, never verdicts ----------------------------------------------
-// The one arm that reads the real models.csv. It asserts nothing about WHO wins — that is the
-// owner's data and theirs to change — only that the table is well-formed enough to be obeyed:
-// every row joinable and launchable, every supported model holding a row (an installation with
-// no model catalog of its own has every supported model selected), every cell in its vocabulary,
-// no duplicates, and every class still holding a routable row. Credentials are deliberately NOT consulted: availability depends
-// on which keys this box happens to have, and a table is not malformed because a key is missing.
+// --- the SHIPPED table: its structure and its approved calibration -------------------------------
+// The one arm that reads the real models.csv. It checks that the table can be obeyed: every row
+// joinable and launchable, one row for every supported model and no other, every cell in its
+// vocabulary, and every class still holding a row. Credentials are deliberately NOT consulted:
+// availability depends on which keys this box happens to have, and a table is not malformed
+// because a key is missing. It also pins the level and the two scores of every model, which are
+// rbtv's proposal to every installation: a change to one is made here and in the file together.
 {
   const { ROWS } = require('./supported-models');
   const { loadSelection, supportedRow } = require('./lib/model-catalog');
   const { file: source, shipped, rows } = loadSelection(null);
   assert.ok(shipped && source === path.join(__dirname, 'models.csv'), `expected the shipped table, got ${source}`);
-  assert.ok(rows.length > 3, `the shipped table is suspiciously short: ${rows.length} rows`);
-  for (const r of ROWS) {
-    assert.ok(rows.some((c) => c.harness === r.harness && c.model === r.model),
-      `supported model ${r.harness}/${r.model} has no models.csv row — cast models add could not select it`);
-  }
+  const name = (r) => `${r.harness}/${r.model}`;
+  // One row per supported model: a repeated model, a model with no row (cast models add could not
+  // select it) and a row cast cannot launch (route would exclude it with a warning) all fail here.
+  assert.deepStrictEqual(rows.map(name).sort(), ROWS.map(name).sort());
 
-  const LEVELS = ['SOTA', 'L1', 'L2', 'L3', 'L4'];
-  // Every axis a multi-level twin must agree on — the CSV columns minus `level` and the two
-  // override columns, which are per level by definition (sonnet-5-5 wins L3 on both, L2 on neither).
-  const AXES = ['mode', 'harness', 'model', 'efforts', 'image', 'reasoning', 'coding', 'cost', 'use'];
-  const YN = ['Y', 'N'];
-  const seen = new Map();
+  const LEVELS = ['SOTA', 'L1', 'L2', 'L3'];
   for (const r of rows) {
-    const at = `models.csv row ${r.harness}/${r.model}`;
-    // Launchability is the join: a row cast cannot launch is a row route must never name, and the
-    // tool only WARNS about it — so this is where a typo like `gemini-3.7-flash` with no
-    // supported-models.js row gets caught instead of silently shrinking the model catalog.
-    assert.ok(supportedRow(r.harness, r.model), `${at} has no supported-models.js twin — route excludes it`);
-    assert.ok(['cli', 'api'].includes(r.mode), `${at}: mode '${r.mode}'`);
-    assert.ok(LEVELS.includes(r.level), `${at}: level '${r.level}' is not one of ${LEVELS.join('|')}`);
-    assert.ok(YN.includes(r.image), `${at}: image '${r.image}'`);
-    assert.ok(['', 'route', 'panel', 'off'].includes(r.use), `${at}: use '${r.use}' (blank | route | panel | off)`);
+    const at = `models.csv row ${name(r)}`;
+    assert.strictEqual(supportedRow(r.harness, r.model).mode, r.mode, `${at}: mode '${r.mode}'`);
+    assert.ok(['Y', 'N'].includes(r.image), `${at}: image '${r.image}'`);
+    assert.ok(/^\d+$/.test(r.efforts), `${at}: efforts is '${r.efforts}' — expected a whole number`);
+    // The overrides are an installation's preference: rbtv ships the columns and proposes none.
     for (const col of ['quality-override', 'price-override']) {
-      assert.ok(['', ...YN].includes(r[col]), `${at}: ${col} is '${r[col]}' (blank | Y | N)`);
-    }
-    for (const col of ['efforts', 'reasoning', 'coding']) {
-      assert.ok(/^\d+$/.test(r[col]), `${at}: ${col} is '${r[col]}' — expected a whole number`);
+      assert.strictEqual(r[col], '', `${at}: ${col} is '${r[col]}' — the shipped model catalog leaves it blank`);
     }
     // Cost may be blank (unknown), but anything else must be a number. This is the arm that
     // catches a decimal COMMA: '4,4' shifts every later cell one column left, which silently
     // dropped four models out of routing on 2026-08-22 before anyone noticed.
     assert.ok(r.cost === '' || Number.isFinite(Number(r.cost)),
       `${at}: cost is '${r.cost}' — a number, or blank for unknown (a decimal comma shifts the whole row)`);
-    // A model MAY appear on more than one line, once per level it is admitted at (owner ruling
-    // 2026-08-23: claude/sonnet-5-5 sits at L2 and L3 so `bounded` and `mechanical` can both reach
-    // it, its subscription making the L3 list price misleading). The join onto supported-models.js is on
-    // harness+model and both copies resolve to the same launch spec, so this is unambiguous where
-    // it matters. What stays forbidden is the ACCIDENTAL duplicate: two lines for one model that
-    // disagree on any other axis — that is a typo, and route would rank the same model twice with
-    // different numbers. So: unique on harness+model+level, and identical on everything else.
-    const key = `${r.harness}/${r.model}/${r.level}`;
-    assert.ok(!seen.has(key), `${at} appears twice at level ${r.level} — one line per model per level`);
-    const twin = [...seen.entries()].find(([, v]) => v.harness === r.harness && v.model === r.model);
-    if (twin) {
-      const differ = AXES.filter((c) => twin[1][c] !== r[c]);
-      assert.strictEqual(differ.length, 0,
-        `${at} repeats ${r.harness}/${r.model} at a second level but also differs on ${differ.join(', ')} — a multi-level row may differ ONLY in level`);
+    if (r.image === 'Y') {
+      // An image model has no level and no score: blank, never a zero that would rank it.
+      assert.deepStrictEqual([r.level, r.reasoning, r.coding], ['', '', ''], `${at}: an image model carries no level and no score`);
+    } else {
+      assert.ok(r.cost !== '', `${at}: a blank cost keeps the model out of every price ranking`);
     }
-    seen.set(key, r);
   }
 
-  // Every class must still have somewhere to go. Structural, not a verdict: a table where every
-  // L2 row went `panel` would answer every bounded job with an L1 model and nothing would say so.
-  const CLASS_LEVELS = { planner: ['SOTA'], broad: ['L1'], bounded: ['L2'], mechanical: ['L3'] };
-  const routable = rows.filter((r) => r.use === '' || r.use === 'route');
-  for (const [cls, levels] of Object.entries(CLASS_LEVELS)) {
-    assert.ok(routable.some((r) => levels.includes(r.level)),
-      `class ${cls} (${levels.join('+')}) has no routable row left in models.csv`);
+  // level / reasoning / coding of every general model, as approved 2026-10-10.
+  const APPROVED = {
+    'codex/gpt-6-astra': 'SOTA/7/7', 'claude/fable-5-1': 'SOTA/7/7',
+    'claude/opus-5-5': 'L1/6/6', 'opencode/grok-4.7': 'L1/6/6', 'codex/gpt-6.1-sol': 'L1/4/4', 'opencode/fugu-ultra': 'L1/6/6',
+    'claude/sonnet-5-5': 'L2/3/3', 'opencode/glm-5.3': 'L2/4/4', 'codex/gpt-5.6-terra': 'L2/3/3', 'opencode/deepseek-v4-pro': 'L2/3/3',
+    'opencode/k3': 'L2/4/4', 'opencode/gemini-3.1-pro-preview': 'L2/4/3', 'opencode/sakana-namazu': 'L2/4/4',
+    'claude/haiku-5-5': 'L3/3/3', 'codex/gpt-6-luna': 'L3/3/3', 'opencode/deepseek-v4-flash': 'L3/3/2', 'opencode/gemini-3.8-flash': 'L3/3/3',
+  };
+  const general = rows.filter((r) => r.image !== 'Y');
+  assert.deepStrictEqual(Object.fromEntries(general.map((r) => [name(r), `${r.level}/${r.reasoning}/${r.coding}`])), APPROVED);
+  assert.deepStrictEqual(rows.filter((r) => r.image === 'Y').map(name), ['api/gemini-3.1-flash-image'], 'one image model, so --caps image has one answer');
+  for (const level of LEVELS) assert.ok(general.some((r) => r.level === level), `no models.csv row is left at level ${level}`);
+  // No superseded version, moving alias or sentinel cost is left behind.
+  const text = fs.readFileSync(source, 'utf8');
+  for (const gone of ['haiku-4-5', 'gemini-3.7-flash', 'gemini-flash-latest', 'gemini-3.5-flash', 'k3-256k', 'L4', '999']) {
+    assert.ok(!text.includes(gone), `models.csv still holds '${gone}'`);
   }
-  // Per LEVEL too, not only per class: a class check alone stays green when a whole level empties
-  // out, because its other level covers for it — bounded (L1+L2) keeps answering from L1 while
-  // every L2 row has quietly gone `panel`, and every bounded job silently gets a bigger, pricier
-  // model than the class intends. The level is the unit that can vanish unnoticed.
-  for (const level of [...new Set(Object.values(CLASS_LEVELS).flat())]) {
-    assert.ok(routable.some((r) => r.level === level),
-      `no routable models.csv row is left at level ${level} — every class that reaches it now answers from its other level`);
+
+  // The shipped table routes every class with no override in play, and --caps image answers the
+  // image model, which no general ranking holds. Hermetic env, so the rows whose login is a store
+  // entry are out; the claude, codex, deepseek and google rows decide.
+  const shippedRoute = (flags) => route([...flags, '--explain'], OUTSIDE);
+  for (const [cls, level] of [['planner', 'SOTA'], ['broad', 'L1'], ['bounded', 'L2'], ['mechanical', 'L3']]) {
+    const v = shippedRoute(['--access', 'bounded', '--type', 'code', '--class', cls]);
+    assert.strictEqual(v._status, 0, JSON.stringify(v));
+    assert.strictEqual(rows.find((r) => name(r) === `${v.harness}/${v.model}`).level, level);
+    assert.ok(!v.explain.some((e) => e.action === 'override'), `${cls}: the shipped table promotes no row`);
+    assert.ok(!JSON.stringify(v.explain.filter((e) => e.stage === 'optimize')).includes('gemini-3.1-flash-image'), cls);
   }
+  assert.strictEqual(pair(shippedRoute(['--caps', 'image'])), 'api/gemini-3.1-flash-image/api');
 
   // And loading it must be SILENT. Every exclusion route makes on its own is a stderr warning, so
   // an empty stderr is the proof that nothing was quietly left out of the model catalog. Run from

@@ -410,11 +410,11 @@ function installationWithFallback(ctx, defaults) {
   fs.mkdirSync(path.join(config, 'cast'), { recursive: true });
   fs.writeFileSync(path.join(config, 'install.json'), '{}\n');
   fs.writeFileSync(path.join(config, 'cast', 'models.csv'), [
-    'mode,harness,model,level,reasoning,coding,cost,use',
-    'cli,claude,sonnet-5-5,L2,3,3,10,route',
-    'cli,codex,gpt-5.6-terra,L2,3,3,8,route',
-    'cli,codex,gpt-6.1-sol,L2,3,3,5,route',
-    'cli,codex,gpt-6-luna,L3,3,3,1,route',
+    'mode,harness,model,level,reasoning,coding,cost',
+    'cli,claude,sonnet-5-5,L2,3,3,10',
+    'cli,codex,gpt-5.6-terra,L2,3,3,8',
+    'cli,codex,gpt-6.1-sol,L2,3,3,5',
+    'cli,codex,gpt-6-luna,L3,3,3,1',
     '',
   ].join('\n'));
   if (defaults !== null) fs.writeFileSync(path.join(config, 'cast', 'defaults.json'), defaults);

@@ -1,4 +1,4 @@
-"""Synchronous Google Gemini client for the API runner."""
+"""Synchronous Google Gemini image-generation client for the API runner."""
 import base64
 import json
 import time
@@ -7,21 +7,6 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from .base import Artifact, Message, ProviderClient, ProviderConfig, ProviderName, RequestOptions, Response, TokenUsage
-
-
-# Default visible-answer budget for the JSON-envelope (non-grounded) path —
-# matches the gemini-api manifest's documented max_output.
-_DEFAULT_MAX_OUTPUT_TOKENS = 8192
-
-# Grounded budget. On the 3.x flash class extended thinking is ON by default and
-# its tokens are billed against maxOutputTokens, so the cap MUST cover
-# thinking + the full answer or the visible answer is starved — truncated, or
-# replaced by leaked reasoning. Live repro 2026-06-24: a grounded research brief
-# spent 4727 thinking tokens, overrunning the old 4096 cap, and landed a
-# 612-byte truncated dump; at 16384 the same call returned the full ~7.5KB
-# answer (thinking ~5k + answer ~2k, well within budget). 16384 gives ~3x margin
-# over observed thinking for a light single-call grounded lookup.
-_GROUNDED_MAX_OUTPUT_TOKENS = 16384
 
 
 # Message.content is provider-neutral (see clients/base.py): a plain string, or a list of
@@ -45,8 +30,6 @@ def _build_parts(content: Any) -> List[Dict[str, Any]]:
 
 
 class GeminiClient(ProviderClient):
-    structured_output: bool = True
-
     def __init__(self) -> None:
         self.api_key: Optional[str] = None
         self.base_url = "https://generativelanguage.googleapis.com/v1beta"
@@ -89,21 +72,12 @@ class GeminiClient(ProviderClient):
         if system_texts:
             payload["systemInstruction"] = {"parts": [{"text": "\n".join(system_texts)}]}
 
-        grounding = False
-        image = False
-        if options.extra_params is not None:
-            grounding = bool(options.extra_params.get("grounding"))
-            image = bool(options.extra_params.get("image"))
-
-        # Grounded calls run extended thinking that is billed against maxOutputTokens,
-        # so they get a larger default budget to avoid starving the visible answer.
-        # Image generation gets NO default cap: an image's cost is not a token budget the
-        # caller can reason about, and the models reject or mis-apply a text cap.
-        generation_config: Dict[str, Any] = {}
-        if not image:
-            default_max_output = _GROUNDED_MAX_OUTPUT_TOKENS if grounding else _DEFAULT_MAX_OUTPUT_TOKENS
-            generation_config["maxOutputTokens"] = options.max_tokens or default_max_output
-        elif options.max_tokens is not None:
+        # The image models answer on the generateContent endpoint; what makes it an image call is
+        # the requested MODALITY. TEXT rides along because these models narrate, and refusing it
+        # can fail the whole request. There is NO default token cap: an image's cost is not a
+        # token budget the caller can reason about, and the models reject or mis-apply a text cap.
+        generation_config: Dict[str, Any] = {"responseModalities": ["TEXT", "IMAGE"]}
+        if options.max_tokens is not None:
             generation_config["maxOutputTokens"] = options.max_tokens
 
         if options.temperature is not None:
@@ -113,22 +87,10 @@ class GeminiClient(ProviderClient):
         if options.stop_sequences is not None:
             generation_config["stopSequences"] = options.stop_sequences
 
-        if grounding:
-            payload["tools"] = [{"google_search": {}}]
-        elif image:
-            # The image models answer on the same generateContent endpoint; what makes it an
-            # image call is the requested MODALITY. TEXT rides along because these models
-            # narrate, and refusing it can fail the whole request.
-            generation_config["responseModalities"] = ["TEXT", "IMAGE"]
-        else:
-            generation_config["responseMimeType"] = "application/json"
-
         payload["generationConfig"] = generation_config
 
         if options.extra_params is not None:
-            for key, value in options.extra_params.items():
-                if key not in ("grounding", "image"):
-                    payload[key] = value
+            payload.update(options.extra_params)
 
         return payload
 

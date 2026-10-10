@@ -30,6 +30,18 @@ A launch tries every candidate of the level in ranking order, including models o
 
 Reason: a launch does not say whether its task is code or text, so the stand-in has to be good at both.
 
-## An installation decides `use` and the two overrides; rbtv proposes the rest
+## An installation decides the two overrides and which models are selected; rbtv proposes the rest
 
-`cast models update` copies level, scores, cost, effort count and image flag from the shipped model catalog and never changes `use`, an override or which models are selected. Reason: the first group describes the model and changes when the model does; the second records what this installation wants routed, and an update that reset it would route a model the owner had turned off.
+`cast models update` copies level, scores, cost, effort count and image flag from the shipped model catalog and never changes an override or which models are selected. The shipped model catalog leaves both override cells blank for every model. Reason: the first group describes the model and changes when the model does; an override is one installation's favorite, and a favorite shipped by rbtv would win a level in every installation that never chose it.
+
+## A selected model is eligible; no column takes it out of routing
+
+Every row of the model catalog in force competes for `cast route` verdicts, fallbacks and panel seats, subject to its login, its level and what it can do. The model catalog has no `use` column, and a file that still names one is refused as a file with an unknown column. Reason: selection already says which models an installation wants, and a second switch on each row gave two places to look for why a model was never named. A model that must not be routed is unselected.
+
+## An image model has no level and no score
+
+An image-generation model's row carries `image=Y` and blank `level`, `reasoning` and `coding`; `cast route --caps image` selects it, and no class, fallback or panel does, whatever its other cells hold. Reason: the levels and scores rank text and code work, and a level or a zero written for an image model put a number into rankings it has no place in.
+
+## The shipped model catalog lists pinned versions and list prices
+
+One row per model line names a pinned version, never a moving alias such as a `-latest` name. `cost` is the provider's standard API list price for output tokens at its base rate; a cost that is not known is blank, never a placeholder number. Reason: an alias changes what a row launches with no change to the row, and a placeholder cost ranks as a real price.

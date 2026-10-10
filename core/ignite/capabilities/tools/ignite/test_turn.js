@@ -406,8 +406,8 @@ process.exit(0);
 // holds the request's cwd (the agent's folder): its model catalog is .rbtv/config/cast/models.csv,
 // and while it has none every supported model is selected.
 {
-  const HEAD = 'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override';
-  const SONNET = 'cli,claude,sonnet-5-5,5,N,L2,3,3,10,route,N,N';
+  const HEAD = 'mode,harness,model,efforts,image,level,reasoning,coding,cost,quality-override,price-override';
+  const SONNET = 'cli,claude,sonnet-5-5,5,N,L2,3,3,10,N,N';
   const agentHome = (lines) => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-turn-gate-'));
     const home = path.join(root, '.rbtv', 'agents', 'probe');
@@ -422,35 +422,35 @@ process.exit(0);
 
   // no model catalog: everything supported launches
   const fresh = agentHome(null);
-  assert.strictEqual(validate(turn(fresh.home, 'claude', 'haiku-4-5')).modelId, 'claude-haiku-4-5');
+  assert.strictEqual(validate(turn(fresh.home, 'claude', 'haiku-5-5')).modelId, 'claude-haiku-5-5');
   assert.strictEqual(validate(turn(fresh.home, 'opencode', 'grok-4.7')).modelId, 'xai/grok-4.7');
 
   // the model is not in the installation's model catalog: refused with the command that selects it
   const pruned = agentHome([HEAD, SONNET]);
   assert.strictEqual(validate(turn(pruned.home, 'claude', 'sonnet-5-5')).modelId, 'claude-sonnet-5-5');
-  for (const model of ['haiku-4-5', 'claude-haiku-4-5']) {
+  for (const model of ['haiku-5-5', 'claude-haiku-5-5']) {
     rejects(turn(pruned.home, 'claude', model),
-      `refused: 'claude haiku-4-5' is not selected in ${pruned.root}\nmodel catalog: ${pruned.file}\nNothing changed.\ncast models add claude haiku-4-5`);
+      `refused: 'claude haiku-5-5' is not selected in ${pruned.root}\nmodel catalog: ${pruned.file}\nNothing changed.\ncast models add claude haiku-5-5`);
   }
   // the turn's own process reports it as an invalid request, never as a launch
-  const { res, written } = runTurn(turn(pruned.home, 'claude', 'haiku-4-5'), process.env);
+  const { res, written } = runTurn(turn(pruned.home, 'claude', 'haiku-5-5'), process.env);
   assert.notStrictEqual(res.status, 0);
-  assert.ok(JSON.stringify(written || res.stderr).includes('cast models add claude haiku-4-5'), `${res.stderr}${JSON.stringify(written)}`);
+  assert.ok(JSON.stringify(written || res.stderr).includes('cast models add claude haiku-5-5'), `${res.stderr}${JSON.stringify(written)}`);
 
   // a row this copy of cast does not support: the deploy-copy case, named as such
-  const orphan = agentHome([HEAD, SONNET, 'cli,opencode,not-a-real-model,3,N,L2,6,6,1,route,N,N']);
+  const orphan = agentHome([HEAD, SONNET, 'cli,opencode,not-a-real-model,3,N,L2,6,6,1,N,N']);
   rejects(turn(orphan.home, 'opencode', 'not-a-real-model'),
     `refused: 'opencode not-a-real-model' is selected in ${orphan.file} but this copy of cast does not support it`);
   rejects(turn(orphan.home, 'opencode', 'not-a-real-model'),
     'the daemon runs its own deployed copy of rbtv: deploy a commit that supports it\nNothing changed.\ncast models remove opencode not-a-real-model');
 
   // a model catalog that cannot be read stops the turn, for a selected model too
-  const broken = agentHome([HEAD, 'cli,claude,sonnet-5-5,5,N,L2,3,3,1,0,route,N,N']);
+  const broken = agentHome([HEAD, 'cli,claude,sonnet-5-5,5,N,L2,3,3,1,0,N,N']);
   rejects(turn(broken.home, 'claude', 'sonnet-5-5'),
-    `refused: cannot read the model catalog ${broken.file} line 2: 13 cells where the header has 12\nNothing changed.\ncorrect ${broken.file}, then run the same command again`);
+    `refused: cannot read the model catalog ${broken.file} line 2: 12 cells where the header has 11\nNothing changed.\ncorrect ${broken.file}, then run the same command again`);
 
   // the cwd is checked before the model: a missing folder is the answer, not a lookup from it
-  rejects(turn(path.join(pruned.root, 'missing'), 'claude', 'haiku-4-5'), 'absolute directory');
+  rejects(turn(path.join(pruned.root, 'missing'), 'claude', 'haiku-5-5'), 'absolute directory');
 }
 
 // The agent's standing prompt rides each harness's strongest channel.

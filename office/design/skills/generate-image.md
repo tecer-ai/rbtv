@@ -59,7 +59,8 @@ NEVER an image-generation job.
 - `DONE_WITH_NOTES` with no image in `landed` means the model narrated instead of drawing — the
   text is in `raw-output.md`. That is the signal NO image came back; NEVER read it as success.
 - `-p` writes the prompt to `prompt.md` beside the output — the run documents itself.
-- `--image` and `--grounded` are mutually exclusive.
+- `--image` is REQUIRED on every call: `cast api` generates and edits images and refuses any other
+  call.
 - This is a PAID API call against the workspace's Google key. ONE call per request. NEVER a
   speculative retry. NEVER a batch of variations unless the user asked for variations.
 - The caller chooses `--output-folder` — put it where the work lives, and ASK the user when there

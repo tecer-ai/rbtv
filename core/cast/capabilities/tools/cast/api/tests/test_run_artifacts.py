@@ -92,17 +92,16 @@ def test_runner_name_collision_dedup(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# Test 9 — runner regression: raw-dump path untouched (no artifacts)
+# Test 9 — a response with no artifacts leaves what is already there untouched
 # --------------------------------------------------------------------------
 def test_runner_raw_dump_unchanged_when_no_artifacts(tmp_path):
-    # Simulate the state AFTER the existing raw-dump branch ran:
-    # raw-output.md written, landed=["raw-output.md"], status DONE_WITH_NOTES.
+    # A file already written and listed in landed, and a concern already recorded.
     (tmp_path / "raw-output.md").write_text("the model narration", encoding="utf-8")
     resp = make_response(artifacts=None, structured_result=None)
 
     landed = ["raw-output.md"]
     validation = {"file_count": 1}
-    concerns = ["model did not return the {files:...} envelope"]
+    concerns = ["an earlier concern"]
     run.write_artifacts(resp, str(tmp_path), landed, validation, concerns)
 
     # raw-output.md untouched, landed unchanged, no structured file created

@@ -252,7 +252,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
 {
   const folder = mkFolder('plain-ignores-agent-file');
   fs.writeFileSync(path.join(folder, 'prompt.md'), '# agent\nact as X.');
-  const out = dryRun(['claude', 'haiku-4-5', '1', folder, '-p', 'wake up']);
+  const out = dryRun(['claude', 'haiku-5-5', '1', folder, '-p', 'wake up']);
   assert.ok(!out.argv.includes('--append-system-prompt-file'));
   assert.strictEqual(out.stdin_preview, 'wake up');
 }
@@ -404,7 +404,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   // every model row names what each effort number resolves to, clamping included
   assert.ok(table.includes('1=low 2=medium 3=high 4=xhigh 5=max'), 'claude effort map missing');
   assert.ok(table.includes('1=high 2-5=max'), 'glm-5.3 clamped effort map missing');
-  assert.ok(/haiku-4-5 +\(no dial/.test(table), 'inert ladder must say so');
+  assert.ok(/gemini-3\.1-flash-image +\(no dial/.test(table), 'inert ladder must say so');
   // -h says the dial takes a number and the words are labels
   assert.match(res.stdout, /pass the number/i, 'help must say to pass the number');
   assert.match(res.stdout, /words are labels/i, 'help must say the words are labels only');
@@ -470,7 +470,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.strictEqual(login['opencode/fugu-ultra'].via, "'sakana' in the opencode store");
   for (const name of ['opencode/deepseek-v4-pro', 'opencode/k3', 'opencode/fugu-ultra']) assert.strictEqual(login[name].login, true, name);
   // an api model is a selected model too: its key variable is absent here
-  assert.strictEqual(login['api/gemini-3.5-flash'].login, false);
+  assert.strictEqual(login['api/gemini-3.1-flash-image'].login, false);
   // nowhere: missing, and the reason names what was looked for
   assert.strictEqual(login['opencode/glm-5.3'].login, false);
   assert.ok(login['opencode/glm-5.3'].reason.includes('ZHIPU_API_KEY'), login['opencode/glm-5.3'].reason);
@@ -555,11 +555,9 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     effort_numbers: { high: 1, max: 2 }, selected: true }, 'two-rung ladder folds to its unique numbers');
   assert.deepStrictEqual(by['opencode/k3'].effort_numbers, { low: 1, high: 2, max: 3 }, 'three-rung ladder maps low:1 high:2 max:3');
   assert.deepStrictEqual(by['codex/gpt-6-luna'].effort_numbers, { low: 1, medium: 2, high: 3, xhigh: 4, max: 5 }, 'five-rung ladder maps 1..5');
-  assert.deepStrictEqual([by['claude/haiku-4-5'].rungs, by['claude/haiku-4-5'].effort_numbers], [[], {}], 'no dial -> no numbers');
-  // an api model's ladder is its own reasoning modes; the image model has none
-  assert.deepStrictEqual(by['api/gemini-3.5-flash'], { harness: 'api', model: 'gemini-3.5-flash', mode: 'api', rungs: ['off', 'on'],
-    effort_numbers: { off: 1, on: 2 }, selected: true });
-  assert.deepStrictEqual(by['api/gemini-3.1-flash-image'].effort_numbers, {});
+  // the image model has no dial: no rungs, no numbers
+  assert.deepStrictEqual(by['api/gemini-3.1-flash-image'], { harness: 'api', model: 'gemini-3.1-flash-image', mode: 'api', rungs: [],
+    effort_numbers: {}, selected: true });
   // usage says: pass the number, words are labels only, with one complete example
   assert.match(parsed.usage, /pass the number/i, 'usage must say to pass the number');
   assert.match(parsed.usage, /labels only/i, 'usage must say the words are labels only');
@@ -573,19 +571,22 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.strictEqual(res.stdout, models(['list', '--selected']).stdout, '--selected is the default view');
   assert.ok(res.stdout.startsWith(`installation: none above ${process.cwd()}\nmodel catalog: ${path.join(__dirname, 'models.csv')} (shipped with cast: every supported model is selected)\ndefaults: cast route ranks by price; fallback is off (cast's own values; cast models defaults)\n\n  harness `), res.stdout);
   assert.ok(res.stdout.includes('1=high 2-5=max'), 'plain list shows each word\'s number');
-  assert.match(res.stdout, /^ {2}api +gemini-3\.5-flash +1=off 2-5=on$/m);
+  assert.match(res.stdout, /^ {2}api +gemini-3\.1-flash-image +\(no dial — any number\)$/m);
   const count = require('./supported-models').ROWS.length;
   assert.ok(res.stdout.includes(`\n\n${count} of ${count} supported models are selected.\n`), res.stdout);
   assert.match(res.stdout, /pass the number/i, 'plain list must say to pass the number');
   assert.match(res.stdout, /words are labels/i, 'plain list must say the words are labels only');
 }
 
-// a model with no effort ladder (haiku-4-5) is inert: any effort, no --effort argv
+// a model with no effort ladder is inert: any effort, no effort argv. No supported cli model is
+// inert today, so the rule is checked on the function every launch resolves its effort with.
 {
-  const folder = mkFolder('claude-inert');
-  const out = dryRun(['claude', 'haiku-4-5', '5', folder, '-p', 'hello']);
-  assert.ok(!out.argv.includes('--effort'), `inert model must emit no --effort: ${out.argv}`);
-  assert.strictEqual(out.effort_word, null);
+  const { resolveEffortValue } = require('./lib/core');
+  const inert = { effort: { inert: true } };
+  for (const effort of [1, 5, 'inert', null]) {
+    assert.deepStrictEqual(resolveEffortValue(inert, effort, 'h', 'm'), { word: null, argv: [] });
+  }
+  assert.throws(() => resolveEffortValue(inert, 'high', 'h', 'm'), /unsupported effort for h\/m: high/);
 }
 
 // cast resume: per-harness argv, explicit id vs `last`, prompt on stdin
@@ -704,21 +705,21 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   const folder = mkFolder('handle');
   const home = mkFolder('handle-home');
   // a launch that fails to spawn still emits the handle first (emitted before the spawn)
-  const res = spawnSync('node', [TOOL, 'claude', 'haiku-4-5', '1', folder, '-p', 'hi'], {
+  const res = spawnSync('node', [TOOL, 'claude', 'haiku-5-5', '1', folder, '-p', 'hi'], {
     encoding: 'utf8', env: { ...process.env, ...homeEnv(home), PATH: pathEnv() },
   });
   const line = res.stderr.split('\n').find((l) => l.startsWith('cast: handle '));
   assert.ok(line, `no handle line on stderr: ${res.stderr}`);
   const h = JSON.parse(line.slice('cast: handle '.length));
   assert.strictEqual(h.harness, 'claude');
-  assert.strictEqual(h.model, 'haiku-4-5');
+  assert.strictEqual(h.model, 'haiku-5-5');
   assert.strictEqual(h.folder, folder);
   assert.ok(Number.isInteger(h.pid) && Number.isInteger(h.start) && h.start > 0, `pid/start not pinned: ${line}`);
   assert.strictEqual(h.out, null, `stdout on a pipe must record no capture path: ${line}`);
   // stdout redirected to a file: the handle records that file as the job's capture (`out`)
   const capture = path.join(folder, 'capture.txt');
   const fd = fs.openSync(capture, 'w');
-  const redirected = spawnSync('node', [TOOL, 'claude', 'haiku-4-5', '1', folder, '-p', 'hi'], {
+  const redirected = spawnSync('node', [TOOL, 'claude', 'haiku-5-5', '1', folder, '-p', 'hi'], {
     encoding: 'utf8', stdio: ['pipe', fd, 'pipe'],
     env: { ...process.env, ...homeEnv(mkFolder('handle-home-redirect')), PATH: pathEnv() },
   });
@@ -739,7 +740,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.strictEqual(rows[0].session, h.session);
 
   // the minted id rides argv; dry-run emits neither handle line nor registry row
-  const dry = spawnSync('node', [TOOL, 'claude', 'haiku-4-5', '1', folder, '-p', 'hi', '--dry-run'], {
+  const dry = spawnSync('node', [TOOL, 'claude', 'haiku-5-5', '1', folder, '-p', 'hi', '--dry-run'], {
     encoding: 'utf8', env: { ...process.env, ...homeEnv(mkFolder('handle-dry-home')) },
   });
   assert.ok(!dry.stderr.includes('cast: handle'), `dry-run must emit no handle: ${dry.stderr}`);
@@ -800,11 +801,11 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     fs.utimesSync(transcript, stale / 1000, stale / 1000);
 
     const row = (over) => JSON.stringify({
-      pid: sleeper.pid, start, harness: 'claude', model: 'haiku-4-5', session,
+      pid: sleeper.pid, start, harness: 'claude', model: 'haiku-5-5', session,
       folder, transcript, t0: Date.now() - 3600_000, ...over,
     });
     const dead = JSON.stringify({
-      pid: 999999, start: 12345, harness: 'claude', model: 'haiku-4-5', session: 'dead',
+      pid: 999999, start: 12345, harness: 'claude', model: 'haiku-5-5', session: 'dead',
       folder, transcript: null, t0: Date.now(), });
     fs.mkdirSync(path.join(home, '.cast'), { recursive: true });
     fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'), `${dead}\n${row()}\n`);
@@ -906,7 +907,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     fs.utimesSync(transcript, stale / 1000, stale / 1000);
     fs.mkdirSync(path.join(home, '.cast'), { recursive: true });
     fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'), `${JSON.stringify({
-      pid: busy.pid, start, harness: 'claude', model: 'haiku-4-5', session,
+      pid: busy.pid, start, harness: 'claude', model: 'haiku-5-5', session,
       folder, transcript, t0: Date.now() - 3600_000,
     })}\n`);
 
@@ -926,7 +927,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     const quiet = orphan("setInterval(() => require('fs').writeSync(1, 'tick\\n'), 50);", ticks);
     try {
       fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'), `${JSON.stringify({
-        pid: quiet.pid, start: quiet.start, harness: 'claude', model: 'haiku-4-5', session,
+        pid: quiet.pid, start: quiet.start, harness: 'claude', model: 'haiku-5-5', session,
         folder, transcript, t0: Date.now() - 3600_000, ...(IS_WIN ? { out: ticks } : {}),
       })}\n`);
       const first = JSON.parse(monitor(['--json']).stdout);
@@ -1071,7 +1072,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     const handles = path.join(home, '.cast', 'handles.jsonl');
     fs.mkdirSync(path.dirname(handles), { recursive: true });
     fs.writeFileSync(handles, `${JSON.stringify({
-      pid: sleeper.pid, start, harness: 'claude', model: 'haiku-4-5', session: null,
+      pid: sleeper.pid, start, harness: 'claude', model: 'haiku-5-5', session: null,
       folder, transcript: null, t0: Date.now(),
     })}\n`);
     // A REAL death: the registry row stays put and liveJobs drops it because /proc no longer
@@ -1101,7 +1102,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   const b = spawnSleeper();
   try {
     const handle = (job) => JSON.stringify({
-      pid: job.pid, start: job.start, harness: 'claude', model: 'haiku-4-5', session: null,
+      pid: job.pid, start: job.start, harness: 'claude', model: 'haiku-5-5', session: null,
       folder, transcript: null, t0: Date.now(),
     });
     const handles = path.join(home, '.cast', 'handles.jsonl');
@@ -1139,7 +1140,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     const handles = path.join(home, '.cast', 'handles.jsonl');
     fs.mkdirSync(path.dirname(handles), { recursive: true });
     fs.writeFileSync(handles, `${JSON.stringify({
-      pid, start, harness: 'claude', model: 'haiku-4-5', session: null,
+      pid, start, harness: 'claude', model: 'haiku-5-5', session: null,
       folder, transcript: null, t0: Date.now(),
     })}\n`);
     // blank the registry while the process stays ALIVE — a prune, not a death
@@ -1186,7 +1187,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     try {
       fs.writeFileSync(transcript, '{}\n');
       const handle = (job, over) => JSON.stringify({
-        pid: job.pid, start: job.start, harness: 'claude', model: 'haiku-4-5', session: null,
+        pid: job.pid, start: job.start, harness: 'claude', model: 'haiku-5-5', session: null,
         folder, transcript: null, t0: Date.now(), ...over,
       });
       fs.writeFileSync(handles,
@@ -1256,7 +1257,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     const { start } = sleeper;
     fs.mkdirSync(path.join(home, '.cast'), { recursive: true });
     fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'), `${JSON.stringify({
-      pid: sleeper.pid, start, harness: 'claude', model: 'haiku-4-5', session: null,
+      pid: sleeper.pid, start, harness: 'claude', model: 'haiku-5-5', session: null,
       folder, transcript: null, t0: Date.now() - 5000,
     })}\n`);
     const rows = JSON.parse(monitor(['--json', '--deadline', '1']).stdout);
@@ -1998,8 +1999,8 @@ else {
 // otherwise; its model catalog is .rbtv/config/cast/models.csv, and while it has none every
 // supported model is selected.
 {
-  const HEAD = 'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override';
-  const SONNET = 'cli,claude,sonnet-5-5,5,N,L2,3,3,10,route,N,N';
+  const HEAD = 'mode,harness,model,efforts,image,level,reasoning,coding,cost,quality-override,price-override';
+  const SONNET = 'cli,claude,sonnet-5-5,5,N,L2,3,3,10,N,N';
   const installation = (lines) => {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(BASE, 'cast-test-gate-')));
     fs.mkdirSync(path.join(root, '.rbtv', 'config', 'cast'), { recursive: true });
@@ -2010,15 +2011,34 @@ else {
   };
   const cast = (args, cwd) => spawnSync('node', [TOOL, ...args, '--dry-run'], { cwd, encoding: 'utf8' });
   const launch = (harness, model, cwd, folder = []) => cast([harness, model, '1', ...folder, '-p', 'x'], cwd);
-  const api = (model, cwd) => cast(['api', model, '1', '-p', 'x', '--output-folder', 'out'], cwd);
+  const api = (model, cwd) => cast(['api', model, '1', '-p', 'x', '--output-folder', 'out', '--image'], cwd);
   // a -p task is saved as task.md in the output folder; a dry run names that file and writes nothing
   {
     const outside = mkFolder('api-task');
-    const dry = spawnSync('node', [TOOL, 'api', 'gemini-3.5-flash', '1', '-p', 'x', '--output-folder', 'out', '--dry-run'], { cwd: outside, encoding: 'utf8' });
+    const image = ['api', 'gemini-3.1-flash-image', '1', '-p', 'x', '--output-folder', 'out'];
+    const dry = spawnSync('node', [TOOL, ...image, '--image', '--input-image', 'logo.png', '--extra-params', '{"safetySettings":[]}', '--dry-run'], { cwd: outside, encoding: 'utf8' });
     assert.strictEqual(dry.status, 0, dry.stderr);
-    const { argv } = JSON.parse(dry.stdout);
+    const result = JSON.parse(dry.stdout);
+    assert.deepStrictEqual(Object.keys(result), ['argv', 'cwd']);
+    const { argv } = result;
     assert.strictEqual(argv[argv.indexOf('--prompt-file') + 1], path.join(outside, 'out', 'task.md'));
+    // the runner gets the model's own id, the input image and the caller's parameters as given:
+    // no effort reaches it, because an image model has no dial
+    assert.deepStrictEqual(argv.slice(2), ['--provider', 'gemini', '--model', 'gemini-3.1-flash-image', '--prompt-file', path.join(outside, 'out', 'task.md'),
+      '--output-folder', 'out', '--input-image', 'logo.png', '--extra-params', '{"safetySettings":[]}']);
     assert.ok(!fs.existsSync(path.join(outside, 'out')), 'a dry run writes nothing');
+    // cast api generates and edits images and nothing else: a call without --image is refused,
+    // with and without an input image, and so is the removed --grounded
+    for (const extra of [[], ['--input-image', 'logo.png'], ['--dry-run']]) {
+      const text = spawnSync('node', [TOOL, ...image, ...extra], { cwd: outside, encoding: 'utf8' });
+      assert.strictEqual(text.status, 2, text.stdout);
+      assert.strictEqual(text.stdout, '');
+      assert.ok(text.stderr.startsWith('cast: refused: cast api generates and edits images and nothing else: pass --image\ntext and code work run through a harness: cast route -h\nusage: cast api '), text.stderr);
+    }
+    const grounded = spawnSync('node', [TOOL, ...image, '--grounded'], { cwd: outside, encoding: 'utf8' });
+    assert.strictEqual(grounded.status, 2, grounded.stdout);
+    assert.ok(grounded.stderr.startsWith("cast: refused: unknown flag '--grounded'\n"), grounded.stderr);
+    assert.ok(!fs.existsSync(path.join(outside, 'out')), 'a refused call writes nothing');
     const { materializeTask } = require('./lib/api');
     assert.strictEqual(materializeTask('x', path.join(outside, 'out')), path.join(outside, 'out', 'task.md'));
     assert.strictEqual(fs.readFileSync(path.join(outside, 'out', 'task.md'), 'utf8'), 'x\n');
@@ -2042,28 +2062,28 @@ else {
   const pruned = installation([HEAD, SONNET]);
   const notSelected = (harness, model) => `refused: '${harness} ${model}' is not selected in ${pruned.root}\n`
     + `model catalog: ${pruned.file}\nNothing changed.\ncast models add ${harness} ${model}`;
-  refused(launch('claude', 'haiku-4-5', pruned.root), notSelected('claude', 'haiku-4-5'));
-  refused(launch('claude', 'claude-haiku-4-5', pruned.root), notSelected('claude', 'haiku-4-5'));
-  refused(launch('claude', 'haiku-4-5', path.join(pruned.root, '.rbtv')), notSelected('claude', 'haiku-4-5'));
-  refused(api('gemini-3.5-flash', pruned.root), notSelected('api', 'gemini-3.5-flash'));
+  refused(launch('claude', 'haiku-5-5', pruned.root), notSelected('claude', 'haiku-5-5'));
+  refused(launch('claude', 'claude-haiku-5-5', pruned.root), notSelected('claude', 'haiku-5-5'));
+  refused(launch('claude', 'haiku-5-5', path.join(pruned.root, '.rbtv')), notSelected('claude', 'haiku-5-5'));
+  refused(api('gemini-3.1-flash-image', pruned.root), notSelected('api', 'gemini-3.1-flash-image'));
   assert.strictEqual(launch('claude', 'sonnet-5-5', pruned.root).status, 0, 'a selected model launches');
   // a plain launch asks the installation of the current folder, not of the launch folder
-  assert.strictEqual(launch('claude', 'haiku-4-5', fresh.root, [pruned.root]).status, 0);
-  refused(launch('claude', 'haiku-4-5', pruned.root, [fresh.root]), notSelected('claude', 'haiku-4-5'));
+  assert.strictEqual(launch('claude', 'haiku-5-5', fresh.root, [pruned.root]).status, 0);
+  refused(launch('claude', 'haiku-5-5', pruned.root, [fresh.root]), notSelected('claude', 'haiku-5-5'));
   // an agent launch asks the installation of the agent's folder, wherever it is launched from
-  for (const [name, model] of [['tiny', 'haiku-4-5'], ['sound', 'sonnet-5-5']]) {
+  for (const [name, model] of [['tiny', 'haiku-5-5'], ['sound', 'sonnet-5-5']]) {
     const home = path.join(pruned.root, '.rbtv', 'agents', name);
     fs.mkdirSync(home, { recursive: true });
     fs.writeFileSync(path.join(home, 'prompt.md'), `---\nname: ${name}\n---\nYou are ${name}.`);
-    fs.writeFileSync(path.join(home, 'agent.json'), `${JSON.stringify({ name, harness: 'claude', model, effort: model === 'haiku-4-5' ? 'inert' : 'low' })}\n`);
+    fs.writeFileSync(path.join(home, 'agent.json'), `${JSON.stringify({ name, harness: 'claude', model, effort: 'low' })}\n`);
   }
   const agent = (name, cwd) => cast(['--agent', path.join(pruned.root, '.rbtv', 'agents', name), '-p', 'x'], cwd);
-  refused(agent('tiny', fresh.root), notSelected('claude', 'haiku-4-5'));
-  refused(agent('tiny', pruned.root), notSelected('claude', 'haiku-4-5'));
+  refused(agent('tiny', fresh.root), notSelected('claude', 'haiku-5-5'));
+  refused(agent('tiny', pruned.root), notSelected('claude', 'haiku-5-5'));
   assert.strictEqual(agent('sound', fresh.root).status, 0, agent('sound', fresh.root).stderr);
 
   // a row this copy of cast does not support is an orphan: named as one, with the way out
-  const orphan = installation([HEAD, SONNET, 'cli,opencode,not-a-real-model,3,N,L2,6,6,1,route,N,N']);
+  const orphan = installation([HEAD, SONNET, 'cli,opencode,not-a-real-model,3,N,L2,6,6,1,N,N']);
   refused(launch('opencode', 'not-a-real-model', orphan.root),
     `refused: 'opencode not-a-real-model' is selected in ${orphan.file} but this copy of cast does not support it (${path.join(__dirname, 'supported-models.js')})\n`
     + 'the daemon runs its own deployed copy of rbtv: deploy a commit that supports it\nNothing changed.\ncast models remove opencode not-a-real-model');
@@ -2075,24 +2095,26 @@ else {
 
   // a model catalog that cannot be read stops every launch in the installation, selected or not
   for (const [lines, why] of [
-    [[HEAD, SONNET, 'cli,claude,opus-5-5,5,N,L1,6,6,2,5,route,N,N'], 'line 3: 13 cells where the header has 12'],
-    [[`${HEAD},notes`, `${SONNET},x`], "line 1: unknown column 'notes' (the columns are mode, harness, model, efforts, image, level, reasoning, coding, cost, use, quality-override, price-override)"],
+    [[HEAD, SONNET, 'cli,claude,opus-5-5,5,N,L1,6,6,2,5,N,N'], 'line 3: 12 cells where the header has 11'],
+    // a file written for the removed `use` column is refused like any unknown column
+    [[HEAD.replace('cost,', 'cost,use,'), SONNET.replace(',N,N', ',route,N,N')], "line 1: unknown column 'use' (the columns are mode, harness, model, efforts, image, level, reasoning, coding, cost, quality-override, price-override)"],
+    [[`${HEAD},notes`, `${SONNET},x`], "line 1: unknown column 'notes' (the columns are mode, harness, model, efforts, image, level, reasoning, coding, cost, quality-override, price-override)"],
     [['mode,harness,level', 'cli,claude,L2'], "line 1: no 'model' column"],
   ]) {
     const broken = installation(lines);
     const text = `refused: cannot read the model catalog ${broken.file} ${why}\nNothing changed.\ncorrect ${broken.file}, then run the same command again`;
     refused(launch('claude', 'sonnet-5-5', broken.root), text);
-    refused(api('gemini-3.5-flash', broken.root), text);
+    refused(api('gemini-3.1-flash-image', broken.root), text);
   }
   // cells are read by header name: the three columns a row cannot do without are enough
-  const narrow = installation(['model,harness,mode', 'haiku-4-5,claude,cli']);
-  assert.strictEqual(launch('claude', 'haiku-4-5', narrow.root).status, 0);
+  const narrow = installation(['model,harness,mode', 'haiku-5-5,claude,cli']);
+  assert.strictEqual(launch('claude', 'haiku-5-5', narrow.root).status, 0);
 
   // the writer replaces the file in one step and keeps the file's own line ending
   const { loadSelection, saveSelection } = require('./lib/model-catalog');
   for (const eol of ['\r\n', '\n']) {
     const own = installation(null);
-    const bytes = [HEAD, SONNET, '', 'cli,claude,haiku-4-5,0,N,L4,0,0,999,off,N,N'].map((l) => `${l}${eol}`).join('');
+    const bytes = [HEAD, SONNET, '', 'cli,claude,haiku-5-5,5,N,L3,3,3,0.5,N,N'].map((l) => `${l}${eol}`).join('');
     fs.writeFileSync(own.file, bytes);
     const read = loadSelection(own.root);
     assert.deepStrictEqual([read.file, read.shipped, read.eol, read.rows.length], [own.file, false, eol, 2]);
@@ -2102,7 +2124,7 @@ else {
     saveSelection(own.root, read.lines.slice(0, 2), read.eol);
     assert.strictEqual(fs.readFileSync(own.file, 'utf8'), `${HEAD}${eol}${SONNET}${eol}`);
     assert.deepStrictEqual(fs.readdirSync(path.dirname(own.file)), ['models.csv'], 'no temporary file is left');
-    refused(launch('claude', 'haiku-4-5', own.root), `refused: 'claude haiku-4-5' is not selected in ${own.root}\nmodel catalog: ${own.file}\nNothing changed.\ncast models add claude haiku-4-5`);
+    refused(launch('claude', 'haiku-5-5', own.root), `refused: 'claude haiku-5-5' is not selected in ${own.root}\nmodel catalog: ${own.file}\nNothing changed.\ncast models add claude haiku-5-5`);
   }
   // a first write copies the shipped model catalog with this machine's line ending
   const first = installation(null);
@@ -2147,14 +2169,14 @@ else {
     assert.deepStrictEqual([Object.keys(value), value.error, value.next], [['error', 'message', 'next'], code, next]);
     return value;
   };
-  const HAIKU = 'cli,claude,haiku-4-5,0,N,L4,0,0,999,off,N,N';
+  const HAIKU = 'cli,claude,haiku-5-5,5,N,L3,3,3,0.5,,';
   const shippedFile = path.join(__dirname, 'models.csv');
   const shippedNote = `model catalog: ${shippedFile} (shipped with cast: every supported model is selected)`;
   // how an installation with no model catalog of its own gets one: said wherever its absence is
   const ownFileNote = (root) => `The installation's own file, ${path.join(root, '.rbtv', 'config', 'cast', 'models.csv')}, is created by the first cast models set or cast models remove.`;
 
   // list: the three views of a pruned installation, each naming the installation and the file
-  const some = installation([HEAD, SONNET, 'cli,opencode,not-a-real-model,3,N,L2,6,6,1,route,N,N']);
+  const some = installation([HEAD, SONNET, 'cli,opencode,not-a-real-model,3,N,L2,6,6,1,N,N']);
   const DEFAULTS_LINE = "defaults: cast route ranks by price; fallback is off (cast's own values; cast models defaults)";
   const head = `installation: ${some.root}\nmodel catalog: ${some.file}\n${DEFAULTS_LINE}\n\n`;
   const selectedText = ok(unchanged(some.root, () => models(['list'], some.root)));
@@ -2166,7 +2188,7 @@ else {
   const supportedText = ok(models(['list', '--supported'], path.join(some.root, '.rbtv')));
   assert.ok(supportedText.startsWith(`${head}  harness   model                   selected  effort\n`), supportedText);
   assert.match(supportedText, /^ {2}claude +sonnet-5-5 +yes +1=low/m);
-  assert.match(supportedText, /^ {2}claude +haiku-4-5 +no +\(no dial/m);
+  assert.match(supportedText, /^ {2}claude +haiku-5-5 +no +1=low/m);
   assert.strictEqual(supportedText.split('\n').filter((l) => / (yes|no) {2}/.test(l)).length, ROWS.length, 'one line per supported model');
   const supportedJson = JSON.parse(ok(models(['list', '--supported', '--json'], some.root)));
   assert.deepStrictEqual([supportedJson.installation, supportedJson.selection, supportedJson.view], [some.root, some.file, 'supported']);
@@ -2178,7 +2200,7 @@ else {
   assert.deepStrictEqual(Object.keys(catalogJson), ['installation', 'source', 'defaults', 'rows']);
   assert.deepStrictEqual([catalogJson.installation, catalogJson.source], [some.root, some.file]);
   assert.deepStrictEqual(catalogJson.rows[0], { mode: 'cli', harness: 'claude', model: 'sonnet-5-5', efforts: '5', image: 'N', level: 'L2',
-    reasoning: '3', coding: '3', cost: '10', use: 'route', 'quality-override': 'N', 'price-override': 'N', launchable: 'yes', available: 'true' });
+    reasoning: '3', coding: '3', cost: '10', 'quality-override': 'N', 'price-override': 'N', launchable: 'yes', available: 'true' });
   assert.deepStrictEqual([catalogJson.rows[1].model, catalogJson.rows[1].launchable, catalogJson.rows[1].available], ['not-a-real-model', 'no', '-']);
   const catalogText = ok(models(['list', '--catalog'], some.root));
   assert.ok(catalogText.startsWith(`${head}  mode  harness   model `), catalogText);
@@ -2188,44 +2210,44 @@ else {
   const outsideCatalog = JSON.parse(ok(models(['list', '--catalog', '--json'])));
   assert.deepStrictEqual([outsideCatalog.installation, outsideCatalog.source, outsideCatalog.rows.length], [null, shippedFile, shipped.rows.length]);
 
-  // add: appends the shipped rows of the model, every level, and says what each use value means
+  // add: appends the shipped row of the model as shipped, its override cells blank
   const adding = installation([HEAD, HAIKU]);
   const wouldAdd = ok(unchanged(adding.root, () => models(['add', 'claude', 'sonnet-5-5', '--dry-run'], adding.root)));
   assert.strictEqual(wouldAdd, `installation: ${adding.root}\nmodel catalog: ${adding.file}\n\n`
-    + "would select: 'claude sonnet-5-5', 2 rows to add\n"
-    + '  cli,claude,sonnet-5-5,5,N,L3,3,3,10,route,Y,Y\n      use=route: launchable, and cast route may name it\n'
-    + '  cli,claude,sonnet-5-5,5,N,L2,3,3,10,route,N,N\n      use=route: launchable, and cast route may name it\n'
+    + "would select: 'claude sonnet-5-5', 1 row to add\n"
+    + '  cli,claude,sonnet-5-5,5,N,L2,3,3,10,,\n'
     + 'Nothing changed: this was a dry run.\n');
   refused(launch('claude', 'sonnet-5-5', adding.root), `refused: 'claude sonnet-5-5' is not selected in ${adding.root}\nmodel catalog: ${adding.file}\nNothing changed.\ncast models add claude sonnet-5-5`);
   const addedText = ok(models(['add', 'claude', 'claude-sonnet-5-5'], adding.root));
-  assert.ok(addedText.includes("\nselected: 'claude sonnet-5-5', 2 rows added\n") && addedText.endsWith('launch it: cast claude sonnet-5-5 1 -p "reply with exactly: ok"\n'), addedText);
+  assert.ok(addedText.includes("\nselected: 'claude sonnet-5-5', 1 row added\n  cli,claude,sonnet-5-5,5,N,L2,3,3,10,,\n") && addedText.endsWith('launch it: cast claude sonnet-5-5 1 -p "reply with exactly: ok"\n'), addedText);
   assert.strictEqual(fs.readFileSync(adding.file, 'utf8'),
-    `${[HEAD, HAIKU, 'cli,claude,sonnet-5-5,5,N,L3,3,3,10,route,Y,Y', 'cli,claude,sonnet-5-5,5,N,L2,3,3,10,route,N,N'].join('\n')}\n`);
+    `${[HEAD, HAIKU, 'cli,claude,sonnet-5-5,5,N,L2,3,3,10,,'].join('\n')}\n`);
   assert.deepStrictEqual(fs.readdirSync(path.dirname(adding.file)), ['models.csv'], 'no temporary file is left');
   assert.strictEqual(launch('claude', 'sonnet-5-5', adding.root).status, 0, 'an added model launches');
   // already selected: nothing is written, exit 0
   assert.ok(ok(unchanged(adding.root, () => models(['add', 'claude', 'sonnet-5-5'], adding.root))).endsWith("\nalready selected: 'claude sonnet-5-5'\nNothing changed.\n"));
-  // --json: the rows as objects; an api model takes harness api and a use=off row says so in text
-  const addedJson = JSON.parse(ok(models(['add', 'api', 'gemini-3.5-flash', '--json'], adding.root)));
+  // --json: the rows as objects, with the columns of the model catalog and no other; an api
+  // model takes harness api, and the image model comes with no level
+  const addedJson = JSON.parse(ok(models(['add', 'api', 'gemini-3.1-flash-image', '--json'], adding.root)));
   assert.deepStrictEqual(Object.keys(addedJson), ['installation', 'selection', 'harness', 'model', 'changed', 'added', 'dry_run']);
-  assert.deepStrictEqual([addedJson.installation, addedJson.selection, addedJson.changed, addedJson.dry_run, addedJson.added.length, addedJson.added[0].use],
-    [adding.root, adding.file, true, false, 1, 'off']);
-  assert.strictEqual(api('gemini-3.5-flash', adding.root).status, 0);
-  assert.ok(ok(models(['add', 'opencode', 'k3', '--dry-run'], adding.root)).includes('\n      use=off: launchable, never named by cast route; to route it: cast models set opencode k3 --use route\n'));
+  assert.deepStrictEqual([addedJson.installation, addedJson.selection, addedJson.changed, addedJson.dry_run, addedJson.added.length, addedJson.added[0].level],
+    [adding.root, adding.file, true, false, 1, '']);
+  assert.deepStrictEqual(Object.keys(addedJson.added[0]), HEAD.split(','));
+  assert.strictEqual(api('gemini-3.1-flash-image', adding.root).status, 0);
   // no file of its own: every supported model is already selected, and no file is saved
-  const addFresh = ok(unchanged(fresh.root, () => models(['add', 'claude', 'haiku-4-5'], fresh.root)));
-  assert.strictEqual(addFresh, `installation: ${fresh.root}\n${shippedNote}\n${ownFileNote(fresh.root)}\n\nalready selected: 'claude haiku-4-5'\n`
+  const addFresh = ok(unchanged(fresh.root, () => models(['add', 'claude', 'haiku-5-5'], fresh.root)));
+  assert.strictEqual(addFresh, `installation: ${fresh.root}\n${shippedNote}\n${ownFileNote(fresh.root)}\n\nalready selected: 'claude haiku-5-5'\n`
     + `No model catalog was saved: while this installation has none of its own, every supported model is selected.\n${ownFileNote(fresh.root)}\n`);
-  assert.deepStrictEqual(JSON.parse(ok(unchanged(fresh.root, () => models(['add', 'claude', 'haiku-4-5', '--json'], fresh.root)))),
-    { installation: fresh.root, selection: null, harness: 'claude', model: 'haiku-4-5', changed: false, added: [], dry_run: false });
+  assert.deepStrictEqual(JSON.parse(ok(unchanged(fresh.root, () => models(['add', 'claude', 'haiku-5-5', '--json'], fresh.root)))),
+    { installation: fresh.root, selection: null, harness: 'claude', model: 'haiku-5-5', changed: false, added: [], dry_run: false });
   // a file with fewer columns in another order gets the row under ITS header, and stays readable
   ok(models(['add', 'claude', 'sonnet-5-5'], narrow.root));
-  assert.strictEqual(fs.readFileSync(narrow.file, 'utf8'), 'model,harness,mode\nhaiku-4-5,claude,cli\nsonnet-5-5,claude,cli\nsonnet-5-5,claude,cli\n');
+  assert.strictEqual(fs.readFileSync(narrow.file, 'utf8'), 'model,harness,mode\nhaiku-5-5,claude,cli\nsonnet-5-5,claude,cli\n');
   assert.strictEqual(launch('claude', 'sonnet-5-5', narrow.root).status, 0);
   // a CRLF file keeps its line ending through add and remove
   const crlf = installation(null);
   fs.writeFileSync(crlf.file, `${HEAD}\r\n${SONNET}\r\n`);
-  ok(models(['add', 'claude', 'haiku-4-5'], crlf.root));
+  ok(models(['add', 'claude', 'haiku-5-5'], crlf.root));
   assert.strictEqual(fs.readFileSync(crlf.file, 'utf8'), `${HEAD}\r\n${SONNET}\r\n${HAIKU}\r\n`);
   ok(models(['remove', 'claude', 'sonnet-5-5'], crlf.root));
   assert.strictEqual(fs.readFileSync(crlf.file, 'utf8'), `${HEAD}\r\n${HAIKU}\r\n`);
@@ -2248,10 +2270,10 @@ else {
   const wouldRemove = ok(unchanged(pruning.root, () => models(['remove', 'claude', 'sonnet-5-5', '--dry-run'], pruning.root)));
   assert.ok(wouldRemove.startsWith(`installation: ${pruning.root}\nmodel catalog: ${pruning.file}\n\n`
     + 'would copy the model catalog shipped with cast to that file first: every other supported model stays selected.\n'
-    + "would unselect: 'claude sonnet-5-5', 2 rows to remove\n  cli,claude,sonnet-5-5,5,N,L3,3,3,10,route,Y,Y\n  cli,claude,sonnet-5-5,5,N,L2,3,3,10,route,N,N\nnot checked:\n"), wouldRemove);
+    + "would unselect: 'claude sonnet-5-5', 1 row to remove\n  cli,claude,sonnet-5-5,5,N,L2,3,3,10,,\nnot checked:\n"), wouldRemove);
   assert.ok(wouldRemove.endsWith('\nNothing changed: this was a dry run.\n'), wouldRemove);
   const removedText = ok(models(['remove', 'claude', 'sonnet-5-5'], pruning.root));
-  assert.ok(removedText.includes('\ncopied the model catalog shipped with cast to that file first') && removedText.includes("\nunselected: 'claude sonnet-5-5', 2 rows removed\n"), removedText);
+  assert.ok(removedText.includes('\ncopied the model catalog shipped with cast to that file first') && removedText.includes("\nunselected: 'claude sonnet-5-5', 1 row removed\n"), removedText);
   assert.ok(removedText.includes(`\nnot checked:\n  agents kept outside ${path.join(pruning.root, '.rbtv', 'agents')}\n  settings of a component that name a model`), removedText);
   assert.ok(removedText.endsWith('\nselect it again: cast models add claude sonnet-5-5\n'), removedText);
   assert.strictEqual(fs.readFileSync(pruning.file, 'utf8'), shipped.lines.filter((l) => !l.includes(',sonnet-5-5,')).map((l) => `${l}${os.EOL}`).join(''));
@@ -2270,7 +2292,7 @@ else {
   // remove is refused while an agent or the Dreamer still launches the model; --force overrides
   const used = installation([HEAD, SONNET, HAIKU]);
   const agentFile = (name) => path.join(used.root, '.rbtv', 'agents', name, 'agent.json');
-  for (const [name, record] of [['tiny', { harness: 'claude', model: 'claude-haiku-4-5', effort: 'inert' }],
+  for (const [name, record] of [['tiny', { harness: 'claude', model: 'claude-haiku-5-5', effort: 'low' }],
     ['sound', { harness: 'claude', model: 'sonnet-5-5', effort: 'low' }], ['torn', null]]) {
     fs.mkdirSync(path.dirname(agentFile(name)), { recursive: true });
     fs.writeFileSync(path.join(path.dirname(agentFile(name)), 'prompt.md'), `---\nname: ${name}\n---\nYou are ${name}.`);
@@ -2279,23 +2301,23 @@ else {
   const igniteConfig = path.join(used.root, '.rbtv', 'config', 'ignite', 'config.json');
   fs.mkdirSync(path.dirname(igniteConfig), { recursive: true });
   const dreamer = (value) => fs.writeFileSync(igniteConfig, JSON.stringify({ dreamer: value }));
-  dreamer({ enabled: true, model: { harness: 'claude', model: 'haiku-4-5', effort: 3 } });
-  const inUse = `refused: 'claude haiku-4-5' is still used in ${used.root}\n  agent tiny (${agentFile('tiny')})\n  the Dreamer (${igniteConfig}, dreamer.model)\n`
-    + 'give each another model first (an agent: rbtv agent configure AGENT --model MODEL), or remove it anyway with --force\nNothing changed.\ncast models remove claude haiku-4-5 --force';
-  refused(unchanged(used.root, () => models(['remove', 'claude', 'haiku-4-5'], used.root)), inUse);
-  refused(unchanged(used.root, () => models(['remove', 'claude', 'haiku-4-5', '--dry-run'], used.root)), inUse);
-  const inUseJson = jsonRefusal(unchanged(used.root, () => models(['remove', 'claude', 'haiku-4-5', '--json'], used.root)), 'in-use', 'cast models remove claude haiku-4-5 --force');
+  dreamer({ enabled: true, model: { harness: 'claude', model: 'haiku-5-5', effort: 3 } });
+  const inUse = `refused: 'claude haiku-5-5' is still used in ${used.root}\n  agent tiny (${agentFile('tiny')})\n  the Dreamer (${igniteConfig}, dreamer.model)\n`
+    + 'give each another model first (an agent: rbtv agent configure AGENT --model MODEL), or remove it anyway with --force\nNothing changed.\ncast models remove claude haiku-5-5 --force';
+  refused(unchanged(used.root, () => models(['remove', 'claude', 'haiku-5-5'], used.root)), inUse);
+  refused(unchanged(used.root, () => models(['remove', 'claude', 'haiku-5-5', '--dry-run'], used.root)), inUse);
+  const inUseJson = jsonRefusal(unchanged(used.root, () => models(['remove', 'claude', 'haiku-5-5', '--json'], used.root)), 'in-use', 'cast models remove claude haiku-5-5 --force');
   assert.ok(inUseJson.message.includes(agentFile('tiny')) && inUseJson.message.includes('the Dreamer'), inUseJson.message);
   // the Dreamer switched off is not a user; switched on with no model written, it is named as not checked
-  dreamer({ enabled: false, model: { harness: 'claude', model: 'haiku-4-5', effort: 3 } });
-  assert.ok(!models(['remove', 'claude', 'haiku-4-5'], used.root).stderr.includes('Dreamer'));
+  dreamer({ enabled: false, model: { harness: 'claude', model: 'haiku-5-5', effort: 3 } });
+  assert.ok(!models(['remove', 'claude', 'haiku-5-5'], used.root).stderr.includes('Dreamer'));
   dreamer({ enabled: true });
-  const forcedDry = JSON.parse(ok(unchanged(used.root, () => models(['remove', 'claude', 'haiku-4-5', '--force', '--dry-run', '--json'], used.root))));
+  const forcedDry = JSON.parse(ok(unchanged(used.root, () => models(['remove', 'claude', 'haiku-5-5', '--force', '--dry-run', '--json'], used.root))));
   assert.deepStrictEqual(Object.keys(forcedDry), ['installation', 'selection', 'harness', 'model', 'changed', 'removed', 'copied_shipped', 'users', 'not_checked', 'dry_run']);
   assert.deepStrictEqual([forcedDry.changed, forcedDry.dry_run, forcedDry.copied_shipped, forcedDry.removed.length], [false, true, false, 1]);
   assert.deepStrictEqual(forcedDry.users, [{ kind: 'agent', name: 'tiny', file: agentFile('tiny') }]);
   assert.deepStrictEqual(forcedDry.not_checked.slice(0, 2), [`${agentFile('torn')} cannot be read`, `the Dreamer is on and ${igniteConfig} names no dreamer.model`]);
-  const forced = ok(models(['remove', 'claude', 'haiku-4-5', '--force'], used.root));
+  const forced = ok(models(['remove', 'claude', 'haiku-5-5', '--force'], used.root));
   assert.ok(forced.includes(`\nstill naming it, so these are now refused at launch:\n  agent tiny (${agentFile('tiny')})\nnot checked:\n  ${agentFile('torn')} cannot be read\n`), forced);
   assert.strictEqual(fs.readFileSync(used.file, 'utf8'), `${HEAD}\n${SONNET}\n`);
   // a model nobody uses is removed without --force
@@ -2305,17 +2327,17 @@ else {
   // selects it, never a launchable row
   const listed = JSON.parse(spawnSync('node', [TOOL, 'list', '--agents', '--json'], { cwd: used.root, encoding: 'utf8' }).stdout);
   assert.deepStrictEqual(listed.agents.map((a) => [a.name, a.problem]), [['sound', undefined],
-    ['tiny', 'model not selected: cast models add claude haiku-4-5'], ['torn', listed.agents[2].problem]]);
+    ['tiny', 'model not selected: cast models add claude haiku-5-5'], ['torn', listed.agents[2].problem]]);
   assert.ok(listed.agents[2].problem.includes('cannot be read'));
   const listedText = spawnSync('node', [TOOL, 'list'], { cwd: used.root, encoding: 'utf8', env: { ...process.env, COLUMNS: '100' } }).stdout;
-  assert.ok(listedText.includes('\ntiny: cannot be launched: model not selected: cast models add claude haiku-4-5\n'), listedText);
+  assert.ok(listedText.includes('\ntiny: cannot be launched: model not selected: cast models add claude haiku-5-5\n'), listedText);
   assert.ok(!/^tiny +claude/m.test(listedText) && /^sound +claude +sonnet-5-5/m.test(listedText), listedText);
-  ok(models(['add', 'claude', 'haiku-4-5'], used.root));
-  assert.strictEqual(JSON.parse(spawnSync('node', [TOOL, 'list', '--json'], { cwd: used.root, encoding: 'utf8' }).stdout).agents[1].model, 'claude-haiku-4-5');
+  ok(models(['add', 'claude', 'haiku-5-5'], used.root));
+  assert.strictEqual(JSON.parse(spawnSync('node', [TOOL, 'list', '--json'], { cwd: used.root, encoding: 'utf8' }).stdout).agents[1].model, 'claude-haiku-5-5');
 
   // a model catalog that cannot be read refuses every cast models verb, with the file and the line
   const torn = installation(['mode,harness', 'cli,claude']);
-  for (const args of [['list'], ['list', '--catalog'], ['add', 'claude', 'haiku-4-5'], ['remove', 'claude', 'haiku-4-5']]) {
+  for (const args of [['list'], ['list', '--catalog'], ['add', 'claude', 'haiku-5-5'], ['remove', 'claude', 'haiku-5-5']]) {
     refused(unchanged(torn.root, () => models(args, torn.root)), `refused: cannot read the model catalog ${torn.file} line 1: no 'model' column\n`
       + `${args[0] === 'list' ? 'Nothing was listed.' : 'Nothing changed.'}\ncorrect ${torn.file}, then run the same command again`);
   }
@@ -2326,9 +2348,9 @@ else {
     [['list', 'claude'], "refused: cast models list takes no name, got 'claude'\nit lists every model of one view\nNothing was listed."],
     [['list', '--selected', '--catalog'], 'refused: --selected and --catalog are different lists\npass one of them\nNothing was listed.'],
     [['list', '--force'], "refused: '--force' is not a cast models list option\ncast models list takes --json, --selected, --supported, --catalog\nNothing was listed."],
-    [['add', 'claude'], 'refused: cast models add takes a harness and a model, got 1 name\nas in a launch: cast models add claude haiku-4-5\nNothing changed.'],
-    [['add', 'claude', 'haiku-4-5', '--force'], "refused: '--force' is not a cast models add option\ncast models add takes --json, --dry-run\nNothing changed."],
-    [['remove', 'claude', 'haiku-4-5', 'x'], 'refused: cast models remove takes a harness and a model, got 3 names\nas in a launch: cast models remove claude haiku-4-5\nNothing changed.'],
+    [['add', 'claude'], 'refused: cast models add takes a harness and a model, got 1 name\nas in a launch: cast models add claude haiku-5-5\nNothing changed.'],
+    [['add', 'claude', 'haiku-5-5', '--force'], "refused: '--force' is not a cast models add option\ncast models add takes --json, --dry-run\nNothing changed."],
+    [['remove', 'claude', 'haiku-5-5', 'x'], 'refused: cast models remove takes a harness and a model, got 3 names\nas in a launch: cast models remove claude haiku-5-5\nNothing changed.'],
   ]) refused(unchanged(used.root, () => models(args, used.root)), `${first}\ncast models -h`);
   jsonRefusal(models(['prune', '--json'], used.root), 'invalid-arguments', 'cast models -h');
   // The group page prints the usage of no verb; each verb's page prints its own complete usage form.
@@ -2336,7 +2358,7 @@ else {
     list: 'cast models list [--selected | --supported | --catalog] [--json]',
     add: 'cast models add HARNESS MODEL [--dry-run] [--json]',
     remove: 'cast models remove HARNESS MODEL [--force] [--dry-run] [--json]',
-    set: 'cast models set HARNESS MODEL [--use route|panel|off] [--quality-override Y|N] [--price-override Y|N] [--level LEVEL] [--dry-run] [--json]',
+    set: 'cast models set HARNESS MODEL [--quality-override Y|N] [--price-override Y|N] [--level LEVEL] [--dry-run] [--json]',
     update: 'cast models update [HARNESS MODEL] [--dry-run] [--json]',
     defaults: 'cast models defaults [--route price|quality] [--fallback off|price|quality] [--dry-run] [--json]',
   };
@@ -2345,7 +2367,7 @@ else {
   for (const [verb, form] of Object.entries(FORMS)) {
     assert.ok(!group.includes(form), `the group page must not print the usage of models ${verb}`);
     assert.ok(group.includes(`\n  ${verb} `), `the group page names ${verb}`);
-    for (const args of [[verb, '-h'], [verb, '--help'], ['-h', verb], [verb, 'claude', 'haiku-4-5', '-h']]) {
+    for (const args of [[verb, '-h'], [verb, '--help'], ['-h', verb], [verb, 'claude', 'haiku-5-5', '-h']]) {
       const page = ok(models(args));
       assert.ok(page.startsWith(`usage: ${form}\n`), `${args.join(' ')}: ${page}`);
       assert.ok(!Object.values(FORMS).some((other) => other !== form && page.includes(other)), `${args.join(' ')} prints another verb's usage`);
@@ -2362,13 +2384,14 @@ else {
 {
   const { START_WINDOW_MS, startFailure, dial } = require('./lib/fallback');
   const { SPECS } = require('./supported-models');
-  const HEAD = 'mode,harness,model,efforts,image,level,reasoning,coding,cost,use,quality-override,price-override';
+  const HEAD = 'mode,harness,model,efforts,image,level,reasoning,coding,cost,quality-override,price-override';
   // Level L2 holds three models at three prices; glm is there for the launches that start on it,
-  // and off, so that no arm depends on a login this machine may hold. L1 holds one model.
-  const ROWS_L2 = ['cli,claude,sonnet-5-5,5,N,L2,3,3,10,route,N,N', 'cli,codex,gpt-5.6-terra,5,N,L2,5,5,8,route,N,N',
-    'cli,codex,gpt-6.1-sol,5,N,L2,4,4,5,route,N,N', 'cli,opencode,glm-5.3,2,N,L2,3,3,4,off,N,N'];
-  const OTHER = ['cli,claude,opus-5-5,5,N,L1,6,6,25,route,N,N', 'cli,codex,gpt-6-luna,5,N,L3,3,3,1,route,N,N',
-    'cli,claude,haiku-4-5,0,N,L3,3,3,,route,N,N'];
+  // and its login is absent from the home these launches run in, so it is never a candidate and
+  // no arm depends on a login this machine may hold. L1 holds one model.
+  const ROWS_L2 = ['cli,claude,sonnet-5-5,5,N,L2,3,3,10,N,N', 'cli,codex,gpt-5.6-terra,5,N,L2,5,5,8,N,N',
+    'cli,codex,gpt-6.1-sol,5,N,L2,4,4,5,N,N', 'cli,opencode,glm-5.3,2,N,L2,3,3,4,N,N'];
+  const OTHER = ['cli,claude,opus-5-5,5,N,L1,6,6,25,N,N', 'cli,codex,gpt-6-luna,5,N,L3,3,3,1,N,N',
+    'cli,claude,haiku-5-5,5,N,L3,3,3,,N,N'];
   const installation = (fallback, rows = [...ROWS_L2, ...OTHER]) => {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(BASE, 'cast-test-fallback-')));
     fs.mkdirSync(path.join(root, '.rbtv', 'config', 'cast'), { recursive: true });
@@ -2432,7 +2455,7 @@ process.exit(code);\n`);
     'cast: codex gpt-6.1-sol did not start (exit 1 after Ns); launching fallback 2 of 2 at level L2 by price: codex gpt-5.6-terra']);
 
   // none starts: the last exit code, what was tried, and the model one level down, which is not
-  // launched. haiku-4-5 has no cost, so a price ranking of L3 leaves it out.
+  // launched. haiku-5-5 has no cost, so a price ranking of L3 leaves it out.
   res = run(byPrice, sonnet, { FAKE_CODEX: '{"gpt-6.1-sol":1,"gpt-5.6-terra":7}' });
   assert.strictEqual(res.status, 7, res.stderr);
   assert.strictEqual(res.stdout, '');
@@ -2462,12 +2485,19 @@ process.exit(code);\n`);
   res = run(byPrice, ['codex', 'gpt-6-luna', '1', '-p', 'do the task'], { FAKE_CODEX: '{"gpt-6-luna":1}' });
   assert.deepStrictEqual(castLines(res).slice(1), ['cast: no model of level L3 started: tried codex gpt-6-luna', 'cast: no level below L3 holds a model to launch']);
 
-  // only a row cast route may name is a candidate: a model set to off is skipped
-  ((r) => assert.strictEqual(r.status, 0, r.stderr))(spawnSync('node', [TOOL, 'models', 'set', 'codex', 'gpt-6.1-sol', '--use', 'off'], { cwd: byPrice, encoding: 'utf8' }));
+  // only a selected model is a candidate: with the row of sol removed, terra is the one fallback
+  const byPriceFile = path.join(byPrice, '.rbtv', 'config', 'cast', 'models.csv');
+  const withSol = fs.readFileSync(byPriceFile, 'utf8');
+  fs.writeFileSync(byPriceFile, withSol.split('\n').filter((l) => !l.includes('gpt-6.1-sol')).join('\n'));
   res = run(byPrice, sonnet);
   assert.strictEqual(res.stdout, 'REPORT gpt-5.6-terra\n', res.stderr);
   assert.ok(castLines(res)[0].endsWith('launching fallback 1 of 1 at level L2 by price: codex gpt-5.6-terra'), res.stderr);
-  ((r) => assert.strictEqual(r.status, 0, r.stderr))(spawnSync('node', [TOOL, 'models', 'set', 'codex', 'gpt-6.1-sol', '--use', 'route'], { cwd: byPrice, encoding: 'utf8' }));
+  fs.writeFileSync(byPriceFile, withSol);
+  // an image model is never a candidate, at whatever level its row sits
+  const withImage = installation('price', [...ROWS_L2, ...OTHER, 'cli,codex,gpt-6-astra,5,Y,L2,7,7,1,Y,Y']);
+  const { fallbackPlan } = require('./lib/fallback');
+  const planned = fallbackPlan('claude', 'sonnet-5-5', 5, withImage).candidates.map((c) => c.model);
+  assert.deepStrictEqual(planned, ['gpt-6.1-sol', 'gpt-5.6-terra']);
 
   // a failure after the start window is not a start failure: the launch ends with it
   res = run(byPrice, sonnet, { FAKE_CLAUDE: `3:${START_WINDOW_MS + 1500}` });
@@ -2539,8 +2569,8 @@ process.exit(3);\n`);
     assert.ok(!res.stderr.includes('EPIPE') && !res.stderr.includes('    at '), res.stderr);
   }
   // with the fallback on, each such exit is a failure to start and the next model of the level runs
-  const allRouted = installation('price', ['cli,claude,sonnet-5-5,5,N,L2,3,3,10,route,N,N',
-    'cli,codex,gpt-5.6-terra,5,N,L2,5,5,8,route,N,N', 'cli,opencode,glm-5.3,2,N,L2,3,3,4,route,N,N']);
+  const allRouted = installation('price', ['cli,claude,sonnet-5-5,5,N,L2,3,3,10,N,N',
+    'cli,codex,gpt-5.6-terra,5,N,L2,5,5,8,N,N', 'cli,opencode,glm-5.3,2,N,L2,3,3,4,N,N']);
   res = run(allRouted, ['codex', 'gpt-5.6-terra', '5', '-f', largeTask], unread);
   assert.strictEqual(res.status, 3, res.stderr);
   assert.deepStrictEqual(started(), ['gpt-5.6-terra', 'opencode', 'claude']);
@@ -2589,37 +2619,43 @@ process.exit(3);\n`);
   const { root, file, defaults } = fresh();
 
   // set: a dry run writes nothing; the first real one copies the shipped file, then changes it
-  let out = text(at(root, ['models', 'set', 'codex', 'gpt-6-luna', '--use', 'off', '--price-override', 'Y', '--dry-run']));
-  assert.ok(out.includes('would copy the model catalog shipped with cast') && out.endsWith("would set: 'codex gpt-6-luna'\n  level L3  use  route -> off\n  level L3  price-override  N -> Y\nNothing changed: this was a dry run.\n"), out);
+  const setLuna = ['models', 'set', 'codex', 'gpt-6-luna', '--quality-override', 'N', '--price-override', 'Y'];
+  let out = text(at(root, [...setLuna, '--dry-run']));
+  assert.ok(out.includes('would copy the model catalog shipped with cast') && out.endsWith("would set: 'codex gpt-6-luna'\n  level L3  quality-override  - -> N\n  level L3  price-override  - -> Y\nNothing changed: this was a dry run.\n"), out);
   assert.ok(!fs.existsSync(file));
-  text(at(root, ['models', 'set', 'codex', 'gpt-6-luna', '--use', 'off', '--price-override', 'Y']));
-  assert.deepStrictEqual(rowsOf(file, 'gpt-6-luna'), ['cli,codex,gpt-6-luna,5,N,L3,3,3,0.5,off,N,Y']);
+  text(at(root, setLuna));
+  assert.deepStrictEqual(rowsOf(file, 'gpt-6-luna'), ['cli,codex,gpt-6-luna,5,N,L3,3,3,0.5,N,Y']);
   // every other line is the shipped one, as written
   assert.deepStrictEqual(linesOf(file).filter((l) => !l.includes('gpt-6-luna')), shipped.filter((l) => !l.includes('gpt-6-luna')));
-  assert.ok(text(at(root, ['models', 'set', 'codex', 'gpt-6-luna', '--use', 'off'])).endsWith("already set: 'codex gpt-6-luna' use=off\nNothing changed.\n"));
-  // --use holds for every level of a model; an override of a model at two levels names its level
-  text(at(root, ['models', 'set', 'claude', 'sonnet-5-5', '--use', 'panel']));
-  refusedWith(at(root, ['models', 'set', 'claude', 'sonnet-5-5', '--quality-override', 'Y']), "'claude sonnet-5-5' has rows at levels L3 and L2");
-  text(at(root, ['models', 'set', 'claude', 'sonnet-5-5', '--level', 'L2', '--quality-override', 'Y']));
-  assert.deepStrictEqual(rowsOf(file, 'sonnet-5-5'), ['cli,claude,sonnet-5-5,5,N,L3,3,3,10,panel,Y,Y', 'cli,claude,sonnet-5-5,5,N,L2,3,3,10,panel,Y,N']);
-  const setJson = JSON.parse(text(at(root, ['models', 'set', 'claude', 'sonnet-5-5', '--level', 'L2', '--quality-override', 'N', '--json'])));
-  assert.deepStrictEqual([setJson.changed, setJson.set, setJson.copied_shipped], [true, [{ level: 'L2', column: 'quality-override', from: 'Y', to: 'N' }], false]);
-  // refusals: nothing to set, a bad value, a level the model has no row at, --level with --use alone, a model not selected
+  assert.ok(text(at(root, ['models', 'set', 'codex', 'gpt-6-luna', '--price-override', 'Y'])).endsWith("already set: 'codex gpt-6-luna' price-override=Y\nNothing changed.\n"));
+  // an override belongs to one level: for a model the installation lists at two, it names its level
+  const oneLevel = fs.readFileSync(file, 'utf8');
+  fs.writeFileSync(file, `${oneLevel}cli,claude,sonnet-5-5,5,N,L3,3,3,10,,\n`);
+  refusedWith(at(root, ['models', 'set', 'claude', 'sonnet-5-5', '--quality-override', 'Y']), "'claude sonnet-5-5' has rows at levels L2 and L3");
+  text(at(root, ['models', 'set', 'claude', 'sonnet-5-5', '--level', 'L3', '--quality-override', 'Y']));
+  assert.deepStrictEqual(rowsOf(file, 'sonnet-5-5'), ['cli,claude,sonnet-5-5,5,N,L2,3,3,10,,', 'cli,claude,sonnet-5-5,5,N,L3,3,3,10,Y,']);
+  const setJson = JSON.parse(text(at(root, ['models', 'set', 'claude', 'sonnet-5-5', '--level', 'L3', '--quality-override', 'N', '--json'])));
+  assert.deepStrictEqual([setJson.changed, setJson.set, setJson.copied_shipped], [true, [{ level: 'L3', column: 'quality-override', from: 'Y', to: 'N' }], false]);
+  fs.writeFileSync(file, oneLevel);
+  text(at(root, ['models', 'set', 'claude', 'sonnet-5-5', '--price-override', 'Y']));
+  // refusals: nothing to set (a level alone included), the removed --use, a bad value, a level the
+  // model has no row at, a model not selected
   refusedWith(at(root, ['models', 'set', 'codex', 'gpt-6-luna']), 'cast models set needs a value to set');
-  refusedWith(at(root, ['models', 'set', 'codex', 'gpt-6-luna', '--use', 'on']), "--use takes one of route, panel, off, got 'on'");
+  refusedWith(at(root, ['models', 'set', 'codex', 'gpt-6-luna', '--level', 'L3']), 'cast models set needs a value to set');
+  refusedWith(at(root, ['models', 'set', 'codex', 'gpt-6-luna', '--use', 'off']), "'--use' is not a cast models set option");
+  refusedWith(at(root, ['models', 'set', 'codex', 'gpt-6-luna', '--price-override', 'on']), "--price-override takes one of Y, N, got 'on'");
   refusedWith(at(root, ['models', 'set', 'codex', 'gpt-6-luna', '--level', 'L1', '--price-override', 'N']), "'codex gpt-6-luna' has no row at level L1");
-  refusedWith(at(root, ['models', 'set', 'codex', 'gpt-6-luna', '--level', 'L3', '--use', 'off']), '--level goes with an override');
-  text(at(root, ['models', 'remove', 'claude', 'haiku-4-5']));
-  refusedWith(at(root, ['models', 'set', 'claude', 'haiku-4-5', '--use', 'off']), `'claude haiku-4-5' is not selected in ${root}`);
+  text(at(root, ['models', 'remove', 'claude', 'haiku-5-5']));
+  refusedWith(at(root, ['models', 'set', 'claude', 'haiku-5-5', '--price-override', 'Y']), `'claude haiku-5-5' is not selected in ${root}`);
   // a column the header lacks is added, blank on the rows that get no value
   const slim = fresh();
   fs.mkdirSync(path.dirname(slim.file), { recursive: true });
   fs.writeFileSync(slim.file, 'mode,harness,model,cost\r\ncli,codex,gpt-6-luna,9\r\ncli,claude,sonnet-5-5,10\r\n');
-  text(at(slim.root, ['models', 'set', 'codex', 'gpt-6-luna', '--use', 'off']));
-  assert.strictEqual(fs.readFileSync(slim.file, 'utf8'), 'mode,harness,model,cost,use\r\ncli,codex,gpt-6-luna,9,off\r\ncli,claude,sonnet-5-5,10,\r\n');
+  text(at(slim.root, ['models', 'set', 'codex', 'gpt-6-luna', '--price-override', 'Y']));
+  assert.strictEqual(fs.readFileSync(slim.file, 'utf8'), 'mode,harness,model,cost,price-override\r\ncli,codex,gpt-6-luna,9,Y\r\ncli,claude,sonnet-5-5,10,\r\n');
 
-  // update: the cells rbtv proposes come from the shipped file; use and the overrides stay
-  const edited = fs.readFileSync(file, 'utf8').replace('cli,codex,gpt-6-luna,5,N,L3,3,3,0.5,off,N,Y', 'cli,codex,gpt-6-luna,5,N,L2,3,4,0.9,off,N,Y')
+  // update: the cells rbtv proposes come from the shipped file; the overrides stay
+  const edited = fs.readFileSync(file, 'utf8').replace('cli,codex,gpt-6-luna,5,N,L3,3,3,0.5,N,Y', 'cli,codex,gpt-6-luna,5,N,L2,3,4,0.9,N,Y')
     .replace('cli,codex,gpt-6.1-sol,5,N,L1,4,4,10', 'cli,codex,gpt-6.1-sol,5,N,L1,4,4,11');
   assert.notStrictEqual(edited, fs.readFileSync(file, 'utf8'));
   fs.writeFileSync(file, edited);
@@ -2629,17 +2665,17 @@ process.exit(3);\n`);
   assert.ok(out.includes('would update 3 cells from ') && out.includes('  codex gpt-6-luna  level L2  level  L2 -> L3\n  codex gpt-6-luna  level L2  coding  4 -> 3\n  codex gpt-6-luna  level L2  cost  0.9 -> 0.5\n'), out);
   assert.strictEqual(fs.readFileSync(file, 'utf8'), edited);
   text(at(root, ['models', 'update', 'codex', 'gpt-6-luna']));
-  assert.deepStrictEqual(rowsOf(file, 'gpt-6-luna'), ['cli,codex,gpt-6-luna,5,N,L3,3,3,0.5,off,N,Y']);
-  assert.deepStrictEqual(rowsOf(file, 'gpt-6.1-sol'), ['cli,codex,gpt-6.1-sol,5,N,L1,4,4,11,route,N,N'], 'a model update does not name stays as it is');
+  assert.deepStrictEqual(rowsOf(file, 'gpt-6-luna'), ['cli,codex,gpt-6-luna,5,N,L3,3,3,0.5,N,Y']);
+  assert.deepStrictEqual(rowsOf(file, 'gpt-6.1-sol'), ['cli,codex,gpt-6.1-sol,5,N,L1,4,4,11,,'], 'a model update does not name stays as it is');
   const updated = JSON.parse(text(at(root, ['models', 'update', '--json'])));
   assert.deepStrictEqual([updated.changed, updated.updated], [true, [{ harness: 'codex', model: 'gpt-6.1-sol', level: 'L1', column: 'cost', from: '11', to: '10' }]]);
-  assert.deepStrictEqual(rowsOf(file, 'sonnet-5-5'), ['cli,claude,sonnet-5-5,5,N,L3,3,3,10,panel,Y,Y', 'cli,claude,sonnet-5-5,5,N,L2,3,3,10,panel,N,N']);
+  assert.deepStrictEqual(rowsOf(file, 'sonnet-5-5'), ['cli,claude,sonnet-5-5,5,N,L2,3,3,10,,Y']);
   assert.ok(text(at(root, ['models', 'update'])).includes('\nup to date with '));
   assert.ok(!text(at(root, ['doctor'])).includes('differ'));
   // rows update cannot pair are named and left alone; no file of its own means nothing to update
-  fs.writeFileSync(file, `${fs.readFileSync(file, 'utf8')}cli,claude,sonnet-5-5,5,N,L1,3,3,10,panel,N,N\ncli,codex,not-a-model,5,N,L3,3,3,1,off,N,N\n`);
+  fs.writeFileSync(file, `${fs.readFileSync(file, 'utf8')}cli,claude,sonnet-5-5,5,N,L1,3,3,10,N,N\ncli,codex,not-a-model,5,N,L3,3,3,1,N,N\n`);
   out = text(at(root, ['models', 'update']));
-  assert.ok(out.includes("not compared: 'claude sonnet-5-5': its levels here are L3, L2, L1 and the shipped ones are L3, L2; update adds and removes no row\n")
+  assert.ok(out.includes("not compared: 'claude sonnet-5-5': its levels here are L2, L1 and the shipped ones are L2; update adds and removes no row\n")
     && out.includes("not compared: 'codex not-a-model': the shipped model catalog has no row for it\n"), out);
   assert.ok(out.includes('\nthe rows compared are up to date with ') && !out.includes('\nup to date with '), out);
   // a model update could compare with nothing says only that, in text and in --json
@@ -2650,7 +2686,7 @@ process.exit(3);\n`);
     [false, [], ["'codex not-a-model': the shipped model catalog has no row for it"]]);
   // update writes only the columns the header carries, and keeps the file's line ending
   text(at(slim.root, ['models', 'update']));
-  assert.strictEqual(fs.readFileSync(slim.file, 'utf8'), 'mode,harness,model,cost,use\r\ncli,codex,gpt-6-luna,0.5,off\r\ncli,claude,sonnet-5-5,10,\r\n');
+  assert.strictEqual(fs.readFileSync(slim.file, 'utf8'), 'mode,harness,model,cost,price-override\r\ncli,codex,gpt-6-luna,0.5,Y\r\ncli,claude,sonnet-5-5,10,\r\n');
   assert.ok(text(at(fresh().root, ['models', 'update'])).endsWith('Nothing to update: this installation reads the shipped model catalog itself.\nNothing changed.\n'));
 
   // defaults: shown, set, kept key by key, and shown by the model lists
@@ -2710,7 +2746,7 @@ process.exit(3);\n`);
     [['-p', ''], noText('the -p text')],
   ]) {
     for (const dry of [[], ['--dry-run']]) {
-      const args = ['api', 'gemini-3.5-flash', '1', ...task, '--output-folder', 'out', ...dry];
+      const args = ['api', 'gemini-3.1-flash-image', '1', ...task, '--output-folder', 'out', '--image', ...dry];
       const res = spawnSync('node', [TOOL, ...args], { cwd: scratch, env, encoding: 'utf8' });
       assert.strictEqual(res.status, 2, `cast ${args.join(' ')} must be refused: ${res.stdout}${res.stderr}`);
       assert.strictEqual(res.stdout, '', `cast ${args.join(' ')}`);
@@ -2718,7 +2754,7 @@ process.exit(3);\n`);
       assert.ok(!fs.existsSync(path.join(scratch, 'out')), `cast ${args.join(' ')} wrote the output folder`);
     }
   }
-  const apiFolder = spawnSync('node', [TOOL, 'api', 'gemini-3.5-flash', '1', '-f', scratch, '--output-folder', 'out'], { cwd: scratch, env, encoding: 'utf8' });
+  const apiFolder = spawnSync('node', [TOOL, 'api', 'gemini-3.1-flash-image', '1', '-f', scratch, '--output-folder', 'out', '--image'], { cwd: scratch, env, encoding: 'utf8' });
   assert.strictEqual(apiFolder.status, 2, `cast api -f <a folder> must be refused: ${apiFolder.stdout}${apiFolder.stderr}`);
   assert.ok(apiFolder.stderr.startsWith(`cast: refused: cannot read the task file ${scratch}: `) && !apiFolder.stderr.includes('    at '), `cast api -f <a folder>: ${apiFolder.stderr}`);
   assert.ok(!fs.existsSync(path.join(scratch, 'out')), 'cast api -f <a folder> wrote the output folder');

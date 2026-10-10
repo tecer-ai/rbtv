@@ -2,7 +2,7 @@
 
 A selected model is a [supported model](supported-model.md) that one installation chose to launch: a model with a row in that installation's [model catalog](model-catalog.md). While an installation has no model catalog of its own, every supported model is selected. Its own file, `.rbtv/config/cast/models.csv`, is created by the first `cast models set` or `cast models remove`, as a copy of the shipped one.
 
-Selection gates every launch in the installation. `cast <harness> <model>`, `cast --agent`, an Ignite turn and `cast api` refuse a model that is not selected, and the refusal names `cast models add HARNESS MODEL`. `rbtv agent add` and `rbtv agent configure` check an agent's model the same way. `cast route` names only selected models, and among them only rows whose `use` is `route`; a [fallback](../tools/cast/cast.md#fallback) runs only those rows too.
+Selection gates every launch in the installation. `cast <harness> <model>`, `cast --agent`, an Ignite turn and `cast api` refuse a model that is not selected, and the refusal names `cast models add HARNESS MODEL`. `rbtv agent add` and `rbtv agent configure` check an agent's model the same way. `cast route` names only selected models, and a [fallback](../tools/cast/cast.md#fallback) runs only selected models. Selection is also the only gate on routing: every selected model competes at its level, subject to its login and to what it can do, and a model is kept out of routing by unselecting it.
 
 Selected does not mean usable now. A selected model also needs the login of its provider on the machine; `cast doctor` shows, for each selected model, whether that login is present.
 

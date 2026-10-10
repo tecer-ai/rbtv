@@ -4,7 +4,7 @@
 //   cast models list [--selected | --supported | --catalog] [--json]
 //   cast models add HARNESS MODEL [--dry-run] [--json]
 //   cast models remove HARNESS MODEL [--force] [--dry-run] [--json]
-//   cast models set HARNESS MODEL [--use V] [--quality-override V] [--price-override V] [--level L]
+//   cast models set HARNESS MODEL [--quality-override V] [--price-override V] [--level L]
 //   cast models update [HARNESS MODEL] [--dry-run] [--json]
 //   cast models defaults [--route V] [--fallback V] [--dry-run] [--json]
 // `list` only reads. `add`, `remove`, `set` and `update` change one file, the installation's model
@@ -26,14 +26,14 @@ const USAGE = {
   list: 'cast models list [--selected | --supported | --catalog] [--json]',
   add: 'cast models add HARNESS MODEL [--dry-run] [--json]',
   remove: 'cast models remove HARNESS MODEL [--force] [--dry-run] [--json]',
-  set: 'cast models set HARNESS MODEL [--use route|panel|off] [--quality-override Y|N] [--price-override Y|N] [--level LEVEL] [--dry-run] [--json]',
+  set: 'cast models set HARNESS MODEL [--quality-override Y|N] [--price-override Y|N] [--level LEVEL] [--dry-run] [--json]',
   update: 'cast models update [HARNESS MODEL] [--dry-run] [--json]',
   defaults: 'cast models defaults [--route price|quality] [--fallback off|price|quality] [--dry-run] [--json]',
 };
 const VERBS = Object.keys(USAGE);
 // The options of each verb that take a value, with the values each accepts (null = any word).
 const VALUED = {
-  set: { '--use': ['route', 'panel', 'off'], '--quality-override': ['Y', 'N'], '--price-override': ['Y', 'N'], '--level': null },
+  set: { '--quality-override': ['Y', 'N'], '--price-override': ['Y', 'N'], '--level': null },
   defaults: { '--route': DEFAULT_VALUES.route, '--fallback': DEFAULT_VALUES.fallback },
 };
 const VIEWS = ['selected', 'supported', 'catalog'];
@@ -96,11 +96,10 @@ const publicRow = (row) => Object.fromEntries(COLUMNS.map((c) => [c, row[c]]));
 
 // --- list --------------------------------------------------------------------------------------
 
-// A supported model's effort ladder in the shape lib/core.js walks: a cli row's rungs, an api
-// row's own reasoning modes.
+// A supported model's effort ladder in the shape lib/core.js walks; a model with no rung has no
+// dial.
 function ladder(row) {
-  const rungs = row.mode === 'api' ? row.depths : row.rungs;
-  return rungs.length ? { rungs } : { inert: true };
+  return row.rungs.length ? { rungs: row.rungs } : { inert: true };
 }
 
 // word -> the SMALLEST number that selects it, read off resolveEffort itself.
@@ -174,12 +173,6 @@ function listCatalog(selection, json) {
 
 // --- add ---------------------------------------------------------------------------------------
 
-const USE_NOTE = {
-  route: () => 'launchable, and cast route may name it',
-  panel: () => 'launchable, listed for panels, never named by cast route',
-  off: (harness, model) => `launchable, never named by cast route; to route it: cast models set ${harness} ${model} --use route`,
-};
-
 // The short name of a supported model given by that name or by the harness's own id; a name cast
 // does not support comes back as typed.
 function shortModel(harness, model) {
@@ -221,11 +214,8 @@ function addModel(selection, harness, model, { dryRun, json }) {
   if (!dryRun) saveSelection(selection.root, [...selection.lines, ...added], selection.eol);
   Object.assign(result, { changed: !dryRun, added: rows.map(publicRow) });
   const lines = [`${dryRun ? 'would select' : 'selected'}: '${harness} ${model}', ${added.length} row${added.length === 1 ? '' : 's'} ${dryRun ? 'to add' : 'added'}`];
-  rows.forEach((row, i) => {
-    const use = selection.header.includes('use') && row.use ? row.use : 'route';
-    lines.push(`  ${added[i]}`, `      use=${use}: ${USE_NOTE[use](harness, model)}`);
-  });
-  lines.push(dryRun ? 'Nothing changed: this was a dry run.' : `launch it: cast ${harness === 'api' ? `api ${model} 1` : `${harness} ${model} 1`} -p "reply with exactly: ok"${harness === 'api' ? ' --output-folder out/' : ''}`);
+  lines.push(...added.map((line) => `  ${line}`));
+  lines.push(dryRun ? 'Nothing changed: this was a dry run.' : `launch it: cast ${harness} ${model} 1 -p "${harness === 'api' ? 'Draw a blue circle on a white background' : 'reply with exactly: ok'}"${harness === 'api' ? ' --output-folder out/ --image' : ''}`);
   return done(lines);
 }
 
@@ -305,8 +295,7 @@ function needSelected(selection, harness, model, json) {
   `cast models add ${harness} ${model}`);
 }
 
-// Writes the cells an installation owns: `use`, which holds for every level of a model, and the
-// two overrides, which belong to one level.
+// Writes the cells an installation owns: the two overrides, each of which belongs to one level.
 function setModel(selection, harness, model, { values, dryRun, json }) {
   needInstallation(selection, json);
   const rows = needSelected(selection, harness, model, json);
@@ -314,13 +303,10 @@ function setModel(selection, harness, model, { values, dryRun, json }) {
   const level = values['--level'];
   const overrides = ['--quality-override', '--price-override'].filter((f) => values[f] !== undefined);
   const next = `cast models set ${harness} ${model}`;
-  if (values['--use'] === undefined && !overrides.length) {
-    refuse(json, 'invalid-arguments', ['cast models set needs a value to set', 'give --use, --quality-override or --price-override'], `${next} --use off`);
+  if (!overrides.length) {
+    refuse(json, 'invalid-arguments', ['cast models set needs a value to set', 'give --quality-override or --price-override'], `${next} --price-override Y`);
   }
   const levels = rows.map((r) => r.level);
-  if (level !== undefined && !overrides.length) {
-    refuse(json, 'invalid-arguments', ['--level goes with an override', '--use holds for every level of a model'], `${next} --use ${values['--use']}`);
-  }
   if (level !== undefined && !levels.includes(level)) {
     refuse(json, 'no-such-level', [`'${harness} ${model}' has no row at level ${level}`, `its level${levels.length === 1 ? ' is' : 's are'} ${levels.join(', ')}`],
       `${next} --level ${levels[0]} ${overrides.map((f) => `${f} ${values[f]}`).join(' ')}`);
@@ -329,11 +315,8 @@ function setModel(selection, harness, model, { values, dryRun, json }) {
     refuse(json, 'level-needed', [`'${harness} ${model}' has rows at levels ${levels.join(' and ')}`, 'an override belongs to one level: name it with --level'],
       `${next} --level ${levels[0]} ${overrides.map((f) => `${f} ${values[f]}`).join(' ')}`);
   }
-  const edits = [];
-  if (values['--use'] !== undefined) for (const row of rows) edits.push({ row, column: 'use', value: values['--use'] });
-  for (const flag of overrides) {
-    edits.push({ row: level === undefined ? rows[0] : rows.find((r) => r.level === level), column: flag.slice(2), value: values[flag] });
-  }
+  const row = level === undefined ? rows[0] : rows.find((r) => r.level === level);
+  const edits = overrides.map((flag) => ({ row, column: flag.slice(2), value: values[flag] }));
   const changes = edits.filter((e) => e.row[e.column] !== e.value);
   const set = changes.map((e) => ({ level: e.row.level, column: e.column, from: e.row[e.column], to: e.value }));
   const result = { installation: selection.root, selection: file, harness, model, changed: false, set, copied_shipped: false, dry_run: dryRun };
@@ -505,8 +488,8 @@ function modelsArgs(args) {
   if (verb === 'update' && named.length === 0) return common;
   if (named.length !== 2) {
     bad(`cast models ${verb} takes a harness and a model, got ${named.length} name${named.length === 1 ? '' : 's'}`,
-      verb === 'update' ? 'every model: cast models update; one model, as in a launch: cast models update claude haiku-4-5'
-        : `as in a launch: cast models ${verb} claude haiku-4-5`, closing);
+      verb === 'update' ? 'every model: cast models update; one model, as in a launch: cast models update claude haiku-5-5'
+        : `as in a launch: cast models ${verb} claude haiku-5-5`, closing);
   }
   return { ...common, harness: named[0], model: shortModel(named[0], named[1]) };
 }

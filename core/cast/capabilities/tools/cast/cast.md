@@ -13,7 +13,7 @@ cast <harness> <model> <effort 1-5> [launch-folder] (-p TEXT | -f FILE) [-s TEXT
 cast resume <harness> <session-id|last> [launch-folder] (-p TEXT | -f FILE) [--dry-run]
 cast sessions [harness] [launch-folder] [--json] [-n N]
 ignite turn --request FILE --result FILE
-cast api <model> <effort 1-5> (-p TEXT | -f FILE) --output-folder DIR [--image [--input-image PATH ...]] [--target-file PATH] [--timeout N] [--grounded] [--extra-params JSON] [--dry-run]
+cast api <model> <effort 1-5> (-p TEXT | -f FILE) --output-folder DIR --image [--input-image PATH ...] [--target-file PATH] [--timeout N] [--extra-params JSON] [--dry-run]
 cast route --access open|bounded --type code|text --class planner|broad|bounded|mechanical [--optimize price|quality] [--caps image] [--explain]
 cast route --caps image
 cast route --batch <agents.json | -> [--explain]
@@ -22,7 +22,7 @@ cast list [--agents [--full] | --agent NAME] [--target FOLDER] [--json]
 cast models list [--selected | --supported | --catalog] [--json]
 cast models add HARNESS MODEL [--dry-run] [--json]
 cast models remove HARNESS MODEL [--force] [--dry-run] [--json]
-cast models set HARNESS MODEL [--use route|panel|off] [--quality-override Y|N] [--price-override Y|N] [--level LEVEL] [--dry-run] [--json]
+cast models set HARNESS MODEL [--quality-override Y|N] [--price-override Y|N] [--level LEVEL] [--dry-run] [--json]
 cast models update [HARNESS MODEL] [--dry-run] [--json]
 cast models defaults [--route price|quality] [--fallback off|price|quality] [--dry-run] [--json]
 cast -h | --help
@@ -79,7 +79,8 @@ nothing else: any other word is refused at exit 2.
 Each (harness, model) has its own rung ladder in `capabilities/tools/cast/supported-models.js`. Rule:
 `rung = ladder[min(N, ladder.length) - 1]`
 — asking for 5 on a 3-rung ladder clamps to that ladder's top rung, never a refusal. An `inert`
-ladder (`haiku-4-5`) accepts any N and emits no effort argv at all. `cast models list` prints the
+ladder (a model with no dial, such as the image model `cast api` calls) accepts any N and emits no
+effort argv at all. `cast models list` prints the
 resolved mapping per model with the clamping folded in (e.g. `glm-5.3  1=high 2-5=max`), so the
 number-to-rung answer is never inferred. The positional `<effort>` a bare launch takes is an
 integer 1-5 only — a rung word is refused at exit 2 — because the words `cast models list` prints look
@@ -187,7 +188,7 @@ model, effort, Ignite (`yes` when the agent's `ignite` pack is on, which `ignite
 the description from `agent.json`. The description is shortened to fit the line; with `--full`, or on
 a terminal too narrow for the table, each agent is a labeled block with its whole description. An agent that cannot
 be launched is named with the reason, and is never a row of the table: an unreadable record, or a
-model the launch check refuses, as in `tiny: cannot be launched: model not selected: cast models add claude haiku-4-5`.
+model the launch check refuses, as in `tiny: cannot be launched: model not selected: cast models add claude haiku-5-5`.
 `--json` prints `{folder, agents}`, where such an agent is `{name, home, problem}`. The models are
 `cast models list`: `cast list --models` is refused and names that command.
 
@@ -247,7 +248,7 @@ A headless launch whose model fails to start can run another model in its place.
 
 A launch fails to start in two cases: the harness program cannot be started, or the harness exits with a failure, and without a signal, less than 15 seconds after cast started it. A harness that cannot reach its model ends in 2.4 to 3.2 seconds on `claude`, `codex` and `opencode` (measured 2026-10-07 with a model name no provider has). A provider that refuses a launch for a spending limit ended `opencode` with exit 1 in about 4 seconds (measured 2026-10-08 in an Ignite turn on `grok-4.7`, which then ran its first fallback); the same refusal on `claude` and `codex` is not measured. A failure after 15 seconds can follow work the agent already did, and a second run would repeat that work, so the launch ends with that failure and exit code. A job that stays alive without progress is not a failure to start: `cast monitor` reports it and nothing relaunches it.
 
-The candidates are the other models of the failed model's level in the [model catalog](../../glossary/model-catalog.md): `cli` rows with `use` `route` whose login is present, models of the provider that just failed included. A model listed at two levels falls back inside the higher one. They are ranked as `cast route` ranks a level, overrides included: by `price`, cheapest first, a row with a blank cost left out; by `quality`, on the reasoning and coding scores added, because a launch does not say which kind of task it runs. The order does not depend on the failed model, so with three models at three prices a failure of the middle one tries the cheapest first and the dearest second.
+The candidates are the other models of the failed model's level in the [model catalog](../../glossary/model-catalog.md): every selected `cli` model of that level whose login is present, models of the provider that just failed included. An image model is never a candidate. A model listed at two levels falls back inside the higher one. They are ranked as `cast route` ranks a level, overrides included: by `price`, cheapest first, a row with a blank cost left out; by `quality`, on the reasoning and coding scores added, because a launch does not say which kind of task it runs. The order does not depend on the failed model, so with three models at three prices a failure of the middle one tries the cheapest first and the dearest second.
 
 The launch tries the candidates in that order, each in the same launch folder with the same task and the same system prompt, while each one fails to start. The first one that starts is the launch: cast exits with its exit code, whatever that is. A fallback launches at the effort the launch asked for. A dial number is passed as given. An agent's own rung word becomes its place on its model's ladder, and the top rung becomes 5, so the highest effort stays the highest; a model with no dial gives 3.
 
@@ -297,7 +298,10 @@ disagrees — it lists `high,xhigh` for `sakana/fugu`, where the binary accepts 
 used to be the one exception (the provider was uncredentialed and so invisible to the binary), and
 the cache was wrong there too: it claimed `xhigh` for `grok-4.6`, which the binary does not list.
 xai is authenticated via opencode oauth as of 2026-08-13 and both grok ladders are now measured
-(`low,medium,high`). A model with no variants at all (`zai-coding-plan/glm-4.7`) is inert: any
+(`low,medium,high`). The `variants` keys are what opencode accepts, not what the provider does:
+they list `minimal` for `google/gemini-3.8-flash`, and Google refuses that level for the model
+(measured 2026-10-10), so the rung is left out of its ladder. Launch the lowest and the highest
+rung of a new model once before entering its ladder. A model with no variants at all (`zai-coding-plan/glm-4.7`) is inert: any
 effort number, no `--variant` argv.
 
 The (harness, model) → argv/effort table lives in `capabilities/tools/cast/supported-models.js`; the model catalog
@@ -343,20 +347,21 @@ catalog](documentation/personalizing-the-model-catalog.md).
 | `--type` | Code, or prose/analysis? | Picks the tie-break axis (`coding` vs `reasoning`). **Planning is TEXT**, even for a coding job. |
 | `--class` | How bounded is the work? | Picks BOTH the ONE eligible level and the effort (table below). |
 | `--optimize` | Cheapest that qualifies, or best that qualifies? (optional) | The selection rule among survivors. Omitted → the installation's default, and price where it sets none, identical to passing that value. |
-| `--caps` | A specific capability? (optional) | `image` SHORT-CIRCUITS to the L4 image row and skips every other question. |
+| `--caps` | A specific capability? (optional) | `image` SHORT-CIRCUITS to the image model and skips every other question. An image model has no level, so this flag is the only way to it. |
 
-| `--class` | Eligible levels | Effort (code / text) |
-|---|---|---|
-| `planner` | SOTA | 3 / 3 — a **FLOOR** (`effort_is_floor: true`); the CALLING AGENT raises it for criticality, complexity or blast radius. Route does not decide that. |
-| `broad` | L1 | 2 / 3 |
-| `bounded` | L2 | 2 / 2 |
-| `mechanical` | L3 | 1 / 1 |
+| `--class` | The work | Eligible level | Effort (code / text) |
+|---|---|---|---|
+| `planner` | Strategy and architecture: decides what gets built and what others do. | SOTA | 3 / 3 — a **FLOOR** (`effort_is_floor: true`); the CALLING AGENT raises it for criticality, complexity or blast radius. Route does not decide that. |
+| `broad` | A wide investigation that has to choose its own approach. | L1 | 2 / 3 |
+| `bounded` | A bounded problem solved with local implementation judgment. | L2 | 2 / 2 |
+| `mechanical` | An explicit bounded operation, extraction and classification included, with checks; anything ambiguous is escalated, not decided. | L3 | 1 / 1 |
 
 **One level per class (owner ruling 2026-09-24).** Each class sees exactly one level, so
 `--optimize` only reorders rows of that level: a bounded job never reaches an L1 model and only
 `planner` reaches SOTA. While `planner` and `bounded` spanned two levels, the price default handed
-them the cheaper level's row (planning went to an L1 model). A model the owner wants in two classes
-gets one line per level, and its override columns are set per line. haiku is normally routable as L3.
+them the cheaper level's row (planning went to an L1 model). A model an installation wants in two
+classes gets one line per level in that installation's file, and its override columns are set per
+line.
 
 **Price, a total order.** `price`: lowest `cost` → higher score → alphabetical harness, then model.
 `quality`: highest level within the class's own levels → higher score → lower cost → alphabetical.
@@ -370,8 +375,16 @@ class's level is the ONLY thing standing between a job and the cheapest model in
 is what makes level curation load-bearing.
 
 **Blank cells** (the owner fills them over time): a blank `cost` sits OUT of every price-ranked
-pick — `--optimize price` AND the default — and stays eligible for `quality` — unknown is not cheap; a blank `level` excludes the row entirely; a
+pick — `--optimize price` AND the default — and stays eligible for `quality` — unknown is not cheap; a blank `level` excludes the row from every class; a
 blank score reads as 0 in tie-breaks. Every exclusion appears in `--explain`.
+
+**Every selected model competes.** A row of the model catalog in force is a candidate for the class
+of its level, subject to its login and to `--access`. No column takes a selected model out of
+routing: to keep a model out, unselect it with `cast models remove`.
+
+**An image model is chosen by capability alone.** Its row carries `image=Y` and no level and no
+score. `--caps image` answers it; no class ranks it, names it or lists it as an alternate, whatever
+its other cells hold, and no fallback runs it.
 
 Pipeline order: parse flags → load the model catalog in force → join `supported-models.js` → availability →
 image short-circuit → access → caps → class levels → optimize → effort. `--explain` attaches the full
@@ -429,8 +442,8 @@ key — which is the honest answer, not a bug.
 
 The [model catalog](../../glossary/model-catalog.md) is the table of the models an installation selects:
 its entry defines the files (the shipped one beside `cast.js`, the installation's
-`.rbtv/config/cast/models.csv`, and which is in force), what a row selects, every column, the three
-`use` values, the two overrides and a model listed at two levels. A [supported
+`.rbtv/config/cast/models.csv`, and which is in force), what a row selects, every column, the two
+overrides and a model listed at two levels. A [supported
 model](../../glossary/supported-model.md) is a row of `capabilities/tools/cast/supported-models.js`; a
 [selected model](../../glossary/selected-model.md) is a supported model with a row in the model catalog
 in force. `cast route` joins the two on harness+model, and a row with no supported model is excluded
@@ -451,10 +464,13 @@ one next command:
 
 The installation's file is read strictly, because it gates every launch in the installation, the
 daemon's included. Cells are read by header name; a column the header does not carry reads blank
-(a blank `use` is `route`, a blank `level` is not routed). An unknown column, a missing `mode`,
+(a blank override is `N`, a blank `level` is not routed). An unknown column, a missing `mode`,
 `harness` or `model` column, a row whose cell count is not the header's (what a decimal comma
 makes), or a blank `mode`, `harness` or `model` cell refuses with the file and the line: a skipped
-row would silently unselect a model. `cast route` answers the same failure as
+row would silently unselect a model. A file written while the model catalog had a `use` column is
+such a file: it is refused with `unknown column 'use'` until that column is deleted from it, as
+[Personalizing the model catalog](documentation/personalizing-the-model-catalog.md#7-a-file-that-still-has-a-use-column)
+says. `cast route` answers the same failure as
 `{"error":"no_models"}`. cast replaces the file in one step (a temporary file, then a rename) and
 keeps the file's own line ending.
 
@@ -467,9 +483,9 @@ where its usage figure comes from (`usage`). `stores` says where a harness keeps
 Add a provider there before a supported model names it; `test_route.js` fails on a row whose
 provider or harness the file does not list.
 
-Removing a row from the model catalog in force unselects that model: `cast claude haiku-4-5 1` is
-then refused with `cast models add claude haiku-4-5`. A model that should stay launchable and never
-be routed keeps its row with `use=off`. `cast models list --catalog` shows every row with its
+Removing a row from the model catalog in force unselects that model: `cast claude haiku-5-5 1` is
+then refused with `cast models add claude haiku-5-5`, and `cast route` and a fallback no longer
+name it. `cast models list --catalog` shows every row with its
 columns, whether it is launchable (cast supports it) and whether its login is present right now.
 
 ### `cast models`: list, add, remove
@@ -484,10 +500,10 @@ the model catalog it read or changed.
 | `cast models list` (`--selected`, the default) | the models that can be launched here, cli and api, each with what every effort number means on it, then `N of M supported models are selected.` |
 | `cast models list --supported` | every model this copy of cast can launch, with `selected` yes or no |
 | `cast models list --catalog` | every row of the model catalog in force with its routing columns, `launchable` and `available`; a row cast does not support is shown |
-| `cast models add HARNESS MODEL` | selects a supported model: appends its row from the shipped model catalog (every level it is listed at) under the installation file's own header, and prints each row with what its `use` value means. No login is checked |
+| `cast models add HARNESS MODEL` | selects a supported model: appends its row from the shipped model catalog (every level it is listed at) under the installation file's own header, and prints each row. No login is checked |
 | `cast models remove HARNESS MODEL` | deletes the model's rows from the installation's file; a row cast does not support can be removed |
-| `cast models set HARNESS MODEL [--use route\|panel\|off] [--quality-override Y\|N] [--price-override Y\|N] [--level LEVEL]` | writes the cells an installation owns. `--use` holds for every level of the model. An override belongs to one level: a model listed at two levels takes `--level`. A column the file's header lacks is added |
-| `cast models update [HARNESS MODEL]` | copies the cells rbtv proposes (`efforts`, `image`, `level`, `reasoning`, `coding`, `cost`) from the shipped model catalog, for every selected model or for one, and lists each changed cell. It writes only columns the file's header carries, adds and removes no row, and never changes `use` or an override |
+| `cast models set HARNESS MODEL [--quality-override Y\|N] [--price-override Y\|N] [--level LEVEL]` | writes the cells an installation owns: the two overrides. An override belongs to one level: a model listed at two levels takes `--level`. A column the file's header lacks is added |
+| `cast models update [HARNESS MODEL]` | copies the cells rbtv proposes (`efforts`, `image`, `level`, `reasoning`, `coding`, `cost`) from the shipped model catalog, for every selected model or for one, and lists each changed cell. It writes only columns the file's header carries, adds and removes no row, and never changes an override |
 | `cast models defaults [--route price\|quality] [--fallback off\|price\|quality]` | shows the installation's defaults, or sets the ones named: how `cast route` ranks when a call gives no `--optimize`, and how a launch ranks the [fallback](#fallback) of a model that fails to start (`off`: it runs none). They are kept in `.rbtv/config/cast/defaults.json`; a key the file lacks reads cast's own value, `price` and `off` |
 
 HARNESS and MODEL are the words of a launch; an api model takes harness `api`. `--dry-run` on every
@@ -532,56 +548,49 @@ being `null` while the installation sets none. A
 refusal under `--json` is `{error, message, next}` on standard output, with nothing on standard
 error.
 
-L4 is the image tier and no class admits it, so an L4 row is reachable ONLY through
-`--caps image`.
-
 ## `cast api`
 
-API workers are model catalog rows with `mode: api`, and since 2026-08-20 they are **Google only**: the
-Gemini chat worker (`gemini-3.5-flash`) and the Google image-generation worker. The Manus and
-DeepSeek api rows and their runner clients were deleted — DeepSeek survives through its opencode
-CLI rows. Rows are addressed by short name, never by provider.
+`cast api` generates and edits images, and does nothing else. API workers are model catalog rows
+with `mode: api`, and cast supports one: the Google image-generation worker,
+`gemini-3.1-flash-image`. A call without `--image` is refused at exit 2 and names `cast route -h`:
+text and code work run through a harness, and the general Gemini models, like DeepSeek, have
+opencode CLI rows. Rows are addressed by short name, never by provider.
 
 ```
-cast api <model> <effort 1-5> (-p TEXT | -f FILE) --output-folder DIR [--image [--input-image PATH ...]] [--target-file PATH] [--timeout N] [--grounded] [--extra-params JSON] [--dry-run]
+cast api <model> <effort 1-5> (-p TEXT | -f FILE) --output-folder DIR --image [--input-image PATH ...] [--target-file PATH] [--timeout N] [--extra-params JSON] [--dry-run]
 ```
 
 `-p TEXT` and `-f FILE` (alias `--prompt-file`) are mutually exclusive; `-p` writes the task to
 `<output-folder>/task.md` so it sits beside the result it produced. A `-f` file that is not there or
 cannot be read, and a task that is empty or only whitespace, are refused with exit 2 in the words
 of a launch, with and without `--dry-run`, before the output folder is written and before the
-Python program starts. Effort 1–5 maps onto the
-provider's reasoning knob where one exists (gemini `thinkingBudget`, 1 = off). A caller-supplied
-`--extra-params` is merged, not replaced. `--dry-run` prints the composed subprocess argv as JSON
-`{argv, cwd, effort_word}` and exits 0 with no spawn, no network, and nothing written to disk.
+Python program starts. The effort number is required and checked, and has no effect: an image
+model has no dial. `--extra-params` is a JSON object sent to the provider as request parameters.
+`--target-file` appends a file's text to the task. `--dry-run` prints the composed subprocess argv
+as JSON `{argv, cwd}` and exits 0 with no spawn, no network, and nothing written to disk.
 
-**`--image`** is the image-generation path: the task goes in, image FILES come out into
-`--output-folder`. It asks for no JSON envelope and parses none — the model's inline image parts
-ARE the return, written as `image-1.png`, `image-2.jpg`, … A run that comes back with no inline
-image data is `DONE_WITH_NOTES`, never a clean `DONE`. `--image` and `--grounded` are refused
-together: they are two incompatible return surfaces.
+**`--image`** is required on every call: the task goes in, image FILES come out into
+`--output-folder`. The model's inline image parts ARE the return, written as `image-1.png`,
+`image-2.jpg`, … Text the model sends with them is kept as `raw-output.md`. A run that comes back
+with no inline image data is `DONE_WITH_NOTES`, never a clean `DONE`.
 
 **`--input-image PATH`** (repeatable) sends an EXISTING image file IN alongside the task —
 "edit this picture", "restyle this logo", "use this as reference" — instead of only text-to-image.
-Requires `--image`; refused without it. Each path must exist and be readable, and its extension
+Each path must exist and be readable, and its extension
 must be one of `png`/`jpg`/`jpeg`/`webp`/`gif` — anything else is refused rather than guessed at.
 The runner (`run.py`) reads each file, base64-encodes it, and builds the user message as a
 provider-neutral part list (`clients/base.py Message.content`, already typed to allow it): a text
 part carrying the task, then one image part per `--input-image`, in the order given. Only
 `clients/gemini.py` translates that list onto Google's wire shape (`inlineData` with `mimeType` +
-`data`) — `run.py` itself stays provider-agnostic. With no `--input-image`, the message stays a
-plain string exactly as before — zero behaviour change on the existing text-to-image and text-only
-paths. An unrecognised part type in the neutral list raises rather than being silently dropped.
+`data`) — `run.py` itself stays provider-agnostic. With no `--input-image`, the message is a
+plain string. An unrecognised part type in the neutral list raises rather than being silently dropped.
 
-⚠ **The image row ships with a BLANK model id** — the owner has not picked the model yet. While it
-is blank, `cast route --caps image` returns a verdict with an empty `model` and `cast api` refuses
-to call it. Filling the id in BOTH `models.csv` and `supported-models.js` (identically) is all that is
-needed. ⚠ **The image call has never been made live** — `GEMINI_API_KEY` is absent on this box, so
-the path is verified by `--dry-run` and by unit tests over the request payload and the
-inline-image parsing, not by a real call.
+An image job goes through two commands: `cast route --caps image` names the image model, and
+`cast api <that model> 1 --image ...` generates with it. The image row is `image=Y` in the model
+catalog under the same model name as its `supported-models.js` row.
 
-The runner always writes `return.json` `{status: DONE|DONE_WITH_NOTES|BLOCKED, landed, validation,
-concerns, open_questions}` under `--output-folder`, prints `"{status} | N file(s)"`, and exits 0
+The runner always writes `return.json` `{status: DONE|DONE_WITH_NOTES|BLOCKED, landed, validation:
+{finish_reason, file_count, artifact_count}, concerns, open_questions}` under `--output-folder`, prints `"{status} | N file(s)"`, and exits 0
 unless `BLOCKED` (then 1). Key resolution is `{PROVIDER}_API_KEY` in the OS env first, then the
 environment file (`.rbtv/config/env/.env`) of the installation that holds the folder `cast api`
 runs in.
@@ -594,8 +603,8 @@ runs in.
 | `capabilities/tools/cast/cast.json` | the tool record: the name `cast`, its listing description and the executable `cast.js` |
 | `capabilities/tools/cast/supported-models.js` | the supported models: LAUNCH mechanics only — harness-native id, effort ladder, provider (see Spec source) |
 | `capabilities/tools/cast/providers.json` | the providers: login method, key variable, credential-store entry per harness, saved-login files, usage source |
-| `capabilities/tools/cast/models.csv` | the shipped model catalog — level, scores, cost, image, `use` for every supported model. In force wherever an installation has no model catalog of its own. Lives beside this tool so routing does not depend on any other tree |
-| `capabilities/tools/cast/api/` | the Python program `cast api` runs (`run.py`), its provider clients (`clients/`) and their tests (`tests/`) |
+| `capabilities/tools/cast/models.csv` | the shipped model catalog — level, scores, cost and image flag for every supported model, with the two override columns left blank. In force wherever an installation has no model catalog of its own. Lives beside this tool so routing does not depend on any other tree |
+| `capabilities/tools/cast/api/` | the Python program `cast api` runs for an image call (`run.py`), its provider client (`clients/`) and their tests (`tests/`) |
 | `capabilities/tools/cast/test_cast.js` | the suite for the CLI and its `lib/` modules, `route.js` excepted (see Self-check) |
 | `capabilities/tools/cast/test_route.js` | the suite for `cast route` (see Self-check) |
 | `capabilities/tools/cast/lib/installation.js` | the installation a launch belongs to (first folder upward holding `.rbtv/config/install.json`) and its environment file |
@@ -616,7 +625,7 @@ runs in.
 | `capabilities/tools/cast/lib/provider-limit.js` | recognizing a provider usage limit in a harness log, and the reason and reset time reported for it |
 | `capabilities/tools/cast/lib/optional.js` | loading `monitor.js` and `provider-limit.js` so that a failure in either leaves every other verb working |
 | `capabilities/tools/cast/lib/route.js` | `cast route` — the selector |
-| `capabilities/tools/cast/lib/api.js` | `cast api` — the API-worker runner (Google only) |
+| `capabilities/tools/cast/lib/api.js` | `cast api` — the image-generation runner (Google only): its options, its refusals and the argv of the Python program |
 | `capabilities/tools/cast/lib/help.js` | `-h` output: the top-level page, the per-verb pages, and one page for each verb of `cast models` |
 
 `ignite turn` (exact session id, resume with the requested model/effort, result file) is not in this folder: it is `core/ignite/capabilities/tools/ignite/turn.js`, in the Ignite tool. `spark` has its own folder and page: [spark](../spark/spark.md).
@@ -640,6 +649,7 @@ node capabilities/tools/cast/test_route.js      # -> all route tests passed
 python3 -m pytest capabilities/tools/cast/api/tests/ -q
 ```
 
-`test_route.js` asserts EXACT verdicts against the shipped `models.csv`, so editing that file's
-levels, scores or costs reddens the suite on purpose: the CSV IS the routing decision, and a silent
-edit to it silently changes every answer route gives.
+`test_route.js` checks verdicts against a table the suite writes for itself. One arm reads the
+shipped `models.csv`: it checks its structure and pins the level and the two scores of every model,
+so a changed level or score in that file reddens the suite on purpose until the same change is
+made in that arm. A changed cost reddens nothing.

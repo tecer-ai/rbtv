@@ -21,18 +21,21 @@ A generative panel (one that produces solutions, designs or drafts rather than r
 
 ## Models
 
-One `cast route` call for the task sets the class and effort for the whole panel. On the model axis the roster is, by default, every model at the class's level plus every model at the level directly below it, read from `cast models list --catalog --json`; the top-verdict-only rule is relaxed for a panel because its point is to hear several models, not the best one.
+One `cast route` call for the task sets the class and effort for the whole panel. Only the model is chosen differently: the rule that a job launches the verdict's top worker is relaxed for a panel, because its point is to hear several models, not the best one. On the model axis the roster is built from the installation's model catalog, `cast models list --catalog --json`, in this order:
 
-| Class (its level) | Panel levels |
-|---|---|
-| planner (SOTA) | SOTA + L1 |
-| broad (L1) | L1 + L2 |
-| bounded (L2) | L2 + L3 |
-| mechanical (L3) | L3 only; L4 is the image tier, never on a panel |
+1. Take every row at the class's level and every row at the level directly below it. `mechanical` has no level below, so its panel is `L3` only.
 
-- Eligible rows: `use` reads `route` or `panel`. A `panel` row is a model the owner wants heard on a panel but never named as a single verdict. A `use: off` row is out.
-- A model listed at both levels sits once. A row that cannot run the job drops, and the drop is named in the synthesis (`--access open` drops api rows; a row whose credential does not resolve cannot launch).
-- Never above the class's own level. The verdict's effort applies to every panelist.
+   | Class (its level) | Panel levels |
+   |---|---|
+   | planner (SOTA) | SOTA + L1 |
+   | broad (L1) | L1 + L2 |
+   | bounded (L2) | L2 + L3 |
+   | mechanical (L3) | L3 |
+
+2. Drop every row that cannot run this job: an image model (`image` is `Y`; it has no level and never sits on a panel), a row whose `launchable` is not `yes` or whose `available` is not `true`, and a row the job itself rules out, such as an api row when the panelists must discover files (`--access open`).
+3. Seat each model once: a model the catalog lists at both levels takes one seat.
+
+Every model the installation selects is eligible; the catalog has no setting that reserves a model for panels or keeps one off them. Name each drop of step 2 in the synthesis. Never seat a model above the class's own level. The verdict's effort applies to every panelist.
 
 The full roster is the default because a hand-picked panel drifts toward the models the coordinator already trusts, and an agreement among two models of one provider is weaker than it looks. Show the roster in the plan you present before launching (coordinate skill, rule 1); the user's budget answer is where it narrows. When you narrow it yourself, say which models were left out and why in the synthesis.
 

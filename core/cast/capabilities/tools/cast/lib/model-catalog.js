@@ -5,8 +5,8 @@
 // Three files decide what a launch may name:
 //   supported-models.js   what this copy of cast can launch: harness-native id, effort ladder,
 //                         provider. Code.
-//   models.csv, beside it the shipped model catalog: the routing columns rbtv proposes, with at
-//                         least one row for every supported model.
+//   models.csv, beside it the shipped model catalog: the routing columns rbtv proposes, with one
+//                         row for every supported model.
 //   <installation>/.rbtv/config/cast/models.csv
 //                         the installation's model catalog. A row SELECTS its harness+model for
 //                         that installation and carries its routing columns. While the file is
@@ -33,12 +33,12 @@ const CATALOG_REL = path.join('.rbtv', 'config', 'cast', CATALOG_NAME);
 const SUPPORTED_FILE = path.join(__dirname, '..', 'supported-models.js');
 
 const COLUMNS = ['mode', 'harness', 'model', 'efforts', 'image', 'level',
-  'reasoning', 'coding', 'cost', 'use', 'quality-override', 'price-override'];
+  'reasoning', 'coding', 'cost', 'quality-override', 'price-override'];
 // Who a cell belongs to. rbtv proposes the facts about a model and `cast models update` copies
 // them from the shipped model catalog; the installation decides the rest, and only
 // `cast models set` writes those.
 const SHIPPED_COLUMNS = ['efforts', 'image', 'level', 'reasoning', 'coding', 'cost'];
-const OWN_COLUMNS = ['use', 'quality-override', 'price-override'];
+const OWN_COLUMNS = ['quality-override', 'price-override'];
 // A row is nothing without these three; every other column may be absent and then reads blank.
 const REQUIRED_COLUMNS = ['mode', 'harness', 'model'];
 
