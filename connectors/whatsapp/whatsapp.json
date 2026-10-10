@@ -1,0 +1,4 @@
+{
+  "description": "WhatsApp messages, chats, contacts and groups of a personal account linked as a device; other messaging services belong in their own connector components.",
+  "dependencies": ["python", "wacli"]
+}
