@@ -23,8 +23,6 @@ Give the conclusion and the information needed for the next decision in chat. Li
 
 For speech, state the outcome and necessary reasoning in sentences the listener can follow. Put paths, identifiers, tables and text the user must copy in accompanying written material.
 
-On Slack, keep one topic per message and reply in the thread where the request arrived. Start a message needing the owner's answer with `❓`; start optional reasoning, grounding notes and progress remarks with `💭`. Keep an ask separate from an optional note and omit decorative emoji, including a thread marker.
-
 ## Questions
 
 Ask only for information or decisions the task does not already settle. Ask no more than five questions at once. For a decision, give named options with their consequences and recommend one with a reason. Ask a direct factual question when options would invent the missing fact. An explicitly requested interview or other question method follows its own protocol.
