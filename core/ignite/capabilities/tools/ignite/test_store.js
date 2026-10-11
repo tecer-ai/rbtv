@@ -37,6 +37,10 @@ function ownerMessage(id, text = 'hello') {
   return { id, role: 'owner', text, team: 'T1', channel: 'C1', ts: id };
 }
 
+function parsePayload(store, id) {
+  return JSON.parse(store.db.prepare('SELECT payload FROM queue WHERE id=?').get(id).payload);
+}
+
 function launch() {
   return { harness: 'claude', model: 'm', effort: 'high' };
 }
@@ -165,22 +169,134 @@ test('2c clearHold is explicit and wakes do not unhold', (store) => {
   assert.ok(store.claimNext());
 });
 
-test('2d one pending scheduled wake per agent', (store) => {
+function timer(store, id, extra = {}) {
+  return store.upsertSchedule({
+    id, conversationKey: 'T1:C1:1.1', cadence: 'every:1h', timezone: 'fixed', nextAt: 1_000, note: id, ...extra,
+  });
+}
+
+function timerWakes(store) {
+  return store.db.prepare("SELECT id, state, payload FROM queue WHERE kind='schedule' ORDER BY id").all();
+}
+
+test('2d timer wakes are de-duplicated by timer and occurrence, never by another pending timer', (store) => {
   conv(store);
-  store.upsertConversation({ key: 'T1:C2:2.2', agent: 'master', workspace: 'T1', channel: 'C2', rootTs: '2.2' });
-  const first = store.enqueueScheduleWake({ id: 'sw1', conversationKey: 'T1:C1:1.1', scheduleId: 's1' });
-  assert.equal(first.inserted, true);
-  const second = store.enqueueScheduleWake({ id: 'sw2', conversationKey: 'T1:C2:2.2', scheduleId: 's2' });
-  assert.equal(second.inserted, false);
-  assert.equal(second.reason, 'duplicate');
-  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM conversations').get().n, 3);
+  const briefing = timer(store, 'briefing');
+  const mail = timer(store, 'mail');
+  assert.deepEqual(store.dueSchedules(1_000).map((row) => row.id), ['briefing', 'mail']);
+  const first = store.fireSchedule({ schedule: mail, nextAt: 5_000 });
+  assert.deepEqual([first.inserted, first.reason, first.advanced], [true, 'queued', true]);
+  const second = store.fireSchedule({ schedule: briefing, nextAt: 9_000 });
+  assert.deepEqual([second.inserted, second.reason, second.advanced], [true, 'queued', true]);
+  assert.deepEqual(timerWakes(store).map((row) => [row.id, row.state]),
+    [['schedule:briefing:1000', 'pending'], ['schedule:mail:1000', 'pending']]);
+  assert.deepEqual(store.pendingScheduleIds().sort(), ['briefing', 'mail']);
+  assert.equal(store.getSchedule('mail').next_at, 5_000);
+  assert.equal(store.getSchedule('briefing').next_at, 9_000);
+
+  // The same occurrence again, as after a crash between the wake and the advance: nothing new is recorded.
+  store.db.prepare("UPDATE schedules SET next_at=1000 WHERE id='mail'").run();
+  const repeat = store.fireSchedule({ schedule: mail, nextAt: 5_000 });
+  assert.deepEqual([repeat.inserted, repeat.reason, repeat.advanced], [false, 'duplicate', true]);
+  assert.equal(timerWakes(store).length, 2);
+  assert.equal(store.getSchedule('mail').next_at, 5_000);
+
+  // A later occurrence of the same timer is another wake, and a finished occurrence is never recorded again.
+  const later = store.fireSchedule({ schedule: store.getSchedule('mail'), nextAt: 8_000 });
+  assert.equal(later.inserted, true);
+  assert.equal(timerWakes(store).length, 3);
   const claim = store.claimNext();
   assert.equal(claim.kind, 'schedule');
-  const third = store.enqueueScheduleWake({ id: 'sw3', conversationKey: 'T1:C1:1.1' });
-  assert.equal(third.inserted, true);
-  store.finishRun(claim.runId, claim.nonce, {
-    invocationNonce: claim.nonce, output: '{}', disposition: 'completed', summary: 'board',
-  });
+  finish(store, claim, 'completed');
+  assert.equal(store.enqueueScheduleWake({ id: claim.id, conversationKey: 'T1:C1:1.1' }).reason, 'duplicate');
+  assert.equal(timerWakes(store).length, 3);
+});
+
+test('a refused timer wake advances nothing and the timer stays due', (store) => {
+  conv(store);
+  const owner = store.enqueue({ id: 'owner', conversationKey: 'T1:C1:1.1', availableAt: 1_000 });
+  finish(store, store.claimNext(1_000), 'waiting_owner');
+  const gated = timer(store, 'gated', { workId: owner.workId });
+  const refused = store.fireSchedule({ schedule: gated, nextAt: 5_000 });
+  assert.deepEqual([refused.inserted, refused.reason, refused.advanced], [false, 'refused', false]);
+
+  const mail = timer(store, 'mail', { checkTool: 'tools/mail-check.js', subject: 'Inbox' });
+  store.db.prepare("INSERT INTO settings(key, value, updated_at) VALUES ('agent_hold', '{\"reason\":\"x\",\"at\":1}', 1)").run();
+  const held = store.fireSchedule({ schedule: mail, nextAt: 5_000, details: { ids: ['m1'] } });
+  assert.deepEqual([held.inserted, held.reason, held.advanced], [false, 'agent_hold', false]);
+  assert.deepEqual(timerWakes(store), []);
+  assert.deepEqual(store.getSchedule('mail'), mail);
+  assert.deepEqual(store.getSchedule('gated'), gated);
+  assert.deepEqual(store.dueSchedules(1_000).map((row) => row.id), ['gated', 'mail']);
+
+  assert.equal(store.clearHold(), true);
+  const retried = store.fireSchedule({ schedule: mail, nextAt: 5_000, details: { ids: ['m1'] } });
+  assert.deepEqual([retried.inserted, retried.advanced], [true, true]);
+  assert.deepEqual(store.dueSchedules(1_000).map((row) => row.id), ['gated']);
+});
+
+test('a timer keeps its check tool, and a wake its details, across updates, advances and queue recovery', (store) => {
+  conv(store);
+  const mail = timer(store, 'mail', { checkTool: 'tools\\mail-check.js', subject: 'Inbox' });
+  assert.equal(mail.check_tool, 'tools/mail-check.js');
+  assert.equal(timer(store, 'shared', { checkTool: 'meeting-check' }).check_tool, 'meeting-check');
+  assert.equal(timer(store, 'plain').check_tool, null);
+  assert.equal(timer(store, 'shared', { checkTool: 'tools/meeting.js', note: 'moved' }).check_tool, 'tools/meeting.js');
+  for (const bad of ['', '  ', '/usr/bin/x', 'C:\\x.exe', '../x', 'tools/../../x', 'tools/', 'a\nb', 5]) {
+    assert.throws(() => timer(store, 'mail', { checkTool: bad, note: 'changed' }), /^Error: check must/);
+  }
+  assert.deepEqual(store.getSchedule('mail'), mail);
+
+  assert.equal(store.advanceSchedule('mail', 999, 7_000), false, 'a timer that moved is not advanced');
+  timer(store, 'off', { enabled: false });
+  assert.equal(store.advanceSchedule('off', 1_000, 7_000), true);
+  assert.deepEqual([store.getSchedule('off').enabled, store.getSchedule('off').next_at], [false, 7_000]);
+  assert.equal(store.getSchedule('mail').next_at, 1_000);
+  const details = { new: 2, items: [{ id: 'm1', subject: 'Olá' }] };
+  const fired = store.fireSchedule({ schedule: mail, nextAt: 7_000, details });
+  assert.equal(fired.inserted, true);
+  const { next_at: nextAt, updated_at: updatedAt, ...kept } = store.getSchedule('mail');
+  const { next_at: _n, updated_at: _u, ...before } = mail;
+  assert.equal(nextAt, 7_000);
+  assert.deepEqual(kept, before);
+
+  const payload = { scheduleId: 'mail', details };
+  let claim = store.claimNext();
+  assert.deepEqual(claim.payload, payload);
+  let now = Date.now();
+  for (let attempt = 1; attempt < MAX_ATTEMPTS; attempt++) {
+    now = store.failRun(claim.runId, 'boom', { now }).retryAt;
+    claim = store.claimNext(now);
+    assert.deepEqual(claim.payload, payload, `retry ${attempt}`);
+  }
+  assert.equal(store.failRun(claim.runId, 'boom', { now }).held, true);
+  assert.equal(store.claimNext(now + 60_000), null);
+  store.clearHold();
+  assert.deepEqual(store.claimNext(Date.now() + 1_000).payload, payload);
+
+  const plain = store.fireSchedule({ schedule: store.getSchedule('plain'), nextAt: null });
+  assert.equal(plain.advanced, true);
+  assert.deepEqual(parsePayload(store, 'schedule:plain:1000'), { scheduleId: 'plain' });
+  const spent = store.getSchedule('plain');
+  assert.deepEqual([spent.enabled, spent.next_at], [false, 1_000]);
+});
+
+test('an older database gains a nullable check column and loses the one-pending-wake index', (store, ctx) => {
+  conv(store);
+  timer(store, 'old', { note: 'kept', subject: 'Review' });
+  store.db.exec('ALTER TABLE schedules DROP COLUMN check_tool');
+  store.db.exec(`CREATE UNIQUE INDEX queue_one_pending_schedule ON queue(kind)
+    WHERE kind = 'schedule' AND state = 'pending'`);
+  store.enqueueScheduleWake({ id: 'waiting', conversationKey: 'T1:C1:1.1', scheduleId: 'old' });
+  const reopened = ctx.reopen();
+  assert.equal(reopened.db.prepare("SELECT name FROM sqlite_master WHERE name='queue_one_pending_schedule'").get(), undefined);
+  const old = reopened.getSchedule('old');
+  assert.deepEqual([old.check_tool, old.note, old.subject, old.next_at, old.enabled], [null, 'kept', 'Review', 1_000, true]);
+  assert.equal(reopened.dueSchedules(1_000)[0].check_tool, null);
+  assert.equal(reopened.fireSchedule({ schedule: old, nextAt: 5_000 }).inserted, true);
+  assert.deepEqual(timerWakes(reopened).map((row) => row.state), ['pending', 'pending']);
+  assert.equal(timer(reopened, 'new', { checkTool: './check.py' }).check_tool, './check.py');
+  assert.equal(ctx.reopen().getSchedule('new').check_tool, './check.py');
 });
 
 test('schedule wakes inherit only routing, never thread, work state, history or session', (store) => {

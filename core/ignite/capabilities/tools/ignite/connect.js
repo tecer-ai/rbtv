@@ -16,7 +16,7 @@ const { randomUUID } = require('node:crypto');
 const { loadConfig, updateConfig, agentHome, configPath, findWorkspace, slackToken } = require('./config.js');
 const { agentsFolder, isAgentFolder, isPath, readAgent, promptMissing, AGENT_JSON } = require('../../../../cast/capabilities/tools/cast/lib/agent');
 const { Slack } = require('./slack.js');
-const { Store, conversationKey } = require('./store.js');
+const { Store, conversationKey, checkTool } = require('./store.js');
 const { cadenceSpec, nextOccurrence, FIXED_TZ } = require('./schedule.js');
 const { boardPath, migrateBoard, preflightBoard, refreshBoard, refreshBoardAfterCommit, writeBoard } = require('./board.js');
 
@@ -75,6 +75,9 @@ Object, exactly one of cron, every, at:
   { "every": "<duration>", "tz": "fixed", "note": "<check>" }
   { "at": "<ISO datetime with offset>", "note": "<check>" }
 report defaults to when-useful. A missing cadence or timezone is refused.
+Each form also takes "check": "<path or command>", the timer's check tool, with
+the rules of ignite schedule add -h. Left out, the timer has no check; on a
+re-run, the timer already bound keeps the one it has.
 Binding a timer requires a valid <home>/_artifacts/board.md before opening SQLite.
 A committed timer whose board refresh fails still exits 0, with its id and
 "committed; board refresh pending" (--json adds warning). Do not repeat the mutation.
@@ -332,6 +335,12 @@ function scheduleFrom(file, now) {
   if (!body.note || !String(body.note).trim()) fail('--schedule-json note is required');
   const report = body.report || 'when-useful';
   if (report !== 'always' && report !== 'when-useful') fail('--schedule-json report must be always or when-useful');
+  let check;
+  try {
+    check = checkTool(body.check);
+  } catch (error) {
+    fail(`--schedule-json ${error.message}`);
+  }
   const spec = cadenceSpec({
     at: body.at || undefined,
     cron: body.cron || undefined,
@@ -339,7 +348,7 @@ function scheduleFrom(file, now) {
     tz: body.every != null ? undefined : body.tz || undefined,
   });
   const nextAt = spec.nextAt != null ? spec.nextAt : nextOccurrence(spec.cadence, spec.timezone, now);
-  return { ...spec, nextAt, note: String(body.note).trim(), report };
+  return { ...spec, nextAt, note: String(body.note).trim(), report, check };
 }
 
 function slackClient(config, deps) {
@@ -391,6 +400,7 @@ async function bindSchedule(ctx) {
       note: schedule.note,
       report: schedule.report,
       subject: bound?.subject ?? null,
+      checkTool: schedule.check ?? bound?.check_tool ?? null,
     });
     const warning = refreshBoardAfterCommit(home, store, [id]);
     return { scheduleId: id, warning };
@@ -424,7 +434,7 @@ function connectPlan(opts, home, schedule, pack) {
     `files: ${pack.before}${pack.after === pack.before ? '' : ` -> ${pack.after}`}`,
     'working files: would create',
     opts.dm ? 'channel: none (dm)' : `channel: ${opts['channel-name']}`,
-    `schedule: ${schedule ? `${schedule.cadence} ${schedule.timezone}` : 'none'}`,
+    `schedule: ${schedule ? `${schedule.cadence} ${schedule.timezone}${schedule.check ? ` check=${schedule.check}` : ''}` : 'none'}`,
     'writes: none',
     '',
   ].join('\n');
@@ -458,7 +468,7 @@ async function connectAgent(opts, flags, deps) {
       home,
       dm: opts.dm,
       channelName: opts['channel-name'] || null,
-      schedule: schedule ? { cadence: schedule.cadence, timezone: schedule.timezone } : null,
+      schedule: schedule ? { cadence: schedule.cadence, timezone: schedule.timezone, ...(schedule.check ? { check: schedule.check } : {}) } : null,
       writes: 'none',
     }, connectPlan(opts, home, schedule, pack));
     return 0;

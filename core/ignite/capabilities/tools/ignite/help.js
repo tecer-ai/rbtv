@@ -30,6 +30,13 @@ const CADENCE = `Cadence (exactly one of --at, --cron, --every; an empty cadence
       A fixed-interval recurrence: 30s, 5m, 2h or 1d. It is elapsed time with no
       timezone, so DST does not move it and --tz is refused.`;
 
+const CHECK = `  --check <path or command>
+      A check tool the waking service runs when the timer is due, before any model starts. It
+      answers nothing new, something new with details, or failed; only something new wakes the
+      agent. One executable and no arguments. With a / or \\ it is a path relative to the agent
+      home, for example tools/mail-check.js or ./mail-check.js; an absolute path or one holding
+      .. is refused. Without one it is a command found on PATH. Stored with / separators.`;
+
 const PAGES = {
   schedule: `ignite schedule — timers
 
@@ -39,7 +46,7 @@ Timers on _artifacts/board.md show enabled schedules with a next fire and pendin
 Commands
   add     Add a timer: one time (--at), a cron schedule (--cron --tz) or a fixed interval (--every).
   list    List this agent's timers.
-  change  Change a timer's cadence, note, report mode or enabled state.
+  change  Change a timer's cadence, note, report mode, check tool or enabled state.
   cancel  Cancel a timer.
 
 Next: ignite schedule COMMAND -h
@@ -49,7 +56,7 @@ Next: ignite schedule COMMAND -h
 
 usage: ignite schedule add (--at <ISO datetime with offset> | --cron "<5-field>" --tz <IANA zone> | --every <duration>)
                            --note <text> [--subject <title>] [--report always|when-useful]
-                           [--conversation <key>] [--json]
+                           [--check <path or command>] [--conversation <key>] [--json]
 
 Adds one enabled timer to this agent.
 
@@ -62,6 +69,8 @@ Other options:
       Links the timer to a board subject. A non-empty one-line title. Omitted means none.
   --report always|when-useful
       Report mode stored with the timer. Default: when-useful.
+${CHECK}
+      Omitted means none: every firing wakes the agent.
   --conversation <key>
       The conversation the timer belongs to. Default: IGNITE_CONVERSATION, which the waking
       program sets inside a turn. It must be a conversation in this agent's history; outside
@@ -87,7 +96,9 @@ Next: ignite schedule list
 usage: ignite schedule list [--json]
 
 Prints one line per timer, "<id> <cadence> <timezone> next=<next fire in epoch milliseconds>
-enabled=<true|false> <note>", or "no schedules" when there are none. --json prints {schedules}.
+enabled=<true|false> <note>", or "no schedules" when there are none. A timer with a check tool
+prints "check=<path or command>" before its note. --json prints {schedules}; each has check_tool,
+null for none.
 A read: it changes no timer, but it creates state.sqlite when the agent has none.
 
 ${SCHEDULE_CONTEXT}
@@ -101,7 +112,8 @@ Next: ignite schedule change -h
   'schedule change': `ignite schedule change — change a timer
 
 usage: ignite schedule change <id> [--at <ISO datetime with offset> | --cron "<5-field>" [--tz <IANA zone>] | --every <duration>]
-                              [--note <text>] [--report always|when-useful] [--enabled true|false] [--json]
+                              [--note <text>] [--report always|when-useful] [--check <path or command>]
+                              [--enabled true|false] [--json]
 
 Changes the timer <id>, as printed by ignite schedule list. An option left out keeps the timer's value.
 The board subject the timer is linked to is kept.
@@ -115,6 +127,8 @@ Other options:
   --note <text>                 Replace the note. Non-empty, as on ignite schedule add.
   --report always|when-useful   Replace the report mode.
   --enabled true|false          Turn the timer on or off. Any other value is refused.
+${CHECK}
+      Replaces or adds the check tool. No option removes one: cancel the timer and add it again.
 
 ${SCHEDULE_CONTEXT}
 Writes this agent's state.sqlite and refreshes Timers on _artifacts/board.md. A valid
@@ -154,7 +168,10 @@ Example: ignite schedule cancel 7f3c2a10
 usage: ignite schedules-due --now <ISO datetime>
 
 Enqueue a fresh conversation with no thread or resumed session; input is the schedule id only.
-While one schedule wake is pending, further dues are de-duplicated. Never enqueues for a held or stopped schedule, and never clears a hold.
+One wake per timer and occurrence: a wake already recorded is "duplicate" and is not recorded again, and
+another timer's pending wake never blocks one. A timer advances only once its wake is recorded.
+A timer with a check tool is reported as "check" and left due: this command runs no check.
+Never enqueues for a held or stopped schedule, and never clears a hold.
 ${REFUSED_WORDS}
 `,
 

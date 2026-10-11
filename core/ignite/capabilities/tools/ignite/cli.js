@@ -11,7 +11,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
-const { Store } = require('./store.js');
+const { Store, checkTool } = require('./store.js');
 const { loadConfig, updateConfig, agentHome, configPath, findWorkspace, DREAMER_MODEL, dreamerModelRequired } = require('./config.js');
 const { cadenceSpec, nextOccurrence, FIXED_TZ } = require('./schedule.js');
 const { writeBoard, closeSubject, boardPath, preflightBoard, refreshBoard, refreshBoardAfterCommit } = require('./board.js');
@@ -24,9 +24,9 @@ const REPORTS = new Set(['always', 'when-useful']);
 // What each verb takes beside --json, --agent, --installation and -h: its options, and the most
 // positional words. parseOpts refuses any other option and one word more.
 const VERBS = {
-  'schedule add': { options: ['at', 'cron', 'tz', 'every', 'note', 'subject', 'report', 'conversation'], words: 0 },
+  'schedule add': { options: ['at', 'cron', 'tz', 'every', 'note', 'subject', 'report', 'check', 'conversation'], words: 0 },
   'schedule list': { options: [], words: 0 },
-  'schedule change': { options: ['at', 'cron', 'tz', 'every', 'note', 'report', 'enabled'], words: 1 },
+  'schedule change': { options: ['at', 'cron', 'tz', 'every', 'note', 'report', 'check', 'enabled'], words: 1 },
   'schedule cancel': { options: [], words: 1 },
   'schedules-due': { options: ['now'], words: 0 },
   'work status': { options: ['conversation'], words: 0 },
@@ -278,6 +278,15 @@ function reportOf(opts, fallback) {
   return report;
 }
 
+function checkOf(opts, fallback = null) {
+  if (opts.check == null) return fallback;
+  try {
+    return checkTool(opts.check);
+  } catch (error) {
+    fail(`--${error.message}`);
+  }
+}
+
 function conversationOf(opts, deps) {
   const env = deps.env || process.env;
   const key = opts.conversation || env.IGNITE_CONVERSATION;
@@ -300,7 +309,7 @@ function cmdSchedule(rest, ctx, flags, deps, parsed) {
   if (action === 'list') {
     const rows = ctx.store.listSchedules();
     emit(deps, flags, { schedules: rows }, rows.length
-      ? `${rows.map((row) => `${row.id} ${row.cadence} ${row.timezone} next=${row.next_at} enabled=${row.enabled} ${row.note || ''}`).join('\n')}\n`
+      ? `${rows.map((row) => `${row.id} ${row.cadence} ${row.timezone} next=${row.next_at} enabled=${row.enabled} ${row.check_tool ? `check=${row.check_tool} ` : ''}${row.note || ''}`).join('\n')}\n`
       : 'no schedules\n');
     return 0;
   }
@@ -312,6 +321,7 @@ function cmdSchedule(rest, ctx, flags, deps, parsed) {
     if (!ctx.store.getConversation(key)) fail(`unknown conversation: ${key}`);
     const now = deps.now ? deps.now() : Date.now();
     const spec = addSpec(opts, now);
+    const check = checkOf(opts);
     preflightBoard(ctx.home);
     const row = ctx.store.upsertSchedule({
       id: randomUUID(),
@@ -323,6 +333,7 @@ function cmdSchedule(rest, ctx, flags, deps, parsed) {
       note,
       report: reportOf(opts),
       subject: opts.subject?.trim() ?? null,
+      checkTool: check,
     });
     const warning = refreshBoardAfterCommit(ctx.home, ctx.store, [row.id], now);
     emit(deps, flags, { schedule: row, ...(warning ? { warning } : {}) },
@@ -355,6 +366,7 @@ function cmdSchedule(rest, ctx, flags, deps, parsed) {
     }
     const enabled = opts.enabled == null ? existing.enabled : opts.enabled === 'true';
     if (opts.enabled != null && opts.enabled !== 'true' && opts.enabled !== 'false') fail('--enabled must be true or false');
+    const check = checkOf(opts, existing.check_tool);
     preflightBoard(ctx.home);
     const row = ctx.store.upsertSchedule({
       id,
@@ -367,6 +379,7 @@ function cmdSchedule(rest, ctx, flags, deps, parsed) {
       note: opts.note ?? existing.note,
       report: reportOf(opts, existing.report),
       subject: existing.subject,
+      checkTool: check,
     });
     const warning = refreshBoardAfterCommit(ctx.home, ctx.store, [row.id], now);
     emit(deps, flags, { schedule: row, ...(warning ? { warning } : {}) },
@@ -405,31 +418,14 @@ function cmdDue(ctx, flags, deps, { opts }) {
       results.push({ id: sched.id, inserted: false, reason: blocked, nextAt: sched.next_at });
       continue;
     }
-    const wake = ctx.store.enqueueScheduleWake({
-      id: `schedule:${sched.id}:${sched.next_at}`,
-      conversationKey: sched.conversation_key,
-      scheduleId: sched.id,
-      workId: sched.work_id,
-    });
-    if (!wake.inserted && wake.reason !== 'duplicate') {
-      results.push({ id: sched.id, inserted: false, reason: wake.reason, nextAt: sched.next_at });
+    // This command runs no check tool: a timer that has one stays due for the waking service.
+    if (sched.check_tool) {
+      results.push({ id: sched.id, inserted: false, reason: 'check', nextAt: sched.next_at });
       continue;
     }
-    const oneShot = sched.cadence.startsWith('at:');
-    const nextAt = oneShot ? sched.next_at : nextOccurrence(sched.cadence, sched.timezone, now);
-    ctx.store.upsertSchedule({
-      id: sched.id,
-      conversationKey: sched.conversation_key,
-      workId: sched.work_id,
-      cadence: sched.cadence,
-      timezone: sched.timezone,
-      nextAt,
-      enabled: !oneShot,
-      note: sched.note,
-      report: sched.report,
-      subject: sched.subject,
-    });
-    results.push({ id: sched.id, inserted: wake.inserted, reason: wake.reason, nextAt: oneShot ? null : nextAt });
+    const nextAt = nextOccurrence(sched.cadence, sched.timezone, now);
+    const wake = ctx.store.fireSchedule({ schedule: sched, nextAt });
+    results.push({ id: sched.id, inserted: wake.inserted, reason: wake.reason, nextAt: wake.advanced ? nextAt : sched.next_at });
   }
   refreshBoard(ctx.home, ctx.store, now);
   emit(deps, flags, { now, results }, results.map((row) => `${row.id} ${row.reason}`).join('\n') + (results.length ? '\n' : 'none due\n'));

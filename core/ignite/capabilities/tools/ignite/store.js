@@ -18,8 +18,10 @@
 // getWork(id) / listWork({ conversationKey })
 // enqueue({ id, conversationKey, payload, message, workId, availableAt }) — owner input only; reopens completed|stopped as a new work id; never unholds
 // wake({ workId, conversationKey, note }) — worker completion; false on completed|stopped|held|waiting_owner
-// enqueueScheduleWake({ id, conversationKey, scheduleId, workId }) — fresh threadless conversation;
-//   conversationKey supplies routing only, workId gates eligibility only. ≤1 pending per agent; never reopens or unholds
+// enqueueScheduleWake({ id, conversationKey, scheduleId, workId, details }) — fresh threadless conversation;
+//   conversationKey supplies routing only, workId gates eligibility only. An id already in the queue, in any
+//   state, is 'duplicate' and inserts nothing; other timers' wakes never block it. details, when given, is the
+//   check's JSON and stays in the row's payload through retries and holds. Never reopens or unholds
 // claimNext(now) — owner input before continuation; a pending owner row on completed|stopped work is reopened, then claimed
 // getActiveRun() — running row even if the process is dead; liveRun() — the row only when the process's start, read with cast's procStart, equals pidStart (string compare)
 // attachProcess(runId, { pid, pidStart, setting }) — freezes the launch snapshot for this run
@@ -33,8 +35,15 @@
 // stopOutbox(id, error) — state failed on the existing column; pendingOutbox no longer returns it. No new column.
 // rememberPost(id, { channel, ts }) — text already confirmed; row stays pending so file uploads can retry. No new column.
 // beginProactive({ id, agent, workspace, channel, payload, clientMsgId }) — activated; Slack key bound in markDelivered
-// upsertSchedule({ id, conversationKey, workId, cadence, timezone, nextAt, enabled, note, report, subject })
-// getSchedule(id) / listSchedules() / dueSchedules(now) / deleteSchedule(id)
+// checkTool(value) — the stored form of a timer's check tool, or null for none; throws on a value it refuses
+// upsertSchedule({ id, conversationKey, workId, cadence, timezone, nextAt, enabled, note, report, subject, checkTool })
+// advanceSchedule(id, occurrence, nextAt) — moves next_at only while it still equals occurrence; a null nextAt
+//   disables the timer (a spent one-shot). Every other column, enabled included, is kept. false when the timer
+//   moved or is gone
+// fireSchedule({ schedule, nextAt, details }) — one transaction: records the wake of the row's occurrence
+//   (its next_at) under the id schedule:<id>:<next_at>, then advances the timer. Returns enqueueScheduleWake's
+//   answer plus advanced; a refused wake (agent_hold, refused) advances nothing, a duplicate advances
+// getSchedule(id) / listSchedules() / dueSchedules(now) / deleteSchedule(id) — rows carry check_tool, null for none
 // pendingScheduleIds() — ids of schedule wakes still pending or running, including spent one-shots
 // transaction(fn)
 
@@ -62,6 +71,22 @@ function conversationKey(team, channel, rootTs) {
     if (String(part).includes(':')) throw new Error('conversation key parts cannot contain colon');
   }
   return `${team}:${channel}:${rootTs}`;
+}
+
+// One executable, never split into arguments. With a separator it is a path below the agent home;
+// without one it is a command found on PATH. Backslashes are stored as slashes.
+function checkTool(value) {
+  if (value == null) return null;
+  if (typeof value !== 'string' || !value.trim() || /[\r\n\0]/.test(value)) {
+    throw new Error('check must be a one-line path or command name');
+  }
+  const tool = value.trim().replaceAll('\\', '/');
+  if (/^(\/|[A-Za-z]:)/.test(tool)) {
+    throw new Error('check must be a path relative to the agent home or a command name, never an absolute path');
+  }
+  const parts = tool.split('/');
+  if (parts.includes('..') || !parts.at(-1)) throw new Error('check must name a file below the agent home');
+  return tool;
 }
 
 class Store {
@@ -130,8 +155,6 @@ class Store {
       CREATE INDEX IF NOT EXISTS queue_ready ON queue(state, priority, available_at, created_at);
       CREATE UNIQUE INDEX IF NOT EXISTS queue_one_pending_wake ON queue(work_id)
         WHERE kind = 'wake' AND state = 'pending' AND work_id IS NOT NULL;
-      CREATE UNIQUE INDEX IF NOT EXISTS queue_one_pending_schedule ON queue(kind)
-        WHERE kind = 'schedule' AND state = 'pending';
       CREATE TABLE IF NOT EXISTS runs (
         id TEXT PRIMARY KEY,
         queue_id TEXT NOT NULL REFERENCES queue(id),
@@ -172,6 +195,7 @@ class Store {
         note TEXT,
         report TEXT,
         subject TEXT,
+        check_tool TEXT,
         updated_at INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS settings (
@@ -181,9 +205,12 @@ class Store {
       );
     `);
     this.transaction(() => {
-      if (!this.db.prepare('PRAGMA table_info(schedules)').all().some((column) => column.name === 'subject')) {
-        this.db.exec('ALTER TABLE schedules ADD COLUMN subject TEXT');
+      const columns = this.db.prepare('PRAGMA table_info(schedules)').all().map((column) => column.name);
+      for (const added of ['subject', 'check_tool']) {
+        if (!columns.includes(added)) this.db.exec(`ALTER TABLE schedules ADD COLUMN ${added} TEXT`);
       }
+      // Older databases allowed one pending timer wake per agent; a wake is now identified by its queue id.
+      this.db.exec('DROP INDEX IF EXISTS queue_one_pending_schedule');
     });
   }
 
@@ -420,7 +447,7 @@ class Store {
         ORDER BY updated_at DESC, id DESC LIMIT 1`).get(conversationKeyValue));
   }
 
-  enqueueScheduleWake({ id, conversationKey: conversationKeyValue, scheduleId = id, workId = null }) {
+  enqueueScheduleWake({ id, conversationKey: conversationKeyValue, scheduleId = id, workId = null, details }) {
     if (!id || !conversationKeyValue) throw new Error('schedule wake id and conversation required');
     return this.transaction(() => {
       const source = this.getConversation(conversationKeyValue);
@@ -433,8 +460,7 @@ class Store {
           return { inserted: false, reason: 'refused', workId };
         }
       }
-      const pending = this.db.prepare(`SELECT id FROM queue WHERE kind='schedule' AND state='pending'`).get();
-      if (pending) return { inserted: false, reason: 'duplicate', id: pending.id };
+      if (this.db.prepare('SELECT id FROM queue WHERE id=?').get(id)) return { inserted: false, reason: 'duplicate', id };
       const key = `schedule:${randomUUID()}`;
       this.upsertConversation({
         key, agent: source.agent, workspace: source.workspace, channel: source.channel, activated: true,
@@ -442,7 +468,7 @@ class Store {
       this.db.prepare(`INSERT INTO queue
         (id, conversation_key, kind, payload, work_id, priority, available_at, created_at)
         VALUES (?, ?, 'schedule', ?, ?, ?, ?, ?)`).run(
-        id, key, json({ scheduleId }), null, AUTO_PRIORITY, Date.now(), Date.now(),
+        id, key, json({ scheduleId, details }), null, AUTO_PRIORITY, Date.now(), Date.now(),
       );
       return { inserted: true, reason: 'queued', id };
     });
@@ -783,23 +809,45 @@ class Store {
     return { ...row, enabled: row.enabled === 1 };
   }
 
-  upsertSchedule({ id, conversationKey: conversationKeyValue, workId = null, cadence, timezone, nextAt = null, enabled = true, note = null, report = null, subject = null }) {
+  upsertSchedule({ id, conversationKey: conversationKeyValue, workId = null, cadence, timezone, nextAt = null, enabled = true, note = null, report = null, subject = null, checkTool: tool = null }) {
     if (!id || !conversationKeyValue || !cadence || !timezone) {
       throw new Error('schedule id, conversation, cadence and timezone required');
     }
+    const check = checkTool(tool);
     return this.transaction(() => {
       if (!this.getConversation(conversationKeyValue)) throw new Error('unknown conversation');
       if (workId && !this.getWork(workId)) throw new Error('unknown work');
       this.db.prepare(`INSERT INTO schedules
-        (id, conversation_key, work_id, cadence, timezone, next_at, enabled, note, report, subject, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, conversation_key, work_id, cadence, timezone, next_at, enabled, note, report, subject, check_tool, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET cadence=excluded.cadence, timezone=excluded.timezone,
           next_at=excluded.next_at, enabled=excluded.enabled, note=excluded.note, report=excluded.report,
-          work_id=excluded.work_id, subject=excluded.subject, updated_at=excluded.updated_at`).run(
-        id, conversationKeyValue, workId, cadence, timezone, nextAt, enabled ? 1 : 0, note, report, subject, Date.now(),
+          work_id=excluded.work_id, subject=excluded.subject, check_tool=excluded.check_tool,
+          updated_at=excluded.updated_at`).run(
+        id, conversationKeyValue, workId, cadence, timezone, nextAt, enabled ? 1 : 0, note, report, subject, check, Date.now(),
       );
       return this.getSchedule(id);
     });
+  }
+
+  fireSchedule({ schedule, nextAt, details }) {
+    return this.transaction(() => {
+      const wake = this.enqueueScheduleWake({
+        id: `schedule:${schedule.id}:${schedule.next_at}`,
+        conversationKey: schedule.conversation_key,
+        scheduleId: schedule.id,
+        workId: schedule.work_id,
+        details,
+      });
+      const advanced = (wake.inserted || wake.reason === 'duplicate')
+        && this.advanceSchedule(schedule.id, schedule.next_at, nextAt);
+      return { ...wake, advanced };
+    });
+  }
+
+  advanceSchedule(id, occurrence, nextAt) {
+    return this.db.prepare(`UPDATE schedules SET next_at=COALESCE(?, next_at), enabled=COALESCE(?, enabled), updated_at=?
+      WHERE id=? AND next_at=?`).run(nextAt, nextAt == null ? 0 : null, Date.now(), id, occurrence).changes === 1;
   }
 
   getSchedule(id) {
@@ -825,4 +873,4 @@ class Store {
   }
 }
 
-module.exports = { Store, conversationKey, DISPOSITIONS, RETRY_DELAYS_MS, MAX_ATTEMPTS };
+module.exports = { Store, conversationKey, checkTool, DISPOSITIONS, RETRY_DELAYS_MS, MAX_ATTEMPTS };

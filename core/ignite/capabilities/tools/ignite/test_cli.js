@@ -896,6 +896,101 @@ test('schedule subjects and generated timers survive changes and dues; cancellat
   } finally { store.close(); fs.rmSync(home, { recursive: true, force: true }); }
 });
 
+test('schedule check tool: add, change and list carry it; a refused value changes nothing; a timer without one is as before', () => {
+  const home = tempHome();
+  fs.mkdirSync(path.dirname(boardPath(home)));
+  fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
+  const store = new Store(path.join(home, 'state.sqlite'));
+  const key = 'T1:C1:board';
+  const deps = { env: { RBTV_AGENT_HOME: home, IGNITE_CONVERSATION: key }, now: () => Date.parse('2026-10-03T12:00:00Z') };
+  const add = (...extra) => JSON.parse(run(['schedule', 'add', '--every', '5m', '--note', 'n', ...extra, '--json'], deps).out).schedule;
+  try {
+    store.upsertConversation({ key, agent: 'sample', workspace: 'T1', channel: 'C1', rootTs: 'board' });
+    const mail = add('--check', 'tools\\mail-check.js', '--subject', 'Inbox');
+    assert.equal(mail.check_tool, 'tools/mail-check.js');
+    const plain = add();
+    assert.equal(plain.check_tool, null);
+    assert.equal(add('--check', 'meeting-check').check_tool, 'meeting-check');
+
+    const lines = run(['schedule', 'list'], deps).out.split('\n');
+    assert.ok(lines.includes(`${mail.id} every:5m fixed next=${mail.next_at} enabled=true check=tools/mail-check.js n`));
+    assert.ok(lines.includes(`${plain.id} every:5m fixed next=${plain.next_at} enabled=true n`));
+    const listed = JSON.parse(run(['schedule', 'list', '--json'], deps).out).schedules;
+    assert.deepEqual(listed.map((row) => row.check_tool).sort(), ['meeting-check', 'tools/mail-check.js', null].sort());
+
+    const noted = JSON.parse(run(['schedule', 'change', mail.id, '--note', 'new note', '--every', '10m', '--json'], deps).out).schedule;
+    assert.deepEqual([noted.check_tool, noted.subject, noted.note], ['tools/mail-check.js', 'Inbox', 'new note']);
+    run(['schedule', 'change', mail.id, '--check', './mail.py'], deps);
+    assert.equal(store.getSchedule(mail.id).check_tool, './mail.py');
+    run(['schedule', 'change', plain.id, '--report', 'always'], deps);
+    assert.equal(store.getSchedule(plain.id).check_tool, null);
+    run(['schedule', 'change', plain.id, '--check', 'tools/late.js'], deps);
+    assert.equal(store.getSchedule(plain.id).check_tool, 'tools/late.js');
+
+    const before = store.listSchedules();
+    const boardBefore = fs.readFileSync(boardPath(home), 'utf8');
+    for (const bad of ['/usr/bin/x', 'C:\\x.exe', '../x', 'tools/', '', '  ']) {
+      assert.throws(() => run(['schedule', 'add', '--every', '5m', '--note', 'n', '--check', bad], deps), /--check/, `add ${bad}`);
+      assert.throws(() => run(['schedule', 'change', mail.id, '--note', 'lost', '--check', bad], deps), /--check/, `change ${bad}`);
+    }
+    assert.deepEqual(store.listSchedules(), before);
+    assert.equal(fs.readFileSync(boardPath(home), 'utf8'), boardBefore);
+
+    for (const page of ['schedule add', 'schedule change']) {
+      assert.match(PAGES[page], /\[--check <path or command>\]/);
+      assert.match(PAGES[page], /relative to the agent\s+home/);
+      assert.ok(VERBS[page].options.includes('check'));
+    }
+    assert.match(PAGES['schedule list'], /check=<path or command>/);
+    assert.match(PAGES['schedule list'], /check_tool/);
+  } finally { store.close(); fs.rmSync(home, { recursive: true, force: true }); }
+});
+
+test('schedules-due wakes every timer due together, records one occurrence once, and leaves refused and check timers due', () => {
+  const home = tempHome();
+  const store = new Store(path.join(home, 'state.sqlite'));
+  const key = 'T1:C1:board';
+  const env = { RBTV_AGENT_HOME: home };
+  const due = (at) => JSON.parse(run(['schedules-due', '--now', at, '--json'], { env }).out).results;
+  const wakes = () => store.db.prepare("SELECT id FROM queue WHERE kind='schedule' AND state='pending' ORDER BY id").all().map((row) => row.id);
+  try {
+    store.upsertConversation({ key, agent: 'a', workspace: 'T1', channel: 'C1', rootTs: 'board' });
+    for (const id of ['briefing', 'reminder']) {
+      store.upsertSchedule({ id, conversationKey: key, cadence: 'every:1h', timezone: FIXED_TZ, nextAt: 1_000, note: id });
+    }
+    store.upsertSchedule({
+      id: 'mail', conversationKey: key, cadence: 'every:5m', timezone: FIXED_TZ, nextAt: 1_000, note: 'mail', checkTool: 'tools/mail-check.js',
+    });
+    const at = Date.parse('2026-01-01T00:00:00Z');
+    const first = due('2026-01-01T00:00:00Z');
+    assert.deepEqual(first, [
+      { id: 'briefing', inserted: true, reason: 'queued', nextAt: at + 3_600_000 },
+      { id: 'mail', inserted: false, reason: 'check', nextAt: 1_000 },
+      { id: 'reminder', inserted: true, reason: 'queued', nextAt: at + 3_600_000 },
+    ]);
+    assert.deepEqual(wakes(), ['schedule:briefing:1000', 'schedule:reminder:1000']);
+    assert.equal(store.getSchedule('mail').next_at, 1_000);
+    assert.equal(store.getSchedule('mail').check_tool, 'tools/mail-check.js');
+
+    // The same occurrence due again, as after a crash before the advance: no second wake, and the timer moves on.
+    store.db.prepare("UPDATE schedules SET next_at=1000 WHERE id='briefing'").run();
+    const again = due('2026-01-01T00:00:00Z').find((row) => row.id === 'briefing');
+    assert.deepEqual(again, { id: 'briefing', inserted: false, reason: 'duplicate', nextAt: at + 3_600_000 });
+    assert.deepEqual(wakes(), ['schedule:briefing:1000', 'schedule:reminder:1000']);
+    assert.equal(store.getSchedule('briefing').next_at, at + 3_600_000);
+
+    // A wake the queue refuses leaves its timer where it was.
+    const waiting = store.enqueue({ id: 'owner', conversationKey: key, availableAt: 1 });
+    store.db.prepare("UPDATE work SET state='waiting_owner' WHERE id=?").run(waiting.workId);
+    store.upsertSchedule({ id: 'gated', conversationKey: key, workId: waiting.workId, cadence: 'every:1h', timezone: FIXED_TZ, nextAt: 2_000, note: 'gated' });
+    assert.deepEqual(due('2026-01-01T00:00:00Z').find((row) => row.id === 'gated'),
+      { id: 'gated', inserted: false, reason: 'refused', nextAt: 2_000 });
+    assert.equal(store.getSchedule('gated').next_at, 2_000);
+    assert.deepEqual(wakes(), ['schedule:briefing:1000', 'schedule:reminder:1000']);
+    assert.match(PAGES['schedules-due'], /One wake per timer and occurrence/);
+  } finally { store.close(); fs.rmSync(home, { recursive: true, force: true }); }
+});
+
 test('a schedules-due tick refreshes idle flags even with no due schedules', () => {
   boardFixture(({ home, file, candidate, text, deps }) => {
     const rootTs = `${Date.parse('2026-09-25T12:00:00Z') / 1000}.000000`;

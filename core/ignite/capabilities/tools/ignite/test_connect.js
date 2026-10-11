@@ -193,6 +193,77 @@ async function run(argv, extra = {}) {
     }
   });
 
+  await test('connect schedule JSON gives the first timer its check tool and seeds the board conversation for the next', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const home = installAgent(dir);
+    const schedule = path.join(dir, 'schedule.json');
+    const now = () => Date.parse('2026-10-01T12:00:00Z');
+    const args = ['connect', 'probe', '--channel-name', 'probe', '--schedule-json', schedule, '--installation', dir];
+    fs.writeFileSync(schedule, JSON.stringify({ every: '5m', tz: 'fixed', note: 'new mail', check: 'tools\\mail-check.js' }));
+    const plan = await run([...args, '--dry-run'], { slack: fakeSlack(), now });
+    assert.match(plan.out, /schedule: every:5m fixed check=tools\/mail-check\.js\n/);
+    assert.equal(fs.existsSync(path.join(home, 'state.sqlite')), false);
+    const result = await run([...args, '--json'], { slack: fakeSlack(), now });
+    assert.equal(result.code, 0, result.out + result.err);
+    const { scheduleId } = JSON.parse(result.out);
+    const env = { RBTV_AGENT_HOME: home };
+    const second = await run(['schedule', 'add', '--every', '5m', '--note', 'transcripts', '--check', 'meeting-check',
+      '--conversation', 'T1:CNEW:board', '--json'], { env, now });
+    assert.equal(JSON.parse(second.out).schedule.check_tool, 'meeting-check');
+    const store = new Store(path.join(home, 'state.sqlite'));
+    try {
+      const first = store.getSchedule(scheduleId);
+      assert.deepEqual([first.check_tool, first.note, first.conversation_key], ['tools/mail-check.js', 'new mail', 'T1:CNEW:board']);
+      assert.equal(store.listSchedules().length, 2);
+    } finally {
+      store.close();
+    }
+  });
+
+  await test('connect re-run without a check keeps the bound timer\'s check; a timer bound without one has none', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const home = installAgent(dir);
+    const schedule = path.join(dir, 'schedule.json');
+    const args = ['connect', 'probe', '--dm', '--schedule-json', schedule, '--installation', dir, '--json'];
+    const bound = () => {
+      const store = new Store(path.join(home, 'state.sqlite'));
+      try { return store.listSchedules(); } finally { store.close(); }
+    };
+    fs.writeFileSync(schedule, JSON.stringify({ every: '1h', tz: 'fixed', note: 'plain' }));
+    await run(args, { slack: fakeSlack() });
+    assert.deepEqual(bound().map((row) => [row.note, row.check_tool]), [['plain', null]]);
+    fs.writeFileSync(schedule, JSON.stringify({ every: '1h', tz: 'fixed', note: 'checked', check: './check.py' }));
+    await run(args, { slack: fakeSlack() });
+    assert.deepEqual(bound().map((row) => [row.note, row.check_tool]), [['checked', './check.py']]);
+    fs.writeFileSync(schedule, JSON.stringify({ every: '2h', tz: 'fixed', note: 'cadence only' }));
+    await run(args, { slack: fakeSlack() });
+    assert.deepEqual(bound().map((row) => [row.note, row.cadence, row.check_tool]), [['cadence only', 'every:2h', './check.py']]);
+  });
+
+  await test('connect refuses an invalid schedule check before it writes or calls Slack', async () => {
+    for (const bad of ['/usr/bin/x', 'C:\\x.exe', '../x', 'tools/', '', 5]) {
+      const dir = workspace();
+      const configFile = writeConfig(dir);
+      const home = installAgent(dir);
+      const schedule = path.join(dir, 'schedule.json');
+      fs.writeFileSync(schedule, JSON.stringify({ every: '5m', tz: 'fixed', note: 'mail', check: bad }));
+      const slack = fakeSlack();
+      const calls = [];
+      const config = fs.readFileSync(configFile, 'utf8');
+      const agent = fs.readFileSync(path.join(home, 'agent.json'), 'utf8');
+      await assert.rejects(() => run(['connect', 'probe', '--channel-name', 'probe', '--schedule-json', schedule, '--installation', dir],
+        { slack, install: fakeInstaller(calls) }), /--schedule-json check must/, JSON.stringify(bad));
+      assert.equal(slack.calls.length, 0);
+      assert.equal(calls.length, 0);
+      assert.equal(fs.existsSync(path.join(home, 'state.sqlite')), false);
+      assert.equal(fs.readFileSync(configFile, 'utf8'), config);
+      assert.equal(fs.readFileSync(path.join(home, 'agent.json'), 'utf8'), agent);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   await test('connect ignores a legacy board and rerenders a reused timer without replacing subjects', async () => {
     const dir = workspace();
     writeConfig(dir);

@@ -132,6 +132,8 @@ The command prints `<conversation key> activated` and queues delivery; `--json` 
 
 Each timer wake starts with a new conversation key and harness session, with no thread or earlier conversation history. Its input is only the schedule id. A later wake stays fresh even after an earlier result opens a Slack thread; schedules are never moved during that binding.
 
+Timers that are due together each get their own wake: a wake is identified by its timer and occurrence, and a timer advances only once its wake is recorded. A timer may name a check tool with `schedule add --check` or the `check` key of `connect --schedule-json`; `ignite schedule list` prints it as `check=`. Read [Timer check](timer-check.md) for the stored form, the three answers and the store calls before changing or debugging a timer that has one.
+
 ## Write or close a board subject
 
 Use `ignite board write -h` for the checked form. Copy `<home>/_artifacts/board.md` to a candidate file, edit its subjects or watch-outs, then submit it:
