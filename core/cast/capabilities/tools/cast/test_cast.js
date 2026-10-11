@@ -2760,16 +2760,17 @@ process.exit(3);\n`);
   assert.ok(!fs.existsSync(path.join(scratch, 'out')), 'cast api -f <a folder> wrote the output folder');
 }
 
-// An rbtv agent is started isolated from its parent folders (lib/isolation.js): each harness's
-// arguments and variables on a launch, a headed launch and a resume of an agent folder. Any other
-// launch gets none of them and loses the variables it inherited.
+// An rbtv agent is started isolated from its parent folders and from the harness's account folder
+// (lib/isolation.js): each harness's arguments and variables on a launch, a headed launch and a
+// resume of an agent folder. Any other launch gets none of them and loses the variables it inherited.
 {
   const { isolation } = require('./lib/isolation');
-  const UNSET = ['OPENCODE_DISABLE_PROJECT_CONFIG', 'OPENCODE_DISABLE_EXTERNAL_SKILLS', 'OPENCODE_CONFIG_DIR',
-    'OPENCODE_CONFIG', 'OPENCODE_CONFIG_CONTENT'];
+  const BUNDLED = 'CLAUDE_CODE_DISABLE_BUNDLED_SKILLS';
+  const UNSET = [BUNDLED, 'OPENCODE_DISABLE_PROJECT_CONFIG', 'OPENCODE_DISABLE_EXTERNAL_SKILLS', 'OPENCODE_DISABLE_CLAUDE_CODE',
+    'OPENCODE_CONFIG_DIR', 'OPENCODE_CONFIG', 'OPENCODE_CONFIG_CONTENT'];
   assert.deepStrictEqual(isolation('claude', null), { argv: [], env: {}, unset: UNSET });
 
-  // the user's home: one skills folder of the two, and the home-level OpenCode instructions
+  // the user's home holds a skills folder and OpenCode instructions: no agent is handed either
   const userHome = mkFolder('iso-home');
   fs.mkdirSync(path.join(userHome, '.claude', 'skills'), { recursive: true });
   fs.mkdirSync(path.join(userHome, '.config', 'opencode'), { recursive: true });
@@ -2813,8 +2814,9 @@ process.exit(3);\n`);
   // The arguments from the first one isolation adds to the settings value.
   const claudeAdded = (argv) => argv.slice(argv.indexOf('--strict-mcp-config'), argv.indexOf('--settings') + 2);
 
-  // Claude Code: only the MCP servers of the agent's own file, and one settings object. Every folder
-  // above the agent folder has its six instruction paths excluded; memory is off by the setting.
+  // Claude Code: only the MCP servers of the agent's own file, no `user` setting source, and one
+  // settings object. Every folder above the agent folder has its six instruction paths excluded;
+  // memory is off by the setting, and the skills bundled in the program by the one variable.
   const above = [agents, path.join(mid, '.rbtv'), mid, root];
   for (let dir = root; path.dirname(dir) !== dir;) {
     dir = path.dirname(dir);
@@ -2829,37 +2831,44 @@ process.exit(3);\n`);
     `the parents' files are excluded and none of the agent's own: ${settings.claudeMdExcludes}`);
   assert.strictEqual(settings.autoMemoryEnabled, false);
   assert.deepStrictEqual(Object.keys(settings), ['claudeMdExcludes', 'autoMemoryEnabled']);
-  const claudeArgs = ['--strict-mcp-config', '--mcp-config', path.join(homes.claude, '.mcp.json'), '--settings', JSON.stringify(settings)];
-  assert.deepStrictEqual(claudeAdded(claude.argv), claudeArgs, 'the agent\'s own MCP servers and no other');
+  const claudeArgs = ['--strict-mcp-config', '--mcp-config', path.join(homes.claude, '.mcp.json'),
+    '--setting-sources', 'project,local', '--settings', JSON.stringify(settings)];
+  assert.deepStrictEqual(claudeAdded(claude.argv), claudeArgs, 'the agent\'s own MCP servers and settings and no other');
   assert.ok(claude.argv.indexOf('--settings') < claude.argv.indexOf('--session-id'), `${claude.argv}`);
   assert.deepStrictEqual(claude.argv.slice(-2), ['--effort', 'low']);
-  assert.deepStrictEqual(Object.keys(claude).filter((key) => /^[A-Z_]+$/.test(key)), ['RBTV_AGENT_HOME'], 'Claude Code takes no isolation variable');
+  assert.deepStrictEqual(Object.keys(claude).filter((key) => /^[A-Z_]+$/.test(key)), ['RBTV_AGENT_HOME', BUNDLED]);
+  assert.strictEqual(claude[BUNDLED], '1');
   assert.deepStrictEqual(claude.env_removed, []);
 
-  // Codex: no root marker, the agent folder trusted by its own entry, memory off, and nothing else
-  const codexAdded = ['-c', 'project_root_markers=[]', '-c', `projects={${JSON.stringify(homes.codex)}={trust_level="trusted"}}`, '--disable', 'memories'];
+  // Codex: no root marker, the agent folder trusted by its own entry, memory, plugins and bundled
+  // skills off, and the account's config.toml ignored on the forms that accept the option
+  const codexHeaded = ['-c', 'project_root_markers=[]', '-c', `projects={${JSON.stringify(homes.codex)}={trust_level="trusted"}}`,
+    '--disable', 'memories', '--disable', 'plugins', '-c', 'skills.bundled.enabled=false'];
+  const codexAdded = [...codexHeaded, '--ignore-user-config'];
   const addedTo = (argv) => argv.slice(argv.indexOf('project_root_markers=[]') - 1).slice(0, codexAdded.length);
   const codex = dry(['--agent', homes.codex, '-p', 'go']);
   assert.deepStrictEqual(addedTo(codex.argv), codexAdded);
   const hookTrust = (argv) => argv.filter((arg) => arg === '--dangerously-bypass-hook-trust').length;
   assert.strictEqual(hookTrust(codex.argv), 1, `the agent's own Codex hooks run: ${codex.argv}`);
-  assert.ok(!codex.argv.includes('plugins'), `--disable plugins also removes the home-level marketplaces: ${codex.argv}`);
+  // what the ignored config.toml supplied, the launch passes itself
+  for (const own of ['gpt-6-luna', 'approval_policy=never', 'model_reasoning_effort=low']) assert.ok(codex.argv.includes(own), `${own}: ${codex.argv}`);
   assert.deepStrictEqual(codex.argv.slice(-2), ['-c', 'model_reasoning_effort=low']);
   assert.deepStrictEqual(Object.keys(codex).filter((key) => /^[A-Z_]+$/.test(key)), ['RBTV_AGENT_HOME'], 'Codex takes no isolation variable');
 
-  // OpenCode: five variables and no argument. The agent's instruction entries become absolute, a
-  // URL and a home path stay as written, and only the files and folders that exist are handed back.
+  // OpenCode: six variables and no argument. The agent's instruction entries become absolute, a
+  // URL and a home path stay as written, only the agent's files and folders that exist are handed
+  // back, and nothing of the user's home is.
   const opencodeEnv = {
     OPENCODE_DISABLE_PROJECT_CONFIG: '1',
     OPENCODE_DISABLE_EXTERNAL_SKILLS: '1',
+    OPENCODE_DISABLE_CLAUDE_CODE: '1',
     OPENCODE_CONFIG_DIR: path.join(homes.opencode, '.opencode'),
     OPENCODE_CONFIG: path.join(homes.opencode, 'opencode.json'),
   };
   const opencodeContent = {
     instructions: [path.join(homes.opencode, 'AGENTS.md'), path.join(homes.opencode, '.claude/rules/*.md'),
-      path.join(homes.opencode, 'own-rules.md'), elsewhere, 'https://example.com/rules.md', '~/notes.md',
-      path.join(userHome, '.config', 'opencode', 'AGENTS.md')],
-    skills: { paths: [path.join(homes.opencode, '.claude', 'skills'), path.join(userHome, '.claude', 'skills')] },
+      path.join(homes.opencode, 'own-rules.md'), elsewhere, 'https://example.com/rules.md', '~/notes.md'],
+    skills: { paths: [path.join(homes.opencode, '.claude', 'skills')] },
   };
   const isOpencodeIsolated = (out, what) => {
     for (const [name, value] of Object.entries(opencodeEnv)) assert.strictEqual(out[name], value, `${what}: ${name}`);
@@ -2870,17 +2879,21 @@ process.exit(3);\n`);
   assert.deepStrictEqual(opencode.argv.slice(0, 5), ['opencode', 'run', '-m', 'zai-coding-plan/glm-5.3', '--auto']);
   assert.deepStrictEqual(opencode.argv.slice(-2), ['--variant', 'high']);
   // the names a launch removes are the names an isolated launch sets: one list, in isolation.js
-  assert.deepStrictEqual(Object.keys(isolation('opencode', homes.opencode).env), UNSET);
+  assert.deepStrictEqual(Object.keys(homes).flatMap((harness) => Object.keys(isolation(harness, homes[harness]).env)), UNSET);
   // an agent started by an isolated agent gets its own values, and no other harness's inherited ones
-  isOpencodeIsolated(dry(['--agent', homes.opencode, '-p', 'go'], carried), 'an OpenCode agent launched by an isolated agent');
-  assert.deepStrictEqual(dry(['--agent', homes.claude, '-p', 'go'], carried).env_removed, UNSET);
+  const nested = dry(['--agent', homes.opencode, '-p', 'go'], carried);
+  isOpencodeIsolated(nested, 'an OpenCode agent launched by an isolated agent');
+  assert.deepStrictEqual(nested.env_removed, [BUNDLED]);
+  assert.deepStrictEqual(dry(['--agent', homes.claude, '-p', 'go'], carried).env_removed, UNSET.filter((name) => name !== BUNDLED));
 
-  // --headed: each interactive form accepts the same arguments, and the task stays last
+  // --headed: the interactive forms accept the same arguments, except the one option Codex's
+  // refuses, and the task stays last
   const headedClaude = dry(['--agent', homes.claude, '-p', 'go', '--headed']);
   assert.deepStrictEqual(claudeAdded(headedClaude.argv), claudeArgs);
   assert.strictEqual(headedClaude.argv[headedClaude.argv.length - 1], 'go');
   const headedCodex = dry(['--agent', homes.codex, '-p', 'go', '--headed']);
-  assert.deepStrictEqual(addedTo(headedCodex.argv), codexAdded);
+  assert.deepStrictEqual(addedTo(headedCodex.argv).slice(0, codexHeaded.length), codexHeaded);
+  assert.ok(!headedCodex.argv.includes('--ignore-user-config'), `the interactive form refuses it: ${headedCodex.argv}`);
   assert.strictEqual(hookTrust(headedCodex.argv), 1, `${headedCodex.argv}`);
   assert.ok(!headedCodex.argv.includes('exec') && headedCodex.argv[headedCodex.argv.length - 1] === 'go', `${headedCodex.argv}`);
   isOpencodeIsolated(dry(['--agent', homes.opencode, '-p', 'go', '--headed']), 'a headed OpenCode agent launch');
@@ -2893,8 +2906,10 @@ process.exit(3);\n`);
     [['claude', 'haiku-5-5', '1', homes.claude, '--rogue', path.join(homes.claude, 'prompt.md')], ['--effort', 'low']],
   ]) {
     const out = dry([...args, '-p', 'go'], carried);
-    assert.ok(!out.argv.includes('--settings') && !out.argv.includes('--strict-mcp-config') && !out.argv.includes('project_root_markers=[]') && !out.argv.includes('memories'),
-      `cast ${args.join(' ')} is not an agent launch: ${out.argv}`);
+    for (const added of ['--settings', '--strict-mcp-config', '--setting-sources', 'project_root_markers=[]', 'memories', 'plugins',
+      'skills.bundled.enabled=false', '--ignore-user-config']) {
+      assert.ok(!out.argv.includes(added), `cast ${args.join(' ')} is not an agent launch: ${added} in ${out.argv}`);
+    }
     assert.deepStrictEqual(out.argv.slice(-2), lastTwo);
     assert.deepStrictEqual(Object.keys(out).filter((key) => /^[A-Z_]+$/.test(key)), [], `cast ${args.join(' ')}`);
     assert.deepStrictEqual(out.env_removed, UNSET);
@@ -2921,29 +2936,23 @@ process.exit(3);\n`);
     assert.ok(!dry(['resume', 'codex', 'last', folder, '-p', 'more']).argv.includes('project_root_markers=[]'));
   }
 
-  // isolation() itself. In the user's home folder the files under .claude/ are the home-level
-  // configuration and stay loaded; one level down they are a parent's. An agent folder with no
-  // .mcp.json is passed no --mcp-config, which Claude Code refuses for a missing file.
-  const realHome = homeEnv(os.homedir());
-  Object.assign(process.env, homeEnv(userHome));
-  try {
-    const work = path.join(userHome, 'work');
-    const noFiles = path.join(work, 'agent');
-    const bare = isolation('claude', noFiles).argv;
-    assert.deepStrictEqual(bare.slice(0, 2), ['--strict-mcp-config', '--settings'], `${bare}`);
-    const direct = settingsOf(bare);
-    const inHome = direct.claudeMdExcludes.filter((file) => path.dirname(file) === userHome || file.startsWith(path.join(userHome, '.claude')));
-    assert.deepStrictEqual(inHome, ['CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md'].map((file) => path.join(userHome, file)));
-    for (const file of ['.claude/CLAUDE.md', '.claude/AGENTS.md', '.claude/rules/**']) {
-      assert.ok(direct.claudeMdExcludes.includes(path.join(work, file)), `a folder inside the home folder is a parent: ${file}`);
-    }
-    // an OpenCode agent with no opencode.json, AGENTS.md or skills folder: the home-level files only
-    assert.deepStrictEqual(JSON.parse(isolation('opencode', noFiles).env.OPENCODE_CONFIG_CONTENT), {
-      instructions: [path.join(userHome, '.config', 'opencode', 'AGENTS.md')],
-      skills: { paths: [path.join(userHome, '.claude', 'skills')] },
-    });
-  } finally {
-    Object.assign(process.env, realHome);
+  // isolation() itself. An agent folder with no .mcp.json is passed no --mcp-config, which Claude
+  // Code refuses for a missing file; and one with no opencode.json, AGENTS.md or skills folder
+  // hands OpenCode nothing.
+  const noFiles = path.join(userHome, 'work', 'agent');
+  const bare = isolation('claude', noFiles).argv;
+  assert.deepStrictEqual(bare.slice(0, 2), ['--strict-mcp-config', '--setting-sources'], `${bare}`);
+  assert.deepStrictEqual(JSON.parse(isolation('opencode', noFiles).env.OPENCODE_CONFIG_CONTENT), { instructions: [], skills: { paths: [] } });
+  assert.deepStrictEqual(isolation('codex', noFiles, true).argv, isolation('codex', noFiles).argv.slice(0, -1), 'only the last Codex option depends on the form');
+  // The user's home folder is a folder above an agent inside it: its six paths are excluded too,
+  // the account folder's instruction file and rules among them.
+  const underHome = path.join(userHome, 'work', 'iso-under-home');
+  fs.mkdirSync(underHome, { recursive: true });
+  fs.writeFileSync(path.join(underHome, 'prompt.md'), 'You are isolated.');
+  fs.writeFileSync(path.join(underHome, 'agent.json'), JSON.stringify({ name: 'iso-under-home', harness: 'claude', model: 'haiku-5-5', effort: 'low' }));
+  const fromHome = settingsOf(dry(['--agent', underHome, '-p', 'go']).argv).claudeMdExcludes;
+  for (const file of ['CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', '.claude/CLAUDE.md', '.claude/AGENTS.md', '.claude/rules/**']) {
+    assert.ok(fromHome.includes(path.join(userHome, file)), `the home folder's ${file} is excluded: ${fromHome}`);
   }
 
   // What the harness's process receives, from fake harnesses that write their environment down.
@@ -2966,10 +2975,11 @@ require('fs').appendFileSync(${JSON.stringify(log)}, JSON.stringify(seen) + '\\n
   assert.deepStrictEqual(received(['opencode', 'glm-5.3', '1', homes.opencode, '-p', 'go']), {});
   assert.deepStrictEqual(received(['resume', 'claude', 'last', mid, '-p', 'more']), {});
   assert.deepStrictEqual(received(['resume', 'opencode', 'last', mid, '-p', 'more']), {});
-  assert.deepStrictEqual(received(['--agent', homes.claude, '-p', 'go']), { RBTV_AGENT_HOME: homes.claude });
+  assert.deepStrictEqual(received(['--agent', homes.claude, '-p', 'go']), { RBTV_AGENT_HOME: homes.claude, [BUNDLED]: '1' });
   for (const args of [['--agent', homes.opencode, '-p', 'go'], ['resume', 'opencode', 'last', homes.opencode, '-p', 'more']]) {
     const seen = received(args);
     isOpencodeIsolated(seen, `the process of cast ${args.join(' ')}`);
+    assert.ok(!(BUNDLED in seen), `another harness's inherited variable is removed: ${JSON.stringify(seen)}`);
     assert.strictEqual(seen.RBTV_AGENT_HOME, args[0] === 'resume' ? undefined : homes.opencode);
   }
 }

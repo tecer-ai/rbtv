@@ -186,15 +186,16 @@ with its frontmatter removed, and the model receives the body only.
 ### What an agent launch loads
 
 An `--agent` launch makes the harness load only what the agent folder holds: nothing from a folder
-above it, and no native memory. A `--headed` launch, a fallback run and a `cast resume` in an agent
+above it, no native memory, and from the harness's account folder the login and nothing else that a
+launch can stop. A `--headed` launch, a fallback run and a `cast resume` in an agent
 folder are launched the same way, and so is an Ignite turn. A launch that names no agent
 (`<harness> <model> <effort>`, `--rogue`, `cast resume` outside an agent folder) loads its parent
-folders' files as the harness does by itself. `lib/isolation.js` returns what each harness is
-passed.
+folders' files and the account folder as the harness does by itself. `lib/isolation.js` returns what
+each harness is passed.
 
 | File | CONTAINS | PURPOSE | ALWAYS LOAD WHEN |
 |---|---|---|---|
-| [Agent isolation](documentation/agent-isolation.md) | What each harness loads from parent folders, what an agent launch passes and what each argument or variable stops, the empty `.git` folder, native memory, what stays loaded, the limits and what is not tested | Change or check how an rbtv agent is kept to its own folder | changing `lib/isolation.js` or a caller of it, or an agent loads something its folder does not hold, or does not load something it holds |
+| [Agent isolation](documentation/agent-isolation.md) | What each harness loads from parent folders and from its account folder, what an agent launch passes and what each argument or variable stops, the empty `.git` folder, native memory, what an agent still receives from the account folder and from the program, the limits and what is not tested | Change or check how an rbtv agent is kept to its own folder | changing `lib/isolation.js` or a caller of it, or an agent loads something its folder does not hold, or does not load something it holds |
 
 ### Finding the agents: `cast list`
 
@@ -634,7 +635,7 @@ runs in.
 | `capabilities/tools/cast/lib/defaults.js` | the installation's defaults, `.rbtv/config/cast/defaults.json`: the default ranking of `cast route` and the ranking of a fallback, read and replaced in one step |
 | `capabilities/tools/cast/lib/win-exec.js` | how a harness name becomes a process on Windows: finds the program on `PATH` and wraps an npm `.cmd` shortcut so that it can be started |
 | `capabilities/tools/cast/lib/agent.js` | `--agent` / `--rogue`: find the agent folder, read `agent.json` and `prompt.md`. The one place that knows where an agent's folder is (`<installation>/.rbtv/agents/<name>`), which agents a `--target FOLDER` names, what counts as a path, and how the record is read: spark, the agent list and Ignite load it |
-| `capabilities/tools/cast/lib/isolation.js` | what a harness is passed so that an rbtv agent loads only its own folder: the arguments, the environment variables and the variables to remove, per harness. The one place that knows these values, walks the folders above the agent folder and reads the agent's own files: `launch.js` and Ignite's turn call it |
+| `capabilities/tools/cast/lib/isolation.js` | what a harness is passed so that an rbtv agent loads only its own folder, and from the harness's account folder the login only: the arguments, the environment variables and the variables to remove, per harness. The one place that knows these values, walks the folders above the agent folder and reads the agent's own files: `launch.js` and Ignite's turn call it |
 | `capabilities/tools/cast/lib/agent-list.js` | `cast list --agents`: the agents a name can reach, as a table, labeled blocks, or JSON; the one list, which [`spark list`](../spark/spark.md) and `rbtv agent list` also show |
 | `capabilities/tools/cast/lib/sessions.js` | the per-harness session-store readers and `cast sessions` |
 | `capabilities/tools/cast/lib/monitor.js` | `cast monitor` — the freeze tripwire, its witness channel, roster and watch |

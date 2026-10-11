@@ -112,7 +112,7 @@ function attempt({ harness, modelId, folder, effortWord, effortArgv, system, pro
   }
 
   // An rbtv agent is started isolated from its parent folders; any other launch gets nothing.
-  const iso = isolation(harness, agentHome);
+  const iso = isolation(harness, agentHome, headed);
   let argv = baseArgv(harness, modelId, folder, headed, iso.argv);
   let stdinText = promptText;
   // An rbtv agent's folder is announced to the harness's process as RBTV_AGENT_HOME.

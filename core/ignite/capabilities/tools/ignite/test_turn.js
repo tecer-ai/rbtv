@@ -598,7 +598,7 @@ rejects(base({ systemPromptFile: path.join(cwd, 'missing.md') }), 'cannot read s
 }
 
 // A turn whose request names `agentHome` launches its harness isolated from the folders above the
-// agent folder; cast's lib/isolation.js owns the values, checked here as each harness receives
+// agent folder and from the harness's account folder; cast's lib/isolation.js owns the values, checked here as each harness receives
 // them. A request without it adds nothing, and either kind drops the inherited variables.
 {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cast-turn-iso-')));
@@ -617,13 +617,16 @@ rejects(base({ systemPromptFile: path.join(cwd, 'missing.md') }), 'cannot read s
   const request = (harness, mode, over = {}) => ({
     harness, model: MODELS[harness], effort: 1, cwd: agent, prompt: 'x', session: SESSIONS[mode], ...over,
   });
-  const VARS = ['OPENCODE_DISABLE_PROJECT_CONFIG', 'OPENCODE_DISABLE_EXTERNAL_SKILLS',
-    'OPENCODE_CONFIG_DIR', 'OPENCODE_CONFIG', 'OPENCODE_CONFIG_CONTENT'];
+  const VARS = ['CLAUDE_CODE_DISABLE_BUNDLED_SKILLS', 'OPENCODE_DISABLE_PROJECT_CONFIG', 'OPENCODE_DISABLE_EXTERNAL_SKILLS',
+    'OPENCODE_DISABLE_CLAUDE_CODE', 'OPENCODE_CONFIG_DIR', 'OPENCODE_CONFIG', 'OPENCODE_CONFIG_CONTENT'];
   const CODEX_ADDED = ['-c', 'project_root_markers=[]',
-    '-c', `projects={${JSON.stringify(agent)}={trust_level="trusted"}}`, '--disable', 'memories'];
+    '-c', `projects={${JSON.stringify(agent)}={trust_level="trusted"}}`, '--disable', 'memories',
+    '--disable', 'plugins', '-c', 'skills.bundled.enabled=false', '--ignore-user-config'];
+  const ENV = { claude: { CLAUDE_CODE_DISABLE_BUNDLED_SKILLS: '1' }, codex: {} };
   const OPENCODE_ENV = {
     OPENCODE_DISABLE_PROJECT_CONFIG: '1',
     OPENCODE_DISABLE_EXTERNAL_SKILLS: '1',
+    OPENCODE_DISABLE_CLAUDE_CODE: '1',
     OPENCODE_CONFIG_DIR: path.join(agent, '.opencode'),
     OPENCODE_CONFIG: path.join(agent, 'opencode.json'),
     OPENCODE_CONFIG_CONTENT: JSON.stringify({
@@ -631,15 +634,10 @@ rejects(base({ systemPromptFile: path.join(cwd, 'missing.md') }), 'cannot read s
       skills: { paths: [path.join(agent, '.claude', 'skills')] },
     }),
   };
-  // The turn's own process finds the home-level files under this empty home.
+  // The turn's own process runs under an empty home.
   const turnEnv = { ...process.env, HOME: home, USERPROFILE: home, XDG_DATA_HOME: home, SEEN_FILE: seenFile,
     PATH: [bin, path.dirname(process.execPath)].join(path.delimiter),
     ...Object.fromEntries(VARS.map((name) => [name, 'inherited'])) };
-  delete turnEnv.XDG_CONFIG_HOME;
-  // The request is validated in this process: give it the same home.
-  const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME };
-  Object.assign(process.env, { HOME: home, USERPROFILE: home });
-  delete process.env.XDG_CONFIG_HOME;
   // `list` with the one run of `added` taken out.
   const without = (list, added) => {
     const at = list.findIndex((_, i) => added.every((item, j) => list[i + j] === item));
@@ -650,59 +648,52 @@ rejects(base({ systemPromptFile: path.join(cwd, 'missing.md') }), 'cannot read s
   const tag = 'cast-turn:55555555-5555-4555-8555-555555555555';
   const argvOf = (harness, mode, over) => argvFor(validate(request(harness, mode, over)), fresh, tag);
 
-  try {
-    for (const mode of ['new', 'resume']) {
-      const plain = Object.fromEntries(Object.keys(MODELS).map((harness) => [harness, argvOf(harness, mode)]));
-      for (const harness of Object.keys(MODELS)) {
-        // the agent folder as working folder and in RBTV_AGENT_HOME does not make it an agent's turn
-        const unnamed = validate(request(harness, mode, { env: { RBTV_AGENT_HOME: agent } }));
-        assert.deepStrictEqual(unnamed.isolation, { argv: [], env: {}, unset: VARS },
-          `${harness} ${mode}: a turn with no agentHome adds nothing`);
-      }
-
-      const claude = argvOf('claude', mode, { agentHome: agent });
-      assert.ok(claude.includes('--settings'), `claude ${mode}: ${claude}`);
-      const settings = JSON.parse(claude[claude.indexOf('--settings') + 1]);
-      // only the MCP servers of the agent's own file, never a parent's or a home-level one
-      assert.deepStrictEqual(without(claude, ['--strict-mcp-config', '--mcp-config', path.join(agent, '.mcp.json'),
-        '--settings', JSON.stringify(settings)]), plain.claude, `claude ${mode}`);
-      for (const file of ['CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', path.join('.claude', 'CLAUDE.md'), path.join('.claude', 'rules', '**')]) {
-        assert.ok(settings.claudeMdExcludes.includes(path.join(root, file)), `claude ${mode}: ${file} of a parent folder is excluded`);
-        assert.ok(settings.claudeMdExcludes.includes(path.join(root, '.rbtv', 'agents', file)), `claude ${mode}: every folder above is listed`);
-        assert.ok(!settings.claudeMdExcludes.includes(path.join(agent, file)), `claude ${mode}: the agent's own ${file} stays`);
-      }
-      assert.deepStrictEqual(Object.keys(settings), ['claudeMdExcludes', 'autoMemoryEnabled'], `claude ${mode}`);
-      assert.strictEqual(settings.autoMemoryEnabled, false);
-
-      const codex = argvOf('codex', mode, { agentHome: agent });
-      assert.deepStrictEqual(without(codex, CODEX_ADDED), plain.codex, `codex ${mode}`);
-      assert.strictEqual(codex.filter((arg) => arg === '--dangerously-bypass-hook-trust').length, 1,
-        `codex ${mode}: the agent's own hooks run: ${codex}`);
-      assert.deepStrictEqual(codex.slice(-2), ['--json', '-'], `codex ${mode}: the prompt marker stays last`);
-      assert.deepStrictEqual(codex.slice(0, 4), mode === 'new' ? ['codex', 'exec', '--cd', agent] : ['codex', 'exec', 'resume', 'ses-iso']);
-
-      const opencode = validate(request('opencode', mode, { agentHome: agent }));
-      assert.deepStrictEqual(argvFor(opencode, fresh, tag), plain.opencode, `opencode ${mode}: no argument`);
-      assert.deepStrictEqual(opencode.isolation.env, OPENCODE_ENV, `opencode ${mode}`);
+  for (const mode of ['new', 'resume']) {
+    const plain = Object.fromEntries(Object.keys(MODELS).map((harness) => [harness, argvOf(harness, mode)]));
+    for (const harness of Object.keys(MODELS)) {
+      // the agent folder as working folder and in RBTV_AGENT_HOME does not make it an agent's turn
+      const unnamed = validate(request(harness, mode, { env: { RBTV_AGENT_HOME: agent } }));
+      assert.deepStrictEqual(unnamed.isolation, { argv: [], env: {}, unset: VARS },
+        `${harness} ${mode}: a turn with no agentHome adds nothing`);
     }
 
-    // a fallback is the same agent's turn on another harness: it gets that harness's values
-    const fallbacks = [{ harness: 'codex', model: 'gpt-6-luna', effort: 1, session: SESSIONS.new, prompt: 'y' }];
-    const [isolated] = validate(request('claude', 'new', { agentHome: agent, fallbacks })).fallbacks;
-    assert.deepStrictEqual(without(argvFor(isolated, null, null), CODEX_ADDED), argvOf('codex', 'new', { prompt: 'y' }));
-    assert.deepStrictEqual(validate(request('claude', 'new', { fallbacks })).fallbacks[0].isolation.argv, []);
-
-    rejects(request('claude', 'new', { agentHome: path.join('.rbtv', 'agents', 'probe') }), 'agentHome must be an absolute path');
-    rejects(request('claude', 'new', { agentHome: null }), 'agentHome must be an absolute path');
-  } finally {
-    for (const [name, value] of Object.entries(saved)) {
-      if (value === undefined) delete process.env[name];
-      else process.env[name] = value;
+    const claude = argvOf('claude', mode, { agentHome: agent });
+    assert.ok(claude.includes('--settings'), `claude ${mode}: ${claude}`);
+    const settings = JSON.parse(claude[claude.indexOf('--settings') + 1]);
+    // only the MCP servers and settings of the agent's own files, never a parent's or the account's
+    assert.deepStrictEqual(without(claude, ['--strict-mcp-config', '--mcp-config', path.join(agent, '.mcp.json'),
+      '--setting-sources', 'project,local', '--settings', JSON.stringify(settings)]), plain.claude, `claude ${mode}`);
+    for (const file of ['CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', path.join('.claude', 'CLAUDE.md'), path.join('.claude', 'rules', '**')]) {
+      assert.ok(settings.claudeMdExcludes.includes(path.join(root, file)), `claude ${mode}: ${file} of a parent folder is excluded`);
+      assert.ok(settings.claudeMdExcludes.includes(path.join(root, '.rbtv', 'agents', file)), `claude ${mode}: every folder above is listed`);
+      assert.ok(!settings.claudeMdExcludes.includes(path.join(agent, file)), `claude ${mode}: the agent's own ${file} stays`);
     }
+    assert.deepStrictEqual(Object.keys(settings), ['claudeMdExcludes', 'autoMemoryEnabled'], `claude ${mode}`);
+    assert.strictEqual(settings.autoMemoryEnabled, false);
+
+    const codex = argvOf('codex', mode, { agentHome: agent });
+    assert.deepStrictEqual(without(codex, CODEX_ADDED), plain.codex, `codex ${mode}`);
+    assert.strictEqual(codex.filter((arg) => arg === '--dangerously-bypass-hook-trust').length, 1,
+      `codex ${mode}: the agent's own hooks run: ${codex}`);
+    assert.deepStrictEqual(codex.slice(-2), ['--json', '-'], `codex ${mode}: the prompt marker stays last`);
+    assert.deepStrictEqual(codex.slice(0, 4), mode === 'new' ? ['codex', 'exec', '--cd', agent] : ['codex', 'exec', 'resume', 'ses-iso']);
+
+    const opencode = validate(request('opencode', mode, { agentHome: agent }));
+    assert.deepStrictEqual(argvFor(opencode, fresh, tag), plain.opencode, `opencode ${mode}: no argument`);
+    assert.deepStrictEqual(opencode.isolation.env, OPENCODE_ENV, `opencode ${mode}`);
   }
 
-  // What the harness process itself receives. The stand-in writes down its arguments and the five
-  // variables; the turn inherits a value for each of them, as a turn started by an agent would.
+  // a fallback is the same agent's turn on another harness: it gets that harness's values
+  const fallbacks = [{ harness: 'codex', model: 'gpt-6-luna', effort: 1, session: SESSIONS.new, prompt: 'y' }];
+  const [isolated] = validate(request('claude', 'new', { agentHome: agent, fallbacks })).fallbacks;
+  assert.deepStrictEqual(without(argvFor(isolated, null, null), CODEX_ADDED), argvOf('codex', 'new', { prompt: 'y' }));
+  assert.deepStrictEqual(validate(request('claude', 'new', { fallbacks })).fallbacks[0].isolation.argv, []);
+
+  rejects(request('claude', 'new', { agentHome: path.join('.rbtv', 'agents', 'probe') }), 'agentHome must be an absolute path');
+  rejects(request('claude', 'new', { agentHome: null }), 'agentHome must be an absolute path');
+
+  // What the harness process itself receives. The stand-in writes down its arguments and the
+  // isolation variables; the turn inherits a value for each of them, as a turn started by an agent would.
   const record = `
     const fs = require('fs');
     try { fs.readFileSync(0); } catch {}
@@ -725,7 +716,7 @@ rejects(base({ systemPromptFile: path.join(cwd, 'missing.md') }), 'cannot read s
   for (const mode of ['new', 'resume']) {
     for (const harness of Object.keys(MODELS)) {
       const agentTurn = received(harness, mode, { agentHome: agent });
-      assert.deepStrictEqual(agentTurn.env, harness === 'opencode' ? OPENCODE_ENV : {}, `${harness} ${mode}: the agent's turn`);
+      assert.deepStrictEqual(agentTurn.env, ENV[harness] ?? OPENCODE_ENV, `${harness} ${mode}: the agent's turn`);
       if (MARK[harness]) assert.ok(agentTurn.argv.includes(MARK[harness]), `${harness} ${mode}: ${agentTurn.argv}`);
       const other = received(harness, mode);
       assert.deepStrictEqual(other.env, {}, `${harness} ${mode}: a turn with no agentHome keeps no inherited variable`);

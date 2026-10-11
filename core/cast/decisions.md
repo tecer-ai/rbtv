@@ -48,7 +48,11 @@ One row per model line names a pinned version, never a moving alias such as a `-
 
 ## An agent launch loads only the agent folder
 
-A launch of an rbtv agent passes its harness the arguments and environment variables that stop it loading anything from a folder above the agent folder, and turn its native memory off. A launch that names no agent passes none. Reason: an agent's behaviour must come from its own folder, wherever that folder sits, while a worker launched into a folder is meant to receive that folder's surroundings. The launcher holds the agent folder and passes it; it is never read from the working folder or from `RBTV_AGENT_HOME`, because a worker launched into an agent folder is not that agent.
+A launch of an rbtv agent passes its harness the arguments and environment variables that stop it loading anything from a folder above the agent folder, and turn its native memory off. A launch that names no agent passes none. Reason: an agent's behaviour must come from its own folder, wherever that folder sits, while a worker launched into a folder is meant to receive that folder's surroundings. The launcher holds the agent folder and passes it; it is never read from `RBTV_AGENT_HOME`, and a launch never reads it from the working folder, because a worker launched into an agent folder is not that agent. `cast resume` has no agent to be told about, so it alone reads its launch folder and isolates when that folder is an agent folder: a session that ran there was the agent's.
+
+## An agent receives nothing from the harness's account folder except the login
+
+The launch passes each harness what stops the content of its account folder: on Claude Code `--setting-sources project,local`, the account folder's instruction file and rules in the exclusion list, and `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1`; on Codex `--disable plugins`, `-c skills.bundled.enabled=false` and `--ignore-user-config`; on OpenCode `OPENCODE_DISABLE_CLAUDE_CODE=1`, and nothing of the user's home is handed back. Reason: owner decision, 2026-10-11. The owner defines what an agent has by what rbtv ships to its folder, and the harness adds nothing by itself. Not covered, because no argument or variable does it without moving the account folder: an account `AGENTS.md`, account skills and account hooks on Codex, `config.toml` on a headed Codex launch, whose interactive form refuses `--ignore-user-config`, and the content of `~/.config/opencode/` on OpenCode. [Agent isolation](capabilities/tools/cast/documentation/agent-isolation.md) lists them.
 
 ## One function holds every harness's isolation values
 
@@ -60,12 +64,8 @@ The launch passes `--strict-mcp-config`, and `--mcp-config` with the agent folde
 
 ## Claude Code's memory is turned off by a setting, not by a variable
 
-Reason: an environment variable is inherited by every launch the agent makes, and a setting passed as an argument is not.
-
-## Codex is not passed `--disable plugins`
-
-Reason: it also removes the home-level plugin marketplaces.
+Reason: an environment variable is inherited by every program the agent runs, and a setting passed as an argument is not. The skills bundled in Claude Code are turned off by a variable because nothing else turns them off together.
 
 ## Every launch removes the isolation variables it inherited
 
-Reason: OpenCode is isolated by environment variables only, and a launch made by an isolated agent would otherwise configure its own harness with that agent's folder. The removal applies to an agent launch too, before its own values are set, so one rule covers every launch.
+Reason: OpenCode is isolated by environment variables only, and Claude Code's bundled skills by one, so a launch made by an isolated agent would otherwise configure its own harness with that agent's folder and values. The removal applies to an agent launch too, before its own values are set, so one rule covers every launch.
