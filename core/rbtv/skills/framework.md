@@ -9,7 +9,7 @@ Use this skill to create, edit, review or convert rbtv files. Read the mandatory
 
 rbtv defines conventions for agent instructions and installs them for supported harnesses. The installer recognizes each kind by its source folder and filename. Authors edit the source; generated harness files are replaced from it.
 
-Write shared components in the repository. Write installation-specific components in `.rbtv/mirror/`, with the same layout. A mirror component replaces the entire repository component with the same module and component names. Components do not belong in `.rbtv/config/`, `.rbtv/agents/`, `.rbtv/runtime/` or `.rbtv/memory/`.
+Write shared components in the repository. Write installation-specific components in `.rbtv/mirror/`, with the same layout. A mirror component replaces the entire repository component with the same module and component names. Components do not belong in `.rbtv/config/`, `.rbtv/agents/`, `.rbtv/runtime/` or `.rbtv/memory/`. A tool that one agent owns is not a component: it sits in that agent's folder, where [Tool](../capabilities/glossary/tool.md) places it.
 
 A module is `<module>/` with `<module>.json`; a component is `<module>/<component>/` with `<component>.json`. Inside a component:
 
@@ -32,7 +32,7 @@ A skill, command, rule or folder-instructions file routes to capabilities, not t
 
 Apply the same routes in create, edit, review and convert modes; there is no separate page per mode. Read mandatory pages first. For conditional rows, match the work and honor the exclusion. If [Choosing what to build](../capabilities/methods/choosing-what-to-build.md) settles a different kind from the request's wording, follow the settled kind's row too.
 
-On create or conversion, start in the user's named module and component and use [Choosing where to build](../capabilities/methods/choosing-where-to-build.md) to check its boundary. Object only for a boundary violation. An agent folder outside a component, such as a plan's or a project's agent, is placed by [Agent](../capabilities/glossary/agent.md), not by Choosing where to build. Editing an existing file does not reopen placement.
+On create or conversion, start in the user's named module and component and use [Choosing where to build](../capabilities/methods/choosing-where-to-build.md) to check its boundary. Object only for a boundary violation. An agent folder outside a component, such as a plan's or a project's agent, is placed by [Agent](../capabilities/glossary/agent.md), not by Choosing where to build. A tool owned by one agent is placed by [Tool](../capabilities/glossary/tool.md), in that agent's folder. Editing an existing file does not reopen placement.
 
 If a required page is absent, report the missing path and stop that work. Do not substitute an older entry or build from this folder map alone. If no row covers the intended kind, ask for the missing definition rather than guessing.
 
@@ -77,7 +77,7 @@ Then, when the work is one of the kinds below, read that kind's page. (Ignite me
 | [Agent](../capabilities/glossary/agent.md) | Agent folder and placement, with routes to prompt, agent record, agent settings, task and selected model | Launch the intended worker | the selected kind or named work is an agent or sub-agent, or any file in an agent folder changes | only another kind is being changed |
 | [Hook](../capabilities/glossary/hook.md) | Event, matching and command outcome | Run and enforce at the intended event | writing or changing a hook | only a server or tool changes |
 | [MCP server](../capabilities/glossary/mcp-server.md) | Server connection and credential references | Expose the intended server actions | writing or changing an MCP server record | only a tool or hook changes |
-| [Tool](../capabilities/glossary/tool.md) | Program interface, how an agent finds the tool and executable record, with routes to tool record, configuration and runtime folder and the command-line method | Return usable results during a task | writing or changing a tool | only prose instructions change |
+| [Tool](../capabilities/glossary/tool.md) | Program interface, how an agent finds the tool, the tool one agent owns and executable record, with routes to tool record, configuration and runtime folder and the command-line method | Return usable results during a task | writing or changing a tool, in a component or in an agent's folder | only prose instructions change |
 | [Pack](../capabilities/glossary/pack.md) | Shared installation selection | Install one group for several targets | writing or changing a pack, or sharing a selection across targets | only one target needs the selection |
 | [Capability](../capabilities/glossary/capability.md) | Capability boundary and caller contract, with routes to writing a capability, template and schema | Write the work that follows a route | the selected kind or named work is a capability | only writing an exposure method |
 | [Writing a glossary entry](../capabilities/methods/writing-a-glossary-entry.md) | Entry structure, ownership and verification | Define a term and teach its authoring | creating, editing or converting an entry, or introducing a term without one | no term entry is added or changed |

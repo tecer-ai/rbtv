@@ -62,6 +62,8 @@ A component record may name a repository. [Component record](component-json.md) 
 
 When at least one tool is installed, rbtv also writes the rule `rbtv-tools`. It has no source file: its body lists every installed tool with the description from its record, in one table per module. It reaches each harness as every rule does. rbtv rewrites it when the installed tools change and removes it with the last tool. An installation lists its own tools and an agent folder lists the tools installed in that folder.
 
+An [agent-owned tool](tool.md) gets none of this: no shortcut, no row in `rbtv-tools` and no validation. The scan does not read an agent folder's `capabilities/`. `rbtv agent add` and `rbtv agent update`, in each of its scopes, leave the files there unchanged.
+
 A pack generates no file of its own. `rbtv add --pack NAME` installs its members; a bare name never selects a pack.
 
 ## Select the target and placement

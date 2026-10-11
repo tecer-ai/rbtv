@@ -12,6 +12,7 @@ An agent folder contains:
 - `agent.json`: the record, with the agent's name, which equals the folder name, its description and any installation selections. Follow [Agent record](agent-json.md) when writing or changing the record.
 - `task.md`: the task of an agent launched once with no supplier delivering one, such as a plan agent or any agent built for one task. An agent whose launcher supplies each task has no `task.md`. Write the file using [Task](task.md).
 - `settings.json`: the job-specific values the agent's tasks use, machine-local and kept out of git. Write it using [Agent settings](settings-json.md).
+- `capabilities/`: the tools and method pages this agent alone owns, when it has any, laid out as in a component. [Tool](tool.md) states where an agent-owned tool sits, how the prompt names it and where it writes.
 - `.git`: an empty folder the installer creates, never an author. A harness that looks for a project root finds it there, which is one of the means by which an rbtv agent receives only its own folder's content and nothing from a parent folder. Leave it empty: do not run `git init` in an agent folder or put a file in this one.
 
 A component ships an agent folder as `agents/<name>/`. Any other agent folder may sit anywhere, such as a plan's `agents/` folder.
@@ -25,7 +26,7 @@ Write the prompt using [Prompt](prompt.md). A shipped record contains no harness
 
 An agent folder may be anywhere and is addressed by its path. A name without a path resolves under `.rbtv/agents/`. For an rbtv-agent placement, the installer supplies missing launch settings and a generated pointer to the prompt in folder instructions.
 
-When sharing an agent folder through git, track its prompt, record and any memory or board it maintains. Keep machine-local [settings](settings-json.md) and harness session data out of that shared content; regenerate harness files in each installation. git does not carry the empty `.git` folder, so each machine creates it with the operation [rbtv CLI](rbtv-cli.md) names.
+When sharing an agent folder through git, track its prompt, record, own tools and any memory or board it maintains. Keep machine-local [settings](settings-json.md) and harness session data out of that shared content; regenerate harness files in each installation. git does not carry the empty `.git` folder, so each machine creates it with the operation [rbtv CLI](rbtv-cli.md) names.
 
 An agent written for one task or one plan is an rbtv agent too. Write its folder where the work is, write its task as `task.md` in that folder, install it in place with `rbtv agent add FOLDER --harness H --model M --effort E`, and launch it with `cast --agent FOLDER`, which sends `task.md` as the task. [rbtv CLI](rbtv-cli.md) owns those options; the model is one of the installation's [selected models](../../../cast/capabilities/glossary/selected-model.md), which `cast models list` prints.
 
@@ -50,7 +51,7 @@ These conditions select launches, not messages arriving after a channel is conne
 
 An rbtv agent has only what rbtv installed in its own folder. Nothing reaches it from a parent folder or from the installation around it: no folder instructions, rule, skill, command, hook or MCP server. [Agent isolation](../../../cast/capabilities/tools/cast/documentation/agent-isolation.md) owns how each launch enforces this. Decide what the agent has from what the prompt relies on:
 
-- Select in the record every skill, rule, command, hook, MCP server, tool and pack the prompt relies on. A file the record does not select is absent at launch.
+- Select in the record every skill, rule, command, hook, MCP server, tool and pack the prompt relies on. A file the record does not select is absent at launch. The agent's own tools are the exception: they are files of the folder, not selections, and the prompt names each one's invocation as [Tool](tool.md) states.
 - Put an instruction the agent must follow in its prompt. When several agents share it, write it as a [rule](rule.md) and select that rule in each record. Do not rely on folder instructions above the agent folder.
 
 List installation selections only for the rbtv-agent placement. The prompt must not assume that merely listing a skill makes it available in harness-sub-agent placement. State the action for a missing dependency as Prompt requires.
@@ -69,4 +70,4 @@ Keep the folder name and the record name equal on renaming. Edit the authoritati
 
 For an outside agent, put its standing instructions in the prompt and its description in the record. Keep model settings, permissions and tool configuration out of prompt prose; classify other content through Choosing what to build.
 
-Test discovery from the description alone against a neighboring agent. The selected launch must carry all required inputs. Test the prompt separately through its intended placement, including missing dependencies. For an rbtv agent, run `rbtv agent list AGENT` and compare the packs, skills, rules, commands, MCP servers and hooks it prints with what the prompt relies on. Then launch the agent once with a real task, through `cast --agent FOLDER` or one message to an agent connected through Ignite, and check the result against the three decisions settled before writing. Installer acceptance checks the folder and records, not task selection or behavior.
+Test discovery from the description alone against a neighboring agent. The selected launch must carry all required inputs. Test the prompt separately through its intended placement, including missing dependencies. For an rbtv agent, run `rbtv agent list AGENT` and compare the packs, skills, rules, commands, MCP servers and hooks it prints with what the prompt relies on. It does not print the agent's own tools: run each by the invocation the prompt names. Then launch the agent once with a real task, through `cast --agent FOLDER` or one message to an agent connected through Ignite, and check the result against the three decisions settled before writing. Installer acceptance checks the folder and records, not task selection or behavior.
