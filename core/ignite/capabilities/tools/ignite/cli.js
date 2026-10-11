@@ -107,6 +107,9 @@ Request JSON:
   model            short name or harness-native id
   effort           integer 1-5, or a native rung word
   cwd              existing absolute directory
+  agentHome        optional absolute path of the rbtv agent folder this turn launches: the
+                   harness then loads nothing from a folder above it and keeps no native
+                   memory. Absent: the harness also loads what the folders above cwd hold
   prompt|promptFile  exactly one
   session          {"mode":"new"} or {"mode":"resume","id":"<exact id>"}
   env              optional string map merged over the process environment

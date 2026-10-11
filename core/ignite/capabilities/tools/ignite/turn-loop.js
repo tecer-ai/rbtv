@@ -316,6 +316,7 @@ async function execute(slug, claim, deps) {
     model: setting.model,
     effort: setting.effort,
     cwd: home,
+    agentHome: home,
     prompt,
     systemPromptFile: path.join(home, castAgent.PROMPT_MD),
     session,

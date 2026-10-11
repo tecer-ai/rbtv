@@ -45,7 +45,7 @@ const resultFile = args[args.indexOf('--result') + 1];
 const control = JSON.parse(fs.readFileSync(process.env.FAKE_CAST_CONTROL, 'utf8'));
 fs.appendFileSync(process.env.FAKE_CAST_SEEN, JSON.stringify({
   harness: request.harness, model: request.model, effort: request.effort,
-  cwd: request.cwd, session: request.session, prompt: request.prompt, env: request.env,
+  cwd: request.cwd, agentHome: request.agentHome, session: request.session, prompt: request.prompt, env: request.env,
   systemPromptFile: request.systemPromptFile, fallbacks: request.fallbacks,
 }) + '\\n');
 const prompt = request.prompt || '';
@@ -323,6 +323,7 @@ test('request carries systemPromptFile', async (ctx) => {
   const result = await runOnce('master', box.deps);
   const request = JSON.parse(fs.readFileSync(path.join(home, 'turns', result.runId, 'request.json'), 'utf8'));
   assert.equal(request.systemPromptFile, agentMd);
+  assert.equal(request.agentHome, home);
   assert.equal(path.isAbsolute(request.systemPromptFile), true);
   assert.equal(request.prompt.includes('STANDING_SECRET'), false);
   assert.equal(fs.existsSync(path.join(box.home, 'CLAUDE.md')), false);
@@ -1075,6 +1076,7 @@ test('cwd is symlink-resolved', async (ctx) => {
   await runOnce('master', box.deps);
   assert.equal(seen(box)[0].cwd, fs.realpathSync(box.home));
   assert.equal(seen(box)[0].env.RBTV_AGENT_HOME, fs.realpathSync(box.home));
+  assert.equal(seen(box)[0].agentHome, fs.realpathSync(box.home));
   assert.match(seen(box)[0].prompt, /RESULT_FILE: .*agent-result\.json/);
 });
 

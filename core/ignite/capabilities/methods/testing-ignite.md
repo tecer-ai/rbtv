@@ -58,7 +58,7 @@ The pass signal is exit 0 for every program, plus the line named here. Seconds w
 | `test_connect.js`, `test_cli.js`, `test_deploy.js` | Same, and the last line is `ok` | 17, 51 and 3 |
 | `test_dreamer.js` | Same | 20 |
 | `test_daemon.js` | Same. It also prints the service's log lines, each starting with `{`; ignore them, and do not read its last line as the result | 25 |
-| `test_turn.js` | Its only line: `test_turn: ok` | 1 |
+| `test_turn.js` | Its only line: `test_turn: ok` | 4 |
 | `test_cast.js` | Its only line: `all cast tests passed` | 52 |
 | `test_route.js` | Its only line: `all route tests passed` | 7 |
 | `test_spark.js` | Its only line: `test_spark: ok` | 3 |

@@ -11,6 +11,7 @@ const { codexArgv, lookupModel, shortName, resolveEffortValue } = require(`${CAS
 const { agentBody } = require(`${CAST_LIB}/agent`);
 const { startFailure } = require(`${CAST_LIB}/fallback`);
 const { procStart, emitHandle } = require(`${CAST_LIB}/handles`);
+const { isolation } = require(`${CAST_LIB}/isolation`);
 const { launchEnv, opencodeTagged, SYSTEM_WRAPPER } = require(`${CAST_LIB}/launch`);
 const { loadOptional } = require(`${CAST_LIB}/optional`);
 const { spawnable } = require(`${CAST_LIB}/win-exec`);
@@ -114,6 +115,15 @@ function readEnv(env) {
   return out;
 }
 
+// The folder of the rbtv agent this turn launches, or null for any other turn. Only the request
+// says so: the working folder and RBTV_AGENT_HOME never do.
+function readAgentHome(request) {
+  const home = request.agentHome;
+  if (home === undefined) return null;
+  if (typeof home !== 'string' || !path.isAbsolute(home)) throw new Error('agentHome must be an absolute path');
+  return home;
+}
+
 // The turns `request.fallbacks` describes, in the order to try them: this request with the
 // harness, model, effort, session and prompt each object gives. null when the request names none.
 function readFallbacks(request) {
@@ -149,6 +159,9 @@ function validate(request) {
     mode,
     sessionId,
     env,
+    // What cast passes a harness so that an agent loads only its own folder; for a turn with no
+    // agent folder, only the inherited variables to remove.
+    isolation: isolation(request.harness, readAgentHome(request)),
   };
 }
 
@@ -158,7 +171,7 @@ function argvFor(v, freshId, tag) {
   switch (v.harness) {
     case 'claude':
       return ['claude', '-p', '--model', v.modelId, '--permission-mode', 'bypassPermissions', ...effort,
-        '--output-format', 'json',
+        '--output-format', 'json', ...v.isolation.argv,
         ...(route === 'flag' ? ['--append-system-prompt', v.systemPrompt.text] : []),
         ...(v.mode === 'resume' ? ['--resume', v.sessionId] : ['--session-id', freshId])];
     case 'codex':
@@ -166,7 +179,7 @@ function argvFor(v, freshId, tag) {
         resume: v.mode === 'resume' ? v.sessionId : null,
         folder: v.cwd,
         model: v.modelId,
-        settings: [...effort,
+        settings: [...effort, ...v.isolation.argv,
           ...(route === 'developer' ? ['-c', `developer_instructions=${JSON.stringify(v.systemPrompt.text)}`] : [])],
         jsonEvents: true,
       });
@@ -275,7 +288,7 @@ function spawnTurn(v, resultFile) {
   const win = spawnable(cmd, childArgs);
   const out = fs.createWriteStream(stdoutPath);
   const err = fs.createWriteStream(stderrPath);
-  const childEnv = launchEnv(v.cwd, v.env);
+  const childEnv = launchEnv(v.cwd, { ...v.env, ...v.isolation.env }, v.isolation.unset);
   const startedAt = new Date().toISOString();
   const acc = { codexId: null, claudeId: null };
   let carry = '';
