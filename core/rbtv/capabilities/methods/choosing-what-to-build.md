@@ -54,7 +54,7 @@ A [Pack](../glossary/pack.md) groups installation selections. It does not expose
 
 ## Decide whether a separate agent is needed
 
-Choose an [Agent](../glossary/agent.md) only when work needs separate context and a standing prompt must handle different launch tasks. A checklist the caller can perform is not itself a reason to launch another agent. An agent is not an exposure method.
+Choose an [Agent](../glossary/agent.md) only when work needs separate context: a standing prompt that handles different launch tasks, or one task run apart from its caller. A checklist the caller can perform is not itself a reason to launch another agent. An agent is not an exposure method.
 
 Write or change a [Prompt](../glossary/prompt.md) when the standing function or method of that agent needs work. The prompt and [Task](../glossary/task.md) entries own their sections; do not create a separate kind for every section.
 

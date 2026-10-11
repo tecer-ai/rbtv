@@ -6,7 +6,7 @@ Use the prompt for the agent's standing function, method and limits. Put one tas
 
 ## Establish the launch conditions
 
-Identify who launches the agent and two different tasks it must handle. Do not assume it receives the caller's prompt or memory. Require injected memory only when every supported launch supplies it, such as a specifically identified Ignite wake.
+Identify who launches the agent and two different tasks it must handle; an agent built for one task has that task. Do not assume it receives the caller's prompt or memory. Require injected memory only when every supported launch supplies it, such as a specifically identified Ignite wake.
 
 An interactive user can answer questions. A noninteractive launch must return a missing-input result instead of waiting for a later answer. When any supported launch is noninteractive, state what the next launch must supply. Checks needed for the conclusion must complete within that turn.
 
