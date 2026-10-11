@@ -38,7 +38,7 @@ cast -h | --help
 | `-f FILE` | read the task from a file; `-f -` reads it from stdin |
 | neither, with `--agent` | the task is `task.md` in the agent folder; every other form requires `-p` or `-f` |
 | a task with no text | refused with exit 2, by a launch, a `cast resume` and a `--dry-run` alike: text that is empty or only whitespace is no task. The refusal names where the text came from: `the -p text`, `the -f file FILE`, `standard input (-f -)` or `task.md in <agent folder>` |
-| `--dry-run` | print the composed argv as JSON and exit 0 without launching |
+| `--dry-run` | print the composed argv as JSON and exit 0 without launching. The same object names each environment variable the launch sets, as a key of its own, and under `env_removed` the inherited variables it removes (see [What an agent launch loads](#what-an-agent-launch-loads)) |
 
 The first form launches an rbtv agent and is the form to use for any agent launched more than
 once: its folder holds the prompt and the harness, model and effort. The second form is for a
@@ -102,7 +102,10 @@ with is not cast's to name, so the handle's `model` field reads `resume` instead
 
 `resume` runs with cwd = launch-folder (that is also what scopes every harness's `last`), takes the
 message via `-p`/`-f` on stdin like a launch (an empty message is refused as an empty task is), and re-passes the permission/sandbox flags — those
-are per-invocation, not per-session. The resumed session keeps its own model/effort; `-s`/`-S` and
+are per-invocation, not per-session. A launch folder that is an agent folder (it holds `prompt.md`
+and `agent.json`) is resumed with the arguments and variables of
+[What an agent launch loads](#what-an-agent-launch-loads), which are per-invocation too; any other
+folder is resumed with the argv of the table. The resumed session keeps its own model/effort; `-s`/`-S` and
 `--headed` are refused. `-n` caps `sessions` PER HARNESS (default 10), newest first; `--json` gives
 `[{harness, id, started, label}]`. The label is human-readable session identity: opencode's stored
 `title`; for claude/codex a ≤60-char excerpt of the first real user message (injected `<...>`
@@ -145,6 +148,40 @@ with different tasks is given each one with `-p` or `-f`. `--rogue`, `cast resum
 `--rogue PROMPT-FILE` runs a rogue agent file that is not an agent folder: the file's body, without its
 frontmatter, is the system prompt, and the launch folder is the usual one. It sets no
 `RBTV_AGENT_HOME`. Harness, model and effort are always given on the command line for `--rogue`.
+
+### What an agent launch loads
+
+An `--agent` launch makes the harness load only what the agent folder holds. Nothing reaches the
+agent from a folder above it: no instruction file, rule, skill, command, sub-agent, setting, hook or
+MCP server. The harness's native memory is off. The user's home-level configuration stays loaded.
+The agent can still open any file with its own tools.
+
+`lib/isolation.js` returns what each harness is passed, and is the only file that knows it. A
+headless launch, a `--headed` launch, a fallback run and a `cast resume` in an agent folder all
+receive the same values; so does an Ignite turn, which calls the same function.
+
+| Harness | Passed | Effect |
+|---|---|---|
+| claude | `--settings '<json>'` with three keys. `claudeMdExcludes`: for every folder above the agent folder, up to the top-level folder, the paths `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `.claude/CLAUDE.md`, `.claude/AGENTS.md` and `.claude/rules/**`; for the user's home folder only the first three. `disabledMcpjsonServers`: every server name an `.mcp.json` above the agent folder defines, less the names the agent's own `.mcp.json` defines. `autoMemoryEnabled: false` | Parent instruction files, rules and MCP servers are not loaded, and auto memory is off. The empty `.git` folder that `rbtv agent add` creates in the agent folder stops the rest: parent skills, commands, sub-agents and settings |
+| codex | `-c 'project_root_markers=[]'`, `-c 'projects={"<agent folder>"={trust_level="trusted"}}'`, `--disable memories` | Codex stops looking for configuration at the agent folder, loads the agent's own `.codex/` and `AGENTS.md`, and reads no memory |
+| opencode | No argument. Five environment variables: `OPENCODE_DISABLE_PROJECT_CONFIG=1`, `OPENCODE_DISABLE_EXTERNAL_SKILLS=1`, `OPENCODE_CONFIG_DIR=<agent folder>/.opencode`, `OPENCODE_CONFIG=<agent folder>/opencode.json`, and `OPENCODE_CONFIG_CONTENT`, a JSON object | The first two stop every project file and skill, the agent's own included; the other three hand back the agent's files and the home-level ones. OpenCode has no native memory |
+
+`OPENCODE_CONFIG_CONTENT` holds `instructions`: the agent folder's `AGENTS.md`, each entry of the
+`instructions` key of its `opencode.json` made absolute (a URL, a `~/` path and an absolute path stay
+as written), and the home-level `AGENTS.md` of OpenCode's configuration folder; and `skills.paths`:
+`.claude/skills` and `.agents/skills` of the agent folder and of the user's home folder. A file or
+folder of these that does not exist is left out. An `.mcp.json` or `opencode.json` that is missing
+or cannot be parsed counts as defining nothing.
+
+Every launch removes the five OpenCode variables from the environment it inherited before it sets
+its own. A launch that names no agent (`<harness> <model> <effort>`, `--rogue`, `cast resume`
+outside an agent folder) therefore gets none of the above, including when an isolated agent runs it
+or its launch folder is an agent folder; it loads its parent folders' files as the harness does by
+itself. A user who sets one of those five variables in a shell loses it in every cast launch.
+
+Measured on Claude Code 2.1.296, Codex 0.162.0 and OpenCode 1.17.18, on Linux, headless. Not
+measured: the interactive forms and the resume forms (their `--help` accepts every argument),
+Windows, and an agent folder reached through a symbolic link, whose other path is not walked.
 
 The system prompt rides each harness's strongest channel, the same as `-s TEXT`/`-S FILE`:
 
@@ -618,6 +655,7 @@ runs in.
 | `capabilities/tools/cast/lib/defaults.js` | the installation's defaults, `.rbtv/config/cast/defaults.json`: the default ranking of `cast route` and the ranking of a fallback, read and replaced in one step |
 | `capabilities/tools/cast/lib/win-exec.js` | how a harness name becomes a process on Windows: finds the program on `PATH` and wraps an npm `.cmd` shortcut so that it can be started |
 | `capabilities/tools/cast/lib/agent.js` | `--agent` / `--rogue`: find the agent folder, read `agent.json` and `prompt.md`. The one place that knows where an agent's folder is (`<installation>/.rbtv/agents/<name>`), which agents a `--target FOLDER` names, what counts as a path, and how the record is read: spark, the agent list and Ignite load it |
+| `capabilities/tools/cast/lib/isolation.js` | what a harness is passed so that an rbtv agent loads only its own folder: the arguments, the environment variables and the variables to remove, per harness. The one place that knows these values, walks the folders above the agent folder and reads their files: `launch.js` and Ignite's turn call it |
 | `capabilities/tools/cast/lib/agent-list.js` | `cast list --agents`: the agents a name can reach, as a table, labeled blocks, or JSON; the one list, which [`spark list`](../spark/spark.md) and `rbtv agent list` also show |
 | `capabilities/tools/cast/lib/sessions.js` | the per-harness session-store readers and `cast sessions` |
 | `capabilities/tools/cast/lib/monitor.js` | `cast monitor` — the freeze tripwire, its witness channel, roster and watch |

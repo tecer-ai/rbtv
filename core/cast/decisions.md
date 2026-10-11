@@ -45,3 +45,27 @@ An image-generation model's row carries `image=Y` and blank `level`, `reasoning`
 ## The shipped model catalog lists pinned versions and list prices
 
 One row per model line names a pinned version, never a moving alias such as a `-latest` name. `cost` is the provider's standard API list price for output tokens at its base rate; a cost that is not known is blank, never a placeholder number. Reason: an alias changes what a row launches with no change to the row, and a placeholder cost ranks as a real price.
+
+## An agent launch loads only the agent folder
+
+A launch of an rbtv agent passes its harness the arguments and environment variables that stop it loading anything from a folder above the agent folder, and turn its native memory off. A launch that names no agent passes none. Reason: an agent's behaviour must come from its own folder, wherever that folder sits, while a worker launched into a folder is meant to receive that folder's surroundings. The launcher holds the agent folder and passes it; it is never read from the working folder or from `RBTV_AGENT_HOME`, because a worker launched into an agent folder is not that agent.
+
+## One function holds every harness's isolation values
+
+`lib/isolation.js` is the only place that knows them, and cast's launch, `cast resume` and Ignite's turn call it. Reason: Ignite composes its own command line, so values kept in cast's launch alone would leave every Ignite turn unisolated, and two copies would drift.
+
+## Claude Code turns parent MCP servers off by name
+
+The launch lists each server of the folders above the agent folder in `disabledMcpjsonServers`, and does not pass `--strict-mcp-config`. Reason: the strict flag also removes the user's home-level and account servers, which stay loaded by decision. The cost is that cast reads every `.mcp.json` above the agent folder at each launch.
+
+## Claude Code's memory is turned off by a setting, not by a variable
+
+Reason: an environment variable is inherited by every launch the agent makes, and a setting passed as an argument is not.
+
+## Codex is not passed `--disable plugins`
+
+Reason: it also removes the home-level plugin marketplaces.
+
+## Every launch removes the isolation variables it inherited
+
+Reason: OpenCode is isolated by environment variables only, and a launch made by an isolated agent would otherwise configure its own harness with that agent's folder. The removal applies to an agent launch too, before its own values are set, so one rule covers every launch.

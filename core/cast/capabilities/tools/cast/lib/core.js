@@ -44,7 +44,7 @@ const CODEX_ALWAYS = ['-c', 'approval_policy=never', '--skip-git-repo-check', ..
 //   headed      the interactive TUI instead of `exec` (new session only).
 //   folder      the launch folder (new session only).
 //   model       the model id; a resume without one keeps the session's model.
-//   settings    the caller's own `-c` pairs (effort, developer instructions).
+//   settings    the caller's own options (effort, developer instructions, an agent's isolation).
 //   jsonEvents  the daemon's form: events as JSON lines on stdout, the prompt on stdin (`-`).
 function codexArgv({ resume, headed, folder, model, settings = [], jsonEvents }) {
   const tail = jsonEvents ? ['--json', '-'] : [];
@@ -58,14 +58,16 @@ function codexArgv({ resume, headed, folder, model, settings = [], jsonEvents })
 
 // headed = the harness's interactive TUI instead of its one-shot print mode. The TUI owns the
 // terminal, so the prompt rides argv (see promptArgv) instead of stdin.
-function baseArgv(harness, model, folder, headed) {
+// added = the arguments that isolate an rbtv agent (lib/isolation.js), none for any other launch.
+// They follow the fixed options, so the effort and a headed prompt stay last.
+function baseArgv(harness, model, folder, headed, added = []) {
   switch (harness) {
-    case 'claude': return ['claude', ...(headed ? [] : ['-p']), '--model', model, '--permission-mode', 'bypassPermissions'];
-    case 'codex': return codexArgv({ headed, folder, model });
+    case 'claude': return ['claude', ...(headed ? [] : ['-p']), '--model', model, '--permission-mode', 'bypassPermissions', ...added];
+    case 'codex': return codexArgv({ headed, folder, model, settings: added });
     // --auto: headless `opencode run` auto-REJECTS every permission.asked (observed: external_directory
     // on /tmp and on the launch folder of a resumed session — issue G-owner-console-0819-0010); --auto
     // flips that to auto-approve, per invocation. The opencode twin of the two flags above.
-    case 'opencode': return headed ? ['opencode', '-m', model] : ['opencode', 'run', '-m', model, '--auto'];
+    case 'opencode': return [...(headed ? ['opencode', '-m', model] : ['opencode', 'run', '-m', model, '--auto']), ...added];
     default: return null;
   }
 }

@@ -12,9 +12,11 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { SPECS } = require('../supported-models');
 
+const { isAgentFolder } = require('./agent');
 const { HARNESSES, RESUME_USAGE, baseArgv, codexArgv, fail, parseArgs, promptArgv, refuseIfDetached, resolveFolder, shortName } = require('./core');
 const { exhausted, howEnded, nameOf, startFailure } = require('./fallback');
 const { claudeSlug, emitHandle, procStart, stdoutPath } = require('./handles');
+const { isolation } = require('./isolation');
 const { loadOptional } = require('./optional');
 const { spawnable } = require('./win-exec');
 const { opencodeCandidates, opencodeStore } = require('./sessions');
@@ -32,8 +34,17 @@ function exitDeadline() {
 // OpenCode records its project directory from PWD, not from the chdir, so a caller
 // running in another folder would bind the session to the caller's directory.
 // PWD is set last so a request env cannot put it back.
-function launchEnv(folder, extra) {
-  return { ...process.env, ...(extra || {}), PWD: folder };
+// `unset` names the inherited variables the child must not receive: those that isolate an rbtv
+// agent (lib/isolation.js), which a launch made by that agent would otherwise keep.
+function launchEnv(folder, extra, unset = []) {
+  const env = { ...process.env };
+  for (const name of unset) delete env[name];
+  return { ...env, ...(extra || {}), PWD: folder };
+}
+
+// The inherited variables a start removes and does not set again: what a dry run names.
+function envRemoved(iso) {
+  return iso.unset.filter((name) => name in process.env && !(name in iso.env));
 }
 
 // How one harness run ended: `error` when the harness could not be started, else its exit `code`
@@ -47,10 +58,10 @@ function ended(failLabel) {
   };
 }
 
-function spawnWithDeadline(cmd, args, opts) {
+function spawnWithDeadline(cmd, args, { unset, ...opts }) {
   const win = spawnable(cmd, args);
   const spawned = { ...opts, ...win.opts, timeout: DEADLINE_MS, killSignal: 'SIGTERM' };
-  if (opts.cwd) spawned.env = launchEnv(opts.cwd, opts.env);
+  if (opts.cwd) spawned.env = launchEnv(opts.cwd, opts.env, unset);
   const res = spawnSync(win.cmd, win.args, spawned);
   if (res.error && res.error.code === 'ETIMEDOUT') exitDeadline();
   // A harness that exits without reading its task leaves an error on the write beside its exit
@@ -100,10 +111,12 @@ function attempt({ harness, modelId, folder, effortWord, effortArgv, system, pro
     effortArgv = [];
   }
 
-  let argv = baseArgv(harness, modelId, folder, headed);
+  // An rbtv agent is started isolated from its parent folders; any other launch gets nothing.
+  const iso = isolation(harness, agentHome);
+  let argv = baseArgv(harness, modelId, folder, headed, iso.argv);
   let stdinText = promptText;
   // An rbtv agent's folder is announced to the harness's process as RBTV_AGENT_HOME.
-  const agentEnv = agentHome ? { RBTV_AGENT_HOME: agentHome } : null;
+  const agentEnv = agentHome ? { RBTV_AGENT_HOME: agentHome, ...iso.env } : null;
 
   // Mint claude's session id instead of resolving it post-hoc: the id names the transcript file
   // exactly, so no folder->session guessing (measured: 373/900 slug dirs hold >1 transcript).
@@ -159,6 +172,7 @@ function attempt({ harness, modelId, folder, effortWord, effortArgv, system, pro
       effort_word: effortWord,
       headed,
       ...agentEnv,
+      env_removed: envRemoved(iso),
     })}\n`);
     process.exit(0);
   }
@@ -183,15 +197,15 @@ function attempt({ harness, modelId, folder, effortWord, effortArgv, system, pro
 
   const finish = (out) => done({ ...out, elapsedMs: Date.now() - t0 });
   if (harness === 'opencode' && !headed) {
-    return runOpencodeChecked(argv, { cwd: folder, env: agentEnv, stdinText, t0,
+    return runOpencodeChecked(argv, { cwd: folder, env: agentEnv, unset: iso.unset, stdinText, t0,
       model: shortName(harness, modelId),
       bind: () => opencodeTagged(folder, tag) }, finish);
   }
 
   const [cmd, ...args] = argv;
   return finish(spawnWithDeadline(cmd, args, stdinText === null
-    ? { cwd: folder, env: agentEnv, stdio: 'inherit' }
-    : { cwd: folder, env: agentEnv, input: stdinText, stdio: ['pipe', 'inherit', 'inherit'] }));
+    ? { cwd: folder, env: agentEnv, unset: iso.unset, stdio: 'inherit' }
+    : { cwd: folder, env: agentEnv, unset: iso.unset, input: stdinText, stdio: ['pipe', 'inherit', 'inherit'] }));
 }
 
 // opencode/grok sometimes swallows the run's final message: the child exits 0 with stdout ending
@@ -200,13 +214,13 @@ function attempt({ harness, modelId, folder, effortWord, effortArgv, system, pro
 // headless run gets stdout tee'd through a capture and reconciled against the store after exit:
 // a final message absent from stdout is appended from the store; a run whose store holds NO final
 // message exits non-zero with an explicit no-report marker. `done` receives how the run ended.
-function runOpencodeChecked(argv, { cwd, env, stdinText, t0, bind, model }, done) {
+function runOpencodeChecked(argv, { cwd, env, unset, stdinText, t0, bind, model }, done) {
   const { spawn } = require('child_process');
   const [cmd, ...args] = argv;
   const win = spawnable(cmd, args);
   const child = spawn(win.cmd, win.args, {
     cwd,
-    env: launchEnv(cwd, env),
+    env: launchEnv(cwd, env, unset),
     stdio: [stdinText === null ? 'inherit' : 'pipe', 'pipe', 'inherit'],
     ...win.opts,
   });
@@ -302,13 +316,14 @@ const SYSTEM_WRAPPER = 'The text above is your system-prompt directive for this 
 // cast resume: send one more turn into an existing headless session. `last` = the harness's own
 // "most recent session in this folder" affordance, so no id bookkeeping is needed for the common
 // case. Permission/sandbox flags are per-invocation, not per-session, so they ride again here.
-// codex's cwd comes from spawnSync (see codexArgv).
-function resumeArgv(harness, id) {
+// codex's cwd comes from spawnSync (see codexArgv). `added` = the arguments that isolate an rbtv
+// agent (lib/isolation.js), which are per-invocation too.
+function resumeArgv(harness, id, added = []) {
   switch (harness) {
     case 'claude': return ['claude', '-p', ...(id === 'last' ? ['--continue'] : ['--resume', id]),
-      '--permission-mode', 'bypassPermissions'];
-    case 'codex': return codexArgv({ resume: id === 'last' ? '--last' : id });
-    case 'opencode': return ['opencode', 'run', ...(id === 'last' ? ['-c'] : ['-s', id]), '--auto'];
+      '--permission-mode', 'bypassPermissions', ...added];
+    case 'codex': return codexArgv({ resume: id === 'last' ? '--last' : id, settings: added });
+    case 'opencode': return ['opencode', 'run', ...(id === 'last' ? ['-c'] : ['-s', id]), '--auto', ...added];
   }
 }
 
@@ -323,12 +338,14 @@ function runResume(rawArgv) {
   if (!SPECS[harness]) {
     fail(`refused: '${harness}' is not a known harness\nknown: ${HARNESSES.join(', ')}`);
   }
-  const argv = resumeArgv(harness, id);
   const folder = resolveFolder(folderArg);
+  // A session that ran in an agent folder is an rbtv agent's: it is resumed isolated, as it was started.
+  const iso = isolation(harness, isAgentFolder(folder) ? folder : null);
+  const argv = resumeArgv(harness, id, iso.argv);
 
   if (dryRun) {
     process.stdout.write(`${JSON.stringify({
-      argv, cwd: folder, stdin_preview: promptText.slice(0, 200),
+      argv, cwd: folder, stdin_preview: promptText.slice(0, 200), ...iso.env, env_removed: envRemoved(iso),
     })}\n`);
     process.exit(0);
   }
@@ -352,12 +369,12 @@ function runResume(rawArgv) {
     t0,
   });
   if (harness === 'opencode') {
-    return runOpencodeChecked(argv, { cwd: folder, stdinText: promptText, t0, model: 'resume',
+    return runOpencodeChecked(argv, { cwd: folder, env: iso.env, unset: iso.unset, stdinText: promptText, t0, model: 'resume',
       bind: () => (id === 'last' ? opencodeTouched(folder, t0) : id) }, ended('launch failed'));
   }
   const [cmd, ...args] = argv;
-  return ended('resume failed')(spawnWithDeadline(cmd, args, { cwd: folder, input: promptText,
-    stdio: ['pipe', 'inherit', 'inherit'] }));
+  return ended('resume failed')(spawnWithDeadline(cmd, args, { cwd: folder, env: iso.env, unset: iso.unset,
+    input: promptText, stdio: ['pipe', 'inherit', 'inherit'] }));
 }
 
 module.exports = {
