@@ -84,6 +84,8 @@ Choose agent placement deliberately:
 - `rbtv add NAME --on HARNESS:MODEL:EFFORT` writes a harness-native sub-agent. Repeat per selected harness. Model and effort are checked with `cast models list`, run from the target: the model must be one the installation selected. The agent's requested file list is reported as unapplied; the sub-agent receives what its target already has.
 - `rbtv agent add AGENT --harness HARNESS --model MODEL --effort EFFORT` installs an rbtv agent and its requested files. Supply those launch fields only when absent from its record; change existing values with `rbtv agent configure`. Agent verbs take no `--target`, except `rbtv agent list --target FOLDER`, which lists the agents of that folder as `cast list --agents --target FOLDER` reads it. By name, the prompt and record are copied to `.rbtv/agents/<name>/`, with no other source-folder files. A path uses the folder in place.
 
+`rbtv agent add`, `rbtv agent update AGENT scaffolding`, `rbtv agent update AGENT all` and a harness change through `rbtv agent configure` create the files an agent folder lacks: `settings.json`, `.gitignore` and an empty folder named `.git`, which [Agent](agent.md) explains. `--json` lists each one created under `written`, and the printed result of `rbtv agent add` names them as own files; a dry run lists them and creates nothing. rbtv writes nothing into that `.git` folder and never removes it, whatever is added to or removed from the agent. git does not carry an empty folder, so a clone or a second machine has none: run `rbtv agent update AGENT scaffolding` there for each agent. `rbtv update` at the installation and `rbtv agent update AGENT guidance` do not create it.
+
 A component explicitly named to `rbtv add module/component` includes its shipped agents and therefore needs `--on` when agents are present. Selections through `--all`, `--module`, `--component` or `--type` skip agents and report that skip. Use agent add for rbtv-agent placement.
 
 ## Interpret results and refresh changes
@@ -104,6 +106,7 @@ Edit the source, then choose the refresh that reaches the reader:
 | Both scaffolding and guidance | `rbtv update all`, in that order. |
 | Mirror replacement added or removed while the repository still supplies that component | `rbtv update all`; inspect the selected source and resulting files. |
 | Agent's generated scaffolding | `rbtv agent update AGENT scaffolding` or `rbtv agent update AGENT all`. |
+| Agent folder received through git, with no `.git` folder inside it | `rbtv agent update AGENT scaffolding`, for each agent, on each machine. |
 | Component repository checkout | `rbtv add`, `rbtv agent add`, `rbtv interactive`, `rbtv update scaffolding` and `rbtv update all` create a missing checkout and install missing requirements. They do not fetch an existing checkout. `rbtv update guidance` does not. `rbtv update repositories` fast-forwards a clean matching checkout and does not clone. |
 
 The installer owns `.rbtv/config/install.json`. If that record or an agent's `agent.json` is edited, scaffolding or all applies its settings. Test refreshes in an isolated installation: change a description, confirm guidance alone leaves the listing unchanged, then confirm scaffolding updates it. This distinguishes a successful invocation from the intended reader actually receiving the change.

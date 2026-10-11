@@ -37,6 +37,7 @@ ORDER = [
     test_files.translations,
     test_agents.installed_agents,
     test_agents.agent_ignore_file,
+    test_agents.agent_git_folder,
     test_install.green_arm_all_harnesses,
     test_install.red_unknown_method,
     test_install.red_foreign_collision,

@@ -145,6 +145,70 @@ def agent_ignore_file(ctx) -> None:
           not uncovered_c, repr(sorted(uncovered_c)))
 
 
+def agent_git_folder(ctx) -> None:
+    """The agent folder's `.git`: an empty folder every verb that writes the
+    folder's own files creates, and that no verb writes into or removes."""
+    check, tmp = ctx.check, ctx.tmp
+    root = tmp / "agent-git-source"
+    comp = _component(root, "moda", "comp")
+    _file_md(comp / "rules/kiss.md", "kiss", "Kiss", "body\n")
+    catalog, _ = scan_all(tmp / "agent-git-mirror", root)
+    ws = tmp / "agent-git-installation"; ws.mkdir()
+    home = ws / ".rbtv/agents/scout"
+    _agent(home, files=["kiss"])
+    marker = home / ".git"
+    known = {"claude": {"haiku-5-5": {"rungs": ["low", "high"], "selected": True}},
+             "codex": {"c1": {"rungs": ["low", "high"], "selected": True}}}
+
+    def empty() -> bool:
+        return marker.is_dir() and not any(marker.iterdir())
+
+    with patch("lib.agents.cast_catalog", return_value=known):
+        planned = add_agent(ws, "scout", [], set(), catalog, True)
+        check("A-git — a dry run of agent add names the .git folder and creates nothing",
+              ".git" in planned["written"] and not marker.exists(), str(planned["written"]))
+        added = add_agent(ws, "scout", [], set(), catalog, False)
+        check("A-git — agent add creates .git in the agent folder: a folder, and empty",
+              ".git" in added["written"] and empty(), str(sorted(home.rglob(".git/*"))))
+        again = update_agent(ws, "scout", "all", catalog, False)
+        check("A-git — agent update leaves .git in place and empty, and names it only when it creates it",
+              ".git" not in again["written"] and empty(), str(sorted(home.rglob(".git/*"))))
+        marker.rmdir()
+        preview = update_agent(ws, "scout", "scaffolding", catalog, True)
+        check("A-git — a dry run of agent update names a missing .git and creates nothing",
+              ".git" in preview["written"] and not marker.exists(), str(preview["written"]))
+        update_agent(ws, "scout", "guidance", catalog, False)
+        check("A-git — agent update guidance does not create .git",
+              not marker.exists(), "")
+        update_agent(ws, "scout", "scaffolding", catalog, False)
+        check("A-git — agent update scaffolding creates a missing .git, as on a machine that received the folder through git",
+              empty(), str(sorted(home.rglob(".git/*"))))
+        marker.rmdir()
+        configure_agent(ws, "scout", "codex", "c1", "high", None, catalog, False)
+        check("A-git — a harness change through agent configure creates a missing .git",
+              empty(), str(sorted(home.rglob(".git/*"))))
+        removed = remove_agent(ws, "scout", ["kiss"], set(), False, False, catalog, False)
+        check("A-git — removing the agent's last file leaves .git in place and empty",
+              removed["ok"] and not (home / ".claude/rules/kiss.md").exists()
+              and read_state(home)["files"] == [] and empty(),
+              str(sorted(path.relative_to(home).as_posix() for path in home.rglob("*"))))
+        update_agent(ws, "scout", "all", catalog, False)
+        check("A-git — and an update of the agent with no file still leaves it empty",
+              empty(), str(sorted(home.rglob(".git/*"))))
+        # A folder an earlier installer wrote: its ignore list sits in `.git` and
+        # is on the record. Releasing it removes the emptied folders.
+        for verb, run in (("add", lambda: add_agent(ws, "scout", ["kiss"], set(), catalog, False)),
+                          ("update", lambda: update_agent(ws, "scout", "all", catalog, False))):
+            _w(marker / "info/exclude", "# rbtv:start\n.claude/rules/kiss.md\n# rbtv:end\n")
+            record = json.loads((home / "agent.json").read_text(encoding="utf-8"))
+            record["shared_claims"] = [*record.get("shared_claims", []), ".git/info/exclude::#block"]
+            _w(home / "agent.json", json.dumps(record) + "\n")
+            run()
+            check(f"A-git — agent {verb} empties a .git that holds an earlier installer's ignore list, and keeps the folder",
+                  empty() and ".git/info/exclude::#block" not in read_state(home).get("shared_claims", []),
+                  str(sorted(home.rglob(".git/*"))))
+
+
 def installed_agents(ctx) -> None:
     check, skip, tmp = ctx.check, ctx.skip, ctx.tmp
     root = tmp / "agent-source"

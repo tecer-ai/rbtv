@@ -44,7 +44,7 @@ The recorded basis is `CLAUDE.md`, `AGENTS.md`, or `none`. For each basis file f
 
 ## D14 — Clone-local ignore block
 
-In a target with a `.git/` folder, the installer maintains its artifact list as a fenced claim in `.git/info/exclude`. It lists planned component files, the install record, and unbooked marked artifacts found in harness destinations; guidance copies stay committable. It reports files git already tracks. This keeps machine-specific paths out of commits without making one machine's ignore list overwrite another's.
+In an installation with a `.git/` folder, the installer maintains its artifact list as a fenced claim in `.git/info/exclude`. It lists planned component files, the install record, and unbooked marked artifacts found in harness destinations; guidance copies stay committable. It reports files git already tracks. This keeps machine-specific paths out of commits without making one machine's ignore list overwrite another's. An agent folder gets no such claim: its `.git` is the empty folder of D33, and its own `.gitignore` (D27) keeps its harness files out of commits.
 
 ## D15 — Whole-folder skills
 
@@ -133,3 +133,13 @@ When a target has at least one installed tool, the installer writes the rule `rb
 ## D32 — External component checkouts
 
 A component record may name a repository. The checkout is `repository/` inside the component folder discovery selected, not an installation runtime folder. Add, agent add, interactive, update scaffolding and update all prepare that checkout after collision and ownership checks and before installed files, the install record, or PATH change. That preparation clones a missing checkout and installs a declared requirements file with the current Python. It never fetches an existing checkout. A working local Python environment is reused, including one created before rbtv installation. A broken or linked environment is refused and preserved; the installer never deletes an existing environment to repair it. The setup stamp records requirements, not permission to delete. Update guidance does not prepare a checkout. `update repositories` fast-forwards only selected components that name a repository, and only when the checkout is clean and origin and branch match the record. It does not clone, reset, stash or delete. An intact environment is not installed again until a fast-forward changes the checkout. Git hooks are not run. Scaffolding and all do not fetch a checkout.
+
+## D33 — The empty `.git` folder of an agent folder
+
+Every agent folder holds an empty folder named `.git`. A harness that looks for a project root stops at it, which is one of the means by which an rbtv agent receives only its own folder's content and nothing from a parent folder. It is a folder and not a file, and it stays empty, because git must keep reading the agent folder as part of the repository around it: with an empty folder, `git rev-parse --show-toplevel` run in the agent folder still answers with that repository, and the repository still tracks the agent's prompt and record. A folder that held a repository would cut the agent's files off from it.
+
+The function that writes an agent folder's own files (`_agent_files`) creates the folder when it is missing, with no flag, so `rbtv agent add`, `rbtv agent update` with the scope `scaffolding` or `all`, and a harness change through `rbtv agent configure` all create it. The result lists `.git` among the names it wrote; a dry run lists it and creates nothing. All three verbs write the own files after the install step, so a `.git` folder the install step emptied and removed is created again in the same run. An existing `.git`, whatever it is, is left as found.
+
+The installer never writes into the folder and never removes it. The ignore block of D14 is not claimed for an agent folder, so nothing is placed there and no later release prunes it. In an agent folder where an earlier installer wrote that block, the next add or update releases the claim, removes `.git/info/exclude`, and leaves the folder empty.
+
+git does not carry an empty folder and ignores one named `.git`, so the folder cannot be committed. Each machine creates it by running add or update for each agent.

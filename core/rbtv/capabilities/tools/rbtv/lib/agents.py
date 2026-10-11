@@ -43,7 +43,11 @@ def _ignore_text() -> str:
 IGNORE_TEXT = _ignore_text()
 # The folder's own files, created when missing; the result lists them.
 OWN_BODIES = {"settings.json": "{}\n", ".gitignore": IGNORE_TEXT}
-OWN_FILES = tuple(OWN_BODIES)
+# An empty folder that makes a harness take the agent folder as its project
+# root, so the agent receives only its own folder's content (D33). git does not
+# carry it: each machine creates it, and nothing is ever written into it.
+ROOT_MARKER = ".git"
+OWN_FILES = (*OWN_BODIES, ROOT_MARKER)
 
 
 def agent_home(root: Path, name: str) -> Path:
@@ -297,10 +301,11 @@ def _agent_section(home: Path, name: str, dry: bool) -> list[str]:
 
 
 def _agent_files(home: Path, state: dict, dry: bool) -> list[str]:
-    """Create the folder's own settings and ignore files when missing, then write
-    the instruction section in every harness's instruction file. Returns the
-    names written: the own files that were missing, then the instruction files. Own files are not harness
-    files; the result lists them apart (see commands._print_agent)."""
+    """Create the folder's own settings and ignore files and its empty `.git`
+    folder when missing, then write the instruction section in every harness's
+    instruction file. Returns the names written: the own files that were
+    missing, then the instruction files. Own files are not harness files; the
+    result lists them apart (see commands._print_agent)."""
     created = []
     for name, body in OWN_BODIES.items():
         path = home / name
@@ -308,6 +313,10 @@ def _agent_files(home: Path, state: dict, dry: bool) -> list[str]:
             created.append(name)
             if not dry:
                 write_file(path, body, newline="\n")
+    if not (home / ROOT_MARKER).exists():
+        created.append(ROOT_MARKER)
+        if not dry:
+            (home / ROOT_MARKER).mkdir()
     return created + [name for file in sorted(set(GUIDANCE_FILE.values()))
                       for name in _agent_section(home, file, dry)]
 
@@ -456,11 +465,11 @@ def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: 
     receiving = list(HARNESSES)
     named = subagents.named_agents(catalog, explicit)
     sub_agents = on_values(list(on), named, receiving, home, f"rbtv agent configure {raw} -h")
-    written = _agent_files(home, state, dry)
     picked, parts = _split_part_keys(wanted)
     recorded = subagents.recorded(state)
     result = do_install(home, catalog, picked, receiving, dry, guidance_basis="none",
                         parts=parts, sub_agents=sub_agents)
+    written = _agent_files(home, state, dry)
     if not dry:
         after = read_state(home)
         after.update(launch)

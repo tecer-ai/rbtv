@@ -159,8 +159,12 @@ def _add_gitignore(target: Path, owners: dict[str, list], claims: list[dict],
     mirror, which is installation content and stays committable), the book, and
     every STRAY artifact on disk (`_stray_artifacts`). Skipped entirely off a
     git repo, and when `.git` is a FILE (a linked worktree or submodule keeps
-    its exclude elsewhere). Files git ALREADY TRACKS are reported, because no
-    ignore rule reaches one."""
+    its exclude elsewhere). Skipped for an agent folder too: its `.git` is the
+    empty folder that isolates the agent (D33), never a clone's, and its own
+    `.gitignore` covers its harness files. Files git ALREADY TRACKS are
+    reported, because no ignore rule reaches one."""
+    if is_agent_target(target):
+        return
     if not (target / ".git").exists():
         report["gitignore"] = {"claimed": False, "reason": "not a git repo"}
         return

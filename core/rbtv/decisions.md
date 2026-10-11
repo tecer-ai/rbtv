@@ -13,3 +13,7 @@ A skill's description is tested with ten headless seats of the weakest selected 
 ## The seats are run from a method page, not a tool
 
 Running blind seats is a method page, and each build writes its runner from it. Reason: owner decision, 2026-10-09. The runner is about forty lines an agent writes from the recipe; a shipped tool would need the command-line method, selftests on both systems and a row in every agent's tools rule to save that. The part that recurs is the knowledge (the launch form, the stop by the handle's process id, the shape of a Claude Code transcript), and the page holds it. Should the runner keep being rewritten, a `cast` verb is the home for a program, since launching and reading sessions is cast's subject.
+
+## An agent folder holds an empty `.git` folder
+
+The installer creates an empty folder named `.git` in every agent folder, on add and on update, with no flag, never writes into it and never removes it. Reason: owner decision, 2026-10-11. An rbtv agent must receive from its harness only what its own folder holds, and a harness that looks for a project root stops at this folder. It is an empty folder, not a file and not a repository, because git then still reads the agent folder as part of the repository around it. git cannot carry it, so each machine creates it by running add or update for each agent. [Agent](capabilities/glossary/agent.md) states what the folder is, and [rbtv CLI](capabilities/glossary/rbtv-cli.md) the operations that create it.

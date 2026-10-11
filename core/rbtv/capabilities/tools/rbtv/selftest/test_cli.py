@@ -413,8 +413,9 @@ def result_classes(ctx) -> None:
     home = tmp / "ws-result-classes-agent"
     home.mkdir()
     own = _agent_files(home, {"harness": "claude"}, True)
-    check("RC-own-files — agent add names settings.json and .gitignore when missing",
-          "settings.json" in own and ".gitignore" in own, str(own))
+    check("RC-own-files — agent add names settings.json, .gitignore and .git when missing",
+          own[:3] == ["settings.json", ".gitignore", ".git"] and not any(home.iterdir()),
+          str(own))
 
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
