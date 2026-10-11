@@ -57,7 +57,11 @@ List installation selections only for the rbtv-agent placement. The prompt must 
 
 ## Connect the agent to the owner
 
-To let the owner talk to an agent in Slack, or to wake it on a timer, write its folder as `.rbtv/agents/<name>/`, install it with `rbtv agent add`, then run `ignite connect AGENT`. `ignite connect -h` owns the steps and options; [Ignite](../../../ignite/capabilities/tools/ignite/ignite.md) is the tool's page. The command turns the `ignite` pack on, which installs Ignite's standing instructions in the agent: do not repeat them in the prompt. Such an agent has no `task.md`; [Task](task.md) states what its task is for a message and for a timer.
+To let the owner talk to an agent in Slack, or to wake it on a timer, write its folder as `.rbtv/agents/<name>/`, install it with `rbtv agent add`, then run `ignite connect AGENT`. `ignite connect -h` owns the steps and options; [Ignite](../../../ignite/capabilities/tools/ignite/ignite.md) is the tool's page. The command turns the `ignite` pack on, which installs the rule [Standing instructions](../../../ignite/rules/ignite-standing-instructions.md) in the agent. Read that rule before writing the prompt: the prompt neither repeats nor contradicts it. Such an agent has no `task.md`; [Task](task.md) states what its task is for a message and for a timer.
+
+Create a timer with `ignite connect --schedule-json FILE` at connection, or with `ignite schedule add` afterwards; each command's `-h` owns its format. Ask the owner for the cadence and the timezone; do not choose either.
+
+Ignite does not read the description of such an agent. The owner or another agent reads it in `rbtv agent list` to find which agent owns a subject. Write ALWAYS LOAD WHEN as the messages and timers the agent answers, and DO NOT LOAD WHEN as the subjects another agent owns.
 
 ## Edit, convert and test
 
