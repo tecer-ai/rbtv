@@ -54,9 +54,9 @@ A launch of an rbtv agent passes its harness the arguments and environment varia
 
 `lib/isolation.js` is the only place that knows them, and cast's launch, `cast resume` and Ignite's turn call it. Reason: Ignite composes its own command line, so values kept in cast's launch alone would leave every Ignite turn unisolated, and two copies would drift.
 
-## Claude Code turns parent MCP servers off by name
+## A Claude Code agent has only the MCP servers of its own folder
 
-The launch lists each server of the folders above the agent folder in `disabledMcpjsonServers`, and does not pass `--strict-mcp-config`. Reason: the strict flag also removes the user's home-level and account servers, which stay loaded by decision. The cost is that cast reads every `.mcp.json` above the agent folder at each launch.
+The launch passes `--strict-mcp-config`, and `--mcp-config` with the agent folder's `.mcp.json` only when that file exists. Reason: owner decision, 2026-10-11. What an agent has is what rbtv installed in its folder, so no MCP server reaches it from a parent folder, from the user's home-level configuration or from the account. The file is named only when it exists because Claude Code refuses to start on a missing one.
 
 ## Claude Code's memory is turned off by a setting, not by a variable
 

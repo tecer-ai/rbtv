@@ -3,7 +3,7 @@
 // What a harness is passed so that an rbtv agent receives only what its own folder holds: nothing
 // from a parent folder, and no native memory. Home-level configuration stays loaded. This file is
 // the one place that knows each harness's switches, walks the agent folder's ancestors and reads
-// the agent's and the ancestors' files: cast's launch, `cast resume` and Ignite's turn call it.
+// the agent's own files: cast's launch, `cast resume` and Ignite's turn call it.
 // Every form of a harness (headless, interactive, resume) accepts every value below.
 // Measured on Claude Code 2.1.296, Codex 0.162.0 and OpenCode 1.17.18 (Linux, headless).
 
@@ -37,41 +37,41 @@ function ancestors(home) {
   return list;
 }
 
-// A JSON file's value, or null when the file is missing or cannot be parsed: a folder is not
-// required to hold one, and a broken one in a parent folder must not stop the agent's launch.
+// A JSON file's value, or null when the file is missing or cannot be parsed: an agent folder is
+// not required to hold one.
 function readJson(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8').replace(/^﻿/, '')); } catch { return null; }
 }
 
-// The names of the MCP servers a folder's `.mcp.json` defines.
-function serverNames(folder) {
-  const servers = readJson(path.join(folder, '.mcp.json'))?.mcpServers;
-  return servers && typeof servers === 'object' ? Object.keys(servers) : [];
-}
-
-// Claude Code takes one settings object. The empty `.git` folder in the agent folder stops the
-// parent skills, commands, sub-agents and settings; this stops what it leaves: the parents'
-// instruction files and rules, listed by path because every pattern not built from the ancestors
-// also removed the agent's own files, and the parents' MCP servers, turned off by name because
-// --strict-mcp-config also removes the home-level servers. Memory is turned off by the setting,
-// not by the environment variable, so nothing reaches a launch the agent makes.
+// Claude Code takes two switches for MCP servers and one settings object. --strict-mcp-config
+// stops every MCP server not named on the command line: a parent folder's, the home-level ones and
+// the account's. --mcp-config hands the agent's own back, and is passed only when the file exists
+// because Claude Code refuses to start on a missing one; it comes before --settings because it
+// takes every value up to the next option. The empty `.git` folder in the agent folder stops the
+// parent skills, commands, sub-agents and settings; the settings object stops what it leaves: the
+// parents' instruction files and rules, listed by path because every pattern not built from the
+// ancestors also removed the agent's own files. Memory is turned off by the setting, not by the
+// environment variable, so nothing reaches a launch the agent makes.
 function claude(home) {
   const userHome = path.resolve(os.homedir());
   const excludes = [];
-  const servers = new Set();
   for (const dir of ancestors(home)) {
     const files = dir === userHome ? CLAUDE_ROOT_FILES : [...CLAUDE_ROOT_FILES, ...CLAUDE_FOLDER_FILES];
     excludes.push(...files.map((file) => path.join(dir, file)));
-    for (const name of serverNames(dir)) servers.add(name);
   }
-  for (const name of serverNames(home)) servers.delete(name);
-  const settings = { claudeMdExcludes: excludes, disabledMcpjsonServers: [...servers].sort(), autoMemoryEnabled: false };
-  return { argv: ['--settings', JSON.stringify(settings)], env: {} };
+  const own = path.join(home, '.mcp.json');
+  return {
+    argv: ['--strict-mcp-config', ...(fs.existsSync(own) ? ['--mcp-config', own] : []),
+      '--settings', JSON.stringify({ claudeMdExcludes: excludes, autoMemoryEnabled: false })],
+    env: {},
+  };
 }
 
 // Codex looks for a project root above the working folder and loads every `.codex/` on the way:
 // with no root marker it stops at the working folder. The agent folder is then trusted by its own
 // entry, without which its `.codex/` and, under an untrusted parent, its AGENTS.md are not loaded.
+// The agent's own hooks run because every Codex start already carries the option that lets a
+// hook run without a stored approval (CODEX_HOOK_TRUST in core.js); no parent hook is loaded.
 // Not passed: --disable plugins, which also removes the home-level marketplaces.
 function codex(home) {
   return {

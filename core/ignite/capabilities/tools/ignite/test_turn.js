@@ -663,17 +663,21 @@ rejects(base({ systemPromptFile: path.join(cwd, 'missing.md') }), 'cannot read s
       const claude = argvOf('claude', mode, { agentHome: agent });
       assert.ok(claude.includes('--settings'), `claude ${mode}: ${claude}`);
       const settings = JSON.parse(claude[claude.indexOf('--settings') + 1]);
-      assert.deepStrictEqual(without(claude, ['--settings', JSON.stringify(settings)]), plain.claude, `claude ${mode}`);
+      // only the MCP servers of the agent's own file, never a parent's or a home-level one
+      assert.deepStrictEqual(without(claude, ['--strict-mcp-config', '--mcp-config', path.join(agent, '.mcp.json'),
+        '--settings', JSON.stringify(settings)]), plain.claude, `claude ${mode}`);
       for (const file of ['CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', path.join('.claude', 'CLAUDE.md'), path.join('.claude', 'rules', '**')]) {
         assert.ok(settings.claudeMdExcludes.includes(path.join(root, file)), `claude ${mode}: ${file} of a parent folder is excluded`);
         assert.ok(settings.claudeMdExcludes.includes(path.join(root, '.rbtv', 'agents', file)), `claude ${mode}: every folder above is listed`);
         assert.ok(!settings.claudeMdExcludes.includes(path.join(agent, file)), `claude ${mode}: the agent's own ${file} stays`);
       }
-      assert.deepStrictEqual(settings.disabledMcpjsonServers, ['parent'], `claude ${mode}: a parent's server is off, the agent's own stays`);
+      assert.deepStrictEqual(Object.keys(settings), ['claudeMdExcludes', 'autoMemoryEnabled'], `claude ${mode}`);
       assert.strictEqual(settings.autoMemoryEnabled, false);
 
       const codex = argvOf('codex', mode, { agentHome: agent });
       assert.deepStrictEqual(without(codex, CODEX_ADDED), plain.codex, `codex ${mode}`);
+      assert.strictEqual(codex.filter((arg) => arg === '--dangerously-bypass-hook-trust').length, 1,
+        `codex ${mode}: the agent's own hooks run: ${codex}`);
       assert.deepStrictEqual(codex.slice(-2), ['--json', '-'], `codex ${mode}: the prompt marker stays last`);
       assert.deepStrictEqual(codex.slice(0, 4), mode === 'new' ? ['codex', 'exec', '--cd', agent] : ['codex', 'exec', 'resume', 'ses-iso']);
 
@@ -717,7 +721,7 @@ rejects(base({ systemPromptFile: path.join(cwd, 'missing.md') }), 'cannot read s
     assert.ok(fs.existsSync(seenFile), `${harness} ${mode} did not start: ${res.stderr}`);
     return JSON.parse(fs.readFileSync(seenFile, 'utf8'));
   };
-  const MARK = { claude: '--settings', codex: 'project_root_markers=[]' };
+  const MARK = { claude: '--strict-mcp-config', codex: 'project_root_markers=[]' };
   for (const mode of ['new', 'resume']) {
     for (const harness of Object.keys(MODELS)) {
       const agentTurn = received(harness, mode, { agentHome: agent });
