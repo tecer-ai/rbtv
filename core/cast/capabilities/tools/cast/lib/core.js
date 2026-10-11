@@ -43,7 +43,9 @@ const CODEX_ALWAYS = ['-c', 'approval_policy=never', '--skip-git-repo-check', ..
 //               on the process, and the sandbox rides -c.
 //   headed      the interactive TUI instead of `exec` (new session only).
 //   folder      the launch folder (new session only).
-//   model       the model id; a resume without one keeps the session's model.
+//   model       the model id. A resume without one runs on the default model of the account
+//               folder's config.toml, or on Codex's own default when that file is ignored; it
+//               does not keep the session's model (measured on 0.162.0).
 //   settings    the caller's own options (effort, developer instructions, an agent's isolation).
 //   jsonEvents  the daemon's form: events as JSON lines on stdout, the prompt on stdin (`-`).
 function codexArgv({ resume, headed, folder, model, settings = [], jsonEvents }) {

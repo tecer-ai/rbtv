@@ -15,7 +15,7 @@ Whoever launches the agent names the agent folder and nothing else. `lib/isolati
 Isolation applies when the launcher holds the agent folder:
 
 - `cast --agent`, headless or `--headed`, and each fallback run of that launch;
-- `cast resume` in a launch folder that holds `prompt.md` and `agent.json`;
+- `cast resume` in a launch folder that holds `prompt.md` and `agent.json`, which also passes the model and effort of that `agent.json` when it names the resumed harness;
 - `spark`, which launches through `cast --agent --headed`;
 - an Ignite turn whose request names `agentHome`, new or resumed.
 
@@ -47,7 +47,7 @@ The order of the arguments matters in one place: `--mcp-config` takes every valu
 
 ### Codex
 
-With nothing passed and the repository root trusted, Codex loaded from the folders above the working folder: `AGENTS.md`, the skills of `.agents/skills` and `.codex/skills`, and from every parent `.codex/` the configuration, MCP servers, hooks, command rules and sub-agent roles. From the account folder it loaded `config.toml` (default model and effort, trusted folders, enabled plugins and marketplaces, any MCP server and developer instructions), the skills of an enabled plugin, a list of recommended plugins, and the four skills bundled in the program, which Codex writes into the account folder's `skills/.system`.
+With nothing passed and the repository root trusted, Codex loaded from the folders above the working folder: `AGENTS.md`, the skills of `.agents/skills` and `.codex/skills`, and from every parent `.codex/` the configuration, MCP servers, hooks, command rules and sub-agent roles. From the account folder it loaded `config.toml` (default model and effort, trusted folders, enabled plugins and marketplaces, any MCP server and developer instructions), the skills of an enabled plugin, a list of recommended plugins, and the skills bundled in the program, which Codex writes into the account folder's `skills/.system`.
 
 | The launch passes | What it stops |
 |---|---|
@@ -60,7 +60,7 @@ With nothing passed and the repository root trusted, Codex loaded from the folde
 
 Codex's interactive forms (`codex` and `codex resume`) refuse `--ignore-user-config` with `error: unexpected argument`, so a `--headed` launch goes without it and reads `config.toml`. Every other value above is accepted by every form.
 
-What `config.toml` supplied that a launch needs, the launch passes itself: the model (`-m`), the effort (`-c model_reasoning_effort`), the approval policy (`-c approval_policy=never`) and the trust of the agent folder (the entry above). `cast resume` is the exception, stated under [Limits](#limits).
+What `config.toml` supplied that a launch needs, the launch passes itself: the model (`-m`), the effort (`-c model_reasoning_effort`), the approval policy (`-c approval_policy=never`) and the trust of the agent folder (the entry above). `cast resume` in an agent folder and an Ignite resumed turn pass the same four, and the resumed turn ran on the agent's model and effort. A Codex resume that is passed no model does not keep the session's model: it ran on the default model of `config.toml`, and on Codex's own default (`gpt-6.1-sol` in the measured run) with `config.toml` ignored.
 
 The agent's own hooks run, and no parent hook does, because every Codex start carries `--dangerously-bypass-hook-trust` whether or not it launches an agent; [cast](../cast.md#agent-launches---agent---rogue) states that option and its cost.
 
@@ -114,7 +114,14 @@ The login stays on every harness: it is read in place, and the launch neither co
 | Codex | An account `AGENTS.md` (`~/.codex/AGENTS.md`), the skills of `~/.codex/skills` outside `.system`, and the hooks of `~/.codex/hooks.json`: no argument stops these three. On a `--headed` launch, `config.toml` as well. Codex also keeps its sessions, model list and state files in the account folder |
 | OpenCode | The content of `~/.config/opencode/` except its `AGENTS.md`: the global `opencode.json` or `opencode.jsonc` (instructions, MCP servers, commands, sub-agents) and the `command/`, `agent/`, `plugin/`, `skill/` and `skills/` folders. OpenCode has no switch for it that leaves other programs untouched. The login store, the stored MCP sign-ins and the session database in `~/.local/share/opencode/` stay in use |
 
-On the machine measured, `~/.codex` holds no `AGENTS.md`, no skill outside `.system` and no `hooks.json`, and `~/.config/opencode/` holds one `opencode.jsonc` with no setting, so nothing of this table reaches an agent there today. A file added to either folder reaches every agent on that harness.
+A file added to either folder reaches every agent on that harness, so the installation's owner keeps both folders free of such content:
+
+- Keep the Codex account folder (`~/.codex`) free of an `AGENTS.md`, skills outside `.system`, hooks (`hooks.json`) and command rules.
+- Keep OpenCode's account configuration folder (`~/.config/opencode/`) free of instruction files, commands, sub-agents, plugins, skills and settings content.
+
+No argument, setting or variable excludes this content for an agent alone. A private account folder per agent (`CODEX_HOME` for Codex, `XDG_CONFIG_HOME` for OpenCode) was rejected: it puts the Codex login at risk when the login is refreshed, loses the Codex sessions, and every program the agent runs inherits the variable, which changes where those programs read their own settings.
+
+On the machine measured, `~/.codex` holds no `AGENTS.md`, no skill outside `.system` and no `hooks.json`, and `~/.config/opencode/` holds one `opencode.jsonc` with no setting, so nothing of this table reaches an agent there today.
 
 ### From the program itself
 
@@ -123,7 +130,7 @@ Each program brings content of its own that no argument, setting or variable fou
 | Harness | What the program brings |
 |---|---|
 | Claude Code | Three bundled skills (`design`, `doctor`, `plugin-authoring`); 36 slash commands that are not skills (among them `clear`, `compact`, `config`, `init`, `mcp`, `model`, `security-review`, `usage`); five sub-agents (`claude`, `Explore`, `general-purpose`, `Plan`, `statusline-setup`); three built-in plugins (`cc-plugin-agents-md`, `cc-plugin-telemetry`, `cc-plugin-plugin-authoring`); and its own tools. `--disable-slash-commands` removes the slash commands and takes the agent's own skills and commands with them, so it is not passed |
-| Codex | Its base instructions and the blocks it adds to every prompt (`<collaboration_mode>`, `<multi_agent_role>`, `<multi_agent_mode>`, `<environment_context>`). The bundled skills leave the prompt with the setting above; Codex still writes their files into `skills/.system` |
+| Codex | Its base instructions and the blocks it adds to every prompt (`<collaboration_mode>`, `<multi_agent_role>`, `<multi_agent_mode>`, `<environment_context>`). The bundled skills leave the prompt with `-c skills.bundled.enabled=false`. With that setting and `--disable plugins`, Codex created no `skills/` folder in a new account folder, where without them it created `skills/.system` with five skills; this was measured on `codex debug prompt-input` only |
 | OpenCode | One built-in skill, `customize-opencode` |
 
 ## Limits
@@ -131,7 +138,7 @@ Each program brings content of its own that no argument, setting or variable fou
 - The agent can open any file with its own tools, parent folders and account folders included. Isolation covers what the harness loads by itself.
 - A sub-agent that a harness starts by itself does not pass through cast; what it loads was not measured.
 - An environment variable reaches every program the agent runs. A cast launch removes the seven; a harness the agent starts directly, without cast, keeps them.
-- `cast resume` passes Codex no model and no effort. In an agent folder, where `config.toml` is ignored, the resumed turn ran on Codex's own default model (`gpt-6.1-sol` in the measured run), not on the agent's model; outside an agent folder it ran on the model and effort of `config.toml`. An Ignite resumed turn passes both and kept the agent's model.
+- `cast resume` in an agent folder passes a model and an effort only when the folder's `agent.json` names the resumed harness. A session of another harness in that folder, such as one a fallback run left, is resumed isolated on the model that harness picks.
 - `--headed` launches receive the same arguments and variables, except Codex's `--ignore-user-config`. Each harness's help lists every other argument for its interactive form; no interactive session was measured.
 - Only the path the launcher was given is walked. An agent folder reached through a symbolic link has a second path whose parent folders are not listed for Claude Code.
 - OpenCode keeps the repository around the agent folder as its project, so the agents under one repository share a project in OpenCode's session store. When `.opencode/` is loaded, OpenCode writes into it (`.gitignore`, `package.json`, `package-lock.json`, `node_modules/`).
@@ -140,7 +147,7 @@ Each program brings content of its own that no argument, setting or variable fou
 
 - Windows: nothing was run there. The paths of the exclusion list and of the Codex trust entry are built with the system's separator.
 - Claude Code: whether listing a parent `AGENTS.md` matters (a parent `AGENTS.md` never loaded, with or without the list); the real `~/.claude/CLAUDE.md` and `rules/` with content (the exclusion was measured on a stand-in home folder); an account folder moved with `CLAUDE_CONFIG_DIR` to a folder above the agent; an account output style or status line; managed policy files and `--add-dir`.
-- Codex: the effect of `--disable memories` on the prompt (only the feature's state was observed); a managed or system configuration that sets `project_root_markers` back; `AGENTS.override.md`; the account folder's prompts and command rules; whether `skills.bundled.enabled=false` stops Codex writing `skills/.system`; the first-run and full-access notices of a `--headed` launch.
-- OpenCode: an `instructions` entry that names a missing file; an agent folder outside any git repository; custom tools, `mode/` files and `tui.json` in parent folders or in the account folder.
+- Codex: the effect of `--disable memories` on the prompt (only the feature's state was observed); a managed or system configuration that sets `project_root_markers` back; `AGENTS.override.md`; the account folder's prompts and command rules; whether `skills.bundled.enabled=false` stops Codex writing `skills/.system` on `codex exec`, the form a launch uses; the first-run and full-access notices of a `--headed` launch.
+- OpenCode: `cast resume opencode last` in an agent folder with the model passed (`opencode run -c -m`; the resume by session id was run); an `instructions` entry that names a missing file; an agent folder outside any git repository; custom tools, `mode/` files and `tui.json` in parent folders or in the account folder.
 
 Measured on Claude Code 2.1.296, Codex 0.162.0 and OpenCode 1.17.18, on Linux, in headless runs.

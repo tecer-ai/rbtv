@@ -12,8 +12,8 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { SPECS } = require('../supported-models');
 
-const { isAgentFolder } = require('./agent');
-const { HARNESSES, RESUME_USAGE, baseArgv, codexArgv, fail, parseArgs, promptArgv, refuseIfDetached, resolveFolder, shortName } = require('./core');
+const { isAgentFolder, rbtvAgent } = require('./agent');
+const { HARNESSES, RESUME_USAGE, baseArgv, codexArgv, fail, parseArgs, promptArgv, refuseIfDetached, resolveEffortValue, resolveFolder, resolveModel, shortName } = require('./core');
 const { exhausted, howEnded, nameOf, startFailure } = require('./fallback');
 const { claudeSlug, emitHandle, procStart, stdoutPath } = require('./handles');
 const { isolation } = require('./isolation');
@@ -316,15 +316,29 @@ const SYSTEM_WRAPPER = 'The text above is your system-prompt directive for this 
 // cast resume: send one more turn into an existing headless session. `last` = the harness's own
 // "most recent session in this folder" affordance, so no id bookkeeping is needed for the common
 // case. Permission/sandbox flags are per-invocation, not per-session, so they ride again here.
-// codex's cwd comes from spawnSync (see codexArgv). `added` = the arguments that isolate an rbtv
-// agent (lib/isolation.js), which are per-invocation too.
-function resumeArgv(harness, id, added = []) {
+// codex's cwd comes from spawnSync (see codexArgv). `added` = an rbtv agent's effort and the
+// arguments that isolate it (lib/isolation.js), which are per-invocation too. `model` = that
+// agent's model id; with none the harness picks the model itself.
+function resumeArgv(harness, id, added = [], model = null) {
   switch (harness) {
     case 'claude': return ['claude', '-p', ...(id === 'last' ? ['--continue'] : ['--resume', id]),
-      '--permission-mode', 'bypassPermissions', ...added];
-    case 'codex': return codexArgv({ resume: id === 'last' ? '--last' : id, settings: added });
-    case 'opencode': return ['opencode', 'run', ...(id === 'last' ? ['-c'] : ['-s', id]), '--auto', ...added];
+      ...(model ? ['--model', model] : []), '--permission-mode', 'bypassPermissions', ...added];
+    case 'codex': return codexArgv({ resume: id === 'last' ? '--last' : id, model, settings: added });
+    case 'opencode': return ['opencode', 'run', ...(id === 'last' ? ['-c'] : ['-s', id]),
+      ...(model ? ['-m', model] : []), '--auto', ...added];
   }
+}
+
+// The model id and effort arguments of the rbtv agent in `home`, resolved as `cast --agent`
+// resolves them; null when its record names another harness than the one resumed, whose models
+// the record does not name.
+function agentModel(home, harness) {
+  const agent = rbtvAgent(home, fail);
+  if (agent.harness !== harness) return null;
+  const { modelId, spec } = resolveModel(harness, agent.model, home);
+  try {
+    return { modelId, effortArgv: resolveEffortValue(spec, agent.effort, harness, agent.model).argv };
+  } catch (e) { return fail(e.message); }
 }
 
 function runResume(rawArgv) {
@@ -339,9 +353,12 @@ function runResume(rawArgv) {
     fail(`refused: '${harness}' is not a known harness\nknown: ${HARNESSES.join(', ')}`);
   }
   const folder = resolveFolder(folderArg);
-  // A session that ran in an agent folder is an rbtv agent's: it is resumed isolated, as it was started.
-  const iso = isolation(harness, isAgentFolder(folder) ? folder : null);
-  const argv = resumeArgv(harness, id, iso.argv);
+  // A session that ran in an agent folder is an rbtv agent's: it is resumed isolated, on the
+  // model and effort of the agent's record, as it was started.
+  const agentHome = isAgentFolder(folder) ? folder : null;
+  const iso = isolation(harness, agentHome);
+  const own = agentHome && agentModel(agentHome, harness);
+  const argv = own ? resumeArgv(harness, id, [...own.effortArgv, ...iso.argv], own.modelId) : resumeArgv(harness, id, iso.argv);
 
   if (dryRun) {
     process.stdout.write(`${JSON.stringify({

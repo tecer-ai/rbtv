@@ -2916,15 +2916,33 @@ process.exit(3);\n`);
     assert.deepStrictEqual(dry([...args, '-p', 'go']).env_removed, [], 'nothing inherited, nothing removed');
   }
 
-  // cast resume: a folder that is an agent folder is resumed isolated; any other folder as before
+  // cast resume: a folder that is an agent folder is resumed isolated, on the model and effort of
+  // the agent's record, which are those of its `cast --agent` launch; any other folder as before
+  const modelOf = (argv, flag) => argv[argv.indexOf(flag) + 1];
   const resumedClaude = dry(['resume', 'claude', 'abc-123', homes.claude, '-p', 'more']);
-  assert.deepStrictEqual(resumedClaude.argv, ['claude', '-p', '--resume', 'abc-123', '--permission-mode', 'bypassPermissions', ...claudeArgs]);
+  assert.deepStrictEqual(resumedClaude.argv, ['claude', '-p', '--resume', 'abc-123', '--model', modelOf(claude.argv, '--model'),
+    '--permission-mode', 'bypassPermissions', '--effort', 'low', ...claudeArgs]);
   const resumedCodex = dry(['resume', 'codex', 'last', homes.codex, '-p', 'more']);
-  assert.deepStrictEqual(resumedCodex.argv.slice(0, 4 + codexAdded.length), ['codex', 'exec', 'resume', '--last', ...codexAdded]);
+  assert.deepStrictEqual(resumedCodex.argv.slice(0, 8 + codexAdded.length),
+    ['codex', 'exec', 'resume', '--last', '-m', modelOf(codex.argv, '-m'), '-c', 'model_reasoning_effort=low', ...codexAdded]);
   assert.strictEqual(hookTrust(resumedCodex.argv), 1, `${resumedCodex.argv}`);
   const resumedOpencode = dry(['resume', 'opencode', 'ses_x1', homes.opencode, '-p', 'more']);
-  assert.deepStrictEqual(resumedOpencode.argv, ['opencode', 'run', '-s', 'ses_x1', '--auto']);
+  assert.deepStrictEqual(resumedOpencode.argv, ['opencode', 'run', '-s', 'ses_x1', '-m', modelOf(opencode.argv, '-m'), '--auto', '--variant', 'high']);
   isOpencodeIsolated(resumedOpencode, 'an OpenCode resume in an agent folder');
+  for (const [name, argv] of Object.entries({ claude: claude.argv, codex: codex.argv, opencode: opencode.argv })) {
+    assert.ok(modelOf(argv, name === 'claude' ? '--model' : '-m').includes(JSON.parse(fs.readFileSync(path.join(homes[name], 'agent.json'), 'utf8')).model),
+      `the ${name} launch names the model of the agent's record: ${argv}`);
+  }
+  // a session of another harness in an agent folder: isolated, and the record names no model for it
+  assert.deepStrictEqual(dry(['resume', 'opencode', 'last', homes.claude, '-p', 'more']).argv, ['opencode', 'run', '-c', '--auto']);
+  // a record that cannot give the model stops the resume, as it stops `cast --agent`
+  const broken = path.join(agents, 'broken');
+  fs.mkdirSync(broken);
+  fs.writeFileSync(path.join(broken, 'prompt.md'), 'no model');
+  fs.writeFileSync(path.join(broken, 'agent.json'), JSON.stringify({ name: 'broken', harness: 'claude', effort: 'low' }));
+  const refused = spawnSync('node', [TOOL, 'resume', 'claude', 'last', broken, '-p', 'more', '--dry-run'], { cwd: root, env: clean, encoding: 'utf8' });
+  assert.strictEqual(refused.status, 2, refused.stderr);
+  assert.ok(/names no harness, model or effort/.test(refused.stderr) && refused.stdout === '', `${refused.stderr}${refused.stdout}`);
   const half = path.join(agents, 'half');
   fs.mkdirSync(half);
   fs.writeFileSync(path.join(half, 'prompt.md'), 'no record');
@@ -2933,7 +2951,9 @@ process.exit(3);\n`);
     assert.deepStrictEqual(plain.argv, ['claude', '-p', '--resume', 'abc-123', '--permission-mode', 'bypassPermissions']);
     assert.deepStrictEqual(Object.keys(plain), ['argv', 'cwd', 'stdin_preview', 'env_removed']);
     assert.deepStrictEqual(plain.env_removed, UNSET);
-    assert.ok(!dry(['resume', 'codex', 'last', folder, '-p', 'more']).argv.includes('project_root_markers=[]'));
+    assert.deepStrictEqual(dry(['resume', 'codex', 'last', folder, '-p', 'more']).argv, ['codex', 'exec', 'resume', '--last',
+      '-c', 'sandbox_mode=danger-full-access', ...require('./lib/core').CODEX_ALWAYS]);
+    assert.deepStrictEqual(dry(['resume', 'opencode', 'ses_x1', folder, '-p', 'more']).argv, ['opencode', 'run', '-s', 'ses_x1', '--auto']);
   }
 
   // isolation() itself. An agent folder with no .mcp.json is passed no --mcp-config, which Claude

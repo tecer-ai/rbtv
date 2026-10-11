@@ -91,8 +91,8 @@ like passable values but are labels.
 Discovery is pull-based: `sessions` prints nothing at launch and reads no registry of its own —
 the harnesses' own session stores ARE the registry, keyed by launch folder. `resume` is a launch in
 its own right, though, so it DOES emit a `cast: handle` line and register with `cast monitor`'s
-handle registry, exactly like a bare launch — the model/effort a resumed session runs
-with is not cast's to name, so the handle's `model` field reads `resume` instead of a model name:
+handle registry, exactly like a bare launch — the handle's `model` field reads `resume` instead of
+a model name, in every folder:
 
 | Harness | Store read by `cast sessions` | `resume` argv |
 |---|---|---|
@@ -105,7 +105,11 @@ message via `-p`/`-f` on stdin like a launch (an empty message is refused as an 
 are per-invocation, not per-session. A launch folder that is an agent folder (it holds `prompt.md`
 and `agent.json`) is resumed with the arguments and variables of
 [What an agent launch loads](#what-an-agent-launch-loads), which are per-invocation too; any other
-folder is resumed with the argv of the table. The resumed session keeps its own model/effort; `-s`/`-S` and
+folder is resumed with the argv of the table. In an agent folder whose `agent.json` names the
+resumed harness, the turn is also passed that record's model and effort, resolved as `--agent`
+resolves them, so a resumed agent runs on its own model; a record that cannot give them is refused
+as `--agent` refuses it. In any other folder, and for a session of another harness than the record
+names, cast passes no model and no effort and the harness picks them. `-s`/`-S` and
 `--headed` are refused. `-n` caps `sessions` PER HARNESS (default 10), newest first; `--json` gives
 `[{harness, id, started, label}]`. The label is human-readable session identity: opencode's stored
 `title`; for claude/codex a ≤60-char excerpt of the first real user message (injected `<...>`
