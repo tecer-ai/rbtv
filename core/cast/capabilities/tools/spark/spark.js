@@ -15,9 +15,12 @@ const { findAgentHome, isPath, readAgent, targetAgents } = require('../cast/lib/
 const { agentInFull, agentLines, agentList, listLines } = require('../cast/lib/agent-list');
 const { findOnPath, spawnable } = require('../cast/lib/win-exec');
 
-// cast needs a first message to open the session; this one starts a conversation and waits.
-const OPENING = 'You have just been started by your owner in an interactive terminal. '
-  + 'Greet them in one line and wait for what they need.';
+// cast needs a first message to open the session; this one starts a conversation and waits. An
+// Ignite agent keeps a board, and its Ignite rule says where: it reads the board before it greets.
+const STARTED = 'You have just been started by your owner in an interactive terminal. ';
+const OPENING = `${STARTED}Greet them in one line and wait for what they need.`;
+const BOARD_OPENING = `${STARTED}Read your board first. Then greet them in a few lines that name the `
+  + 'open work and anything that needs their attention, and wait for what they need.';
 
 const LIST_FORM = 'spark list [AGENT] [--target FOLDER] [--full] [--json] [-h]';
 const USAGE = 'usage: spark AGENT [--target FOLDER] [--dry-run] [--json] [-h]';
@@ -216,14 +219,14 @@ function spark(args) {
   const value = positional[0];
   const agent = findAgent(value, target);
   if (!agent) return 1;
-  const { home, harness, model, effort } = agent;
+  const { home, harness, model, effort, ignite } = agent;
   const cast = findOnPath('cast');
   if (!cast) {
     return refuse('cast is not on PATH', 'spark opens the agent through cast. Nothing was launched.', 'rbtv doctor');
   }
 
   // cast has no --target on a launch: under --target it gets the agent's folder.
-  const castArgs = ['--agent', target ? home : value, '--headed', '-p', OPENING];
+  const castArgs = ['--agent', target ? home : value, '--headed', '-p', ignite ? BOARD_OPENING : OPENING];
   const name = path.basename(home);
   if (dry) {
     if (json) process.stdout.write(`${JSON.stringify({ agent: name, home, cast: ['cast', ...castArgs] })}\n`);

@@ -10,8 +10,11 @@ const { spawnSync } = require('child_process');
 const TOOL = path.join(__dirname, 'spark.js');
 const BASE = os.tmpdir();
 
-const OPENING = 'You have just been started by your owner in an interactive terminal. '
-  + 'Greet them in one line and wait for what they need.';
+const STARTED = 'You have just been started by your owner in an interactive terminal. ';
+const OPENING = `${STARTED}Greet them in one line and wait for what they need.`;
+// scout is an Ignite agent, so it is told to read its board before it greets.
+const BOARD_OPENING = `${STARTED}Read your board first. Then greet them in a few lines that name the `
+  + 'open work and anything that needs their attention, and wait for what they need.';
 
 function mkFolder(name) {
   const dir = path.join(BASE, `spark-test-${name}-${process.pid}`);
@@ -70,7 +73,7 @@ function spark(args, { env = {}, cwd = root } = {}) {
 {
   const res = spark(['scout', '--dry-run']);
   assert.strictEqual(res.status, 0, res.stderr);
-  assert.strictEqual(res.stdout, `cast --agent scout --headed -p "${OPENING}"\n`);
+  assert.strictEqual(res.stdout, `cast --agent scout --headed -p "${BOARD_OPENING}"\n`);
   assert.strictEqual(res.stderr, '');
   assert.ok(!fs.existsSync(shimOut), 'a dry run launches nothing');
 }
@@ -80,7 +83,7 @@ function spark(args, { env = {}, cwd = root } = {}) {
   const res = spark(['scout', '--dry-run', '--json']);
   assert.strictEqual(res.status, 0, res.stderr);
   assert.strictEqual(res.stdout.trim(), JSON.stringify({
-    agent: 'scout', home: scout, cast: ['cast', '--agent', 'scout', '--headed', '-p', OPENING],
+    agent: 'scout', home: scout, cast: ['cast', '--agent', 'scout', '--headed', '-p', BOARD_OPENING],
   }));
 }
 
@@ -274,7 +277,7 @@ if (process.platform !== 'win32') {
     'effort   high',
     '',
   ].join('\n'));
-  assert.deepStrictEqual(JSON.parse(fs.readFileSync(shimOut, 'utf8')), ['--agent', 'scout', '--headed', '-p', OPENING]);
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(shimOut, 'utf8')), ['--agent', 'scout', '--headed', '-p', BOARD_OPENING]);
 
   const withJson = spark(['plans/x/agents/drafter', '--json']);
   assert.strictEqual(withJson.status, 0, withJson.stderr);

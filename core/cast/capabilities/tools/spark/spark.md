@@ -4,7 +4,7 @@
 
 ## What each form returns
 
-`spark AGENT` prints the agent's folder, harness, model and effort, then starts `cast --agent NAME --headed` with a one-line greeting. It passes no harness, model or effort, so cast reads them from `agent.json`. It needs `cast` on PATH and finds the agent the same way cast does: a name or a path. With `--target FOLDER`, AGENT is a name among the agents of FOLDER (the three folders `cast list --target` takes), and spark hands cast that agent's folder, since a launch takes no `--target`.
+`spark AGENT` prints the agent's folder, harness, model and effort, then starts `cast --agent NAME --headed` with an opening message. The message asks an Ignite agent (its `ignite` pack is on) to read its board and greet the owner with the open work and what needs their attention; it asks any other agent for a one-line greeting. It passes no harness, model or effort, so cast reads them from `agent.json`. It needs `cast` on PATH and finds the agent the same way cast does: a name or a path. With `--target FOLDER`, AGENT is a name among the agents of FOLDER (the three folders `cast list --target` takes), and spark hands cast that agent's folder, since a launch takes no `--target`.
 
 - `--dry-run` prints the cast command and launches nothing; `--dry-run --json` prints one JSON value with `agent`, `home` and `cast`. A real launch ignores `--json`.
 - Refusals, exit 1: no agent by that name or path, `agent.json` unreadable or missing, `prompt.md` missing, `cast` not on PATH, or an unknown option.
