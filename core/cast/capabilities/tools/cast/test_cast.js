@@ -237,6 +237,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   const codex = dryRun(['codex', 'gpt-6-luna', '3', folder, '-p', 'hi', '--headed']);
   assert.ok(!codex.argv.includes('exec'), 'headed codex must drop exec');
   assert.ok(codex.argv.includes('--dangerously-bypass-hook-trust'), `a headed codex launch must run the generated hooks: ${codex.argv}`);
+  assert.ok(!codex.argv.includes('--skip-git-repo-check'), 'interactive codex refuses the exec-only --skip-git-repo-check');
   assert.strictEqual(codex.argv[codex.argv.length - 1], 'hi');
 
   const oc = dryRun(['opencode', 'glm-5.3', '3', folder, '-p', 'hi', '--headed']);
@@ -2963,7 +2964,7 @@ process.exit(3);\n`);
     assert.deepStrictEqual(Object.keys(plain), ['argv', 'cwd', 'stdin_preview', 'env_removed']);
     assert.deepStrictEqual(plain.env_removed, UNSET);
     assert.deepStrictEqual(dry(['resume', 'codex', 'last', folder, '-p', 'more']).argv, ['codex', 'exec', 'resume', '--last',
-      '-c', 'sandbox_mode=danger-full-access', ...require('./lib/core').CODEX_ALWAYS]);
+      '-c', 'sandbox_mode=danger-full-access', ...require('./lib/core').CODEX_ALWAYS, ...require('./lib/core').CODEX_EXEC]);
     assert.deepStrictEqual(dry(['resume', 'opencode', 'ses_x1', folder, '-p', 'more']).argv, ['opencode', 'run', '-s', 'ses_x1', '--auto']);
   }
 

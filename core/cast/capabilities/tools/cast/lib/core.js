@@ -34,8 +34,11 @@ const CODEX_DOC_LIMIT = ['-c', 'project_doc_max_bytes=131072'];
 const CODEX_HOOK_TRUST = ['--dangerously-bypass-hook-trust'];
 
 // The options every Codex start carries: a launch or a resume, from cast or from the Ignite daemon.
-// --skip-git-repo-check: codex refuses to start outside a git repo without it (0.154+, observed 2026-09-24).
-const CODEX_ALWAYS = ['-c', 'approval_policy=never', '--skip-git-repo-check', ...CODEX_HOOK_TRUST, ...CODEX_DOC_LIMIT];
+const CODEX_ALWAYS = ['-c', 'approval_policy=never', ...CODEX_HOOK_TRUST, ...CODEX_DOC_LIMIT];
+
+// `codex exec` refuses to start outside a git repo without it (0.154+, observed 2026-09-24). The
+// interactive `codex` has no such option and refuses it as an unexpected argument (0.162.0).
+const CODEX_EXEC = ['--skip-git-repo-check'];
 
 // The one builder of a Codex command line; an option every Codex start needs goes in CODEX_ALWAYS.
 //   resume      the token that picks the session to continue (an id, or `--last`); absent = a new
@@ -52,10 +55,10 @@ function codexArgv({ resume, headed, folder, model, settings = [], jsonEvents })
   const tail = jsonEvents ? ['--json', '-'] : [];
   if (resume) {
     return ['codex', 'exec', 'resume', resume, ...(model ? ['-m', model] : []), ...settings,
-      '-c', 'sandbox_mode=danger-full-access', ...CODEX_ALWAYS, ...tail];
+      '-c', 'sandbox_mode=danger-full-access', ...CODEX_ALWAYS, ...CODEX_EXEC, ...tail];
   }
   return ['codex', ...(headed ? [] : ['exec']), '--cd', folder, '-m', model, '--sandbox', 'danger-full-access',
-    ...CODEX_ALWAYS, ...settings, ...tail];
+    ...CODEX_ALWAYS, ...(headed ? [] : CODEX_EXEC), ...settings, ...tail];
 }
 
 // headed = the harness's interactive TUI instead of its one-shot print mode. The TUI owns the
@@ -337,7 +340,7 @@ function resolveModel(harness, model, from) {
 }
 
 module.exports = {
-  CODEX_ALWAYS, codexArgv, shortName, SHORT, baseArgv, promptArgv,
+  CODEX_ALWAYS, CODEX_EXEC, codexArgv, shortName, SHORT, baseArgv, promptArgv,
   fail, HARNESSES, USAGE, USAGE_IG,
   RESUME_USAGE, SESSIONS_USAGE, KNOWN_FLAGS, detachMarks,
   refuseIfDetached, effortMap, EFFORT_RULE,
