@@ -48,7 +48,8 @@ against.
 The command-line `tick` has no handler: the agent runs each job with
 `per_meeting_job.py`, and that command records its own outcome in the attempts
 store through `record_outcome` and `park_left_alone` below, the same two a
-handler's outcome goes through.
+handler's outcome goes through. `dismiss` is the owner's own park, for a meeting
+he ruled is not to be summarized; `retry` lifts it like any other.
 """
 
 from __future__ import annotations
@@ -460,6 +461,20 @@ def park_left_alone(store: Path, meeting_key: str, at: datetime) -> dict:
     return row
 
 
+def park_dismissed(store: Path, meeting_key: str, at: datetime) -> dict:
+    """The owner's `dismiss`: park a meeting he ruled is not to be summarized.
+
+    For a meeting with nothing to file (an empty recording): no failure is
+    counted and no processed record is written. Like every park it holds until
+    the owner's `retry`, and until then no job runs for the meeting.
+    """
+    row = {"meeting-key": meeting_key, "consecutive-failures": 0, "parked": True,
+           "awaiting": "retry", "parked-at": _stamp(at), "at": _stamp(at),
+           "reason": "dismissed"}
+    append_jsonl(store, [row])
+    return row
+
+
 # --------------------------------------------------------------------------
 # single-flight — one claim per meeting key, released by the kernel on a kill
 # --------------------------------------------------------------------------
@@ -862,10 +877,14 @@ def _parser() -> argparse.ArgumentParser:
     retry = sub.add_parser("retry", help="the owner's answer that un-parks one meeting")
     retry.add_argument("--meeting-key", required=True)
 
+    dismiss = sub.add_parser("dismiss",
+                             help="the owner's ruling that parks one meeting unsummarized")
+    dismiss.add_argument("--meeting-key", required=True)
+
     status = sub.add_parser("status", help="the watermark, the meetings, the parked jobs")
     keys = sub.add_parser("keys", help="the stores this cycle keeps and the files they name")
 
-    for verb in (tick, schedule, retry, status, keys):
+    for verb in (tick, schedule, retry, dismiss, status, keys):
         _shared_options(verb, argparse.SUPPRESS)
     return parser
 
@@ -889,6 +908,14 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_OK
         if args.op == "retry":
             row = clear_park(env.stores[ATTEMPTS_KEY], args.meeting_key, datetime.now(env.tz))
+            print(json.dumps(row, indent=2))
+            return EXIT_OK
+        if args.op == "dismiss":
+            if args.meeting_key not in {entry["meeting-key"] for entry in read_meetings(env)}:
+                _refuse(f"no detected meeting has the key {args.meeting_key}",
+                        "pass a meeting key a tick printed")
+            row = park_dismissed(env.stores[ATTEMPTS_KEY], args.meeting_key,
+                                 datetime.now(env.tz))
             print(json.dumps(row, indent=2))
             return EXIT_OK
         if args.op == "status":

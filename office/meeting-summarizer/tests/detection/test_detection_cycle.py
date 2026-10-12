@@ -419,6 +419,35 @@ def test_the_owner_retry_is_the_one_act_that_un_parks(config_dir):
     assert key in [o["meeting-key"] for o in after.outcomes]
 
 
+def test_the_owner_dismiss_parks_a_meeting_until_his_retry(config_dir, capsys):
+    env = fresh_env(config_dir)
+    listing = FIXTURES / "drive-listing.json"
+    first = dc.run_tick(env, FIRST_TICK, sa.FixtureDriveDriver(load("drive-listing.json")))
+    key = sorted(job["meeting-key"] for job in first.jobs)[0]
+    shared = ["--config-dir", str(config_dir), "--fixture", str(listing)]
+
+    assert dc.main(["dismiss", "--meeting-key", "mtg-unknown", *shared]) == dc.EXIT_REFUSED
+    assert key not in dc.read_attempts(env.stores[dc.ATTEMPTS_KEY])
+
+    assert dc.main(["dismiss", "--meeting-key", key, *shared]) == dc.EXIT_OK
+    row = dc.read_attempts(env.stores[dc.ATTEMPTS_KEY])[key]
+    assert (row["parked"], row["awaiting"], row["reason"]) == (True, "retry", "dismissed")
+    assert dc.read_processed(env) == []
+
+    calls: list = []
+    second = dc.run_tick(env, FIRST_TICK + timedelta(hours=1),
+                         sa.FixtureDriveDriver(load("drive-listing.json")),
+                         handler=failing_handler(calls))
+    assert key in second.skipped_parked and key not in calls
+
+    assert dc.main(["retry", "--meeting-key", key, *shared]) == dc.EXIT_OK
+    capsys.readouterr()
+    third = dc.run_tick(env, FIRST_TICK + timedelta(hours=2),
+                        sa.FixtureDriveDriver(load("drive-listing.json")),
+                        handler=filed_handler())
+    assert key in [o["meeting-key"] for o in third.outcomes]
+
+
 def test_a_success_resets_the_failure_count(config_dir):
     env = fresh_env(config_dir)
     calls: list = []
@@ -683,7 +712,8 @@ def test_a_late_tactiq_transcript_pairs_by_name_within_the_hour():
 # ── the command line, as the cycle skill writes it ──────────────────────────────────────
 
 SKILL = TOOLS.parent / "skills" / "summarizer-cycle.md"
-VERBS = (["tick"], ["schedule"], ["retry", "--meeting-key", "EXAMPLE-key"], ["status"], ["keys"])
+VERBS = (["tick"], ["schedule"], ["retry", "--meeting-key", "EXAMPLE-key"],
+         ["dismiss", "--meeting-key", "EXAMPLE-key"], ["status"], ["keys"])
 SHARED = ["--config-dir", "EXAMPLE-config", "--fixture", "EXAMPLE-listing.json",
           "--source-map", "EXAMPLE-map.json"]
 

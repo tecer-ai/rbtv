@@ -138,6 +138,10 @@ configuration, never as a value typed into this skill. Resolve, ONCE per turn, b
      three consecutive cycles and the call parked the meeting: later ticks list it under
      `skipped-parked` and no job runs for it. A park is lifted only when the owner asks for it, by
      `detection-cycle retry --meeting-key <K> --config-dir <config>`.
+   - A meeting the owner rules is not to be summarized (an empty recording, a meeting he says to
+     drop) is parked the same way, only on his word and never on your own judgment, by
+     `detection-cycle dismiss --meeting-key <K> --config-dir <config>`. Nothing is filed for it,
+     later ticks list it under `skipped-parked`, and his `retry` lifts it like any other park.
 
 5. **File every settled meeting.** Two kinds of meeting are due: (a) each meeting whose outcome is
    `filed` or `amended` in `outcomes.jsonl` and that carries no row yet in
