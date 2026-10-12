@@ -347,6 +347,52 @@ test('due-schedule-one-wake', async () => {
   }
 });
 
+linuxOnly('a timer with a check wakes nobody when its check finds nothing, beside a timer without one that wakes as before',
+  'the check tool is started as a program, which the waking service does on Linux only', async () => {
+  const { dir, home } = workspace();
+  const cast = fakeCast(dir);
+  const now = Date.parse('2026-01-01T00:00:00Z');
+  const key = 'T1:D1:1.1';
+  const tool = path.join(home, 'idle-check.js');
+  fs.writeFileSync(tool, `#!/usr/bin/env node\nrequire('fs').appendFileSync(__filename + '.runs', 'run\\n');\nprocess.stdout.write('{"new":false}');\n`);
+  fs.chmodSync(tool, 0o755);
+  const store = new Store(path.join(home, 'state.sqlite'));
+  store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'D1', rootTs: '1.1', activated: true });
+  for (const [id, checkTool] of [['plain', null], ['checked', './idle-check.js']]) {
+    store.upsertSchedule({ id, conversationKey: key, cadence: 'every:1h', timezone: FIXED_TZ, nextAt: now - 1000, note: 'look', checkTool });
+  }
+  store.close();
+  const prevPath = process.env.PATH;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prevPath || ''}`;
+  let runtime;
+  try {
+    runtime = await start({
+      workspace: dir, slack: fakeSlack(), socket: fakeSocket(), turnCommand: [process.execPath, cast.stub], castEnv: cast.env,
+      now: () => now, signals: false, tickMs: 40, sweepMs: 60_000, drainMs: 60_000,
+    });
+    const state = () => {
+      const check = new Store(path.join(home, 'state.sqlite'));
+      try {
+        return {
+          wakes: check.db.prepare("SELECT id FROM queue WHERE kind='schedule' ORDER BY id").all().map((row) => row.id),
+          checked: check.getSchedule('checked'),
+        };
+      } finally {
+        check.close();
+      }
+    };
+    await waitFor(() => state().checked.next_at === now + 3_600_000);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    assert.deepEqual(state().wakes, [`schedule:plain:${now - 1000}`]);
+    assert.equal(state().checked.check_tool, './idle-check.js');
+    assert.equal(fs.readFileSync(`${tool}.runs`, 'utf8'), 'run\n');
+  } finally {
+    process.env.PATH = prevPath;
+    if (runtime) runtime.stop('test');
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 function addOwnerMessage(home, text = 'Please remember this.') {
   const store = new Store(path.join(home, 'state.sqlite'));
   try {

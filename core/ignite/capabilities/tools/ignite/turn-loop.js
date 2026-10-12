@@ -301,7 +301,10 @@ async function execute(slug, claim, deps) {
     board: memory.board,
     memory: memory.memory,
     work: claim.work_id ? store.getWork(claim.work_id) : null,
-    inputs: [{ role: claim.kind, text: prepared.text, files: prepared.files, missingFiles: prepared.missingFiles }],
+    inputs: [{
+      role: claim.kind, text: prepared.text, files: prepared.files, missingFiles: prepared.missingFiles,
+      check: claim.kind === 'schedule' ? claim.payload?.details : undefined,
+    }],
     recent,
     stored,
     historyPath: historyPath(home, claim.conversation_key),

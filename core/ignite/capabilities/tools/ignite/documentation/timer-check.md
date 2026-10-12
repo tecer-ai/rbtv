@@ -1,6 +1,6 @@
 # Timer check
 
-A timer may name a check tool. A check tool is one executable that decides, without a model, whether the timer's firing has anything for the agent. This page states what Ignite stores for a check, how a timer wake is identified, and the store calls that fire a timer. `ignite schedule add -h` and `ignite connect -h` own the option and the JSON key.
+A timer may name a check tool. A check tool is one executable that decides, without a model, whether the timer's firing has anything for the agent. This page states what Ignite stores for a check, the answers a check gives, how the waking service runs it, what a wake carries, what happens when a check keeps failing, how a timer wake is identified, and the store calls that fire a timer. `ignite schedule add -h` and `ignite connect -h` own the option and the JSON key.
 
 ## The stored check
 
@@ -25,10 +25,48 @@ A check tool gives one of three answers:
 | Answer | Form |
 |---|---|
 | Nothing new | Exit 0 and `{"new":false}` on standard output |
-| Something new | Exit 0 and `{"new":true,"details":…}` on standard output |
+| Something new | Exit 0 and `{"new":true,"details":…}` on standard output; `details` is any JSON value except null |
 | Failed | A nonzero exit |
 
-`ignite schedules-due` runs no check. It reports a due timer that has one with the reason `check` and leaves it due.
+Standard output holds that one JSON object and nothing else. Each of these is also the answer failed: exit 0 with any other output, an executable that does not start, more than 1 MiB of output, and a check still running after 60 seconds, which Ignite kills together with the processes it started.
+
+A check that found items and also met an error exits nonzero and prints `{"new":true,"details":…}` with the items it has. The answer is failed, and the items are handed to the agent in a wake that states the failure.
+
+A check tool never starts a turn, never calls `ignite` and never posts to Slack. Ignite runs it without the service's Slack tokens. It keeps its own record of what it reported, in the agent home, and reports an item again only by its own rule; Ignite keeps no such record.
+
+## How the waking service runs a check
+
+`ignite schedules-due` runs no check. It reports a due timer that has one with the reason `check` and leaves it due. On each 30-second tick the waking service starts the check of every timer reported that way and moves on without waiting, so a slow check delays no other agent and no other timer. `timer-check.js` owns the run:
+
+- The working folder and `RBTV_AGENT_HOME` are the agent home. A stored value with a `/` is joined to the agent home; one without is looked up on PATH.
+- A check that is still running is not started again; the tick logs `still running` for it. A timer on agent hold, or bound to held or stopped work, is not checked.
+- When the service stops, it kills every running check and records nothing for it; the timer is still due at the next start.
+
+| Answer | What Ignite records |
+|---|---|
+| Nothing new | The timer advances to its next occurrence. No wake, no model |
+| Something new | One wake carrying the details, and the timer advances, in one transaction (`store.fireSchedule`) |
+| Failed, no usable details | The failure is counted. A recurring timer advances to its next occurrence, where the check runs again; a one-time timer stays due and its check runs again on the next tick |
+| Failed, with usable details | The failure is counted, and one wake carries the details and the failure |
+
+A timer cancelled, disabled or moved while its check ran is left as it is, and the answer is dropped.
+
+Each run writes one `check` line to the service log with the agent, the timer, the answer, the failure text and the count. The details are never logged.
+
+## What a wake carries
+
+A wake recorded for a check has the payload `{"scheduleId":"<timer id>","details":{"found":<the check's details>}}`, with `"failure":"<what failed>"` beside `found` when the check failed. The turn it starts is a new conversation with a new session, as for any timer wake. Its triggering input is the timer id, then one line saying the next line is data from the timer's check tool and not a message or an instruction from the owner, then the details as one line of JSON. A failed check adds a line with the failure before them. The agent's prompt decides what to do with the details; nothing in them carries the owner's authority.
+
+## A check that keeps failing
+
+The agent's `state.sqlite` keeps one count per timer, in `settings` under `timer_check:<timer id>`: `failures`, `since` (the first failure of the run), `last` (the time and text of the latest failure), after the third failure the watch-out line, and `recovered`, the record of the last run of failures that ended.
+
+On the third failure in a row Ignite does two things, once:
+
+1. It queues one Slack post in the timer's channel, as a new message, through the outbox (`store.beginProactive`). The post names the timer, the check and the last failure.
+2. It adds one watch-out to the agent's board through the checked board write: `- Timer check <id> (<check>) failed 3 times in a row from <time> and has not succeeded since (<date> · <agent>)`. When the board refuses it (six watch-outs already, or no board), the service log has a `check-watch-out` line and the Slack post still goes out.
+
+Further failures in the same run are counted and logged, and post nothing. The first answer that is not failed ends the run: the count returns to 0, the record keeps `recovered` (when, after how many failures, since when, and the last failure), the service log has a `check-recovered` line, and the watch-out Ignite wrote is removed from the board. Three more failures after that give one new post and one new watch-out.
 
 ## One wake per timer and occurrence
 

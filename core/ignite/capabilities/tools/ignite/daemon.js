@@ -13,6 +13,7 @@ const { deliverPending } = require('./outbox.js');
 const { Slack } = require('./slack.js');
 const { Audio } = require('./audio.js');
 const { refreshBoard } = require('./board.js');
+const { createChecks } = require('./timer-check.js');
 const { runDreamer, getState, saveState } = require('./dreamer.js');
 const { checkMemory } = require('./memory.js');
 const { acquireMemoryLock, runtimeFolder } = require('./memory-write.js');
@@ -548,6 +549,31 @@ async function startLocked(opts, workspace, held) {
     }
   }
 
+  // A check tool is given the service's environment without its Slack tokens.
+  const checks = createChecks({
+    log,
+    now: clock,
+    env() {
+      const env = { ...process.env };
+      for (const name of ['appTokenEnv', 'botTokenEnv', 'ownerTokenEnv']) delete env[config.slack[name]];
+      return env;
+    },
+  });
+
+  // Starts the due timer's check and returns at once: the tick never waits for a check tool.
+  function startCheck(slug, scheduleId) {
+    const store = getStore(slug);
+    const schedule = store?.getSchedule(scheduleId);
+    if (!schedule?.check_tool) return;
+    const run = checks.run({ slug, home: agentHome(config, slug), store, schedule });
+    if (!run) {
+      log({ event: 'check', slug, schedule: scheduleId, answer: 'still running' });
+      return;
+    }
+    run.then((outcome) => { if (outcome.wake?.inserted) kick(slug); })
+      .catch((error) => log({ event: 'check', slug, schedule: scheduleId, message: error.message }));
+  }
+
   async function pump(slug) {
     if (stopping || inflight.has(slug)) return;
     const store = getStore(slug);
@@ -643,6 +669,7 @@ async function startLocked(opts, workspace, held) {
         });
         const body = JSON.parse(out.join('') || '{}');
         if (body.results?.length) log({ event: 'schedules-due', slug, results: body.results });
+        for (const row of body.results || []) if (row.reason === 'check') startCheck(slug, row.id);
       } catch (error) {
         log({ event: 'schedules-due', slug, message: error.message });
       }
@@ -668,6 +695,7 @@ async function startLocked(opts, workspace, held) {
     if (stopping) return closed;
     stopping = true;
     for (const timer of timers) clearInterval(timer);
+    checks.stop();
     const left = [];
     for (const slug of inflight) {
       const run = stores.get(slug)?.getActiveRun();
