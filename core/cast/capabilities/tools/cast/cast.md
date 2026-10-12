@@ -283,7 +283,7 @@ cast: no model of level L2 started: tried claude sonnet-5-5, codex gpt-5.6-terra
 cast: the next model by price is one level down (L3) and was not launched: codex gpt-6-luna
 ```
 
-Each run writes its own `cast: handle` line; all carry cast's one process id, and `cast monitor` reads the latest. Standard output holds the report of the run that started, alone: a closing note of a failed run (`cast: no-report`, a provider limit) goes to standard error when another run follows it. When the defaults or the model catalog cannot be read at that moment, one line says so and the launch ends with its own failure.
+Each run writes its own `cast: handle` line; all carry cast's one process id, and `cast monitor` reads the latest. A `--headed` launch prints no handle line, since a person reads that terminal; its row is still written to the handle registry. Standard output holds the report of the run that started, alone: a closing note of a failed run (`cast: no-report`, a provider limit) goes to standard error when another run follows it. When the defaults or the model catalog cannot be read at that moment, one line says so and the launch ends with its own failure.
 
 An rbtv agent's folder holds the installed files of every harness, so an agent that falls back to a model of another harness receives its prompt, its task and the skills, rules, hooks and folder instructions installed in its folder. A harness-native sub-agent is the exception: it exists only for the harnesses it was given a model and an effort for. A folder installed before this was so holds one harness's files until `rbtv agent update AGENT scaffolding` runs.
 

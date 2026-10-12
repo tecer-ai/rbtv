@@ -739,6 +739,17 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.strictEqual(rows.length, 1);
   assert.strictEqual(rows[0].session, h.session);
 
+  // a headed launch prints no handle line, and still writes its registry row
+  const headedHome = mkFolder('handle-headed-home');
+  const headedRun = spawnSync('node', [TOOL, 'claude', 'haiku-5-5', '1', folder, '-p', 'hi', '--headed'], {
+    encoding: 'utf8', env: { ...process.env, ...homeEnv(headedHome), PATH: pathEnv() },
+  });
+  assert.ok(!headedRun.stderr.includes('cast: handle'), `a headed launch must print no handle: ${headedRun.stderr}`);
+  const headedRows = fs.readFileSync(path.join(headedHome, '.cast', 'handles.jsonl'), 'utf8')
+    .split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
+  assert.strictEqual(headedRows.length, 1);
+  assert.strictEqual(headedRows[0].session, null);
+
   // the minted id rides argv; dry-run emits neither handle line nor registry row
   const dry = spawnSync('node', [TOOL, 'claude', 'haiku-5-5', '1', folder, '-p', 'hi', '--dry-run'], {
     encoding: 'utf8', env: { ...process.env, ...homeEnv(mkFolder('handle-dry-home')) },

@@ -53,11 +53,12 @@ function stdoutPath() {
 }
 
 // One stderr line the caller can parse, plus a registry row for post-hoc lookup. Emitted BEFORE
-// the spawn, so a child that hangs at launch is still findable.
+// the spawn, so a child that hangs at launch is still findable. `print` false writes the row
+// alone: a headed launch is read by a person, in the terminal the harness is about to take.
 // ponytail: append-then-prune, no lock — a concurrent launch can only lose a line during the rare
 // prune rewrite; add a lockfile if the registry ever becomes load-bearing for scheduling.
-function emitHandle(handle) {
-  process.stderr.write(`cast: handle ${JSON.stringify(handle)}\n`);
+function emitHandle(handle, print = true) {
+  if (print) process.stderr.write(`cast: handle ${JSON.stringify(handle)}\n`);
   try {
     fs.mkdirSync(path.dirname(HANDLES_FILE), { recursive: true });
     fs.appendFileSync(HANDLES_FILE, `${JSON.stringify(handle)}\n`);

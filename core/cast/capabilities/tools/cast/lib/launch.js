@@ -193,7 +193,7 @@ function attempt({ harness, modelId, folder, effortWord, effortArgv, system, pro
       ? path.join(os.homedir(), '.claude', 'projects', claudeSlug(folder), `${session}.jsonl`)
       : null,
     t0,
-  });
+  }, !headed);
 
   const finish = (out) => done({ ...out, elapsedMs: Date.now() - t0 });
   if (harness === 'opencode' && !headed) {
