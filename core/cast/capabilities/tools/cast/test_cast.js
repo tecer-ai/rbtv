@@ -1947,6 +1947,36 @@ else {
     // an explicit -f wins over task.md
     assert.strictEqual(preview(['-f', other]), 'OTHER-TASK-ARM\n');
 
+    // a headed launch given no task: the record's opening message is the first message, whether
+    // or not task.md exists; a record without one sends task.md; with neither, the TUI opens with
+    // no first message. A headless launch never reads the opening.
+    const record = (extra) => fs.writeFileSync(path.join(once, 'agent.json'),
+      `{"name":"once","harness":"claude","model":"sonnet-5-5","effort":"medium"${extra}}\n`);
+    const headedArgv = (args) => {
+      const res = launchOnce([...args, '--headed']);
+      assert.strictEqual(res.status, 0, res.stderr);
+      const out = JSON.parse(res.stdout);
+      assert.strictEqual(out.stdin_preview, null, 'a headed launch feeds the TTY nothing');
+      return out.argv;
+    };
+    const last = (argv) => argv[argv.length - 1];
+    assert.strictEqual(last(headedArgv([])), 'TASK-HOME-ARM\n', 'headed, no opening: task.md rides argv');
+    record(',"opening":"OPEN-ARM"');
+    assert.strictEqual(last(headedArgv([])), 'OPEN-ARM', 'headed: the opening wins over task.md');
+    assert.strictEqual(last(headedArgv(['-p', 'x'])), 'x', 'an explicit -p wins over the opening');
+    assert.strictEqual(preview([]), 'TASK-HOME-ARM\n', 'headless: the opening is not read; task.md is the task');
+    fs.unlinkSync(taskFile);
+    assert.strictEqual(last(headedArgv([])), 'OPEN-ARM', 'headed, no task.md: the opening');
+    const headlessOpening = launchOnce([]);
+    assert.strictEqual(headlessOpening.status, 2, 'headless, an opening and no task.md: still no task');
+    assert.ok(headlessOpening.stderr.includes('refused: no task:'), headlessOpening.stderr);
+    record(',"opening":" "');
+    const silent = headedArgv([]);
+    assert.ok(!silent.includes('OPEN-ARM') && !silent.includes(' ') && !silent.includes('TASK-HOME-ARM\n'),
+      `headed, blank opening, no task.md: no first message: ${silent}`);
+    record('');
+    fs.writeFileSync(taskFile, 'TASK-HOME-ARM\n');
+
     // a task that is empty or only whitespace is refused, and the refusal names where it came from:
     // the -f file, the -p text, standard input, or task.md in the agent folder; a resume is refused
     // the same way. Every arm is a dry run, which is refused like a launch.

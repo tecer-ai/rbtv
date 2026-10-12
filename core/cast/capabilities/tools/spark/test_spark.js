@@ -10,12 +10,6 @@ const { spawnSync } = require('child_process');
 const TOOL = path.join(__dirname, 'spark.js');
 const BASE = os.tmpdir();
 
-const STARTED = 'You have just been started by your owner in an interactive terminal. ';
-const OPENING = `${STARTED}Greet them in one line and wait for what they need.`;
-// scout is an Ignite agent, so it is told to read its board before it greets.
-const BOARD_OPENING = `${STARTED}Read your board first. Then greet them in a few lines that name the `
-  + 'open work and anything that needs their attention, and wait for what they need.';
-
 function mkFolder(name) {
   const dir = path.join(BASE, `spark-test-${name}-${process.pid}`);
   fs.rmSync(dir, { recursive: true, force: true });
@@ -73,7 +67,7 @@ function spark(args, { env = {}, cwd = root } = {}) {
 {
   const res = spark(['scout', '--dry-run']);
   assert.strictEqual(res.status, 0, res.stderr);
-  assert.strictEqual(res.stdout, `cast --agent scout --headed -p "${BOARD_OPENING}"\n`);
+  assert.strictEqual(res.stdout, 'cast --agent scout --headed\n', 'spark passes no task: the opening message is cast\'s, read from agent.json');
   assert.strictEqual(res.stderr, '');
   assert.ok(!fs.existsSync(shimOut), 'a dry run launches nothing');
 }
@@ -83,7 +77,7 @@ function spark(args, { env = {}, cwd = root } = {}) {
   const res = spark(['scout', '--dry-run', '--json']);
   assert.strictEqual(res.status, 0, res.stderr);
   assert.strictEqual(res.stdout.trim(), JSON.stringify({
-    agent: 'scout', home: scout, cast: ['cast', '--agent', 'scout', '--headed', '-p', BOARD_OPENING],
+    agent: 'scout', home: scout, cast: ['cast', '--agent', 'scout', '--headed'],
   }));
 }
 
@@ -243,7 +237,7 @@ function spark(args, { env = {}, cwd = root } = {}) {
   const open = spark(['drafter', '--target', plans, '--dry-run', '--json'], from);
   assert.strictEqual(open.status, 0, open.stderr);
   assert.deepStrictEqual(JSON.parse(open.stdout), {
-    agent: 'drafter', home: drafter, cast: ['cast', '--agent', drafter, '--headed', '-p', OPENING],
+    agent: 'drafter', home: drafter, cast: ['cast', '--agent', drafter, '--headed'],
   });
   assert.deepStrictEqual(JSON.parse(spark(['--target', root, 'scout', '--dry-run', '--json'], from).stdout).cast.slice(0, 3),
     ['cast', '--agent', scout], 'the option may come before the agent');
@@ -277,7 +271,7 @@ if (process.platform !== 'win32') {
     'effort   high',
     '',
   ].join('\n'));
-  assert.deepStrictEqual(JSON.parse(fs.readFileSync(shimOut, 'utf8')), ['--agent', 'scout', '--headed', '-p', BOARD_OPENING]);
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(shimOut, 'utf8')), ['--agent', 'scout', '--headed']);
 
   const withJson = spark(['plans/x/agents/drafter', '--json']);
   assert.strictEqual(withJson.status, 0, withJson.stderr);

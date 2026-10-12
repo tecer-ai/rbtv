@@ -7,7 +7,7 @@
 // in its own module under lib/, split out 2026-08-20 along the section banners this file used
 // to carry. Read lib/<verb>.js for a verb; read here only for how argv reaches it.
 
-const { agentFilePrompt, agentTask, rbtvAgent, takeAgentFlags } = require('./lib/agent');
+const { agentFilePrompt, agentHasTask, agentTask, rbtvAgent, takeAgentFlags } = require('./lib/agent');
 const { runAgentList } = require('./lib/agent-list');
 const { runApi } = require('./lib/api');
 const { USAGE, USAGE_IG, fail, listArgs, parseArgs, resolveEffort, resolveEffortValue, resolveFolder, resolveModel, taskText } = require('./lib/core');
@@ -82,7 +82,9 @@ function main(rawArgv) {
   }
 
   const agentFlags = takeAgentFlags(rawArgv, fail);
-  // An rbtv agent may be launched with neither -p nor -f: its folder's task.md is then the task.
+  // An rbtv agent may be launched with neither -p nor -f. A headed launch then opens with the
+  // record's opening message when it has one; otherwise its folder's task.md is the task, and a
+  // headed launch of a folder without one opens with no first message.
   const parsed = parseArgs(agentFlags.argv, USAGE, !agentFlags.rbtv);
   const { dryRun, headed, detached, positional } = parsed;
   let { promptText, system } = parsed;
@@ -99,7 +101,10 @@ function main(rawArgv) {
   if (agentFlags.file) system = agentFilePrompt(agentFlags.file, fail);
   const agent = agentFlags.rbtv ? rbtvAgent(agentFlags.rbtv, fail) : null;
   if (agent) system = { text: agent.prompt };
-  if (agent && promptText === null) promptText = taskText(agentTask(agent, fail), `task.md in ${agent.home}`);
+  if (agent && promptText === null) {
+    if (headed && agent.opening) promptText = agent.opening;
+    else if (!headed || agentHasTask(agent)) promptText = taskText(agentTask(agent, fail), `task.md in ${agent.home}`);
+  }
   if (system) system.wrapper = SYSTEM_WRAPPER;
   if (!agent && (positional.length < 3 || positional.length > 4)) {
     fail(`usage: ${USAGE}\n       ${USAGE_IG}\nrun cast -h for full help`);

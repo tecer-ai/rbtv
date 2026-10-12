@@ -3,7 +3,9 @@
 
 // spark AGENT — open an rbtv agent in this terminal, for a person. A thin layer over cast: it
 // shows the agent's harness, model and effort (read from its agent.json), then starts
-// `cast --agent NAME --headed` with a greeting (the agent's folder instead of NAME under --target). It passes no harness, model or effort: cast reads them.
+// `cast --agent NAME --headed` (the agent's folder instead of NAME under --target). It passes no
+// task, harness, model or effort: cast reads them, and opens the session with the agent's opening
+// message when agent.json has one.
 // spark list [AGENT] — the agents spark can open by name, or one of them in full. The list is
 // cast's (`cast list --agents`, lib/agent-list.js), and so is the reading of --target FOLDER
 // (lib/agent.js `targetAgents`).
@@ -14,13 +16,6 @@ const { spawnSync } = require('child_process');
 const { findAgentHome, isPath, readAgent, targetAgents } = require('../cast/lib/agent');
 const { agentInFull, agentLines, agentList, listLines } = require('../cast/lib/agent-list');
 const { findOnPath, spawnable } = require('../cast/lib/win-exec');
-
-// cast needs a first message to open the session; this one starts a conversation and waits. An
-// Ignite agent keeps a board, and its Ignite rule says where: it reads the board before it greets.
-const STARTED = 'You have just been started by your owner in an interactive terminal. ';
-const OPENING = `${STARTED}Greet them in one line and wait for what they need.`;
-const BOARD_OPENING = `${STARTED}Read your board first. Then greet them in a few lines that name the `
-  + 'open work and anything that needs their attention, and wait for what they need.';
 
 const LIST_FORM = 'spark list [AGENT] [--target FOLDER] [--full] [--json] [-h]';
 const USAGE = 'usage: spark AGENT [--target FOLDER] [--dry-run] [--json] [-h]';
@@ -65,7 +60,10 @@ const HELP = [
   'change them: rbtv agent configure AGENT',
   'spark sets RBTV_AGENT_HOME to the agent folder. It hands prompt.md to',
   'the model. A frontmatter block that still opens the file is ignored',
-  'and reported by rbtv doctor; remove it.',
+  'and reported by rbtv doctor; remove it. The session opens with the',
+  'opening message of agent.json when the record has one, and with no',
+  'first message otherwise: write that field for an agent that must do',
+  'something, such as read its board, before you speak.',
   '',
   '--target FOLDER',
   '            Take the agents from FOLDER, not from above the current',
@@ -219,14 +217,14 @@ function spark(args) {
   const value = positional[0];
   const agent = findAgent(value, target);
   if (!agent) return 1;
-  const { home, harness, model, effort, ignite } = agent;
+  const { home, harness, model, effort } = agent;
   const cast = findOnPath('cast');
   if (!cast) {
     return refuse('cast is not on PATH', 'spark opens the agent through cast. Nothing was launched.', 'rbtv doctor');
   }
 
   // cast has no --target on a launch: under --target it gets the agent's folder.
-  const castArgs = ['--agent', target ? home : value, '--headed', '-p', ignite ? BOARD_OPENING : OPENING];
+  const castArgs = ['--agent', target ? home : value, '--headed'];
   const name = path.basename(home);
   if (dry) {
     if (json) process.stdout.write(`${JSON.stringify({ agent: name, home, cast: ['cast', ...castArgs] })}\n`);

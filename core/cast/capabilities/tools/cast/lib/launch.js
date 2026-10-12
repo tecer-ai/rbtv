@@ -159,8 +159,9 @@ function attempt({ harness, modelId, folder, effortWord, effortArgv, system, pro
   argv = [...argv, ...effortArgv];
 
   if (headed) {
-    // the TUI needs the real terminal on stdin, so the prompt rides argv
-    argv = [...argv, ...promptArgv(harness, stdinText)];
+    // the TUI needs the real terminal on stdin, so the prompt rides argv; a headed agent launch
+    // given no first message opens the TUI with none
+    if (stdinText !== null) argv = [...argv, ...promptArgv(harness, stdinText)];
     stdinText = null;
   }
 

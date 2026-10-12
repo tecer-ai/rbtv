@@ -36,7 +36,7 @@ cast -h | --help
 | `launch-folder` | working directory for the agent, resolved relative to the caller's CWD; MUST already exist |
 | `-p TEXT` | the task of this launch, as literal text |
 | `-f FILE` | read the task from a file; `-f -` reads it from stdin |
-| neither, with `--agent` | the task is `task.md` in the agent folder; every other form requires `-p` or `-f` |
+| neither, with `--agent` | headless: the task is `task.md` in the agent folder. Headed: the `opening` of `agent.json` is the first message when the record has one, else `task.md`, else the TUI opens with no first message. Every other form requires `-p` or `-f` |
 | a task with no text | refused with exit 2, by a launch, a `cast resume` and a `--dry-run` alike: text that is empty or only whitespace is no task. The refusal names where the text came from: `the -p text`, `the -f file FILE`, `standard input (-f -)` or `task.md in <agent folder>` |
 | `--dry-run` | print the composed argv as JSON and exit 0 without launching. The same object names each environment variable the launch sets, as a key of its own, and under `env_removed` the inherited variables it removes (see [What an agent launch loads](#what-an-agent-launch-loads)) |
 
@@ -148,6 +148,13 @@ one it came from: `refused: the task is empty: task.md in <agent folder> holds n
 once keeps its task in that file, so the folder holds everything the launch needs; an agent launched
 with different tasks is given each one with `-p` or `-f`. `--rogue`, `cast resume` and the
 `<harness> <model> <effort>` form have no agent folder and always require `-p` or `-f`.
+
+A headed launch (`--headed`) given neither flag differs in two ways. When `agent.json` holds an
+`opening`, that text is the first message, whether or not the folder holds a `task.md`: it is what
+the agent does for the person who opened it, which is how `spark` opens an agent. When the record
+holds none and the folder has no `task.md`, the TUI opens with no first message and waits for the
+person. A headless launch never reads `opening`. [Agent record](../../../../rbtv/capabilities/glossary/agent-json.md)
+defines the field.
 
 `--rogue PROMPT-FILE` runs a rogue agent file that is not an agent folder: the file's body, without its
 frontmatter, is the system prompt, and the launch folder is the usual one. It sets no

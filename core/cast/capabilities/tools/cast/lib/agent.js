@@ -123,9 +123,10 @@ function promptMissing(home) {
   return `${missing} This folder still has ${OLD_PROMPT_MD}, the old name of the prompt file. If another machine already renamed it, pull first; otherwise rename it with: git mv ${OLD_PROMPT_MD} ${PROMPT_MD} (inside ${home}), and change any .gitignore line that names ${OLD_PROMPT_MD}.`;
 }
 
-// The agent in `home`: its launch values, voice, standing prompt, description and whether it is an
-// Ignite agent (its `ignite` pack is on, which `ignite connect` does), or the problem that stops a
-// launch.
+// The agent in `home`: its launch values, voice, standing prompt, description, opening message
+// (the first message of a headed launch given no task; null when the record has none) and whether
+// it is an Ignite agent (its `ignite` pack is on, which `ignite connect` does), or the problem
+// that stops a launch.
 // problem 'launch' = agent.json is missing, unreadable, names no harness, model or effort, or
 //                    gives the effort as a number where the record holds the model's own word;
 // problem 'prompt' = prompt.md is missing.
@@ -153,6 +154,7 @@ function readAgent(home) {
     voice: values.voice ?? null,
     description: typeof values.description === 'string' ? values.description : '',
     ignite: Array.isArray(values.packs) && values.packs.includes('ignite'),
+    opening: text(values.opening) ? values.opening : null,
     prompt: agentBody(fs.readFileSync(mdPath, 'utf8')),
   };
   return { agent };
@@ -197,11 +199,16 @@ function rbtvAgent(value, fail, target = null) {
   return read.agent;
 }
 
+// Whether the agent's folder holds task.md.
+function agentHasTask(agent) {
+  return fs.existsSync(path.join(agent.home, TASK_MD));
+}
+
 // The task of an rbtv agent launched with neither -p nor -f: the text of task.md in its folder,
 // read as -f reads a file. A folder without the file is refused.
 function agentTask(agent, fail) {
   const file = path.join(agent.home, TASK_MD);
-  if (!fs.existsSync(file)) {
+  if (!agentHasTask(agent)) {
     fail(`refused: no task: pass -p TEXT or -f FILE, or write ${TASK_MD} in ${agent.home}\nNothing changed.`);
   }
   return fs.readFileSync(file, 'utf8');
@@ -235,5 +242,5 @@ function agentFilePrompt(flag, fail) {
 
 module.exports = {
   PROMPT_MD, TASK_MD, AGENT_JSON, agentBody, isPath, agentsFolder, agentHomeIn, holdsAgentFile, isAgentFolder, targetAgents, agentHomes, findAgentHome,
-  readAgent, rbtvAgent, agentTask, targetRefusal, takeAgentFlags, agentFilePrompt, promptMissing,
+  readAgent, rbtvAgent, agentHasTask, agentTask, targetRefusal, takeAgentFlags, agentFilePrompt, promptMissing,
 };

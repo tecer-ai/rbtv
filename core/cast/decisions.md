@@ -69,3 +69,7 @@ Reason: an environment variable is inherited by every program the agent runs, an
 ## Every launch removes the isolation variables it inherited
 
 Reason: OpenCode is isolated by environment variables only, and Claude Code's bundled skills by one, so a launch made by an isolated agent would otherwise configure its own harness with that agent's folder and values. The removal applies to an agent launch too, before its own values are set, so one rule covers every launch.
+
+## The first message of a headed agent launch is in the agent's record
+
+A headed `cast --agent` launch given no task opens with the `opening` of the agent's `agent.json` when the record has one, and with no first message otherwise; `spark` passes no message of its own. Reason: a greeting fixed in the launcher reached every agent whatever its purpose, and two design agents spent their first turn on it; what an agent does before its person speaks is part of the agent, so its record holds it, and an agent whose record says nothing waits.

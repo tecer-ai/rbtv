@@ -26,8 +26,8 @@ const MODEL_CATALOG_PAGE = sourcePage('core/cast/capabilities/tools/cast/documen
 function printHelp() {
   const lines = [
     'cast — launch one headless agent turn. Prints the child\'s stdout/stderr and exits',
-    'with its exit code. --headed opens the harness\'s interactive TUI instead (the task',
-    'becomes the first message).',
+    'with its exit code. --headed opens the harness\'s interactive TUI instead (the task,',
+    'when one is given, becomes the first message).',
     'Where the installation turned the fallback on (cast models defaults), a headless launch of',
     'a model that fails to start (its harness cannot be started, or exits with a failure in its',
     'first 15 seconds) is replaced by the other models of its level that cast route may name and',
@@ -43,7 +43,9 @@ function printHelp() {
     '      for a worker chosen by `cast route`, or a throwaway.',
     '',
     '-p TEXT / -f FILE  the TASK: what this one launch must do. -f - reads standard input.',
-    '                   With --agent, omitting both sends the agent folder\'s task.md.',
+    '                   With --agent, omitting both sends the agent folder\'s task.md; a headed',
+    '                   launch sends the opening message of its agent.json instead when the',
+    '                   record has one, and opens with no first message when it has neither.',
     '                   A task that is empty or only whitespace is refused (exit 2), and',
     '                   so is a -f file that is not there or cannot be read.',
     '--agent AGENT      a name under <installation>/.rbtv/agents/, or the path of an agent',

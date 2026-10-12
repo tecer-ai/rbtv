@@ -34,6 +34,10 @@
       "description": "Optional voice, written by rbtv agent configure. Not checked.",
       "type": "string"
     },
+    "opening": {
+      "description": "Optional, author-written. The first message of a headed launch of this agent that is given no task, such as a person opening it with spark: what the agent does before the person speaks. Absent or blank, the session opens with no first message. A headless launch never reads it.",
+      "type": "string"
+    },
     "files": {
       "description": "The files chosen on their own, as full ids <module>/<component>#<name>. A short name is accepted on input when it is unique in the source catalog.",
       "type": "array",
