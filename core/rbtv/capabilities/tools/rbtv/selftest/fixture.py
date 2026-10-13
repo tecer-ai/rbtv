@@ -3,11 +3,12 @@ build its own."""
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 from discovery import HUB_DIR, Refuse, SKILLS_DIR, SKILL_FILE
 
-from lib.constants import HARNESSES
+from lib.constants import HARNESSES, REPO_ROOT
 from lib.operations import do_install
 
 
@@ -20,6 +21,13 @@ def _file_md(path: Path, name: str, description: str, body: str = "",
              extra: str = "") -> None:
     _w(path, f"---\nname: {name}\ndescription: {json.dumps(description)}\n"
              f"{extra}---\n\n{body}")
+
+
+def example_models(node: str) -> list[dict]:
+    """The supported models cast ships, as example-models.js prints them: pick one by a property, never by name."""
+    out = subprocess.run([node, str(REPO_ROOT / "core/cast/capabilities/tools/cast/example-models.js")],
+                         capture_output=True, text=True, encoding="utf-8", check=True)
+    return json.loads(out.stdout)
 
 
 def _module(root: Path, module: str) -> Path:

@@ -14,10 +14,10 @@ from lib.pathlinks import bin_dir
 
 from .fixture import _component, _file_md, _w
 
-_KNOWN = {"claude": {"haiku-5-5": {"rungs": ["low", "high"], "selected": True}},
+_KNOWN = {"claude": {"example-model": {"rungs": ["low", "high"], "selected": True}},
           "codex": {"c1": {"rungs": ["low", "high"], "selected": True}},
-          "opencode": {"glm-5.3": {"rungs": ["low", "high"], "selected": True}}}
-_LAUNCH = {"harness": "claude", "model": "haiku-5-5", "effort": "high"}
+          "opencode": {"example-model": {"rungs": ["low", "high"], "selected": True}}}
+_LAUNCH = {"harness": "claude", "model": "example-model", "effort": "high"}
 _EXCLUDE = "exclude_foundations"
 _SHIPPED = "shipped_rbtv"
 
@@ -36,7 +36,7 @@ def _agent(home: Path, name: str) -> None:
     _w(home / "prompt.md", "Prompt.\n")
     _w(home / "agent.json", json.dumps({
         "name": name, "description": "Agent.", "harness": "claude",
-        "model": "haiku-5-5", "effort": "high", "files": [], "packs": []}) + "\n")
+        "model": "example-model", "effort": "high", "files": [], "packs": []}) + "\n")
 
 
 def _snap(root: Path) -> dict[str, bytes]:

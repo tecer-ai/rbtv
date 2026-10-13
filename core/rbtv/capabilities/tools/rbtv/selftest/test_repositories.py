@@ -388,12 +388,12 @@ def _agent(root: Path) -> None:
     _w(home / "prompt.md", "Follow this.\n")
     _w(home / "agent.json", json.dumps({
         "name": "scout", "description": "Scout.", "harness": "claude",
-        "model": "haiku-5-5", "effort": "low", "files": [], "packs": []}) + "\n")
+        "model": "example-model", "effort": "low", "files": [], "packs": []}) + "\n")
 
 
 def _boundary(check, base: Path, env: dict, url: str) -> None:
     """Agent add, interactive, and scaffolding share install-mode preparation."""
-    known = {"claude": {"haiku-5-5": {"rungs": ["low", "high"], "selected": True}}}
+    known = {"claude": {"example-model": {"rungs": ["low", "high"], "selected": True}}}
     src = base / "bound-src"
     comp = _component(src, "extmod", "boundcomp")
     _record(comp, url, "feat/cli", "requirements.txt")

@@ -50,7 +50,7 @@ def _gemini_data(text_parts, finish="STOP"):
             "candidatesTokenCount": 2,
             "totalTokenCount": 3,
         },
-        "modelVersion": "gemini-3.1-flash-image",
+        "modelVersion": "example-model",
     }
 
 
@@ -80,7 +80,7 @@ def test_explicit_max_tokens_is_sent(monkeypatch):
     monkeypatch.setattr("clients.gemini.requests.post", post)
     make_client().chat(
         [Message(role="user", content="q")],
-        RequestOptions(model="gemini-3.1-flash-image", max_tokens=2000),
+        RequestOptions(model="example-model", max_tokens=2000),
     )
     assert post.bodies[0]["generationConfig"]["maxOutputTokens"] == 2000
 
@@ -91,7 +91,7 @@ def test_parse_concatenates_all_candidate_parts(monkeypatch):
     monkeypatch.setattr("clients.gemini.requests.post", post)
     resp = make_client().chat(
         [Message(role="user", content="q")],
-        RequestOptions(model="gemini-3.1-flash-image"),
+        RequestOptions(model="example-model"),
     )
     assert resp.content == "Part A. Part B. Part C."
 
@@ -102,7 +102,7 @@ def test_parse_handles_missing_parts(monkeypatch):
     monkeypatch.setattr("clients.gemini.requests.post", post)
     resp = make_client().chat(
         [Message(role="user", content="q")],
-        RequestOptions(model="gemini-3.1-flash-image"),
+        RequestOptions(model="example-model"),
     )
     assert resp.content == ""
     assert resp.raw_response["choices"][0]["finish_reason"] == "length"
@@ -156,7 +156,7 @@ def _run_gemini(monkeypatch, tmp_path, *, content, finish="stop", artifacts=None
     argv = [
         "run.py",
         "--provider", "gemini",
-        "--model", "gemini-3.1-flash-image",
+        "--model", "example-model",
         "--prompt-file", str(prompt),
         "--output-folder", str(out),
     ]
@@ -175,7 +175,7 @@ def test_image_payload_asks_for_the_image_modality(monkeypatch):
     monkeypatch.setattr("clients.gemini.requests.post", post)
     make_client().chat(
         [Message(role="user", content="a red bicycle")],
-        RequestOptions(model="gemini-3.1-flash-image"),
+        RequestOptions(model="example-model"),
     )
     body = post.bodies[0]
     assert body["generationConfig"]["responseModalities"] == ["TEXT", "IMAGE"]
@@ -191,7 +191,7 @@ def test_extra_params_are_sent_as_provider_parameters(monkeypatch):
     monkeypatch.setattr("clients.gemini.requests.post", post)
     make_client().chat(
         [Message(role="user", content="q")],
-        RequestOptions(model="gemini-3.1-flash-image", extra_params={"safetySettings": []}),
+        RequestOptions(model="example-model", extra_params={"safetySettings": []}),
     )
     assert post.bodies[0]["safetySettings"] == []
 
@@ -210,7 +210,7 @@ def test_parse_extracts_inline_images_as_artifacts(monkeypatch):
     monkeypatch.setattr("clients.gemini.requests.post", post)
     resp = make_client().chat(
         [Message(role="user", content="q")],
-        RequestOptions(model="gemini-3.1-flash-image"),
+        RequestOptions(model="example-model"),
     )
     assert resp.content == "here it is", "text parts still concatenate normally"
     assert [a.filename for a in resp.artifacts] == ["image-1.png", "image-2.jpg"]
@@ -268,7 +268,7 @@ def test_input_image_payload_translates_to_inline_data(monkeypatch):
             {"type": "text", "text": "restyle this logo"},
             {"type": "image", "mime_type": "image/png", "data": png_b64},
         ])],
-        RequestOptions(model="gemini-3.1-flash-image"),
+        RequestOptions(model="example-model"),
     )
     body = post.bodies[0]
     parts = body["contents"][0]["parts"]
@@ -288,7 +288,7 @@ def test_input_image_payload_with_several_images_keeps_order(monkeypatch):
             {"type": "image", "mime_type": "image/png", "data": a_b64},
             {"type": "image", "mime_type": "image/jpeg", "data": b_b64},
         ])],
-        RequestOptions(model="gemini-3.1-flash-image"),
+        RequestOptions(model="example-model"),
     )
     parts = post.bodies[0]["contents"][0]["parts"]
     assert parts == [
@@ -304,7 +304,7 @@ def test_string_content_still_builds_a_single_text_part(monkeypatch):
     monkeypatch.setattr("clients.gemini.requests.post", post)
     make_client().chat(
         [Message(role="user", content="a red bicycle")],
-        RequestOptions(model="gemini-3.1-flash-image"),
+        RequestOptions(model="example-model"),
     )
     assert post.bodies[0]["contents"][0]["parts"] == [{"text": "a red bicycle"}]
 
@@ -315,7 +315,7 @@ def test_unknown_part_type_raises_value_error(monkeypatch):
     with pytest.raises(ValueError, match="unknown message part type"):
         make_client().chat(
             [Message(role="user", content=[{"type": "video", "data": "x"}])],
-            RequestOptions(model="gemini-3.1-flash-image"),
+            RequestOptions(model="example-model"),
         )
 
 
@@ -336,7 +336,7 @@ def test_input_image_bad_extension_is_refused(monkeypatch, tmp_path):
     argv = [
         "run.py",
         "--provider", "gemini",
-        "--model", "gemini-3.1-flash-image",
+        "--model", "example-model",
         "--prompt-file", str(prompt),
         "--output-folder", str(out),
         "--input-image", str(bad),
@@ -360,7 +360,7 @@ def test_input_image_missing_file_is_refused(monkeypatch, tmp_path):
     argv = [
         "run.py",
         "--provider", "gemini",
-        "--model", "gemini-3.1-flash-image",
+        "--model", "example-model",
         "--prompt-file", str(prompt),
         "--output-folder", str(out),
         "--input-image", str(missing),
@@ -391,7 +391,7 @@ def test_input_image_run_builds_list_form_message(monkeypatch, tmp_path):
     argv = [
         "run.py",
         "--provider", "gemini",
-        "--model", "gemini-3.1-flash-image",
+        "--model", "example-model",
         "--prompt-file", str(prompt),
         "--output-folder", str(out),
         "--input-image", str(img),

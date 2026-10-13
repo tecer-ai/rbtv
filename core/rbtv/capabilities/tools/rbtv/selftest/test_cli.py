@@ -30,7 +30,7 @@ from lib.report import print_result
 from lib.state import read_state
 
 from .fixture import _component, _file_md
-from .test_agents import _agent
+from .test_agents import _agent, _claude_model
 
 
 def parser_selectors_index(ctx) -> None:
@@ -496,7 +496,7 @@ def cli_defects(ctx) -> None:
     _file_md(comp / "rules/other.md", "other", "Other", "body\n")
     d_catalog, _ = scan_all(tmp / "d-agent-mirror", src)
     home = ws / ".rbtv/agents/scout"
-    known = {"claude": {"haiku-5-5": {"rungs": ["low", "high"], "selected": True}}, "codex": {"c1": {"rungs": ["low", "high"], "selected": True}}}
+    known = {"claude": {_claude_model(): {"rungs": ["low", "high"], "selected": True}}, "codex": {"c1": {"rungs": ["low", "high"], "selected": True}}}
     from unittest.mock import patch
     from lib.agents import add_agent
     _agent(home, files=["moda/comp#kiss"])
