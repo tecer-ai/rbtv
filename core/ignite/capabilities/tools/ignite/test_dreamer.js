@@ -513,7 +513,20 @@ test('each agent files its own inbox sources even after its owner rows were cons
   for (const line of lines) assert.ok(f.read(`${ROOT}knowledge/facts.md`).includes(line));
 }, ['alpha', 'master']);
 
-for (const mode of ['forged-line', 'other-agent', 'changed-provenance', 'unfiled-source', 'learned-rule']) {
+test('another agent inbox line is a citable source', async (f) => {
+  const line = fact('Owner likes café.', 'alpha');
+  f.write(`${ROOT}inbox.md`, `# Inbox\n${line}\n`);
+  const result = await f.run((input) => proposal(
+    operation(input, `${ROOT}knowledge/facts.md`, knowledge(line), { sources: [line] }),
+    operation(input, `${ROOT}inbox.md`, '# Inbox\n', { sources: [line], reason: 'file',
+      removals: [{ text: line, to: `${ROOT}knowledge/facts.md`, replacement: line }] }),
+  ));
+  assert.equal(result.ok, true, result.alert);
+  assert.equal(f.read(`${ROOT}inbox.md`), '# Inbox\n');
+  assert.ok(f.read(`${ROOT}knowledge/facts.md`).includes(line));
+});
+
+for (const mode of ['forged-line', 'changed-provenance', 'unfiled-source', 'learned-rule']) {
   test(`inbox provenance cannot authorize ${mode}`, async (f) => {
     const line = fact('Owner likes café.', mode === 'other-agent' ? 'alpha' : 'master');
     f.write(`${ROOT}inbox.md`, `# Inbox\n${line}\n`);

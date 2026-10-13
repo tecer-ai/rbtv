@@ -105,6 +105,10 @@ function linkTarget(from, href) {
   return path.posix.normalize(path.posix.join(path.posix.dirname(from), href));
 }
 
+function requestSubject(line) {
+  return line.match(/^- Owner asks to forget: (.+?)(?:\. |\s+\(\d{4}-\d{2}-\d{2} · )/)?.[1] || null;
+}
+
 function pointerTargets(op, line, before) {
   if (op.kind === 'index') {
     const href = line.match(/\[[^\]]*\]\(([^)\s]+)\)/)?.[1];
@@ -442,8 +446,7 @@ function validateProposal(input, raw, workspace) {
   const operations = new Map();
   const evidence = new Map((input.messages || []).map((row) => [row.rowid, row]));
   const inboxText = before.get(`${GENERAL}inbox.md`);
-  const inbox = new Set(inboxText == null ? [] : records('inbox', inboxText).filter((line) =>
-    provenance(line) === input.agent || provenance(line).startsWith(`${input.agent}/`)));
+  const inbox = new Set(inboxText == null ? [] : records('inbox', inboxText));
   const failures = [...shape.failures];
   function taken(error, place) {
     if (!(error instanceof Refusal)) throw error;
@@ -507,12 +510,12 @@ function validateProposal(input, raw, workspace) {
         expect(reasonForm);
         requireThat(REASONS.includes(op.reason) && typeof op.explanation === 'string' && op.explanation.trim(), 'operation requires a reason and explanation');
       }, { ...place, expected: reasonForm }) === null) fieldsOk = false;
-      const sourceForm = 'sources are unread owner message rowids or this agent\'s exact inbox lines';
+      const sourceForm = 'sources are unread owner message rowids or exact inbox lines';
       if (guard(() => {
         expect(sourceForm);
         requireThat(Array.isArray(op.sources) && op.sources.every((id) =>
           Number.isSafeInteger(id) ? evidence.has(id) : typeof id === 'string' && inbox.has(id)),
-        'source is not an unread owner message or this agent\'s inbox line');
+        'source is not an unread owner message or an inbox line');
       }, { ...place, expected: sourceForm }) === null) fieldsOk = false;
       const textForm = 'text is the complete next file, as a string';
       if (guard(() => {
@@ -683,6 +686,29 @@ function validateProposal(input, raw, workspace) {
           expect('sources include an unread owner message');
           requireThat(rows.length, 'archive requires owner evidence');
         }
+      } else if (op.kind === 'inbox' && op.reason === 'owner') {
+        const dest = typeof item.to === 'string' ? after.get(item.to) : null;
+        const carried = typeof dest === 'string' && isArchiveDestination(item.to, input.agent) && dest.includes(item.text);
+        const subject = requestSubject(item.text);
+        const archived = [...operations.values()].filter((other) => other.leave);
+        const names = subject && archived.some((other) => (before.get(other.path) || '').includes(subject));
+        const cites = archived.some((other) => {
+          const original = before.get(other.path) || '';
+          const heading = original.match(/^# (.+)$/m)?.[1];
+          return links(item.text).some((url) => original.includes(url)) || (heading && item.text.includes(heading));
+        });
+        if (!carried || (!subject && !cites)) {
+          expect('file the line as a record, or carry it verbatim in an archive entry of the same proposal');
+          requireThat(false, 'inbox line removed with no destination');
+        }
+        if (subject) {
+          expect('the record the request line names is archived with leave: true in this proposal');
+          requireThat(names, 'request line consumed while the record it names is not archived in that proposal');
+          expect('Reason: owner asked to forget. Source: <the line>');
+          requireThat(dest.includes(`Reason: owner asked to forget. Source: ${item.text}`), 'inbox line removed with no destination');
+        }
+        expect('sources include that inbox line');
+        requireThat(inbox.has(item.text) && op.sources.includes(item.text), 'duplicate inbox removal requires its own source');
       } else if (op.kind === 'inbox' || (op.kind === 'board' && parseBoard(before.get(op.path)).watchOuts.includes(item.text))) {
         const destinationKind = item.to && kindOf(item.to, input.agent);
         expect('reason file for an inbox line, fold for a watch-out');
@@ -728,7 +754,7 @@ function validateProposal(input, raw, workspace) {
         const nextSubject = parseBoard(op.text).subjects.find((row) => row.title === subject.title);
         expect('Detail: ../memory/<topic file>');
         requireThat(nextSubject.detail === `../memory/${item.to.split('/memory/')[1]}`, 'board must link moved detail');
-      } else if ((op.kind === 'index' || op.kind === 'daily' || op.kind === 'weekly') && added.length === 0) {
+      } else if (op.kind === 'index' && added.length === 0) {
         const targets = pointerTargets(op, item.text, before) || [];
         const left = targets.filter((file) => operations.get(file)?.leave);
         const stays = targets.filter((file) => after.has(file));
@@ -740,6 +766,26 @@ function validateProposal(input, raw, workspace) {
         } else if (stays.length) {
           expect('keep the line, or archive the record it points at in this proposal');
           requireThat(false, 'index or timeline line dropped while the record it points at stays');
+        } else {
+          expect('a line whose link or source URL is the archived record');
+          requireThat(false, 'dropped line does not point at the archived record');
+        }
+      } else if ((op.kind === 'daily' || op.kind === 'weekly') && added.length === 0) {
+        // A timeline line may be dropped when its URL occurs in the archived file and in no file that stays in active memory after the proposal. An inbox line this proposal consumes does not count as staying. The archive is not active memory.
+        const urls = links(item.text);
+        const left = [...operations.values()].filter((other) => other.leave && urls.some((url) => (before.get(other.path) || '').includes(url)));
+        const stays = [...after.entries()].filter(([file, text]) => typeof text === 'string' && !isArchiveDestination(file, input.agent) && urls.some((url) => text.includes(url)));
+        const timelineForm = 'a timeline line may be dropped when its URL occurs in the archived file and in no file that stays in active memory after the proposal; an inbox line this proposal consumes does not count as staying; the archive is not active memory';
+        if (left.length && !stays.length) {
+          const held = left.some((other) => {
+            const original = normalize(before.get(other.path) || '');
+            return [...operations.values()].some((archive) => isArchiveDestination(archive.path, input.agent) && verbatimFence(archive.text) === original);
+          });
+          expect('an archive file in this proposal holds the verbatim record');
+          requireThat(held, 'removal without an archive entry');
+        } else if (stays.length) {
+          expect(timelineForm);
+          requireThat(false, 'timeline line dropped while another record that stays still cites that URL');
         } else {
           expect('a line whose link or source URL is the archived record');
           requireThat(false, 'dropped line does not point at the archived record');

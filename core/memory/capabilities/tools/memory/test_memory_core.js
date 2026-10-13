@@ -533,6 +533,12 @@ function removalProposal(box, { item, reason = 'owner asked to forget', source =
       sources, removals: [{ text: box.episode }],
     }));
   }
+  if (reason === 'owner asked to forget' && box.files['.rbtv/memory/inbox.md']?.includes(FORGET)) {
+    parts.push(op({
+      op: 'supersede', path: '.rbtv/memory/inbox.md', text: '# Inbox\n', sources,
+      removals: [{ text: FORGET, to: box.archivePath }],
+    }));
+  }
   return proposal(parts);
 }
 
@@ -569,7 +575,7 @@ test('archive-removal of a whole-file record drops its index row and timeline li
   assert.ok(day.includes(box.kept));
   assert.deepEqual(fs.readFileSync(path.join(dir, box.otherPath)), before.get(box.otherPath));
   assert.deepEqual(fs.readFileSync(path.join(dir, box.sibling)), before.get(box.sibling));
-  assert.deepEqual(fs.readFileSync(path.join(dir, '.rbtv/memory/inbox.md')), before.get('.rbtv/memory/inbox.md'));
+  assert.equal(fs.readFileSync(path.join(dir, '.rbtv/memory/inbox.md'), 'utf8').includes(FORGET), false);
 });
 
 test('real-shaped archive-removal matches the live publication shape', (dir) => {
@@ -686,6 +692,248 @@ test('restore returns the tree apart from the archive record of the round trip',
   assert.ok(round.includes(box.entity));
   assert.ok(round.includes('# Restored'));
   assert.deepEqual(fs.readFileSync(path.join(dir, box.sibling)), Buffer.from(box.siblingText));
+});
+
+const PEBBLE = 'Pebble-441';
+const PEBBLE_URL = 'https://app.slack.com/archives/C0123ABCDEF/p1700000000000001';
+const KEPT_URL = 'https://app.slack.com/archives/C0123ABCDEF/p1700000000000002';
+const PEBBLE_ENTITY = '.rbtv/memory/entities/devices/pebble-441.md';
+const PEBBLE_INDEX = '.rbtv/memory/entities/_artifacts/index.md';
+const PEBBLE_DAY = '.rbtv/memory/timeline/daily/2026-10-13.md';
+const PEBBLE_ARCHIVE = '.rbtv/memory/_artifacts/archive/pebble-441.md';
+const PEBBLE_INBOX = '.rbtv/memory/inbox.md';
+const ALBERT_BOARD = '.rbtv/agents/albert/_artifacts/board.md';
+const CAPTURE = `- Owner asks to remember the device name ${PEBBLE}. (2026-10-13 · albert/[owner thread](${PEBBLE_URL}))`;
+const REQUEST = `- Owner asks to forget: device ${PEBBLE}. Owner said: forget it (2026-10-13 · pal)`;
+
+function pebbleEntity() {
+  return `---\ndescription: when identifying the device ${PEBBLE}\ntype: device\naliases: [${PEBBLE}]\n---\n# ${PEBBLE}\n\n- The device is named ${PEBBLE}. (2026-10-13 · albert/[owner thread](${PEBBLE_URL}))\n`;
+}
+
+function pebbleIndex(row = true) {
+  const kept = '| [kept-person](../people/kept-person.md) | when reviewing the kept person |';
+  const device = `| [${PEBBLE}](../devices/pebble-441.md) | when identifying the device |`;
+  return `# Entities\n\n| Open | When |\n|---|---|\n${kept}\n${row ? `${device}\n` : ''}`;
+}
+
+function pebbleDay(episode = true) {
+  const named = `- Named the device ${PEBBLE}. — albert/[owner thread](${PEBBLE_URL})`;
+  const kept = `- Kept episode. — albert/[owner thread](${KEPT_URL})`;
+  return `---\ndescription: when recalling owner requests on this day\ntype: reference\naliases: [day]\n---\n# 2026-10-13\n\n${kept}\n${episode ? `${named}\n` : ''}`;
+}
+
+function pebbleArchive(entity, lines) {
+  const bullets = lines.map((line) => `- Reason: owner asked to forget. Source: ${line} (2026-10-13 · albert)`).join('\n');
+  return `---\ndescription: when reviewing an archived record\ntype: reference\naliases: [pebble-441]\n---\n# Archived\n\n${bullets}\n\n\`\`\`verbatim\n${entity}\`\`\`\n`;
+}
+
+function pebbleFiles(extra = {}) {
+  const entity = pebbleEntity();
+  const episode = `- Named the device ${PEBBLE}. — albert/[owner thread](${PEBBLE_URL})`;
+  const row = `| [${PEBBLE}](../devices/pebble-441.md) | when identifying the device |`;
+  return {
+    entity, episode, row,
+    files: {
+      [PEBBLE_ENTITY]: entity,
+      [PEBBLE_INDEX]: pebbleIndex(),
+      [PEBBLE_DAY]: pebbleDay(),
+      [PEBBLE_INBOX]: `# Inbox\n${CAPTURE}\n${REQUEST}\n`,
+      [ALBERT_BOARD]: lib.EMPTY_BOARD,
+      '.rbtv/memory/profile.md': '# Profile — Sam\n\n## Who\n\n- One (2026-10-01 · note)\n\n## Working with Sam\n\n- Two (2026-10-01 · note)\n\n## Now\n\n- Three (2026-10-01 · note)\n',
+      '.rbtv/memory/entities/people/kept-person.md': '---\ndescription: when reviewing the kept person\ntype: person\naliases: [kept]\n---\n# Kept\n\n- Stays. (2026-10-01 · albert)\n',
+      ...extra,
+    },
+  };
+}
+
+function writeTree(dir, files) {
+  for (const [file, text] of Object.entries(files)) {
+    const abs = path.join(dir, file);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, text);
+  }
+}
+
+function gitAt(dir, args) {
+  return spawnSync('git', args, { cwd: dir, encoding: 'utf8' });
+}
+
+test('forget of a record cited by another agent leaves nothing in delivered memory', (dir) => {
+  const box = pebbleFiles();
+  const pal = path.join(dir, '.rbtv', 'agents', 'pal');
+  writeTree(dir, {
+    ...box.files,
+    '.rbtv/agents/pal/_artifacts/board.md': lib.EMPTY_BOARD,
+    '.rbtv/agents/pal/memory/learned.md': '# Learned rules — pal\n',
+  });
+  const init = gitAt(dir, ['init', '-q']);
+  assert.equal(init.status, 0, init.stderr);
+  assert.equal(gitAt(dir, ['config', 'user.email', 'memory-core@example.com']).status, 0);
+  assert.equal(gitAt(dir, ['config', 'user.name', 'memory-core']).status, 0);
+  assert.equal(gitAt(dir, ['add', '--', '.rbtv']).status, 0);
+  assert.equal(gitAt(dir, ['commit', '-q', '-m', 'fixture']).status, 0, gitAt(dir, ['status', '--short']).stdout);
+  const archive = pebbleArchive(box.entity, [CAPTURE, REQUEST]);
+  const raw = proposal([
+    op({
+      op: 'archive', path: PEBBLE_ENTITY, leave: true, text: box.entity, sources: [REQUEST],
+      removals: [{ text: box.entity.trim().split('\n').at(-1), to: PEBBLE_ARCHIVE }],
+    }),
+    op({ op: 'add', path: PEBBLE_ARCHIVE, text: archive, sources: [REQUEST] }),
+    op({
+      op: 'supersede', path: PEBBLE_INDEX, reason: 'index', text: pebbleIndex(false), sources: [REQUEST],
+      removals: [{ text: box.row }],
+    }),
+    op({
+      op: 'supersede', path: PEBBLE_DAY, text: pebbleDay(false), sources: [REQUEST],
+      removals: [{ text: box.episode }],
+    }),
+    op({
+      op: 'supersede', path: PEBBLE_INBOX, text: '# Inbox\n', sources: [REQUEST, CAPTURE],
+      removals: [{ text: CAPTURE, to: PEBBLE_ARCHIVE }, { text: REQUEST, to: PEBBLE_ARCHIVE }],
+    }),
+  ]);
+  const published = lib.publishProposal({ agent: 'albert', date: '2026-10-13', messages: [], files: box.files }, raw, dir);
+  assert.equal(published.ok, true, reasons(published).join(' | '));
+  assert.equal(published.published, true);
+  const status = gitAt(dir, ['status', '--porcelain']);
+  assert.equal(status.stdout, '', status.stdout);
+  assert.equal(fs.existsSync(path.join(dir, PEBBLE_ENTITY)), false);
+  const archived = fs.readFileSync(path.join(dir, PEBBLE_ARCHIVE), 'utf8');
+  assert.ok(archived.includes(box.entity));
+  assert.ok(archived.includes(`Source: ${REQUEST}`));
+  assert.ok(archived.includes(`Source: ${CAPTURE}`));
+  const prepared = lib.prepareMemory({ installation: dir, agentHome: pal });
+  const delivered = prepared.bundle.map((row) => row.text).join('\n');
+  assert.equal(delivered.includes(PEBBLE), false, delivered);
+  const check = require('../../../agents/albert/rbtv/capabilities/tools/albert/lib/check.js');
+  assert.equal(check.work(pal, dir).includes('inbox'), false, check.work(pal, dir).join(','));
+  const after = {};
+  for (const file of [PEBBLE_INDEX, PEBBLE_DAY, PEBBLE_ARCHIVE, PEBBLE_INBOX, ALBERT_BOARD, '.rbtv/memory/profile.md', '.rbtv/memory/entities/people/kept-person.md']) {
+    after[file] = fs.readFileSync(path.join(dir, file), 'utf8');
+  }
+  const restored = lib.publishProposal({ agent: 'albert', date: '2026-10-13', messages: [], files: after }, proposal([
+    op({ op: 'add', path: PEBBLE_ENTITY, text: box.entity, sources: [], explanation: 'restore the archived record' }),
+    op({ op: 'supersede', path: PEBBLE_INDEX, reason: 'index', text: pebbleIndex(), sources: [], explanation: 'restore the index row' }),
+    op({ op: 'supersede', path: PEBBLE_DAY, text: pebbleDay(), sources: [], explanation: 'restore the timeline line' }),
+    op({ op: 'supersede', path: PEBBLE_ARCHIVE, text: `${after[PEBBLE_ARCHIVE]}# Restored\n`, sources: [], explanation: 'mark the archive entry restored' }),
+  ]), dir);
+  assert.equal(restored.ok, true, reasons(restored).join(' | '));
+  assert.equal(fs.readFileSync(path.join(dir, PEBBLE_ENTITY), 'utf8'), box.entity);
+  assert.equal(fs.readFileSync(path.join(dir, PEBBLE_INDEX), 'utf8'), pebbleIndex());
+  assert.equal(fs.readFileSync(path.join(dir, PEBBLE_DAY), 'utf8'), pebbleDay());
+  const inbox = fs.readFileSync(path.join(dir, PEBBLE_INBOX), 'utf8');
+  assert.equal(inbox.includes(REQUEST), false);
+  assert.equal(inbox.includes(CAPTURE), false);
+  assert.equal(check.work(pal, dir).includes('inbox'), false);
+  fs.appendFileSync(path.join(dir, PEBBLE_INBOX), `${REQUEST}\n`);
+  assert.equal(check.work(pal, dir).includes('inbox'), true);
+});
+
+test('reversal of a created record drops the timeline line and consumes a capture still in the inbox', (dir) => {
+  const box = pebbleFiles();
+  const entity = box.entity;
+  const archive = `---\ndescription: when reviewing an archived record\ntype: reference\naliases: [pebble-441]\n---\n# Archived\n\n- Reason: reversed. Source: run-1#1 (2026-10-13 · albert)\n- Source: ${CAPTURE} (2026-10-13 · albert)\n\n\`\`\`verbatim\n${entity}\`\`\`\n`;
+  const raw = proposal([
+    op({
+      op: 'archive', path: PEBBLE_ENTITY, leave: true, text: entity, sources: [], item: 'run-1#1',
+      explanation: 'reverse run-1#1', removals: [{ text: entity.trim().split('\n').at(-1), to: PEBBLE_ARCHIVE }],
+    }),
+    op({ op: 'add', path: PEBBLE_ARCHIVE, text: archive, sources: [], explanation: 'reverse run-1#1' }),
+    op({
+      op: 'supersede', path: PEBBLE_INDEX, reason: 'index', text: pebbleIndex(false), sources: [],
+      explanation: 'reverse run-1#1', removals: [{ text: box.row }],
+    }),
+    op({
+      op: 'supersede', path: PEBBLE_DAY, text: pebbleDay(false), sources: [],
+      explanation: 'reverse run-1#1', removals: [{ text: box.episode }],
+    }),
+    op({
+      op: 'supersede', path: PEBBLE_INBOX, text: `# Inbox\n${REQUEST}\n`, sources: [CAPTURE],
+      explanation: 'reverse run-1#1', removals: [{ text: CAPTURE, to: PEBBLE_ARCHIVE }],
+    }),
+  ]);
+  const result = lib.validateProposalResult({ agent: 'albert', date: '2026-10-13', messages: [], files: box.files }, raw, dir);
+  assert.equal(result.ok, true, reasons(result).join(' | '));
+  assert.equal(result.files.get(PEBBLE_DAY).includes(box.episode), false);
+  assert.equal(result.files.get(PEBBLE_INBOX).includes(CAPTURE), false);
+  const gone = pebbleFiles();
+  gone.files[PEBBLE_INBOX] = '# Inbox\n';
+  const quiet = proposal([
+    op({
+      op: 'archive', path: PEBBLE_ENTITY, leave: true, text: entity, sources: [], item: 'run-1#1',
+      explanation: 'reverse run-1#1', removals: [{ text: entity.trim().split('\n').at(-1), to: PEBBLE_ARCHIVE }],
+    }),
+    op({
+      op: 'add', path: PEBBLE_ARCHIVE, text: archive.replace(`- Source: ${CAPTURE} (2026-10-13 · albert)\n`, ''), sources: [],
+      explanation: 'reverse run-1#1',
+    }),
+    op({
+      op: 'supersede', path: PEBBLE_INDEX, reason: 'index', text: pebbleIndex(false), sources: [],
+      explanation: 'reverse run-1#1', removals: [{ text: box.row }],
+    }),
+    op({
+      op: 'supersede', path: PEBBLE_DAY, text: pebbleDay(false), sources: [],
+      explanation: 'reverse run-1#1', removals: [{ text: box.episode }],
+    }),
+  ]);
+  const second = lib.validateProposalResult({ agent: 'albert', date: '2026-10-13', messages: [], files: gone.files }, quiet, dir);
+  assert.equal(second.ok, true, reasons(second).join(' | '));
+  assert.equal(second.files.has(PEBBLE_INBOX) && second.files.get(PEBBLE_INBOX) === '# Inbox\n', true);
+});
+
+test('inbox line removed with no destination is refused', (dir) => {
+  const box = pebbleFiles();
+  const raw = proposal([op({
+    op: 'supersede', path: PEBBLE_INBOX, text: `# Inbox\n${CAPTURE}\n`, sources: [REQUEST],
+    removals: [{ text: REQUEST }],
+  })]);
+  const result = lib.validateProposalResult({ agent: 'albert', date: '2026-10-13', messages: [], files: box.files }, raw, dir);
+  assert.equal(result.ok, false);
+  assert.ok(reasons(result).includes('inbox line removed with no destination'), reasons(result).join(' | '));
+});
+
+test('request line consumed while the record it names is not archived is refused', (dir) => {
+  const box = pebbleFiles();
+  const archive = pebbleArchive('not the record\n', [REQUEST]);
+  const raw = proposal([
+    op({ op: 'add', path: PEBBLE_ARCHIVE, text: archive, sources: [REQUEST] }),
+    op({
+      op: 'supersede', path: PEBBLE_INBOX, text: `# Inbox\n${CAPTURE}\n`, sources: [REQUEST],
+      removals: [{ text: REQUEST, to: PEBBLE_ARCHIVE }],
+    }),
+  ]);
+  const result = lib.validateProposalResult({ agent: 'albert', date: '2026-10-13', messages: [], files: box.files }, raw, dir);
+  assert.equal(result.ok, false);
+  assert.ok(reasons(result).includes('request line consumed while the record it names is not archived in that proposal'), reasons(result).join(' | '));
+});
+
+test('timeline line dropped while another record that stays still cites that URL is refused', (dir) => {
+  const box = pebbleFiles();
+  const facts = '.rbtv/memory/knowledge/facts.md';
+  box.files[facts] = `---\ndescription: when reviewing facts\ntype: facts\naliases: [facts]\n---\n# Facts\n\n- See ${PEBBLE_URL}. (2026-10-01 · albert)\n`;
+  const archive = pebbleArchive(box.entity, [CAPTURE, REQUEST]);
+  const raw = proposal([
+    op({
+      op: 'archive', path: PEBBLE_ENTITY, leave: true, text: box.entity, sources: [REQUEST],
+      removals: [{ text: box.entity.trim().split('\n').at(-1), to: PEBBLE_ARCHIVE }],
+    }),
+    op({ op: 'add', path: PEBBLE_ARCHIVE, text: archive, sources: [REQUEST] }),
+    op({
+      op: 'supersede', path: PEBBLE_INDEX, reason: 'index', text: pebbleIndex(false), sources: [REQUEST],
+      removals: [{ text: box.row }],
+    }),
+    op({
+      op: 'supersede', path: PEBBLE_DAY, text: pebbleDay(false), sources: [REQUEST],
+      removals: [{ text: box.episode }],
+    }),
+    op({
+      op: 'supersede', path: PEBBLE_INBOX, text: '# Inbox\n', sources: [REQUEST, CAPTURE],
+      removals: [{ text: CAPTURE, to: PEBBLE_ARCHIVE }, { text: REQUEST, to: PEBBLE_ARCHIVE }],
+    }),
+  ]);
+  const result = lib.validateProposalResult({ agent: 'albert', date: '2026-10-13', messages: [], files: box.files }, raw, dir);
+  assert.equal(result.ok, false);
+  assert.ok(reasons(result).includes('timeline line dropped while another record that stays still cites that URL'), reasons(result).join(' | '));
 });
 
 if (failed.length) process.exit(1);
