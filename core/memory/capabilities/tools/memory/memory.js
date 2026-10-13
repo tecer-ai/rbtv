@@ -41,6 +41,7 @@ const HELP = {
   evidence     Store attributable evidence as pending or as a remember line.
   rule         Publish one approved global learned rule.
   limit        Check always-loaded and on-demand limits.
+  baseline     Restore a missing agent memory baseline. Does not commit.
   migrate      Dry-run, apply or roll back a memory migration manifest.
 
 Proposal field names are taught by the consolidation tool's -h, not here.
@@ -147,6 +148,14 @@ Missing verification stays pending. Observed text is not stored as a remember re
 usage: memory rule publish --installation ROOT --file PATH --approval REF
 
 Refuses when --approval is missing, and when --migrated is set.
+`,
+  baseline: `memory baseline — restore an agent's memory baseline
+
+usage: memory baseline --agent-home PATH
+
+Creates the empty learned record when it is absent. An existing file is not opened for write. Does not commit.
+Success: created PATH, or present PATH. Exit 0.
+Refusal: the reason on stderr, and the same invocation with -h. Exit 1. Nothing is written.
 `,
   limit: `memory limit — record limits
 
@@ -312,6 +321,15 @@ function run(argv) {
       approval: option(rest, '--approval'), migrated: rest.includes('--migrated'),
     });
     emit(result, `published ${result.path}\n`);
+    return;
+  }
+  if (verb === 'baseline') {
+    if (wantHelp(rest)) helpFor('baseline');
+    const home = option(rest, '--agent-home');
+    if (!home) fail('--agent-home is required\nmemory baseline -h');
+    const result = lib.ensureAgentBaseline(home);
+    const file = lib.agentBaselinePath(home);
+    emit({ created: result.created, path: file }, result.created.length ? `created ${file}\n` : `present ${file}\n`);
     return;
   }
   if (verb === 'limit') {

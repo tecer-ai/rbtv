@@ -33,4 +33,6 @@ module.exports = {
   intakeEvidence: evidence.intakeEvidence,
   publishGlobalRule: rules.publishGlobalRule,
   checkLimits: limits.checkLimits,
+  ensureAgentBaseline: records.ensureAgentBaseline,
+  agentBaselinePath: records.agentBaselinePath,
 };

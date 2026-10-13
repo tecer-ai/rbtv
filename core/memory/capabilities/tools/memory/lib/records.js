@@ -9,6 +9,9 @@ const { randomUUID } = require('node:crypto');
 const { parseBoard } = require('./board.js');
 const { NOFOLLOW, safeWritePath, withMemoryLock } = require('./lock.js');
 
+const LEARNED_FILE = 'learned.md';
+const LEARNED_HEADING = '# Learned rules — ';
+
 function workspaceFromHome(home) {
   const agents = path.dirname(path.resolve(home));
   const dot = path.dirname(agents);
@@ -112,7 +115,7 @@ function checkMemory(kind, text) {
     if (!/^# Profile — \S/.test(lines[0]) || headings.length !== 3 || headings[0] !== '## Who' ||
         !/^## Working with \S/.test(headings[1]) || headings[2] !== '## Now') refuse('profile requires Who, Working with owner, Now');
   } else if (kind === 'learned') {
-    if (!/^# Learned rules — \S/.test(lines[0]) || bullets.length > 30) refuse('learned rules require a heading and at most 30 rules');
+    if (!lines[0].startsWith(LEARNED_HEADING) || !/\S/.test(lines[0].slice(LEARNED_HEADING.length)) || bullets.length > 30) refuse('learned rules require a heading and at most 30 rules');
     for (const bullet of bullets) {
       const record = datedRecord(bullet);
       if (!/^- \[(correction|inferred)\] \S.+ Why: \S/.test(bullet)) refuse('rules require a marker and Why clause');
@@ -188,6 +191,45 @@ function readMemory(file, kind, alerts) {
   }
 }
 
+function agentBaselinePath(agentHome) {
+  return path.join(path.resolve(agentHome), 'memory', LEARNED_FILE);
+}
+
+function ensureAgentBaseline(agentHome) {
+  if (typeof agentHome !== 'string' || !agentHome.trim()) throw new Error('agent home required');
+  const home = path.resolve(agentHome);
+  const slug = path.basename(home);
+  if (slug === '.' || slug === '..' || !/\S/.test(slug)) throw new Error('agent slug required');
+  const file = safeWritePath(home, agentBaselinePath(home));
+  if (fs.existsSync(file)) return { created: [] };
+  const text = `${LEARNED_HEADING}${slug}\n`;
+  checkMemory('learned', text);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  let fd;
+  try {
+    fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | NOFOLLOW, 0o644);
+  } catch (error) {
+    if (error.code === 'EEXIST') return { created: [] };
+    throw error;
+  }
+  try {
+    const bytes = Buffer.from(text, 'utf8');
+    if (fs.writeSync(fd, bytes) !== bytes.length) throw new Error('baseline write incomplete');
+  } catch (error) {
+    fs.closeSync(fd);
+    try { fs.unlinkSync(file); } catch { }
+    throw error;
+  }
+  fs.closeSync(fd);
+  const written = fs.readFileSync(file, 'utf8');
+  try { checkMemory('learned', written); }
+  catch (error) {
+    fs.unlinkSync(file);
+    throw error;
+  }
+  return { created: [file] };
+}
+
 function remember(workspace, text, options = {}) {
   const { agent, thread = null, now = Date.now(), evidence = null } = options;
   if (evidence) return require('./evidence.js').intakeEvidence(workspace, text, { agent, thread, now, evidence });
@@ -230,4 +272,7 @@ function rememberFact(workspace, text, { agent, thread = null, now = Date.now() 
   });
 }
 
-module.exports = { workspaceFromHome, workspacePaths, workspaceMatches, checkMemory, readMemory, workspaceFiles, remember, rememberFact };
+module.exports = {
+  LEARNED_FILE, LEARNED_HEADING, agentBaselinePath, ensureAgentBaseline,
+  workspaceFromHome, workspacePaths, workspaceMatches, checkMemory, readMemory, workspaceFiles, remember, rememberFact,
+};

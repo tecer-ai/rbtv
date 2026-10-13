@@ -3,18 +3,18 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { withMemoryLock, safeWritePath } = require('./lock.js');
-const { checkMemory } = require('./records.js');
+const { checkMemory, LEARNED_FILE, agentBaselinePath } = require('./records.js');
 const { failure, refusalError } = require('./failures.js');
 
 function globalRulesPath(workspace) {
-  return path.join(workspace, '.rbtv', 'memory', 'learned.md');
+  return path.join(workspace, '.rbtv', 'memory', LEARNED_FILE);
 }
 
 function publishGlobalRule(workspace, text, { approval = null, migrated = false } = {}) {
   const failures = [];
   if (migrated) {
     failures.push(failure({
-      path: '.rbtv/memory/learned.md', operation: 'global-rule',
+      path: `.rbtv/memory/${LEARNED_FILE}`, operation: 'global-rule',
       requirement: 'migrated feedback is not global approval',
       expected: 'an explicit global correction or an owner approval reference',
       reason: 'migrated feedback is not global approval',
@@ -22,7 +22,7 @@ function publishGlobalRule(workspace, text, { approval = null, migrated = false 
   }
   if (typeof approval !== 'string' || !approval.trim()) {
     failures.push(failure({
-      path: '.rbtv/memory/learned.md', operation: 'global-rule',
+      path: `.rbtv/memory/${LEARNED_FILE}`, operation: 'global-rule',
       requirement: 'approval reference missing',
       expected: 'an explicit global correction or an owner approval reference',
       reason: 'global rule requires an approval reference',
@@ -33,7 +33,7 @@ function publishGlobalRule(workspace, text, { approval = null, migrated = false 
   try { form = checkMemory('learned', text); }
   catch (error) {
     throw refusalError([failure({
-      path: '.rbtv/memory/learned.md', operation: 'global-rule',
+      path: `.rbtv/memory/${LEARNED_FILE}`, operation: 'global-rule',
       requirement: error.message, expected: 'learned-rules heading, marker, Why, and dated provenance',
       reason: error.message,
     })]);
@@ -50,7 +50,7 @@ function publishGlobalRule(workspace, text, { approval = null, migrated = false 
 function loadLearned(workspace, agentHome) {
   const files = [];
   const globalFile = globalRulesPath(workspace);
-  const localFile = agentHome ? path.join(agentHome, 'memory', 'learned.md') : null;
+  const localFile = agentHome ? agentBaselinePath(agentHome) : null;
   for (const file of [globalFile, localFile].filter(Boolean)) {
     if (fs.existsSync(file)) files.push({ path: file, text: fs.readFileSync(file, 'utf8') });
   }

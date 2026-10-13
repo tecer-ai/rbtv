@@ -367,7 +367,8 @@ Next: ignite board write -h
   runtime: `ignite runtime — move one agent's Ignite records
 
 Moves this agent's database, conversations and turn records from the agent
-folder root into runtime/ignite/. A new agent already uses that folder.
+folder root into runtime/ignite/, and moves own tools from capabilities/tools/
+into rbtv/capabilities/tools/. A new agent already uses that folder.
 
 Commands
   migrate   Copy, check and publish this agent's Ignite runtime.
@@ -397,10 +398,20 @@ Example: ignite albert fence --installation /path/to/installation
 usage: ${MIGRATION_COMMAND}
 
 Copies the database, its sidecars, conversations/ and turns/ from the agent
-folder root into runtime/ignite/. Refuses when the waking service holds
+folder root into runtime/ignite/. Moves each own tool directory from
+capabilities/tools/<tool>/ to rbtv/capabilities/tools/<tool>/, with its record
+and page, and rewrites stored check-tool paths and explicit invocations. A
+check-tool path is rewritten only when that file is placed. If it cannot be
+placed, the command refuses before publishing and names the path. Tool state
+under state/ is not moved. Refuses when the waking service holds
 .rbtv/runtime/ignite/daemon.lock, when the layout is ambiguous, or when an
 active run or outbox row has a path that cannot be moved. After a successful
 publish the old files are in runtime/ignite-premigration/.
+
+A later run finishes a stored check-tool that already says
+rbtv/capabilities/tools/ while the file is still at capabilities/tools/.
+It prints each directory it moved and each file it rewrote. A second run
+that finds nothing to move prints only the success line.
 
 A new agent needs no migration. Its database is runtime/ignite/state.sqlite.
 

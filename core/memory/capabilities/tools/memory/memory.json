@@ -1,5 +1,5 @@
 {
   "name": "memory",
-  "description": "Reads the canonical board and its bounded view, checks a memory proposal, and publishes only when every requirement passes.",
+  "description": "Reads the canonical board and its bounded view, checks a memory proposal, publishes only when every requirement passes, and restores a missing agent memory baseline.",
   "entry": "memory.js"
 }

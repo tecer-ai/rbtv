@@ -805,6 +805,199 @@ function copyLegacy(home, staging) {
   }
 }
 
+const AGENT_HOME_FN = `def _ignite_agent_home():
+    here = Path(__file__).resolve()
+    for folder in here.parents:
+        rel = here.relative_to(folder).parts
+        if len(rel) >= 5 and rel[:4] == ("rbtv", "capabilities", "tools", rel[3]):
+            return folder
+        if len(rel) >= 4 and rel[:3] == ("capabilities", "tools", rel[2]) and folder.name != "rbtv":
+            return folder
+    raise RuntimeError(f"agent home not found from {here}")
+`;
+
+function toolDestRel(value) {
+  if (typeof value !== 'string' || !value) return null;
+  const slash = value.replaceAll('\\', '/');
+  if (slash.startsWith('rbtv/capabilities/tools/')) return slash;
+  if (slash.startsWith('capabilities/tools/')) return `rbtv/${slash}`;
+  return null;
+}
+
+function readCheckTools(database) {
+  if (!fs.existsSync(database)) return [];
+  const { DatabaseSync } = require('node:sqlite');
+  const db = new DatabaseSync(database, { readOnly: true });
+  try {
+    if (!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schedules'").get()) return [];
+    return db.prepare('SELECT check_tool FROM schedules').all().map((row) => row.check_tool).filter(Boolean);
+  } finally {
+    db.close();
+  }
+}
+
+function sourceToolNames(home) {
+  const dir = path.join(home, 'capabilities', 'tools');
+  if (!fs.existsSync(dir)) return [];
+  const names = [];
+  for (const name of fs.readdirSync(dir).sort()) {
+    const full = path.join(dir, name);
+    const stat = fs.lstatSync(full);
+    if (stat.isSymbolicLink()) refuseMigration(`refusing to move symlink: ${full}`);
+    if (stat.isDirectory()) names.push(name);
+  }
+  return names;
+}
+
+function destToolNames(home) {
+  const dir = path.join(home, 'rbtv', 'capabilities', 'tools');
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir).filter((name) => {
+    const full = path.join(dir, name);
+    return fs.statSync(full).isDirectory() && !fs.lstatSync(full).isSymbolicLink();
+  }).sort();
+}
+
+function assertCheckToolsPlaceable(home, tools) {
+  for (const stored of tools) {
+    const destRel = toolDestRel(stored);
+    if (!destRel) continue;
+    if (fs.existsSync(path.join(home, ...destRel.split('/')))) continue;
+    const sourceRel = destRel.slice('rbtv/'.length);
+    if (fs.existsSync(path.join(home, ...sourceRel.split('/')))) continue;
+    const error = new Error(`cannot place check tool ${stored}`);
+    error.exitCode = 1;
+    error.unplaced = true;
+    throw error;
+  }
+}
+
+function assertToolsMovable(home) {
+  try {
+    for (const name of sourceToolNames(home)) {
+      if (fs.existsSync(path.join(home, 'rbtv', 'capabilities', 'tools', name))) {
+        refuseMigration(`cannot place capabilities/tools/${name}; rbtv/capabilities/tools/${name} already exists`);
+      }
+    }
+  } catch (error) {
+    error.unplaced = true;
+    error.exitCode = error.exitCode || 1;
+    throw error;
+  }
+}
+
+function ownToolsPending(home) {
+  if (sourceToolNames(home).length) return true;
+  const database = ignitePaths(home).database;
+  for (const stored of readCheckTools(database)) {
+    const destRel = toolDestRel(stored);
+    if (!destRel) continue;
+    if (fs.existsSync(path.join(home, ...destRel.split('/')))) continue;
+    const sourceRel = destRel.startsWith('rbtv/') ? destRel.slice('rbtv/'.length) : null;
+    if (sourceRel && fs.existsSync(path.join(home, ...sourceRel.split('/')))) return true;
+  }
+  return false;
+}
+
+function removeEmptyDir(dir) {
+  if (!fs.existsSync(dir)) return;
+  if (fs.readdirSync(dir).length) return;
+  fs.rmdirSync(dir);
+}
+
+function insertAfterImports(text, block) {
+  const lines = text.split('\n');
+  let insertAt = 0;
+  let doc = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (i === 0 && line.startsWith('#!')) { insertAt = 1; continue; }
+    if (doc) {
+      if (line.includes(doc)) { doc = null; insertAt = i + 1; }
+      continue;
+    }
+    if (line.startsWith('"""') || line.startsWith("'''")) {
+      const quote = line.slice(0, 3);
+      if (line.length > 3 && line.slice(3).includes(quote)) insertAt = i + 1;
+      else doc = quote;
+      continue;
+    }
+    if (line.startsWith('import ') || line.startsWith('from ')) { insertAt = i + 1; continue; }
+    if (line.trim() === '') continue;
+    break;
+  }
+  lines.splice(insertAt, 0, block.trimEnd());
+  return lines.join('\n');
+}
+
+function rewriteInvocations(home, names) {
+  const changes = [];
+  const roots = ['prompt.md', 'AGENTS.md', 'CLAUDE.md', 'skills', 'rbtv', 'capabilities']
+    .map((name) => path.join(home, name));
+  const visit = (file) => {
+    if (!fs.existsSync(file)) return;
+    const stat = fs.lstatSync(file);
+    if (stat.isSymbolicLink()) return;
+    if (stat.isDirectory()) {
+      for (const name of fs.readdirSync(file)) visit(path.join(file, name));
+      return;
+    }
+    if (!stat.isFile()) return;
+    const buf = fs.readFileSync(file);
+    if (buf.includes(0)) return;
+    let text = buf.toString('utf8');
+    let next = text;
+    for (const name of names) {
+      const from = `capabilities/tools/${name}/`;
+      next = next.replace(new RegExp(`(?<!rbtv/)${from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'), `rbtv/${from}`);
+    }
+    next = next.replaceAll('<home>/capabilities/tools/', '<home>/rbtv/capabilities/tools/');
+    const rel = path.relative(home, file).split(path.sep);
+    if (rel[0] === 'rbtv' && rel[1] === 'capabilities' && rel[2] === 'tools' && names.includes(rel[3]) && file.endsWith('.py')) {
+      const oldParts = ['capabilities', 'tools', rel[3], ...rel.slice(4)];
+      const homeIndex = oldParts.length - 1;
+      const pattern = `Path(__file__).resolve().parents[${homeIndex}]`;
+      if (next.includes(pattern)) {
+        next = next.replaceAll(pattern, '_ignite_agent_home()');
+        if (!next.includes('def _ignite_agent_home(')) next = insertAfterImports(next, AGENT_HOME_FN);
+      }
+    }
+    if (next === text) return;
+    fs.writeFileSync(file, next);
+    changes.push(`rewrote ${rel.join('/')}`);
+  };
+  for (const root of roots) visit(root);
+  return changes.sort();
+}
+
+function placeOwnTools(home) {
+  const changes = [];
+  for (const name of sourceToolNames(home)) {
+    const from = path.join(home, 'capabilities', 'tools', name);
+    const to = path.join(home, 'rbtv', 'capabilities', 'tools', name);
+    if (fs.existsSync(to)) refuseMigration(`cannot place capabilities/tools/${name}; rbtv/capabilities/tools/${name} already exists`);
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    fs.renameSync(from, to);
+    changes.push(`moved capabilities/tools/${name} -> rbtv/capabilities/tools/${name}`);
+  }
+  removeEmptyDir(path.join(home, 'capabilities', 'tools'));
+  removeEmptyDir(path.join(home, 'capabilities'));
+  const names = [...new Set([...changes.map((line) => line.split(' ')[1].split('/').pop()), ...destToolNames(home)])];
+  return [...changes.sort(), ...rewriteInvocations(home, names)];
+}
+
+function finishOwnTools(home) {
+  assertToolsMovable(home);
+  assertCheckToolsPlaceable(home, readCheckTools(ignitePaths(home).database));
+  const changes = placeOwnTools(home);
+  for (const stored of readCheckTools(ignitePaths(home).database)) {
+    const destRel = toolDestRel(stored);
+    if (!destRel) continue;
+    if (!fs.existsSync(path.join(home, ...destRel.split('/')))) refuseMigration(`cannot place check tool ${stored}`);
+  }
+  return changes;
+}
+
 function mapStoredPath(value, home) {
   if (typeof value !== 'string' || !value) return null;
   const paths = ignitePaths(home);
@@ -897,6 +1090,12 @@ function validateCopy(staging, home) {
       for (const name of names) {
         if (legacyCounts[name] !== checked.counts[name]) refuseMigration(`row count mismatch on ${name}`);
       }
+      assertToolsMovable(home);
+      const scheduleTable = staged.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schedules'").get();
+      const checkTools = scheduleTable
+        ? staged.prepare('SELECT check_tool FROM schedules').all().map((row) => row.check_tool).filter(Boolean)
+        : [];
+      assertCheckToolsPlaceable(home, checkTools);
       const blocked = [];
       const log = [];
       const rewrite = (table, id, column, text, active) => {
@@ -965,19 +1164,23 @@ function migrateAgentRuntime(home, options = {}) {
     refuseMigration(`ambiguous Ignite layout at ${root}: runtime/ignite exists without ${MARKER_NAME} and legacy files remain; refused`);
   }
   if (!marker && !legacy.length) refuseMigration(`no legacy Ignite store at ${root}; a backup is not a live store`);
-  if (marker && !legacy.length) return { ok: true, already: true, database: paths.database, command: MIGRATION_COMMAND };
+  const pendingTools = marker && !legacy.length && ownToolsPending(root);
+  if (marker && !legacy.length && !pendingTools) return { ok: true, already: true, changes: [], database: paths.database, command: MIGRATION_COMMAND };
   if (options.interruptAfter && !STAGES.includes(options.interruptAfter)) refuseMigration(`unknown stage: ${options.interruptAfter}`);
   const { acquireLock, releaseLock } = require('./daemon.js');
   const { runtimeFolder } = require('./memory-write.js');
   const lockPath = path.join(runtimeFolder(options.workspace), 'daemon.lock');
   let held;
   let interrupted = null;
+  let changes = [];
   try {
     held = acquireLock(lockPath);
     fs.mkdirSync(path.dirname(migrationGuardPath(root)), { recursive: true });
     fs.writeFileSync(migrationGuardPath(root), `${process.pid}\n`, 'utf8');
     if (options.whileHeld) options.whileHeld();
-    publishRuntime(root, paths, journalFile, completionFile, options.interruptAfter);
+    changes = marker && !legacy.length
+      ? finishOwnTools(root)
+      : publishRuntime(root, paths, journalFile, completionFile, options.interruptAfter);
   } catch (error) {
     if (error.interrupted) interrupted = error;
     else throw error;
@@ -986,7 +1189,7 @@ function migrateAgentRuntime(home, options = {}) {
     releaseLock(held);
   }
   if (interrupted) throw interrupted;
-  return { ok: true, database: paths.database, command: MIGRATION_COMMAND };
+  return { ok: true, changes, database: paths.database, command: MIGRATION_COMMAND };
 }
 
 function checkpoint(journalFile, body, interruptAfter) {
@@ -1038,7 +1241,15 @@ function publishRuntime(root, paths, journalFile, completionFile, interruptAfter
   }
   const recorded = readJson(journalFile);
   if (recorded.stage === 'staged') {
-    validateCopy(staging, root);
+    try {
+      validateCopy(staging, root);
+    } catch (error) {
+      if (error.unplaced) {
+        fs.rmSync(staging, { recursive: true, force: true });
+        fs.rmSync(journalFile, { force: true });
+      }
+      throw error;
+    }
     const markerFile = path.join(staging, MARKER_NAME);
     const fd = fs.openSync(markerFile, 'w', 0o600);
     try {
@@ -1050,7 +1261,11 @@ function publishRuntime(root, paths, journalFile, completionFile, interruptAfter
   if (!sameHashes(readJson(journalFile).hashes, hashSet(root, legacyFiles(root)))) {
     refuseMigration('legacy files changed before publish; aborted');
   }
-  if (!fs.existsSync(paths.root)) fs.renameSync(staging, paths.root);
+  let changes = [];
+  if (!fs.existsSync(paths.root)) {
+    changes = placeOwnTools(root);
+    fs.renameSync(staging, paths.root);
+  }
   checkpoint(journalFile, { ...readJson(journalFile), stage: 'renamed' }, interruptAfter);
   if (!fs.existsSync(completionFile)) {
     writeJson(completionFile, { id, completed: true, command: MIGRATION_COMMAND });
@@ -1058,6 +1273,7 @@ function publishRuntime(root, paths, journalFile, completionFile, interruptAfter
   checkpoint(journalFile, { ...readJson(journalFile), stage: 'completion-recorded' }, interruptAfter);
   retireLegacy(root);
   checkpoint(journalFile, { ...readJson(journalFile), stage: 'legacy-retired' }, interruptAfter);
+  return changes;
 }
 
 function cmdRuntime(rest, flags, deps) {
@@ -1067,7 +1283,8 @@ function cmdRuntime(rest, flags, deps) {
   const located = resolveHome(flags, deps);
   if (!located.workspace) fail('runtime migrate requires an installation; pass --installation PATH\nNothing changed.\nignite runtime migrate -h');
   const result = migrateAgentRuntime(located.home, { workspace: located.workspace, slug: located.slug });
-  emit(deps, flags, result, `migrated ${located.slug}\n`);
+  const detail = (result.changes || []).join('\n');
+  emit(deps, flags, result, `${detail ? `${detail}\n` : ''}migrated ${located.slug}\n`);
   return 0;
 }
 
