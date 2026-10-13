@@ -98,7 +98,7 @@ def api_key():
     where = f"add a line {KEY_ENV}=<key> to {path}" if path is not None else \
         f"run from a folder inside an rbtv installation whose {ENV_FILE_REL.as_posix()} holds {KEY_ENV}=<key>"
     raise Failure("key", f"no TypeSafe API key: {KEY_ENV} is empty in the environment and in the environment file",
-                  f"export {KEY_ENV}=<key>, or {where}; create a key at https://console.typesafe.ai/")
+                  f"set {KEY_ENV} in the environment, or {where}; create a key at https://console.typesafe.ai/")
 
 
 # ───────────────────────────────────────────────────────────────── the service
