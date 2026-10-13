@@ -1411,6 +1411,24 @@ db.close();
   assert.ok(res.stderr.includes('cast: deadline'), `must print deadline: ${res.stderr}`);
 }
 
+// A headed launch is a person's session: the deadline that ends the same harness headless
+// leaves it running.
+{
+  const folder = mkFolder('headed-deadline');
+  const bin = mkFolder('headed-deadline-bin');
+  installFake(bin, 'claude', `${drainStdin}setTimeout(() => process.exit(0), 1500);\n`);
+  const run = (extra) => spawnSync('node', [TOOL, 'claude', 'haiku-5-5', '1', folder, '-p', 'hi', ...extra], {
+    encoding: 'utf8', timeout: 8000,
+    env: { ...process.env, ...homeEnv(mkFolder('headed-deadline-home')), PATH: pathEnv(bin), CAST_DEADLINE_MS: '400' },
+  });
+  const headless = run([]);
+  assert.ok(headless.status !== 0 && headless.stderr.includes('cast: deadline'),
+    `a headless launch must end at the deadline: ${headless.status} ${headless.stderr}`);
+  const headed = run(['--headed']);
+  assert.ok(headed.status === 0 && !headed.stderr.includes('cast: deadline'),
+    `a headed launch must outlast the deadline: ${headed.status} ${headed.stderr}`);
+}
+
 // --- liveness binding by tag, not time-proximity (LE-2: cast-attribution) ---------------------
 // opencode records the resolved PROJECT ROOT, not the launch cwd, so two concurrent seats under
 // one project root land in the same session-store window; binding by nearest time_created let a

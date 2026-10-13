@@ -58,9 +58,11 @@ function ended(failLabel) {
   };
 }
 
-function spawnWithDeadline(cmd, args, { unset, ...opts }) {
+// A headless run is ended at the deadline. A headed one is a person's session and has none
+// (`capped: false`): it lasts as long as the person keeps it open.
+function spawnHarness(cmd, args, { unset, capped = true, ...opts }) {
   const win = spawnable(cmd, args);
-  const spawned = { ...opts, ...win.opts, timeout: DEADLINE_MS, killSignal: 'SIGTERM' };
+  const spawned = { ...opts, ...win.opts, ...(capped ? { timeout: DEADLINE_MS, killSignal: 'SIGTERM' } : {}) };
   if (opts.cwd) spawned.env = launchEnv(opts.cwd, opts.env, unset);
   const res = spawnSync(win.cmd, win.args, spawned);
   if (res.error && res.error.code === 'ETIMEDOUT') exitDeadline();
@@ -204,8 +206,8 @@ function attempt({ harness, modelId, folder, effortWord, effortArgv, system, pro
   }
 
   const [cmd, ...args] = argv;
-  return finish(spawnWithDeadline(cmd, args, stdinText === null
-    ? { cwd: folder, env: agentEnv, unset: iso.unset, stdio: 'inherit' }
+  return finish(spawnHarness(cmd, args, stdinText === null
+    ? { cwd: folder, env: agentEnv, unset: iso.unset, capped: !headed, stdio: 'inherit' }
     : { cwd: folder, env: agentEnv, unset: iso.unset, input: stdinText, stdio: ['pipe', 'inherit', 'inherit'] }));
 }
 
@@ -391,7 +393,7 @@ function runResume(rawArgv) {
       bind: () => (id === 'last' ? opencodeTouched(folder, t0) : id) }, ended('launch failed'));
   }
   const [cmd, ...args] = argv;
-  return ended('resume failed')(spawnWithDeadline(cmd, args, { cwd: folder, env: iso.env, unset: iso.unset,
+  return ended('resume failed')(spawnHarness(cmd, args, { cwd: folder, env: iso.env, unset: iso.unset,
     input: promptText, stdio: ['pipe', 'inherit', 'inherit'] }));
 }
 
