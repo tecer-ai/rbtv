@@ -34,3 +34,5 @@ spark keeps no copy of what cast knows. It loads five modules of `capabilities/t
 ```
 node capabilities/tools/spark/test_spark.js     # -> test_spark: ok
 ```
+
+Spark refuses an agent whose model cast does not support, so the suite gives its agents real supported models, picked by harness through cast's `example-models.js`. It needs one supported model of the `codex` harness and one of the `claude` harness; without one, it fails with `no supported model is a model of the <harness> harness`.

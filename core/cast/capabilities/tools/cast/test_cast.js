@@ -83,6 +83,13 @@ function installFake(bin, name, js) {
 const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
 
 // --- example models: each arm names the property it needs, never a model --------------------
+// What this suite needs among the supported models (cast.md, Self-check, holds the sum for cast):
+//   claude    three cli models, one of them with a five-rung ladder
+//   codex     four cli models with a five-rung ladder
+//   opencode  a model with a two-rung ladder and one with a three-rung ladder; models of four
+//             providers that log in with a key variable; a model of a provider that logs in by account
+//   api       one image model
+// A supported list without one of these fails the arm that asked, naming the property.
 const PROVIDERS = require('./providers.json').providers;
 const reEscape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const cliOf = (harness) => (m) => m.mode === 'cli' && m.harness === harness;

@@ -19,3 +19,5 @@ Run from the repository root, on Linux and on Windows, before committing a chang
 ```
 python3 core/rbtv/capabilities/tools/rbtv/install.py selftest     # -> selftest: PASS
 ```
+
+The checks of `selftest/test_agents.py` that run the real `cast` need supported models, which they read from cast's `example-models.js` through `node` (`example_models` in `selftest/fixture.py`) and pick by a property: one `cli` model of the `claude` harness, and one harness that has three `cli` models. Where `node` is absent those checks are skipped. Every other check uses the invented name `example-model`.

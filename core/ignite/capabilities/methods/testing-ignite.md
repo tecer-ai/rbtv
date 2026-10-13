@@ -85,6 +85,8 @@ The pass signal is exit 0 for every program, plus the line named here. Seconds i
 
 A failing test prints `FAIL <name>: <error>` and the program exits non-zero. The four one-line programs name no tests: their exit code and that line are all they show. The selftest's count of `[PASS]` and `[SKIP]` lines depends on the folder it runs in and on what the surrounding installation holds, so compare it only with a run from the same place.
 
+`test_turn.js` and `test_turn_loop.js` launch real supported models through fake harness programs, and pick each one by a property through cast's `example-models.js`; neither names a model. Together they need, among the models cast supports: two models of the `claude` harness, one of them with two or more effort rungs; three models of the `codex` harness; and one model of the `opencode` harness. A supported list without one of these fails the program at its first lines with `no supported model is <property>`, before any test runs; [Changing the supported models](../../../cast/capabilities/methods/changing-the-supported-models.md) says what to do then.
+
 A Node version that still marks SQLite as experimental prints `ExperimentalWarning: SQLite is an experimental feature` on stderr. That is not a failure; with Node v24.18.0 stderr was empty.
 
 ## 3. What counts as proof

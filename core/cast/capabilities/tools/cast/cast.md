@@ -715,3 +715,21 @@ repository and fails on a line that names a supported model outside the two tabl
 score and cost sources and the Dreamer's default in Ignite's `config.js`: a test asks
 `example-models.js` for a model by a property, help text takes its example from the table, and a
 document writes `HARNESS MODEL`.
+
+### What the suites need among the supported models
+
+The suites launch and rank real supported models, picked by a property. A supported list without one
+of these fails the arm that asked, with `no supported model is <property>`. Each suite states its
+own needs at its head; this table is their sum for the cast suites.
+
+| The supported models must hold | Asked by | For |
+|---|---|---|
+| four `claude` models with a five-rung ladder | `test_route.js`, and three of them `test_cast.js` | the four levels of the routing fixture; the fallback of a launch |
+| four `codex` models with a five-rung ladder | `test_route.js`, `test_cast.js` | the same, and effort 5 reaching the top rung |
+| an `opencode` model with a two-rung ladder and one with a three-rung ladder | `test_cast.js` | an effort number clamped to the top rung |
+| `opencode` models of four providers that log in with a key variable | `test_cast.js` | where `cast doctor` finds a key: the environment, the env file, the store, nowhere |
+| two `opencode` models whose provider's key is `DEEPSEEK_API_KEY` or `GEMINI_API_KEY`, and `opencode` models of three other providers that log in with a key variable | `test_route.js` | rows that are available with a faked key, and rows that drop for a missing login |
+| an `opencode` model whose provider logs in with an account | `test_route.js`, `test_cast.js` | a login kept by the harness |
+| one `api` model with `image` `Y`, and only one | `test_route.js`, `test_cast.js` | `cast route --caps image` and `cast api` |
+| a `cli` model of each harness | `test_memory_delivery.js` | the memory first message on each harness |
+| a model at each level, in the shipped `models.csv` | `test_route.js` | every class of `cast route` has an answer |

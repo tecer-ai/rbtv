@@ -597,6 +597,7 @@ def installed_agents(ctx) -> None:
             pruned = tmp / "pruned"
             _w(pruned / ".rbtv/config/install.json", "{}\n")
             # Three supported models of one harness: the one the installation selects, and two it does not.
+            # Needs a harness with three cli models among the models cast supports (rbtv.md, Self-check).
             by_harness = [[m for m in example_models(node) if m["harness"] == h and m["mode"] == "cli"]
                           for h in dict.fromkeys(m["harness"] for m in example_models(node))]
             three = next((group for group in by_harness if len(group) >= 3), None)

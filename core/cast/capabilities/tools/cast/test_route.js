@@ -43,6 +43,13 @@ const ENV = {
 };
 
 // --- the models the arms use ---------------------------------------------------------------------
+// What this suite needs among the supported models (cast.md, Self-check, holds the sum for cast):
+//   claude    four cli models with a five-rung ladder
+//   codex     four cli models with a five-rung ladder
+//   opencode  two models whose provider's key is one of FAKE_KEYS; models of three other providers
+//             that log in with a key variable; a model of a provider that logs in with an account
+//   api       one api-mode model
+// A supported list without one of these fails here, naming the property.
 // Each is picked by the property its arm needs, and no model is picked twice. The level, scores and
 // cost an arm gives a model are the arm's own, written into its table: a model needs only its
 // harness (for availability), its rungs and, for opencode, the provider that decides its login.
