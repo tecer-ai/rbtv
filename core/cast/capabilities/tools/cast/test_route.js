@@ -746,7 +746,8 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
     'claude/haiku-5-5': 'L3/3/3', 'codex/gpt-6-luna': 'L3/3/3', 'opencode/deepseek-v4-flash': 'L3/3/2', 'opencode/gemini-3.8-flash': 'L3/3/3',
   };
   const general = rows.filter((r) => r.image !== 'Y');
-  assert.deepStrictEqual(Object.fromEntries(general.map((r) => [name(r), `${r.level}/${r.reasoning}/${r.coding}`])), APPROVED);
+  assert.deepStrictEqual(Object.fromEntries(general.map((r) => [name(r), `${r.level}/${r.reasoning}/${r.coding}`])), APPROVED,
+    'the shipped level and scores differ from the approved ones: a level, a score and a new or removed model are the owner\'s rulings; follow core/cast/capabilities/methods/changing-the-supported-models.md');
   const imageRows = rows.filter((r) => r.image === 'Y');
   assert.strictEqual(imageRows.length, 1, 'one image model, so --caps image has one answer');
   for (const level of LEVELS) assert.ok(general.some((r) => r.level === level), `no models.csv row is left at level ${level}`);

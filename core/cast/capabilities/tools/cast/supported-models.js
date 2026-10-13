@@ -1,5 +1,10 @@
 'use strict';
 
+// BEFORE adding, replacing, removing or editing a row: read and follow
+// ../../methods/changing-the-supported-models.md (core/cast/capabilities/methods/). A row here is
+// half of the change: the method gives the other files, the owner's rulings a row needs (level,
+// scores, removal) and the order with a running Ignite daemon.
+//
 // The supported models and their launch mechanics: every (harness, model, mode) row this copy of
 // cast can run, carrying the harness-native model id, the effort ladder and the provider whose
 // login it needs. The providers themselves (login method, key variable, credential store) are
