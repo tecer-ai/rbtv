@@ -9,6 +9,7 @@ const { main } = require('./cli.js');
 const { Store } = require('./store.js');
 const { EMPTY_BOARD, boardPath, parseBoard } = require('./board.js');
 const { acquireMemoryLock } = require('./memory-write.js');
+const { agentBaselinePath, checkMemory } = require('../../../../memory/capabilities/tools/memory/lib/index.js');
 
 const failures = [];
 
@@ -732,6 +733,29 @@ async function run(argv, extra = {}) {
     assert.equal(readConfig(dir).dmAgent, undefined);
     assert.equal(fs.existsSync(path.join(home, 'runtime', 'ignite', 'state.sqlite')), false);
     assert.equal(fs.existsSync(path.join(home, 'runtime', 'ignite', 'checks')), false);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  await test('connect creates the agent memory baseline and the dry-run lists it without writing', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const home = installAgent(dir);
+    const baseline = agentBaselinePath(home);
+    assert.equal(fs.existsSync(path.join(home, 'memory')), false);
+    const plan = await run(['connect', 'probe', '--channel-name', 'probe', '--installation', dir, '--dry-run'], { slack: fakeSlack() });
+    assert.equal(plan.code, 0, plan.out + plan.err);
+    assert.match(plan.out, new RegExp(`  ${baseline.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n`));
+    assert.equal(fs.existsSync(path.join(home, 'memory')), false);
+    assert.equal(fs.existsSync(path.join(home, 'runtime', 'ignite', 'state.sqlite')), false);
+    const connected = await run(['connect', 'probe', '--channel-name', 'probe', '--installation', dir], { slack: fakeSlack() });
+    assert.equal(connected.code, 0, connected.out + connected.err);
+    const text = fs.readFileSync(baseline, 'utf8');
+    checkMemory('learned', text);
+    assert.equal(fs.existsSync(path.join(home, 'memory', '_artifacts')), false);
+    const before = fs.readFileSync(baseline);
+    const again = await run(['connect', 'probe', '--channel-name', 'probe', '--installation', dir], { slack: fakeSlack() });
+    assert.equal(again.code, 0, again.out + again.err);
+    assert.deepEqual(fs.readFileSync(baseline), before);
     fs.rmSync(dir, { recursive: true, force: true });
   });
 

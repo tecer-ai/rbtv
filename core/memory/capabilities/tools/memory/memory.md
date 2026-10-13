@@ -9,3 +9,5 @@ A refusal from `validate` and `publish` is a list. Each item has `path`, `operat
 Proposal field names are not restated here. The consolidation tool's `-h` teaches that structure.
 
 The `migrate` verb runs `migrate.js` with its arguments unchanged; `memory migrate -h` teaches the manifest schema.
+
+`baseline` writes the empty learned record the checker accepts when that file is absent, and leaves every existing byte under `memory/` unchanged. It does not commit.

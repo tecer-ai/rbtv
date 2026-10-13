@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { readMemory, workspaceFiles, workspacePaths, workspaceMatches } = require('./records.js');
+const { readMemory, workspaceFiles, workspacePaths, workspaceMatches, agentBaselinePath } = require('./records.js');
 const { boardPath, renderBoardView } = require('./board.js');
 const { loadLearned } = require('./rules.js');
 
@@ -24,7 +24,7 @@ function prepareMemory({ installation, agentHome = null, cwd = null }) {
   add(path.join(root, '.rbtv', 'memory', 'inbox.md'), 'inbox');
   if (agentHome) {
     const home = path.resolve(agentHome);
-    const learned = path.join(home, 'memory', 'learned.md');
+    const learned = agentBaselinePath(home);
     const board = boardPath(home);
     if (!fs.existsSync(learned) && !fs.existsSync(board)) {
       warnings.push(`Memory alert: ${home} has no personal records; it is not master.`);

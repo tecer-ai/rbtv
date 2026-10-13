@@ -20,6 +20,7 @@ const { Store, conversationKey, checkTool } = require('./store.js');
 const { cadenceSpec, nextOccurrence, FIXED_TZ } = require('./schedule.js');
 const { boardPath, migrateBoard, preflightBoard, refreshBoard, refreshBoardAfterCommit, writeBoard } = require('./board.js');
 const { extraSelection, bindAlbertSchedules, legacyFenced, SCHEDULES } = require('./albert-evidence.js');
+const { ensureAgentBaseline, agentBaselinePath } = require('../../../../memory/capabilities/tools/memory/lib/index.js');
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const CHANNEL = /^[a-z0-9][a-z0-9_-]{0,79}$/;
@@ -317,11 +318,12 @@ function ensureRuntime(home, opts = {}) {
     const store = new Store(ignitePaths(home).database);
     store.close();
   }
+  ensureAgentBaseline(home);
 }
 
 function runtimeChanges(home, opts = {}) {
   const runtime = resolveIgniteRuntime(home, opts);
-  const paths = [boardPath(home), runtime.database, runtime.conversations];
+  const paths = [boardPath(home), runtime.database, runtime.conversations, agentBaselinePath(home)];
   const missing = paths.filter((file) => !fs.existsSync(file));
   ensureRuntime(home, opts);
   return missing;
@@ -431,6 +433,8 @@ function cancelTimers(home) {
 }
 
 function connectPlan(opts, home, schedule, pack) {
+  const baseline = agentBaselinePath(home);
+  const would = fs.existsSync(baseline) ? [] : [baseline];
   return [
     'dry-run',
     `connect: ${opts.agent}`,
@@ -438,6 +442,7 @@ function connectPlan(opts, home, schedule, pack) {
     'pack: ignite',
     `files: ${pack.before}${pack.after === pack.before ? '' : ` -> ${pack.after}`}`,
     'working files: would create',
+    ...would.map((file) => `  ${file}`),
     opts.dm ? 'channel: none (dm)' : `channel: ${opts['channel-name']}`,
     `schedule: ${schedule ? `${schedule.cadence} ${schedule.timezone}${schedule.check ? ` check=${schedule.check}` : ''}` : 'none'}`,
     ...(opts.agent === 'albert' ? SCHEDULES.map((row) => `albert schedule: ${row.id} ${row.cron ? `cron:${row.cron} ${row.tz}` : `every:${row.every} ${FIXED_TZ}`} check=${row.check}`) : []),

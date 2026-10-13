@@ -393,4 +393,65 @@ test('two concurrent writers both survive', (dir) => {
   assert.match(inbox, /fact 1/);
 });
 
+function generalMemory(dir) {
+  fs.mkdirSync(path.join(dir, '.rbtv', 'memory', '_artifacts'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.rbtv', 'memory', 'profile.md'), '# Profile — Sam\n\n## Who\n\n- One (2026-10-01 · note)\n\n## Working with Sam\n\n- Two (2026-10-01 · note)\n\n## Now\n\n- Three (2026-10-01 · note)\n', 'utf8');
+  fs.writeFileSync(path.join(dir, '.rbtv', 'memory', 'inbox.md'), '# Inbox\n', 'utf8');
+  fs.writeFileSync(path.join(dir, '.rbtv', 'memory', '_artifacts', 'index.md'), '# Memory\n\n| Open | When |\n|---|---|\n| [facts](../knowledge/facts.md) | when reviewing facts |\n', 'utf8');
+}
+
+test('agent baseline lets prepare and snapshot succeed without a hand-written memory folder', (dir) => {
+  const home = path.join(dir, '.rbtv', 'agents', 'sample');
+  fs.mkdirSync(path.join(home, '_artifacts'), { recursive: true });
+  fs.writeFileSync(lib.boardPath(home), lib.EMPTY_BOARD, 'utf8');
+  generalMemory(dir);
+  assert.equal(fs.existsSync(path.join(home, 'memory')), false);
+  const created = lib.ensureAgentBaseline(home);
+  assert.equal(created.created.length, 1);
+  const text = fs.readFileSync(created.created[0], 'utf8');
+  lib.checkMemory('learned', text);
+  assert.equal(text, `${lib.LEARNED_HEADING}sample\n`);
+  const prepared = lib.prepareMemory({ installation: dir, agentHome: home });
+  const learned = prepared.bundle.find((row) => row.path === created.created[0]);
+  assert.equal(learned.source, 'working');
+  assert.equal(prepared.warnings.some((row) => row.includes(created.created[0])), false);
+  const files = lib.snapshot(dir, [{ slug: 'sample' }]);
+  assert.equal(files.has(`.rbtv/agents/sample/memory/${lib.LEARNED_FILE}`), true);
+  assert.equal(fs.existsSync(path.join(home, 'memory', '_artifacts')), false);
+  spawnSync('git', ['init', '-q'], { cwd: dir });
+  const tracked = spawnSync('git', ['ls-files', '.rbtv/agents/sample/memory'], { cwd: dir, encoding: 'utf8' });
+  assert.equal(tracked.stdout.trim(), '');
+});
+
+test('existing memory bytes stay identical when the baseline is already present', (dir) => {
+  const home = path.join(dir, '.rbtv', 'agents', 'sample');
+  const learned = path.join(home, 'memory', 'learned.md');
+  const topic = path.join(home, 'memory', 'topic.md');
+  fs.mkdirSync(path.dirname(learned), { recursive: true });
+  const learnedBytes = Buffer.from('# Learned rules — sample\n- [correction] Keep. Why: owner. (2026-10-01 · sample/[t](https://example.com/1))\n');
+  const topicBytes = Buffer.from('topic bytes\n');
+  fs.writeFileSync(learned, learnedBytes);
+  fs.writeFileSync(topic, topicBytes);
+  const result = lib.ensureAgentBaseline(home);
+  assert.deepEqual(result.created, []);
+  assert.deepEqual(fs.readFileSync(learned), learnedBytes);
+  assert.deepEqual(fs.readFileSync(topic), topicBytes);
+});
+
+test('memory baseline verb creates the record and refuses a missing agent home', (dir) => {
+  const home = path.join(dir, '.rbtv', 'agents', 'sample');
+  fs.mkdirSync(home, { recursive: true });
+  const program = path.join(__dirname, 'memory.js');
+  const missing = spawnSync(process.execPath, [program, 'baseline'], { encoding: 'utf8', cwd: dir });
+  assert.equal(missing.status, 1);
+  assert.match(missing.stderr, /--agent-home is required/);
+  assert.equal(missing.stdout, '');
+  const created = spawnSync(process.execPath, [program, 'baseline', '--agent-home', home], { encoding: 'utf8', cwd: dir });
+  assert.equal(created.status, 0, created.stderr);
+  assert.equal(created.stdout, `created ${lib.agentBaselinePath(home)}\n`);
+  const again = spawnSync(process.execPath, [program, 'baseline', '--agent-home', home], { encoding: 'utf8', cwd: dir });
+  assert.equal(again.status, 0, again.stderr);
+  assert.equal(again.stdout, `present ${lib.agentBaselinePath(home)}\n`);
+});
+
 if (failed.length) process.exit(1);

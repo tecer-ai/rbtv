@@ -5,7 +5,7 @@ const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { stripVTControlCharacters } = require('node:util');
 const { parseBoard } = require('./board.js');
-const { checkMemory } = require('./records.js');
+const { checkMemory, LEARNED_FILE } = require('./records.js');
 const { runtimeFolder, acquireMemoryLock } = require('./lock.js');
 const { PROFILE_POINTS, LEARNED_MAX, DAILY_LINES, WEEKLY_LINES, WARN_LINES, SPLIT_LINES, nonemptyLines, splitOnDemand } = require('./limits.js');
 const { failure, fromMessage, Refusal, refusalError } = require('./failures.js');
@@ -45,7 +45,7 @@ function safePath(workspace, relative) {
 function kindOf(relative, slug) {
   const own = `.rbtv/agents/${slug}/`;
   if (relative === `${own}_artifacts/board.md`) return 'board';
-  if (relative === `${own}memory/learned.md`) return 'learned';
+  if (relative === `${own}memory/${LEARNED_FILE}`) return 'learned';
   if (relative === `${own}memory/_artifacts/index.md`) return 'index';
   if (new RegExp(`^${own.replaceAll('.', '\\.')}memory/(?:archive/)?[a-z0-9][a-z0-9-]*\\.md$`).test(relative)) return 'topic';
   if (!relative.startsWith(GENERAL)) return null;
@@ -322,7 +322,7 @@ function snapshot(workspace, agents) {
     const text = readText(safePath(workspace, board));
     checkFile(board, 'board', text);
     files.set(board, text);
-    requireThat(files.has(`.rbtv/agents/${slug}/memory/learned.md`), 'learned rules missing');
+    requireThat(files.has(`.rbtv/agents/${slug}/memory/${LEARNED_FILE}`), 'learned rules missing');
   }
   requireThat(files.has(`${GENERAL}inbox.md`) && files.has(`${GENERAL}profile.md`), 'general memory missing');
   return files;
