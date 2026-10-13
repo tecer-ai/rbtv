@@ -417,6 +417,13 @@ OUTPUT = """output:
     probability-of-yes 0.95        a yes/no answer; 0.50 means undecided, not half true
     billing  confidence 0.81  (…)  a choice: the option, then each option's probability
     1.05  confidence 0.92  (…)     a score: the position on the levels, counted from 0
+  A choice lists only the options with probability 0.01 or more; an option
+  missing from the list was judged below that. --json carries every option.
+  confidence, on a choice and a score, is not the probability of the answer.
+  It says how far the probabilities are from an even split: 0 when every
+  option is equally likely, 1 when one option holds all of it. With three
+  options and the winner at 0.57, confidence is 0.35. Read the probability for
+  how likely the answer is, and confidence for whether to act on it.
   --json prints one JSON value instead: the service's answer as it arrived (it
   calls a yes/no answer "noul": {"type": "noul", "noul": 0.95}), or
   for many items {"summary", "results", "model", "usage"}. A failure under
