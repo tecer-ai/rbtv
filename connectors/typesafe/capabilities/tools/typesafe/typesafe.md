@@ -1,6 +1,6 @@
 # TypeSafe
 
-`typesafe` sends content to TypeSafe's System One service and returns typed answers: the probability of yes, one option from a set, or a position on ordered levels. Run `typesafe --help` and the selected verb's help for inputs, outputs and examples. The [typesafe-ai skill](../../../skills/typesafe-ai.md) covers how to design the questions; this command only carries them.
+`typesafe` sends content to TypeSafe's System One service and returns typed answers: the probability of yes, one option from a set, or a position on ordered levels. Run `typesafe --help` and the selected verb's help for inputs, outputs and examples. [Building with TypeSafe](../../methods/building-with-typesafe.md) covers how to design the questions; this command only carries them.
 
 Install with `rbtv add connectors/typesafe#typesafe`. The program needs Python and no package beyond its standard library.
 

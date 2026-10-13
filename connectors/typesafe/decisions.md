@@ -46,6 +46,18 @@ The process environment's `TYPESAFE_API_KEY` comes first, then that line of the 
 
 The program calls the two endpoints with Python's standard library and does not depend on the provider's SDK. Reason: the service has two operations, and a tool with no package to install runs wherever Python does. The retry policy follows the provider's stated rule for 429 and 529 answers.
 
-## The typesafe-ai skill is the provider's text
+## One rule names two moments, and nothing else reaches every agent
 
-`skills/typesafe-ai.md` is the provider's own agent skill under its licence, kept in this component with its `LICENSE` file. The command's page links to it for how to design questions and does not restate it.
+The `system-one` rule tells an agent when to use TypeSafe: when choosing what to open from a set too large to open in full, and when building something whose step needs a judgment about text. Each moment routes to one method page. Reason: neither moment is a kind of task, so a skill, which an agent opens by matching its task, would be missed; a rule is supplied on every task, so its body stays a few lines and the methods stay in the pages.
+
+## TypeSafe ranks, the agent decides
+
+In an agent's own work the model's answer orders the items and the agent chooses what to read, and says when a set was ranked and not read in full. Reason: the provider's own test of selecting a skill for an agent gives the agent a suggestion it may ignore, and a wrong probability comes with no reasons to inspect.
+
+## It never passes or fails finished work
+
+No instruction in this component lets a TypeSafe answer pass an agent's result. It may send work to review. Reason: the one outside measurement found of the model judging another model's answer reports that it gives no usable correctness signal as it comes and is weakest on multi-step work; a narrow check against one line of a done contract is unmeasured, and a threshold for it has to be measured on real results first.
+
+## The building method derives from the provider's agent skill
+
+`capabilities/methods/building-with-typesafe.md` is derived from the provider's agent skill under its licence and keeps the copyright line; the `LICENSE` file stays in this component. The component ships no skill. Reason: the rule routes to the method at the moment it is needed, and a second way to the same page would be a second place to keep its description right.
