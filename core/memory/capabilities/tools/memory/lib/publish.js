@@ -63,14 +63,68 @@ function kindOf(relative, slug) {
 
 function bodyOf(text) { return normalize(text).replace(/^---\n[\s\S]*?\n---\n/, ''); }
 function recordBody(text) { return text.match(/^(.*) \(\d{4}-\d{2}-\d{2} · .+\)$/)?.[1] ?? text; }
+function verbatimFence(text) {
+  const match = normalize(text || '').match(/```verbatim\n([\s\S]*?)```/);
+  return match ? match[1] : null;
+}
+
+function withoutVerbatim(lines) {
+  const out = [];
+  let fence = false;
+  for (const line of lines) {
+    if (!fence && line === '```verbatim') { fence = true; continue; }
+    if (fence && line === '```') { fence = false; continue; }
+    if (!fence) out.push(line);
+  }
+  return out;
+}
+
 function records(kind, text) {
   if (kind === 'board') {
     const board = parseBoard(text);
     return [...board.subjects.map((subject) => board.lines.slice(subject.start, subject.end).filter((line) => line.trim()).join('\n')),
       ...board.watchOuts, ...board.closed];
   }
-  return nonempty(bodyOf(text)).filter((line) => !line.startsWith('#') &&
+  const lines = nonempty(bodyOf(text));
+  const body = kind === 'archive' ? withoutVerbatim(lines) : lines;
+  return body.filter((line) => !line.startsWith('#') &&
     !/^\|\s*(?:Open\s*\||:?-)/.test(line));
+}
+
+function isArchiveDestination(relative, slug) {
+  return kindOf(relative, slug) === 'archive';
+}
+
+function wholeFileKind(relative, slug) {
+  const kind = kindOf(relative, slug);
+  return kind === 'entity' || kind === 'knowledge' || kind === 'topic' || kind === 'workspace';
+}
+
+function linkTarget(from, href) {
+  if (!href || /^(https?:|mailto:)/.test(href)) return null;
+  return path.posix.normalize(path.posix.join(path.posix.dirname(from), href));
+}
+
+function pointerTargets(op, line, before) {
+  if (op.kind === 'index') {
+    const href = line.match(/\[[^\]]*\]\(([^)\s]+)\)/)?.[1];
+    const target = linkTarget(op.path, href);
+    return target ? [target] : [];
+  }
+  if (op.kind !== 'daily' && op.kind !== 'weekly') return null;
+  const targets = [];
+  for (const href of [...line.matchAll(/\[[^\]]*\]\(([^)\s]+)\)/g)].map((match) => match[1])) {
+    if (/^https?:/.test(href)) {
+      for (const [file, text] of before) {
+        if (file === op.path || typeof text !== 'string' || !text.includes(href) || isArchiveDestination(file, op.agent)) continue;
+        targets.push(file);
+      }
+    } else {
+      const target = linkTarget(op.path, href);
+      if (target) targets.push(target);
+    }
+  }
+  return targets;
 }
 
 function validDate(value) {
@@ -478,7 +532,17 @@ function validateProposal(input, raw, workspace) {
     if (pathOk && kind && textOk) {
       const text = normalize(op.text).replace(/\n/g, before.get(op.path)?.includes('\r\n') ? '\r\n' : '\n');
       const fileOk = guard(() => checkFile(op.path, kind, text, { path: op.path, operation }), place) !== null;
-      if (fieldsOk && presentOk && opOk !== null && fileOk) {
+      if (fieldsOk && presentOk && opOk !== null && fileOk && op.leave === true) {
+        const kindOk = wholeFileKind(op.path, input.agent);
+        const same = normalize(before.get(op.path) || '') === normalize(text);
+        if (guard(() => {
+          expect(kindOk ? 'text equals the snapshot file being archived' : 'entity, knowledge, topic or workspace');
+          requireThat(kindOk && same, kindOk ? 'leave keeps the verbatim file text' : 'whole-file archive is only an entity, knowledge, topic or workspace file');
+        }, { ...place, expected: kindOk ? 'text equals the snapshot file being archived' : 'entity, knowledge, topic or workspace' }) !== null) {
+          after.delete(op.path);
+          operations.set(op.path, { ...op, text, kind, agent: input.agent, index, leave: true });
+        }
+      } else if (fieldsOk && presentOk && opOk !== null && fileOk) {
         after.set(op.path, text);
         operations.set(op.path, { ...op, text, kind, agent: input.agent, index });
       }
@@ -486,7 +550,7 @@ function validateProposal(input, raw, workspace) {
   }
   for (const op of operations.values()) guard(() => {
     const previous = before.has(op.path) ? records(op.kind, before.get(op.path)) : [];
-    const next = records(op.kind, op.text);
+    const next = op.leave ? [] : records(op.kind, op.text);
     const removed = [...new Set(previous.filter((row) => !next.includes(row)))];
     const added = next.filter((row) => !previous.includes(row));
     const removals = op.removals || [];
@@ -528,6 +592,19 @@ function validateProposal(input, raw, workspace) {
           parseBoard(before.get(other.path)).subjects.some((subject) => item.text.startsWith(`### ${subject.title}\n`) &&
             subject.state.includes(recordBody(record.replace(/^- /, ''))))));
       if (preservedState) continue;
+      const fence = verbatimFence(op.text);
+      const archivedInto = fence && isArchiveDestination(op.path, input.agent) && [...operations.values()].some((other) =>
+        other.leave && normalize(before.get(other.path) || '') === fence);
+      if (archivedInto) continue;
+      const restored = op.op === 'add' && [...operations.values()].some((archive) =>
+        isArchiveDestination(archive.path, input.agent) &&
+        verbatimFence(before.get(archive.path) || '') === normalize(op.text) &&
+        /^# Restored$/m.test(archive.text));
+      if (restored) continue;
+      if ((op.kind === 'daily' || op.kind === 'weekly') && [...operations.values()].some((other) =>
+        other.op === 'add' && [...record.matchAll(/https?:\/\/[^\s)]+/g)].some((match) => other.text.includes(match[0])) &&
+        [...operations.values()].some((archive) => isArchiveDestination(archive.path, input.agent) &&
+          verbatimFence(before.get(archive.path) || '') === normalize(other.text) && /^# Restored$/m.test(archive.text)))) continue;
       expect('sources include an unread owner message');
       requireThat(rows.length > 0, 'new facts require owner evidence');
       if (op.kind === 'weekly') {
@@ -558,6 +635,28 @@ function validateProposal(input, raw, workspace) {
         const until = recordBody(item.text).match(/\buntil (\d{4}-\d{2}-\d{2})\.?$/)?.[1];
         expect('the record ends until YYYY-MM-DD and that date is before the input date');
         requireThat(until && validDate(until) && until < input.date && op.kind !== 'learned', 'only an explicit past until date expires');
+      }
+      if (op.leave === true) {
+        if (typeof item.to === 'string') {
+          try { safePath(workspace, item.to); }
+          catch (error) {
+            if (!(error instanceof Refusal)) throw error;
+            error.form = 'a relative path with no empty part, .., symlink, or device name';
+            throw error;
+          }
+        }
+        const original = normalize(before.get(op.path) || '');
+        const destText = item.to && after.get(item.to);
+        const fence = destText && verbatimFence(destText);
+        expect('removals.to is an archive file whose verbatim fence equals this file');
+        requireThat(item.to && item.to !== op.path && isArchiveDestination(item.to, input.agent) && fence === original, 'removal without an archive entry');
+        const forget = destText.includes('Reason: owner asked to forget');
+        const reversed = destText.includes('Reason: reversed');
+        const ownerSource = op.sources.some((id) => Number.isSafeInteger(id) ? evidence.has(id) : typeof id === 'string' && inbox.has(id));
+        const itemRef = typeof op.item === 'string' && op.item.trim() && destText.includes(`Source: ${op.item}`);
+        expect('Reason: owner asked to forget with owner evidence, or Reason: reversed with Source: the item reference');
+        requireThat((forget && ownerSource) || (reversed && itemRef), 'removal needs a stated reason and a source');
+        continue;
       }
       if (item.to) {
         try { safePath(workspace, item.to); }
@@ -629,6 +728,22 @@ function validateProposal(input, raw, workspace) {
         const nextSubject = parseBoard(op.text).subjects.find((row) => row.title === subject.title);
         expect('Detail: ../memory/<topic file>');
         requireThat(nextSubject.detail === `../memory/${item.to.split('/memory/')[1]}`, 'board must link moved detail');
+      } else if ((op.kind === 'index' || op.kind === 'daily' || op.kind === 'weekly') && added.length === 0) {
+        const targets = pointerTargets(op, item.text, before) || [];
+        const left = targets.filter((file) => operations.get(file)?.leave);
+        const stays = targets.filter((file) => after.has(file));
+        if (left.length && !stays.length) {
+          const original = normalize(before.get(left[0]) || '');
+          const held = [...operations.values()].some((other) => isArchiveDestination(other.path, input.agent) && verbatimFence(other.text) === original);
+          expect('an archive file in this proposal holds the verbatim record');
+          requireThat(held, 'removal without an archive entry');
+        } else if (stays.length) {
+          expect('keep the line, or archive the record it points at in this proposal');
+          requireThat(false, 'index or timeline line dropped while the record it points at stays');
+        } else {
+          expect('a line whose link or source URL is the archived record');
+          requireThat(false, 'dropped line does not point at the archived record');
+        }
       } else {
         expect('op supersede, reason owner, merge or index, a replacement record, and owner evidence unless the file is an index');
         requireThat(op.op === 'supersede' && ['owner', 'merge', 'index'].includes(op.reason) &&
@@ -639,6 +754,22 @@ function validateProposal(input, raw, workspace) {
       proposal.conflicts.push(`Changed learned rules for ${input.agent}: ${op.explanation}`);
     }
   }, { path: op.path, operation: `${op.index} ${op.op}` });
+  for (const [file, text] of after) {
+    if (kindOf(file, input.agent) !== 'index' || typeof text !== 'string') continue;
+    for (const row of records('index', text)) {
+      const href = row.match(/\[[^\]]*\]\(([^)\s]+)\)/)?.[1];
+      const target = linkTarget(file, href);
+      if (!target || !target.endsWith('.md') || !kindOf(target, input.agent) || after.has(target)) continue;
+      expect('a relative link to a memory file this proposal leaves in place');
+      try { requireThat(false, 'index link points at a missing memory file'); }
+      catch (error) {
+        if (!(error instanceof Refusal)) throw error;
+        failures.push(failure({
+          path: file, operation: null, requirement: error.message, expected: error.form, reason: error.message,
+        }));
+      }
+    }
+  }
   if (failures.length) throw refusalError(failures);
   const boardPath = `.rbtv/agents/${input.agent}/_artifacts/board.md`;
   const ownerThreads = new Set(input.messages.map((row) => threadKey(row.thread)).filter(Boolean));
@@ -692,7 +823,9 @@ function validateProposalResult(input, raw, workspace) {
   }
 }
 
-function publishProposal(input, raw, workspace, { gitCommit = git, write = writeText } = {}) {
+function unlinkFile(file) { fs.unlinkSync(file); }
+
+function publishProposal(input, raw, workspace, { gitCommit = git, write = writeText, remove = unlinkFile } = {}) {
   const validated = validateProposalResult(input, raw, workspace);
   if (!validated.ok) {
     const retained = saveRejected(workspace, Buffer.from(typeof raw === 'string' ? raw : JSON.stringify(raw ?? '')));
@@ -703,7 +836,8 @@ function publishProposal(input, raw, workspace, { gitCommit = git, write = write
     const written = [];
     for (const op of validated.operations) {
       const file = safePath(workspace, op.path);
-      write(file, op.text);
+      if (op.leave) remove(file);
+      else write(file, op.text);
       written.push(op.path);
     }
     if (written.length) {

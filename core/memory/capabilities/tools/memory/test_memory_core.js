@@ -454,4 +454,238 @@ test('memory baseline verb creates the record and refuses a missing agent home',
   assert.equal(again.stdout, `present ${lib.agentBaselinePath(home)}\n`);
 });
 
+const THREAD = 'https://app.slack.com/archives/C0TEST00001/p1791000000000001';
+const OTHER_THREAD = 'https://app.slack.com/archives/C0TEST00002/p1791000000000002';
+const FORGET = '- Owner asks to forget: handheld-1001. Owner said: drop it (2026-10-13 · master)';
+const BOARD = '.rbtv/agents/master/_artifacts/board.md';
+
+function archiveFile(original, reason, source) {
+  return `---\ndescription: when reviewing an archived record\ntype: reference\naliases: [archived]\n---\n# Archived\n\n- Reason: ${reason}. Source: ${source} (2026-10-13 · master)\n\n\`\`\`verbatim\n${original}\`\`\`\n`;
+}
+
+function removalCase(shape) {
+  const entity = shape === 'live'
+    ? `---\ndescription: when identifying the handheld by its name\ntype: device\naliases: [handheld-1001]\n---\n# Handheld-1001\n\n- The handheld is named Handheld-1001. (2026-10-13 · master/${THREAD})\n`
+    : `---\ndescription: when reviewing a decision\ntype: decisions\naliases: [handheld-1001]\n---\n# Handheld note\n\n- The note says Handheld-1001. (2026-10-13 · master/${THREAD})\n`;
+  const record = entity.trim().split('\n').at(-1);
+  const entityPath = shape === 'live'
+    ? '.rbtv/memory/entities/devices/handheld-1001.md'
+    : '.rbtv/memory/knowledge/decisions/handheld-1001.md';
+  const otherPath = shape === 'live'
+    ? '.rbtv/memory/entities/devices/other-2002.md'
+    : '.rbtv/memory/knowledge/decisions/other-2002.md';
+  const other = shape === 'live'
+    ? `---\ndescription: when reviewing the other device\ntype: device\naliases: [other-2002]\n---\n# Other-2002\n\n- Other stays. (2026-10-01 · master)\n`
+    : `---\ndescription: when reviewing the other decision\ntype: decisions\naliases: [other-2002]\n---\n# Other\n\n- Other stays. (2026-10-01 · master)\n`;
+  const indexPath = shape === 'live'
+    ? '.rbtv/memory/entities/_artifacts/index.md'
+    : '.rbtv/memory/knowledge/_artifacts/index.md';
+  const link = shape === 'live' ? '../devices/handheld-1001.md' : '../decisions/handheld-1001.md';
+  const otherLink = shape === 'live' ? '../devices/other-2002.md' : '../decisions/other-2002.md';
+  const indexRow = `| [Handheld-1001](${link}) | when identifying the handheld |`;
+  const otherRow = `| [Other](${otherLink}) | when reviewing the other record |`;
+  const index = `# Index\n\n| Open | When |\n|---|---|\n${otherRow}\n${indexRow}\n`;
+  const dayPath = '.rbtv/memory/timeline/daily/2026-10-13.md';
+  const episode = `- Named the handheld. — master/[thread](${THREAD})`;
+  const kept = `- Kept episode. — master/[thread](${OTHER_THREAD})`;
+  const day = `---\ndescription: when asked what happened on 2026-10-13\n---\n# 2026-10-13\n\n${kept}\n${episode}\n`;
+  const sibling = '.rbtv/memory/knowledge/facts.md';
+  const siblingText = `---\ndescription: when reviewing facts\ntype: facts\naliases: [facts]\n---\n# Facts\n\n- Unrelated fact. (2026-10-01 · master)\n`;
+  const archivePath = '.rbtv/memory/_artifacts/archive/handheld-1001.md';
+  const files = {
+    [entityPath]: entity,
+    [otherPath]: other,
+    [indexPath]: index,
+    [dayPath]: day,
+    [sibling]: siblingText,
+    [BOARD]: lib.EMPTY_BOARD,
+    '.rbtv/memory/inbox.md': `# Inbox\n\n${FORGET}\n`,
+  };
+  return { entity, record, entityPath, otherPath, other, indexPath, index, indexRow, otherRow, dayPath, day, episode, kept, sibling, siblingText, archivePath, files };
+}
+
+function proposal(parts, extra = {}) {
+  return { operations: parts, conflicts: extra.conflicts || [] };
+}
+
+function op(fields) {
+  return { sources: [FORGET], reason: 'owner', explanation: 'owner asked to forget', removals: [], ...fields };
+}
+
+function removalProposal(box, { item, reason = 'owner asked to forget', source = FORGET, sources = [FORGET], dropIndex = true, dropDay = true, archive = true } = {}) {
+  const archiveText = archiveFile(box.entity, reason, source);
+  const parts = [
+    op({
+      op: 'archive', path: box.entityPath, leave: true, text: box.entity, sources, item,
+      removals: [{ text: box.record, to: box.archivePath }],
+    }),
+  ];
+  if (archive) parts.push(op({ op: 'add', path: box.archivePath, text: archiveText, sources }));
+  if (dropIndex) {
+    parts.push(op({
+      op: 'supersede', path: box.indexPath, reason: 'index', text: box.index.replace(`${box.indexRow}\n`, ''),
+      sources, removals: [{ text: box.indexRow }],
+    }));
+  }
+  if (dropDay) {
+    parts.push(op({
+      op: 'supersede', path: box.dayPath, text: box.day.replace(`${box.episode}\n`, ''),
+      sources, removals: [{ text: box.episode }],
+    }));
+  }
+  return proposal(parts);
+}
+
+function inputFor(box) {
+  return { agent: 'master', date: '2026-10-13', messages: [], files: box.files };
+}
+
+function reasons(result) {
+  return (result.failures || []).map((row) => row.reason);
+}
+
+test('archive-removal of a whole-file record drops its index row and timeline line', (dir) => {
+  const box = removalCase('knowledge');
+  for (const [file, text] of Object.entries(box.files)) {
+    const abs = path.join(dir, file);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, text);
+  }
+  const before = new Map(Object.entries(box.files).map(([file, text]) => [file, fs.readFileSync(path.join(dir, file))]));
+  const raw = removalProposal(box);
+  const result = lib.publishProposal(inputFor(box), raw, dir, { gitCommit: () => ({ stdout: 'abc\n' }) });
+  assert.equal(result.ok, true, reasons(result).join(' | '));
+  assert.equal(result.published, true);
+  assert.equal(fs.existsSync(path.join(dir, box.entityPath)), false);
+  const archived = fs.readFileSync(path.join(dir, box.archivePath), 'utf8');
+  assert.ok(archived.includes(box.entity));
+  assert.ok(archived.includes('Reason: owner asked to forget'));
+  assert.ok(archived.includes(`Source: ${FORGET}`));
+  const index = fs.readFileSync(path.join(dir, box.indexPath), 'utf8');
+  assert.equal(index.includes(box.indexRow), false);
+  assert.ok(index.includes(box.otherRow));
+  const day = fs.readFileSync(path.join(dir, box.dayPath), 'utf8');
+  assert.equal(day.includes(box.episode), false);
+  assert.ok(day.includes(box.kept));
+  assert.deepEqual(fs.readFileSync(path.join(dir, box.otherPath)), before.get(box.otherPath));
+  assert.deepEqual(fs.readFileSync(path.join(dir, box.sibling)), before.get(box.sibling));
+  assert.deepEqual(fs.readFileSync(path.join(dir, '.rbtv/memory/inbox.md')), before.get('.rbtv/memory/inbox.md'));
+});
+
+test('real-shaped archive-removal matches the live publication shape', (dir) => {
+  const box = removalCase('live');
+  const result = lib.validateProposalResult(inputFor(box), removalProposal(box), dir);
+  assert.equal(result.ok, true, reasons(result).join(' | '));
+  assert.equal(result.files.has(box.entityPath), false);
+  assert.ok(result.files.get(box.archivePath).includes('```verbatim\n' + box.entity));
+  assert.equal(result.files.get(box.indexPath).includes('](../devices/handheld-1001.md)'), false);
+  assert.equal(result.files.get(box.dayPath).includes(box.episode), false);
+  assert.ok(result.files.get(box.dayPath).includes(box.kept));
+});
+
+test('reversed item reference archives a whole file without owner evidence', (dir) => {
+  const box = removalCase('live');
+  const raw = removalProposal(box, { item: 'run-1#1', reason: 'reversed', source: 'run-1#1', sources: [] });
+  const result = lib.validateProposalResult(inputFor(box), raw, dir);
+  assert.equal(result.ok, true, reasons(result).join(' | '));
+  assert.ok(result.files.get(box.archivePath).includes('Reason: reversed'));
+  assert.ok(result.files.get(box.archivePath).includes('Source: run-1#1'));
+});
+
+test('removal without an archive entry is refused', (dir) => {
+  const box = removalCase('live');
+  const result = lib.validateProposalResult(inputFor(box), removalProposal(box, { archive: false }), dir);
+  assert.equal(result.ok, false);
+  assert.ok(reasons(result).includes('removal without an archive entry'), reasons(result).join(' | '));
+});
+
+test('index or timeline line dropped while the record it points at stays is refused', (dir) => {
+  const box = removalCase('live');
+  const raw = proposal([op({
+    op: 'supersede', path: box.indexPath, reason: 'index', text: box.index.replace(`${box.indexRow}\n`, ''),
+    removals: [{ text: box.indexRow }],
+  })]);
+  const result = lib.validateProposalResult(inputFor(box), raw, dir);
+  assert.equal(result.ok, false);
+  assert.ok(reasons(result).includes('index or timeline line dropped while the record it points at stays'), reasons(result).join(' | '));
+});
+
+test('dropped line that does not point at the archived record is refused', (dir) => {
+  const box = removalCase('live');
+  const raw = removalProposal(box, { dropDay: false });
+  raw.operations.push(op({
+    op: 'supersede', path: box.dayPath, text: box.day.replace(`${box.kept}\n`, ''),
+    removals: [{ text: box.kept }],
+  }));
+  const result = lib.validateProposalResult(inputFor(box), raw, dir);
+  assert.equal(result.ok, false);
+  assert.ok(reasons(result).includes('dropped line does not point at the archived record'), reasons(result).join(' | '));
+});
+
+test('removal needs a stated reason and a source', (dir) => {
+  const box = removalCase('live');
+  const raw = removalProposal(box, { reason: 'unspecified', source: 'none', sources: [] });
+  const result = lib.validateProposalResult(inputFor(box), raw, dir);
+  assert.equal(result.ok, false);
+  assert.ok(reasons(result).includes('removal needs a stated reason and a source'), reasons(result).join(' | '));
+});
+
+test('index link left pointing at a record this proposal removes is refused', (dir) => {
+  const box = removalCase('live');
+  const raw = removalProposal(box, { dropIndex: false });
+  const result = lib.validateProposalResult(inputFor(box), raw, dir);
+  assert.equal(result.ok, false);
+  assert.ok(reasons(result).includes('index link points at a missing memory file'), reasons(result).join(' | '));
+});
+
+test('replacement needs owner evidence and a replacement record still refuses a knowledge bullet drop', (dir) => {
+  const file = '.rbtv/memory/knowledge/facts.md';
+  const text = `---\ndescription: when reviewing facts\ntype: facts\naliases: [facts]\n---\n# Facts\n\n- Keep. (2026-10-01 · master)\n- Drop. (2026-10-01 · master)\n`;
+  const next = text.replace('- Drop. (2026-10-01 · master)\n', '');
+  const raw = proposal([op({
+    op: 'supersede', path: file, text: next, sources: [1],
+    removals: [{ text: '- Drop. (2026-10-01 · master)' }],
+  })]);
+  const result = lib.validateProposalResult({
+    agent: 'master', date: '2026-10-13', messages: [{ rowid: 1, text: 'drop', thread: THREAD, conversation_key: 'c' }],
+    files: { ...removalCase('live').files, [file]: text },
+  }, raw, dir);
+  assert.equal(result.ok, false);
+  assert.ok(reasons(result).includes('replacement needs owner evidence and a replacement record'), reasons(result).join(' | '));
+});
+
+test('restore returns the tree apart from the archive record of the round trip', (dir) => {
+  const box = removalCase('live');
+  for (const [file, text] of Object.entries(box.files)) {
+    const abs = path.join(dir, file);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, text);
+  }
+  const gitCommit = () => ({ stdout: 'abc\n' });
+  const removed = lib.publishProposal(inputFor(box), removalProposal(box), dir, { gitCommit });
+  assert.equal(removed.ok, true, reasons(removed).join(' | '));
+  const after = {};
+  for (const file of [box.otherPath, box.indexPath, box.dayPath, box.archivePath, box.sibling, BOARD, '.rbtv/memory/inbox.md']) {
+    after[file] = fs.readFileSync(path.join(dir, file), 'utf8');
+  }
+  const restoredArchive = `${after[box.archivePath]}# Restored\n`;
+  const raw = proposal([
+    op({ op: 'add', path: box.entityPath, text: box.entity, sources: [], explanation: 'restore the archived record' }),
+    op({ op: 'supersede', path: box.indexPath, reason: 'index', text: box.index, sources: [], explanation: 'restore the index row' }),
+    op({ op: 'supersede', path: box.dayPath, text: box.day, sources: [], explanation: 'restore the timeline line' }),
+    op({ op: 'supersede', path: box.archivePath, text: restoredArchive, sources: [], explanation: 'mark the archive entry restored' }),
+  ]);
+  const again = lib.publishProposal({
+    agent: 'master', date: '2026-10-13', messages: [], files: after,
+  }, raw, dir, { gitCommit });
+  assert.equal(again.ok, true, reasons(again).join(' | '));
+  assert.equal(fs.readFileSync(path.join(dir, box.entityPath), 'utf8'), box.entity);
+  assert.equal(fs.readFileSync(path.join(dir, box.indexPath), 'utf8'), box.index);
+  assert.equal(fs.readFileSync(path.join(dir, box.dayPath), 'utf8'), box.day);
+  const round = fs.readFileSync(path.join(dir, box.archivePath), 'utf8');
+  assert.ok(round.includes(box.entity));
+  assert.ok(round.includes('# Restored'));
+  assert.deepEqual(fs.readFileSync(path.join(dir, box.sibling)), Buffer.from(box.siblingText));
+});
+
 if (failed.length) process.exit(1);
