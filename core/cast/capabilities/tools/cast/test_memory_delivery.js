@@ -190,7 +190,8 @@ test('a temporary worker in the coordinator folder gets none; the coordinator an
   assert.strictEqual(workerResume.stdin_preview, 'more');
 });
 
-test('spark passes the same bundle as headed cast', (dir) => {
+// spark finds `cast` on PATH; the stand-in is a #!/bin/sh file, which Windows cannot start.
+function sparkSameBundle(dir) {
   const fx = fixture(dir, 'claude', { where: 'outside', task: true });
   const bin = path.join(dir, 'bin');
   fs.mkdirSync(bin);
@@ -203,6 +204,9 @@ test('spark passes the same bundle as headed cast', (dir) => {
   const same = (out) => out.argv.map((a, i) => (out.argv[i - 1] === '--session-id' ? '<id>' : a));
   assert.deepStrictEqual(same(viaSpark), same(launch(fx, ['--headed'])));
   assert.ok(sent(viaSpark).includes('OWN-BOARD-WATCH'));
-});
+}
+if (process.platform === 'win32') {
+  process.stdout.write('skip: spark passes the same bundle as headed cast is Linux-only: the stand-in cast on PATH is a #!/bin/sh script, which Windows cannot start\n');
+} else test('spark passes the same bundle as headed cast', sparkSameBundle);
 
 process.exit(failed.length ? 1 : 0);
