@@ -12,6 +12,10 @@
       "python_package": "beautifulsoup4"
     },
     {
+      "name": "chromium",
+      "install": "playwright install chromium"
+    },
+    {
       "name": "defuddle-cli",
       "install": "npm install --global defuddle-cli",
       "command": "defuddle"

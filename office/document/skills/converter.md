@@ -76,7 +76,7 @@ Legal:
 ```
 python3 capabilities/converter/tool/md-to-docx.py {input} {output} --style capabilities/converter/legal/legal-docx-style.yaml
 ```
-Requires `python-docx`, `pyyaml` (declared in this component's [package.json](../package.json)). Pass
+Requires `python-docx`, `pyyaml` (listed with their install commands in this component's [record](../document.json)). Pass
 `--workspace-root` only when the style yaml's logo path is relative and must resolve against the
 workspace root rather than the yaml's own folder.
 

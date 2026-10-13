@@ -29,3 +29,7 @@ The research page ends with a run of `research-check`, and the agent corrects th
 ## The names: browse and page-capture
 
 The component and its skill are named `browse`. The tool that reads a page is named `page-capture`: a tool name carries no `-cli` suffix, and the name says what is captured, so it is not read as a screenshot tool or as a tool that needs a browser. Reason: owner decisions, 2026-10-13.
+
+## One Chromium serves both browser programs
+
+The record lists one `chromium` entry, installed by `playwright install chromium`. Reason: owner decision, 2026-10-13, on a measurement of the same day: `agent-browser doctor` (0.33.2) reported the browser it uses at the path where Playwright installed Chromium, so the two programs share one browser. `agent-browser install` downloads a browser only on a machine that has none.

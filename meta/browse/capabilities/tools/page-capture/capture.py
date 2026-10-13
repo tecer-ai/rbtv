@@ -563,7 +563,7 @@ def _extract_pdf_text(src: Path) -> tuple[str, str]:
     try:
         from pypdf import PdfReader  # type: ignore
     except ImportError:
-        return "", "pypdf is required for --pdf-text. Install it: pip install pypdf"
+        return "", "pypdf is required for --pdf-text. Install it: python -m pip install pypdf"
     try:
         reader = PdfReader(str(src))
         text = "\n\n".join(page.extract_text() or "" for page in reader.pages)
