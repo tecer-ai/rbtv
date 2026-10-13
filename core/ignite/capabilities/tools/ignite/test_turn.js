@@ -7,13 +7,26 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { validate, argvFor, parseSessionEvents, buildResult } = require('./turn.js');
+const { example } = require('../../../../cast/capabilities/tools/cast/example-models');
+
+// Each arm launches the supported model of the harness it exercises, picked by that property.
+const claudeModel = example('a model of the claude harness', (m) => m.harness === 'claude');
+const claudeOther = example('a second model of the claude harness', (m) => m.harness === 'claude', [claudeModel]);
+const codexModel = example('a model of the codex harness', (m) => m.harness === 'codex');
+const codexOther = example('a second model of the codex harness', (m) => m.harness === 'codex', [codexModel]);
+const opencodeModel = example('a model of the opencode harness', (m) => m.harness === 'opencode');
+// The rung that effort number n picks on a model's ladder: the nth, clamped to the top.
+const rung = (m, n) => m.rungs[Math.min(n, m.rungs.length) - 1];
+// A row of a model catalog as the installation writes it: the shipped cells of the example.
+const catalogRow = (m, over = {}) => [m.mode, m.harness, m.model, m.efforts, m.image, m.level, m.reasoning, m.coding,
+  over.cost ?? m.cost, 'N', 'N'].join(',');
 
 const TOOL = path.join(__dirname, 'cli.js');
 const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-turn-'));
 
 function base(over = {}) {
   return {
-    harness: 'claude', model: 'sonnet-5-5', effort: 3, cwd,
+    harness: claudeModel.harness, model: claudeModel.model, effort: 3, cwd,
     prompt: 'hello', session: { mode: 'new' }, ...over,
   };
 }
@@ -25,19 +38,19 @@ function rejects(request, needle) {
 
 {
   const v = validate(base());
-  assert.strictEqual(v.harness, 'claude');
-  assert.strictEqual(v.modelId, 'claude-sonnet-5-5');
-  assert.strictEqual(v.model, 'sonnet-5-5');
-  assert.strictEqual(v.effort, 'high');
-  assert.deepStrictEqual(v.effortArgv, ['--effort', 'high']);
+  assert.strictEqual(v.harness, claudeModel.harness);
+  assert.strictEqual(v.modelId, claudeModel.id);
+  assert.strictEqual(v.model, claudeModel.model);
+  assert.strictEqual(v.effort, rung(claudeModel, 3));
+  assert.deepStrictEqual(v.effortArgv, ['--effort', rung(claudeModel, 3)]);
   assert.strictEqual(v.mode, 'new');
   assert.strictEqual(v.sessionId, null);
 }
 
 {
-  const v = validate(base({ model: 'claude-sonnet-5-5', effort: 'high' }));
-  assert.strictEqual(v.modelId, 'claude-sonnet-5-5');
-  assert.strictEqual(v.effort, 'high');
+  const v = validate(base({ model: claudeModel.id, effort: rung(claudeModel, 3) }));
+  assert.strictEqual(v.modelId, claudeModel.id);
+  assert.strictEqual(v.effort, rung(claudeModel, 3));
 }
 
 {
@@ -50,15 +63,15 @@ function rejects(request, needle) {
 }
 
 {
-  const codex = validate({ harness: 'codex', model: 'gpt-6-luna', effort: 5, cwd,
+  const codex = validate({ harness: codexModel.harness, model: codexModel.model, effort: 5, cwd,
     prompt: 'x', session: { mode: 'resume', id: 'tid-1' } });
-  assert.strictEqual(codex.effort, 'max');
+  assert.strictEqual(codex.effort, rung(codexModel, 5));
   assert.strictEqual(codex.sessionId, 'tid-1');
   assert.deepStrictEqual(codex.env, null);
 }
 
 rejects(base({ harness: 'nope' }), 'unknown harness');
-rejects(base({ model: 'no-such' }), "'claude no-such' is not a model cast supports");
+rejects(base({ model: 'no-such' }), `'${claudeModel.harness} no-such' is not a model cast supports`);
 rejects(base({ effort: 'turbo' }), 'unsupported effort');
 rejects(base({ effort: 0 }), 'unsupported effort');
 rejects(base({ cwd: 'relative' }), 'absolute directory');
@@ -85,8 +98,8 @@ rejects(base({ env: { A: 1 } }), 'must be a string');
   const freshArgv = argvFor(claude, fresh, null);
   assert.ok(freshArgv.includes('--session-id') && freshArgv.includes(fresh));
   assert.ok(!freshArgv.includes('--resume'));
-  assert.ok(freshArgv.includes('--model') && freshArgv.includes('claude-sonnet-5-5'));
-  assert.ok(freshArgv.includes('--effort') && freshArgv.includes('high'));
+  assert.ok(freshArgv.includes('--model') && freshArgv.includes(claudeModel.id));
+  assert.ok(freshArgv.includes('--effort') && freshArgv.includes(rung(claudeModel, 3)));
   assert.ok(!freshArgv.includes('last'));
 
   const resumed = validate(base({ session: { mode: 'resume', id: 'ses-9' } }));
@@ -98,12 +111,12 @@ rejects(base({ env: { A: 1 } }), 'must be a string');
 }
 
 {
-  const codex = validate({ harness: 'codex', model: 'gpt-6-luna', effort: 'high', cwd,
+  const codex = validate({ harness: codexModel.harness, model: codexModel.model, effort: rung(codexModel, 3), cwd,
     prompt: 'x', session: { mode: 'new' } });
   const argv = argvFor(codex, null, null);
-  assert.deepStrictEqual(argv.slice(0, 3), ['codex', 'exec', '--cd']);
-  assert.ok(argv.includes('-m') && argv.includes('gpt-6-luna'));
-  assert.ok(argv.includes('model_reasoning_effort=high'));
+  assert.deepStrictEqual(argv.slice(0, 3), [codexModel.harness, 'exec', '--cd']);
+  assert.ok(argv.includes('-m') && argv.includes(codexModel.id));
+  assert.ok(argv.includes(`model_reasoning_effort=${rung(codexModel, 3)}`));
   assert.ok(argv.includes('--skip-git-repo-check'), 'codex turn must run outside git repos');
   assert.ok(argv.includes('project_doc_max_bytes=131072'), 'codex turn must raise the AGENTS.md limit');
   assert.ok(argv.includes('--dangerously-bypass-hook-trust'), `a fresh codex turn must run the generated hooks: ${argv}`);
@@ -111,12 +124,12 @@ rejects(base({ env: { A: 1 } }), 'must be a string');
   assert.ok(!argv.includes('resume'));
   assert.ok(!argv.includes('last'));
 
-  const back = validate({ harness: 'codex', model: 'gpt-6-luna', effort: 2, cwd,
+  const back = validate({ harness: codexModel.harness, model: codexModel.model, effort: 2, cwd,
     prompt: 'x', session: { mode: 'resume', id: 'tid-2' } });
   const resume = argvFor(back, null, null);
   assert.ok(resume.includes('resume') && resume.includes('tid-2'));
-  assert.ok(resume.includes('-m') && resume.includes('gpt-6-luna'));
-  assert.ok(resume.includes('model_reasoning_effort=medium'));
+  assert.ok(resume.includes('-m') && resume.includes(codexModel.id));
+  assert.ok(resume.includes(`model_reasoning_effort=${rung(codexModel, 2)}`));
   assert.ok(resume.includes('--dangerously-bypass-hook-trust'), `a resumed codex turn must run the generated hooks: ${resume}`);
   assert.ok(!resume.includes('--last'));
   assert.ok(!resume.includes('last'));
@@ -137,18 +150,18 @@ rejects(base({ env: { A: 1 } }), 'must be a string');
 }
 
 {
-  const oc = validate({ harness: 'opencode', model: 'grok-4.7', effort: 'high', cwd,
+  const oc = validate({ harness: opencodeModel.harness, model: opencodeModel.model, effort: rung(opencodeModel, 3), cwd,
     prompt: 'x', session: { mode: 'new' } });
   const tag = 'cast-turn:33333333-3333-4333-8333-333333333333';
   const argv = argvFor(oc, null, tag);
   assert.ok(argv.includes('--title') && argv.includes(tag));
-  assert.ok(argv.includes('-m') && argv.includes('xai/grok-4.7'));
-  assert.ok(argv.includes('--variant') && argv.includes('high'));
+  assert.ok(argv.includes('-m') && argv.includes(opencodeModel.id));
+  assert.ok(argv.includes('--variant') && argv.includes(rung(opencodeModel, 3)));
   assert.ok(!argv.includes('-s'));
   assert.ok(!argv.includes('-c'));
   assert.ok(!argv.includes('last'));
 
-  const back = validate({ harness: 'opencode', model: 'xai/grok-4.7', effort: 1, cwd,
+  const back = validate({ harness: opencodeModel.harness, model: opencodeModel.id, effort: 1, cwd,
     prompt: 'x', session: { mode: 'resume', id: 'ses_keep' } });
   const resume = argvFor(back, null, null);
   assert.ok(resume.includes('-s') && resume.includes('ses_keep'));
@@ -194,7 +207,7 @@ rejects(base({ env: { A: 1 } }), 'must be a string');
   assert.strictEqual(mismatch.sessionId, null);
   assert.strictEqual(mismatch.error, 'session_identity_mismatch');
 
-  const codex = validate({ harness: 'codex', model: 'gpt-6-luna', effort: 1, cwd,
+  const codex = validate({ harness: codexModel.harness, model: codexModel.model, effort: 1, cwd,
     prompt: 'x', session: { mode: 'new' } });
   const missing = buildResult(codex, {
     exitCode: 0, spawnError: null, minted: null, claudeId: null, codexId: null, boundId: null,
@@ -204,7 +217,7 @@ rejects(base({ env: { A: 1 } }), 'must be a string');
   assert.strictEqual(missing.error, 'session_identity_missing');
 
   const echoed = buildResult(
-    validate({ harness: 'codex', model: 'gpt-6-luna', effort: 1, cwd,
+    validate({ harness: codexModel.harness, model: codexModel.model, effort: 1, cwd,
       prompt: 'x', session: { mode: 'resume', id: 'tid-keep' } }),
     {
       exitCode: 0, spawnError: null, minted: null, claudeId: null, codexId: 'tid-other', boundId: null,
@@ -216,7 +229,7 @@ rejects(base({ env: { A: 1 } }), 'must be a string');
   assert.strictEqual(echoed.sessionId, 'tid-other');
 
   const oc = buildResult(
-    validate({ harness: 'opencode', model: 'grok-4.7', effort: 1, cwd,
+    validate({ harness: opencodeModel.harness, model: opencodeModel.model, effort: 1, cwd,
       prompt: 'x', session: { mode: 'new' } }),
     {
       exitCode: 0, spawnError: null, minted: null, claudeId: null, codexId: null, boundId: 'ses_mine',
@@ -226,7 +239,7 @@ rejects(base({ env: { A: 1 } }), 'must be a string');
   assert.strictEqual(oc.ok, true);
   assert.strictEqual(oc.sessionId, 'ses_mine');
   const unbound = buildResult(
-    validate({ harness: 'opencode', model: 'grok-4.7', effort: 1, cwd,
+    validate({ harness: opencodeModel.harness, model: opencodeModel.model, effort: 1, cwd,
       prompt: 'x', session: { mode: 'new' } }),
     {
       exitCode: 0, spawnError: null, minted: null, claudeId: null, codexId: null, boundId: null,
@@ -304,15 +317,15 @@ function runTurn(request, env) {
     PATH: [bin, path.dirname(process.execPath)].join(path.delimiter),
   };
   const { res, written } = runTurn({
-    harness: 'codex', model: 'gpt-6-luna', effort: 'medium', cwd,
+    harness: codexModel.harness, model: codexModel.model, effort: rung(codexModel, 2), cwd,
     prompt: 'ping', session: { mode: 'resume', id: '019fecad-4ff4-7761-a2eb-46d2b4172db3' },
   }, env);
   assert.strictEqual(res.status, 0, res.stderr);
   assert.strictEqual(written.sessionId, '019fecad-4ff4-7761-a2eb-46d2b4172db3');
   const argv = JSON.parse(fs.readFileSync(argvFile, 'utf8'));
   assert.ok(argv.includes('resume') && argv.includes(written.sessionId));
-  assert.ok(argv.includes('-m') && argv.includes('gpt-6-luna'));
-  assert.ok(argv.includes('model_reasoning_effort=medium'));
+  assert.ok(argv.includes('-m') && argv.includes(codexModel.id));
+  assert.ok(argv.includes(`model_reasoning_effort=${rung(codexModel, 2)}`));
   assert.ok(!argv.includes('--last'));
 }
 
@@ -348,7 +361,7 @@ function runTurn(request, env) {
     PATH: [bin, path.dirname(process.execPath)].join(path.delimiter),
   };
   const { res, written } = runTurn({
-    harness: 'opencode', model: 'grok-4.7', effort: 1, cwd,
+    harness: opencodeModel.harness, model: opencodeModel.model, effort: 1, cwd,
     prompt: 'ping', session: { mode: 'new' },
   }, env);
   assert.strictEqual(res.status, 0, `${res.stderr}\n${JSON.stringify(written)}`);
@@ -386,7 +399,7 @@ process.exit(0);
     PATH: [bin, path.dirname(process.execPath)].join(path.delimiter),
   };
   runTurn({
-    harness: 'opencode', model: 'grok-4.7', effort: 1, cwd,
+    harness: opencodeModel.harness, model: opencodeModel.model, effort: 1, cwd,
     prompt: 'ping', session: { mode: 'new' },
     env: { PWD: callerPwd },
   }, env);
@@ -396,10 +409,10 @@ process.exit(0);
 // F2: one throwing lookup. validate must not exit the process on an unknown model.
 {
   const { lookupModel } = require('../../../../cast/capabilities/tools/cast/lib/core');
-  assert.strictEqual(lookupModel('claude', 'sonnet-5-5', cwd).modelId, 'claude-sonnet-5-5');
-  assert.throws(() => lookupModel('claude', 'no-such', cwd), /is not a model cast supports/);
-  assert.throws(() => lookupModel('nope', 'sonnet-5-5', cwd), /unknown harness/);
-  assert.throws(() => lookupModel('claude', 'sonnet-5-5'), /needs the folder that locates the installation/);
+  assert.strictEqual(lookupModel(claudeModel.harness, claudeModel.model, cwd).modelId, claudeModel.id);
+  assert.throws(() => lookupModel(claudeModel.harness, 'no-such', cwd), /is not a model cast supports/);
+  assert.throws(() => lookupModel('nope', claudeModel.model, cwd), /unknown harness/);
+  assert.throws(() => lookupModel(claudeModel.harness, claudeModel.model), /needs the folder that locates the installation/);
 }
 
 // A turn launches only a model its installation has selected. The installation is the one that
@@ -407,7 +420,7 @@ process.exit(0);
 // and while it has none every supported model is selected.
 {
   const HEAD = 'mode,harness,model,efforts,image,level,reasoning,coding,cost,quality-override,price-override';
-  const SONNET = 'cli,claude,sonnet-5-5,5,N,L2,3,3,10,N,N';
+  const SELECTED = catalogRow(claudeModel);
   const agentHome = (lines) => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-turn-gate-'));
     const home = path.join(root, '.rbtv', 'agents', 'probe');
@@ -422,35 +435,35 @@ process.exit(0);
 
   // no model catalog: everything supported launches
   const fresh = agentHome(null);
-  assert.strictEqual(validate(turn(fresh.home, 'claude', 'haiku-5-5')).modelId, 'claude-haiku-5-5');
-  assert.strictEqual(validate(turn(fresh.home, 'opencode', 'grok-4.7')).modelId, 'xai/grok-4.7');
+  assert.strictEqual(validate(turn(fresh.home, claudeOther.harness, claudeOther.model)).modelId, claudeOther.id);
+  assert.strictEqual(validate(turn(fresh.home, opencodeModel.harness, opencodeModel.model)).modelId, opencodeModel.id);
 
   // the model is not in the installation's model catalog: refused with the command that selects it
-  const pruned = agentHome([HEAD, SONNET]);
-  assert.strictEqual(validate(turn(pruned.home, 'claude', 'sonnet-5-5')).modelId, 'claude-sonnet-5-5');
-  for (const model of ['haiku-5-5', 'claude-haiku-5-5']) {
-    rejects(turn(pruned.home, 'claude', model),
-      `refused: 'claude haiku-5-5' is not selected in ${pruned.root}\nmodel catalog: ${pruned.file}\nNothing changed.\ncast models add claude haiku-5-5`);
+  const pruned = agentHome([HEAD, SELECTED]);
+  assert.strictEqual(validate(turn(pruned.home, claudeModel.harness, claudeModel.model)).modelId, claudeModel.id);
+  for (const model of [claudeOther.model, claudeOther.id]) {
+    rejects(turn(pruned.home, claudeOther.harness, model),
+      `refused: '${claudeOther.harness} ${claudeOther.model}' is not selected in ${pruned.root}\nmodel catalog: ${pruned.file}\nNothing changed.\ncast models add ${claudeOther.harness} ${claudeOther.model}`);
   }
   // the turn's own process reports it as an invalid request, never as a launch
-  const { res, written } = runTurn(turn(pruned.home, 'claude', 'haiku-5-5'), process.env);
+  const { res, written } = runTurn(turn(pruned.home, claudeOther.harness, claudeOther.model), process.env);
   assert.notStrictEqual(res.status, 0);
-  assert.ok(JSON.stringify(written || res.stderr).includes('cast models add claude haiku-5-5'), `${res.stderr}${JSON.stringify(written)}`);
+  assert.ok(JSON.stringify(written || res.stderr).includes(`cast models add ${claudeOther.harness} ${claudeOther.model}`), `${res.stderr}${JSON.stringify(written)}`);
 
   // a row this copy of cast does not support: the deploy-copy case, named as such
-  const orphan = agentHome([HEAD, SONNET, 'cli,opencode,not-a-real-model,3,N,L2,6,6,1,N,N']);
-  rejects(turn(orphan.home, 'opencode', 'not-a-real-model'),
-    `refused: 'opencode not-a-real-model' is selected in ${orphan.file} but this copy of cast does not support it`);
-  rejects(turn(orphan.home, 'opencode', 'not-a-real-model'),
-    'the daemon runs its own deployed copy of rbtv: deploy a commit that supports it\nNothing changed.\ncast models remove opencode not-a-real-model');
+  const orphan = agentHome([HEAD, SELECTED, `cli,${opencodeModel.harness},not-a-real-model,3,N,L2,6,6,1,N,N`]);
+  rejects(turn(orphan.home, opencodeModel.harness, 'not-a-real-model'),
+    `refused: '${opencodeModel.harness} not-a-real-model' is selected in ${orphan.file} but this copy of cast does not support it`);
+  rejects(turn(orphan.home, opencodeModel.harness, 'not-a-real-model'),
+    `the daemon runs its own deployed copy of rbtv: deploy a commit that supports it\nNothing changed.\ncast models remove ${opencodeModel.harness} not-a-real-model`);
 
   // a model catalog that cannot be read stops the turn, for a selected model too
-  const broken = agentHome([HEAD, 'cli,claude,sonnet-5-5,5,N,L2,3,3,1,0,N,N']);
-  rejects(turn(broken.home, 'claude', 'sonnet-5-5'),
+  const broken = agentHome([HEAD, catalogRow(claudeModel, { cost: '1,0' })]);
+  rejects(turn(broken.home, claudeModel.harness, claudeModel.model),
     `refused: cannot read the model catalog ${broken.file} line 2: 12 cells where the header has 11\nNothing changed.\ncorrect ${broken.file}, then run the same command again`);
 
   // the cwd is checked before the model: a missing folder is the answer, not a lookup from it
-  rejects(turn(path.join(pruned.root, 'missing'), 'claude', 'haiku-5-5'), 'absolute directory');
+  rejects(turn(path.join(pruned.root, 'missing'), claudeOther.harness, claudeOther.model), 'absolute directory');
 }
 
 // The agent's standing prompt rides each harness's strongest channel.
@@ -470,7 +483,7 @@ process.exit(0);
   assert.strictEqual(framed[framed.indexOf('--append-system-prompt') + 1], '# Role\nYou are the agent.\n', 'frontmatter never reaches the model');
   assert.strictEqual(stdinFor(sys()), 'hello');
 
-  const codex = { harness: 'codex', model: 'gpt-6-luna', effort: 2 };
+  const codex = { harness: codexModel.harness, model: codexModel.model, effort: 2 };
   const cx = argvFor(sys(codex), null, null);
   const cxResumed = argvFor(sys({ ...codex, session: { mode: 'resume', id: 'tid-1' } }), null, null);
   for (const argv of [cx, cxResumed]) {
@@ -480,7 +493,7 @@ process.exit(0);
   }
   assert.strictEqual(stdinFor(sys(codex)), 'hello');
 
-  const oc = { harness: 'opencode', model: 'grok-4.7', effort: 1 };
+  const oc = { harness: opencodeModel.harness, model: opencodeModel.model, effort: 1 };
   const first = stdinFor(sys(oc));
   assert.ok(first.startsWith('# Role\nYou are the agent.') && first.endsWith('\n\nhello'), 'opencode: first message');
   assert.strictEqual(stdinFor(sys({ ...oc, session: { mode: 'resume', id: 'ses-2' } })), 'hello');
@@ -529,15 +542,15 @@ rejects(base({ systemPromptFile: path.join(cwd, 'missing.md') }), 'cannot read s
     PATH: [bin, path.dirname(process.execPath)].join(path.delimiter),
   };
   const fallbacks = [
-    { harness: 'codex', model: 'gpt-6-luna', effort: 2, session: { mode: 'new' }, prompt: 'the first fallback prompt' },
-    { harness: 'codex', model: 'gpt-5.6-terra', effort: 2, session: { mode: 'new' }, prompt: 'the second fallback prompt' },
+    { harness: codexModel.harness, model: codexModel.model, effort: 2, session: { mode: 'new' }, prompt: 'the first fallback prompt' },
+    { harness: codexOther.harness, model: codexOther.model, effort: 2, session: { mode: 'new' }, prompt: 'the second fallback prompt' },
   ];
   const ran = () => (fs.existsSync(ranFile) ? fs.readFileSync(ranFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []);
   const turn = (request, extra = {}) => {
     fs.rmSync(ranFile, { force: true });
     return runTurn(request, { ...env, ...extra });
   };
-  const claudeFailed = { harness: 'claude', model: 'sonnet-5-5', error: 'harness_exit_1' };
+  const claudeFailed = { harness: claudeModel.harness, model: claudeModel.model, error: 'harness_exit_1' };
   // The entries of `failed` without `end`, once each `end` says how that run ended: the exit code
   // in `error`, no signal, and the time the run took.
   const withoutEnd = (failed) => failed.map(({ end, ...entry }) => {
@@ -550,24 +563,24 @@ rejects(base({ systemPromptFile: path.join(cwd, 'missing.md') }), 'cannot read s
   let { res, written, resultFile } = turn(base({ fallbacks }));
   assert.strictEqual(res.status, 0, res.stderr);
   assert.strictEqual(written.ok, true);
-  assert.deepStrictEqual([written.harness, written.model, written.sessionId], ['codex', 'gpt-6-luna', '019fecad-4ff4-7761-a2eb-46d2b4172db3']);
+  assert.deepStrictEqual([written.harness, written.model, written.sessionId], [codexModel.harness, codexModel.model, '019fecad-4ff4-7761-a2eb-46d2b4172db3']);
   assert.deepStrictEqual([withoutEnd(written.failed), written.exhausted], [[claudeFailed], false]);
   assert.strictEqual(written.stdoutPath, `${resultFile}.fallback1.stdout`);
   assert.ok(fs.existsSync(`${resultFile}.stderr`), 'the failed run keeps its own capture files');
-  assert.deepStrictEqual(ran().map((r) => [r.model, r.prompt]), [['gpt-6-luna', 'the first fallback prompt']]);
-  assert.ok(ran()[0].argv.includes('model_reasoning_effort=medium'), JSON.stringify(ran()[0].argv));
+  assert.deepStrictEqual(ran().map((r) => [r.model, r.prompt]), [[codexModel.id, 'the first fallback prompt']]);
+  assert.ok(ran()[0].argv.includes(`model_reasoning_effort=${rung(codexModel, 2)}`), JSON.stringify(ran()[0].argv));
 
   // the first fallback fails to start too: the second runs
-  ({ written, resultFile } = turn(base({ fallbacks }), { FAKE_CODEX: '{"gpt-6-luna":1}' }));
-  assert.deepStrictEqual([written.ok, written.model, written.exhausted], [true, 'gpt-5.6-terra', false]);
-  assert.deepStrictEqual(withoutEnd(written.failed), [claudeFailed, { harness: 'codex', model: 'gpt-6-luna', error: 'harness_exit_1' }]);
+  ({ written, resultFile } = turn(base({ fallbacks }), { FAKE_CODEX: JSON.stringify({ [codexModel.id]: 1 }) }));
+  assert.deepStrictEqual([written.ok, written.model, written.exhausted], [true, codexOther.model, false]);
+  assert.deepStrictEqual(withoutEnd(written.failed), [claudeFailed, { harness: codexModel.harness, model: codexModel.model, error: 'harness_exit_1' }]);
   assert.strictEqual(written.stdoutPath, `${resultFile}.fallback2.stdout`);
   assert.deepStrictEqual(ran().map((r) => r.prompt), ['the first fallback prompt', 'the second fallback prompt']);
 
   // none starts: the result is the last run's failure, and says nothing is left
-  ({ res, written } = turn(base({ fallbacks }), { FAKE_CODEX: '{"gpt-6-luna":1,"gpt-5.6-terra":4}' }));
+  ({ res, written } = turn(base({ fallbacks }), { FAKE_CODEX: JSON.stringify({ [codexModel.id]: 1, [codexOther.id]: 4 }) }));
   assert.strictEqual(res.status, 1);
-  assert.deepStrictEqual([written.ok, written.model, written.error, written.exhausted], [false, 'gpt-5.6-terra', 'harness_exit_4', true]);
+  assert.deepStrictEqual([written.ok, written.model, written.error, written.exhausted], [false, codexOther.model, 'harness_exit_4', true]);
   assert.strictEqual(written.failed.length, 2);
 
   // an empty list still says the level is used up; a request without the key says nothing
@@ -579,14 +592,14 @@ rejects(base({ systemPromptFile: path.join(cwd, 'missing.md') }), 'cannot read s
 
   // a turn that succeeds starts one harness
   ({ written } = turn(base({ fallbacks }), { FAKE_CLAUDE: '0' }));
-  assert.deepStrictEqual([written.ok, written.harness, written.failed, written.exhausted], [true, 'claude', [], false]);
+  assert.deepStrictEqual([written.ok, written.harness, written.failed, written.exhausted], [true, claudeModel.harness, [], false]);
   assert.deepStrictEqual(ran(), []);
 
   // the fallbacks are validated with the request
   rejects(base({ fallbacks: 'codex' }), 'fallbacks must be an array');
   rejects(base({ fallbacks: ['codex'] }), 'a fallback must be an object');
-  rejects(base({ fallbacks: [{ ...fallbacks[0], model: 'no-such' }] }), "'codex no-such' is not a model cast supports");
-  assert.deepStrictEqual(validate(base({ fallbacks })).fallbacks.map((f) => f.modelId), ['gpt-6-luna', 'gpt-5.6-terra']);
+  rejects(base({ fallbacks: [{ ...fallbacks[0], model: 'no-such' }] }), `'${codexModel.harness} no-such' is not a model cast supports`);
+  assert.deepStrictEqual(validate(base({ fallbacks })).fallbacks.map((f) => f.modelId), [codexModel.id, codexOther.id]);
   assert.strictEqual(validate(base()).fallbacks, null);
 }
 
@@ -612,7 +625,7 @@ rejects(base({ systemPromptFile: path.join(cwd, 'missing.md') }), 'cannot read s
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cast-turn-home-'));
   const seenFile = path.join(bin, 'seen.json');
 
-  const MODELS = { claude: 'sonnet-5-5', codex: 'gpt-6-luna', opencode: 'grok-4.7' };
+  const MODELS = { claude: claudeModel.model, codex: codexModel.model, opencode: opencodeModel.model };
   const SESSIONS = { new: { mode: 'new' }, resume: { mode: 'resume', id: 'ses-iso' } };
   const request = (harness, mode, over = {}) => ({
     harness, model: MODELS[harness], effort: 1, cwd: agent, prompt: 'x', session: SESSIONS[mode], ...over,
@@ -684,7 +697,7 @@ rejects(base({ systemPromptFile: path.join(cwd, 'missing.md') }), 'cannot read s
   }
 
   // a fallback is the same agent's turn on another harness: it gets that harness's values
-  const fallbacks = [{ harness: 'codex', model: 'gpt-6-luna', effort: 1, session: SESSIONS.new, prompt: 'y' }];
+  const fallbacks = [{ harness: codexModel.harness, model: codexModel.model, effort: 1, session: SESSIONS.new, prompt: 'y' }];
   const [isolated] = validate(request('claude', 'new', { agentHome: agent, fallbacks })).fallbacks;
   assert.deepStrictEqual(without(argvFor(isolated, null, null), CODEX_ADDED), argvOf('codex', 'new', { prompt: 'y' }));
   assert.deepStrictEqual(validate(request('claude', 'new', { fallbacks })).fallbacks[0].isolation.argv, []);

@@ -84,7 +84,7 @@ function alive(pid) {
 function addAgent(dir, slug) {
   const home = path.join(dir, '.rbtv', 'agents', slug);
   fs.mkdirSync(path.join(home, 'tools'), { recursive: true });
-  fs.writeFileSync(path.join(home, 'agent.json'), JSON.stringify({ harness: 'claude', model: 'sonnet-5-5', effort: 'low' }));
+  fs.writeFileSync(path.join(home, 'agent.json'), JSON.stringify({ harness: 'claude', model: 'example-model', effort: 'low' }));
   fs.writeFileSync(path.join(home, 'prompt.md'), `---\nname: ${slug}\n---\n`, 'utf8');
   fs.mkdirSync(path.dirname(boardPath(home)), { recursive: true });
   fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');

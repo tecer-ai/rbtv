@@ -6,9 +6,20 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { spawnSync } = require('child_process');
+const { example } = require('../cast/example-models');
 
 const TOOL = path.join(__dirname, 'spark.js');
 const BASE = os.tmpdir();
+// Spark checks an agent's model against the models cast supports, so each agent here carries one,
+// picked by the harness it runs on; its effort is a rung of that model's own ladder.
+const scoutModel = example('a model of the codex harness', (m) => m.harness === 'codex');
+const drafterModel = example('a model of the claude harness', (m) => m.harness === 'claude');
+const rung = (m, n) => m.rungs[Math.min(n, m.rungs.length) - 1];
+const SCOUT_MODEL = scoutModel.model;
+const SCOUT_EFFORT = rung(scoutModel, 3);
+const DRAFTER_MODEL = drafterModel.model;
+const DRAFTER_EFFORT = rung(drafterModel, 2);
+const escaped = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 function mkFolder(name) {
   const dir = path.join(BASE, `spark-test-${name}-${process.pid}`);
@@ -29,8 +40,8 @@ function writeAgent(folder, values) {
 const scout = path.join(root, '.rbtv', 'agents', 'scout');
 const drafter = path.join(root, 'plans', 'x', 'agents', 'drafter');
 const half = path.join(root, '.rbtv', 'agents', 'half');
-writeAgent(scout, { name: 'scout', description: SCOUT_SAYS, harness: 'codex', model: 'gpt-6.1-sol', effort: 'high', packs: ['ignite'] });
-writeAgent(drafter, { name: 'drafter', harness: 'claude', model: 'sonnet-5-5', effort: 'medium' });
+writeAgent(scout, { name: 'scout', description: SCOUT_SAYS, harness: scoutModel.harness, model: SCOUT_MODEL, effort: SCOUT_EFFORT, packs: ['ignite'] });
+writeAgent(drafter, { name: 'drafter', harness: drafterModel.harness, model: DRAFTER_MODEL, effort: DRAFTER_EFFORT });
 writeAgent(half, null);
 
 // A `cast` on PATH that records its own argv. Launches go through it; nothing reaches a harness.
@@ -100,9 +111,9 @@ function spark(args, { env = {}, cwd = root } = {}) {
   const lines = res.stdout.split('\n');
   assert.deepStrictEqual(lines.slice(0, 3), ['rbtv agents: 2', `Folder: ${path.join(root, '.rbtv', 'agents')}`, '']);
   assert.ok(lines.includes(`half: cannot be launched: ${path.join(half, 'agent.json')} is missing`), res.stdout);
-  assert.ok(lines.includes('Name   Harness  Model        Effort  Ignite  Description'), res.stdout);
+  assert.ok(lines.includes(`Name   Harness  ${'Model'.padEnd(SCOUT_MODEL.length + 2)}Effort  Ignite  Description`), res.stdout);
   const row = lines.find((line) => line.startsWith('scout '));
-  assert.match(row, /^scout  codex    gpt-6\.1-sol  high    yes     Scouts the repository .*…$/, 'the description is shortened');
+  assert.match(row, new RegExp(`^scout  codex    ${escaped(SCOUT_MODEL)}  ${SCOUT_EFFORT.padEnd(8)}yes     Scouts the repository .*…$`), 'the description is shortened');
   assert.ok(row.length <= 100, `a row fits the terminal: ${row.length}`);
   assert.ok(!res.stdout.includes('drafter'), 'an agent outside .rbtv/agents/ is not in the list');
   assert.deepStrictEqual(lines.slice(-3, -1), ['Whole descriptions: add --full.',
@@ -117,14 +128,14 @@ function spark(args, { env = {}, cwd = root } = {}) {
   // a narrow terminal: one labeled block per agent, the description whole, no line cut
   const narrow = spark(['list'], { env: { COLUMNS: '60' } });
   assert.strictEqual(narrow.status, 0, narrow.stderr);
-  assert.ok(narrow.stdout.includes('Name: scout\nHarness: codex\nModel: gpt-6.1-sol\nEffort: high\nIgnite: yes\nDescription: Scouts'), narrow.stdout);
+  assert.ok(narrow.stdout.includes(`Name: scout\nHarness: codex\nModel: ${SCOUT_MODEL}\nEffort: ${SCOUT_EFFORT}\nIgnite: yes\nDescription: Scouts`), narrow.stdout);
   assert.ok(narrow.stdout.replace(/\n {2}/g, ' ').includes(`Description: ${SCOUT_SAYS}`), 'the whole description is shown');
   assert.ok(!narrow.stdout.includes('Full description of one agent'), 'nothing was shortened, so no pointer');
 
   // one agent in full, by name and by path
   const one = spark(['list', 'scout']);
   assert.strictEqual(one.status, 0, one.stderr);
-  assert.ok(one.stdout.startsWith(`Name: scout\nHarness: codex\nModel: gpt-6.1-sol\nEffort: high\nIgnite: yes\nFolder: ${scout}\nDescription: `), one.stdout);
+  assert.ok(one.stdout.startsWith(`Name: scout\nHarness: codex\nModel: ${SCOUT_MODEL}\nEffort: ${SCOUT_EFFORT}\nIgnite: yes\nFolder: ${scout}\nDescription: `), one.stdout);
   assert.ok(one.stdout.replace(/\n {2}/g, ' ').includes(SCOUT_SAYS), 'the whole description is shown');
   // what is installed in the agent is asked of rbtv, as cast does; without rbtv the view says so
   const alone = spark(['list', 'scout'], { env: { PATH: os.tmpdir() } });
@@ -135,10 +146,10 @@ function spark(args, { env = {}, cwd = root } = {}) {
   assert.strictEqual(all.folder, path.join(root, '.rbtv', 'agents'));
   assert.deepStrictEqual(all.agents, [
     { name: 'half', home: half, problem: `${path.join(half, 'agent.json')} is missing` },
-    { name: 'scout', description: SCOUT_SAYS, harness: 'codex', model: 'gpt-6.1-sol', effort: 'high', ignite: true, home: scout },
+    { name: 'scout', description: SCOUT_SAYS, harness: scoutModel.harness, model: SCOUT_MODEL, effort: SCOUT_EFFORT, ignite: true, home: scout },
   ]);
   assert.deepStrictEqual(JSON.parse(spark(['list', 'plans/x/agents/drafter', '--json'], { env: { PATH: os.tmpdir() } }).stdout), {
-    name: 'drafter', description: '', harness: 'claude', model: 'sonnet-5-5', effort: 'medium', ignite: false, home: drafter,
+    name: 'drafter', description: '', harness: drafterModel.harness, model: DRAFTER_MODEL, effort: DRAFTER_EFFORT, ignite: false, home: drafter,
     installed: null, installed_problem: 'rbtv is not on PATH.',
   });
 }
@@ -177,7 +188,7 @@ function spark(args, { env = {}, cwd = root } = {}) {
   fs.mkdirSync(path.join(inst, '.rbtv', 'agents'), { recursive: true });
   fs.mkdirSync(path.join(inst, '.rbtv', 'config'), { recursive: true });
   fs.writeFileSync(path.join(inst, '.rbtv', 'config', 'install.json'), '{}');
-  const values = { name: 'lia', harness: 'claude', model: 'sonnet-5-5', effort: 'medium', listed: true };
+  const values = { name: 'lia', harness: drafterModel.harness, model: DRAFTER_MODEL, effort: DRAFTER_EFFORT, listed: true };
   const lia = path.join(inst, 'plans', 'a', 'agents', 'lia');
   writeAgent(lia, values);
   const found = spark(['list', 'lia', '--json'], { cwd: inst, env: { PATH: os.tmpdir() } });
@@ -213,7 +224,7 @@ function spark(args, { env = {}, cwd = root } = {}) {
   assert.ok(unreadable.stderr.includes('agent.json is missing'), unreadable.stderr);
 
   const oldHome = path.join(root, 'plans', 'old', 'agents', 'oldname');
-  writeAgent(oldHome, { name: 'oldname', harness: 'codex', model: 'gpt-6.1-sol', effort: 'high' });
+  writeAgent(oldHome, { name: 'oldname', harness: scoutModel.harness, model: SCOUT_MODEL, effort: SCOUT_EFFORT });
   fs.renameSync(path.join(oldHome, 'prompt.md'), path.join(oldHome, 'agent.md'));
   const oldNamed = spark([oldHome, '--dry-run']);
   assert.strictEqual(oldNamed.status, 1);
@@ -288,8 +299,8 @@ if (process.platform !== 'win32') {
     `agent    scout`,
     `folder   ${scout}`,
     'harness  codex',
-    'model    gpt-6.1-sol',
-    'effort   high',
+    `model    ${SCOUT_MODEL}`,
+    `effort   ${SCOUT_EFFORT}`,
     '',
   ].join('\n'));
   assert.deepStrictEqual(JSON.parse(fs.readFileSync(shimOut, 'utf8')), ['--agent', 'scout', '--headed']);
@@ -305,12 +316,15 @@ if (process.platform !== 'win32') {
   const homeEnv = { HOME: home, USERPROFILE: home };
   const t0 = Date.UTC(2026, 9, 13, 10, 0, 0);
   const plain = mkFolder('resume-plain');
+  const OLDER_MODEL = 'example-model-older';
+  const PLAIN_MODEL = 'example-model-plain';
+  const OTHER_HARNESS_MODEL = 'example-model-other';
   const rows = [
-    { harness: 'claude', model: 'opus-5-5', session: 'old-id', folder: scout, t0: t0 - 5000, code: 'kj', agent: scout },
-    { harness: 'claude', model: 'haiku-5-5', session: null, folder: plain, t0: t0 + 500 },
-    { harness: 'codex', model: 'gpt-6.1-sol', session: null, folder: scout, t0, code: 'ab', agent: scout },
-    { harness: 'opencode', model: 'glm-5.3', session: null, folder: plain, t0: t0 + 1000, code: 'zz', agent: null },
-    { harness: 'claude', model: 'sonnet-5-5', session: 'new-id', folder: drafter, t0: t0 + 2000, code: 'kj', agent: drafter },
+    { harness: 'claude', model: OLDER_MODEL, session: 'old-id', folder: scout, t0: t0 - 5000, code: 'kj', agent: scout },
+    { harness: 'claude', model: PLAIN_MODEL, session: null, folder: plain, t0: t0 + 500 },
+    { harness: 'codex', model: SCOUT_MODEL, session: null, folder: scout, t0, code: 'ab', agent: scout },
+    { harness: 'opencode', model: OTHER_HARNESS_MODEL, session: null, folder: plain, t0: t0 + 1000, code: 'zz', agent: null },
+    { harness: 'claude', model: DRAFTER_MODEL, session: 'new-id', folder: drafter, t0: t0 + 2000, code: 'kj', agent: drafter },
   ];
   fs.mkdirSync(path.join(home, '.cast'), { recursive: true });
   fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'), rows.map((r) => `${JSON.stringify(r)}\n`).join(''));
@@ -339,9 +353,9 @@ if (process.platform !== 'win32') {
     'Sessions opened: 3 of 3, newest first',
     '',
     cols('Code', 'Agent', 'Harness', 'Model', 'Opened', 'Folder'),
-    cols('kj', 'drafter', 'claude', 'sonnet-5-5', when(t0 + 2000), drafter),
-    cols('zz', '-', 'opencode', 'glm-5.3', when(t0 + 1000), plain),
-    cols('ab', 'scout', 'codex', 'gpt-6.1-sol', when(t0), scout),
+    cols('kj', 'drafter', 'claude', DRAFTER_MODEL, when(t0 + 2000), drafter),
+    cols('zz', '-', 'opencode', OTHER_HARNESS_MODEL, when(t0 + 1000), plain),
+    cols('ab', 'scout', 'codex', SCOUT_MODEL, when(t0), scout),
     '',
     'Open one again: spark resume CODE',
     '',
@@ -354,13 +368,13 @@ if (process.platform !== 'win32') {
   assert.ok(one.stdout.startsWith('Sessions opened: 1 of 3, newest first\n'), one.stdout);
   assert.ok(one.stdout.endsWith('Open one again: spark resume CODE\nShow more: spark resume -n N, up to 50.\n'), one.stdout);
   assert.deepStrictEqual(JSON.parse(resume(['--json', '-n', '2']).stdout), { on_record: 3, sessions: [
-    { code: 'kj', agent: 'drafter', harness: 'claude', model: 'sonnet-5-5', opened: new Date(t0 + 2000).toISOString(), folder: drafter },
-    { code: 'zz', agent: null, harness: 'opencode', model: 'glm-5.3', opened: new Date(t0 + 1000).toISOString(), folder: plain },
+    { code: 'kj', agent: 'drafter', harness: 'claude', model: DRAFTER_MODEL, opened: new Date(t0 + 2000).toISOString(), folder: drafter },
+    { code: 'zz', agent: null, harness: 'opencode', model: OTHER_HARNESS_MODEL, opened: new Date(t0 + 1000).toISOString(), folder: plain },
   ] });
 
   // a narrow terminal: one labeled block per session, no line cut
   const narrow = resume(['-n', '1'], { COLUMNS: '40' });
-  assert.ok(narrow.stdout.includes(`Code: kj\nAgent: drafter\nHarness: claude\nModel: sonnet-5-5\nOpened: ${when(t0 + 2000)}\nFolder: ${drafter}\n`), narrow.stdout);
+  assert.ok(narrow.stdout.includes(`Code: kj\nAgent: drafter\nHarness: claude\nModel: ${DRAFTER_MODEL}\nOpened: ${when(t0 + 2000)}\nFolder: ${drafter}\n`), narrow.stdout);
 
   // no session on record is success
   const none = resume([], { HOME: plain, USERPROFILE: plain });
@@ -394,7 +408,7 @@ if (process.platform !== 'win32') {
     const claude = resume(['kj']);
     assert.strictEqual(claude.status, 0, claude.stderr);
     assert.strictEqual(claude.stdout, ['session  kj', 'agent    drafter', `folder   ${drafter}`, 'harness  claude',
-      'model    sonnet-5-5', ''].join('\n'));
+      `model    ${DRAFTER_MODEL}`, ''].join('\n'));
     assert.deepStrictEqual(JSON.parse(fs.readFileSync(shimOut, 'utf8')), ['resume', 'claude', 'new-id', drafter, '--headed']);
     assert.strictEqual(resume(['ab']).status, 0);
     assert.deepStrictEqual(JSON.parse(fs.readFileSync(shimOut, 'utf8')), ['resume', 'codex', 'opened', scout, '--headed']);

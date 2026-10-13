@@ -18,7 +18,9 @@ const { spawnSync } = require('node:child_process');
 const { run } = require('./manage.js');
 const { INSTALLER_ENTRY } = require('./connect.js');
 
-const CAST_MODELS = '{"models":[{"harness":"codex","model":"gpt-6.1-sol","mode":"cli","rungs":["low","medium","high"],"effort_numbers":{"low":1,"medium":2,"high":3},"selected":true}]}';
+// ignite manage passes cast's answer through: the stand-in's model is a name that is plainly not one.
+const MODEL = 'example-model';
+const CAST_MODELS = `{"models":[{"harness":"codex","model":"${MODEL}","mode":"cli","rungs":["low","medium","high"],"effort_numbers":{"low":1,"medium":2,"high":3},"selected":true}]}`;
 
 async function captures(argv, flags, deps) {
   let stdout = '';
@@ -46,7 +48,7 @@ async function captures(argv, flags, deps) {
   const installation = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-manage-'));
   const agent = path.join(installation, '.rbtv', 'agents', 'probe');
   fs.mkdirSync(agent, { recursive: true });
-  fs.writeFileSync(path.join(agent, 'agent.json'), JSON.stringify({ name: 'probe', description: 'Probe.', harness: 'codex', model: 'gpt-6.1-sol', effort: 'high', files: [], packs: [] }), 'utf8');
+  fs.writeFileSync(path.join(agent, 'agent.json'), JSON.stringify({ name: 'probe', description: 'Probe.', harness: 'codex', model: MODEL, effort: 'high', files: [], packs: [] }), 'utf8');
   fs.writeFileSync(path.join(agent, 'prompt.md'), '---\nname: probe\n---\n', 'utf8');
   // The installer checks the model and the effort word against `cast models list`, so a stand-in cast
   // answers for this one model, in the shape `cast models list --supported --json` prints. The effort is a word: what a number means the installer asks cast, and this

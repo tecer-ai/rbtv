@@ -8,6 +8,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { setTimeout: delay } = require('node:timers/promises');
 const { procStart } = require('../../../../cast/capabilities/tools/cast/lib/handles');
+const { example } = require('../../../../cast/capabilities/tools/cast/example-models');
 const { Store } = require('./store.js');
 const { main } = require('./cli.js');
 const { runOnce } = require('./turn-loop.js');
@@ -15,6 +16,21 @@ const { deliverPending } = require('./outbox.js');
 const { historyPath, writeHistory } = require('./history.js');
 const { EMPTY_BOARD, boardPath, parseBoard } = require('./board.js');
 const TEST_BOARD = EMPTY_BOARD.replace('## What matters now\n', '## What matters now\n\n### BOARD_TOKEN\nReady.\n- Threads: none\n- Detail: none\n- Flags: none\n');
+
+// The agent's own model is one of the claude harness with at least two rungs: the arms that change
+// its effort move between the lowest rung and the highest. The fallback arms need three models of
+// one other harness: two that share the agent's level and one a level down.
+const agentModel = example('a model of the claude harness with two or more effort rungs',
+  (m) => m.harness === 'claude' && m.rungs.length >= 2);
+const LOW = agentModel.rungs[0];
+const HIGH = agentModel.rungs[agentModel.rungs.length - 1];
+const cheapFallback = example('a model of the codex harness', (m) => m.harness === 'codex');
+const dearFallback = example('a second model of the codex harness', (m) => m.harness === 'codex', [cheapFallback]);
+const belowModel = example('a third model of the codex harness', (m) => m.harness === 'codex', [cheapFallback, dearFallback]);
+// The harness change arm moves the agent to a model of another harness, at that model's top rung.
+const otherHarnessModel = example('a model of the opencode harness', (m) => m.harness === 'opencode');
+const otherHigh = otherHarnessModel.rungs[otherHarnessModel.rungs.length - 1];
+const nameOf = (m) => `${m.harness} ${m.model}`;
 
 const failures = [];
 const pending = [];
@@ -153,7 +169,7 @@ function fakeAudio() {
 function harness(ctx, setting = {}) {
   const home = path.join(ctx.dir, '.rbtv', 'agents', 'master');
   fs.mkdirSync(home, { recursive: true });
-  const launch = { harness: 'claude', model: 'sonnet-5-5', effort: 'low', voice: 'voice-a', ...setting };
+  const launch = { harness: agentModel.harness, model: agentModel.model, effort: LOW, voice: 'voice-a', ...setting };
   fs.writeFileSync(path.join(home, 'agent.json'), `${JSON.stringify(launch)}\n`);
   fs.writeFileSync(path.join(home, 'prompt.md'), '---\nname: master\n---\n', 'utf8');
   fs.writeFileSync(path.join(home, 'board.md'), TEST_BOARD, 'utf8');
@@ -252,7 +268,7 @@ for (const disposition of ['completed', 'continue', 'waiting_owner', 'waiting_wo
     assert.equal(result.work.state, disposition);
     assert.equal(seen(box).length, 1);
     assert.equal(seen(box)[0].session.mode, 'new');
-    assert.equal(seen(box)[0].effort, 'low');
+    assert.equal(seen(box)[0].effort, LOW);
     assert.match(result.prompt, /BOARD_TOKEN/);
     assert.match(result.prompt, new RegExp(`ask-${disposition}`));
     const outbox = box.store.pendingOutbox();
@@ -385,23 +401,23 @@ test('settings changed between turns → next run snapshots the new setting', as
   box.sync();
   await delay(TABLE_REUSE_MS);
   const first = await runOnce('master', box.deps);
-  assert.equal(first.snapshot.effort, 'low');
+  assert.equal(first.snapshot.effort, LOW);
   assert.equal(first.snapshot.harness, 'claude');
   assert.equal(first.session.mode, 'new');
   const saved = JSON.parse(box.store.db.prepare('SELECT launch_snapshot FROM runs WHERE id=?').get(first.runId).launch_snapshot);
-  assert.equal(saved.effort, 'low');
-  const next = { harness: 'claude', model: 'sonnet-5-5', effort: 'high', voice: 'voice-a' };
+  assert.equal(saved.effort, LOW);
+  const next = { harness: agentModel.harness, model: agentModel.model, effort: HIGH, voice: 'voice-a' };
   fs.writeFileSync(path.join(box.home, 'agent.json'), `${JSON.stringify(next)}\n`);
   seed(box.store, { id: '3.3', text: 'second', createdAt: 30 });
   box.sync();
   const second = await runOnce('master', box.deps);
-  assert.equal(second.snapshot.effort, 'high');
+  assert.equal(second.snapshot.effort, HIGH);
   assert.equal(second.session.mode, 'resume');
   assert.equal(second.session.id, 'ses-keep');
-  assert.equal(seen(box)[1].effort, 'high');
+  assert.equal(seen(box)[1].effort, HIGH);
   assert.equal(seen(box)[1].session.id, 'ses-keep');
   const still = JSON.parse(box.store.db.prepare('SELECT launch_snapshot FROM runs WHERE id=?').get(first.runId).launch_snapshot);
-  assert.equal(still.effort, 'low');
+  assert.equal(still.effort, LOW);
 });
 
 // The installation of the test agent: a model catalog with the agent's model and two others at
@@ -412,10 +428,10 @@ function installationWithFallback(ctx, defaults) {
   fs.writeFileSync(path.join(config, 'install.json'), '{}\n');
   fs.writeFileSync(path.join(config, 'cast', 'models.csv'), [
     'mode,harness,model,level,reasoning,coding,cost',
-    'cli,claude,sonnet-5-5,L2,3,3,10',
-    'cli,codex,gpt-5.6-terra,L2,3,3,8',
-    'cli,codex,gpt-6.1-sol,L2,3,3,5',
-    'cli,codex,gpt-6-luna,L3,3,3,1',
+    `cli,${agentModel.harness},${agentModel.model},L2,3,3,10`,
+    `cli,${dearFallback.harness},${dearFallback.model},L2,3,3,8`,
+    `cli,${cheapFallback.harness},${cheapFallback.model},L2,3,3,5`,
+    `cli,${belowModel.harness},${belowModel.model},L3,3,3,1`,
     '',
   ].join('\n'));
   if (defaults !== null) fs.writeFileSync(path.join(config, 'cast', 'defaults.json'), defaults);
@@ -435,7 +451,7 @@ test('the fallbacks of the model ride the request in order, and the session is s
   // `low` is place 1 on the dial
   assert.deepEqual(request.session, { mode: 'resume', id: 'claude-session-1' });
   assert.doesNotMatch(request.prompt, /Stored thread context/);
-  assert.deepEqual(request.fallbacks.map((f) => `${f.harness} ${f.model} ${f.effort}`), ['codex gpt-6.1-sol 1', 'codex gpt-5.6-terra 1']);
+  assert.deepEqual(request.fallbacks.map((f) => `${f.harness} ${f.model} ${f.effort}`), [`${nameOf(cheapFallback)} 1`, `${nameOf(dearFallback)} 1`]);
   assert.deepEqual(request.fallbacks[0].session, { mode: 'new' });
   assert.match(request.fallbacks[0].prompt, /Stored thread context/);
   assert.match(request.fallbacks[0].prompt, /TRIGGER/);
@@ -444,8 +460,8 @@ test('the fallbacks of the model ride the request in order, and the session is s
   assert.equal(box.store.getSession('T1:C1:1.1', 'codex'), 'codex-session-1');
   assert.equal(box.store.getSession('T1:C1:1.1', 'claude'), 'claude-session-1');
   assert.deepEqual(box.logs.filter((l) => l.event === 'fallback'), [{ event: 'fallback',
-    failed: [{ harness: 'claude', model: 'sonnet-5-5', error: 'harness_exit_1', end: { code: 1, signal: null, elapsedMs: 4200 } }],
-    ran: { harness: 'codex', model: 'gpt-6.1-sol' } }]);
+    failed: [{ harness: agentModel.harness, model: agentModel.model, error: 'harness_exit_1', end: { code: 1, signal: null, elapsedMs: 4200 } }],
+    ran: { harness: cheapFallback.harness, model: cheapFallback.model } }]);
 
   // the next turn asks for the agent's own model again, and its fallbacks resume codex's session
   seed(box.store, { id: '5.5', text: 'AFTER', createdAt: 500 });
@@ -467,8 +483,8 @@ test('a level with no model left names what was tried and the model one level do
   const result = await runOnce('master', box.deps);
   assert.equal(result.failed, true);
   const { error } = box.store.db.prepare('SELECT error FROM runs WHERE id=?').get(result.runId);
-  assert.equal(error.split('; harness_exit_1')[0], 'no model of level L2 started: tried claude sonnet-5-5, codex gpt-6.1-sol, codex gpt-5.6-terra; '
-    + 'the next model by price is one level down (L3) and was not launched: codex gpt-6-luna');
+  assert.equal(error.split('; harness_exit_1')[0], `no model of level L2 started: tried ${nameOf(agentModel)}, ${nameOf(cheapFallback)}, ${nameOf(dearFallback)}; `
+    + `the next model by price is one level down (L3) and was not launched: ${nameOf(belowModel)}`);
 
   // a fallback that started and then failed is an ordinary failure of that run
   seed(box.store, { id: '5.5', text: 'AFTER', createdAt: 500 });
@@ -476,7 +492,7 @@ test('a level with no model left names what was tried and the model one level do
   box.setNow(Date.now() + 3600_000);
   const late = await runOnce('master', box.deps);
   const row = box.store.db.prepare('SELECT error FROM runs WHERE id=?').get(late.runId);
-  assert.match(row.error, /^did not start: claude sonnet-5-5 \(harness_exit_1\); codex gpt-6.1-sol ran in their place and failed; /);
+  assert.ok(row.error.startsWith(`did not start: ${nameOf(agentModel)} (harness_exit_1); ${nameOf(cheapFallback)} ran in their place and failed; `), row.error);
 });
 
 // The outbox rows that are Ignite's own words about a fallback, oldest first.
@@ -496,8 +512,8 @@ test('a turn that ran on a fallback tells the owner before the agent reply', asy
   assert.equal(result.disposition, 'completed');
   const rows = box.store.pendingOutbox();
   assert.deepEqual(rows.map((row) => [row.id, row.conversation_key, row.payload]), [
-    [`fallback:${result.runId}`, 'T1:C1:1.1', { text: 'System message: the model claude sonnet-5-5 has failed (exit 1 after 4s), '
-      + 'the model codex gpt-6.1-sol has failed (exit 1 after 4s), routing to codex gpt-5.6-terra', audio: false, files: [] }],
+    [`fallback:${result.runId}`, 'T1:C1:1.1', { text: `System message: the model ${nameOf(agentModel)} has failed (exit 1 after 4s), `
+      + `the model ${nameOf(cheapFallback)} has failed (exit 1 after 4s), routing to ${nameOf(dearFallback)}`, audio: false, files: [] }],
     [`reply:${result.runId}:0`, 'T1:C1:1.1', { text: 'reply-completed', audio: false, files: [] }],
   ]);
   const delivered = await deliverPending(box.store, { slack: box.slack });
@@ -511,7 +527,7 @@ test('a turn that ran on a fallback tells the owner before the agent reply', asy
   box.sync();
   const second = await runOnce('master', box.deps);
   assert.equal(box.store.pendingOutbox()[0].payload.text,
-    'System message: the model claude sonnet-5-5 has failed (spawn claude ENOENT), routing to codex gpt-6.1-sol');
+    `System message: the model ${nameOf(agentModel)} has failed (spawn claude ENOENT), routing to ${nameOf(cheapFallback)}`);
   assert.deepEqual(systemMessages(box.store).map((row) => row.id), [`fallback:${result.runId}`, `fallback:${second.runId}`]);
 });
 
@@ -524,8 +540,8 @@ test('no model started on three attempts tells the owner once, then the blocker'
   const first = await runOnce('master', box.deps);
   assert.equal(first.failure.held, false);
   const told = [{ id: `no-model:1.1`, conversation_key: 'T1:C1:1.1', state: 'pending',
-    payload: { text: 'System message: no model of level L2 started: tried claude sonnet-5-5, codex gpt-6.1-sol, codex gpt-5.6-terra; '
-      + 'the next model by price is one level down (L3) and was not launched: codex gpt-6-luna', audio: false, files: [] } }];
+    payload: { text: `System message: no model of level L2 started: tried ${nameOf(agentModel)}, ${nameOf(cheapFallback)}, ${nameOf(dearFallback)}; `
+      + `the next model by price is one level down (L3) and was not launched: ${nameOf(belowModel)}`, audio: false, files: [] } }];
   assert.deepEqual(systemMessages(box.store), told);
   box.setNow(box.now() + 5000);
   await runOnce('master', box.deps);
@@ -595,7 +611,7 @@ test('harness change → new session with re-hydrated prompt', async (ctx) => {
   box.store.setSession('T1:C1:1.1', 'claude', 'claude-session-1');
   box.store.db.prepare('UPDATE work SET summary=? WHERE conversation_key=?').run('WORKSUM', 'T1:C1:1.1');
   fs.writeFileSync(path.join(box.home, 'agent.json'), `${JSON.stringify({
-    harness: 'opencode', model: 'glm-5.3', effort: 'high', voice: 'voice-a',
+    harness: otherHarnessModel.harness, model: otherHarnessModel.model, effort: otherHigh, voice: 'voice-a',
   })}\n`);
   box.deps.historyWindow = 1;
   box.writeControl({ agent: agentOf('completed'), sessionId: 'ses-migrated' });
@@ -1007,7 +1023,7 @@ test('an attachment that was not downloaded still delivers the message with a wa
 test('a record cast would not launch stops the turn: no effort value', async (ctx) => {
   const box = harness(ctx);
   seed(box.store);
-  fs.writeFileSync(path.join(box.home, 'agent.json'), `${JSON.stringify({ harness: 'claude', model: 'sonnet-5-5' })}\n`);
+  fs.writeFileSync(path.join(box.home, 'agent.json'), `${JSON.stringify({ harness: agentModel.harness, model: agentModel.model })}\n`);
   box.sync();
   const result = await runOnce('master', box.deps);
   assert.equal(result.failure.scope, 'agent');
