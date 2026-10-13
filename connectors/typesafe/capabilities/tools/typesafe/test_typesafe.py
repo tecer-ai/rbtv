@@ -224,6 +224,14 @@ def check_tiers_sort_and_given():
 
 
 def check_shortcut_options():
+    argv = ["choice", "Team?", "--option", "billing", "--option", "tech", "--option", "sales"]
+    code, out, _ = run(argv, "x")                           # every option shown, zeros included
+    assert code == 0 and out.startswith("answer  billing  confidence 0.81  (billing 0.90, tech 0.05, sales 0.05)"), out
+    code, out, _ = run([*argv, "--top", "1"], "x")
+    assert code == 0 and out.startswith("answer  billing  confidence 0.81  (billing 0.90, +2 more)"), out
+    assert len(json.loads(run([*argv, "--top", "1", "--json"], "x")[1])["answers"]["answer"]["probabilities"]) == 3
+    assert run([*argv, "--top", "0"], "x")[0] == 2
+
     run(["yesno", "Urgent?", "--yes-means", "needs action today", "--no-means", "can wait"], "x")
     assert requests_seen[-1][2]["questions"]["answer"]["criteria"] == {
         "true": "needs action today", "false": "can wait"}, requests_seen[-1][2]

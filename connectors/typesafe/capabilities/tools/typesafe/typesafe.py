@@ -281,17 +281,22 @@ def check_options(args, many):
         raise Failure("usage", "--list-tier N prints the items of one tier as plain names",
                       "give it with --tiers, with --each or --each-file, without --json, "
                       "and N from 1 to the number of tiers")
+    if getattr(args, "top", None) is not None and args.top < 1:
+        raise Failure("usage", f"--top {args.top} shows no option", "give --top 1 or more, or leave it out to show every option")
     if getattr(args, "sort", None) and not many:
         raise Failure("usage", "--sort orders many items", "add --each or --each-file")
 
 
-def answer_text(answer):
+def answer_text(answer, top=None):
+    """One answer as text. `top` keeps that many options of a choice, most probable first."""
     kind = answer.get("type")
     if kind == "noul":
         return f"probability-of-yes {answer['noul']:.2f}"
     if kind == "choice":
         ranked = sorted(answer["probabilities"].items(), key=lambda pair: -pair[1])
-        shown = ", ".join(f"{name} {p:.2f}" for name, p in ranked if p >= 0.01)
+        shown = ", ".join(f"{name} {p:.2f}" for name, p in ranked[:top])
+        if top is not None and len(ranked) > top:
+            shown += f", +{len(ranked) - top} more"
         return f"{answer['choice']}  confidence {answer['confidence']:.2f}  ({shown})"
     if kind == "score":
         shown = ", ".join(f"{level}: {p:.2f}" for level, p in answer["probabilities"].items())
@@ -326,6 +331,7 @@ def run_judgment(args):
     check_options(args, many)
     questions = args.build(args)
     given = given_text(args)
+    top = getattr(args, "top", None)
     states = items(args)
 
     def judge(item):
@@ -351,7 +357,7 @@ def run_judgment(args):
         if args.json:
             print(json.dumps({**response, **mark}, ensure_ascii=False))
         else:
-            pairs = [(qid, answer_text(answer)) for qid, answer in response["answers"].items()]
+            pairs = [(qid, answer_text(answer, top)) for qid, answer in response["answers"].items()]
             pairs += mark_rows(args, response["answers"], mark)
             print("\n".join(rows(pairs + footer(response.get("model"), response.get("usage", {})))))
         return EXIT_BELOW if mark.get("passed") is False else EXIT_OK
@@ -404,7 +410,7 @@ def run_judgment(args):
                 if "error" in result:
                     pairs.append((result["item"], f"failed: {result['error']['message']}"))
                 else:
-                    text = answer_text(next(iter(result["answers"].values())))
+                    text = answer_text(next(iter(result["answers"].values())), top)
                     if gated:
                         text = f"{'passed' if result['passed'] else '-':6}  {text}"
                     if tiers:
@@ -417,7 +423,7 @@ def run_judgment(args):
                 if "error" in result:
                     out.append(f"  failed: {result['error']['message']}")
                 else:
-                    out += rows([(qid, answer_text(a)) for qid, a in result["answers"].items()], "  ")
+                    out += rows([(qid, answer_text(a, top)) for qid, a in result["answers"].items()], "  ")
         if summary["answered"]:
             out += rows(footer(model, usage))
         print("\n".join(out))
@@ -519,8 +525,8 @@ OUTPUT = """output:
     probability-of-yes 0.95        a yes/no answer; 0.50 means undecided, not half true
     billing  confidence 0.81  (…)  a choice: the option, then each option's probability
     1.05  confidence 0.92  (…)     a score: the position on the levels, counted from 0
-  A choice lists only the options with probability 0.01 or more; an option
-  missing from the list was judged below that. --json carries every option.
+  A choice lists every option, most probable first. --top N keeps the N most
+  probable and counts the rest as "+K more"; --json always carries every option.
   confidence, on a choice and a score, is not the probability of the answer.
   It says how far the probabilities are from an even split: 0 when every
   option is equally likely, 1 when one option holds all of it. With three
@@ -582,6 +588,8 @@ def build_parser():
 
     ask = verb("ask", "judge the content against every question in a file", questions_from_file, ASK_EXAMPLE)
     ask.add_argument("--questions", required=True, metavar="FILE", help="a JSON file of questions (see below)")
+    top_help = "in text output, show only the N most probable options of a choice (default: every option)"
+    ask.add_argument("--top", type=int, metavar="N", help=top_help)
 
     yesno = verb("yesno", "ask one yes/no question about the content", yesno_questions,
                  "examples:\n  cat mail.txt | typesafe yesno \"Does this message need a reply today?\"\n"
@@ -598,6 +606,7 @@ def build_parser():
     choice.add_argument("question", metavar="QUESTION", help="what to decide, as one quoted argument")
     choice.add_argument("--option", action="append", default=[], metavar="NAME[=MEANING]",
                         help="one option, repeated once per option (2 to 255); text after = says what the option means")
+    choice.add_argument("--top", type=int, metavar="N", help=top_help)
     choice.add_argument("--expect", metavar="NAME",
                         help="exit 0 when the option picked is NAME, else exit 3")
 
