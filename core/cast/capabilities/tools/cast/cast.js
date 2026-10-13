@@ -7,7 +7,7 @@
 // in its own module under lib/, split out 2026-08-20 along the section banners this file used
 // to carry. Read lib/<verb>.js for a verb; read here only for how argv reaches it.
 
-const { agentFilePrompt, agentHasTask, agentTask, rbtvAgent, takeAgentFlags } = require('./lib/agent');
+const { agentFilePrompt, agentHasTask, agentTask, rbtvAgent, takeAgentFlags, withMemory } = require('./lib/agent');
 const { runAgentList } = require('./lib/agent-list');
 const { runApi } = require('./lib/api');
 const { USAGE, USAGE_IG, fail, listArgs, parseArgs, resolveEffort, resolveEffortValue, resolveFolder, resolveModel, taskText } = require('./lib/core');
@@ -105,6 +105,8 @@ function main(rawArgv) {
     if (headed && agent.opening) promptText = agent.opening;
     else if (!headed || agentHasTask(agent)) promptText = taskText(agentTask(agent, fail), `task.md in ${agent.home}`);
   }
+  // A headed agent launch is the owner's session, task.md or not: it opens with its memory.
+  if (agent && headed) promptText = withMemory(agent.home, promptText);
   if (system) system.wrapper = SYSTEM_WRAPPER;
   if (!agent && (positional.length < 3 || positional.length > 4)) {
     fail(`usage: ${USAGE}\n       ${USAGE_IG}\nrun cast -h for full help`);

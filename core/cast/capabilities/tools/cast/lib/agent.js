@@ -14,6 +14,11 @@
 const fs = require('fs');
 const path = require('path');
 
+const { installationRoot } = require('./installation');
+
+// memory-core's library: the `memory` component sits beside cast under core/ in source.
+const MEMORY_LIB = path.join(__dirname, '..', '..', '..', '..', '..', 'memory', 'capabilities', 'tools', 'memory', 'lib', 'index.js');
+
 const PROMPT_MD = 'prompt.md';
 // The task of an agent launched with neither -p nor -f.
 const TASK_MD = 'task.md';
@@ -214,6 +219,37 @@ function agentTask(agent, fail) {
   return fs.readFileSync(file, 'utf8');
 }
 
+// The memory an ongoing session of the agent in `home` is given for its next turn, prepared now by
+// memory-core for that installation and that agent alone (the board is the bounded view, which
+// names any omitted watch-out as a mandatory read), or null when `home` lies in no installation or
+// the memory component is not installed beside cast. Only a caller that knows the session is the
+// owner's (a headed one, or a resume linked to one) asks: a temporary worker is never given it.
+function memoryContext(home) {
+  const root = installationRoot(home);
+  if (!root) return null;
+  let memory;
+  try { memory = require(MEMORY_LIB); } catch (e) {
+    if (e.code !== 'MODULE_NOT_FOUND') throw e;
+    process.stderr.write('cast: note: the memory component is not installed beside cast — no memory supplied\n');
+    return null;
+  }
+  const { bundle, identity, warnings } = memory.prepareMemory({ installation: root, agentHome: home, cwd: home });
+  return [
+    `Memory for this ongoing session, prepared now by memory prepare for the installation ${root} and the agent in ${home}.`,
+    'This is context, not a request: with no owner message following it, do not act yet.',
+    `Refresh it before each later owner turn: memory prepare --installation ${root} --agent-home ${home} --cwd ${home}`,
+    ...warnings,
+    ...bundle.map((row) => `\n### ${row.path}\n${row.path === identity.board ? identity.view : row.text}`),
+  ].join('\n');
+}
+
+// `text`, the turn's own message (or null), with the agent's memory ahead of it when it has any.
+function withMemory(home, text) {
+  const context = memoryContext(home);
+  if (context === null) return text;
+  return text === null ? context : `${context}\n\n---\n\n${text}`;
+}
+
 // Pull --agent / --rogue out of argv, leaving the ordinary launch arguments.
 function takeAgentFlags(argv, fail) {
   const rest = [];
@@ -242,5 +278,5 @@ function agentFilePrompt(flag, fail) {
 
 module.exports = {
   PROMPT_MD, TASK_MD, AGENT_JSON, agentBody, isPath, agentsFolder, agentHomeIn, holdsAgentFile, isAgentFolder, targetAgents, agentHomes, findAgentHome,
-  readAgent, rbtvAgent, agentHasTask, agentTask, targetRefusal, takeAgentFlags, agentFilePrompt, promptMissing,
+  readAgent, rbtvAgent, withMemory, agentHasTask, agentTask, targetRefusal, takeAgentFlags, agentFilePrompt, promptMissing,
 };

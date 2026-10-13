@@ -5,7 +5,8 @@
 // shows the agent's harness, model and effort (read from its agent.json), then starts
 // `cast --agent NAME --headed` (the agent's folder instead of NAME under --target). It passes no
 // task, harness, model or effort: cast reads them, and opens the session with the agent's opening
-// message when agent.json has one.
+// message when agent.json has one. The headed launch also opens with the agent's prepared memory
+// (cast's `withMemory`); spark adds none of its own.
 // spark list [AGENT] — the agents spark can open by name, or one of them in full. The list is
 // cast's (`cast list --agents`, lib/agent-list.js), and so is the reading of --target FOLDER
 // (lib/agent.js `targetAgents`).

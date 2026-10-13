@@ -12,11 +12,11 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { SPECS } = require('../supported-models');
 
-const { isAgentFolder, rbtvAgent } = require('./agent');
+const { isAgentFolder, rbtvAgent, withMemory } = require('./agent');
 const { HARNESSES, RESUME_USAGE, baseArgv, codexArgv, fail, parseArgs, promptArgv, refuseIfDetached, resolveEffortValue, resolveFolder, resolveModel, shortName } = require('./core');
 const { exhausted, howEnded, nameOf, startFailure } = require('./fallback');
 const { claudeSlug, emitHandle, procStart, stdoutPath } = require('./handles');
-const { newCode } = require('./headed');
+const { newCode, openedSessions, sessionOf } = require('./headed');
 const { isolation } = require('./isolation');
 const { loadOptional } = require('./optional');
 const { spawnable } = require('./win-exec');
@@ -355,6 +355,16 @@ function agentModel(home, harness) {
   } catch (e) { return fail(e.message); }
 }
 
+// Whether session `id` of `harness` is one the owner opened headed in the agent folder `home`: the
+// registry row of that headed launch (lib/headed.js) names the agent, and the session it opened
+// is the one resumed. `last` names no session, and a row older than the registry's retention is
+// gone, so neither links.
+function ownerSession(harness, id, home) {
+  if (id === 'last') return false;
+  return openedSessions().some((h) => h.harness === harness && h.agent && path.resolve(h.agent) === path.resolve(home)
+    && sessionOf(h).id === id);
+}
+
 function runResume(rawArgv) {
   // A headed resume opens the session for a person, who types the next message.
   const { dryRun, headed, detached, promptText, system, positional } = parseArgs(rawArgv, RESUME_USAGE, !rawArgv.includes('--headed'));
@@ -374,12 +384,20 @@ function runResume(rawArgv) {
   const iso = isolation(harness, agentHome, headed);
   const agentEnv = agentEnvOf(agentHome, iso);
   const own = agentHome && agentModel(agentHome, harness);
+  // The owner's session gets fresh memory in the turn: a headed resume (the owner types the
+  // message, so the memory is the opening one), or a headless one linked to a headed launch.
+  // A folder's task.md decides nothing; a headless resume linked to no headed launch is a worker's.
+  const ongoing = agentHome && (headed || ownerSession(harness, id, agentHome));
+  const memoryText = ongoing ? withMemory(agentHome, headed ? null : promptText) : null;
   const argv = own ? resumeArgv(harness, id, [...(noTuiEffort(harness, headed) ? [] : own.effortArgv), ...iso.argv], own.modelId, headed)
     : resumeArgv(harness, id, iso.argv, null, headed);
 
+  if (headed && memoryText !== null) argv.push(...promptArgv(harness, memoryText));
+  const turnText = headed ? null : (memoryText ?? promptText);
+
   if (dryRun) {
     process.stdout.write(`${JSON.stringify({
-      argv, cwd: folder, stdin_preview: headed ? null : promptText.slice(0, 200), ...agentEnv, env_removed: envRemoved(iso),
+      argv, cwd: folder, stdin_preview: headed ? null : turnText.slice(0, 200), ...agentEnv, env_removed: envRemoved(iso),
     })}\n`);
     process.exit(0);
   }
@@ -407,12 +425,12 @@ function runResume(rawArgv) {
       cwd: folder, env: agentEnv, unset: iso.unset, capped: false, stdio: 'inherit' }));
   }
   if (harness === 'opencode') {
-    return runOpencodeChecked(argv, { cwd: folder, env: agentEnv, unset: iso.unset, stdinText: promptText, t0, model: 'resume',
+    return runOpencodeChecked(argv, { cwd: folder, env: agentEnv, unset: iso.unset, stdinText: turnText, t0, model: 'resume',
       bind: () => (id === 'last' ? opencodeTouched(folder, t0) : id) }, ended('launch failed'));
   }
   const [cmd, ...args] = argv;
   return ended('resume failed')(spawnHarness(cmd, args, { cwd: folder, env: agentEnv, unset: iso.unset,
-    input: promptText, stdio: ['pipe', 'inherit', 'inherit'] }));
+    input: turnText, stdio: ['pipe', 'inherit', 'inherit'] }));
 }
 
 module.exports = {
