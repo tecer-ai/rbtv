@@ -112,14 +112,14 @@ def check_single_answers():
         "state": "urgent: payouts failing", "model": "jev-latest",
         "questions": {"answer": {"type": "noul", "instructions": "Is this urgent?"}}}), requests_seen[-1]
 
-    code, out, _ = run(["choice", "Which team?", "--option", "billing=payments, refunds",
-                        "--option", "technical", "--model", "jev-1.13.0", "--json"], "text")
+    code, out, _ = run(["choice", "Which team?", "--criteria", "billing=payments, refunds",
+                        "--criteria", "technical", "--model", "jev-1.13.0", "--json"], "text")
     assert code == 0 and json.loads(out)["answers"]["answer"]["choice"] == "billing", out
     sent = requests_seen[-1][2]
     assert sent["model"] == "jev-1.13.0" and sent["questions"]["answer"]["criteria"] == {
         "billing": "payments, refunds", "technical": None}, sent
 
-    code, out, _ = run(["score", "How angry?", "--level", "calm", "--level", "angry"], "text")
+    code, out, _ = run(["score", "How angry?", "--criteria", "calm", "--criteria", "angry"], "text")
     assert code == 0 and out.startswith("answer  1.05  confidence 0.92  (0: 0.05, 1: 0.95)"), out
     assert requests_seen[-1][2]["questions"]["answer"]["criteria"] == ["calm", "angry"]
 
@@ -129,17 +129,65 @@ def check_ask_and_structured_state():
         questions = {"urgent": {"type": "noul", "instructions": "Urgent?"},
                      "team": {"type": "choice", "instructions": "Team?", "criteria": {"a": None, "b": None}}}
         path = Path(folder) / "q s.json"                      # a path with a space
-        path.write_text(json.dumps(questions), encoding="utf-8")
-        code, out, _ = run(["ask", "--questions", str(path), "--state-json"], '{"ticket": "urgent"}')
+        path.write_text(json.dumps({"questions": questions}), encoding="utf-8")
+        code, out, _ = run(["ask", "--request", str(path), "--state-json"], '{"ticket": "urgent"}')
         assert code == 0 and out.splitlines()[:2] == [
             "urgent  probability-of-yes 0.95", "team    a  confidence 0.81  (a 0.90, b 0.10)"], out
         assert requests_seen[-1][2]["state"] == {"ticket": "urgent"}
         assert requests_seen[-1][2]["questions"] == questions
 
-        code, out, err = run(["ask", "--questions", str(path), "--state-json"], "not json")
+        code, out, err = run(["ask", "--request", str(path), "--state-json"], "not json")
         assert code == 2 and out == "" and "--state-json" in err, (code, out, err)
-    code, _, err = run(["ask", "--questions", "missing.json"], "text")
+    code, _, err = run(["ask", "--request", "missing.json"], "text")
     assert code == 2 and "missing.json" in err, err
+
+
+def check_json_request_and_files():
+    with tempfile.TemporaryDirectory() as folder:
+        for name, text in (("statement.csv", "urgent: 3 unmatched lines"), ("ledger.csv", "ledger rows"),
+                           ("routing.md", "billing owns payments"), ("candidate.json", "a candidate record")):
+            (Path(folder) / name).write_text(text, encoding="utf-8")
+        request = {"state": {"statement": {"$file": "statement.csv"}, "ledger": {"$file": "ledger.csv"}},
+                   "model": "jev-1.13.0",
+                   "questions": {"flag": {"type": "noul", "instructions": "Urgent?"},
+                                 "owner": {"type": "choice", "criteria": {"billing": None, "treasury": None},
+                                           "instructions": {"question": "Who owns this, by `policy`?",
+                                                            "policy": {"$file": "routing.md"}}}}}
+        code, out, err = run(["ask", "--json"], json.dumps(request), cwd=folder)     # the whole request on stdin
+        assert code == 0 and err == "" and json.loads(out)["answers"]["flag"]["noul"] == 0.95, (code, out, err)
+        sent = requests_seen[-1][2]
+        assert sent["state"] == {"statement": "urgent: 3 unmatched lines", "ledger": "ledger rows"}, sent["state"]
+        assert sent["questions"]["owner"]["instructions"]["policy"] == "billing owns payments"
+        assert sent["model"] == "jev-1.13.0" and set(sent) == {"state", "model", "questions"}, sent
+        run(["ask", "--model", "jev-latest"], json.dumps(request), cwd=folder)       # the flag outranks the request
+        assert requests_seen[-1][2]["model"] == "jev-latest"
+
+        before = len(requests_seen)
+        (Path(folder) / "full.json").write_text(json.dumps(request), encoding="utf-8")
+        for argv, stdin, word in ((["ask"], json.dumps({"questions": request["questions"]}), "no \"state\""),
+                                  (["ask"], json.dumps({"state": "x", "questions": {}}), "questions"),
+                                  (["ask"], "not json", "not a JSON request"),
+                                  (["ask"], json.dumps({"state": {"$file": "gone.csv"}, "questions": request["questions"]}),
+                                   "gone.csv"),
+                                  (["ask", "--request", "full.json", "--each"], '"x"\n', "its own state")):
+            code, out, err = run(argv, stdin, cwd=folder)
+            assert code == 2 and out == "" and word in err and len(requests_seen) == before, (argv, code, err)
+
+        # the short verbs: several whole files in the state, and files in one question's instructions
+        code, _, err = run(["yesno", "Does `statement` match `ledger`?", "--state", "statement=statement.csv",
+                            "--state", "ledger=ledger.csv"], "", cwd=folder)
+        assert code == 0, err
+        assert requests_seen[-1][2]["state"] == {"statement": "urgent: 3 unmatched lines", "ledger": "ledger rows"}
+        run(["yesno", "Is the state a duplicate of `candidate`?", "--instructions", "candidate=candidate.json"],
+            "a record", cwd=folder)
+        assert requests_seen[-1][2]["state"] == "a record" and requests_seen[-1][2]["questions"]["answer"][
+            "instructions"] == {"question": "Is the state a duplicate of `candidate`?",
+                                "candidate": "a candidate record"}, requests_seen[-1][2]
+        run(["yesno", "Urgent?", "--each", "--state", "ledger=ledger.csv"], '{"id": 1}\n', cwd=folder)
+        assert requests_seen[-1][2]["state"] == {"item": {"id": 1}, "ledger": "ledger rows"}
+        for bad in ("ledger", "stdin=ledger.csv", "=ledger.csv"):
+            code, _, err = run(["yesno", "Urgent?", "--state", bad], "x", cwd=folder)
+            assert code == 2 and "NAME=FILE" in err, (bad, err)
 
 
 def check_threshold_exit():
@@ -148,7 +196,7 @@ def check_threshold_exit():
     assert code == 3 and "passed  no (0.10 < 0.8)" in out, (code, out)
     code, out, _ = run(["yesno", "Urgent?", "--at-least", "0.8", "--json"], "calm note")
     assert code == 3 and json.loads(out)["passed"] is False, out
-    assert run(["score", "How angry?", "--level", "a", "--level", "b", "--at-least", "1"], "x")[0] == 0
+    assert run(["score", "How angry?", "--criteria", "a", "--criteria", "b", "--at-least", "1"], "x")[0] == 0
     before = len(requests_seen)
     code, _, err = run(["yesno", "Urgent?", "--at-least", "8"], "urgent")
     assert code == 2 and "outside 0 to 1" in err and len(requests_seen) == before, err
@@ -215,16 +263,16 @@ def check_tiers_sort_and_given():
     with tempfile.TemporaryDirectory() as folder:
         (Path(folder) / "goal.txt").write_text("plan the outage review", encoding="utf-8")
         (Path(folder) / "a.md").write_text("calm", encoding="utf-8")
-        assert run(["yesno", "Helps `given`?", "--given", "goal.txt"], "urgent", cwd=folder)[0] == 0
-        assert requests_seen[-1][2]["state"] == {"given": "plan the outage review", "content": "urgent"}
-        assert run(["yesno", "Helps `given`?", "--given", "goal.txt", "--each-file"], "a.md\n", cwd=folder)[0] == 0
-        assert requests_seen[-1][2]["state"] == {"given": "plan the outage review", "path": "a.md", "content": "calm"}
-        code, _, err = run(["yesno", "Helps?", "--given", "gone.txt"], "urgent", cwd=folder)
+        assert run(["yesno", "Helps `goal`?", "--state", "goal=goal.txt"], "urgent", cwd=folder)[0] == 0
+        assert requests_seen[-1][2]["state"] == {"stdin": "urgent", "goal": "plan the outage review"}
+        assert run(["yesno", "Helps `goal`?", "--state", "goal=goal.txt", "--each-file"], "a.md\n", cwd=folder)[0] == 0
+        assert requests_seen[-1][2]["state"] == {"path": "a.md", "content": "calm", "goal": "plan the outage review"}
+        code, _, err = run(["yesno", "Helps?", "--state", "goal=gone.txt"], "urgent", cwd=folder)
         assert code == 2 and "gone.txt" in err, err
 
 
 def check_shortcut_options():
-    argv = ["choice", "Team?", "--option", "billing", "--option", "tech", "--option", "sales"]
+    argv = ["choice", "Team?", "--criteria", "billing", "--criteria", "tech", "--criteria", "sales"]
     code, out, _ = run(argv, "x")                           # every option shown, zeros included
     assert code == 0 and out.startswith("answer  billing  confidence 0.81  (billing 0.90, tech 0.05, sales 0.05)"), out
     code, out, _ = run([*argv, "--top", "1"], "x")
@@ -232,14 +280,15 @@ def check_shortcut_options():
     assert len(json.loads(run([*argv, "--top", "1", "--json"], "x")[1])["answers"]["answer"]["probabilities"]) == 3
     assert run([*argv, "--top", "0"], "x")[0] == 2
 
-    run(["yesno", "Urgent?", "--yes-means", "needs action today", "--no-means", "can wait"], "x")
+    run(["yesno", "Urgent?", "--criteria", "true=needs action today", "--criteria", "false=can wait"], "x")
+    assert run(["yesno", "Urgent?", "--criteria", "maybe=perhaps"], "x")[0] == 2
     assert requests_seen[-1][2]["questions"]["answer"]["criteria"] == {
         "true": "needs action today", "false": "can wait"}, requests_seen[-1][2]
-    code, out, _ = run(["choice", "Team?", "--option", "billing", "--option", "sales", "--expect", "billing"], "x")
+    code, out, _ = run(["choice", "Team?", "--criteria", "billing", "--criteria", "sales", "--expect", "billing"], "x")
     assert code == 0 and "passed  yes (expected billing)" in out, (code, out)
-    code, out, _ = run(["choice", "Team?", "--option", "billing", "--option", "sales", "--expect", "sales"], "x")
+    code, out, _ = run(["choice", "Team?", "--criteria", "billing", "--criteria", "sales", "--expect", "sales"], "x")
     assert code == 3 and "passed  no (expected sales)" in out, (code, out)
-    code, _, err = run(["choice", "Team?", "--option", "billing", "--option", "sales", "--expect", "ops"], "x")
+    code, _, err = run(["choice", "Team?", "--criteria", "billing", "--criteria", "sales", "--expect", "ops"], "x")
     assert code == 2 and "billing, sales" in err, err
 
 
@@ -260,7 +309,7 @@ def check_failures():
 
     code, out, err = run(["yesno", "Urgent?"], "")
     assert code == 2 and "empty" in err, err
-    code, out, err = run(["choice", "Which?", "--option", "only"], "text")
+    code, out, err = run(["choice", "Which?", "--criteria", "only"], "text")
     assert code == 2 and "two" in err, err
     code, out, err = run(["yesno", "--json"], "text")           # usage error under --json
     assert code == 2 and err == "" and json.loads(out)["error"]["kind"] == "usage", (out, err)
@@ -305,7 +354,8 @@ if __name__ == "__main__":
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Stub)
     BASE = f"http://127.0.0.1:{server.server_address[1]}"
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    checks = [check_single_answers, check_ask_and_structured_state, check_threshold_exit, check_many_items,
+    checks = [check_single_answers, check_ask_and_structured_state, check_json_request_and_files,
+              check_threshold_exit, check_many_items,
               check_tiers_sort_and_given, check_shortcut_options, check_failures, check_retry_and_key_file,
               check_models_and_help]
     for check in checks:
