@@ -285,6 +285,8 @@ if (fs.existsSync(path.join(libDir, 'publish.js'))) {
   }
   assert('apply -h contains every extracted validator rule', missing.length === 0, missing.slice(0, 8).join(' | '));
 }
+assert('apply -h names every failure and does not stop at the first form error', helpOut.includes('every independent form error') && helpOut.includes('does not stop the operation checks') && helpOut.includes('<index> <op>') && !helpOut.includes('stops at the first form error'), helpOut);
+assert('root help names every failure and does not stop at the first form error', rootHelp.includes('every independent form error') && rootHelp.includes('<index> <op>') && !rootHelp.includes('stops at the first form error'), rootHelp);
 const promptPath = path.resolve(__dirname, '../../../../prompt.md');
 if (fs.existsSync(promptPath)) {
   const prompt = fs.readFileSync(promptPath, 'utf8');
@@ -401,6 +403,54 @@ store.appendReceipt(moved.box.home, {
 });
 const movedReverse = run(moved.box.home, ['reverse', '--item', 'migrated#1']);
 assert('migration reversal preserves a later unrelated edit', movedReverse.status === 0 && fs.readFileSync(path.join(moved.box.root, '.rbtv/memory/knowledge/preferences.md'), 'utf8') === prefs && fs.readFileSync(path.join(moved.box.root, '.rbtv/memory/knowledge/facts.md'), 'utf8').includes('old fact'), movedReverse.stderr);
+
+function failureBlock(stderr, reason) {
+  return stderr.split(/\n(?=failure )/).find((part) => part.includes(`reason: ${reason}`));
+}
+const judged = fixture();
+const judgedRows = [{ id: 9, author: 'owner', text: 'keep the topic', thread, conversationKey: 'c9' }];
+const judgedHash = crypto.createHash('sha256').update(JSON.stringify(judgedRows)).digest('hex');
+write(path.join(store.evidenceDir(judged.home), 'batch.json'), JSON.stringify({
+  sourceKind: 'conversation', sourceAgent: 'other', sourceCursor: 'messages', ceiling: 9, contentHash: judgedHash, rows: judgedRows,
+}));
+const judgedPrep = run(judged.home, ['prepare']);
+const judgedAlpha = '.rbtv/agents/albert/memory/alpha.md';
+const judgedBeta = '.rbtv/agents/albert/memory/beta.md';
+const judgedOutside = 'notes/outside.md';
+const judgedHead = git(judged.root, ['rev-parse', 'HEAD']);
+const judgedCursors = JSON.stringify(store.readCursors(judged.home));
+const judgedBad = run(judged.home, ['apply', '--run', json(judgedPrep).run, '--proposal', proposalFile(judged.home, {
+  operations: [
+    { op: 'add', path: judgedOutside, text: 'outside shape-token-not-for-alert', sources: [], reason: 'owner', explanation: 'because' },
+    {
+      op: 'add', path: judgedAlpha, sources: [], reason: 'owner', explanation: 'because',
+      text: '---\ndescription: when reviewing alpha\ntype: subject\n---\n# Alpha\n\nThreads: none\n- undated shape-token-not-for-alert\n',
+    },
+    {
+      op: 'add', path: judgedBeta, sources: [], reason: 'owner', explanation: 'because',
+      text: '---\ndescription: when reviewing beta\ntype: subject\naliases: [beta]\n---\n# Beta\n\n- a fact (2026-10-13 · albert)\n',
+    },
+  ],
+  conflicts: [{ path: 'shape-token-not-for-alert', text: 'shape-token-not-for-alert', sources: [], explanation: 'shape-token-not-for-alert' }],
+})]);
+const conflictBlock = failureBlock(judgedBad.stderr, 'invalid conflict');
+const outsideBlock = failureBlock(judgedBad.stderr, 'path outside agent memory or repeated operation');
+const aliasBlock = failureBlock(judgedBad.stderr, 'topic aliases required');
+const datedBlock = failureBlock(judgedBad.stderr, 'records require dated provenance');
+const threadsBlock = failureBlock(judgedBad.stderr, 'subject topics require Threads');
+assert('apply names the conflict, the outside add, both form errors and the missing Threads line', judgedBad.status === 1 && conflictBlock && conflictBlock.includes('path: (proposal)') && conflictBlock.includes('operation: (proposal)') && outsideBlock && outsideBlock.includes(`path: ${judgedOutside}`) && outsideBlock.includes('operation: 0 add') && aliasBlock && aliasBlock.includes(`path: ${judgedAlpha}`) && aliasBlock.includes('operation: 1 add') && datedBlock && datedBlock.includes(`path: ${judgedAlpha}`) && datedBlock.includes('operation: 1 add') && threadsBlock && threadsBlock.includes(`path: ${judgedBeta}`) && threadsBlock.includes('operation: 2 add') && git(judged.root, ['rev-parse', 'HEAD']) === judgedHead && JSON.stringify(store.readCursors(judged.home)) === judgedCursors && !fs.existsSync(path.join(judged.root, judgedAlpha)), judgedBad.stderr);
+const cited = `- kept fact (2026-10-13 · albert/[t](${thread}))`;
+function subjectFile(name, fact) {
+  return `---\ndescription: when reviewing ${name}\ntype: subject\naliases: [${name}]\n---\n# ${name}\n\nThreads: none\n${fact}\n`;
+}
+const judgedFixed = run(judged.home, ['apply', '--run', json(judgedPrep).run, '--proposal', proposalFile(judged.home, {
+  operations: [
+    { op: 'add', path: judgedAlpha, sources: [9], reason: 'owner', explanation: 'because', text: subjectFile('alpha', cited) },
+    { op: 'add', path: judgedBeta, sources: [9], reason: 'owner', explanation: 'because', text: subjectFile('beta', cited) },
+  ],
+  conflicts: [],
+})]);
+assert('corrected proposal applies on the same prepared run', judgedFixed.status === 0 && json(judgedFixed).run === json(judgedPrep).run && fs.readFileSync(path.join(judged.root, judgedAlpha), 'utf8').includes('kept fact') && fs.readFileSync(path.join(judged.root, judgedBeta), 'utf8').includes('Threads: none'), judgedFixed.stderr);
 
 const pair = fixture();
 const { spawn } = require('node:child_process');

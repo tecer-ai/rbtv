@@ -100,7 +100,7 @@ Record forms the validator checks:
   Daily file name is YYYY-MM-DD, at most 40 lines, episodes and links only. Weekly file name is YYYY-Www, at most 25 lines, and each event links a daily file backed by owner messages.
   Board headings, in order: ## What matters now, ## Watch-outs, ## Timers, ## Recently closed. A subject is a ### title, 1-3 state lines, then Threads, Detail, Flags. Do not create or close subjects, and do not edit Timers, Flags or Recently closed. Every foldable watch-out is folded or removed as a duplicate in this proposal.
   Caps the validator enforces: profile 4000 characters; learned 30 rules; daily 40 lines; weekly 25 lines. On-demand files warn at 100 nonempty lines and split at 300 in the library, not by rewriting inside a proposal.
-  Inside one file the library stops at the first form error. Later operations are still checked. Correct that file and run apply again on the same prepared run.
+  A refusal names every failure found. Each names its path, its operation, the requirement and the expected form. The operation is "<index> <op>", for example 0 add. A failure that is not one operation has path (proposal) and operation (proposal). One file returns every independent form error. A conflict that is not a non-empty string does not stop the operation checks. Correct that file and run apply again on the same prepared run.
 
 Prepare input fields the proposal is checked against:
   agent, date, files, messages, cursor, ceiling. messages rows have rowid, text, thread, conversation_key. Cite rowid, not a native id, unless the native id is that rowid.
