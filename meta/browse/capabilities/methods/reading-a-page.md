@@ -2,12 +2,12 @@
 
 The result: the text of one web page, PDF or local HTML file, saved where the task says, with a statement of whether what came back was the article. Input: the URL or file, and the destination file or folder. When the task gives no destination, save in your scratch folder and report the path; this page does not choose a place in the workspace.
 
-`capture-cli` does the work without starting a browser. `capture-cli -h` lists its options.
+`page-capture` does the work without starting a browser. `page-capture -h` lists its options.
 
 ```
-capture-cli --url <url> --out-dir <folder>     # the tool names the file: YYYY-MM-DD-<title-slug>.md
-capture-cli --url <url> --out <file>           # an exact path
-capture-cli --file <path> --out <file>         # a local HTML, PDF or text file
+page-capture --url <url> --out-dir <folder>     # the tool names the file: YYYY-MM-DD-<title-slug>.md
+page-capture --url <url> --out <file>           # an exact path
+page-capture --file <path> --out <file>         # a local HTML, PDF or text file
 ```
 
 It prints one JSON object and exits 0 only when `state` is `captured`. A blocked result whose `next` key is set names the command to run next.

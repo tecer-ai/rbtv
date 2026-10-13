@@ -12,7 +12,7 @@ synthesis. Use it when the concept work needs product-level evidence, or when th
 point is a research pile rather than a raw idea.
 
 > Two boundaries. Research RIGOR — how a source is found, evaluated, scored, and cited —
-> belongs to `../../../meta/browsing/capabilities/methods/researching-with-sources.md`; this reference carries the
+> belongs to `../../../meta/browse/capabilities/methods/researching-with-sources.md`; this reference carries the
 > business-analysis frame only. And the market frame — direct and indirect alternatives,
 > non-consumption, geographic benchmarks, positioning, threats and opportunities — belongs to
 > the sibling `competitive-landscape.md`. This reference owns structured product-FEATURE

@@ -1,6 +1,6 @@
-# capture-cli
+# page-capture
 
-`capture-cli` fetches one URL, or takes one local HTML, PDF or text file, extracts the article as Markdown and writes it to the file or folder its arguments name. [Reading a page](../../methods/reading-a-page.md) is the method that runs it and says what to do with each result. `capture-cli -h` is the interface reference.
+`page-capture` fetches one URL, or takes one local HTML, PDF or text file, extracts the article as Markdown and writes it to the file or folder its arguments name. [Reading a page](../../methods/reading-a-page.md) is the method that runs it and says what to do with each result. `page-capture -h` is the interface reference.
 
 ## What a run returns
 

@@ -2,7 +2,7 @@
 
 The result: the title and description of one URL, without reading or saving the page. Input: the URL.
 
-1. Run `capture-cli --url <url> --title-only`. It fetches the page once, writes nothing, and prints JSON whose `title` and `description` are what the page declares. `state` is `titled` and the exit status 0 when a title was found.
+1. Run `page-capture --url <url> --title-only`. It fetches the page once, writes nothing, and prints JSON whose `title` and `description` are what the page declares. `state` is `titled` and the exit status 0 when a title was found.
 2. When the result is `blocked` and the URL belongs to a platform that publishes oEmbed, fetch the endpoint with `curl -s`. Each returns JSON holding the title.
 
    | Platform | Endpoint |

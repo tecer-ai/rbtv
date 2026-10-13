@@ -942,7 +942,7 @@ def main(argv: Optional[list] = None) -> int:
 
     if args.title_only and not args.url:
         print("ERROR: --title-only reads a page's title and needs --url. "
-              "Run: capture-cli --url <url> --title-only", file=sys.stderr)
+              "Run: page-capture --url <url> --title-only", file=sys.stderr)
         return 1
     if not (args.dry_run or args.title_only) and not (args.out or args.out_dir):
         print("ERROR: exactly one of --out / --out-dir is required (or use --dry-run).",

@@ -1,0 +1,13 @@
+{
+  "description": "Work that needs a browser or a web page: reading, previewing, driving, measuring and sourced research; not design or document work, which office owns. One browse skill routes to the four methods, the page-capture tool reads and saves a page without a browser, and the research-check tool checks a research report's form.",
+  "dependencies": [
+    "agent-browser",
+    "beautifulsoup4",
+    "defuddle-cli",
+    "node",
+    "playwright",
+    "pypdf",
+    "python3",
+    "trafilatura"
+  ]
+}
