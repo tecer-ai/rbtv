@@ -14,8 +14,8 @@ When the list of changed files is missing, stop and ask for it. When a deploy or
 
 | The change touches | Run |
 |---|---|
-| Any file under `core/ignite/` | The 18 Ignite test programs, plus `test_albert_evidence.js` and `test_runtime_migration.js` |
-| `turn.js`, `store.js`, or a file under `core/cast/capabilities/tools/cast/lib/` (Ignite imports `agent`, `core`, `fallback`, `handles`, `launch`, `optional` and `win-exec` from there) | The 18 programs and also `test_cast.js`, `test_route.js` and `test_spark.js` |
+| Any file under `core/ignite/` | The Ignite programs in the section 2 loop, including `test_timer_check.js`, `test_albert_evidence.js` and `test_runtime_migration.js`, and the memory, Albert and `test_memory_delivery.js` programs that section names |
+| `turn.js`, `store.js`, or a file under `core/cast/capabilities/tools/cast/lib/` (Ignite imports `agent`, `core`, `fallback`, `handles`, `launch`, `optional` and `win-exec` from there) | The Ignite programs in the section 2 loop, and also `test_cast.js`, `test_memory_delivery.js`, `test_route.js` and `test_spark.js` |
 | A file the installer scans (a skill, rule, pack, agent, hook, component record or tool record, or the first line of a tool's program; [rbtv CLI](../../../rbtv/capabilities/glossary/rbtv-cli.md) owns the list) or rbtv's install code | The installer selftest, on Linux and on Windows |
 | Code the waking service runs, `deploy.sh` or the systemd unit | All of the above, then deploy and live checks when the caller put them in scope |
 
@@ -27,18 +27,30 @@ Run from the repository root of the copy that holds the change. Commands on PATH
 
 Save the outputs before the first edit, in a folder outside the repository, then again after the change. `$OUT` is that folder.
 
+Create a fresh empty folder and use its path as `$EMPTY`. `test_connect.js` calls the real installer. With the real home that installer meets the PATH shortcuts of the installed checkout and the program fails; that failure is environmental. Set `HOME` to `$EMPTY` for that program, and on Windows set `USERPROFILE` to the same folder: the installer reads the home folder from `USERPROFILE` there. On Windows, set both for the memory and Albert programs as well. `test_memory_core.js` sets only `HOME`, and a program that reads the home folder through Node reads `USERPROFILE`.
+
+None of these programs sends when `IGNITE_SENDER_TOKEN` or a Slack token variable is set in the shell. No JavaScript or Python file under `core` or `connectors` names `IGNITE_SENDER_TOKEN`. A Slack call in these programs uses an injected stand-in, or a literal test token with an injected `fetch`.
+
 ```
 cd core/ignite/capabilities/tools/ignite
-for t in audio board cli config connect daemon deploy dreamer ingress manage memory memory_write outbox prompt slack store turn turn_loop albert_evidence runtime_migration; do
+for t in audio board cli config daemon deploy dreamer ingress manage memory memory_write outbox prompt slack store turn turn_loop albert_evidence runtime_migration timer_check; do
   node test_$t.js > "$OUT/test_$t.out" 2> "$OUT/test_$t.err"; echo "test_$t $?"
 done
+HOME="$EMPTY" USERPROFILE="$EMPTY" node test_connect.js > "$OUT/test_connect.out" 2> "$OUT/test_connect.err"; echo "test_connect $?"
 ```
 
-After retirement removes `test_dreamer.js`, run that same list without `dreamer`, and also `test_timer_check.js`. The programs that must still exit 0 are: `test_config.js`, `test_cli.js`, `test_connect.js`, `test_daemon.js`, `test_turn_loop.js`, `test_outbox.js`, `test_timer_check.js`, `test_memory.js`, `test_memory_write.js`, `test_albert_evidence.js`, `test_audio.js`, `test_board.js`, `test_deploy.js`, `test_ingress.js`, `test_manage.js`, `test_prompt.js`, `test_slack.js`, `test_store.js`, `test_turn.js` and `test_runtime_migration.js`. `test_cli.js` and `test_connect.js` still end with `ok`. Do not run `test_dreamer.js` once that file is absent. The Albert, memory-core and migration test programs stay the ones their reports name; this page does not move them into the Ignite loop.
+After retirement removes `test_dreamer.js`, run that same list without `dreamer`. The programs that must still exit 0 are: `test_config.js`, `test_cli.js`, `test_connect.js`, `test_daemon.js`, `test_turn_loop.js`, `test_outbox.js`, `test_timer_check.js`, `test_memory.js`, `test_memory_write.js`, `test_albert_evidence.js`, `test_audio.js`, `test_board.js`, `test_deploy.js`, `test_ingress.js`, `test_manage.js`, `test_prompt.js`, `test_slack.js`, `test_store.js`, `test_turn.js` and `test_runtime_migration.js`. `test_cli.js` and `test_connect.js` still end with `ok`. Do not run `test_dreamer.js` once that file is absent. The memory and Albert programs stay out of that loop. Run them from the repository root:
+
+```
+HOME="$EMPTY" USERPROFILE="$EMPTY" node core/memory/capabilities/tools/memory/test_memory_core.js > "$OUT/test_memory_core.out" 2> "$OUT/test_memory_core.err"; echo "test_memory_core $?"
+HOME="$EMPTY" USERPROFILE="$EMPTY" node core/memory/capabilities/tools/memory/test_migrate.js > "$OUT/test_migrate.out" 2> "$OUT/test_migrate.err"; echo "test_migrate $?"
+HOME="$EMPTY" USERPROFILE="$EMPTY" node core/memory/agents/albert/rbtv/capabilities/tools/albert/test_albert.js > "$OUT/test_albert.out" 2> "$OUT/test_albert.err"; echo "test_albert $?"
+```
 
 ```
 cd core/cast/capabilities/tools/cast
 node test_cast.js > "$OUT/test_cast.out" 2> "$OUT/test_cast.err"; echo "test_cast $?"
+node test_memory_delivery.js > "$OUT/test_memory_delivery.out" 2> "$OUT/test_memory_delivery.err"; echo "test_memory_delivery $?"
 node test_route.js > "$OUT/test_route.out" 2> "$OUT/test_route.err"; echo "test_route $?"
 cd ../spark
 node test_spark.js > "$OUT/test_spark.out" 2> "$OUT/test_spark.err"; echo "test_spark $?"
@@ -50,7 +62,7 @@ python3 core/rbtv/capabilities/tools/rbtv/install.py selftest > "$OUT/selftest.o
 
 On Windows the commands are the same with `python` in place of `python3`; run each program on its own line when the shell has no `for` loop.
 
-The pass signal is exit 0 for every program, plus the line named here. Seconds were measured on Linux, serially, with Node v24.18.0 and Python 3.14.4; they show which programs are slow, not a limit.
+The pass signal is exit 0 for every program, plus the line named here. Seconds in the table were measured on Linux, serially, with Node v24.18.0 and Python 3.14.4; they show which programs are slow, not a limit. A Windows 11 run with Node v24.11.1, Python 3.12.10 and a CRLF checkout exited 0 for every test program in this section. `test_dreamer.js` took 136 seconds and `test_cast.js` took 265 seconds there.
 
 | Program | Pass signal besides exit 0 | Seconds |
 |---|---|---|
@@ -61,7 +73,10 @@ The pass signal is exit 0 for every program, plus the line named here. Seconds w
 | `test_dreamer.js` | Same, while the file is present | 20 |
 | `test_albert_evidence.js` | Same, and the last line is `ok` | not measured here |
 | `test_runtime_migration.js` | `PASS RM-` lines, no line starting `FAIL` | not measured here |
-| `test_daemon.js` | Same. It also prints the service's log lines, each starting with `{`; ignore them, and do not read its last line as the result | 25 |
+| `test_timer_check.js` | One line `PASS <name>` per test, no line starting `FAIL`, and the last line is `PASS timer-check` | not measured here |
+| `test_memory_delivery.js`, `test_memory_core.js`, `test_migrate.js` | One line `PASS <name>` per test, no line starting `FAIL` | not measured here |
+| `test_albert.js` | One line `PASS <name>` per test, no line starting `FAIL`, and the last line is `PASS suite` | not measured here |
+| `test_daemon.js` | One line `PASS <name>` per test, no line starting `FAIL`. It also prints the service's log lines, each starting with `{`; ignore them, and do not read its last line as the result | 25 |
 | `test_turn.js` | Its only line: `test_turn: ok` | 4 |
 | `test_cast.js` | Its only line: `all cast tests passed` | 52 |
 | `test_route.js` | Its only line: `all route tests passed` | 7 |
@@ -85,7 +100,22 @@ All four hold, or the report says which does not:
 
    and `diff` the two files against the ones saved before the edit. Every added or removed name is explained by the change. `LC_ALL=C` keeps the order identical between runs. The selftest line `D2-scope` carries a temporary folder name and differs on every run; it is the one expected difference. Never count on a total alone: one removed test and one added test leave the total unchanged.
 2. **Each touched test can fail.** For every test the change adds or edits, break the behaviour it checks once, see that test print `FAIL` and the program exit non-zero, then restore the file. A test never seen red proves nothing about its subject.
-3. **Windows.** Every obliged program exits 0 there, and every skipped test prints `skip: <name> is Linux-only: <reason>`. Exactly fifteen Ignite tests in the original eighteen programs are skipped, each for something Windows does not have. `test_albert_evidence.js` and `test_runtime_migration.js` were not measured on Windows; do not infer their skips from this count. The fifteen are: in `test_daemon.js`, `sigterm-clean`, `unit-path-filled` and `unit-path-has-link-bin`; in `test_turn_loop.js`, `old colon history folder is found`; in `test_deploy.js`, the eleven tests that run a deploy, which is every test except `help-needs-nothing`, `refuses-off-linux` and `unknown-words-refused`. `test_cast.js` prints one more skip, for the `setsid` launch check. Any other skip, or a sixteenth, is a finding.
+3. **Windows.** Every obliged program exits 0 there. A skipped case prints one line that starts with `skip:`. Ignite programs are the `test_*.js` files under `core/ignite/capabilities/tools/ignite/`. They print 27 such lines. Cast programs are the `test_*.js` files under `core/cast/capabilities/tools/cast/` and `core/cast/capabilities/tools/spark/`. They print 2. Any other line that starts with `skip:` is a finding. A line that starts with `SKIP` or `skipped:` is not one of these lines.
+
+   Ignite, 27:
+
+   - `test_daemon.js`, 7. Four start a check tool as a program (`the check tool is started as a program`; the case beside a timer without one adds `which the waking service does on Linux only`). `sigterm-clean` is skipped because Windows does not deliver SIGTERM. `unit-path-filled` and `unit-path-has-link-bin` run the program inside `deploy.sh` that fills the systemd unit.
+   - `test_deploy.js`, 11. Every test that runs a deploy, which is every test except `help-needs-nothing`, `refuses-off-linux` and `unknown-words-refused`. The reason is `the verb deploys a systemd user service and refuses on any other system`.
+   - `test_timer_check.js`, 7. Every test. The reason is `the waking service starts check tools and runs on Linux only`.
+   - `test_turn_loop.js`, 1: `old colon history folder is found`, because a folder name with colons cannot exist on Windows.
+   - `test_albert_evidence.js`, 1: `timer check parser wakes on the adapter only when the tool reports new work`, because the check tool is started as a program.
+   - `test_runtime_migration.js` prints no `skip:` line. The other Ignite programs in section 2 print none.
+
+   Cast, 2:
+
+   - `test_cast.js`, 1: the `setsid` detached-launch gate (session leader). The line ends at `Linux-only`.
+   - `test_memory_delivery.js`, 1: `spark passes the same bundle as headed cast`, because the stand-in cast on PATH is a `#!/bin/sh` script, which Windows cannot start.
+   - `test_route.js` and `test_spark.js` print no `skip:` line.
 4. **Who ran what.** The report names each system, the commit, and who ran it: you, or the Windows session whose reply you quote.
 
 Never skip a whole program, delete or weaken a test, or loosen an assertion to make a run pass. The repository's [Linux and Windows rule](../../../../CLAUDE.md) states what a change must respect on both systems.
