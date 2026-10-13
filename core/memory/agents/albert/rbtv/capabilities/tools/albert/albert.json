@@ -1,0 +1,5 @@
+{
+  "name": "albert",
+  "description": "Checks due consolidation, prepares a snapshot, validates and publishes a proposal, reverses one item, and freezes the weekly report.",
+  "entry": "albert.js"
+}
