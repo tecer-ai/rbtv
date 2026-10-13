@@ -196,8 +196,8 @@ Examples:
   rbtv show critical-partner
   rbtv show meta/reason#critical-partner
   rbtv show --pack ignite
-  rbtv show research
-  rbtv show web/research
+  rbtv show reason
+  rbtv show meta/reason
 
 positional arguments:
   NAME                  unique short name, full id, or module/component;

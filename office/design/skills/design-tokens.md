@@ -5,7 +5,7 @@ description: "Extracts colour/type/spacing tokens from source material into the 
 
 # design-tokens
 
-Extract design tokens from a live site into a tokens JSON and/or a design brief. Instruction-only — this capability has no CLI. Drive the site through the environment's browser surface (the `web/browse` capability). NEVER duplicate that surface here. NEVER invent a capture executable.
+Extract design tokens from a live site into a tokens JSON and/or a design brief. Instruction-only — this capability has no CLI. Drive the site through the environment's browser surface (the `browsing` skill of `meta/browsing`). NEVER duplicate that surface here. NEVER invent a capture executable.
 
 ## Standing rules
 
@@ -188,7 +188,7 @@ Write a completion note: pages analyzed, screenshot count, scan count, and per-c
 ## What this never does
 
 - It NEVER decides where output lives.
-- It NEVER duplicates `web/browse`.
+- It NEVER duplicates the `browsing` skill.
 - It NEVER fabricates a palette, type scale, or spacing scale the site does not use.
 - It NEVER treats a blocked cross-origin stylesheet as an empty site.
 - It NEVER prompts after the single URL/scope confirmation.

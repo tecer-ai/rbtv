@@ -1,16 +1,8 @@
----
-description: "Read at the moment of conducting or reporting multi-source web research — the whole rigor standard from first search to finished report: how a source is scored, when a claim counts as verified, how the report cites, flags, and discards, and when to stop and ask."
----
+# Researching with sources
 
-# Web research — the rigor standard
+The result: a research report in which every claim carries a scored source, written where the task says or returned as the answer. Input: the question, and the path of a sources manifest when the task names one. Every rule on this page applies to every research report.
 
-Every rule here binds every research output, whatever asked for it.
-
-## Reaching a page
-
-Finding a URL is a live web search. Reading the page — fetch, extract, judge, save — is `web/capture`.
-Driving or measuring a browser is `web/browse`, and only when capture cannot read the page. This
-reference scores and cites what those return; it does not fetch or drive.
+Find pages with your harness's web search tool. Read a page you cite; when the page must be kept, or the fetch returns no article, follow [Reading a page](reading-a-page.md).
 
 ## 1. Identify the topic
 

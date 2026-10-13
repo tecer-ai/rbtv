@@ -1,0 +1,5 @@
+{
+  "name": "capture-cli",
+  "description": "Reads a web page, PDF or local HTML file without a browser: fetches it, extracts the article as Markdown, reports whether what came back was an article or a bot wall or an empty JavaScript page, and saves it to the file or folder named.",
+  "entry": "capture.py"
+}

@@ -1,5 +1,0 @@
-{
-  "name": "capture-cli",
-  "description": "Fetches a URL and extracts it to clean text through the strongest extractor available.",
-  "entry": "../../capture/capture.py"
-}

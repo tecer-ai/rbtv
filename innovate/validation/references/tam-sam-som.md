@@ -60,7 +60,7 @@ old data, proxy markets, or significant extrapolation.
 strong tier; trade-association data and startup or professional-network databases are the medium
 tier; blog posts and articles are triangulation only, never a load-bearing figure. This framework
 sets WHICH numbers are needed — how a web source is scored, cited and reported is the workspace's
-research-rigor standard at `web/research/references/standards.md`, not restated here.
+research-rigor standard at `meta/browsing/capabilities/methods/researching-with-sources.md`, not restated here.
 
 ## What a good output contains
 

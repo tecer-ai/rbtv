@@ -7,7 +7,8 @@
     "connectors/elevenlabs#elevenlabs",
     "meta/coordinate#coordinate",
     "core/ignite#agent-controls",
-    "web/browse#web",
+    "meta/browsing#browsing",
+    "meta/browsing#capture-cli",
     "office/document#office",
     "connectors/google#google",
     "core/ignite#ignite-standing-instructions"

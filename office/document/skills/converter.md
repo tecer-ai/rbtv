@@ -17,7 +17,7 @@ rendered document. [md-to-docx.py](../capabilities/converter/tool/md-to-docx.py)
 
 This is the ONE rendering path for md/HTML → file in this module. `deck-production` prints its HTML
 decks to PDF through this same path rather than standing up a second Chromium — see *HTML input*
-below. If you only need to READ a page, this is not that; see `web/capture`.
+below. If you only need to READ a page, this is not that; see the `browsing` skill.
 
 ## Inputs the caller resolves before invoking
 

@@ -17,7 +17,6 @@ Browse the source catalog with `rbtv list`, then inspect one module, component, 
 | `innovate` | The innovate module — taking a business idea from conception through validation to a brand book, and the individual innovation frameworks that do that work. |
 | `meta` | How agents behave, communicate, plan, and coordinate work across tasks. |
 | `office` | The office module — daily knowledge work: narrative and visual strategy, design extraction and style checking, and document/deck/email production. |
-| `web` | The web module — the system's components for reaching the open web: fetching a page, driving a browser, and whatever later joins them. |
 
 ## Requirements
 
@@ -84,7 +83,7 @@ The `final-act` skill in `meta/final-act` closes a session: it checks every requ
 > rbtv add meta/plan --target W                     # select the component
 > rbtv add --module office --target W                   # a whole module
 > rbtv remove meta/plan --target W                  # one component
-> rbtv remove web/browse web/capture --target W         # several components
+> rbtv remove office/design office/document --target W         # several components
 > rbtv configure --harness claude,codex --target W      # replace receiving tools
 > rbtv configure --guidance CLAUDE.md --target W        # replace maintained guidance
 > rbtv add guidance exclude vendor --target W           # skip a guidance folder
