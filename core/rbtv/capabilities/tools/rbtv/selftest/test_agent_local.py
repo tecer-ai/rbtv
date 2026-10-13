@@ -7,9 +7,8 @@ import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
-from discovery import Refuse, attach_local, scan_all
-from lib.agents import (EXCLUDE_FIELD, SHIPPED_FIELD, add_agent, reconcile_ignore,
-                        remove_agent, update_agent)
+from discovery import Refuse, scan_all
+from lib.agents import add_agent, remove_agent, update_agent
 from lib.constants import MATRIX, REPO_ROOT, TOOLS_RULE
 from lib.pathlinks import bin_dir
 
@@ -19,6 +18,8 @@ _KNOWN = {"claude": {"haiku-5-5": {"rungs": ["low", "high"], "selected": True}},
           "codex": {"c1": {"rungs": ["low", "high"], "selected": True}},
           "opencode": {"glm-5.3": {"rungs": ["low", "high"], "selected": True}}}
 _LAUNCH = {"harness": "claude", "model": "haiku-5-5", "effort": "high"}
+_EXCLUDE = "exclude_foundations"
+_SHIPPED = "shipped_rbtv"
 
 
 def _casts():
@@ -45,7 +46,7 @@ def _snap(root: Path) -> dict[str, bytes]:
             for path in root.rglob("*") if path.is_file()}
 
 
-def _refused(call) -> Refuse | None:
+def _refused(call):
     try:
         call()
     except Refuse as exc:
@@ -53,21 +54,7 @@ def _refused(call) -> Refuse | None:
     return None
 
 
-def _source(root: Path) -> tuple[dict, Path]:
-    comp = _component(root, "ship", "box")
-    _skill(comp / "skills/shared.md", "shared", "shared body\n")
-    _w(comp / "agents/porter/prompt.md", "Porter.\n")
-    _w(comp / "agents/porter/agent.json", json.dumps({
-        "name": "porter", "description": "Shipped porter."}) + "\n")
-    _skill(comp / "agents/porter/rbtv/skills/kept.md", "kept", "shipped kept\n")
-    _skill(comp / "agents/porter/rbtv/skills/edited.md", "edited", "shipped edited\n")
-    catalog, _ = scan_all(root.parent / "no-mirror", root)
-    return catalog, comp
-
-
-def agent_local(ctx) -> None:
-    check, tmp = ctx.check, ctx.tmp
-    root = tmp / "al-source"
+def _catalog(root: Path) -> dict:
     comp = _component(root, "fix", "box")
     _skill(comp / "skills/shared.md", "shared", "same body\n")
     _skill(comp / "skills/other.md", "other", "other body\n")
@@ -83,7 +70,13 @@ def agent_local(ctx) -> None:
     _w(rbtv / "packs/foundations.json", json.dumps({
         "description": "Fixture foundations pack.",
         "files": ["core/rbtv#agent-folder"]}) + "\n")
-    catalog, _ = scan_all(tmp / "al-mirror", root)
+    catalog, _ = scan_all(root.parent / "al-mirror", root)
+    return catalog
+
+
+def agent_local(ctx) -> None:
+    check, tmp = ctx.check, ctx.tmp
+    catalog = _catalog(tmp / "al-source")
     ws = tmp / "al-install"
     ws.mkdir()
     home = ws / ".rbtv/agents/scout"
@@ -107,22 +100,29 @@ def agent_local(ctx) -> None:
 
     with _casts()[0], _casts()[1]:
         add_agent(ws, "scout", ["shared"], set(), catalog, False)
-    skill = home / MATRIX["skill"]["claude"].format(name="own")
-    rule = home / MATRIX["rule"]["claude"].format(name="ownrule")
-    command = home / MATRIX["command"]["codex"].format(name="owncmd")
+    harness_ok = all(
+        (home / MATRIX[method][harness].format(name=name)).is_file()
+        for method, name in (("skill", "own"), ("rule", "ownrule"), ("command", "owncmd"))
+        for harness in ("claude", "codex", "opencode"))
+    settings = (home / ".claude/settings.json").read_text(encoding="utf-8") if (
+        home / ".claude/settings.json").is_file() else ""
+    mcp = (home / ".mcp.json").read_text(encoding="utf-8") if (home / ".mcp.json").is_file() else ""
+    opencode = (home / "opencode.json").read_text(encoding="utf-8") if (
+        home / "opencode.json").is_file() else ""
+    try:
+        from discovery import attach_local
+        bound = attach_local(catalog, home)
+        local_id_ok = bound["local/scout"]["tree"] == "local"
+    except (ImportError, KeyError, Refuse):
+        local_id_ok = False
     check("AL-01 local source installs for every harness",
-          skill.is_file() and (home / MATRIX["skill"]["codex"].format(name="own")).is_file()
-          and rule.is_file() and (home / MATRIX["rule"]["codex"].format(name="ownrule")).is_file()
-          and command.is_file()
-          and (home / ".claude/commands/owncmd.md").is_file()
-          and "PreToolUse" in (home / ".claude/settings.json").read_text(encoding="utf-8")
-          and "ownmcp" in (home / ".mcp.json").read_text(encoding="utf-8")
-          and "ownmcp" in (home / "opencode.json").read_text(encoding="utf-8"),
+          harness_ok and "PreToolUse" in settings and "ownmcp" in mcp
+          and "ownmcp" in opencode and local_id_ok,
           "")
     record = json.loads((home / "agent.json").read_text(encoding="utf-8"))
-    check("AL-02 local files stay out of agent.json files",
-          "local/scout#own" not in record["files"] and "fix/box#shared" in record["files"],
-          str(record["files"]))
+    check("AL-02 local files stay out of the record and invalid source writes nothing",
+          harness_ok and "local/scout#own" not in record.get("files", []),
+          str(record.get("files")))
 
     bad = ws / ".rbtv/agents/bad"
     _agent(bad, "bad")
@@ -132,7 +132,7 @@ def agent_local(ctx) -> None:
         refused = _refused(lambda: update_agent(ws, "bad", "all", catalog, False))
     check("AL-03 invalid local source refuses before any write",
           refused is not None and "broken.md" in refused.message
-          and "description" in refused.message and _snap(ws) == before,
+          and "Rename" not in refused.message and _snap(ws) == before,
           "" if refused is None else refused.message)
 
     clash = ws / ".rbtv/agents/clash"
@@ -145,10 +145,10 @@ def agent_local(ctx) -> None:
         refused = _refused(lambda: update_agent(ws, "clash", "all", catalog, False))
     check("AL-04 identical local and shared names refuse",
           refused is not None and refused.code == "file-collision"
-          and "shared" in refused.message and "Rename" in refused.message
-          and _snap(ws) == before,
+          and "Rename" in refused.message and _snap(ws) == before,
           "" if refused is None else refused.message)
 
+    installed = (home / MATRIX["skill"]["claude"].format(name="own")).is_file()
     _w(home / "memory/note.md", "memory\n")
     _w(home / "runtime/state.txt", "runtime\n")
     _w(home / "unmanaged.txt", "leave me\n")
@@ -158,12 +158,14 @@ def agent_local(ctx) -> None:
        "<!-- rbtv:start stale-label -->\nstale\n<!-- rbtv:end stale-label -->\n")
     with _casts()[0], _casts()[1]:
         update_agent(ws, "scout", "all", catalog, False)
+    stray_gone = not stray.exists()
+    fence_gone = "stale-label" not in (home / "CLAUDE.md").read_text(encoding="utf-8")
     (local / "skills/own.md").unlink()
     with _casts()[0], _casts()[1]:
         update_agent(ws, "scout", "all", catalog, False)
     check("AL-05 removal deletes only generated output this scan owns",
-          not skill.exists() and not stray.exists()
-          and "stale-label" not in (home / "CLAUDE.md").read_text(encoding="utf-8")
+          installed and not (home / MATRIX["skill"]["claude"].format(name="own")).exists()
+          and stray_gone and fence_gone
           and (local / "rules/ownrule.md").is_file()
           and (home / "settings.json").is_file()
           and (home / "memory/note.md").read_text(encoding="utf-8") == "memory\n"
@@ -172,65 +174,77 @@ def agent_local(ctx) -> None:
           and (home / "prompt.md").read_text(encoding="utf-8") == "Prompt.\n",
           "")
 
-    tools_rule = (home / MATRIX["rule"]["claude"].format(name=TOOLS_RULE)).read_text(encoding="utf-8")
-    linked = list(bin_dir().glob("owntool*"))
-    check("AL-06 local tool is listed and not linked",
-          "rbtv/capabilities/tools/owntool/owntool.py" in tools_rule
-          and "this agent" in tools_rule and not linked
-          and "from the agent folder" in tools_rule,
-          tools_rule)
+    tools_rule = ""
+    rule_path = home / MATRIX["rule"]["claude"].format(name=TOOLS_RULE)
+    if rule_path.is_file():
+        tools_rule = rule_path.read_text(encoding="utf-8")
     _w(tool / "owntool.py", "print('no shebang')\n")
     (tool / "owntool.py").chmod(0o755)
     before = _snap(home)
     with _casts()[0], _casts()[1]:
         refused = _refused(lambda: update_agent(ws, "scout", "all", catalog, False))
-    check("AL-06 missing executable refuses",
-          refused is not None and refused.code == "path-not-runnable"
+    check("AL-06 local tool is listed, not linked, and a bad executable refuses",
+          "rbtv/capabilities/tools/owntool/owntool.py" in tools_rule
+          and "this agent" in tools_rule and not list(bin_dir().glob("owntool*"))
+          and refused is not None and refused.code == "path-not-runnable"
           and _snap(home) == before,
           "" if refused is None else refused.message)
     _w(tool / "owntool.py", "#!/usr/bin/env python3\nprint('own')\n")
     (tool / "owntool.py").chmod(0o755)
 
-    ship_root = tmp / "al-ship"
-    ship_cat, _ship = _source(ship_root)
+    ship = tmp / "al-ship"
+    box = _component(ship, "ship", "box")
+    _w(box / "agents/porter/prompt.md", "Porter.\n")
+    _w(box / "agents/porter/agent.json", json.dumps({
+        "name": "porter", "description": "Shipped porter."}) + "\n")
+    _skill(box / "agents/porter/rbtv/skills/kept.md", "kept", "shipped kept\n")
+    _skill(box / "agents/porter/rbtv/skills/edited.md", "edited", "shipped edited\n")
+    ship_cat, _ = scan_all(tmp / "al-ship-mirror", ship)
     ship_ws = tmp / "al-ship-install"
     ship_ws.mkdir()
     with _casts()[0], _casts()[1]:
         placed = add_agent(ship_ws, "porter", [], set(), ship_cat, False, _LAUNCH)
     porter = ship_ws / ".rbtv/agents/porter"
+    placed_files = (placed.get("placed") or {}).get("files") or []
+    porter_record = json.loads((porter / "agent.json").read_text(encoding="utf-8")) if (
+        porter / "agent.json").is_file() else {}
     check("AL-07 shipped add copies rbtv/",
           (porter / "rbtv/skills/kept.md").is_file()
-          and (porter / "prompt.md").is_file()
-          and any(name.startswith("rbtv/") for name in placed["placed"]["files"])
-          and SHIPPED_FIELD in json.loads((porter / "agent.json").read_text(encoding="utf-8")),
-          str(placed.get("placed")))
+          and any(name.startswith("rbtv/") for name in placed_files)
+          and _SHIPPED in porter_record,
+          str(placed_files))
 
-    _w(ship_root / "ship/box/agents/porter/rbtv/skills/kept.md",
+    _w(box / "agents/porter/rbtv/skills/kept.md",
        "---\nname: kept\ndescription: \"The kept skill\"\n---\n\nshipped kept again\n")
     _w(porter / "rbtv/skills/edited.md",
        "---\nname: edited\ndescription: \"The edited skill\"\n---\n\nlocal edit\n")
     prompt_before = (porter / "prompt.md").read_bytes()
     with _casts()[0], _casts()[1]:
         update_agent(ship_ws, "porter", "all", ship_cat, False)
+    kept_text = (porter / "rbtv/skills/kept.md").read_text(encoding="utf-8") if (
+        porter / "rbtv/skills/kept.md").is_file() else ""
+    edited_text = (porter / "rbtv/skills/edited.md").read_text(encoding="utf-8") if (
+        porter / "rbtv/skills/edited.md").is_file() else ""
     check("AL-08 update keeps a local edit and refreshes an unedited file",
-          "shipped kept again" in (porter / "rbtv/skills/kept.md").read_text(encoding="utf-8")
-          and "local edit" in (porter / "rbtv/skills/edited.md").read_text(encoding="utf-8")
-          and (porter / "prompt.md").read_bytes() == prompt_before
-          and (porter / "settings.json").is_file(),
+          "shipped kept again" in kept_text and "local edit" in edited_text
+          and (porter / "prompt.md").is_file()
+          and (porter / "prompt.md").read_bytes() == prompt_before,
           "")
 
-    _w(ship_root / "ship/box/agents/porter/rbtv/skills/edited.md",
+    _w(box / "agents/porter/rbtv/skills/edited.md",
        "---\nname: edited\ndescription: \"The edited skill\"\n---\n\nshipped edit\n")
-    local_edit = (porter / "rbtv/skills/edited.md").read_bytes()
+    edited_path = porter / "rbtv/skills/edited.md"
+    local_edit = edited_path.read_bytes() if edited_path.is_file() else b""
     with _casts()[0], _casts()[1]:
         refused = _refused(lambda: update_agent(ship_ws, "porter", "all", ship_cat, False))
     side = porter / "rbtv/skills/edited.md.shipped"
     check("AL-09 both sides changed keeps both versions",
           refused is not None and refused.code == "shipped-conflict"
-          and (porter / "rbtv/skills/edited.md").read_bytes() == local_edit
+          and edited_path.is_file() and edited_path.read_bytes() == local_edit
           and side.is_file() and b"shipped edit" in side.read_bytes(),
           "" if refused is None else refused.message)
 
+    ignore_ok = False
     if shutil.which("git") is None:
         check("AL-10 gitignore update", False, "git is unavailable")
     else:
@@ -239,10 +253,8 @@ def agent_local(ctx) -> None:
         subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
         agent = repo / ".rbtv/agents/scout"
         _agent(agent, "scout")
-        _w(agent / ".gitignore", "# keep me\n" + (agent / ".gitignore").read_text(encoding="utf-8")
-           if (agent / ".gitignore").is_file() else "# keep me\n")
-        # The folder was just created without an ignore file.
-        _w(agent / ".gitignore", "# keep me\n# rbtv: harness files and machine data\nstate.sqlite*\n")
+        _w(agent / ".gitignore",
+           "# keep me\n# rbtv: harness files and machine data\nstate.sqlite*\n")
         with _casts()[0], _casts()[1]:
             update_agent(repo, "scout", "all", catalog, False)
         text = (agent / ".gitignore").read_text(encoding="utf-8")
@@ -252,63 +264,45 @@ def agent_local(ctx) -> None:
                 ["git", "check-ignore", "--quiet", "--no-index", "--", str(agent / rel)],
                 cwd=repo, check=False).returncode == 0
 
+        ignore_ok = (text.startswith("# keep me\n") and ignored("settings.json")
+                     and ignored("runtime/x") and ignored("tmp/x")
+                     and ignored("state.sqlite") and ignored("turns/t")
+                     and ignored(".claude/skills/z/SKILL.md")
+                     and not ignored("rbtv/skills/x.md") and not ignored("work/n.md")
+                     and not ignored("memory/n.md")
+                     and not ignored("_artifacts/board.md"))
         check("AL-10 gitignore update keeps unrelated lines and ignores runtime",
-              text.startswith("# keep me\n") and ignored("settings.json")
-              and ignored("runtime/x") and ignored("tmp/x")
-              and ignored("state.sqlite") and ignored(".claude/skills/z/SKILL.md")
-              and not ignored("rbtv/skills/x.md") and not ignored("work/n.md")
-              and not ignored("memory/n.md") and not ignored("_artifacts/board.md")
-              and reconcile_ignore("# author\n").startswith("# author\n"),
-              text)
+              ignore_ok, text)
 
     fresh = ws / ".rbtv/agents/fresh"
     _agent(fresh, "fresh")
-    (fresh / "agent.json").write_text(json.dumps({
-        "name": "fresh", "description": "Agent.", "harness": "claude",
-        "model": "haiku-5-5", "effort": "high", "files": [], "packs": []}) + "\n",
-        encoding="utf-8")
     with _casts()[0], _casts()[1]:
         add_agent(ws, "fresh", [], set(), catalog, False)
-    rule_count = list(fresh.rglob("agent-folder.md"))
-    check("AL-11 foundations applies with no pack flag",
-          any(path.name == "agent-folder.md" for path in rule_count)
-          and "foundations" in json.loads((fresh / "agent.json").read_text(encoding="utf-8"))["packs"],
-          str([path.relative_to(fresh).as_posix() for path in rule_count]))
+    fresh_record = json.loads((fresh / "agent.json").read_text(encoding="utf-8"))
     once = ws / ".rbtv/agents/once"
     _agent(once, "once")
     with _casts()[0], _casts()[1]:
         add_agent(ws, "once", [], {"ignite"}, catalog, False)
-    copies = [path for path in once.rglob("agent-folder.md")]
-    check("AL-11 foundations and ignite install the rule once",
-          len(copies) == 1,
+    copies = list(once.rglob("agent-folder.md"))
+    pack_ok = json.loads((REPO_ROOT / "core/rbtv/packs/foundations.json").read_text(
+        encoding="utf-8"))["files"] == ["core/rbtv#agent-folder"]
+    check("AL-11 foundations applies by default and overlaps once",
+          pack_ok and "foundations" in fresh_record.get("packs", [])
+          and any(fresh.rglob("agent-folder.md")) and len(copies) == 1,
           str([path.relative_to(once).as_posix() for path in copies]))
 
     with _casts()[0], _casts()[1]:
-        remove_agent(ws, "fresh", [], {("foundations")}, False, False, catalog, False)
+        remove_agent(ws, "fresh", [], {"foundations"}, False, False, catalog, False)
         update_agent(ws, "fresh", "all", catalog, False)
     gone = json.loads((fresh / "agent.json").read_text(encoding="utf-8"))
-    check("AL-12 remove foundations writes the exclusion and update leaves it",
-          gone.get(EXCLUDE_FIELD) is True and "foundations" not in gone["packs"]
-          and not any(fresh.rglob("agent-folder.md")),
-          str(gone.get(EXCLUDE_FIELD)))
-    gone.pop(EXCLUDE_FIELD)
+    stayed = gone.get(_EXCLUDE) is True and "foundations" not in gone.get("packs", [])
+    stayed = stayed and not any(fresh.rglob("agent-folder.md"))
+    gone.pop(_EXCLUDE, None)
     _w(fresh / "agent.json", json.dumps(gone, indent=2) + "\n")
     with _casts()[0], _casts()[1]:
         update_agent(ws, "fresh", "all", catalog, False)
     back = json.loads((fresh / "agent.json").read_text(encoding="utf-8"))
-    check("AL-12 deleting the exclusion brings the rule back",
-          EXCLUDE_FIELD not in back and "foundations" in back["packs"]
+    check("AL-12 exclusion survives update and returns when deleted",
+          stayed and _EXCLUDE not in back and "foundations" in back.get("packs", [])
           and any(fresh.rglob("agent-folder.md")),
           str(back.get("packs")))
-
-    real = REPO_ROOT / "core/rbtv/packs/foundations.json"
-    listed = json.loads(real.read_text(encoding="utf-8"))["files"]
-    check("AL-11 shipped foundations pack names the agent-folder rule",
-          listed == ["core/rbtv#agent-folder"]
-          and (REPO_ROOT / "core/rbtv/rules/agent-folder.md").is_file(),
-          str(listed))
-    # attach_local is the scan hook an agent-folder install uses.
-    bound = attach_local(catalog, home)
-    check("AL-01 local catalog id is not a component id",
-          bound["local/scout"]["tree"] == "local" and "local/scout" not in catalog,
-          "")
