@@ -10,7 +10,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { boardPath, refreshBoard, renderBoard } = require('./board.js');
+const { boardPath, parseBoard, refreshBoard, renderBoard, renderBoardView } = require('./board.js');
 const { workspaceFromHome, workspacePaths, workspaceMatches, workspaceFiles, readMemory } = require('./memory.js');
 
 const CONTRACT = [
@@ -33,9 +33,15 @@ function readBoard(home, store = null, now = Date.now(), alerts = []) {
   }
 }
 
+function turnBoard(text, home) {
+  try { parseBoard(text); }
+  catch { return text; }
+  return renderBoardView(text, boardPath(home));
+}
+
 function readTurnMemory(home, cwd = home, store = null, now = Date.now()) {
   const alerts = [];
-  const board = readBoard(home, store, now, alerts);
+  const board = turnBoard(readBoard(home, store, now, alerts), home);
   const memory = [];
   const workspace = workspaceFromHome(home);
   const add = (file, kind) => memory.push({ path: file, text: readMemory(file, kind, alerts).text });
@@ -94,6 +100,7 @@ function composeTurn({ board, memory = [], work, inputs, recent, stored, history
     ...memory.flatMap((item) => [`Memory (${item.path}):`, item.text]),
     'Board:',
     board,
+    'Omitted watch-outs in the board view are mandatory reads of the canonical board before acting.',
     'Work:',
     JSON.stringify({
       summary: work?.summary ?? null,

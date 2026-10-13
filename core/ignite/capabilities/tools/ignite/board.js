@@ -1,7 +1,9 @@
 'use strict';
 
-// parseBoard(text) checks the four-section form and caps; throws on refusal.
-// writeBoard(file, text, { store?, now? }) changes subjects and watch-outs, then refreshes runtime fields when a store is supplied.
+// parseBoard(text) checks the four-section form; throws on refusal. Item and line quotas are not capture limits.
+// writeBoard(file, text, { store?, now?, revision? }) changes subjects and watch-outs, then refreshes runtime fields when a store is supplied.
+// A supplied revision must match the canonical editable content; a stale revision is refused and the file is reread by the caller.
+// renderBoardView(text, canonical) derives the 6,000-code-point prompt excerpt. It is not a board and must not be written back.
 // closeSubject(file, title, outcome, { agent, thread?, now?, store? }) records a closure.
 // boardPath(home) / migrateBoard(home) — canonical path; explicit install/update migration only.
 // refreshBoard(home, store, now?) regenerates Timers and linked-thread Flags.
@@ -9,10 +11,12 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { createHash } = require('node:crypto');
 const { NOFOLLOW, safeWritePath, writeRoot, withMemoryLock } = require('./memory-write.js');
 
 const HEADINGS = ['What matters now', 'Watch-outs', 'Timers', 'Recently closed'];
 const CAPS = Object.freeze({ lines: 90, subjects: 8, watchOuts: 6, closed: 6 });
+const VIEW_LIMIT = 6000;
 const EMPTY_BOARD = HEADINGS.map((heading) => `## ${heading}\n`).join('\n');
 const LINK = /^\[[^\[\]\r\n]+\]\((https?:\/\/[^\s<>]+)\)$/;
 
@@ -96,7 +100,6 @@ function parseBoard(text) {
   }
   if (sections.length !== 4) refuse('all four board headings are required');
   const nonEmpty = lines.filter((line) => line.trim()).length - sections[2].rows.length;
-  if (nonEmpty > CAPS.lines) refuse(`at most ${CAPS.lines} non-empty lines outside the Timers table`);
 
   const subjects = [];
   const rows = sections[0].rows;
@@ -121,12 +124,10 @@ function parseBoard(text) {
     if (!flags || (flags !== 'none' && !validDate(flags.slice(-10)))) refuse('Flags requires none, answered YYYY-MM-DD, or idle since YYYY-MM-DD');
     subjects.push({ title, state, threads, detail, flags, start: first.index, end: rows[i]?.index ?? sections[0].end });
   }
-  if (subjects.length > CAPS.subjects) refuse(`at most ${CAPS.subjects} subjects`);
   const watchOuts = sections[1].rows.map((row) => row.line);
   const timers = sections[2].rows.map((row) => row.line);
   const closed = sections[3].rows.map((row) => row.line);
-  if (watchOuts.length > CAPS.watchOuts) refuse(`at most ${CAPS.watchOuts} watch-outs`);
-  if (closed.length > CAPS.closed) refuse(`at most ${CAPS.closed} Recently closed lines; archive old entries before closing another subject`);
+  if (new Set(watchOuts).size !== watchOuts.length) refuse('watch-out lines must be unique');
   watchOuts.forEach((line) => checkProvenance(line, false));
   closed.forEach((line) => checkProvenance(line, true));
   checkTimers(timers);
@@ -280,11 +281,67 @@ function saveBoard(file, text) {
   return { path: file, changed: true };
 }
 
-function writeBoard(file, text, { store = null, now = Date.now() } = {}) {
+function boardRevision(text) {
+  const board = parseBoard(text);
+  const body = JSON.stringify({
+    subjects: board.subjects.map(({ title, state, threads, detail }) => ({ title, state, threads, detail })),
+    watchOuts: board.watchOuts,
+  });
+  return createHash('sha256').update(body).digest('hex').slice(0, 16);
+}
+
+function renderBoardView(text, canonical = 'board.md') {
+  const board = parseBoard(text);
+  const revision = boardRevision(text);
+  const entries = [];
+  [...board.watchOuts].reverse().forEach((line, index) => entries.push({ section: 'Watch-outs', text: line, keep: 4000 - index }));
+  board.subjects.forEach((subject, index) => entries.push({
+    section: 'What matters now',
+    keep: 3000 - index,
+    text: [`### ${subject.title}`, ...subject.state, `- Threads: ${subject.threads}`, `- Detail: ${subject.detail}`, `- Flags: ${subject.flags}`].join('\n'),
+  }));
+  board.timers.forEach((line, index) => entries.push({ section: 'Timers', text: line, keep: 2000 - index }));
+  [...board.closed].reverse().forEach((line, index) => entries.push({ section: 'Recently closed', text: line, keep: 1000 - index }));
+  const assemble = (kept) => {
+    const omitted = {};
+    for (const entry of entries) if (!kept.includes(entry)) omitted[entry.section] = (omitted[entry.section] || 0) + 1;
+    const lines = [
+      'Board view',
+      `Canonical: ${canonical}`,
+      `Revision: ${revision}`,
+      'This excerpt is not the board. Read the canonical file before editing. Do not write this excerpt back.',
+    ];
+    if (omitted['Watch-outs']) {
+      lines.push(`Omitted watch-outs (${omitted['Watch-outs']}): read ${canonical} before acting. Mandatory.`);
+      lines.push(`Route: ${canonical}#Watch-outs`);
+    }
+    for (const section of HEADINGS) {
+      lines.push(`## ${section}`);
+      for (const entry of kept.filter((item) => item.section === section)) lines.push(entry.text);
+      if (section !== 'Watch-outs' && omitted[section]) lines.push(`Omitted ${omitted[section]} ${section} entries. Route: ${canonical}#${section.replaceAll(' ', '-')}`);
+    }
+    return `${lines.join('\n')}\n`;
+  };
+  const kept = [];
+  for (const entry of [...entries].sort((a, b) => b.keep - a.keep)) {
+    if ([...assemble([...kept, entry])].length <= VIEW_LIMIT) kept.push(entry);
+  }
+  let view = assemble(kept);
+  while ([...view].length > VIEW_LIMIT && kept.length) {
+    kept.sort((a, b) => a.keep - b.keep);
+    kept.shift();
+    view = assemble(kept);
+  }
+  return view;
+}
+
+function writeBoard(file, text, { store = null, now = Date.now(), revision = null } = {}) {
   return withMemoryLock(writeRoot(file), () => {
     safeWritePath(writeRoot(file), file);
     const next = parseBoard(text);
-    const previous = parseBoard(readBoard(file));
+    const current = readBoard(file);
+    if (revision != null && revision !== boardRevision(current)) refuse('stale revision; reread the canonical board');
+    const previous = parseBoard(current);
     if (JSON.stringify(next.timers) !== JSON.stringify(previous.timers)) refuse('Timers is written by Ignite; keep its current rows');
     if (JSON.stringify(next.closed) !== JSON.stringify(previous.closed)) refuse('Recently closed is written by board close; keep its current rows');
     for (const subject of previous.subjects) {
@@ -319,4 +376,4 @@ function closeSubject(file, title, outcome, { agent, thread = null, now = Date.n
   });
 }
 
-module.exports = { CAPS, EMPTY_BOARD, parseBoard, writeBoard, closeSubject, boardPath, migrateBoard, refreshBoard, refreshBoardAfterCommit, renderBoard, preflightBoard };
+module.exports = { CAPS, VIEW_LIMIT, EMPTY_BOARD, parseBoard, writeBoard, closeSubject, boardPath, migrateBoard, refreshBoard, refreshBoardAfterCommit, renderBoard, renderBoardView, boardRevision, preflightBoard };

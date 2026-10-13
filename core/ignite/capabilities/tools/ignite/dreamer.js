@@ -18,13 +18,14 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { createHash, randomUUID } = require('node:crypto');
 const { execFile, spawnSync } = require('node:child_process');
 const { promisify, stripVTControlCharacters } = require('node:util');
 const { Store } = require('./store.js');
 const { agentHome, storePath } = require('./config.js');
-const { parseBoard, CAPS } = require('./board.js');
+const { parseBoard } = require('./board.js');
 const { checkMemory } = require('./memory.js');
-const { acquireMemoryLock, withMemoryLock } = require('./memory-write.js');
+const { acquireMemoryLock, withMemoryLock, runtimeFolder } = require('./memory-write.js');
 
 const execute = promisify(execFile);
 const GENERAL = '.rbtv/memory/';
@@ -62,7 +63,7 @@ function kindOf(relative, slug) {
   if (name === '_artifacts/index.md' || /^(?:entities(?:\/(?:people|orgs|places|devices))?|knowledge|workspaces|timeline(?:\/(?:daily|weekly))?)\/_artifacts\/index\.md$/.test(name)) return 'index';
   if (/^_artifacts\/archive\/[a-z0-9][a-z0-9-]*\.md$/.test(name)) return 'archive';
   if (/^entities\/(people|orgs|places|devices)\/[a-z0-9][a-z0-9-]*\.md$/.test(name)) return 'entity';
-  if (/^knowledge\/(facts|preferences|decisions|self|health)\.md$/.test(name)) return 'knowledge';
+  if (/^knowledge\/(facts|preferences|decisions|self|health)(?:\/[a-z0-9][a-z0-9-]*)?\.md$/.test(name)) return 'knowledge';
   if (/^workspaces\/[a-z0-9][a-z0-9-]*\.md$/.test(name)) return 'workspace';
   if (/^timeline\/daily\/\d{4}-\d{2}-\d{2}\.md$/.test(name)) return 'daily';
   if (/^timeline\/weekly\/\d{4}-W\d{2}\.md$/.test(name)) return 'weekly';
@@ -97,9 +98,9 @@ function fileSizes(kind, text) {
       if (line.startsWith('## ')) section++;
       else if (sections[section]) sections[section].push(line);
     }
-    return [size(nonempty(text).length - sections[2].length, CAPS.lines, 'nonempty lines outside Timers'),
-      size(sections[0].filter((line) => line.startsWith('### ')).length, CAPS.subjects, 'subjects'),
-      size(sections[1].length, CAPS.watchOuts, 'watch-outs'), size(sections[3].length, CAPS.closed, 'closed entries')];
+    return [size(nonempty(text).length - sections[2].length, null, 'nonempty lines outside Timers'),
+      size(sections[0].filter((line) => line.startsWith('### ')).length, null, 'subjects'),
+      size(sections[1].length, null, 'watch-outs'), size(sections[3].length, null, 'closed entries')];
   }
   if (kind === 'learned') return [size(nonempty(text).filter((line) => line.startsWith('- ')).length, 30, 'rules')];
   if (kind === 'daily' || kind === 'weekly') return [size(text ? normalize(text).trimEnd().split('\n').length : 0, kind === 'daily' ? 40 : 25, 'lines')];
@@ -120,7 +121,7 @@ function checkFile(relative, kind, text) {
     if (!['daily', 'weekly', 'workstreams'].includes(kind)) {
       const type = front[1].match(/^type: (\S+)$/m)?.[1];
       const expected = kind === 'entity' ? ({ people: 'person', orgs: 'org', places: 'place', devices: 'device' })[relative.split('/').at(-2)] :
-        kind === 'knowledge' ? path.posix.basename(relative, '.md') : null;
+        kind === 'knowledge' ? (relative.split('/').at(-2) === 'knowledge' ? path.posix.basename(relative, '.md') : relative.split('/').at(-2)) : null;
       requireThat(expected ? type === expected : ['subject', 'procedure', 'reference'].includes(type), `${kind} type refused`);
       requireThat(/^aliases: \[.*\]$/m.test(front[1]), `${kind} aliases required`);
       if (kind === 'topic' && type === 'subject') {
@@ -161,6 +162,85 @@ function checkFile(relative, kind, text) {
 function readText(file) {
   try { return new TextDecoder('utf-8', { fatal: true }).decode(fs.readFileSync(file)); }
   catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+}
+
+function points(text) { return [...text].length; }
+
+function saveBytes(workspace, folder, bytes) {
+  const raw = Buffer.isBuffer(bytes) ? bytes : Buffer.from(String(bytes));
+  const dir = path.join(runtimeFolder(workspace), folder);
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `${randomUUID()}.bin`);
+  fs.writeFileSync(file, raw, { mode: 0o600 });
+  requireThat(fs.readFileSync(file).equals(raw), 'durable bytes were not preserved');
+  return file;
+}
+
+function saveRejected(workspace, bytes) { return saveBytes(workspace, 'dreamer-rejected', bytes); }
+
+function retainIndivisible(workspace, relative, record) {
+  requireThat(typeof record === 'string' && points(record) > 3000, 'only a record over the historical cap is retained whole');
+  const file = saveBytes(workspace, 'dreamer-oversized', Buffer.from(`oversized indivisible\nsource: ${relative}\nretained whole\n\n${record}`, 'utf8'));
+  const saved = fs.readFileSync(file, 'utf8');
+  requireThat(saved.endsWith(record) && saved.includes(record), 'oversized record was trimmed');
+  return file;
+}
+
+function relieveKnowledge(workspace) {
+  const paths = [];
+  for (const name of ['facts', 'preferences', 'decisions', 'self', 'health']) {
+    const relative = `.rbtv/memory/knowledge/${name}.md`;
+    let file;
+    try { file = safePath(workspace, relative); } catch { continue; }
+    const text = readText(file);
+    if (text == null || points(text) <= 3000 - 64 || points(text) > 3000) continue;
+    const rows = records('knowledge', text);
+    const huge = rows.find((row) => points(row) > 3000);
+    if (huge) { retainIndivisible(workspace, relative, huge); continue; }
+    if (rows.length < 2) continue;
+    const ending = text.includes('\r\n') ? '\r\n' : '\n';
+    const without = (drop) => {
+      let next = text.split(/\r?\n/).filter((line) => !drop.includes(line)).join(ending);
+      if (text.endsWith(ending) && !next.endsWith(ending)) next += ending;
+      return next;
+    };
+    const moved = [];
+    for (let i = rows.length - 1; i > 0; i--) {
+      const trial = [...moved, rows[i]];
+      const source = without(trial);
+      const dest = `---\ndescription: when reviewing ${name}\ntype: ${name}\naliases: [${name}]\n---\n# ${name}\n\n${trial.slice().reverse().join('\n')}\n`;
+      if (points(source) > 3000 || points(dest) > 3000) break;
+      moved.push(rows[i]);
+      if (points(source) <= 3000 - 64) break;
+    }
+    if (!moved.length || points(without(moved)) > 3000 - 64) continue;
+    const source = without(moved);
+    let slug = 'part-1';
+    let n = 1;
+    while (readText(safePath(workspace, `.rbtv/memory/knowledge/${name}/${slug}.md`))) slug = `part-${++n}`;
+    const destRelative = `.rbtv/memory/knowledge/${name}/${slug}.md`;
+    const dest = `---\ndescription: when reviewing ${name}\ntype: ${name}\naliases: [${name}]\n---\n# ${name}\n\n${moved.slice().reverse().join('\n')}\n`;
+    const before = records('knowledge', text);
+    const after = [...records('knowledge', source), ...records('knowledge', dest)];
+    if (before.length !== after.length || before.some((row) => !after.includes(row))) continue;
+    const original = saveBytes(workspace, 'dreamer-originals', Buffer.from(text, 'utf8'));
+    requireThat(fs.readFileSync(original).equals(Buffer.from(text, 'utf8')), 'original bytes were not preserved');
+    checkFile(relative, 'knowledge', source);
+    checkFile(destRelative, 'knowledge', dest);
+    writeText(file, source);
+    writeText(safePath(workspace, destRelative), dest);
+    const index = '.rbtv/memory/_artifacts/index.md';
+    const row = `| [${name} ${slug}](../knowledge/${name}/${slug}.md) | when reviewing split ${name}. |`;
+    let indexText = readText(safePath(workspace, index)) || '# Memory\n\n| Open | When |\n|---|---|\n';
+    if (!indexText.includes(row)) indexText = `${indexText.endsWith('\n') ? indexText : `${indexText}\n`}${row}\n`;
+    checkFile(index, 'index', indexText);
+    writeText(safePath(workspace, index), indexText);
+    paths.push(relative, destRelative, index);
+  }
+  if (!paths.length) return [];
+  git(workspace, ['add', '--', ...paths]);
+  git(workspace, ['commit', '-F', '-', '--', ...paths], `Split on-demand knowledge\n\n${[...new Set(paths)].join('\n')}\n`);
+  return paths;
 }
 
 function snapshot(workspace, agents) {
@@ -405,7 +485,7 @@ Rules: - [correction] Rule. Why: reason. (date · agent/[thread](URL)); inferred
 Retain existing facts unless an explained replacement or archive accounts for them. Report conflicting rules/claims in conflicts. reportedConflicts lists conflicts included in earlier digests; do not rephrase or report them again.
 Shorten board subjects only by preserving every old state line in a subject topic, reason detail, to that topic, keeping a ../memory/<slug>.md Detail link. Exact copied state may cite the relative board path as preservation, never as evidence for a new claim or rule.
 Do not add/close subjects, change titles, Threads, Flags, Timers, or invent watch-outs/Recently closed. Never edit prompt.md or source code.
-Use existing file forms. Profile <=4000 characters; learned <=30 rules; board <=90 nonempty lines excluding Timers, <=8 subjects/6 watch-outs/6 closed.
+Use existing file forms. Profile <=4000 characters; learned <=30 rules. The complete board has no item or line quota; do not drop watch-outs, subjects or closed entries to make it smaller.
 Topics/entities/knowledge/workspaces <=3000 characters: YAML description: when ..., type and aliases, heading, dated bullets. Agent topic types subject/procedure/reference.
 General knowledge files are knowledge/{facts,preferences,decisions,self,health}.md. Entities are entities/{people,orgs,places,devices}/<slug>.md.
 Workspaces use type: workspace and installation-relative paths: [...]. Root profile has Who, Working with owner, Now; no health reasons.
@@ -414,7 +494,7 @@ Timeline daily <=40 lines; weekly <=25 lines. YAML description, heading; Periodi
 Daily: - episode — agent/[thread](URL), in the owner's language that day. Weekly: - event — [YYYY-MM-DD](../daily/YYYY-MM-DD.md), written after the week ends. Keep durable facts in general memory too.
 Indexes have # heading and | Open | When | table (no cap). Workstreams holds pointers only; >60 lines alerts, never truncates.
 Stay within every file's cap, including headings, frontmatter, provenance and line endings. Characters are Unicode code points; CRLF counts as two characters.
-Splitting files to evade a cap is not allowed. If a fact does not fit, leave the destination unchanged and report it in conflicts instead of rewriting, compressing, truncating or splitting the file.
+Do not trim, compress or truncate a record to evade a cap. Code splits an on-demand knowledge file at complete record boundaries when it is near its cap, updates the index and keeps the original bytes. If a fact still does not fit, leave that destination unchanged and report it in conflicts. A record larger than the cap is retained whole and flagged; never cut it.
 Current file sizes and remaining room (recomputed for each proposal):
 ${budgets}
 New files not listed above start at 0: topics, archives, entities and workspaces have 0/3000 characters, 3000 left; daily files 0/40 lines, 40 left; weekly files 0/25 lines, 25 left; indexes have no enforced cap. This does not permit splitting an existing file.
@@ -438,16 +518,39 @@ function castCommand(command, platform, env) {
   return [command, []];
 }
 
-function castOutput(stdout) {
-  // Bare cast passes through OpenCode's banner and may append a recovered final
-  // answer. Only parse a complete final JSON answer, never a tool-trace fragment.
-  const text = stdout.replace(/\x1b\[[0-9;]*m/g, '').trim();
-  const fenced = [...text.matchAll(/(?:^|\n)```(?:json)?\s*\n([\s\S]*?)\n```/g)].at(-1);
-  if (fenced && !text.slice(fenced.index + fenced[0].length).trim()) return parseProposal(fenced[1]);
-  for (const match of text.matchAll(/(?:^|\n)(?=\{)/g)) {
-    try { return parseProposal(text.slice(match.index).trim()); } catch { /* A banner is not the final answer. */ }
+function wholeJson(text) {
+  try { JSON.parse(text); return true; }
+  catch { return false; }
+}
+
+function extractFinalProposal(text) {
+  // A complete JSON value must be the final answer. Never repair a truncated
+  // value or accept a fragment that still has trailing text.
+  const stripped = text.replace(/\x1b\[[0-9;]*m/g, '').trim();
+  const fenced = [...stripped.matchAll(/(?:^|\n)```(?:json)?\s*\n([\s\S]*?)\n```/g)].at(-1);
+  if (fenced && !stripped.slice(fenced.index + fenced[0].length).trim() && wholeJson(fenced[1].trim())) return parseProposal(fenced[1]);
+  for (const match of stripped.matchAll(/(?:^|\n)(?=\{)/g)) {
+    const slice = stripped.slice(match.index).trim();
+    if (!wholeJson(slice)) continue;
+    try { return parseProposal(slice); } catch { /* A banner is not the final answer. */ }
   }
   throw new Refusal('model did not return JSON');
+}
+
+function castOutput(stdout) {
+  const raw = Buffer.isBuffer(stdout) ? stdout : Buffer.from(String(stdout ?? ''));
+  let text;
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(raw); }
+  catch {
+    const refusal = new Refusal('model did not return JSON');
+    refusal.raw = raw;
+    throw refusal;
+  }
+  try { return extractFinalProposal(text); }
+  catch (error) {
+    error.raw = raw;
+    throw error;
+  }
 }
 
 // cast starts from the installation, so the installation's model selection
@@ -542,7 +645,10 @@ async function runDreamer({ config, openStore, model, now = Date.now() }) {
     const propose = model || ((input) => castProposal(input, { workspace, command: config.tools.cast, model: config.dreamer.model }));
     for (let attempt = 0; attempt < 2; attempt++) {
       phase = 'read';
-      const original = withMemoryLock(workspace, () => snapshot(workspace, agents));
+      const original = withMemoryLock(workspace, () => {
+        relieveKnowledge(workspace);
+        return snapshot(workspace, agents);
+      });
       const files = new Map(original);
       const operations = [];
       const conflicts = [];
@@ -551,7 +657,23 @@ async function runDreamer({ config, openStore, model, now = Date.now() }) {
         const input = { agent: agent.slug, date: new Date(now).toISOString().slice(0, 10), cursor: agent.state.cursor,
           ceiling: agent.ceiling, messages: agent.messages, reportedConflicts: [...reported],
           files: Object.fromEntries([...files].filter(([name]) => kindOf(name, agent.slug))) };
-        const validated = validateProposal(input, await propose(input), workspace);
+        let rawProposal;
+        try { rawProposal = await propose(input); }
+        catch (error) {
+          if (error.raw) saveRejected(workspace, error.raw);
+          throw error;
+        }
+        let validated;
+        try { validated = validateProposal(input, rawProposal, workspace); }
+        catch (error) {
+          const bytes = Buffer.isBuffer(rawProposal) ? rawProposal : Buffer.from(typeof rawProposal === 'string' ? rawProposal : JSON.stringify(rawProposal ?? ''));
+          saveRejected(workspace, bytes);
+          if (error instanceof Refusal && /cap exceeded/.test(error.message)) {
+            const huge = String(rawProposal ?? '').split(/\r?\n/).find((line) => points(line) > 3000);
+            if (huge) retainIndivisible(workspace, 'proposal', huge);
+          }
+          throw error;
+        }
         for (const [name, text] of validated.files) files.set(name, text);
         operations.push(...validated.operations);
         conflicts.push(...validated.conflicts);
@@ -646,4 +768,4 @@ async function runDreamer({ config, openStore, model, now = Date.now() }) {
   } finally { for (const store of owned) store.close(); }
 }
 
-module.exports = { runDreamer, castProposal, getState, saveState };
+module.exports = { runDreamer, castProposal, getState, saveState, relieveKnowledge, retainIndivisible, saveRejected };

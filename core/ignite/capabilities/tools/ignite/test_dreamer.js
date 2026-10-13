@@ -8,7 +8,7 @@ const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const { Store } = require('./store.js');
 const { EMPTY_BOARD, parseBoard } = require('./board.js');
-const { runDreamer, castProposal, getState, saveState } = require('./dreamer.js');
+const { runDreamer, castProposal, getState, saveState, retainIndivisible } = require('./dreamer.js');
 const { remember } = require('./memory.js');
 
 const tests = [];
@@ -265,10 +265,7 @@ for (const [name, text, expected] of [
   [`${ROOT}entities/people/person.md`, topic(fact('x'.repeat(3000)), 'person'), /3000/],
   [`${ROOT}_artifacts/archive/notes.md`, topic(fact('x'.repeat(3000))), /3000/],
   [`${ROOT}workspaces/work.md`, topic(fact('x'.repeat(3000)), 'workspace').replace('aliases: [topic]', 'aliases: [topic]\npaths: [work]'), /workspace.*cap/],
-  [boardPath(), board({ watch: Array.from({ length: 7 }, (_, i) => fact(`Watch ${i}.`)) }), /board.*cap/],
-  [boardPath(), board({ closed: Array.from({ length: 7 }, (_, i) => fact(`Subject ${i} — done.`)) }), /7\/6 closed entries/],
-  [boardPath(), EMPTY_BOARD.replace('## Watch-outs', `${Array.from({ length: 9 }, (_, i) => subject().replace('### Report', `### Report ${i}`)).join('\n')}\n## Watch-outs`), /9\/8 subjects/],
-  [boardPath(), board({ state: Array.from({ length: 90 }, () => 'State.').join('\n') }), /98\/90 nonempty lines outside Timers/],
+
   [`${ROOT}timeline/daily/${DATE}.md`, `---\ndescription: when asked about this date\n---\n# ${DATE}\n\n` + Array.from({ length: 40 }, (_, i) => `- Event ${i} — master/[thread](${link()})\n`).join(''), /40 lines/],
   [`${ROOT}timeline/weekly/2026-W39.md`, '---\ndescription: when asked about this week\n---\n# 2026-W39\n\n' + Array.from({ length: 25 }, (_, i) => `- Event ${i} — [${DATE}](../daily/${DATE}.md)\n`).join(''), /25 lines/],
 ]) test(`refuses the cap for ${name}`, async (f) => {
@@ -1185,7 +1182,7 @@ for (const ending of ['\n', '\r\n']) test(`prompt lists every writable file budg
       }
     }
     assert.ok(budgets.includes(`${learnedPath()}: 1/30, 29 left (rules)`));
-    assert.ok(budgets.includes(`${boardPath()}: 11/90, 79 left (nonempty lines outside Timers); 1/8, 7 left (subjects); 1/6, 5 left (watch-outs); 1/6, 5 left (closed entries)`));
+    assert.ok(budgets.includes(`${boardPath()}: 11 nonempty lines outside Timers, no enforced cap; 1 subjects, no enforced cap; 1 watch-outs, no enforced cap; 1 closed entries, no enforced cap`));
     assert.ok(budgets.includes(`${ROOT}timeline/daily/${DATE}.md: 4/40, 36 left (lines)`));
     assert.ok(budgets.includes(`${ROOT}timeline/weekly/2026-W40.md: 4/25, 21 left (lines)`));
     for (const [name, count] of [['inbox.md', 1], ['workstreams.md', 4], ['_artifacts/index.md', 3]]) {
@@ -1195,8 +1192,8 @@ for (const ending of ['\n', '\r\n']) test(`prompt lists every writable file budg
       assert.ok(budgets.includes(`${ROOT}knowledge/${name}.md: 0/3000, 3000 left (characters)`));
     }
     assert.match(prompt, /Stay within every file's cap/);
-    assert.match(prompt, /Splitting files to evade a cap is not allowed/);
-    assert.match(prompt, /If a fact does not fit, leave the destination unchanged and report it in conflicts instead of rewriting/);
+    assert.match(prompt, /Do not trim, compress or truncate a record to evade a cap/);
+    assert.match(prompt, /If a fact still does not fit, leave that destination unchanged and report it in conflicts/);
     assert.match(budgets, /New files not listed above start at 0/);
     return { stdout: JSON.stringify(proposal()) };
   } });
@@ -1316,6 +1313,80 @@ test('cast failure without stderr reports a safe exit or timeout cause', async (
     const result = await f.run(() => { throw Object.assign(new Error('unsafe command'), error); });
     assert.equal(result.alert, `Dreamer failed: ${cause}.`);
   }
+});
+
+test('malformed model output keeps raw bytes and does not advance the cursor; a retry then commits', async (f) => {
+  f.message();
+  const before = getState(f.stores.get('master'));
+  const head = f.git('rev-parse', 'HEAD');
+  const rawText = 'not json {"operations":[';
+  const rejected = await f.run(() => rawText);
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.alert, 'Dreamer failed: model did not return JSON.');
+  assert.deepEqual(getState(f.stores.get('master')), before);
+  assert.equal(f.git('rev-parse', 'HEAD'), head);
+  const dir = path.join(f.workspace, '.rbtv', 'runtime', 'ignite', 'dreamer-rejected');
+  const saved = fs.readdirSync(dir).map((name) => fs.readFileSync(path.join(dir, name)));
+  assert.ok(saved.some((bytes) => bytes.equals(Buffer.from(rawText))));
+  await assert.rejects(castProposal({}, { workspace: f.workspace, model: MODEL, run: async () => ({ stdout: '{"operations":[' }) }), /model did not return JSON/);
+  const name = `${ROOT}knowledge/facts.md`;
+  const retried = await f.run((input) => proposal(operation(input, name, knowledge(fact('Retried fact.')))));
+  assert.equal(retried.ok, true, retried.alert);
+  assert.equal(getState(f.stores.get('master')).cursor, 1);
+  assert.ok(f.read(name).includes('Retried fact.'));
+});
+
+test('quiet no-change run does not claim a consolidation or move the cursor', async (f) => {
+  f.message();
+  const head = f.git('rev-parse', 'HEAD');
+  const result = await f.run(() => proposal());
+  assert.equal(result.ok, true, result.alert);
+  assert.equal(result.changed, false);
+  assert.equal(result.digest, null);
+  assert.equal(result.commit, null);
+  assert.equal(f.git('rev-parse', 'HEAD'), head);
+  assert.equal(getState(f.stores.get('master')).cursor, 0);
+  assert.equal(fs.existsSync(path.join(f.workspace, '.rbtv', 'runtime', 'ignite', 'dreamer-rejected')), false);
+});
+
+test('facts near the historical cap split at record boundaries and an oversized record is retained whole', async (f) => {
+  f.message();
+  const name = `${ROOT}knowledge/facts.md`;
+  const records = [fact('Near cap fact 0.'), fact('Near cap fact 1.')];
+  let body = knowledge(records.join('\n'));
+  const target = 3000 - 28;
+  const gap = target - [...body].length;
+  assert.ok(gap > 0, gap);
+  records[1] = fact(`Near cap fact 1.${'n'.repeat(gap)}`);
+  body = knowledge(records.join('\n'));
+  assert.equal([...body].length, target);
+  f.write(name, body);
+  const original = Buffer.from(body, 'utf8');
+  const result = await f.run(() => proposal());
+  assert.equal(result.ok, true, result.alert);
+  const source = f.read(name);
+  const split = f.read(`${ROOT}knowledge/facts/part-1.md`);
+  const combined = `${source}\n${split}`;
+  for (const row of records) assert.ok(combined.includes(row), row);
+  assert.ok([...source].length <= 3000);
+  assert.ok([...split].length <= 3000);
+  assert.ok([...source].length <= 3000 - 64);
+  assert.match(f.read(`${ROOT}_artifacts/index.md`), /knowledge\/facts\/part-1\.md/);
+  const originals = path.join(f.workspace, '.rbtv', 'runtime', 'ignite', 'dreamer-originals');
+  const kept = fs.readdirSync(originals).map((file) => fs.readFileSync(path.join(originals, file)));
+  assert.ok(kept.some((bytes) => bytes.equals(original)));
+  const huge = `é`.repeat(3001);
+  const retained = retainIndivisible(f.workspace, name, huge);
+  assert.ok(fs.readFileSync(retained, 'utf8').endsWith(huge));
+  assert.equal(f.read(name).includes(huge.slice(0, 20)), false);
+});
+
+test('a stored seventh watch-out does not block a quiet dreamer snapshot', async (f) => {
+  const watches = Array.from({ length: 7 }, (_, i) => fact(`Watch ${i}.`));
+  f.write(boardPath(), board({ watch: watches }));
+  const result = await f.run(() => proposal());
+  assert.equal(result.ok, true, result.alert);
+  assert.equal(parseBoard(f.read(boardPath())).watchOuts.length, 7);
 });
 
 (async () => {

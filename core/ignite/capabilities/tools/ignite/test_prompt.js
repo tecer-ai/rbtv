@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { readBoard, readTurnMemory, composeTurn } = require('./prompt.js');
-const { EMPTY_BOARD, boardPath } = require('./board.js');
+const { EMPTY_BOARD, boardPath, parseBoard, writeBoard, boardRevision, VIEW_LIMIT } = require('./board.js');
 const { Store } = require('./store.js');
 
 let passed = 0;
@@ -156,6 +156,28 @@ test('HEAD board recovery still renders live timers without rewriting the broken
     assert.match(loaded.alerts[0], /Loaded checked HEAD/);
     assert.equal(fs.readFileSync(boardPath(home), 'utf8'), 'broken board');
   } finally { store.close(); }
+});
+
+test('turn start recalls a retained correction by its omission route and does not treat the view as the board', (home) => {
+  fs.mkdirSync(path.dirname(boardPath(home)), { recursive: true });
+  const kept = '- Keep this correction (2026-10-02 · sample)';
+  const omitted = `- ${'é'.repeat(VIEW_LIMIT)} (2026-10-01 · sample)`;
+  const text = EMPTY_BOARD.replace('## Watch-outs\n', `## Watch-outs\n\n${omitted}\n${kept}\n`);
+  fs.writeFileSync(boardPath(home), text, 'utf8');
+  const loaded = readTurnMemory(home);
+  assert.match(loaded.board, /Omitted watch-outs \(1\): read .+ before acting\. Mandatory\./);
+  assert.match(loaded.board, /#Watch-outs/);
+  assert.ok(loaded.board.includes(kept));
+  assert.equal(loaded.board.includes('é'.repeat(80)), false);
+  assert.throws(() => parseBoard(loaded.board), /start|headings/);
+  const prompt = composeTurn({ ...loaded, inputs: [], recent: [], stored: [] });
+  assert.match(prompt, /mandatory reads of the canonical board before acting/);
+  assert.equal(fs.readFileSync(boardPath(home), 'utf8'), text);
+  assert.equal(parseBoard(text).watchOuts.length, 2);
+  const revision = boardRevision(text);
+  assert.throws(() => writeBoard(boardPath(home), text, { revision: 'stale-revision' }), /stale revision/);
+  assert.equal(fs.readFileSync(boardPath(home), 'utf8'), text);
+  assert.equal(boardRevision(fs.readFileSync(boardPath(home), 'utf8')), revision);
 });
 
 test('a timer wake shows its check details as one line of data, and the failure when the check failed', () => {

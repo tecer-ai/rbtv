@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { CAPS, EMPTY_BOARD, parseBoard, writeBoard, closeSubject, boardPath, migrateBoard, refreshBoard, refreshBoardAfterCommit, renderBoard, preflightBoard } = require('./board.js');
+const { CAPS, VIEW_LIMIT, EMPTY_BOARD, parseBoard, writeBoard, closeSubject, boardPath, migrateBoard, refreshBoard, refreshBoardAfterCommit, renderBoard, renderBoardView, boardRevision, preflightBoard } = require('./board.js');
 const { Store } = require('./store.js');
 
 const failures = [];
@@ -134,10 +134,7 @@ for (const [name, text, error] of [
   ['cron fire', FILLED_EXAMPLE.replace('2026-10-02 09:00 Europe/Lisbon', '0 9 * * *'), /next fire/],
   ['bad timer clock', FILLED_EXAMPLE.replace('09:00 Europe/Lisbon', '25:00 Europe/Lisbon'), /next fire/],
   ['bad timer timezone', FILLED_EXAMPLE.replace('Europe/Lisbon', 'Mars/Olympus'), /IANA/],
-  ['subject overflow', board({ subjects: Array.from({ length: 9 }, (_, i) => subject(`Subject ${i}`)) }), /at most 8/],
-  ['watch-out overflow', board({ watchOuts: Array.from({ length: 7 }, () => '- Rule (2026-10-01 · sample)') }), /at most 6 watch/],
-  ['closed overflow', board({ closed: closedRows(7) }), /at most 6 Recently/],
-  ['line overflow', EMPTY_BOARD + 'extra\n'.repeat(91), /at most 90/],
+  ['duplicate watch-outs', board({ watchOuts: Array.from({ length: 7 }, () => '- Rule (2026-10-01 · sample)') }), /unique/],
   ['expiry not last', board({ subjects: [subject('Review', 'Hold until 2026-10-03 then resume.')] }), /temporary facts/],
   ['bare carriage return', board({ subjects: [subject('Review', 'First\rSecond')] }), /LF or CRLF/],
   ['NUL byte', board({ subjects: [subject('Review', 'First\0Second')] }), /NUL/],
@@ -239,11 +236,13 @@ test('close without a thread fills the sixth slot and leaves all section heading
   });
 });
 
-test('full Recently closed refuses the whole close without dropping any entry', () => {
+test('a seventh closed entry is retained when Recently closed already holds six', () => {
   withBoard(board({ subjects: [subject('Review')], closed: closedRows(6) }), (file) => {
-    const before = fs.readFileSync(file);
-    assert.throws(() => closeSubject(file, 'Review', 'Done', { agent: 'sample', now: NOW }), /at most 6 Recently/);
-    assert.deepEqual(fs.readFileSync(file), before);
+    closeSubject(file, 'Review', 'Done', { agent: 'sample', now: NOW });
+    const parsed = parseBoard(fs.readFileSync(file, 'utf8'));
+    assert.equal(parsed.subjects.length, 0);
+    assert.equal(parsed.closed.length, 7);
+    assert.equal(parsed.closed[6], '- Review — Done (2026-10-03 · sample)');
   });
 });
 
@@ -505,6 +504,39 @@ for (const component of ['board.md', '_artifacts', 'sample', 'agents', '.rbtv'])
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 }
+
+test('seventh and oversized watch-outs are captured without Albert and a stale revision writes nothing', () => {
+  const watches = Array.from({ length: 7 }, (_, i) => `- Distinct correction ${i} (2026-10-01 · sample)`);
+  watches.push(`- ${'😀'.repeat(VIEW_LIMIT + 1)} (2026-10-01 · sample)`);
+  const text = board({ watchOuts: watches });
+  withBoard(EMPTY_BOARD, (file) => {
+    const revision = boardRevision(fs.readFileSync(file, 'utf8'));
+    assert.equal(writeBoard(file, text, { revision }).changed, true);
+    const stored = fs.readFileSync(file, 'utf8');
+    assert.equal(parseBoard(stored).watchOuts.length, 8);
+    assert.ok(stored.includes('😀'.repeat(VIEW_LIMIT + 1)));
+    const stale = boardRevision(EMPTY_BOARD);
+    const before = fs.readFileSync(file);
+    assert.throws(() => writeBoard(file, text, { revision: stale }), /stale revision/);
+    assert.deepEqual(fs.readFileSync(file), before);
+  });
+});
+
+test('bounded Unicode view omits whole watch-outs and names the mandatory read route', () => {
+  const huge = `- ${'é'.repeat(VIEW_LIMIT)} (2026-10-01 · sample)`;
+  const kept = '- Keep this correction (2026-10-02 · sample)';
+  const text = board({ watchOuts: [huge, kept] });
+  const canonical = '/tmp/agent/_artifacts/board.md';
+  const view = renderBoardView(text, canonical);
+  assert.ok([...view].length <= VIEW_LIMIT, [...view].length);
+  assert.match(view, /^Board view\n/);
+  assert.throws(() => parseBoard(view), /start|headings/);
+  assert.match(view, new RegExp(`Omitted watch-outs \\(1\\): read ${canonical.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} before acting\\. Mandatory\\.`));
+  assert.ok(view.includes(`Route: ${canonical}#Watch-outs`));
+  assert.ok(view.includes(kept));
+  assert.equal(view.includes('é'.repeat(80)), false);
+  assert.ok(text.includes('é'.repeat(VIEW_LIMIT)));
+});
 
 console.log(`${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

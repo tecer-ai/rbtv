@@ -248,6 +248,12 @@ test('simultaneous first appends from several processes preserve every complete 
   assert.equal(new Set(lines).size, 100);
 });
 
+test('turn memory check accepts a seventh distinct watch-out', () => {
+  const watches = Array.from({ length: 7 }, (_, i) => `- Correction ${i} (2026-10-01 · sample)`).join('\n');
+  const text = EMPTY_BOARD.replace('## Watch-outs\n', `## Watch-outs\n\n${watches}\n`);
+  assert.equal(checkMemory('board', text).watchOuts.length, 7);
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {
