@@ -1194,6 +1194,7 @@ for (const ending of ['\n', '\r\n']) test(`prompt lists every writable file budg
     assert.match(prompt, /Stay within every file's cap/);
     assert.match(prompt, /Do not trim, compress or truncate a record to evade a cap/);
     assert.match(prompt, /If a fact still does not fit, leave that destination unchanged and report it in conflicts/);
+    assert.match(prompt, /conflicts is an array of plain strings, one sentence each, never objects/);
     assert.match(budgets, /New files not listed above start at 0/);
     return { stdout: JSON.stringify(proposal()) };
   } });
@@ -1231,7 +1232,8 @@ test('cast adapter cleans its temporary launch folder after failure', async (f) 
 test('cast adapter accepts the OpenCode banner and recovered final JSON, but refuses trailing trace text', async () => {
   for (const stdout of ['OpenCode model banner\n\n{"operations":[],"conflicts":[]}',
     'OpenCode model banner\n\n```json\n{"operations":[],"conflicts":[]}\n```',
-    'OpenCode model banner\ncast: recovered final message from the opencode session store (absent from stdout):\n{"operations":[],"conflicts":[]}']) {
+    'OpenCode model banner\ncast: recovered final message from the opencode session store (absent from stdout):\n{"operations":[],"conflicts":[]}',
+    '{"status":"banner"}\n{"operations":[],"conflicts":[]}']) {
     assert.deepEqual(await castProposal({}, { workspace: os.tmpdir(), model: MODEL, run: async () => ({ stdout }) }), proposal());
   }
   await assert.rejects(castProposal({}, { workspace: os.tmpdir(), model: MODEL, run: async () => ({ stdout: '{"operations":[],"conflicts":[]}\nnot a final report' }) }), /model did not return JSON/);
@@ -1313,6 +1315,52 @@ test('cast failure without stderr reports a safe exit or timeout cause', async (
     const result = await f.run(() => { throw Object.assign(new Error('unsafe command'), error); });
     assert.equal(result.alert, `Dreamer failed: ${cause}.`);
   }
+});
+
+test('a whole JSON proposal whose conflict is an object is refused as invalid conflict and keeps raw bytes', async (f) => {
+  f.message();
+  const before = getState(f.stores.get('master'));
+  const head = f.git('rev-parse', 'HEAD');
+  const token = 'shape-token-not-for-alert';
+  const stdout = `OpenCode model banner\n${JSON.stringify({ operations: [], conflicts: [{ path: token, text: token, sources: [], explanation: token }] })}\n`;
+  const rejected = await f.run(() => castProposal({}, {
+    workspace: f.workspace, model: MODEL, run: async () => ({ stdout }),
+  }));
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.changed, false);
+  assert.equal(rejected.alert, 'Dreamer failed: invalid conflict.');
+  assert.equal(rejected.alert.includes(token), false);
+  assert.equal(JSON.stringify(rejected).includes(token), false);
+  assert.deepEqual(getState(f.stores.get('master')), before);
+  assert.equal(f.git('rev-parse', 'HEAD'), head);
+  const dir = path.join(f.workspace, '.rbtv', 'runtime', 'ignite', 'dreamer-rejected');
+  const saved = fs.readdirSync(dir).map((name) => fs.readFileSync(path.join(dir, name)));
+  assert.ok(saved.some((bytes) => bytes.equals(Buffer.from(stdout))));
+});
+
+test('genuinely non-JSON cast output still reports model did not return JSON', async (f) => {
+  f.message();
+  const before = getState(f.stores.get('master'));
+  const stdout = 'not json {"operations":[';
+  const rejected = await f.run(() => castProposal({}, {
+    workspace: f.workspace, model: MODEL, run: async () => ({ stdout }),
+  }));
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.alert, 'Dreamer failed: model did not return JSON.');
+  assert.deepEqual(getState(f.stores.get('master')), before);
+  const dir = path.join(f.workspace, '.rbtv', 'runtime', 'ignite', 'dreamer-rejected');
+  const saved = fs.readdirSync(dir).map((name) => fs.readFileSync(path.join(dir, name)));
+  assert.ok(saved.some((bytes) => bytes.equals(Buffer.from(stdout))));
+});
+
+test('model prompt states each conflict is a plain string', async (f) => {
+  await castProposal({ agent: 'master', messages: [], files: {} }, {
+    workspace: f.workspace, model: MODEL, run: async (_command, args) => {
+      const prompt = fs.readFileSync(args.at(-1), 'utf8');
+      assert.match(prompt, /conflicts is an array of plain strings, one sentence each, never objects/);
+      return { stdout: JSON.stringify(proposal()) };
+    },
+  });
 });
 
 test('malformed model output keeps raw bytes and does not advance the cursor; a retry then commits', async (f) => {
