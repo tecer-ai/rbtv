@@ -118,7 +118,7 @@ Discarded section.
 |------|-------------|
 | Anti-hallucination | Information NEVER appears without a verified source behind it |
 | No fabrication | Data is NEVER fabricated, estimated, or extrapolated. Where it is unavailable, the output MUST state "DATA NOT FOUND IN SOURCES" |
-| Inline citations | Every number, statistic, and claim MUST cite its source inline (for example, "[Source 12]") |
+| Inline citations | Every number, statistic, and claim MUST cite its source inline with the source's number (for example, "[12]") |
 | Date specificity | Exact years and dates MUST be stated. A vague term such as "recently" is NEVER used without defining the period it covers |
 | Conflict resolution | Where sources conflict, ALL views MUST be presented and the discrepancy noted explicitly. The conflict is NEVER silently resolved in favor of one side |
 | Confidence flagging | Uncertain or single-source data MUST be tagged `[High Confidence]`, `[Medium Confidence]`, or `[Low Confidence]` |
@@ -173,16 +173,16 @@ Every statement MUST be identifiable as exactly one of these:
 
 ### Citations
 
-Every cited source MUST use this format:
+Every cited source MUST be one line under the heading `## Sources`, in this format. The first date is the research date, written YYYY-MM-DD; the second is the source's own date, or `undated`. The line ends with the link's tested status (§ Link verification). A sub-source nested under its parent takes the parent's number and a letter (`[1a]`).
 
 ```
-[n] Title — URL — Research Date (YYYY-MM-DD) — Source Date — TS:x (AT:x TR:x TM:x)
+[n] Title — URL — Research Date — Source Date — TS:x (AT:x TR:x TM:x) — Status
 ```
 
 Example:
 
 ```
-[1] Anthropic Claude Documentation — https://docs.anthropic.com — 2025-12-02 — 2025-11-15 — TS:9 (AT:10 TR:9 TM:8)
+[1] Anthropic Claude Documentation — https://docs.anthropic.com — 2025-12-02 — 2025-11-15 — TS:9 (AT:10 TR:9 TM:8) — ✓ Verified
 ```
 
 ### Legend
@@ -210,13 +210,13 @@ threshold."
 
 ### Link verification
 
-Every link in the output MUST carry its tested status:
+Every source link MUST be tested, and its status closes its line in `## Sources`:
 
-| Status | Meaning |
+| Status, as written | Meaning |
 |--------|---------|
-| ✓ Verified | The link was tested and works |
-| ⚠ Redirect | The link redirects — the destination MUST be noted |
-| ✗ Broken | The link no longer works |
+| `✓ Verified` | The link was tested and works |
+| `⚠ Redirect → <destination URL>` | The link redirects to that destination |
+| `✗ Broken` | The link no longer works |
 
 ### Tone
 
@@ -240,3 +240,11 @@ characters including spaces):
 
 Judgment call: no length requested. Length is then set by what the sources support — and a page
 count is NEVER reached by adding unsourced material.
+
+## Check the report before returning it
+
+Run `research-check <report file>` on the finished report; for a report returned as the answer and not written to a file, pipe its text to `research-check -`. It prints `pass`, or one line per place where the report departs from the form above: the legend, the `## Sources` lines and their arithmetic, the citations, the `## Sources Discarded` section and the prohibited terms.
+
+Correct each finding in the report and run it again, until it prints `pass`. A finding is corrected with what the research found: a source the check places below the threshold moves to Sources Discarded and the claims it supported are flagged, a citation without a source gets its source or is removed. A score or a link status is NEVER changed to make the check pass; the program checks the form and the arithmetic, not whether they are true.
+
+When `research-check` is not installed, check the report against this page by reading and say in the answer that the program did not run.

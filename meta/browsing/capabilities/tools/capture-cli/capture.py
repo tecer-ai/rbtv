@@ -64,12 +64,15 @@ OUTPUT
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import re
+import shlex
 import shutil
 import subprocess
 import sys
 from datetime import date
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Optional
 
@@ -585,6 +588,32 @@ def _extract_title(body: str) -> str:
     return m.group(1).strip() if m else ""
 
 
+class _HeadMeta(HTMLParser):
+    """Collect the title and description a page's <meta> tags declare."""
+
+    _KEYS = {"og:title": "title", "twitter:title": "title", "og:description": "description",
+             "twitter:description": "description", "description": "description"}
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = {"title": "", "description": ""}
+
+    def handle_starttag(self, tag, attrs):
+        if tag != "meta":
+            return
+        a = dict(attrs)
+        field = self._KEYS.get((a.get("property") or a.get("name") or "").lower())
+        if field and not self.found[field] and a.get("content"):
+            self.found[field] = a["content"].strip()
+
+
+def _head_meta(body: str) -> tuple[str, str]:
+    """Return (title, description) from the page's meta tags, the title falling back to <title>."""
+    parser = _HeadMeta()
+    parser.feed(body)
+    return parser.found["title"] or html.unescape(_extract_title(body)), parser.found["description"]
+
+
 def _fetch_url(url: str, user_agent: str = DEFAULT_USER_AGENT) -> tuple[str, str, bytes]:
     """Fetch via urllib. Returns (body_text, page_title, raw_bytes). Raises on error.
 
@@ -644,9 +673,9 @@ def _result(**kw) -> dict:
     """Build the single JSON object this tool prints. Every key always present."""
     out = {
         "state": "blocked", "url": None, "file": None, "path": None,
-        "sidecar": None, "title": "", "extractor": None, "mode": "markdown",
-        "bytes": 0, "prose_chars": 0, "failure_reason": None,
-        "transform_error": None, "transform_warning": None,
+        "sidecar": None, "title": "", "description": "", "extractor": None,
+        "mode": "markdown", "bytes": 0, "prose_chars": 0, "failure_reason": None,
+        "next": None, "transform_error": None, "transform_warning": None,
     }
     out.update(kw)
     # Only one of url/file applies; drop the irrelevant one so the object matches
@@ -741,8 +770,9 @@ def capture_url(
     *, url: str, mode: str, extractor: str, title: str, ext: str,
     out: Optional[Path], out_dir: Optional[Path], user_agent: str,
     curl_fallback: bool, pdf_text: bool, capture_date: Optional[str], dry_run: bool,
+    title_only: bool = False,
 ) -> dict:
-    """Fetch a URL, gate it, extract it, write it."""
+    """Fetch a URL, gate it, extract it, write it; with title_only, report its title and stop."""
     try:
         body, page_title, raw = _fetch_url(url, user_agent)
     except Exception as exc:
@@ -755,6 +785,17 @@ def capture_url(
                 url=url, mode=mode,
                 failure_reason=f"urllib: {exc}; curl-fallback: {curl_exc}",
             )
+
+    if title_only:
+        if _is_pdf_body(body, raw):
+            return _result(url=url, mode=mode, bytes=len(raw),
+                           failure_reason="no_title: the URL returned a PDF, which declares no page title")
+        head_title, description = _head_meta(body)
+        if not head_title:
+            return _result(url=url, mode=mode, bytes=len(raw),
+                           failure_reason="no_title: the page's HTML declares no title")
+        return _result(state="titled", url=url, mode=mode, title=head_title,
+                       description=description, bytes=len(raw))
 
     # PDF check runs BEFORE extraction: a PDF is not HTML, so it overrides the
     # requested mode entirely rather than being fed to an HTML extractor.
@@ -779,9 +820,13 @@ def capture_url(
 
     ok, failure_reason = _validate_body(body, prose_chars)
     if not ok:
+        # Thin prose is what a JavaScript-rendered page looks like without a
+        # browser; a browser read is the one step that can still get its text.
+        next_step = (f"agent-browser read {shlex.quote(url)}"
+                     if failure_reason.startswith("low_content_density") else None)
         return _result(url=url, mode=mode, title=resolved_title, extractor=used,
                        bytes=body_bytes, prose_chars=prose_chars,
-                       failure_reason=failure_reason)
+                       failure_reason=failure_reason, next=next_step)
 
     prefix = _resolve_capture_date(capture_date, None)
     written = 0
@@ -854,7 +899,9 @@ def capture_file(
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Fetch a URL (or route a local file) and save readable prose to disk."
+        description="Fetch a URL (or route a local file) and save readable prose to disk. "
+                    "Prints one JSON object; exits 0 when its state is 'captured' or 'titled'. "
+                    "A blocked result whose 'next' key is set names the command to run next."
     )
     src = p.add_mutually_exclusive_group(required=True)
     src.add_argument("--url", help="URL to capture")
@@ -884,13 +931,20 @@ def _build_parser() -> argparse.ArgumentParser:
                         "--file whose stem already carries a YYYY-MM-DD prefix keeps that date; "
                         "otherwise today. Does not apply to PDF saves.")
     p.add_argument("--dry-run", action="store_true", help="Report what would be saved; write nothing")
+    p.add_argument("--title-only", action="store_true",
+                   help="With --url: report only the page's title and description (state "
+                        "'titled'); extract nothing and write nothing. Needs no --out")
     return p
 
 
 def main(argv: Optional[list] = None) -> int:
     args = _build_parser().parse_args(argv)
 
-    if not args.dry_run and not (args.out or args.out_dir):
+    if args.title_only and not args.url:
+        print("ERROR: --title-only reads a page's title and needs --url. "
+              "Run: capture-cli --url <url> --title-only", file=sys.stderr)
+        return 1
+    if not (args.dry_run or args.title_only) and not (args.out or args.out_dir):
         print("ERROR: exactly one of --out / --out-dir is required (or use --dry-run).",
               file=sys.stderr)
         return 1
@@ -910,7 +964,7 @@ def main(argv: Optional[list] = None) -> int:
                 title=args.title, ext=args.ext, out=out, out_dir=out_dir,
                 user_agent=args.user_agent, curl_fallback=not args.no_curl_fallback,
                 pdf_text=args.pdf_text, capture_date=args.capture_date,
-                dry_run=args.dry_run,
+                dry_run=args.dry_run, title_only=args.title_only,
             )
         else:
             if args.file == "-":
@@ -945,7 +999,7 @@ def main(argv: Optional[list] = None) -> int:
                 pass
 
     print(json.dumps(result, indent=2))
-    return 0 if result.get("state") == "captured" else 1
+    return 0 if result.get("state") in ("captured", "titled") else 1
 
 
 if __name__ == "__main__":

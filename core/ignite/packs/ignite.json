@@ -9,6 +9,7 @@
     "core/ignite#agent-controls",
     "meta/browsing#browsing",
     "meta/browsing#capture-cli",
+    "meta/browsing#research-check",
     "office/document#office",
     "connectors/google#google",
     "core/ignite#ignite-standing-instructions"

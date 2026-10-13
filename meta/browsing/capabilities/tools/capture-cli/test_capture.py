@@ -150,10 +150,42 @@ def test_pdf(tmp: Path):
 
 def test_result_keys():
     r = c._result(state="captured", url="u")
-    assert set(r) == {"state", "url", "path", "sidecar", "title", "extractor",
-                      "mode", "bytes", "prose_chars", "failure_reason",
-                      "transform_error", "transform_warning"}, sorted(r)
+    assert set(r) == {"state", "url", "path", "sidecar", "title", "description",
+                      "extractor", "mode", "bytes", "prose_chars", "failure_reason",
+                      "next", "transform_error", "transform_warning"}, sorted(r)
     assert "url" not in c._result(file="f")
+
+
+# --- title only and next step ------------------------------------------------
+
+def test_title_only_and_next():
+    page = ('<html><head><title>Plain title</title>'
+            '<meta property="og:title" content="Open Graph title">'
+            '<meta name="description" content="What the page is."></head><body></body></html>')
+    assert c._head_meta(page) == ("Open Graph title", "What the page is.")
+    assert c._head_meta("<title>Only this</title>") == ("Only this", "")
+
+    def run(body, **kw):
+        c._fetch_url = lambda url, ua=None: (body, "", body.encode("utf-8"))
+        args = dict(url="https://x.example/a b", mode="markdown", extractor="auto", title="",
+                    ext="md", out=None, out_dir=None, user_agent="t", curl_fallback=False,
+                    pdf_text=False, capture_date=None, dry_run=True)
+        return c.capture_url(**{**args, **kw})
+
+    real_fetch = c._fetch_url
+    try:
+        r = run(page, title_only=True)
+        assert (r["state"], r["title"], r["description"]) == ("titled", "Open Graph title", "What the page is."), r
+        r = run("<html><body>no head</body></html>", title_only=True)
+        assert r["state"] == "blocked" and r["failure_reason"].startswith("no_title"), r
+        # A large body with almost no prose is a JavaScript shell: the result names the browser read.
+        r = run("<html><body><script>" + "x" * 5000 + "</script></body></html>")
+        assert r["failure_reason"].startswith("low_content_density"), r
+        assert r["next"] == "agent-browser read 'https://x.example/a b'", r
+        r = run("x")
+        assert r["failure_reason"].startswith("body_too_small") and r["next"] is None, r
+    finally:
+        c._fetch_url = real_fetch
 
 
 if __name__ == "__main__":
@@ -162,6 +194,7 @@ if __name__ == "__main__":
     test_naming()
     test_chain()
     test_result_keys()
+    test_title_only_and_next()
     with tempfile.TemporaryDirectory() as d:
         test_pdf(Path(d))
     print("OK — all checks passed")

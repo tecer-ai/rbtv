@@ -17,3 +17,11 @@ Reading a page, previewing a link, driving a browser and researching with source
 ## No server record and no copied program reference
 
 The component ships no MCP server record and no reference pages for `agent-browser` or `playwright cli`; the method page names each program's own guide. Reason: owner decision, 2026-10-13; the chrome-devtools server route was never exercised, and copied pages fall behind the installed program.
+
+## A link's title comes from capture-cli
+
+`capture-cli --title-only` returns a link's title and description, and a result blocked for low content names the browser command in its `next` key. Reason: owner decision, 2026-10-13; a request that carries a URL reaches the tool through the tools rule without opening the skill (0 of 4 test runs opened it), so the cheap route and the next step are stated where the agent is.
+
+## The report form is checked by a program
+
+The research page ends with a run of `research-check`, and the agent corrects the report until it passes. Reason: owner decision, 2026-10-13: the form must hold every time, and one report in ten written from the page alone departed from it. The citation line therefore fixes the place of the link status, which the page had left open.

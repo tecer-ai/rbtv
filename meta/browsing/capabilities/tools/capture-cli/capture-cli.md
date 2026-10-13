@@ -4,16 +4,18 @@
 
 ## What a run returns
 
-One JSON object on standard output, with every key present on success and on failure, and exit status 0 only when `state` is `captured`.
+One JSON object on standard output, with every key present on success and on failure, and exit status 0 only when `state` is `captured` or, with `--title-only`, `titled`.
 
 | Key | Holds |
 |---|---|
-| `state` | `captured` or `blocked` |
+| `state` | `captured`, `titled` (a `--title-only` run that found a title) or `blocked` |
 | `url` or `file` | The source given |
 | `path`, `sidecar` | The file written and, when the mode keeps the raw page, the `.full.html` file beside it |
-| `title`, `extractor`, `mode` | The extracted title, the extractor that produced the text, the output mode |
+| `title`, `description` | The title, and the description the page's meta tags declare; a `--title-only` run fills both from the page's head |
+| `extractor`, `mode` | The extractor that produced the text, the output mode |
 | `bytes`, `prose_chars` | Size of the fetched body and of the extracted text |
-| `failure_reason` | Why the run was blocked: `body_too_small`, `captcha_or_bot_wall` or `low_content_density`, followed by the measured values; or the fetch error |
+| `failure_reason` | Why the run was blocked: `body_too_small`, `captcha_or_bot_wall` or `low_content_density`, followed by the measured values; `no_title` for a `--title-only` run; or the fetch error |
+| `next` | The command to run next, when one can still get the page: `agent-browser read <url>` after `low_content_density`. Otherwise null |
 | `transform_error`, `transform_warning` | A failure or warning of the PDF text copy |
 
 The tool fetches once and runs every check and extractor on those bytes. It writes only where `--out` or `--out-dir` says and keeps no state.

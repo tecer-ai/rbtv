@@ -10,14 +10,14 @@ capture-cli --url <url> --out <file>           # an exact path
 capture-cli --file <path> --out <file>         # a local HTML, PDF or text file
 ```
 
-It prints one JSON object and exits 0 only when `state` is `captured`.
+It prints one JSON object and exits 0 only when `state` is `captured`. A blocked result whose `next` key is set names the command to run next.
 
 ## Read the result
 
 | Result | What it means | What you do |
 |---|---|---|
 | `state: captured` | An article was extracted and written | Use the file. `extractor` names the extractor that produced it |
-| `state: blocked`, `failure_reason` starts `low_content_density` | The HTML held too little text: the content arrives by JavaScript after the page loads | Read it with a browser: `agent-browser read <url>`, as [Driving a browser](driving-a-browser.md) describes. Do not report that the page has no content; the tool measured the HTML, not the rendered page |
+| `state: blocked`, `failure_reason` starts `low_content_density` | The HTML held too little text: the content arrives by JavaScript after the page loads | Read it with a browser: run the command in the result's `next` key, `agent-browser read <url>`, as [Driving a browser](driving-a-browser.md) describes. Do not report that the page has no content; the tool measured the HTML, not the rendered page |
 | `state: blocked`, `failure_reason` starts `captcha_or_bot_wall` | The site refused the request | Report it. Do not retry with another user agent to pass the challenge; that decision is the user's |
 | `state: blocked`, `failure_reason` starts `body_too_small` | The response was empty or cut short | Report it with the reason |
 
