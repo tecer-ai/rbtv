@@ -50,6 +50,25 @@ function hashFile(file) {
   return createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
+function snapshot(dir) {
+  const rows = [];
+  const walk = (current) => {
+    for (const name of fs.readdirSync(current).sort()) {
+      const full = path.join(current, name);
+      const rel = path.relative(dir, full).split(path.sep).join('/');
+      const stat = fs.lstatSync(full);
+      if (stat.isDirectory()) {
+        rows.push(`${rel}/`);
+        walk(full);
+      } else {
+        rows.push(`${rel} ${hashFile(full)}`);
+      }
+    }
+  };
+  walk(dir);
+  return rows.join('\n');
+}
+
 function seed(home) {
   const db = path.join(home, DATABASE_NAME);
   const store = new Store(db);
@@ -380,11 +399,128 @@ test('RM-08 a missing own-tool file is refused before writing', () => {
   const { workspace, home } = agent();
   seed(home);
   fs.rmSync(path.join(home, 'capabilities'), { recursive: true });
+  const before = snapshot(home);
   assert.throws(() => migrateAgentRuntime(home, { workspace }), /cannot place check tool capabilities\/tools\/mail\/mail\.js/);
+  assert.equal(snapshot(home), before);
+  assert.equal(fs.existsSync(path.join(home, 'runtime')), false);
   assert.equal(fs.existsSync(path.join(home, DATABASE_NAME)), true);
   assert.equal(fs.existsSync(ignitePaths(home).root), false);
   assert.equal(fs.existsSync(path.join(home, 'rbtv')), false);
   assert.equal(fs.existsSync(path.join(home, 'runtime', '.ignite-migration.json')), false);
+});
+
+test('RM-08 a refusal writes nothing', () => {
+  const { workspace, home } = agent();
+  seed(home);
+  const store = new Store(path.join(home, DATABASE_NAME));
+  store.db.prepare("UPDATE schedules SET check_tool=? WHERE id='sched-1'").run('capabilities/tools/missing/missing.py');
+  store.close();
+  fs.rmSync(path.join(home, 'capabilities'), { recursive: true });
+  const before = snapshot(home);
+  const hash = hashFile(path.join(home, DATABASE_NAME));
+  assert.throws(() => migrateAgentRuntime(home, { workspace }), /cannot place check tool capabilities\/tools\/missing\/missing\.py/);
+  assert.equal(snapshot(home), before);
+  assert.equal(hashFile(path.join(home, DATABASE_NAME)), hash);
+  assert.equal(fs.existsSync(path.join(home, 'runtime')), false);
+  assert.equal(fs.existsSync(path.join(home, 'rbtv')), false);
+  assert.equal(fs.existsSync(path.join(home, 'runtime', '.ignite-migration.json')), false);
+  assert.equal(fs.existsSync(path.join(home, 'runtime', '.ignite-incoming-')), false);
+});
+
+test('RM-08 rewrite touches only this agent\'s own tool path', () => {
+  const { workspace, home } = agent();
+  seed(home);
+  const probe = path.join(home, 'capabilities', 'tools', 'probe');
+  fs.mkdirSync(path.join(probe, 'lib'), { recursive: true });
+  const homeSlash = path.resolve(home).replaceAll('\\', '/');
+  const program = [
+    '"""docs <home>/capabilities/tools/<tool>/<tool>.py"""',
+    'from pathlib import Path',
+    'TOOL = "capabilities/tools/probe/probe.py"',
+    'URL = "https://example.com/capabilities/tools/probe/docs"',
+    'OTHER = "/agents/gaming/capabilities/tools/probe/probe.py"',
+    'DONE = "rbtv/capabilities/tools/probe/probe.py"',
+    'REL = "./capabilities/tools/probe/probe.py"',
+    `OWN = "${homeSlash}/capabilities/tools/probe/probe.py"`,
+    'AMBIG = "keepcapabilities/tools/probe/probe.py"',
+    'UNREL = "https://example.com/capabilities/tools/unrelated"',
+    'def agent_home():',
+    '    return Path(__file__).resolve().parents[3]',
+    'OTHER_INDEX = Path(__file__).resolve().parents[4]',
+    '',
+  ].join('\n');
+  fs.writeFileSync(path.join(probe, 'probe.py'), program, 'utf8');
+  fs.writeFileSync(path.join(probe, 'lib', 'deep.py'), [
+    'from pathlib import Path',
+    'def agent_home():',
+    '    return Path(__file__).resolve().parents[4]',
+    '',
+  ].join('\n'), 'utf8');
+  const page = [
+    'run capabilities/tools/probe/probe.py',
+    'see https://example.com/capabilities/tools/probe/docs',
+    'other /agents/gaming/capabilities/tools/probe/probe.py',
+    'done rbtv/capabilities/tools/probe/probe.py',
+    'dot ./capabilities/tools/probe/probe.py',
+    `slug .rbtv/agents/${path.basename(home)}/capabilities/tools/probe/probe.py`,
+    'also https://example.com/capabilities/tools/unrelated',
+    'keepcapabilities/tools/probe/probe.py',
+    '',
+  ].join('\n');
+  const expected = [
+    'run rbtv/capabilities/tools/probe/probe.py',
+    'see https://example.com/capabilities/tools/probe/docs',
+    'other /agents/gaming/capabilities/tools/probe/probe.py',
+    'done rbtv/capabilities/tools/probe/probe.py',
+    'dot ./rbtv/capabilities/tools/probe/probe.py',
+    `slug .rbtv/agents/${path.basename(home)}/rbtv/capabilities/tools/probe/probe.py`,
+    'also https://example.com/capabilities/tools/unrelated',
+    'keepcapabilities/tools/probe/probe.py',
+    '',
+  ].join('\n');
+  fs.writeFileSync(path.join(home, 'prompt.md'), page, 'utf8');
+  fs.mkdirSync(path.join(home, 'skills'));
+  fs.writeFileSync(path.join(home, 'skills', 'check.md'), page, 'utf8');
+  fs.mkdirSync(path.join(home, 'notes'));
+  fs.writeFileSync(path.join(home, 'notes', 'aside.md'), page, 'utf8');
+  let out = '';
+  let err = '';
+  const code = main(['runtime', 'migrate', '--installation', workspace], {
+    env: { ...process.env, RBTV_AGENT_HOME: home },
+    stdout(text) { out += text; },
+    stderr(text) { err += text; },
+  });
+  assert.equal(code, 0, err);
+  assert.equal(fs.readFileSync(path.join(home, 'prompt.md'), 'utf8'), expected);
+  assert.equal(fs.readFileSync(path.join(home, 'skills', 'check.md'), 'utf8'), expected);
+  assert.equal(fs.readFileSync(path.join(home, 'notes', 'aside.md'), 'utf8'), page);
+  assert.match(out, /not rewritten: prompt.md:8\n/);
+  assert.match(out, /not rewritten: skills\/check.md:8\n/);
+  const placed = path.join(home, 'rbtv', 'capabilities', 'tools', 'probe', 'probe.py');
+  const deep = path.join(home, 'rbtv', 'capabilities', 'tools', 'probe', 'lib', 'deep.py');
+  const body = fs.readFileSync(placed, 'utf8');
+  assert.match(body, /TOOL = "rbtv\/capabilities\/tools\/probe\/probe.py"/);
+  assert.match(body, /URL = "https:\/\/example.com\/capabilities\/tools\/probe\/docs"/);
+  assert.equal(body.includes('https://example.com/rbtv/capabilities/tools/probe/docs'), false);
+  assert.match(body, /OTHER = "\/agents\/gaming\/capabilities\/tools\/probe\/probe.py"/);
+  assert.equal(body.includes('/agents/gaming/rbtv/capabilities/tools/probe/probe.py'), false);
+  assert.match(body, /DONE = "rbtv\/capabilities\/tools\/probe\/probe.py"/);
+  assert.equal(body.includes('rbtv/rbtv/'), false);
+  assert.match(body, /REL = "\.\/rbtv\/capabilities\/tools\/probe\/probe.py"/);
+  assert.match(body, new RegExp(homeSlash.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/rbtv/capabilities/tools/probe/probe.py'));
+  assert.match(body, /AMBIG = "keepcapabilities\/tools\/probe\/probe.py"/);
+  assert.match(body, /<home>\/rbtv\/capabilities\/tools\//);
+  assert.match(body, /def _ignite_agent_home\(/);
+  assert.match(body, /return _ignite_agent_home\(\)/);
+  assert.equal(body.includes('parents[3]'), false);
+  assert.match(body, /Path\(__file__\)\.resolve\(\)\.parents\[4\]/);
+  const deepBody = fs.readFileSync(deep, 'utf8');
+  assert.match(deepBody, /def _ignite_agent_home\(/);
+  assert.match(deepBody, /return _ignite_agent_home\(\)/);
+  assert.equal(deepBody.includes('parents[4]'), false);
+  assert.match(out, /not rewritten: rbtv\/capabilities\/tools\/probe\/probe.py:\d+\n/);
+  assert.equal(fs.readFileSync(path.join(home, 'prompt.md'), 'utf8').includes('rbtv/rbtv/'), false);
+  assert.equal(fs.readFileSync(path.join(home, 'skills', 'check.md'), 'utf8').includes('/agents/gaming/rbtv/'), false);
 });
 
 test('RM-08 a rerun places a check tool left at the old path', () => {
