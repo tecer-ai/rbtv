@@ -250,6 +250,103 @@ test('indivisible record retained and flagged', () => {
   assert.ok(split.flagged.includes('continued'));
 });
 
+function judgedProposal() {
+  const token = 'shape-token-not-for-alert';
+  const snapshotToken = 'snapshot-token-not-for-alert';
+  const alpha = '.rbtv/agents/master/memory/alpha.md';
+  const beta = '.rbtv/agents/master/memory/beta.md';
+  const outside = 'notes/outside.md';
+  const raw = {
+    operations: [
+      { op: 'add', path: outside, text: `outside ${token}`, sources: [], reason: 'owner', explanation: 'because' },
+      {
+        op: 'add', path: alpha, sources: [], reason: 'owner', explanation: 'because',
+        text: `---\ndescription: when reviewing alpha\ntype: subject\n---\n# Alpha\n\nThreads: none\n- undated ${token}\n`,
+      },
+      {
+        op: 'add', path: beta, sources: [], reason: 'owner', explanation: 'because',
+        text: `---\ndescription: when reviewing beta\ntype: subject\naliases: [beta]\n---\n# Beta\n\n- a fact (2026-10-13 · master)\n`,
+      },
+    ],
+    conflicts: [{ path: token, text: token, sources: [], explanation: token }],
+  };
+  const input = {
+    agent: 'master', date: '2026-10-13', messages: [],
+    files: { '.rbtv/memory/inbox.md': `# Inbox\n\n- ${snapshotToken} (2026-10-01 · master)\n`, '.rbtv/memory/profile.md': '# Profile\n' },
+  };
+  return { raw, input, token, snapshotToken, alpha, beta, outside };
+}
+
+test('conflict object, outside add, missing aliases, undated record and missing Threads are all named with paths', (dir) => {
+  install(dir, path.join(dir, 'agent'));
+  const judged = judgedProposal();
+  const before = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).stdout.trim();
+  const result = lib.publishProposal(judged.input, judged.raw, dir);
+  assert.equal(result.ok, false);
+  assert.equal(result.published, false);
+  assert.equal(spawnSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).stdout.trim(), before);
+  const body = JSON.stringify(result.failures);
+  assert.equal(body.includes(judged.token), false);
+  assert.equal(body.includes(judged.snapshotToken), false);
+  const by = (reason) => result.failures.filter((row) => row.reason === reason);
+  const conflict = by('invalid conflict');
+  assert.equal(conflict.length, 1);
+  assert.equal(conflict[0].path, null);
+  assert.equal(conflict[0].operation, null);
+  assert.notEqual(conflict[0].expected, conflict[0].reason);
+  const outside = by('path outside agent memory or repeated operation');
+  assert.equal(outside.length, 1);
+  assert.equal(outside[0].path, judged.outside);
+  assert.equal(outside[0].operation, '0 add');
+  assert.notEqual(outside[0].expected, outside[0].reason);
+  const aliases = by('topic aliases required');
+  assert.equal(aliases.length, 1);
+  assert.equal(aliases[0].path, judged.alpha);
+  assert.equal(aliases[0].operation, '1 add');
+  assert.notEqual(aliases[0].expected, aliases[0].reason);
+  const dated = by('records require dated provenance');
+  assert.equal(dated.length, 1);
+  assert.equal(dated[0].path, judged.alpha);
+  assert.equal(dated[0].operation, '1 add');
+  const threads = by('subject topics require Threads');
+  assert.equal(threads.length, 1);
+  assert.equal(threads[0].path, judged.beta);
+  assert.equal(threads[0].operation, '2 add');
+  assert.notEqual(threads[0].expected, threads[0].reason);
+});
+
+test('shape fault in conflicts does not hide later operation failures', (dir) => {
+  const judged = judgedProposal();
+  const result = lib.validateProposalResult(judged.input, judged.raw, dir);
+  assert.equal(result.ok, false);
+  assert.equal(result.failures.some((row) => row.reason === 'invalid conflict'), true);
+  assert.equal(result.failures.some((row) => row.path === judged.outside), true);
+});
+
+test('one file reports every independent form error', (dir) => {
+  const judged = judgedProposal();
+  const result = lib.validateProposalResult(judged.input, judged.raw, dir);
+  const alpha = result.failures.filter((row) => row.path === judged.alpha).map((row) => row.reason);
+  assert.equal(alpha.includes('topic aliases required'), true);
+  assert.equal(alpha.includes('records require dated provenance'), true);
+});
+
+test('each operation failure names path, operation and expected form', (dir) => {
+  const judged = judgedProposal();
+  const result = lib.validateProposalResult(judged.input, judged.raw, dir);
+  for (const row of result.failures) {
+    if (row.reason === 'invalid conflict') {
+      assert.equal(row.path, null);
+      assert.equal(row.operation, null);
+    } else {
+      assert.equal(typeof row.path, 'string');
+      assert.match(row.operation, /^\d+ add$/);
+    }
+    assert.notEqual(row.expected, row.reason);
+    assert.equal(typeof row.expected, 'string');
+  }
+});
+
 test('malformed proposal bytes retained and nothing published', (dir) => {
   install(dir, path.join(dir, 'agent'));
   const before = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).stdout.trim();

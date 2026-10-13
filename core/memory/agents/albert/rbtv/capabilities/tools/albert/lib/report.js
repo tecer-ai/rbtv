@@ -78,16 +78,22 @@ function freezeReport(home, occasion) {
     text: reportText(occasion, applied, approvals, pending),
     acked: false,
   };
-  const fd = fs.openSync(file, 'wx', 0o600);
+  const tmp = `${file}.${process.pid}.tmp`;
+  const fd = fs.openSync(tmp, 'w', 0o600);
   try {
     fs.writeFileSync(fd, `${JSON.stringify(payload, null, 2)}\n`);
     fs.fsyncSync(fd);
-  } catch (error) {
+  } finally {
     fs.closeSync(fd);
+  }
+  try {
+    fs.linkSync(tmp, file);
+  } catch (error) {
+    fs.unlinkSync(tmp);
     if (error.code === 'EEXIST') return store.readJson(file, null);
     throw error;
   }
-  fs.closeSync(fd);
+  fs.unlinkSync(tmp);
   return payload;
 }
 

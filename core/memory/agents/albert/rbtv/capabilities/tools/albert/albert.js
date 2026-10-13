@@ -54,7 +54,7 @@ Under the publication lock, captures source evidence, positions, ceilings and th
 ${CONTRACT}
 Exit 0. A stale or unreadable batch exits 1 and holds no lock.`,
     apply: `usage: albert apply --run ID --proposal FILE
-Validates the whole proposal. A refusal prints every failure (path, operation, requirement, expected, reason) on stderr, retains the bytes, publishes nothing, moves no cursor, and exits 1. Correct the file and run apply again on the same run while the snapshot is current.
+Validates the whole proposal. A refusal prints every failure found, each with its path, operation, requirement and expected form, on stderr, retains the bytes, publishes nothing, moves no cursor, and exits 1. The operation form is in the structure section below. Correct the file and run apply again on the same run while the snapshot is current.
 An accepted proposal is published in that same command. The commit message names the run id and covered positions. Cursors advance only after that commit. A validated no-change writes a receipt before the cursor moves and makes no memory commit.
 A stale snapshot exits 1, says to run a fresh prepare, and overwrites nothing.
 Exit 0 on publication or no-change. Exit 1 on refusal.
