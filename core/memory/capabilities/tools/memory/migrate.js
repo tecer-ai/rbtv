@@ -314,4 +314,4 @@ function main(argv) {
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
 
-module.exports = { plan, apply, rollback, describe };
+module.exports = { main, plan, apply, rollback, describe };
