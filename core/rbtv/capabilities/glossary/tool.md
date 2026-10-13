@@ -8,7 +8,9 @@ A tool is either shared or owned by one agent. A shared tool belongs to a compon
 
 ## Files and interface
 
-Put a shared tool's program and its record in `capabilities/tools/<tool>/` of its component. Use [Tool record](tool-json.md) for its fields; the record names the executable and supplies its name and one-line listing description. An agent-owned tool uses that same record and executable shape at `rbtv/capabilities/tools/<tool>/` in the agent folder. If it has not already been read for this task, read [Building a command-line interface](../../../../meta/code/capabilities/methods/building-a-cli.md) when designing the commands, help, structured output or color behavior.
+Put a shared tool's program and its record in `capabilities/tools/<tool>/` of its component. Use [Tool record](tool-json.md) for its fields; the record names the executable and supplies its name and one-line listing description. An agent-owned tool uses that same record and executable shape at `rbtv/capabilities/tools/<tool>/` in the agent folder. If it has not already been read for this task, read [Building a command-line interface](../../../../meta/code/capabilities/methods/building-a-cli.md) when designing the commands, help, structured output or color behavior. That method holds what any command needs, whoever it is built for; this page holds what rbtv requires of a tool.
+
+Name a tool shipped in the repository for what it acts on and what it does to it (`page-capture`, `research-check`), so that its name beside the others in the tools listing cannot be read as another tool's job. The name carries no suffix that only says it is a program (`-cli`, `-tool`). A tool in a mirror component, or owned by one agent, is named as its owner chooses.
 
 Start with the invocation the calling step will use and the result it needs. Return that result as a named field on standard output of that invocation. Do not bury it in a sentence or require an extra output flag the caller was never told to pass. For example, `date-cmp FILE` can return `match true`. Use the structured form specified through Building a command-line interface when the caller needs several fields.
 

@@ -25,3 +25,19 @@ An agent may own tools. Such a tool sits in `capabilities/tools/<tool>/` of the 
 ## A dependency entry states its install command and what is looked up
 
 Each entry of a component record's `dependencies` is an object with `name` and `install`, and `command` or `python_package` when a lookup can find it. rbtv prints the install command and never runs it. A Python package's command is `python -m pip install <package>`. Reason: owner decision, 2026-10-13. A bare name did not say which package to install, and `rbtv doctor` looked up that one name both as a command and as a Python package: it reported `defuddle-cli` absent on a machine where its command `defuddle` was installed, and gave one answer for `playwright`, which is an npm program in one component and a Python package in another. [Component record](capabilities/glossary/component-json.md) states the fields.
+
+## Review and conversion are one procedure
+
+A review of existing source and a conversion of outside material both follow the Reviewing method: read the unit, decide its kind and place from its work through Choosing what to build and Choosing where to build, ask the owner, then build. Reason: owner decision, 2026-10-13, after a module that passed the installer was reviewed end to end and became one component of another module: every choice made in that review is the choice a conversion makes, and both apply the same entries.
+
+## A run of seats is optional, recommended and announced
+
+Before a run of blind seats the user is told the harness and model, the count of tasks and seats, and that the seats run at the same time; the run starts on the user's yes. A declined run waives the seat test of a changed description, and the report says the selection was not tested. Reason: owner decision, 2026-10-13: the user decides the spend knowing its size, and an untested change is never read as a verified one.
+
+## A review proposes, and the owner rules
+
+A review lists each removal and rewrite with its evidence and changes only what the owner rules; putting a capability in a tool that agents reach without its entry point, and checking a fixed format with a program, are options it raises. Reason: owner decision, 2026-10-13: each of the two was ruled for one case, and a page that measurably works is not rewritten on a reviewer's judgment.
+
+## Names of shipped components and tools
+
+A component shipped in the repository is named with a short verb, or with the name of the one product it wraps; a shipped tool is named for what it acts on and what it does, with no suffix that only says it is a program. Mirror components and agent-owned tools are named as their owner chooses. Reason: owner decisions, 2026-10-13 (`browse`, not `browsing`; `page-capture`, not `capture-cli`): these are rbtv's conventions for what it ships, kept in this component, while the general method for building a command-line interface stays in `meta/code`.

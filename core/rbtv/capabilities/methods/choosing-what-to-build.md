@@ -2,7 +2,7 @@
 
 Choose the kind from the work, when it must happen and who initiates it. The word “skill” or “command” in a request is a starting hint, not a reason to ignore a mismatch.
 
-Use this page when creating, converting or reviewing a file whose kind is not settled. An ordinary edit keeps the existing kind. If that kind cannot support the required behavior, resolve the mismatch before editing.
+Use this page when creating, converting or reviewing a file whose kind is not settled. In a review or a conversion, apply it to the work of the whole unit, a module or a component included, before judging any one file: the unit's current kind is a starting hint, like the word in a request. An ordinary edit keeps the existing kind. If that kind cannot support the required behavior, resolve the mismatch before editing.
 
 ## Reuse before adding
 
