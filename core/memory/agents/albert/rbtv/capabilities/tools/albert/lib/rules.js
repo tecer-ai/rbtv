@@ -102,6 +102,40 @@ Record forms the validator checks:
   Caps the validator enforces: profile 4000 characters; learned 30 rules; daily 40 lines; weekly 25 lines. On-demand files warn at 100 nonempty lines and split at 300 in the library, not by rewriting inside a proposal.
   A refusal names every failure found. Each names its path, its operation, the requirement and the expected form. The operation is "<index> <op>", for example 0 add. A failure that is not one operation has path (proposal) and operation (proposal). One file returns every independent form error. A conflict that is not a non-empty string does not stop the operation checks. Correct that file and run apply again on the same prepared run.
 
+Archived removal (forget, or the reverse of an item that created a record). Correct a refused proposal from this section. Do not invent a field that is not named here.
+
+leave: true on an archive operation whose path is an entity, knowledge, topic or workspace file. text is the snapshot file, not a stub and not a patch. The publisher unlinks that path. It does not write text.
+item: a non-empty string on that operation, only for a reversal. It is not a sources entry. Example: RUN#N.
+Forget uses reason owner, sources containing this agent's exact inbox line or an unread owner rowid, and no item. Reversal uses reason owner, sources empty, and item set to the item reference.
+
+One proposal, four operations, in this order:
+1. archive the whole file, leave true, text equal to the snapshot. removals is one item per body record: { "text": "<record line>", "to": ".rbtv/memory/_artifacts/archive/<slug>.md" }.
+2. add that archive path, or supersede it when the file already exists. text is an archive file the checker already accepts (description: when ..., type: reference, aliases: [...], a # heading), plus a reason bullet and a verbatim fence. The fence body is the snapshot file, byte for byte, including its frontmatter. records() skips the fence. The reason bullet is the record.
+   Forget bullet: - Reason: owner asked to forget. Source: <exact inbox line or owner evidence> (YYYY-MM-DD · agent)
+   Reversal bullet: - Reason: reversed. Source: <item reference> (YYYY-MM-DD · agent)
+3. supersede each index that links the file. reason index. text is the current index with only the rows whose markdown link resolves to the archived path removed. removals names each dropped row. Do not restore an earlier index item. Other rows stay byte for byte.
+4. supersede each day or week file that mentions it. text is the current file with only the episodes whose https URL occurs in the archived file, and not in another file that stays, removed. removals names each dropped episode. Other episodes stay.
+
+An index row points at the record when its markdown link, resolved from the index file, is that path. A timeline line points at the record when an https URL in the line occurs in the archived file. The archive path is .rbtv/memory/_artifacts/archive/<slug>.md. Not 4-archives. Not an agent memory/archive/ path.
+
+The inbox line named in sources is consumed by this proposal: the published receipt cites it, and a later check does not raise that line. The publisher does not delete the inbox line. Removing it without filing it into a profile, knowledge or entity file that stays is refused.
+
+Expected forms for a refusal of this shape:
+  removals.to is an archive file whose verbatim fence equals this file
+  an archive file in this proposal holds the verbatim record
+  keep the line, or archive the record it points at in this proposal
+  a line whose link or source URL is the archived record
+  Reason: owner asked to forget with owner evidence, or Reason: reversed with Source: the item reference
+  a relative link to a memory file this proposal leaves in place
+  text equals the snapshot file being archived
+  entity, knowledge, topic or workspace
+
+Restore of an archived removal (reversing a reversal or a forget). One proposal against the post-removal snapshot. No new owner evidence.
+1. add the original path, text equal to the fence body, sources empty, reason owner.
+2. supersede the index back to the text that contains the row, reason index, sources empty.
+3. supersede the day file back to the text that contains the episode, sources empty. The episode's URL must occur in the restored file.
+4. supersede the archive file. Keep the fence and the reason bullet. Add a line # Restored. sources empty.
+
 Prepare input fields the proposal is checked against:
   agent, date, files, messages, cursor, ceiling. messages rows have rowid, text, thread, conversation_key. Cite rowid, not a native id, unless the native id is that rowid.
 `;

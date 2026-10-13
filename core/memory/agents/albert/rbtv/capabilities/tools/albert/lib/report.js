@@ -27,6 +27,8 @@ function reportText(occasion, applied, approvals, conflicts) {
   if (!applied.length) lines.push('(none)');
   for (const item of applied) {
     lines.push(`${item.ref}`);
+    if (item.leave || (item.after == null && item.before != null)) lines.push('archived removal');
+    if (typeof item.explanation === 'string' && /^(?:reverse|restore) /.test(item.explanation)) lines.push('reversal');
     lines.push(`path: ${item.path}`);
     lines.push('before:');
     lines.push(item.before == null ? '(new file)' : item.before);

@@ -20,6 +20,8 @@ Paths below start at the installation root. The working folder is this agent fol
 5. A reversal uses `node rbtv/capabilities/tools/albert/albert.js reverse --item RUN#N`. A weekly report uses `report`, then `report-ack --occasion ID` only after that exact text has been handed to the caller. Retry reuses the frozen report.
 6. If this tool is missing, stop and name the missing path. Do not invent a second publisher.
 
+An owner's request to forget a record already in published memory is a change to publish as an archived removal, with that owner's evidence as its source. A correction is a replacement of that record. The inbox line that carried the request is consumed by the same proposal. When the named record cannot be identified unambiguously, publish nothing for it and report the request as an unresolved conflict to the caller instead of guessing.
+
 Keep a record when a future reader would need it after thirty days. A task instruction and a one-off request go to the timeline, not to profile or knowledge. Open a domain topic when a third record needs that domain, and keep an index row for it. An entity's facts stay in that entity's file. When you compress or move a record, the verbatim original stays in the proposal as a removal and a destination. A commitment is created only by an explicit owner statement or an attributable promise. Completion needs that person's statement or a checkable artifact. An agent's promise is not fulfilment. A global behaviour rule waits for an explicit global correction or an approval reference, unless the owner already made that rule global. An inferred local lesson needs two conversations. Never rewrite a prompt or source file.
 
 ## Constraints

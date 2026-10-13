@@ -60,7 +60,10 @@ A stale snapshot exits 1, says to run a fresh prepare, and overwrites nothing.
 Exit 0 on publication or no-change. Exit 1 on refusal.
 ${structure}`,
     reverse: `usage: albert reverse --item RUN#N
-Prepares a new checked proposal for that item only. Applies a mechanical inverse when the file still equals the item's after text and no later item touched that path. Otherwise names the dependency and leaves every record.
+Prepares a new checked proposal for that item only. Applies a mechanical inverse when the affected records still match uniquely and no later item touched a path the inverse would change. Otherwise names the dependency and leaves every record.
+A created record (the receipt before is empty) whose path is an entity, knowledge, topic or workspace file is reversed by one proposal: the file is archived with its text verbatim, and only the index rows whose link target is that record and the timeline lines whose thread URL occurs in that file are dropped. Every other row and episode stays. It does not restore an earlier index or day item. A later receipt that touched the record, that index or that day file is a dependency; records stay unchanged. If a same-run index row or timeline line for that record is no longer present, the records do not match uniquely and nothing changes.
+An index or timeline item on its own is refused: reverse the record item instead. A line that points at a record which stays may not be dropped.
+An item that archived a record with leave is reversed by restoring that file, the dropped lines, and a # Restored line on the archive entry.
 An inbox item has no mechanical inverse: reversing it would put the consumed line back after it was filed. The refusal names memory remember --installation ROOT --agent SLUG TEXT as the way to capture that text again.
 A reversal is a new committed item. An unrelated later edit on another path is kept.
 Exit 0 when reversed. Exit 1 when blocked, with records unchanged.`,
