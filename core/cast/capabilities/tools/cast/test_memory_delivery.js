@@ -11,10 +11,17 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { example } = require('./example-models');
 
 const CAST = path.join(__dirname, 'cast.js');
 const SPARK = path.join(__dirname, '..', 'spark', 'spark.js');
-const HARNESSES = { claude: ['sonnet-5-5', 'medium'], codex: ['gpt-6-luna', 'medium'], opencode: ['zai-coding-plan/glm-5.3', 'high'] };
+// One launchable model per harness, picked by its harness alone: its first effort rung, and the
+// harness-native id on argv for opencode, whose records name a model by the id the harness takes.
+const pickModel = (harness) => example(`a cli model of the ${harness} harness`, (m) => m.mode === 'cli' && m.harness === harness);
+const HARNESSES = Object.fromEntries(['claude', 'codex', 'opencode'].map((harness) => {
+  const m = pickModel(harness);
+  return [harness, [harness === 'opencode' ? m.id : m.model, m.rungs[0]]];
+}));
 const HEADER = 'Memory for this ongoing session';
 const GOOD_BOARD = (watchOuts = []) => `## What matters now\n\n### Review\nReady.\n- Threads: none\n- Detail: none\n- Flags: none\n\n## Watch-outs\n\n${watchOuts.join('\n')}\n\n## Timers\n\n## Recently closed\n\n`;
 

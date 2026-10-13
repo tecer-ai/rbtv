@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { spawnSync } = require('child_process');
+const { example, examples } = require('./example-models');
 
 const TOOL = path.join(__dirname, 'cast.js');
 const BASE = os.tmpdir();
@@ -81,6 +82,45 @@ function installFake(bin, name, js) {
 }
 const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
 
+// --- example models: each arm names the property it needs, never a model --------------------
+const PROVIDERS = require('./providers.json').providers;
+const reEscape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const cliOf = (harness) => (m) => m.mode === 'cli' && m.harness === harness;
+const rungsOf = (harness, n) => (m) => cliOf(harness)(m) && m.rungs.length === n;
+const claudeModel = example('a model of the claude harness', cliOf('claude'));
+const claudeOther = example('a second model of the claude harness', cliOf('claude'), [claudeModel]);
+const codexModel = example('a model of the codex harness', cliOf('codex'));
+// The model an example in help text names for a harness: its cli model with the lowest shipped
+// cost, the first in the supported table on a tie.
+const helpExample = (harness) => {
+  const priced = examples((m) => cliOf(harness)(m) && m.cost !== '');
+  const lowest = Math.min(...priced.map((m) => Number(m.cost)));
+  return example(`the cli model of the ${harness} harness with the lowest shipped cost`, (m) => priced.includes(m) && Number(m.cost) === lowest);
+};
+const helpClaude = helpExample('claude');
+// effort words an agent record names: a rung of its own model's ladder
+const claudeLow = claudeModel.rungs[0];
+const claudeMid = claudeModel.rungs[1];
+const codexTop = codexModel.rungs.at(-1);
+const fiveRungCodex = example('a codex model with a five-rung ladder', rungsOf('codex', 5));
+const fiveRungCodexOther = example('a second codex model with a five-rung ladder', rungsOf('codex', 5), [fiveRungCodex]);
+// a model of the opencode harness whose provider is reached by a key variable
+const opencodeModel = example('a model of the opencode harness whose provider takes a key variable',
+  (m) => cliOf('opencode')(m) && PROVIDERS[m.provider].env_var);
+const opencodeKey = PROVIDERS[opencodeModel.provider].env_var;
+const twoRungModel = example('an opencode model with a two-rung ladder', rungsOf('opencode', 2));
+const threeRungModel = example('an opencode model with a three-rung ladder', rungsOf('opencode', 3));
+const imageModel = example('an image model reached by cast api', (m) => m.mode === 'api' && m.image === 'Y');
+// A name for the arms whose code only passes a model along, stores it or prints it.
+const NOT_A_MODEL = 'example-model';
+// The line of the model catalog for a supported model as shipped, with the cells a fixture sets.
+const CATALOG_COLUMNS = ['mode', 'harness', 'model', 'efforts', 'image', 'level', 'reasoning', 'coding', 'cost', 'quality-override', 'price-override'];
+const catalogRow = (m, set = {}) => CATALOG_COLUMNS.map((column) => ({ ...m, 'quality-override': '', 'price-override': '', ...set })[column]).join(',');
+// A wrong spelling of a model's id that no model owns: one letter of its name dropped.
+const misspelt = (m) => { const at = m.id.indexOf(m.model) + 1; return m.id.slice(0, at) + m.id.slice(at + 1); };
+// What a model's effort dial prints in the model table: each rung, a run of one rung as a range.
+const effortMap = (rungs) => rungs.map((rung, i) => `${i + 1}${i === rungs.length - 1 && rungs.length < 5 ? '-5' : ''}=${rung}`).join(' ');
+
 // --- module graph: every lib/ module loads, and the require graph stays acyclic ---------------
 // The 2026-08-20 split turned one 2052-line file into cast.js + lib/*.js. A require cycle or a
 // typo'd path is invisible to every other arm here (they only ever reach cast.js through the
@@ -148,7 +188,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     // caller re-throws unless routed through the seam.
     fs.writeFileSync(target, `${original}\nconst __INJECTED_FAULT__ = __UNDEFINED_SYMBOL__;\n`);
     try {
-      const seat = spawnSync('node', [TOOL, 'claude', 'sonnet-5-5', '2', '--rogue', agentFile, '-p', 'go', '--dry-run'],
+      const seat = spawnSync('node', [TOOL, 'claude', claudeModel.model, '2', '--rogue', agentFile, '-p', 'go', '--dry-run'],
         { encoding: 'utf8' });
       assert.strictEqual(seat.status, 0,
         `cast --rogue --dry-run must survive a broken lib/${name}.js, got exit ${seat.status}: ${seat.stderr}`);
@@ -167,80 +207,80 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   }
 }
 
-// claude + sonnet effort 5 -> top rung "max"
+// claude effort 5 -> the top rung of its ladder
 {
-  const folder = mkFolder('claude-sonnet');
-  const out = dryRun(['claude', 'sonnet-5-5', '5', folder, '-p', 'hello']);
-  assert.deepStrictEqual(out.argv.slice(-2), ['--effort', 'max']);
-  assert.strictEqual(out.effort_word, 'max');
+  const folder = mkFolder('claude-top');
+  const out = dryRun(['claude', claudeModel.model, '5', folder, '-p', 'hello']);
+  assert.deepStrictEqual(out.argv.slice(-2), ['--effort', claudeModel.rungs.at(-1)]);
+  assert.strictEqual(out.effort_word, claudeModel.rungs.at(-1));
 }
 
-// codex effort 5 -> the top rung of gpt-6-luna's five-rung ladder
+// codex effort 5 -> the top rung of a five-rung ladder
 {
   const folder = mkFolder('codex');
-  const out = dryRun(['codex', 'gpt-6-luna', '5', folder, '-p', 'hello']);
-  assert.ok(out.argv.includes('model_reasoning_effort=max'));
+  const out = dryRun(['codex', fiveRungCodex.model, '5', folder, '-p', 'hello']);
+  assert.ok(out.argv.includes(`model_reasoning_effort=${fiveRungCodex.rungs.at(-1)}`));
   assert.ok(out.argv.includes('--skip-git-repo-check'), 'codex launch must run outside git repos');
   assert.ok(out.argv.includes('--dangerously-bypass-hook-trust'), `a headless codex launch must run the generated hooks: ${out.argv}`);
-  assert.strictEqual(out.effort_word, 'max');
+  assert.strictEqual(out.effort_word, fiveRungCodex.rungs.at(-1));
 }
 
-// codex astra is launchable and uses the five-rung ladder.
+// a second codex model with a five-rung ladder is launchable too, on its own id.
 {
-  const folder = mkFolder('codex-astra');
-  const out = dryRun(['codex', 'gpt-6-astra', '5', folder, '-p', 'hello']);
-  assert.ok(out.argv.includes('gpt-6-astra'));
-  assert.ok(out.argv.includes('model_reasoning_effort=max'));
-  assert.strictEqual(out.effort_word, 'max');
+  const folder = mkFolder('codex-second');
+  const out = dryRun(['codex', fiveRungCodexOther.model, '5', folder, '-p', 'hello']);
+  assert.ok(out.argv.includes(fiveRungCodexOther.id));
+  assert.ok(out.argv.includes(`model_reasoning_effort=${fiveRungCodexOther.rungs.at(-1)}`));
+  assert.strictEqual(out.effort_word, fiveRungCodexOther.rungs.at(-1));
 }
 
-// kimi now rides opencode: k3 effort 1 -> its lowest rung, effort 5 -> clamped to its top rung
+// an opencode model with a three-rung ladder: effort 1 -> its lowest rung, effort 5 -> clamped to its top rung
 {
-  const folder = mkFolder('kimi');
-  const out = dryRun(['opencode', 'k3', '1', folder, '-p', 'hello']);
-  assert.deepStrictEqual(out.argv.slice(0, 4), ['opencode', 'run', '-m', 'kimi-for-coding/k3']);
+  const folder = mkFolder('three-rung');
+  const out = dryRun(['opencode', threeRungModel.model, '1', folder, '-p', 'hello']);
+  assert.deepStrictEqual(out.argv.slice(0, 4), ['opencode', 'run', '-m', threeRungModel.id]);
   assert.ok(out.argv.includes('--auto'), 'headless opencode must auto-approve permission asks');
   // the title is cast's only handle on WHICH session is its own (the store is shared across seats)
   const title = out.argv[out.argv.indexOf('--title') + 1];
   assert.ok(/ \[cast:[0-9a-f]{8}\]$/.test(title ?? ''), `headless opencode must carry a unique title tag: ${title}`);
-  const other = dryRun(['opencode', 'k3', '1', folder, '-p', 'hello']);
+  const other = dryRun(['opencode', threeRungModel.model, '1', folder, '-p', 'hello']);
   assert.notStrictEqual(other.argv[other.argv.indexOf('--title') + 1], title,
     'two launches must not share a title tag');
-  assert.strictEqual(out.effort_word, 'low');
-  const top = dryRun(['opencode', 'k3', '5', folder, '-p', 'hello']);
-  assert.strictEqual(top.effort_word, 'max', 'effort above a three-rung ladder clamps to its top rung');
+  assert.strictEqual(out.effort_word, threeRungModel.rungs[0]);
+  const top = dryRun(['opencode', threeRungModel.model, '5', folder, '-p', 'hello']);
+  assert.strictEqual(top.effort_word, threeRungModel.rungs.at(-1), 'effort above a three-rung ladder clamps to its top rung');
 }
 
-// opencode glm-5.3 effort 1 -> its lowest rung ("high", ladder has no low/medium)
+// an opencode model with a two-rung ladder: effort 1 -> its lowest rung
 {
   const folder = mkFolder('opencode');
-  const out = dryRun(['opencode', 'glm-5.3', '1', folder, '-p', 'hello']);
-  assert.deepStrictEqual(out.argv.slice(-2), ['--variant', 'high']);
-  assert.strictEqual(out.effort_word, 'high');
+  const out = dryRun(['opencode', twoRungModel.model, '1', folder, '-p', 'hello']);
+  assert.deepStrictEqual(out.argv.slice(-2), ['--variant', twoRungModel.rungs[0]]);
+  assert.strictEqual(out.effort_word, twoRungModel.rungs[0]);
 }
 
 // launch-folder omitted -> cwd of the caller
 {
-  const out = dryRun(['claude', 'sonnet-5-5', '1', '-p', 'hi']);
+  const out = dryRun(['claude', claudeModel.model, '1', '-p', 'hi']);
   assert.strictEqual(out.cwd, process.cwd());
 }
 
 // --headed: interactive forms — no print-mode flag, prompt rides argv, stdin freed for the TTY
 {
   const folder = mkFolder('headed');
-  const claude = dryRun(['claude', 'sonnet-5-5', '3', folder, '-p', 'hi', '--headed']);
+  const claude = dryRun(['claude', claudeModel.model, '3', folder, '-p', 'hi', '--headed']);
   assert.ok(!claude.argv.includes('-p'), 'headed claude must drop -p');
   assert.strictEqual(claude.argv[claude.argv.length - 1], 'hi');
   assert.strictEqual(claude.stdin_preview, null);
   assert.strictEqual(claude.headed, true);
 
-  const codex = dryRun(['codex', 'gpt-6-luna', '3', folder, '-p', 'hi', '--headed']);
+  const codex = dryRun(['codex', codexModel.model, '3', folder, '-p', 'hi', '--headed']);
   assert.ok(!codex.argv.includes('exec'), 'headed codex must drop exec');
   assert.ok(codex.argv.includes('--dangerously-bypass-hook-trust'), `a headed codex launch must run the generated hooks: ${codex.argv}`);
   assert.ok(!codex.argv.includes('--skip-git-repo-check'), 'interactive codex refuses the exec-only --skip-git-repo-check');
   assert.strictEqual(codex.argv[codex.argv.length - 1], 'hi');
 
-  const oc = dryRun(['opencode', 'glm-5.3', '3', folder, '-p', 'hi', '--headed']);
+  const oc = dryRun(['opencode', opencodeModel.model, '3', folder, '-p', 'hi', '--headed']);
   assert.ok(!oc.argv.includes('run'), 'headed opencode must drop run');
   assert.ok(!oc.argv.includes('--auto'), 'headed opencode leaves permission asks to the human');
   assert.ok(!oc.argv.includes('--variant'), 'headed opencode TUI has no --variant');
@@ -253,7 +293,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
 {
   const folder = mkFolder('plain-ignores-agent-file');
   fs.writeFileSync(path.join(folder, 'prompt.md'), '# agent\nact as X.');
-  const out = dryRun(['claude', 'haiku-5-5', '1', folder, '-p', 'wake up']);
+  const out = dryRun(['claude', claudeModel.model, '1', folder, '-p', 'wake up']);
   assert.ok(!out.argv.includes('--append-system-prompt-file'));
   assert.strictEqual(out.stdin_preview, 'wake up');
 }
@@ -261,20 +301,20 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
 // plain mode -s/-S: claude gets a real system-prompt flag; codex gets developer instructions; opencode gets it prepended to the message
 {
   const folder = mkFolder('plain-system');
-  const out = dryRun(['claude', 'sonnet-5-5', '1', folder, '-p', 'hi', '-s', 'be terse']);
+  const out = dryRun(['claude', claudeModel.model, '1', folder, '-p', 'hi', '-s', 'be terse']);
   assert.deepStrictEqual(out.argv.slice(out.argv.indexOf('--append-system-prompt'), out.argv.indexOf('--append-system-prompt') + 2), ['--append-system-prompt', 'be terse']);
   assert.strictEqual(out.stdin_preview, 'hi');
 
   const sysFile = path.join(folder, 'sys.md');
   fs.writeFileSync(sysFile, 'be VERY terse');
-  const outFile = dryRun(['claude', 'sonnet-5-5', '1', folder, '-p', 'hi', '-S', sysFile]);
+  const outFile = dryRun(['claude', claudeModel.model, '1', folder, '-p', 'hi', '-S', sysFile]);
   assert.ok(outFile.argv.includes('--append-system-prompt-file'));
 
-  const codex = dryRun(['codex', 'gpt-6-luna', '1', folder, '-p', 'hi', '-S', sysFile]);
+  const codex = dryRun(['codex', codexModel.model, '1', folder, '-p', 'hi', '-S', sysFile]);
   assert.ok(codex.argv.includes(`developer_instructions=${JSON.stringify('be VERY terse')}`), `expected developer instructions: ${codex.argv}`);
   assert.strictEqual(codex.stdin_preview, 'hi');
 
-  const opencode = dryRun(['opencode', 'grok-4.7', '1', folder, '-p', 'hi', '-S', sysFile]);
+  const opencode = dryRun(['opencode', opencodeModel.model, '1', folder, '-p', 'hi', '-S', sysFile]);
   assert.ok(opencode.stdin_preview.startsWith('be VERY terse'), `expected prepended system text: ${opencode.stdin_preview}`);
 }
 
@@ -283,14 +323,14 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   const folder = mkFolder('file-prompt');
   const promptFile = path.join(folder, 'prompt.txt');
   fs.writeFileSync(promptFile, 'from a file');
-  const out = dryRun(['claude', 'sonnet-5-5', '1', folder, '-f', promptFile]);
+  const out = dryRun(['claude', claudeModel.model, '1', folder, '-f', promptFile]);
   assert.strictEqual(out.stdin_preview, 'from a file');
 }
 
 // -f - reads the prompt from stdin
 {
   const folder = mkFolder('stdin-prompt');
-  const res = spawnSync('node', [TOOL, 'claude', 'sonnet-5-5', '1', folder, '-f', '-', '--dry-run'], {
+  const res = spawnSync('node', [TOOL, 'claude', claudeModel.model, '1', folder, '-f', '-', '--dry-run'], {
     encoding: 'utf8',
     input: 'piped in',
   });
@@ -305,40 +345,40 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.strictEqual(res.status, 2, 'unknown harness must exit 2');
 }
 {
-  const res = spawnSync('node', [TOOL, 'claude', 'sonnet-5-5', '9', BASE, '-p', 'hi', '--dry-run']);
+  const res = spawnSync('node', [TOOL, 'claude', claudeModel.model, '9', BASE, '-p', 'hi', '--dry-run']);
   assert.strictEqual(res.status, 2, 'out-of-range effort must exit 2');
 }
 {
   const missing = path.join(BASE, 'cast-test-does-not-exist');
-  const res = spawnSync('node', [TOOL, 'claude', 'sonnet-5-5', '1', missing, '-p', 'hi', '--dry-run']);
+  const res = spawnSync('node', [TOOL, 'claude', claudeModel.model, '1', missing, '-p', 'hi', '--dry-run']);
   assert.strictEqual(res.status, 2, 'missing launch-folder must exit 2');
 }
 
 // -p and -f together: refused
 {
-  const res = spawnSync('node', [TOOL, 'claude', 'sonnet-5-5', '1', BASE, '-p', 'hi', '-f', '/dev/null', '--dry-run']);
+  const res = spawnSync('node', [TOOL, 'claude', claudeModel.model, '1', BASE, '-p', 'hi', '-f', '/dev/null', '--dry-run']);
   assert.strictEqual(res.status, 2, '-p and -f together must exit 2');
 }
 
 // neither -p nor -f: refused
 {
-  const res = spawnSync('node', [TOOL, 'claude', 'sonnet-5-5', '1', BASE, '--dry-run']);
+  const res = spawnSync('node', [TOOL, 'claude', claudeModel.model, '1', BASE, '--dry-run']);
   assert.strictEqual(res.status, 2, 'no prompt source must exit 2');
 }
 
 // unknown flag: refused, names the flag
 {
-  const res = spawnSync('node', [TOOL, 'claude', 'sonnet-5-5', '1', BASE, '-p', 'hi', '--bogus'], { encoding: 'utf8' });
+  const res = spawnSync('node', [TOOL, 'claude', claudeModel.model, '1', BASE, '-p', 'hi', '--bogus'], { encoding: 'utf8' });
   assert.strictEqual(res.status, 2, 'unknown flag must exit 2');
   assert.ok(res.stderr.includes('--bogus'), `error should name the unknown flag: ${res.stderr}`);
 }
 
 // unknown model: refused, suggests the closest known model
 {
-  const res = spawnSync('node', [TOOL, 'claude', 'claude-sonet-5', '1', BASE, '-p', 'hi', '--dry-run'], { encoding: 'utf8' });
+  const res = spawnSync('node', [TOOL, 'claude', misspelt(claudeModel), '1', BASE, '-p', 'hi', '--dry-run'], { encoding: 'utf8' });
   assert.strictEqual(res.status, 2, 'unknown model must exit 2');
   assert.ok(res.stderr.includes('did you mean'), `error should suggest a model: ${res.stderr}`);
-  assert.ok(res.stderr.includes('sonnet-5-5'), `suggestion should name the close model: ${res.stderr}`);
+  assert.ok(res.stderr.includes(claudeModel.model), `suggestion should name the close model: ${res.stderr}`);
 }
 
 // per-verb --help: exit 0, prints that verb's usage; a prompt that is literally "-h" is not help
@@ -399,13 +439,15 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     // the examples under the page name one model, so a row is what must be absent
     assert.ok(!new RegExp(`^  \\w+  ${short.replace(/[.]/g, '\\.')} `, 'm').test(res.stdout), `help must not print a model row: ${short}`);
   }
-  for (const id of ['claude-opus-5-5', 'zai-coding-plan/glm-5.3', 'kimi-for-coding/k3']) {
+  const longIds = examples((m) => m.id !== m.model).map((m) => m.id);
+  assert.ok(longIds.length > 0, 'sanity: some supported model has an id that differs from its short name');
+  for (const id of longIds) {
     assert.ok(!table.includes(id), `the model table must print short names only, found long id: ${id}`);
   }
   // every model row names what each effort number resolves to, clamping included
-  assert.ok(table.includes('1=low 2=medium 3=high 4=xhigh 5=max'), 'claude effort map missing');
-  assert.ok(table.includes('1=high 2-5=max'), 'glm-5.3 clamped effort map missing');
-  assert.ok(/gemini-3\.1-flash-image +\(no dial/.test(table), 'inert ladder must say so');
+  assert.ok(table.includes(effortMap(claudeModel.rungs)), 'a five-rung effort map missing');
+  assert.ok(table.includes(effortMap(twoRungModel.rungs)), 'a two-rung clamped effort map missing');
+  assert.ok(new RegExp(`${reEscape(imageModel.model)} +\\(no dial`).test(table), 'inert ladder must say so');
   // -h says the dial takes a number and the words are labels
   assert.match(res.stdout, /pass the number/i, 'help must say to pass the number');
   assert.match(res.stdout, /words are labels/i, 'help must say the words are labels only');
@@ -421,6 +463,19 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   const inst = mkFolder('doctor-inst');
   const outside = mkFolder('doctor-outside');
   const started = path.join(bin, 'started');
+  // Four opencode models on four different providers that take a key, one served in each place a
+  // key is looked for (the OS environment, the installation's environment file, the opencode
+  // store) and one served nowhere; and one on an account login, served nowhere.
+  const keyed = (m) => cliOf('opencode')(m) && PROVIDERS[m.provider].login === 'api-key';
+  const otherProvider = (...taken) => (m) => keyed(m) && !taken.some((t) => t.provider === m.provider);
+  const osKeyModel = example('an opencode model whose provider takes a key variable', keyed);
+  const fileKeyModel = example('an opencode model of a second provider that takes a key variable', otherProvider(osKeyModel));
+  const storeKeyModel = example('an opencode model of a third provider that takes a key variable', otherProvider(osKeyModel, fileKeyModel));
+  const noKeyModel = example('an opencode model of a fourth provider that takes a key variable', otherProvider(osKeyModel, fileKeyModel, storeKeyModel));
+  const accountOpencode = example('an opencode model whose provider logs in by account', (m) => cliOf('opencode')(m) && PROVIDERS[m.provider].login === 'account');
+  const keyOf = (m) => PROVIDERS[m.provider].env_var;
+  const storeKeyOf = (m) => PROVIDERS[m.provider].harnesses.opencode.store_key;
+  const key = (m) => `${m.harness}/${m.model}`;
   // Not installFake: its wrappers need node on PATH, and this PATH holds the scratch bin alone.
   for (const name of ['claude', 'rbtv']) {
     fs.writeFileSync(path.join(bin, `${name}.cmd`), `@echo ${name}> "${started}"\r\n`);
@@ -432,13 +487,13 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   const claudeJson = path.join(home, '.claude.json');
   fs.writeFileSync(claudeJson, JSON.stringify({ oauthAccount: {} }));
   fs.mkdirSync(path.join(xdg, 'opencode'), { recursive: true });
-  fs.writeFileSync(path.join(xdg, 'opencode', 'auth.json'), JSON.stringify({ sakana: { type: 'api' } }));
+  fs.writeFileSync(path.join(xdg, 'opencode', 'auth.json'), JSON.stringify({ [storeKeyOf(storeKeyModel)]: { type: 'api' } }));
   fs.mkdirSync(path.join(inst, '.rbtv', 'config', 'env'), { recursive: true });
   fs.writeFileSync(path.join(inst, '.rbtv', 'config', 'install.json'), '{}\n');
-  fs.writeFileSync(path.join(inst, '.rbtv', 'config', 'env', '.env'), 'KIMI_API_KEY=test-fake-not-real\n');
+  fs.writeFileSync(path.join(inst, '.rbtv', 'config', 'env', '.env'), `${keyOf(fileKeyModel)}=test-fake-not-real\n`);
   const env = { ...process.env, ...homeEnv(home), XDG_DATA_HOME: xdg, PATH: bin };
   for (const provider of Object.values(require('./providers.json').providers)) delete env[provider.env_var];
-  env.DEEPSEEK_API_KEY = 'test-fake-not-real';
+  env[keyOf(osKeyModel)] = 'test-fake-not-real';
   // node is started by its full path: the PATH under test holds the scratch bin and nothing else
   const doctor = (args, cwd = inst) => spawnSync(process.execPath, [TOOL, 'doctor', ...args], { encoding: 'utf8', env, cwd });
   const report = (cwd) => {
@@ -460,22 +515,22 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   const { ROWS } = require('./supported-models');
   assert.deepStrictEqual(Object.keys(login), ROWS.map((r) => `${r.harness}/${r.model}`));
   // claude: its login files are in the scratch home. codex: its login file is not.
-  assert.deepStrictEqual(login['claude/opus-5-5'], { harness: 'claude', model: 'opus-5-5', provider: 'claude', login: true,
+  assert.deepStrictEqual(login[key(claudeModel)], { harness: 'claude', model: claudeModel.model, provider: claudeModel.provider, login: true,
     via: 'login files: ~/.claude/.credentials.json, ~/.claude.json', reason: null });
-  assert.strictEqual(login['codex/gpt-6-luna'].login, false);
-  assert.strictEqual(login['codex/gpt-6-luna'].via, null);
-  assert.ok(login['codex/gpt-6-luna'].reason.includes('~/.codex/auth.json'), login['codex/gpt-6-luna'].reason);
+  assert.strictEqual(login[key(codexModel)].login, false);
+  assert.strictEqual(login[key(codexModel)].via, null);
+  assert.ok(login[key(codexModel)].reason.includes('~/.codex/auth.json'), login[key(codexModel)].reason);
   // the three places a key provider's login is looked for, one row each, named in `via`
-  assert.strictEqual(login['opencode/deepseek-v4-pro'].via, 'DEEPSEEK_API_KEY in the OS environment');
-  assert.strictEqual(login['opencode/k3'].via, "KIMI_API_KEY in the installation's environment file");
-  assert.strictEqual(login['opencode/fugu-ultra'].via, "'sakana' in the opencode store");
-  for (const name of ['opencode/deepseek-v4-pro', 'opencode/k3', 'opencode/fugu-ultra']) assert.strictEqual(login[name].login, true, name);
+  assert.strictEqual(login[key(osKeyModel)].via, `${keyOf(osKeyModel)} in the OS environment`);
+  assert.strictEqual(login[key(fileKeyModel)].via, `${keyOf(fileKeyModel)} in the installation's environment file`);
+  assert.strictEqual(login[key(storeKeyModel)].via, `'${storeKeyOf(storeKeyModel)}' in the opencode store`);
+  for (const m of [osKeyModel, fileKeyModel, storeKeyModel]) assert.strictEqual(login[key(m)].login, true, key(m));
   // an api model is a selected model too: its key variable is absent here
-  assert.strictEqual(login['api/gemini-3.1-flash-image'].login, false);
+  assert.strictEqual(login[key(imageModel)].login, false);
   // nowhere: missing, and the reason names what was looked for
-  assert.strictEqual(login['opencode/glm-5.3'].login, false);
-  assert.ok(login['opencode/glm-5.3'].reason.includes('ZHIPU_API_KEY'), login['opencode/glm-5.3'].reason);
-  assert.strictEqual(login['opencode/grok-4.7'].login, false);
+  assert.strictEqual(login[key(noKeyModel)].login, false);
+  assert.ok(login[key(noKeyModel)].reason.includes(keyOf(noKeyModel)), login[key(noKeyModel)].reason);
+  assert.strictEqual(login[key(accountOpencode)].login, false);
   // it ends with where accounts and usage are answered
   assert.deepStrictEqual(parsed.next, ['rbtv providers list', 'rbtv providers usage']);
 
@@ -485,8 +540,8 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.ok(text.stdout.startsWith('cast doctor — can this machine launch the selected models?'), text.stdout);
   assert.match(text.stdout, /^ {2}claude +\S*claude\S*$/m);
   assert.match(text.stdout, /^ {2}codex +MISSING$/m);
-  assert.match(text.stdout, /^ {2}✓ opencode +k3 +KIMI_API_KEY in the installation's environment file$/m);
-  assert.match(text.stdout, /^ {2}· opencode +glm-5\.3 +no login: .*ZHIPU_API_KEY/m);
+  assert.match(text.stdout, new RegExp(`^ {2}✓ opencode +${reEscape(fileKeyModel.model)} +${reEscape(keyOf(fileKeyModel))} in the installation's environment file$`, 'm'));
+  assert.match(text.stdout, new RegExp(`^ {2}· opencode +${reEscape(noKeyModel.model)} +no login: .*${reEscape(keyOf(noKeyModel))}`, 'm'));
   assert.ok(text.stdout.includes(`\ninstallation: ${fs.realpathSync(inst)}\nmodel catalog: the one shipped with cast (every supported model is selected)\n`
     + `The installation's own file, ${path.join(fs.realpathSync(inst), '.rbtv', 'config', 'cast', 'models.csv')}, is created by the first cast models set or cast models remove.\n\nharnesses\n`), text.stdout);
   assert.ok(text.stdout.includes(`\n  ${Object.values(login).filter((m) => m.login).length} of ${ROWS.length} selected models have a login present.\n`), text.stdout);
@@ -497,23 +552,23 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   // outside an installation no environment file is read: the row it served is missing
   const out = report(outside);
   assert.strictEqual(out.parsed.installation, null);
-  assert.strictEqual(out.login['opencode/k3'].login, false);
-  assert.strictEqual(out.login['opencode/deepseek-v4-pro'].login, true);
+  assert.strictEqual(out.login[key(fileKeyModel)].login, false);
+  assert.strictEqual(out.login[key(osKeyModel)].login, true);
   assert.ok(doctor([], outside).stdout.includes(`\ninstallation: none above ${fs.realpathSync(outside)} (no environment file is read)\n`));
 
   // the installation's model catalog decides which models are checked: a selected model has a
   // row, a model without one is not checked, and a row cast does not support is counted
   const catalog = path.join(inst, '.rbtv', 'config', 'cast', 'models.csv');
   fs.mkdirSync(path.dirname(catalog), { recursive: true });
-  fs.writeFileSync(catalog, 'mode,harness,model\ncli,opencode,k3\ncli,claude,opus-5-5\ncli,opencode,not-a-real-model\n');
+  fs.writeFileSync(catalog, `mode,harness,model\ncli,opencode,${fileKeyModel.model}\ncli,claude,${claudeModel.model}\ncli,opencode,not-a-real-model\n`);
   const chosen = report(inst);
   assert.strictEqual(chosen.parsed.selection, fs.realpathSync(catalog));
-  assert.deepStrictEqual(Object.keys(chosen.login), ['claude/opus-5-5', 'opencode/k3'], 'only the selected models, in the supported order');
+  assert.deepStrictEqual(Object.keys(chosen.login), [key(claudeModel), key(fileKeyModel)], 'only the selected models, in the supported order');
   const chosenText = doctor([]).stdout;
   assert.ok(chosenText.includes(`\nmodel catalog: ${fs.realpathSync(catalog)}\n`), chosenText);
   assert.ok(chosenText.includes('\n  2 of 2 selected models have a login present.\n'), chosenText);
   assert.ok(chosenText.includes('\n  1 row of the model catalog name a model this copy of cast does not support: cast models list --catalog\n'), chosenText);
-  assert.ok(!chosenText.includes('glm-5.3'), 'a model the installation did not select is not checked');
+  assert.ok(!chosenText.includes(noKeyModel.model), 'a model the installation did not select is not checked');
   // a model catalog that cannot be read: the report says so and checks no model, exit 0
   fs.writeFileSync(catalog, 'mode,harness\ncli,claude\n');
   const unread = report(inst).parsed;
@@ -524,7 +579,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
 
   // a login file that lacks the entry providers.json names is not a login
   fs.writeFileSync(claudeJson, '{}');
-  const gap = report(inst).login['claude/opus-5-5'];
+  const gap = report(inst).login[key(claudeModel)];
   assert.strictEqual(gap.login, false);
   assert.ok(gap.reason.includes('oauthAccount'), gap.reason);
 
@@ -552,12 +607,13 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   const { ROWS } = require('./supported-models');
   assert.deepStrictEqual(parsed.models.map((m) => `${m.harness} ${m.model} ${m.mode}`), ROWS.map((r) => `${r.harness} ${r.model} ${r.mode}`));
   const by = Object.fromEntries(parsed.models.map((m) => [`${m.harness}/${m.model}`, m]));
-  assert.deepStrictEqual(by['opencode/glm-5.3'], { harness: 'opencode', model: 'glm-5.3', mode: 'cli', rungs: ['high', 'max'],
-    effort_numbers: { high: 1, max: 2 }, selected: true }, 'two-rung ladder folds to its unique numbers');
-  assert.deepStrictEqual(by['opencode/k3'].effort_numbers, { low: 1, high: 2, max: 3 }, 'three-rung ladder maps low:1 high:2 max:3');
-  assert.deepStrictEqual(by['codex/gpt-6-luna'].effort_numbers, { low: 1, medium: 2, high: 3, xhigh: 4, max: 5 }, 'five-rung ladder maps 1..5');
+  const numbered = (rungs, numbers) => Object.fromEntries(rungs.map((rung, i) => [rung, numbers[i]]));
+  assert.deepStrictEqual(by[`opencode/${twoRungModel.model}`], { harness: 'opencode', model: twoRungModel.model, mode: 'cli', rungs: twoRungModel.rungs,
+    effort_numbers: numbered(twoRungModel.rungs, [1, 2]), selected: true }, 'two-rung ladder folds to its unique numbers');
+  assert.deepStrictEqual(by[`opencode/${threeRungModel.model}`].effort_numbers, numbered(threeRungModel.rungs, [1, 2, 3]), 'three-rung ladder maps its rungs to 1, 2, 3');
+  assert.deepStrictEqual(by[`codex/${fiveRungCodex.model}`].effort_numbers, numbered(fiveRungCodex.rungs, [1, 2, 3, 4, 5]), 'five-rung ladder maps 1..5');
   // the image model has no dial: no rungs, no numbers
-  assert.deepStrictEqual(by['api/gemini-3.1-flash-image'], { harness: 'api', model: 'gemini-3.1-flash-image', mode: 'api', rungs: [],
+  assert.deepStrictEqual(by[`api/${imageModel.model}`], { harness: 'api', model: imageModel.model, mode: 'api', rungs: [],
     effort_numbers: {}, selected: true });
   // usage says: pass the number, words are labels only, with one complete example
   assert.match(parsed.usage, /pass the number/i, 'usage must say to pass the number');
@@ -572,7 +628,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.strictEqual(res.stdout, models(['list', '--selected']).stdout, '--selected is the default view');
   assert.ok(res.stdout.startsWith(`installation: none above ${process.cwd()}\nmodel catalog: ${path.join(__dirname, 'models.csv')} (shipped with cast: every supported model is selected)\ndefaults: cast route ranks by price; fallback is off (cast's own values; cast models defaults)\n\n  harness `), res.stdout);
   assert.ok(res.stdout.includes('1=high 2-5=max'), 'plain list shows each word\'s number');
-  assert.match(res.stdout, /^ {2}api +gemini-3\.1-flash-image +\(no dial — any number\)$/m);
+  assert.match(res.stdout, new RegExp(`^ {2}api +${reEscape(imageModel.model)} +\\(no dial — any number\\)$`, 'm'));
   const count = require('./supported-models').ROWS.length;
   assert.ok(res.stdout.includes(`\n\n${count} of ${count} supported models are selected.\n`), res.stdout);
   assert.match(res.stdout, /pass the number/i, 'plain list must say to pass the number');
@@ -622,8 +678,8 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   CODEX_ALWAYS.push('--probe-option');
   try {
     const lists = {
-      'headless launch': baseArgv('codex', 'gpt-6-luna', '/x', false),
-      'headed launch': baseArgv('codex', 'gpt-6-luna', '/x', true),
+      'headless launch': baseArgv('codex', codexModel.model, '/x', false),
+      'headed launch': baseArgv('codex', codexModel.model, '/x', true),
       'resume by id': resumeArgv('codex', 'tid-1'),
       'resume last': resumeArgv('codex', 'last'),
     };
@@ -718,21 +774,21 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   const folder = mkFolder('handle');
   const home = mkFolder('handle-home');
   // a launch that fails to spawn still emits the handle first (emitted before the spawn)
-  const res = spawnSync('node', [TOOL, 'claude', 'haiku-5-5', '1', folder, '-p', 'hi'], {
+  const res = spawnSync('node', [TOOL, 'claude', claudeModel.model, '1', folder, '-p', 'hi'], {
     encoding: 'utf8', env: { ...process.env, ...homeEnv(home), PATH: pathEnv() },
   });
   const line = res.stderr.split('\n').find((l) => l.startsWith('cast: handle '));
   assert.ok(line, `no handle line on stderr: ${res.stderr}`);
   const h = JSON.parse(line.slice('cast: handle '.length));
   assert.strictEqual(h.harness, 'claude');
-  assert.strictEqual(h.model, 'haiku-5-5');
+  assert.strictEqual(h.model, claudeModel.model);
   assert.strictEqual(h.folder, folder);
   assert.ok(Number.isInteger(h.pid) && Number.isInteger(h.start) && h.start > 0, `pid/start not pinned: ${line}`);
   assert.strictEqual(h.out, null, `stdout on a pipe must record no capture path: ${line}`);
   // stdout redirected to a file: the handle records that file as the job's capture (`out`)
   const capture = path.join(folder, 'capture.txt');
   const fd = fs.openSync(capture, 'w');
-  const redirected = spawnSync('node', [TOOL, 'claude', 'haiku-5-5', '1', folder, '-p', 'hi'], {
+  const redirected = spawnSync('node', [TOOL, 'claude', claudeModel.model, '1', folder, '-p', 'hi'], {
     encoding: 'utf8', stdio: ['pipe', fd, 'pipe'],
     env: { ...process.env, ...homeEnv(mkFolder('handle-home-redirect')), PATH: pathEnv() },
   });
@@ -754,7 +810,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
 
   // a headed launch prints no handle line, and still writes its registry row
   const headedHome = mkFolder('handle-headed-home');
-  const headedRun = spawnSync('node', [TOOL, 'claude', 'haiku-5-5', '1', folder, '-p', 'hi', '--headed'], {
+  const headedRun = spawnSync('node', [TOOL, 'claude', claudeModel.model, '1', folder, '-p', 'hi', '--headed'], {
     encoding: 'utf8', env: { ...process.env, ...homeEnv(headedHome), PATH: pathEnv() },
   });
   assert.ok(!headedRun.stderr.includes('cast: handle'), `a headed launch must print no handle: ${headedRun.stderr}`);
@@ -768,14 +824,14 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.ok(!('code' in rows[0]), 'a headless launch gets no code');
 
   // the minted id rides argv; dry-run emits neither handle line nor registry row
-  const dry = spawnSync('node', [TOOL, 'claude', 'haiku-5-5', '1', folder, '-p', 'hi', '--dry-run'], {
+  const dry = spawnSync('node', [TOOL, 'claude', claudeModel.model, '1', folder, '-p', 'hi', '--dry-run'], {
     encoding: 'utf8', env: { ...process.env, ...homeEnv(mkFolder('handle-dry-home')) },
   });
   assert.ok(!dry.stderr.includes('cast: handle'), `dry-run must emit no handle: ${dry.stderr}`);
   assert.ok(JSON.parse(dry.stdout).argv.includes('--session-id'), 'claude launch must mint --session-id');
   // headed claude is started on a minted id too; the other harnesses carry none
-  assert.ok(dryRun(['claude', 'sonnet-5-5', '1', folder, '-p', 'hi', '--headed']).argv.includes('--session-id'));
-  assert.ok(!dryRun(['codex', 'gpt-6-luna', '1', folder, '-p', 'hi']).argv.includes('--session-id'));
+  assert.ok(dryRun(['claude', claudeModel.model, '1', folder, '-p', 'hi', '--headed']).argv.includes('--session-id'));
+  assert.ok(!dryRun(['codex', codexModel.model, '1', folder, '-p', 'hi']).argv.includes('--session-id'));
 }
 
 // codex reader drops subagent rollouts; opencode reader returns [] on an absent store
@@ -829,11 +885,11 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     fs.utimesSync(transcript, stale / 1000, stale / 1000);
 
     const row = (over) => JSON.stringify({
-      pid: sleeper.pid, start, harness: 'claude', model: 'haiku-5-5', session,
+      pid: sleeper.pid, start, harness: 'claude', model: NOT_A_MODEL, session,
       folder, transcript, t0: Date.now() - 3600_000, ...over,
     });
     const dead = JSON.stringify({
-      pid: 999999, start: 12345, harness: 'claude', model: 'haiku-5-5', session: 'dead',
+      pid: 999999, start: 12345, harness: 'claude', model: NOT_A_MODEL, session: 'dead',
       folder, transcript: null, t0: Date.now(), });
     fs.mkdirSync(path.join(home, '.cast'), { recursive: true });
     fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'), `${dead}\n${row()}\n`);
@@ -935,7 +991,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     fs.utimesSync(transcript, stale / 1000, stale / 1000);
     fs.mkdirSync(path.join(home, '.cast'), { recursive: true });
     fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'), `${JSON.stringify({
-      pid: busy.pid, start, harness: 'claude', model: 'haiku-5-5', session,
+      pid: busy.pid, start, harness: 'claude', model: NOT_A_MODEL, session,
       folder, transcript, t0: Date.now() - 3600_000,
     })}\n`);
 
@@ -955,7 +1011,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     const quiet = orphan("setInterval(() => require('fs').writeSync(1, 'tick\\n'), 50);", ticks);
     try {
       fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'), `${JSON.stringify({
-        pid: quiet.pid, start: quiet.start, harness: 'claude', model: 'haiku-5-5', session,
+        pid: quiet.pid, start: quiet.start, harness: 'claude', model: NOT_A_MODEL, session,
         folder, transcript, t0: Date.now() - 3600_000, ...(IS_WIN ? { out: ticks } : {}),
       })}\n`);
       const first = JSON.parse(monitor(['--json']).stdout);
@@ -1020,7 +1076,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     const tagB = 'b [cast:bbbbbbbb]';
     const tagC = 'c [cast:cccccccc]';
     const handle = (job, folder, t0, tag) => JSON.stringify({
-      pid: job.pid, start: job.start, harness: 'opencode', model: 'glm-5.3', session: null,
+      pid: job.pid, start: job.start, harness: 'opencode', model: NOT_A_MODEL, session: null,
       tag, folder, transcript: null, t0,
     });
     fs.mkdirSync(path.join(home, '.cast'), { recursive: true });
@@ -1100,7 +1156,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     const handles = path.join(home, '.cast', 'handles.jsonl');
     fs.mkdirSync(path.dirname(handles), { recursive: true });
     fs.writeFileSync(handles, `${JSON.stringify({
-      pid: sleeper.pid, start, harness: 'claude', model: 'haiku-5-5', session: null,
+      pid: sleeper.pid, start, harness: 'claude', model: NOT_A_MODEL, session: null,
       folder, transcript: null, t0: Date.now(),
     })}\n`);
     // A REAL death: the registry row stays put and liveJobs drops it because /proc no longer
@@ -1130,7 +1186,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   const b = spawnSleeper();
   try {
     const handle = (job) => JSON.stringify({
-      pid: job.pid, start: job.start, harness: 'claude', model: 'haiku-5-5', session: null,
+      pid: job.pid, start: job.start, harness: 'claude', model: NOT_A_MODEL, session: null,
       folder, transcript: null, t0: Date.now(),
     });
     const handles = path.join(home, '.cast', 'handles.jsonl');
@@ -1168,7 +1224,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     const handles = path.join(home, '.cast', 'handles.jsonl');
     fs.mkdirSync(path.dirname(handles), { recursive: true });
     fs.writeFileSync(handles, `${JSON.stringify({
-      pid, start, harness: 'claude', model: 'haiku-5-5', session: null,
+      pid, start, harness: 'claude', model: NOT_A_MODEL, session: null,
       folder, transcript: null, t0: Date.now(),
     })}\n`);
     // blank the registry while the process stays ALIVE — a prune, not a death
@@ -1215,7 +1271,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     try {
       fs.writeFileSync(transcript, '{}\n');
       const handle = (job, over) => JSON.stringify({
-        pid: job.pid, start: job.start, harness: 'claude', model: 'haiku-5-5', session: null,
+        pid: job.pid, start: job.start, harness: 'claude', model: NOT_A_MODEL, session: null,
         folder, transcript: null, t0: Date.now(), ...over,
       });
       fs.writeFileSync(handles,
@@ -1256,7 +1312,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     const { start } = sleeper;
     fs.mkdirSync(path.join(home, '.cast'), { recursive: true });
     fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'), `${JSON.stringify({
-      pid: sleeper.pid, start, harness: 'opencode', model: 'glm-5.3', session: null,
+      pid: sleeper.pid, start, harness: 'opencode', model: NOT_A_MODEL, session: null,
       folder, transcript: null, t0: Date.now() - 120_000, ...(IS_WIN ? { out: outFile } : {}),
     })}\n`);
     const rows = JSON.parse(monitor(['--json']).stdout);
@@ -1266,7 +1322,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     const watch = monitor(['--watch', '--poll', '1', '--grace', '600', '--stall', '600']);
     assert.strictEqual(watch.status, 3, `provider-limit must exit 3, got ${watch.status}: ${watch.stdout}`);
     assert.ok(watch.stdout.includes('PROVIDER-LIMIT'), `event line: ${watch.stdout}`);
-    assert.ok(watch.stdout.includes('provider-limit: glm-5.3 resets 2026-08-22 11:10:16'),
+    assert.ok(watch.stdout.includes(`provider-limit: ${NOT_A_MODEL} resets 2026-08-22 11:10:16`),
       `named reason: ${watch.stdout}`);
     assert.ok(watch.stdout.includes('ADVISORY, not authority'), `advisory: ${watch.stdout}`);
   } finally {
@@ -1285,7 +1341,7 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
     const { start } = sleeper;
     fs.mkdirSync(path.join(home, '.cast'), { recursive: true });
     fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'), `${JSON.stringify({
-      pid: sleeper.pid, start, harness: 'claude', model: 'haiku-5-5', session: null,
+      pid: sleeper.pid, start, harness: 'claude', model: NOT_A_MODEL, session: null,
       folder, transcript: null, t0: Date.now() - 5000,
     })}\n`);
     const rows = JSON.parse(monitor(['--json', '--deadline', '1']).stdout);
@@ -1364,7 +1420,7 @@ db.close();
     if (withFinalText) say('msg_1', 'ses_r', withFinalText);
     db.close();
   };
-  const cast = () => spawnSync('node', [TOOL, 'opencode', 'glm-5.3', '1', folder, '-p', 'hi'],
+  const cast = () => spawnSync('node', [TOOL, 'opencode', opencodeModel.model, '1', folder, '-p', 'hi'],
     { encoding: 'utf8', env });
   const noSibling = (res, arm) => assert.ok(!res.stdout.includes(SIBLING),
     `${arm}: a sibling session's report must never be recovered as this run's: ${res.stdout}`);
@@ -1407,7 +1463,7 @@ db.close();
   seedDb(null);
   res = cast();
   assert.notStrictEqual(res.status, 0, `limit run must be non-zero: ${res.stdout}`);
-  assert.ok(res.stdout.includes('provider-limit: glm-5.3 resets 2026-08-22 11:10:16'),
+  assert.ok(res.stdout.includes(`provider-limit: ${opencodeModel.model} resets 2026-08-22 11:10:16`),
     `must name the limit instead of no-report: ${res.stdout}`);
   assert.ok(!res.stdout.includes('cast: no-report'), `limit must not print no-report: ${res.stdout}`);
   noSibling(res, 'provider-limit');
@@ -1421,7 +1477,7 @@ db.close();
   installFake(bin, 'opencode', `${drainStdin}setTimeout(() => process.exit(0), 5000);\n`);
   const env = { ...process.env, ...homeEnv(home), XDG_DATA_HOME: xdg,
     PATH: pathEnv(bin), CAST_DEADLINE_MS: '400' };
-  const res = spawnSync('node', [TOOL, 'opencode', 'glm-5.3', '1', folder, '-p', 'hi'],
+  const res = spawnSync('node', [TOOL, 'opencode', opencodeModel.model, '1', folder, '-p', 'hi'],
     { encoding: 'utf8', env, timeout: 8000 });
   assert.notStrictEqual(res.status, 0, `deadline must be non-zero: ${res.stderr}`);
   assert.ok(res.stderr.includes('cast: deadline'), `must print deadline: ${res.stderr}`);
@@ -1433,7 +1489,7 @@ db.close();
   const folder = mkFolder('headed-deadline');
   const bin = mkFolder('headed-deadline-bin');
   installFake(bin, 'claude', `${drainStdin}setTimeout(() => process.exit(0), 1500);\n`);
-  const run = (extra) => spawnSync('node', [TOOL, 'claude', 'haiku-5-5', '1', folder, '-p', 'hi', ...extra], {
+  const run = (extra) => spawnSync('node', [TOOL, 'claude', claudeModel.model, '1', folder, '-p', 'hi', ...extra], {
     encoding: 'utf8', timeout: 8000,
     env: { ...process.env, ...homeEnv(mkFolder('headed-deadline-home')), PATH: pathEnv(bin), CAST_DEADLINE_MS: '400' },
   });
@@ -1540,13 +1596,13 @@ db.close();
 
     // shared log: ONLY job B's session hit the limit
     fs.writeFileSync(logPath, `timestamp=${new Date(t0 + 2000).toISOString()} level=ERROR run=xxxx`
-      + ' message="stream error" providerID=zai-coding-plan modelID=glm-5.3 session.id=ses_b'
+      + ` message="stream error" providerID=example-provider modelID=${NOT_A_MODEL} session.id=ses_b`
       + ' small=false agent=build mode=primary error.error="AI_APICallError: Usage limit reached'
       + ' for 5 hour. Your limit will reset at 2026-08-31 20:00:00"\n');
 
     fs.mkdirSync(path.join(home, '.cast'), { recursive: true });
     const handle = (job, tag) => JSON.stringify({
-      pid: job.pid, start: job.start, harness: 'opencode', model: 'glm-5.3', session: null,
+      pid: job.pid, start: job.start, harness: 'opencode', model: NOT_A_MODEL, session: null,
       tag, folder, transcript: null, t0,
     });
     fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'),
@@ -1572,7 +1628,7 @@ db.close();
 if (IS_WIN) console.log('skip: setsid detached-launch gate (session leader) is Linux-only');
 else {
   const setsidLaunch = (extra = []) => require('child_process').spawnSync('setsid',
-    ['node', path.join(__dirname, 'cast.js'), 'claude', 'sonnet-5-5', '1', os.tmpdir(), ...extra, '-p', 'never runs'],
+    ['node', path.join(__dirname, 'cast.js'), 'claude', claudeModel.model, '1', os.tmpdir(), ...extra, '-p', 'never runs'],
     { encoding: 'utf8' });
   const refused = setsidLaunch();
   assert.strictEqual(refused.status, 2, `detached launch must exit 2, got ${refused.status}`);
@@ -1677,7 +1733,7 @@ else {
   const home = path.join(root, '.rbtv', 'agents', 'sara');
   fs.mkdirSync(home, { recursive: true });
   fs.writeFileSync(path.join(home, 'prompt.md'), '---\nname: sara\n---\nYou are Sara.');
-  fs.writeFileSync(path.join(home, 'agent.json'), '{"name":"sara","harness":"claude","model":"sonnet-5-5","effort":"medium"}\n');
+  fs.writeFileSync(path.join(home, 'agent.json'), `{"name":"sara","harness":"claude","model":"${claudeModel.model}","effort":"${claudeMid}"}\n`);
   const igRun = (args) => {
     const res = spawnSync('node', [TOOL, ...args, '--dry-run'], { cwd: root, encoding: 'utf8' });
     assert.strictEqual(res.status, 0, `expected exit 0, got ${res.status}, stderr: ${res.stderr}`);
@@ -1686,8 +1742,8 @@ else {
   const ig = igRun(['--agent', 'sara', '-p', 'go']);
   assert.strictEqual(ig.cwd, home);
   assert.strictEqual(ig.RBTV_AGENT_HOME, home);
-  assert.strictEqual(ig.effort_word, 'medium');
-  assert.strictEqual(ig.argv[ig.argv.indexOf('--effort') + 1], 'medium', `effort is the agent's word: ${ig.argv}`);
+  assert.strictEqual(ig.effort_word, claudeMid);
+  assert.strictEqual(ig.argv[ig.argv.indexOf('--effort') + 1], claudeMid, `effort is the agent's word: ${ig.argv}`);
   assert.strictEqual(ig.argv[ig.argv.indexOf('--append-system-prompt') + 1], 'You are Sara.', 'frontmatter must not reach the model');
   assert.ok(!ig.argv.some((a) => a.includes('name: sara')), `frontmatter leaked into argv: ${ig.argv}`);
   assert.strictEqual(ig.stdin_preview, 'go');
@@ -1696,7 +1752,7 @@ else {
   assert.strictEqual(byPath.status, 0, byPath.stderr);
   assert.strictEqual(JSON.parse(byPath.stdout).cwd, home, 'a path names the agent folder');
 
-  const rg = dryRun(['codex', 'gpt-6-luna', '2', '--rogue', path.join(home, 'prompt.md'), '-p', 'go']);
+  const rg = dryRun(['codex', codexModel.model, '2', '--rogue', path.join(home, 'prompt.md'), '-p', 'go']);
   assert.ok(rg.argv.includes(`developer_instructions=${JSON.stringify('You are Sara.')}`), `frontmatter must not reach the prompt: ${rg.argv}`);
   assert.ok(rg.argv.includes('project_doc_max_bytes=131072'), `every Codex launch raises the AGENTS.md limit: ${rg.argv}`);
   assert.ok(!('RBTV_AGENT_HOME' in rg), '--rogue is not an rbtv agent: no RBTV_AGENT_HOME');
@@ -1714,7 +1770,7 @@ else {
     fs.mkdirSync(tess, { recursive: true });
     fs.writeFileSync(path.join(tess, 'prompt.md'), '---\nname: tess\n---\nYou are Tess.');
     fs.writeFileSync(path.join(tess, 'agent.json'), JSON.stringify({
-      name: 'tess', description: TESS_SAYS, harness: 'codex', model: 'gpt-6-luna', effort: 'high', packs: ['ignite'],
+      name: 'tess', description: TESS_SAYS, harness: 'codex', model: codexModel.model, effort: codexTop, packs: ['ignite'],
     }));
     // An `rbtv` on PATH that stands for the installer: it records its arguments and answers
     // `list --installed` from five rows, RBTV_PAGE of them at a time, or refuses. Its pack lists
@@ -1752,10 +1808,12 @@ else {
     const lines = all.stdout.split('\n');
     assert.deepStrictEqual(lines.slice(0, 3), ['rbtv agents: 3', `Folder: ${agents}`, '']);
     assert.ok(lines.includes(`half: cannot be launched: ${path.join(halfHome, 'agent.json')} is missing`), all.stdout);
-    assert.ok(lines.includes('Name  Harness  Model       Effort  Ignite  Description'), all.stdout);
-    assert.ok(lines.includes('sara  claude   sonnet-5-5  medium  no'), `an agent with no description and no pack: ${all.stdout}`);
+    const modelWidth = Math.max('Model'.length, claudeModel.model.length, codexModel.model.length);
+    const effortWidth = Math.max('Effort'.length, claudeMid.length, codexTop.length);
+    assert.ok(lines.includes(`Name  Harness  ${'Model'.padEnd(modelWidth)}  ${'Effort'.padEnd(effortWidth)}  Ignite  Description`), all.stdout);
+    assert.ok(lines.includes(`sara  claude   ${claudeModel.model.padEnd(modelWidth)}  ${claudeMid.padEnd(effortWidth)}  no`), `an agent with no description and no pack: ${all.stdout}`);
     const row = lines.find((line) => line.startsWith('tess '));
-    assert.match(row, /^tess  codex    gpt-6-luna  high    yes     Tests a change .*…$/, 'the description is shortened');
+    assert.match(row, new RegExp(`^tess  codex    ${reEscape(codexModel.model.padEnd(modelWidth))}  ${codexTop.padEnd(effortWidth)}  yes     Tests a change .*…$`), 'the description is shortened');
     assert.ok(row.length <= 100, `a row fits the terminal: ${row.length}`);
     assert.deepStrictEqual(lines.slice(-3, -1), ['Whole descriptions: add --full.',
       'One agent in full: cast list --agent NAME, spark list NAME or rbtv agent list NAME.']);
@@ -1766,14 +1824,14 @@ else {
     assert.ok(!whole.stdout.includes('…') && !whole.stdout.includes('add --full'), 'nothing is shortened, so nothing points to --full');
 
     const narrow = list(['--agents'], '60');
-    assert.ok(narrow.stdout.includes('Name: tess\nHarness: codex\nModel: gpt-6-luna\nEffort: high\nIgnite: yes\nDescription: Tests'), narrow.stdout);
+    assert.ok(narrow.stdout.includes(`Name: tess\nHarness: codex\nModel: ${codexModel.model}\nEffort: ${codexTop}\nIgnite: yes\nDescription: Tests`), narrow.stdout);
     assert.ok(narrow.stdout.replace(/\n {2}/g, ' ').includes(`Description: ${TESS_SAYS}`), 'a narrow terminal shows the whole description');
     assert.ok(narrow.stdout.split('\n').filter((line) => /^(Description:| {2})/.test(line)).every((line) => line.length <= 60),
       'a description is wrapped to the terminal');
 
     const one = list(['--agent', 'tess']);
     assert.strictEqual(one.status, 0, one.stderr);
-    assert.ok(one.stdout.startsWith(`Name: tess\nHarness: codex\nModel: gpt-6-luna\nEffort: high\nIgnite: yes\nFolder: ${tess}\nDescription: `), one.stdout);
+    assert.ok(one.stdout.startsWith(`Name: tess\nHarness: codex\nModel: ${codexModel.model}\nEffort: ${codexTop}\nIgnite: yes\nFolder: ${tess}\nDescription: `), one.stdout);
     assert.ok(one.stdout.replace(/\n {2}/g, ' ').includes(TESS_SAYS), 'one agent is shown in full');
     // what is installed in it, asked of the installer once, under the names `rbtv show` takes: each
     // pack on its own row, what it installs on a row per kind under it, and under each kind
@@ -1805,12 +1863,12 @@ else {
       skill: ['core/rbtv#framework', 'meta/functions#interview'], rule: [], command: [], 'mcp-server': [], hook: [],
     };
 
-    const tessRow = { name: 'tess', description: TESS_SAYS, harness: 'codex', model: 'gpt-6-luna', effort: 'high', ignite: true, home: tess };
+    const tessRow = { name: 'tess', description: TESS_SAYS, harness: 'codex', model: codexModel.model, effort: codexTop, ignite: true, home: tess };
     const json = JSON.parse(list(['--json', '--agents']).stdout);
     assert.strictEqual(json.folder, agents);
     assert.deepStrictEqual(json.agents, [
       { name: 'half', home: halfHome, problem: `${path.join(halfHome, 'agent.json')} is missing` },
-      { name: 'sara', description: '', harness: 'claude', model: 'sonnet-5-5', effort: 'medium', ignite: false, home },
+      { name: 'sara', description: '', harness: 'claude', model: claudeModel.model, effort: claudeMid, ignite: false, home },
       tessRow,
     ]);
     assert.deepStrictEqual(JSON.parse(list(['--agent', '.rbtv/agents/tess', '--json']).stdout), { ...tessRow, installed },
@@ -1872,12 +1930,12 @@ else {
       fs.mkdirSync(drafter, { recursive: true });
       fs.writeFileSync(path.join(drafter, 'prompt.md'), '---\nname: drafter\n---\nYou draft.');
       fs.writeFileSync(path.join(drafter, 'agent.json'), JSON.stringify({
-        name: 'drafter', description: 'Drafts.', harness: 'claude', model: 'sonnet-5-5', effort: 'low',
+        name: 'drafter', description: 'Drafts.', harness: 'claude', model: claudeModel.model, effort: claudeLow,
       }));
       fs.mkdirSync(path.join(plan, 'notes'));
       fs.writeFileSync(path.join(plan, 'notes', 'readme.md'), 'not an agent\n');
       const empty = mkFolder('ig-no-agents');
-      const drafterRow = { name: 'drafter', description: 'Drafts.', harness: 'claude', model: 'sonnet-5-5', effort: 'low', ignite: false, home: drafter };
+      const drafterRow = { name: 'drafter', description: 'Drafts.', harness: 'claude', model: claudeModel.model, effort: claudeLow, ignite: false, home: drafter };
       const listFrom = (cwd, args) => spawnSync('node', [TOOL, 'list', ...args], {
         cwd, encoding: 'utf8', env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, RBTV_ASKED: asked, COLUMNS: '100' },
       });
@@ -1928,7 +1986,8 @@ else {
       ['rbtv agents: 0', `Folder: ${agents}`, '', 'No agent found. An agent folder holds prompt.md and agent.json.']);
     // a description that fits is not shortened, and then nothing points to the full form
     assert.deepStrictEqual(listLines({ folder: agents, agents: [tessRow] }, { width: 400 }).slice(-2),
-      ['Name  Harness  Model       Effort  Ignite  Description', `tess  codex    gpt-6-luna  high    yes     ${TESS_SAYS}`]);
+      [`Name  Harness  ${'Model'.padEnd(Math.max('Model'.length, codexModel.model.length))}  ${'Effort'.padEnd(Math.max('Effort'.length, codexTop.length))}  Ignite  Description`,
+        `tess  codex    ${codexModel.model.padEnd(Math.max('Model'.length, codexModel.model.length))}  ${codexTop.padEnd(Math.max('Effort'.length, codexTop.length))}  yes     ${TESS_SAYS}`]);
   }
 
   // a record must carry the model's own effort word: none, or a number, stops the launch
@@ -1937,7 +1996,7 @@ else {
     const dir = path.join(root, '.rbtv', 'agents', name);
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'prompt.md'), `---\nname: ${name}\n---\nYou are ${name}.`);
-    fs.writeFileSync(path.join(dir, 'agent.json'), JSON.stringify({ name, harness: 'claude', model: 'sonnet-5-5', effort }));
+    fs.writeFileSync(path.join(dir, 'agent.json'), JSON.stringify({ name, harness: 'claude', model: claudeModel.model, effort }));
     const res = spawnSync('node', [TOOL, '--agent', name, '-p', 'go', '--dry-run'], { cwd: root, encoding: 'utf8' });
     assert.strictEqual(res.status, 2, `an agent with effort ${JSON.stringify(effort)} must be refused`);
     assert.ok(res.stderr.includes(text), res.stderr);
@@ -1959,7 +2018,7 @@ else {
     const write = (dir, values) => {
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, 'prompt.md'), 'You are here.');
-      fs.writeFileSync(path.join(dir, 'agent.json'), JSON.stringify({ harness: 'claude', model: 'sonnet-5-5', effort: 'low', ...values }));
+      fs.writeFileSync(path.join(dir, 'agent.json'), JSON.stringify({ harness: 'claude', model: claudeModel.model, effort: claudeLow, ...values }));
       return dir;
     };
     const agents = path.join(inst, '.rbtv', 'agents');
@@ -1978,12 +2037,14 @@ else {
     assert.strictEqual(findAgentHome('lia', path.join(inst, 'plans')), lia, 'a listed agent folder is found by name');
     assert.strictEqual(findAgentHome('quiet', inst), null, 'an agent folder that is not listed is found by path only');
     assert.strictEqual(sameNameRefusal('lia', inst), null);
-    const row = (home) => ({ name: path.basename(home), description: 'Does it.', harness: 'claude', model: 'sonnet-5-5', effort: 'low', ignite: false, home });
+    const row = (home) => ({ name: path.basename(home), description: 'Does it.', harness: 'claude', model: claudeModel.model, effort: claudeLow, ignite: false, home });
     const where = [path.join('.rbtv', 'agents', 'kim'), path.join('plans', 'a', 'agents', 'lia')];
+    const shownModel = claudeModel.model.padEnd(Math.max('Model'.length, claudeModel.model.length));
+    const shownEffort = claudeLow.padEnd(Math.max('Effort'.length, claudeLow.length));
     assert.deepStrictEqual(listLines({ folder: agents, agents: [kim, lia].map(row) }, { width: 200 }).slice(-3), [
-      `Name  Harness  Model       Effort  Ignite  ${'Folder'.padEnd(where[1].length)}  Description`,
-      `kim   claude   sonnet-5-5  low     no      ${where[0].padEnd(where[1].length)}  Does it.`,
-      `lia   claude   sonnet-5-5  low     no      ${where[1]}  Does it.`,
+      `Name  Harness  ${'Model'.padEnd(shownModel.length)}  ${'Effort'.padEnd(shownEffort.length)}  Ignite  ${'Folder'.padEnd(where[1].length)}  Description`,
+      `kim   claude   ${shownModel}  ${shownEffort}  no      ${where[0].padEnd(where[1].length)}  Does it.`,
+      `lia   claude   ${shownModel}  ${shownEffort}  no      ${where[1]}  Does it.`,
     ], 'with a listed agent folder, every row says where its agent is');
     assert.ok(listLines({ folder: agents, agents: [kim, lia].map(row) }, { full: true }).includes(`Folder: ${lia}`), 'a labeled block names the folder');
     assert.ok(!listLines({ folder: lia, agents: [row(lia)] }, { width: 200 }).some((line) => line.includes('Folder  ')),
@@ -1999,15 +2060,15 @@ else {
   }
 
   const refusals = [
-    [['claude', 'sonnet-5-5', '2', '--agent', 'sara', '-p', 'go'], 'does not take a harness, model or effort'],
-    [['codex', 'gpt-6.1-sol', '3', '--agent', 'sara', '-p', 'go'], 'does not take a harness, model or effort'],
+    [['claude', claudeModel.model, '2', '--agent', 'sara', '-p', 'go'], 'does not take a harness, model or effort'],
+    [['codex', codexModel.model, '3', '--agent', 'sara', '-p', 'go'], 'does not take a harness, model or effort'],
     [['--agent', 'nobody', '-p', 'go'], "no rbtv agent 'nobody'"],
     [['--agent', 'plans/launch/agents/missing', '-p', 'go'], 'no rbtv agent'],
     [['--agent', 'half', '-p', 'go'], 'agent.json is missing'],
     [['--agent', 'sara', '--rogue', 'x.md', '-p', 'go'], 'mutually exclusive'],
     [['--agent', 'sara', '-s', 'x', '-p', 'go'], 'cannot be combined'],
     [['--agent', 'sara', '--target', root, '-p', 'go'], "unknown flag '--target'"],
-    [['claude', 'sonnet-5-5', '2', '--target', root, '-p', 'go'], "unknown flag '--target'"],
+    [['claude', claudeModel.model, '2', '--target', root, '-p', 'go'], "unknown flag '--target'"],
   ];
   for (const [args, text] of refusals) {
     const res = spawnSync('node', [TOOL, ...args, '--dry-run'], { cwd: root, encoding: 'utf8' });
@@ -2019,7 +2080,7 @@ else {
     const once = path.join(root, 'plans', 'once', 'agents', 'once');
     fs.mkdirSync(once, { recursive: true });
     fs.writeFileSync(path.join(once, 'prompt.md'), '---\nname: once\n---\nYou are Once.');
-    fs.writeFileSync(path.join(once, 'agent.json'), '{"name":"once","harness":"claude","model":"sonnet-5-5","effort":"medium"}\n');
+    fs.writeFileSync(path.join(once, 'agent.json'), `{"name":"once","harness":"claude","model":"${claudeModel.model}","effort":"${claudeMid}"}\n`);
     const taskFile = path.join(once, 'task.md');
     const other = path.join(root, 'other-task.txt');
     fs.writeFileSync(other, 'OTHER-TASK-ARM\n');
@@ -2047,7 +2108,7 @@ else {
     // or not task.md exists; a record without one sends task.md; with neither, the TUI opens with
     // no first message. A headless launch never reads the opening.
     const record = (extra) => fs.writeFileSync(path.join(once, 'agent.json'),
-      `{"name":"once","harness":"claude","model":"sonnet-5-5","effort":"medium"${extra}}\n`);
+      `{"name":"once","harness":"claude","model":"${claudeModel.model}","effort":"${claudeMid}"${extra}}\n`);
     const headedArgv = (args) => {
       const res = launchOnce([...args, '--headed']);
       assert.strictEqual(res.status, 0, res.stderr);
@@ -2089,7 +2150,7 @@ else {
       assert.strictEqual(res.stderr, `cast: refused: the task is empty: ${source} holds no text\n`
         + 'Nothing changed.\ngive the task its text, then run the same command again\n', label);
     };
-    const bare = ['claude', 'sonnet-5-5', '1'];
+    const bare = ['claude', claudeModel.model, '1'];
     emptyTask([...bare, '-f', empty], `the -f file ${empty}`);
     emptyTask([...bare, '-f', blank], `the -f file ${blank}`);
     emptyTask([...bare, '-p', ''], 'the -p text');
@@ -2105,7 +2166,7 @@ else {
   {
     const oldHome = path.join(root, 'plans', 'old', 'agents', 'oldname');
     fs.mkdirSync(oldHome, { recursive: true });
-    fs.writeFileSync(path.join(oldHome, 'agent.json'), JSON.stringify({ name: 'oldname', harness: 'codex', model: 'gpt-6.1-sol', effort: 'high' }));
+    fs.writeFileSync(path.join(oldHome, 'agent.json'), JSON.stringify({ name: 'oldname', harness: 'codex', model: codexModel.model, effort: codexTop }));
     fs.writeFileSync(path.join(oldHome, 'agent.md'), '---\nname: oldname\n---\nYou are old.');
     const why = `${path.join(oldHome, 'prompt.md')} is missing. This folder still has agent.md, the old name of the prompt file. If another machine already renamed it, pull first; otherwise rename it with: git mv agent.md prompt.md (inside ${oldHome}), and change any .gitignore line that names agent.md.`;
     const launch = spawnSync('node', [TOOL, '--agent', oldHome, '-p', 'go', '--dry-run'], { cwd: root, encoding: 'utf8' });
@@ -2115,7 +2176,7 @@ else {
     assert.ok(listed.stdout.split('\n').includes(`oldname: cannot be launched: ${why}`), listed.stdout);
     const bare = path.join(root, 'plans', 'old', 'agents', 'bare');
     fs.mkdirSync(bare, { recursive: true });
-    fs.writeFileSync(path.join(bare, 'agent.json'), JSON.stringify({ name: 'bare', harness: 'codex', model: 'gpt-6.1-sol', effort: 'high' }));
+    fs.writeFileSync(path.join(bare, 'agent.json'), JSON.stringify({ name: 'bare', harness: 'codex', model: codexModel.model, effort: codexTop }));
     const noPrompt = spawnSync('node', [TOOL, '--agent', bare, '-p', 'go', '--dry-run'], { cwd: root, encoding: 'utf8' });
     assert.ok(noPrompt.stderr.includes(`\n${path.join(bare, 'prompt.md')} is missing.\nNothing changed.`), noPrompt.stderr);
   }
@@ -2138,7 +2199,7 @@ else {
 // supported model is selected.
 {
   const HEAD = 'mode,harness,model,efforts,image,level,reasoning,coding,cost,quality-override,price-override';
-  const SONNET = 'cli,claude,sonnet-5-5,5,N,L2,3,3,10,N,N';
+  const CHOSEN = catalogRow(claudeModel, { 'quality-override': 'N', 'price-override': 'N' });
   const installation = (lines) => {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(BASE, 'cast-test-gate-')));
     fs.mkdirSync(path.join(root, '.rbtv', 'config', 'cast'), { recursive: true });
@@ -2153,7 +2214,7 @@ else {
   // a -p task is saved as task.md in the output folder; a dry run names that file and writes nothing
   {
     const outside = mkFolder('api-task');
-    const image = ['api', 'gemini-3.1-flash-image', '1', '-p', 'x', '--output-folder', 'out'];
+    const image = ['api', imageModel.model, '1', '-p', 'x', '--output-folder', 'out'];
     const dry = spawnSync('node', [TOOL, ...image, '--image', '--input-image', 'logo.png', '--extra-params', '{"safetySettings":[]}', '--dry-run'], { cwd: outside, encoding: 'utf8' });
     assert.strictEqual(dry.status, 0, dry.stderr);
     const result = JSON.parse(dry.stdout);
@@ -2162,7 +2223,7 @@ else {
     assert.strictEqual(argv[argv.indexOf('--prompt-file') + 1], path.join(outside, 'out', 'task.md'));
     // the runner gets the model's own id, the input image and the caller's parameters as given:
     // no effort reaches it, because an image model has no dial
-    assert.deepStrictEqual(argv.slice(2), ['--provider', 'gemini', '--model', 'gemini-3.1-flash-image', '--prompt-file', path.join(outside, 'out', 'task.md'),
+    assert.deepStrictEqual(argv.slice(2), ['--provider', PROVIDERS[imageModel.provider].env_var.replace(/_API_KEY$/i, '').toLowerCase(), '--model', imageModel.id, '--prompt-file', path.join(outside, 'out', 'task.md'),
       '--output-folder', 'out', '--input-image', 'logo.png', '--extra-params', '{"safetySettings":[]}']);
     assert.ok(!fs.existsSync(path.join(outside, 'out')), 'a dry run writes nothing');
     // cast api generates and edits images and nothing else: a call without --image is refused,
@@ -2197,62 +2258,62 @@ else {
   assert.ok(!fs.existsSync(fresh.file), 'a launch never writes a model catalog');
 
   // a model catalog without the model: refused, naming the command that selects it
-  const pruned = installation([HEAD, SONNET]);
+  const pruned = installation([HEAD, CHOSEN]);
   const notSelected = (harness, model) => `refused: '${harness} ${model}' is not selected in ${pruned.root}\n`
     + `model catalog: ${pruned.file}\nNothing changed.\ncast models add ${harness} ${model}`;
-  refused(launch('claude', 'haiku-5-5', pruned.root), notSelected('claude', 'haiku-5-5'));
-  refused(launch('claude', 'claude-haiku-5-5', pruned.root), notSelected('claude', 'haiku-5-5'));
-  refused(launch('claude', 'haiku-5-5', path.join(pruned.root, '.rbtv')), notSelected('claude', 'haiku-5-5'));
-  refused(api('gemini-3.1-flash-image', pruned.root), notSelected('api', 'gemini-3.1-flash-image'));
-  assert.strictEqual(launch('claude', 'sonnet-5-5', pruned.root).status, 0, 'a selected model launches');
+  refused(launch('claude', claudeOther.model, pruned.root), notSelected('claude', claudeOther.model));
+  refused(launch('claude', claudeOther.id, pruned.root), notSelected('claude', claudeOther.model));
+  refused(launch('claude', claudeOther.model, path.join(pruned.root, '.rbtv')), notSelected('claude', claudeOther.model));
+  refused(api(imageModel.model, pruned.root), notSelected('api', imageModel.model));
+  assert.strictEqual(launch('claude', claudeModel.model, pruned.root).status, 0, 'a selected model launches');
   // a plain launch asks the installation of the current folder, not of the launch folder
-  assert.strictEqual(launch('claude', 'haiku-5-5', fresh.root, [pruned.root]).status, 0);
-  refused(launch('claude', 'haiku-5-5', pruned.root, [fresh.root]), notSelected('claude', 'haiku-5-5'));
+  assert.strictEqual(launch('claude', claudeOther.model, fresh.root, [pruned.root]).status, 0);
+  refused(launch('claude', claudeOther.model, pruned.root, [fresh.root]), notSelected('claude', claudeOther.model));
   // an agent launch asks the installation of the agent's folder, wherever it is launched from
-  for (const [name, model] of [['tiny', 'haiku-5-5'], ['sound', 'sonnet-5-5']]) {
+  for (const [name, model] of [['tiny', claudeOther.model], ['sound', claudeModel.model]]) {
     const home = path.join(pruned.root, '.rbtv', 'agents', name);
     fs.mkdirSync(home, { recursive: true });
     fs.writeFileSync(path.join(home, 'prompt.md'), `---\nname: ${name}\n---\nYou are ${name}.`);
-    fs.writeFileSync(path.join(home, 'agent.json'), `${JSON.stringify({ name, harness: 'claude', model, effort: 'low' })}\n`);
+    fs.writeFileSync(path.join(home, 'agent.json'), `${JSON.stringify({ name, harness: 'claude', model, effort: claudeLow })}\n`);
   }
   const agent = (name, cwd) => cast(['--agent', path.join(pruned.root, '.rbtv', 'agents', name), '-p', 'x'], cwd);
-  refused(agent('tiny', fresh.root), notSelected('claude', 'haiku-5-5'));
-  refused(agent('tiny', pruned.root), notSelected('claude', 'haiku-5-5'));
+  refused(agent('tiny', fresh.root), notSelected('claude', claudeOther.model));
+  refused(agent('tiny', pruned.root), notSelected('claude', claudeOther.model));
   assert.strictEqual(agent('sound', fresh.root).status, 0, agent('sound', fresh.root).stderr);
 
   // a row this copy of cast does not support is an orphan: named as one, with the way out
-  const orphan = installation([HEAD, SONNET, 'cli,opencode,not-a-real-model,3,N,L2,6,6,1,N,N']);
+  const orphan = installation([HEAD, CHOSEN, 'cli,opencode,not-a-real-model,3,N,L2,6,6,1,N,N']);
   refused(launch('opencode', 'not-a-real-model', orphan.root),
     `refused: 'opencode not-a-real-model' is selected in ${orphan.file} but this copy of cast does not support it (${path.join(__dirname, 'supported-models.js')})\n`
     + 'the daemon runs its own deployed copy of rbtv: deploy a commit that supports it\nNothing changed.\ncast models remove opencode not-a-real-model');
   // neither supported nor selected: the closest supported name, and the list of them
   for (const cwd of [orphan.root, fresh.root]) {
-    refused(launch('claude', 'claude-sonet-5', cwd),
-      "refused: 'claude claude-sonet-5' is not a model cast supports\ndid you mean 'sonnet-5-5'?\nNothing changed.\ncast models list --supported");
+    refused(launch('claude', misspelt(claudeModel), cwd),
+      `refused: 'claude ${misspelt(claudeModel)}' is not a model cast supports\ndid you mean '${claudeModel.model}'?\nNothing changed.\ncast models list --supported`);
   }
 
   // a model catalog that cannot be read stops every launch in the installation, selected or not
   for (const [lines, why] of [
-    [[HEAD, SONNET, 'cli,claude,opus-5-5,5,N,L1,6,6,2,5,N,N'], 'line 3: 12 cells where the header has 11'],
+    [[HEAD, CHOSEN, `${catalogRow(claudeOther, { 'quality-override': 'N', 'price-override': 'N' })},N`], 'line 3: 12 cells where the header has 11'],
     // a file written for the removed `use` column is refused like any unknown column
-    [[HEAD.replace('cost,', 'cost,use,'), SONNET.replace(',N,N', ',route,N,N')], "line 1: unknown column 'use' (the columns are mode, harness, model, efforts, image, level, reasoning, coding, cost, quality-override, price-override)"],
-    [[`${HEAD},notes`, `${SONNET},x`], "line 1: unknown column 'notes' (the columns are mode, harness, model, efforts, image, level, reasoning, coding, cost, quality-override, price-override)"],
+    [[HEAD.replace('cost,', 'cost,use,'), CHOSEN.replace(',N,N', ',route,N,N')], "line 1: unknown column 'use' (the columns are mode, harness, model, efforts, image, level, reasoning, coding, cost, quality-override, price-override)"],
+    [[`${HEAD},notes`, `${CHOSEN},x`], "line 1: unknown column 'notes' (the columns are mode, harness, model, efforts, image, level, reasoning, coding, cost, quality-override, price-override)"],
     [['mode,harness,level', 'cli,claude,L2'], "line 1: no 'model' column"],
   ]) {
     const broken = installation(lines);
     const text = `refused: cannot read the model catalog ${broken.file} ${why}\nNothing changed.\ncorrect ${broken.file}, then run the same command again`;
-    refused(launch('claude', 'sonnet-5-5', broken.root), text);
-    refused(api('gemini-3.1-flash-image', broken.root), text);
+    refused(launch('claude', claudeModel.model, broken.root), text);
+    refused(api(imageModel.model, broken.root), text);
   }
   // cells are read by header name: the three columns a row cannot do without are enough
-  const narrow = installation(['model,harness,mode', 'haiku-5-5,claude,cli']);
-  assert.strictEqual(launch('claude', 'haiku-5-5', narrow.root).status, 0);
+  const narrow = installation(['model,harness,mode', `${claudeOther.model},claude,cli`]);
+  assert.strictEqual(launch('claude', claudeOther.model, narrow.root).status, 0);
 
   // the writer replaces the file in one step and keeps the file's own line ending
   const { loadSelection, saveSelection } = require('./lib/model-catalog');
   for (const eol of ['\r\n', '\n']) {
     const own = installation(null);
-    const bytes = [HEAD, SONNET, '', 'cli,claude,haiku-5-5,5,N,L3,3,3,0.5,N,N'].map((l) => `${l}${eol}`).join('');
+    const bytes = [HEAD, CHOSEN, '', catalogRow(claudeOther, { 'quality-override': 'N', 'price-override': 'N' })].map((l) => `${l}${eol}`).join('');
     fs.writeFileSync(own.file, bytes);
     const read = loadSelection(own.root);
     assert.deepStrictEqual([read.file, read.shipped, read.eol, read.rows.length], [own.file, false, eol, 2]);
@@ -2260,9 +2321,9 @@ else {
     assert.strictEqual(saveSelection(own.root, read.lines, read.eol), own.file);
     assert.strictEqual(fs.readFileSync(own.file, 'utf8'), bytes, `a ${JSON.stringify(eol)} file must come back byte for byte`);
     saveSelection(own.root, read.lines.slice(0, 2), read.eol);
-    assert.strictEqual(fs.readFileSync(own.file, 'utf8'), `${HEAD}${eol}${SONNET}${eol}`);
+    assert.strictEqual(fs.readFileSync(own.file, 'utf8'), `${HEAD}${eol}${CHOSEN}${eol}`);
     assert.deepStrictEqual(fs.readdirSync(path.dirname(own.file)), ['models.csv'], 'no temporary file is left');
-    refused(launch('claude', 'haiku-5-5', own.root), `refused: 'claude haiku-5-5' is not selected in ${own.root}\nmodel catalog: ${own.file}\nNothing changed.\ncast models add claude haiku-5-5`);
+    refused(launch('claude', claudeOther.model, own.root), `refused: 'claude ${claudeOther.model}' is not selected in ${own.root}\nmodel catalog: ${own.file}\nNothing changed.\ncast models add claude ${claudeOther.model}`);
   }
   // a first write copies the shipped model catalog with this machine's line ending
   const first = installation(null);
@@ -2307,38 +2368,41 @@ else {
     assert.deepStrictEqual([Object.keys(value), value.error, value.next], [['error', 'message', 'next'], code, next]);
     return value;
   };
-  const HAIKU = 'cli,claude,haiku-5-5,5,N,L3,3,3,0.5,,';
+  const SECOND = catalogRow(claudeOther);
   const shippedFile = path.join(__dirname, 'models.csv');
   const shippedNote = `model catalog: ${shippedFile} (shipped with cast: every supported model is selected)`;
   // how an installation with no model catalog of its own gets one: said wherever its absence is
   const ownFileNote = (root) => `The installation's own file, ${path.join(root, '.rbtv', 'config', 'cast', 'models.csv')}, is created by the first cast models set or cast models remove.`;
 
   // list: the three views of a pruned installation, each naming the installation and the file
-  const some = installation([HEAD, SONNET, 'cli,opencode,not-a-real-model,3,N,L2,6,6,1,N,N']);
+  const some = installation([HEAD, CHOSEN, 'cli,opencode,not-a-real-model,3,N,L2,6,6,1,N,N']);
   const DEFAULTS_LINE = "defaults: cast route ranks by price; fallback is off (cast's own values; cast models defaults)";
   const head = `installation: ${some.root}\nmodel catalog: ${some.file}\n${DEFAULTS_LINE}\n\n`;
   const selectedText = ok(unchanged(some.root, () => models(['list'], some.root)));
-  assert.strictEqual(selectedText, `${head}  harness  model       effort\n  claude   sonnet-5-5  1=low 2=medium 3=high 4=xhigh 5=max\n\n`
+  const chosenWidth = Math.max('model'.length, claudeModel.model.length);
+  assert.strictEqual(selectedText, `${head}  harness  ${'model'.padEnd(chosenWidth)}  effort\n  claude   ${claudeModel.model.padEnd(chosenWidth)}  ${effortMap(claudeModel.rungs)}\n\n`
     + `1 of ${ROWS.length} supported models are selected.\n`
     + '1 row of the model catalog name a model this copy of cast does not support: cast models list --catalog\n'
     + "effort is an integer 1-5: N picks the Nth rung, clamped to the model's top — pass the number, the words are labels only.\n"
     + 'The models not selected: cast models list --supported\n');
   const supportedText = ok(models(['list', '--supported'], path.join(some.root, '.rbtv')));
-  assert.ok(supportedText.startsWith(`${head}  harness   model                   selected  effort\n`), supportedText);
-  assert.match(supportedText, /^ {2}claude +sonnet-5-5 +yes +1=low/m);
-  assert.match(supportedText, /^ {2}claude +haiku-5-5 +no +1=low/m);
+  const harnessWidth = Math.max('harness'.length, ...ROWS.map((r) => r.harness.length));
+  const modelWidth = Math.max('model'.length, ...ROWS.map((r) => r.model.length));
+  assert.ok(supportedText.startsWith(`${head}  ${'harness'.padEnd(harnessWidth)}  ${'model'.padEnd(modelWidth)}  selected  effort\n`), supportedText);
+  assert.match(supportedText, new RegExp(`^ {2}claude +${reEscape(claudeModel.model)} +yes +1=${claudeModel.rungs[0]}`, 'm'));
+  assert.match(supportedText, new RegExp(`^ {2}claude +${reEscape(claudeOther.model)} +no +1=${claudeOther.rungs[0]}`, 'm'));
   assert.strictEqual(supportedText.split('\n').filter((l) => / (yes|no) {2}/.test(l)).length, ROWS.length, 'one line per supported model');
   const supportedJson = JSON.parse(ok(models(['list', '--supported', '--json'], some.root)));
   assert.deepStrictEqual([supportedJson.installation, supportedJson.selection, supportedJson.view], [some.root, some.file, 'supported']);
-  assert.deepStrictEqual(supportedJson.models.filter((m) => m.selected).map((m) => `${m.harness} ${m.model}`), ['claude sonnet-5-5']);
+  assert.deepStrictEqual(supportedJson.models.filter((m) => m.selected).map((m) => `${m.harness} ${m.model}`), [`claude ${claudeModel.model}`]);
   assert.strictEqual(supportedJson.models.length, ROWS.length);
-  assert.deepStrictEqual(JSON.parse(ok(models(['list', '--json'], some.root))).models.map((m) => m.model), ['sonnet-5-5']);
+  assert.deepStrictEqual(JSON.parse(ok(models(['list', '--json'], some.root))).models.map((m) => m.model), [claudeModel.model]);
   // --catalog: every row of the file in force, the one cast does not support included
   const catalogJson = JSON.parse(ok(models(['list', '--catalog', '--json'], some.root)));
   assert.deepStrictEqual(Object.keys(catalogJson), ['installation', 'source', 'defaults', 'rows']);
   assert.deepStrictEqual([catalogJson.installation, catalogJson.source], [some.root, some.file]);
-  assert.deepStrictEqual(catalogJson.rows[0], { mode: 'cli', harness: 'claude', model: 'sonnet-5-5', efforts: '5', image: 'N', level: 'L2',
-    reasoning: '3', coding: '3', cost: '10', 'quality-override': 'N', 'price-override': 'N', launchable: 'yes', available: 'true' });
+  assert.deepStrictEqual(catalogJson.rows[0], { mode: 'cli', harness: 'claude', model: claudeModel.model, efforts: claudeModel.efforts, image: claudeModel.image, level: claudeModel.level,
+    reasoning: claudeModel.reasoning, coding: claudeModel.coding, cost: claudeModel.cost, 'quality-override': 'N', 'price-override': 'N', launchable: 'yes', available: 'true' });
   assert.deepStrictEqual([catalogJson.rows[1].model, catalogJson.rows[1].launchable, catalogJson.rows[1].available], ['not-a-real-model', 'no', '-']);
   const catalogText = ok(models(['list', '--catalog'], some.root));
   assert.ok(catalogText.startsWith(`${head}  mode  harness   model `), catalogText);
@@ -2349,89 +2413,89 @@ else {
   assert.deepStrictEqual([outsideCatalog.installation, outsideCatalog.source, outsideCatalog.rows.length], [null, shippedFile, shipped.rows.length]);
 
   // add: appends the shipped row of the model as shipped, its override cells blank
-  const adding = installation([HEAD, HAIKU]);
-  const wouldAdd = ok(unchanged(adding.root, () => models(['add', 'claude', 'sonnet-5-5', '--dry-run'], adding.root)));
+  const adding = installation([HEAD, SECOND]);
+  const wouldAdd = ok(unchanged(adding.root, () => models(['add', 'claude', claudeModel.model, '--dry-run'], adding.root)));
   assert.strictEqual(wouldAdd, `installation: ${adding.root}\nmodel catalog: ${adding.file}\n\n`
-    + "would select: 'claude sonnet-5-5', 1 row to add\n"
-    + '  cli,claude,sonnet-5-5,5,N,L2,3,3,10,,\n'
+    + `would select: 'claude ${claudeModel.model}', 1 row to add\n`
+    + `  ${catalogRow(claudeModel)}\n`
     + 'Nothing changed: this was a dry run.\n');
-  refused(launch('claude', 'sonnet-5-5', adding.root), `refused: 'claude sonnet-5-5' is not selected in ${adding.root}\nmodel catalog: ${adding.file}\nNothing changed.\ncast models add claude sonnet-5-5`);
-  const addedText = ok(models(['add', 'claude', 'claude-sonnet-5-5'], adding.root));
-  assert.ok(addedText.includes("\nselected: 'claude sonnet-5-5', 1 row added\n  cli,claude,sonnet-5-5,5,N,L2,3,3,10,,\n") && addedText.endsWith('launch it: cast claude sonnet-5-5 1 -p "reply with exactly: ok"\n'), addedText);
+  refused(launch('claude', claudeModel.model, adding.root), `refused: 'claude ${claudeModel.model}' is not selected in ${adding.root}\nmodel catalog: ${adding.file}\nNothing changed.\ncast models add claude ${claudeModel.model}`);
+  const addedText = ok(models(['add', 'claude', claudeModel.id], adding.root));
+  assert.ok(addedText.includes(`\nselected: 'claude ${claudeModel.model}', 1 row added\n  ${catalogRow(claudeModel)}\n`) && addedText.endsWith(`launch it: cast claude ${claudeModel.model} 1 -p "reply with exactly: ok"\n`), addedText);
   assert.strictEqual(fs.readFileSync(adding.file, 'utf8'),
-    `${[HEAD, HAIKU, 'cli,claude,sonnet-5-5,5,N,L2,3,3,10,,'].join('\n')}\n`);
+    `${[HEAD, SECOND, catalogRow(claudeModel)].join('\n')}\n`);
   assert.deepStrictEqual(fs.readdirSync(path.dirname(adding.file)), ['models.csv'], 'no temporary file is left');
-  assert.strictEqual(launch('claude', 'sonnet-5-5', adding.root).status, 0, 'an added model launches');
+  assert.strictEqual(launch('claude', claudeModel.model, adding.root).status, 0, 'an added model launches');
   // already selected: nothing is written, exit 0
-  assert.ok(ok(unchanged(adding.root, () => models(['add', 'claude', 'sonnet-5-5'], adding.root))).endsWith("\nalready selected: 'claude sonnet-5-5'\nNothing changed.\n"));
+  assert.ok(ok(unchanged(adding.root, () => models(['add', 'claude', claudeModel.model], adding.root))).endsWith(`\nalready selected: 'claude ${claudeModel.model}'\nNothing changed.\n`));
   // --json: the rows as objects, with the columns of the model catalog and no other; an api
   // model takes harness api, and the image model comes with no level
-  const addedJson = JSON.parse(ok(models(['add', 'api', 'gemini-3.1-flash-image', '--json'], adding.root)));
+  const addedJson = JSON.parse(ok(models(['add', 'api', imageModel.model, '--json'], adding.root)));
   assert.deepStrictEqual(Object.keys(addedJson), ['installation', 'selection', 'harness', 'model', 'changed', 'added', 'dry_run']);
   assert.deepStrictEqual([addedJson.installation, addedJson.selection, addedJson.changed, addedJson.dry_run, addedJson.added.length, addedJson.added[0].level],
     [adding.root, adding.file, true, false, 1, '']);
   assert.deepStrictEqual(Object.keys(addedJson.added[0]), HEAD.split(','));
-  assert.strictEqual(api('gemini-3.1-flash-image', adding.root).status, 0);
+  assert.strictEqual(api(imageModel.model, adding.root).status, 0);
   // no file of its own: every supported model is already selected, and no file is saved
-  const addFresh = ok(unchanged(fresh.root, () => models(['add', 'claude', 'haiku-5-5'], fresh.root)));
-  assert.strictEqual(addFresh, `installation: ${fresh.root}\n${shippedNote}\n${ownFileNote(fresh.root)}\n\nalready selected: 'claude haiku-5-5'\n`
+  const addFresh = ok(unchanged(fresh.root, () => models(['add', 'claude', claudeOther.model], fresh.root)));
+  assert.strictEqual(addFresh, `installation: ${fresh.root}\n${shippedNote}\n${ownFileNote(fresh.root)}\n\nalready selected: 'claude ${claudeOther.model}'\n`
     + `No model catalog was saved: while this installation has none of its own, every supported model is selected.\n${ownFileNote(fresh.root)}\n`);
-  assert.deepStrictEqual(JSON.parse(ok(unchanged(fresh.root, () => models(['add', 'claude', 'haiku-5-5', '--json'], fresh.root)))),
-    { installation: fresh.root, selection: null, harness: 'claude', model: 'haiku-5-5', changed: false, added: [], dry_run: false });
+  assert.deepStrictEqual(JSON.parse(ok(unchanged(fresh.root, () => models(['add', 'claude', claudeOther.model, '--json'], fresh.root)))),
+    { installation: fresh.root, selection: null, harness: 'claude', model: claudeOther.model, changed: false, added: [], dry_run: false });
   // a file with fewer columns in another order gets the row under ITS header, and stays readable
-  ok(models(['add', 'claude', 'sonnet-5-5'], narrow.root));
-  assert.strictEqual(fs.readFileSync(narrow.file, 'utf8'), 'model,harness,mode\nhaiku-5-5,claude,cli\nsonnet-5-5,claude,cli\n');
-  assert.strictEqual(launch('claude', 'sonnet-5-5', narrow.root).status, 0);
+  ok(models(['add', 'claude', claudeModel.model], narrow.root));
+  assert.strictEqual(fs.readFileSync(narrow.file, 'utf8'), `model,harness,mode\n${claudeOther.model},claude,cli\n${claudeModel.model},claude,cli\n`);
+  assert.strictEqual(launch('claude', claudeModel.model, narrow.root).status, 0);
   // a CRLF file keeps its line ending through add and remove
   const crlf = installation(null);
-  fs.writeFileSync(crlf.file, `${HEAD}\r\n${SONNET}\r\n`);
-  ok(models(['add', 'claude', 'haiku-5-5'], crlf.root));
-  assert.strictEqual(fs.readFileSync(crlf.file, 'utf8'), `${HEAD}\r\n${SONNET}\r\n${HAIKU}\r\n`);
-  ok(models(['remove', 'claude', 'sonnet-5-5'], crlf.root));
-  assert.strictEqual(fs.readFileSync(crlf.file, 'utf8'), `${HEAD}\r\n${HAIKU}\r\n`);
+  fs.writeFileSync(crlf.file, `${HEAD}\r\n${CHOSEN}\r\n`);
+  ok(models(['add', 'claude', claudeOther.model], crlf.root));
+  assert.strictEqual(fs.readFileSync(crlf.file, 'utf8'), `${HEAD}\r\n${CHOSEN}\r\n${SECOND}\r\n`);
+  ok(models(['remove', 'claude', claudeModel.model], crlf.root));
+  assert.strictEqual(fs.readFileSync(crlf.file, 'utf8'), `${HEAD}\r\n${SECOND}\r\n`);
   // add refuses a model cast does not support, and any call outside an installation
-  for (const run of [() => models(['add', 'claude', 'claude-sonet-5'], adding.root), () => models(['remove', 'claude', 'sonnet-5-5']),
-    () => models(['add', 'claude', 'sonnet-5-5'])]) assert.strictEqual(run().stdout, '', 'a text refusal prints nothing on standard output');
-  refused(unchanged(adding.root, () => models(['add', 'claude', 'claude-sonet-5'], adding.root)),
-    "refused: 'claude claude-sonet-5' is not a model cast supports\ndid you mean 'sonnet-5-5'?\nNothing changed.\ncast models list --supported");
+  for (const run of [() => models(['add', 'claude', misspelt(claudeModel)], adding.root), () => models(['remove', 'claude', claudeModel.model]),
+    () => models(['add', 'claude', claudeModel.model])]) assert.strictEqual(run().stdout, '', 'a text refusal prints nothing on standard output');
+  refused(unchanged(adding.root, () => models(['add', 'claude', misspelt(claudeModel)], adding.root)),
+    `refused: 'claude ${misspelt(claudeModel)}' is not a model cast supports\ndid you mean '${claudeModel.model}'?\nNothing changed.\ncast models list --supported`);
   const noInstallation = `refused: no rbtv installation above ${process.cwd()} (no .rbtv/config/install.json)\n`
     + 'the selected models belong to an installation; outside one, every supported model is selected\nNothing changed.\n'
     + 'rbtv configure --harness claude --guidance none --target FOLDER';
-  refused(models(['add', 'claude', 'sonnet-5-5']), noInstallation);
-  refused(models(['remove', 'claude', 'sonnet-5-5']), noInstallation);
-  jsonRefusal(models(['add', 'claude', 'sonnet-5-5', '--json']), 'no-installation', 'rbtv configure --harness claude --guidance none --target FOLDER');
-  jsonRefusal(models(['add', 'claude', 'claude-sonet-5', '--json'], adding.root), 'not-supported', 'cast models list --supported');
+  refused(models(['add', 'claude', claudeModel.model]), noInstallation);
+  refused(models(['remove', 'claude', claudeModel.model]), noInstallation);
+  jsonRefusal(models(['add', 'claude', claudeModel.model, '--json']), 'no-installation', 'rbtv configure --harness claude --guidance none --target FOLDER');
+  jsonRefusal(models(['add', 'claude', misspelt(claudeModel), '--json'], adding.root), 'not-supported', 'cast models list --supported');
 
   // remove: with no file of its own the installation first gets the shipped one, minus the rows
   const pruning = installation(null);
   fs.rmSync(path.dirname(pruning.file), { recursive: true });
-  const wouldRemove = ok(unchanged(pruning.root, () => models(['remove', 'claude', 'sonnet-5-5', '--dry-run'], pruning.root)));
+  const wouldRemove = ok(unchanged(pruning.root, () => models(['remove', 'claude', claudeModel.model, '--dry-run'], pruning.root)));
   assert.ok(wouldRemove.startsWith(`installation: ${pruning.root}\nmodel catalog: ${pruning.file}\n\n`
     + 'would copy the model catalog shipped with cast to that file first: every other supported model stays selected.\n'
-    + "would unselect: 'claude sonnet-5-5', 1 row to remove\n  cli,claude,sonnet-5-5,5,N,L2,3,3,10,,\nnot checked:\n"), wouldRemove);
+    + `would unselect: 'claude ${claudeModel.model}', 1 row to remove\n  ${catalogRow(claudeModel)}\nnot checked:\n`), wouldRemove);
   assert.ok(wouldRemove.endsWith('\nNothing changed: this was a dry run.\n'), wouldRemove);
-  const removedText = ok(models(['remove', 'claude', 'sonnet-5-5'], pruning.root));
-  assert.ok(removedText.includes('\ncopied the model catalog shipped with cast to that file first') && removedText.includes("\nunselected: 'claude sonnet-5-5', 1 row removed\n"), removedText);
+  const removedText = ok(models(['remove', 'claude', claudeModel.model], pruning.root));
+  assert.ok(removedText.includes('\ncopied the model catalog shipped with cast to that file first') && removedText.includes(`\nunselected: 'claude ${claudeModel.model}', 1 row removed\n`), removedText);
   assert.ok(removedText.includes(`\nnot checked:\n  agents kept outside ${path.join(pruning.root, '.rbtv', 'agents')}\n  settings of a component that name a model`), removedText);
-  assert.ok(removedText.endsWith('\nselect it again: cast models add claude sonnet-5-5\n'), removedText);
-  assert.strictEqual(fs.readFileSync(pruning.file, 'utf8'), shipped.lines.filter((l) => !l.includes(',sonnet-5-5,')).map((l) => `${l}${os.EOL}`).join(''));
-  refused(launch('claude', 'sonnet-5-5', pruning.root), `refused: 'claude sonnet-5-5' is not selected in ${pruning.root}\nmodel catalog: ${pruning.file}\nNothing changed.\ncast models add claude sonnet-5-5`);
-  assert.strictEqual(launch('claude', 'opus-5-5', pruning.root).status, 0, 'every other supported model stays selected');
+  assert.ok(removedText.endsWith(`\nselect it again: cast models add claude ${claudeModel.model}\n`), removedText);
+  assert.strictEqual(fs.readFileSync(pruning.file, 'utf8'), shipped.lines.filter((l) => !l.includes(`,${claudeModel.model},`)).map((l) => `${l}${os.EOL}`).join(''));
+  refused(launch('claude', claudeModel.model, pruning.root), `refused: 'claude ${claudeModel.model}' is not selected in ${pruning.root}\nmodel catalog: ${pruning.file}\nNothing changed.\ncast models add claude ${claudeModel.model}`);
+  assert.strictEqual(launch('claude', claudeOther.model, pruning.root).status, 0, 'every other supported model stays selected');
   // not selected: nothing is written, exit 0
-  assert.ok(ok(unchanged(pruning.root, () => models(['remove', 'claude', 'sonnet-5-5'], pruning.root))).endsWith("\nnot selected: 'claude sonnet-5-5'\nNothing changed.\n"));
+  assert.ok(ok(unchanged(pruning.root, () => models(['remove', 'claude', claudeModel.model], pruning.root))).endsWith(`\nnot selected: 'claude ${claudeModel.model}'\nNothing changed.\n`));
   assert.ok(ok(unchanged(pruning.root, () => models(['remove', 'claude', 'nothing'], pruning.root)))
     .endsWith("\nnot selected: 'claude nothing'\nIt is not a model cast supports either: cast models list --supported\nNothing changed.\n"));
   // add brings it back, and a row cast does not support can be removed
-  ok(models(['add', 'claude', 'sonnet-5-5'], pruning.root));
-  assert.strictEqual(launch('claude', 'sonnet-5-5', pruning.root).status, 0);
+  ok(models(['add', 'claude', claudeModel.model], pruning.root));
+  assert.strictEqual(launch('claude', claudeModel.model, pruning.root).status, 0);
   ok(models(['remove', 'opencode', 'not-a-real-model'], some.root));
-  assert.strictEqual(fs.readFileSync(some.file, 'utf8'), `${HEAD}\n${SONNET}\n`);
+  assert.strictEqual(fs.readFileSync(some.file, 'utf8'), `${HEAD}\n${CHOSEN}\n`);
 
   // remove is refused while an agent still launches the model; a legacy dreamer section is ignored; --force overrides
-  const used = installation([HEAD, SONNET, HAIKU]);
+  const used = installation([HEAD, CHOSEN, SECOND]);
   const agentFile = (name) => path.join(used.root, '.rbtv', 'agents', name, 'agent.json');
-  for (const [name, record] of [['tiny', { harness: 'claude', model: 'claude-haiku-5-5', effort: 'low' }],
-    ['sound', { harness: 'claude', model: 'sonnet-5-5', effort: 'low' }], ['torn', null]]) {
+  for (const [name, record] of [['tiny', { harness: 'claude', model: claudeOther.id, effort: claudeLow }],
+    ['sound', { harness: 'claude', model: claudeModel.model, effort: claudeLow }], ['torn', null]]) {
     fs.mkdirSync(path.dirname(agentFile(name)), { recursive: true });
     fs.writeFileSync(path.join(path.dirname(agentFile(name)), 'prompt.md'), `---\nname: ${name}\n---\nYou are ${name}.`);
     fs.writeFileSync(agentFile(name), record ? JSON.stringify({ name, ...record }) : '{not json');
@@ -2439,43 +2503,43 @@ else {
   const igniteConfig = path.join(used.root, '.rbtv', 'config', 'ignite', 'config.json');
   fs.mkdirSync(path.dirname(igniteConfig), { recursive: true });
   const dreamer = (value) => fs.writeFileSync(igniteConfig, JSON.stringify({ dreamer: value }));
-  dreamer({ enabled: true, model: { harness: 'claude', model: 'haiku-5-5', effort: 3 } });
-  const inUse = `refused: 'claude haiku-5-5' is still used in ${used.root}\n  agent tiny (${agentFile('tiny')})\n`
-    + 'give each another model first (an agent: rbtv agent configure AGENT --model MODEL), or remove it anyway with --force\nNothing changed.\ncast models remove claude haiku-5-5 --force';
-  refused(unchanged(used.root, () => models(['remove', 'claude', 'haiku-5-5'], used.root)), inUse);
-  refused(unchanged(used.root, () => models(['remove', 'claude', 'haiku-5-5', '--dry-run'], used.root)), inUse);
-  const inUseJson = jsonRefusal(unchanged(used.root, () => models(['remove', 'claude', 'haiku-5-5', '--json'], used.root)), 'in-use', 'cast models remove claude haiku-5-5 --force');
+  dreamer({ enabled: true, model: { harness: 'claude', model: claudeOther.model, effort: 3 } });
+  const inUse = `refused: 'claude ${claudeOther.model}' is still used in ${used.root}\n  agent tiny (${agentFile('tiny')})\n`
+    + `give each another model first (an agent: rbtv agent configure AGENT --model MODEL), or remove it anyway with --force\nNothing changed.\ncast models remove claude ${claudeOther.model} --force`;
+  refused(unchanged(used.root, () => models(['remove', 'claude', claudeOther.model], used.root)), inUse);
+  refused(unchanged(used.root, () => models(['remove', 'claude', claudeOther.model, '--dry-run'], used.root)), inUse);
+  const inUseJson = jsonRefusal(unchanged(used.root, () => models(['remove', 'claude', claudeOther.model, '--json'], used.root)), 'in-use', `cast models remove claude ${claudeOther.model} --force`);
   assert.ok(inUseJson.message.includes(agentFile('tiny')) && !inUseJson.message.includes('dreamer'), inUseJson.message);
-  dreamer({ enabled: true, model: { harness: 'claude', model: 'haiku-5-5', effort: 3 } });
-  assert.ok(!models(['remove', 'claude', 'haiku-5-5'], used.root).stderr.toLowerCase().includes('dreamer'));
+  dreamer({ enabled: true, model: { harness: 'claude', model: claudeOther.model, effort: 3 } });
+  assert.ok(!models(['remove', 'claude', claudeOther.model], used.root).stderr.toLowerCase().includes('dreamer'));
   dreamer({ enabled: true });
-  const forcedDry = JSON.parse(ok(unchanged(used.root, () => models(['remove', 'claude', 'haiku-5-5', '--force', '--dry-run', '--json'], used.root))));
+  const forcedDry = JSON.parse(ok(unchanged(used.root, () => models(['remove', 'claude', claudeOther.model, '--force', '--dry-run', '--json'], used.root))));
   assert.deepStrictEqual(Object.keys(forcedDry), ['installation', 'selection', 'harness', 'model', 'changed', 'removed', 'copied_shipped', 'users', 'not_checked', 'dry_run']);
   assert.deepStrictEqual([forcedDry.changed, forcedDry.dry_run, forcedDry.copied_shipped, forcedDry.removed.length], [false, true, false, 1]);
   assert.deepStrictEqual(forcedDry.users, [{ kind: 'agent', name: 'tiny', file: agentFile('tiny') }]);
   assert.deepStrictEqual(forcedDry.not_checked.slice(0, 1), [`${agentFile('torn')} cannot be read`]);
   assert.ok(!forcedDry.not_checked.some((line) => /dreamer/i.test(line)));
-  const forced = ok(models(['remove', 'claude', 'haiku-5-5', '--force'], used.root));
+  const forced = ok(models(['remove', 'claude', claudeOther.model, '--force'], used.root));
   assert.ok(forced.includes(`\nstill naming it, so these are now refused at launch:\n  agent tiny (${agentFile('tiny')})\nnot checked:\n  ${agentFile('torn')} cannot be read\n`), forced);
-  assert.strictEqual(fs.readFileSync(used.file, 'utf8'), `${HEAD}\n${SONNET}\n`);
+  assert.strictEqual(fs.readFileSync(used.file, 'utf8'), `${HEAD}\n${CHOSEN}\n`);
   // a model nobody uses is removed without --force
-  assert.ok(ok(models(['remove', 'claude', 'sonnet-5-5', '--force', '--dry-run'], used.root)).includes('agent sound'));
+  assert.ok(ok(models(['remove', 'claude', claudeModel.model, '--force', '--dry-run'], used.root)).includes('agent sound'));
 
   // cast list --agents: an agent whose model is not selected is a row with the command that
   // selects it, never a launchable row
   const listed = JSON.parse(spawnSync('node', [TOOL, 'list', '--agents', '--json'], { cwd: used.root, encoding: 'utf8' }).stdout);
   assert.deepStrictEqual(listed.agents.map((a) => [a.name, a.problem]), [['sound', undefined],
-    ['tiny', 'model not selected: cast models add claude haiku-5-5'], ['torn', listed.agents[2].problem]]);
+    ['tiny', `model not selected: cast models add claude ${claudeOther.model}`], ['torn', listed.agents[2].problem]]);
   assert.ok(listed.agents[2].problem.includes('cannot be read'));
   const listedText = spawnSync('node', [TOOL, 'list'], { cwd: used.root, encoding: 'utf8', env: { ...process.env, COLUMNS: '100' } }).stdout;
-  assert.ok(listedText.includes('\ntiny: cannot be launched: model not selected: cast models add claude haiku-5-5\n'), listedText);
-  assert.ok(!/^tiny +claude/m.test(listedText) && /^sound +claude +sonnet-5-5/m.test(listedText), listedText);
-  ok(models(['add', 'claude', 'haiku-5-5'], used.root));
-  assert.strictEqual(JSON.parse(spawnSync('node', [TOOL, 'list', '--json'], { cwd: used.root, encoding: 'utf8' }).stdout).agents[1].model, 'claude-haiku-5-5');
+  assert.ok(listedText.includes(`\ntiny: cannot be launched: model not selected: cast models add claude ${claudeOther.model}\n`), listedText);
+  assert.ok(!/^tiny +claude/m.test(listedText) && new RegExp(`^sound +claude +${reEscape(claudeModel.model)}`, 'm').test(listedText), listedText);
+  ok(models(['add', 'claude', claudeOther.model], used.root));
+  assert.strictEqual(JSON.parse(spawnSync('node', [TOOL, 'list', '--json'], { cwd: used.root, encoding: 'utf8' }).stdout).agents[1].model, claudeOther.id);
 
   // a model catalog that cannot be read refuses every cast models verb, with the file and the line
   const torn = installation(['mode,harness', 'cli,claude']);
-  for (const args of [['list'], ['list', '--catalog'], ['add', 'claude', 'haiku-5-5'], ['remove', 'claude', 'haiku-5-5']]) {
+  for (const args of [['list'], ['list', '--catalog'], ['add', 'claude', claudeOther.model], ['remove', 'claude', claudeOther.model]]) {
     refused(unchanged(torn.root, () => models(args, torn.root)), `refused: cannot read the model catalog ${torn.file} line 1: no 'model' column\n`
       + `${args[0] === 'list' ? 'Nothing was listed.' : 'Nothing changed.'}\ncorrect ${torn.file}, then run the same command again`);
   }
@@ -2486,9 +2550,9 @@ else {
     [['list', 'claude'], "refused: cast models list takes no name, got 'claude'\nit lists every model of one view\nNothing was listed."],
     [['list', '--selected', '--catalog'], 'refused: --selected and --catalog are different lists\npass one of them\nNothing was listed.'],
     [['list', '--force'], "refused: '--force' is not a cast models list option\ncast models list takes --json, --selected, --supported, --catalog\nNothing was listed."],
-    [['add', 'claude'], 'refused: cast models add takes a harness and a model, got 1 name\nas in a launch: cast models add claude haiku-5-5\nNothing changed.'],
-    [['add', 'claude', 'haiku-5-5', '--force'], "refused: '--force' is not a cast models add option\ncast models add takes --json, --dry-run\nNothing changed."],
-    [['remove', 'claude', 'haiku-5-5', 'x'], 'refused: cast models remove takes a harness and a model, got 3 names\nas in a launch: cast models remove claude haiku-5-5\nNothing changed.'],
+    [['add', 'claude'], `refused: cast models add takes a harness and a model, got 1 name\nas in a launch: cast models add claude ${helpClaude.model}\nNothing changed.`],
+    [['add', 'claude', claudeOther.model, '--force'], "refused: '--force' is not a cast models add option\ncast models add takes --json, --dry-run\nNothing changed."],
+    [['remove', 'claude', claudeOther.model, 'x'], `refused: cast models remove takes a harness and a model, got 3 names\nas in a launch: cast models remove claude ${helpClaude.model}\nNothing changed.`],
   ]) refused(unchanged(used.root, () => models(args, used.root)), `${first}\ncast models -h`);
   jsonRefusal(models(['prune', '--json'], used.root), 'invalid-arguments', 'cast models -h');
   // The group page prints the usage of no verb; each verb's page prints its own complete usage form.
@@ -2505,7 +2569,7 @@ else {
   for (const [verb, form] of Object.entries(FORMS)) {
     assert.ok(!group.includes(form), `the group page must not print the usage of models ${verb}`);
     assert.ok(group.includes(`\n  ${verb} `), `the group page names ${verb}`);
-    for (const args of [[verb, '-h'], [verb, '--help'], ['-h', verb], [verb, 'claude', 'haiku-5-5', '-h']]) {
+    for (const args of [[verb, '-h'], [verb, '--help'], ['-h', verb], [verb, 'claude', claudeOther.model, '-h']]) {
       const page = ok(models(args));
       assert.ok(page.startsWith(`usage: ${form}\n`), `${args.join(' ')}: ${page}`);
       assert.ok(!Object.values(FORMS).some((other) => other !== form && page.includes(other)), `${args.join(' ')} prints another verb's usage`);
@@ -2523,13 +2587,24 @@ else {
   const { START_WINDOW_MS, startFailure, dial } = require('./lib/fallback');
   const { SPECS } = require('./supported-models');
   const HEAD = 'mode,harness,model,efforts,image,level,reasoning,coding,cost,quality-override,price-override';
-  // Level L2 holds three models at three prices; glm is there for the launches that start on it,
-  // and its login is absent from the home these launches run in, so it is never a candidate and
-  // no arm depends on a login this machine may hold. L1 holds one model.
-  const ROWS_L2 = ['cli,claude,sonnet-5-5,5,N,L2,3,3,10,N,N', 'cli,codex,gpt-5.6-terra,5,N,L2,5,5,8,N,N',
-    'cli,codex,gpt-6.1-sol,5,N,L2,4,4,5,N,N', 'cli,opencode,glm-5.3,2,N,L2,3,3,4,N,N'];
-  const OTHER = ['cli,claude,opus-5-5,5,N,L1,6,6,25,N,N', 'cli,codex,gpt-6-luna,5,N,L3,3,3,1,N,N',
-    'cli,claude,haiku-5-5,5,N,L3,3,3,,N,N'];
+  // The fixture picks its models by harness and by the number of rungs (each a different model)
+  // and gives them its own levels, scores and prices.
+  const taken = [];
+  const pick = (what, has) => { const m = example(what, has, taken); taken.push(m); return m; };
+  const startsOn = pick('a claude model with a five-rung ladder', rungsOf('claude', 5));
+  const alone = pick('a second claude model', cliOf('claude'));
+  const costless = pick('a third claude model', cliOf('claude'));
+  const dear = pick('a codex model with a five-rung ladder', rungsOf('codex', 5));
+  const cheap = pick('a second codex model with a five-rung ladder', rungsOf('codex', 5));
+  const lower = pick('a third codex model with a five-rung ladder', rungsOf('codex', 5));
+  const imageRow = pick('a fourth codex model with a five-rung ladder', rungsOf('codex', 5));
+  const onOpencode = pick('an opencode model whose provider takes a key variable', (m) => cliOf('opencode')(m) && PROVIDERS[m.provider].env_var);
+  const row = (m, level, score, cost, set = {}) => catalogRow(m, { level, reasoning: score, coding: score, cost, 'quality-override': 'N', 'price-override': 'N', ...set });
+  // Level L2 holds three models at three prices; the opencode model is there for the launches
+  // that start on it, and its login is absent from the home these launches run in, so it is never
+  // a candidate and no arm depends on a login this machine may hold. L1 holds one model.
+  const ROWS_L2 = [row(startsOn, 'L2', '3', '10'), row(dear, 'L2', '5', '8'), row(cheap, 'L2', '4', '5'), row(onOpencode, 'L2', '3', '4')];
+  const OTHER = [row(alone, 'L1', '6', '25'), row(lower, 'L3', '3', '1'), row(costless, 'L3', '3', '')];
   const installation = (fallback, rows = [...ROWS_L2, ...OTHER]) => {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(BASE, 'cast-test-fallback-')));
     fs.mkdirSync(path.join(root, '.rbtv', 'config', 'cast'), { recursive: true });
@@ -2560,85 +2635,85 @@ process.exit(code);\n`);
       env: { ...process.env, ...homeEnv(home), XDG_DATA_HOME: path.join(home, 'xdg'), PATH: pathEnv(bin), ...extra } });
   };
   const castLines = (res) => res.stderr.split('\n').filter((l) => l.startsWith('cast: ') && !l.startsWith('cast: handle')).map((l) => l.replace(/after \d+s/, 'after Ns'));
-  const sonnet = ['claude', 'sonnet-5-5', '5', '-p', 'do the task'];
+  const startLaunch = ['claude', startsOn.model, '5', '-p', 'do the task'];
   const byPrice = installation('price');
 
   // off, which is also what an installation with no defaults file reads: the launch ends on its failure
   for (const root of [installation(null), installation('off')]) {
-    const res = run(root, sonnet);
+    const res = run(root, startLaunch);
     assert.strictEqual(res.status, 1);
     assert.deepStrictEqual([started(), castLines(res)], [['claude'], []]);
   }
 
   // by price: the cheapest other model of the level runs, and its report is the launch's stdout
-  let res = run(byPrice, sonnet);
+  let res = run(byPrice, startLaunch);
   assert.strictEqual(res.status, 0, res.stderr);
-  assert.strictEqual(res.stdout, 'REPORT gpt-6.1-sol\n');
-  assert.deepStrictEqual(castLines(res), ['cast: claude sonnet-5-5 did not start (exit 1 after Ns); launching fallback 1 of 2 at level L2 by price: codex gpt-6.1-sol']);
-  assert.deepStrictEqual(started(), ['claude', 'gpt-6.1-sol']);
+  assert.strictEqual(res.stdout, `REPORT ${cheap.model}\n`);
+  assert.deepStrictEqual(castLines(res), [`cast: claude ${startsOn.model} did not start (exit 1 after Ns); launching fallback 1 of 2 at level L2 by price: codex ${cheap.model}`]);
+  assert.deepStrictEqual(started(), ['claude', cheap.model]);
   // same folder, same task, the dial number carried over: 5 is the top rung of both ladders
   const solArgv = starts()[1].argv.join(' ');
-  assert.ok(solArgv.includes(`--cd ${byPrice} -m gpt-6.1-sol`), solArgv);
-  assert.ok(solArgv.includes(SPECS.codex['gpt-6.1-sol'].effort.flag('max').join(' ')), solArgv);
+  assert.ok(solArgv.includes(`--cd ${byPrice} -m ${cheap.model}`), solArgv);
+  assert.ok(solArgv.includes(SPECS.codex[cheap.model].effort.flag(cheap.rungs.at(-1)).join(' ')), solArgv);
   // both runs are in the registry under cast's one process, and the monitor reads the later one
   const handles = fs.readFileSync(path.join(home, '.cast', 'handles.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).slice(-2);
   assert.deepStrictEqual(handles.map((h) => h.harness), ['claude', 'codex']);
   assert.strictEqual(handles[0].pid, handles[1].pid);
 
   // a fallback that fails to start is followed by the next one
-  res = run(byPrice, sonnet, { FAKE_CODEX: '{"gpt-6.1-sol":1}' });
-  assert.strictEqual(res.stdout, 'REPORT gpt-5.6-terra\n', res.stderr);
+  res = run(byPrice, startLaunch, { FAKE_CODEX: `{"${cheap.model}":1}` });
+  assert.strictEqual(res.stdout, `REPORT ${dear.model}\n`, res.stderr);
   assert.deepStrictEqual(castLines(res), [
-    'cast: claude sonnet-5-5 did not start (exit 1 after Ns); launching fallback 1 of 2 at level L2 by price: codex gpt-6.1-sol',
-    'cast: codex gpt-6.1-sol did not start (exit 1 after Ns); launching fallback 2 of 2 at level L2 by price: codex gpt-5.6-terra']);
+    `cast: claude ${startsOn.model} did not start (exit 1 after Ns); launching fallback 1 of 2 at level L2 by price: codex ${cheap.model}`,
+    `cast: codex ${cheap.model} did not start (exit 1 after Ns); launching fallback 2 of 2 at level L2 by price: codex ${dear.model}`]);
 
   // none starts: the last exit code, what was tried, and the model one level down, which is not
-  // launched. haiku-5-5 has no cost, so a price ranking of L3 leaves it out.
-  res = run(byPrice, sonnet, { FAKE_CODEX: '{"gpt-6.1-sol":1,"gpt-5.6-terra":7}' });
+  // launched. The third claude model has no cost, so a price ranking of L3 leaves it out.
+  res = run(byPrice, startLaunch, { FAKE_CODEX: `{"${cheap.model}":1,"${dear.model}":7}` });
   assert.strictEqual(res.status, 7, res.stderr);
   assert.strictEqual(res.stdout, '');
   assert.deepStrictEqual(castLines(res).slice(2), [
-    'cast: codex gpt-5.6-terra did not start (exit 7 after Ns)',
-    'cast: no model of level L2 started: tried claude sonnet-5-5, codex gpt-6.1-sol, codex gpt-5.6-terra',
-    'cast: the next model by price is one level down (L3) and was not launched: codex gpt-6-luna']);
-  assert.deepStrictEqual(started(), ['claude', 'gpt-6.1-sol', 'gpt-5.6-terra']);
+    `cast: codex ${dear.model} did not start (exit 7 after Ns)`,
+    `cast: no model of level L2 started: tried claude ${startsOn.model}, codex ${cheap.model}, codex ${dear.model}`,
+    `cast: the next model by price is one level down (L3) and was not launched: codex ${lower.model}`]);
+  assert.deepStrictEqual(started(), ['claude', cheap.model, dear.model]);
 
   // the order is the level's ranking, not a direction from the failed model: the middle price
   // fails, the cheaper one is tried first and the dearer one second
-  res = run(byPrice, ['codex', 'gpt-5.6-terra', '2', '-p', 'do the task'], { FAKE_CODEX: '{"gpt-5.6-terra":1,"gpt-6.1-sol":1}', FAKE_CLAUDE: '0' });
+  res = run(byPrice, ['codex', dear.model, '2', '-p', 'do the task'], { FAKE_CODEX: `{"${dear.model}":1,"${cheap.model}":1}`, FAKE_CLAUDE: '0' });
   assert.strictEqual(res.stdout, 'REPORT claude\n', res.stderr);
-  assert.deepStrictEqual(started(), ['gpt-5.6-terra', 'gpt-6.1-sol', 'claude']);
+  assert.deepStrictEqual(started(), [dear.model, cheap.model, 'claude']);
 
-  // by quality: the two scores added, so terra (10) comes before sol (8)
-  res = run(installation('quality'), sonnet);
-  assert.strictEqual(res.stdout, 'REPORT gpt-5.6-terra\n', res.stderr);
-  assert.ok(castLines(res)[0].endsWith('launching fallback 1 of 2 at level L2 by quality: codex gpt-5.6-terra'), res.stderr);
+  // by quality: the two scores added, so the dearer codex model (10) comes before the cheaper (8)
+  res = run(installation('quality'), startLaunch);
+  assert.strictEqual(res.stdout, `REPORT ${dear.model}\n`, res.stderr);
+  assert.ok(castLines(res)[0].endsWith(`launching fallback 1 of 2 at level L2 by quality: codex ${dear.model}`), res.stderr);
 
   // a level with no other model, and no level below with one: the launch says so and stops
-  res = run(byPrice, ['claude', 'opus-5-5', '3', '-p', 'do the task']);
+  res = run(byPrice, ['claude', alone.model, '3', '-p', 'do the task']);
   assert.strictEqual(res.status, 1);
-  assert.deepStrictEqual(castLines(res), ['cast: claude opus-5-5 did not start (exit 1 after Ns)',
-    'cast: no model of level L1 started: tried claude opus-5-5',
-    'cast: the next model by price is one level down (L2) and was not launched: codex gpt-6.1-sol']);
-  res = run(byPrice, ['codex', 'gpt-6-luna', '1', '-p', 'do the task'], { FAKE_CODEX: '{"gpt-6-luna":1}' });
-  assert.deepStrictEqual(castLines(res).slice(1), ['cast: no model of level L3 started: tried codex gpt-6-luna', 'cast: no level below L3 holds a model to launch']);
+  assert.deepStrictEqual(castLines(res), [`cast: claude ${alone.model} did not start (exit 1 after Ns)`,
+    `cast: no model of level L1 started: tried claude ${alone.model}`,
+    `cast: the next model by price is one level down (L2) and was not launched: codex ${cheap.model}`]);
+  res = run(byPrice, ['codex', lower.model, '1', '-p', 'do the task'], { FAKE_CODEX: `{"${lower.model}":1}` });
+  assert.deepStrictEqual(castLines(res).slice(1), [`cast: no model of level L3 started: tried codex ${lower.model}`, 'cast: no level below L3 holds a model to launch']);
 
-  // only a selected model is a candidate: with the row of sol removed, terra is the one fallback
+  // only a selected model is a candidate: with the row of the cheaper codex model removed, the dearer is the one fallback
   const byPriceFile = path.join(byPrice, '.rbtv', 'config', 'cast', 'models.csv');
   const withSol = fs.readFileSync(byPriceFile, 'utf8');
-  fs.writeFileSync(byPriceFile, withSol.split('\n').filter((l) => !l.includes('gpt-6.1-sol')).join('\n'));
-  res = run(byPrice, sonnet);
-  assert.strictEqual(res.stdout, 'REPORT gpt-5.6-terra\n', res.stderr);
-  assert.ok(castLines(res)[0].endsWith('launching fallback 1 of 1 at level L2 by price: codex gpt-5.6-terra'), res.stderr);
+  fs.writeFileSync(byPriceFile, withSol.split('\n').filter((l) => !l.includes(cheap.model)).join('\n'));
+  res = run(byPrice, startLaunch);
+  assert.strictEqual(res.stdout, `REPORT ${dear.model}\n`, res.stderr);
+  assert.ok(castLines(res)[0].endsWith(`launching fallback 1 of 1 at level L2 by price: codex ${dear.model}`), res.stderr);
   fs.writeFileSync(byPriceFile, withSol);
   // an image model is never a candidate, at whatever level its row sits
-  const withImage = installation('price', [...ROWS_L2, ...OTHER, 'cli,codex,gpt-6-astra,5,Y,L2,7,7,1,Y,Y']);
+  const withImage = installation('price', [...ROWS_L2, ...OTHER, row(imageRow, 'L2', '7', '1', { image: 'Y', 'quality-override': 'Y', 'price-override': 'Y' })]);
   const { fallbackPlan } = require('./lib/fallback');
-  const planned = fallbackPlan('claude', 'sonnet-5-5', 5, withImage).candidates.map((c) => c.model);
-  assert.deepStrictEqual(planned, ['gpt-6.1-sol', 'gpt-5.6-terra']);
+  const planned = fallbackPlan('claude', startsOn.model, 5, withImage).candidates.map((c) => c.model);
+  assert.deepStrictEqual(planned, [cheap.model, dear.model]);
 
   // a failure after the start window is not a start failure: the launch ends with it
-  res = run(byPrice, sonnet, { FAKE_CLAUDE: `3:${START_WINDOW_MS + 1500}` });
+  res = run(byPrice, startLaunch, { FAKE_CLAUDE: `3:${START_WINDOW_MS + 1500}` });
   assert.strictEqual(res.status, 3, res.stderr);
   assert.deepStrictEqual([started(), castLines(res)], [['claude'], []]);
   assert.ok(startFailure({ error: 'spawn claude ENOENT' }));
@@ -2648,29 +2723,29 @@ process.exit(code);\n`);
   assert.ok(!startFailure({ code: 1, signal: 'SIGINT', elapsedMs: 10 }));
 
   // a dry run and a headed launch never run a fallback
-  res = run(byPrice, [...sonnet, '--dry-run']);
+  res = run(byPrice, [...startLaunch, '--dry-run']);
   assert.strictEqual(res.status, 0);
   assert.deepStrictEqual(started(), []);
-  res = run(byPrice, [...sonnet, '--headed']);
+  res = run(byPrice, [...startLaunch, '--headed']);
   assert.strictEqual(res.status, 1);
   assert.deepStrictEqual(started(), ['claude']);
 
   // opencode: the failed run's closing note goes to stderr, so stdout holds the next run's report alone
-  res = run(byPrice, ['opencode', 'glm-5.3', '1', '-p', 'do the task']);
+  res = run(byPrice, ['opencode', onOpencode.model, '1', '-p', 'do the task']);
   assert.strictEqual(res.status, 0, res.stderr);
-  assert.strictEqual(res.stdout, 'REPORT gpt-6.1-sol\n');
-  assert.ok(res.stderr.includes('cast: no-report') && castLines(res).pop().endsWith('launching fallback 1 of 3 at level L2 by price: codex gpt-6.1-sol'), res.stderr);
+  assert.strictEqual(res.stdout, `REPORT ${cheap.model}\n`);
+  assert.ok(res.stderr.includes('cast: no-report') && castLines(res).pop().endsWith(`launching fallback 1 of 3 at level L2 by price: codex ${cheap.model}`), res.stderr);
   // with the fallback off, that note stays on stdout
-  res = run(installation(null), ['opencode', 'glm-5.3', '1', '-p', 'do the task']);
+  res = run(installation(null), ['opencode', onOpencode.model, '1', '-p', 'do the task']);
   assert.strictEqual(res.status, 1);
   assert.ok(res.stdout.startsWith('cast: no-report'), res.stdout);
 
   // defaults cast cannot read: the launch says so and ends with its own failure
   const broken = installation(null);
   fs.writeFileSync(path.join(broken, '.rbtv', 'config', 'cast', 'defaults.json'), '{"fallback":"cheapest"}');
-  res = run(broken, sonnet);
+  res = run(broken, startLaunch);
   assert.strictEqual(res.status, 1);
-  assert.deepStrictEqual(castLines(res), [`cast: claude sonnet-5-5 did not start (exit 1 after Ns), and no fallback can be chosen: cannot read cast's defaults ${path.join(broken, '.rbtv', 'config', 'cast', 'defaults.json')}: fallback is "cheapest" (one of off, price, quality)`]);
+  assert.deepStrictEqual(castLines(res), [`cast: claude ${startsOn.model} did not start (exit 1 after Ns), and no fallback can be chosen: cannot read cast's defaults ${path.join(broken, '.rbtv', 'config', 'cast', 'defaults.json')}: fallback is "cheapest" (one of off, price, quality)`]);
   assert.deepStrictEqual(started(), ['claude']);
 
   // a harness that is not on PATH is a start failure. Skipped where a real claude sits beside node.
@@ -2678,10 +2753,10 @@ process.exit(code);\n`);
   const emptyBin = mkFolder('fallback-bin-no-claude');
   installFake(emptyBin, 'codex', "console.log('REPORT codex');\n");
   if (findOnPath('claude', { ...process.env, PATH: pathEnv(emptyBin) }) === null) {
-    res = run(byPrice, sonnet, { PATH: pathEnv(emptyBin) });
+    res = run(byPrice, startLaunch, { PATH: pathEnv(emptyBin) });
     assert.strictEqual(res.status, 0, res.stderr);
     assert.strictEqual(res.stdout, 'REPORT codex\n');
-    assert.ok(res.stderr.includes('; launching fallback 1 of 2 at level L2 by price: codex gpt-6.1-sol\n'), res.stderr);
+    assert.ok(res.stderr.includes(`; launching fallback 1 of 2 at level L2 by price: codex ${cheap.model}\n`), res.stderr);
   } else {
     console.log('skipped: fallback on a missing harness (a claude is on the PATH of node)');
   }
@@ -2696,10 +2771,10 @@ process.exit(3);\n`);
   }
   const largeTask = path.join(home, 'large-task.txt');
   fs.writeFileSync(largeTask, 'x'.repeat(200 * 1024));
-  const unread = { PATH: pathEnv(unreadBin), ZHIPU_API_KEY: 'test-fake-not-real' };
+  const unread = { PATH: pathEnv(unreadBin), [PROVIDERS[onOpencode.provider].env_var]: 'test-fake-not-real' };
   const NO_REPORT = 'cast: no-report — the opencode session store holds no final assistant message for this run\n';
   for (const [args, stdout] of [
-    [['claude', 'sonnet-5-5', '5'], ''], [['codex', 'gpt-5.6-terra', '5'], ''], [['opencode', 'glm-5.3', '1'], NO_REPORT],
+    [['claude', startsOn.model, '5'], ''], [['codex', dear.model, '5'], ''], [['opencode', onOpencode.model, '1'], NO_REPORT],
     [['resume', 'claude', 'last', '.'], ''], [['resume', 'codex', 'last', '.'], ''], [['resume', 'opencode', 'last', '.'], NO_REPORT],
   ]) {
     res = run(installation('off'), [...args, '-f', largeTask], unread);
@@ -2707,28 +2782,27 @@ process.exit(3);\n`);
     assert.ok(!res.stderr.includes('EPIPE') && !res.stderr.includes('    at '), res.stderr);
   }
   // with the fallback on, each such exit is a failure to start and the next model of the level runs
-  const allRouted = installation('price', ['cli,claude,sonnet-5-5,5,N,L2,3,3,10,N,N',
-    'cli,codex,gpt-5.6-terra,5,N,L2,5,5,8,N,N', 'cli,opencode,glm-5.3,2,N,L2,3,3,4,N,N']);
-  res = run(allRouted, ['codex', 'gpt-5.6-terra', '5', '-f', largeTask], unread);
+  const allRouted = installation('price', [row(startsOn, 'L2', '3', '10'), row(dear, 'L2', '5', '8'), row(onOpencode, 'L2', '3', '4')]);
+  res = run(allRouted, ['codex', dear.model, '5', '-f', largeTask], unread);
   assert.strictEqual(res.status, 3, res.stderr);
-  assert.deepStrictEqual(started(), ['gpt-5.6-terra', 'opencode', 'claude']);
+  assert.deepStrictEqual(started(), [dear.model, 'opencode', 'claude']);
   assert.deepStrictEqual(castLines(res).slice(0, 4), [
-    'cast: codex gpt-5.6-terra did not start (exit 3 after Ns); launching fallback 1 of 2 at level L2 by price: opencode glm-5.3',
+    `cast: codex ${dear.model} did not start (exit 3 after Ns); launching fallback 1 of 2 at level L2 by price: opencode ${onOpencode.model}`,
     NO_REPORT.trimEnd(),
-    'cast: opencode glm-5.3 did not start (exit 3 after Ns); launching fallback 2 of 2 at level L2 by price: claude sonnet-5-5',
-    'cast: claude sonnet-5-5 did not start (exit 3 after Ns)']);
+    `cast: opencode ${onOpencode.model} did not start (exit 3 after Ns); launching fallback 2 of 2 at level L2 by price: claude ${startsOn.model}`,
+    `cast: claude ${startsOn.model} did not start (exit 3 after Ns)`]);
   assert.ok(!res.stderr.includes('EPIPE') && !res.stderr.includes('    at '), res.stderr);
 
   // an agent's effort is its model's own rung word: its place on the ladder is the dial number
   const agentHome =path.join(byPrice, '.rbtv', 'agents', 'ada');
   fs.mkdirSync(agentHome, { recursive: true });
   fs.writeFileSync(path.join(agentHome, 'prompt.md'), 'You are ada.\n');
-  fs.writeFileSync(path.join(agentHome, 'agent.json'), JSON.stringify({ name: 'ada', description: 'd', harness: 'claude', model: 'sonnet-5-5', effort: 'low' }));
+  fs.writeFileSync(path.join(agentHome, 'agent.json'), JSON.stringify({ name: 'ada', description: 'd', harness: 'claude', model: startsOn.model, effort: startsOn.rungs[0] }));
   res = run(byPrice, ['--agent', 'ada', '-p', 'do the task']);
-  assert.strictEqual(res.stdout, 'REPORT gpt-6.1-sol\n', res.stderr);
+  assert.strictEqual(res.stdout, `REPORT ${cheap.model}\n`, res.stderr);
   const agentArgv = starts()[1].argv.join(' ');
   assert.ok(agentArgv.includes(`--cd ${agentHome} `) && agentArgv.includes('developer_instructions="You are ada.'), agentArgv);
-  assert.ok(agentArgv.includes(SPECS.codex['gpt-6.1-sol'].effort.flag('low').join(' ')), agentArgv);
+  assert.ok(agentArgv.includes(SPECS.codex[cheap.model].effort.flag(cheap.rungs[0]).join(' ')), agentArgv);
   const ladder = (rungs) => ({ effort: rungs.length ? { rungs } : { inert: true } });
   assert.strictEqual(dial(ladder(['low', 'medium', 'high']), 4), 4);
   assert.strictEqual(dial(ladder(['low', 'medium', 'high']), 'medium'), 2);
@@ -2755,65 +2829,73 @@ process.exit(3);\n`);
   const linesOf = (file) => fs.readFileSync(file, 'utf8').trim().split(/\r?\n/);
   const rowsOf = (file, model) => linesOf(file).filter((l) => l.split(',')[2] === model);
   const { root, file, defaults } = fresh();
+  // two codex models and a claude model, each with a shipped row; a level and a cell that are not the shipped ones
+  const setModel = codexModel;
+  const codexOther = example('a second model of the codex harness', cliOf('codex'), [setModel]);
+  const otherLevel = (m) => ['L1', 'L2', 'L3'].find((level) => level !== m.level);
+  const bump = (cell) => String(Math.round((Number(cell) + 1) * 100) / 100);
+  const setRow = catalogRow(setModel, { 'quality-override': 'N', 'price-override': 'Y' });
 
   // set: a dry run writes nothing; the first real one copies the shipped file, then changes it
-  const setLuna = ['models', 'set', 'codex', 'gpt-6-luna', '--quality-override', 'N', '--price-override', 'Y'];
-  let out = text(at(root, [...setLuna, '--dry-run']));
-  assert.ok(out.includes('would copy the model catalog shipped with cast') && out.endsWith("would set: 'codex gpt-6-luna'\n  level L3  quality-override  - -> N\n  level L3  price-override  - -> Y\nNothing changed: this was a dry run.\n"), out);
+  const setCells = ['models', 'set', 'codex', setModel.model, '--quality-override', 'N', '--price-override', 'Y'];
+  let out = text(at(root, [...setCells, '--dry-run']));
+  assert.ok(out.includes('would copy the model catalog shipped with cast') && out.endsWith(`would set: 'codex ${setModel.model}'\n  level ${setModel.level}  quality-override  - -> N\n  level ${setModel.level}  price-override  - -> Y\nNothing changed: this was a dry run.\n`), out);
   assert.ok(!fs.existsSync(file));
-  text(at(root, setLuna));
-  assert.deepStrictEqual(rowsOf(file, 'gpt-6-luna'), ['cli,codex,gpt-6-luna,5,N,L3,3,3,0.5,N,Y']);
+  text(at(root, setCells));
+  assert.deepStrictEqual(rowsOf(file, setModel.model), [setRow]);
   // every other line is the shipped one, as written
-  assert.deepStrictEqual(linesOf(file).filter((l) => !l.includes('gpt-6-luna')), shipped.filter((l) => !l.includes('gpt-6-luna')));
-  assert.ok(text(at(root, ['models', 'set', 'codex', 'gpt-6-luna', '--price-override', 'Y'])).endsWith("already set: 'codex gpt-6-luna' price-override=Y\nNothing changed.\n"));
+  assert.deepStrictEqual(linesOf(file).filter((l) => !l.includes(setModel.model)), shipped.filter((l) => !l.includes(setModel.model)));
+  assert.ok(text(at(root, ['models', 'set', 'codex', setModel.model, '--price-override', 'Y'])).endsWith(`already set: 'codex ${setModel.model}' price-override=Y\nNothing changed.\n`));
   // an override belongs to one level: for a model the installation lists at two, it names its level
   const oneLevel = fs.readFileSync(file, 'utf8');
-  fs.writeFileSync(file, `${oneLevel}cli,claude,sonnet-5-5,5,N,L3,3,3,10,,\n`);
-  refusedWith(at(root, ['models', 'set', 'claude', 'sonnet-5-5', '--quality-override', 'Y']), "'claude sonnet-5-5' has rows at levels L2 and L3");
-  text(at(root, ['models', 'set', 'claude', 'sonnet-5-5', '--level', 'L3', '--quality-override', 'Y']));
-  assert.deepStrictEqual(rowsOf(file, 'sonnet-5-5'), ['cli,claude,sonnet-5-5,5,N,L2,3,3,10,,', 'cli,claude,sonnet-5-5,5,N,L3,3,3,10,Y,']);
-  const setJson = JSON.parse(text(at(root, ['models', 'set', 'claude', 'sonnet-5-5', '--level', 'L3', '--quality-override', 'N', '--json'])));
-  assert.deepStrictEqual([setJson.changed, setJson.set, setJson.copied_shipped], [true, [{ level: 'L3', column: 'quality-override', from: 'Y', to: 'N' }], false]);
+  const secondLevel = otherLevel(claudeModel);
+  fs.writeFileSync(file, `${oneLevel}${catalogRow(claudeModel, { level: secondLevel })}\n`);
+  refusedWith(at(root, ['models', 'set', 'claude', claudeModel.model, '--quality-override', 'Y']), `'claude ${claudeModel.model}' has rows at levels ${claudeModel.level} and ${secondLevel}`);
+  text(at(root, ['models', 'set', 'claude', claudeModel.model, '--level', secondLevel, '--quality-override', 'Y']));
+  assert.deepStrictEqual(rowsOf(file, claudeModel.model), [catalogRow(claudeModel), catalogRow(claudeModel, { level: secondLevel, 'quality-override': 'Y' })]);
+  const setJson = JSON.parse(text(at(root, ['models', 'set', 'claude', claudeModel.model, '--level', secondLevel, '--quality-override', 'N', '--json'])));
+  assert.deepStrictEqual([setJson.changed, setJson.set, setJson.copied_shipped], [true, [{ level: secondLevel, column: 'quality-override', from: 'Y', to: 'N' }], false]);
   fs.writeFileSync(file, oneLevel);
-  text(at(root, ['models', 'set', 'claude', 'sonnet-5-5', '--price-override', 'Y']));
+  text(at(root, ['models', 'set', 'claude', claudeModel.model, '--price-override', 'Y']));
   // refusals: nothing to set (a level alone included), the removed --use, a bad value, a level the
   // model has no row at, a model not selected
-  refusedWith(at(root, ['models', 'set', 'codex', 'gpt-6-luna']), 'cast models set needs a value to set');
-  refusedWith(at(root, ['models', 'set', 'codex', 'gpt-6-luna', '--level', 'L3']), 'cast models set needs a value to set');
-  refusedWith(at(root, ['models', 'set', 'codex', 'gpt-6-luna', '--use', 'off']), "'--use' is not a cast models set option");
-  refusedWith(at(root, ['models', 'set', 'codex', 'gpt-6-luna', '--price-override', 'on']), "--price-override takes one of Y, N, got 'on'");
-  refusedWith(at(root, ['models', 'set', 'codex', 'gpt-6-luna', '--level', 'L1', '--price-override', 'N']), "'codex gpt-6-luna' has no row at level L1");
-  text(at(root, ['models', 'remove', 'claude', 'haiku-5-5']));
-  refusedWith(at(root, ['models', 'set', 'claude', 'haiku-5-5', '--price-override', 'Y']), `'claude haiku-5-5' is not selected in ${root}`);
+  refusedWith(at(root, ['models', 'set', 'codex', setModel.model]), 'cast models set needs a value to set');
+  refusedWith(at(root, ['models', 'set', 'codex', setModel.model, '--level', setModel.level]), 'cast models set needs a value to set');
+  refusedWith(at(root, ['models', 'set', 'codex', setModel.model, '--use', 'off']), "'--use' is not a cast models set option");
+  refusedWith(at(root, ['models', 'set', 'codex', setModel.model, '--price-override', 'on']), "--price-override takes one of Y, N, got 'on'");
+  refusedWith(at(root, ['models', 'set', 'codex', setModel.model, '--level', otherLevel(setModel), '--price-override', 'N']), `'codex ${setModel.model}' has no row at level ${otherLevel(setModel)}`);
+  text(at(root, ['models', 'remove', 'claude', claudeOther.model]));
+  refusedWith(at(root, ['models', 'set', 'claude', claudeOther.model, '--price-override', 'Y']), `'claude ${claudeOther.model}' is not selected in ${root}`);
   // a column the header lacks is added, blank on the rows that get no value
   const slim = fresh();
   fs.mkdirSync(path.dirname(slim.file), { recursive: true });
-  fs.writeFileSync(slim.file, 'mode,harness,model,cost\r\ncli,codex,gpt-6-luna,9\r\ncli,claude,sonnet-5-5,10\r\n');
-  text(at(slim.root, ['models', 'set', 'codex', 'gpt-6-luna', '--price-override', 'Y']));
-  assert.strictEqual(fs.readFileSync(slim.file, 'utf8'), 'mode,harness,model,cost,price-override\r\ncli,codex,gpt-6-luna,9,Y\r\ncli,claude,sonnet-5-5,10,\r\n');
+  fs.writeFileSync(slim.file, `mode,harness,model,cost\r\ncli,codex,${setModel.model},${bump(setModel.cost)}\r\ncli,claude,${claudeModel.model},${claudeModel.cost}\r\n`);
+  text(at(slim.root, ['models', 'set', 'codex', setModel.model, '--price-override', 'Y']));
+  assert.strictEqual(fs.readFileSync(slim.file, 'utf8'), `mode,harness,model,cost,price-override\r\ncli,codex,${setModel.model},${bump(setModel.cost)},Y\r\ncli,claude,${claudeModel.model},${claudeModel.cost},\r\n`);
 
   // update: the cells rbtv proposes come from the shipped file; the overrides stay
-  const edited = fs.readFileSync(file, 'utf8').replace('cli,codex,gpt-6-luna,5,N,L3,3,3,0.5,N,Y', 'cli,codex,gpt-6-luna,5,N,L2,3,4,0.9,N,Y')
-    .replace('cli,codex,gpt-6.1-sol,5,N,L1,4,4,10', 'cli,codex,gpt-6.1-sol,5,N,L1,4,4,11');
+  const editedSet = { level: otherLevel(setModel), coding: bump(setModel.coding), cost: bump(setModel.cost) };
+  const edited = fs.readFileSync(file, 'utf8').replace(setRow, catalogRow(setModel, { 'quality-override': 'N', 'price-override': 'Y', ...editedSet }))
+    .replace(catalogRow(codexOther), catalogRow(codexOther, { cost: bump(codexOther.cost) }));
   assert.notStrictEqual(edited, fs.readFileSync(file, 'utf8'));
   fs.writeFileSync(file, edited);
   assert.ok(text(at(root, ['doctor'])).includes('\n  4 cells of the model catalog differ from the one shipped with cast: cast models update --dry-run\n'));
   assert.strictEqual(JSON.parse(text(at(root, ['doctor', '--json']))).catalog_drift, 4);
-  out = text(at(root, ['models', 'update', 'codex', 'gpt-6-luna', '--dry-run']));
-  assert.ok(out.includes('would update 3 cells from ') && out.includes('  codex gpt-6-luna  level L2  level  L2 -> L3\n  codex gpt-6-luna  level L2  coding  4 -> 3\n  codex gpt-6-luna  level L2  cost  0.9 -> 0.5\n'), out);
+  out = text(at(root, ['models', 'update', 'codex', setModel.model, '--dry-run']));
+  assert.ok(out.includes('would update 3 cells from ') && out.includes(`  codex ${setModel.model}  level ${editedSet.level}  level  ${editedSet.level} -> ${setModel.level}\n  codex ${setModel.model}  level ${editedSet.level}  coding  ${editedSet.coding} -> ${setModel.coding}\n  codex ${setModel.model}  level ${editedSet.level}  cost  ${editedSet.cost} -> ${setModel.cost}\n`), out);
   assert.strictEqual(fs.readFileSync(file, 'utf8'), edited);
-  text(at(root, ['models', 'update', 'codex', 'gpt-6-luna']));
-  assert.deepStrictEqual(rowsOf(file, 'gpt-6-luna'), ['cli,codex,gpt-6-luna,5,N,L3,3,3,0.5,N,Y']);
-  assert.deepStrictEqual(rowsOf(file, 'gpt-6.1-sol'), ['cli,codex,gpt-6.1-sol,5,N,L1,4,4,11,,'], 'a model update does not name stays as it is');
+  text(at(root, ['models', 'update', 'codex', setModel.model]));
+  assert.deepStrictEqual(rowsOf(file, setModel.model), [setRow]);
+  assert.deepStrictEqual(rowsOf(file, codexOther.model), [catalogRow(codexOther, { cost: bump(codexOther.cost) })], 'a model update does not name stays as it is');
   const updated = JSON.parse(text(at(root, ['models', 'update', '--json'])));
-  assert.deepStrictEqual([updated.changed, updated.updated], [true, [{ harness: 'codex', model: 'gpt-6.1-sol', level: 'L1', column: 'cost', from: '11', to: '10' }]]);
-  assert.deepStrictEqual(rowsOf(file, 'sonnet-5-5'), ['cli,claude,sonnet-5-5,5,N,L2,3,3,10,,Y']);
+  assert.deepStrictEqual([updated.changed, updated.updated], [true, [{ harness: 'codex', model: codexOther.model, level: codexOther.level, column: 'cost', from: bump(codexOther.cost), to: codexOther.cost }]]);
+  assert.deepStrictEqual(rowsOf(file, claudeModel.model), [catalogRow(claudeModel, { 'price-override': 'Y' })]);
   assert.ok(text(at(root, ['models', 'update'])).includes('\nup to date with '));
   assert.ok(!text(at(root, ['doctor'])).includes('differ'));
   // rows update cannot pair are named and left alone; no file of its own means nothing to update
-  fs.writeFileSync(file, `${fs.readFileSync(file, 'utf8')}cli,claude,sonnet-5-5,5,N,L1,3,3,10,N,N\ncli,codex,not-a-model,5,N,L3,3,3,1,N,N\n`);
+  fs.writeFileSync(file, `${fs.readFileSync(file, 'utf8')}${catalogRow(claudeModel, { level: secondLevel, 'quality-override': 'N', 'price-override': 'N' })}\ncli,codex,not-a-model,5,N,L3,3,3,1,N,N\n`);
   out = text(at(root, ['models', 'update']));
-  assert.ok(out.includes("not compared: 'claude sonnet-5-5': its levels here are L2, L1 and the shipped ones are L2; update adds and removes no row\n")
+  assert.ok(out.includes(`not compared: 'claude ${claudeModel.model}': its levels here are ${claudeModel.level}, ${secondLevel} and the shipped ones are ${claudeModel.level}; update adds and removes no row\n`)
     && out.includes("not compared: 'codex not-a-model': the shipped model catalog has no row for it\n"), out);
   assert.ok(out.includes('\nthe rows compared are up to date with ') && !out.includes('\nup to date with '), out);
   // a model update could compare with nothing says only that, in text and in --json
@@ -2824,7 +2906,7 @@ process.exit(3);\n`);
     [false, [], ["'codex not-a-model': the shipped model catalog has no row for it"]]);
   // update writes only the columns the header carries, and keeps the file's line ending
   text(at(slim.root, ['models', 'update']));
-  assert.strictEqual(fs.readFileSync(slim.file, 'utf8'), 'mode,harness,model,cost,price-override\r\ncli,codex,gpt-6-luna,0.5,Y\r\ncli,claude,sonnet-5-5,10,\r\n');
+  assert.strictEqual(fs.readFileSync(slim.file, 'utf8'), `mode,harness,model,cost,price-override\r\ncli,codex,${setModel.model},${setModel.cost},Y\r\ncli,claude,${claudeModel.model},${claudeModel.cost},\r\n`);
   assert.ok(text(at(fresh().root, ['models', 'update'])).endsWith('Nothing to update: this installation reads the shipped model catalog itself.\nNothing changed.\n'));
 
   // defaults: shown, set, kept key by key, and shown by the model lists
@@ -2853,17 +2935,17 @@ process.exit(3);\n`);
 // --- a task that cannot be read, or holds no text, is refused in words, never a program error ---
 {
   const missing = path.join(mkFolder('no-task'), 'no-such-task.md');
-  for (const args of [['claude', 'sonnet-5-5', '1', '-f', missing, '--dry-run'], ['resume', 'claude', 'last', '-f', missing, '--dry-run']]) {
+  for (const args of [['claude', claudeModel.model, '1', '-f', missing, '--dry-run'], ['resume', 'claude', 'last', '-f', missing, '--dry-run']]) {
     const res = spawnSync('node', [TOOL, ...args], { encoding: 'utf8' });
     assert.strictEqual(res.status, 2, res.stderr);
     assert.strictEqual(res.stdout, '');
     assert.strictEqual(res.stderr, `cast: refused: cannot read the task file ${missing}: it does not exist\nNothing changed.\ngive -f a file that exists, or give the task with -p TEXT\n`);
   }
   // a relative path is named in full
-  const rel = spawnSync('node', [TOOL, 'claude', 'sonnet-5-5', '1', '-f', 'no-such-task.md', '--dry-run'], { encoding: 'utf8' });
+  const rel = spawnSync('node', [TOOL, 'claude', claudeModel.model, '1', '-f', 'no-such-task.md', '--dry-run'], { encoding: 'utf8' });
   assert.ok(rel.stderr.startsWith(`cast: refused: cannot read the task file ${path.join(process.cwd(), 'no-such-task.md')}: it does not exist\n`), rel.stderr);
   // a path that is there and is not a file names what the system said
-  const folder = spawnSync('node', [TOOL, 'claude', 'sonnet-5-5', '1', '-f', path.dirname(missing), '--dry-run'], { encoding: 'utf8' });
+  const folder = spawnSync('node', [TOOL, 'claude', claudeModel.model, '1', '-f', path.dirname(missing), '--dry-run'], { encoding: 'utf8' });
   assert.strictEqual(folder.status, 2);
   assert.ok(folder.stderr.startsWith(`cast: refused: cannot read the task file ${path.dirname(missing)}: `) && !folder.stderr.includes('    at '), folder.stderr);
 
@@ -2874,7 +2956,7 @@ process.exit(3);\n`);
   fs.writeFileSync(empty, ' \n');
   // no arm may reach a provider, whatever this machine holds: the folder is in no installation and the key is taken out
   const env = { ...process.env };
-  delete env.GEMINI_API_KEY;
+  delete env[PROVIDERS[imageModel.provider].env_var];
   const noFile = `cast: refused: cannot read the task file ${missing}: it does not exist\nNothing changed.\ngive -f a file that exists, or give the task with -p TEXT\n`;
   const noText = (source) => `cast: refused: the task is empty: ${source} holds no text\nNothing changed.\ngive the task its text, then run the same command again\n`;
   for (const [task, refusal] of [
@@ -2884,7 +2966,7 @@ process.exit(3);\n`);
     [['-p', ''], noText('the -p text')],
   ]) {
     for (const dry of [[], ['--dry-run']]) {
-      const args = ['api', 'gemini-3.1-flash-image', '1', ...task, '--output-folder', 'out', '--image', ...dry];
+      const args = ['api', imageModel.model, '1', ...task, '--output-folder', 'out', '--image', ...dry];
       const res = spawnSync('node', [TOOL, ...args], { cwd: scratch, env, encoding: 'utf8' });
       assert.strictEqual(res.status, 2, `cast ${args.join(' ')} must be refused: ${res.stdout}${res.stderr}`);
       assert.strictEqual(res.stdout, '', `cast ${args.join(' ')}`);
@@ -2892,7 +2974,7 @@ process.exit(3);\n`);
       assert.ok(!fs.existsSync(path.join(scratch, 'out')), `cast ${args.join(' ')} wrote the output folder`);
     }
   }
-  const apiFolder = spawnSync('node', [TOOL, 'api', 'gemini-3.1-flash-image', '1', '-f', scratch, '--output-folder', 'out', '--image'], { cwd: scratch, env, encoding: 'utf8' });
+  const apiFolder = spawnSync('node', [TOOL, 'api', imageModel.model, '1', '-f', scratch, '--output-folder', 'out', '--image'], { cwd: scratch, env, encoding: 'utf8' });
   assert.strictEqual(apiFolder.status, 2, `cast api -f <a folder> must be refused: ${apiFolder.stdout}${apiFolder.stderr}`);
   assert.ok(apiFolder.stderr.startsWith(`cast: refused: cannot read the task file ${scratch}: `) && !apiFolder.stderr.includes('    at '), `cast api -f <a folder>: ${apiFolder.stderr}`);
   assert.ok(!fs.existsSync(path.join(scratch, 'out')), 'cast api -f <a folder> wrote the output folder');
@@ -2904,6 +2986,8 @@ process.exit(3);\n`);
 {
   const { isolation } = require('./lib/isolation');
   const BUNDLED = 'CLAUDE_CODE_DISABLE_BUNDLED_SKILLS';
+  const codexLow = codexModel.rungs[0];
+  const opencodeLow = opencodeModel.rungs[0];
   const UNSET = [BUNDLED, 'OPENCODE_DISABLE_PROJECT_CONFIG', 'OPENCODE_DISABLE_EXTERNAL_SKILLS', 'OPENCODE_DISABLE_CLAUDE_CODE',
     'OPENCODE_CONFIG_DIR', 'OPENCODE_CONFIG', 'OPENCODE_CONFIG_CONTENT'];
   assert.deepStrictEqual(isolation('claude', null), { argv: [], env: {}, unset: UNSET });
@@ -2935,9 +3019,9 @@ process.exit(3);\n`);
     return home;
   };
   const homes = {
-    claude: agentFolder('claude', 'haiku-5-5', 'low'),
-    codex: agentFolder('codex', 'gpt-6-luna', 'low'),
-    opencode: agentFolder('opencode', 'glm-5.3', 'high'),
+    claude: agentFolder('claude', claudeModel.model, claudeLow),
+    codex: agentFolder('codex', codexModel.model, codexLow),
+    opencode: agentFolder('opencode', opencodeModel.model, opencodeLow),
   };
   // RBTV_AGENT_HOME is not an isolation variable: a suite run by an agent would pass its own down
   const clean = { ...process.env, ...homeEnv(userHome) };
@@ -2973,7 +3057,7 @@ process.exit(3);\n`);
     '--setting-sources', 'project,local', '--settings', JSON.stringify(settings)];
   assert.deepStrictEqual(claudeAdded(claude.argv), claudeArgs, 'the agent\'s own MCP servers and settings and no other');
   assert.ok(claude.argv.indexOf('--settings') < claude.argv.indexOf('--session-id'), `${claude.argv}`);
-  assert.deepStrictEqual(claude.argv.slice(-2), ['--effort', 'low']);
+  assert.deepStrictEqual(claude.argv.slice(-2), ['--effort', claudeLow]);
   assert.deepStrictEqual(Object.keys(claude).filter((key) => /^[A-Z_]+$/.test(key)), ['RBTV_AGENT_HOME', BUNDLED]);
   assert.strictEqual(claude[BUNDLED], '1');
   assert.deepStrictEqual(claude.env_removed, []);
@@ -2989,8 +3073,8 @@ process.exit(3);\n`);
   const hookTrust = (argv) => argv.filter((arg) => arg === '--dangerously-bypass-hook-trust').length;
   assert.strictEqual(hookTrust(codex.argv), 1, `the agent's own Codex hooks run: ${codex.argv}`);
   // what the ignored config.toml supplied, the launch passes itself
-  for (const own of ['gpt-6-luna', 'approval_policy=never', 'model_reasoning_effort=low']) assert.ok(codex.argv.includes(own), `${own}: ${codex.argv}`);
-  assert.deepStrictEqual(codex.argv.slice(-2), ['-c', 'model_reasoning_effort=low']);
+  for (const own of [codexModel.id, 'approval_policy=never', `model_reasoning_effort=${codexLow}`]) assert.ok(codex.argv.includes(own), `${own}: ${codex.argv}`);
+  assert.deepStrictEqual(codex.argv.slice(-2), ['-c', `model_reasoning_effort=${codexLow}`]);
   assert.deepStrictEqual(Object.keys(codex).filter((key) => /^[A-Z_]+$/.test(key)), ['RBTV_AGENT_HOME'], 'Codex takes no isolation variable');
 
   // OpenCode: six variables and no argument. The agent's instruction entries become absolute, a
@@ -3014,8 +3098,8 @@ process.exit(3);\n`);
   };
   const opencode = dry(['--agent', homes.opencode, '-p', 'go']);
   isOpencodeIsolated(opencode, 'an OpenCode agent launch');
-  assert.deepStrictEqual(opencode.argv.slice(0, 5), ['opencode', 'run', '-m', 'zai-coding-plan/glm-5.3', '--auto']);
-  assert.deepStrictEqual(opencode.argv.slice(-2), ['--variant', 'high']);
+  assert.deepStrictEqual(opencode.argv.slice(0, 5), ['opencode', 'run', '-m', opencodeModel.id, '--auto']);
+  assert.deepStrictEqual(opencode.argv.slice(-2), ['--variant', opencodeLow]);
   // the names a launch removes are the names an isolated launch sets: one list, in isolation.js
   assert.deepStrictEqual(Object.keys(homes).flatMap((harness) => Object.keys(isolation(harness, homes[harness]).env)), UNSET);
   // an agent started by an isolated agent gets its own values, and no other harness's inherited ones
@@ -3038,10 +3122,10 @@ process.exit(3);\n`);
 
   // a launch that names no agent gets nothing, in an agent folder too, and drops what it inherited
   for (const [args, lastTwo] of [
-    [['claude', 'haiku-5-5', '1', homes.claude], ['--effort', 'low']],
-    [['codex', 'gpt-6-luna', '1', homes.codex], ['-c', 'model_reasoning_effort=low']],
-    [['opencode', 'glm-5.3', '1', homes.opencode], ['--variant', 'high']],
-    [['claude', 'haiku-5-5', '1', homes.claude, '--rogue', path.join(homes.claude, 'prompt.md')], ['--effort', 'low']],
+    [['claude', claudeModel.model, '1', homes.claude], ['--effort', claudeLow]],
+    [['codex', codexModel.model, '1', homes.codex], ['-c', `model_reasoning_effort=${codexLow}`]],
+    [['opencode', opencodeModel.model, '1', homes.opencode], ['--variant', opencodeLow]],
+    [['claude', claudeModel.model, '1', homes.claude, '--rogue', path.join(homes.claude, 'prompt.md')], ['--effort', claudeLow]],
   ]) {
     const out = dry([...args, '-p', 'go'], carried);
     for (const added of ['--settings', '--strict-mcp-config', '--setting-sources', 'project_root_markers=[]', 'memories', 'plugins',
@@ -3059,13 +3143,13 @@ process.exit(3);\n`);
   const modelOf = (argv, flag) => argv[argv.indexOf(flag) + 1];
   const resumedClaude = dry(['resume', 'claude', 'abc-123', homes.claude, '-p', 'more']);
   assert.deepStrictEqual(resumedClaude.argv, ['claude', '-p', '--resume', 'abc-123', '--model', modelOf(claude.argv, '--model'),
-    '--permission-mode', 'bypassPermissions', '--effort', 'low', ...claudeArgs]);
+    '--permission-mode', 'bypassPermissions', '--effort', claudeLow, ...claudeArgs]);
   const resumedCodex = dry(['resume', 'codex', 'last', homes.codex, '-p', 'more']);
   assert.deepStrictEqual(resumedCodex.argv.slice(0, 8 + codexAdded.length),
-    ['codex', 'exec', 'resume', '--last', '-m', modelOf(codex.argv, '-m'), '-c', 'model_reasoning_effort=low', ...codexAdded]);
+    ['codex', 'exec', 'resume', '--last', '-m', modelOf(codex.argv, '-m'), '-c', `model_reasoning_effort=${codexLow}`, ...codexAdded]);
   assert.strictEqual(hookTrust(resumedCodex.argv), 1, `${resumedCodex.argv}`);
   const resumedOpencode = dry(['resume', 'opencode', 'ses_x1', homes.opencode, '-p', 'more']);
-  assert.deepStrictEqual(resumedOpencode.argv, ['opencode', 'run', '-s', 'ses_x1', '-m', modelOf(opencode.argv, '-m'), '--auto', '--variant', 'high']);
+  assert.deepStrictEqual(resumedOpencode.argv, ['opencode', 'run', '-s', 'ses_x1', '-m', modelOf(opencode.argv, '-m'), '--auto', '--variant', opencodeLow]);
   isOpencodeIsolated(resumedOpencode, 'an OpenCode resume in an agent folder');
   // the OpenCode TUI takes no effort option, at a resume as at a launch
   assert.deepStrictEqual(dry(['resume', 'opencode', 'ses_x1', homes.opencode, '--headed']).argv, ['opencode', '-s', 'ses_x1', '-m', modelOf(opencode.argv, '-m')]);
@@ -3109,7 +3193,7 @@ process.exit(3);\n`);
   const underHome = path.join(userHome, 'work', 'iso-under-home');
   fs.mkdirSync(underHome, { recursive: true });
   fs.writeFileSync(path.join(underHome, 'prompt.md'), 'You are isolated.');
-  fs.writeFileSync(path.join(underHome, 'agent.json'), JSON.stringify({ name: 'iso-under-home', harness: 'claude', model: 'haiku-5-5', effort: 'low' }));
+  fs.writeFileSync(path.join(underHome, 'agent.json'), JSON.stringify({ name: 'iso-under-home', harness: 'claude', model: claudeModel.model, effort: claudeLow }));
   const fromHome = settingsOf(dry(['--agent', underHome, '-p', 'go']).argv).claudeMdExcludes;
   for (const file of ['CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', '.claude/CLAUDE.md', '.claude/AGENTS.md', '.claude/rules/**']) {
     assert.ok(fromHome.includes(path.join(userHome, file)), `the home folder's ${file} is excluded: ${fromHome}`);
@@ -3126,13 +3210,13 @@ require('fs').appendFileSync(${JSON.stringify(log)}, JSON.stringify(seen) + '\\n
   const received = (args) => {
     fs.rmSync(log, { force: true });
     spawnSync('node', [TOOL, ...args], { cwd: root, encoding: 'utf8', timeout: 60000,
-      env: { ...carried, XDG_DATA_HOME: path.join(userHome, 'no-such-data'), PATH: pathEnv(bin), ZHIPU_API_KEY: 'test-fake-not-real' } });
+      env: { ...carried, XDG_DATA_HOME: path.join(userHome, 'no-such-data'), PATH: pathEnv(bin), [opencodeKey]: 'test-fake-not-real' } });
     const lines = fs.readFileSync(log, 'utf8').trim().split('\n');
     assert.strictEqual(lines.length, 1, `cast ${args.join(' ')} starts its harness once: ${lines}`);
     return JSON.parse(lines[0]);
   };
-  assert.deepStrictEqual(received(['claude', 'haiku-5-5', '1', homes.claude, '-p', 'go']), {});
-  assert.deepStrictEqual(received(['opencode', 'glm-5.3', '1', homes.opencode, '-p', 'go']), {});
+  assert.deepStrictEqual(received(['claude', claudeModel.model, '1', homes.claude, '-p', 'go']), {});
+  assert.deepStrictEqual(received(['opencode', opencodeModel.model, '1', homes.opencode, '-p', 'go']), {});
   assert.deepStrictEqual(received(['resume', 'claude', 'last', mid, '-p', 'more']), {});
   assert.deepStrictEqual(received(['resume', 'opencode', 'last', mid, '-p', 'more']), {});
   assert.deepStrictEqual(received(['--agent', homes.claude, '-p', 'go']), { RBTV_AGENT_HOME: homes.claude, [BUNDLED]: '1' });
