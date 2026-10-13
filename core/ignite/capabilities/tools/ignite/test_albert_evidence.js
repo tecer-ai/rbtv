@@ -18,6 +18,10 @@ function test(name, fn) {
   queue.push([name, fn]);
 }
 
+function linuxOnly(name, why, fn) {
+  queue.push([name, process.platform === 'win32' ? null : fn, why]);
+}
+
 function workspace() {
   const dir = fs.mkdtempSync(path.join(root, 'w-'));
   fs.mkdirSync(path.join(dir, '.rbtv', 'config', 'ignite'), { recursive: true });
@@ -434,7 +438,7 @@ test('frozen report A, crash after queue before ack, intervening change B, retry
   delete process.env.ALBERT_TOOL;
 });
 
-test('timer check parser wakes on the adapter only when the tool reports new work', async () => {
+linuxOnly('timer check parser wakes on the adapter only when the tool reports new work', 'the check tool is started as a program', async () => {
   const dir = workspace();
   const source = agent(dir, 'source');
   storeOf(source).close();
@@ -491,7 +495,8 @@ test('fence then drain then migrate then recover selects one publisher', () => {
 });
 
 (async () => {
-  for (const [name, fn] of queue) {
+  for (const [name, fn, why] of queue) {
+    if (!fn) { console.log(`skip: ${name} is Linux-only: ${why}`); continue; }
     try {
       await fn();
       console.log(`PASS ${name}`);
