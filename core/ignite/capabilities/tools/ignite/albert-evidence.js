@@ -126,7 +126,7 @@ function sourceSlugs(config) {
 function openSource(config, slug, opened) {
   const db = storePath(config, slug);
   if (!fs.existsSync(db)) throw new Error(`source store missing for ${slug}: ${db}`);
-  const store = new Store(db);
+  const store = new Store(storePath(config, slug));
   opened.push(store);
   return store;
 }
@@ -289,7 +289,7 @@ function saoPauloDate(now = Date.now()) {
 function albertStore(home) {
   const db = ignitePaths(home).database;
   if (!fs.existsSync(db)) throw new Error(`albert store missing: ${db}`);
-  return new Store(db);
+  return new Store(ignitePaths(home).database);
 }
 
 function scheduleConversation(store, id) {
@@ -435,7 +435,7 @@ function planOf(installation, home) {
       lines.push(`missing ${slug}`);
       continue;
     }
-    const store = new Store(db);
+    const store = new Store(storePath(config, slug));
     try {
       const state = legacyCursor(store);
       lines.push(`source ${slug} cursor=${state.cursor} lastSuccessAt=${state.lastSuccessAt ?? 'none'} conflicts=${(state.reportedConflicts || []).length}`);
@@ -461,7 +461,7 @@ function migrateCommand(installation, home, dryRun) {
   for (const slug of sourceSlugs(plan.config)) {
     const db = storePath(plan.config, slug);
     if (!fs.existsSync(db)) continue;
-    const store = new Store(db);
+    const store = new Store(storePath(plan.config, slug));
     try {
       const state = legacyCursor(store);
       if (cursors[slug] == null) cursors[slug] = { cursor: state.cursor, ceiling: state.cursor, positions: [], migrated: true };
