@@ -105,8 +105,39 @@ function linkTarget(from, href) {
   return path.posix.normalize(path.posix.join(path.posix.dirname(from), href));
 }
 
+// A request line names a record when the text after "Owner asks to forget:" and before ". Owner said" or the dated provenance contains that file's # heading as a whole name, ignoring case, or its path relative to the memory root with or without the ".rbtv/memory/" prefix, or a thread URL that occurs in that file. The line's own dated provenance is not a name. A line that names two files is refused with both paths.
+const REQUEST_NAMES = 'the text after Owner asks to forget: and before . Owner said or the dated provenance contains the archived file\'s # heading as a whole name, ignoring case, or its path relative to the memory root with or without the .rbtv/memory/ prefix, or a thread URL that occurs in that file; the line\'s own dated provenance is not a name; a line that names two files is refused with both paths';
+
 function requestSubject(line) {
-  return line.match(/^- Owner asks to forget: (.+?)(?:\. |\s+\(\d{4}-\d{2}-\d{2} · )/)?.[1] || null;
+  const match = line.match(/^- Owner asks to forget: ([\s\S]+)$/);
+  if (!match) return null;
+  const text = match[1].replace(/\s*\(\d{4}-\d{2}-\d{2} · [\s\S]*$/, '').replace(/\.\s+Owner said:[\s\S]*$/, '').trim();
+  return text || null;
+}
+
+function containsName(text, name) {
+  if (!name) return false;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|[^A-Za-z0-9-])${escaped}(?=$|[^A-Za-z0-9-])`, 'i').test(text);
+}
+
+function containsPath(text, file) {
+  if (!file.startsWith(GENERAL)) return false;
+  return [file.slice(GENERAL.length), file].some((form) => {
+    const escaped = form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(?:^|[^A-Za-z0-9./_-])${escaped}(?=$|[^A-Za-z0-9./_-])`).test(text);
+  });
+}
+
+function namedByRequest(subject, before, agent) {
+  const urls = [...new Set([...links(subject), ...[...subject.matchAll(/https?:\/\/[^\s)]+/g)].map((match) => match[0])])];
+  const named = [];
+  for (const [file, text] of before) {
+    if (typeof text !== 'string' || !wholeFileKind(file, agent)) continue;
+    const heading = text.match(/^# (.+)$/m)?.[1]?.trim();
+    if (containsName(subject, heading) || containsPath(subject, file) || urls.some((url) => text.includes(url))) named.push(file);
+  }
+  return named.sort();
 }
 
 function pointerTargets(op, line, before) {
@@ -691,19 +722,28 @@ function validateProposal(input, raw, workspace) {
         const carried = typeof dest === 'string' && isArchiveDestination(item.to, input.agent) && dest.includes(item.text);
         const subject = requestSubject(item.text);
         const archived = [...operations.values()].filter((other) => other.leave);
-        const names = subject && archived.some((other) => (before.get(other.path) || '').includes(subject));
-        const cites = archived.some((other) => {
+        const cites = !subject && archived.some((other) => {
           const original = before.get(other.path) || '';
           const heading = original.match(/^# (.+)$/m)?.[1];
           return links(item.text).some((url) => original.includes(url)) || (heading && item.text.includes(heading));
         });
+        if (/^- Owner asks to forget:/.test(item.text) && !subject) {
+          expect(REQUEST_NAMES);
+          requireThat(false, 'request line has no subject');
+        }
         if (!carried || (!subject && !cites)) {
           expect('file the line as a record, or carry it verbatim in an archive entry of the same proposal');
           requireThat(false, 'inbox line removed with no destination');
         }
         if (subject) {
-          expect('the record the request line names is archived with leave: true in this proposal');
-          requireThat(names, 'request line consumed while the record it names is not archived in that proposal');
+          const named = namedByRequest(subject, before, input.agent);
+          const archivedPaths = new Set(archived.map((other) => other.path));
+          if (named.length > 1) {
+            expect(REQUEST_NAMES);
+            requireThat(false, `request line names more than one record: ${named.join(', ')}`);
+          }
+          expect(REQUEST_NAMES);
+          requireThat(named.length === 1 && archivedPaths.has(named[0]), 'request line consumed while the record it names is not archived in that proposal');
           expect('Reason: owner asked to forget. Source: <the line>');
           requireThat(dest.includes(`Reason: owner asked to forget. Source: ${item.text}`), 'inbox line removed with no destination');
         }
