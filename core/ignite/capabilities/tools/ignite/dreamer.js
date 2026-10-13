@@ -629,7 +629,7 @@ async function runDreamer({ config, openStore, model, now = Date.now() }) {
     const slugs = [...new Set([config.dmAgent, ...Object.values(config.routes || {})].filter(Boolean))].sort();
     const agents = slugs.map((slug) => {
       agentHome(config, slug); // Validate the same slug as the rest of Ignite.
-      safePath(workspace, `.rbtv/agents/${slug}/state.sqlite`);
+      safePath(workspace, `.rbtv/agents/${slug}/runtime/ignite/state.sqlite`);
       requireThat(fs.existsSync(storePath(config, slug)), 'agent database missing');
       const store = openStore ? openStore(slug) : new Store(storePath(config, slug));
       if (!openStore) owned.push(store);

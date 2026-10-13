@@ -124,7 +124,7 @@ test('agentHome resolves under the given workspace', (dir) => {
   writeConfig(dir);
   const loaded = loadConfig(dir);
   assert.equal(agentHome(loaded, 'master'), path.join(dir, '.rbtv', 'agents', 'master'));
-  assert.equal(storePath(loaded, 'sample'), path.join(dir, '.rbtv', 'agents', 'sample', 'state.sqlite'));
+  assert.equal(storePath(loaded, 'sample'), path.join(dir, '.rbtv', 'agents', 'sample', 'runtime', 'ignite', 'state.sqlite'));
 });
 
 test('missing file throws', (dir) => {

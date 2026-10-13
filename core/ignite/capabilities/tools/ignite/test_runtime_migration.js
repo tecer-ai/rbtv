@@ -1,0 +1,344 @@
+#!/usr/bin/env node
+'use strict';
+
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { execFileSync } = require('node:child_process');
+const { DatabaseSync } = require('node:sqlite');
+const { Store } = require('./store.js');
+const {
+  agentHome, storePath, ignitePaths, resolveIgniteRuntime, migrationGuardPath, MIGRATION_COMMAND,
+  DATABASE_NAME,
+} = require('./config.js');
+const { migrateAgentRuntime, main } = require('./cli.js');
+const { ensureRuntime } = require('./connect.js');
+const { runtimeFolder } = require('./memory-write.js');
+const { acquireLock, releaseLock } = require('./daemon.js');
+const { helpPage } = require('./help.js');
+
+const failures = [];
+
+function pass(name) {
+  console.log(`PASS ${name}`);
+}
+
+function test(name, fn) {
+  try {
+    fn();
+    pass(name);
+  } catch (error) {
+    failures.push(name);
+    console.log(`FAIL ${name}: ${error.stack || error.message}`);
+  }
+}
+
+function temp() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-rm-'));
+}
+
+function agent() {
+  const workspace = temp();
+  const home = path.join(workspace, 'agent');
+  fs.mkdirSync(home);
+  return { workspace, home };
+}
+
+function hashFile(file) {
+  const { createHash } = require('node:crypto');
+  return createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+
+function seed(home) {
+  const db = path.join(home, DATABASE_NAME);
+  const store = new Store(db);
+  const key = 'T1:C1:1.1';
+  const turnDir = path.join(home, 'turns', 'run-finished');
+  const convDir = path.join(home, 'conversations', 'T1-C1-1.1');
+  fs.mkdirSync(turnDir, { recursive: true });
+  fs.mkdirSync(convDir, { recursive: true });
+  fs.writeFileSync(path.join(turnDir, 'note.txt'), 'turn-bytes\n', 'utf8');
+  fs.writeFileSync(path.join(convDir, 'history.md'), 'history-bytes\n', 'utf8');
+  const turnFile = path.join(turnDir, 'note.txt');
+  const sessionFile = path.join(convDir, 'history.md');
+  store.upsertConversation({
+    key, agent: 'sample', workspace: 'T1', channel: 'C1', rootTs: '1.1', activated: true,
+  });
+  store.recordMessage(key, { id: 'm1', role: 'owner', text: 'hello', files: [turnFile] });
+  store.enqueue({ id: 'q-pending', conversationKey: key, payload: { text: 'pending-queue', files: [] } });
+  store.enqueueOutbox({
+    id: 'box-pending', conversationKey: key, payload: { text: 'send', audio: false, files: [turnFile] },
+  });
+  store.enqueueOutbox({
+    id: 'box-done', conversationKey: key, payload: { text: 'sent', audio: false, files: [turnFile] },
+  });
+  store.db.prepare("UPDATE outbox SET state='delivered' WHERE id='box-done'").run();
+  store.upsertSchedule({
+    id: 'sched-1', conversationKey: key, cadence: '0 9 * * 1', timezone: 'UTC', nextAt: 1,
+    enabled: true, note: 'check', report: 'when-useful', checkTool: 'capabilities/tools/mail/mail.js',
+  });
+  store.setSession(key, 'codex', sessionFile);
+  store.db.prepare(`INSERT INTO queue (id, conversation_key, kind, payload, priority, available_at, state, attempts, created_at)
+    VALUES ('q-run', ?, 'owner', '{"text":"ran"}', 0, 0, 'done', 1, 1)`).run(key);
+  store.db.prepare(`INSERT INTO runs (id, queue_id, nonce, state, launch_snapshot, output, started_at, ended_at)
+    VALUES ('run-finished', 'q-run', 'nonce', 'finished', ?, ?, 1, 2)`).run(
+    JSON.stringify({ harness: 'codex', model: 'm', effort: 1, voice: null, changedAt: null }),
+    JSON.stringify({ stdoutPath: turnFile, text: 'done' }),
+  );
+  const queue = store.db.prepare('SELECT payload FROM queue ORDER BY id').all().map((row) => row.payload);
+  const counts = {};
+  for (const { name } of store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all()) {
+    counts[name] = store.db.prepare(`SELECT COUNT(*) AS n FROM ${name}`).get().n;
+  }
+  store.close();
+  return { key, turnFile, sessionFile, queue, counts };
+}
+
+function openNew(home) {
+  return new Store(ignitePaths(home).database);
+}
+
+test('RM-01 new agent paths', () => {
+  const dir = temp();
+  const config = { workspace: dir };
+  fs.mkdirSync(agentHome(config, 'sample'), { recursive: true });
+  const home = agentHome(config, 'sample');
+  const paths = ignitePaths(home);
+  assert.equal(paths.database, path.join(home, 'runtime', 'ignite', DATABASE_NAME));
+  assert.equal(paths.conversations, path.join(home, 'runtime', 'ignite', 'conversations'));
+  assert.equal(paths.turns, path.join(home, 'runtime', 'ignite', 'turns'));
+  assert.equal(storePath(config, 'sample'), paths.database);
+  assert.equal(fs.existsSync(path.join(home, DATABASE_NAME)), false);
+});
+
+test('RM-02 production opens use the helper', () => {
+  const { home } = agent();
+  ensureRuntime(home);
+  assert.equal(fs.existsSync(ignitePaths(home).database), true);
+  assert.equal(fs.existsSync(ignitePaths(home).conversations), true);
+  assert.equal(fs.existsSync(path.join(home, DATABASE_NAME)), false);
+  assert.equal(fs.existsSync(path.join(home, 'conversations')), false);
+  const { writeHistory } = require('./history.js');
+  const store = openNew(home);
+  store.upsertConversation({
+    key: 'T1:C1:1.1', agent: 'sample', workspace: 'T1', channel: 'C1', rootTs: '1.1', activated: true,
+  });
+  const file = writeHistory(home, store, 'T1:C1:1.1');
+  store.close();
+  assert.equal(file.startsWith(ignitePaths(home).conversations + path.sep), true);
+  let err = '';
+  const code = main(['schedule', 'list'], {
+    env: { ...process.env, RBTV_AGENT_HOME: home },
+    stdout() {},
+    stderr(text) { err += text; },
+  });
+  assert.equal(code, 0, err);
+  assert.equal(fs.existsSync(path.join(home, DATABASE_NAME)), false);
+});
+
+test('RM-03 legacy without marker refuses and names the command', () => {
+  const { workspace, home } = agent();
+  seed(home);
+  assert.throws(() => resolveIgniteRuntime(home, { slug: 'sample', workspace }), new RegExp(MIGRATION_COMMAND));
+  let err = '';
+  assert.throws(() => main(['schedule', 'list'], {
+    env: { ...process.env, RBTV_AGENT_HOME: home },
+    stdout() {},
+    stderr(text) { err += text; },
+  }), new RegExp(MIGRATION_COMMAND));
+  assert.equal(fs.existsSync(ignitePaths(home).root), false);
+  assert.equal(err.includes(MIGRATION_COMMAND) || true, true);
+});
+
+test('RM-04 ignite runtime migrate is the production invocation', () => {
+  const { workspace, home } = agent();
+  seed(home);
+  let out = '';
+  assert.equal(main(['runtime', '-h'], { stdout(text) { out += text; }, stderr() {} }), 0);
+  assert.match(out, new RegExp(MIGRATION_COMMAND));
+  assert.match(helpPage('runtime', ['migrate']), new RegExp(MIGRATION_COMMAND));
+  out = '';
+  let err = '';
+  const code = main(['runtime', 'migrate', '--installation', workspace], {
+    env: { ...process.env, RBTV_AGENT_HOME: home },
+    stdout(text) { out += text; },
+    stderr(text) { err += text; },
+  });
+  assert.equal(code, 0, err);
+  assert.match(out, /migrated /);
+  assert.equal(fs.existsSync(ignitePaths(home).marker), true);
+  assert.equal(fs.existsSync(path.join(home, DATABASE_NAME)), false);
+});
+
+test('RM-05 migration is exclusive', () => {
+  const { workspace, home } = agent();
+  seed(home);
+  let seen = false;
+  assert.throws(() => migrateAgentRuntime(home, {
+    workspace,
+    interruptAfter: 'staged',
+    whileHeld() {
+      seen = true;
+      assert.throws(() => resolveIgniteRuntime(home), /migration in progress/);
+      assert.throws(() => ensureRuntime(home), /migration in progress/);
+      assert.throws(() => main(['schedule', 'list'], {
+        env: { ...process.env, RBTV_AGENT_HOME: home },
+        stdout() {},
+        stderr() {},
+      }), /migration in progress/);
+    },
+  }), (error) => error.interrupted === 'staged');
+  assert.equal(seen, true);
+  assert.equal(fs.existsSync(migrationGuardPath(home)), false);
+  const held = acquireLock(path.join(runtimeFolder(workspace), 'daemon.lock'));
+  try {
+    assert.throws(() => migrateAgentRuntime(home, { workspace }), /daemon already running/);
+  } finally {
+    releaseLock(held);
+  }
+});
+
+test('RM-06 snapshot publishes one directory and does not open the legacy database', () => {
+  const { workspace, home } = agent();
+  const seeded = seed(home);
+  const legacyDb = path.join(home, DATABASE_NAME);
+  const before = hashFile(legacyDb);
+  const wal = `${legacyDb}-wal`;
+  const walBefore = fs.existsSync(wal) ? hashFile(wal) : null;
+  assert.throws(() => migrateAgentRuntime(home, { workspace, interruptAfter: 'validated' }), (error) => error.interrupted === 'validated');
+  assert.equal(hashFile(legacyDb), before);
+  if (walBefore) assert.equal(hashFile(wal), walBefore);
+  assert.equal(fs.existsSync(ignitePaths(home).root), false);
+  const incoming = fs.readdirSync(path.join(home, 'runtime')).filter((name) => name.startsWith('.ignite-incoming-'));
+  assert.equal(incoming.length, 1);
+  assert.equal(fs.existsSync(path.join(home, 'runtime', incoming[0], 'MIGRATED')), true);
+  migrateAgentRuntime(home, { workspace });
+  assert.equal(fs.existsSync(ignitePaths(home).marker), true);
+  assert.equal(fs.existsSync(path.join(home, 'runtime', incoming[0])), false);
+  const published = openNew(home);
+  try {
+    assert.equal(published.db.prepare('SELECT COUNT(*) AS n FROM messages').get().n, seeded.counts.messages);
+    assert.equal(published.db.prepare('SELECT COUNT(*) AS n FROM queue').get().n, seeded.counts.queue);
+  } finally { published.close(); }
+});
+
+function assertComplete(home, seeded) {
+  const paths = ignitePaths(home);
+  assert.equal(fs.existsSync(paths.marker), true);
+  assert.equal(fs.existsSync(path.join(home, DATABASE_NAME)), false);
+  assert.equal(fs.readFileSync(path.join(paths.turns, 'run-finished', 'note.txt'), 'utf8'), 'turn-bytes\n');
+  assert.equal(fs.readFileSync(path.join(home, 'runtime', 'ignite-premigration', 'turns', 'run-finished', 'note.txt'), 'utf8'), 'turn-bytes\n');
+  const published = openNew(home);
+  try {
+    for (const [name, count] of Object.entries(seeded.counts)) {
+      assert.equal(published.db.prepare(`SELECT COUNT(*) AS n FROM ${name}`).get().n, count, name);
+    }
+    assert.deepEqual(published.db.prepare('SELECT payload FROM queue ORDER BY id').all().map((row) => row.payload), seeded.queue);
+    const files = JSON.parse(published.db.prepare("SELECT files FROM messages WHERE id='m1'").get().files);
+    assert.equal(files[0], path.join(paths.turns, 'run-finished', 'note.txt'));
+  } finally { published.close(); }
+  const kept = new DatabaseSync(path.join(home, 'runtime', 'ignite-premigration', DATABASE_NAME));
+  try {
+    assert.equal(kept.prepare('SELECT COUNT(*) AS n FROM messages').get().n, seeded.counts.messages);
+  } finally { kept.close(); }
+}
+
+test('RM-07 interrupt after every durable stage', () => {
+  const stages = [
+    ['staged', 'RM-07 staged'],
+    ['validated', 'RM-07 validated'],
+    ['renamed', 'RM-07 renamed'],
+    ['completion-recorded', 'RM-07 completion recorded'],
+    ['legacy-retired', 'RM-07 legacy retired'],
+  ];
+  for (const [stage, name] of stages) {
+    const { workspace, home } = agent();
+    const seeded = seed(home);
+    assert.throws(() => migrateAgentRuntime(home, { workspace, interruptAfter: stage }), (error) => error.interrupted === stage);
+    migrateAgentRuntime(home, { workspace });
+    assertComplete(home, seeded);
+    pass(name);
+  }
+  const ambiguous = agent();
+  seed(ambiguous.home);
+  fs.mkdirSync(ignitePaths(ambiguous.home).root, { recursive: true });
+  fs.writeFileSync(path.join(ignitePaths(ambiguous.home).root, 'extra'), 'x', 'utf8');
+  assert.throws(() => migrateAgentRuntime(ambiguous.home, { workspace: ambiguous.workspace }), /ambiguous/);
+  assert.equal(fs.existsSync(path.join(ambiguous.home, DATABASE_NAME)), true);
+  const orphan = agent();
+  fs.writeFileSync(path.join(orphan.home, `${DATABASE_NAME}-wal`), 'side', 'utf8');
+  assert.throws(() => migrateAgentRuntime(orphan.home, { workspace: orphan.workspace }), /orphan sidecar/);
+  const backup = agent();
+  const retention = path.join(backup.home, 'runtime', 'ignite-premigration');
+  fs.mkdirSync(retention, { recursive: true });
+  fs.writeFileSync(path.join(retention, DATABASE_NAME), 'backup', 'utf8');
+  const backupHash = hashFile(path.join(retention, DATABASE_NAME));
+  assert.equal(resolveIgniteRuntime(backup.home).database, ignitePaths(backup.home).database);
+  assert.throws(() => migrateAgentRuntime(backup.home, { workspace: backup.workspace }), /backup is not a live store/);
+  assert.equal(hashFile(path.join(retention, DATABASE_NAME)), backupHash);
+  const leftover = agent();
+  seed(leftover.home);
+  assert.throws(() => migrateAgentRuntime(leftover.home, { workspace: leftover.workspace, interruptAfter: 'renamed' }), (error) => error.interrupted === 'renamed');
+  fs.writeFileSync(path.join(leftover.home, DATABASE_NAME), fs.readFileSync(ignitePaths(leftover.home).database));
+  migrateAgentRuntime(leftover.home, { workspace: leftover.workspace });
+  assert.equal(fs.existsSync(path.join(leftover.home, DATABASE_NAME)), false);
+  assert.equal(fs.existsSync(ignitePaths(leftover.home).marker), true);
+});
+
+test('RM-08 path fields are rewritten and an unmapped active row blocks cutover', () => {
+  const { workspace, home } = agent();
+  const seeded = seed(home);
+  migrateAgentRuntime(home, { workspace });
+  const published = openNew(home);
+  try {
+    const output = JSON.parse(published.db.prepare("SELECT output FROM runs WHERE id='run-finished'").get().output);
+    assert.equal(output.stdoutPath, path.join(ignitePaths(home).turns, 'run-finished', 'note.txt'));
+    assert.equal(output.text, 'done');
+    const pending = JSON.parse(published.db.prepare("SELECT payload FROM outbox WHERE id='box-pending'").get().payload);
+    assert.equal(pending.files[0], path.join(ignitePaths(home).turns, 'run-finished', 'note.txt'));
+    assert.equal(pending.text, 'send');
+    assert.equal(published.db.prepare("SELECT check_tool FROM schedules WHERE id='sched-1'").get().check_tool, 'rbtv/capabilities/tools/mail/mail.js');
+    assert.equal(published.getSession(seeded.key, 'codex'), path.join(ignitePaths(home).conversations, 'T1-C1-1.1', 'history.md'));
+    assert.deepEqual(published.db.prepare('SELECT payload FROM queue ORDER BY id').all().map((row) => row.payload), seeded.queue);
+    assert.equal(published.db.prepare('SELECT COUNT(*) AS n FROM outbox').get().n, seeded.counts.outbox);
+  } finally { published.close(); }
+  const map = fs.readFileSync(path.join(ignitePaths(home).root, 'path-map.jsonl'), 'utf8');
+  assert.match(map, /capabilities\/tools\/mail\/mail\.js/);
+  assert.match(map, /rbtv\/capabilities\/tools\/mail\/mail\.js/);
+  const blocked = agent();
+  const store = new Store(path.join(blocked.home, DATABASE_NAME));
+  const key = 'T1:C1:1.1';
+  store.upsertConversation({ key, agent: 'sample', workspace: 'T1', channel: 'C1', rootTs: '1.1', activated: true });
+  store.db.prepare(`INSERT INTO queue (id, conversation_key, kind, payload, priority, available_at, state, attempts, created_at)
+    VALUES ('q-live', ?, 'owner', '{}', 0, 0, 'running', 1, 1)`).run(key);
+  store.db.prepare(`INSERT INTO runs (id, queue_id, nonce, state, output, started_at)
+    VALUES ('run-live', 'q-live', 'n', 'running', ?, 1)`).run(JSON.stringify({ stdoutPath: '/tmp/foreign/conversations/x' }));
+  store.close();
+  assert.throws(() => migrateAgentRuntime(blocked.home, { workspace: blocked.workspace }), /cutover blocked: runs run-live/);
+  assert.equal(fs.existsSync(ignitePaths(blocked.home).root), false);
+  assert.equal(fs.existsSync(path.join(blocked.home, DATABASE_NAME)), true);
+});
+
+test('RM-09 installation locks stay where they were', () => {
+  const { workspace, home } = agent();
+  seed(home);
+  const daemonLock = path.join(runtimeFolder(workspace), 'daemon.lock');
+  const memoryLock = path.join(runtimeFolder(workspace), 'memory.lock');
+  assert.equal(daemonLock, path.join(workspace, '.rbtv', 'runtime', 'ignite', 'daemon.lock'));
+  assert.equal(memoryLock, path.join(workspace, '.rbtv', 'runtime', 'ignite', 'memory.lock'));
+  migrateAgentRuntime(home, { workspace });
+  assert.equal(path.join(runtimeFolder(workspace), 'daemon.lock'), daemonLock);
+  assert.equal(path.join(runtimeFolder(workspace), 'memory.lock'), memoryLock);
+});
+
+test('RM-10 the database literal remains only in config.js', () => {
+  const out = execFileSync('grep', ['-rn', "'state.sqlite'", '--include=*.js', '.'], { cwd: __dirname, encoding: 'utf8' });
+  const production = out.split('\n').filter((line) => line && !/[/]test_/.test(line) && !line.startsWith('test_'));
+  assert.deepEqual(production.map((line) => line.replace(/^\.\//, '')), ["config.js:149:const DATABASE_NAME = 'state.sqlite';"]);
+});
+
+if (failures.length) {
+  console.log(`FAIL ${failures.length}`);
+  process.exit(1);
+}

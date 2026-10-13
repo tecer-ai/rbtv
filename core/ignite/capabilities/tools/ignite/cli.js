@@ -10,15 +10,15 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { randomUUID } = require('node:crypto');
+const { randomUUID, createHash } = require('node:crypto');
 const { Store, checkTool } = require('./store.js');
-const { loadConfig, updateConfig, agentHome, configPath, findWorkspace, DREAMER_MODEL, dreamerModelRequired } = require('./config.js');
+const { loadConfig, updateConfig, agentHome, configPath, findWorkspace, DREAMER_MODEL, dreamerModelRequired, ignitePaths, resolveIgniteRuntime, legacyLayout, migrationGuardPath, MIGRATION_COMMAND, MARKER_NAME, DATABASE_NAME, LEGACY_FILES, LEGACY_DIRS } = require('./config.js');
 const { cadenceSpec, nextOccurrence, FIXED_TZ } = require('./schedule.js');
 const { writeBoard, closeSubject, boardPath, preflightBoard, refreshBoard, refreshBoardAfterCommit } = require('./board.js');
 const { workspaceFromHome, remember } = require('./memory.js');
 const { PAGES, helpPage } = require('./help.js');
 
-const COMMANDS = ['schedule', 'schedules-due', 'work', 'wake', 'post', 'board', 'remember', 'dreamer'];
+const COMMANDS = ['schedule', 'schedules-due', 'work', 'wake', 'post', 'board', 'remember', 'dreamer', 'runtime'];
 const REPORTS = new Set(['always', 'when-useful']);
 
 // What each verb takes beside --json, --agent, --installation and -h: its options, and the most
@@ -38,6 +38,7 @@ const VERBS = {
   'board write': { options: ['file'], words: 0 },
   'board close': { options: [], words: 3 },
   remember: { options: [], words: Infinity },
+  'runtime migrate': { options: [], words: 0 },
 };
 
 const HELP = `ignite — help
@@ -62,6 +63,8 @@ Timers, work, messages and memory
   post           Queue a Slack message in this agent's channel.
   board          Write or close a subject on the board.
   remember       Append one owner fact to the installation memory inbox.
+  runtime        Move this agent's database, conversations and turns into
+                 runtime/ignite/.
   dreamer        Run one memory consolidation, or enable or disable the
                  nightly consolidation for the whole installation.
 
@@ -264,10 +267,11 @@ function openContext(flags, deps, requireBoard = false) {
   const config = located.config || (located.workspace && fs.existsSync(configPath(located.workspace))
     ? loadConfig(located.workspace)
     : null);
+  resolveIgniteRuntime(located.home, { workspace: located.workspace, slug: located.slug });
   return {
     ...located,
     config,
-    store: new Store(path.join(located.home, 'state.sqlite')),
+    store: new Store(ignitePaths(located.home).database),
     castCmd: config?.tools?.cast || 'cast',
   };
 }
@@ -531,10 +535,11 @@ function cmdBoard(rest, flags, deps) {
     const { opts, positionals } = parseOpts(tail, `board ${action}`);
     if (action === 'write' && opts.file?.length !== 1) fail('board write requires exactly one --file <path>');
     if (action === 'close' && positionals.length < 2) fail('board close requires <subject> <outcome> [thread]');
-    const { home, slug } = resolveHome(flags, deps);
+    const { home, slug, workspace } = resolveHome(flags, deps);
     file = boardPath(home);
-    const db = path.join(home, 'state.sqlite');
-    if (fs.existsSync(db)) store = new Store(db);
+    resolveIgniteRuntime(home, { workspace, slug });
+    const db = ignitePaths(home).database;
+    if (fs.existsSync(db)) store = new Store(ignitePaths(home).database);
     const now = deps.now ? deps.now() : Date.now();
     const result = action === 'write'
       ? writeBoard(file, fs.readFileSync(opts.file[0], 'utf8'), { store, now })
@@ -671,7 +676,8 @@ function cmdRemember(rest, flags, deps) {
     if (result.warning) {
       let store;
       try {
-        store = new Store(path.join(home, 'state.sqlite'));
+        resolveIgniteRuntime(home, { workspace, slug });
+        store = new Store(ignitePaths(home).database);
         const payload = { text: result.warning, audio: false, files: [] };
         if (key && store.getConversation(key)) {
           store.enqueueOutbox({ id: `memory:${randomUUID()}`, conversationKey: key, payload });
@@ -733,8 +739,9 @@ function main(argv, deps = {}) {
   if (command === 'board') return cmdBoard(tail, flags, deps);
   if (command === 'remember') return cmdRemember(tail, flags, deps);
   if (command === 'dreamer') return cmdDreamer(tail, flags, deps);
+  if (command === 'runtime') return cmdRuntime(tail, flags, deps);
   if (command === 'deploy') return require('./deploy.js').run(tail, flags, deps, () => resolveInstallation(flags, deps));
-  if (!COMMANDS.includes(command)) fail(`unknown command: ${command}\nchoose from connect, disconnect, manage, turn,\nschedule, schedules-due, work, wake, post, board, remember, dreamer, deploy\nNothing changed.\nignite -h`);
+  if (!COMMANDS.includes(command)) fail(`unknown command: ${command}\nchoose from connect, disconnect, manage, turn,\nschedule, schedules-due, work, wake, post, board, remember, dreamer, runtime, deploy\nNothing changed.\nignite -h`);
   // The words are checked before the home is opened: a refused option creates no database.
   const verb = VERBS[`${command} ${tail[0]}`] ? `${command} ${tail[0]}` : command;
   const parsed = VERBS[verb] && parseOpts(verb === command ? tail : tail.slice(1), verb);
@@ -744,6 +751,371 @@ function main(argv, deps = {}) {
   } finally {
     ctx.store.close();
   }
+}
+
+const STAGES = ['staged', 'validated', 'renamed', 'completion-recorded', 'legacy-retired'];
+const LEGACY_NAMES = [...LEGACY_FILES, ...LEGACY_DIRS];
+
+function refuseMigration(message) {
+  const error = new Error(message);
+  error.exitCode = 1;
+  throw error;
+}
+
+function writeJson(file, value) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  const fd = fs.openSync(tmp, 'w', 0o600);
+  try {
+    fs.writeFileSync(fd, `${JSON.stringify(value)}\n`, 'utf8');
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmp, file);
+}
+
+function readJson(file) {
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+function hashFile(file) {
+  return createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+
+function walkFiles(dir, out) {
+  if (!fs.existsSync(dir)) return;
+  const stat = fs.lstatSync(dir);
+  if (stat.isSymbolicLink()) refuseMigration(`refusing to copy symlink: ${dir}`);
+  if (stat.isDirectory()) {
+    for (const name of fs.readdirSync(dir)) walkFiles(path.join(dir, name), out);
+    return;
+  }
+  if (stat.isFile()) out.push(dir);
+}
+
+function legacyFiles(home) {
+  const files = [];
+    for (const name of LEGACY_FILES) {
+    const file = path.join(home, name);
+    if (!fs.existsSync(file)) continue;
+    if (fs.lstatSync(file).isSymbolicLink()) refuseMigration(`refusing to copy symlink: ${file}`);
+    files.push(file);
+  }
+  walkFiles(path.join(home, 'conversations'), files);
+  walkFiles(path.join(home, 'turns'), files);
+  return files;
+}
+
+function hashSet(home, files) {
+  const hashes = {};
+  for (const file of files) hashes[path.relative(home, file)] = hashFile(file);
+  return hashes;
+}
+
+function sameHashes(left, right) {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  for (const key of keys) if (left[key] !== right[key]) return false;
+  return true;
+}
+
+function orphanSidecar(home) {
+  return !fs.existsSync(path.join(home, DATABASE_NAME))
+    && (fs.existsSync(path.join(home, `${DATABASE_NAME}-wal`)) || fs.existsSync(path.join(home, `${DATABASE_NAME}-shm`)));
+}
+
+function copyFileDurable(from, to) {
+  fs.mkdirSync(path.dirname(to), { recursive: true });
+  fs.copyFileSync(from, to);
+  const fd = fs.openSync(to, 'r+');
+  try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+}
+
+function copyEntry(from, to) {
+  const stat = fs.lstatSync(from);
+  if (stat.isSymbolicLink()) refuseMigration(`refusing to copy symlink: ${from}`);
+  if (stat.isDirectory()) {
+    fs.mkdirSync(to, { recursive: true });
+    for (const name of fs.readdirSync(from)) copyEntry(path.join(from, name), path.join(to, name));
+    return;
+  }
+  copyFileDurable(from, to);
+}
+
+function copyLegacy(home, staging) {
+  for (const name of LEGACY_NAMES) {
+    const from = path.join(home, name);
+    if (fs.existsSync(from)) copyEntry(from, path.join(staging, name));
+  }
+}
+
+function mapStoredPath(value, home) {
+  if (typeof value !== 'string' || !value) return null;
+  const paths = ignitePaths(home);
+  const pairs = [
+    [path.join(home, 'conversations'), paths.conversations],
+    [path.join(home, 'turns'), paths.turns],
+    [path.join(home, DATABASE_NAME), paths.database],
+  ];
+  const normalized = path.normalize(value);
+  for (const [from, to] of pairs) {
+    if (normalized === from || normalized.startsWith(from + path.sep)) return to + normalized.slice(from.length);
+  }
+  const slash = value.replaceAll('\\', '/');
+  if (slash.startsWith('capabilities/tools/') && !slash.startsWith('rbtv/')) return `rbtv/${slash}`;
+  for (const [prefix, dest] of [['conversations', paths.conversations], ['turns', paths.turns], [DATABASE_NAME, paths.database]]) {
+    if (slash === prefix || slash.startsWith(`${prefix}/`)) {
+      return dest + slash.slice(prefix.length).replaceAll('/', path.sep);
+    }
+  }
+  return null;
+}
+
+function unmappableStorePath(value, home) {
+  if (typeof value !== 'string' || !path.isAbsolute(value) || mapStoredPath(value, home)) return false;
+  const parts = value.split(/[/\\]/);
+  return parts.includes('conversations') || parts.includes('turns') || parts.includes(DATABASE_NAME);
+}
+
+function rewriteNode(value, home, active, blocked, log, where) {
+  if (Array.isArray(value)) return value.map((item, index) => rewriteNode(item, home, active, blocked, log, `${where}[${index}]`));
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [key, child] of Object.entries(value)) out[key] = rewriteNode(child, home, active, blocked, log, `${where}.${key}`);
+    return out;
+  }
+  if (typeof value !== 'string') return value;
+  const mapped = mapStoredPath(value, home);
+  if (mapped) {
+    log.push({ where, old: value, new: mapped });
+    return mapped;
+  }
+  if (active && unmappableStorePath(value, home)) blocked.push(where);
+  return value;
+}
+
+function rewriteField(text, home, active, blocked, log, where) {
+  if (text == null) return { text, changed: false };
+  const before = log.length;
+  const raw = String(text);
+  let next;
+  try {
+    next = JSON.stringify(rewriteNode(JSON.parse(raw), home, active, blocked, log, where));
+  } catch {
+    next = rewriteNode(raw, home, active, blocked, log, where);
+  }
+  return log.length === before ? { text, changed: false } : { text: next, changed: true };
+}
+
+function tableCounts(db) {
+  const integrity = db.prepare('PRAGMA integrity_check').all().map((row) => row.integrity_check);
+  const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all();
+  const counts = {};
+  for (const { name } of tables) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) refuseMigration(`unexpected table name: ${name}`);
+    counts[name] = db.prepare(`SELECT COUNT(*) AS n FROM ${name}`).get().n;
+  }
+  return { integrity, counts };
+}
+
+function validateCopy(staging, home) {
+  const database = path.join(staging, DATABASE_NAME);
+  if (!fs.existsSync(database)) return;
+  const scratch = path.join(home, 'runtime', `.ignite-count-${path.basename(staging)}`);
+  fs.rmSync(scratch, { recursive: true, force: true });
+  fs.mkdirSync(scratch, { recursive: true });
+  try {
+  for (const name of LEGACY_FILES) {
+      const from = path.join(staging, name);
+      if (fs.existsSync(from)) copyFileDurable(from, path.join(scratch, name));
+    }
+    const { DatabaseSync } = require('node:sqlite');
+    const legacyDb = new DatabaseSync(path.join(scratch, DATABASE_NAME));
+    let legacyCounts;
+    try { legacyCounts = tableCounts(legacyDb).counts; } finally { legacyDb.close(); }
+    const staged = new DatabaseSync(database);
+    try {
+      const checked = tableCounts(staged);
+      if (checked.integrity.join(',') !== 'ok') refuseMigration(`staged database failed integrity_check: ${checked.integrity.join(',')}`);
+      const names = new Set([...Object.keys(legacyCounts), ...Object.keys(checked.counts)]);
+      for (const name of names) {
+        if (legacyCounts[name] !== checked.counts[name]) refuseMigration(`row count mismatch on ${name}`);
+      }
+      const blocked = [];
+      const log = [];
+      const rewrite = (table, id, column, text, active) => {
+        const next = rewriteField(text, home, active, blocked, log, `${table} ${id} ${column}`);
+        if (next.changed) staged.prepare(`UPDATE ${table} SET ${column}=? WHERE id=?`).run(String(next.text), id);
+      };
+      for (const row of staged.prepare('SELECT id, state, launch_snapshot, output FROM runs').all()) {
+        const active = row.state !== 'finished' && row.state !== 'failed';
+        rewrite('runs', row.id, 'launch_snapshot', row.launch_snapshot, active);
+        rewrite('runs', row.id, 'output', row.output, active);
+      }
+      for (const row of staged.prepare('SELECT id, state, payload FROM outbox').all()) {
+        rewrite('outbox', row.id, 'payload', row.payload, row.state !== 'delivered' && row.state !== 'failed');
+      }
+      for (const row of staged.prepare('SELECT id, files FROM messages').all()) {
+        rewrite('messages', row.id, 'files', row.files, false);
+      }
+      for (const row of staged.prepare('SELECT id, check_tool FROM schedules').all()) {
+        rewrite('schedules', row.id, 'check_tool', row.check_tool, false);
+      }
+      for (const row of staged.prepare('SELECT conversation_key, harness, session_id FROM conversation_sessions').all()) {
+        const where = `conversation_sessions ${row.conversation_key} ${row.harness} session_id`;
+        const next = rewriteField(row.session_id, home, false, blocked, log, where);
+        if (next.changed) {
+          staged.prepare('UPDATE conversation_sessions SET session_id=? WHERE conversation_key=? AND harness=?')
+            .run(String(next.text), row.conversation_key, row.harness);
+        }
+      }
+      if (blocked.length) refuseMigration(`cutover blocked: ${blocked.join('; ')}`);
+      const after = tableCounts(staged).counts;
+      for (const name of Object.keys(legacyCounts)) {
+        if (after[name] !== legacyCounts[name]) refuseMigration(`rewrite changed row count of ${name}`);
+      }
+      fs.writeFileSync(path.join(staging, 'path-map.jsonl'), `${log.map((line) => JSON.stringify(line)).join('\n')}${log.length ? '\n' : ''}`, 'utf8');
+    } finally {
+      staged.close();
+    }
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+function retireLegacy(home) {
+  const retention = path.join(home, 'runtime', 'ignite-premigration');
+  fs.mkdirSync(retention, { recursive: true });
+  for (const name of LEGACY_NAMES) {
+    const from = path.join(home, name);
+    if (!fs.existsSync(from)) continue;
+    const to = path.join(retention, name);
+    if (fs.existsSync(to)) refuseMigration(`retention already holds ${name}; refused`);
+    fs.renameSync(from, to);
+  }
+}
+
+function migrateAgentRuntime(home, options = {}) {
+  if (!options.workspace) refuseMigration('installation required to migrate an agent runtime');
+  const root = path.resolve(home);
+  if (!fs.statSync(root, { throwIfNoEntry: false })?.isDirectory()) refuseMigration(`agent folder not found: ${root}`);
+  const paths = ignitePaths(root);
+  const journalFile = path.join(root, 'runtime', '.ignite-migration.json');
+  const completionFile = path.join(root, 'runtime', 'ignite-migration.json');
+  const marker = fs.existsSync(paths.marker);
+  const legacy = legacyLayout(root);
+  if (!marker && orphanSidecar(root)) refuseMigration(`orphan sidecar at ${root}; refused. A sidecar without ${DATABASE_NAME} is not a live store`);
+  if (!marker && fs.existsSync(paths.root) && legacy.length) {
+    refuseMigration(`ambiguous Ignite layout at ${root}: runtime/ignite exists without ${MARKER_NAME} and legacy files remain; refused`);
+  }
+  if (!marker && !legacy.length) refuseMigration(`no legacy Ignite store at ${root}; a backup is not a live store`);
+  if (marker && !legacy.length) return { ok: true, already: true, database: paths.database, command: MIGRATION_COMMAND };
+  if (options.interruptAfter && !STAGES.includes(options.interruptAfter)) refuseMigration(`unknown stage: ${options.interruptAfter}`);
+  const { acquireLock, releaseLock } = require('./daemon.js');
+  const { runtimeFolder } = require('./memory-write.js');
+  const lockPath = path.join(runtimeFolder(options.workspace), 'daemon.lock');
+  let held;
+  let interrupted = null;
+  try {
+    held = acquireLock(lockPath);
+    fs.mkdirSync(path.dirname(migrationGuardPath(root)), { recursive: true });
+    fs.writeFileSync(migrationGuardPath(root), `${process.pid}\n`, 'utf8');
+    if (options.whileHeld) options.whileHeld();
+    publishRuntime(root, paths, journalFile, completionFile, options.interruptAfter);
+  } catch (error) {
+    if (error.interrupted) interrupted = error;
+    else throw error;
+  } finally {
+    try { fs.unlinkSync(migrationGuardPath(root)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    releaseLock(held);
+  }
+  if (interrupted) throw interrupted;
+  return { ok: true, database: paths.database, command: MIGRATION_COMMAND };
+}
+
+function checkpoint(journalFile, body, interruptAfter) {
+  writeJson(journalFile, body);
+  if (interruptAfter === body.stage) {
+    const error = new Error(`interrupted after ${body.stage}`);
+    error.interrupted = body.stage;
+    throw error;
+  }
+}
+
+function publishRuntime(root, paths, journalFile, completionFile, interruptAfter) {
+  if (fs.existsSync(paths.marker)) {
+    if (!fs.existsSync(completionFile)) {
+      const prior = readJson(journalFile);
+      writeJson(completionFile, { id: prior?.id || null, completed: true, command: MIGRATION_COMMAND });
+      checkpoint(journalFile, { ...(prior || {}), stage: 'completion-recorded' }, interruptAfter);
+    }
+    if (legacyLayout(root).length) {
+      retireLegacy(root);
+      const prior = readJson(journalFile) || {};
+      checkpoint(journalFile, { ...prior, stage: 'legacy-retired' }, interruptAfter);
+    }
+    return;
+  }
+  const runtimeDir = path.join(root, 'runtime');
+  const incoming = fs.existsSync(runtimeDir)
+    ? fs.readdirSync(runtimeDir).filter((name) => name.startsWith('.ignite-incoming-'))
+    : [];
+  const journal = readJson(journalFile);
+  if (incoming.length > 1 || (incoming.length === 1 && journal?.id !== incoming[0].slice('.ignite-incoming-'.length))) {
+    refuseMigration(`ambiguous staging at ${root}; refused`);
+  }
+  const id = journal?.id || randomUUID();
+  const staging = path.join(runtimeDir, `.ignite-incoming-${id}`);
+  if (!fs.existsSync(staging)) {
+    const files = legacyFiles(root);
+    const before = hashSet(root, files);
+    fs.mkdirSync(staging, { recursive: true });
+    copyLegacy(root, staging);
+    const after = hashSet(root, legacyFiles(root));
+    if (!sameHashes(before, after)) {
+      fs.rmSync(staging, { recursive: true, force: true });
+      refuseMigration('legacy files changed during copy; aborted');
+    }
+    checkpoint(journalFile, { id, stage: 'staged', hashes: before }, interruptAfter);
+  } else if (journal?.hashes && !sameHashes(journal.hashes, hashSet(root, legacyFiles(root)))) {
+    refuseMigration('legacy files changed after staging; aborted');
+  }
+  const recorded = readJson(journalFile);
+  if (recorded.stage === 'staged') {
+    validateCopy(staging, root);
+    const markerFile = path.join(staging, MARKER_NAME);
+    const fd = fs.openSync(markerFile, 'w', 0o600);
+    try {
+      fs.writeFileSync(fd, `MIGRATED ${id}\n`, 'utf8');
+      fs.fsyncSync(fd);
+    } finally { fs.closeSync(fd); }
+    checkpoint(journalFile, { ...recorded, stage: 'validated' }, interruptAfter);
+  }
+  if (!sameHashes(readJson(journalFile).hashes, hashSet(root, legacyFiles(root)))) {
+    refuseMigration('legacy files changed before publish; aborted');
+  }
+  if (!fs.existsSync(paths.root)) fs.renameSync(staging, paths.root);
+  checkpoint(journalFile, { ...readJson(journalFile), stage: 'renamed' }, interruptAfter);
+  if (!fs.existsSync(completionFile)) {
+    writeJson(completionFile, { id, completed: true, command: MIGRATION_COMMAND });
+  }
+  checkpoint(journalFile, { ...readJson(journalFile), stage: 'completion-recorded' }, interruptAfter);
+  retireLegacy(root);
+  checkpoint(journalFile, { ...readJson(journalFile), stage: 'legacy-retired' }, interruptAfter);
+}
+
+function cmdRuntime(rest, flags, deps) {
+  const [verb, ...extra] = rest;
+  if (verb !== 'migrate') fail(`runtime requires migrate\nNothing changed.\nignite runtime -h`);
+  parseOpts(extra, 'runtime migrate');
+  const located = resolveHome(flags, deps);
+  if (!located.workspace) fail('runtime migrate requires an installation; pass --installation PATH\nNothing changed.\nignite runtime migrate -h');
+  const result = migrateAgentRuntime(located.home, { workspace: located.workspace, slug: located.slug });
+  emit(deps, flags, result, `migrated ${located.slug}\n`);
+  return 0;
 }
 
 if (require.main === module) {
@@ -756,4 +1128,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { main, HELP, VERBS };
+module.exports = { main, HELP, VERBS, migrateAgentRuntime };

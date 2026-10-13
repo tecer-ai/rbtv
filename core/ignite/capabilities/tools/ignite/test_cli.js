@@ -90,7 +90,7 @@ test('cron + tz next-occurrence across a DST change', () => {
   const home = tempHome();
   fs.mkdirSync(path.dirname(boardPath(home)));
   fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   store.upsertConversation({ key: 'T1:C1:1.1', agent: 'a', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
   store.close();
   const added = run([
@@ -101,7 +101,7 @@ test('cron + tz next-occurrence across a DST change', () => {
     now: () => springFrom,
   });
   assert.equal(added.code, 0);
-  const check = new Store(path.join(home, 'state.sqlite'));
+  const check = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   try {
     const row = check.listSchedules()[0];
     assert.equal(row.timezone, 'America/New_York');
@@ -122,7 +122,7 @@ test('--every without tz documented as fixed-interval', () => {
   const home = tempHome();
   fs.mkdirSync(path.dirname(boardPath(home)));
   fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   store.upsertConversation({ key: 'T1:C1:1.1', agent: 'a', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
   store.close();
   const from = Date.parse('2026-03-08T01:30:00-05:00');
@@ -130,7 +130,7 @@ test('--every without tz documented as fixed-interval', () => {
     'schedule', 'add', '--every', '90m', '--note', 'interval', '--conversation', 'T1:C1:1.1',
   ], { env: { RBTV_AGENT_HOME: home }, now: () => from });
   assert.equal(added.code, 0);
-  const check = new Store(path.join(home, 'state.sqlite'));
+  const check = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   try {
     const row = check.listSchedules()[0];
     assert.equal(row.timezone, FIXED_TZ);
@@ -147,7 +147,7 @@ test('--every without tz documented as fixed-interval', () => {
 
 test('due-dedupe', () => {
   const home = tempHome();
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   const key = 'T1:C1:1.1';
   store.upsertConversation({ key, agent: 'a', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
   const heldId = holdWork(store, key, 'q-held', 'work');
@@ -184,7 +184,7 @@ test('due-dedupe', () => {
   assert.equal(held.reason, 'held');
   assert.equal(stopped.inserted, false);
   assert.equal(stopped.reason, 'stopped');
-  const mid = new Store(path.join(home, 'state.sqlite'));
+  const mid = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   try {
     const pending = mid.db.prepare(`SELECT id FROM queue WHERE kind='schedule' AND state='pending'`).all();
     assert.equal(pending.length, 1);
@@ -202,7 +202,7 @@ test('due-dedupe', () => {
   assert.equal(again.results.some((row) => row.id === 'due-open'), false);
   assert.equal(again.results.find((row) => row.id === 'due-held').reason, 'held');
   assert.equal(again.results.find((row) => row.id === 'due-stopped').reason, 'stopped');
-  const end = new Store(path.join(home, 'state.sqlite'));
+  const end = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   try {
     const pending = end.db.prepare(`SELECT id FROM queue WHERE kind='schedule' AND state='pending'`).all();
     assert.equal(pending.length, 1);
@@ -214,7 +214,7 @@ test('due-dedupe', () => {
 
 test('each recurring due starts fresh even after delivery rekeys the wake', () => {
   const home = tempHome();
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   const key = 'T1:C1:1.1';
   const env = { RBTV_AGENT_HOME: home };
   try {
@@ -253,7 +253,7 @@ test('each recurring due starts fresh even after delivery rekeys the wake', () =
 
 test('retry clears only the named hold', () => {
   const home = tempHome();
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   const key = 'T1:C1:1.1';
   const other = 'T1:C2:2.2';
   const third = 'T1:C3:3.3';
@@ -269,7 +269,7 @@ test('retry clears only the named hold', () => {
   store.close();
   const result = run(['work', 'retry', first], { env: { RBTV_AGENT_HOME: home } });
   assert.equal(result.code, 0);
-  const check = new Store(path.join(home, 'state.sqlite'));
+  const check = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   try {
     assert.equal(check.getWork(first).state, 'open');
     assert.equal(check.getWork(second).state, 'held');
@@ -288,7 +288,7 @@ test('post association', () => {
   });
   assert.equal(routed.code, 0);
   assert.match(routed.out, /activated/);
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   try {
     const pending = store.pendingOutbox();
     assert.equal(pending.length, 1);
@@ -304,7 +304,7 @@ test('post association', () => {
   }
   const dm = run(['post', '--text', 'dm note', '--audio'], { env: { RBTV_AGENT_HOME: dmHome } });
   assert.equal(dm.code, 0);
-  const dmStore = new Store(path.join(dmHome, 'state.sqlite'));
+  const dmStore = new Store(path.join(dmHome, 'runtime', 'ignite', 'state.sqlite'));
   try {
     const pending = dmStore.pendingOutbox();
     assert.equal(pending.length, 1);
@@ -325,7 +325,7 @@ test('post --thread selects stored channel and DM history without opening a new 
   try {
     for (const [slug, channel] of [['sample', 'C9'], ['master', 'D1']]) {
       const home = writeConfig(workspace, slug, { C9: 'sample' });
-      const store = new Store(path.join(home, 'state.sqlite'));
+      const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
       const key = `T1:${channel}:1.1`;
       try {
         store.upsertConversation({ key, agent: slug, workspace: 'T1', channel, rootTs: '1.1' });
@@ -366,7 +366,7 @@ test('post --thread selects stored channel and DM history without opening a new 
 test('post --thread refuses unknown, ambiguous and unbound targets without queueing', () => {
   const workspace = tempHome();
   const home = writeConfig(workspace, 'sample', { C9: 'sample' });
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   const env = { RBTV_AGENT_HOME: home };
   try {
     for (const channel of ['C9', 'C8']) {
@@ -445,7 +445,7 @@ test('schedule list and work status pages describe what the commands print', () 
   try {
     fs.mkdirSync(path.dirname(boardPath(home)));
     fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
-    const store = new Store(path.join(home, 'state.sqlite'));
+    const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
     store.upsertConversation({ key: 'T1:C1:1.1', agent: 'a', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
     store.close();
     const env = { RBTV_AGENT_HOME: home };
@@ -483,7 +483,7 @@ function refusals(name, cases) {
       fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
       const candidate = path.join(workspace, 'candidate.md');
       fs.writeFileSync(candidate, EMPTY_BOARD, 'utf8');
-      const db = path.join(home, 'state.sqlite');
+      const db = path.join(home, 'runtime', 'ignite', 'state.sqlite');
       const store = new Store(db);
       store.upsertConversation({ key: OPTION_KEY, agent: 'sample', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
       store.upsertSchedule({ id: 'existing', conversationKey: OPTION_KEY, cadence: 'every:1h', timezone: FIXED_TZ, nextAt: 1000, note: 'Original' });
@@ -636,7 +636,7 @@ test('an existing agent folder with no database gets one from a read', () => {
       const home = writeConfig(workspace, 'sample', { C1: 'sample' });
       const result = run([...args, '--agent', 'sample', '--installation', workspace], { env: {} });
       assert.equal(result.code, 0, args.join(' '));
-      assert.equal(fs.existsSync(path.join(home, 'state.sqlite')), true, args.join(' '));
+      assert.equal(fs.existsSync(path.join(home, 'runtime', 'ignite', 'state.sqlite')), true, args.join(' '));
     } finally { fs.rmSync(workspace, { recursive: true, force: true }); }
   }
 });
@@ -645,7 +645,7 @@ test('schedule change refuses each empty note schedule add refuses', () => {
   const home = tempHome();
   fs.mkdirSync(path.dirname(boardPath(home)));
   fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   const deps = { env: { RBTV_AGENT_HOME: home, IGNITE_CONVERSATION: OPTION_KEY } };
   try {
     store.upsertConversation({ key: OPTION_KEY, agent: 'sample', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
@@ -706,7 +706,7 @@ test('board write uses the current path, reports unchanged, and opens no databas
     assert.deepEqual(JSON.parse(repeat.out), { path: file, changed: false });
     assert.equal(run(['board', 'write', '--file', candidate], deps).out, `unchanged ${file}\n`);
     assert.equal(fs.existsSync(path.join(home, 'board.md')), false);
-    assert.equal(fs.existsSync(path.join(home, 'state.sqlite')), false);
+    assert.equal(fs.existsSync(path.join(home, 'runtime', 'ignite', 'state.sqlite')), false);
   });
 });
 
@@ -769,7 +769,7 @@ test('board rejects invalid arguments, missing input and missing home', () => {
     assert.deepEqual(JSON.parse(missing.out), { path: null, error: '--agent or RBTV_AGENT_HOME required' });
     assert.equal(fs.existsSync(path.join(home, 'board.md')), false);
     assert.equal(fs.existsSync(boardPath(home)), false);
-    assert.equal(fs.existsSync(path.join(home, 'state.sqlite')), false);
+    assert.equal(fs.existsSync(path.join(home, 'runtime', 'ignite', 'state.sqlite')), false);
   });
 });
 
@@ -818,7 +818,7 @@ test('board resolves explicit workspace and gives RBTV_AGENT_HOME precedence', (
     const overridden = run(['--agent', 'other', '--installation', workspace, 'board', 'write', '--file', candidate], deps);
     assert.equal(overridden.code, 0);
     assert.ok(fs.existsSync(file));
-    assert.equal(fs.existsSync(path.join(home, 'state.sqlite')), false);
+    assert.equal(fs.existsSync(path.join(home, 'runtime', 'ignite', 'state.sqlite')), false);
   });
 });
 
@@ -857,7 +857,7 @@ test('schedule subjects and generated timers survive changes and dues; cancellat
   const home = tempHome();
   fs.mkdirSync(path.dirname(boardPath(home)));
   fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   const key = 'T1:C1:1.1';
   const now = Date.parse('2026-10-01T12:00:00Z');
   const deps = { env: { RBTV_AGENT_HOME: home, IGNITE_CONVERSATION: key }, now: () => now };
@@ -900,7 +900,7 @@ test('schedule check tool: add, change and list carry it; a refused value change
   const home = tempHome();
   fs.mkdirSync(path.dirname(boardPath(home)));
   fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   const key = 'T1:C1:board';
   const deps = { env: { RBTV_AGENT_HOME: home, IGNITE_CONVERSATION: key }, now: () => Date.parse('2026-10-03T12:00:00Z') };
   const add = (...extra) => JSON.parse(run(['schedule', 'add', '--every', '5m', '--note', 'n', ...extra, '--json'], deps).out).schedule;
@@ -948,7 +948,7 @@ test('schedule check tool: add, change and list carry it; a refused value change
 
 test('schedules-due wakes every timer due together, records one occurrence once, and leaves refused and check timers due', () => {
   const home = tempHome();
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   const key = 'T1:C1:board';
   const env = { RBTV_AGENT_HOME: home };
   const due = (at) => JSON.parse(run(['schedules-due', '--now', at, '--json'], { env }).out).results;
@@ -1017,7 +1017,7 @@ test('remember appends UTF-8 once with thread provenance and leaves learned rule
     assert.deepEqual(JSON.parse(result.out), { path: file, appended: true, lines: 1, warning: null });
     assert.equal(fs.readFileSync(file, 'utf8'), '- Café in the afternoon (2026-10-01 · sample/[thread](https://app.slack.com/archives/C9/p123456))\n');
     assert.equal(fs.readFileSync(learned, 'utf8'), '# Learned rules — sample\n');
-    assert.equal(fs.existsSync(path.join(home, 'state.sqlite')), false);
+    assert.equal(fs.existsSync(path.join(home, 'runtime', 'ignite', 'state.sqlite')), false);
     assert.equal(run(['remember', 'Several', 'words'], { env }).out, `remembered in ${file}\n`);
     assert.equal(run(['remember', '--', '--help'], { env }).code, 0);
     assert.match(fs.readFileSync(file, 'utf8'), /- --help /);
@@ -1050,7 +1050,7 @@ test('remember rejects empty normalized text before setup or writes', () => {
       }
       if (existing) assert.equal(fs.readFileSync(file, 'utf8'), before);
       else assert.equal(fs.existsSync(memory), false);
-      assert.equal(fs.existsSync(path.join(home, 'state.sqlite')), false);
+      assert.equal(fs.existsSync(path.join(home, 'runtime', 'ignite', 'state.sqlite')), false);
     }
   } finally { fs.rmSync(workspace, { recursive: true, force: true }); }
 });
@@ -1075,7 +1075,7 @@ test('remember never refuses broken or overfull inboxes and queues owner alerts 
   try {
     for (const [slug, key] of [['sample', 'T1:C9:1.1'], ['master', null]]) {
       const home = writeConfig(workspace, slug, { C9: 'sample' });
-      const store = new Store(path.join(home, 'state.sqlite'));
+      const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
       try {
         if (key) store.upsertConversation({ key, agent: slug, workspace: 'T1', channel: 'C9', rootTs: '1.1' });
         const file = path.join(workspace, '.rbtv', 'memory', 'inbox.md');
@@ -1165,7 +1165,7 @@ for (const state of ['deleted', 'invalid']) {
   for (const args of [['add', '--every', '1h', '--note', 'New'], ['change', 'existing', '--note', 'Changed'], ['cancel', 'existing']]) {
     test(`${state} board refuses schedule ${args[0]} with SQLite unchanged`, () => {
       const home = tempHome();
-      const db = path.join(home, 'state.sqlite');
+      const db = path.join(home, 'runtime', 'ignite', 'state.sqlite');
       const file = boardPath(home);
       try {
         const store = new Store(db);
@@ -1188,7 +1188,7 @@ for (const state of ['deleted', 'invalid']) {
         assert.ok(result.stderr.startsWith(`board refused: ${file}: `));
         if (state === 'deleted') assert.equal(result.stderr, `board refused: ${file}: board is missing\n`);
         assert.deepEqual(fs.readFileSync(db), before);
-        assert.deepEqual(fs.readdirSync(home).filter((name) => name.startsWith('state.sqlite')), ['state.sqlite']);
+        assert.deepEqual(fs.readdirSync(path.dirname(db)).filter((name) => name.startsWith('state.sqlite')), ['state.sqlite']);
         if (state === 'deleted') assert.equal(fs.existsSync(file), false);
         else assert.equal(fs.readFileSync(file, 'utf8'), 'invalid board café\r\n');
       } finally { fs.rmSync(home, { recursive: true, force: true }); }
@@ -1206,7 +1206,7 @@ for (const state of ['deleted', 'invalid']) {
       for (const args of [['add', '--every', '1h', '--note', 'New'], ['change', 'existing', '--note', 'Changed'], ['cancel', 'existing']]) {
         assert.throws(() => run(['schedule', ...args], { env: { RBTV_AGENT_HOME: home, IGNITE_CONVERSATION: 'k' } }),
           (error) => error.message.startsWith(`board refused: ${file}: `));
-        assert.equal(fs.existsSync(path.join(home, 'state.sqlite')), false);
+        assert.equal(fs.existsSync(path.join(home, 'runtime', 'ignite', 'state.sqlite')), false);
       }
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
   });
@@ -1216,7 +1216,7 @@ for (const json of [false, true]) {
   for (const action of ['add', 'change', 'cancel']) test(`schedule ${action} reports committed with refresh pending in ${json ? 'JSON' : 'text'} mode`, () => {
     boardFixture(({ home, file, candidate, text, deps }) => {
       run(['board', 'write', '--file', candidate], deps);
-      const store = new Store(path.join(home, 'state.sqlite'));
+      const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
       const method = action === 'cancel' ? 'deleteSchedule' : 'upsertSchedule';
       const original = Store.prototype[method];
       let release;
@@ -1274,7 +1274,7 @@ test('schedule executable exits zero after commit when a competing holder blocks
   const home = path.join(workspace, '.rbtv', 'agents', 'sample');
   fs.mkdirSync(path.dirname(boardPath(home)), { recursive: true });
   fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   const release = acquireMemoryLock(workspace);
   try {
     store.upsertConversation({ key: 'k', agent: 'sample', workspace: 'T1', channel: 'C1' });
@@ -1338,13 +1338,13 @@ function dreamerInstall(enabled = false, model = DREAMER_TEST_MODEL) {
   fs.writeFileSync(path.join(dir, '.rbtv', 'memory', 'inbox.md'), '# Inbox — waiting to be filed\n', 'utf8');
   fs.mkdirSync(path.dirname(boardPath(home)), { recursive: true });
   fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   store.close();
   return { dir, home };
 }
 
 function addOwner(home) {
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   try {
     store.upsertConversation({ key: 'T1:D1:1.000000', agent: 'master', workspace: 'T1', channel: 'D1', rootTs: '1.000000' });
     store.recordMessage('T1:D1:1.000000', {
@@ -1569,7 +1569,7 @@ async function finishCli() {
       assert.equal(body.delivered, false);
       assert.equal(body.conflictsSaved, false);
       assert.equal(body.busy, false);
-      const store = new Store(path.join(home, 'state.sqlite'));
+      const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
       try {
         const pending = store.pendingOutbox();
         assert.equal(pending.length, 1);
@@ -1593,7 +1593,7 @@ async function finishCli() {
       const body = JSON.parse(result.out);
       assert.equal(body.digestQueued, false); assert.equal(body.noticeQueued, true);
       assert.equal(body.delivered, false); assert.equal(body.conflictsSaved, false);
-      const store = new Store(path.join(home, 'state.sqlite'));
+      const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
       try { assert.equal(store.pendingOutbox()[0].payload.text, `Memory alert: ${body.alert}`); }
       finally { store.close(); }
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
@@ -1624,7 +1624,7 @@ async function finishCli() {
       assert.equal(body.noticeQueued, true); assert.equal(body.digestQueued, false);
       assert.equal(result.out.includes('private-fixture'), false);
       assert.equal(fs.existsSync(path.join(dir, name)), false);
-      const store = new Store(path.join(home, 'state.sqlite'));
+      const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
       try {
         assert.equal(store.pendingOutbox()[0].payload.text, `Memory alert: ${body.alert}`);
         assert.equal(getState(store).cursor, 0);
@@ -1645,7 +1645,7 @@ async function finishCli() {
   await testAsync('dreamer run returns busy when the installation lock is held', async () => {
     const { dir, home } = dreamerInstall(false);
     const previous = Date.parse('2026-10-01T00:00:00Z');
-    const store = new Store(path.join(home, 'state.sqlite'));
+    const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
     store.db.prepare("INSERT INTO settings(key, value, updated_at) VALUES ('dreamer', ?, ?)")
       .run(JSON.stringify({ cursor: 0, lastSuccessAt: previous, commit: null }), previous);
     store.close();
@@ -1663,7 +1663,7 @@ async function finishCli() {
       assert.equal(body.ok, false);
       assert.match(body.error, /lock busy/);
       assert.match(body.note, /dreamer.enabled is false/);
-      const after = new Store(path.join(home, 'state.sqlite'));
+      const after = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
       try {
         assert.equal(after.pendingOutbox().length, 0);
         assert.equal(getState(after).lastSuccessAt, previous);

@@ -285,7 +285,7 @@ function runtimeBoard(text, fn) {
     const file = boardPath(home);
     fs.mkdirSync(path.dirname(file));
     fs.writeFileSync(file, text, 'utf8');
-    const store = new Store(path.join(home, 'state.sqlite'));
+    const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
     try { fn({ home, file, store }); } finally { store.close(); }
   });
 }

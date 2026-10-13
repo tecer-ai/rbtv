@@ -166,7 +166,7 @@ function harness(ctx, setting = {}) {
   fs.writeFileSync(path.join(memory, 'profile.md'), '# Profile — Sam\n\n## Who\n- PROFILE_TOKEN. (2026-10-01 · source.md)\n\n## Working with Sam\n\n## Now\n', 'utf8');
   fs.writeFileSync(path.join(memory, 'inbox.md'), '# Inbox — waiting to be filed\n- INBOX_TOKEN. (2026-10-01 · master)\n', 'utf8');
   fs.writeFileSync(path.join(memory, '_artifacts', 'index.md'), '# Memory index\n| Open | When |\n|---|---|\n| [../knowledge/](../knowledge/) | WHEN needed. |\n', 'utf8');
-  const store = ctx.track(new Store(path.join(home, 'state.sqlite')));
+  const store = ctx.track(new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite')));
   const controlPath = path.join(ctx.dir, 'control.json');
   const seenPath = path.join(ctx.dir, 'seen.jsonl');
   fs.writeFileSync(seenPath, '');
@@ -321,7 +321,7 @@ test('request carries systemPromptFile', async (ctx) => {
   seed(box.store, { text: 'hello' });
   box.sync();
   const result = await runOnce('master', box.deps);
-  const request = JSON.parse(fs.readFileSync(path.join(home, 'turns', result.runId, 'request.json'), 'utf8'));
+  const request = JSON.parse(fs.readFileSync(path.join(home, 'runtime', 'ignite', 'turns', result.runId, 'request.json'), 'utf8'));
   assert.equal(request.systemPromptFile, agentMd);
   assert.equal(request.agentHome, home);
   assert.equal(path.isAbsolute(request.systemPromptFile), true);
@@ -346,7 +346,7 @@ test('live-PID refusal', async (ctx) => {
 
 test('restart recovery from a DB with a pending queue and an unfinished work item', async (ctx) => {
   const box = harness(ctx);
-  const db = path.join(box.home, 'state.sqlite');
+  const db = path.join(box.home, 'runtime', 'ignite', 'state.sqlite');
   const seeded = seed(box.store, { text: 'still open' });
   assert.equal(box.store.getWork(seeded.workId).state, 'open');
   box.store.close();
@@ -1052,7 +1052,7 @@ test('launch failure holds the agent', async (ctx) => {
 
 test('history folder name is Windows-valid', async (ctx) => {
   const home = path.join(ctx.dir, 'agent');
-  const store = ctx.track(new Store(path.join(home, 'state.sqlite')));
+  const store = ctx.track(new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite')));
   const key = 'T1:C1:1790563641.107349';
   store.upsertConversation({
     key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs: '1790563641.107349', activated: true,
@@ -1061,7 +1061,7 @@ test('history folder name is Windows-valid', async (ctx) => {
   const folder = path.basename(path.dirname(file));
   assert.equal(folder, 'T1-C1-1790563641.107349');
   assert.equal(/[:*?"<>|\\]/.test(folder), false);
-  assert.equal(fs.existsSync(path.join(home, 'conversations', key)), false);
+  assert.equal(fs.existsSync(path.join(home, 'runtime', 'ignite', 'conversations', key)), false);
   assert.equal(fs.existsSync(file), true);
   assert.equal(historyPath(home, key), file);
 });
@@ -1069,7 +1069,7 @@ test('history folder name is Windows-valid', async (ctx) => {
 linuxOnly('old colon history folder is found', 'a folder name with colons cannot exist on Windows', async (ctx) => {
   const home = path.join(ctx.dir, 'agent');
   const key = 'T1:C1:1.1';
-  const legacy = path.join(home, 'conversations', key);
+  const legacy = path.join(home, 'runtime', 'ignite', 'conversations', key);
   fs.mkdirSync(legacy, { recursive: true });
   fs.writeFileSync(path.join(legacy, 'history.md'), 'LEGACY_MARKER\n');
   const file = historyPath(home, key);

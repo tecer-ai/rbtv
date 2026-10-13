@@ -752,4 +752,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { start, expiredUntilDate, runInstalledDreamer };
+module.exports = { start, expiredUntilDate, runInstalledDreamer, acquireLock, releaseLock };

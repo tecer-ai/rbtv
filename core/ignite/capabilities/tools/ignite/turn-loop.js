@@ -20,6 +20,7 @@ const { procStart } = require('../../../../cast/capabilities/tools/cast/lib/hand
 const castAgent = require('../../../../cast/capabilities/tools/cast/lib/agent');
 const { composeTurn, readTurnMemory } = require('./prompt.js');
 const { DEFAULT_HISTORY_WINDOW, historyPath, listAll, writeHistory } = require('./history.js');
+const { ignitePaths, resolveIgniteRuntime } = require('./config.js');
 const fallback = require('./fallback.js');
 
 const AUDIO_EXT = new Set(['mp3', 'm4a', 'wav', 'ogg', 'webm', 'flac', 'aac', 'mpeg', 'mp4', 'mpga']);
@@ -238,7 +239,8 @@ async function runOnce(slug, deps) {
 async function execute(slug, claim, deps) {
   const store = deps.store;
   const home = fs.realpathSync(deps.home);
-  const dir = path.join(home, 'turns', claim.runId);
+  resolveIgniteRuntime(home);
+  const dir = path.join(ignitePaths(home).turns, claim.runId);
   fs.mkdirSync(dir, { recursive: true });
   const prepared = await preprocess(claim, deps, path.join(dir, 'files'));
   const conv = store.getConversation(claim.conversation_key);

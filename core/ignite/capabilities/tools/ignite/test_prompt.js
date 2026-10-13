@@ -45,7 +45,7 @@ test('missing and unreadable boards are visible and never fall back over a new p
 test('readBoard refreshes schedules before returning prompt text', (home) => {
   fs.mkdirSync(path.dirname(boardPath(home)));
   fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   try {
     store.upsertConversation({ key: 'k', agent: 'sample', workspace: 'T1', channel: 'C1' });
     store.upsertSchedule({ id: 'check', conversationKey: 'k', cadence: 'every:1h', timezone: 'fixed',
@@ -58,7 +58,7 @@ test('readBoard refreshes schedules before returning prompt text', (home) => {
 test('a broken board is saved and replaced by a missing note when HEAD is unavailable', (home) => {
   fs.mkdirSync(path.dirname(boardPath(home)));
   fs.writeFileSync(boardPath(home), 'legacy café\r\n', 'utf8');
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   try {
     const alerts = [];
     const text = readBoard(home, store, Date.now(), alerts);
@@ -147,7 +147,7 @@ test('HEAD board recovery still renders live timers without rewriting the broken
     assert.equal(result.status, 0, result.stderr);
   }
   write(boardPath(home), 'broken board');
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   try {
     store.upsertConversation({ key: 'k', agent: 'sample', workspace: 'T1', channel: 'C1' });
     store.upsertSchedule({ id: 'live-timer', conversationKey: 'k', cadence: 'every:1h', timezone: 'fixed', nextAt: Date.now(), note: 'Current note' });

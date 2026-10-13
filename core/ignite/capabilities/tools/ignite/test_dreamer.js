@@ -61,7 +61,7 @@ function fixture(slugs = ['master']) {
     write(boardPath(slug), EMPTY_BOARD);
     write(learnedPath(slug), `# Learned rules — ${slug}\n`);
     write(`${own(slug)}prompt.md`, `Owner instructions — ${slug}\r\n`);
-    stores.set(slug, new Store(path.join(workspace, own(slug), 'state.sqlite')));
+    stores.set(slug, new Store(path.join(workspace, own(slug), 'runtime', 'ignite', 'state.sqlite')));
   }
   git('add', '--', '.gitignore', '.rbtv/memory', ...slugs.map(own));
   git('commit', '-qm', 'Fixture');
@@ -105,7 +105,7 @@ test('owner-only input, one scoped commit, persisted rowid cursor and untouched 
   assert.equal(getState(f.stores.get('master')).commit, result.commit);
   assert.equal(result.digest.agent, 'master');
   assert.match(f.read(`${ROOT}knowledge/facts.md`), /português — café/);
-  const reopened = new Store(path.join(f.workspace, own(), 'state.sqlite'));
+  const reopened = new Store(path.join(f.workspace, own(), 'runtime', 'ignite', 'state.sqlite'));
   try { assert.equal(getState(reopened).cursor, owner); } finally { reopened.close(); }
 });
 
@@ -1082,7 +1082,7 @@ test('reported conflicts persist across reopened stores and only new conflicts a
   // Simulate the daemon acknowledging a delivered digest.
   saveState(store, { ...getState(store), reportedConflicts: first.digest.conflicts }, NOW);
   f.stores.get('master').close();
-  f.stores.set('master', new Store(path.join(f.workspace, own(), 'state.sqlite')));
+  f.stores.set('master', new Store(path.join(f.workspace, own(), 'runtime', 'ignite', 'state.sqlite')));
   const second = await f.run((input) => {
     assert.deepEqual(input.reportedConflicts, [old]);
     return { operations: [], conflicts: [old] };

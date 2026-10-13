@@ -736,6 +736,12 @@ test('lastOwnerReply excludes root, other threads, non-owner and synthetic rows'
   assert.equal(store.lastOwnerReply('C1', '1.1', 5000), 5000);
 });
 
+test('agent database path is runtime/ignite/state.sqlite', () => {
+  const { ignitePaths } = require('./config.js');
+  const home = path.join(os.tmpdir(), 'agent-home');
+  assert.equal(ignitePaths(home).database, path.join(home, 'runtime', 'ignite', 'state.sqlite'));
+});
+
 test('pendingScheduleIds retains a running wake and drops completed wakes', (store) => {
   conv(store);
   assert.deepEqual(store.pendingScheduleIds(), []);

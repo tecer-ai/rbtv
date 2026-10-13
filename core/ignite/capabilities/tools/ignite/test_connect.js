@@ -49,13 +49,13 @@ function writeConfig(dir, extra = {}) {
 
 function installAgent(dir, name = 'probe') {
   const home = path.join(dir, '.rbtv', 'agents', name);
-  fs.mkdirSync(path.join(home, 'conversations'), { recursive: true });
+  fs.mkdirSync(path.join(home, 'runtime', 'ignite', 'conversations'), { recursive: true });
   fs.writeFileSync(path.join(home, 'prompt.md'), `---\nname: ${name}\n---\n\n## Role\n\nFixture.\n`);
   fs.writeFileSync(path.join(home, 'agent.json'), JSON.stringify({
     name, description: 'fixture', harness: 'claude', model: 'm', effort: 'high',
     files: ['fixture/a#one', 'fixture/a#two', 'fixture/a#web'], packs: ['research-kit'],
   }) + '\n');
-  fs.writeFileSync(path.join(home, 'conversations', 'kept.md'), 'history\n');
+  fs.writeFileSync(path.join(home, 'runtime', 'ignite', 'conversations', 'kept.md'), 'history\n');
   fs.mkdirSync(path.dirname(boardPath(home)), { recursive: true });
   fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
   return home;
@@ -180,7 +180,7 @@ async function run(argv, extra = {}) {
     assert.equal(result.code, 0, result.out + result.err);
     const board = fs.readFileSync(boardPath(home), 'utf8');
     assert.equal(fs.existsSync(path.join(home, 'board.md')), false);
-    const store = new Store(path.join(home, 'state.sqlite'));
+    const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
     try {
       const rows = store.listSchedules();
       assert.equal(rows.length, 1);
@@ -203,7 +203,7 @@ async function run(argv, extra = {}) {
     fs.writeFileSync(schedule, JSON.stringify({ every: '5m', tz: 'fixed', note: 'new mail', check: 'tools\\mail-check.js' }));
     const plan = await run([...args, '--dry-run'], { slack: fakeSlack(), now });
     assert.match(plan.out, /schedule: every:5m fixed check=tools\/mail-check\.js\n/);
-    assert.equal(fs.existsSync(path.join(home, 'state.sqlite')), false);
+    assert.equal(fs.existsSync(path.join(home, 'runtime', 'ignite', 'state.sqlite')), false);
     const result = await run([...args, '--json'], { slack: fakeSlack(), now });
     assert.equal(result.code, 0, result.out + result.err);
     const { scheduleId } = JSON.parse(result.out);
@@ -211,7 +211,7 @@ async function run(argv, extra = {}) {
     const second = await run(['schedule', 'add', '--every', '5m', '--note', 'transcripts', '--check', 'meeting-check',
       '--conversation', 'T1:CNEW:board', '--json'], { env, now });
     assert.equal(JSON.parse(second.out).schedule.check_tool, 'meeting-check');
-    const store = new Store(path.join(home, 'state.sqlite'));
+    const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
     try {
       const first = store.getSchedule(scheduleId);
       assert.deepEqual([first.check_tool, first.note, first.conversation_key], ['tools/mail-check.js', 'new mail', 'T1:CNEW:board']);
@@ -228,7 +228,7 @@ async function run(argv, extra = {}) {
     const schedule = path.join(dir, 'schedule.json');
     const args = ['connect', 'probe', '--dm', '--schedule-json', schedule, '--installation', dir, '--json'];
     const bound = () => {
-      const store = new Store(path.join(home, 'state.sqlite'));
+      const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
       try { return store.listSchedules(); } finally { store.close(); }
     };
     fs.writeFileSync(schedule, JSON.stringify({ every: '1h', tz: 'fixed', note: 'plain' }));
@@ -257,7 +257,7 @@ async function run(argv, extra = {}) {
         { slack, install: fakeInstaller(calls) }), /--schedule-json check must/, JSON.stringify(bad));
       assert.equal(slack.calls.length, 0);
       assert.equal(calls.length, 0);
-      assert.equal(fs.existsSync(path.join(home, 'state.sqlite')), false);
+      assert.equal(fs.existsSync(path.join(home, 'runtime', 'ignite', 'state.sqlite')), false);
       assert.equal(fs.readFileSync(configFile, 'utf8'), config);
       assert.equal(fs.readFileSync(path.join(home, 'agent.json'), 'utf8'), agent);
       fs.rmSync(dir, { recursive: true, force: true });
@@ -306,7 +306,7 @@ async function run(argv, extra = {}) {
       writeConfig(dir);
       const home = installAgent(dir);
       const file = boardPath(home);
-      const db = path.join(home, 'state.sqlite');
+      const db = path.join(home, 'runtime', 'ignite', 'state.sqlite');
       try {
         if (existing) {
           const store = new Store(db);
@@ -339,7 +339,7 @@ async function run(argv, extra = {}) {
     const dir = workspace();
     writeConfig(dir, { dmAgent: 'probe' });
     const home = installAgent(dir);
-    const store = new Store(path.join(home, 'state.sqlite'));
+    const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
     try {
       store.upsertConversation({ key: 'k', agent: 'probe', workspace: 'T1', channel: 'C1' });
       store.upsertSchedule({ id: 'existing', conversationKey: 'k', cadence: 'every:1h', timezone: 'fixed', nextAt: 1000 });
@@ -362,7 +362,7 @@ async function run(argv, extra = {}) {
       fs.writeFileSync(schedule, JSON.stringify({ every: '1h', tz: 'fixed', note: 'Original' }), 'utf8');
       const args = ['connect', 'probe', '--dm', '--schedule-json', schedule, '--installation', dir];
       const deps = { slack: fakeSlack() };
-      const store = new Store(path.join(home, 'state.sqlite'));
+      const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
       const method = action === 'cancel' ? 'deleteSchedule' : 'upsertSchedule';
       const original = Store.prototype[method];
       let release;
@@ -471,9 +471,9 @@ async function run(argv, extra = {}) {
     assert.equal(readConfig(dir).dmAgent, undefined);
     assert.equal(slack.calls.some((call) => call[0] === 'archive' && call[1] === 'CNEW'), true);
     assert.equal(fs.existsSync(path.join(home, 'prompt.md')), true);
-    assert.equal(fs.readFileSync(path.join(home, 'conversations', 'kept.md'), 'utf8'), 'history\n');
+    assert.equal(fs.readFileSync(path.join(home, 'runtime', 'ignite', 'conversations', 'kept.md'), 'utf8'), 'history\n');
     assert.match(removed.out, /home: kept/);
-    const store = new Store(path.join(home, 'state.sqlite'));
+    const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
     try {
       assert.equal(store.listSchedules().length, 0);
       assert.equal(parseBoard(fs.readFileSync(boardPath(home), 'utf8')).timers.length, 2);
@@ -522,7 +522,7 @@ async function run(argv, extra = {}) {
       assert.match(result.out, /pack: ignite/);
       assert.match(result.out, /files: 0 -> 10/);
       assert.equal(fs.readFileSync(statePath, 'utf8'), before);
-      assert.equal(fs.existsSync(path.join(home, 'state.sqlite')), false);
+      assert.equal(fs.existsSync(path.join(home, 'runtime', 'ignite', 'state.sqlite')), false);
     } finally {
       process.env.PATH = oldPath;
       fs.rmSync(dir, { recursive: true, force: true });

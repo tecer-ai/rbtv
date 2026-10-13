@@ -53,7 +53,7 @@ function harness(history = []) {
   function openStore(slug) {
     opened.push(slug);
     if (!stores.has(slug)) {
-      stores.set(slug, new Store(path.join(dir, slug, 'state.sqlite')));
+      stores.set(slug, new Store(path.join(dir, slug, 'runtime', 'ignite', 'state.sqlite')));
     }
     return stores.get(slug);
   }

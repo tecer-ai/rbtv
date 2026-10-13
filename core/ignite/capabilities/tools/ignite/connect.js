@@ -13,7 +13,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
-const { loadConfig, updateConfig, agentHome, configPath, findWorkspace, slackToken } = require('./config.js');
+const { loadConfig, updateConfig, agentHome, configPath, findWorkspace, slackToken, ignitePaths, resolveIgniteRuntime } = require('./config.js');
 const { agentsFolder, isAgentFolder, isPath, readAgent, promptMissing, AGENT_JSON } = require('../../../../cast/capabilities/tools/cast/lib/agent');
 const { Slack } = require('./slack.js');
 const { Store, conversationKey, checkTool } = require('./store.js');
@@ -57,9 +57,9 @@ Steps, in order:
      by two packs counts once.
   2. Create working files if missing. An existing board is not
      overwritten.
-       <agent>/_artifacts/board.md
-       <agent>/state.sqlite
-       <agent>/conversations/
+        <agent>/_artifacts/board.md
+        <agent>/runtime/ignite/state.sqlite
+        <agent>/runtime/ignite/conversations/
   3. Connect Slack. --channel-name creates the channel, the bot
      joins, the owner is invited, and the route is written. A re-run
      reuses a channel already routed and finishes a partial
@@ -304,23 +304,24 @@ function packIsOn(home) {
   return read.agent.ignite;
 }
 
-function ensureRuntime(home) {
-  fs.mkdirSync(path.join(home, 'conversations'), { recursive: true });
+function ensureRuntime(home, opts = {}) {
+  const runtime = resolveIgniteRuntime(home, opts);
+  fs.mkdirSync(runtime.conversations, { recursive: true });
   const board = migrateBoard(home);
   if (!fs.existsSync(board)) {
     writeBoard(board, fs.readFileSync(path.join(__dirname, 'templates', 'board.md.tmpl'), 'utf8'));
   }
-  const db = path.join(home, 'state.sqlite');
-  if (!fs.existsSync(db)) {
-    const store = new Store(db);
+  if (!fs.existsSync(runtime.database)) {
+    const store = new Store(ignitePaths(home).database);
     store.close();
   }
 }
 
-function runtimeChanges(home) {
-  const paths = [boardPath(home), path.join(home, 'state.sqlite'), path.join(home, 'conversations')];
+function runtimeChanges(home, opts = {}) {
+  const runtime = resolveIgniteRuntime(home, opts);
+  const paths = [boardPath(home), runtime.database, runtime.conversations];
   const missing = paths.filter((file) => !fs.existsSync(file));
-  ensureRuntime(home);
+  ensureRuntime(home, opts);
   return missing;
 }
 
@@ -383,7 +384,8 @@ async function bindSchedule(ctx) {
   const channelId = opts.dm ? config.slack.ownerUserId : channel.id;
   const key = conversationKey(config.slack.team, channelId, BOARD_ROOT);
   preflightBoard(home);
-  const store = new Store(path.join(home, 'state.sqlite'));
+  resolveIgniteRuntime(home, { workspace: config.workspace, slug: opts.agent });
+  const store = new Store(ignitePaths(home).database);
   try {
     store.upsertConversation({
       key, agent: opts.agent, workspace: config.slack.team, channel: channelId, rootTs: BOARD_ROOT, activated: false,
@@ -410,9 +412,10 @@ async function bindSchedule(ctx) {
 }
 
 function cancelTimers(home) {
-  const db = path.join(home, 'state.sqlite');
+  resolveIgniteRuntime(home);
+  const db = ignitePaths(home).database;
   if (!fs.existsSync(db)) return { timers: [], warning: null };
-  const store = new Store(db);
+  const store = new Store(ignitePaths(home).database);
   try {
     const ids = store.listSchedules().map((row) => row.id);
     preflightBoard(home);

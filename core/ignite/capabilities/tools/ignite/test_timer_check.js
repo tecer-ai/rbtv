@@ -90,7 +90,7 @@ function addAgent(dir, slug) {
   fs.writeFileSync(boardPath(home), EMPTY_BOARD, 'utf8');
   fs.mkdirSync(path.join(home, 'memory'));
   fs.writeFileSync(path.join(home, 'memory', 'learned.md'), `# Learned rules — ${slug}\n`, 'utf8');
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   store.upsertConversation({ key: KEY, agent: slug, workspace: 'T1', channel: 'C1', rootTs: '1.1', activated: true });
   store.close();
   return home;
@@ -167,7 +167,7 @@ function watchOuts(home) {
 // One agent's checks run directly, with the clock in the test's hands.
 function bench() {
   const space = workspace();
-  const store = new Store(path.join(space.home, 'state.sqlite'));
+  const store = new Store(path.join(space.home, 'runtime', 'ignite', 'state.sqlite'));
   const logs = [];
   const bench = {
     ...space, store, logs, now: NOW,
@@ -219,7 +219,7 @@ async function daemon(space, overrides = {}) {
 }
 
 function read(home, fn) {
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   try { return fn(store); } finally { store.close(); }
 }
 
@@ -307,7 +307,7 @@ linuxOnly('something new records exactly one durable wake and its details reach 
   assert.equal(table.store.fireSchedule({ schedule: timer, nextAt: NOW + FIVE_MINUTES, details: { found } }).reason, 'duplicate');
   table.close();
 
-  const store = new Store(path.join(table.home, 'state.sqlite'));
+  const store = new Store(path.join(table.home, 'runtime', 'ignite', 'state.sqlite'));
   try {
     const wakes = scheduleWakes(store);
     assert.equal(wakes.length, 1);

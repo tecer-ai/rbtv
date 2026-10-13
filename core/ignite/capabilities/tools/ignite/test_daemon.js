@@ -104,7 +104,7 @@ function workspace() {
   fs.writeFileSync(path.join(memory, 'profile.md'), '# Profile — Sam\n\n## Who\n\n## Working with Sam\n\n## Now\n', 'utf8');
   fs.writeFileSync(path.join(memory, 'inbox.md'), '# Inbox — waiting to be filed\n', 'utf8');
   fs.writeFileSync(path.join(memory, '_artifacts', 'index.md'), '# Memory index\n| Open | When |\n|---|---|\n', 'utf8');
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   store.db.prepare("INSERT INTO settings(key, value, updated_at) VALUES ('dreamer', ?, ?)")
     .run(JSON.stringify({ cursor: 0, lastSuccessAt: Date.now(), commit: null }), Date.now());
   store.close();
@@ -301,7 +301,7 @@ test('due-schedule-one-wake', async () => {
   const cast = fakeCast(dir);
   const now = Date.parse('2026-01-01T00:00:00Z');
   const key = 'T1:D1:1.1';
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'D1', rootTs: '1.1', activated: true });
   store.upsertSchedule({
     id: 'due-1',
@@ -330,7 +330,7 @@ test('due-schedule-one-wake', async () => {
     drainMs: 60_000,
   });
     const count = () => {
-      const check = new Store(path.join(home, 'state.sqlite'));
+      const check = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
       try {
         return check.db.prepare("SELECT COUNT(*) AS n FROM queue WHERE kind='schedule'").get().n;
       } finally {
@@ -356,7 +356,7 @@ linuxOnly('a timer with a check wakes nobody when its check finds nothing, besid
   const tool = path.join(home, 'idle-check.js');
   fs.writeFileSync(tool, `#!/usr/bin/env node\nrequire('fs').appendFileSync(__filename + '.runs', 'run\\n');\nprocess.stdout.write('{"new":false}');\n`);
   fs.chmodSync(tool, 0o755);
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'D1', rootTs: '1.1', activated: true });
   for (const [id, checkTool] of [['plain', null], ['checked', './idle-check.js']]) {
     store.upsertSchedule({ id, conversationKey: key, cadence: 'every:1h', timezone: FIXED_TZ, nextAt: now - 1000, note: 'look', checkTool });
@@ -371,7 +371,7 @@ linuxOnly('a timer with a check wakes nobody when its check finds nothing, besid
       now: () => now, signals: false, tickMs: 40, sweepMs: 60_000, drainMs: 60_000,
     });
     const state = () => {
-      const check = new Store(path.join(home, 'state.sqlite'));
+      const check = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
       try {
         return {
           wakes: check.db.prepare("SELECT id FROM queue WHERE kind='schedule' ORDER BY id").all().map((row) => row.id),
@@ -394,7 +394,7 @@ linuxOnly('a timer with a check wakes nobody when its check finds nothing, besid
 });
 
 function addOwnerMessage(home, text = 'Please remember this.') {
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   try {
     const key = 'T1:D1:1.000000';
     store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'D1', rootTs: '1.000000' });
@@ -403,7 +403,7 @@ function addOwnerMessage(home, text = 'Please remember this.') {
 }
 
 function setDreamerState(home, value) {
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   try {
     store.db.prepare(`INSERT INTO settings(key,value,updated_at) VALUES ('dreamer',?,?)
       ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
@@ -412,7 +412,7 @@ function setDreamerState(home, value) {
 }
 
 function dreamerState(home) {
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   try { return getState(store); } finally { store.close(); }
 }
 
@@ -456,7 +456,7 @@ test('watchdog excludes disabled time, resets on re-enable and survives an enabl
     assert.equal(JSON.parse(fs.readFileSync(configFile(dir), 'utf8')).dreamer.enabled, enabled);
   };
   const since = () => {
-    const store = new Store(path.join(home, 'state.sqlite'));
+    const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
     try { return JSON.parse(store.db.prepare("SELECT value FROM settings WHERE key='dreamer_enabled_at'").get()?.value || 'null'); }
     finally { store.close(); }
   };
@@ -721,7 +721,7 @@ test('a failed nightly run leaves success unchanged and a missed slot crosses th
   addOwnerMessage(home);
   const previous = { cursor: 0, lastSuccessAt: night - 60 * 60_000, commit: null };
   setDreamerState(home, previous);
-  const enabledStore = new Store(path.join(home, 'state.sqlite'));
+  const enabledStore = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   enabledStore.db.prepare("INSERT INTO settings(key,value,updated_at) VALUES ('dreamer_enabled_at',?,?)")
     .run(JSON.stringify(previous.lastSuccessAt), now);
   enabledStore.close();
@@ -789,7 +789,7 @@ for (const [diagnostic, cause] of [
     assert.equal(result.conflictsSaved, false); assert.equal(result.error, null);
     assert.equal(result.alert, `Dreamer failed: ${cause}.`);
     assert.equal(logs.find((row) => row.event === 'dreamer').message, result.alert);
-    const store = new Store(path.join(home, 'state.sqlite'));
+    const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
     try {
       const notice = deliver ? slack.posts[0].text : store.pendingOutbox()[0].payload.text;
       assert.equal(notice, `Memory alert: ${result.alert}`);
@@ -836,7 +836,7 @@ for (const deliver of [false, true]) test(`cap refusal names only the path and s
     assert.equal(result.ok, false); assert.equal(result.alert, alert);
     assert.equal(result.noticeQueued, true); assert.equal(result.digestQueued, false); assert.equal(result.delivered, deliver);
     assert.equal(logs.find((row) => row.event === 'dreamer').message, alert);
-    const store = new Store(path.join(home, 'state.sqlite'));
+    const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
     try {
       const notice = deliver ? slack.posts[0].text : store.pendingOutbox()[0].payload.text;
       assert.equal(notice, `Memory alert: ${alert}`);
@@ -894,7 +894,7 @@ for (const delivery of ['drain', 'pump']) test(`manual digests reuse the thread 
   const socket = fakeSocket();
   const prev = process.env.PATH;
   process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prev || ''}`;
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   let runtime;
   try {
     runtime = await start({ workspace: dir, slack, socket, signals: false,
@@ -1052,7 +1052,7 @@ test('manual run and the nightly slot share runInstalledDreamer without consumin
     await waitFor(() => calls === 1);
     await new Promise((resolve) => setTimeout(resolve, 70));
     assert.equal(calls, 1);
-    const store = new Store(path.join(home, 'state.sqlite'));
+    const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
     try { assert.equal(store.db.prepare("SELECT value FROM settings WHERE key='dreamer_slot'").get(), undefined); }
     finally { store.close(); }
   } finally {
@@ -1084,7 +1084,7 @@ test('runInstalledDreamer releases the installation lock before consolidation an
   assert.equal(ran.noticeQueued, false);
   assert.equal(ran.delivered, false);
   assert.equal(ran.conflictsSaved, false);
-  const queued = new Store(path.join(home, 'state.sqlite'));
+  const queued = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   try {
     assert.match(queued.pendingOutbox()[0].payload.text, /^Memory consolidation/);
     assert.equal(getState(queued).reportedConflicts, undefined);
@@ -1141,7 +1141,7 @@ for (const ending of ['\n', '\r\n']) test(`board, remember and schedule checks s
     git('add', '--', '.rbtv/memory', '.rbtv/agents/master/memory', relativeBoard);
     git('commit', '-qm', 'Fixture');
     const head = git('rev-parse', 'HEAD');
-    const store = new Store(path.join(home, 'state.sqlite'));
+    const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
     try {
       store.upsertSchedule({ id: 'check-report', conversationKey: 'T1:D1:1.000000', cadence: 'every:1h',
         timezone: FIXED_TZ, nextAt: now, note: 'Review the report.' });
@@ -1477,7 +1477,7 @@ test('transcription detail is service-log-only', async () => {
     const logged = lines.filter((line) => line.includes('transcription-failed'));
     assert.equal(logged.length, 1);
     assert.match(logged[0], /audio-keys\.json/);
-    const history = fs.readFileSync(path.join(home, 'conversations', 'T1-CAUDIO-CAUDIO.1', 'history.md'), 'utf8');
+    const history = fs.readFileSync(path.join(home, 'runtime', 'ignite', 'conversations', 'T1-CAUDIO-CAUDIO.1', 'history.md'), 'utf8');
     assert.equal(history.includes('/configured/audio-keys.json'), false);
   } finally {
     process.stdout.write = write;
@@ -1554,7 +1554,7 @@ test('daemon marks idle on ticks and answered on owner ingress even while held',
   const text = EMPTY_BOARD.replace('## What matters now\n', `## What matters now\n\n### Review\nWaiting.\n- Threads: [review](https://example.slack.com/archives/D1/p${rootTs.replace('.', '')})\n- Detail: none\n- Flags: none\n`);
   fs.mkdirSync(path.dirname(boardPath(home)), { recursive: true });
   fs.writeFileSync(boardPath(home), text, 'utf8');
-  const store = new Store(path.join(home, 'state.sqlite'));
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
   store.db.prepare('INSERT INTO settings(key, value, updated_at) VALUES (?, ?, ?)')
     .run('agent_hold', JSON.stringify({ reason: 'test', at: now }), now);
   store.close();
@@ -1573,7 +1573,7 @@ test('daemon marks idle on ticks and answered on owner ingress even while held',
     assert.equal(flags(), 'answered 2026-10-03');
     assert.equal((await socket.inject(input)).ignored, 'duplicate');
     assert.equal(flags(), 'answered 2026-10-03');
-    const check = new Store(path.join(home, 'state.sqlite'));
+    const check = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
     try { assert.equal(check.agentHold().reason, 'test'); assert.equal(check.getActiveRun(), null); }
     finally { check.close(); }
     // A malformed board must not lose owner ingress or modify the board's bytes.

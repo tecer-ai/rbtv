@@ -7,7 +7,10 @@
 //                                refuses dreamer.enabled true without dreamer.model
 // updateConfig(workspace, fn)  — read, let fn(config) change it, validate, write atomically; returns the new config
 // agentHome(config, slug)      — <installation>/.rbtv/agents/<slug>
-// storePath(config, slug)      — <agentHome>/state.sqlite
+// ignitePaths(home)            — database, conversations and turns under <agent>/runtime/ignite/
+// resolveIgniteRuntime(home)   — those paths, or a refusal when the agent root still holds them
+// storePath(config, slug)      — resolveIgniteRuntime(agentHome).database
+// MIGRATION_COMMAND            — ignite runtime migrate
 // envValue(workspace, name)    — a variable's value: the OS environment first, then <installation>/.rbtv/config/env/.env; null when unset
 // slackToken(config, key)      — the token the config names under slack.<key>Env ('app' | 'bot' | 'owner'); throws when unset
 // DREAMER_MODEL                — the model `ignite dreamer enable` records when dreamer.model is absent; never read at run time
@@ -141,8 +144,63 @@ function agentHome(config, slug) {
   return agentHomeIn(config.workspace, slug);
 }
 
+const MIGRATION_COMMAND = 'ignite runtime migrate';
+const MARKER_NAME = 'MIGRATED';
+const DATABASE_NAME = 'state.sqlite';
+const LEGACY_FILES = [DATABASE_NAME, `${DATABASE_NAME}-wal`, `${DATABASE_NAME}-shm`];
+const LEGACY_DIRS = ['conversations', 'turns'];
+
+function ignitePaths(home) {
+  const root = path.join(home, 'runtime', 'ignite');
+  return {
+    root,
+    database: path.join(root, DATABASE_NAME),
+    conversations: path.join(root, 'conversations'),
+    turns: path.join(root, 'turns'),
+    marker: path.join(root, MARKER_NAME),
+  };
+}
+
+function migrationGuardPath(home) {
+  return path.join(home, 'runtime', '.ignite-migrating');
+}
+
+function migrationInvocation(slug, workspace) {
+  if (slug && workspace) return `${MIGRATION_COMMAND} --agent ${slug} --installation ${workspace}`;
+  return MIGRATION_COMMAND;
+}
+
+function legacyLayout(home) {
+  const found = [];
+  for (const name of LEGACY_FILES) {
+    const file = path.join(home, name);
+    if (fs.existsSync(file)) found.push(file);
+  }
+  for (const name of LEGACY_DIRS) {
+    const dir = path.join(home, name);
+    if (fs.existsSync(dir)) found.push(dir);
+  }
+  return found;
+}
+
+function resolveIgniteRuntime(home, opts = {}) {
+  if (!home) throw new Error('agent home required');
+  if (fs.existsSync(migrationGuardPath(home))) {
+    throw new Error(`Ignite runtime migration in progress at ${home}; retry after ${MIGRATION_COMMAND} finishes`);
+  }
+  const paths = ignitePaths(home);
+  const legacy = legacyLayout(home);
+  if (legacy.length && !fs.existsSync(paths.marker)) {
+    if (fs.existsSync(paths.root)) {
+      throw new Error(`ambiguous Ignite layout at ${home}: runtime/ignite exists without ${MARKER_NAME} and legacy files remain; refused`);
+    }
+    throw new Error(`legacy Ignite layout at ${home}; no fallback. Run ${migrationInvocation(opts.slug, opts.workspace)}`);
+  }
+  return paths;
+}
+
 function storePath(config, slug) {
-  return path.join(agentHome(config, slug), 'state.sqlite');
+  return resolveIgniteRuntime(agentHome(config, slug), { workspace: config.workspace, slug }).database;
 }
 
 function envValue(workspace, name) {
@@ -170,4 +228,9 @@ function slackToken(config, key) {
   return value;
 }
 
-module.exports = { configPath, findWorkspace, loadConfig, updateConfig, agentHome, storePath, envValue, slackToken, DREAMER_MODEL, dreamerModelRequired };
+module.exports = {
+  configPath, findWorkspace, loadConfig, updateConfig, agentHome, storePath, envValue, slackToken,
+  DREAMER_MODEL, dreamerModelRequired, ignitePaths, resolveIgniteRuntime, legacyLayout,
+  migrationGuardPath, migrationInvocation, MIGRATION_COMMAND, MARKER_NAME, DATABASE_NAME,
+  LEGACY_FILES, LEGACY_DIRS,
+};

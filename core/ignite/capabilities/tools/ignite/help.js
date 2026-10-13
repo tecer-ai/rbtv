@@ -6,7 +6,7 @@
 // A usage form appears only on the page of the command it invokes; a group page lists its verbs and
 // points to their pages.
 
-const { DREAMER_MODEL } = require('./config.js');
+const { DREAMER_MODEL, MIGRATION_COMMAND } = require('./config.js');
 
 const HOME = `Home: RBTV_AGENT_HOME, otherwise --agent <slug> --installation <path>. A home that is not an
 existing folder is refused, and nothing is created.`;
@@ -77,7 +77,7 @@ ${CHECK}
       a turn, pass it.
 
 ${SCHEDULE_CONTEXT}
-Writes this agent's state.sqlite and refreshes Timers on _artifacts/board.md. A valid
+Writes this agent's runtime/ignite/state.sqlite and refreshes Timers on _artifacts/board.md. A valid
 <home>/_artifacts/board.md must exist before SQLite is opened; otherwise the command refuses
 and changes nothing.
 ${SCHEDULE_COMMIT}
@@ -99,7 +99,7 @@ Prints one line per timer, "<id> <cadence> <timezone> next=<next fire in epoch m
 enabled=<true|false> <note>", or "no schedules" when there are none. A timer with a check tool
 prints "check=<path or command>" before its note. --json prints {schedules}; each has check_tool,
 null for none.
-A read: it changes no timer, but it creates state.sqlite when the agent has none.
+A read: it changes no timer, but it creates runtime/ignite/state.sqlite when the agent has none.
 
 ${SCHEDULE_CONTEXT}
 Exit 0, or 1 with the reason on stderr when the home cannot be resolved.
@@ -131,7 +131,7 @@ ${CHECK}
       Replaces or adds the check tool. No option removes one: cancel the timer and add it again.
 
 ${SCHEDULE_CONTEXT}
-Writes this agent's state.sqlite and refreshes Timers on _artifacts/board.md. A valid
+Writes this agent's runtime/ignite/state.sqlite and refreshes Timers on _artifacts/board.md. A valid
 <home>/_artifacts/board.md must exist before SQLite is opened; otherwise the command refuses
 and changes nothing. A missing <id> is refused: "schedule change requires an id"; an unknown one:
 "unknown schedule: <id>".
@@ -199,7 +199,7 @@ Prints "agentHold=yes" or "agentHold=no", then one line per assignment,
 held, stopped, completed, waiting_owner or waiting_workers. --conversation <key> lists only that
 conversation's assignments. --json prints {agentHold, works}: agentHold is the hold record
 {reason, at} or null, and works holds one record per assignment. A read: it changes no assignment,
-but it creates state.sqlite when the agent has none. An option given twice is refused
+but it creates runtime/ignite/state.sqlite when the agent has none. An option given twice is refused
 ("duplicate flag --<name>").
 ${REFUSED_WORDS}
 
@@ -324,7 +324,7 @@ Caps: 90 non-empty lines excluding the Timers table; 8 subjects, 6 watch-outs,
 
 ${HOME}
 Installation may be discovered by walking up to .rbtv/config/ignite/config.json.
-No Slack access. Reads an existing state.sqlite to refresh Timers and Flags as part of the
+No Slack access. Reads an existing runtime/ignite/state.sqlite to refresh Timers and Flags as part of the
 write; never creates a database. -- ends options.
 ${REFUSED_WORDS}
 Success: exit 0, "written <path>" or "unchanged <path>". Failure: exit 1, reason on stderr; fix
@@ -347,7 +347,7 @@ Nothing is pruned automatically.
 
 ${HOME}
 Installation may be discovered by walking up to .rbtv/config/ignite/config.json.
-No Slack access. Reads an existing state.sqlite to refresh Timers and Flags as part of the
+No Slack access. Reads an existing runtime/ignite/state.sqlite to refresh Timers and Flags as part of the
 change; never creates a database. -- ends options, so a subject or outcome may begin with a dash.
 ${REFUSED_WORDS}
 Success: exit 0, "closed <subject> in <path>". Failure: exit 1, reason on stderr; the board
@@ -463,6 +463,36 @@ configuration is refused, and so is any option other than --installation, --json
 
 Example: ignite dreamer disable --installation /path/to/installation
 Next: ignite dreamer enable -h
+`,
+
+  runtime: `ignite runtime — move one agent's Ignite records
+
+Moves this agent's database, conversations and turn records from the agent
+folder root into runtime/ignite/. A new agent already uses that folder.
+
+Commands
+  migrate   Copy, check and publish this agent's Ignite runtime.
+
+Next: ignite runtime migrate -h
+`,
+
+  'runtime migrate': `ignite runtime migrate — publish this agent's Ignite runtime
+
+usage: ${MIGRATION_COMMAND}
+
+Copies the database, its sidecars, conversations/ and turns/ from the agent
+folder root into runtime/ignite/. Refuses when the waking service holds
+.rbtv/runtime/ignite/daemon.lock, when the layout is ambiguous, or when an
+active run or outbox row has a path that cannot be moved. After a successful
+publish the old files are in runtime/ignite-premigration/.
+
+A new agent needs no migration. Its database is runtime/ignite/state.sqlite.
+
+Home: RBTV_AGENT_HOME, otherwise --agent SLUG --installation PATH.
+Success: exit 0, "migrated <agent>". Refusal: exit 1, reason on stderr, and the
+old files stay where they were. No Slack request.
+
+Example: ${MIGRATION_COMMAND} --agent master --installation /path/to/installation
 `,
 };
 

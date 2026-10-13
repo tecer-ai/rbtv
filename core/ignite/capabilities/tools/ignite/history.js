@@ -2,13 +2,14 @@
 
 // API
 // DEFAULT_HISTORY_WINDOW — recent messages included in every turn prompt
-// historyPath(home, key) → conversations/<safe>/history.md under home.
+// historyPath(home, key) → runtime/ignite/conversations/<safe>/history.md under home.
 //   safe replaces : * ? " < > | \\ in the key with '-'. A raw-key folder is renamed on first access.
 // listAll(store, key) — store history for one conversation, oldest first
 // writeHistory(home, store, key) — regenerate that conversation's history.md from the store
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { ignitePaths, resolveIgniteRuntime } = require('./config.js');
 
 const DEFAULT_HISTORY_WINDOW = 20;
 const FULL_HISTORY_LIMIT = 100_000;
@@ -19,10 +20,11 @@ function conversationDir(key) {
 }
 
 function historyPath(home, key) {
+  resolveIgniteRuntime(home);
   const name = conversationDir(key);
-  const dir = path.join(home, 'conversations', name);
+  const dir = path.join(ignitePaths(home).conversations, name);
   if (name !== key && !fs.existsSync(dir)) {
-    const legacy = path.join(home, 'conversations', key);
+    const legacy = path.join(ignitePaths(home).conversations, key);
     let legacyExists = false;
     try { legacyExists = fs.existsSync(legacy); } catch { legacyExists = false; }
     if (legacyExists) fs.renameSync(legacy, dir);
