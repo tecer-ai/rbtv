@@ -16,7 +16,11 @@ The requests check asks finish, hand off or drop per undone item and never finis
 
 ## Triage is a method here, and loose ends files nothing before it
 
-`triage` is a method page of final-act, reached only through this skill, and carries the value bar itself; the loose-ends method sends its unfiled list through triage, owner round included, before any task is filed. Reason: a backlog is judged at a close and at any other time by one protocol, and the point of the protocol is that an agent never files on its own judgment; one page holds the bar because both callers are in this component.
+`triage` is a method page of final-act and carries the value bar itself; the loose-ends method sends its unfiled list through triage, owner round included, before any task is filed. Reason: a backlog is judged at a close and at any other time by one protocol, and the point of the protocol is that an agent never files on its own judgment; one page holds the bar because every caller is in this component.
+
+## Triage has a command beside the skill's route
+
+The `triage` command sends a human's invocation, with the backlog it names, to the triage page; the skill still routes to that page at a close and on an agent-recognized ask. The command opens the page without the skill's entry step. Reason: a human who types the command has chosen the action and the backlog, outside any close, and the requests and hygiene checks belong to a close; the method stays in one page so both routes follow one protocol.
 
 ## State hygiene is the entry step's hygiene check, not a rule
 
