@@ -34,7 +34,7 @@ for t in audio board cli config connect daemon deploy ingress manage memory memo
 done
 ```
 
-The programs that must exit 0 are: `test_config.js`, `test_cli.js`, `test_connect.js`, `test_daemon.js`, `test_turn_loop.js`, `test_outbox.js`, `test_timer_check.js`, `test_memory.js`, `test_memory_write.js`, `test_albert_evidence.js`, `test_audio.js`, `test_board.js`, `test_deploy.js`, `test_ingress.js`, `test_manage.js`, `test_prompt.js`, `test_slack.js`, `test_store.js`, `test_turn.js` and `test_runtime_migration.js`. `test_cli.js` and `test_connect.js` still end with `ok`. The Albert, memory-core and migration test programs stay the ones their reports name; this page does not move them into the Ignite loop.
+The programs that must exit 0 are: `test_config.js`, `test_cli.js`, `test_connect.js`, `test_daemon.js`, `test_turn_loop.js`, `test_outbox.js`, `test_timer_check.js`, `test_memory.js`, `test_memory_write.js`, `test_albert_evidence.js`, `test_audio.js`, `test_board.js`, `test_deploy.js`, `test_ingress.js`, `test_manage.js`, `test_prompt.js`, `test_slack.js`, `test_store.js`, `test_turn.js` and `test_runtime_migration.js`. `test_cli.js` and `test_connect.js` still end with `ok`. Do not run `test_dreamer.js` once that file is absent. The Albert, memory-core and migration test programs stay the ones their reports name; this page does not move them into the Ignite loop.
 
 ```
 cd core/cast/capabilities/tools/cast
@@ -58,6 +58,7 @@ The pass signal is exit 0 for every program, plus the line named here. Seconds w
 | `test_board.js`, `test_store.js` | Same | 1 and 2 |
 | `test_memory_write.js`, `test_turn_loop.js` | Same | 5 each |
 | `test_connect.js`, `test_cli.js`, `test_deploy.js` | Same, and the last line is `ok` | 17, 51 and 3 |
+| `test_dreamer.js` | Same, while the file is present | 20 |
 | `test_albert_evidence.js` | Same, and the last line is `ok` | not measured here |
 | `test_runtime_migration.js` | `PASS RM-` lines, no line starting `FAIL` | not measured here |
 | `test_daemon.js` | Same. It also prints the service's log lines, each starting with `{`; ignore them, and do not read its last line as the result | 25 |
@@ -110,12 +111,40 @@ These apply only when the caller put them in scope, and only on the Linux machin
 1. **Commit**, then **deploy at that commit** (runbook, Deploy). Observe: the commit `ignite deploy` prints as the commit now is the commit that was tested, and the service state it prints is active. A deploy restarts the service for every agent of the installation; it needs the authority of section 6.
 2. **Status** (runbook, Status). Observe: the unit is active, and its log shows a `ready` event after the restart and no `error` event for an agent that was launchable before.
 3. **Per-agent state** (runbook, Inspect). Observe: `work status` answers for each agent the change can affect, with no hold the change introduced.
-4. **The changed behaviour itself.** Name, before acting, the clause to show, the stimulus and the stored state that will show it: a `turn` log event, the outbox row, the board or memory diff. The runbook gives no pass criteria for a live Slack turn, so a live turn is its own claim with its own authority; when it is not run, report it as not exercised.
+4. **The changed behaviour itself.** Name, before acting, the clause to show, the stimulus and the stored state that will show it: a `turn` log event, the outbox row, the board or memory diff. The runbook gives no pass criteria for a live Slack turn, so a live turn is its own claim with its own authority; when it is not run, report it as not exercised. A live test of an owner message is not an untested path. Apply the authority of section 6, then send as stated below.
+
+   A live test of anything an owner message triggers (a turn, a capture into memory, a reply, a schedule the owner asks for) is a message sent as the owner, through the Slack connector's owner-identity account. That is the supported way. `ignite post` queues a bot post. A message from the bot account is ignored: the service log shows `"event":"ignored","reason":"bot"`. Neither is a substitute.
+
+   The installation names the agent those tests run against in `.rbtv/config/ignite/test-agent.md`. Read that file. It is not produced by a command. It holds these lines:
+
+   ```
+   test-agent: <agent name>
+   channel: <#name>
+   channel-id: <channel id>
+   owner-account: <account name>
+   ```
+
+   `test-agent` is the agent name. `channel` is the channel name and `channel-id` is the id passed to `--channel`. `owner-account` is the configured account name of the owner-identity account. When the file is missing, stop and report that the installation has not named a test agent. Do not choose an agent.
+
+   Confirm that account before sending. `slack workspaces` lists each configured account and the Slack user it sends as (`User: <name> (<user id>)`); it contacts Slack. The owner is `slack.ownerUserId` in `.rbtv/config/ignite/config.json`. The owner-identity account is the listed account whose user id equals that value. Send only when the file's `owner-account` is that account, and only to the channel id in the file. An account label does not prove the Slack identity. Run the command from a folder the grant in section 6 covers:
+
+   ```
+   slack send --workspace "<owner-account>" --channel "<channel-id>" --message "<text>"
+   ```
+
+   Keep the quotes around the account name: an unquoted `<account>` is a shell redirection. Use `--message-file` when the text contains `$`. `--dry-run` prints the resolved recipient and does not post; it may contact Slack, and it does not check the grant. `--yes` skips only the recipient prompt. It is not the approval in section 6.
+
+   The message arrived as the owner when the agent's store has a `queue` row with `kind` `owner` and a `runs` row with state `running`. The store is `<agent>/runtime/ignite/state.sqlite`, the database [architecture](../tools/ignite/documentation/architecture.md) names. A bot send does not produce those rows.
+
+   When the check is finished, send in that thread, as the same owner-identity account, that the message was a test. Remove what the test put into memory, by the reversal the writer that stored it documents. Do not leave the test fact in place. Revoke the grant as section 6 says.
+
 5. **Albert's schedules**, when the change touches memory, the board, schedules or consolidation. A timer wake must show a new threadless conversation and harness session, input equal to its schedule id, and all five checked memory files in its prompt. Albert's nightly, watchdog and Friday timers are the consolidation controls. A whole-JSON proposal with a wrong shape is refused with its real reason, for example `invalid conflict`, not a generic JSON failure. Check lock contention separately when the change covers concurrency.
 
 ## 6. Authority, observation and the report
 
 **Authority.** Before an action outside your own scratch copy (a deploy, a restart, a send, clearing a hold, or enabling a schedule), identify the exact operation, its destination, the identity and credentials it uses, its side effects and who owns recovery. Use the authorization the caller gave and the actions the assignment necessarily includes; ask only when authority is missing or the action goes beyond it. Reads and reversible local actions need no approval. When a required action is refused, record it as blocked and route that exact step to the owner or an authorized operator. Never change the wrapper, the credential or the route to get past a refusal.
+
+A send as the owner is that send. The owner must have approved the account, the verb, the working folder and the purpose before a grant is recorded. Record only that approval. The grant procedure and record format are in `connectors/slack/repository/scripts/slack_send.md`, the page `slack send -h` names; do not copy them here. [Slack](../../../../connectors/slack/capabilities/tools/slack/slack.md) states that an account name does not prove the identity, and that a write on an account configured with `writes: false` needs an active grant in `.rbtv/config/slack/write-grants.yaml`. Without a grant that covers the verb for the folder the command runs from, the wrapper exits 2 and prints `slack: as-owner-write-refused` with `no active grant covers '<verb>' for this sitting`. Disclose, before the send, that the message will appear as the owner, which account and channel it uses, and the purpose the owner approved. When the test is over, revoke that grant by appending a revoked fact, as the header of `.rbtv/config/slack/write-grants.yaml` describes. Do not rewrite an existing grant. `--dry-run` does not check the grant and is not approval.
 
 **Observation.** Judge each clause from a source independent of the command that acted: the stored state, a diff, a log event, the destination itself. A command's acceptance, an exit 0 or a `PASS` summary is not that source for a live clause. After each step that changes state, confirm its result before the next. When a send has an uncertain outcome, inspect its destination and the store before any retry. Record six things separately for a live clause: approval, execution, delivery, the agent's response, the state change, and the verdict.
 
