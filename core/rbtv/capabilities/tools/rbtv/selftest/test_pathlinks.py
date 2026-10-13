@@ -149,6 +149,27 @@ def path_links(ctx) -> None:
     check("L-shared — two workspaces register one shortcut",
           set(owners["links"]["ladd-bin"]["owners"])
           == {str(left.resolve()), str(right.resolve())})
+    # A shortcut whose recorded program is gone: the installation that
+    # replaces it becomes an owner, and the other owners stay for their next run.
+    moved_bin = tmp / "moved-target" / "bin"  # its own folder: the record sits beside the bin folder
+    moved_bin.parent.mkdir()
+    old_prog, new_prog = tmp / "moved-old.py", tmp / "moved-new.py"
+    for prog in (old_prog, new_prog):
+        prog.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        prog.chmod(0o755)
+    first, second = tmp / "moved-first", tmp / "moved-second"
+    first.mkdir()
+    second.mkdir()
+    reconcile_shared(moved_bin, {"moved": old_prog}, set(), first, dry=False)
+    old_prog.unlink()
+    reconcile_shared(moved_bin, {"moved": new_prog}, set(), second, dry=False)
+    moved = json.loads(owner_file(moved_bin).read_text(encoding="utf-8"))["links"]["moved"]
+    check("L-shared-moved-target — the installation that repoints a shortcut is recorded "
+          "as an owner beside the others",
+          moved["target"] == str(new_prog)
+          and set(moved["owners"]) == {str(first.resolve()), str(second.resolve())},
+          str(moved))
+
     left_rm = do_uninstall(left, lcat, ["lmod/ladd"], dry_run=False)
     check("L-shared — first removal preserves the last owner's shortcut",
           link_points_at(link_path(bin_dir(), "ladd-bin"),
