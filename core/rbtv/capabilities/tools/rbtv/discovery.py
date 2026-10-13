@@ -84,24 +84,27 @@ def _record(path: Path, template: str) -> dict:
 
 
 def _is_component_dir(path: Path) -> bool:
-    # `git pull` cannot remove ignored Python bytecode.  A renamed component
-    # can therefore leave an otherwise empty folder behind, but that remnant
-    # is not source and must not trigger the missing-record safety gate.
-    if _cache_only(path):
+    # `git pull` removes neither ignored caches nor the folders that held a
+    # renamed component's files.  That remnant is not source and must not
+    # trigger the missing-record safety gate.
+    if _holds_no_source(path):
         return False
     return (path / f"{path.name}.json").is_file() or any(
         (path / folder).is_dir() for folder in COMPONENT_FOLDERS)
 
 
-def _cache_only(path: Path) -> bool:
-    """Whether a leftover folder contains only Python bytecode caches."""
+def _holds_no_source(path: Path) -> bool:
+    """Whether a folder holds nothing git tracks as source: it is empty, or
+    holds only bytecode, cache folders (`__pycache__`, a dot folder) and
+    folders that themselves hold no source."""
     try:
         entries = list(path.iterdir())
     except OSError:
         return False
-    return bool(entries) and all(
-        _cache_only(entry) if entry.is_dir()
-        else entry.is_file() and entry.suffix == ".pyc"
+    return all(
+        (entry.name == "__pycache__" or entry.name.startswith(".")
+         or _holds_no_source(entry)) if entry.is_dir()
+        else entry.suffix == ".pyc"
         for entry in entries)
 
 

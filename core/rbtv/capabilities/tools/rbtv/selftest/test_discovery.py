@@ -114,6 +114,31 @@ def depth_two_is_the_marker(ctx) -> None:
     check("a removed component left with only bytecode caches is ignored",
           cached == {}, str(cached))
 
+    # What a pull leaves of a removed module: empty folders and a test cache,
+    # with no module record beside them.
+    remnant = tmp / "remnant-leftover"
+    (remnant / "gone" / "one" / "capabilities").mkdir(parents=True)
+    _w(remnant / "gone" / "two" / "capabilities" / "tools" / "old" /
+       ".pytest_cache" / "README.md", "cache")
+    _w(remnant / "gone" / "two" / "capabilities" / "tools" / "old" /
+       "__pycache__" / "old.cpython-314-pytest-9.0.2.pyc", "bytecode")
+    try:
+        left = str(scan_tree(remnant, "repo"))
+    except Refuse as exc:
+        left = f"refused: {exc.code}"
+    check("a removed module left with empty folders and test caches is ignored",
+          left == "{}", left)
+
+    # A folder that still holds one source file is a component and keeps the gate.
+    _w(remnant / "gone" / "two" / "capabilities" / "tools" / "old" / "old.py", "print()")
+    try:
+        scan_tree(remnant, "repo")
+        check("a folder that still holds a source file keeps the missing-record gate",
+              False, "no refusal")
+    except Refuse as exc:
+        check("a folder that still holds a source file keeps the missing-record gate",
+              exc.code == "module-record-missing", exc.code)
+
     nomod = tmp / "no-module-record"
     _w(nomod / "m" / "c" / "c.json",
        json.dumps({"description": "c", "dependencies": []}))

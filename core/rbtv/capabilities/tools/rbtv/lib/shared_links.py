@@ -213,11 +213,11 @@ def reconcile_shared(bindir: Path, desired: dict[str, Path], booked: set[str],
             report[status].append(name)
             if entry is None:
                 links[name] = {"target": str(dest), "owners": [installation]}
-            elif entry["target"] != str(dest):
+            else:
                 entry["target"] = str(dest)
-            elif installation not in entry["owners"]:
-                entry["owners"].append(installation)
-                entry["owners"].sort()
+                if installation not in entry["owners"]:
+                    entry["owners"].append(installation)
+                    entry["owners"].sort()
         for name in sorted(booked - set(desired)):
             entry = links.get(name)
             if entry is None:
