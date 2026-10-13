@@ -12,15 +12,15 @@ Use the index and source links to read [knowledge](knowledge.md), [entities](ent
 
 Use [Inbox](inbox.md) for an explicit request to remember an owner fact. Use the agent’s [Board](board.md) watch-outs for a correction of its behavior, in the same turn. A correction that also states an owner fact belongs in both, with each record serving its own purpose.
 
-The [Dreamer](dreamer.md) writes long-term memory. An agent in conversation must not rewrite the profile, learned rules, topics, knowledge, entities, workspace notes, workstreams or timelines. Follow [Memory index](memory-index.md) for the root index’s separate maintenance convention.
+Albert writes long-term memory. An agent in conversation must not rewrite the profile, learned rules, topics, knowledge, entities, workspace notes, workstreams or timelines. Follow [Memory index](memory-index.md) for the root index’s separate maintenance convention.
 
 Only a fact with an explicit end date expires; disuse is not expiry. Required record formats and limits belong to each record’s entry. A cap refusal preserves the existing file rather than truncating it.
 
 ## Record checks
 
-The [memory checker](../tools/ignite/memory.js) and [dreamer checker](../tools/ignite/dreamer.js) validate their supported records directly. Record entries preserve those formats. Descriptions for selecting skills, rules, commands and agents do not replace record metadata; authored routing tables do not replace the tables software checks. Profile, learned rules and memory indexes begin with a heading and contain no frontmatter or HTML comments; workspace notes use their declared frontmatter.
+The [memory checker](../tools/ignite/memory.js) validates its supported records directly. Record entries preserve those formats. Descriptions for selecting skills, rules, commands and agents do not replace record metadata; authored routing tables do not replace the tables software checks. Profile, learned rules and memory indexes begin with a heading and contain no frontmatter or HTML comments; workspace notes use their declared frontmatter.
 
-Keep dated provenance on fact records. New claims cite the supplied owner conversation; filing an inbox line preserves its original provenance, including a bare agent name when no thread link exists. Verified moves preserve existing evidence rather than inventing a new source. The dreamer’s publication checks determine which evidence permits a write.
+Keep dated provenance on fact records. New claims cite the supplied owner conversation; filing an inbox line preserves its original provenance, including a bare agent name when no thread link exists. Verified moves preserve existing evidence rather than inventing a new source. Albert's publication checks determine which evidence permits a write.
 
 Character limits count Unicode code points, including frontmatter and line endings; a carriage return and line feed count as two characters. Timeline line limits include headings, metadata and interior blank lines after normalizing line endings and removing trailing whitespace. Each record’s entry states its limit. Over-cap publication leaves the file unchanged and reports the conflict; it does not compress, truncate or split the file to fit.
 

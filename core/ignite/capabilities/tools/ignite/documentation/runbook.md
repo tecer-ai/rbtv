@@ -42,7 +42,7 @@ systemctl --user status rbtv-ignite-agents.service
 journalctl --user -u rbtv-ignite-agents.service -f
 ```
 
-Log lines are JSON on stdout. `event` is `ready`, `turn`, `schedules-due`, `turn-left`, `stop`, `dreamer`, `dreamer-watchdog`, `dreamer-alert`, `board`, or `memory-alert-failed`.
+Log lines are JSON on stdout. `event` is `ready`, `turn`, `schedules-due`, `turn-left`, `stop`, `board`, `check`, or `memory-alert-failed`.
 
 Stop and start:
 
@@ -57,60 +57,19 @@ Stop sends SIGTERM. The process stops claiming, logs any in-flight run (`turn-le
 
 Managing an agent's files and launch values uses `rbtv agent`; connecting and disconnecting it uses `ignite connect|disconnect`. Flags: see `ignite -h`.
 
-## Dreamer
+## Memory consolidation
 
-The Dreamer's settings are in the existing `.rbtv/config/ignite/config.json`:
+Albert consolidates memory. The waking service does not run a separate consolidation and has no `ignite dreamer` verb. Albert's schedules are `albert-nightly` at 03:00 America/Sao_Paulo, `albert-watchdog` every hour, and `albert-friday` at 08:45 America/Sao_Paulo on Friday. Use the ordinary schedule commands for those timers. `ignite remember` still appends one line to the shared inbox.
 
-```json
-"dreamer": {
-  "enabled": true,
-  "model": { "harness": "codex", "model": "gpt-6.1-sol", "effort": 3 }
-}
-```
+A configuration that still carries a `dreamer` section loads. Nothing acts on those keys. The next write of `.rbtv/config/ignite/config.json` omits the section. `ignite albert cleanup --installation <installation>` does that write and prints `cleaned`. `ignite albert probe --installation <installation>` prints `dreamer keys absent` only when the section is gone. Until cleanup, leave the section in place.
 
-`dreamer.model` is the proposal model. It must supply all three fields: `harness` is `codex`, `opencode` or `claude`; `model` is a nonempty cast model name without whitespace or a leading dash; `effort` is a JSON integer from 1 to 5. Unknown fields and invalid values are refused. Ignite has no built-in model at run time: while `dreamer.enabled` is true the configuration is refused without `dreamer.model`, and the refusal names the key and an example value. `ignite dreamer run` is refused the same way when the key is absent. To use another model, edit `dreamer.model` in that file. Cast runs from the installation folder, so the installation's model selection applies, and the model works in a temporary launch folder whose task text is `task.md`. Cast checks model availability and its supported effort mapping when called. Manual and nightly runs use the same setting; the daemon reloads it on each tick. Agent `agent.json` settings are independent.
+`ignite albert recover` disables Albert's three schedules and removes the fence. It does not start a publisher. If this candidate must be undone after deploy, redeploy the common candidate, which still contains the retired runner, and do not run cleanup first.
 
-Dreamer ships disabled: omit `dreamer` or keep `"dreamer": { "enabled": false }` for the initial deploy. Both nightly consolidation and the 48-hour watchdog stay off. After `ready`, verify one fresh timer wake has a new threadless conversation and harness session, input equal to its schedule id, and all five checked memory files in its prompt. Only after that proof, with the owner present for the first consolidation, run:
+The agent's database is `<home>/runtime/ignite/state.sqlite`. Conversations and turns are under `<home>/runtime/ignite/` as well. A layout that still has those files at the agent root is migrated with `ignite runtime migrate`, not by copying them by hand.
 
-```
-ignite dreamer enable --installation <installation>
-```
+Publication, `remember` and every board write share `.rbtv/runtime/ignite/memory.lock`. Exclusive creation takes the lock; contenders retry with a short backoff for about five seconds, then fail visibly and can be retried. The lock records its holder pid, hostname and unique token. Reclaim requires all three: age greater than 60 seconds, the same hostname, and `process.kill(pid, 0)` failing with `ESRCH`. A live holder is never displaced. No lock spans a model call. Board writes, `remember` and the board refresh in `schedules-due` keep the lock only for their own read, modify and write.
 
-It sets `dreamer.enabled` to true and, when `dreamer.model` is absent, records `codex gpt-6.1-sol 3` there; the result names the model in use. The daemon reloads the configuration on the next tick (normally within 30 seconds); enabling during the 03:00 hour can run consolidation immediately. Otherwise attend the next nightly slot. To turn both the nightly consolidation and the watchdog off:
-
-```
-ignite dreamer disable --installation <installation>
-```
-
-It sets `dreamer.enabled` to false and keeps `dreamer.model`. It does not cancel a consolidation already in progress. Both commands change only those keys, leave every other setting and the schedule as they are, and write nothing when the requested state is already in force; the result says so. An unreadable or invalid configuration is refused with nothing written. `--json` prints `{installation, config, enabled, changed, model, modelRecorded}`.
-
-Enable and disable affect automatic Dreamer operation for the entire installation, not only the calling agent. Agents must use these commands only when explicitly requested by the owner. Do not disable Dreamer as a workaround for an individual agent's problem.
-
-To consolidate once without waiting for 03:00, and without marking that slot consumed, run:
-
-```
-ignite dreamer run --installation <installation>
-```
-
-It is one shot: it runs the same quiet-or-consolidation path as the nightly pass, then exits. It does not loop. It takes `.rbtv/runtime/ignite/memory.lock` for the initial work check, each snapshot read and publication, releasing it before every model call. Contention during the initial check prints a busy result and does not start a run. It runs even when `dreamer.enabled` is false, does not enable the nightly run, and the result says so. Use it for the owner-present first consolidation, or for a deliberate catch-up, including while the nightly runner is still off. It queues a digest or failure notice on the direct-message agent's outbox; the running daemon delivers that row. It does not confirm delivery itself, so it does not save new reported conflicts. Ordinary daemon outbox delivery saves the thread key but has no conflict metadata. Only a later consolidation whose own digest delivery is confirmed saves those conflicts. The result is one JSON line, including installation, config, and run-setup failures. Exit 0 means the run finished without an alert or error. A required digest or failure notice that cannot be queued returns `ok: false`, a non-null `error`, and exit 1; this includes a missing `dmAgent` or DM agent store. See `ignite dreamer run -h`.
-
-The JSON result distinguishes `digestQueued` (a consolidation digest was queued) from `noticeQueued` (a failure notice was queued). Both are false for quiet, busy, or setup-failure results, or when enqueueing fails. `delivered` says whether the digest or notice was confirmed delivered; it is always false for the manual command. The daemon's `dreamer-watchdog` JSON log uses the same queue fields for watchdog notices: `digestQueued: false`, `noticeQueued: true` after enqueueing.
-
-When cast fails, the returned `alert`, owner notice and daemon's `dreamer` log `message` contain only a fixed cause: `model out of credits or spending limit` for stderr matching `spending-limit`, `credits`, `insufficient balance` or `quota`; `model rate limited` for `rate limit` or `429`; `model timed out` for a timeout or terminated call; `model authentication failed` for `401`, `403`, `unauthori` or `invalid api key`; otherwise `model failed (exit <code>)`, with `unknown` when no safe exit code is available. Matching is case-insensitive, in that order. Raw stderr, command errors and model stdout are never copied into those surfaces.
-
-Each Dreamer proposal prompt lists current file sizes, caps and remaining room for every writable existing file and the fixed general-memory destinations, plus starting budgets for new files. Counts match validation: Unicode code points including line endings for character caps, rules for learned memory, lines for timelines, and board lines/subjects/watch-outs/closed entries with Timers excluded from the line count. Uncapped files are identified explicitly. The model must stay within each cap; when a fact cannot fit, it must leave the destination unchanged and report a conflict instead of rewriting, compressing, truncating or splitting the file. A cap refusal includes the relative file path and proposed count/cap in the JSON `alert`, owner notice and daemon log `message`, for example `Dreamer failed: .rbtv/memory/knowledge/facts.md: knowledge cap exceeded (3120/3000 characters).` These diagnostics never include file content or the model's explanation.
-
-The watchdog starts a new 48-hour grace period when enabling, retains that start across enabled daemon restarts, and resets it when the daemon observes disabled config. A later success restarts the liveness interval. Disabled time never counts. Let the daemon observe a disable before shutting it down if it will later restart enabled.
-
-An inbox line or board watch-out that repeats an existing fact can be removed as a duplicate. The model cites the existing destination path and exact bullet; code verifies the bullet exists in the snapshot and remains in the result. No new record is written for that duplicate, and the digest lists the removed line as `already known` with its destination. Inbox duplicates use profile, knowledge or entities; watch-outs use the agent's learned rules. Missing citations refuse the run and leave the line in place. The proposal form is documented under Dreamer watch-outs and cursors in `architecture.md`.
-
-When enabled, the existing `rbtv-ignite-agents.service` checks one shared Dreamer slot per daemon process in each 03:00 `America/Sao_Paulo` hour, never as a second service. A busy attempt leaves the slot available for the next tick in that hour after the lock is released. An eligible owner message newer than its agent cursor, an inbox line, or an expired memory record triggers a cast proposal call using `dreamer.model`. Expiry requires a final valid `until YYYY-MM-DD` (with an optional period) in the body before the **last** dated provenance tail, or at the end of a board state line without provenance; the date must be earlier than today's Sao Paulo date.
-
-A slot is quiet when there is no unread owner row, no due expiry, the inbox is empty, and no watch-out can be folded with available owner thread evidence. The daemon directly updates every configured agent's `lastSuccessAt`, keeping its cursor, commit and reported conflicts unchanged. It calls no model, makes no commit, and posts no digest. Deferred watch-outs stay on the board. Consolidation posts a digest only when files changed or a new conflict appears; `settings.dreamer.reportedConflicts` retains conflicts only when that consolidation confirms its own digest delivery, so saved conflicts are not repeated. Unconfirmed delivery leaves new conflicts unsaved; the next consolidation that finds them reports them again. A quiet slot does not retry consolidation. Digests, failures, and a watchdog warning when the last successful run is older than 48 hours are posted in one persisted thread for the configured direct-message agent. Every confirmed Dreamer outbox delivery, including a manually queued notice delivered by the daemon drain or turn pump, saves its conversation key for later notices. Check that `dmAgent` remains configured and that its home is present before you enable memory consolidation.
-
-Dreamer publication, `remember`, migration and every board write share `.rbtv/runtime/ignite/memory.lock`. Exclusive creation takes the lock; contenders retry with a short backoff for about five seconds, then fail visibly and can be retried. The lock records its holder pid, hostname and unique token. Reclaim requires all three: age greater than 60 seconds, the same hostname, and `process.kill(pid, 0)` failing with `ESRCH` (no such process). A live holder is never displaced; foreign-host or unknown owner records and other liveness errors stay busy. `ignite dreamer run`, the nightly pass and direct consolidation all lock each snapshot read, release before every model call, then reacquire for the unchanged-since-read comparison, writes, commit, cursor updates and any rollback. If files changed meanwhile, publication releases the lock and retries once with a fresh snapshot. The installed runner also locks its initial work check and any quiet success update. No lock spans model calls or outbox delivery. Board writes, `remember` and the board refresh in `schedules-due` keep it only for their own read/modify/write, so they can finish while the model is running. Inbox and board paths must contain ordinary directories/files: symlink or junction parents and leaves are refused, with no-follow opens where supported.
-
-Before a commit, a failed memory write restores the original bytes, including when writing, truncating, or closing changed bytes before throwing. Newly created files from the failed run are removed. Rollback preserves later concurrent edits whose bytes differ from those left by the run.
+Profile is at most 4,000 characters. Learned rules are at most 30. On-demand knowledge warns at 100 nonempty lines and splits at 300 complete records. A record that does not fit is left unchanged and reported; it is not split, trimmed or truncated to evade a cap. A whole proposal with a wrong shape is refused with its real reason. Limits live in `core/memory/capabilities/tools/memory/lib/`.
 
 ## Inspect
 
@@ -143,9 +102,9 @@ ignite --agent <slug> --installation <installation> board write --file "board ca
 ignite --agent <slug> --installation <installation> board close "Subject title" "One-line outcome" "[discussion](https://example.com/thread)"
 ```
 
-The close thread is optional. All four sections must be present, even when empty. Keep Timers, Recently closed and existing Flags unchanged in a candidate. New subjects use Flags `none`. `write` reports the board path and whether bytes changed; `close` reports the title and path. `--json` returns `{path, changed, subject?}` on success or `{path, error}` with exit 1 on failure (`path` is null before a home is resolved). Validation refuses malformed or over-cap input without changing the board. Close records a dated outcome; when six closed entries already exist, archive old entries before trying again. No entry is truncated or automatically pruned. Legacy boards require reshaping before using the checked commands; runtime board commands never read or copy the legacy path.
+The close thread is optional. All four sections must be present, even when empty. Keep Timers, Recently closed and existing Flags unchanged in a candidate. New subjects use Flags `none`. `write` reports the board path and whether bytes changed; `close` reports the title and path. `--json` returns `{path, changed, subject?}` on success or `{path, error}` with exit 1 on failure (`path` is null before a home is resolved). Validation refuses malformed input without changing the board. Close records a dated outcome. A seventh closed entry and a seventh watch-out are kept. There is no item quota. No entry is truncated or automatically pruned. The turn receives a derived board view of at most 6,000 Unicode code points; omitted watch-outs stay on the canonical board. Legacy boards require reshaping before using the checked commands; runtime board commands never read or copy the legacy path.
 
-`connect` first turns on the `ignite` pack through `rbtv agent add <home> --pack ignite`, then creates missing working files: the four-section board at `<home>/_artifacts/board.md`, `state.sqlite`, and `conversations/`, before it makes a Slack request. Its working-file setup may copy `<home>/board.md` once, preserving its bytes and leaving the old file untouched. Once the new path exists, Ignite reads and writes only that path. `disconnect` removes the Slack route and timers first, then turns the pack off through `rbtv agent remove <home> --pack ignite`; it keeps the agent folder and working files.
+`connect` first turns on the `ignite` pack through `rbtv agent add <home> --pack ignite`, then creates missing working files: the four-section board at `<home>/_artifacts/board.md`, and `state.sqlite`, `conversations/` and `turns/` under `<home>/runtime/ignite/`, before it makes a Slack request. Its working-file setup may copy `<home>/board.md` once, preserving its bytes and leaving the old file untouched. Once the new path exists, Ignite reads and writes only that path. `disconnect` removes the Slack route and timers first, then turns the pack off through `rbtv agent remove <home> --pack ignite`; it keeps the agent folder and working files.
 
 Schedule add/change/cancel and connection timer binding require an existing, valid `<home>/_artifacts/board.md` and safe write path before they open SQLite. A missing or invalid board refuses with a message naming that path; SQLite remains unchanged, and an absent database is not created. Disconnect timer changes use the same board check before changing schedules. If SQLite commits but the subsequent board refresh fails (including lock contention), the command still exits 0 and reports `<id> committed; board refresh pending`. Disconnect lists all cancelled timer ids. JSON retains the normal success fields (`schedule`, `cancelled`, `scheduleId` or `timers`) and adds `warning` with the same message and id(s). Do not repeat the mutation: the next successful board write/close, schedule tick or turn refreshes from SQLite.
 
@@ -186,15 +145,11 @@ ignite --agent <slug> --installation <installation> remember "Prefers afternoon 
 
 Success prints `remembered in <path>` followed by any warning and exits 0. `--json` returns `{path, appended, lines, warning}`; `lines` counts bullet lines, `warning` is null when none, and `lines` is null if counting fails after append. Missing text, text empty after newline normalization and trimming, a home that is not an existing folder, an unresolved installation root or a filesystem write failure exits 1, with an error on stderr or `{path, error}` on stdout in JSON mode. Empty text reports `remember requires non-empty text` before resolving the installation or writing files. `path` is null if no inbox path was resolved. `--help` works without configuration; use `--` before literal option-like text. Repeating the command appends another record.
 
-## Dreamer watch-outs and unread messages
+## Watch-outs and unread messages
 
-An inbox line is the owner's explicit remember request and can be filed into profile, knowledge or entities without an unread owner message. The proposal cites the exact inbox line as a source on the destination and inbox operations, preserves its provenance (including a bare agent name when no thread exists), and maps its removal to the filed record. Each agent files its own lines. Other existing memory is not evidence for new facts or learned rules.
+An inbox line is the owner's explicit remember request. Albert files supported lines into profile, knowledge or entities and removes only what it filed or verified as already known. A watch-out stays on the board until Albert folds it into a learned correction with the required owner evidence. A seventh watch-out is kept. The turn's board view is at most 6,000 Unicode code points and is not the board.
 
-A watch-out without a provenance link can become a learned correction when the dreamer has unread owner messages with Slack thread evidence. The learned rule retains the watch-out's date, includes `Why:`, and cites only this agent's threads supported by the fold operation's owner sources. Linked provenance stays unchanged and requires matching unread owner thread evidence. A watch-out without the required evidence stays on the board; during consolidation it produces a conflict only if that conflict was not reported before. Other valid work can still commit. A foldable watch-out left unfolded refuses the run.
-
-The dreamer advances an agent's cursor after a successful commit or after applied writes already match HEAD, and when that agent submitted an operation or had no unread owner rows. Another agent's writes do not consume unread rows for an agent that returned no operations. Those rows remain available for the next run. A run without applied writes advances no cursors, even when it reports a conflict.
-
-Removing an uncommitted duplicate can leave no net change against HEAD. When all written paths match HEAD and none is untracked, the dreamer skips the commit, records success with the current HEAD, and keeps the digest, including `already known` entries. A real commit failure leaves cursors and success timestamps unchanged and reports a fixed category: `nothing to commit`, `index lock`, or `other`. Git output is never copied into the alert.
+Each source agent's settings key `dreamer` still holds `{ cursor, lastSuccessAt, commit, reportedConflicts }` until `ignite albert migrate` has transferred the cursor. Do not delete that key by hand before migrate. After migrate, Albert's own cursors are the writer state.
 
 ## Repair a hold
 

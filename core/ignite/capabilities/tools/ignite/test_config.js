@@ -67,57 +67,34 @@ test('loads a valid config from the runtime path', (dir) => {
   assert.equal(Object.hasOwn(config, 'defaultLaunch'), false);
 });
 
-test('dreamer defaults off with no model and accepts only a boolean enable setting', (dir) => {
-  for (const dreamer of [undefined, {}, { enabled: false }]) {
-    writeConfig(dir, { dreamer });
-    assert.deepEqual(loadConfig(dir).dreamer, { enabled: false });
-  }
-  for (const dreamer of [null, [], true, { enabled: 'true' }, { enabled: 1 }, { hour: 3 }]) {
-    writeConfig(dir, { dreamer });
-    assert.throws(() => loadConfig(dir), /dreamer/);
-  }
+test('a legacy dreamer section loads and the next write drops enabled and model', (dir) => {
+  writeConfig(dir, { dreamer: { enabled: true, model: { harness: 'codex', model: 'gpt-6.1-sol', effort: 3 } } });
+  const loaded = loadConfig(dir);
+  assert.equal(Object.hasOwn(loaded, 'dreamer'), false);
+  assert.equal(JSON.parse(fs.readFileSync(configPath(dir), 'utf8')).dreamer.enabled, true);
+  const written = updateConfig(dir, (config) => { config.routes.C2 = 'sample'; });
+  assert.equal(Object.hasOwn(written, 'dreamer'), false);
+  const file = JSON.parse(fs.readFileSync(configPath(dir), 'utf8'));
+  assert.equal(Object.hasOwn(file, 'dreamer'), false);
+  assert.equal(file.routes.C2, 'sample');
+  assert.equal(file.routes.C1, 'sample');
 });
 
-test('dreamer model accepts a complete override and survives config updates', (dir) => {
-  for (const harness of ['codex', 'opencode', 'claude']) for (const effort of [1, 3, 5]) {
-    const model = { harness, model: 'example/model-v1', effort };
-    writeConfig(dir, { dreamer: { enabled: true, model } });
-    assert.deepEqual(loadConfig(dir).dreamer.model, model);
-    assert.deepEqual(updateConfig(dir, (config) => { config.routes.C2 = 'sample'; }).dreamer.model, model);
-    assert.deepEqual(loadConfig(dir).dreamer.model, model);
-  }
+test('a config without a legacy dreamer section is unchanged by the next write', (dir) => {
+  writeConfig(dir);
+  const before = JSON.parse(fs.readFileSync(configPath(dir), 'utf8'));
+  updateConfig(dir, (config) => config);
+  const after = JSON.parse(fs.readFileSync(configPath(dir), 'utf8'));
+  assert.deepEqual(after, before);
+  assert.equal(Object.hasOwn(loadConfig(dir), 'dreamer'), false);
 });
 
-test('an enabled dreamer without a model is refused, naming the key and an example value', (dir) => {
-  const required = /^dreamer\.model required when dreamer\.enabled is true: add "model": \{"harness":"codex","model":"gpt-6\.1-sol","effort":3\} under "dreamer" in \.rbtv\/config\/ignite\/config\.json$/;
-  writeConfig(dir, { dreamer: { enabled: true } });
-  assert.throws(() => loadConfig(dir), (error) => required.test(error.message));
-  const model = { harness: 'claude', model: 'example-model', effort: 2 };
-  writeConfig(dir, { dreamer: { enabled: true, model } });
-  const before = fs.readFileSync(configPath(dir), 'utf8');
-  assert.throws(() => updateConfig(dir, (config) => { delete config.dreamer.model; }), (error) => required.test(error.message));
-  assert.equal(fs.readFileSync(configPath(dir), 'utf8'), before);
-  const off = updateConfig(dir, (config) => { config.dreamer.enabled = false; delete config.dreamer.model; });
-  assert.deepEqual(off.dreamer, { enabled: false });
-  assert.deepEqual(loadConfig(dir).dreamer, { enabled: false });
-});
-
-test('dreamer model rejects malformed or incomplete overrides without writing', (dir) => {
-  const valid = { harness: 'codex', model: 'example', effort: 3 };
-  const invalid = [null, [], true, 'codex', {},
-    ...['harness', 'model', 'effort'].map((key) => Object.fromEntries(Object.entries(valid).filter(([name]) => name !== key))),
-    ...['', 'unknown', ' codex', 7].map((harness) => ({ ...valid, harness })),
-    ...['', ' ', '--help', 'two names', 'model\r\nname', null, 7].map((model) => ({ ...valid, model })),
-    ...[0, 6, 2.5, '3', 'high', null, true].map((effort) => ({ ...valid, effort })),
-    { ...valid, extra: true }];
-  for (const model of invalid) {
-    writeConfig(dir, { dreamer: { model } });
-    assert.throws(() => loadConfig(dir), /dreamer\.model/);
-    writeConfig(dir);
-    const before = fs.readFileSync(configPath(dir), 'utf8');
-    assert.throws(() => updateConfig(dir, (config) => { config.dreamer.model = model; }), /dreamer\.model/);
-    assert.equal(fs.readFileSync(configPath(dir), 'utf8'), before);
-  }
+test('cast model-in-use check ignores a legacy dreamer section', (dir) => {
+  writeConfig(dir, { dreamer: { enabled: true, model: { harness: 'claude', model: 'haiku-5-5', effort: 3 } } });
+  const { usersOf } = require('../../../../cast/capabilities/tools/cast/lib/models.js');
+  const found = usersOf(dir, 'claude', 'haiku-5-5');
+  assert.deepEqual(found.users, []);
+  assert.ok(!found.unread.some((line) => /dreamer/i.test(line)));
 });
 
 test('agentHome resolves under the given workspace', (dir) => {

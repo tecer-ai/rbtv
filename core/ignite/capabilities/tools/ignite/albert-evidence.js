@@ -5,9 +5,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
-const { loadConfig, updateConfig, agentHome, storePath } = require('./config.js');
+const { loadConfig, updateConfig, agentHome, storePath, ignitePaths } = require('./config.js');
 const { Store, conversationKey } = require('./store.js');
-const { getState } = require('./dreamer.js');
 const { cadenceSpec, nextOccurrence, FIXED_TZ } = require('./schedule.js');
 const { workspaceFromHome } = require('./memory.js');
 
@@ -30,6 +29,17 @@ const SCHEDULES = [
 
 function adapterFile() {
   return path.resolve(__dirname, 'albert-evidence.js');
+}
+
+function legacyCursor(store) {
+  const raw = store.db.prepare("SELECT value FROM settings WHERE key='dreamer'").get()?.value;
+  const state = raw ? JSON.parse(raw) : { cursor: 0, lastSuccessAt: null, commit: null };
+  if (!(Number.isSafeInteger(state.cursor) && state.cursor >= 0)) throw new Error('invalid dreamer cursor');
+  if (!(state.reportedConflicts == null || (Array.isArray(state.reportedConflicts) &&
+    state.reportedConflicts.every((line) => typeof line === 'string')))) {
+    throw new Error('invalid reported conflicts');
+  }
+  return state;
 }
 
 function fenceFile(workspace) {
@@ -277,7 +287,7 @@ function saoPauloDate(now = Date.now()) {
 }
 
 function albertStore(home) {
-  const db = path.join(home, 'runtime', 'ignite', 'state.sqlite');
+  const db = ignitePaths(home).database;
   if (!fs.existsSync(db)) throw new Error(`albert store missing: ${db}`);
   return new Store(db);
 }
@@ -427,7 +437,7 @@ function planOf(installation, home) {
     }
     const store = new Store(db);
     try {
-      const state = getState(store);
+      const state = legacyCursor(store);
       lines.push(`source ${slug} cursor=${state.cursor} lastSuccessAt=${state.lastSuccessAt ?? 'none'} conflicts=${(state.reportedConflicts || []).length}`);
       if (state.lastSuccessAt != null && (latest == null || state.lastSuccessAt > latest)) latest = state.lastSuccessAt;
       for (const line of state.reportedConflicts || []) conflicts.push(line);
@@ -453,7 +463,7 @@ function migrateCommand(installation, home, dryRun) {
     if (!fs.existsSync(db)) continue;
     const store = new Store(db);
     try {
-      const state = getState(store);
+      const state = legacyCursor(store);
       if (cursors[slug] == null) cursors[slug] = { cursor: state.cursor, ceiling: state.cursor, positions: [], migrated: true };
     } finally { store.close(); }
   }
@@ -527,7 +537,7 @@ function verifyCommand(home) {
 }
 
 function recoverCommand(installation, home) {
-  const store = fs.existsSync(path.join(home, 'runtime', 'ignite', 'state.sqlite')) ? albertStore(home) : null;
+  const store = fs.existsSync(ignitePaths(home).database) ? albertStore(home) : null;
   try {
     if (store) {
       for (const row of SCHEDULES) {
@@ -561,7 +571,7 @@ function installChecks(home) {
 function bindAlbertSchedules(home, config, agent, channelId, now) {
   installChecks(home);
   const key = conversationKey(config.slack.team, channelId, 'board');
-  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
+  const store = new Store(ignitePaths(home).database);
   try {
     store.upsertConversation({
       key, agent, workspace: config.slack.team, channel: channelId, rootTs: 'board', activated: false,
@@ -607,6 +617,6 @@ if (require.main === module) {
 
 module.exports = {
   RULE_ID, CHECKS, SCHEDULES, ZONE, ownerRows, reconcile, refreshEvidence, queueReport, runCheck, runWatchdog,
-  legacyFenced, fenceFile, installChecks, bindAlbertSchedules, extraSelection, main, adapterFile,
+  legacyFenced, fenceFile, installChecks, bindAlbertSchedules, extraSelection, main, adapterFile, legacyCursor,
   saoPauloDate, readCursors, FIXED_TZ,
 };

@@ -570,8 +570,8 @@ form but `list` prints what would change and writes nothing. Both lists of `cast
 - **No-ops exit 0.** `add` of a selected model and `remove` of a model that is not selected say so
   and write nothing.
 - **Who still uses a model.** `remove` is refused while an agent under `<installation>/.rbtv/agents/`
-  names the model in its `agent.json`, or the Dreamer is on and
-  `.rbtv/config/ignite/config.json` names it as `dreamer.model`. The refusal lists them;
+  names the model in its `agent.json`. A legacy `dreamer` section in
+  `.rbtv/config/ignite/config.json` is not a user. The refusal lists the agents;
   `--force` removes it anyway and lists who will now be refused at launch. The result always says
   what was not checked: a record that could not be read, agents kept outside `.rbtv/agents/`, and
   settings of a component that name a model.

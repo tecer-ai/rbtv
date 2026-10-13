@@ -4,8 +4,9 @@
 // configPath(workspace)        — <installation>/.rbtv/config/ignite/config.json
 // loadConfig(workspace)        — read and validate that file directly (field reference: core/rbtv/capabilities/templates/ignite-config.schema.json);
 //                                returns the parsed object plus `workspace` (the absolute path it was read for);
-//                                refuses dreamer.enabled true without dreamer.model
-// updateConfig(workspace, fn)  — read, let fn(config) change it, validate, write atomically; returns the new config
+//                                a legacy dreamer section is ignored and omitted from the result
+// updateConfig(workspace, fn)  — read, let fn(config) change it, validate, write atomically; returns the new config;
+//                                the next write omits a legacy dreamer section
 // agentHome(config, slug)      — <installation>/.rbtv/agents/<slug>
 // ignitePaths(home)            — database, conversations and turns under <agent>/runtime/ignite/
 // resolveIgniteRuntime(home)   — those paths, or a refusal when the agent root still holds them
@@ -13,19 +14,17 @@
 // MIGRATION_COMMAND            — ignite runtime migrate
 // envValue(workspace, name)    — a variable's value: the OS environment first, then <installation>/.rbtv/config/env/.env; null when unset
 // slackToken(config, key)      — the token the config names under slack.<key>Env ('app' | 'bot' | 'owner'); throws when unset
-// DREAMER_MODEL                — the model `ignite dreamer enable` records when dreamer.model is absent; never read at run time
-// dreamerModelRequired(when)   — the refusal text for a missing dreamer.model: the key and an example value
 
 const fs = require('node:fs');
 const path = require('node:path');
 const { agentHomeIn } = require('../../../../cast/capabilities/tools/cast/lib/agent');
 
-const TOP_KEYS = ['slack', 'tools', 'dmAgent', 'routes', 'dreamer'];
+const TOP_KEYS = ['slack', 'tools', 'dmAgent', 'routes'];
+const LEGACY_CONFIG_KEY = 'dreamer';
 const SLACK_KEYS = ['team', 'botUserId', 'ownerUserId', 'appTokenEnv', 'botTokenEnv', 'ownerTokenEnv', 'stoolsWorkspace'];
 const TOOL_KEYS = ['cast', 'stools', 'audio'];
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const DREAMER_MODEL = Object.freeze({ harness: 'codex', model: 'gpt-6.1-sol', effort: 3 });
 
 function configPath(workspace) {
   return path.join(workspace, '.rbtv', 'config', 'ignite', 'config.json');
@@ -42,8 +41,12 @@ function findWorkspace(start) {
   }
 }
 
-function dreamerModelRequired(when) {
-  return `dreamer.model required ${when}: add "model": ${JSON.stringify(DREAMER_MODEL)} under "dreamer" in .rbtv/config/ignite/config.json`;
+function dropLegacySection(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw) || !Object.hasOwn(raw, LEGACY_CONFIG_KEY)) return raw;
+  if (TOP_KEYS.includes(LEGACY_CONFIG_KEY)) return raw;
+  const next = { ...raw };
+  delete next[LEGACY_CONFIG_KEY];
+  return next;
 }
 
 function rejectUnknown(obj, allowed, label) {
@@ -90,20 +93,6 @@ function validate(raw) {
   reqWorkspaceName(raw.slack.stoolsWorkspace);
   rejectUnknown(raw.tools, TOOL_KEYS, 'tools');
   for (const key of TOOL_KEYS) reqString(raw.tools, key, `tools.${key}`);
-  if (raw.dreamer !== undefined) {
-    rejectUnknown(raw.dreamer, ['enabled', 'model'], 'dreamer');
-    if (raw.dreamer.enabled !== undefined && typeof raw.dreamer.enabled !== 'boolean') throw new Error('dreamer.enabled must be a boolean');
-    if (raw.dreamer.model !== undefined) {
-      const model = raw.dreamer.model;
-      rejectUnknown(model, ['harness', 'model', 'effort'], 'dreamer.model');
-      if (!['codex', 'opencode', 'claude'].includes(model.harness)) throw new Error('dreamer.model.harness must be codex, opencode or claude');
-      const name = reqString(model, 'model', 'dreamer.model.model');
-      if (/\s/.test(name) || name.startsWith('-')) throw new Error('dreamer.model.model must be a cast model name');
-      if (!Number.isInteger(model.effort) || model.effort < 1 || model.effort > 5) throw new Error('dreamer.model.effort must be an integer 1-5');
-    } else if (raw.dreamer.enabled === true) {
-      throw new Error(dreamerModelRequired('when dreamer.enabled is true'));
-    }
-  }
   if (raw.dmAgent !== undefined) reqSlug(raw.dmAgent, 'dmAgent');
   if (!raw.routes || typeof raw.routes !== 'object' || Array.isArray(raw.routes)) {
     throw new Error('routes must be an object');
@@ -123,19 +112,19 @@ function loadConfig(workspace) {
   } catch (error) {
     throw new Error(`cannot load Ignite config: ${error.message}`);
   }
-  validate(raw);
-  return { ...raw, dreamer: { enabled: false, ...raw.dreamer }, workspace: path.resolve(workspace) };
+  validate(dropLegacySection(raw));
+  return { ...dropLegacySection(raw), workspace: path.resolve(workspace) };
 }
 
 function updateConfig(workspace, change) {
   const { workspace: _unused, ...raw } = loadConfig(workspace);
-  const next = change(raw) || raw;
+  const next = dropLegacySection(change(raw) || raw);
   validate(next);
   const file = configPath(workspace);
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
   fs.renameSync(tmp, file);
-  return { ...next, dreamer: { enabled: false, ...next.dreamer }, workspace: path.resolve(workspace) };
+  return { ...next, workspace: path.resolve(workspace) };
 }
 
 function agentHome(config, slug) {
@@ -146,6 +135,17 @@ function agentHome(config, slug) {
 
 const MIGRATION_COMMAND = 'ignite runtime migrate';
 const MARKER_NAME = 'MIGRATED';
+
+
+
+
+
+
+
+
+
+
+
 const DATABASE_NAME = 'state.sqlite';
 const LEGACY_FILES = [DATABASE_NAME, `${DATABASE_NAME}-wal`, `${DATABASE_NAME}-shm`];
 const LEGACY_DIRS = ['conversations', 'turns'];
@@ -230,7 +230,7 @@ function slackToken(config, key) {
 
 module.exports = {
   configPath, findWorkspace, loadConfig, updateConfig, agentHome, storePath, envValue, slackToken,
-  DREAMER_MODEL, dreamerModelRequired, ignitePaths, resolveIgniteRuntime, legacyLayout,
+  ignitePaths, resolveIgniteRuntime, legacyLayout,
   migrationGuardPath, migrationInvocation, MIGRATION_COMMAND, MARKER_NAME, DATABASE_NAME,
   LEGACY_FILES, LEGACY_DIRS,
 };

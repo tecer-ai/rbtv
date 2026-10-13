@@ -21,6 +21,6 @@ paths: [<installation-relative folder>]
 
 The frontmatter `paths` values start at the installation root, not the agent’s current folder; absolute values and `..` are refused there. Markdown links in the body, including Shared docs, resolve from this memory file’s folder. A path matches that directory and descendants, not another directory with the same prefix. Use the particular workspace path; a broader path supplies private notes to unrelated work. Quoted inline paths or an indented string list support spaces.
 
-Follow [Memory](memory.md#record-checks) for provenance and counting. The [memory checker](../tools/ignite/memory.js) validates the workspace type, paths, heading and dated records, with a 3,000-character limit. Description and aliases are the standing format maintained by the dreamer, not separately enforced fields at injection.
+Follow [Memory](memory.md#record-checks) for provenance and counting. The [memory checker](../tools/ignite/memory.js) validates the workspace type, paths, heading and dated records, with a 3,000-character limit. Description and aliases are the standing format maintained by Albert, not separately enforced fields at injection.
 
 Check one working directory inside the declared workspace and a neighboring directory outside it. Confirm that only the first receives the note, links reach shared instructions, and neither the note nor copied public facts enter the shared repository.

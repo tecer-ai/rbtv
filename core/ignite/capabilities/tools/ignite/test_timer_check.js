@@ -107,7 +107,6 @@ function workspace(slugs = ['master']) {
     },
     tools: { cast: 'cast', stools: 'stools', audio: 'audio' },
     dmAgent: 'master',
-    dreamer: { enabled: false, model: { harness: 'codex', model: 'example-model', effort: 3 } },
     routes: {},
   }));
   const memory = path.join(dir, '.rbtv', 'memory');

@@ -2,7 +2,7 @@
 'use strict';
 
 // API — entry `ignite`. Home from RBTV_AGENT_HOME, or --agent <slug> + --installation <path>.
-// main(argv, deps) → exit code, or a Promise for connect/disconnect/dreamer/deploy.
+// main(argv, deps) → exit code, or a Promise for connect/disconnect/deploy.
 // deps.slack stubs Slack.
 // deps.stdout / deps.stderr / deps.env optional.
 // schedule next-occurrence lives in schedule.js.
@@ -12,13 +12,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID, createHash } = require('node:crypto');
 const { Store, checkTool } = require('./store.js');
-const { loadConfig, updateConfig, agentHome, configPath, findWorkspace, DREAMER_MODEL, dreamerModelRequired, ignitePaths, resolveIgniteRuntime, legacyLayout, migrationGuardPath, MIGRATION_COMMAND, MARKER_NAME, DATABASE_NAME, LEGACY_FILES, LEGACY_DIRS } = require('./config.js');
+const { loadConfig, updateConfig, agentHome, configPath, findWorkspace, ignitePaths, resolveIgniteRuntime, legacyLayout, migrationGuardPath, MIGRATION_COMMAND, MARKER_NAME, DATABASE_NAME, LEGACY_FILES, LEGACY_DIRS } = require('./config.js');
 const { cadenceSpec, nextOccurrence, FIXED_TZ } = require('./schedule.js');
 const { writeBoard, closeSubject, boardPath, preflightBoard, refreshBoard, refreshBoardAfterCommit } = require('./board.js');
 const { workspaceFromHome, remember } = require('./memory.js');
 const { PAGES, helpPage } = require('./help.js');
 
-const COMMANDS = ['schedule', 'schedules-due', 'work', 'wake', 'post', 'board', 'remember', 'dreamer', 'runtime'];
+const COMMANDS = ['schedule', 'schedules-due', 'work', 'wake', 'post', 'board', 'remember', 'runtime'];
 const REPORTS = new Set(['always', 'when-useful']);
 
 // What each verb takes beside --json, --agent, --installation and -h: its options, and the most
@@ -65,8 +65,6 @@ Timers, work, messages and memory
   remember       Append one owner fact to the installation memory inbox.
   runtime        Move this agent's database, conversations and turns into
                  runtime/ignite/.
-  dreamer        Run one memory consolidation, or enable or disable the
-                 nightly consolidation for the whole installation.
 
 Waking service
   deploy         Check the service's folder out at a commit, restart the
@@ -76,7 +74,7 @@ Home: RBTV_AGENT_HOME, or --agent NAME --installation PATH.
   The installation defaults to the directory walk that finds
   .rbtv/config/ignite/config.json.
   manage's four change verbs, and schedule, work, wake, post, board,
-  remember, and dreamer, use that agent. Help needs neither value.
+  and remember, use that agent. Help needs neither value.
   Inside a turn the waking program also sets IGNITE_CONVERSATION.
   A home that is not an existing folder is refused, and nothing is created.
 
@@ -576,82 +574,6 @@ function resolveInstallation(flags, deps) {
   return found;
 }
 
-// Installation-wide: the daemon reads dreamer.enabled on its next tick. A call
-// that asks for the state already in force writes nothing.
-function setDreamerEnabled(enabled, flags, deps) {
-  const workspace = resolveInstallation(flags, deps);
-  const file = configPath(workspace);
-  let config;
-  let changed;
-  let modelRecorded = false;
-  try {
-    config = loadConfig(workspace);
-    changed = config.dreamer.enabled !== enabled;
-    if (changed) {
-      modelRecorded = enabled && !config.dreamer.model;
-      config = updateConfig(workspace, (raw) => {
-        raw.dreamer.enabled = enabled;
-        if (modelRecorded) raw.dreamer.model = { ...DREAMER_MODEL };
-      });
-    }
-  } catch (error) {
-    fail(`${error.message}\nNothing changed.\nignite dreamer -h`);
-  }
-  const model = config.dreamer.model || null;
-  const state = enabled ? 'enabled' : 'disabled';
-  const lines = [changed
-    ? `Dreamer ${state} for the entire installation ${workspace}, not only the calling agent.`
-    : `Dreamer was already ${state} for the entire installation ${workspace}. Nothing changed.`];
-  if (changed) {
-    lines.push(enabled
-      ? 'The nightly consolidation and the 48-hour watchdog turn on for every agent on the running service\'s next tick.'
-      : 'The nightly consolidation and the 48-hour watchdog stop for every agent on the running service\'s next tick.');
-  }
-  if (!enabled) lines.push('A consolidation already in progress is not cancelled. ignite dreamer run still runs one consolidation.');
-  lines.push(model
-    ? `Model: ${model.harness} ${model.model} effort ${model.effort} (${modelRecorded ? 'recorded now in' : 'from'} dreamer.model${enabled ? '' : ', kept'}).`
-    : 'Model: dreamer.model is not set; ignite dreamer enable records one.');
-  if (enabled) lines.push(`To use another model, edit dreamer.model in ${file}.`);
-  emit(deps, flags, { installation: workspace, config: file, enabled, changed, model, modelRecorded }, `${lines.join('\n')}\n`);
-  return 0;
-}
-
-async function cmdDreamer(rest, flags, deps) {
-  const flag = rest.find((arg) => arg.startsWith('-'));
-  if (flag) fail(`'${flag}' is not a dreamer option\nNothing changed.\nignite dreamer -h`);
-  const [verb, ...extra] = rest;
-  if (!['run', 'enable', 'disable'].includes(verb) || extra.length) {
-    fail('dreamer requires exactly one of run, enable, disable\nNothing changed.\nignite dreamer -h');
-  }
-  if (verb !== 'run') return setDreamerEnabled(verb === 'enable', flags, deps);
-  let enabled = null;
-  let started = false;
-  let result;
-  try {
-    const workspace = resolveInstallation(flags, deps);
-    const config = loadConfig(workspace);
-    enabled = config.dreamer.enabled === true;
-    if (!config.dreamer.model) throw new Error(dreamerModelRequired('to run a consolidation'));
-    const daemon = require('./daemon.js');
-    const run = deps.runInstalledDreamer || daemon.runInstalledDreamer;
-    started = true;
-    result = await run({ config, now: deps.now, runDreamer: deps.runDreamer });
-  } catch (error) {
-    result = {
-      ok: false, busy: false, quiet: false, changed: false, alert: null,
-      digestQueued: false, noticeQueued: false, delivered: false, conflictsSaved: false, error: error.message,
-    };
-  }
-  const payload = {
-    ...result,
-    enabled,
-    note: started && enabled === false ? 'dreamer.enabled is false; ran because this command was called' : null,
-  };
-  const write = deps.stdout || ((text) => process.stdout.write(text));
-  write(`${JSON.stringify(payload)}\n`);
-  return payload.ok && !payload.busy && !payload.alert && !payload.error ? 0 : 1;
-}
-
 function cmdRemember(rest, flags, deps) {
   if (flags.help) {
     emit(deps, { json: false }, null, REMEMBER_HELP);
@@ -768,11 +690,10 @@ function main(argv, deps = {}) {
   }
   if (command === 'board') return cmdBoard(tail, flags, deps);
   if (command === 'remember') return cmdRemember(tail, flags, deps);
-  if (command === 'dreamer') return cmdDreamer(tail, flags, deps);
   if (command === 'albert') return cmdAlbert(tail, flags, deps);
   if (command === 'runtime') return cmdRuntime(tail, flags, deps);
   if (command === 'deploy') return require('./deploy.js').run(tail, flags, deps, () => resolveInstallation(flags, deps));
-  if (!COMMANDS.includes(command)) fail(`unknown command: ${command}\nchoose from connect, disconnect, manage, turn,\nschedule, schedules-due, work, wake, post, board, remember, dreamer, runtime, deploy\nNothing changed.\nignite -h`);
+  if (!COMMANDS.includes(command)) fail(`unknown command: ${command}\nchoose from connect, disconnect, manage, turn,\nschedule, schedules-due, work, wake, post, board, remember, runtime, deploy\nNothing changed.\nignite -h`);
   // The words are checked before the home is opened: a refused option creates no database.
   const verb = VERBS[`${command} ${tail[0]}`] ? `${command} ${tail[0]}` : command;
   const parsed = VERBS[verb] && parseOpts(verb === command ? tail : tail.slice(1), verb);

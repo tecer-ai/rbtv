@@ -6,7 +6,7 @@ Do not list Profile or Inbox: they are already supplied. Agent topics belong in 
 
 ## Maintain the root and generated lists
 
-Write the root index when general memory is created. Update it in the same change that adds or removes a general-memory folder; do not ask the dreamer to regenerate it or add one row per file.
+Write the root index when general memory is created. Update it in the same change that adds or removes a general-memory folder; do not ask Albert to regenerate it or add one row per file.
 
 Each folder containing memory files has a generated `_artifacts/index.md`, read on demand. A parent lists its subfolders, not their files. Each generated list has one row per file, built from its description; edit that source description rather than the generated table. No file appears in both the root and a folder list. Generated lists have no row cap or frontmatter.
 

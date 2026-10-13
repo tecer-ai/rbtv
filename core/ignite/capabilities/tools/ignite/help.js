@@ -6,7 +6,7 @@
 // A usage form appears only on the page of the command it invokes; a group page lists its verbs and
 // points to their pages.
 
-const { DREAMER_MODEL, MIGRATION_COMMAND } = require('./config.js');
+const { MIGRATION_COMMAND } = require('./config.js');
 
 const HOME = `Home: RBTV_AGENT_HOME, otherwise --agent <slug> --installation <path>. A home that is not an
 existing folder is refused, and nothing is created.`;
@@ -364,113 +364,6 @@ Example: ignite board close "Printer toner reorder" "Order confirmed"
 Next: ignite board write -h
 `,
 
-  dreamer: `ignite dreamer — memory consolidation for the whole installation
-
-Run one memory consolidation, or enable or disable the nightly consolidation. The Dreamer
-consolidates the agents' memory for the whole installation, not for one agent.
-
-Enable and disable affect automatic Dreamer operation for the entire
-installation, not only the calling agent. Agents must use these commands only
-when explicitly requested by the owner. Do not disable Dreamer as a workaround
-for an individual agent's problem.
-
-Commands
-  run      Run the nightly consolidation path once and exit.
-  enable   Turn on the nightly consolidation and the 48-hour watchdog for every agent.
-  disable  Turn them off for every agent.
-
-Next: ignite dreamer COMMAND -h
-`,
-
-  'dreamer run': `ignite dreamer run — run one consolidation now
-
-usage: ignite dreamer run [--installation PATH]
-
-Runs the nightly consolidation path once and exits. Never loops and never
-waits for 03:00. Does not mark or consume that slot, so the daemon can still
-run it the same night.
-Takes the installation lock .rbtv/runtime/ignite/memory.lock for checks,
-snapshot reads and publication. Releases it before every model call.
-Contention at entry waits 5 seconds, then prints a busy result and does not start a run.
-A run with nothing to consolidate is quiet: it calls no model.
-A digest or failure notice is queued on the direct-message agent's outbox.
-digestQueued reports a queued digest; noticeQueued reports a queued failure
-notice. Both are false for quiet, busy, or setup-failure results.
-The running daemon delivers it. Reported conflicts are saved only after
-delivery is confirmed. This command does not confirm delivery, so it leaves
-new conflicts unsaved, the same as an unconfirmed nightly digest.
-Runs even when dreamer.enabled is false, and does not enable it. The result
-says so. Uses dreamer.model; without that key the run is refused.
-
-Installation: --installation, otherwise the installation containing RBTV_AGENT_HOME,
-or the walk up to .rbtv/config/ignite/config.json. No Slack call.
-Output: one JSON line and nothing else, with the fields ok, busy, quiet, changed, alert,
-digestQueued, noticeQueued, delivered (always false here), conflictsSaved, error, enabled
-and note. Exit 0 when the run finished without an alert. Exit 1 when the run failed or the
-lock was busy. A failure before the run (no installation, an invalid configuration, no
-dreamer.model) is the same line, with ok false and the reason in error, and exit 1.
---agent and --json are accepted and have no effect. Any other option is refused with
-exit 1 and nothing run.
-
-Example: ignite dreamer run --installation /path/to/installation
-Next: ignite dreamer enable -h
-`,
-
-  'dreamer enable': `ignite dreamer enable — turn the nightly consolidation on
-
-usage: ignite dreamer enable [--installation PATH] [--json]
-
-Enable affects automatic Dreamer operation for the entire installation, not only the
-calling agent. Agents must use this command only when explicitly requested by the owner.
-
-Sets dreamer.enabled to true in .rbtv/config/ignite/config.json. The running
-service reads it on its next tick and turns on the nightly consolidation
-(03:00 America/Sao_Paulo) and the 48-hour watchdog for every agent.
-When dreamer.model is absent, records ${DREAMER_MODEL.harness} ${DREAMER_MODEL.model} effort ${DREAMER_MODEL.effort} there.
-The result names the model in use. To change it, edit dreamer.model
-(harness, model, effort) in that file.
-Already enabled: nothing is written, and the result says so.
-Only dreamer.enabled, and dreamer.model when it is recorded, change. Every other setting and
-the schedule stay as they are.
-
-Installation: --installation, otherwise the installation containing RBTV_AGENT_HOME,
-or the walk up to .rbtv/config/ignite/config.json. No Slack call. --agent is accepted and
-has no effect.
-Success: exit 0, the new state in plain text, or with --json
-{installation, config, enabled, changed, model, modelRecorded}.
-Refusal: exit 1, reason on stderr, nothing written. An unreadable or invalid
-configuration is refused, and so is any option other than --installation, --json and --agent.
-
-Example: ignite dreamer enable --installation /path/to/installation
-Next: ignite dreamer run -h
-`,
-
-  'dreamer disable': `ignite dreamer disable — turn the nightly consolidation off
-
-usage: ignite dreamer disable [--installation PATH] [--json]
-
-Disable affects automatic Dreamer operation for the entire installation, not only the
-calling agent. Agents must use this command only when explicitly requested by the owner.
-Do not disable Dreamer as a workaround for an individual agent's problem.
-
-Sets dreamer.enabled to false in .rbtv/config/ignite/config.json. The nightly consolidation and
-the watchdog stop for every agent on the service's next tick. A consolidation already in
-progress is not cancelled, and ignite dreamer run still runs one. dreamer.model is kept.
-Already disabled: nothing is written, and the result says so.
-Only dreamer.enabled changes. Every other setting and the schedule stay as they are.
-
-Installation: --installation, otherwise the installation containing RBTV_AGENT_HOME,
-or the walk up to .rbtv/config/ignite/config.json. No Slack call. --agent is accepted and
-has no effect.
-Success: exit 0, the new state in plain text, or with --json
-{installation, config, enabled, changed, model, modelRecorded}.
-Refusal: exit 1, reason on stderr, nothing written. An unreadable or invalid
-configuration is refused, and so is any option other than --installation, --json and --agent.
-
-Example: ignite dreamer disable --installation /path/to/installation
-Next: ignite dreamer enable -h
-`,
-
   runtime: `ignite runtime — move one agent's Ignite records
 
 Moves this agent's database, conversations and turn records from the agent
@@ -487,12 +380,14 @@ Next: ignite runtime migrate -h
 usage: ignite albert <fence|drain|migrate|report|cleanup|probe|verify|recover>
        [--installation PATH] [--dry-run]
 
-These commands prepare a later cutover. They do not retire the dreamer runner.
-fence stops the legacy publisher from publishing. drain refuses while the
-publication lock is held. migrate --dry-run prints the cursor and liveness plan
-and writes nothing. cleanup removes dreamer keys from the Ignite config. probe
-prints "dreamer keys absent" only when those keys are gone. The proposal
-structure is taught by albert apply -h, and only there.
+fence writes the legacy fence and stops a later publisher from being treated as
+the only writer. drain refuses while the publication lock is held. migrate
+reads each source agent's settings key dreamer and transfers its cursor.
+migrate --dry-run prints that plan and writes nothing. cleanup removes the
+legacy dreamer section from the Ignite config. probe prints "dreamer keys absent"
+only when that section is gone. recover disables Albert's schedules and removes
+the fence. It does not start a publisher. The proposal structure is taught by
+albert apply -h, and only there.
 
 Example: ignite albert fence --installation /path/to/installation
 `,

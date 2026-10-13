@@ -7,7 +7,6 @@ const os = require('node:os');
 const path = require('node:path');
 const { Store, conversationKey } = require('./store.js');
 const { runCheck } = require('./timer-check.js');
-const { getState, saveState } = require('./dreamer.js');
 const evidence = require('./albert-evidence.js');
 
 const failures = [];
@@ -40,6 +39,11 @@ function agent(dir, slug) {
 
 function storeOf(home) {
   return new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
+}
+
+function saveLegacy(store, state, now) {
+  store.db.prepare(`INSERT INTO settings(key,value,updated_at) VALUES ('dreamer',?,?)
+    ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`).run(JSON.stringify(state), now);
 }
 
 function owner(store, slug, text, rowid) {
@@ -250,7 +254,7 @@ test('liveness and pending state migrate with the dry-run printing the plan and 
   process.env.ALBERT_TOOL = fakeAlbert(albert);
   process.env.RBTV_AGENT_HOME = albert;
   const store = storeOf(source);
-  saveState(store, { cursor: 4, lastSuccessAt: 50, commit: null, reportedConflicts: ['Pending global rule: keep'] }, 50);
+  saveLegacy(store, { cursor: 4, lastSuccessAt: 50, commit: null, reportedConflicts: ['Pending global rule: keep'] }, 50);
   store.close();
   const before = fs.readdirSync(path.join(albert, 'runtime'));
   const code = evidence.main(['migrate', '--dry-run']);
@@ -468,7 +472,7 @@ test('fence then drain then migrate then recover selects one publisher', () => {
   process.env.ALBERT_TOOL = fakeAlbert(albert);
   process.env.RBTV_AGENT_HOME = albert;
   const store = storeOf(source);
-  saveState(store, { cursor: 2, lastSuccessAt: 9, commit: null, reportedConflicts: [] }, 9);
+  saveLegacy(store, { cursor: 2, lastSuccessAt: 9, commit: null, reportedConflicts: [] }, 9);
   store.close();
   assert.throws(() => evidence.main(['drain']), /fence/);
   assert.equal(evidence.main(['fence']), 0);
@@ -485,9 +489,48 @@ test('fence then drain then migrate then recover selects one publisher', () => {
   assert.equal(after.getSchedule('albert-friday').enabled, false);
   assert.equal(after.getSchedule('albert-watchdog').enabled, false);
   after.close();
-  assert.equal(getState(storeOf(source)).cursor, 2);
+  assert.equal(evidence.legacyCursor(storeOf(source)).cursor, 2);
   delete process.env.ALBERT_TOOL;
   delete process.env.RBTV_AGENT_HOME;
+});
+
+test('migrate reads legacy cursors with dreamer.js absent', () => {
+  assert.equal(fs.existsSync(path.join(__dirname, 'dreamer.js')), false);
+  assert.throws(() => require.resolve('./dreamer.js'));
+  assert.equal(Object.keys(require.cache).some((name) => name.endsWith(`${path.sep}dreamer.js`)), false);
+  const dir = workspace();
+  const source = agent(dir, 'source');
+  const albert = agent(dir, 'albert');
+  process.env.ALBERT_TOOL = fakeAlbert(albert);
+  process.env.RBTV_AGENT_HOME = albert;
+  const store = storeOf(source);
+  saveLegacy(store, { cursor: 7, lastSuccessAt: 11, commit: 'abc', reportedConflicts: [] }, 11);
+  store.close();
+  assert.equal(evidence.main(['migrate']), 0);
+  assert.equal(evidence.readCursors(albert).source.cursor, 7);
+  delete process.env.ALBERT_TOOL;
+  delete process.env.RBTV_AGENT_HOME;
+});
+
+test('cleanup then probe removes a legacy dreamer section', () => {
+  const dir = workspace();
+  const albert = agent(dir, 'albert');
+  process.env.RBTV_AGENT_HOME = albert;
+  const file = path.join(dir, '.rbtv', 'config', 'ignite', 'config.json');
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).dreamer.enabled, false);
+  assert.throws(() => evidence.main(['probe']), /dreamer keys present/);
+  assert.equal(evidence.main(['cleanup']), 0);
+  assert.equal(Object.hasOwn(JSON.parse(fs.readFileSync(file, 'utf8')), 'dreamer'), false);
+  assert.equal(evidence.main(['probe']), 0);
+  delete process.env.RBTV_AGENT_HOME;
+});
+
+test('a legacy config loads before cleanup', () => {
+  const dir = workspace();
+  const file = path.join(dir, '.rbtv', 'config', 'ignite', 'config.json');
+  const loaded = require('./config.js').loadConfig(dir);
+  assert.equal(Object.hasOwn(loaded, 'dreamer'), false);
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).dreamer.model.harness, 'codex');
 });
 
 (async () => {

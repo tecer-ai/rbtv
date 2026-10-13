@@ -29,7 +29,7 @@ Use `ignite manage list`, `ignite manage search WORDS` and `ignite manage show N
 
 Use `ignite board write --file <path>` to update your board's subjects or Watch-outs. Supply the complete candidate board; the checked command preserves Timers, Recently closed, and existing Flags, and refuses an invalid or over-cap write. Use `ignite board close <subject> <outcome> [thread]` when a subject is done; it removes that subject and writes its outcome in Recently closed. Never edit the board file directly.
 
-When the owner corrects your behaviour, record the correction in the board's Watch-outs in the same turn. Do not write `memory/learned.md`: the dreamer folds Watch-outs into learned rules on its next run. When the owner asks to remember a fact, use `ignite remember <text>` instead. It appends one line to shared `.rbtv/memory/inbox.md` and does not rewrite earlier memory.
+When the owner corrects your behaviour, record the correction in the board's Watch-outs in the same turn. Do not write `memory/learned.md`: Albert folds Watch-outs into learned rules on its next run. When the owner asks to remember a fact, use `ignite remember <text>` instead. It appends one line to shared `.rbtv/memory/inbox.md` and does not rewrite earlier memory.
 
 ## Proactive posts
 

@@ -2381,7 +2381,7 @@ else {
   ok(models(['remove', 'opencode', 'not-a-real-model'], some.root));
   assert.strictEqual(fs.readFileSync(some.file, 'utf8'), `${HEAD}\n${SONNET}\n`);
 
-  // remove is refused while an agent or the Dreamer still launches the model; --force overrides
+  // remove is refused while an agent still launches the model; a legacy dreamer section is ignored; --force overrides
   const used = installation([HEAD, SONNET, HAIKU]);
   const agentFile = (name) => path.join(used.root, '.rbtv', 'agents', name, 'agent.json');
   for (const [name, record] of [['tiny', { harness: 'claude', model: 'claude-haiku-5-5', effort: 'low' }],
@@ -2394,21 +2394,21 @@ else {
   fs.mkdirSync(path.dirname(igniteConfig), { recursive: true });
   const dreamer = (value) => fs.writeFileSync(igniteConfig, JSON.stringify({ dreamer: value }));
   dreamer({ enabled: true, model: { harness: 'claude', model: 'haiku-5-5', effort: 3 } });
-  const inUse = `refused: 'claude haiku-5-5' is still used in ${used.root}\n  agent tiny (${agentFile('tiny')})\n  the Dreamer (${igniteConfig}, dreamer.model)\n`
+  const inUse = `refused: 'claude haiku-5-5' is still used in ${used.root}\n  agent tiny (${agentFile('tiny')})\n`
     + 'give each another model first (an agent: rbtv agent configure AGENT --model MODEL), or remove it anyway with --force\nNothing changed.\ncast models remove claude haiku-5-5 --force';
   refused(unchanged(used.root, () => models(['remove', 'claude', 'haiku-5-5'], used.root)), inUse);
   refused(unchanged(used.root, () => models(['remove', 'claude', 'haiku-5-5', '--dry-run'], used.root)), inUse);
   const inUseJson = jsonRefusal(unchanged(used.root, () => models(['remove', 'claude', 'haiku-5-5', '--json'], used.root)), 'in-use', 'cast models remove claude haiku-5-5 --force');
-  assert.ok(inUseJson.message.includes(agentFile('tiny')) && inUseJson.message.includes('the Dreamer'), inUseJson.message);
-  // the Dreamer switched off is not a user; switched on with no model written, it is named as not checked
-  dreamer({ enabled: false, model: { harness: 'claude', model: 'haiku-5-5', effort: 3 } });
-  assert.ok(!models(['remove', 'claude', 'haiku-5-5'], used.root).stderr.includes('Dreamer'));
+  assert.ok(inUseJson.message.includes(agentFile('tiny')) && !inUseJson.message.includes('dreamer'), inUseJson.message);
+  dreamer({ enabled: true, model: { harness: 'claude', model: 'haiku-5-5', effort: 3 } });
+  assert.ok(!models(['remove', 'claude', 'haiku-5-5'], used.root).stderr.toLowerCase().includes('dreamer'));
   dreamer({ enabled: true });
   const forcedDry = JSON.parse(ok(unchanged(used.root, () => models(['remove', 'claude', 'haiku-5-5', '--force', '--dry-run', '--json'], used.root))));
   assert.deepStrictEqual(Object.keys(forcedDry), ['installation', 'selection', 'harness', 'model', 'changed', 'removed', 'copied_shipped', 'users', 'not_checked', 'dry_run']);
   assert.deepStrictEqual([forcedDry.changed, forcedDry.dry_run, forcedDry.copied_shipped, forcedDry.removed.length], [false, true, false, 1]);
   assert.deepStrictEqual(forcedDry.users, [{ kind: 'agent', name: 'tiny', file: agentFile('tiny') }]);
-  assert.deepStrictEqual(forcedDry.not_checked.slice(0, 2), [`${agentFile('torn')} cannot be read`, `the Dreamer is on and ${igniteConfig} names no dreamer.model`]);
+  assert.deepStrictEqual(forcedDry.not_checked.slice(0, 1), [`${agentFile('torn')} cannot be read`]);
+  assert.ok(!forcedDry.not_checked.some((line) => /dreamer/i.test(line)));
   const forced = ok(models(['remove', 'claude', 'haiku-5-5', '--force'], used.root));
   assert.ok(forced.includes(`\nstill naming it, so these are now refused at launch:\n  agent tiny (${agentFile('tiny')})\nnot checked:\n  ${agentFile('torn')} cannot be read\n`), forced);
   assert.strictEqual(fs.readFileSync(used.file, 'utf8'), `${HEAD}\n${SONNET}\n`);

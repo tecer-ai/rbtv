@@ -22,4 +22,4 @@ aliases: [<search words>]
 
 The type equals the filename stem. A decision bullet uses `<decision>. Rejected: <alternative>. Why: <reason>. Reopen when: <condition>. (<YYYY-MM-DD> · <source>)`. Self and health records link the source note with `- Vault: [<note>](<relative path>)`. A correction replaces its fact record rather than leaving conflicting versions.
 
-Follow [Memory](memory.md#record-checks) for provenance and counting. The [dreamer checker](../tools/ignite/dreamer.js) validates metadata, dated records and the 3,000-character cap. Check the published kind and its neighboring Profile/Entity record for duplicated or misplaced facts; a valid record shape does not settle that judgment.
+Follow [Memory](memory.md#record-checks) for provenance and counting. Publication checks validate metadata, dated records and the 3,000-character cap. Check the published kind and its neighboring Profile/Entity record for duplicated or misplaced facts; a valid record shape does not settle that judgment.

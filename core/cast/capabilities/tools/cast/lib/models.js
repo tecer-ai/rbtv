@@ -40,9 +40,6 @@ const VIEWS = ['selected', 'supported', 'catalog'];
 const JSON_USAGE = 'Pass the NUMBER (integer 1-5) as <effort>, not the word — example: '
   + 'cast opencode glm-5.3 2 -p "hello". rungs are labels only; each model\'s effort_numbers maps '
   + 'a word to the number that selects it. A model with mode api runs through cast api.';
-// Where Ignite keeps the Dreamer's model, the one user of a model outside an agent.json.
-const IGNITE_CONFIG_REL = path.join('.rbtv', 'config', 'ignite', 'config.json');
-
 // --- refusals and the two lines every result starts with ---------------------------------------
 
 // A refusal ends the command at exit 2: text on standard error, or under --json one value on
@@ -221,8 +218,7 @@ function addModel(selection, harness, model, { dryRun, json }) {
 
 // --- remove ------------------------------------------------------------------------------------
 
-// Who in the installation still launches `harness model`: its agents, and the Dreamer when it is
-// on. `unread` names what could not be read to tell.
+// Who in the installation still launches `harness model`: its agents. `unread` names what could not be read to tell.
 function usersOf(root, harness, model) {
   const users = [];
   const unread = [];
@@ -235,19 +231,10 @@ function usersOf(root, harness, model) {
     if (!record) unread.push(`${file} cannot be read`);
     else if (names(record)) users.push({ kind: 'agent', name, file });
   }
-  const file = path.join(root, IGNITE_CONFIG_REL);
-  if (fs.existsSync(file)) {
-    const config = readJson(file);
-    if (!config) unread.push(`${file} cannot be read`);
-    else if (config.dreamer && config.dreamer.enabled === true) {
-      if (!config.dreamer.model) unread.push(`the Dreamer is on and ${file} names no dreamer.model`);
-      else if (names(config.dreamer.model)) users.push({ kind: 'dreamer', name: 'the Dreamer', file });
-    }
-  }
   return { users, unread };
 }
 
-const userLine = (user) => (user.kind === 'agent' ? `agent ${user.name} (${user.file})` : `${user.name} (${user.file}, dreamer.model)`);
+const userLine = (user) => `agent ${user.name} (${user.file})`;
 
 function removeModel(selection, harness, model, { force, dryRun, json }) {
   needInstallation(selection, json);
@@ -510,4 +497,4 @@ function runModels(args) {
   process.exit(0);
 }
 
-module.exports = { USAGE, ownFileComesFrom, catalogDrift, runModels };
+module.exports = { USAGE, ownFileComesFrom, catalogDrift, runModels, usersOf };

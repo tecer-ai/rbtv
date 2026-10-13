@@ -19,6 +19,6 @@ aliases: [<other names or spellings>]
 - Glossary: [<name>](<relative path; people and organizations only>)
 ```
 
-The type matches the containing kind folder. Resolve links from this file’s own folder. Follow [Memory](memory.md#record-checks) for provenance and counting; the limit is 3,000 characters. The [dreamer checker](../tools/ignite/dreamer.js) checks metadata and records; identity and whether a linked note already holds the detail still require review.
+The type matches the containing kind folder. Resolve links from this file’s own folder. Follow [Memory](memory.md#record-checks) for provenance and counting; the limit is 3,000 characters. Publication checks check metadata and records; identity and whether a linked note already holds the detail still require review.
 
 After publication, check that the aliases resolve to one entity, the source-note and glossary links work, and no detail was lost through truncation.
