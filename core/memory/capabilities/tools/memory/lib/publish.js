@@ -14,7 +14,17 @@ const GENERAL = '.rbtv/memory/';
 const REASONS = ['owner', 'merge', 'file', 'fold', 'detail', 'closed', 'expired', 'index'];
 const normalize = (text) => text.replace(/\r\n/g, '\n');
 const nonempty = (text) => normalize(text).split('\n').filter((line) => line.trim());
-function requireThat(ok, message) { if (!ok) throw new Refusal(message); }
+let pendingForm = null;
+function requireThat(ok, message) {
+  const form = pendingForm;
+  pendingForm = null;
+  if (!ok) {
+    const error = new Refusal(message);
+    if (form) error.form = form;
+    throw error;
+  }
+}
+function expect(form) { pendingForm = form; }
 
 function safePath(workspace, relative) {
   requireThat(typeof relative === 'string' && relative.length > 0, 'path required');
@@ -90,55 +100,115 @@ function fileSizes(kind, text) {
   return [size(nonemptyLines(text).length, null, `nonempty lines; warn at ${WARN_LINES}; split at ${SPLIT_LINES}`)];
 }
 
-function checkFile(relative, kind, text) {
-  requireThat(typeof text === 'string' && !/[\x00\r]/.test(text.replace(/\r\n/g, '')) && !text.includes('[['), 'invalid memory text');
-  for (const { count, cap, unit } of fileSizes(kind, text)) {
-    requireThat(cap == null || count <= cap, `${relative}: ${kind} cap exceeded (${count}/${cap} ${unit})`);
+function checkFile(relative, kind, text, place = {}) {
+  const found = [];
+  const filePath = place.path || relative;
+  const fileOp = Object.prototype.hasOwnProperty.call(place, 'operation') ? place.operation : null;
+  function keep(error, fallback) {
+    if (!(error instanceof Refusal)) throw error;
+    const requirement = error.message;
+    const expected = error.form || fallback;
+    if (found.some((row) => row.path === filePath && row.requirement === requirement)) return;
+    found.push(failure({ path: filePath, operation: fileOp, requirement, expected, reason: requirement }));
   }
+  function collect(fn, fallback) {
+    try { fn(); return true; }
+    catch (error) { keep(error, fallback); return false; }
+  }
+  const textForm = 'UTF-8 text, LF or CRLF lines, no NUL and no [[';
+  expect(textForm);
+  if (!collect(() => requireThat(typeof text === 'string' && !/[\x00\r]/.test(text.replace(/\r\n/g, '')) && !text.includes('[['), 'invalid memory text'), textForm)) {
+    throw refusalError(found);
+  }
+  let capped = false;
+  for (const { count, cap, unit } of fileSizes(kind, text)) {
+    const capForm = `at most ${cap} ${unit}`;
+    expect(capForm);
+    if (!collect(() => requireThat(cap == null || count <= cap, `${relative}: ${kind} cap exceeded (${count}/${cap} ${unit})`), capForm)) capped = true;
+  }
+  let shaped = true;
   if (['board', 'learned', 'profile', 'inbox', 'index', 'workspace'].includes(kind)) {
-    try { checkMemory(kind, text); } catch (error) { throw new Refusal(error.message, [fromMessage(error.message, { path: relative, operation: kind, expected: error.message })]); }
+    if (capped) shaped = false;
+    else {
+      try { checkMemory(kind, text); }
+      catch (error) {
+        shaped = false;
+        const forms = {
+          board: '## What matters now, ## Watch-outs, ## Timers, ## Recently closed',
+          learned: '# Learned rules — Name and dated rule bullets',
+          profile: '# Profile — Name, ## Who, ## Working with Name, ## Now, at most 4000 code points',
+          inbox: '# Inbox and one dated bullet per line',
+          index: 'a heading and an | Open | When | table',
+          workspace: 'type: workspace, one paths list, a heading, dated bullets',
+        };
+        found.push(failure({ path: filePath, operation: fileOp, requirement: error.message, expected: forms[kind], reason: error.message }));
+      }
+    }
   } else {
     const front = normalize(text).match(/^---\n([\s\S]*?)\n---\n/);
-    requireThat(front && /^description: when .+$/m.test(front[1]) && /^# \S/m.test(bodyOf(text)), `${kind} requires description and heading`);
-    if (!['daily', 'weekly', 'workstreams'].includes(kind)) {
+    const headingForm = 'frontmatter description: when ... and a # heading';
+    expect(headingForm);
+    collect(() => requireThat(front && /^description: when .+$/m.test(front[1]) && /^# \S/m.test(bodyOf(text)), `${kind} requires description and heading`), headingForm);
+    if (front && !['daily', 'weekly', 'workstreams'].includes(kind)) {
       const type = front[1].match(/^type: (\S+)$/m)?.[1];
-      const expected = kind === 'entity' ? ({ people: 'person', orgs: 'org', places: 'place', devices: 'device' })[relative.split('/').at(-2)] :
+      const expectedType = kind === 'entity' ? ({ people: 'person', orgs: 'org', places: 'place', devices: 'device' })[relative.split('/').at(-2)] :
         kind === 'knowledge' ? (relative.split('/').at(-2) === 'knowledge' ? path.posix.basename(relative, '.md') : relative.split('/').at(-2)) : null;
-      requireThat(expected ? type === expected : ['subject', 'procedure', 'reference'].includes(type), `${kind} type refused`);
-      requireThat(/^aliases: \[.*\]$/m.test(front[1]), `${kind} aliases required`);
+      const typeForm = expectedType ? `type: ${expectedType}` : 'type: subject, procedure or reference';
+      expect(typeForm);
+      collect(() => requireThat(expectedType ? type === expectedType : ['subject', 'procedure', 'reference'].includes(type), `${kind} type refused`), typeForm);
+      const aliasForm = 'aliases: [name]';
+      expect(aliasForm);
+      collect(() => requireThat(/^aliases: \[.*\]$/m.test(front[1]), `${kind} aliases required`), aliasForm);
       if (kind === 'topic' && type === 'subject') {
         const threads = nonempty(bodyOf(text)).filter((line) => line.startsWith('Threads: '));
-        requireThat(threads.length === 1 && /^Threads: (?:none|\[[^\]]+\]\(https?:\/\/\S+\)(?: · \[[^\]]+\]\(https?:\/\/\S+\))*)$/.test(threads[0]), 'subject topics require Threads');
+        const threadForm = 'Threads: none or Threads: [label](https://...)';
+        expect(threadForm);
+        collect(() => requireThat(threads.length === 1 && /^Threads: (?:none|\[[^\]]+\]\(https?:\/\/\S+\)(?: · \[[^\]]+\]\(https?:\/\/\S+\))*)$/.test(threads[0]), 'subject topics require Threads'), threadForm);
       }
     }
     const rows = records(kind, text);
     if (kind === 'daily' || kind === 'weekly') {
       const stem = path.posix.basename(relative, '.md');
-      requireThat(kind === 'daily' ? validDate(stem) : /^\d{4}-W(?:0[1-9]|[1-4]\d|5[0-3])$/.test(stem), 'invalid timeline date');
-      for (const row of rows) requireThat(/^(?:Periodic note: |Week: )?\[[^\]]+\]\([^)]+\)$/.test(row) ||
-        (kind === 'daily' ? /^- .+ — [a-z0-9-]+\/\[[^\]]+\]\(https?:\/\/[^\s]+\)$/.test(row) :
-          /^- .+ — \[\d{4}-\d{2}-\d{2}\]\(\.\.\/daily\/\d{4}-\d{2}-\d{2}\.md\)$/.test(row)), 'timeline must contain episodes and links only');
+      const dateForm = kind === 'daily' ? 'a file name YYYY-MM-DD' : 'a file name YYYY-Www';
+      expect(dateForm);
+      collect(() => requireThat(kind === 'daily' ? validDate(stem) : /^\d{4}-W(?:0[1-9]|[1-4]\d|5[0-3])$/.test(stem), 'invalid timeline date'), dateForm);
+      const rowForm = 'an episode line or a link, not a dated fact';
+      for (const row of rows) {
+        expect(rowForm);
+        collect(() => requireThat(/^(?:Periodic note: |Week: )?\[[^\]]+\]\([^)]+\)$/.test(row) ||
+          (kind === 'daily' ? /^- .+ — [a-z0-9-]+\/\[[^\]]+\]\(https?:\/\/[^\s]+\)$/.test(row) :
+            /^- .+ — \[\d{4}-\d{2}-\d{2}\]\(\.\.\/daily\/\d{4}-\d{2}-\d{2}\.md\)$/.test(row)), 'timeline must contain episodes and links only'), rowForm);
+      }
     } else if (kind === 'workstreams') {
-      requireThat(rows.every((row) => /^- .+(?:\[board\]\([^)]+\)|board: none)$/.test(row)), 'workstreams requires pointers');
+      const pointerForm = 'each line is a pointer with [board](...) or board: none';
+      expect(pointerForm);
+      collect(() => requireThat(rows.every((row) => /^- .+(?:\[board\]\([^)]+\)|board: none)$/.test(row)), 'workstreams requires pointers'), pointerForm);
     } else {
+      const datedForm = '- text (YYYY-MM-DD · provenance)';
       for (const row of rows) {
         if (/^(?:Threads: |(?:- )?(?:Vault|Glossary|Shared docs): )/.test(row)) continue;
         const record = row.match(/^(?:- |\d+\. ).+ \((\d{4}-\d{2}-\d{2}) · .+\)$/);
-        requireThat(record && validDate(record[1]), 'records require dated provenance');
+        expect(datedForm);
+        collect(() => requireThat(record && validDate(record[1]), 'records require dated provenance'), datedForm);
       }
     }
   }
-  const dated = kind === 'board' ? (() => {
-    const board = parseBoard(text);
-    return [...board.subjects.flatMap((subject) => subject.state), ...board.watchOuts, ...board.closed];
-  })() : records(kind, text);
-  for (const row of dated) {
-    const fact = recordBody(row);
-    if (/\buntil\s+\d{4}-/.test(fact)) {
-      const until = fact.match(/\buntil (\d{4}-\d{2}-\d{2})\.?$/)?.[1];
-      requireThat(until && validDate(until), 'expiry requires a final until YYYY-MM-DD');
+  if (kind !== 'board' || shaped) {
+    const dated = kind === 'board' ? (() => {
+      const board = parseBoard(text);
+      return [...board.subjects.flatMap((subject) => subject.state), ...board.watchOuts, ...board.closed];
+    })() : records(kind, text);
+    const untilForm = 'the fact ends until YYYY-MM-DD';
+    for (const row of dated) {
+      const fact = recordBody(row);
+      if (/\buntil\s+\d{4}-/.test(fact)) {
+        const until = fact.match(/\buntil (\d{4}-\d{2}-\d{2})\.?$/)?.[1];
+        expect(untilForm);
+        collect(() => requireThat(until && validDate(until), 'expiry requires a final until YYYY-MM-DD'), untilForm);
+      }
     }
   }
+  if (found.length) throw refusalError(found);
 }
 
 function readText(file) {
@@ -275,57 +345,169 @@ function provenance(text) { return text.match(/^.* \(\d{4}-\d{2}-\d{2} · (.+)\)
 function parseProposal(value) {
   if (typeof value === 'string') {
     try { value = JSON.parse(value.trim().replace(/^```(?:json)?\s*\n([\s\S]*?)\n```$/, '$1')); }
-    catch { throw new Refusal('model did not return JSON'); }
+    catch {
+      throw new Refusal('model did not return JSON', [failure({
+        path: null, operation: null, requirement: 'model did not return JSON',
+        expected: 'one JSON object with operations and conflicts arrays', reason: 'model did not return JSON',
+      })]);
+    }
   }
-  requireThat(value && Array.isArray(value.operations) && Array.isArray(value.conflicts), 'proposal requires operations and conflicts arrays');
-  requireThat(value.conflicts.every((line) => typeof line === 'string' && line.trim()), 'invalid conflict');
   return value;
+}
+
+function proposalShape(value) {
+  const rows = [];
+  const operationsReadable = !!(value && Array.isArray(value.operations));
+  const conflictsArray = !!(value && Array.isArray(value.conflicts));
+  try { requireThat(operationsReadable && conflictsArray, 'proposal requires operations and conflicts arrays'); }
+  catch (error) {
+    if (!(error instanceof Refusal)) throw error;
+    rows.push(failure({
+      path: null, operation: null, requirement: error.message,
+      expected: 'operations: array; conflicts: array', reason: error.message,
+    }));
+  }
+  if (conflictsArray) {
+    try { requireThat(value.conflicts.every((line) => typeof line === 'string' && line.trim()), 'invalid conflict'); }
+    catch (error) {
+      if (!(error instanceof Refusal)) throw error;
+      rows.push(failure({
+        path: null, operation: null, requirement: error.message,
+        expected: 'each conflict is one non-empty string', reason: error.message,
+      }));
+    }
+  }
+  return { operationsReadable, failures: rows };
 }
 
 function validateProposal(input, raw, workspace) {
   const proposal = parseProposal(raw);
-  const before = new Map(Object.entries(input.files));
+  const shape = proposalShape(proposal);
+  const before = new Map(Object.entries(input.files || {}));
   const after = new Map(before);
   const operations = new Map();
-  const evidence = new Map(input.messages.map((row) => [row.rowid, row]));
-  const inbox = new Set(records('inbox', before.get(`${GENERAL}inbox.md`)).filter((line) =>
+  const evidence = new Map((input.messages || []).map((row) => [row.rowid, row]));
+  const inboxText = before.get(`${GENERAL}inbox.md`);
+  const inbox = new Set(inboxText == null ? [] : records('inbox', inboxText).filter((line) =>
     provenance(line) === input.agent || provenance(line).startsWith(`${input.agent}/`)));
-  const failures = [];
-  const guard = (fn) => { try { return fn(); } catch (error) { if (!(error instanceof Refusal)) throw error; failures.push(...(error.failures && error.failures.length ? error.failures : [fromMessage(error.message, { path: error.path || null })])); return null; } };
-  for (const op of proposal.operations) guard(() => {
-    requireThat(op && ['add', 'supersede', 'archive'].includes(op.op), 'invalid operation');
-    safePath(workspace, op.path);
-    const kind = kindOf(op.path, input.agent);
-    requireThat(kind && !operations.has(op.path), 'path outside agent memory or repeated operation');
-    requireThat(REASONS.includes(op.reason) && typeof op.explanation === 'string' && op.explanation.trim(), 'operation requires a reason and explanation');
-    requireThat(Array.isArray(op.sources) && op.sources.every((id) =>
-      Number.isSafeInteger(id) ? evidence.has(id) : typeof id === 'string' && inbox.has(id)),
-    'source is not an unread owner message or this agent\'s inbox line');
-    requireThat(typeof op.text === 'string', 'operation requires complete file text');
-    requireThat(op.op === 'add' ? !before.has(op.path) : before.has(op.path), 'add requires a new file; other operations require an existing file');
-    const text = normalize(op.text).replace(/\n/g, before.get(op.path)?.includes('\r\n') ? '\r\n' : '\n');
-    checkFile(op.path, kind, text);
-    after.set(op.path, text);
-    operations.set(op.path, { ...op, text, kind, agent: input.agent });
-  });
+  const failures = [...shape.failures];
+  function taken(error, place) {
+    if (!(error instanceof Refusal)) throw error;
+    const rows = error.failures && error.failures.length ? error.failures : [failure({
+      path: place.path ?? null,
+      operation: place.operation ?? null,
+      requirement: error.message,
+      expected: error.form || place.expected,
+      reason: error.message,
+    })];
+    for (const row of rows) {
+      failures.push({
+        path: row.path || place.path || null,
+        operation: row.operation || place.operation || null,
+        requirement: row.requirement,
+        expected: row.expected && row.expected !== row.reason ? row.expected : (error.form && error.form !== row.reason ? error.form : row.expected),
+        reason: row.reason,
+      });
+    }
+  }
+  const guard = (fn, place = {}) => {
+    try { return fn(); }
+    catch (error) { taken(error, place); return null; }
+  };
+  if (shape.operationsReadable) for (const [index, op] of proposal.operations.entries()) {
+    pendingForm = null;
+    const operation = op && typeof op.op === 'string' ? `${index} ${op.op}` : String(index);
+    const opPath = op && typeof op.path === 'string' ? op.path : null;
+    const place = { path: opPath, operation };
+    const opOk = guard(() => {
+      expect('op is add, supersede or archive');
+      requireThat(op && ['add', 'supersede', 'archive'].includes(op.op), 'invalid operation');
+    }, { ...place, expected: 'op is add, supersede or archive' });
+    let pathOk = false;
+    if (opPath) {
+      try { safePath(workspace, op.path); pathOk = true; }
+      catch (error) {
+        taken(error, { ...place, expected: 'a relative path with no empty part, .., symlink, or device name' });
+      }
+    } else {
+      guard(() => {
+        expect('a non-empty installation-relative path');
+        requireThat(false, 'path required');
+      }, { path: null, operation, expected: 'a non-empty installation-relative path' });
+    }
+    let kind = null;
+    if (pathOk) {
+      kind = kindOf(op.path, input.agent);
+      const outside = !kind;
+      const repeated = operations.has(op.path);
+      if (guard(() => {
+        expect(outside ? 'a path of a memory kind for this agent' : 'one operation for this path');
+        requireThat(kind && !repeated, 'path outside agent memory or repeated operation');
+      }, { ...place, expected: outside ? 'a path of a memory kind for this agent' : 'one operation for this path' }) === null) kind = null;
+    }
+    const fields = op && typeof op === 'object';
+    let fieldsOk = fields;
+    if (fields) {
+      const reasonForm = 'reason is owner, merge, file, fold, detail, closed, expired or index, and explanation is a non-empty string';
+      if (guard(() => {
+        expect(reasonForm);
+        requireThat(REASONS.includes(op.reason) && typeof op.explanation === 'string' && op.explanation.trim(), 'operation requires a reason and explanation');
+      }, { ...place, expected: reasonForm }) === null) fieldsOk = false;
+      const sourceForm = 'sources are unread owner message rowids or this agent\'s exact inbox lines';
+      if (guard(() => {
+        expect(sourceForm);
+        requireThat(Array.isArray(op.sources) && op.sources.every((id) =>
+          Number.isSafeInteger(id) ? evidence.has(id) : typeof id === 'string' && inbox.has(id)),
+        'source is not an unread owner message or this agent\'s inbox line');
+      }, { ...place, expected: sourceForm }) === null) fieldsOk = false;
+      const textForm = 'text is the complete next file, as a string';
+      if (guard(() => {
+        expect(textForm);
+        requireThat(typeof op.text === 'string', 'operation requires complete file text');
+      }, { ...place, expected: textForm }) === null) fieldsOk = false;
+    }
+    const textOk = fields && typeof op.text === 'string';
+    let presentOk = opOk !== null;
+    if (pathOk && kind && opOk !== null) {
+      const presence = op.op === 'add' ? 'a path absent from the snapshot' : 'a path present in the snapshot';
+      presentOk = guard(() => {
+        expect(presence);
+        requireThat(op.op === 'add' ? !before.has(op.path) : before.has(op.path), 'add requires a new file; other operations require an existing file');
+      }, { ...place, expected: presence }) !== null;
+    }
+    if (pathOk && kind && textOk) {
+      const text = normalize(op.text).replace(/\n/g, before.get(op.path)?.includes('\r\n') ? '\r\n' : '\n');
+      const fileOk = guard(() => checkFile(op.path, kind, text, { path: op.path, operation }), place) !== null;
+      if (fieldsOk && presentOk && opOk !== null && fileOk) {
+        after.set(op.path, text);
+        operations.set(op.path, { ...op, text, kind, agent: input.agent, index });
+      }
+    }
+  }
   for (const op of operations.values()) guard(() => {
     const previous = before.has(op.path) ? records(op.kind, before.get(op.path)) : [];
     const next = records(op.kind, op.text);
     const removed = [...new Set(previous.filter((row) => !next.includes(row)))];
     const added = next.filter((row) => !previous.includes(row));
     const removals = op.removals || [];
+    expect('removals names each removed record verbatim');
     requireThat(Array.isArray(removals) && removals.length === removed.length && new Set(removals.map((item) => item.text)).size === removed.length &&
       removed.every((row) => removals.some((item) => item.text === row)), 'no record may vanish unexplained');
+    expect('each record once');
     requireThat(new Set(next).size === next.length, 'duplicate memory record');
     if (op.kind === 'board') {
       const old = parseBoard(before.get(op.path));
       const board = parseBoard(op.text);
+      expect('the same subjects, timers, flags, watch-outs and closed entries');
       requireThat(JSON.stringify(board.timers) === JSON.stringify(old.timers) && board.subjects.length === old.subjects.length &&
         board.subjects.every((subject) => old.subjects.some((prior) => prior.title === subject.title && prior.threads === subject.threads && prior.flags === subject.flags)) &&
         board.watchOuts.every((row) => old.watchOuts.includes(row)) && board.closed.every((row) => old.closed.includes(row)), 'dreamer cannot create or close subjects or edit runtime board fields');
     }
     const rows = op.sources.filter((id) => Number.isSafeInteger(id)).map((id) => evidence.get(id));
-    if (op.op === 'archive') requireThat(removed.length > 0 && added.length === 0, 'archive only removes records into a destination');
+    if (op.op === 'archive') {
+      expect('archive removes records and adds none');
+      requireThat(removed.length > 0 && added.length === 0, 'archive only removes records into a destination');
+    }
     const conversations = new Set(rows.map((row) => row.conversation_key));
     const sourceThreads = new Set(rows.map((row) => threadKey(row.thread)).filter(Boolean));
     for (const record of added) {
@@ -346,85 +528,131 @@ function validateProposal(input, raw, workspace) {
           parseBoard(before.get(other.path)).subjects.some((subject) => item.text.startsWith(`### ${subject.title}\n`) &&
             subject.state.includes(recordBody(record.replace(/^- /, ''))))));
       if (preservedState) continue;
+      expect('sources include an unread owner message');
       requireThat(rows.length > 0, 'new facts require owner evidence');
       if (op.kind === 'weekly') {
         const target = record.match(/\]\((\.\.\/daily\/\d{4}-\d{2}-\d{2}\.md)\)$/)?.[1];
         const daily = target && after.get(path.posix.normalize(path.posix.join(path.posix.dirname(op.path), target)));
+        expect('a weekly line linking a daily file cited by an owner message');
         requireThat(daily && links(daily).some((url) => sourceThreads.has(threadKey(url))), 'weekly source must link a daily file backed by owner messages');
         continue;
       }
       const tail = op.kind === 'daily' ? record.slice(record.lastIndexOf(' — ') + 3) : provenance(record);
       const cited = links(tail);
+      expect('provenance cites this agent and the owner conversation URLs in sources');
       requireThat(cited.length > 0 && cited.every((url) => sourceThreads.has(threadKey(url))) &&
         tail.split(' · ').every((part) => part.startsWith(`${input.agent}/`)), 'record provenance must cite its owner conversations');
       if (op.kind === 'learned' && record.startsWith('- [inferred]')) {
+        expect('an inferred rule cites two owner conversations');
         requireThat(conversations.size >= 2 && new Set(cited.map(threadKey)).size >= 2, 'inferred rules need two separate owner conversations');
       }
     }
     for (const item of removals) {
-      if (item.duplicate) requireThat(item.duplicate === true && op.op === 'supersede' &&
-        (op.kind === 'inbox' || (op.kind === 'board' && parseBoard(before.get(op.path)).watchOuts.includes(item.text))),
-      'only inbox lines and watch-outs may be removed as duplicates');
+      if (item.duplicate) {
+        expect('duplicate: true only on an inbox line or watch-out, with op supersede');
+        requireThat(item.duplicate === true && op.op === 'supersede' &&
+          (op.kind === 'inbox' || (op.kind === 'board' && parseBoard(before.get(op.path)).watchOuts.includes(item.text))),
+        'only inbox lines and watch-outs may be removed as duplicates');
+      }
       if (op.reason === 'expired') {
         const until = recordBody(item.text).match(/\buntil (\d{4}-\d{2}-\d{2})\.?$/)?.[1];
+        expect('the record ends until YYYY-MM-DD and that date is before the input date');
         requireThat(until && validDate(until) && until < input.date && op.kind !== 'learned', 'only an explicit past until date expires');
       }
       if (item.to) {
-        safePath(workspace, item.to);
+        try { safePath(workspace, item.to); }
+        catch (error) {
+          if (!(error instanceof Refusal)) throw error;
+          error.form = 'a relative path with no empty part, .., symlink, or device name';
+          throw error;
+        }
+        expect('removals.to is a different memory path present after this proposal');
         requireThat(item.to !== op.path && kindOf(item.to, input.agent) && after.has(item.to), 'removal destination missing');
       }
       if (op.op === 'archive') {
+        expect('file an inbox line or fold a watch-out; do not archive them');
         requireThat(op.kind !== 'inbox' && !(op.kind === 'board' && parseBoard(before.get(op.path)).watchOuts.includes(item.text)), 'inbox and watch-outs must be filed or folded');
+        expect('reason expired, closed or owner');
         requireThat(['expired', 'closed', 'owner'].includes(op.reason), 'archive requires expiry, closure or owner evidence');
+        expect('the destination file contains the removed record unchanged');
         requireThat(item.to && records(kindOf(item.to, input.agent), after.get(item.to)).includes(item.text), 'archived records must be preserved verbatim');
-        if (op.reason === 'closed') requireThat(op.kind === 'board' && parseBoard(before.get(op.path)).closed.includes(item.text), 'only closed board records may be pruned as closed');
-        if (op.reason === 'owner') requireThat(rows.length, 'archive requires owner evidence');
+        if (op.reason === 'closed') {
+          expect('a Recently closed board record');
+          requireThat(op.kind === 'board' && parseBoard(before.get(op.path)).closed.includes(item.text), 'only closed board records may be pruned as closed');
+        }
+        if (op.reason === 'owner') {
+          expect('sources include an unread owner message');
+          requireThat(rows.length, 'archive requires owner evidence');
+        }
       } else if (op.kind === 'inbox' || (op.kind === 'board' && parseBoard(before.get(op.path)).watchOuts.includes(item.text))) {
         const destinationKind = item.to && kindOf(item.to, input.agent);
+        expect('reason file for an inbox line, fold for a watch-out');
         requireThat(op.reason === (op.kind === 'inbox' ? 'file' : 'fold'), 'inbox and watch-outs must be filed or folded');
+        expect('inbox goes to profile, knowledge or an entity; a watch-out goes to learned');
         requireThat(op.kind === 'inbox' ? ['profile', 'knowledge', 'entity'].includes(destinationKind) : destinationKind === 'learned', 'incorrect filing destination');
+        expect('removals.replacement is the exact record in the destination file');
         requireThat(typeof item.replacement === 'string' && records(destinationKind, after.get(item.to)).includes(item.replacement), 'filed record missing at destination');
         if (item.duplicate) {
+          expect('the destination already contains that record in the snapshot');
           requireThat(before.has(item.to) && records(destinationKind, before.get(item.to)).includes(item.replacement), 'duplicate record missing from snapshot');
+          expect('sources include that inbox line');
           requireThat(op.kind !== 'inbox' || (inbox.has(item.text) && op.sources.includes(item.text)), 'duplicate inbox removal requires its own source');
           continue;
         }
         if (op.kind === 'board' && links(provenance(item.text)).length === 0) {
           const date = item.text.match(/ \((\d{4}-\d{2}-\d{2}) · .+\)$/)[1];
           const replacement = item.replacement.match(/^- \[correction\] .+ Why: .+ \((\d{4}-\d{2}-\d{2}) · (.+)\)$/);
+          expect('a correction rule with the same date and this agent\'s owner conversation links');
           requireThat(replacement && replacement[1] === date && replacement[2].split(' · ').every((part) => {
             const source = part.match(/^([a-z0-9-]+)\/\[[^\]]+\]\((https?:\/\/[^\s]+?)\)$/);
             return source && source[1] === input.agent && sourceThreads.has(threadKey(source[2]));
           }), 'watch-out replacement requires its original date and owner thread evidence');
-        } else requireThat(provenance(item.text) === provenance(item.replacement), 'filing must retain provenance');
-        if (op.kind === 'board') requireThat(item.replacement.startsWith('- [correction]'), 'watch-outs become correction rules');
+        } else {
+          expect('the replacement uses the removed record\'s provenance');
+          requireThat(provenance(item.text) === provenance(item.replacement), 'filing must retain provenance');
+        }
+        if (op.kind === 'board') {
+          expect('a bullet starting - [correction]');
+          requireThat(item.replacement.startsWith('- [correction]'), 'watch-outs become correction rules');
+        }
+        expect('the inbox line is in sources, or the watch-out provenance cites owner threads in sources');
         requireThat((op.kind === 'inbox' && inbox.has(item.text) && op.sources.includes(item.text)) ||
           (rows.length && links(provenance(item.text)).every((url) => sourceThreads.has(threadKey(url)))), 'filing requires owner evidence');
       } else if (op.kind === 'board') {
         const old = parseBoard(before.get(op.path));
         const subject = old.subjects.find((row) => item.text.startsWith(`### ${row.title}\n`));
+        expect('a subject topic whose Threads and state lines match the board subject');
         requireThat(subject && op.reason === 'detail' && item.to?.startsWith(`.rbtv/agents/${input.agent}/memory/`) &&
           kindOf(item.to, input.agent) === 'topic' && /^type: subject\r?$/m.test(after.get(item.to)) &&
           records('topic', after.get(item.to)).includes(`Threads: ${subject.threads}`) &&
           subject.state.every((line) => records('topic', after.get(item.to)).some((record) => record.includes(line))), 'subject detail must be preserved in an agent topic');
         const nextSubject = parseBoard(op.text).subjects.find((row) => row.title === subject.title);
+        expect('Detail: ../memory/<topic file>');
         requireThat(nextSubject.detail === `../memory/${item.to.split('/memory/')[1]}`, 'board must link moved detail');
       } else {
+        expect('op supersede, reason owner, merge or index, a replacement record, and owner evidence unless the file is an index');
         requireThat(op.op === 'supersede' && ['owner', 'merge', 'index'].includes(op.reason) &&
           (op.kind === 'index' || rows.length > 0) && added.length > 0, 'replacement needs owner evidence and a replacement record');
       }
     }
-    if (removed.length && before.get(op.path)?.includes('- [') && op.kind === 'learned') {
+    if (Array.isArray(proposal.conflicts) && removed.length && before.get(op.path)?.includes('- [') && op.kind === 'learned') {
       proposal.conflicts.push(`Changed learned rules for ${input.agent}: ${op.explanation}`);
     }
-  });
+  }, { path: op.path, operation: `${op.index} ${op.op}` });
   if (failures.length) throw refusalError(failures);
   const boardPath = `.rbtv/agents/${input.agent}/_artifacts/board.md`;
   const ownerThreads = new Set(input.messages.map((row) => threadKey(row.thread)).filter(Boolean));
   for (const watch of parseBoard(after.get(boardPath)).watchOuts) {
     const cited = links(provenance(watch));
     const foldable = ownerThreads.size > 0 && cited.every((url) => ownerThreads.has(threadKey(url)));
-    requireThat(!foldable, 'all watch-outs must be folded in this run');
+    expect('every foldable watch-out is folded or removed as a duplicate in this proposal');
+    try { requireThat(!foldable, 'all watch-outs must be folded in this run'); }
+    catch (error) {
+      if (!(error instanceof Refusal)) throw error;
+      throw refusalError([failure({
+        path: boardPath, operation: null, requirement: error.message, expected: error.form, reason: error.message,
+      })]);
+    }
     proposal.conflicts.push(`Watch-out for ${input.agent} awaits owner thread evidence: ${watch}`);
   }
   return { files: after, operations: [...operations.values()], conflicts: proposal.conflicts };

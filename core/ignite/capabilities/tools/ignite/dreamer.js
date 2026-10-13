@@ -135,8 +135,11 @@ function castOutput(stdout) {
     refusal.raw = raw;
     throw refusal;
   }
-  try { return extractFinalProposal(text); }
-  catch (error) {
+  try {
+    const value = extractFinalProposal(text);
+    if (value && typeof value === 'object') Object.defineProperty(value, 'raw', { value: raw, enumerable: false });
+    return value;
+  } catch (error) {
     error.raw = raw;
     throw error;
   }
@@ -230,7 +233,7 @@ async function runDreamer({ config, openStore, model, now = Date.now() }) {
         let validated;
         try { validated = validateProposal(input, rawProposal, workspace); }
         catch (error) {
-          const bytes = Buffer.isBuffer(rawProposal) ? rawProposal : Buffer.from(typeof rawProposal === 'string' ? rawProposal : JSON.stringify(rawProposal ?? ''));
+          const bytes = rawProposal && rawProposal.raw ? rawProposal.raw : Buffer.isBuffer(rawProposal) ? rawProposal : Buffer.from(typeof rawProposal === 'string' ? rawProposal : JSON.stringify(rawProposal ?? ''));
           saveRejected(workspace, bytes);
           if (error instanceof Refusal && error.failures?.some((row) => row.reason.includes('indivisible'))) retainIndivisible(workspace, 'proposal', 'flagged');
           throw error;
