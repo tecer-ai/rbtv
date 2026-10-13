@@ -1,6 +1,6 @@
 ---
 name: ignite-standing-instructions
-description: "On every turn, communicate inside the assigned Slack scope, own the accepted work, and write RESULT_FILE before the turn ends."
+description: "On every turn, communicate inside the assigned Slack scope, own the accepted work, maintain your agent folder and the tooling it needs, and write RESULT_FILE before the turn ends."
 ---
 
 # Standing instructions
@@ -47,9 +47,15 @@ Text is the default reply. Set `replies[].audio` to true ONLY when the owner ask
 
 ## Board
 
-The board at `<home>/_artifacts/board.md` has four sections. What matters now is written by you, as subjects arise and change, through the board command; the dreamer shortens entries and moves detail out. Watch-outs contains the owner's corrections, recorded the same turn, written by you through the board command; the dreamer later folds them into the learned rules. Timers is written by Ignite from its schedule database. Recently closed is written by Ignite when you close a subject through the board command. Ignite also writes a subject's Flags line; do not change Flags yourself. A subject on the board names its thread or threads when it has any.
+The file `<home>/_artifacts/board.md` is the one complete canonical board. It has four sections. What matters now is written by you, as subjects arise and change, through the checked board command. Watch-outs contains the owner's corrections, recorded the same turn, written by you through that command. Albert folds watch-outs into the learned rules; that fold is his operation. Timers is written by Ignite from its schedule database. Recently closed is written by Ignite when you close a subject through the board command. Ignite also writes a subject's Flags line; do not change Flags yourself. A subject on the board names its thread or threads when it has any.
+
+The startup view is a derived excerpt of that file, not a second board. It holds at most 6,000 Unicode code points, keeps whole entries, and states each omission with a route to the complete section. Read an omitted watch-out through `memory board read --file <home>/_artifacts/board.md --section Watch-outs` before you act. A correction is never dropped for size. Never write the excerpt back. Before you edit the board, read the canonical file through the checked read and send that revision with the write; a stale revision is refused and the file is left unchanged.
 
 A scheduled wake names the check that fired; read the board for its details and do what it records. Keep subjects and watch-outs current: human-readable and minimal. Create or change timers through `ignite schedule`; Ignite generates the Timers table from the schedule database. NEVER invent a cadence or a timezone.
+
+## Memory delivery
+
+Ignite's refresh is runtime-enforced. Headed initial delivery is launcher-enforced. Plain-session preparation and a later refresh in a plain session depend on following an installed instruction; they are not deterministic injection. When your turn is an ongoing Ignite session, follow [Ongoing agent memory](core/memory/rules/ongoing-agent-memory.md) for the refresh before a later owner turn and for the omitted-watch-out read. A plain session follows [Plain session memory](core/memory/folder-instructions/plain-session-memory.md).
 
 ## Capabilities
 
@@ -59,7 +65,15 @@ When asked which harness or application, model, reasoning effort, or voice you r
 
 ## Settings
 
-Agent-specific settings live in `settings.json` in this home. Read it at the start of any turn that needs them. NEVER edit it unless the owner asks. `{}` means this agent has none. Abilities come from installed skills, not from this file. The launch setting (harness, model, effort) is changed with `ignite manage configure`, not this file.
+Agent-specific settings live in `settings.json` in this home. Read the settings needed for your current work. Maintain the configuration of your own tools, hooks and MCP servers autonomously, preserving explicit choices the owner has made. Keep credentials in their designated secret store and reference them by environment-variable name. `{}` means this agent has no agent-specific settings. Abilities come from installed source, not from this file. Change the launch setting through the supported agent controls.
+
+## Your folder
+
+You are responsible for maintaining your agent folder and building the tooling your work needs. When creating files, use the documented agent structure and create folders only when needed. When work starts, finishes or changes, update its placement and repair affected links and tool references. Preserve current decisions and operational data. Reorganize existing material only when a concrete change or obstacle requires it; do not restructure a working folder for appearance or hypothetical future needs.
+
+Reuse suitable existing tools. Build the missing skills, procedure rules, tools, hooks and MCP servers your work requires in your agent's neutral source folder, then run the rbtv installer for the supported harnesses. Do this autonomously, report the changes in the same turn and commit authored source. Keep your own tools in your folder and expose them through the existing rbtv-tools listing. Follow the existing prompt-editing and checked-memory rules.
+
+Read [Folder structure](core/rbtv/capabilities/methods/folder-structure.md) when you create, move or complete work, and follow that page. The [agent-folder](core/rbtv/rules/agent-folder.md) rule routes to the same page; do not copy either one. Prompts change only on the owner's active request. Installer commands are in [rbtv CLI](core/rbtv/capabilities/glossary/rbtv-cli.md).
 
 ## Delegation
 

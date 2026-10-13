@@ -2,23 +2,15 @@
 
 Write settled work as a plan folder that a coordinating agent executes without you present. The required inputs are the settled scope, the decisions and rulings, and the location of the plan folder.
 
-Every fact the plan states comes from those inputs. This method does not interview, decide content or choose the work. When a fact a file needs is missing, or no plan folder location was given, stop and name the missing input to the caller; do not invent it. The one question this method asks the user is the loose-ends destination in step 1.
+Every fact the plan states comes from those inputs. This method does not interview, decide content or choose the work. When a fact a file needs is missing, or no plan folder location was given, stop and name the missing input to the caller; do not invent it. The user may name another loose-ends place, or chat only. Otherwise the method records the project default in step 1.
 
 The saved files are the whole deliverable. Nothing registers a plan and no program schedules it: the coordinating agent follows `workflow.md`. [Workflow](../../../../core/rbtv/capabilities/glossary/workflow.md) defines the table, [Task](../../../../core/rbtv/capabilities/glossary/task.md) the task file, [Agent](../../../../core/rbtv/capabilities/glossary/agent.md) the agent folder and [Prompt](../../../../core/rbtv/capabilities/glossary/prompt.md) the prompt. This page states what a plan adds to them.
 
+The plan folder may sit in a project, an area, an agent's `work/`, or a repository. Its files are the plan section of [Folder structure](../../../../core/rbtv/capabilities/methods/folder-structure.md#plan). Do not copy that tree into the plan. The coordinating agent lives in the plan's `agents/` and is opened with spark. A headed coordinator receives the memory bundle at launch. Later owner turns refresh by [Ongoing agent memory](../../../../core/memory/rules/ongoing-agent-memory.md). A headless worker does not receive that bundle.
+
 ## The plan folder
 
-```
-<plan-folder>/
-├── workflow.md                  the one file the coordinating agent schedules from
-├── read-first.md                what every agent reads before its own task
-├── agents/<plan>-<agent>/       one agent folder per agent: prompt.md, agent.json, task.md
-├── reports/<agent>.md           written by the agent when it finishes
-├── checkpoints/cp<n>-<name>.md  one file per owner checkpoint, when the plan has any
-├── judgements/<judge>.md        one verdict file per judge agent, and plan-review.md
-├── CLAUDE.md
-└── AGENTS.md
-```
+Read the plan section of [Folder structure](../../../../core/rbtv/capabilities/methods/folder-structure.md#plan) and write those files. Do not copy the tree into this page or into the plan's instructions.
 
 `<plan>` is the plan folder's name, written with lower-case letters, digits and hyphens only, which is what an agent name accepts. `<agent>` is the agent's short job name and the stem of its report file. The agent's name, its folder name, the `name` in its `agent.json` and its cell in the workflow table are all `<plan>-<agent>`. The review agent of step 10 is the exception: its folder and its row are `plan-review`.
 
@@ -28,12 +20,12 @@ A plan carries `workflow.md`, `read-first.md` and one agent folder per agent. `d
 
 ```
 If you are coordinating the execution of this plan, read workflow.md first.
-Folder artifacts used here when applicable: loose-ends.md (captured loose ends), issues.md (open questions needing a ruling), doubts.md (self-resolved doubts + reasoning, recorded for later review), ideas.md (framed, not ruled), decisions.md (rulings, append-only), status.md (current state).
+Folder artifacts used here when applicable: issues.md (open questions needing a ruling), doubts.md (self-resolved doubts + reasoning, recorded for later review), ideas.md (framed, not ruled), decisions.md (rulings, append-only), status.md (current state). Captured loose ends go where workflow.md records under Loose ends.
 ```
 
 ## Order of work
 
-1. Ask the user where captured loose ends go: a file, and which file, or chat only. Record the answer as `Loose ends: <path>` or `Loose ends: chat-only` in the contract section of `workflow.md`.
+1. Record where captured loose ends go, in the contract section of `workflow.md`. The default is the project's `backlog/loose-ends/<subject>-loose-ends.md`, recorded as `Loose ends: <project>/backlog/loose-ends/`. The user may name another place, or chat only; record that instead, as `Loose ends: <path>` or `Loose ends: chat-only`. Where a project, an area or an agent files them is [Folder structure](../../../../core/rbtv/capabilities/methods/folder-structure.md#work-convention). Do not restate that convention.
 2. List the candidate agents. Read [Sizing agents](planning-a-workflow/sizing-agents.md) and size each one before writing its task file.
 3. Read [Checkpoints and judges](planning-a-workflow/checkpoints-and-judges.md) and design the owner checkpoints and judge agents before writing any task file. A checkpoint added after the task files exist can only cite evidence that happens to exist.
 4. Write `read-first.md`.
@@ -56,13 +48,13 @@ One file that every agent reads before its own task file. It holds only what is 
 
 ## The agent folder
 
-Write `prompt.md` as [Prompt](../../../../core/rbtv/capabilities/glossary/prompt.md) says. It holds the agent's standing function, never this task's result, scope or done contract. Its procedure tells the agent to do the task it was given, to write `reports/<agent>.md`, and not to read `workflow.md`. Its constraints say that the agent does not wait after its turn ends: a `cast` launch is one turn and nothing wakes it with a result, so every check its conclusion depends on finishes inside the turn.
+Write `prompt.md` as [Prompt](../../../../core/rbtv/capabilities/glossary/prompt.md) says. It holds the agent's standing function, never this task's result, scope or done contract. Its procedure tells the agent to carry out the task it was given and, when finished, to write `reports/<agent>.md`, and not to read `workflow.md`. Its constraints say that the agent does not wait after its turn ends: a `cast` launch is one turn and nothing wakes it with a result, so every check its conclusion depends on finishes inside the turn.
 
 Write `agent.json` as [Agent record](../../../../core/rbtv/capabilities/glossary/agent-json.md) says: `name`, a `description` in the four-field format of [Routing table](../../../../core/rbtv/capabilities/glossary/routing-table.md), `files` as full ids `<module>/<component>#<name>`, and `packs` when any. Turn a pack on with `rbtv agent add <agent-folder> --pack <name>`; a pack is never listed as a file. Before writing an instruction an existing file already holds, look for that file with `rbtv list`, `rbtv search` and `rbtv show`. Name each selected file and its use in the agent's task file or prompt.
 
 Write `task.md` as [Task](../../../../core/rbtv/capabilities/glossary/task.md) says. The agent that receives it has no memory of the planning session and holds its prompt, `read-first.md` and this one file. A plan's task file has these parts, in this order:
 
-1. **The opening directive**: read `read-first.md` first, by absolute path, and write the report to the absolute path of `reports/<agent>.md`.
+1. **The opening directive**: carry out the task. Read `read-first.md` first, by absolute path. When finished, write the report to the absolute path of `reports/<agent>.md`.
 2. **The result**: the one result this launch produces, before any heading.
 3. **`## Scope`**: the closed lists `Examine:` and `May change:`, then:
    - The whole scope, written in this file: the defect, the ruling it implements, the form of the change and the dependencies on other agents that affect this one. Point only to a scope, design or ruling document that already exists. Never split one agent's scope across added files.

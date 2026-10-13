@@ -2,7 +2,16 @@
 
 A folder artifact is a workspace file or folder with one purpose, read through folder instructions when that purpose is needed. It can contain facts, decisions, history or guidance for particular work.
 
-Keep the workspace's established organization. rbtv does not impose a universal artifact directory or require a standard set of files. A fixed-path record read by software is a record, not a folder artifact.
+Keep the workspace's established organization. rbtv does not impose a universal artifact directory or require a standard set of files. A fixed-path record read by software is a record, not a folder artifact. Where a project, an area or an agent files loose ends is [Folder structure](../methods/folder-structure.md#work-convention); this page does not restate that convention.
+
+`meta/para` ships four templates. A creation step and the migration copy them. They are copied, never generated with markers. Afterwards the files are the user's.
+
+| Kind | Path under `meta/para/` |
+|---|---|
+| Area index | `capabilities/templates/area-index.md` |
+| Project index | `capabilities/templates/project-index.md` |
+| Area instruction file | `capabilities/templates/area-instructions.md` |
+| Project instruction file | `capabilities/templates/project-instructions.md` |
 
 ## Define its purpose and use
 

@@ -12,8 +12,10 @@ An agent folder contains:
 - `agent.json`: the record, with the agent's name, which equals the folder name, its description and any installation selections. Follow [Agent record](agent-json.md) when writing or changing the record.
 - `task.md`: the task of an agent launched once with no supplier delivering one, such as a plan agent or any agent built for one task. An agent whose launcher supplies each task has no `task.md`. Write the file using [Task](task.md).
 - `settings.json`: the job-specific values the agent's tasks use, machine-local and kept out of git. Write it using [Agent settings](settings-json.md).
-- `capabilities/`: the tools and method pages this agent alone owns, when it has any, laid out as in a component. [Tool](tool.md) states where an agent-owned tool sits, how the prompt names it and where it writes.
+- `rbtv/`: source this agent authors, including an own tool. [Tool](tool.md) states how that tool is scanned, listed and where it writes. The rest of the agent tree is [Folder structure](../methods/folder-structure.md). Do not copy that tree here.
 - `.git`: an empty folder the installer creates, never an author. A harness that looks for a project root finds it there, which is one of the means by which an rbtv agent receives only its own folder's content and nothing from a parent folder. Leave it empty: do not run `git init` in an agent folder or put a file in this one.
+
+The work lifecycle is backlog, active work at the root the kind names, and done. It is an offered convention, not a list of allowed folders. Create a folder when the work needs it. [Folder structure](../methods/folder-structure.md#work-convention) states the convention. The mandatory paths are that page's [Mandatory for rbtv](../methods/folder-structure.md#mandatory-for-rbtv) section; this page does not restate them.
 
 A component ships an agent folder as `agents/<name>/`. Any other agent folder may sit anywhere, such as a plan's `agents/` folder.
 
@@ -51,12 +53,15 @@ These conditions select launches, not messages arriving after a channel is conne
 
 An rbtv agent has only what rbtv installed in its own folder. Nothing reaches it from a parent folder or from the installation around it: no folder instructions, rule, skill, command, hook or MCP server. [Agent isolation](../../../cast/capabilities/tools/cast/documentation/agent-isolation.md) owns how each launch enforces this. Decide what the agent has from what the prompt relies on:
 
-- Select in the record every skill, rule, command, hook, MCP server, tool and pack the prompt relies on. A file the record does not select is absent at launch. The agent's own tools are the exception: they are files of the folder, not selections, and the prompt names each one's invocation as [Tool](tool.md) states.
+- Select in the record every skill, rule, command, hook, MCP server, tool and pack the prompt relies on. A file the record does not select is absent at launch. The agent's own tools are the exception: they are source under `rbtv/`, scanned on agent add and update, and listed in the agent-local section of the rbtv-tools rule. The prompt still names when to run each one, as [Tool](tool.md) states.
+- Every agent receives the pack `foundations` on `rbtv agent add` and on `rbtv agent update` unless `agent.json` has `exclude_foundations: true`. `rbtv agent remove AGENT --pack foundations` writes that field. The pack's rule is [agent-folder](../../rules/agent-folder.md). It routes to the structure page and does not copy the tree.
 - Put an instruction the agent must follow in its prompt. When several agents share it, write it as a [rule](rule.md) and select that rule in each record. Do not rely on folder instructions above the agent folder.
 
 List installation selections only for the rbtv-agent placement. The prompt must not assume that merely listing a skill makes it available in harness-sub-agent placement. State the action for a missing dependency as Prompt requires.
 
 ## Connect the agent to the owner
+
+Ordinary installation of a shipped agent, such as Albert, is `rbtv agent add`. That creates `.rbtv/agents/albert/` and does not connect him. It creates no channel and no timer. `ignite connect AGENT` is the optional later step, the same command used for any rbtv agent.
 
 To let the owner talk to an agent in Slack, or to wake it on a timer, write its folder as `.rbtv/agents/<name>/`, install it with `rbtv agent add`, then run `ignite connect AGENT`. `ignite connect -h` owns the steps and options; [Ignite](../../../ignite/capabilities/tools/ignite/ignite.md) is the tool's page. The command turns the `ignite` pack on, which installs the rule [Standing instructions](../../../ignite/rules/ignite-standing-instructions.md) in the agent. Read that rule before writing the prompt: the prompt neither repeats nor contradicts it. Such an agent has no `task.md`; [Task](task.md) states what its task is for a message and for a timer. The owner may also open it in a terminal, as When a person opens the agent says; its record's `opening` then has it read its board before it greets.
 
@@ -71,7 +76,7 @@ Any rbtv agent can be opened by a person in a terminal with `spark AGENT`, by na
 The session differs from a headless launch in three ways, and a prompt that supports both launches is written for both:
 
 - The person's messages are its tasks, as [Task](task.md) states for a person in conversation, and the person can answer questions: the prompt asks when an input is missing, where a headless launch returns a missing-input result, as [Prompt](prompt.md) states.
-- No memory is supplied, since only an Ignite turn receives memory. Continuity between sessions is the files the prompt names for the agent to read at the start of a session and keep current, such as a board or a state page, not the harness session.
+- A headed open receives that agent's memory bundle at launch. Later owner turns refresh by following [Ongoing agent memory](../../../memory/rules/ongoing-agent-memory.md). A headless launch receives no added bundle. Continuity between sessions is also the files the prompt names for the agent to read at the start of a session and keep current, such as a board or a state page, not the harness session.
 - The first message is the record's `opening` when the record has one; it replaces `task.md` for that session, and a headless launch never reads it. Without one, a folder with `task.md` starts from that file, and any other agent waits for the person. Write `opening` from what the agent must do before the person speaks: for an agent built for one job, the words that start the job and say when to come back to the person, so nobody types them at each session; for a standing agent with a board, the board read and the greeting; nothing for an agent that waits for the person's first message. [Agent record](agent-json.md) defines the field.
 
 ## Edit, convert and test

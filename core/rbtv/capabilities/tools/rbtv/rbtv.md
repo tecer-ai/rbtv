@@ -1,6 +1,6 @@
 # rbtv
 
-`rbtv` is the rbtv command-line interface: it scans the repository and an installation's mirror, validates each record, and writes the files each harness receives into a target folder. It also manages an installation's agents (`rbtv agent`) and the provider accounts of a machine (`rbtv providers`). `rbtv -h` and each verb's `-h` own the grammar, options and exit codes.
+`rbtv` is the rbtv command-line interface: it scans the repository and an installation's mirror, validates each record, and writes the files each harness receives into a target folder. It also manages an installation's agents (`rbtv agent`) and the provider accounts of a machine (`rbtv providers`). `rbtv structure` prints one folder convention, or lists the kinds; `rbtv structure -h` owns that command. `rbtv -h` and each verb's `-h` own the grammar, options and exit codes.
 
 The program is `install.py` in this folder: a small entry point, one module per responsibility in `lib/`, `discovery.py` beside the entry point, and the checks in `selftest/`, one module per subject.
 

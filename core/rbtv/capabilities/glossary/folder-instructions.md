@@ -4,6 +4,12 @@ Folder instructions are guidance a harness supplies for work in a folder. They a
 
 Use them for the folder's own boundaries and routes. Keep instructions that apply across unrelated folders in their shared owner. Actual loading depends on the harness; the presence of a file does not guarantee every session receives it.
 
+Folder guidance for the common structure is owned by rbtv. Read [Folder structure](../methods/folder-structure.md) for that convention; do not copy its tree. PARA guidance is the optional `meta/para` component. Its targets are the unnumbered `projects`, `areas`, `resources`, `archives` and `workbench`. Adopt it with `rbtv add meta/para`. Adapt by authoring a `folder-instructions/` component in `.rbtv/mirror/` and do not add `meta/para`. `rbtv structure -h` owns the `para` refusal and the two routes.
+
+A folder that has an index routes from the index. The index is `{name}.md` with the folder's one routing table. Its instruction file says to read the index first and carries the folder-wide rules. It holds no second routing table.
+
+A plain session refreshes shared memory by following the installed instruction [Plain session memory](../../../memory/folder-instructions/plain-session-memory.md): run `memory prepare --installation . --cwd .` at session start and before later answers. That refresh depends on the agent following the instruction. It is not deterministic injection. It does not load a named agent's board.
+
 ## One authored source
 
 Maintain one of `CLAUDE.md` or `AGENTS.md` according to the installation's recorded choice. If no choice is recorded, ask which to author. Let rbtv generate the other name; do not maintain two independent copies.

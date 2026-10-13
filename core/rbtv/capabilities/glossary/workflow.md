@@ -4,6 +4,8 @@ A workflow arranges [tasks](task.md) by the results they need and the files they
 
 Use one row per agent. For a workflow of installed rbtv agents, follow [Planning a workflow](../../../../meta/plan/capabilities/methods/planning-a-workflow.md) for the complete plan folder, installation, review and handover. The table below is the common scheduling form, not a substitute for that method.
 
+A plan folder may sit in a project, an area, an agent's work, or a repository. The coordinating agent lives in that plan's `agents/` and is opened with spark. [Folder structure](../methods/folder-structure.md#plan) states the plan folder; do not copy its tree here. A headed coordinator receives the memory bundle at launch. Later owner turns refresh by [Ongoing agent memory](../../../memory/rules/ongoing-agent-memory.md). A headless worker does not receive that bundle.
+
 ## Arrange the work
 
 Start from settled work and its task inputs. Give each task one result that can be judged independently. Name the file or record it produces and the downstream task that reads it; the next agent must be able to use that result without its producer present. Use [Task](task.md) for the task's inputs, scope and done contract.
