@@ -24,6 +24,11 @@ function pass(name) {
   console.log(`PASS ${name}`);
 }
 
+function runPlaced(file, args) {
+  if (process.platform === 'win32') return execFileSync(process.execPath, [file, ...args], { encoding: 'utf8' });
+  return execFileSync(file, args, { encoding: 'utf8' });
+}
+
 function test(name, fn) {
   try {
     fn();
@@ -351,7 +356,7 @@ test('RM-08 path fields are rewritten and an unmapped active row blocks cutover'
     execFileSync('python3', ['-c', 'import ast,sys; ast.parse(sys.stdin.read())'], { input: homePy });
     assert.equal(fs.readFileSync(path.join(home, 'prompt.md'), 'utf8'), 'run rbtv/capabilities/tools/mail/mail.js\n');
     assert.equal(execFileSync(process.execPath, [placed], { encoding: 'utf8' }), '{"new":false}\n');
-    assert.equal(execFileSync(placed, ['-h'], { encoding: 'utf8' }), 'help\n');
+    assert.equal(runPlaced(placed, ['-h']), 'help\n');
     assert.equal(published.getSession(seeded.key, 'codex'), path.join(ignitePaths(home).conversations, 'T1-C1-1.1', 'history.md'));
     assert.deepEqual(published.db.prepare('SELECT payload FROM queue ORDER BY id').all().map((row) => row.payload), seeded.queue);
     assert.equal(published.db.prepare('SELECT COUNT(*) AS n FROM outbox').get().n, seeded.counts.outbox);
@@ -388,7 +393,7 @@ test('RM-08 check tool is moved and spawned', () => {
   assert.match(out, /rewrote prompt.md\n/);
   assert.match(out, /migrated sample\n/);
   const placed = path.join(home, 'rbtv', 'capabilities', 'tools', 'mail', 'mail.js');
-  assert.equal(execFileSync(placed, ['-h'], { encoding: 'utf8' }), 'help\n');
+  assert.equal(runPlaced(placed, ['-h']), 'help\n');
   const published = openNew(home);
   try {
     assert.equal(published.db.prepare("SELECT check_tool FROM schedules WHERE id='sched-1'").get().check_tool, 'rbtv/capabilities/tools/mail/mail.js');
@@ -560,7 +565,7 @@ test('RM-08 a rerun places a check tool left at the old path', () => {
   try {
     assert.equal(published.db.prepare("SELECT check_tool FROM schedules WHERE id='sched-1'").get().check_tool, 'rbtv/capabilities/tools/mail/mail.js');
   } finally { published.close(); }
-  assert.equal(execFileSync(path.join(moved, 'mail.js'), ['-h'], { encoding: 'utf8' }), 'help\n');
+  assert.equal(runPlaced(path.join(moved, 'mail.js'), ['-h']), 'help\n');
   out = '';
   err = '';
   assert.equal(run(), 0, err);
@@ -716,9 +721,23 @@ test('RM-09 installation locks stay where they were', () => {
 });
 
 test('RM-10 the database literal remains only in config.js', () => {
-  const out = execFileSync('grep', ['-rn', "'state.sqlite'", '--include=*.js', '.'], { cwd: __dirname, encoding: 'utf8' });
-  const production = out.split('\n').filter((line) => line && !/[/]test_/.test(line) && !line.startsWith('test_'));
-  assert.deepEqual(production.map((line) => line.replace(/^\.\//, '')), ["config.js:149:const DATABASE_NAME = 'state.sqlite';"]);
+  const needle = "'state.sqlite'";
+  const hits = [];
+  const walk = (current) => {
+    for (const name of fs.readdirSync(current).sort()) {
+      const full = path.join(current, name);
+      const stat = fs.lstatSync(full);
+      if (stat.isSymbolicLink()) continue;
+      if (stat.isDirectory()) { walk(full); continue; }
+      if (!stat.isFile() || !name.endsWith('.js') || name.startsWith('test_')) continue;
+      const rel = path.relative(__dirname, full).split(path.sep).join('/');
+      fs.readFileSync(full, 'utf8').split(/\r?\n/).forEach((line, index) => {
+        if (line.includes(needle)) hits.push(`${rel}:${index + 1}:${line}`);
+      });
+    }
+  };
+  walk(__dirname);
+  assert.deepEqual(hits, ["config.js:149:const DATABASE_NAME = 'state.sqlite';"]);
 });
 
 if (failures.length) {
