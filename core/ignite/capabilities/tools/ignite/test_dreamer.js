@@ -1125,6 +1125,7 @@ test('daily and weekly timeline files link to periodic notes and source episodes
 });
 
 test('generated indexes are exempt from the ordinary index row cap', async (f) => {
+  for (let i = 0; i < 45; i++) f.write(`${own()}memory/topic-${i}.md`, topic());
   const text = '# Topics\n\n| Open | When |\n|---|---|\n' + Array.from({ length: 45 }, (_, i) => `| [Topic ${i}](../topic-${i}.md) | when reviewing topic ${i} |\n`).join('');
   const result = await f.run((input) => proposal(operation(input, `${own()}memory/_artifacts/index.md`, text, { reason: 'index', sources: [] })));
   assert.equal(result.ok, true, result.alert); assert.equal(f.read(`${own()}memory/_artifacts/index.md`), text);
