@@ -4,6 +4,10 @@ The result: for one task, the count of headless seats that selected a skill, ope
 
 Inputs: the task file, written as a user would write it and naming no skill or page; the installation whose installed files the seats must see; the harness and model, the weakest the installation selected (`cast models list`); the count of seats (ten per task unless the caller states another); the time limit, about two minutes; and, when the task touches files, a fixture folder holding them. When the task names no fixture and touches files, write one before launching: a seat given a real repository acts on it.
 
+A run is optional and recommended. Before launching, tell the user what will run: the harness and model, the count of tasks and of seats per task, and that the seats run at the same time, so the whole run takes about as long as one seat. Launch on the user's yes. When the user declines, launch nothing and report the observation as not tested.
+
+To test source that is not installed yet, make a throwaway installation that holds it beside the neighbours a real agent has, with the installer run from the copy under test, as [rbtv CLI](../glossary/rbtv-cli.md) states. Confirm that one seat lists the entry point before trusting a result that says a seat did not open it. When the run ends, remove the tools from the throwaway installation, so that their command shortcuts are released.
+
 ## Launch
 
 1. Make one folder per seat inside the installation, so that the harness lists the installed skills and rules from the folder's ancestors, and copy the fixture into each. Write the task's file paths relative to that folder.

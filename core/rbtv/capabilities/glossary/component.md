@@ -6,7 +6,7 @@ Use [Choosing where to build](../methods/choosing-where-to-build.md) to decide w
 
 ## Boundary and record
 
-Name the folder with a lower-case noun and hyphens. Keep the record filename equal to the folder name. Use [Component record](component-json.md) for the description, external-dependency and repository fields.
+Name a component shipped in the repository with a short lower-case verb for the work its agents do (`browse`, `plan`, `coordinate`), with a hyphen only when one word cannot say it; a component that wraps one named product or service takes that name (`slack`, `google`). A mirror component is named as its owner chooses, in lower case with hyphens. Keep the record filename equal to the folder name. Use [Component record](component-json.md) for the description, external-dependency and repository fields.
 
 The description owns the subject boundary. Its first sentence identifies what belongs and the nearest excluded work. Follow Choosing where to build for the visible listing's length and sentence boundary. Write plain prose, not a four-field routing description, and do not copy the boundary into a second file.
 
