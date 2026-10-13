@@ -730,6 +730,7 @@ function cmdAlbert(tail, flags, deps) {
   process.stdout.write = (text) => { chunks.push(String(text)); return true; };
   try {
     const code = evidence.main(tail);
+    process.stdout.write = write;
     stdout(chunks.join(''));
     return code;
   } catch (error) {

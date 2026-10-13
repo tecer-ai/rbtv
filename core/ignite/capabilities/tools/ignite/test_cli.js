@@ -1764,4 +1764,127 @@ async function finishCli() {
   console.log('ok');
 }
 
+function albertCli(dir, args, extraEnv = {}) {
+  return spawnSync(process.execPath, [path.join(__dirname, 'cli.js'), 'albert', ...args, '--installation', dir], {
+    encoding: 'utf8',
+    env: { ...process.env, RBTV_AGENT_HOME: '', NODE_NO_WARNINGS: '1', ...extraEnv },
+  });
+}
+
+test('cli.js albert fence prints fenced', () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-albert-cli-')));
+  try {
+    const result = albertCli(dir, ['fence']);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, 'fenced\n');
+    assert.equal(result.stderr, '');
+    assert.equal(fs.existsSync(path.join(dir, '.rbtv', 'runtime', 'ignite', 'albert-fence.json')), true);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('cli.js albert drain without a fence prints the refusal on stderr', () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-albert-cli-')));
+  writeConfig(dir, 'master', {});
+  try {
+    const result = albertCli(dir, ['drain']);
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, '');
+    assert.equal(result.stderr, 'drain requires the legacy fence\n');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('cli.js albert drain prints drained', () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-albert-cli-')));
+  try {
+    assert.equal(albertCli(dir, ['fence']).status, 0);
+    const result = albertCli(dir, ['drain']);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, 'drained\n');
+    assert.equal(result.stderr, '');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('cli.js albert migrate dry-run prints dry-run writes: none', () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-albert-cli-')));
+  writeConfig(dir, 'master', {});
+  try {
+    const result = albertCli(dir, ['migrate', '--dry-run']);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, 'missing master\nliveness none\nconflicts 0\ndry-run writes: none\n');
+    assert.equal(result.stderr, '');
+    assert.equal(fs.existsSync(path.join(dir, '.rbtv', 'agents', 'albert', 'runtime', 'albert', 'ignite-cursors.json')), false);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('cli.js albert migrate prints migrated', () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-albert-cli-')));
+  writeConfig(dir, 'master', {});
+  try {
+    const result = albertCli(dir, ['migrate']);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, 'missing master\nliveness none\nconflicts 0\nmigrated\n');
+    assert.equal(result.stderr, '');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('cli.js albert verify prints nightly, watchdog and report dry-run', () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-albert-cli-')));
+  const home = writeConfig(dir, 'master', {});
+  const stub = path.join(dir, 'albert-stub.js');
+  fs.writeFileSync(stub, [
+    "const op = process.argv[2];",
+    "if (op === 'check' || op === 'watchdog') process.stdout.write('{\"new\":false}\\n');",
+    "else if (op === 'report') process.stdout.write('{\"identity\":\"fixture-report\"}\\n');",
+    "else { process.stderr.write('stub\\n'); process.exit(1); }",
+    '',
+  ].join('\n'));
+  fs.mkdirSync(path.join(dir, '.rbtv', 'agents', 'albert'), { recursive: true });
+  new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite')).close();
+  try {
+    const result = albertCli(dir, ['verify'], { ALBERT_TOOL: stub, ALBERT_OCCASION: '2026-10-16' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, 'nightly {"new":false}\nwatchdog {"new":false}\nreport dry-run fixture-report\n');
+    assert.equal(result.stderr, '');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('cli.js albert recover prints recovered legacy', () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-albert-cli-')));
+  try {
+    assert.equal(albertCli(dir, ['fence']).status, 0);
+    const result = albertCli(dir, ['recover']);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, 'recovered legacy\n');
+    assert.equal(result.stderr, '');
+    assert.equal(fs.existsSync(path.join(dir, '.rbtv', 'runtime', 'ignite', 'albert-fence.json')), false);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('cli.js albert cleanup prints cleaned', () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-albert-cli-')));
+  writeConfig(dir, 'master', {});
+  const file = path.join(dir, '.rbtv', 'config', 'ignite', 'config.json');
+  const config = JSON.parse(fs.readFileSync(file, 'utf8'));
+  config.dreamer = { enabled: false };
+  fs.writeFileSync(file, JSON.stringify(config));
+  try {
+    const result = albertCli(dir, ['cleanup']);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, 'cleaned\n');
+    assert.equal(result.stderr, '');
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).dreamer, undefined);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('cli.js albert probe prints dreamer keys absent', () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-albert-cli-')));
+  writeConfig(dir, 'master', {});
+  try {
+    const result = albertCli(dir, ['probe']);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, 'dreamer keys absent\n');
+    assert.equal(result.stderr, '');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 finishCli();

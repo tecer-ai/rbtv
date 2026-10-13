@@ -10,6 +10,8 @@
     "web/browse#web",
     "office/document#office",
     "connectors/google#google",
-    "core/ignite#ignite-standing-instructions"
+    "core/ignite#ignite-standing-instructions",
+    "core/memory#memory",
+    "core/memory#ongoing-agent-memory"
   ]
 }
