@@ -59,8 +59,11 @@ function itemsFrom(run, operations) {
     ref: `${run.id}#${index + 1}`,
     agent: run.agent,
     path: op.path,
+    op: op.op,
     before: Object.prototype.hasOwnProperty.call(run.files, op.path) ? run.files[op.path] : null,
-    after: op.text,
+    after: op.leave ? null : op.text,
+    leave: op.leave === true,
+    item: op.item || null,
     sources: op.sources,
     explanation: op.explanation,
     messages: run.input.messages,
@@ -180,20 +183,27 @@ function apply(lib, home, installation, runId, proposalPath) {
     return { ok: true, run: run.id, outcome: 'no-change', commit: null, receipt: noted.receipt.id };
   }
   let checked = false;
+  function beginWrite() {
+    if (checked) return;
+    checked = true;
+    const stale = stalePath(lib, installation, run);
+    if (stale) throw Object.assign(new Error(`stale snapshot at ${stale}; run a fresh prepare`), { code: 'stale' });
+    run.intended = { files: Object.fromEntries(operations.map((op) => [op.path, op.leave ? null : op.text])) };
+    run.items = itemsFrom(run, operations);
+    run.phase = 'writing';
+    store.writeRun(home, run);
+  }
   let publish;
   try {
     publish = lib.publishProposal(run.input, raw, installation, {
     write(file, text) {
-      if (!checked) {
-        checked = true;
-        const stale = stalePath(lib, installation, run);
-        if (stale) throw Object.assign(new Error(`stale snapshot at ${stale}; run a fresh prepare`), { code: 'stale' });
-        run.intended = { files: Object.fromEntries(operations.map((op) => [op.path, op.text])) };
-        run.items = itemsFrom(run, operations);
-        run.phase = 'writing';
-        store.writeRun(home, run);
-      }
+      beginWrite();
       lib.writeText(file, text);
+      fault('during-write');
+    },
+    remove(file) {
+      beginWrite();
+      fs.unlinkSync(file);
       fault('during-write');
     },
     gitCommit(workspace, args, input) {

@@ -402,7 +402,16 @@ store.appendReceipt(moved.box.home, {
   items: [{ n: 1, ref: 'later-pref#1', agent: 'albert', path: '.rbtv/memory/knowledge/preferences.md', before: null, after: prefs, sources: [], explanation: 'later' }],
 });
 const movedReverse = run(moved.box.home, ['reverse', '--item', 'migrated#1']);
-assert('migration reversal preserves a later unrelated edit', movedReverse.status === 0 && fs.readFileSync(path.join(moved.box.root, '.rbtv/memory/knowledge/preferences.md'), 'utf8') === prefs && fs.readFileSync(path.join(moved.box.root, '.rbtv/memory/knowledge/facts.md'), 'utf8').includes('old fact'), movedReverse.stderr);
+  assert('migration reversal preserves a later unrelated edit', movedReverse.status === 0 && fs.readFileSync(path.join(moved.box.root, '.rbtv/memory/knowledge/preferences.md'), 'utf8') === prefs && fs.readFileSync(path.join(moved.box.root, '.rbtv/memory/knowledge/facts.md'), 'utf8').includes('old fact'), movedReverse.stderr);
+
+const inboxBox = fixture('# Inbox\n');
+const inboxBefore = `# Inbox\n${line}\n`;
+store.appendReceipt(inboxBox.home, {
+  id: 'inbox-item', createdAt: 1, outcome: 'published', runId: 'inbox-item', commit: null, sources: [],
+  items: [{ n: 1, ref: 'inbox-item#1', agent: 'albert', path: '.rbtv/memory/inbox.md', before: inboxBefore, after: '# Inbox\n', sources: [line], explanation: 'filed' }],
+});
+const inboxReverse = run(inboxBox.home, ['reverse', '--item', 'inbox-item#1']);
+assert('reverse of inbox consumption refuses and leaves the file', inboxReverse.status !== 0 && /consumed line/.test(inboxReverse.stderr) && inboxReverse.stderr.includes(`memory remember --installation ${inboxBox.root} --agent albert TEXT`) && fs.readFileSync(path.join(inboxBox.root, '.rbtv/memory/inbox.md'), 'utf8') === '# Inbox\n', inboxReverse.stderr);
 
 function failureBlock(stderr, reason) {
   return stderr.split(/\n(?=failure )/).find((part) => part.includes(`reason: ${reason}`));
@@ -451,6 +460,166 @@ const judgedFixed = run(judged.home, ['apply', '--run', json(judgedPrep).run, '-
   conflicts: [],
 })]);
 assert('corrected proposal applies on the same prepared run', judgedFixed.status === 0 && json(judgedFixed).run === json(judgedPrep).run && fs.readFileSync(path.join(judged.root, judgedAlpha), 'utf8').includes('kept fact') && fs.readFileSync(path.join(judged.root, judgedBeta), 'utf8').includes('Threads: none'), judgedFixed.stderr);
+
+const deviceThread = 'https://app.slack.com/archives/C0TEST00001/p1791000000000001';
+const otherThread = 'https://app.slack.com/archives/C0TEST00002/p1791000000000002';
+const entityPath = '.rbtv/memory/entities/devices/handheld-1001.md';
+const entityText = `---\ndescription: when identifying the handheld by its name\ntype: device\naliases: [handheld-1001]\n---\n# Handheld-1001\n\n- The handheld is named Handheld-1001. (2026-10-13 · albert/${deviceThread})\n`;
+const otherEntity = '.rbtv/memory/entities/devices/other-2002.md';
+const otherEntityText = `---\ndescription: when reviewing the other device\ntype: device\naliases: [other-2002]\n---\n# Other-2002\n\n- Other stays. (2026-10-01 · albert)\n`;
+const deviceIndex = '.rbtv/memory/entities/_artifacts/index.md';
+const deviceRow = '| [Handheld-1001](../devices/handheld-1001.md) | when identifying the handheld |';
+const otherDeviceRow = '| [Other](../devices/other-2002.md) | when reviewing the other record |';
+const deviceIndexText = `# Index\n\n| Open | When |\n|---|---|\n${otherDeviceRow}\n${deviceRow}\n`;
+const deviceDay = '.rbtv/memory/timeline/daily/2026-10-13.md';
+const deviceEpisode = `- Named the handheld. — albert/[thread](${deviceThread})`;
+const keptEpisode = `- Kept episode. — albert/[thread](${otherThread})`;
+const deviceDayText = `---\ndescription: when asked what happened on 2026-10-13\n---\n# 2026-10-13\n\n${keptEpisode}\n${deviceEpisode}\n`;
+const forgetLine = '- Owner asks to forget: handheld-1001. Owner said: drop it (2026-10-13 · albert)';
+const archivePath = '.rbtv/memory/_artifacts/archive/handheld-1001.md';
+
+function commitTree(root) {
+  git(root, ['add', '.']);
+  git(root, ['commit', '-q', '-m', 'records']);
+}
+
+function plantDevice(box, inbox) {
+  if (inbox != null) write(path.join(box.root, '.rbtv/memory/inbox.md'), inbox);
+  write(path.join(box.root, entityPath), entityText);
+  write(path.join(box.root, otherEntity), otherEntityText);
+  write(path.join(box.root, deviceIndex), deviceIndexText);
+  write(path.join(box.root, deviceDay), deviceDayText);
+  commitTree(box.root);
+  return box;
+}
+
+function createdReceipt(home) {
+  store.appendReceipt(home, {
+    id: 'add-run', createdAt: 1, outcome: 'published', runId: 'add-run', commit: null, sources: [],
+    items: [
+      { n: 1, ref: 'add-run#1', agent: 'albert', path: entityPath, before: null, after: entityText, sources: [], explanation: 'created' },
+      { n: 4, ref: 'add-run#4', agent: 'albert', path: deviceIndex, before: deviceIndexText.replace(`${deviceRow}\n`, ''), after: deviceIndexText, sources: [], explanation: 'index row' },
+      { n: 7, ref: 'add-run#7', agent: 'albert', path: deviceDay, before: deviceDayText.replace(`${deviceEpisode}\n`, ''), after: deviceDayText, sources: [], explanation: 'timeline line' },
+    ],
+  });
+}
+
+const created = plantDevice(fixture());
+createdReceipt(created.home);
+const createdReverse = run(created.home, ['reverse', '--item', 'add-run#1']);
+const createdArchive = createdReverse.status === 0 ? fs.readFileSync(path.join(created.root, archivePath), 'utf8') : '';
+const createdIndex = createdReverse.status === 0 ? fs.readFileSync(path.join(created.root, deviceIndex), 'utf8') : '';
+const createdDay = createdReverse.status === 0 ? fs.readFileSync(path.join(created.root, deviceDay), 'utf8') : '';
+const createdReceipts = store.readReceipts(created.home);
+const createdLeave = createdReceipts.flatMap((row) => row.items || []).find((row) => row.leave && row.path === entityPath);
+assert('reverse of a created record archives it and drops only its index row and timeline line', createdReverse.status === 0 && !fs.existsSync(path.join(created.root, entityPath)) && createdArchive.includes(entityText) && createdArchive.includes('Reason: reversed') && createdArchive.includes('Source: add-run#1') && createdIndex === deviceIndexText.replace(`${deviceRow}\n`, '') && createdDay === deviceDayText.replace(`${deviceEpisode}\n`, '') && fs.readFileSync(path.join(created.root, otherEntity), 'utf8') === otherEntityText && createdLeave && createdLeave.after == null, createdReverse.stderr);
+const createdReport = createdReverse.status === 0 ? json(run(created.home, ['report', '--occasion', 'week-reverse'])) : null;
+assert('weekly report lists an archived removal and a reversal', createdReport && createdReport.text.includes(createdLeave.ref) && createdReport.text.includes('archived removal') && createdReport.text.includes('reversal'), createdReport && createdReport.text);
+
+const round = createdLeave ? run(created.home, ['reverse', '--item', createdLeave.ref]) : { status: 1, stderr: 'no leave item' };
+const roundArchive = round.status === 0 ? fs.readFileSync(path.join(created.root, archivePath), 'utf8') : '';
+assert('reverse of a reversal restores the record, the index row and the timeline line', round.status === 0 && fs.readFileSync(path.join(created.root, entityPath), 'utf8') === entityText && fs.readFileSync(path.join(created.root, deviceIndex), 'utf8') === deviceIndexText && fs.readFileSync(path.join(created.root, deviceDay), 'utf8') === deviceDayText && roundArchive.includes('# Restored') && roundArchive.includes(entityText), round.stderr);
+
+const mismatched = plantDevice(fixture());
+createdReceipt(mismatched.home);
+write(path.join(mismatched.root, deviceIndex), deviceIndexText.replace(`${deviceRow}\n`, ''));
+const mismatchReverse = run(mismatched.home, ['reverse', '--item', 'add-run#1']);
+assert('reverse refuses when the same-run index row is gone and changes nothing', mismatchReverse.status !== 0 && /do not match add-run#1 uniquely/.test(mismatchReverse.stderr) && fs.readFileSync(path.join(mismatched.root, entityPath), 'utf8') === entityText, mismatchReverse.stderr);
+
+const dependent = plantDevice(fixture());
+createdReceipt(dependent.home);
+store.appendReceipt(dependent.home, {
+  id: 'later-index', createdAt: Date.now(), outcome: 'published', runId: 'later-index', commit: null, sources: [],
+  items: [{ n: 1, ref: 'later-index#1', agent: 'albert', path: deviceIndex, before: deviceIndexText, after: deviceIndexText, sources: [], explanation: 'later index' }],
+});
+const dependentReverse = run(dependent.home, ['reverse', '--item', 'add-run#1']);
+assert('reverse refuses when a later receipt touched the index and changes nothing', dependentReverse.status !== 0 && /dependency: later-index#1/.test(dependentReverse.stderr) && fs.readFileSync(path.join(dependent.root, entityPath), 'utf8') === entityText && fs.readFileSync(path.join(dependent.root, deviceIndex), 'utf8') === deviceIndexText, dependentReverse.stderr);
+
+const indexOnly = plantDevice(fixture());
+createdReceipt(indexOnly.home);
+const indexReverse = run(indexOnly.home, ['reverse', '--item', 'add-run#4']);
+assert('reverse of an index item on its own tells the caller to reverse the record', indexReverse.status !== 0 && /reverse the record item instead/.test(indexReverse.stderr) && fs.readFileSync(path.join(indexOnly.root, deviceIndex), 'utf8') === deviceIndexText, indexReverse.stderr);
+
+const appended = fixture();
+const appendedBefore = factFile(oldFact);
+const appendedAfter = factFile(`${oldFact}\n${newFact}`);
+write(path.join(appended.root, '.rbtv/memory/knowledge/facts.md'), appendedAfter);
+commitTree(appended.root);
+store.appendReceipt(appended.home, {
+  id: 'append-run', createdAt: 1, outcome: 'published', runId: 'append-run', commit: null, sources: [],
+  items: [{ n: 1, ref: 'append-run#1', agent: 'albert', path: '.rbtv/memory/knowledge/facts.md', before: appendedBefore, after: appendedAfter, sources: [], explanation: 'appended' }],
+});
+const appendReverse = run(appended.home, ['reverse', '--item', 'append-run#1']);
+assert('reverse of an append-only change names the replacement requirement and changes nothing', appendReverse.status !== 0 && /no mechanical inverse for append-run#1: replacement needs owner evidence and a replacement record/.test(appendReverse.stderr) && fs.readFileSync(path.join(appended.root, '.rbtv/memory/knowledge/facts.md'), 'utf8') === appendedAfter, appendReverse.stderr);
+
+const folded = fixture();
+const foldedBefore = '## What matters now\n\n## Watch-outs\n\n- stale claim (2026-10-01 · albert)\n\n## Timers\n\n## Recently closed\n';
+const foldedAfter = board;
+write(path.join(folded.home, '_artifacts/board.md'), foldedAfter);
+store.appendReceipt(folded.home, {
+  id: 'fold-run', createdAt: 1, outcome: 'published', runId: 'fold-run', commit: null, sources: [],
+  items: [{ n: 1, ref: 'fold-run#1', agent: 'albert', path: '.rbtv/agents/albert/_artifacts/board.md', before: foldedBefore, after: foldedAfter, sources: [], explanation: 'folded' }],
+});
+const foldReverse = run(folded.home, ['reverse', '--item', 'fold-run#1']);
+assert('reverse of a board fold names the board requirement and changes nothing', foldReverse.status !== 0 && /no mechanical inverse for fold-run#1: dreamer cannot create or close subjects or edit runtime board fields/.test(foldReverse.stderr) && fs.readFileSync(path.join(folded.home, '_artifacts/board.md'), 'utf8') === foldedAfter, foldReverse.stderr);
+
+const topicPath = '.rbtv/agents/albert/memory/alpha.md';
+const topicText = `---\ndescription: when reviewing alpha\ntype: subject\naliases: [alpha]\n---\n# alpha\n\nThreads: none\n- a kept fact (2026-10-13 · albert/[t](${thread}))\n`;
+const topicBox = fixture();
+write(path.join(topicBox.root, topicPath), topicText);
+commitTree(topicBox.root);
+store.appendReceipt(topicBox.home, {
+  id: 'topic-run', createdAt: 1, outcome: 'published', runId: 'topic-run', commit: null, sources: [],
+  items: [{ n: 1, ref: 'topic-run#1', agent: 'albert', path: topicPath, before: null, after: topicText, sources: [], explanation: 'created topic' }],
+});
+const topicReverse = run(topicBox.home, ['reverse', '--item', 'topic-run#1']);
+assert('reverse of a created topic file archives it', topicReverse.status === 0 && !fs.existsSync(path.join(topicBox.root, topicPath)) && fs.readFileSync(path.join(topicBox.root, '.rbtv/memory/_artifacts/archive/alpha.md'), 'utf8').includes(topicText), topicReverse.stderr);
+
+function forgetProposal(fault) {
+  const reasonBullet = `- Reason: owner asked to forget. Source: ${forgetLine} (2026-10-13 · albert)`;
+  const archiveText = `---\ndescription: when reviewing an archived record\ntype: reference\naliases: [archived]\n---\n# Archived\n\n${reasonBullet}\n\n\`\`\`verbatim\n${entityText}\`\`\`\n`;
+  const record = entityText.trim().split('\n').at(-1);
+  const operations = [
+    { op: 'archive', path: entityPath, leave: true, text: fault === 'text' ? entityText.replace('identifying', 'naming') : entityText, sources: fault === 'source' ? [] : [forgetLine], reason: 'owner', explanation: 'owner asked to forget', item: fault === 'source' ? '' : undefined, removals: [{ text: record, to: archivePath }] },
+    { op: 'add', path: archivePath, text: fault === 'source' ? archiveText.replace('owner asked to forget', 'unspecified') : archiveText, sources: fault === 'source' ? [] : [forgetLine], reason: 'owner', explanation: 'owner asked to forget', removals: [] },
+    { op: 'supersede', path: deviceIndex, reason: 'index', text: deviceIndexText.replace(`${deviceRow}\n`, ''), sources: fault === 'source' ? [] : [forgetLine], explanation: 'drop the index row', removals: [{ text: deviceRow }] },
+    { op: 'supersede', path: deviceDay, text: fault === 'pointer' ? deviceDayText.replace(`${keptEpisode}\n`, '') : deviceDayText.replace(`${deviceEpisode}\n`, ''), sources: fault === 'source' ? [] : [forgetLine], reason: 'owner', explanation: 'drop the episode', removals: [{ text: fault === 'pointer' ? keptEpisode : deviceEpisode }] },
+  ];
+  if (fault === 'archive') operations.splice(1, 1);
+  if (fault === 'index') operations.splice(2, 1);
+  if (fault === 'stays') return { operations: [operations[2]], conflicts: [] };
+  return { operations, conflicts: [] };
+}
+
+const forgetBox = plantDevice(fixture(`# Inbox\n\n${forgetLine}\n`));
+const forgetPrep = run(forgetBox.home, ['prepare']);
+const forgetRun = forgetPrep.status === 0 ? json(forgetPrep).run : '';
+const faultNames = {
+  archive: 'removal without an archive entry',
+  stays: 'index or timeline line dropped while the record it points at stays',
+  pointer: 'dropped line does not point at the archived record',
+  source: 'removal needs a stated reason and a source',
+  index: 'index link points at a missing memory file',
+  text: 'leave keeps the verbatim file text',
+};
+for (const [fault, reason] of Object.entries(faultNames)) {
+  const refused = run(forgetBox.home, ['apply', '--run', forgetRun, '--proposal', proposalFile(forgetBox.home, forgetProposal(fault))]);
+  assert(`forget proposal fault ${fault} is refused by name`, refused.status !== 0 && refused.stderr.includes(`reason: ${reason}`) && fs.existsSync(path.join(forgetBox.root, entityPath)), `${reason}\n${refused.stderr}`);
+}
+const forgetApply = run(forgetBox.home, ['apply', '--run', forgetRun, '--proposal', proposalFile(forgetBox.home, forgetProposal())]);
+const forgetReceipt = store.readReceipts(forgetBox.home).find((row) => row.outcome === 'published');
+const forgetLeave = forgetReceipt && forgetReceipt.items.find((row) => row.leave && row.path === entityPath);
+const forgetCheck = run(forgetBox.home, ['check']);
+assert('forget proposal archives the record, drops its lines and consumes the inbox line', forgetApply.status === 0 && forgetReceipt && !fs.existsSync(path.join(forgetBox.root, entityPath)) && fs.readFileSync(path.join(forgetBox.root, archivePath), 'utf8').includes(entityText) && fs.readFileSync(path.join(forgetBox.root, deviceIndex), 'utf8') === deviceIndexText.replace(`${deviceRow}\n`, '') && fs.readFileSync(path.join(forgetBox.root, deviceDay), 'utf8') === deviceDayText.replace(`${deviceEpisode}\n`, '') && forgetReceipt.sources.some((row) => (row.positions || []).includes(forgetLine)) && forgetCheck.status === 0 && forgetCheck.stdout.trim() === '{"new":false}', `${forgetApply.stderr}\n${forgetCheck.stdout}${forgetCheck.stderr}`);
+const forgetRound = forgetLeave ? run(forgetBox.home, ['reverse', '--item', forgetLeave.ref]) : { status: 1, stderr: 'no leave item' };
+assert('reverse of a forget restores the record', forgetRound.status === 0 && fs.readFileSync(path.join(forgetBox.root, entityPath), 'utf8') === entityText && fs.readFileSync(path.join(forgetBox.root, archivePath), 'utf8').includes('# Restored'), forgetRound.stderr);
+const forgetReport = json(run(forgetBox.home, ['report', '--occasion', 'week-forget']));
+assert('weekly report lists the forget and its reversal', Boolean(forgetLeave) && forgetReport.text.includes(forgetLeave.ref) && forgetReport.text.includes('archived removal') && forgetReport.text.includes('reversal'), forgetReport.text.slice(0, 400));
+
+const promptForget = fs.readFileSync(promptPath, 'utf8');
+assert('prompt says an owner forget is an archived removal and does not restate the proposal', promptForget.includes('archived removal') && promptForget.includes('unresolved conflict') && promptForget.includes('consumed by the same proposal') && !promptForget.includes('leave: true') && !promptForget.includes('Reason: owner asked to forget'), '');
+const reverseHelp = spawnSync(process.execPath, [tool, 'reverse', '-h'], { encoding: 'utf8' }).stdout;
+assert('reverse -h states the dangling-index rule', reverseHelp.includes('only the index rows whose link target is that record') && reverseHelp.includes('reverse the record item instead') && helpOut.includes('leave: true') && helpOut.includes('Reason: owner asked to forget') && helpOut.includes('# Restored'), reverseHelp);
 
 const pair = fixture();
 const { spawn } = require('node:child_process');

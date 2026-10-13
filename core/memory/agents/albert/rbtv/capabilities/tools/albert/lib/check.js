@@ -21,10 +21,19 @@ function agentDirs(installation) {
   return fs.readdirSync(root, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
 }
 
-function inboxCandidates(installation) {
+function inboxCandidates(installation, home) {
   const text = readText(path.join(installation, '.rbtv', 'memory', 'inbox.md'));
   if (!text) return [];
-  return text.split(/\r?\n/).filter((line) => /^- .+ \(\d{4}-\d{2}-\d{2} · .+\)$/.test(line));
+  const lines = text.split(/\r?\n/).filter((line) => /^- .+ \(\d{4}-\d{2}-\d{2} · .+\)$/.test(line));
+  if (!home) return lines;
+  const covered = new Set();
+  for (const receipt of store.readReceipts(home)) {
+    if (receipt.outcome !== 'published' && receipt.outcome !== 'migrated') continue;
+    for (const item of receipt.items || []) {
+      for (const source of item.sources || []) if (typeof source === 'string') covered.add(source);
+    }
+  }
+  return lines.filter((line) => !covered.has(line));
 }
 
 function watchOuts(installation) {
@@ -83,7 +92,7 @@ function pendingBatches(home) {
 function work(home, installation, now = Date.now()) {
   const date = new Date(now).toISOString().slice(0, 10);
   const reasons = [];
-  if (inboxCandidates(installation).length) reasons.push('inbox');
+  if (inboxCandidates(installation, home).length) reasons.push('inbox');
   if (watchOuts(installation).length) reasons.push('watch-out');
   if (expiries(installation, date).length) reasons.push('expiry');
   if (maintenanceDue(home, installation, now).length) reasons.push('maintenance');
