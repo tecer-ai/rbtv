@@ -111,7 +111,7 @@ def agent_ignore_file(ctx) -> None:
 
     expected_a = {
         ".rbtv/agents/a1/prompt.md", ".rbtv/agents/a1/agent.json",
-        ".rbtv/agents/a1/settings.json", ".rbtv/agents/a1/prompt.pre-split.md",
+        ".rbtv/agents/a1/prompt.pre-split.md",
         ".rbtv/agents/a1/notes/own.md",
     }
     for harness in ("codex", "claude", "opencode"):
@@ -143,6 +143,89 @@ def agent_ignore_file(ctx) -> None:
           status_c == expected_c, repr(sorted(status_c)))
     check("A-ignore — an outside agent ignores every destination in its plan",
           not uncovered_c, repr(sorted(uncovered_c)))
+
+    old_create = (
+        "# rbtv: harness files and machine data\n"
+        ".agents/skills/\n.claude/agents/\n.claude/commands/\n.claude/rules/\n"
+        ".claude/settings.json\n.claude/skills/\n.codex/agents/\n"
+        ".codex/config.toml\n.codex/hooks.json\n.codex/prompts/\n.mcp.json\n"
+        ".opencode/agents/\n.opencode/commands/\nopencode.json\nAGENTS.md\n"
+        "CLAUDE.md\n.gitignore\nruntime/\ntmp/\nstate.sqlite*\nturns/\n"
+        "conversations/*/session*\n")
+
+    def covers(repo: Path, agent: Path) -> bool:
+        def ignored(rel: str) -> bool:
+            return subprocess.run(
+                ["git", "check-ignore", "--quiet", "--no-index", "--",
+                 str(agent / rel)], cwd=repo, check=False).returncode == 0
+        hidden = ("settings.json", "runtime/ignite/state.sqlite", "runtime/x",
+                  "tmp/x", ".claude/skills/z/SKILL.md", "state.sqlite",
+                  "turns/t", "conversations/c/session.json")
+        shown = ("rbtv/skills/x.md", "memory/n.md", "_artifacts/board.md",
+                 "work/n.md")
+        return (all(ignored(rel) for rel in hidden)
+                and not any(ignored(rel) for rel in shown))
+
+    def place(repo: Path) -> Path:
+        agent = repo / ".rbtv/agents/a1"
+        _ignored_agent(agent, "claude")
+        with patch("lib.agents.cast_catalog", return_value=known), \
+                patch("lib.agents.cast_model_id", return_value="native-id"):
+            add_agent(repo, str(agent), [], set(), catalog, False)
+        return agent
+
+    def refresh(repo: Path, agent: Path) -> str:
+        with patch("lib.agents.cast_catalog", return_value=known), \
+                patch("lib.agents.cast_model_id", return_value="native-id"):
+            update_agent(repo, str(agent), "all", catalog, False)
+        return (agent / ".gitignore").read_text(encoding="utf-8")
+
+    repo = tmp / "ig-new"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    try:
+        agent = place(repo)
+        text = (agent / ".gitignore").read_text(encoding="utf-8")
+        new_ok = ("settings.json" in text.splitlines()
+                  and "runtime/" in text.splitlines() and covers(repo, agent))
+        detail = text
+    except Exception as exc:
+        new_ok, detail = False, str(exc)
+    check("IG-01 new agent excludes settings.json and runtime/",
+          new_ok, detail)
+
+    repo = tmp / "ig-old"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    try:
+        agent = place(repo)
+        _w(agent / ".gitignore", old_create)
+        text = refresh(repo, agent)
+        old_ok = (text != old_create and "settings.json" in text.splitlines()
+                  and "runtime/" in text.splitlines() and covers(repo, agent))
+        detail = text
+    except Exception as exc:
+        old_ok, detail = False, str(exc)
+    check("IG-02 old create-time text gains settings.json and runtime/",
+          old_ok, detail)
+
+    repo = tmp / "ig-local"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    try:
+        agent = place(repo)
+        _w(agent / ".gitignore", "# local top\n" + old_create + "local-note/\n")
+        text = refresh(repo, agent)
+        local_ok = (text.startswith("# local top\n")
+                    and text.endswith("local-note/\n")
+                    and "settings.json" in text.splitlines()
+                    and "runtime/" in text.splitlines()
+                    and covers(repo, agent))
+        detail = text
+    except Exception as exc:
+        local_ok, detail = False, str(exc)
+    check("IG-03 local entries stay and the new patterns apply",
+          local_ok, detail)
 
 
 def agent_git_folder(ctx) -> None:

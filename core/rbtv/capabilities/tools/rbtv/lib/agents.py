@@ -39,9 +39,8 @@ _MACHINE_DATA = ("state.sqlite*", "turns/", "conversations/*/session*")
 
 
 def _ignore_patterns() -> list[str]:
-    """Harness outputs, machine data, runtime and tmp. Not `rbtv/`, `work/`,
-    `memory/` or `_artifacts/board.md`. `settings.json` is added only when an
-    existing ignore file is updated: a newly created file keeps it visible."""
+    """Harness outputs, settings.json, runtime, tmp and machine data.
+    Not `rbtv/`, `work/`, `memory/` or `_artifacts/`."""
     folders = {
         path.partition("{name}")[0].rstrip("/") + "/"
         for paths in MATRIX.values()
@@ -50,7 +49,8 @@ def _ignore_patterns() -> list[str]:
     }
     harness_paths = (sorted(folders | set(SHARED_FILE_DESTINATIONS))
                      + sorted(set(GUIDANCE_FILE.values())))
-    return [*harness_paths, ".gitignore", "runtime/", "tmp/", *_MACHINE_DATA]
+    return [*harness_paths, ".gitignore", "settings.json", "runtime/", "tmp/",
+            *_MACHINE_DATA]
 
 
 def _ignore_text() -> str:
@@ -59,23 +59,24 @@ def _ignore_text() -> str:
 
 
 def _ignore_block() -> str:
-    """The owned block an update writes. It adds `settings.json` to the
-    create-time patterns and is fenced so an unrelated line survives."""
-    patterns = [*_ignore_patterns(), "settings.json"]
+    """The owned block an update writes. Same patterns as create, fenced
+    so an unrelated line survives."""
     return (f"{IGNORE_START}\n{IGNORE_HEADER}\n"
-            + "\n".join(patterns) + f"\n{IGNORE_END}\n")
+            + "\n".join(_ignore_patterns()) + f"\n{IGNORE_END}\n")
 
 
 def _owned_ignore_line(line: str) -> bool:
     text = line.strip()
     if text in {IGNORE_HEADER, IGNORE_START, IGNORE_END, ""}:
         return text != ""
-    return text in set(_ignore_patterns()) or text == "settings.json"
+    return text in set(_ignore_patterns())
 
 
 def reconcile_ignore(text: str) -> str:
     """Replace or extend only the rbtv-owned ignore block. Every unrelated
-    line stays, in order. A file this installer just wrote is left as it is."""
+    line stays, in order. A file already equal to the create-time text is
+    left as it is. An older create-time text is not: it still has the header,
+    so the owned lines are replaced and gain the current patterns."""
     if text == IGNORE_TEXT:
         return text
     block = _ignore_block()

@@ -746,6 +746,8 @@ The pack foundations is applied as well as --pack and the record's own
 list, once each file. rbtv/ under the agent folder is that agent's own
 source. It is installed for every harness on add, with no extra flag.
 A tool there is listed in the rbtv-tools rule and is not placed on PATH.
+A missing .gitignore ignores harness files, settings.json and runtime/.
+It does not ignore rbtv/, memory/, work/ or _artifacts/.
 
 --harness, --model and --effort are required, all three, when agent.json
 has none: always the case for an agent a component ships. They are checked
@@ -903,8 +905,9 @@ whose source there was removed. A shipped rbtv/ file the owner did not
 edit is updated from the component; a file the owner edited is kept; a
 file both sides changed is refused and both versions are kept. The pack
 foundations is added when the record lacks it, unless agent.json has
-exclude_foundations. An existing .gitignore has only its rbtv block
-replaced.
+exclude_foundations. A new .gitignore ignores harness files, settings.json
+and runtime/. An existing file has only its rbtv block replaced, including
+one that is still the previous create-time text. Unrelated lines stay.
 
 AGENT comes first. SCOPE is required. Without a scope the command is
 wrong usage and changes nothing. A scope word is not an agent name.
