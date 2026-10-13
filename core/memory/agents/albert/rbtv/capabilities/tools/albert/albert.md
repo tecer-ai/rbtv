@@ -32,4 +32,4 @@ Fields: `id`, `createdAt`, `outcome` (`published`, `no-change` or `migrated`), `
 
 ## Maintenance
 
-The program is `albert.js` beside this page. Its record is `albert.json`. Tests are `node test_albert.js` in this folder. Operational data stays in the agent folder's `runtime/albert/`, never in `tmp/`. The memory library is required from the memory component; it is not copied into this folder. Without a scheduled invocation, nothing consolidates.
+The program is `albert.js` beside this page. Its record is `albert.json`. Tests are `node test_albert.js` in this folder. Operational data stays in the agent folder's `runtime/albert/`, never in `tmp/`. How the memory library is found is in `-h`. It is not copied into this folder. Without a scheduled invocation, nothing consolidates.

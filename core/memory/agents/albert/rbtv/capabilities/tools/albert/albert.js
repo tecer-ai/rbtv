@@ -86,6 +86,7 @@ operations:
   report-ack   record that the report was queued
 
 -h before or after the operation prints that operation's help. Root help does not restate a child's usage.
+Library: lib/index.js beside the memory command on PATH, else that file in the repository the rbtv command belongs to; ~/.rbtv/bin must be on PATH. ALBERT_MEMORY_LIB overrides both.
 No model is started. Without a scheduled invocation of this tool, nothing consolidates.
 ${structure}
 ${CONTRACT}

@@ -1,4 +1,5 @@
 {
   "name": "albert",
-  "description": "CONTAINS: consolidation of owner evidence into memory by a checked proposal. PURPOSE: a published memory change, a no-change acknowledgement, or a refusal the caller can correct. ALWAYS LOAD WHEN: memory should be consolidated, reversed or reported. DO NOT LOAD WHEN: the task is a chat reply, a connection or a timer."
+  "description": "CONTAINS: consolidation of owner evidence into memory by a checked proposal. PURPOSE: a published memory change, a no-change acknowledgement, or a refusal the caller can correct. ALWAYS LOAD WHEN: memory should be consolidated, reversed or reported. DO NOT LOAD WHEN: the task is a chat reply, a connection or a timer.",
+  "files": ["core/memory#memory"]
 }

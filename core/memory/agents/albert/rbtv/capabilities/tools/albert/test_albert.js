@@ -38,6 +38,47 @@ function run(home, args, env = {}) {
 }
 
 const board = '## What matters now\n\n## Watch-outs\n\n## Timers\n\n## Recently closed\n';
+const { candidates } = require('./lib/library.js');
+
+function withPath(dir, fn) {
+  const prevPath = process.env.PATH;
+  const prevLib = process.env.ALBERT_MEMORY_LIB;
+  process.env.PATH = dir;
+  delete process.env.ALBERT_MEMORY_LIB;
+  try { return fn(); } finally {
+    process.env.PATH = prevPath;
+    if (prevLib === undefined) delete process.env.ALBERT_MEMORY_LIB;
+    else process.env.ALBERT_MEMORY_LIB = prevLib;
+  }
+}
+
+const shimRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'albert-shim-'));
+const shimRepo = path.join(shimRoot, 'repo');
+const shimTool = path.join(shimRepo, 'core', 'memory', 'capabilities', 'tools', 'memory');
+const shimLib = path.join(shimTool, 'lib', 'index.js');
+write(shimLib, 'module.exports = {};\n');
+const shimEntry = path.join(shimTool, 'memory.js');
+write(shimEntry, '#!/usr/bin/env node\n');
+const shimBin = path.join(shimRoot, 'bin');
+write(path.join(shimBin, 'memory.cmd'), `@rem rbtv-shim -> ${shimEntry}\r\n@"node" "${shimEntry}" %*\r\n`);
+write(path.join(shimBin, 'memory'), `#!/bin/sh\n# rbtv-shim -> ${shimEntry}\nexec node "${shimEntry}" "$@"\n`);
+assert('windows shim target is the memory program', withPath(shimBin, () => candidates().includes(shimLib)), '');
+const cmdOnly = path.join(shimRoot, 'cmd-only');
+fs.mkdirSync(cmdOnly);
+write(path.join(cmdOnly, 'memory'), fs.readFileSync(path.join(shimBin, 'memory.cmd')));
+assert('cmd shim first line is the memory program', withPath(cmdOnly, () => candidates().includes(shimLib)), '');
+const linkBin = path.join(shimRoot, 'link');
+fs.mkdirSync(linkBin);
+fs.symlinkSync(shimEntry, path.join(linkBin, 'memory'));
+assert('memory symlink resolves beside the program', withPath(linkBin, () => candidates().includes(shimLib)), '');
+const installer = path.join(shimRepo, 'core', 'rbtv', 'capabilities', 'tools', 'rbtv', 'install.py');
+write(installer, '#!/usr/bin/env python3\n');
+const rbtvBin = path.join(shimRoot, 'rbtv-bin');
+fs.mkdirSync(rbtvBin);
+fs.symlinkSync(installer, path.join(rbtvBin, 'rbtv'));
+assert('rbtv command resolves the repository library', withPath(rbtvBin, () => candidates().includes(shimLib)), '');
+const rootHelp = spawnSync(process.execPath, [tool, '-h'], { encoding: 'utf8' }).stdout;
+assert('root help names the library path', rootHelp.includes('lib/index.js beside the memory command') && rootHelp.includes('~/.rbtv/bin must be on PATH') && rootHelp.includes('ALBERT_MEMORY_LIB'), rootHelp);
 const profile = '# Profile — Owner\n\n## Who\n\n- Owner (2026-01-01 · albert)\n\n## Working with owner\n\n- prefers short notes (2026-01-01 · albert)\n\n## Now\n\n- none pending (2026-01-01 · albert)\n';
 const learned = '# Learned rules — albert\n';
 const index = '# Memory\n\n| Open | When |\n| --- | --- |\n';
