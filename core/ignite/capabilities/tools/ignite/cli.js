@@ -946,25 +946,20 @@ function insertAfterImports(text, block) {
   return lines.join('\n');
 }
 
-const PATH_START = " \t\n\r\"'`()[]{}=<>:,;|";
+const TOKEN_START = " \t\n\r\"'`";
 
-// An occurrence of capabilities/tools/<tool>/ is this agent's own tool when it starts a path, or follows this agent's home, ./, <home>/, or .rbtv/agents/<this slug>/. A URL, another agent's folder, or a longer path that merely ends the same way is left; when the rule cannot tell, the text is left and printed as not rewritten: <file>:<line>.
+// Rewrite capabilities/tools/<tool>/ only when it starts a token: line start, whitespace, a backtick, a quote, ./ whose dot is itself at a token start, or this agent's home (<home>/, the absolute folder, .rbtv/agents/<this slug>/). Anything else is left and printed as not rewritten: <file>:<line>, except text already under rbtv/capabilities/tools/ and a path under another agent's folder, which are left without a line.
 function classifyOwnToolRef(text, at, home) {
   const before = text.slice(0, at);
   if (before.endsWith('rbtv/')) return 'already';
   const slug = path.basename(path.resolve(home));
   const prefixes = [path.resolve(home), home].map((item) => `${item.replaceAll('\\', '/').replace(/\/$/, '')}/`);
-  if (before.endsWith('./') || before.endsWith('<home>/') || prefixes.some((prefix) => before.endsWith(prefix)) || before.endsWith(`.rbtv/agents/${slug}/`)) return 'own';
-  if (at === 0 || PATH_START.includes(text[at - 1])) return 'own';
-  if (text[at - 1] !== '/') return 'unsure';
-  let tokenAt = at;
-  while (tokenAt > 0 && !' \t\n\r"\'`'.includes(text[tokenAt - 1])) tokenAt -= 1;
-  const token = text.slice(tokenAt, at);
-  if (token.includes('://')) return 'leave';
-  const agent = token.match(/(?:^|\/)\.rbtv\/agents\/([^/]+)\/$/) || token.match(/(?:^|\/)agents\/([^/]+)\/$/);
-  if (agent && agent[1] !== slug) return 'leave';
-  if (/^(?:\.\.\/)+$/.test(token)) return 'unsure';
-  return 'leave';
+  const dotAtTokenStart = before.endsWith('./') && (at < 3 || TOKEN_START.includes(text[at - 3]));
+  if (dotAtTokenStart || before.endsWith('<home>/') || prefixes.some((prefix) => before.endsWith(prefix)) || before.endsWith(`.rbtv/agents/${slug}/`)) return 'own';
+  if (at === 0 || TOKEN_START.includes(text[at - 1])) return 'own';
+  const other = before.match(/(?:^|\/)\.rbtv\/agents\/([^/]+)\/$/) || before.match(/\/agents\/([^/]+)\/$/);
+  if (other && other[1] !== slug) return 'leave';
+  return 'unsure';
 }
 
 function rewriteOwnToolRefs(text, names, home) {

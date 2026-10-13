@@ -572,6 +572,91 @@ test('RM-08 a rerun places a check tool left at the old path', () => {
   assert.match(again, /parents\[2\]/);
 });
 
+function stubTool(home, name, file) {
+  const dir = path.join(home, 'capabilities', 'tools', name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, file), '#!/usr/bin/env python3\nprint("ok")\n', 'utf8');
+}
+
+function strictRows(abs) {
+  return [
+    ['dot ./capabilities/tools/probe/probe.py', 'dot ./rbtv/capabilities/tools/probe/probe.py', 'rewritten', './capabilities/tools/probe/probe.py'],
+    [`abs ${abs}/capabilities/tools/probe/probe.py`, `abs ${abs}/rbtv/capabilities/tools/probe/probe.py`, 'rewritten', 'absolute agent home + /capabilities/tools/probe/probe.py'],
+    ['ownslug .rbtv/agents/probe/capabilities/tools/probe/probe.py', 'ownslug .rbtv/agents/probe/rbtv/capabilities/tools/probe/probe.py', 'rewritten', '.rbtv/agents/probe/capabilities/tools/probe/probe.py'],
+    ['otherslug .rbtv/agents/gaming/capabilities/tools/probe/probe.py', 'otherslug .rbtv/agents/gaming/capabilities/tools/probe/probe.py', 'left silently', '.rbtv/agents/gaming/capabilities/tools/probe/probe.py'],
+    ['vendor vendor/capabilities/tools/probe/x', 'vendor vendor/capabilities/tools/probe/x', 'left and printed', 'vendor/capabilities/tools/probe/x'],
+    ['up ../capabilities/tools/probe/x', 'up ../capabilities/tools/probe/x', 'left and printed', '../capabilities/tools/probe/x'],
+    ['link [page](capabilities/tools/probe/probe.py)', 'link [page](capabilities/tools/probe/probe.py)', 'left and printed', 'markdown [page](capabilities/tools/probe/probe.py)'],
+    ['shell python3 capabilities/tools/probe/probe.py --flag', 'shell python3 rbtv/capabilities/tools/probe/probe.py --flag', 'rewritten', 'python3 capabilities/tools/probe/probe.py --flag'],
+    ['mail python3 capabilities/tools/mail/mail.py --flag', 'mail python3 rbtv/capabilities/tools/mail/mail.py --flag', 'rewritten', 'python3 capabilities/tools/mail/mail.py --flag'],
+    ['mailcheck python3 capabilities/tools/mail-check/mail-check.py --flag', 'mailcheck python3 rbtv/capabilities/tools/mail-check/mail-check.py --flag', 'rewritten', 'python3 capabilities/tools/mail-check/mail-check.py --flag'],
+    ['done rbtv/capabilities/tools/probe/probe.py', 'done rbtv/capabilities/tools/probe/probe.py', 'left silently', 'rbtv/capabilities/tools/probe/probe.py'],
+    ['url https://example.com/capabilities/tools/probe/docs', 'url https://example.com/capabilities/tools/probe/docs', 'left and printed', 'https://example.com/capabilities/tools/probe/docs'],
+    ['qurl https://example.com/q?path=capabilities/tools/probe/docs', 'qurl https://example.com/q?path=capabilities/tools/probe/docs', 'left and printed', 'https://example.com/q?path=capabilities/tools/probe/docs'],
+    ['commaurl https://example.com/foo,capabilities/tools/probe/docs', 'commaurl https://example.com/foo,capabilities/tools/probe/docs', 'left and printed', 'https://example.com/foo,capabilities/tools/probe/docs'],
+    ['mdurl [d](https://example.com/capabilities/tools/probe/docs)', 'mdurl [d](https://example.com/capabilities/tools/probe/docs)', 'left and printed', 'markdown link to that URL'],
+    ['mdup [t](../capabilities/tools/probe/probe.py)', 'mdup [t](../capabilities/tools/probe/probe.py)', 'left and printed', 'markdown [t](../capabilities/tools/probe/probe.py)'],
+    ['mdother [t](/agents/gaming/capabilities/tools/probe/probe.py)', 'mdother [t](/agents/gaming/capabilities/tools/probe/probe.py)', 'left silently', 'markdown link to /agents/gaming/capabilities/tools/probe/probe.py'],
+    ['mdvendor [t](vendor/capabilities/tools/probe/x)', 'mdvendor [t](vendor/capabilities/tools/probe/x)', 'left and printed', 'markdown link to vendor/capabilities/tools/probe/x'],
+    ['homeangle <home>/capabilities/tools/probe/probe.py', 'homeangle <home>/rbtv/capabilities/tools/probe/probe.py', 'rewritten', '<home>/capabilities/tools/probe/probe.py'],
+    ['queryq https://example.com/foo?capabilities/tools/probe/docs', 'queryq https://example.com/foo?capabilities/tools/probe/docs', 'left and printed', 'https://example.com/foo?capabilities/tools/probe/docs'],
+    ['glued x./capabilities/tools/probe/x', 'glued x./capabilities/tools/probe/x', 'left and printed', 'x./capabilities/tools/probe/x'],
+  ];
+}
+
+let strictBreak;
+
+function strictBreakRun() {
+  if (strictBreak) return strictBreak;
+  const workspace = temp();
+  const home = path.join(workspace, '.rbtv', 'agents', 'probe');
+  fs.mkdirSync(home, { recursive: true });
+  seed(home);
+  stubTool(home, 'probe', 'probe.py');
+  stubTool(home, 'mail-check', 'mail-check.py');
+  const abs = path.resolve(home).replaceAll('\\', '/');
+  const rows = strictRows(abs);
+  fs.writeFileSync(path.join(home, 'prompt.md'), `${rows.map((row) => row[0]).join('\n')}\n`, 'utf8');
+  let out = '';
+  let err = '';
+  const run = () => {
+    out = '';
+    err = '';
+    return main(['runtime', 'migrate', '--installation', workspace], {
+      env: { ...process.env, RBTV_AGENT_HOME: home },
+      stdout(text) { out += text; },
+      stderr(text) { err += text; },
+    });
+  };
+  const code = run();
+  const after = fs.readFileSync(path.join(home, 'prompt.md'), 'utf8');
+  const first = out;
+  const secondCode = run();
+  strictBreak = { code, err, first, after: after.split('\n'), secondCode, second: out, doubled: after.includes('rbtv/rbtv/'), rows };
+  return strictBreak;
+}
+
+for (const [index, row] of strictRows('/absolute').entries()) {
+  test(`RM-08 break ${row[3]} ${row[2]}`, () => {
+    const result = strictBreakRun();
+    assert.equal(result.code, 0, result.err);
+    assert.equal(result.after[index], result.rows[index][1]);
+    const printed = result.first.includes(`not rewritten: prompt.md:${index + 1}\n`);
+    assert.equal(printed, row[2] === 'left and printed');
+    assert.equal(result.doubled, false);
+  });
+}
+
+test('RM-08 break second run prints only migrated', () => {
+  const result = strictBreakRun();
+  assert.equal(result.secondCode, 0, result.second);
+  assert.equal(result.second, 'migrated probe\n');
+  assert.equal(result.second.includes('not rewritten:'), false);
+  const help = helpPage('runtime', ['migrate']);
+  assert.equal(help.includes('repeats any not rewritten'), false);
+  assert.match(help, /prints only migrated <agent> and does not repeat a not rewritten line/);
+});
+
 test('RM-09 installation locks stay where they were', () => {
   const { workspace, home } = agent();
   seed(home);
