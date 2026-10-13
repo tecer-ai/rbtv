@@ -91,6 +91,26 @@ function seed(home) {
   for (const { name } of store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all()) {
     counts[name] = store.db.prepare(`SELECT COUNT(*) AS n FROM ${name}`).get().n;
   }
+  const toolDir = path.join(home, 'capabilities', 'tools', 'mail');
+  fs.mkdirSync(toolDir, { recursive: true });
+  fs.writeFileSync(path.join(toolDir, 'mail.js'), `#!/usr/bin/env node
+if (process.argv[2] === '-h') { process.stdout.write('help\\n'); process.exit(0); }
+process.stdout.write('{"new":false}\\n');
+`, 'utf8');
+  fs.chmodSync(path.join(toolDir, 'mail.js'), 0o755);
+  fs.writeFileSync(path.join(toolDir, 'home.py'), [
+    '"""The agent folder this tool sits in: <home>/capabilities/tools/<tool>/<tool>.py."""',
+    'from __future__ import annotations',
+    'from pathlib import Path',
+    '',
+    'def agent_home() -> Path:',
+    '    return Path(__file__).resolve().parents[3]',
+    'PARENT = Path(__file__).resolve().parents[2]',
+    '',
+  ].join('\n'), 'utf8');
+  fs.writeFileSync(path.join(home, 'prompt.md'), 'run capabilities/tools/mail/mail.js\n', 'utf8');
+  fs.mkdirSync(path.join(home, 'state', 'mail'), { recursive: true });
+  fs.writeFileSync(path.join(home, 'state', 'mail', 'record.json'), '{}\n', 'utf8');
   store.close();
   return { key, turnFile, sessionFile, queue, counts };
 }
@@ -299,6 +319,20 @@ test('RM-08 path fields are rewritten and an unmapped active row blocks cutover'
     assert.equal(pending.files[0], path.join(ignitePaths(home).turns, 'run-finished', 'note.txt'));
     assert.equal(pending.text, 'send');
     assert.equal(published.db.prepare("SELECT check_tool FROM schedules WHERE id='sched-1'").get().check_tool, 'rbtv/capabilities/tools/mail/mail.js');
+    const placed = path.join(home, 'rbtv', 'capabilities', 'tools', 'mail', 'mail.js');
+    assert.equal(fs.existsSync(placed), true);
+    assert.equal(fs.existsSync(path.join(home, 'capabilities', 'tools', 'mail', 'mail.js')), false);
+    assert.equal(fs.readFileSync(path.join(home, 'state', 'mail', 'record.json'), 'utf8'), '{}\n');
+    const homePy = fs.readFileSync(path.join(home, 'rbtv', 'capabilities', 'tools', 'mail', 'home.py'), 'utf8');
+    assert.match(homePy, /def _ignite_agent_home\(/);
+    assert.match(homePy, /return _ignite_agent_home\(\)/);
+    assert.equal(homePy.includes('parents[3]'), false);
+    assert.match(homePy, /parents\[2\]/);
+    assert.match(homePy, /<home>\/rbtv\/capabilities\/tools\//);
+    execFileSync('python3', ['-c', 'import ast,sys; ast.parse(sys.stdin.read())'], { input: homePy });
+    assert.equal(fs.readFileSync(path.join(home, 'prompt.md'), 'utf8'), 'run rbtv/capabilities/tools/mail/mail.js\n');
+    assert.equal(execFileSync(process.execPath, [placed], { encoding: 'utf8' }), '{"new":false}\n');
+    assert.equal(execFileSync(placed, ['-h'], { encoding: 'utf8' }), 'help\n');
     assert.equal(published.getSession(seeded.key, 'codex'), path.join(ignitePaths(home).conversations, 'T1-C1-1.1', 'history.md'));
     assert.deepEqual(published.db.prepare('SELECT payload FROM queue ORDER BY id').all().map((row) => row.payload), seeded.queue);
     assert.equal(published.db.prepare('SELECT COUNT(*) AS n FROM outbox').get().n, seeded.counts.outbox);
@@ -318,6 +352,88 @@ test('RM-08 path fields are rewritten and an unmapped active row blocks cutover'
   assert.throws(() => migrateAgentRuntime(blocked.home, { workspace: blocked.workspace }), /cutover blocked: runs run-live/);
   assert.equal(fs.existsSync(ignitePaths(blocked.home).root), false);
   assert.equal(fs.existsSync(path.join(blocked.home, DATABASE_NAME)), true);
+});
+
+test('RM-08 check tool is moved and spawned', () => {
+  const { workspace, home } = agent();
+  seed(home);
+  let out = '';
+  let err = '';
+  const code = main(['runtime', 'migrate', '--agent', 'sample', '--installation', workspace], {
+    env: { ...process.env, RBTV_AGENT_HOME: home },
+    stdout(text) { out += text; },
+    stderr(text) { err += text; },
+  });
+  assert.equal(code, 0, err);
+  assert.match(out, /moved capabilities\/tools\/mail -> rbtv\/capabilities\/tools\/mail\n/);
+  assert.match(out, /rewrote prompt.md\n/);
+  assert.match(out, /migrated sample\n/);
+  const placed = path.join(home, 'rbtv', 'capabilities', 'tools', 'mail', 'mail.js');
+  assert.equal(execFileSync(placed, ['-h'], { encoding: 'utf8' }), 'help\n');
+  const published = openNew(home);
+  try {
+    assert.equal(published.db.prepare("SELECT check_tool FROM schedules WHERE id='sched-1'").get().check_tool, 'rbtv/capabilities/tools/mail/mail.js');
+  } finally { published.close(); }
+});
+
+test('RM-08 a missing own-tool file is refused before writing', () => {
+  const { workspace, home } = agent();
+  seed(home);
+  fs.rmSync(path.join(home, 'capabilities'), { recursive: true });
+  assert.throws(() => migrateAgentRuntime(home, { workspace }), /cannot place check tool capabilities\/tools\/mail\/mail\.js/);
+  assert.equal(fs.existsSync(path.join(home, DATABASE_NAME)), true);
+  assert.equal(fs.existsSync(ignitePaths(home).root), false);
+  assert.equal(fs.existsSync(path.join(home, 'rbtv')), false);
+  assert.equal(fs.existsSync(path.join(home, 'runtime', '.ignite-migration.json')), false);
+});
+
+test('RM-08 a rerun places a check tool left at the old path', () => {
+  const { workspace, home } = agent();
+  seed(home);
+  migrateAgentRuntime(home, { workspace });
+  const moved = path.join(home, 'rbtv', 'capabilities', 'tools', 'mail');
+  const back = path.join(home, 'capabilities', 'tools', 'mail');
+  fs.mkdirSync(path.dirname(back), { recursive: true });
+  fs.renameSync(moved, back);
+  fs.writeFileSync(path.join(home, 'prompt.md'), 'run capabilities/tools/mail/mail.js\n', 'utf8');
+  fs.writeFileSync(path.join(back, 'home.py'), [
+    '"""The agent folder this tool sits in: <home>/capabilities/tools/<tool>/<tool>.py."""',
+    'from __future__ import annotations',
+    'from pathlib import Path',
+    '',
+    'def agent_home() -> Path:',
+    '    return Path(__file__).resolve().parents[3]',
+    'PARENT = Path(__file__).resolve().parents[2]',
+    '',
+  ].join('\n'), 'utf8');
+  let out = '';
+  let err = '';
+  const run = () => main(['runtime', 'migrate', '--installation', workspace], {
+    env: { ...process.env, RBTV_AGENT_HOME: home },
+    stdout(text) { out += text; },
+    stderr(text) { err += text; },
+  });
+  assert.equal(run(), 0, err);
+  assert.match(out, /moved capabilities\/tools\/mail -> rbtv\/capabilities\/tools\/mail/);
+  assert.match(out, /rewrote prompt.md/);
+  assert.match(out, /rewrote rbtv\/capabilities\/tools\/mail\/home.py/);
+  assert.equal(fs.existsSync(path.join(moved, 'mail.js')), true);
+  assert.equal(fs.existsSync(back), false);
+  assert.equal(fs.readFileSync(path.join(home, 'state', 'mail', 'record.json'), 'utf8'), '{}\n');
+  const published = openNew(home);
+  try {
+    assert.equal(published.db.prepare("SELECT check_tool FROM schedules WHERE id='sched-1'").get().check_tool, 'rbtv/capabilities/tools/mail/mail.js');
+  } finally { published.close(); }
+  assert.equal(execFileSync(path.join(moved, 'mail.js'), ['-h'], { encoding: 'utf8' }), 'help\n');
+  out = '';
+  err = '';
+  assert.equal(run(), 0, err);
+  assert.equal(out.includes('moved '), false);
+  assert.equal(out.includes('rewrote '), false);
+  assert.match(out, /^migrated /);
+  const again = fs.readFileSync(path.join(moved, 'home.py'), 'utf8');
+  assert.equal(again.includes('parents[5]'), false);
+  assert.match(again, /parents\[2\]/);
 });
 
 test('RM-09 installation locks stay where they were', () => {
