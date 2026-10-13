@@ -440,12 +440,17 @@ def _write_windows_user_path() -> None:
             current, kind = winreg.QueryValueEx(key, "Path")
         except FileNotFoundError:
             current, kind = "", winreg.REG_EXPAND_SZ
-        if any(folder.strip('"').replace("/", "\\").casefold()
-               == entry.replace("/", "\\").casefold()
-               for folder in current.split(";")):
+        # First on the user PATH and listed once, as the shell block does on
+        # POSIX: an earlier user folder holding a program of the same name
+        # would otherwise answer for the tool.
+        def same(folder: str) -> bool:
+            return (os.path.expandvars(folder.strip('"')).replace("/", "\\").casefold()
+                    == entry.replace("/", "\\").casefold())
+        others = [folder for folder in current.split(";") if folder and not same(folder)]
+        wanted = ";".join([entry, *others])
+        if wanted == current:
             return
-        winreg.SetValueEx(key, "Path", 0, kind,
-                          current.rstrip(";") + ";" + entry if current else entry)
+        winreg.SetValueEx(key, "Path", 0, kind, wanted)
     # Tell the desktop to pass the updated user environment to new terminals.
     ctypes.windll.user32.SendMessageTimeoutW(0xFFFF, 0x001A, 0,
                                               "Environment", 0x0002, 5000, None)

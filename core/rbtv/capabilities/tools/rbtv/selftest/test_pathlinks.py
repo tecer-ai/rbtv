@@ -464,6 +464,21 @@ def path_links(ctx) -> None:
     check("L-windows-user-path — registry PATH is written once and notified",
           values["Path"][0].count(r"C:\Users\test\.rbtv\bin") == 1
           and notice.call_count == 1)
+    check("L-windows-user-path-first — the folder is put first on the user PATH",
+          values["Path"][0] == r"C:\Users\test\.rbtv\bin;C:\Windows", str(values["Path"]))
+
+    # Already present but not first, and listed twice: moved to the front, once,
+    # with the other folders in their order and the value's kind kept.
+    values["Path"] = (r"C:\Apps;C:\Users\test\.rbtv\bin;%LOCALAPPDATA%\Other;"
+                      r"c:/users/test/.rbtv/bin", 2)
+    with patch.dict(sys.modules, {"winreg": fake_reg}), patch.object(
+            pathlinks, "bin_dir", return_value=Path(r"C:\Users\test\.rbtv\bin")), \
+            patch("ctypes.windll", create=True):
+        pathlinks._write_windows_user_path()
+    check("L-windows-user-path-moved — a folder listed later or twice is moved to the "
+          "front, once, and the rest is kept",
+          values["Path"] == (r"C:\Users\test\.rbtv\bin;C:\Apps;%LOCALAPPDATA%\Other", 2),
+          str(values["Path"]))
 
     # A redirected home folder: the registry PATH is the account's, so nothing is written.
     written = values["Path"]
