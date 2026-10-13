@@ -11,7 +11,7 @@ const { main, VERBS } = require('./cli.js');
 const { PAGES } = require('./help.js');
 const { getState } = require('./dreamer.js');
 const { nextCron, FIXED_TZ } = require('./schedule.js');
-const { EMPTY_BOARD, parseBoard, boardPath } = require('./board.js');
+const { EMPTY_BOARD, parseBoard, boardPath, boardRevision } = require('./board.js');
 const { acquireMemoryLock, writeRoot } = require('./memory-write.js');
 
 const failures = [];
@@ -710,6 +710,22 @@ test('board write uses the current path, reports unchanged, and opens no databas
   });
 });
 
+test('board write refuses a stale revision and writes nothing', () => {
+  boardFixture(({ file, candidate, text, deps }) => {
+    assert.equal(run(['board', 'write', '--file', candidate], deps).code, 0);
+    const revision = boardRevision(fs.readFileSync(file, 'utf8'));
+    const next = text.replace('Owner chose toner café.', 'Owner chose paper.');
+    fs.writeFileSync(candidate, next, 'utf8');
+    const stale = run(['board', 'write', '--file', candidate, '--revision', 'stale-revision'], deps);
+    assert.equal(stale.code, 1);
+    assert.match(stale.err, /stale revision/);
+    assert.equal(fs.readFileSync(file, 'utf8'), text);
+    const fresh = run(['board', 'write', '--file', candidate, '--revision', revision], deps);
+    assert.equal(fresh.code, 0, fresh.err);
+    assert.match(fs.readFileSync(file, 'utf8'), /Owner chose paper/);
+  });
+});
+
 test('board close records outcome, date, agent and optional thread in JSON and text modes', () => {
   boardFixture(({ file, candidate, deps }) => {
     assert.equal(run(['board', 'write', '--file', candidate], deps).code, 0);
@@ -777,7 +793,7 @@ test('board help works before and after every command depth without context or w
   assert.match(run(['board', '--help']).out, /^ {2}write +Replace the board/m);
   for (const [args, usage, text] of [
     [[], null, /checked short-term memory/],
-    [['write'], /^usage: ignite board write --file <path>/m, /90 non-empty lines/],
+    [['write'], /^usage: ignite board write --file <path>/m, /6,000 Unicode code points/],
     [['close'], /^usage: ignite board close <subject> <outcome> \[thread\]/m, /Recently closed/],
     [['close', 'Subject', 'Outcome'], /^usage: ignite board close <subject> <outcome> \[thread\]/m, /Recently closed/],
   ]) {

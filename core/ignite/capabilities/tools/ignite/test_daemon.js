@@ -815,7 +815,7 @@ test('an installation with no memory or runtime folder yet has no inbox work', a
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-for (const deliver of [false, true]) test(`cap refusal names only the path and sizes in the log and ${deliver ? 'delivered' : 'queued'} notice`, async () => {
+for (const deliver of [false, true]) test(`a refused knowledge write names the real reason and not the fixture text in the ${deliver ? 'delivered' : 'queued'} notice`, async () => {
   const { dir, home } = workspace();
   const { loadConfig } = require('./config.js');
   const { runInstalledDreamer } = require('./daemon.js');
@@ -832,7 +832,7 @@ for (const deliver of [false, true]) test(`cap refusal names only the path and s
         reason: 'owner', explanation: 'private-fixture-explanation',
       }] }) }),
     });
-    const alert = `Dreamer failed: ${name}: knowledge cap exceeded (${[...text].length}/3000 characters).`;
+    const alert = 'Dreamer failed: records require dated provenance.';
     assert.equal(result.ok, false); assert.equal(result.alert, alert);
     assert.equal(result.noticeQueued, true); assert.equal(result.digestQueued, false); assert.equal(result.delivered, deliver);
     assert.equal(logs.find((row) => row.event === 'dreamer').message, alert);
@@ -1585,6 +1585,125 @@ test('daemon marks idle on ticks and answered on owner ingress even while held',
     runtime?.stop('test');
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+linuxOnly('the nightly check wakes only on {"new":true,...}', 'the check tool is started as a program', async () => {
+  const { dir, home } = workspace();
+  const tool = path.join(home, 'nightly-check.js');
+  fs.writeFileSync(tool, `#!/usr/bin/env node
+const fs = require('fs');
+const n = fs.existsSync(__filename + '.n') ? Number(fs.readFileSync(__filename + '.n', 'utf8')) : 0;
+fs.writeFileSync(__filename + '.n', String(n + 1));
+process.stdout.write(n === 0 ? '{"new":false}' : '{"new":true,"details":{"reasons":["evidence"]}}');
+`);
+  fs.chmodSync(tool, 0o755);
+  const now = Date.parse('2026-01-02T06:00:00Z');
+  const key = 'T1:CALBERT:board';
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
+  store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'CALBERT', rootTs: 'board', activated: true });
+  store.upsertSchedule({ id: 'albert-nightly', conversationKey: key, cadence: 'cron:0 3 * * *', timezone: 'America/Sao_Paulo', nextAt: now - 1000, note: 'nightly memory check', checkTool: './nightly-check.js' });
+  store.close();
+  const { createChecks } = require('./timer-check.js');
+  const checks = createChecks({ log() {}, now: () => now });
+  const opened = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
+  const quiet = await checks.run({ slug: 'master', home, store: opened, schedule: opened.getSchedule('albert-nightly') });
+  assert.equal(quiet.answer, 'nothing');
+  assert.equal(quiet.wake, null);
+  opened.close();
+  const again = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
+  const woken = await checks.run({ slug: 'master', home, store: again, schedule: again.getSchedule('albert-nightly') });
+  assert.equal(woken.answer, 'new');
+  assert.equal(woken.wake.inserted, true);
+  again.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+linuxOnly('the watchdog timer fires when watchdog says so while the consolidation turn never runs', 'the check tool is started as a program', async () => {
+  const { dir, home } = workspace();
+  const tool = path.join(home, 'watchdog-check.js');
+  fs.writeFileSync(tool, `#!/usr/bin/env node
+const fs = require('fs');
+fs.writeFileSync(__filename + '.fired', 'fired\\n');
+process.stdout.write('{"new":false}');
+`);
+  fs.chmodSync(tool, 0o755);
+  const now = Date.parse('2026-01-02T15:00:00Z');
+  const key = 'T1:CALBERT:board';
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
+  store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'CALBERT', rootTs: 'board', activated: true });
+  store.upsertSchedule({ id: 'albert-watchdog', conversationKey: key, cadence: 'every:1h', timezone: FIXED_TZ, nextAt: now - 1000, note: 'memory watchdog', checkTool: './watchdog-check.js' });
+  store.close();
+  const cast = fakeCast(dir);
+  const prev = process.env.PATH;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prev || ''}`;
+  let runtime;
+  try {
+    runtime = await start({ workspace: dir, slack: fakeSlack(), socket: fakeSocket(), turnCommand: [process.execPath, cast.stub], castEnv: cast.env, now: () => now, signals: false, tickMs: 40, sweepMs: 60_000, drainMs: 60_000 });
+    await waitFor(() => fs.existsSync(`${tool}.fired`));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const check = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
+    try {
+      assert.equal(check.db.prepare("SELECT COUNT(*) AS n FROM queue WHERE kind='schedule'").get().n, 0);
+    } finally { check.close(); }
+    assert.equal(fs.readFileSync(cast.seen, 'utf8'), '');
+  } finally {
+    process.env.PATH = prev;
+    if (runtime) runtime.stop('test');
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+linuxOnly('the third failed check queues one notice in Albert\'s channel and none to the direct-message agent', 'the check tool is started as a program', async () => {
+  const { dir, home } = workspace();
+  const dm = path.join(dir, '.rbtv', 'agents', 'dm');
+  fs.mkdirSync(path.join(dm, 'runtime', 'ignite'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.rbtv', 'config', 'ignite', 'config.json'), JSON.stringify({
+    ...JSON.parse(fs.readFileSync(path.join(dir, '.rbtv', 'config', 'ignite', 'config.json'), 'utf8')),
+    dmAgent: 'dm',
+  }));
+  const tool = path.join(home, 'fail-check.js');
+  fs.writeFileSync(tool, '#!/usr/bin/env node\nprocess.exit(1);\n');
+  fs.chmodSync(tool, 0o755);
+  const now = Date.parse('2026-01-02T06:00:00Z');
+  const key = 'T1:CALBERT:board';
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
+  store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'CALBERT', rootTs: 'board', activated: true });
+  store.upsertSchedule({ id: 'albert-nightly', conversationKey: key, cadence: 'every:1h', timezone: FIXED_TZ, nextAt: now - 1000, note: 'nightly memory check', checkTool: './fail-check.js' });
+  store.close();
+  new Store(path.join(dm, 'runtime', 'ignite', 'state.sqlite')).close();
+  const { createChecks } = require('./timer-check.js');
+  for (let i = 0; i < 3; i += 1) {
+    const checks = createChecks({ log() {}, now: () => now + i });
+    const opened = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
+    opened.db.prepare('UPDATE schedules SET next_at=? WHERE id=?').run(now - 1000, 'albert-nightly');
+    const schedule = opened.getSchedule('albert-nightly');
+    await checks.run({ slug: 'master', home, store: opened, schedule });
+    opened.close();
+  }
+  const albertStore = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
+  const dmStore = new Store(path.join(dm, 'runtime', 'ignite', 'state.sqlite'));
+  try {
+    const notices = albertStore.pendingOutbox();
+    assert.equal(notices.length, 1);
+    assert.match(notices[0].payload.text, /failed 3 times/);
+    assert.equal(dmStore.pendingOutbox().length, 0);
+  } finally {
+    albertStore.close();
+    dmStore.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the Friday timer is at 08:45 America/Sao_Paulo', () => {
+  const { nextOccurrence } = require('./schedule.js');
+  const next = nextOccurrence('cron:45 8 * * 5', 'America/Sao_Paulo', Date.parse('2026-01-01T00:00:00Z'));
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Sao_Paulo', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date(next)).filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+  assert.equal(parts.weekday, 'Fri');
+  assert.equal(parts.hour, '08');
+  assert.equal(parts.minute, '45');
+  assert.equal(process.env.TZ, process.env.TZ);
 });
 
 async function runAll() {

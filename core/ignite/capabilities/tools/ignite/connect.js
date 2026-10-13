@@ -19,6 +19,7 @@ const { Slack } = require('./slack.js');
 const { Store, conversationKey, checkTool } = require('./store.js');
 const { cadenceSpec, nextOccurrence, FIXED_TZ } = require('./schedule.js');
 const { boardPath, migrateBoard, preflightBoard, refreshBoard, refreshBoardAfterCommit, writeBoard } = require('./board.js');
+const { extraSelection, bindAlbertSchedules, legacyFenced, SCHEDULES } = require('./albert-evidence.js');
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const CHANNEL = /^[a-z0-9][a-z0-9_-]{0,79}$/;
@@ -291,7 +292,8 @@ function installerResult(result) {
 // The installer's JSON carries the files after the change and the files it added or removed; the
 // count before it is the difference. Every file is counted once, packs' files included.
 async function setIgnitePack(verb, home, workspace, dryRun, deps) {
-  const args = ['agent', verb, home, '--pack', 'ignite', '--json'];
+  const names = extraSelection(home, verb);
+  const args = ['agent', verb, home, '--pack', 'ignite', ...names, '--json'];
   if (dryRun) args.push('--dry-run');
   const body = installerResult(await runInstaller(args, workspace, deps));
   const after = body.files.length;
@@ -438,6 +440,7 @@ function connectPlan(opts, home, schedule, pack) {
     'working files: would create',
     opts.dm ? 'channel: none (dm)' : `channel: ${opts['channel-name']}`,
     `schedule: ${schedule ? `${schedule.cadence} ${schedule.timezone}${schedule.check ? ` check=${schedule.check}` : ''}` : 'none'}`,
+    ...(opts.agent === 'albert' ? SCHEDULES.map((row) => `albert schedule: ${row.id} ${row.cron ? `cron:${row.cron} ${row.tz}` : `every:${row.every} ${FIXED_TZ}`} check=${row.check}`) : []),
     'writes: none',
     '',
   ].join('\n');
@@ -449,6 +452,8 @@ async function connectAgent(opts, flags, deps) {
   const resolved = requireInstalled(config, opts.agent, 'connect');
   const { home, agent } = resolved;
   opts.agent = agent;
+  if (opts.agent === 'albert' && opts.dm) fail('albert connect requires --channel-name; failures stay in that channel, never in direct messages');
+  if (opts.agent === 'albert' && !legacyFenced(workspace)) fail('albert connect requires the legacy publisher fence; run ignite albert fence first');
   if (opts.dm && opts['channel-name']) fail('pass either --channel-name or --dm, not both');
   if (!opts.dm && !opts['channel-name']) fail('--channel-name or --dm required');
   if (opts['channel-name'] && !CHANNEL.test(opts['channel-name'])) {
@@ -496,6 +501,10 @@ async function connectAgent(opts, flags, deps) {
       });
     }
     ({ scheduleId, warning } = await bindSchedule({ config, opts, home, schedule, channel }));
+    if (opts.agent === 'albert') {
+      const channelId = opts.dm ? config.slack.ownerUserId : channel.id;
+      bindAlbertSchedules(home, config, opts.agent, channelId, now);
+    }
   } catch (error) {
     const details = [`failed: Slack, after the pack and the working files`, `files: ${pack.before}${pack.after === pack.before ? '' : ` -> ${pack.after}`}`, 'pack: ignite', runtimeText(created)];
     details.push(`Slack failed: ${error.message}`, 'The pack and the working files stay.',

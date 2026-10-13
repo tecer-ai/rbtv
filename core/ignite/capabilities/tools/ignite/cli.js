@@ -35,7 +35,7 @@ const VERBS = {
   'work stop': { options: [], words: 1 },
   wake: { options: ['conversation', 'note', 'work'], words: 0 },
   post: { options: ['text', 'text-file', 'file', 'audio', 'thread'], words: 0 },
-  'board write': { options: ['file'], words: 0 },
+  'board write': { options: ['file', 'revision'], words: 0 },
   'board close': { options: [], words: 3 },
   remember: { options: [], words: Infinity },
   'runtime migrate': { options: [], words: 0 },
@@ -542,7 +542,7 @@ function cmdBoard(rest, flags, deps) {
     if (fs.existsSync(db)) store = new Store(ignitePaths(home).database);
     const now = deps.now ? deps.now() : Date.now();
     const result = action === 'write'
-      ? writeBoard(file, fs.readFileSync(opts.file[0], 'utf8'), { store, now })
+      ? writeBoard(file, fs.readFileSync(opts.file[0], 'utf8'), { store, now, revision: opts.revision ?? null })
       : closeSubject(file, positionals[0], positionals[1], {
         agent: slug, thread: positionals[2] ?? null, now, store,
       });
@@ -712,6 +712,36 @@ function dispatch(command, rest, ctx, flags, deps, parsed) {
   fail(`unknown command: ${command}`);
 }
 
+function cmdAlbert(tail, flags, deps) {
+  const evidence = require('./albert-evidence.js');
+  const stdout = deps.stdout || ((text) => process.stdout.write(text));
+  const stderr = deps.stderr || ((text) => process.stderr.write(text));
+  if (!tail[0] || flags.help) {
+    stdout(PAGES.albert);
+    return 0;
+  }
+  const installation = resolveInstallation(flags, deps);
+  const env = deps.env || process.env;
+  const home = env.RBTV_AGENT_HOME || path.join(installation, '.rbtv', 'agents', flags.agent || 'albert');
+  const previous = process.env.RBTV_AGENT_HOME;
+  process.env.RBTV_AGENT_HOME = home;
+  const chunks = [];
+  const write = process.stdout.write.bind(process.stdout);
+  process.stdout.write = (text) => { chunks.push(String(text)); return true; };
+  try {
+    const code = evidence.main(tail);
+    stdout(chunks.join(''));
+    return code;
+  } catch (error) {
+    stderr(`${error.message}\n`);
+    return 1;
+  } finally {
+    process.stdout.write = write;
+    if (previous == null) delete process.env.RBTV_AGENT_HOME;
+    else process.env.RBTV_AGENT_HOME = previous;
+  }
+}
+
 function main(argv, deps = {}) {
   const { flags, rest } = parseGlobal(argv);
   if (flags.help && rest.length === 0) {
@@ -739,6 +769,7 @@ function main(argv, deps = {}) {
   if (command === 'board') return cmdBoard(tail, flags, deps);
   if (command === 'remember') return cmdRemember(tail, flags, deps);
   if (command === 'dreamer') return cmdDreamer(tail, flags, deps);
+  if (command === 'albert') return cmdAlbert(tail, flags, deps);
   if (command === 'runtime') return cmdRuntime(tail, flags, deps);
   if (command === 'deploy') return require('./deploy.js').run(tail, flags, deps, () => resolveInstallation(flags, deps));
   if (!COMMANDS.includes(command)) fail(`unknown command: ${command}\nchoose from connect, disconnect, manage, turn,\nschedule, schedules-due, work, wake, post, board, remember, dreamer, runtime, deploy\nNothing changed.\nignite -h`);

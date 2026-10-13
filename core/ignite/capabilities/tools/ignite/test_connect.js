@@ -74,13 +74,17 @@ function fakeInstaller(calls = []) {
     const packs = new Set(state.packs);
     const files = new Set(state.files);
     const adding = args[1] === 'add';
+    const extra = args.filter((arg, index) => index > 2 && !arg.startsWith('--') && arg.includes('#'));
     const changed = IGNITE_FILES.filter((file) => files.has(file) !== adding);
     if (adding) {
       packs.add('ignite');
       for (const file of IGNITE_FILES) files.add(file);
+      for (const file of extra) if (!files.has(file)) changed.push(file);
+      for (const file of extra) files.add(file);
     } else {
       packs.delete('ignite');
       for (const file of IGNITE_FILES) files.delete(file);
+      for (const file of extra) if (files.delete(file)) changed.push(file);
     }
     const next = { ...state, packs: [...packs].sort(), files: [...files].sort() };
     if (!dryRun) fs.writeFileSync(path.join(home, 'agent.json'), `${JSON.stringify(next)}\n`);
@@ -667,6 +671,63 @@ async function run(argv, extra = {}) {
     const off = await run(['disconnect', 'probe', '--installation', dir], { install, slack: fakeSlack() });
     assert.match(off.out, /pack: ignite already off\n/);
     assert.match(off.out, /files: 3\n/);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  await test('connecting a non-Albert agent keeps its pack selection, rule set, schedule and channel binding, and adds no Albert rule', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const home = installAgent(dir, 'probe');
+    const calls = [];
+    const connected = await run(['connect', 'probe', '--channel-name', 'probe', '--installation', dir], { install: fakeInstaller(calls), slack: fakeSlack() });
+    assert.equal(connected.code, 0, connected.err);
+    assert.deepEqual(calls[0].slice(0, 5), ['agent', 'add', home, '--pack', 'ignite']);
+    assert.equal(calls[0].includes('core/ignite#albert-memory-operations'), false);
+    assert.match(connected.out, /pack: ignite/);
+    assert.match(connected.out, /channel: CNEW probe/);
+    assert.match(connected.out, /route: CNEW -> probe/);
+    assert.equal(connected.out.includes('albert schedule:'), false);
+    const record = JSON.parse(fs.readFileSync(path.join(home, 'agent.json'), 'utf8'));
+    assert.equal(record.files.includes('core/ignite#albert-memory-operations'), false);
+    assert.equal(record.packs.includes('ignite'), true);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  await test('connecting Albert adds the normal pack plus the rule only', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const home = installAgent(dir, 'albert');
+    fs.mkdirSync(path.join(dir, '.rbtv', 'runtime', 'ignite'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.rbtv', 'runtime', 'ignite', 'albert-fence.json'), '{}\n');
+    const calls = [];
+    const connected = await run(['connect', 'albert', '--channel-name', 'albert', '--installation', dir], { install: fakeInstaller(calls), slack: fakeSlack() });
+    assert.equal(connected.code, 0, connected.err + connected.out);
+    assert.equal(calls[0].includes('core/ignite#albert-memory-operations'), true);
+    assert.equal(calls[0].includes('--pack'), true);
+    const record = JSON.parse(fs.readFileSync(path.join(home, 'agent.json'), 'utf8'));
+    assert.equal(record.files.includes('core/ignite#albert-memory-operations'), true);
+    assert.equal(record.packs.includes('ignite'), true);
+    const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
+    try {
+      const ids = store.listSchedules().map((row) => row.id).sort();
+      assert.deepEqual(ids, ['albert-friday', 'albert-nightly', 'albert-watchdog']);
+      const friday = store.getSchedule('albert-friday');
+      assert.equal(friday.cadence, 'cron:45 8 * * 5');
+      assert.equal(friday.timezone, 'America/Sao_Paulo');
+      assert.equal(friday.check_tool, 'runtime/ignite/checks/albert-evidence.js'.replace('albert-evidence.js', 'albert-friday.js'));
+      assert.equal(store.getSchedule('albert-nightly').check_tool, 'runtime/ignite/checks/albert-evidence.js');
+    } finally { store.close(); }
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  await test('an unconnected Albert has no schedule, channel or connection', async () => {
+    const dir = workspace();
+    writeConfig(dir);
+    const home = installAgent(dir, 'albert');
+    assert.equal(readConfig(dir).routes && Object.keys(readConfig(dir).routes).length, 0);
+    assert.equal(readConfig(dir).dmAgent, undefined);
+    assert.equal(fs.existsSync(path.join(home, 'runtime', 'ignite', 'state.sqlite')), false);
+    assert.equal(fs.existsSync(path.join(home, 'runtime', 'ignite', 'checks')), false);
     fs.rmSync(dir, { recursive: true, force: true });
   });
 

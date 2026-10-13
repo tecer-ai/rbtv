@@ -304,10 +304,12 @@ Next: ignite board COMMAND -h
 
   'board write': `ignite board write — write the board from a candidate file
 
-usage: ignite board write --file <path> [--json]
+usage: ignite board write --file <path> [--revision REVISION] [--json]
 
 Reads a complete UTF-8 Markdown candidate; creates or updates <home>/_artifacts/board.md.
-Exactly one --file <path> is required.
+Exactly one --file <path> is required. --revision is the revision from the checked read.
+When it is set, a stale revision is refused and the board is not written. Omit it only
+when the caller has no revision to send.
 
 Keep all four headings in order: ## What matters now, ## Watch-outs,
 ## Timers, ## Recently closed. Empty sections keep their headings.
@@ -319,8 +321,12 @@ Watch-outs: - Rule (YYYY-MM-DD · agent[/[label](URL)])
 Temporary facts end with until YYYY-MM-DD, before any provenance tail.
 Only subjects and watch-outs may change. Keep Timers, Recently closed and
 existing Flags unchanged; new Flags must be none. Remove subjects with ignite board close.
-Caps: 90 non-empty lines excluding the Timers table; 8 subjects, 6 watch-outs,
-6 closed entries. Invalid or over-cap writes are refused, never truncated.
+A seventh watch-out, subject or closed line is kept. The turn receives a derived
+board view of at most 6,000 Unicode code points. Omitted watch-outs stay on the
+canonical board; the view names them and requires a read before acting. Invalid
+writes are refused, never truncated. There is no 6-item board quota and no
+3,000-character knowledge cap. Profile is 4,000 code points. Learned rules are
+30. On-demand knowledge warns at 100 nonempty lines and splits at 300.
 
 ${HOME}
 Installation may be discovered by walking up to .rbtv/config/ignite/config.json.
@@ -342,8 +348,8 @@ usage: ignite board close <subject> <outcome> [thread] [--json]
 Use the exact title; quote arguments containing spaces. Outcome is one line.
 Optional thread is a "[label](URL)" link. Removes the subject and appends its
 outcome with today's UTC date and agent slug to Recently closed.
-A full closed section refuses the whole change; archive old entries first.
-Nothing is pruned automatically.
+A closed line is kept. board close appends; it does not refuse because a count
+was reached. Nothing is pruned automatically.
 
 ${HOME}
 Installation may be discovered by walking up to .rbtv/config/ignite/config.json.
@@ -474,6 +480,21 @@ Commands
   migrate   Copy, check and publish this agent's Ignite runtime.
 
 Next: ignite runtime migrate -h
+`,
+
+  albert: `ignite albert — fence, drain and migrate the legacy publisher
+
+usage: ignite albert <fence|drain|migrate|report|cleanup|probe|verify|recover>
+       [--installation PATH] [--dry-run]
+
+These commands prepare a later cutover. They do not retire the dreamer runner.
+fence stops the legacy publisher from publishing. drain refuses while the
+publication lock is held. migrate --dry-run prints the cursor and liveness plan
+and writes nothing. cleanup removes dreamer keys from the Ignite config. probe
+prints "dreamer keys absent" only when those keys are gone. The proposal
+structure is taught by albert apply -h, and only there.
+
+Example: ignite albert fence --installation /path/to/installation
 `,
 
   'runtime migrate': `ignite runtime migrate — publish this agent's Ignite runtime

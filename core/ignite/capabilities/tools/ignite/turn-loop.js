@@ -285,6 +285,19 @@ async function execute(slug, claim, deps) {
   const launcherPath = path.join(dir, 'launcher.json');
   writeHistory(home, store, claim.conversation_key);
   const memory = readTurnMemory(home, home, store, clock(deps));
+  try {
+    const installation = require('./memory.js').workspaceFromHome(home);
+    if (installation) {
+      const prepared = require('../../../../memory/capabilities/tools/memory/lib/index.js').prepareMemory({
+        installation, agentHome: home, cwd: home,
+      });
+      if (prepared.identity?.view) memory.board = prepared.identity.view;
+      const bundle = (prepared.bundle || []).filter((row) => row.path !== prepared.identity?.board);
+      if (bundle.length) memory.memory = bundle.map((row) => ({ path: row.path, text: row.text }));
+    }
+  } catch (error) {
+    if (error.code !== 'MODULE_NOT_FOUND') memory.alerts.push(`Memory alert: prepareMemory failed: ${error.message}`);
+  }
   if (memory.alerts.length) {
     const text = memory.alerts.join('\n');
     try {

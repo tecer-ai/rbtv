@@ -284,6 +284,11 @@ function busyDreamer(error) {
 async function runInstalledDreamer(opts = {}) {
   const config = opts.config;
   if (!config?.workspace) throw new Error('installation required');
+  const { legacyFenced } = require('./albert-evidence.js');
+  if (legacyFenced(config.workspace)) {
+    return { ok: true, busy: false, quiet: true, changed: false, fenced: true, alert: null, digest: null,
+      note: 'legacy publisher fenced' };
+  }
   const workspace = fs.realpathSync(config.workspace);
   let release;
   try {
