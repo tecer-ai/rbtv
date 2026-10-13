@@ -897,9 +897,13 @@ A FOLDER that is none of the three is refused. AGENT is then a name
 among those agents, never a path.
 
 With no AGENT: the agents in the installation's .rbtv/agents/, the
-installation found by walking up from the current folder. Columns:
-name, harness, model, effort, Ignite (yes when the agent's ignite pack
-is on, which ignite connect does), and description. The description is
+installation found by walking up from the current folder, and its
+listed agent folders: the agent folders elsewhere in it whose
+agent.json says "listed": true (cast list -h says where they are
+searched). Columns: name, harness, model, effort, Ignite (yes when the
+agent's ignite pack is on, which ignite connect does), Folder (from
+the installation; shown when a listed agent folder is in the list),
+and description. The description is
 shortened to fit the line. With --full, or at a narrow width, each
 agent is a labeled block with its whole description; a name is never
 cut. Alphabetical by name. No row limit. An agent that cannot be
@@ -908,11 +912,14 @@ launched is named with the reason. No agent found is success.
 With AGENT: that agent in full: its folder, its whole description, and
 the packs, skills, rules, commands, MCP servers and hooks installed in
 it, under the names rbtv show takes. AGENT is a name or a folder path,
-as for the other agent verbs. An agent that is not found is refused.
+as for the other agent verbs, or the name of a listed agent folder,
+which the other agent verbs take by its path. An agent that is not
+found is refused.
 
 positional arguments:
   AGENT                 the agent to show in full: a name under
-                        .rbtv/agents/, or a path to an agent folder
+                        .rbtv/agents/, the name of a listed agent
+                        folder, or a path to an agent folder
 
 options:
   -h, --help            show this help message and exit

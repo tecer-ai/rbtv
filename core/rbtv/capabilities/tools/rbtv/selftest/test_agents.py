@@ -436,8 +436,23 @@ def installed_agents(ctx) -> None:
             by_path = json.loads(cast_agent_list(ws, str(ws / ".rbtv/agents/second"), True, False, 100))
             check("A-list — a path names the agent, and --json is cast's value",
                   by_path["name"] == "second" and by_path["ignite"] is False, str(by_path))
-            check("A-list — an agent that is not there is refused as for the other agent verbs",
-                  _refused(lambda: cast_agent_list(ws, "nosuch", False, False, 100))[0] == "agent-unknown", "")
+            check("A-list — a name with no folder under .rbtv/agents/ is cast's to look up, and to refuse",
+                  _refused(lambda: cast_agent_list(ws, "nosuch", False, False, 100))
+                  == ("cast-refused", "rbtv agent list -h"), "")
+            shown = ws / "plans" / "launch" / "agents" / "shown"
+            _agent(shown, name="shown")
+            _w(shown / "agent.json", json.dumps({**json.loads((shown / "agent.json").read_text(encoding="utf-8")),
+                                                 "listed": True}) + "\n")
+            record = ws / ".rbtv/config/install.json"
+            had_record = record.exists()
+            if not had_record:
+                _w(record, "{}\n")
+            check("A-list — a listed agent folder is in the list, and is shown in full by its name",
+                  "shown" in [row["name"] for row in json.loads(cast_agent_list(ws, None, True, False, 100))["agents"]]
+                  and json.loads(cast_agent_list(ws, "shown", True, False, 100))["home"] == str(shown), "")
+            shutil.rmtree(ws / "plans")
+            if not had_record:
+                record.unlink()
             bare = tmp / "agent-list-empty"; bare.mkdir()
             check("A-list — an installation with no agent folder is successful",
                   cast_agent_list(bare, None, False, False, 100).startswith("rbtv agents: 0\n"), "")

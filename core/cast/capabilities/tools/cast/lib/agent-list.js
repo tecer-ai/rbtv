@@ -4,7 +4,8 @@
 // to an agent, `spark list` to a person, and `rbtv agent list` runs `cast list --agents`. The three
 // print the same text, so a line that names a command names all three.
 //   agentList(from, target)  the nearest `.rbtv/agents/` folder from `from` upward, or the folder
-//                          `target` names (lib/agent.js `targetAgents`), and its agents
+//                          `target` names (lib/agent.js `targetAgents`), and its agents; without
+//                          a target, also the listed agent folders of that installation
 //   agentRow(agent)        an agent read by lib/agent.js as one row of the list
 //   agentInFull(agent)     that row, with the packs and files the installer records in the agent
 //   listLines(list)        the list as text: a table, or one labeled block per agent when the
@@ -97,7 +98,7 @@ function agentList(from, target = null) {
     const read = readAgent(home);
     const problem = read.problem ? read.why : modelProblem(read.agent);
     return problem ? { name: path.basename(home), home, problem } : agentRow(read.agent);
-  });
+  }).sort((a, b) => (a.name < b.name ? -1 : Number(a.name > b.name)));
   return { folder, agents };
 }
 
@@ -141,11 +142,11 @@ function kindTexts(names, all) {
 }
 
 // One agent as a labeled block. A row from agentInFull also gets its folder, what is installed in
-// it, and how to read more about each name.
-function agentLines(row, width = terminalWidth()) {
+// it, and how to read more about each name. `folder` gives any other row its folder too.
+function agentLines(row, width = terminalWidth(), folder = false) {
   const values = cells(row);
   const lines = LABELS.slice(0, LAST).map((label, i) => `${label}: ${values[i]}`);
-  if (row.installed !== undefined) lines.push(`Folder: ${row.home}`);
+  if (folder || row.installed !== undefined) lines.push(`Folder: ${row.home}`);
   lines.push(...wrap(`${LABELS[LAST]}: ${values[LAST]}`, width));
   if (row.installed) {
     const packs = row.installed.pack;
@@ -178,17 +179,24 @@ function listLines({ folder, agents }, { full = false, width = terminalWidth() }
   if (!ready.length) return lines;
   if (ready.length < agents.length) lines.push('');
 
-  const table = ready.map(cells);
-  const widths = LABELS.map((label, i) => Math.max(label.length, ...table.map((row) => row[i].length)));
-  const budget = width - widths.slice(0, LAST).reduce((sum, w) => sum + w + GAP, 0);
+  // An agent outside `folder` is a listed agent folder: every row then says where its agent is,
+  // from the installation.
+  const outside = ready.some((row) => row.home !== folder && path.dirname(row.home) !== folder);
+  const root = path.dirname(path.dirname(folder));
+  const withFolder = (row, where) => (outside ? [...row.slice(0, LAST), where, row[LAST]] : row);
+  const labels = withFolder(LABELS, 'Folder');
+  const last = labels.length - 1;
+  const table = ready.map((row) => withFolder(cells(row), path.relative(root, row.home)));
+  const widths = labels.map((label, i) => Math.max(label.length, ...table.map((row) => row[i].length)));
+  const budget = width - widths.slice(0, last).reduce((sum, w) => sum + w + GAP, 0);
   if (full || budget < MIN_DESCRIPTION) {
-    ready.forEach((row, i) => lines.push(...(i ? [''] : []), ...agentLines(row, width)));
+    ready.forEach((row, i) => lines.push(...(i ? [''] : []), ...agentLines(row, width, outside)));
     return lines;
   }
-  const line = (row) => row.map((cell, i) => (i === LAST ? shorten(cell, budget) : cell.padEnd(widths[i])))
+  const line = (row) => row.map((cell, i) => (i === last ? shorten(cell, budget) : cell.padEnd(widths[i])))
     .join(' '.repeat(GAP)).trimEnd();
-  lines.push(line(LABELS), ...table.map(line));
-  if (table.some((row) => row[LAST].length > budget)) {
+  lines.push(line(labels), ...table.map(line));
+  if (table.some((row) => row[last].length > budget)) {
     lines.push('', 'Whole descriptions: add --full.',
       'One agent in full: cast list --agent NAME, spark list NAME or rbtv agent list NAME.');
   }
