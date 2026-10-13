@@ -26,7 +26,7 @@ There is no install-time interview and no migration preview. The route is the co
 | `archives/` | Holding zone before deletion; not a place to browse |
 | `workbench/` | Independent repositories and worktrees |
 
-The installation root receives the routing rules for those folders. Work not started, active work and completed work follow `rbtv structure project` and `rbtv structure area`. This page does not copy that tree.
+The installation root receives the routing rules for those folders. The work convention, including where loose ends go, is `rbtv structure project` and `rbtv structure area`. This page does not copy it.
 
 ## Index and instruction file
 

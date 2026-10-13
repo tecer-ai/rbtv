@@ -19,7 +19,7 @@ A due date is optional. The defining trait is a bounded lifespan, not a deadline
 | Instruction file | Mandatory. It says to read `{name}.md` first and holds the folder-wide rules. It holds no routing table and no generated section |
 | Other subfolders | Free-form reference. Follow the project's instruction file |
 
-Work not started, active work and completed work follow `rbtv structure project`. Completed work is not an archive. A decision stays authoritative until superseded. Do not keep a second status narrative in the index when a workflow or status file owns execution state: link that file.
+The work convention, including where loose ends go, is `rbtv structure project`. Do not keep a second status narrative in the index when a workflow or status file owns execution state: link that file.
 
 ## Routing
 

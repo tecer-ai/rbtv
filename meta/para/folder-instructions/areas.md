@@ -19,7 +19,7 @@ Work with a deadline and a defined outcome belongs in `projects/`. Reference wit
 | Instruction file | Mandatory. It says to read `{name}.md` first and holds the folder-wide rules. It holds no routing table and no generated section |
 | Subfolders | One per ongoing topic, each with its own `{topic}.md` index |
 
-Current reference stays at the area root. Bounded work follows `rbtv structure area`. Completed work is not an archive. A decision stays authoritative until superseded.
+Current reference stays at the area root. Bounded work, and where loose ends go, follow `rbtv structure area`.
 
 When work inside an area has a bounded outcome, name what you found, recommend extracting it to `projects/{name}/` with `area:` pointing back here, and offer to keep it as an area topic. Proceed on the owner's decision. An ongoing practice that spawns bounded efforts stays in the area. Only the bounded efforts move.
 

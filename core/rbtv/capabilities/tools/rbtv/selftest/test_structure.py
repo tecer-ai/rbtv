@@ -21,6 +21,7 @@ _LABELS = (
     "ST-07 — installing meta/para keeps an sb block and outside text, and a re-run changes nothing",
     "ST-08 — a mirror folder-instructions component uses the same marked section, and removal restores outside text",
     "ST-09 — area and project templates render a name into the sb-os index shape",
+    "ST-10 — structure agent, project and area each print the work convention from the page",
 )
 
 _NUMBERED = re.compile(r"1-projects|2-areas|3-resources|4-archives|5-workbench")
@@ -49,7 +50,7 @@ def structure(ctx) -> None:
     page_path = REPO_ROOT / "core/rbtv/capabilities/methods/folder-structure.md"
     para_root = REPO_ROOT / "meta/para"
     page = page_path.read_text(encoding="utf-8")
-    agent = commands.section_text(page_path, "agent")
+    agent = commands.kind_text(page_path, "agent")
     ws = tmp / "st-structure"
     ws.mkdir()
     code, out, err = _run(["structure", "agent", "--target", str(ws)])
@@ -226,3 +227,38 @@ def structure(ctx) -> None:
             detail = f"{name} {rendered[:240]}"
             break
     check(_LABELS[8], rendered_ok, detail)
+
+    sentence = (
+        "Loose ends of work are filed in `loose-ends/` inside the `backlog/` "
+        "of the convention's root"
+    )
+    shared = commands.section_text(page_path, "Work convention")
+    printed = {}
+    for kind in ("agent", "project", "area"):
+        code, out, err = _run(["structure", kind, "--target", str(ws)])
+        printed[kind] = (code, out, err)
+    kind_only = {
+        kind: commands.section_text(page_path, kind)
+        for kind in ("agent", "project", "area")
+    }
+    scratch = tmp / "convention-scratch.md"
+    scratch.write_text(
+        page.replace("## Work convention\n", "## Work convention\nCONVENTION-MARK\n", 1),
+        encoding="utf-8")
+    saved = commands.structure_page
+    commands.structure_page = scratch
+    try:
+        marked = {
+            kind: _run(["structure", kind, "--target", str(ws)])
+            for kind in ("agent", "project", "area")
+        }
+    finally:
+        commands.structure_page = saved
+    check(_LABELS[9],
+          page.count(sentence) == 1
+          and sentence in shared
+          and all(code == 0 and err == "" and shared in out and sentence not in kind_only[kind]
+                   for kind, (code, out, err) in printed.items())
+          and all(code == 0 and "CONVENTION-MARK" in out
+                   for code, out, _err in marked.values()),
+          f"once={page.count(sentence)} printed={ {k: v[0] for k, v in printed.items()} }")

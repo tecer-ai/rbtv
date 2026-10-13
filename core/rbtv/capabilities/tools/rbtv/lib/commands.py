@@ -1607,6 +1607,19 @@ def section_text(page: Path, heading: str) -> str:
     return "\n".join(lines[start:end]).strip() + "\n"
 
 
+_CONVENTION_HEADING = "Work convention"
+_CONVENTION_KINDS = frozenset({"agent", "project", "area"})
+
+
+def kind_text(page: Path, kind: str) -> str:
+    """One kind's section. agent, project and area also include the work
+    convention section of the same page. Program code holds neither copy."""
+    text = section_text(page, kind)
+    if kind not in _CONVENTION_KINDS:
+        return text
+    return text.rstrip("\n") + "\n\n" + section_text(page, _CONVENTION_HEADING)
+
+
 def cmd_structure(args, target: Path, catalog: dict, shadowed: list,
                   *, ask=None) -> int:
     """Print one kind's maintained documentation, or the short list of kinds."""
@@ -1642,7 +1655,7 @@ def cmd_structure(args, target: Path, catalog: dict, shadowed: list,
         if not text.endswith("\n"):
             text += "\n"
     else:
-        text = section_text(page, kind)
+        text = kind_text(page, kind)
     if getattr(args, "json", False):
         print(json.dumps({"ok": True, "target": str(target.resolve()),
                           "kind": kind, "text": text}, indent=2))

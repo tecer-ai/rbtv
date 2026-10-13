@@ -69,11 +69,12 @@ page when the command runs. The command writes nothing. --dry-run and
 --details change nothing further.
 
 KIND is agent, project, area, plan or para. agent, project, area and plan are
-sections of the structure page in the rbtv source. para is the PARA method
-page, and only when meta/para is installed in the target. Otherwise the
-command refuses and names `rbtv add meta/para`. Adapting instead means
-authoring a folder-instructions component under .rbtv/mirror/ and not adding
-meta/para.
+sections of the structure page in the rbtv source. agent, project and area
+also print the Work convention section of that same page. plan prints only
+its section. para is the PARA method page, and only when meta/para is
+installed in the target. Otherwise the command refuses and names `rbtv add
+meta/para`. Adapting instead means authoring a folder-instructions component
+under .rbtv/mirror/ and not adding meta/para.
 
 The target is --target, then RBTV_AGENT_HOME, then discovery from the current
 folder. The result names no second copy of a tree: the page is the text.

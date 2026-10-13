@@ -2,11 +2,11 @@
 
 rbtv's own structure, and the work convention it offers. A module or component defines any further structure it needs. A plan folder is defined by `meta/plan`. PARA roots are defined by `meta/para`. This page does not copy those definitions.
 
-`rbtv structure` prints one section of this page. It does not keep a second copy of a tree.
+`rbtv structure` prints one kind from this page. For `agent`, `project` and `area` it also prints the work convention below, from this same page. It does not keep a second copy of a tree.
 
 ## Mandatory for rbtv
 
-rbtv requires only `.rbtv/` at the installation root. Everything else at that root is the user's. rbtv works without it. The work lifecycle below and PARA are offered conventions, not requirements.
+rbtv requires only `.rbtv/` at the installation root. Everything else at that root is the user's. rbtv works without it. The work convention below and PARA are offered conventions, not requirements.
 
 Inside an agent folder, rbtv requires `prompt.md`, `agent.json`, `settings.json`, `rbtv/` and `runtime/`. `memory/` and `_artifacts/board.md` are the existing baseline. Create any other folder only when the work needs it.
 
@@ -31,11 +31,26 @@ The installation-level tree sits beside the agent tree. These names are rbtv-own
 | `mirror/` | authored installation-specific source | the user or an agent | the installer | the user's choice |
 | `agents/` | agent folders found by name | `rbtv agent add` | launch and list | authored source yes; see the agent section |
 
+## Work convention
+
+Offered, not required. The root is the one that kind names.
+
+`backlog/` holds work not started. A named folder at the root holds active work. `done/` holds completed work. An optional domain grouping may sit beneath `done/`. No further level is required. `done/` is not an archive. A decision in `done/` stays authoritative until superseded.
+
+Loose ends of work are filed in `loose-ends/` inside the `backlog/` of the convention's root, one file per subject, named `<subject>-loose-ends.md`. A subject is a topic of work, not a plan and not an agent. For a project this is `backlog/loose-ends/`. For an agent the root is `work/`, so the path is `work/backlog/loose-ends/`. An area is the exception: its loose ends go to `loose-ends/` at the area root.
+
+A project made of several plans keeps filing in that folder through all of them and triages everything together at the end. No agent deletes another agent's filing. An agent adds rows to the subject's file.
+
+A loose end is lighter than a task. One row says who surfaced it and when, what it is, where it was seen, and what settling it takes. No tool files these rows.
+
+| # | Surfaced by | What | Where | What settling it takes |
+|---|---|---|---|---|
+
 ## agent
 
 The standing agent folder. The `foundations` pack (`core/rbtv/packs/foundations.json`) applies the rule `agent-folder` to every agent, so every agent receives this rule. The rule routes here and does not copy this tree. `rbtv agent add` applies the pack. `rbtv agent update` adds it when the record lacks it, unless `agent.json` has `exclude_foundations: true`. `rbtv agent remove AGENT --pack foundations` writes that field.
 
-Required paths are the ones in Mandatory for rbtv. The rest are created when needed.
+Required paths are the ones in Mandatory for rbtv. The rest are created when needed. The work convention's root is `work/`.
 
 ```text
 <agent>/
@@ -57,13 +72,10 @@ Required paths are the ones in Mandatory for rbtv. The rest are created when nee
   memory/                   baseline; learned rules, topics and topic index
   _artifacts/board.md       baseline; retained board path
   tmp/                      optional; disposable working material only
-  work/                     optional; substantial agent-owned work
-    backlog/<work>/         optional; work not started
-    <active-work>/          optional; named folder at the work root while active
-    done/<work>/            optional; completed work; an optional domain grouping may sit beneath done/
+  work/                     optional; the work convention's root
 ```
 
-`work/` uses the work convention: `backlog/` for work not started, a named folder at the root of `work/` for active work, and `done/` for completed work. `done/` is not an archive. A decision in `done/` stays authoritative until superseded. Generated harness files stay at the paths each harness requires. The installer owns them. The tree omits them. `task.md` stays at the agent root for a one-task agent. Private credential values stay in their designated secret store. `settings.json` names environment variables.
+Generated harness files stay at the paths each harness requires. The installer owns them. The tree omits them. `task.md` stays at the agent root for a one-task agent. Private credential values stay in their designated secret store. `settings.json` names environment variables.
 
 | Path | Kind | Who writes | Who reads | Tracked |
 |---|---|---|---|---|
@@ -74,12 +86,12 @@ Required paths are the ones in Mandatory for rbtv. The rest are created when nee
 | `runtime/` | operational data | the tool that owns the bucket | that tool | no; not disposable |
 | `memory/`, `_artifacts/board.md` | durable baseline records | the memory and board writers | the agent | yes |
 | `tmp/` | disposable material | the agent | the agent, for the current task | no |
-| `work/` | durable work | the agent | the agent and later readers | yes |
+| `work/` | the work convention's root | the agent | the agent and later readers | yes |
 | generated harness files | generated output | the installer | the harness | no |
 
 ## project
 
-A project is bounded work with a defined end. It keeps a named overview and a task file when it has a task. The work convention sits at the project root, beside those files: `backlog/` for work not started, a named folder at the project root for active work, and `done/` for completed work. `done/` is not an archive. Its decisions stay authoritative. A domain may group under `done/`. No universal extra level is required.
+A project is bounded work with a defined end. It keeps a named overview and a task file when it has a task. The work convention's root is the project root.
 
 One index, one routing table, one instruction file. `{name}.md` is the index: a description of purpose, scope and current state, then the folder's only routing table (`File | CONTAINS | PURPOSE | ALWAYS LOAD WHEN`). `CLAUDE.md` or `AGENTS.md`, whichever the installation maintains, is mandatory. It says to read the index first and carries the folder-wide rules. It holds no second routing table and no generated section. `meta/para` ships the templates a creation step copies. Afterwards the files are the user's.
 
@@ -90,12 +102,12 @@ The task file is `{name}-tasks.md`. Create it when the first task lands. Moving 
 | `{name}.md` | authored index; the only routing table | the user or the agent doing the work | anyone opening the project | yes |
 | instruction file | authored folder rules; required | the user or the agent | the harness, for work in the folder | yes |
 | `{name}-tasks.md` | authored tasks; optional until the first task | the user or the agent | task discovery | yes |
-| `backlog/`, named active folder, `done/` | durable work; optional until that state exists | the agent doing the work | later readers | yes |
+| project root | the work convention's root | the agent doing the work | later readers | yes |
 | generated harness files | generated output | the installer, when a component targets this folder | the harness | no |
 
 ## area
 
-An area is a continuing responsibility. Its current reference stays at the area root. Bounded work inside the area follows the same work convention as a project: `backlog/`, a named active folder at the area root, and `done/`. `done/` is not an archive.
+An area is a continuing responsibility. Its current reference stays at the area root. The work convention's root is the area root, for bounded work.
 
 The index and instruction file follow the same rule as a project. `{name}.md` is the only routing table. The instruction file is mandatory, points at the index, holds the folder-wide rules, and holds no second routing table and no generated section.
 
@@ -105,11 +117,11 @@ The index and instruction file follow the same rule as a project. `{name}.md` is
 | instruction file | authored folder rules; required | the user or the agent | the harness, for work in the folder | yes |
 | `{name}-tasks.md` | authored tasks; optional until the first task | the user or the agent | task discovery | yes |
 | current reference at the root | durable reference | the user or the agent | anyone continuing the responsibility | yes |
-| `backlog/`, named active folder, `done/` | durable bounded work; optional | the agent doing that work | later readers | yes |
+| area root | the work convention's root, for bounded work | the agent doing that work | later readers | yes |
 
 ## plan
 
-A plan folder is the generic plan folder of `meta/plan`. It may sit in a project, an area, an agent's `work/`, or any repository. The coordinating agent lives in `agents/` and is opened with spark. The workflow owns execution status. The overview points to it and does not keep a second task-state narrative. No extra status folders are imposed inside the plan.
+A plan folder is the generic plan folder of `meta/plan`. It may sit in a project, an area, an agent's `work/`, or any repository. The coordinating agent lives in `agents/` and is opened with spark. The workflow owns execution status. The overview points to it and does not keep a second task-state narrative. No extra status folders are imposed inside the plan. `loose-ends.md` here is the plan's own record. Loose ends of the work that holds the plan follow the work convention.
 
 ```text
 <plan-folder>/
@@ -124,7 +136,7 @@ A plan folder is the generic plan folder of `meta/plan`. It may sit in a project
   decisions.md                 optional; created when the first ruling is written
   doubts.md                    optional; created when the first doubt is written
   status.md                    optional; created when the first status record is written
-  loose-ends.md                optional; captured loose ends, when the plan records them in a file
+  loose-ends.md                optional; the plan's own record, when the plan keeps one
   ideas.md                     optional; framed ideas, when the plan records them
 ```
 
