@@ -580,6 +580,7 @@ function stubTool(home, name, file) {
 
 function strictRows(abs) {
   return [
+    ['rbtv/capabilities/tools/probe/probe.py', 'rbtv/capabilities/tools/probe/probe.py', 'left silently', 'rbtv/ at start of text'],
     ['dot ./capabilities/tools/probe/probe.py', 'dot ./rbtv/capabilities/tools/probe/probe.py', 'rewritten', './capabilities/tools/probe/probe.py'],
     [`abs ${abs}/capabilities/tools/probe/probe.py`, `abs ${abs}/rbtv/capabilities/tools/probe/probe.py`, 'rewritten', 'absolute agent home + /capabilities/tools/probe/probe.py'],
     ['ownslug .rbtv/agents/probe/capabilities/tools/probe/probe.py', 'ownslug .rbtv/agents/probe/rbtv/capabilities/tools/probe/probe.py', 'rewritten', '.rbtv/agents/probe/capabilities/tools/probe/probe.py'],
@@ -601,6 +602,27 @@ function strictRows(abs) {
     ['homeangle <home>/capabilities/tools/probe/probe.py', 'homeangle <home>/rbtv/capabilities/tools/probe/probe.py', 'rewritten', '<home>/capabilities/tools/probe/probe.py'],
     ['queryq https://example.com/foo?capabilities/tools/probe/docs', 'queryq https://example.com/foo?capabilities/tools/probe/docs', 'left and printed', 'https://example.com/foo?capabilities/tools/probe/docs'],
     ['glued x./capabilities/tools/probe/x', 'glued x./capabilities/tools/probe/x', 'left and printed', 'x./capabilities/tools/probe/x'],
+    ['rbtv/capabilities/tools/probe/probe.py', 'rbtv/capabilities/tools/probe/probe.py', 'left silently', 'rbtv/ after a newline'],
+    ['tick `rbtv/capabilities/tools/probe/probe.py`', 'tick `rbtv/capabilities/tools/probe/probe.py`', 'left silently', 'rbtv/ after a backtick'],
+    ['quote "rbtv/capabilities/tools/probe/probe.py"', 'quote "rbtv/capabilities/tools/probe/probe.py"', 'left silently', 'rbtv/ after a quote'],
+    ["squote 'rbtv/capabilities/tools/probe/probe.py'", "squote 'rbtv/capabilities/tools/probe/probe.py'", 'left silently', 'rbtv/ after a single quote'],
+    ['tab\trbtv/capabilities/tools/probe/probe.py', 'tab\trbtv/capabilities/tools/probe/probe.py', 'left silently', 'rbtv/ after a tab'],
+    ['dotrbtv ./rbtv/capabilities/tools/probe/probe.py', 'dotrbtv ./rbtv/capabilities/tools/probe/probe.py', 'left silently', './rbtv/ at a token start'],
+    ['homeanglerbtv <home>/rbtv/capabilities/tools/probe/probe.py', 'homeanglerbtv <home>/rbtv/capabilities/tools/probe/probe.py', 'left silently', 'rbtv/ after <home>/'],
+    [`absrbtv ${abs}/rbtv/capabilities/tools/probe/probe.py`, `absrbtv ${abs}/rbtv/capabilities/tools/probe/probe.py`, 'left silently', 'rbtv/ after the absolute agent home'],
+    ['slugrbtv .rbtv/agents/probe/rbtv/capabilities/tools/probe/probe.py', 'slugrbtv .rbtv/agents/probe/rbtv/capabilities/tools/probe/probe.py', 'left silently', 'rbtv/ after .rbtv/agents/<this slug>/'],
+    ['notrbtv notrbtv/capabilities/tools/probe/probe.py', 'notrbtv notrbtv/capabilities/tools/probe/probe.py', 'left and printed', 'notrbtv/'],
+    ['xrbtv xrbtv/capabilities/tools/probe/probe.py', 'xrbtv xrbtv/capabilities/tools/probe/probe.py', 'left and printed', 'xrbtv/'],
+    ['vendorrbtv vendor/rbtv/capabilities/tools/probe/probe.py', 'vendorrbtv vendor/rbtv/capabilities/tools/probe/probe.py', 'left and printed', 'vendor/rbtv/'],
+    ['glueddotrbtv x./rbtv/capabilities/tools/probe/probe.py', 'glueddotrbtv x./rbtv/capabilities/tools/probe/probe.py', 'left and printed', 'x./rbtv/ is not ./ at a token start'],
+    ['uprbtv ../rbtv/capabilities/tools/probe/probe.py', 'uprbtv ../rbtv/capabilities/tools/probe/probe.py', 'left and printed', '../rbtv/ is not ./ at a token start'],
+    ['myagents /myagents/x/capabilities/tools/probe/probe.py', 'myagents /myagents/x/capabilities/tools/probe/probe.py', 'left and printed', '/myagents/x/ is not /agents/'],
+    ['slugextra .rbtv/agents/probeextra/capabilities/tools/probe/probe.py', 'slugextra .rbtv/agents/probeextra/capabilities/tools/probe/probe.py', 'left silently', '.rbtv/agents/<slug>extra/'],
+    ['slugprefix .rbtv/agents/probes/capabilities/tools/probe/probe.py', 'slugprefix .rbtv/agents/probes/capabilities/tools/probe/probe.py', 'left silently', 'slug that is a prefix of another name'],
+    ['agentsprefix /agents/probes/capabilities/tools/probe/probe.py', 'agentsprefix /agents/probes/capabilities/tools/probe/probe.py', 'left silently', '/agents/ slug prefix is the whole segment'],
+    ['gluedrbtv x.rbtv/agents/probe/capabilities/tools/probe/probe.py', 'gluedrbtv x.rbtv/agents/probe/capabilities/tools/probe/probe.py', 'left and printed', 'x.rbtv/agents/<slug>/'],
+    ['gluedother x.rbtv/agents/gaming/capabilities/tools/probe/probe.py', 'gluedother x.rbtv/agents/gaming/capabilities/tools/probe/probe.py', 'left silently', 'x.rbtv/agents/<other>/ still another agent folder'],
+    ['gluedhome x<home>/capabilities/tools/probe/probe.py', 'gluedhome x<home>/capabilities/tools/probe/probe.py', 'left and printed', 'x<home>/'],
   ];
 }
 
@@ -647,6 +669,26 @@ for (const [index, row] of strictRows('/absolute').entries()) {
   });
 }
 
+test('RM-08 break absolute home glued to a longer word left and printed', () => {
+  const { workspace, home } = agent();
+  seed(home);
+  stubTool(home, 'probe', 'probe.py');
+  const abs = path.resolve(home).replaceAll('\\', '/');
+  const line = `not${abs}/capabilities/tools/probe/probe.py`;
+  fs.writeFileSync(path.join(home, 'prompt.md'), `${line}\n`, 'utf8');
+  let out = '';
+  let err = '';
+  const code = main(['runtime', 'migrate', '--installation', workspace], {
+    env: { ...process.env, RBTV_AGENT_HOME: home },
+    stdout(text) { out += text; },
+    stderr(text) { err += text; },
+  });
+  assert.equal(code, 0, err);
+  assert.equal(fs.readFileSync(path.join(home, 'prompt.md'), 'utf8'), `${line}\n`);
+  assert.match(out, /not rewritten: prompt.md:1\n/);
+  assert.equal(out.includes('rbtv/rbtv/'), false);
+});
+
 test('RM-08 break second run prints only migrated', () => {
   const result = strictBreakRun();
   assert.equal(result.secondCode, 0, result.second);
@@ -655,6 +697,10 @@ test('RM-08 break second run prints only migrated', () => {
   const help = helpPage('runtime', ['migrate']);
   assert.equal(help.includes('repeats any not rewritten'), false);
   assert.match(help, /prints only migrated <agent> and does not repeat a not rewritten line/);
+  assert.match(help, /path segment rbtv\//);
+  assert.match(help, /notrbtv\//);
+  assert.match(help, /vendor\/rbtv\//);
+  assert.equal(help.includes('Text already under'), false);
 });
 
 test('RM-09 installation locks stay where they were', () => {

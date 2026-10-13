@@ -401,13 +401,22 @@ Copies the database, its sidecars, conversations/ and turns/ from the agent
 folder root into runtime/ignite/. Moves each own tool directory from
 capabilities/tools/<tool>/ to rbtv/capabilities/tools/<tool>/, with its record
 and page, and rewrites a stored check-tool path and a reference to this agent's
-own tool. A reference is rewritten only when capabilities/tools/<tool>/ starts
-a token: at line start, after whitespace, a backtick or a quote, after ./
-whose dot is itself at a token start (not ../), or after this agent's home
-(<home>/, the absolute agent folder, or .rbtv/agents/<this slug>/). Anything
-else is left and printed as not rewritten: <file>:<line>. Text already under
-rbtv/capabilities/tools/ and a path under another agent's folder are left
-without a line. A check-tool path is rewritten only when that file is placed.
+own tool. A reference to capabilities/tools/<tool>/ is classified in this
+order. Rewrite when what stands immediately before it is a token start (start
+of the text, whitespace, a backtick, a quote), or ./ standing at a token start,
+or this agent's own home (<home>/, the absolute agent folder with a trailing
+slash, .rbtv/agents/<this slug>/). ./ counts only when the character before
+the dot is a token start, so ../ and x./ do not. A home prefix counts only as
+a whole segment: it starts at the text, after /, or at a token start, so
+x.rbtv/agents/<slug>/ and x<home>/ do not, and a slug that is only a prefix of
+another name does not. Left silently, already moved, when what stands
+immediately before it is the path segment rbtv/, and what stands before that
+rbtv/ satisfies the rewrite rule. notrbtv/, xrbtv/ and vendor/rbtv/ do not
+qualify. Left silently, another agent's folder: .rbtv/agents/<other>/ or
+/agents/<other>/, the other name a whole segment. /myagents/x/ is not
+/agents/x/. .rbtv/agents/<slug>extra/ is that other name, not this slug.
+Everything else is left byte-identical and printed as not rewritten: <file>:<line>.
+A check-tool path is rewritten only when that file is placed.
 If it cannot be placed, the command refuses before any write and names the
 path. Tool state under state/ is not moved. Refuses when the waking service
 holds .rbtv/runtime/ignite/daemon.lock, when the layout is ambiguous, or when

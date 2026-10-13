@@ -948,18 +948,59 @@ function insertAfterImports(text, block) {
 
 const TOKEN_START = " \t\n\r\"'`";
 
-// Rewrite capabilities/tools/<tool>/ only when it starts a token: line start, whitespace, a backtick, a quote, ./ whose dot is itself at a token start, or this agent's home (<home>/, the absolute folder, .rbtv/agents/<this slug>/). Anything else is left and printed as not rewritten: <file>:<line>, except text already under rbtv/capabilities/tools/ and a path under another agent's folder, which are left without a line.
-function classifyOwnToolRef(text, at, home) {
-  const before = text.slice(0, at);
-  if (before.endsWith('rbtv/')) return 'already';
+function startsToken(text, index) {
+  return index === 0 || TOKEN_START.includes(text[index - 1]);
+}
+
+function startsSegment(text, index) {
+  return index === 0 || text[index - 1] === '/' || TOKEN_START.includes(text[index - 1]);
+}
+
+function homePrefixes(home) {
   const slug = path.basename(path.resolve(home));
-  const prefixes = [path.resolve(home), home].map((item) => `${item.replaceAll('\\', '/').replace(/\/$/, '')}/`);
-  const dotAtTokenStart = before.endsWith('./') && (at < 3 || TOKEN_START.includes(text[at - 3]));
-  if (dotAtTokenStart || before.endsWith('<home>/') || prefixes.some((prefix) => before.endsWith(prefix)) || before.endsWith(`.rbtv/agents/${slug}/`)) return 'own';
-  if (at === 0 || TOKEN_START.includes(text[at - 1])) return 'own';
+  const folders = [path.resolve(home), home].map((item) => `${item.replaceAll('\\', '/').replace(/\/$/, '')}/`);
+  return { slug, folders, relative: `.rbtv/agents/${slug}/` };
+}
+
+function ownStart(text, at, home) {
+  const before = text.slice(0, Math.max(0, at));
+  if (before.endsWith('./') && startsToken(text, at - 2)) return true;
+  const { folders, relative } = homePrefixes(home);
+  const homeAngle = '<home>/';
+  if (before.endsWith(homeAngle) && startsSegment(text, at - homeAngle.length)) return true;
+  if (folders.some((prefix) => before.endsWith(prefix) && startsSegment(text, at - prefix.length))) return true;
+  if (before.endsWith(relative) && startsSegment(text, at - relative.length)) return true;
+  return startsToken(text, at);
+}
+
+// Classify one occurrence of capabilities/tools/<tool>/, in this order.
+// 1. Rewrite: what stands immediately before it is a token start (start of the text, whitespace, a backtick, a quote), or ./ standing at a token start, or this agent's own home (<home>/, the absolute agent folder with a trailing slash, .rbtv/agents/<this slug>/). ./ counts only when the character before the dot is a token start, so ../ and x./ do not. A home prefix counts only as a whole segment: it starts at the text, after /, or at a token start, so x.rbtv/agents/<slug>/ and x<home>/ do not, and a slug that is only a prefix of another name does not.
+// 2. Left silently, already moved: what stands immediately before it is the path segment rbtv/, and what stands before that rbtv/ satisfies 1. notrbtv/, xrbtv/ and vendor/rbtv/ do not qualify.
+// 3. Left silently, another agent's folder: .rbtv/agents/<other>/ or /agents/<other>/, the other name a whole segment. /myagents/x/ is not /agents/x/. .rbtv/agents/<slug>extra/ is that other name, not this slug.
+// 4. Everything else: left byte-identical and printed not rewritten: <file>:<line>.
+function classifyOwnToolRef(text, at, home) {
+  if (ownStart(text, at, home)) return 'own';
+  const before = text.slice(0, at);
+  if (before.endsWith('rbtv/') && ownStart(text, at - 'rbtv/'.length, home)) return 'already';
+  const { slug } = homePrefixes(home);
   const other = before.match(/(?:^|\/)\.rbtv\/agents\/([^/]+)\/$/) || before.match(/\/agents\/([^/]+)\/$/);
   if (other && other[1] !== slug) return 'leave';
   return 'unsure';
+}
+
+function rewriteHomeAngle(text) {
+  const from = '<home>/capabilities/tools/';
+  const to = '<home>/rbtv/capabilities/tools/';
+  let out = '';
+  let i = 0;
+  while (i < text.length) {
+    const at = text.indexOf(from, i);
+    if (at === -1) return out + text.slice(i);
+    out += text.slice(i, at);
+    out += startsSegment(text, at) ? to : from;
+    i = at + from.length;
+  }
+  return out;
 }
 
 function rewriteOwnToolRefs(text, names, home) {
@@ -1017,7 +1058,7 @@ function rewriteInvocations(home, names) {
     if (buf.includes(0)) return;
     let text = buf.toString('utf8');
     let next = rewriteOwnToolRefs(text, names, home);
-    next = next.replaceAll('<home>/capabilities/tools/', '<home>/rbtv/capabilities/tools/');
+    next = rewriteHomeAngle(next);
     const rel = path.relative(home, file).split(path.sep);
     const relPath = rel.join('/');
     if (rel[0] === 'rbtv' && rel[1] === 'capabilities' && rel[2] === 'tools' && names.includes(rel[3]) && file.endsWith('.py')) {
