@@ -120,7 +120,7 @@ One proposal, five operations, in this order:
 
 An index row points at the record when its markdown link, resolved from the index file, is that path. A timeline line points at the record when an https URL in the line occurs in the archived file. The archive path is .rbtv/memory/_artifacts/archive/<slug>.md. Not 4-archives. Not an agent memory/archive/ path.
 
-The subject of Owner asks to forget: <subject>. must occur in the file this proposal archives with leave: true. Citing a line in sources without operation 5 quiets check and leaves the line in the bundle a turn start reads. Do not do that.
+A request line names a record when the text after Owner asks to forget: and before . Owner said or the dated provenance contains that file's # heading as a whole name, ignoring case, or its path relative to the memory root with or without the .rbtv/memory/ prefix, or a thread URL that occurs in that file. The line's own dated provenance is not a name. A line that names two files is refused with both paths. Citing a line in sources without operation 5 quiets check and leaves the line in the bundle a turn start reads. Do not do that.
 
 Expected forms for a refusal of this shape:
   removals.to is an archive file whose verbatim fence equals this file
@@ -132,7 +132,7 @@ Expected forms for a refusal of this shape:
   text equals the snapshot file being archived
   entity, knowledge, topic or workspace
   file the line as a record, or carry it verbatim in an archive entry of the same proposal
-  the record the request line names is archived with leave: true in this proposal
+  the text after Owner asks to forget: and before . Owner said or the dated provenance contains the archived file's # heading as a whole name, ignoring case, or its path relative to the memory root with or without the .rbtv/memory/ prefix, or a thread URL that occurs in that file; the line's own dated provenance is not a name; a line that names two files is refused with both paths
   a timeline line may be dropped when its URL occurs in the archived file and in no file that stays in active memory after the proposal; an inbox line this proposal consumes does not count as staying; the archive is not active memory
   sources are unread owner message rowids or exact inbox lines
 

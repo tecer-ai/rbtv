@@ -466,7 +466,7 @@ function archiveFile(original, reason, source) {
 function removalCase(shape) {
   const entity = shape === 'live'
     ? `---\ndescription: when identifying the handheld by its name\ntype: device\naliases: [handheld-1001]\n---\n# Handheld-1001\n\n- The handheld is named Handheld-1001. (2026-10-13 · master/${THREAD})\n`
-    : `---\ndescription: when reviewing a decision\ntype: decisions\naliases: [handheld-1001]\n---\n# Handheld note\n\n- The note says Handheld-1001. (2026-10-13 · master/${THREAD})\n`;
+    : `---\ndescription: when reviewing a decision\ntype: decisions\naliases: [handheld-1001]\n---\n# Handheld-1001\n\n- The note says Handheld-1001. (2026-10-13 · master/${THREAD})\n`;
   const record = entity.trim().split('\n').at(-1);
   const entityPath = shape === 'live'
     ? '.rbtv/memory/entities/devices/handheld-1001.md'
@@ -934,6 +934,119 @@ test('timeline line dropped while another record that stays still cites that URL
   const result = lib.validateProposalResult({ agent: 'albert', date: '2026-10-13', messages: [], files: box.files }, raw, dir);
   assert.equal(result.ok, false);
   assert.ok(reasons(result).includes('timeline line dropped while another record that stays still cites that URL'), reasons(result).join(' | '));
+});
+
+const LIVE_LINE = '- Owner asks to forget: Ochrefin-5527, the entity for the old Game Boy Color (entities/devices/ochrefin-5527.md and its index row). Owner said: Please forget the name Ochrefin-5527: it was only a test of the memory system. The Game Boy Color has no special name. (2026-10-13 · gaming/[thread](https://app.slack.com/archives/C0C5U3YUPBJ/p1791930514087829))';
+const LIVE_CAPTURE = '- The owner named the old Game Boy Color "Ochrefin-5527". From now on that device is called by that name. (2026-10-13 · gaming/[thread](https://app.slack.com/archives/C0C5U3YUPBJ/p1791930514087829))';
+const LIVE_OTHER_CAPTURE = '- The owner named the spare Miyoo handheld "Vantablue-3391". From now on that device is called by that name. (2026-10-13 · gaming/[thread](https://app.slack.com/archives/C0C5U3YUPBJ/p1791930512713769))';
+const LIVE_ENTITY = '.rbtv/memory/entities/devices/ochrefin-5527.md';
+const LIVE_OTHER = '.rbtv/memory/entities/devices/vantablue-3391.md';
+const LIVE_TWIN = '.rbtv/memory/entities/devices/ochrefin-twin.md';
+const LIVE_INDEX = '.rbtv/memory/entities/_artifacts/index.md';
+const LIVE_ARCHIVE = '.rbtv/memory/_artifacts/archive/ochrefin-5527.md';
+const LIVE_INBOX = '.rbtv/memory/inbox.md';
+const LIVE_ROW = '| [Ochrefin-5527](../devices/ochrefin-5527.md) | when identifying Henrique\'s old Game Boy Color or its name |';
+
+function liveEntity() {
+  return '---\ndescription: when identifying Henrique\'s old Game Boy Color or recalling its name\ntype: device\naliases: [Ochrefin-5527, old Game Boy Color]\n---\n# Ochrefin-5527\n\n- Henrique named his old Game Boy Color "Ochrefin-5527" and will call that device by that name. (2026-10-13 · gaming/[thread](https://app.slack.com/archives/C0C5U3YUPBJ/p1791930514087829))\n';
+}
+
+function liveOther() {
+  return '---\ndescription: when identifying Henrique\'s spare Miyoo handheld or recalling its name\ntype: device\naliases: [Vantablue-3391, spare Miyoo handheld]\n---\n# Vantablue-3391\n\n- Henrique named his spare Miyoo handheld "Vantablue-3391" and will call that device by that name. (2026-10-13 · gaming/[thread](https://app.slack.com/archives/C0C5U3YUPBJ/p1791930512713769))\n';
+}
+
+function liveArchive(entity, lines) {
+  const bullets = lines.map((line) => `- Reason: owner asked to forget. Source: ${line} (2026-10-13 · albert)`).join('\n');
+  return `---\ndescription: when reviewing an archived record\ntype: reference\naliases: [ochrefin-5527]\n---\n# Archived\n\n${bullets}\n\n\`\`\`verbatim\n${entity}\`\`\`\n`;
+}
+
+function liveBox(lines, extra = {}) {
+  const entity = liveEntity();
+  const kept = '| [kept-person](../people/kept-person.md) | when reviewing the kept person |';
+  return {
+    entity,
+    files: {
+      [LIVE_ENTITY]: entity,
+      [LIVE_INDEX]: `# Entities\n\n| Open | When |\n|---|---|\n${kept}\n${LIVE_ROW}\n`,
+      [LIVE_INBOX]: `# Inbox\n${lines.join('\n')}\n`,
+      '.rbtv/agents/albert/_artifacts/board.md': lib.EMPTY_BOARD,
+      '.rbtv/memory/profile.md': '# Profile — Sam\n\n## Who\n\n- One (2026-10-01 · note)\n\n## Working with Sam\n\n- Two (2026-10-01 · note)\n\n## Now\n\n- Three (2026-10-01 · note)\n',
+      '.rbtv/memory/entities/people/kept-person.md': '---\ndescription: when reviewing the kept person\ntype: person\naliases: [kept]\n---\n# Kept\n\n- Stays. (2026-10-01 · albert)\n',
+      ...extra,
+    },
+  };
+}
+
+function liveProposal(box, lines) {
+  return proposal([
+    op({
+      op: 'archive', path: LIVE_ENTITY, leave: true, text: box.entity, sources: lines,
+      removals: [{ text: box.entity.trim().split('\n').at(-1), to: LIVE_ARCHIVE }],
+    }),
+    op({ op: 'add', path: LIVE_ARCHIVE, text: liveArchive(box.entity, lines), sources: lines }),
+    op({
+      op: 'supersede', path: LIVE_INDEX, reason: 'index', text: box.files[LIVE_INDEX].replace(`${LIVE_ROW}\n`, ''),
+      sources: lines, removals: [{ text: LIVE_ROW }],
+    }),
+    op({
+      op: 'supersede', path: LIVE_INBOX, text: '# Inbox\n', sources: lines,
+      removals: lines.map((line) => ({ text: line, to: LIVE_ARCHIVE })),
+    }),
+  ]);
+}
+
+function liveResult(dir, lines, extra) {
+  const box = liveBox(lines, extra);
+  return lib.validateProposalResult({ agent: 'albert', date: '2026-10-13', messages: [], files: box.files }, liveProposal(box, lines), dir);
+}
+
+test('live forget line names the record in the agent\'s words', (dir) => {
+  const result = liveResult(dir, [LIVE_LINE]);
+  assert.equal(result.ok, true, reasons(result).join(' | '));
+  const byUrl = liveResult(dir, ['- Owner asks to forget: https://app.slack.com/archives/C0C5U3YUPBJ/p1791930514087829. Owner said: drop it (2026-10-13 · gaming)']);
+  assert.equal(byUrl.ok, true, reasons(byUrl).join(' | '));
+});
+
+test('live capture line still in the inbox is consumed with that forget', (dir) => {
+  const result = liveResult(dir, [LIVE_CAPTURE, LIVE_LINE]);
+  assert.equal(result.ok, true, reasons(result).join(' | '));
+  const other = liveResult(dir, [LIVE_OTHER_CAPTURE]);
+  assert.equal(other.ok, false);
+  assert.ok(reasons(other).includes('inbox line removed with no destination'), reasons(other).join(' | '));
+});
+
+test('request that names a different record than the one archived is refused', (dir) => {
+  const line = '- Owner asks to forget: Vantablue-3391, the spare Miyoo. Owner said: drop it (2026-10-13 · gaming)';
+  const result = liveResult(dir, [line], { [LIVE_OTHER]: liveOther() });
+  assert.equal(result.ok, false);
+  assert.ok(reasons(result).includes('request line consumed while the record it names is not archived in that proposal'), reasons(result).join(' | '));
+});
+
+test('request that shares only a common word with the record is refused', (dir) => {
+  const handheld = '- Owner asks to forget: the handheld. Owner said: drop it (2026-10-13 · gaming/[thread](https://app.slack.com/archives/C0C5U3YUPBJ/p1791930514087829))';
+  const gameBoy = '- Owner asks to forget: Game Boy. Owner said: drop it (2026-10-13 · gaming)';
+  for (const line of [handheld, gameBoy]) {
+    const result = liveResult(dir, [line]);
+    assert.equal(result.ok, false, line);
+    assert.ok(reasons(result).includes('request line consumed while the record it names is not archived in that proposal'), reasons(result).join(' | '));
+  }
+});
+
+test('request line with no subject is refused', (dir) => {
+  const line = '- Owner asks to forget: (2026-10-13 · gaming)';
+  const result = liveResult(dir, [line]);
+  assert.equal(result.ok, false);
+  assert.ok(reasons(result).includes('request line has no subject'), reasons(result).join(' | '));
+});
+
+test('request that names two records is refused with both paths', (dir) => {
+  const line = '- Owner asks to forget: Ochrefin-5527. Owner said: which one (2026-10-13 · gaming)';
+  const twin = liveEntity();
+  const result = liveResult(dir, [line], { [LIVE_TWIN]: twin });
+  assert.equal(result.ok, false);
+  const reason = reasons(result).find((row) => row.startsWith('request line names more than one record:'));
+  assert.ok(reason, reasons(result).join(' | '));
+  assert.ok(reason.includes(LIVE_ENTITY) && reason.includes(LIVE_TWIN), reason);
 });
 
 if (failed.length) process.exit(1);
