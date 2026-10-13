@@ -84,8 +84,8 @@ def env_file():
 def key_sources():
     path = env_file()
     if path is None:
-        return f"${KEY_ENV} (this folder is inside no rbtv installation, so no environment file is read)"
-    return f"${KEY_ENV} first, then the {KEY_ENV} line of {path}"
+        return f"${KEY_ENV} only: this folder is inside no rbtv installation,\n     so no environment file is read"
+    return f"${KEY_ENV} first, then the {KEY_ENV} line of\n     {path}"
 
 
 def api_key():
@@ -512,7 +512,7 @@ def fail(failure, as_json):
 
 
 WORDS = """the words, which are the provider's (https://docs.typesafe.ai/api):
-  state         what is judged: one text, or named parts. Every question sees it.
+  state         what is judged: a text, or named parts. Every question sees it.
   question      one typed judgment about the state: yes/no, choice or score
   instructions  the part of a question that says what to decide; it can carry
                 named parts of its own, which only that question sees
@@ -536,9 +536,9 @@ THRESHOLDS = """thresholds (one answer or many items):
   --sort high|low  with many items: order them by the answer, highest or
                    lowest first; without it they keep the input order
   example: three tiers, then act on each
-    ls matches/*.json | typesafe yesno "Do the two records describe the same payment?" \\
+    ls matches/*.json | typesafe yesno "Do both records show one payment?" \\
         --each-file --tiers 0.95,0.6 --json
-    tier 1 (0.95 and up) can go through, tier 2 to a second check, tier 3 to a person"""
+    tier 1 (0.95 and up) goes through, tier 2 gets a check, tier 3 a person"""
 
 STATE = """state:
   Standard input is the state, sent as text.
@@ -559,19 +559,22 @@ INSTRUCTIONS = """instructions:
   --instructions NAME=FILE add a whole file to this question's instructions
                            under NAME; repeat for more. The question names it in
                            backticks: "Is the state a duplicate of `candidate`?"
-  A long question, or several questions in one request, belongs in `typesafe ask`."""
+  A long question, or several questions at once, belongs in `typesafe ask`."""
 
 ASK = """the request is one JSON object in the provider's shape. You choose each
 question's key, and its answer comes back under that key:
   {
-    "state": {"statement": {"$file": "statement.csv"}, "ledger": {"$file": "ledger.csv"}},
+    "state": {"statement": {"$file": "statement.csv"},
+              "ledger":    {"$file": "ledger.csv"}},
     "questions": {
-      "matches":   {"type": "noul",   "instructions": "Does every line of `statement` appear in `ledger`?"},
-      "owner":     {"type": "choice", "instructions": {"question": "Which team owns this, by `policy`?",
-                                                        "policy": {"$file": "routing.md"}},
-                    "criteria": {"billing": "payments, refunds", "treasury": null}},
-      "tidiness":  {"type": "score",  "instructions": "How tidy is `ledger`?",
-                    "criteria": ["messy", "usable", "clean"]}
+      "matches": {"type": "noul",
+                  "instructions": "Is every line of `statement` in `ledger`?"},
+      "owner":   {"type": "choice",
+                  "instructions": {"question": "Whose is this, by `policy`?",
+                                   "policy": {"$file": "routing.md"}},
+                  "criteria": {"billing": "payments", "treasury": null}},
+      "tidy":    {"type": "score", "instructions": "How tidy is `ledger`?",
+                  "criteria": ["messy", "usable", "clean"]}
     }
   }
   {"$file": "PATH"} anywhere in the request stands for the text of that file,
@@ -579,22 +582,23 @@ question's key, and its answer comes back under that key:
   else is sent to the service unchanged. "model" is optional.
 
 where the request and the state come from:
-  typesafe ask < request.json           the request, state included, on standard input
-  typesafe ask --request request.json   the request from a file
+  typesafe ask < request.json          the whole request on standard input
+  typesafe ask --request request.json  the request from a file
   cat mail.txt | typesafe ask --request questions.json
-                                        a request without "state" takes its state
-                                        from standard input (see state: below)
+                                       a request without "state" takes its
+                                       state from standard input (state: below)
 
 for an agent, this is the form to use: write the request, then run it.
   typesafe ask --json <<'JSON'
-  {"state": {"$file": "notes.md"}, "questions": {"done": {"type": "noul", "instructions": "Is the work described finished?"}}}
+  {"state": {"$file": "notes.md"},
+   "questions": {"done": {"type": "noul", "instructions": "Is it finished?"}}}
   JSON"""
 
 OUTPUT = """output:
   One line per question: its key, then the answer.
-    probability-of-yes 0.95        a yes/no answer; 0.50 means undecided, not half true
-    billing  confidence 0.81  (…)  a choice: the option, then each option's probability
-    1.05  confidence 0.92  (…)     a score: the position on the levels, counted from 0
+    probability-of-yes 0.95        yes/no; 0.50 is undecided, not half true
+    billing  confidence 0.81  (…)  a choice: the option, then all probabilities
+    1.05  confidence 0.92  (…)     a score: the position on the levels, from 0
   A choice lists every option, most probable first. --top N keeps the N most
   probable and counts the rest as "+K more"; --json always carries every option.
   confidence, on a choice and a score, is not the probability of the answer.
@@ -626,8 +630,8 @@ def build_parser():
         description="TypeSafe typed judgments: ask yes/no, pick-one and rating questions about\n"
                     "text and whole files, and get probabilities back, not prose.",
         epilog=f"first use:\n"
-               f"  {PROG} ask < request.json   any state, files and questions as one JSON request;\n"
-               f"                                  the form for an agent ({PROG} ask --help)\n"
+               f"  {PROG} ask < request.json   any state, files and questions as one\n"
+               f"                                  JSON request: the form for an agent\n"
                f"  cat mail.txt | {PROG} yesno \"Does this message need a reply today?\"\n"
                f"                                  one question in one line, for a script\n"
                f"  {PROG} <verb> --help        inputs, output and examples of one verb\n\n"
@@ -674,7 +678,7 @@ def build_parser():
     yesno = verb("yesno", "ask one yes/no question about the state", yesno_request,
                  "examples:\n  cat mail.txt | typesafe yesno \"Does this message need a reply today?\"\n"
                  "  cat mail.txt | typesafe yesno \"Is this urgent?\" --at-least 0.8 && echo urgent\n"
-                 "  ls notes/*.md | typesafe yesno \"Would this file help with the task in `goal`?\" \\\n"
+                 "  ls notes/*.md | typesafe yesno \"Does this file help with `goal`?\" \\\n"
                  "      --each-file --state goal=goal.txt",
                  scale="the probability of yes (0 to 1)")
     yesno.add_argument("--criteria", action="append", default=[], metavar="true=TEXT|false=TEXT",
@@ -682,7 +686,8 @@ def build_parser():
 
     choice = verb("choice", "pick one option for the state", choice_request,
                   "example:\n  cat mail.txt | typesafe choice \"Which team should handle this?\" \\\n"
-                  "      --criteria \"billing=payments, invoices, refunds\" --criteria technical --criteria sales")
+                  "      --criteria \"billing=payments, invoices, refunds\" \\\n"
+                  "      --criteria technical --criteria sales")
     choice.add_argument("--criteria", action="append", default=[], metavar="OPTION[=MEANING]",
                         help="one option, repeated once per option (2 to 255); text after = says what the option means")
     choice.add_argument("--top", type=int, metavar="N", help=top_help)
@@ -696,8 +701,8 @@ def build_parser():
                        help="one level, repeated from lowest to highest (2 to 10); each describes a concrete situation")
 
     models = verbs.add_parser("models", help="list the model names this key can use", parents=[shared],
-                              description="List the model names this key can use in --model, with release date "
-                                          "and description. A versioned name such as jev-1.13.0 is accepted "
+                              description="List the model names this key can use in --model, with release date\n"
+                                          "and description. A versioned name such as jev-1.13.0 is accepted\n"
                                           "even when only its alias is listed.",
                               formatter_class=argparse.RawDescriptionHelpFormatter,
                               epilog="exit status:\n  0  listed\n  1  the service call failed\n"
