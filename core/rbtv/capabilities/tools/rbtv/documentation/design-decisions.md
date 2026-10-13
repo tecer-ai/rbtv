@@ -72,7 +72,7 @@ On Windows, each PATH tool gets a marked `<name>.cmd` shim and an extensionless 
 
 ## D9c — User PATH
 
-A real install that selects a PATH tool adds `~/.rbtv/bin` to the user's shell startup profiles on POSIX or user PATH on Windows. It leaves that PATH setup in place when an installation removes its tools. This lets new shells find installed commands and lets the same bin folder serve other installations. On Windows the user PATH is kept in the registry of the account, not under the home folder: when the home folder is not the account's profile, as in a run with a redirected home, the installer leaves the registry unchanged and reports `path-persist-failed`. On POSIX the profiles sit under the home folder, so a redirected run writes only there.
+A real install that selects a PATH tool adds `~/.rbtv/bin` to the user's shell startup profiles on POSIX or user PATH on Windows, first and listed once on both: a folder that comes earlier and holds a program of the same name would answer for the tool. On Windows the machine PATH precedes the user PATH, so a machine-level program of the same name still wins. It leaves that PATH setup in place when an installation removes its tools. This lets new shells find installed commands and lets the same bin folder serve other installations. On Windows the user PATH is kept in the registry of the account, not under the home folder: when the home folder is not the account's profile, as in a run with a redirected home, the installer leaves the registry unchanged and reports `path-persist-failed`. On POSIX the profiles sit under the home folder, so a redirected run writes only there.
 
 ## D10 — Absolute source paths
 
