@@ -3021,6 +3021,8 @@ process.exit(3);\n`);
   const resumedOpencode = dry(['resume', 'opencode', 'ses_x1', homes.opencode, '-p', 'more']);
   assert.deepStrictEqual(resumedOpencode.argv, ['opencode', 'run', '-s', 'ses_x1', '-m', modelOf(opencode.argv, '-m'), '--auto', '--variant', 'high']);
   isOpencodeIsolated(resumedOpencode, 'an OpenCode resume in an agent folder');
+  // the OpenCode TUI takes no effort option, at a resume as at a launch
+  assert.deepStrictEqual(dry(['resume', 'opencode', 'ses_x1', homes.opencode, '--headed']).argv, ['opencode', '-s', 'ses_x1', '-m', modelOf(opencode.argv, '-m')]);
   for (const [name, argv] of Object.entries({ claude: claude.argv, codex: codex.argv, opencode: opencode.argv })) {
     assert.ok(modelOf(argv, name === 'claude' ? '--model' : '-m').includes(JSON.parse(fs.readFileSync(path.join(homes[name], 'agent.json'), 'utf8')).model),
       `the ${name} launch names the model of the agent's record: ${argv}`);

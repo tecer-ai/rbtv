@@ -111,10 +111,13 @@ function launch({ harness, modelId, effortWord, effortArgv, fallback, ...run }) 
   start({ harness, modelId, effortWord, effortArgv });
 }
 
+// measured 2026-08-14: --variant exists only on `opencode run`, not the TUI, so a headed OpenCode
+// start, new or resumed, passes no effort.
+const noTuiEffort = (harness, headed) => headed && harness === 'opencode';
+
 // Composes one harness run and starts it; `done` receives how it ended, with `elapsedMs`.
 function attempt({ harness, modelId, folder, effortWord, effortArgv, system, promptText, headed, dryRun, detached, agentHome }, done) {
-  if (headed && harness === 'opencode' && effortArgv.length) {
-    // measured 2026-08-14: --variant exists only on `opencode run`, not the TUI
+  if (noTuiEffort(harness, headed) && effortArgv.length) {
     process.stderr.write('cast: note: opencode TUI has no --variant flag — effort ignored in headed mode\n');
     effortWord = null;
     effortArgv = [];
@@ -371,7 +374,7 @@ function runResume(rawArgv) {
   const iso = isolation(harness, agentHome, headed);
   const agentEnv = agentEnvOf(agentHome, iso);
   const own = agentHome && agentModel(agentHome, harness);
-  const argv = own ? resumeArgv(harness, id, [...own.effortArgv, ...iso.argv], own.modelId, headed)
+  const argv = own ? resumeArgv(harness, id, [...(noTuiEffort(harness, headed) ? [] : own.effortArgv), ...iso.argv], own.modelId, headed)
     : resumeArgv(harness, id, iso.argv, null, headed);
 
   if (dryRun) {
