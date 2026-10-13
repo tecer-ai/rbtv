@@ -810,7 +810,7 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
       if (!TEXT.test(entry.name) || NAMED_ON_PURPOSE.includes(at)) continue;
       let lines = fs.readFileSync(path.join(REPO, at), 'utf8');
       // this arm is the one place of this file that names shipped models
-      if (path.join(REPO, at) === __filename) lines = lines.replace(/\/\/ --- the SHIPPED table[\s\S]*?\n}\n/, (arm) => arm.replace(/[^\n]/g, ''));
+      if (path.join(REPO, at) === __filename) lines = lines.replace(/\/\/ --- the SHIPPED table[\s\S]*?\r?\n}\r?\n/, (arm) => arm.replace(/[^\n]/g, ''));
       lines.split('\n').forEach((line, i) => { if (naming.test(line)) named.push(`${at}:${i + 1}: ${line.trim().slice(0, 100)}`); });
     }
   })('');
