@@ -461,8 +461,8 @@ const judgedFixed = run(judged.home, ['apply', '--run', json(judgedPrep).run, '-
 })]);
 assert('corrected proposal applies on the same prepared run', judgedFixed.status === 0 && json(judgedFixed).run === json(judgedPrep).run && fs.readFileSync(path.join(judged.root, judgedAlpha), 'utf8').includes('kept fact') && fs.readFileSync(path.join(judged.root, judgedBeta), 'utf8').includes('Threads: none'), judgedFixed.stderr);
 
-const deviceThread = 'https://app.slack.com/archives/C0TEST00001/p1791000000000001';
-const otherThread = 'https://app.slack.com/archives/C0TEST00002/p1791000000000002';
+const deviceThread = `${host}/archives/C0TEST00001/p1791000000000001`;
+const otherThread = `${host}/archives/C0TEST00002/p1791000000000002`;
 const entityPath = '.rbtv/memory/entities/devices/handheld-1001.md';
 const entityText = `---\ndescription: when identifying the handheld by its name\ntype: device\naliases: [handheld-1001]\n---\n# Handheld-1001\n\n- The handheld is named Handheld-1001. (2026-10-13 · albert/${deviceThread})\n`;
 const otherEntity = '.rbtv/memory/entities/devices/other-2002.md';
@@ -620,6 +620,100 @@ const promptForget = fs.readFileSync(promptPath, 'utf8');
 assert('prompt says an owner forget is an archived removal and does not restate the proposal', promptForget.includes('archived removal') && promptForget.includes('unresolved conflict') && promptForget.includes('consumed by the same proposal') && !promptForget.includes('leave: true') && !promptForget.includes('Reason: owner asked to forget'), '');
 const reverseHelp = spawnSync(process.execPath, [tool, 'reverse', '-h'], { encoding: 'utf8' }).stdout;
 assert('reverse -h states the dangling-index rule', reverseHelp.includes('only the index rows whose link target is that record') && reverseHelp.includes('reverse the record item instead') && helpOut.includes('leave: true') && helpOut.includes('Reason: owner asked to forget') && helpOut.includes('# Restored'), reverseHelp);
+assert('apply -h states any inbox line, the fifth operation and the timeline rule', helpOut.includes('Any agent\'s line counts') && helpOut.includes('5. supersede .rbtv/memory/inbox.md') && helpOut.includes('The publisher deletes those lines.') && helpOut.includes('A line this same proposal removes from inbox.md does not stay. The archive does not count.') && !helpOut.includes('does not delete the inbox line') && !helpOut.includes('this agent\'s exact inbox line'), helpOut);
+assert('reverse -h states capture consumption and does not restore inbox lines', reverseHelp.includes('If the capture line is still in the inbox') && reverseHelp.includes('does not put consumed inbox lines back') && reverseHelp.includes('The archive does not count.'), reverseHelp);
+
+const pebble = 'Pebble-441';
+const pebbleUrl = `${host}/archives/C0123ABCDEF/p1700000000000001`;
+const pebbleKept = `${host}/archives/C0123ABCDEF/p1700000000000002`;
+const pebblePath = '.rbtv/memory/entities/devices/pebble-441.md';
+const pebbleText = `---\ndescription: when identifying the device ${pebble}\ntype: device\naliases: [${pebble}]\n---\n# ${pebble}\n\n- The device is named ${pebble}. (2026-10-13 · albert/[owner thread](${pebbleUrl}))\n`;
+const pebbleIndexPath = '.rbtv/memory/entities/_artifacts/index.md';
+const pebbleRow = `| [${pebble}](../devices/pebble-441.md) | when identifying the device |`;
+const pebbleKeptRow = '| [Kept](../devices/kept-device.md) | when reviewing the kept device |';
+const pebbleIndexText = `# Entities\n\n| Open | When |\n|---|---|\n${pebbleKeptRow}\n${pebbleRow}\n`;
+const pebbleDayPath = '.rbtv/memory/timeline/daily/2026-10-13.md';
+const pebbleEpisode = `- Named the device ${pebble}. — albert/[owner thread](${pebbleUrl})`;
+const pebbleKeptEpisode = `- Kept episode. — albert/[owner thread](${pebbleKept})`;
+const pebbleDayText = `---\ndescription: when recalling owner requests on this day\ntype: reference\naliases: [day]\n---\n# 2026-10-13\n\n${pebbleKeptEpisode}\n${pebbleEpisode}\n`;
+const pebbleCapture = `- Owner asks to remember the device name ${pebble}. (2026-10-13 · pal/[owner thread](${pebbleUrl}))`;
+const pebbleRequest = `- Owner asks to forget: device ${pebble}. Owner said: forget it (2026-10-13 · pal)`;
+const pebbleArchive = '.rbtv/memory/_artifacts/archive/pebble-441.md';
+const pebbleInbox = `# Inbox\n${pebbleCapture}\n${pebbleRequest}\n`;
+const pebbleKeptEntity = '.rbtv/memory/entities/devices/kept-device.md';
+const pebbleKeptText = `---\ndescription: when reviewing the kept device\ntype: device\naliases: [kept]\n---\n# Kept\n\n- Stays. (2026-10-01 · albert)\n`;
+
+function plantPebble(box) {
+  write(path.join(box.root, '.rbtv/memory/inbox.md'), pebbleInbox);
+  write(path.join(box.root, pebblePath), pebbleText);
+  write(path.join(box.root, pebbleKeptEntity), pebbleKeptText);
+  write(path.join(box.root, pebbleIndexPath), pebbleIndexText);
+  write(path.join(box.root, pebbleDayPath), pebbleDayText);
+  commitTree(box.root);
+  return box;
+}
+
+function pebbleReceipt(home) {
+  store.appendReceipt(home, {
+    id: 'pebble-add', createdAt: 1, outcome: 'published', runId: 'pebble-add', commit: null, sources: [],
+    items: [
+      { n: 1, ref: 'pebble-add#1', agent: 'albert', path: pebblePath, before: null, after: pebbleText, sources: [], explanation: 'created' },
+      { n: 4, ref: 'pebble-add#4', agent: 'albert', path: pebbleIndexPath, before: pebbleIndexText.replace(`${pebbleRow}\n`, ''), after: pebbleIndexText, sources: [], explanation: 'index row' },
+      { n: 7, ref: 'pebble-add#7', agent: 'albert', path: pebbleDayPath, before: pebbleDayText.replace(`${pebbleEpisode}\n`, ''), after: pebbleDayText, sources: [], explanation: 'timeline line' },
+    ],
+  });
+}
+
+const sharedReverse = plantPebble(fixture());
+pebbleReceipt(sharedReverse.home);
+const keptBefore = {
+  profile: fs.readFileSync(path.join(sharedReverse.root, '.rbtv/memory/profile.md'), 'utf8'),
+  board: fs.readFileSync(path.join(sharedReverse.home, '_artifacts/board.md'), 'utf8'),
+  kept: fs.readFileSync(path.join(sharedReverse.root, pebbleKeptEntity), 'utf8'),
+};
+const sharedResult = run(sharedReverse.home, ['reverse', '--item', 'pebble-add#1']);
+const sharedArchive = sharedResult.status === 0 ? fs.readFileSync(path.join(sharedReverse.root, pebbleArchive), 'utf8') : '';
+const sharedInbox = sharedResult.status === 0 ? fs.readFileSync(path.join(sharedReverse.root, '.rbtv/memory/inbox.md'), 'utf8') : '';
+assert('reverse of a created record drops the timeline line and consumes a capture still in the inbox', sharedResult.status === 0 && !fs.existsSync(path.join(sharedReverse.root, pebblePath)) && sharedArchive.includes(pebbleText) && sharedArchive.includes('Reason: reversed. Source: pebble-add#1') && sharedArchive.includes(pebbleCapture) && fs.readFileSync(path.join(sharedReverse.root, pebbleIndexPath), 'utf8') === pebbleIndexText.replace(`${pebbleRow}\n`, '') && fs.readFileSync(path.join(sharedReverse.root, pebbleDayPath), 'utf8') === pebbleDayText.replace(`${pebbleEpisode}\n`, '') && !sharedInbox.includes(pebbleCapture) && sharedInbox.includes(pebbleRequest) && fs.readFileSync(path.join(sharedReverse.root, '.rbtv/memory/profile.md'), 'utf8') === keptBefore.profile && fs.readFileSync(path.join(sharedReverse.home, '_artifacts/board.md'), 'utf8') === keptBefore.board && fs.readFileSync(path.join(sharedReverse.root, pebbleKeptEntity), 'utf8') === keptBefore.kept, sharedResult.stderr);
+const sharedReport = sharedResult.status === 0 ? json(run(sharedReverse.home, ['report', '--occasion', 'week-shared-reverse'])) : null;
+const sharedLeave = store.readReceipts(sharedReverse.home).flatMap((row) => row.items || []).find((row) => row.leave && row.path === pebblePath);
+
+function pebbleForgetProposal() {
+  const record = pebbleText.trim().split('\n').at(-1);
+  const bullets = [pebbleRequest, pebbleCapture].map((line) => `- Reason: owner asked to forget. Source: ${line} (2026-10-13 · albert)`).join('\n');
+  const archiveText = `---\ndescription: when reviewing an archived record\ntype: reference\naliases: [archived]\n---\n# Archived\n\n${bullets}\n\n\`\`\`verbatim\n${pebbleText}\`\`\`\n`;
+  return {
+    operations: [
+      { op: 'archive', path: pebblePath, leave: true, text: pebbleText, sources: [pebbleRequest, pebbleCapture], reason: 'owner', explanation: 'owner asked to forget', removals: [{ text: record, to: pebbleArchive }] },
+      { op: 'add', path: pebbleArchive, text: archiveText, sources: [pebbleRequest, pebbleCapture], reason: 'owner', explanation: 'owner asked to forget', removals: [] },
+      { op: 'supersede', path: pebbleIndexPath, reason: 'index', text: pebbleIndexText.replace(`${pebbleRow}\n`, ''), sources: [pebbleRequest], explanation: 'drop the index row', removals: [{ text: pebbleRow }] },
+      { op: 'supersede', path: pebbleDayPath, text: pebbleDayText.replace(`${pebbleEpisode}\n`, ''), sources: [pebbleRequest], reason: 'owner', explanation: 'drop the episode', removals: [{ text: pebbleEpisode }] },
+      { op: 'supersede', path: '.rbtv/memory/inbox.md', reason: 'owner', text: '# Inbox\n', sources: [pebbleRequest, pebbleCapture], explanation: 'consume the inbox lines', removals: [{ text: pebbleCapture, to: pebbleArchive }, { text: pebbleRequest, to: pebbleArchive }] },
+    ],
+    conflicts: [],
+  };
+}
+
+const sharedForget = plantPebble(fixture());
+const palHome = path.join(sharedForget.root, '.rbtv', 'agents', 'pal');
+write(path.join(palHome, 'memory/learned.md'), '# Learned rules — pal\n');
+write(path.join(palHome, '_artifacts/board.md'), board);
+const sharedPrep = run(sharedForget.home, ['prepare']);
+const sharedRun = sharedPrep.status === 0 ? json(sharedPrep).run : '';
+const sharedApply = run(sharedForget.home, ['apply', '--run', sharedRun, '--proposal', proposalFile(sharedForget.home, pebbleForgetProposal())]);
+const sharedForgetReceipt = store.readReceipts(sharedForget.home).find((row) => row.outcome === 'published');
+const sharedForgetLeave = sharedForgetReceipt && sharedForgetReceipt.items.find((row) => row.leave && row.path === pebblePath);
+const sharedCheck = run(sharedForget.home, ['check']);
+const deliveredLib = require('./lib/library.js').loadLibrary();
+const delivered = sharedApply.status === 0 ? deliveredLib.prepareMemory({ installation: sharedForget.root, agentHome: palHome }) : { bundle: [] };
+const deliveredText = delivered.bundle.map((row) => row.text).join('\n');
+assert('forget proposal of the help shape leaves nothing in delivered memory', sharedApply.status === 0 && sharedForgetReceipt && !fs.existsSync(path.join(sharedForget.root, pebblePath)) && !deliveredText.includes(pebble) && !deliveredText.includes('Owner asks to forget') && sharedCheck.status === 0 && !sharedCheck.stdout.includes('inbox'), `${sharedApply.stderr}\n${sharedCheck.stdout}${deliveredText.slice(0, 400)}`);
+const sharedForgetRound = sharedForgetLeave ? run(sharedForget.home, ['reverse', '--item', sharedForgetLeave.ref]) : { status: 1, stderr: 'no leave item' };
+const sharedForgetInbox = sharedForgetRound.status === 0 ? fs.readFileSync(path.join(sharedForget.root, '.rbtv/memory/inbox.md'), 'utf8') : '';
+const sharedForgetArchive = sharedForgetRound.status === 0 ? fs.readFileSync(path.join(sharedForget.root, pebbleArchive), 'utf8') : '';
+assert('reverse of a forget restores the record and does not put inbox lines back', sharedForgetRound.status === 0 && fs.readFileSync(path.join(sharedForget.root, pebblePath), 'utf8') === pebbleText && fs.readFileSync(path.join(sharedForget.root, pebbleIndexPath), 'utf8') === pebbleIndexText && fs.readFileSync(path.join(sharedForget.root, pebbleDayPath), 'utf8') === pebbleDayText && sharedForgetArchive.includes('# Restored') && !sharedForgetInbox.includes(pebbleCapture) && !sharedForgetInbox.includes(pebbleRequest), sharedForgetRound.stderr);
+const sharedForgetReport = json(run(sharedForget.home, ['report', '--occasion', 'week-shared-forget']));
+assert('weekly report lists the created-record reverse, the forget and the forget reversal', Boolean(sharedLeave) && sharedReport && sharedReport.text.includes(sharedLeave.ref) && sharedReport.text.includes('archived removal') && Boolean(sharedForgetLeave) && sharedForgetReport.text.includes(sharedForgetLeave.ref) && sharedForgetReport.text.includes('archived removal') && sharedForgetReport.text.includes('reversal'), `${sharedReport && sharedReport.text}\n${sharedForgetReport.text}`.slice(0, 500));
 
 const pair = fixture();
 const { spawn } = require('node:child_process');

@@ -6,7 +6,7 @@ The consolidation tool for the Albert agent. The model writes a proposal file. T
 
 ## Results `-h` does not state
 
-A quiet check writes `runtime/albert/liveness.json` and leaves every source cursor where it was. An inbox line cited in a published receipt's item sources is consumed: `check` does not raise that line again. The inbox file still holds the line, because the publisher files or folds an inbox line and does not delete a forget line. `prepare` returns only after the run file is on disk, and it does not hold the publication lock after it returns. `apply` writes a receipt under `runtime/albert/receipts/` before it moves a cursor. A refused proposal is copied to `runtime/albert/diagnostics/` and is not a receipt.
+A quiet check writes `runtime/albert/liveness.json` and leaves every source cursor where it was. Whether an inbox line is deleted is stated in `apply -h`. `check` does not raise a dated bullet that is no longer in the file. `prepare` returns only after the run file is on disk, and it does not hold the publication lock after it returns. `apply` writes a receipt under `runtime/albert/receipts/` before it moves a cursor. A refused proposal is copied to `runtime/albert/diagnostics/` and is not a receipt.
 
 ## Evidence batch
 
