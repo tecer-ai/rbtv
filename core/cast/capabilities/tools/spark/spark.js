@@ -9,17 +9,26 @@
 // spark list [AGENT] — the agents spark can open by name, or one of them in full. The list is
 // cast's (`cast list --agents`, lib/agent-list.js), and so is the reading of --target FOLDER
 // (lib/agent.js `targetAgents`).
+// spark resume [CODE] — the sessions a person opened, or one of them opened again. The record of
+// those sessions and the code of each are cast's (lib/headed.js); the session is opened by
+// `cast resume ... --headed`.
 
 const path = require('path');
 const { spawnSync } = require('child_process');
 
 const { findAgentHome, isPath, readAgent, targetAgents } = require('../cast/lib/agent');
 const { agentInFull, agentLines, agentList, listLines } = require('../cast/lib/agent-list');
+const { HANDLE_TTL_MS } = require('../cast/lib/handles');
+const { MAX_SHOWN, openedSessions, sessionLines, sessionOf, sessionRow } = require('../cast/lib/headed');
 const { findOnPath, spawnable } = require('../cast/lib/win-exec');
 
 const LIST_FORM = 'spark list [AGENT] [--target FOLDER] [--full] [--json] [-h]';
 const USAGE = 'usage: spark AGENT [--target FOLDER] [--dry-run] [--json] [-h]';
 const LIST_USAGE = `usage: ${LIST_FORM}`;
+const RESUME_FORMS = ['spark resume [-n N] [--json] [-h]', 'spark resume CODE [-h]'];
+const RESUME_USAGE = `usage: ${RESUME_FORMS.join('\n       ')}`;
+const SHOWN = 5;
+const KEPT_DAYS = HANDLE_TTL_MS / 86400000;
 
 const HELP = [
   'spark — help',
@@ -30,11 +39,13 @@ const HELP = [
   '',
   USAGE,
   `       ${LIST_FORM}`,
+  ...RESUME_FORMS.map((form) => `       ${form}`),
   '',
   'AGENT is a name, looked up in <installation>/.rbtv/agents/, or a path',
   'to an agent folder. The installation is the nearest folder above the',
   'current directory that holds .rbtv/. An argument with a slash or a',
-  'backslash is a path. Any other argument is a name, except list.',
+  'backslash is a path. Any other argument is a name, except list and',
+  'resume.',
   '',
   'spark list shows the agents spark can open by name: the agents in the',
   'nearest .rbtv/agents/ folder above the current directory. For each:',
@@ -47,7 +58,20 @@ const HELP = [
   'its folder, its whole description, and the packs, skills, rules,',
   'commands, MCP servers and hooks installed in it, under the names',
   'rbtv show takes. Both open nothing. No agent found is success. Open',
-  'an agent whose name is list by its path.',
+  'an agent whose name is list or resume by its path.',
+  '',
+  'spark resume shows the sessions opened on this machine with spark or',
+  `cast --headed, newest first: the ${SHOWN} newest, or the N newest with -n N.`,
+  'For each: its code, the agent (- when the session ran no rbtv',
+  'agent), harness, model, when it was opened and the folder it runs',
+  'in. It opens nothing. No session on record is success. A session',
+  `stays on record for ${KEPT_DAYS} days. spark resume CODE opens that session`,
+  'again in this terminal, with its history, on the agent\'s current',
+  'harness settings. A code is two letters, drawn at random when the',
+  'session is opened, and names that session for as long as it is on',
+  'record. A session opened on codex or opencode is found by its folder',
+  'and the time it was opened: two of them opened in one folder in the',
+  'same moment cannot be told apart.',
   '',
   '--target FOLDER makes AGENT a name among the agents of FOLDER, and',
   'spark list show those agents. FOLDER is an installation (it holds',
@@ -71,13 +95,18 @@ const HELP = [
   '--dry-run   Print the cast command it would run. Launch nothing.',
   '            spark list refuses it.',
   '--full      With list, show every description whole.',
+  `-n N        With resume and no CODE, show the N newest sessions, 1 to ${MAX_SHOWN}.`,
+  `            Default ${SHOWN}.`,
   '--json      With --dry-run, one JSON value: agent, home, cast.',
   '            With list, one JSON value: folder and agents, each',
   '            agent with name, description, harness, model, effort,',
   '            ignite and home. With list AGENT, that agent, plus',
-  '            installed: the names by kind. A real launch ignores',
-  '            --json. A refusal is text on standard error, with or',
-  '            without --json.',
+  '            installed: the names by kind. With resume and no CODE,',
+  '            one JSON value: on_record, the number of sessions on',
+  '            record, and sessions, each with code, agent (null',
+  '            when it ran none), harness, model, opened and folder.',
+  '            A real launch ignores --json. A refusal is text on',
+  '            standard error, with or without --json.',
   '-h, --help  Show this help and exit.',
   '',
   'spark needs cast on PATH to open an agent, and rbtv on PATH to show',
@@ -91,6 +120,9 @@ const HELP = [
   '  spark plans/launch/agents/drafter',
   '  spark drafter --target plans/launch/agents',
   '  spark scout --dry-run',
+  '  spark resume',
+  '  spark resume -n 20',
+  '  spark resume kj',
   '',
   'Exit codes: 0 success, including a list with no agent; 1 refused or',
   'invalid arguments.',
@@ -177,6 +209,77 @@ function list(named, dry, json, full, target) {
   return 0;
 }
 
+// The `cast` on PATH, or null after the refusal is printed.
+function findCast() {
+  const cast = findOnPath('cast');
+  if (!cast) refuse('cast is not on PATH', 'spark opens the agent through cast. Nothing was launched.', 'rbtv doctor');
+  return cast;
+}
+
+// `cast` started in this terminal; the exit code is cast's.
+function runCast(cast, castArgs) {
+  const win = spawnable(cast, castArgs);
+  const res = spawnSync(win.cmd, win.args, { stdio: 'inherit', ...win.opts });
+  if (res.error) return refuse('cast did not start', res.error.message, 'rbtv doctor');
+  return res.status ?? 1;
+}
+
+function header(pairs) {
+  for (const [label, text] of pairs) process.stdout.write(`${label.padEnd(8)} ${text}\n`);
+}
+
+// spark resume [CODE]: the sessions on record, or one of them opened again.
+function resume(args) {
+  let json = false;
+  let shown = null;
+  const positional = [];
+  for (let i = 0; i < args.length; i += 1) {
+    const a = args[i];
+    if (a === '-h' || a === '--help') {
+      process.stdout.write(`${HELP}\n`);
+      return 0;
+    } else if (a === '--json') json = true;
+    else if (a === '-n') {
+      const n = args[i += 1];
+      if (!/^\d+$/.test(n ?? '') || Number(n) < 1 || Number(n) > MAX_SHOWN) {
+        return refuse(`\`-n\` takes a number from 1 to ${MAX_SHOWN}`, `got ${n === undefined ? 'nothing' : `\`${n}\``}.`, RESUME_USAGE);
+      }
+      shown = Number(n);
+    } else if (a.startsWith('-')) {
+      return refuse(`\`${a}\` is not a spark resume option`,
+        'spark resume takes one optional code and the options -n, --json and -h.', RESUME_USAGE);
+    } else positional.push(a);
+  }
+  const codes = positional.slice(1);
+  if (codes.length > 1) return refuse('spark resume takes at most one code', `got ${codes.length}.`, RESUME_USAGE);
+  const opened = openedSessions();
+  if (!codes.length) {
+    const list = { on_record: opened.length, sessions: opened.slice(0, shown ?? SHOWN).map(sessionRow) };
+    process.stdout.write(json ? `${JSON.stringify(list)}\n` : `${sessionLines(list).join('\n')}\n`);
+    return 0;
+  }
+  const [code] = codes;
+  if (shown !== null) {
+    return refuse('`-n` goes with the list, not with a code', `\`${code}\` names one session.`, RESUME_USAGE);
+  }
+  const row = opened.find((h) => h.code === code);
+  if (!row) {
+    return refuse(`no session \`${code}\` is on record`,
+      `a code is the two letters spark resume shows, and a session stays on record for ${KEPT_DAYS} days.`, '`spark resume`');
+  }
+  const session = sessionOf(row);
+  if (session.problem) {
+    return refuse(`the session \`${code}\` cannot be opened again`, `${session.problem}. Nothing was launched.`,
+      row.agent ? `\`spark ${quote(row.agent)}\` opens a new session.` : '`spark resume` shows the others.');
+  }
+  const cast = findCast();
+  if (!cast) return 1;
+  const shownRow = sessionRow(row);
+  header([['session', code], ['agent', shownRow.agent ?? '-'], ['folder', row.folder], ['harness', row.harness],
+    ['model', row.model]]);
+  return runCast(cast, ['resume', row.harness, session.id, row.folder, '--headed']);
+}
+
 function spark(args) {
   let dry = false;
   let json = false;
@@ -184,8 +287,10 @@ function spark(args) {
   let target = null;
   const positional = [];
   // The first argument that is neither an option nor --target's folder decides the form: `list`,
-  // or an agent.
-  const listing = args.find((a, i) => !a.startsWith('-') && args[i - 1] !== '--target') === 'list';
+  // `resume`, or an agent.
+  const form = args.find((a, i) => !a.startsWith('-') && args[i - 1] !== '--target');
+  if (form === 'resume') return resume(args);
+  const listing = form === 'list';
   for (let i = 0; i < args.length; i += 1) {
     const a = args[i];
     if (a === '-h' || a === '--help') {
@@ -218,10 +323,8 @@ function spark(args) {
   const agent = findAgent(value, target);
   if (!agent) return 1;
   const { home, harness, model, effort } = agent;
-  const cast = findOnPath('cast');
-  if (!cast) {
-    return refuse('cast is not on PATH', 'spark opens the agent through cast. Nothing was launched.', 'rbtv doctor');
-  }
+  const cast = findCast();
+  if (!cast) return 1;
 
   // cast has no --target on a launch: under --target it gets the agent's folder.
   const castArgs = ['--agent', target ? home : value, '--headed'];
@@ -232,14 +335,8 @@ function spark(args) {
     return 0;
   }
 
-  for (const [label, text] of [['agent', name], ['folder', home], ['harness', harness], ['model', model],
-    ['effort', effort]]) {
-    process.stdout.write(`${label.padEnd(8)} ${text}\n`);
-  }
-  const win = spawnable(cast, castArgs);
-  const res = spawnSync(win.cmd, win.args, { stdio: 'inherit', ...win.opts });
-  if (res.error) return refuse('cast did not start', res.error.message, 'rbtv doctor');
-  return res.status ?? 1;
+  header([['agent', name], ['folder', home], ['harness', harness], ['model', model], ['effort', effort]]);
+  return runCast(cast, castArgs);
 }
 
 process.exitCode = spark(process.argv.slice(2));

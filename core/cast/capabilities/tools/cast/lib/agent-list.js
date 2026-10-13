@@ -210,4 +210,4 @@ function runAgentList(agent, { json, full, target }, fail) {
   process.exit(0);
 }
 
-module.exports = { agentList, agentInFull, listLines, agentLines, runAgentList };
+module.exports = { agentList, agentInFull, listLines, agentLines, runAgentList, terminalWidth };

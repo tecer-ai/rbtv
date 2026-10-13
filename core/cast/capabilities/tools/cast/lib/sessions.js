@@ -76,7 +76,9 @@ function claudeSessions(folder) {
 
 // codex: ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl, cwd + id in the first-line session_meta.
 // Walked newest-date-first, stopping at `limit` matches, so cost tracks recency not history size.
-function codexSessions(folder, limit) {
+// `since` (a time in ms) also stops the walk at the day folders older than it, with two days to
+// spare for the time zone the folders are named in.
+function codexSessions(folder, limit, since = 0) {
   const root = path.join(os.homedir(), '.codex', 'sessions');
   if (!fs.existsSync(root)) return [];
   const out = [];
@@ -85,6 +87,7 @@ function codexSessions(folder, limit) {
     for (const m of desc(path.join(root, y))) {
       for (const d of desc(path.join(root, y, m))) {
         const day = path.join(root, y, m, d);
+        if (Date.UTC(y, m - 1, d) < since - 2 * 86400000) return out;
         for (const f of desc(day)) {
           if (!f.endsWith('.jsonl')) continue;
           const lines = headLines(path.join(day, f));

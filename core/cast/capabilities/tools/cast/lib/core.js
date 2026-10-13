@@ -44,7 +44,7 @@ const CODEX_EXEC = ['--skip-git-repo-check'];
 //   resume      the token that picks the session to continue (an id, or `--last`); absent = a new
 //               session. `exec resume` has no --cd/--sandbox: the caller sets the working folder
 //               on the process, and the sandbox rides -c.
-//   headed      the interactive TUI instead of `exec` (new session only).
+//   headed      the interactive TUI instead of `exec`.
 //   folder      the launch folder (new session only).
 //   model       the model id. A resume without one runs on the default model of the account
 //               folder's config.toml, or on Codex's own default when that file is ignored; it
@@ -54,8 +54,8 @@ const CODEX_EXEC = ['--skip-git-repo-check'];
 function codexArgv({ resume, headed, folder, model, settings = [], jsonEvents }) {
   const tail = jsonEvents ? ['--json', '-'] : [];
   if (resume) {
-    return ['codex', 'exec', 'resume', resume, ...(model ? ['-m', model] : []), ...settings,
-      '-c', 'sandbox_mode=danger-full-access', ...CODEX_ALWAYS, ...CODEX_EXEC, ...tail];
+    return ['codex', ...(headed ? [] : ['exec']), 'resume', resume, ...(model ? ['-m', model] : []), ...settings,
+      '-c', 'sandbox_mode=danger-full-access', ...CODEX_ALWAYS, ...(headed ? [] : CODEX_EXEC), ...tail];
   }
   return ['codex', ...(headed ? [] : ['exec']), '--cd', folder, '-m', model, '--sandbox', 'danger-full-access',
     ...CODEX_ALWAYS, ...(headed ? [] : CODEX_EXEC), ...settings, ...tail];
@@ -93,7 +93,7 @@ function fail(msg) {
 const HARNESSES = Object.keys(SPECS);
 const USAGE = 'cast <harness> <model> <effort 1-5> [launch-folder] (-p TEXT | -f FILE) [-s TEXT | -S FILE | --rogue PROMPT-FILE] [--headed] [--dry-run]';
 const USAGE_IG = 'cast --agent AGENT [-p TEXT | -f FILE] [--headed] [--dry-run]';
-const RESUME_USAGE = 'cast resume <harness> <session-id|last> [launch-folder] (-p TEXT | -f FILE) [--dry-run]';
+const RESUME_USAGE = 'cast resume <harness> <session-id|last> [launch-folder] (-p TEXT | -f FILE | --headed) [--dry-run]';
 const SESSIONS_USAGE = 'cast sessions [harness] [launch-folder] [--json] [-n N]';
 const KNOWN_FLAGS = '-p, -f, -s, -S, --agent, --rogue, --headed, --dry-run, --detached, -h/--help';
 

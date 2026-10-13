@@ -278,4 +278,111 @@ if (process.platform !== 'win32') {
   assert.ok(withJson.stdout.startsWith('agent    drafter\n'), 'a real launch ignores --json');
 }
 
+// spark resume: the sessions on record, read from cast's handle registry under the home folder
+{
+  const home = mkFolder('resume-home');
+  const homeEnv = { HOME: home, USERPROFILE: home };
+  const t0 = Date.UTC(2026, 9, 13, 10, 0, 0);
+  const plain = mkFolder('resume-plain');
+  const rows = [
+    { harness: 'claude', model: 'opus-5-5', session: 'old-id', folder: scout, t0: t0 - 5000, code: 'kj', agent: scout },
+    { harness: 'claude', model: 'haiku-5-5', session: null, folder: plain, t0: t0 + 500 },
+    { harness: 'codex', model: 'gpt-6.1-sol', session: null, folder: scout, t0, code: 'ab', agent: scout },
+    { harness: 'opencode', model: 'glm-5.3', session: null, folder: plain, t0: t0 + 1000, code: 'zz', agent: null },
+    { harness: 'claude', model: 'sonnet-5-5', session: 'new-id', folder: drafter, t0: t0 + 2000, code: 'kj', agent: drafter },
+  ];
+  fs.mkdirSync(path.join(home, '.cast'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'), rows.map((r) => `${JSON.stringify(r)}\n`).join(''));
+  // codex names its session itself: two rollouts of the folder, one born before the launch
+  const day = path.join(home, '.codex', 'sessions', '2026', '10', '13');
+  fs.mkdirSync(day, { recursive: true });
+  const rollout = (id, at) => fs.writeFileSync(path.join(day, `rollout-${id}.jsonl`),
+    `${JSON.stringify({ type: 'session_meta', timestamp: new Date(at).toISOString(), payload: { id, cwd: scout } })}\n`);
+  rollout('before', t0 - 60000);
+  rollout('opened', t0 + 3000);
+  rollout('later', t0 + 90000);
+  const resume = (args, env = {}) => spark(['resume', ...args], { env: { ...homeEnv, COLUMNS: '200', ...env } });
+
+  // the list: newest first, one row per code (the newest), a launch with no code left out
+  const list = resume([]);
+  assert.strictEqual(list.status, 0, list.stderr);
+  assert.strictEqual(list.stderr, '');
+  const when = (ms) => {
+    const d = new Date(ms);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+  const cols = (...cells) => cells.join('|');
+  const got = list.stdout.split('\n').map((line) => line.split(/ {2,}/).join('|'));
+  assert.deepStrictEqual(got, [
+    'Sessions opened: 3 of 3, newest first',
+    '',
+    cols('Code', 'Agent', 'Harness', 'Model', 'Opened', 'Folder'),
+    cols('kj', 'drafter', 'claude', 'sonnet-5-5', when(t0 + 2000), drafter),
+    cols('zz', '-', 'opencode', 'glm-5.3', when(t0 + 1000), plain),
+    cols('ab', 'scout', 'codex', 'gpt-6.1-sol', when(t0), scout),
+    '',
+    'Open one again: spark resume CODE',
+    '',
+  ], list.stdout);
+  const header = list.stdout.split('\n')[2];
+  assert.strictEqual(header.indexOf('Folder'), list.stdout.split('\n')[3].indexOf(drafter), 'the columns line up');
+
+  // -n: that many, and where the rest are; --json: the same sessions as one value
+  const one = resume(['-n', '1']);
+  assert.ok(one.stdout.startsWith('Sessions opened: 1 of 3, newest first\n'), one.stdout);
+  assert.ok(one.stdout.endsWith('Open one again: spark resume CODE\nShow more: spark resume -n N, up to 50.\n'), one.stdout);
+  assert.deepStrictEqual(JSON.parse(resume(['--json', '-n', '2']).stdout), { on_record: 3, sessions: [
+    { code: 'kj', agent: 'drafter', harness: 'claude', model: 'sonnet-5-5', opened: new Date(t0 + 2000).toISOString(), folder: drafter },
+    { code: 'zz', agent: null, harness: 'opencode', model: 'glm-5.3', opened: new Date(t0 + 1000).toISOString(), folder: plain },
+  ] });
+
+  // a narrow terminal: one labeled block per session, no line cut
+  const narrow = resume(['-n', '1'], { COLUMNS: '40' });
+  assert.ok(narrow.stdout.includes(`Code: kj\nAgent: drafter\nHarness: claude\nModel: sonnet-5-5\nOpened: ${when(t0 + 2000)}\nFolder: ${drafter}\n`), narrow.stdout);
+
+  // no session on record is success
+  const none = resume([], { HOME: plain, USERPROFILE: plain });
+  assert.strictEqual(none.status, 0, none.stderr);
+  assert.strictEqual(none.stdout, 'Sessions opened: 0\n\nNo session is on record. spark AGENT opens one.\n');
+  assert.strictEqual(resume(['--json'], { HOME: plain, USERPROFILE: plain }).stdout, '{"on_record":0,"sessions":[]}\n');
+
+  // refusals: exit 1, nothing on standard output, nothing launched
+  fs.rmSync(shimOut, { force: true });
+  for (const [args, text, env] of [
+    [['qq'], 'no session `qq` is on record'],
+    [['kj', 'ab'], 'spark resume takes at most one code'],
+    [['-n', '0'], '`-n` takes a number from 1 to 50'],
+    [['-n', '51'], '`-n` takes a number from 1 to 50'],
+    [['-n'], '`-n` takes a number from 1 to 50'],
+    [['-n', '3', 'kj'], '`-n` goes with the list, not with a code'],
+    [['--full'], '`--full` is not a spark resume option'],
+    [['zz'], `the session \`zz\` cannot be opened again\n  why: opencode recorded no session in ${plain} since`],
+    [['kj'], 'cast is not on PATH', { PATH: os.tmpdir() }],
+  ]) {
+    const res = resume(args, env);
+    assert.strictEqual(res.status, 1, `spark resume ${args.join(' ')}`);
+    assert.strictEqual(res.stdout, '');
+    assert.ok(res.stderr.includes(text), `spark resume ${args.join(' ')}: ${res.stderr}`);
+  }
+  assert.ok(!fs.existsSync(shimOut), 'nothing was launched');
+
+  if (process.platform !== 'win32') {
+    // a code opens its session through cast: claude by the id on record, codex by the first
+    // session it recorded for the folder from the launch on
+    const claude = resume(['kj']);
+    assert.strictEqual(claude.status, 0, claude.stderr);
+    assert.strictEqual(claude.stdout, ['session  kj', 'agent    drafter', `folder   ${drafter}`, 'harness  claude',
+      'model    sonnet-5-5', ''].join('\n'));
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(shimOut, 'utf8')), ['resume', 'claude', 'new-id', drafter, '--headed']);
+    assert.strictEqual(resume(['ab']).status, 0);
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(shimOut, 'utf8')), ['resume', 'codex', 'opened', scout, '--headed']);
+  }
+
+  // help after the verb is the one help page, and it names both resume forms
+  const help = resume(['-h']);
+  assert.strictEqual(help.status, 0);
+  assert.ok(help.stdout.includes('       spark resume [-n N] [--json] [-h]\n       spark resume CODE [-h]\n'), help.stdout);
+}
+
 console.log('test_spark: ok');

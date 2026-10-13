@@ -73,3 +73,11 @@ Reason: OpenCode is isolated by environment variables only, and Claude Code's bu
 ## The first message of a headed agent launch is in the agent's record
 
 A headed `cast --agent` launch given no task opens with the `opening` of the agent's `agent.json` when the record has one, and with no first message otherwise; `spark` passes no message of its own. Reason: a greeting fixed in the launcher reached every agent whatever its purpose, and two design agents spent their first turn on it; what an agent does before its person speaks is part of the agent, so its record holds it, and an agent whose record says nothing waits.
+
+## A headed launch has no deadline
+
+A headless launch and a headless resume are ended at the wall-clock deadline; a headed launch and a headed resume are not. Reason: the deadline bounds a job nobody is watching, and a headed session is a person's, who may keep it open longer than any job runs.
+
+## A session a person opened is named by a random two-letter code
+
+Every headed launch gets a code of two letters in its row of the handle registry, drawn at random from the codes no row on record holds, and `spark resume CODE` opens that session again. Reason: a position in a list names another session as soon as a new one is opened, and a random code keeps naming the same one; two letters are quick to type and give 676 codes, more than a machine opens in the 7 days a row is kept. Only when every code is held does the oldest session give up its own.

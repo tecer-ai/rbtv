@@ -52,6 +52,18 @@ function stdoutPath() {
   try { return p && fs.statSync(p).isFile() ? p : null; } catch { return null; }
 }
 
+// Every row of the registry, oldest first. A torn line is left out.
+function readHandles() {
+  let text;
+  try { text = fs.readFileSync(HANDLES_FILE, 'utf8'); } catch { return []; }
+  const rows = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    try { rows.push(JSON.parse(line)); } catch { /* torn line */ }
+  }
+  return rows;
+}
+
 // One stderr line the caller can parse, plus a registry row for post-hoc lookup. Emitted BEFORE
 // the spawn, so a child that hangs at launch is still findable. `print` false writes the row
 // alone: a headed launch is read by a person, in the terminal the harness is about to take.
@@ -77,5 +89,5 @@ function emitHandle(handle, print = true) {
 
 module.exports = {
   HANDLES_FILE, HANDLE_TTL_MS, claudeSlug, procStart, procStarts, stdoutPath,
-  emitHandle,
+  emitHandle, readHandles,
 };

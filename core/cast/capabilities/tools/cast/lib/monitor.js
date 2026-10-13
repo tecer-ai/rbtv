@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { fail } = require('./core');
-const { HANDLES_FILE, procStart, procStarts } = require('./handles');
+const { HANDLES_FILE, procStart, procStarts, readHandles } = require('./handles');
 const { detectProviderLimit, formatReason } = require('./provider-limit');
 const { codexSessions, opencodeCandidates, opencodeStore } = require('./sessions');
 const { winTreeSample } = require('./win-proc');
@@ -49,13 +49,7 @@ const MONITOR_USAGE = 'cast monitor [--watch] [--stall SECONDS] [--grace SECONDS
 // Registry rows whose wrapper process is still the one that wrote them — the /proc starttime pin
 // makes this comm-free and PID-reuse-proof. Re-read every poll, so launches mid-watch are picked up.
 function liveJobs(prefix) {
-  let text;
-  try { text = fs.readFileSync(HANDLES_FILE, 'utf8'); } catch { return []; }
-  const rows = [];
-  for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    try { rows.push(JSON.parse(line)); } catch { /* torn line */ }
-  }
+  const rows = readHandles();
   // One pin lookup for the whole registry (on Windows each lookup is a process spawn).
   const starts = procStarts(rows.filter((h) => h.start != null).map((h) => h.pid));
   // A launch that ran a fallback wrote one row per run under one process: the latest row is the

@@ -10,7 +10,7 @@ turn into an existing session.
 ```
 cast --agent AGENT [-p TEXT | -f FILE] [--headed] [--dry-run]
 cast <harness> <model> <effort 1-5> [launch-folder] (-p TEXT | -f FILE) [-s TEXT | -S FILE | --rogue PROMPT-FILE] [--headed] [--dry-run]
-cast resume <harness> <session-id|last> [launch-folder] (-p TEXT | -f FILE) [--dry-run]
+cast resume <harness> <session-id|last> [launch-folder] (-p TEXT | -f FILE | --headed) [--dry-run]
 cast sessions [harness] [launch-folder] [--json] [-n N]
 ignite turn --request FILE --result FILE
 cast api <model> <effort 1-5> (-p TEXT | -f FILE) --output-folder DIR --image [--input-image PATH ...] [--target-file PATH] [--timeout N] [--extra-params JSON] [--dry-run]
@@ -109,8 +109,11 @@ folder is resumed with the argv of the table. In an agent folder whose `agent.js
 resumed harness, the turn is also passed that record's model and effort, resolved as `--agent`
 resolves them, so a resumed agent runs on its own model; a record that cannot give them is refused
 as `--agent` refuses it. In any other folder, and for a session of another harness than the record
-names, cast passes no model and no effort and the harness picks them. `-s`/`-S` and
-`--headed` are refused. `-n` caps `sessions` PER HARNESS (default 10), newest first; `--json` gives
+names, cast passes no model and no effort and the harness picks them. `-s`/`-S` is refused.
+`--headed` opens the session in the harness's TUI instead of sending a turn: `claude --resume <id>`,
+`codex resume <id>` and `opencode -s <id>`, with the same model, effort and agent arguments, and
+without the options only the one-shot forms take. It takes no message (`-p` or `-f` is refused), has
+no deadline, prints no handle line and sets `RBTV_AGENT_HOME` in an agent folder. `-n` caps `sessions` PER HARNESS (default 10), newest first; `--json` gives
 `[{harness, id, started, label}]`. The label is human-readable session identity: opencode's stored
 `title`; for claude/codex a ≤60-char excerpt of the first real user message (injected `<...>`
 wrapper blocks skipped) — for cast-launched sessions that is the `-p` task itself. Known ceiling: two same-harness sessions launched into the same folder
@@ -259,8 +262,19 @@ A child that exits without reading the task still ends the launch with its own e
 
 A headless launch and a `cast resume` are ended after 4 hours of wall clock (`CAST_DEADLINE_MS`
 changes the cap): cast sends the child SIGTERM, prints `cast: deadline` on standard error and exits
-1. A `--headed` launch has no deadline: it is a person's session and lasts as long as that person
-keeps it open, which is what a session opened with `spark` relies on.
+1. A `--headed` launch or resume has no deadline: it is a person's session and lasts as long as that
+person keeps it open, which is what a session opened with `spark` relies on.
+
+### The sessions a person opened
+
+The row a `--headed` launch writes to the handle registry also holds `code`, two letters, and
+`agent`, the folder of the rbtv agent it ran or `null`. The code is drawn at random from the codes
+no row on record holds, so it names that session for as long as the row is kept: 7 days. A headed
+Claude Code launch is started on a session id cast chose, as a headless one is, and the row holds
+it; Codex and OpenCode name their session after the start, and `lib/headed.js` finds it as the
+first session the harness recorded for the launch folder from the moment of the launch. Two
+sessions of one of those two harnesses, opened in one folder in the same moment, are not told
+apart. [`spark resume`](../spark/spark.md) shows these rows and opens one again by its code.
 
 **Output format is deliberately the harness default — no `--output-format`/`--json` flag on a bare
 launch (owner-ruled 1a, 2026-08-18, closing a measured divergence with ignite).** `ignite turn` is the exception: it captures stdout to a file and passes those flags so it can read an exact session id. The contract for every other verb is
@@ -646,7 +660,8 @@ runs in.
 | `capabilities/tools/cast/lib/core.js` | shared primitives: argv parsing, model/effort/folder resolution (`lookupModel`, which runs the launch check), the words of `cast list` |
 | `capabilities/tools/cast/lib/doctor.js` | `cast doctor`: harness programs on `PATH`, the login of each model the installation selects and the count of cells that differ from the shipped model catalog, from local files only |
 | `capabilities/tools/cast/lib/handles.js` | the launch-handle registry — the one observable a watcher uses to find a run again |
-| `capabilities/tools/cast/lib/launch.js` | spawn, the fallback runs of a launch, `cast resume` |
+| `capabilities/tools/cast/lib/headed.js` | the sessions a person opened: the code a headed launch gets, the rows that carry one, the harness session a row names, and the list as text. [`spark resume`](../spark/spark.md) shows it |
+| `capabilities/tools/cast/lib/launch.js` | spawn, the fallback runs of a launch, `cast resume` in both its forms |
 | `capabilities/tools/cast/lib/fallback.js` | the fallback of a launch: what counts as a failure to start, the candidates of a model in the order to try them, the effort they launch at, the words for how an attempt ended, and the words that close a level with none left. `launch.js` and Ignite's turn both use it |
 | `capabilities/tools/cast/lib/defaults.js` | the installation's defaults, `.rbtv/config/cast/defaults.json`: the default ranking of `cast route` and the ranking of a fallback, read and replaced in one step |
 | `capabilities/tools/cast/lib/win-exec.js` | how a harness name becomes a process on Windows: finds the program on `PATH` and wraps an npm `.cmd` shortcut so that it can be started |

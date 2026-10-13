@@ -1,5 +1,5 @@
 {
   "name": "spark",
-  "description": "Opens an rbtv agent in this terminal, for a person, with that agent's own harness, model and effort through cast; `spark list` shows the agents it can open.",
+  "description": "Opens an rbtv agent in this terminal, for a person, with that agent's own harness, model and effort through cast; `spark list` shows the agents it can open, and `spark resume` shows the sessions opened on this machine and opens one again by its two-letter code.",
   "entry": "spark.js"
 }

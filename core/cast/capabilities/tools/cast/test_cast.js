@@ -643,7 +643,19 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   assert.strictEqual(out.cwd, process.cwd());
 }
 
-// cast resume refusals: --headed, -s, missing prompt, unknown harness
+// cast resume --headed: the session in the harness's TUI, with no message and no print-mode flag
+{
+  const folder = mkFolder('resume-headed');
+  const claude = dryRun(['resume', 'claude', 'abc-123', folder, '--headed']);
+  assert.deepStrictEqual(claude.argv, ['claude', '--resume', 'abc-123', '--permission-mode', 'bypassPermissions']);
+  assert.strictEqual(claude.stdin_preview, null);
+  const codex = dryRun(['resume', 'codex', 'tid-1', folder, '--headed']);
+  assert.deepStrictEqual(codex.argv.slice(0, 3), ['codex', 'resume', 'tid-1']);
+  assert.ok(!codex.argv.includes('--skip-git-repo-check'), 'the interactive codex refuses the exec-only option');
+  assert.deepStrictEqual(dryRun(['resume', 'opencode', 'ses_x1', folder, '--headed']).argv, ['opencode', '-s', 'ses_x1']);
+}
+
+// cast resume refusals: --headed with a message, -s, missing prompt, unknown harness
 {
   const folder = mkFolder('resume-refusals');
   for (const args of [
@@ -749,7 +761,11 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   const headedRows = fs.readFileSync(path.join(headedHome, '.cast', 'handles.jsonl'), 'utf8')
     .split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
   assert.strictEqual(headedRows.length, 1);
-  assert.strictEqual(headedRows[0].session, null);
+  // the row holds what opens the session again: the id claude was started on, and a code
+  assert.match(headedRows[0].session, /^[0-9a-f-]{36}$/);
+  assert.match(headedRows[0].code, /^[a-z]{2}$/);
+  assert.strictEqual(headedRows[0].agent, null);
+  assert.ok(!('code' in rows[0]), 'a headless launch gets no code');
 
   // the minted id rides argv; dry-run emits neither handle line nor registry row
   const dry = spawnSync('node', [TOOL, 'claude', 'haiku-5-5', '1', folder, '-p', 'hi', '--dry-run'], {
@@ -757,8 +773,8 @@ const drainStdin = "try { require('fs').readFileSync(0); } catch {}\n";
   });
   assert.ok(!dry.stderr.includes('cast: handle'), `dry-run must emit no handle: ${dry.stderr}`);
   assert.ok(JSON.parse(dry.stdout).argv.includes('--session-id'), 'claude launch must mint --session-id');
-  // headed claude and the other harnesses carry no minted session
-  assert.ok(!dryRun(['claude', 'sonnet-5-5', '1', folder, '-p', 'hi', '--headed']).argv.includes('--session-id'));
+  // headed claude is started on a minted id too; the other harnesses carry none
+  assert.ok(dryRun(['claude', 'sonnet-5-5', '1', folder, '-p', 'hi', '--headed']).argv.includes('--session-id'));
   assert.ok(!dryRun(['codex', 'gpt-6-luna', '1', folder, '-p', 'hi']).argv.includes('--session-id'));
 }
 
@@ -1427,6 +1443,22 @@ db.close();
   const headed = run(['--headed']);
   assert.ok(headed.status === 0 && !headed.stderr.includes('cast: deadline'),
     `a headed launch must outlast the deadline: ${headed.status} ${headed.stderr}`);
+}
+
+// The code of a headed launch: one no session on record holds; with all 676 held, the oldest's.
+{
+  const home = mkFolder('code-home');
+  const res = (rows) => {
+    fs.mkdirSync(path.join(home, '.cast'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'), rows.map((r) => `${JSON.stringify(r)}\n`).join(''));
+    return spawnSync('node', ['-e', "process.stdout.write(require('./lib/headed').newCode())"],
+      { cwd: __dirname, encoding: 'utf8', env: { ...process.env, ...homeEnv(home) } }).stdout;
+  };
+  const letters = 'abcdefghijklmnopqrstuvwxyz';
+  const all = [...letters].flatMap((a) => [...letters].map((b) => a + b));
+  const held = all.map((code, i) => ({ code, t0: 1000 + i }));
+  assert.strictEqual(res(held.filter((h) => h.code !== 'kj')), 'kj', 'the one free code');
+  assert.strictEqual(res(held), 'aa', 'the code of the oldest session');
 }
 
 // --- liveness binding by tag, not time-proximity (LE-2: cast-attribution) ---------------------

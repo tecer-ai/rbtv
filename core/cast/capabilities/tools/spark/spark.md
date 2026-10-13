@@ -1,6 +1,6 @@
 # spark
 
-`spark` opens an rbtv agent in this terminal, for a person. It is a thin layer over [cast](../cast/cast.md): it finds the agent, prints what it is about to open and starts `cast --agent NAME --headed`. `spark -h` owns the grammar and options; this page states what each form returns and what a change to the program must keep.
+`spark` opens an rbtv agent in this terminal, for a person. It is a thin layer over [cast](../cast/cast.md): it finds the agent, prints what it is about to open and starts `cast --agent NAME --headed`; it also shows the sessions opened that way and opens one again. `spark -h` owns the grammar and options; this page states what each form returns and what a change to the program must keep.
 
 ## What each form returns
 
@@ -13,15 +13,21 @@
 
 - Refusals, exit 1: `--dry-run`, more than one agent, an agent that is not found or cannot be launched, or an unknown option. A refusal is text on standard error and leaves standard output empty, with or without `--json`.
 
+`spark resume` shows the sessions a person opened on this machine, newest first: the ones `spark AGENT` and `cast --headed` started, which are the rows of cast's handle registry that carry a code. [cast](../cast/cast.md#the-sessions-a-person-opened) says what a row holds and how long it is kept. Each session is shown with its code, the folder name of its agent (`-` when the launch named none), harness, model, when it was opened and its launch folder; the columns are a table, or one labeled block per session on a terminal too narrow for it. It shows 5 sessions, or the `-n N` newest up to 50, and says how many are on record. `--json` prints `{on_record, sessions: [{code, agent, harness, model, opened, folder}]}`, with `agent` null where the table shows `-` and `opened` as an ISO time. No session on record is success. It needs no `cast` on PATH and opens nothing.
+
+`spark resume CODE` prints the session's code, agent, folder, harness and model, then starts `cast resume HARNESS SESSION FOLDER --headed`, which opens the session with its history. The harness and the folder are the row's; the model and effort are those of the agent's record today, as `cast resume` reads them. Claude Code was started on an id cast chose, so the row names the session exactly. Codex and OpenCode name their session themselves: spark takes the first session they recorded for the folder from the moment of the launch, so two sessions of one of them opened in one folder in the same moment are not told apart.
+
+- Refusals, exit 1: a code no session on record holds, more than one code, `-n` outside 1 to 50 or given with a code, an unknown option, a Codex or OpenCode session the harness recorded nothing for, or `cast` not on PATH.
+
 ## Layout
 
 | File | What it owns |
 |---|---|
-| `capabilities/tools/spark/spark.js` | both forms: the terminal handoff and `spark list` |
+| `capabilities/tools/spark/spark.js` | the three forms: the terminal handoff, `spark list` and `spark resume` |
 | `capabilities/tools/spark/spark.json` | the tool record: the name `spark`, its listing description and the executable `spark.js` |
 | `capabilities/tools/spark/test_spark.js` | the suite; it puts a recording `cast` on PATH, so no harness is launched |
 
-spark keeps no copy of what cast knows. It loads three modules of `capabilities/tools/cast/lib/`: `agent.js` (where an agent's folder is and how `agent.json` is read), `agent-list.js` (the list) and `win-exec.js` (starting `cast` on Windows). Change those in cast, described in [cast](../cast/cast.md), Layout; a change there needs both suites run.
+spark keeps no copy of what cast knows. It loads five modules of `capabilities/tools/cast/lib/`: `agent.js` (where an agent's folder is and how `agent.json` is read), `agent-list.js` (the list of agents), `headed.js` (the sessions a person opened, their codes and the session each one names), `handles.js` (how long a session stays on record) and `win-exec.js` (starting `cast` on Windows). Change those in cast, described in [cast](../cast/cast.md), Layout; a change there needs both suites run.
 
 ## Self-check
 

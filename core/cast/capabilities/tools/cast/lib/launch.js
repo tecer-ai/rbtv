@@ -16,6 +16,7 @@ const { isAgentFolder, rbtvAgent } = require('./agent');
 const { HARNESSES, RESUME_USAGE, baseArgv, codexArgv, fail, parseArgs, promptArgv, refuseIfDetached, resolveEffortValue, resolveFolder, resolveModel, shortName } = require('./core');
 const { exhausted, howEnded, nameOf, startFailure } = require('./fallback');
 const { claudeSlug, emitHandle, procStart, stdoutPath } = require('./handles');
+const { newCode } = require('./headed');
 const { isolation } = require('./isolation');
 const { loadOptional } = require('./optional');
 const { spawnable } = require('./win-exec');
@@ -124,7 +125,7 @@ function attempt({ harness, modelId, folder, effortWord, effortArgv, system, pro
   // exactly, so no folder->session guessing (measured: 373/900 slug dirs hold >1 transcript).
   // codex/opencode have no such flag — their handle carries session: null.
   let session = null;
-  if (harness === 'claude' && !headed) {
+  if (harness === 'claude') {
     session = crypto.randomUUID();
     argv = [...argv, '--session-id', session];
   }
@@ -196,6 +197,8 @@ function attempt({ harness, modelId, folder, effortWord, effortArgv, system, pro
       ? path.join(os.homedir(), '.claude', 'projects', claudeSlug(folder), `${session}.jsonl`)
       : null,
     t0,
+    // What opens a headed session again (lib/headed.js): its code, and the rbtv agent it ran.
+    ...(headed ? { code: newCode(), agent: agentHome } : {}),
   }, !headed);
 
   const finish = (out) => done({ ...out, elapsedMs: Date.now() - t0 });
@@ -316,19 +319,19 @@ function opencodeTouched(folder, t0) {
 const SYSTEM_WRAPPER = 'The text above is your system-prompt directive for this run — it rides this '
   + "first message because your harness carries no system prompt. The user's message follows:";
 
-// cast resume: send one more turn into an existing headless session. `last` = the harness's own
-// "most recent session in this folder" affordance, so no id bookkeeping is needed for the common
-// case. Permission/sandbox flags are per-invocation, not per-session, so they ride again here.
+// cast resume: send one more turn into an existing session, or with `headed` open it again in the
+// harness's TUI. `last` = the harness's own "most recent session in this folder" affordance, so no
+// id bookkeeping is needed for the common case. Permission/sandbox flags are per-invocation, not per-session, so they ride again here.
 // codex's cwd comes from spawnSync (see codexArgv). `added` = an rbtv agent's effort and the
 // arguments that isolate it (lib/isolation.js), which are per-invocation too. `model` = that
 // agent's model id; with none the harness picks the model itself.
-function resumeArgv(harness, id, added = [], model = null) {
+function resumeArgv(harness, id, added = [], model = null, headed = false) {
   switch (harness) {
-    case 'claude': return ['claude', '-p', ...(id === 'last' ? ['--continue'] : ['--resume', id]),
+    case 'claude': return ['claude', ...(headed ? [] : ['-p']), ...(id === 'last' ? ['--continue'] : ['--resume', id]),
       ...(model ? ['--model', model] : []), '--permission-mode', 'bypassPermissions', ...added];
-    case 'codex': return codexArgv({ resume: id === 'last' ? '--last' : id, model, settings: added });
-    case 'opencode': return ['opencode', 'run', ...(id === 'last' ? ['-c'] : ['-s', id]),
-      ...(model ? ['-m', model] : []), '--auto', ...added];
+    case 'codex': return codexArgv({ resume: id === 'last' ? '--last' : id, headed, model, settings: added });
+    case 'opencode': return ['opencode', ...(headed ? [] : ['run']), ...(id === 'last' ? ['-c'] : ['-s', id]),
+      ...(model ? ['-m', model] : []), ...(headed ? [] : ['--auto']), ...added];
   }
 }
 
@@ -345,8 +348,9 @@ function agentModel(home, harness) {
 }
 
 function runResume(rawArgv) {
-  const { dryRun, headed, detached, promptText, system, positional } = parseArgs(rawArgv, RESUME_USAGE, true);
-  if (headed) fail('refused: resume is headless-only — drop --headed');
+  // A headed resume opens the session for a person, who types the next message.
+  const { dryRun, headed, detached, promptText, system, positional } = parseArgs(rawArgv, RESUME_USAGE, !rawArgv.includes('--headed'));
+  if (headed && promptText !== null) fail('refused: a headed resume takes no message: the person types it — drop -p/-f, or drop --headed');
   if (system) fail('refused: the resumed session already has its system prompt — drop -s/-S');
   if (positional.length < 2 || positional.length > 3) {
     fail(`usage: ${RESUME_USAGE}\nrun cast -h for full help`);
@@ -359,13 +363,14 @@ function runResume(rawArgv) {
   // A session that ran in an agent folder is an rbtv agent's: it is resumed isolated, on the
   // model and effort of the agent's record, as it was started.
   const agentHome = isAgentFolder(folder) ? folder : null;
-  const iso = isolation(harness, agentHome);
+  const iso = isolation(harness, agentHome, headed);
   const own = agentHome && agentModel(agentHome, harness);
-  const argv = own ? resumeArgv(harness, id, [...own.effortArgv, ...iso.argv], own.modelId) : resumeArgv(harness, id, iso.argv);
+  const argv = own ? resumeArgv(harness, id, [...own.effortArgv, ...iso.argv], own.modelId, headed)
+    : resumeArgv(harness, id, iso.argv, null, headed);
 
   if (dryRun) {
     process.stdout.write(`${JSON.stringify({
-      argv, cwd: folder, stdin_preview: promptText.slice(0, 200), ...iso.env, env_removed: envRemoved(iso),
+      argv, cwd: folder, stdin_preview: headed ? null : promptText.slice(0, 200), ...iso.env, env_removed: envRemoved(iso),
     })}\n`);
     process.exit(0);
   }
@@ -387,7 +392,12 @@ function runResume(rawArgv) {
       ? path.join(os.homedir(), '.claude', 'projects', claudeSlug(folder), `${id}.jsonl`)
       : null,
     t0,
-  });
+  }, !headed);
+  if (headed) {
+    return ended('resume failed')(spawnHarness(argv[0], argv.slice(1), {
+      cwd: folder, env: agentHome ? { RBTV_AGENT_HOME: agentHome, ...iso.env } : iso.env, unset: iso.unset,
+      capped: false, stdio: 'inherit' }));
+  }
   if (harness === 'opencode') {
     return runOpencodeChecked(argv, { cwd: folder, env: iso.env, unset: iso.unset, stdinText: promptText, t0, model: 'resume',
       bind: () => (id === 'last' ? opencodeTouched(folder, t0) : id) }, ended('launch failed'));
