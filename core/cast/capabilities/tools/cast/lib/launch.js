@@ -43,6 +43,12 @@ function launchEnv(folder, extra, unset = []) {
   return { ...env, ...(extra || {}), PWD: folder };
 }
 
+// What the harness of an rbtv agent receives in its environment, at a launch and at a resume: the
+// agent's folder as RBTV_AGENT_HOME, and the variables that isolate it. null for any other start.
+function agentEnvOf(agentHome, iso) {
+  return agentHome ? { RBTV_AGENT_HOME: agentHome, ...iso.env } : null;
+}
+
 // The inherited variables a start removes and does not set again: what a dry run names.
 function envRemoved(iso) {
   return iso.unset.filter((name) => name in process.env && !(name in iso.env));
@@ -118,8 +124,7 @@ function attempt({ harness, modelId, folder, effortWord, effortArgv, system, pro
   const iso = isolation(harness, agentHome, headed);
   let argv = baseArgv(harness, modelId, folder, headed, iso.argv);
   let stdinText = promptText;
-  // An rbtv agent's folder is announced to the harness's process as RBTV_AGENT_HOME.
-  const agentEnv = agentHome ? { RBTV_AGENT_HOME: agentHome, ...iso.env } : null;
+  const agentEnv = agentEnvOf(agentHome, iso);
 
   // Mint claude's session id instead of resolving it post-hoc: the id names the transcript file
   // exactly, so no folder->session guessing (measured: 373/900 slug dirs hold >1 transcript).
@@ -364,13 +369,14 @@ function runResume(rawArgv) {
   // model and effort of the agent's record, as it was started.
   const agentHome = isAgentFolder(folder) ? folder : null;
   const iso = isolation(harness, agentHome, headed);
+  const agentEnv = agentEnvOf(agentHome, iso);
   const own = agentHome && agentModel(agentHome, harness);
   const argv = own ? resumeArgv(harness, id, [...own.effortArgv, ...iso.argv], own.modelId, headed)
     : resumeArgv(harness, id, iso.argv, null, headed);
 
   if (dryRun) {
     process.stdout.write(`${JSON.stringify({
-      argv, cwd: folder, stdin_preview: headed ? null : promptText.slice(0, 200), ...iso.env, env_removed: envRemoved(iso),
+      argv, cwd: folder, stdin_preview: headed ? null : promptText.slice(0, 200), ...agentEnv, env_removed: envRemoved(iso),
     })}\n`);
     process.exit(0);
   }
@@ -395,15 +401,14 @@ function runResume(rawArgv) {
   }, !headed);
   if (headed) {
     return ended('resume failed')(spawnHarness(argv[0], argv.slice(1), {
-      cwd: folder, env: agentHome ? { RBTV_AGENT_HOME: agentHome, ...iso.env } : iso.env, unset: iso.unset,
-      capped: false, stdio: 'inherit' }));
+      cwd: folder, env: agentEnv, unset: iso.unset, capped: false, stdio: 'inherit' }));
   }
   if (harness === 'opencode') {
-    return runOpencodeChecked(argv, { cwd: folder, env: iso.env, unset: iso.unset, stdinText: promptText, t0, model: 'resume',
+    return runOpencodeChecked(argv, { cwd: folder, env: agentEnv, unset: iso.unset, stdinText: promptText, t0, model: 'resume',
       bind: () => (id === 'last' ? opencodeTouched(folder, t0) : id) }, ended('launch failed'));
   }
   const [cmd, ...args] = argv;
-  return ended('resume failed')(spawnHarness(cmd, args, { cwd: folder, env: iso.env, unset: iso.unset,
+  return ended('resume failed')(spawnHarness(cmd, args, { cwd: folder, env: agentEnv, unset: iso.unset,
     input: promptText, stdio: ['pipe', 'inherit', 'inherit'] }));
 }
 

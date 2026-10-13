@@ -3092,7 +3092,7 @@ require('fs').appendFileSync(${JSON.stringify(log)}, JSON.stringify(seen) + '\\n
     const seen = received(args);
     isOpencodeIsolated(seen, `the process of cast ${args.join(' ')}`);
     assert.ok(!(BUNDLED in seen), `another harness's inherited variable is removed: ${JSON.stringify(seen)}`);
-    assert.strictEqual(seen.RBTV_AGENT_HOME, args[0] === 'resume' ? undefined : homes.opencode);
+    assert.strictEqual(seen.RBTV_AGENT_HOME, homes.opencode, `a launch and a resume both name the agent's folder: cast ${args.join(' ')}`);
   }
 }
 
