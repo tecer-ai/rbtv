@@ -9,6 +9,8 @@ Two programs do this work. `agent-browser` is the default: it operates and measu
 | `agent-browser` | `agent-browser skills get core --full` |
 | `playwright cli` | `playwright cli --help`, whose first lines give the path of the guide installed with the program |
 
+Choose a session name for the task and pass it on every command, including a single `read` or `screenshot`: `agent-browser --session <name> <command>`, or `playwright cli -s=<name> <command>`. A command without a name uses the session `default`, which every agent on the machine shares: another agent's command then acts on your page. The commands below are written without the name.
+
 ## Choose the command
 
 | The task needs | Use |
@@ -31,11 +33,10 @@ A sequence of actions on one page is a sequence of `agent-browser` commands, not
 
 ## Operate a page
 
-1. Choose a session name for this task and pass it on every command: `agent-browser --session <name> <command>`, or `playwright cli -s=<name> <command>`. A command without a name uses the session `default`, which every agent on the machine shares: another agent's command then acts on your page.
-2. Open the page.
-3. Run `snapshot` before the first click. It returns the page's elements with references such as `@e5`; act on those references, not on a selector guessed from the page source.
-4. After an action that changes the page, take a new snapshot before the next action: the references belong to the snapshot that returned them.
-5. Close your session, also when a step failed: `agent-browser --session <name> close`, or `playwright cli -s=<name> close`. Do not run `agent-browser close --all`: it closes the browsers of every agent on the machine.
+1. Open the page.
+2. Run `snapshot` before the first click. It returns the page's elements with references such as `@e5`; act on those references, not on a selector guessed from the page source.
+3. After an action that changes the page, take a new snapshot before the next action: the references belong to the snapshot that returned them.
+4. Close your session, also when a step failed: `agent-browser --session <name> close`, or `playwright cli -s=<name> close`. Do not run `agent-browser close --all`: it closes the browsers of every agent on the machine.
 
 Pass a path in your scratch folder to every command that writes a file (a screenshot, a trace, a HAR file, a video), unless the task names a destination. Run `playwright cli` from your scratch folder: it writes a `.playwright-cli/` folder in the folder it runs from.
 
