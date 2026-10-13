@@ -89,17 +89,41 @@ function indexRows(lib, agent, indexPath, text, recordPath) {
   return lib.records('index', text).filter((row) => linkOf(indexPath, row) === recordPath);
 }
 
-function dayRows(lib, agent, dayPath, text, recordPath, recordText, files) {
+function requestLine(line) {
+  return /^- Owner asks to forget: /.test(line);
+}
+
+function citesRecord(line, recordText) {
+  const heading = recordText.match(/^# (.+)$/m)?.[1];
+  const linked = [...line.matchAll(/\[[^\]]+\]\((https?:\/\/[^\s]+?)\)/g)].some((match) => recordText.includes(match[1]));
+  return linked || Boolean(heading && line.includes(heading));
+}
+
+function captureLines(text, recordText) {
+  if (!text || !recordText) return [];
+  return text.split(/\r?\n/).filter((line) => line.startsWith('- ') && !requestLine(line) && citesRecord(line, recordText));
+}
+
+function urlStays(lib, agent, file, body, url, recordPath, dayPath, consumed) {
+  if (file === recordPath || file === dayPath || !body || !body.includes(url)) return false;
+  if (lib.kindOf(file, agent) === 'archive') return false;
+  if (lib.kindOf(file, agent) === 'inbox') {
+    return body.split(/\r?\n/).some((line) => line.includes(url) && !consumed.has(line));
+  }
+  return true;
+}
+
+function dayRows(lib, agent, dayPath, text, recordPath, recordText, files, consumed) {
   const kind = lib.kindOf(dayPath, agent);
   if ((kind !== 'daily' && kind !== 'weekly') || !text) return [];
+  const skipped = consumed || new Set();
   const recordUrls = new Set(urls(recordText));
   return lib.records(kind, text).filter((line) => {
     const lineUrls = urls(line).filter((url) => recordUrls.has(url));
     if (!lineUrls.length) return false;
     for (const url of lineUrls) {
       for (const [file, body] of Object.entries(files)) {
-        if (file === recordPath || file === dayPath || !body || !body.includes(url)) continue;
-        return false;
+        if (urlStays(lib, agent, file, body, url, recordPath, dayPath, skipped)) return false;
       }
     }
     return true;
@@ -128,12 +152,14 @@ function archivePathOf(recordPath) {
   return `.rbtv/memory/_artifacts/archive/${slug}.md`;
 }
 
-function archiveFile(original, reason, source, date, agent) {
-  return `---\ndescription: when reviewing an archived record\ntype: reference\naliases: [archived]\n---\n# Archived\n\n- Reason: ${reason}. Source: ${source} (${date} · ${agent})\n\n\`\`\`verbatim\n${original}\`\`\`\n`;
+function archiveFile(original, reason, source, date, agent, traces) {
+  const extra = traces && traces.length ? `\n${traces.join('\n')}` : '';
+  return `---\ndescription: when reviewing an archived record\ntype: reference\naliases: [archived]\n---\n# Archived\n\n- Reason: ${reason}. Source: ${source} (${date} · ${agent})${extra}\n\n\`\`\`verbatim\n${original}\`\`\`\n`;
 }
 
-function prependEntry(existing, original, reasonLine) {
-  const block = `\n${reasonLine}\n\n\`\`\`verbatim\n${original}\`\`\`\n`;
+function prependEntry(existing, original, reasonLine, traces) {
+  const extra = traces && traces.length ? `\n${traces.join('\n')}` : '';
+  const block = `\n${reasonLine}${extra}\n\n\`\`\`verbatim\n${original}\`\`\`\n`;
   const match = existing.match(/^([\s\S]*?^# \S.*\n)/m);
   if (!match) return null;
   const next = existing.slice(0, match[0].length) + block + existing.slice(match[0].length);
@@ -198,10 +224,17 @@ function removalProposal(lib, agent, ref, recordPath, recordText, files, date) {
   if (!archivePath) return blocked(`no mechanical inverse for ${ref}: archive slug is not a memory slug; records unchanged`);
   const body = lib.records(kind, recordText);
   if (!body.length) return blocked(`no mechanical inverse for ${ref}: archive only removes records into a destination; records unchanged`);
+  const inboxPath = '.rbtv/memory/inbox.md';
+  const captures = captureLines(files[inboxPath], recordText);
+  for (const line of captures) {
+    if (countLine(files[inboxPath], line) !== 1) return blocked(`records do not match ${ref} uniquely; records unchanged`);
+  }
+  const traces = captures.map((line) => `- Source: ${line} (${date} · ${agent})`);
   const reasonLine = `- Reason: reversed. Source: ${ref} (${date} · ${agent})`;
   const existing = files[archivePath];
-  const archiveText = existing ? prependEntry(existing, recordText, reasonLine) : archiveFile(recordText, 'reversed', ref, date, agent);
+  const archiveText = existing ? prependEntry(existing, recordText, reasonLine, traces) : archiveFile(recordText, 'reversed', ref, date, agent, traces);
   if (!archiveText) return blocked(`no mechanical inverse for ${ref}: archive entry missing a heading; records unchanged`);
+  const consumed = new Set(captures);
   const operations = [
     op({
       op: 'archive', path: recordPath, leave: true, text: recordText, item: ref,
@@ -228,7 +261,7 @@ function removalProposal(lib, agent, ref, recordPath, recordText, files, date) {
   for (const [file, text] of Object.entries(files)) {
     const kindOf = lib.kindOf(file, agent);
     if (kindOf !== 'daily' && kindOf !== 'weekly') continue;
-    const rows = dayRows(lib, agent, file, text, recordPath, recordText, files);
+    const rows = dayRows(lib, agent, file, text, recordPath, recordText, files, consumed);
     if (!rows.length) continue;
     const next = withoutLines(text, rows);
     if (next == null) return blocked(`records do not match ${ref} uniquely; records unchanged`);
@@ -236,6 +269,15 @@ function removalProposal(lib, agent, ref, recordPath, recordText, files, date) {
       op: 'supersede', path: file, text: next,
       explanation: `reverse ${ref}`,
       removals: rows.map((row) => ({ text: row })),
+    }));
+  }
+  if (captures.length) {
+    const next = withoutLines(files[inboxPath], captures);
+    if (next == null) return blocked(`records do not match ${ref} uniquely; records unchanged`);
+    operations.push(op({
+      op: 'supersede', path: inboxPath, text: next, sources: captures,
+      explanation: `reverse ${ref}`,
+      removals: captures.map((line) => ({ text: line, to: archivePath })),
     }));
   }
   return { operations, conflicts: [] };
@@ -267,12 +309,15 @@ function reverseCreate(lib, home, installation, found) {
   const files = readTree(lib, installation, agent);
   const recordText = fsRead(lib, installation, item.path);
   if (recordText != null) files[item.path] = recordText;
+  const captures = captureLines(files['.rbtv/memory/inbox.md'], recordText || '');
+  const consumed = new Set(captures);
   const pointers = [];
   for (const [file, text] of Object.entries(files)) {
-    if (indexRows(lib, agent, file, text, item.path).length || dayRows(lib, agent, file, text, item.path, recordText || '', files).length) {
+    if (indexRows(lib, agent, file, text, item.path).length || dayRows(lib, agent, file, text, item.path, recordText || '', files, consumed).length) {
       pointers.push(file);
     }
   }
+  if (captures.length) pointers.push('.rbtv/memory/inbox.md');
   for (const row of requiredPointers(lib, agent, found, item.path, item.after || '')) pointers.push(row.path);
   const later = laterDependent(home, item, [item.path, ...pointers]);
   if (later.length) return blocked(`dependency: ${later.join(', ')}; records unchanged`);

@@ -56,7 +56,7 @@ Operation fields, every operation:
   op           required. One of: add, supersede, archive.
   path         required string. Installation-relative, forward slashes, no empty, dot or dot-dot part, no backslash, no control character, no : * ? " < > |, no trailing dot or space, no Windows device name, not 4-archives, not agent.md, and not a symlink. One operation per path. The path must be a memory kind for the prepare input's agent.
   text         required string. The complete next file, not a patch. No NUL. No CR except a CRLF pair copied from the snapshot file. No [[. add requires a path absent from the snapshot. supersede and archive require a path present in the snapshot.
-  sources      required array. Each item is a safe integer rowid of an unread owner message in the prepare input, or the exact inbox line string for this agent. No other source counts.
+  sources      required array. Each item is a safe integer rowid of an unread owner message in the prepare input, or an exact inbox line from the snapshot file .rbtv/memory/inbox.md. Any agent's line counts, including one ending · SLUG for another agent. No other source counts.
   reason       required. One of: owner, merge, file, fold, detail, closed, expired, index.
   explanation  required non-empty string.
   removals     array, required when any record disappears. Each item is { text, to, replacement, duplicate }. text is the removed record verbatim. to is the destination path when the record is preserved elsewhere. replacement is the exact record written at to. duplicate is true only when the record is already in the snapshot destination; omit it otherwise.
@@ -106,19 +106,21 @@ Archived removal (forget, or the reverse of an item that created a record). Corr
 
 leave: true on an archive operation whose path is an entity, knowledge, topic or workspace file. text is the snapshot file, not a stub and not a patch. The publisher unlinks that path. It does not write text.
 item: a non-empty string on that operation, only for a reversal. It is not a sources entry. Example: RUN#N.
-Forget uses reason owner, sources containing this agent's exact inbox line or an unread owner rowid, and no item. Reversal uses reason owner, sources empty, and item set to the item reference.
+Forget uses reason owner, sources containing an exact inbox line (any agent) or an unread owner rowid, and no item. Reversal uses reason owner, sources empty, and item set to the item reference.
 
-One proposal, four operations, in this order:
+One proposal, five operations, in this order:
 1. archive the whole file, leave true, text equal to the snapshot. removals is one item per body record: { "text": "<record line>", "to": ".rbtv/memory/_artifacts/archive/<slug>.md" }.
-2. add that archive path, or supersede it when the file already exists. text is an archive file the checker already accepts (description: when ..., type: reference, aliases: [...], a # heading), plus a reason bullet and a verbatim fence. The fence body is the snapshot file, byte for byte, including its frontmatter. records() skips the fence. The reason bullet is the record.
-   Forget bullet: - Reason: owner asked to forget. Source: <exact inbox line or owner evidence> (YYYY-MM-DD · agent)
+2. add that archive path, or supersede it when the file already exists. text is an archive file the checker already accepts (description: when ..., type: reference, aliases: [...], a # heading), plus a reason bullet for each consumed line and a verbatim fence. The fence body is the snapshot file, byte for byte, including its frontmatter. records() skips the fence. The reason bullet is the record.
+   Forget bullet, one per consumed line: - Reason: owner asked to forget. Source: <exact line> (YYYY-MM-DD · agent)
    Reversal bullet: - Reason: reversed. Source: <item reference> (YYYY-MM-DD · agent)
+   A reversal that consumes a capture still in the inbox also carries that line verbatim in the archive text.
 3. supersede each index that links the file. reason index. text is the current index with only the rows whose markdown link resolves to the archived path removed. removals names each dropped row. Do not restore an earlier index item. Other rows stay byte for byte.
-4. supersede each day or week file that mentions it. text is the current file with only the episodes whose https URL occurs in the archived file, and not in another file that stays, removed. removals names each dropped episode. Other episodes stay.
+4. supersede each day or week file that mentions it. A timeline line is dropped when its URL occurs in the archived file and in no file that stays after the proposal. A line this same proposal removes from inbox.md does not stay. The archive does not count. text is the current file with only those episodes removed. removals names each dropped episode. Other episodes stay.
+5. supersede .rbtv/memory/inbox.md. reason owner. sources includes each consumed line (beside or instead of an unread owner rowid). text is the inbox without those lines. removals is { "text": "<line>", "to": ".rbtv/memory/_artifacts/archive/<slug>.md" } for the request line (Owner asks to forget: ..., any slug) and, if it is still in the inbox, the original capture of the fact (a line whose URL occurs in the archived file, or that contains the file's # heading). The archive entry's reason bullet is Reason: owner asked to forget. Source: <the line> for each. The publisher deletes those lines. Do not invent a new inbox line.
 
 An index row points at the record when its markdown link, resolved from the index file, is that path. A timeline line points at the record when an https URL in the line occurs in the archived file. The archive path is .rbtv/memory/_artifacts/archive/<slug>.md. Not 4-archives. Not an agent memory/archive/ path.
 
-The inbox line named in sources is consumed by this proposal: the published receipt cites it, and a later check does not raise that line. The publisher does not delete the inbox line. Removing it without filing it into a profile, knowledge or entity file that stays is refused.
+The subject of Owner asks to forget: <subject>. must occur in the file this proposal archives with leave: true. Citing a line in sources without operation 5 quiets check and leaves the line in the bundle a turn start reads. Do not do that.
 
 Expected forms for a refusal of this shape:
   removals.to is an archive file whose verbatim fence equals this file
@@ -129,8 +131,12 @@ Expected forms for a refusal of this shape:
   a relative link to a memory file this proposal leaves in place
   text equals the snapshot file being archived
   entity, knowledge, topic or workspace
+  file the line as a record, or carry it verbatim in an archive entry of the same proposal
+  the record the request line names is archived with leave: true in this proposal
+  a timeline line may be dropped when its URL occurs in the archived file and in no file that stays in active memory after the proposal; an inbox line this proposal consumes does not count as staying; the archive is not active memory
+  sources are unread owner message rowids or exact inbox lines
 
-Restore of an archived removal (reversing a reversal or a forget). One proposal against the post-removal snapshot. No new owner evidence.
+Restore of an archived removal (reversing a reversal or a forget). One proposal against the post-removal snapshot. No new owner evidence. Do not put the consumed inbox lines back. They were a capture and a request, not the record. Restoring them re-raises the request. There is no mechanical inverse that writes an inbox line back.
 1. add the original path, text equal to the fence body, sources empty, reason owner.
 2. supersede the index back to the text that contains the row, reason index, sources empty.
 3. supersede the day file back to the text that contains the episode, sources empty. The episode's URL must occur in the restored file.
