@@ -1951,6 +1951,52 @@ else {
     assert.ok(isAgentFolder(home) && !isAgentFolder(halfHome), 'an agent folder holds both files');
     assert.ok(isPath('plans/x') && isPath('plans\\x') && isPath('.') && !isPath('sara'), 'a slash or a backslash makes a path');
   }
+  {
+    // a listed agent folder: an agent folder outside .rbtv/agents/ whose record says "listed": true
+    const { agentHomes, findAgentHome, sameNameRefusal } = require('./lib/agent');
+    const { listLines } = require('./lib/agent-list');
+    const inst = mkFolder('listed');
+    const write = (dir, values) => {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'prompt.md'), 'You are here.');
+      fs.writeFileSync(path.join(dir, 'agent.json'), JSON.stringify({ harness: 'claude', model: 'sonnet-5-5', effort: 'low', ...values }));
+      return dir;
+    };
+    const agents = path.join(inst, '.rbtv', 'agents');
+    const kim = write(path.join(agents, 'kim'), {});
+    const lia = write(path.join(inst, 'plans', 'a', 'agents', 'lia'), { listed: true });
+    write(path.join(inst, 'plans', 'a', 'agents', 'quiet'), {});
+    write(path.join(inst, 'plans', 'a', 'agents', 'no'), { listed: 'yes' });
+    write(path.join(inst, '.hidden', 'dot'), { listed: true });
+    write(path.join(inst, 'node_modules', 'pkg', 'dep'), { listed: true });
+    assert.deepStrictEqual(agentHomes(inst).homes, [kim], 'a folder without the installer record is not searched');
+    assert.strictEqual(findAgentHome('lia', inst), null);
+    fs.mkdirSync(path.join(inst, '.rbtv', 'config'), { recursive: true });
+    fs.writeFileSync(path.join(inst, '.rbtv', 'config', 'install.json'), '{}');
+    assert.deepStrictEqual(agentHomes(inst), { folder: agents, homes: [kim, lia] },
+      'only a record with listed true is listed; dot folders and node_modules are not searched');
+    assert.strictEqual(findAgentHome('lia', path.join(inst, 'plans')), lia, 'a listed agent folder is found by name');
+    assert.strictEqual(findAgentHome('quiet', inst), null, 'an agent folder that is not listed is found by path only');
+    assert.strictEqual(sameNameRefusal('lia', inst), null);
+    const row = (home) => ({ name: path.basename(home), description: 'Does it.', harness: 'claude', model: 'sonnet-5-5', effort: 'low', ignite: false, home });
+    const where = [path.join('.rbtv', 'agents', 'kim'), path.join('plans', 'a', 'agents', 'lia')];
+    assert.deepStrictEqual(listLines({ folder: agents, agents: [kim, lia].map(row) }, { width: 200 }).slice(-3), [
+      `Name  Harness  Model       Effort  Ignite  ${'Folder'.padEnd(where[1].length)}  Description`,
+      `kim   claude   sonnet-5-5  low     no      ${where[0].padEnd(where[1].length)}  Does it.`,
+      `lia   claude   sonnet-5-5  low     no      ${where[1]}  Does it.`,
+    ], 'with a listed agent folder, every row says where its agent is');
+    assert.ok(listLines({ folder: agents, agents: [kim, lia].map(row) }, { full: true }).includes(`Folder: ${lia}`), 'a labeled block names the folder');
+    assert.ok(!listLines({ folder: lia, agents: [row(lia)] }, { width: 200 }).some((line) => line.includes('Folder  ')),
+      'a --target that is one agent folder gets no Folder column');
+    const twin = write(path.join(inst, 'plans', 'b', 'agents', 'lia'), { listed: true });
+    assert.strictEqual(findAgentHome('lia', inst), null, 'a name two listed agent folders share names neither');
+    const res = spawnSync('node', [TOOL, '--agent', 'lia', '-p', 'go', '--dry-run'], { cwd: inst, encoding: 'utf8' });
+    assert.strictEqual(res.status, 2, res.stderr);
+    for (const said of ["no rbtv agent 'lia' was found", '2 listed agent folders are named lia:', `  ${lia}`, `  ${twin}`, 'pass the path of one of them']) {
+      assert.ok(res.stderr.includes(said), res.stderr);
+    }
+    fs.rmSync(inst, { recursive: true });
+  }
 
   const refusals = [
     [['claude', 'sonnet-5-5', '2', '--agent', 'sara', '-p', 'go'], 'does not take a harness, model or effort'],

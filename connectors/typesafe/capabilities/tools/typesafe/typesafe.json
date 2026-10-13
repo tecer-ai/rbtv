@@ -1,0 +1,5 @@
+{
+  "name": "typesafe",
+  "description": "TypeSafe typed judgments from one command: asks yes/no, pick-one and rating questions about text and whole files and returns probabilities, not prose; takes one JSON request (the form for an agent) or one question per line; judges many items in one run, sorts answers into tiers by thresholds, exits by a threshold to gate a script; lists models.",
+  "entry": "typesafe.py"
+}

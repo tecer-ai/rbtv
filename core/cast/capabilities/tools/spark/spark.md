@@ -9,7 +9,7 @@
 - `--dry-run` prints the cast command and launches nothing; `--dry-run --json` prints one JSON value with `agent`, `home` and `cast`. A real launch ignores `--json`.
 - Refusals, exit 1: no agent by that name or path, `agent.json` unreadable or missing, `prompt.md` missing, `cast` not on PATH, or an unknown option.
 
-`spark list [AGENT]` shows the agents spark can open by name, or one of them in full: the list of `cast list --agents`, read in the same process, so it needs no `cast` on PATH and opens nothing. Showing what is installed in an agent needs `rbtv` on PATH. The first argument that is not an option decides the form, so `list` is never taken as an agent name: an agent whose name is `list` is opened by its path. `spark list --target FOLDER` shows the agents of FOLDER.
+`spark list [AGENT]` shows the agents spark can open by name, or one of them in full: the list of `cast list --agents`, which [cast](../cast/cast.md) defines, listed agent folders included, read in the same process, so it needs no `cast` on PATH and opens nothing. Showing what is installed in an agent needs `rbtv` on PATH. The first argument that is not an option decides the form, so `list` is never taken as an agent name: an agent whose name is `list` is opened by its path. `spark list --target FOLDER` shows the agents of FOLDER.
 
 - Refusals, exit 1: `--dry-run`, more than one agent, an agent that is not found or cannot be launched, or an unknown option. A refusal is text on standard error and leaves standard output empty, with or without `--json`.
 

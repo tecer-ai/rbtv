@@ -664,7 +664,10 @@ def print_show(data: dict) -> None:
         return
     if sel["scope"] == "component":
         _say(f"Description: {sel.get('description') or '(no description in the source catalog)'}")
-        _say("Dependencies: " + (", ".join(sel.get("dependencies") or []) or "none"))
+        dependencies = sel.get("dependencies") or []
+        _say("Dependencies: " + (", ".join(d["name"] for d in dependencies) or "none"))
+        for d in dependencies:
+            print(f"  Install {d['name']}: {d['install']}")
         repo = sel.get("repository") or {}
         if repo:
             _say(f"Repository: {repo.get('url', '')} ({repo.get('branch', '')})")

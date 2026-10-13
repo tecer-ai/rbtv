@@ -12,7 +12,7 @@ job are defined: before a solution can be claimed to fit better, the existing al
 what works in them, what does not, and where the gaps sit must be known.
 
 > Research rigor — how a source is found, evaluated, scored, and cited — is NOT this
-> reference's subject; it lives in `../../../web/research/references/standards.md`. This
+> reference's subject; it lives in `../../../meta/browse/capabilities/methods/researching-with-sources.md`. This
 > reference carries the business-analysis frame only. Claims here must come from current
 > research, never from a model's training data.
 

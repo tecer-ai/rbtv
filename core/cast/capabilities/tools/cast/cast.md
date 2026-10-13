@@ -126,7 +126,7 @@ untouched). `ignite turn` is the exception: it returns an exact id for that invo
 
 `cast --agent AGENT [-p TEXT | -f FILE]` runs an agent folder: a folder that contains both `prompt.md` and
 `agent.json`. AGENT is a name, looked up as `<installation>/.rbtv/agents/AGENT/` from the current
-folder upward, or a path to the folder (a value containing `/` or `\`, or `.` or `..`, relative to
+folder upward and then among the listed agent folders `cast list` shows, or a path to the folder (a value containing `/` or `\`, or `.` or `..`, relative to
 the current folder). The folder is the working folder. `agent.json` gives the harness, model and
 effort, all three required (effort as the model's own word, such as `high`, never a number; a
 record without one is refused); none of them may be given on the command line:
@@ -137,8 +137,8 @@ the launch and reported by `rbtv doctor`; remove it. The launch sets
 `RBTV_AGENT_HOME` to the agent folder for the harness process. A folder that contains only one of the two
 files is refused by name, so a broken agent is never launched half-read; a folder that holds
 `agent.md` in place of `prompt.md` is refused with the `git mv` command that renames it. A launch takes no
-`--target`: that option belongs to `cast list`, and an agent outside `.rbtv/agents/` is launched by
-its path.
+`--target`: that option belongs to `cast list`, and an agent outside `.rbtv/agents/` that is not a
+listed agent folder is launched by its path.
 
 The task of an `--agent` launch comes from one of three places. `-p TEXT` or `-f FILE` gives it, and
 either one wins whether or not the folder holds a `task.md`. With neither, cast sends `task.md` in
@@ -214,9 +214,15 @@ each harness is passed.
 ### Finding the agents: `cast list`
 
 `cast list`, or `cast list --agents`, shows the rbtv agents `cast --agent NAME` can launch from the current folder: the
-agents in the nearest `.rbtv/agents/` folder above it. For each agent it prints the name, harness,
-model, effort, Ignite (`yes` when the agent's `ignite` pack is on, which `ignite connect` does) and
-the description from `agent.json`. The description is shortened to fit the line; with `--full`, or on
+agents in the nearest `.rbtv/agents/` folder above it, and the listed agent folders of that
+installation. A listed agent folder is an agent folder elsewhere in the installation whose
+`agent.json` says `"listed": true`; the search skips a folder whose name starts with a dot and
+`node_modules`, and runs only where the installer's record `.rbtv/config/install.json` is. A name
+two listed agent folders share is refused with both folders, and each is launched by its path. For
+each agent the list prints the name, harness,
+model, effort, Ignite (`yes` when the agent's `ignite` pack is on, which `ignite connect` does), the
+folder from the installation when a listed agent folder is in the list, and
+the description from `agent.json`, in alphabetical order of name. The description is shortened to fit the line; with `--full`, or on
 a terminal too narrow for the table, each agent is a labeled block with its whole description. An agent that cannot
 be launched is named with the reason, and is never a row of the table: an unreadable record, or a
 model the launch check refuses, as in `tiny: cannot be launched: model not selected: cast models add claude haiku-5-5`.
@@ -665,7 +671,7 @@ runs in.
 | `capabilities/tools/cast/lib/fallback.js` | the fallback of a launch: what counts as a failure to start, the candidates of a model in the order to try them, the effort they launch at, the words for how an attempt ended, and the words that close a level with none left. `launch.js` and Ignite's turn both use it |
 | `capabilities/tools/cast/lib/defaults.js` | the installation's defaults, `.rbtv/config/cast/defaults.json`: the default ranking of `cast route` and the ranking of a fallback, read and replaced in one step |
 | `capabilities/tools/cast/lib/win-exec.js` | how a harness name becomes a process on Windows: finds the program on `PATH` and wraps an npm `.cmd` shortcut so that it can be started |
-| `capabilities/tools/cast/lib/agent.js` | `--agent` / `--rogue`: find the agent folder, read `agent.json` and `prompt.md`. The one place that knows where an agent's folder is (`<installation>/.rbtv/agents/<name>`), which agents a `--target FOLDER` names, what counts as a path, and how the record is read: spark, the agent list and Ignite load it |
+| `capabilities/tools/cast/lib/agent.js` | `--agent` / `--rogue`: find the agent folder, read `agent.json` and `prompt.md`. The one place that knows where an agent's folder is (`<installation>/.rbtv/agents/<name>`, or a listed agent folder), which agents a `--target FOLDER` names, what counts as a path, and how the record is read: spark, the agent list and Ignite load it |
 | `capabilities/tools/cast/lib/isolation.js` | what a harness is passed so that an rbtv agent loads only its own folder, and from the harness's account folder the login only: the arguments, the environment variables and the variables to remove, per harness. The one place that knows these values, walks the folders above the agent folder and reads the agent's own files: `launch.js` and Ignite's turn call it |
 | `capabilities/tools/cast/lib/agent-list.js` | `cast list --agents`: the agents a name can reach, as a table, labeled blocks, or JSON; the one list, which [`spark list`](../spark/spark.md) and `rbtv agent list` also show |
 | `capabilities/tools/cast/lib/sessions.js` | the per-harness session-store readers and `cast sessions` |

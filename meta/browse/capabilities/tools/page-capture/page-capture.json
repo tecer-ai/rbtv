@@ -1,0 +1,5 @@
+{
+  "name": "page-capture",
+  "description": "Reads a web page, PDF or local HTML file without a browser: fetches it, extracts the article as Markdown, reports whether what came back was an article or a bot wall or an empty JavaScript page, and saves it to the file or folder named; with --title-only, returns only a link's title and description.",
+  "entry": "capture.py"
+}

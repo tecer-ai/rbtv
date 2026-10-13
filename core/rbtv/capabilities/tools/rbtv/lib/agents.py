@@ -462,9 +462,12 @@ def cast_agent_list(root: Path, raw: str | None, as_json: bool, full: bool, widt
                       "rbtv doctor")
         exc.unchanged = "Nothing was listed."
         raise exc
+    # A --target name, and a name with no folder under .rbtv/agents/, are cast's to look up:
+    # the second may be a listed agent folder, which only cast finds.
+    by_name = raw is not None and (folder is not None or not (is_path(raw) or agent_home(root, raw).exists()))
     if raw is None:
         words = [exe, "list", "--agents"]
-    elif folder is not None:
+    elif by_name:
         words = [exe, "list", "--agent", raw]
     else:
         # Forward slashes on every system: cast takes a value with a slash as a path.
@@ -482,7 +485,7 @@ def cast_agent_list(root: Path, raw: str | None, as_json: bool, full: bool, widt
         # cast's first line says what it refused; its own closing lines and next
         # step belong to cast's screen, and rbtv's refusal carries its own.
         exc = _refuse("cast-refused", "`cast list` refused: " + done.stderr.strip().split("\n")[0],
-                      "rbtv doctor" if folder is None else "rbtv agent list -h")
+                      "rbtv doctor" if folder is None and not by_name else "rbtv agent list -h")
         exc.unchanged = "Nothing was listed."
         raise exc
     return done.stdout
