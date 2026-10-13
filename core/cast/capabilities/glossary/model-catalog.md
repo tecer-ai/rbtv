@@ -2,7 +2,7 @@
 
 The model catalog is the table of the models one installation selects, with the columns `cast route` ranks them on. Each row names a harness and a model: a [supported model](supported-model.md) with a row is a [selected model](selected-model.md), so cast launches it in that installation and `cast route` may name it, and the row's columns decide when.
 
-Read this entry before reading or editing a `models.csv`, or stating what a row or a column means. To choose the models of an installation, or to make cast support a new one, follow [Personalizing the model catalog](../tools/cast/documentation/personalizing-the-model-catalog.md).
+Read this entry before reading or editing a `models.csv`, or stating what a row or a column means. To choose the models of an installation, follow [Personalizing the model catalog](../tools/cast/documentation/personalizing-the-model-catalog.md). To add, replace, remove or edit a model cast supports, follow [Changing the supported models](../methods/changing-the-supported-models.md).
 
 Three other things have nearby names. The supported models are what this copy of cast can launch; they are code, in `supported-models.js`. rbtv's source catalog is the list of modules, components and files rbtv installs, always written in full. A [routing table](../../../rbtv/capabilities/glossary/routing-table.md) is the rows that tell an agent which page to read. Write "model catalog" in full for this table and never for the other three.
 
@@ -37,7 +37,7 @@ Keep one row per model line, at a pinned version: the latest version of that mod
 | `level` | `SOTA`, `L1`, `L2`, `L3` | The quality tier, and the class of work it serves: `SOTA` strategy and architecture (`planner`), `L1` a wide investigation that chooses its own approach (`broad`), `L2` a bounded problem solved with local implementation judgment (`bounded`), `L3` an explicit bounded operation with checks, extraction and classification included (`mechanical`). Each `cast route --class` reads exactly one. A blank level keeps the row out of every class. |
 | `reasoning` | 1 to 7 | The score ranked for `--type text`. Blank reads as 0. |
 | `coding` | 1 to 7 | The score ranked for `--type code`. Blank reads as 0. Both scores are a relative calibration among the rows of this table, not a measured benchmark result. |
-| `cost` | a number | US dollars per million output tokens at the provider's standard API list price, at the base rate where the price rises with the size of the request, and never what a subscription makes it cost. Blank where no per-token price compares, as for an image model; a blank cost keeps the row out of every price ranking. [Personalizing the model catalog](../tools/cast/documentation/personalizing-the-model-catalog.md#3-scores-and-costs) holds the source of each shipped cost. |
+| `cost` | a number | US dollars per million output tokens at the provider's standard API list price, at the base rate where the price rises with the size of the request, and never what a subscription makes it cost. Blank where no per-token price compares, as for an image model; a blank cost keeps the row out of every price ranking. [Sources of the shipped scores and costs](../methods/changing-the-supported-models/score-and-cost-sources.md) holds the source of each shipped cost. |
 | `quality-override` | `Y`, `N` | `Y`: inside its own level, the row wins a `--optimize quality` ranking whatever the scores say. |
 | `price-override` | `Y`, `N` | `Y`: inside its own level, the row wins a price ranking whatever the costs say. |
 

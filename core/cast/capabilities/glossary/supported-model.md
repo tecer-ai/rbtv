@@ -6,4 +6,4 @@ Supported is a fact about the rbtv source, the same for every installation that 
 
 Two copies of rbtv on one machine can support different models. The Ignite daemon runs its own deployed copy, so a model added to the working copy is supported for a terminal launch before it is supported for a daemon turn.
 
-`cast models list --supported` prints every supported model with `selected` yes or no for the installation of the current folder. A launch that names any other model is refused with the closest supported name. To add, replace or remove a supported model, follow [Personalizing the model catalog](../tools/cast/documentation/personalizing-the-model-catalog.md); it is a change to rbtv's source, with its tests.
+`cast models list --supported` prints every supported model with `selected` yes or no for the installation of the current folder. A launch that names any other model is refused with the closest supported name. To add, replace, remove or edit a supported model, follow [Changing the supported models](../methods/changing-the-supported-models.md); it is a change to rbtv's source, with its tests.
