@@ -795,7 +795,6 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
   const NAMED_ON_PURPOSE = [
     rel(CAST, 'tools/cast/supported-models.js'), rel(CAST, 'tools/cast/models.csv'), // the two tables
     rel(CAST, 'methods/changing-the-supported-models/score-and-cost-sources.md'), // where each cost and score came from
-    'core/ignite/capabilities/tools/ignite/config.js', // DREAMER_MODEL, the Dreamer's default
   ];
   const names = [...new Set(ROWS.flatMap((r) => [r.model, r.id]))];
   const escaped = names.map((n) => n.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')).join('|');

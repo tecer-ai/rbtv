@@ -711,8 +711,8 @@ python3 -m pytest capabilities/tools/cast/api/tests/ -q
 shipped `models.csv`: it checks its structure and pins the level and the two scores of every model,
 so a changed level or score in that file reddens the suite on purpose until the same change is
 made in that arm. A changed cost reddens nothing. The same arm reads every text file of the
-repository and fails on a line that names a supported model outside the two tables, the record of
-score and cost sources and the Dreamer's default in Ignite's `config.js`: a test asks
+repository and fails on a line that names a supported model outside the two tables and the record
+of score and cost sources: a test asks
 `example-models.js` for a model by a property, help text takes its example from the table, and a
 document writes `HARNESS MODEL`.
 

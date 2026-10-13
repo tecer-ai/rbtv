@@ -88,7 +88,7 @@ Every headed launch gets a code of two letters in its row of the handle registry
 
 ## A supported model is named in the two tables and nowhere else
 
-No test, help text or document names a supported model. A test asks `example-models.js` for a model by the property its check depends on, help text takes its example from the supported table when it is printed, and a document writes `HARNESS MODEL`. `test_route.js` fails on a line that breaks this. The exceptions are the record of where each score and cost came from, and the Dreamer's default model in Ignite's `config.js`. Reason: replacing two models cost a change of 30 files, of which two were the tables; a model's name in a test also hid which property the test depended on.
+No test, help text or document names a supported model. A test asks `example-models.js` for a model by the property its check depends on, help text takes its example from the supported table when it is printed, and a document writes `HARNESS MODEL`. `test_route.js` fails on a line that breaks this. The one exception is the record of where each score and cost came from. No agent, setting or pack in rbtv's source carries a default model: an installed agent has the model its owner sets. Reason: replacing two models cost a change of 30 files, of which two were the tables; a model's name in a test also hid which property the test depended on.
 
 ## The supported models are changed by hand, by a method page
 

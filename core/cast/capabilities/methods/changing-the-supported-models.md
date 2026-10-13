@@ -26,7 +26,7 @@ A model's level, its two scores and its removal are the owner's decisions. Prepa
 
 - **A new model:** propose its level and scores as a tie with the models it stands beside in that level, and say that the proposal has no measurement behind it.
 - **A new version:** it takes the old row's level, `reasoning` and `coding`, with its own `cost`. Those scores were given to the earlier version: name the row as carrying unreviewed scores.
-- **A removal:** list who launches the model. `cast models remove HARNESS MODEL --dry-run`, run inside an installation, names its agents; the Ignite setting `dreamer.model` and any component setting that names a model are searched by hand.
+- **A removal:** list who launches the model. `cast models remove HARNESS MODEL --dry-run`, run inside an installation, names its agents; a component setting that names a model is searched by hand.
 
 Do not present a score as a benchmark result. A score is the owner's placement of one model beside the others of its level. An image model has no level and no score.
 
@@ -37,9 +37,8 @@ Read the cost on the provider's own pricing page, under the rules of [Sources of
 1. Run the suites before editing and keep the result: `node core/cast/capabilities/tools/cast/test_cast.js`, `node core/cast/capabilities/tools/cast/test_route.js`, the spark suite and the Ignite suites.
 2. Edit [supported-models.js](../tools/cast/supported-models.js) (harness, short name, the harness's id, effort ladder, provider) and the shipped [models.csv](../tools/cast/models.csv) in the same change. [Model catalog](../glossary/model-catalog.md) states what each column of the second holds. The two agree on harness and model. When the evidence for a ladder is a measurement, record it in the comment at the head of `supported-models.js`, where the other ladders have theirs.
 3. In `test_route.js`, the check of the shipped table lists the approved level and scores of every model. Change that list to what the owner ruled in section 2, in the same change.
-4. When the model that leaves is the Dreamer's default, `DREAMER_MODEL` in `core/ignite/capabilities/tools/ignite/config.js`, change that line to a supported model the owner names. It is the one setting in rbtv's source that names a model.
-5. Record each new or changed cost, and each score that has no measurement, in [Sources of the shipped scores and costs](changing-the-supported-models/score-and-cost-sources.md).
-6. Run the same suites again. Three failures have a fixed meaning:
+4. Record each new or changed cost, and each score that has no measurement, in [Sources of the shipped scores and costs](changing-the-supported-models/score-and-cost-sources.md).
+5. Run the same suites again. Three failures have a fixed meaning:
 
 | Failure | What to do |
 |---|---|

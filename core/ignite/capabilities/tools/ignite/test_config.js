@@ -68,7 +68,7 @@ test('loads a valid config from the runtime path', (dir) => {
 });
 
 test('a legacy dreamer section loads and the next write drops enabled and model', (dir) => {
-  writeConfig(dir, { dreamer: { enabled: true, model: { harness: 'codex', model: 'gpt-6.1-sol', effort: 3 } } });
+  writeConfig(dir, { dreamer: { enabled: true, model: { harness: 'codex', model: 'example-model', effort: 3 } } });
   const loaded = loadConfig(dir);
   assert.equal(Object.hasOwn(loaded, 'dreamer'), false);
   assert.equal(JSON.parse(fs.readFileSync(configPath(dir), 'utf8')).dreamer.enabled, true);
@@ -90,9 +90,9 @@ test('a config without a legacy dreamer section is unchanged by the next write',
 });
 
 test('cast model-in-use check ignores a legacy dreamer section', (dir) => {
-  writeConfig(dir, { dreamer: { enabled: true, model: { harness: 'claude', model: 'haiku-5-5', effort: 3 } } });
+  writeConfig(dir, { dreamer: { enabled: true, model: { harness: 'claude', model: 'example-model', effort: 3 } } });
   const { usersOf } = require('../../../../cast/capabilities/tools/cast/lib/models.js');
-  const found = usersOf(dir, 'claude', 'haiku-5-5');
+  const found = usersOf(dir, 'claude', 'example-model');
   assert.deepEqual(found.users, []);
   assert.ok(!found.unread.some((line) => /dreamer/i.test(line)));
 });
