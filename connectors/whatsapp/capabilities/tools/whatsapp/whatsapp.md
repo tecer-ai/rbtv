@@ -17,7 +17,7 @@ wacli links to a personal WhatsApp account as a linked device and speaks the Wha
    ```
 
    The [installation guide](https://github.com/openclaw/wacli/blob/main/docs/install.md) covers Homebrew and a build from source.
-3. Link the account: run `whatsapp auth` in a terminal and scan the code from WhatsApp's **Linked devices** screen, or run `whatsapp auth --phone NUMBER` and type the code it prints into the phone. The command must stay running until the phone confirms. In wacli 0.20.0 the first scan code lasts 60 seconds and each later one 20 seconds, so a person at the terminal does this step: a code copied into a message expires before it is read.
+3. Link the account: run `whatsapp auth` in a terminal and scan the code from WhatsApp's **Linked devices** screen, or run `whatsapp auth --phone NUMBER` and type the code it prints into the phone. The command must stay running until the phone confirms. A scan code is short-lived (measured with wacli 0.20.0: the first lasts 60 seconds and each later one 20; not measured again on later versions), so a person at the terminal does this step: a code copied into a message expires before it is read.
 4. Check the result: `whatsapp doctor`.
 
 `rbtv doctor` reports whether `wacli` is on PATH.
