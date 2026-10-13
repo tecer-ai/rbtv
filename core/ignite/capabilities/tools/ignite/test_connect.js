@@ -523,8 +523,12 @@ async function run(argv, extra = {}) {
     try {
       const result = await run(['connect', 'probe', '--dm', '--installation', dir, '--dry-run'], { realInstaller: true });
       assert.equal(result.code, 0, result.out + result.err);
+      const planned = new Set([
+        ...JSON.parse(fs.readFileSync(path.join(__dirname, '../../../packs/ignite.json'), 'utf8')).files,
+        ...JSON.parse(fs.readFileSync(path.join(__dirname, '../../../../rbtv/packs/foundations.json'), 'utf8')).files,
+      ]);
       assert.match(result.out, /pack: ignite/);
-      assert.match(result.out, /files: 0 -> 10/);
+      assert.match(result.out, new RegExp(`files: 0 -> ${planned.size}`));
       assert.equal(fs.readFileSync(statePath, 'utf8'), before);
       assert.equal(fs.existsSync(path.join(home, 'runtime', 'ignite', 'state.sqlite')), false);
     } finally {
