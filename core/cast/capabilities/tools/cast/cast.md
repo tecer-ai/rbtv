@@ -31,7 +31,7 @@ cast -h | --help
 | Arg | Meaning |
 |---|---|
 | `harness` | `claude` \| `codex` \| `opencode` |
-| `model` | that harness's model, SHORT name — the provider prefix and the `claude-` prefix are dropped: `opus-5-5` (not `claude-opus-5-5`), `glm-5.3` (not `zai-coding-plan/glm-5.3`). See `cast models list` for the selected models; a long id is refused with the short one suggested |
+| `model` | that harness's model, SHORT name — the provider prefix and the `claude-` prefix are dropped: `MODEL` (not `claude-MODEL` or `PROVIDER/MODEL`). See `cast models list` for the selected models; a long id is refused with the short one suggested |
 | `effort` | integer 1-5, the universal dial |
 | `launch-folder` | working directory for the agent, resolved relative to the caller's CWD; MUST already exist |
 | `-p TEXT` | the task of this launch, as literal text |
@@ -81,7 +81,7 @@ Each (harness, model) has its own rung ladder in `capabilities/tools/cast/suppor
 — asking for 5 on a 3-rung ladder clamps to that ladder's top rung, never a refusal. An `inert`
 ladder (a model with no dial, such as the image model `cast api` calls) accepts any N and emits no
 effort argv at all. `cast models list` prints the
-resolved mapping per model with the clamping folded in (e.g. `glm-5.3  1=high 2-5=max`), so the
+resolved mapping per model with the clamping folded in (e.g. `MODEL  1=RUNG 2-5=RUNG`), so the
 number-to-rung answer is never inferred. The positional `<effort>` a bare launch takes is an
 integer 1-5 only — a rung word is refused at exit 2 — because the words `cast models list` prints look
 like passable values but are labels.
@@ -225,7 +225,7 @@ folder from the installation when a listed agent folder is in the list, and
 the description from `agent.json`, in alphabetical order of name. The description is shortened to fit the line; with `--full`, or on
 a terminal too narrow for the table, each agent is a labeled block with its whole description. An agent that cannot
 be launched is named with the reason, and is never a row of the table: an unreadable record, or a
-model the launch check refuses, as in `tiny: cannot be launched: model not selected: cast models add claude haiku-5-5`.
+model the launch check refuses, as in `tiny: cannot be launched: model not selected: cast models add HARNESS MODEL`.
 `--json` prints `{folder, agents}`, where such an agent is `{name, home, problem}`. The models are
 `cast models list`: `cast list --models` is refused and names that command.
 
@@ -308,11 +308,11 @@ The launch tries the candidates in that order, each in the same launch folder wi
 A fallback never leaves the level. When no candidate starts, or the level holds none, the launch ends with the last failure and exit code, and standard error names what was tried and the best model of the next level down that holds one, which is not launched:
 
 ```
-cast: claude sonnet-5-5 did not start (exit 1 after 2s); launching fallback 1 of 2 at level L2 by price: codex gpt-5.6-terra
-cast: codex gpt-5.6-terra did not start (exit 1 after 3s); launching fallback 2 of 2 at level L2 by price: opencode glm-5.3
-cast: opencode glm-5.3 did not start (exit 1 after 2s)
-cast: no model of level L2 started: tried claude sonnet-5-5, codex gpt-5.6-terra, opencode glm-5.3
-cast: the next model by price is one level down (L3) and was not launched: codex gpt-6-luna
+cast: HARNESS1 MODEL1 did not start (exit 1 after 2s); launching fallback 1 of 2 at level L2 by price: HARNESS2 MODEL2
+cast: HARNESS2 MODEL2 did not start (exit 1 after 3s); launching fallback 2 of 2 at level L2 by price: HARNESS3 MODEL3
+cast: HARNESS3 MODEL3 did not start (exit 1 after 2s)
+cast: no model of level L2 started: tried HARNESS1 MODEL1, HARNESS2 MODEL2, HARNESS3 MODEL3
+cast: the next model by price is one level down (L3) and was not launched: HARNESS4 MODEL4
 ```
 
 Each run writes its own `cast: handle` line; all carry cast's one process id, and `cast monitor` reads the latest. A `--headed` launch prints no handle line, since a person reads that terminal; its row is still written to the handle registry. Standard output holds the report of the run that started, alone: a closing note of a failed run (`cast: no-report`, a provider limit) goes to standard error when another run follows it. When the defaults or the model catalog cannot be read at that moment, one line says so and the launch ends with its own failure.
@@ -536,8 +536,8 @@ where its usage figure comes from (`usage`). `stores` says where a harness keeps
 Add a provider there before a supported model names it; `test_route.js` fails on a row whose
 provider or harness the file does not list.
 
-Removing a row from the model catalog in force unselects that model: `cast claude haiku-5-5 1` is
-then refused with `cast models add claude haiku-5-5`, and `cast route` and a fallback no longer
+Removing a row from the model catalog in force unselects that model: `cast HARNESS MODEL 1` is
+then refused with `cast models add HARNESS MODEL`, and `cast route` and a fallback no longer
 name it. `cast models list --catalog` shows every row with its
 columns, whether it is launchable (cast supports it) and whether its login is present right now.
 
@@ -604,8 +604,8 @@ error.
 ## `cast api`
 
 `cast api` generates and edits images, and does nothing else. API workers are model catalog rows
-with `mode: api`, and cast supports one: the Google image-generation worker,
-`gemini-3.1-flash-image`. A call without `--image` is refused at exit 2 and names `cast route -h`:
+with `mode: api`, and cast supports one: the Google image-generation worker
+(`cast models list --supported` names it). A call without `--image` is refused at exit 2 and names `cast route -h`:
 text and code work run through a harness, and the general Gemini models, like DeepSeek, have
 opencode CLI rows. Rows are addressed by short name, never by provider.
 
@@ -656,6 +656,7 @@ runs in.
 | `capabilities/tools/cast/cast.json` | the tool record: the name `cast`, its listing description and the executable `cast.js` |
 | `capabilities/tools/cast/supported-models.js` | the supported models: LAUNCH mechanics only — harness-native id, effort ladder, provider (see Spec source) |
 | `capabilities/tools/cast/providers.json` | the providers: login method, key variable, credential-store entry per harness, saved-login files, usage source |
+| `capabilities/tools/cast/example-models.js` | the example models of the test suites: a supported model picked by a property it has, never by its name, so that replacing a supported model edits no test; `node example-models.js` prints the list as JSON |
 | `capabilities/tools/cast/models.csv` | the shipped model catalog — level, scores, cost and image flag for every supported model, with the two override columns left blank. In force wherever an installation has no model catalog of its own. Lives beside this tool so routing does not depend on any other tree |
 | `capabilities/tools/cast/api/` | the Python program `cast api` runs for an image call (`run.py`), its provider client (`clients/`) and their tests (`tests/`) |
 | `capabilities/tools/cast/test_cast.js` | the suite for the CLI and its `lib/` modules, `route.js` excepted (see Self-check) |

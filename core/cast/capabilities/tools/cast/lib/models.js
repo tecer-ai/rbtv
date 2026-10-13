@@ -37,8 +37,20 @@ const VALUED = {
   defaults: { '--route': DEFAULT_VALUES.route, '--fallback': DEFAULT_VALUES.fallback },
 };
 const VIEWS = ['selected', 'supported', 'catalog'];
-const JSON_USAGE = 'Pass the NUMBER (integer 1-5) as <effort>, not the word — example: '
-  + 'cast opencode glm-5.3 2 -p "hello". rungs are labels only; each model\'s effort_numbers maps '
+// The model that help text and messages show in a launchable example: the cli model of the harness
+// with the lowest shipped cost, the first in the supported table's order on a tie. Read when the
+// help is printed; when the shipped catalog cannot be read, every cli model of the harness ties
+// and the first in the table's order is shown. A harness with no cli model shows MODEL.
+function exampleModel(harness) {
+  const cli = ROWS.filter((r) => r.mode === 'cli' && r.harness === harness);
+  let cost = new Map();
+  try { cost = new Map(loadSelection(null).rows.map((r) => [`${r.harness}/${r.model}`, Number(r.cost)])); } catch (e) { /* tie */ }
+  const price = (r) => (cost.get(`${r.harness}/${r.model}`) >= 0 ? cost.get(`${r.harness}/${r.model}`) : Infinity);
+  const cheapest = cli.reduce((best, r) => (best && price(best) <= price(r) ? best : r), null);
+  return cheapest ? cheapest.model : 'MODEL';
+}
+const jsonUsage = () => 'Pass the NUMBER (integer 1-5) as <effort>, not the word — example: '
+  + `cast opencode ${exampleModel('opencode')} 2 -p "hello". rungs are labels only; each model's effort_numbers maps `
   + 'a word to the number that selects it. A model with mode api runs through cast api.';
 // --- refusals and the two lines every result starts with ---------------------------------------
 
@@ -135,7 +147,7 @@ function listModels(selection, view, json) {
   const models = view === 'selected' ? all.filter((m) => m.selected) : all;
   const defaults = defaultsOf(selection.root);
   if (json) {
-    return { installation: selection.root, selection: ownFile(selection), defaults: defaults.value, view, models, usage: JSON_USAGE };
+    return { installation: selection.root, selection: ownFile(selection), defaults: defaults.value, view, models, usage: jsonUsage() };
   }
   const byName = new Map(ROWS.map((row) => [`${row.harness} ${row.model}`, row]));
   const cells = (m) => [m.harness, m.model, ...(view === 'supported' ? [m.selected ? 'yes' : 'no'] : []),
@@ -475,8 +487,8 @@ function modelsArgs(args) {
   if (verb === 'update' && named.length === 0) return common;
   if (named.length !== 2) {
     bad(`cast models ${verb} takes a harness and a model, got ${named.length} name${named.length === 1 ? '' : 's'}`,
-      verb === 'update' ? 'every model: cast models update; one model, as in a launch: cast models update claude haiku-5-5'
-        : `as in a launch: cast models ${verb} claude haiku-5-5`, closing);
+      verb === 'update' ? `every model: cast models update; one model, as in a launch: cast models update claude ${exampleModel('claude')}`
+        : `as in a launch: cast models ${verb} claude ${exampleModel('claude')}`, closing);
   }
   return { ...common, harness: named[0], model: shortModel(named[0], named[1]) };
 }
@@ -497,4 +509,4 @@ function runModels(args) {
   process.exit(0);
 }
 
-module.exports = { USAGE, ownFileComesFrom, catalogDrift, runModels, usersOf };
+module.exports = { USAGE, exampleModel, ownFileComesFrom, catalogDrift, runModels, usersOf };

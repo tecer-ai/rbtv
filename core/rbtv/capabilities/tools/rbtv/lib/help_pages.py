@@ -788,7 +788,7 @@ options:
 
 Examples:
   rbtv agent add plans/launch/agents/drafter
-  rbtv agent add research --harness opencode --model glm-5.3 --effort high
+  rbtv agent add research --harness opencode --model MODEL --effort high
   rbtv agent add plans/launch/agents/drafter thinking-partner
   rbtv agent add plans/launch/agents/drafter --pack research-kit --dry-run
 
@@ -883,8 +883,8 @@ options:
   --details             list every file and harness file instead of counting
 
 Examples:
-  rbtv agent configure scout --model gpt-6-astra --effort medium
-  rbtv agent configure plans/launch/agents/drafter --harness codex --model gpt-6.1-sol --effort high
+  rbtv agent configure scout --model MODEL --effort medium
+  rbtv agent configure plans/launch/agents/drafter --harness codex --model MODEL --effort high
 
 Next: rbtv agent list
 Exit codes: 0 success; 1 refused or failed; 2 invalid arguments.

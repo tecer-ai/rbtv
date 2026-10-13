@@ -4,7 +4,7 @@
 
 const { API_USAGE } = require('./api');
 const { RESUME_USAGE, SESSIONS_USAGE, USAGE_IG } = require('./core');
-const { USAGE: MODELS_USAGE } = require('./models');
+const { USAGE: MODELS_USAGE, exampleModel } = require('./models');
 const { loadOptional } = require('./optional');
 const path = require('path');
 const { ROUTE_FORMS, ROUTE_USAGE } = require('./route');
@@ -91,7 +91,7 @@ function printHelp() {
     '',
     'Example: cast --agent scout -p "reply with exactly: ok"',
     '         cast --agent plans/launch/agents/drafter   # sends its task.md',
-    '         cast claude sonnet-5-5 3 -p "reply with exactly: ok"',
+    `         cast claude ${exampleModel('claude')} 3 -p "reply with exactly: ok"`,
     '',
     'next: cast <verb> -h   # the usage and every flag of one verb, with examples',
     '      cast models <verb> -h   # the same for one verb of cast models',
@@ -159,7 +159,7 @@ function modelsVerbPages() {
       '',
       'Select a supported model for the installation that holds the current folder.',
       '',
-      '  HARNESS MODEL  as in a launch: claude haiku-5-5. An api model takes harness api.',
+      `  HARNESS MODEL  as in a launch: claude ${exampleModel('claude')}. An api model takes harness api.`,
       '  --dry-run      print what would change and write nothing.',
       '  --json         {installation, selection, harness, model, changed, added: [row], dry_run}.',
       '',
@@ -174,14 +174,14 @@ function modelsVerbPages() {
       '',
       ...MODELS_EXIT,
       '',
-      'example: cast models add claude haiku-5-5',
+      `example: cast models add claude ${exampleModel('claude')}`,
     ],
     remove: [
       `usage: ${MODELS_USAGE.remove}`,
       '',
       'Stop launching a model in the installation that holds the current folder.',
       '',
-      '  HARNESS MODEL  as in a launch: claude haiku-5-5.',
+      `  HARNESS MODEL  as in a launch: claude ${exampleModel('claude')}.`,
       '  --force        remove it anyway; the result lists who still names it.',
       '  --dry-run      print what would change and write nothing.',
       '  --json         {installation, selection, harness, model, changed, removed: [row],',
@@ -201,14 +201,14 @@ function modelsVerbPages() {
       '',
       ...MODELS_EXIT,
       '',
-      'example: cast models remove opencode k3 --dry-run',
+      `example: cast models remove opencode ${exampleModel('opencode')} --dry-run`,
     ],
     set: [
       `usage: ${MODELS_USAGE.set}`,
       '',
       'Write the cells of a model\'s row that an installation decides.',
       '',
-      '  HARNESS MODEL            as in a launch: claude haiku-5-5.',
+      `  HARNESS MODEL            as in a launch: claude ${exampleModel('claude')}.`,
       '  --quality-override Y|N   Y: the row wins a quality ranking inside its own level.',
       '  --price-override Y|N     Y: the row wins a price ranking inside its own level.',
       '  --level LEVEL            which row an override goes to; required for a model listed at',
@@ -228,7 +228,7 @@ function modelsVerbPages() {
       '',
       ...MODELS_CATALOG_POINTER,
       '',
-      'example: cast models set opencode glm-5.3 --price-override Y --dry-run',
+      `example: cast models set opencode ${exampleModel('opencode')} --price-override Y --dry-run`,
     ],
     update: [
       `usage: ${MODELS_USAGE.update}`,
@@ -253,7 +253,7 @@ function modelsVerbPages() {
       ...MODELS_EXIT,
       '',
       'examples: cast models update --dry-run',
-      '          cast models update claude haiku-5-5',
+      `          cast models update claude ${exampleModel('claude')}`,
     ],
     defaults: [
       `usage: ${MODELS_USAGE.defaults}`,
@@ -436,7 +436,7 @@ function verbHelpPages() {
       '              An image model has no tier: no class reaches it, only this flag does.',
       '',
       'VERDICT',
-      '  {"verdict":"route","harness":"claude","model":"opus-5-5","mode":"cli","effort":3,',
+      '  {"verdict":"route","harness":"HARNESS","model":"MODEL","mode":"cli","effort":3,',
       '   "effort_is_floor":true,"optimize":"price","optimize_from":"cast\'s default",',
       '   "alternates":[{"harness":...},{...}]}',
       '  optimize is the ranking used; optimize_from says where it came from: --optimize, the',
@@ -518,8 +518,8 @@ function verbHelpPages() {
       '  --extra-params JSON    raw provider parameters merged into the request body.',
       '  --dry-run              print the request it would send, call nothing, write nothing.',
       '',
-      'example: cast api gemini-3.1-flash-image 1 --image -p "a red bicycle" --output-folder out/',
-      '         cast api gemini-3.1-flash-image 1 --image --input-image logo.png \\',
+      'example: cast api MODEL 1 --image -p "a red bicycle" --output-folder out/',
+      '         cast api MODEL 1 --image --input-image logo.png \\',
       '           -p "restyle this logo in art deco" --output-folder out/',
     ],
     doctor: [
