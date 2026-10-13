@@ -11,6 +11,7 @@ up as a wrong answer, and it records every request for the arms that count them.
 import http.server
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -85,7 +86,7 @@ class Stub(http.server.BaseHTTPRequestHandler):
                          "usage": {"input_tokens": 100, "output_tokens": 10}})
 
 
-def run(argv, stdin="", key=SENTINEL, cwd=None, env_file_key=None):
+def run(argv, stdin="", key=SENTINEL, cwd=None, env_file_key=None, base=None):
     """Run the CLI. Returns (exit status, stdout, stderr)."""
     with tempfile.TemporaryDirectory() as home:
         folder = Path(cwd or home)
@@ -95,7 +96,7 @@ def run(argv, stdin="", key=SENTINEL, cwd=None, env_file_key=None):
             (folder / ".rbtv" / "config" / "env" / ".env").write_text(
                 f"# keys\nOTHER_TYPESAFE_API_KEY=wrong\nTYPESAFE_API_KEY='{env_file_key}'\n", encoding="utf-8")
         env = {k: v for k, v in os.environ.items() if not k.startswith("TYPESAFE_")}
-        env["TYPESAFE_BASE_URL"] = BASE
+        env["TYPESAFE_BASE_URL"] = base or BASE
         if key:
             env["TYPESAFE_API_KEY"] = key
         done = subprocess.run([sys.executable, str(CLI), *argv], input=stdin.encode("utf-8"),
@@ -157,7 +158,7 @@ def check_many_items():
     lines = '"urgent: outage"\n\n{"note": "calm"}\nnot json\n"this is too long"\n'
     code, out, err = run(["yesno", "Urgent?", "--each", "--at-least", "0.8", "--json"], lines)
     result = json.loads(out)
-    assert code == 1 and err == "", (code, err)             # an item failed: never a clean exit
+    assert code == 0 and err == "", (code, err)             # an item passed, so the gate opens
     assert result["summary"] == {"items": 4, "answered": 2, "failed": 2, "passed": 1}, result["summary"]
     assert [r["item"] for r in result["results"]] == ["line 1", "line 2", "line 3", "line 4"]
     assert result["results"][0]["passed"] is True and result["results"][1]["passed"] is False
@@ -168,20 +169,70 @@ def check_many_items():
     with tempfile.TemporaryDirectory() as folder:
         (Path(folder) / "a.md").write_text("urgent: outage — now", encoding="utf-8")
         (Path(folder) / "b.md").write_text("calm", encoding="utf-8")
-        code, out, _ = run(["yesno", "Urgent?", "--each-file", "--at-least", "0.8"],
+        code, out, err = run(["yesno", "Urgent?", "--each-file", "--at-least", "0.8"],
                            "a.md\r\nb.md\ngone.md\n", cwd=folder)
-        assert code == 1 and out.splitlines()[:4] == [
+        assert code == 0 and "gone.md failed" in err and out.splitlines()[:4] == [
             "3 items: 2 answered, 1 failed, 1 passed (at least 0.8)",
             "a.md     passed  probability-of-yes 0.95", "b.md     -       probability-of-yes 0.10"] + [out.splitlines()[3]], out
         assert out.splitlines()[3].startswith("gone.md  failed: cannot read gone.md"), out
         code, out, _ = run(["yesno", "Urgent?", "--each-file", "--at-least", "0.8"], "b.md\n", cwd=folder)
-        assert code == 3 and out.startswith("1 items: 1 answered, 0 failed, 0 passed"), (code, out)
+        assert code == 3 and out.startswith("1 item: 1 answered, 0 failed, 0 passed"), (code, out)
+        code, out, err = run(["yesno", "Urgent?", "--each-file", "--at-least", "0.8"], "b.md\ngone.md\n", cwd=folder)
+        assert code == 1 and err == "", (code, err)         # a failure and no pass: never a clean "no"
     sent = [body["state"] for _, _, body in requests_seen if body and isinstance(body["state"], dict)
             and body["state"].get("path") == "a.md"]
     assert sent and sent[0]["content"] == "urgent: outage — now", sent
 
     code, out, _ = run(["yesno", "Urgent?", "--each"], "")
     assert code == 0 and out.strip() == "0 items: 0 answered, 0 failed", (code, out)
+
+
+def check_tiers_sort_and_given():
+    lines = '"calm a"\n"urgent b"\nnot json\n"calm c"\n'
+    code, out, err = run(["yesno", "Urgent?", "--each", "--tiers", "0.9,0.05", "--sort", "high", "--json"], lines)
+    result = json.loads(out)
+    assert code == 1 and result["summary"]["tiers"] == {"1": 1, "2": 2, "3": 0}, (code, result["summary"])
+    assert [(r["item"], r.get("tier")) for r in result["results"]] == [
+        ("line 2", 1), ("line 1", 2), ("line 4", 2), ("line 3", None)], result["results"]
+    code, out, _ = run(["yesno", "Urgent?", "--each", "--tiers", "[0.9, 0.5]", "--sort", "low"], '"urgent b"\n"calm a"\n')
+    assert code == 0 and out.splitlines()[:3] == [
+        "2 items: 2 answered, 0 failed; tier 1: 1, tier 2: 0, tier 3: 1 (tiers at 0.9, 0.5)",
+        "line 2  tier 3  probability-of-yes 0.10", "line 1  tier 1  probability-of-yes 0.95"], out
+
+    code, out, err = run(["yesno", "Urgent?", "--each", "--tiers", "0.9,0.05", "--list-tier", "2"], lines)
+    assert code == 0 and out.splitlines() == ["line 1", "line 4"] and "line 3 failed" in err, (code, out, err)
+    code, out, _ = run(["yesno", "Urgent?", "--each", "--tiers", "0.9,0.05", "--list-tier", "3"], '"calm a"\n')
+    assert (code, out) == (3, ""), (code, out)              # an empty tier: nothing to feed onward
+    code, out, _ = run(["yesno", "Urgent?", "--tiers", "0.9,0.05"], "calm")
+    assert code == 0 and "tier    2 of 3 (tiers at 0.9, 0.05)" in out, out
+    before = len(requests_seen)
+    for argv in (["--tiers", "0.5,0.9"], ["--tiers", "0.9,x"], ["--tiers", "0.9", "--at-least", "0.5"],
+                 ["--tiers", "2,0.5"], ["--list-tier", "1"], ["--sort", "high"],
+                 ["--each", "--tiers", "0.9", "--list-tier", "3"]):
+        code, _, err = run(["yesno", "Urgent?", *argv], "calm")
+        assert code == 2 and err and len(requests_seen) == before, (argv, code, err)
+
+    with tempfile.TemporaryDirectory() as folder:
+        (Path(folder) / "goal.txt").write_text("plan the outage review", encoding="utf-8")
+        (Path(folder) / "a.md").write_text("calm", encoding="utf-8")
+        assert run(["yesno", "Helps `given`?", "--given", "goal.txt"], "urgent", cwd=folder)[0] == 0
+        assert requests_seen[-1][2]["state"] == {"given": "plan the outage review", "content": "urgent"}
+        assert run(["yesno", "Helps `given`?", "--given", "goal.txt", "--each-file"], "a.md\n", cwd=folder)[0] == 0
+        assert requests_seen[-1][2]["state"] == {"given": "plan the outage review", "path": "a.md", "content": "calm"}
+        code, _, err = run(["yesno", "Helps?", "--given", "gone.txt"], "urgent", cwd=folder)
+        assert code == 2 and "gone.txt" in err, err
+
+
+def check_shortcut_options():
+    run(["yesno", "Urgent?", "--yes-means", "needs action today", "--no-means", "can wait"], "x")
+    assert requests_seen[-1][2]["questions"]["answer"]["criteria"] == {
+        "true": "needs action today", "false": "can wait"}, requests_seen[-1][2]
+    code, out, _ = run(["choice", "Team?", "--option", "billing", "--option", "sales", "--expect", "billing"], "x")
+    assert code == 0 and "passed  yes (expected billing)" in out, (code, out)
+    code, out, _ = run(["choice", "Team?", "--option", "billing", "--option", "sales", "--expect", "sales"], "x")
+    assert code == 3 and "passed  no (expected sales)" in out, (code, out)
+    code, _, err = run(["choice", "Team?", "--option", "billing", "--option", "sales", "--expect", "ops"], "x")
+    assert code == 2 and "billing, sales" in err, err
 
 
 def check_failures():
@@ -205,6 +256,17 @@ def check_failures():
     assert code == 2 and "two" in err, err
     code, out, err = run(["yesno", "--json"], "text")           # usage error under --json
     assert code == 2 and err == "" and json.loads(out)["error"]["kind"] == "usage", (out, err)
+    code, out, err = run(["yesno", "--bogus", "--", "--json"], "text")   # after -- it is a question, not a flag
+    assert code == 2 and out == "" and "--bogus" in err, (out, err)
+
+    closed = socket.socket()                                    # a port nothing listens on
+    closed.bind(("127.0.0.1", 0))
+    dead = f"http://127.0.0.1:{closed.getsockname()[1]}"
+    closed.close()
+    code, out, err = run(["yesno", "Urgent?"], "text", base=dead)
+    assert code == 1 and out == "" and "could not reach" in err and SENTINEL not in err, (code, err)
+    code, out, err = run(["models", "--json"], base=dead)
+    assert code == 1 and err == "" and json.loads(out)["error"]["kind"] == "network", (out, err)
 
 
 def check_retry_and_key_file():
@@ -236,7 +298,8 @@ if __name__ == "__main__":
     BASE = f"http://127.0.0.1:{server.server_address[1]}"
     threading.Thread(target=server.serve_forever, daemon=True).start()
     checks = [check_single_answers, check_ask_and_structured_state, check_threshold_exit, check_many_items,
-              check_failures, check_retry_and_key_file, check_models_and_help]
+              check_tiers_sort_and_given, check_shortcut_options, check_failures, check_retry_and_key_file,
+              check_models_and_help]
     for check in checks:
         check()
         print(f"ok  {check.__name__}")
