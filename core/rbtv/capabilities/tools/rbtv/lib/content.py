@@ -76,10 +76,14 @@ TOOLS_RULE_DESCRIPTION = (
 
 
 def tools_rule_content(rel: str, name: str,
-                       tools: list[tuple[str, str, str]]) -> str:
+                       tools: list[tuple[str, str, str]],
+                       local: list[tuple[str, str, str]] | None = None) -> str:
     """The rule that lists the installed tools, written whole from their
     records: `tools` is (module, tool name, description), and each module gets
-    one table. Codex receives it as a skill, like every rule."""
+    one table. `local` is (invocation, tool name, description) for tools in
+    the agent's own source: run them from the agent folder; the invocation
+    is a path under `rbtv/`. Codex receives the rule as a skill, like every
+    rule. No PATH launcher is created for a local tool."""
     lines = [
         "# rbtv tools", "",
         "When a step needs an operation run or an exact result computed, read "
@@ -95,6 +99,17 @@ def tools_rule_content(rel: str, name: str,
             lines += ["", f"## {module}", "", "| Tool | Description |", "|---|---|"]
         cell = " ".join(desc.split()).replace("|", "\\|")
         lines.append(f"| `{tool}` | {cell} |")
+    if local:
+        lines += [
+            "", "## this agent", "",
+            "Run these from the agent folder. The invocation is a path "
+            "relative to that folder and resolves under `rbtv/`. Do not "
+            "expect the name on PATH.",
+            "", "| Invocation | Description |", "|---|---|",
+        ]
+        for invocation, _tool, desc in sorted(local):
+            cell = " ".join(desc.split()).replace("|", "\\|")
+            lines.append(f"| `{invocation}` | {cell} |")
     codex = rel.endswith("/" + SKILL_FILE)
     head = _head(name, rule_skill_description(name) if codex
                  else TOOLS_RULE_DESCRIPTION, named=True)

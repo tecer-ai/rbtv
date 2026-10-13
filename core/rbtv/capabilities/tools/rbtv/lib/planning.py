@@ -33,6 +33,7 @@ from .content import (
     sub_agent_content,
     tools_rule_content,
 )
+from .pathlinks import plan_path_links
 from .state import _wanted_files
 from .target import discover_installation, is_agent_target
 from .recovery import vanished_component_message
@@ -67,22 +68,39 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
     instruction_owners: dict[str, list] = {}
     denied_skill_owners: dict[str, list] = {}
     tools: list[dict] = []
+    local_tools: list[tuple[str, str, str]] = []
     report: dict = {"no_realization": [], "skill_folders": [], "path_rows": [],
                     "sub_agents_unset": []}
     codex_used = False
     installation = _installation_of(target)
 
+    def _local(cid: str) -> bool:
+        return cid.startswith("local/")
+
     def claim_file(rel: str, content: str | bytes, cid: str, pid: str) -> None:
-        if rel in files and files[rel] != content:
+        if rel in files:
             other = owners[rel][0]
             other_cid = other[0] if isinstance(other, tuple) else other
-            raise Refuse(
-                "file-collision",
-                f"components {other_cid!r} and {cid!r} both realize "
-                f"{rel!r} with different content — two components exposing the "
-                "same file name is a conflict, not something to resolve "
-                "by write order",
-                rel)
+            same = files[rel] == content
+            local_clash = _local(cid) != _local(str(other_cid))
+            # The tools rule is one combined file. Co-owning it is not a
+            # name clash; a local tool named like a shared tool is refused
+            # before this claim.
+            tools_rule = (f"/{TOOLS_RULE}/" in f"/{rel}"
+                          or rel.endswith(f"/{TOOLS_RULE}.md")
+                          or rel.endswith(f"/{TOOLS_RULE}/{SKILL_FILE}"))
+            if not same or (local_clash and not tools_rule):
+                why = ("with the same content" if same else
+                       "with different content")
+                adjust = ("Rename one of the sources so they do not share "
+                          "an output name." if local_clash else
+                          "Two components exposing the same file name is a "
+                          "conflict, not something to resolve by write order.")
+                raise Refuse(
+                    "file-collision",
+                    f"components {other_cid!r} and {cid!r} both realize "
+                    f"{rel!r} {why}. {adjust}",
+                    rel)
         files[rel] = content
         owners.setdefault(rel, []).append((cid, pid))
 
@@ -151,6 +169,34 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                     f"outside the vocabulary ({' · '.join(CANONICAL_METHODS)}) "
                     "— refusing before any write", str(comp_dir / entry_rel))
             if method == "tool":
+                if _local(cid):
+                    # Validate the executable the same way a PATH tool is
+                    # validated, then do not place a launcher.
+                    plan_path_links(target or Path("."),
+                                    [(cid, pid, comp_dir, entry_rel)])
+                    if any(tool["row"] and tool["row"][1] == pid
+                           for tool in tools):
+                        raise Refuse(
+                            "file-collision",
+                            f"tool {pid!r} is declared by a shared component "
+                            f"and by {cid!r}. A local source and a shared "
+                            "file cannot share a name, even when the "
+                            "programs match. Rename one of the sources.",
+                            str(comp_dir / entry_rel))
+                    invocation = f"rbtv/{entry_rel}"
+                    local_tools.append((invocation, pid, desc))
+                    tools.append({"owner": (cid, pid), "harnesses": harnesses,
+                                  "row": None,
+                                  "local": (invocation, pid, desc)})
+                    continue
+                if any(item[1] == pid for item in local_tools):
+                    raise Refuse(
+                        "file-collision",
+                        f"tool {pid!r} is declared by {cid!r} and by the "
+                        "agent's own source. A local source and a shared "
+                        "file cannot share a name, even when the programs "
+                        "match. Rename one of the sources.",
+                        str(comp_dir / entry_rel))
                 report["path_rows"].append(
                     {"component": cid, "part": pid, "type": method,
                      "entry_point": entry_rel, "comp_dir": str(comp_dir)})
@@ -192,6 +238,15 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
                 spec = ({"url": data["url"]} if "url" in data else
                         {k: data[k] for k in ("command", "args", "env")
                          if data.get(k)})
+                prior = server_owners.get(pid) or []
+                if prior and _local(cid) != _local(prior[0][0]):
+                    raise Refuse(
+                        "file-collision",
+                        f"MCP server {pid!r} is declared by {prior[0][0]!r} "
+                        f"and {cid!r}. A local source and a shared file "
+                        "cannot share a name, even when the records match. "
+                        "Rename one of the sources.",
+                        str(comp_dir / entry_rel))
                 if pid in servers and servers[pid] != spec:
                     raise Refuse(
                         "mcp-server-conflict",
@@ -240,12 +295,12 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict],
 
     # D31: the installed tools, listed in one rule that every one of them owns,
     # so the file is rewritten when the set changes and leaves with the last.
-    listed = [tool["row"] for tool in tools]
+    listed = [tool["row"] for tool in tools if tool.get("row")]
     for tool in tools:
         for harness in tool["harnesses"]:
             rel = MATRIX["rule"][harness].format(name=TOOLS_RULE)
-            claim_file(rel, tools_rule_content(rel, TOOLS_RULE, listed),
-                       *tool["owner"])
+            claim_file(rel, tools_rule_content(
+                rel, TOOLS_RULE, listed, local_tools), *tool["owner"])
             if harness == "opencode":
                 instruction_owners.setdefault(rel, []).append(tool["owner"])
                 if "codex" in tool["harnesses"]:

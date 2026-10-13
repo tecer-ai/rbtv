@@ -697,8 +697,14 @@ To write a new agent first, see the new-agent passage in rbtv agent -h.
 
 A name is looked up in <installation>/.rbtv/agents/, then among agents a
 component ships. A shipped agent with no folder there is placed in
-.rbtv/agents/<name>/, then applied. A path is used in place: nothing is
-copied. The folder name and the name in agent.json must agree.
+.rbtv/agents/<name>/, then applied. Placement also copies that agent's
+rbtv/ subtree when the component ships one. A path is used in place:
+nothing is copied. The folder name and the name in agent.json must agree.
+
+The pack foundations is applied as well as --pack and the record's own
+list, once each file. rbtv/ under the agent folder is that agent's own
+source. It is installed for every harness on add, with no extra flag.
+A tool there is listed in the rbtv-tools rule and is not placed on PATH.
 
 --harness, --model and --effort are required, all three, when agent.json
 has none: always the case for an agent a component ships. They are checked
@@ -758,7 +764,13 @@ pack off. A pack is named only with --pack; a bare NAME is always a file.
 --all removes every file and turns every pack off; it requires --yes.
 A named file or a named pack needs no --yes. Give one of NAME, --pack or
 --all. This verb takes no --target. It never asks a question and never
-deletes the agent folder, prompt.md or agent.json.
+deletes the agent folder, prompt.md, agent.json, rbtv/, settings.json,
+memory/ or runtime/.
+
+--pack foundations removes that pack and records exclude_foundations in
+agent.json so a later update does not add it again. Delete that field
+and update to bring the pack back. A file under rbtv/ is not removed by
+name: delete the source and run rbtv agent update.
 
 positional arguments:
   AGENT                 name or path of the agent
@@ -842,7 +854,16 @@ usage: rbtv agent update [-h] [--json] [--dry-run] [--details]
 
 Make the agent folder match agent.json. This is what a second machine
 runs after git pull. It does not change harness, model, effort or voice,
-and it does not download a newer source.
+and it does not download a newer source. It does not overwrite
+prompt.md, settings.json, memory/ or runtime/.
+
+It installs rbtv/ under the agent folder, and deletes a generated file
+whose source there was removed. A shipped rbtv/ file the owner did not
+edit is updated from the component; a file the owner edited is kept; a
+file both sides changed is refused and both versions are kept. The pack
+foundations is added when the record lacks it, unless agent.json has
+exclude_foundations. An existing .gitignore has only its rbtv block
+replaced.
 
 AGENT comes first. SCOPE is required. Without a scope the command is
 wrong usage and changes nothing. A scope word is not an agent name.

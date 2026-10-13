@@ -6,7 +6,7 @@ import sys
 from functools import wraps
 from pathlib import Path
 
-from discovery import LAUNCH_FIELDS, Refuse, scan_all
+from discovery import LAUNCH_FIELDS, Refuse, attach_local, scan_all
 
 from . import present, providers, subagents, usage
 from .constants import (
@@ -1672,6 +1672,8 @@ def main(argv: list[str] | None = None, *, ask=None) -> int:
         repo_tree = REPO_ROOT
         mirror_tree = target / ".rbtv" / "mirror"
         catalog, shadowed = scan_all(mirror_tree, repo_tree)
+        if is_agent_target(target):
+            catalog = attach_local(catalog, target)
         if args.verb == "interactive":
             if as_json:
                 raise Refuse("usage", "interactive mode has no --json output")

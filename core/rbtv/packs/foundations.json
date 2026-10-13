@@ -1,0 +1,4 @@
+{
+  "description": "The agent-folder rule every agent receives unless its record excludes it.",
+  "files": ["core/rbtv#agent-folder"]
+}

@@ -1,16 +1,17 @@
 """Agent-folder resolution and the small agent-only boundary around root verbs."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
 import subprocess
 from pathlib import Path
 
-from discovery import LAUNCH_FIELDS, Refuse
+from discovery import LAUNCH_FIELDS, Refuse, attach_local, file_rows, local_id
 
 from . import frontmatter, schema, subagents
-from .catalog import check_packs, pack_files
+from .catalog import catalog_packs, check_packs, pack_files
 from .constants import (AGENT_RECORD, AGENT_SECTION_LABEL, EFFORT_INERT, GUIDANCE_FILE, HARNESSES, MATRIX,
                         PROMPT_FILE,
                         SHARED_FILE_DESTINATIONS)
@@ -23,10 +24,24 @@ from .selection import (_split_part_keys, close_names_sentence, iter_booked_file
 from .state import read_state, file_membership, write_state
 
 AGENTS_REL = Path(".rbtv") / "agents"
+FOUNDATIONS = "foundations"
+# Written only by `rbtv agent remove AGENT --pack foundations`. Update adds
+# the pack back when this field is absent.
+EXCLUDE_FIELD = "exclude_foundations"
+# Hashes of the shipped `rbtv/` bytes last copied into the agent. Not a
+# folder: it lives in agent.json. A missing file hash means the owner has
+# not been given that shipped file yet.
+SHIPPED_FIELD = "shipped_rbtv"
+IGNORE_HEADER = "# rbtv: harness files and machine data"
+IGNORE_START = "# rbtv:start agent-ignore"
+IGNORE_END = "# rbtv:end agent-ignore"
+_MACHINE_DATA = ("state.sqlite*", "turns/", "conversations/*/session*")
 
 
-def _ignore_text() -> str:
-    """The agent-local ignores, derived from every harness's output paths."""
+def _ignore_patterns() -> list[str]:
+    """Harness outputs, machine data, runtime and tmp. Not `rbtv/`, `work/`,
+    `memory/` or `_artifacts/board.md`. `settings.json` is added only when an
+    existing ignore file is updated: a newly created file keeps it visible."""
     folders = {
         path.partition("{name}")[0].rstrip("/") + "/"
         for paths in MATRIX.values()
@@ -35,9 +50,53 @@ def _ignore_text() -> str:
     }
     harness_paths = (sorted(folders | set(SHARED_FILE_DESTINATIONS))
                      + sorted(set(GUIDANCE_FILE.values())))
-    machine_data = ("state.sqlite*", "turns/", "conversations/*/session*")
-    return ("# rbtv: harness files and machine data\n"
-            + "\n".join((*harness_paths, ".gitignore", *machine_data)) + "\n")
+    return [*harness_paths, ".gitignore", "runtime/", "tmp/", *_MACHINE_DATA]
+
+
+def _ignore_text() -> str:
+    """The ignore file written when the agent has none."""
+    return IGNORE_HEADER + "\n" + "\n".join(_ignore_patterns()) + "\n"
+
+
+def _ignore_block() -> str:
+    """The owned block an update writes. It adds `settings.json` to the
+    create-time patterns and is fenced so an unrelated line survives."""
+    patterns = [*_ignore_patterns(), "settings.json"]
+    return (f"{IGNORE_START}\n{IGNORE_HEADER}\n"
+            + "\n".join(patterns) + f"\n{IGNORE_END}\n")
+
+
+def _owned_ignore_line(line: str) -> bool:
+    text = line.strip()
+    if text in {IGNORE_HEADER, IGNORE_START, IGNORE_END, ""}:
+        return text != ""
+    return text in set(_ignore_patterns()) or text == "settings.json"
+
+
+def reconcile_ignore(text: str) -> str:
+    """Replace or extend only the rbtv-owned ignore block. Every unrelated
+    line stays, in order. A file this installer just wrote is left as it is."""
+    if text == IGNORE_TEXT:
+        return text
+    block = _ignore_block()
+    if IGNORE_START in text and IGNORE_END in text:
+        pre, _, rest = text.partition(IGNORE_START)
+        _, _, post = rest.partition(IGNORE_END)
+        if post.startswith("\n"):
+            post = post[1:]
+        return pre + block + post
+    if IGNORE_HEADER in text:
+        lines = text.splitlines(keepends=True)
+        start = next(i for i, line in enumerate(lines)
+                     if line.startswith(IGNORE_HEADER))
+        end = start + 1
+        while end < len(lines) and _owned_ignore_line(lines[end]):
+            end += 1
+        return "".join(lines[:start]) + block + "".join(lines[end:])
+    if not text.strip():
+        return block
+    sep = "" if text.endswith("\n") else "\n"
+    return text + sep + block
 
 
 IGNORE_TEXT = _ignore_text()
@@ -309,6 +368,14 @@ def _agent_files(home: Path, state: dict, dry: bool) -> list[str]:
     created = []
     for name, body in OWN_BODIES.items():
         path = home / name
+        if name == ".gitignore" and path.is_file():
+            current = path.read_text(encoding="utf-8")
+            wanted = reconcile_ignore(current)
+            if wanted != current:
+                created.append(name)
+                if not dry:
+                    write_file(path, wanted, newline="\n")
+            continue
         if not path.exists():
             created.append(name)
             if not dry:
@@ -346,7 +413,8 @@ def configure_agent(root: Path, raw: str, harness: str | None,
                            str(after["effort"]), cast_catalog(home), home)
     after.update(launch)
     changed_harness = before["harness"] != after["harness"]
-    wanted = _keys(list(after["files"]), catalog) | pack_files(catalog, set(after["packs"]))
+    catalog, local = _with_local(catalog, home)
+    wanted = _keys(list(after["files"]), catalog) | pack_files(catalog, set(after["packs"])) | local
     picked, parts = _split_part_keys(wanted)
     harness_files = (do_install(home, catalog, picked, list(HARNESSES), dry,
                              guidance_basis="none", parts=parts,
@@ -419,6 +487,131 @@ def cast_agent_list(root: Path, raw: str | None, as_json: bool, full: bool, widt
     return done.stdout
 
 
+def _local_keys(catalog: dict, home: Path) -> set[str]:
+    """File ids of the agent's own source. `file_rows` refuses an invalid
+    file here, before a write, rather than through a reader that swallows it."""
+    cid = local_id(home.name)
+    comp = catalog.get(cid)
+    if comp is None:
+        return set()
+    return {f"{cid}#{row['id']}" for row in file_rows(comp)}
+
+
+def _with_local(catalog: dict, home: Path) -> tuple[dict, set[str]]:
+    bound = attach_local(catalog, home)
+    return bound, _local_keys(bound, home)
+
+
+def _foundations(catalog: dict, enabled: set[str], state: dict,
+                 explicit: set[str]) -> set[str]:
+    """`foundations` joins the enabled packs unless the record excludes it.
+    An explicit `--pack foundations` clears that exclusion. A catalog that
+    does not ship the pack is left alone."""
+    packs = set(enabled)
+    if FOUNDATIONS in explicit:
+        state.pop(EXCLUDE_FIELD, None)
+        packs.add(FOUNDATIONS)
+        return packs
+    if state.get(EXCLUDE_FIELD):
+        return packs
+    if FOUNDATIONS in catalog_packs(catalog):
+        packs.add(FOUNDATIONS)
+    return packs
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _tree_files(root: Path) -> dict[str, str]:
+    if not root.is_dir():
+        return {}
+    found = {}
+    for path in sorted(root.rglob("*")):
+        if path.is_symlink() or not path.is_file():
+            continue
+        found[path.relative_to(root).as_posix()] = _sha256(path)
+    return found
+
+
+def _shipped_source(catalog: dict, record: dict, name: str) -> Path | None:
+    cid = record.get("component")
+    comp = catalog.get(cid) if isinstance(cid, str) else None
+    if not comp or comp.get("tree") == "local":
+        return None
+    return Path(comp["path"]) / "agents" / name / "rbtv"
+
+
+def _sync_shipped(home: Path, catalog: dict, state: dict, dry: bool) -> None:
+    """Copy shipped `rbtv/` bytes the owner did not edit. A file changed on
+    both sides is left as the owner wrote it, and the shipped bytes are
+    saved beside it, then the update refuses. Prompt, settings, memory and
+    runtime are not in this tree."""
+    record = state.get(SHIPPED_FIELD)
+    if not isinstance(record, dict):
+        return
+    source = _shipped_source(catalog, record, state["name"])
+    if source is None or not source.is_dir():
+        return
+    basis = dict(record.get("files") or {})
+    shipped = _tree_files(source)
+    local_root = home / "rbtv"
+    conflicts: list[str] = []
+    copies: list[str] = []
+    for rel, digest in shipped.items():
+        local = local_root / rel
+        old = basis.get(rel)
+        if not local.is_file():
+            if old is None:
+                copies.append(rel)
+            elif digest != old:
+                conflicts.append(rel)
+            continue
+        current = _sha256(local)
+        if current == digest:
+            basis[rel] = digest
+            continue
+        if old is not None and current == old:
+            copies.append(rel)
+            continue
+        if old is None or digest != old:
+            conflicts.append(rel)
+    if conflicts:
+        if not dry:
+            for rel in conflicts:
+                side = local_root / (rel + ".shipped")
+                side.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source / rel, side)
+        names = ", ".join(conflicts)
+        exc = Refuse(
+            "shipped-conflict",
+            f"shipped source and the agent both changed {names}. "
+            "The agent's file was kept. The shipped bytes are beside it "
+            "as `<file>.shipped`. Keep one version, delete the other, "
+            "then retry the same update.",
+            str(local_root / conflicts[0]))
+        exc.unchanged = "The agent's file was kept and the shipped bytes were saved beside it."
+        raise exc
+    if not dry:
+        for rel in copies:
+            dest = local_root / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source / rel, dest)
+            basis[rel] = shipped[rel]
+    record = dict(record)
+    record["files"] = basis
+    state[SHIPPED_FIELD] = record
+
+
+def _copy_shipped_tree(source: Path, dest: Path) -> dict[str, str]:
+    copied = _tree_files(source)
+    for rel in copied:
+        target = dest / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source / rel, target)
+    return copied
+
+
 def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: dict,
               dry: bool, given: dict | None = None, on: tuple[str, ...] = ()) -> dict:
     """Apply an agent folder, placing it first when a component ships it.
@@ -446,26 +639,47 @@ def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: 
     else:
         launch_values(state["harness"], state["model"], str(state["effort"]), known, asked_from)
     placed = None
+    explicit = _keys(names, catalog)
+    declared = _keys(list(state["files"]), catalog)
+    before_packs = set(state["packs"])
+    enabled = _foundations(catalog, before_packs | packs, state, packs)
     if part:
+        probe = attach_local(catalog, home)
+        shipped_tree = source / "rbtv"
+        if shipped_tree.is_dir():
+            row = dict(probe[local_id(raw)])
+            row["path"] = str(shipped_tree)
+            probe[row["id"]] = row
+        local = _local_keys(probe, home)
+        wanted = declared | explicit | pack_files(catalog, enabled) | local
+        receiving = list(HARNESSES)
+        picked, parts = _split_part_keys(wanted)
+        # Refuse invalid source or an output-name collision before the folder exists.
+        do_install(home, probe, picked, receiving, True, guidance_basis="none",
+                   parts=parts)
         placed = {"id": part["key"], "files": [PROMPT_FILE.name, AGENT_RECORD.name]}
         if not dry:
             home.mkdir(parents=True, exist_ok=True)
             write_file(home / PROMPT_FILE,
                        absolute_links(_prompt_body(source), root),
                        newline="\n")
+            if shipped_tree.is_dir():
+                copied = _copy_shipped_tree(shipped_tree, home / "rbtv")
+                state[SHIPPED_FIELD] = {"component": part["component"],
+                                        "files": copied}
+                placed["files"] += [f"rbtv/{rel}" for rel in sorted(copied)]
             write_file(home / AGENT_RECORD, json.dumps(state, indent=2) + "\n", newline="\n")
             state = agent_state(home)
-    elif launch:
-        _checked_agent(home, state)
-    explicit = _keys(names, catalog)
-    declared = _keys(list(state["files"]), catalog)
-    before = declared | pack_files(catalog, set(state["packs"]))
-    enabled = set(state["packs"]) | packs
-    wanted = declared | explicit | pack_files(catalog, enabled)
-    receiving = list(HARNESSES)
+        catalog = attach_local(catalog, home)
+    else:
+        if launch:
+            _checked_agent(home, state)
+        catalog, local = _with_local(catalog, home)
+        wanted = declared | explicit | pack_files(catalog, enabled) | local
+        receiving = list(HARNESSES)
+        picked, parts = _split_part_keys(wanted)
     named = subagents.named_agents(catalog, explicit)
     sub_agents = on_values(list(on), named, receiving, home, f"rbtv agent configure {raw} -h")
-    picked, parts = _split_part_keys(wanted)
     recorded = subagents.recorded(state)
     result = do_install(home, catalog, picked, receiving, dry, guidance_basis="none",
                         parts=parts, sub_agents=sub_agents)
@@ -474,8 +688,15 @@ def add_agent(root: Path, raw: str, names: list[str], packs: set[str], catalog: 
         after = read_state(home)
         after.update(launch)
         after["files"], after["packs"] = sorted(declared | explicit), sorted(enabled)
+        if state.get(EXCLUDE_FIELD) is None:
+            after.pop(EXCLUDE_FIELD, None)
+        elif EXCLUDE_FIELD in state:
+            after[EXCLUDE_FIELD] = state[EXCLUDE_FIELD]
+        if SHIPPED_FIELD in state:
+            after[SHIPPED_FIELD] = state[SHIPPED_FIELD]
         write_state(home, after)
-    added, packs_on = sorted(wanted - before), sorted(packs - set(state["packs"]))
+    before = declared | pack_files(catalog, before_packs)
+    added, packs_on = sorted(wanted - before - local), sorted(enabled - before_packs)
     repos = result.get("repositories") or []
     repo_acted = any(item.get("action") == "cloned" or item.get("setup") == "installed"
                      for item in repos)
@@ -495,11 +716,22 @@ def update_agent(root: Path, raw: str, scope: str, catalog: dict, dry: bool) -> 
     mismatch (listed_missing, on_disk_unlisted) for the caller to name."""
     home = resolve_agent(root, raw)
     state = agent_state(home)
-    wanted = _keys(list(state["files"]), catalog) | pack_files(catalog, set(state["packs"]))
+    if scope != "guidance":
+        _sync_shipped(home, catalog, state, dry)
+    catalog, local = _with_local(catalog, home)
+    enabled = _foundations(catalog, set(state["packs"]), state, set())
+    wanted = _keys(list(state["files"]), catalog) | pack_files(catalog, enabled) | local
     members = file_membership(home, catalog, state, wanted)
     picked, parts = _split_part_keys(wanted)
     result = do_install(home, catalog, picked, list(HARNESSES), dry, guidance_basis="none", parts=parts, scope=scope, selected=parts if scope in ("scaffolding", "all") else None)
     written = _agent_files(home, state, dry) if scope != "guidance" else []
+    if not dry and scope != "guidance":
+        after = read_state(home)
+        after["packs"] = sorted(enabled)
+        if SHIPPED_FIELD in state:
+            after[SHIPPED_FIELD] = state[SHIPPED_FIELD]
+        write_state(home, after)
+        state = after
     guidance = scope == "guidance"
     return {"ok": True, "agent": state["name"], "home": str(home), "launch": _launch(state),
             "packs": list(state["packs"]), "scope": scope, "written": written,
@@ -516,6 +748,7 @@ def remove_agent(root: Path, raw: str, names: list[str], packs: set[str], all_fi
         raise Refuse("usage", "agent remove needs a NAME, --pack, or --all")
     home = resolve_agent(root, raw)
     state = agent_state(home)
+    catalog, local = _with_local(catalog, home)
     if all_files and not yes:
         pack_part = f", pack {', '.join(state['packs'])}" if state["packs"] else ""
         before = _keys(list(state["files"]), catalog, state.get("components")) | pack_files(catalog, set(state["packs"]))
@@ -536,9 +769,15 @@ def remove_agent(root: Path, raw: str, names: list[str], packs: set[str], all_fi
                           + close_names_sentence(exc.candidates), "rbtv list")
         refusal.candidates = exc.candidates
         raise refusal from exc
+    if any(key.startswith(local_id(home.name) + "#") for key in removed):
+        raise Refuse(
+            "local-source",
+            "an agent's own source is not removed by name. Delete the file "
+            "under rbtv/ and run rbtv agent update. That deletes only the "
+            "generated output.")
     enabled = set() if all_files else set(state["packs"]) - packs
     explicit = set() if all_files else set(state["files"]) - removed
-    wanted = explicit | pack_files(catalog, enabled)
+    wanted = explicit | pack_files(catalog, enabled) | local
     booked = {row["key"] for row in iter_booked_files(catalog, state.get("components") or {})}
     gone = booked - wanted
     picked, parts = _split_part_keys(gone)
@@ -546,6 +785,8 @@ def remove_agent(root: Path, raw: str, names: list[str], packs: set[str], all_fi
     if not dry:
         after = read_state(home)
         after["files"], after["packs"] = sorted(explicit), sorted(enabled)
+        if FOUNDATIONS in packs:
+            after[EXCLUDE_FIELD] = True
         write_state(home, after)
     packs_off = sorted(set(state["packs"]) if all_files else set(state["packs"]) & packs)
     return {"ok": True, "agent": state["name"], "home": str(home), "launch": _launch(state),

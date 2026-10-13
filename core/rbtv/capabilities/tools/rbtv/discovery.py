@@ -40,6 +40,10 @@ LAUNCH_FIELDS = ("harness", "model", "effort")
 TOOLS_DIR = Path("capabilities") / "tools"
 COMPONENT_FOLDERS = (*MD_FOLDERS, *JSON_FOLDERS, "capabilities",
                      FOLDER_INSTRUCTIONS)
+# An agent's own source is an in-memory catalog row, never a module. A real
+# module of this name would share the id, so scan refuses it.
+LOCAL_MODULE = "local"
+LOCAL_SOURCE = "rbtv"
 
 
 class Refuse(Exception):
@@ -146,6 +150,11 @@ def scan_tree(root: Path, tree: str) -> dict[str, dict]:
         if not top.is_dir() or top.name.startswith(".") \
                 or top.name in {HUB_DIR, SKILLS_DIR}:
             continue
+        if top.name == LOCAL_MODULE:
+            raise Refuse("module-name-reserved",
+                         f"module name {LOCAL_MODULE!r} is reserved for an "
+                         "agent's own source and cannot be a component id",
+                         str(top))
         subs = [sub for sub in sorted(top.iterdir())
                 if sub.is_dir() and not sub.name.startswith(".")
                 and _is_component_dir(sub)]
@@ -281,6 +290,14 @@ def file_rows(comp: dict) -> list[dict]:
     fails its schema, or whose name is not its file name, refuses; so does a
     name used by two files of one component."""
     comp_dir = Path(comp["path"])
+    if comp.get("tree") == "local":
+        agents = comp_dir / "agents"
+        if agents.is_dir() and any(agents.iterdir()):
+            raise Refuse(
+                "local-agents-refused",
+                f"{agents}: an agent's own source holds no agents/ folder. "
+                "Remove it. A shipped agent is placed with rbtv agent add.",
+                str(agents))
     rows: list[dict] = []
     # `<folder>/<folder>.md` is the folder's index file, which is not installed.
     for folder, method in MD_FOLDERS.items():
@@ -327,6 +344,11 @@ def file_rows(comp: dict) -> list[dict]:
             raise Refuse("file-invalid",
                          f"{record}: name {data['name']!r} is not its folder "
                          f"name {record.parent.name!r}", str(record))
+        if comp.get("tree") == "local" and data["entry"].startswith(WS_PREFIX):
+            raise Refuse("entry-point-escape",
+                         f"{record}: an agent's own tool names no {WS_PREFIX} "
+                         "entry. Point entry at a file under rbtv/.",
+                         str(record))
         if data["entry"].startswith(WS_PREFIX):
             # From the installation root; resolved when the tool is placed on PATH.
             wpath = Path(data["entry"][len(WS_PREFIX):])
@@ -358,3 +380,43 @@ def file_rows(comp: dict) -> list[dict]:
                      "used by more than one file — a name is one file",
                      str(comp_dir))
     return rows
+
+
+def local_id(name: str) -> str:
+    """The in-memory owner id of one agent's own source. It is not a component
+    id: scan_tree refuses a module named `local`."""
+    return f"{LOCAL_MODULE}/{name}"
+
+
+def local_component(home: Path) -> dict:
+    """One catalog row for `<home>/rbtv/`, whether or not that folder exists.
+
+    The row is never written as a record, a selection or a mirror entry. Its
+    files are `file_rows` on that path. A missing folder has no files, so a
+    booked local id can release its outputs after the source is deleted.
+    """
+    name = home.name
+    return {
+        "id": local_id(name), "tree": "local", "tree_root": str(home),
+        "module": LOCAL_MODULE, "component": name,
+        "path": str(home / LOCAL_SOURCE),
+        "kind": "component", "manifest": False,
+        "description": f"Source owned by the agent {name}",
+        "dependencies": [],
+        "module_description": "Agent-local source",
+    }
+
+
+def attach_local(catalog: dict[str, dict], home: Path) -> dict[str, dict]:
+    """`catalog` plus the agent's own source row. A real component already
+    using that id is refused; attaching twice keeps the same row."""
+    row = local_component(home)
+    current = catalog.get(row["id"])
+    if current is not None and current.get("tree") != "local":
+        raise Refuse("component-duplicate",
+                     f"component {row['id']!r} uses the id reserved for "
+                     "an agent's own source. Rename that module.",
+                     current.get("path", ""))
+    merged = dict(catalog)
+    merged[row["id"]] = row
+    return merged
