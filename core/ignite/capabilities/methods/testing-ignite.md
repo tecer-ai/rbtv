@@ -58,7 +58,7 @@ The pass signal is exit 0 for every program, plus the line named here. Seconds w
 | `test_board.js`, `test_store.js` | Same | 1 and 2 |
 | `test_memory_write.js`, `test_turn_loop.js` | Same | 5 each |
 | `test_connect.js`, `test_cli.js`, `test_deploy.js` | Same, and the last line is `ok` | 17, 51 and 3 |
-| `test_dreamer.js` | Same | 20 |
+| `test_dreamer.js` | Same, while the file is present | 20 |
 | `test_albert_evidence.js` | Same, and the last line is `ok` | not measured here |
 | `test_runtime_migration.js` | `PASS RM-` lines, no line starting `FAIL` | not measured here |
 | `test_daemon.js` | Same. It also prints the service's log lines, each starting with `{`; ignore them, and do not read its last line as the result | 25 |

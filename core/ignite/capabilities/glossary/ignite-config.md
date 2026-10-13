@@ -2,6 +2,8 @@
 
 `.rbtv/config/ignite/config.json` configures Ignite for one installation on the machine running its agents. It identifies the Slack workspace, channel-to-agent connections, direct-message agent and commands Ignite uses. Keep it machine-local so two machines do not answer the same route.
 
+The installation names the agent for a live owner-message test in `.rbtv/config/ignite/test-agent.md`. [Testing Ignite](../methods/testing-ignite.md) states the lines.
+
 Write the initial configuration using the [configuration schema](../../../rbtv/capabilities/templates/ignite-config.schema.json) as the field reference. Ignite’s [config.js](../tools/ignite/config.js) validates the record directly; it does not load that schema. Use values selected for this installation, not examples copied from another user. Agent harness, model and effort choices belong in the [Agent record](../../../rbtv/capabilities/glossary/agent-json.md); `dreamer.model` configures consolidation separately. It is required while `dreamer.enabled` is true: Ignite holds no model of its own at run time, and the loader refuses an enabled Dreamer without one.
 
 Store environment-variable names for tokens, never token values. Follow [Installation environment file](../../../rbtv/capabilities/glossary/environment-file.md) for loading behavior and nonsecret verification. Agents consume the resulting capabilities; this record is not their prompt.
