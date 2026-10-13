@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { CAPS, VIEW_LIMIT, EMPTY_BOARD, parseBoard, writeBoard, closeSubject, boardPath, migrateBoard, refreshBoard, refreshBoardAfterCommit, renderBoard, renderBoardView, boardRevision, preflightBoard } = require('./board.js');
+const { VIEW_LIMIT, EMPTY_BOARD, parseBoard, writeBoard, closeSubject, boardPath, migrateBoard, refreshBoard, refreshBoardAfterCommit, renderBoard, renderBoardView, boardRevision, preflightBoard } = require('./board.js');
 const { Store } = require('./store.js');
 
 const failures = [];
@@ -90,9 +90,9 @@ test('all four sections may be empty', () => {
 
 test('exact shape caps pass together', () => {
   const parsed = parseBoard(board({
-    subjects: Array.from({ length: CAPS.subjects }, (_, i) => subject(`Subject ${i}`, 'First fact.\nSecond fact.\nThird fact.')),
-    watchOuts: Array.from({ length: CAPS.watchOuts }, (_, i) => `- Rule ${i} (2026-10-01 · sample)`),
-    closed: closedRows(CAPS.closed),
+    subjects: Array.from({ length: 8 }, (_, i) => subject(`Subject ${i}`, 'First fact.\nSecond fact.\nThird fact.')),
+    watchOuts: Array.from({ length: 6 }, (_, i) => `- Rule ${i} (2026-10-01 · sample)`),
+    closed: closedRows(6),
   }));
   assert.equal(parsed.subjects.length, 8);
   assert.equal(parsed.nonEmpty, 72);

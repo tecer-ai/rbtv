@@ -51,7 +51,7 @@ test('checkers reject broken shapes, missing provenance, invalid dates and caps'
     assert.throws(() => checkMemory('learned', text));
   }
   assert.throws(() => checkMemory('index', INDEX.replace('| Open |', '| File |')));
-  assert.throws(() => checkMemory('workspace', WORKSPACE + ' '.repeat(3001)));
+  checkMemory('workspace', WORKSPACE + ' '.repeat(3001));
   assert.throws(() => checkMemory('workspace', WORKSPACE.replace('type: workspace', 'type: place')));
 });
 

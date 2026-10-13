@@ -1,0 +1,6 @@
+{
+  "description": "Shared memory for installed agents: the canonical board, capture, validators and publication. Excludes Ignite's Slack connection and timers.",
+  "dependencies": [
+    "node"
+  ]
+}

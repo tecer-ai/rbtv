@@ -1602,13 +1602,13 @@ async function finishCli() {
   await testAsync('dreamer cap refusal JSON includes the file and proposed size without content', async () => {
     const { dir, home } = dreamerInstall(false);
     addOwner(home);
-    const name = '.rbtv/memory/knowledge/facts.md';
-    const text = '---\ndescription: when reviewing facts\ntype: facts\naliases: []\n---\n# Facts\n' + 'private-fixture-content'.repeat(200);
+    const name = '.rbtv/memory/profile.md';
+    const text = '# Profile — Sam\n\n## Who\n\n## Working with Sam\n\n## Now\n' + 'private-fixture-content'.repeat(200);
     try {
       fs.writeFileSync(path.join(dir, '.rbtv', 'memory', 'profile.md'), '# Profile — Sam\n\n## Who\n\n## Working with Sam\n\n## Now\n', 'utf8');
       fs.mkdirSync(path.join(home, 'memory'), { recursive: true });
       fs.writeFileSync(path.join(home, 'memory', 'learned.md'), '# Learned rules — master\n', 'utf8');
-      const output = { conflicts: [], operations: [{ op: 'add', path: name, text,
+      const output = { conflicts: [], operations: [{ op: 'supersede', path: name, text,
         sources: [1], reason: 'owner', explanation: 'private-fixture-explanation' }] };
       const cast = path.join(dir, 'fake cast.js');
       fs.writeFileSync(cast, `process.stdout.write(${JSON.stringify(JSON.stringify(output))});\n`, 'utf8');
@@ -1619,11 +1619,11 @@ async function finishCli() {
       assert.equal(result.code, 1); assert.equal(result.err, '');
       assert.equal(result.out.split('\n').length, 2);
       const body = JSON.parse(result.out);
-      assert.equal(body.alert, `Dreamer failed: ${name}: knowledge cap exceeded (${[...text].length}/3000 characters).`);
+      assert.equal(body.alert, `Dreamer failed: ${name}: profile cap exceeded (${[...text].length}/4000 characters).`);
       assert.equal(body.ok, false); assert.equal(body.changed, false);
       assert.equal(body.noticeQueued, true); assert.equal(body.digestQueued, false);
       assert.equal(result.out.includes('private-fixture'), false);
-      assert.equal(fs.existsSync(path.join(dir, name)), false);
+      assert.equal(fs.readFileSync(path.join(dir, name), 'utf8').includes('private-fixture'), false);
       const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
       try {
         assert.equal(store.pendingOutbox()[0].payload.text, `Memory alert: ${body.alert}`);

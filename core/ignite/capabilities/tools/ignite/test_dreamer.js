@@ -260,12 +260,6 @@ test('a correction needs one conversation; an inference needs two distinct conve
 for (const [name, text, expected] of [
   [`${ROOT}profile.md`, `${profile}${fact('x'.repeat(4000))}\n`, /profile.*cap/],
   [learnedPath(), '# Learned rules — master\n' + Array.from({ length: 31 }, (_, i) => `${fact(`[correction] Rule ${i}. Why: owner correction.`)}\n`).join(''), /learned.*cap/],
-  [`${own()}memory/topic.md`, topic(fact('x'.repeat(3000))), /3000/],
-  [`${ROOT}knowledge/facts.md`, knowledge(fact('x'.repeat(3000))), /3000/],
-  [`${ROOT}entities/people/person.md`, topic(fact('x'.repeat(3000)), 'person'), /3000/],
-  [`${ROOT}_artifacts/archive/notes.md`, topic(fact('x'.repeat(3000))), /3000/],
-  [`${ROOT}workspaces/work.md`, topic(fact('x'.repeat(3000)), 'workspace').replace('aliases: [topic]', 'aliases: [topic]\npaths: [work]'), /workspace.*cap/],
-
   [`${ROOT}timeline/daily/${DATE}.md`, `---\ndescription: when asked about this date\n---\n# ${DATE}\n\n` + Array.from({ length: 40 }, (_, i) => `- Event ${i} — master/[thread](${link()})\n`).join(''), /40 lines/],
   [`${ROOT}timeline/weekly/2026-W39.md`, '---\ndescription: when asked about this week\n---\n# 2026-W39\n\n' + Array.from({ length: 25 }, (_, i) => `- Event ${i} — [${DATE}](../daily/${DATE}.md)\n`).join(''), /25 lines/],
 ]) test(`refuses the cap for ${name}`, async (f) => {
@@ -278,26 +272,17 @@ for (const [name, text, expected] of [
   assert.equal(getState(f.stores.get('master')).cursor, 0);
 });
 
-for (const ending of ['\n', '\r\n']) test(`knowledge cap counts Unicode and preserved line endings (${JSON.stringify(ending)})`, async (f) => {
+for (const ending of ['\n', '\r\n']) test(`knowledge keeps a large record whole and preserved line endings (${JSON.stringify(ending)})`, async (f) => {
   f.message();
   const name = `${ROOT}knowledge/facts.md`;
   const empty = knowledge().replaceAll('\n', ending);
   f.write(name, empty);
   const base = knowledge(fact('😀')).replaceAll('\n', ending);
-  const full = base.replace('😀', '😀' + 'é'.repeat(3000 - [...base].length));
+  const full = base.replace('😀', '😀' + 'é'.repeat(80));
   const accepted = await f.run((input) => proposal(operation(input, name, full.replaceAll('\r\n', '\n'))));
   assert.equal(accepted.ok, true, accepted.alert); assert.equal(f.read(name), full);
-  const state = getState(f.stores.get('master')); const head = f.git('rev-parse', 'HEAD');
-  f.message({ root: '2000.000001' });
-  const rejected = await f.run((input) => proposal(operation(input, name, `${full}😀`)));
-  assert.equal(rejected.alert, `Dreamer failed: ${name}: knowledge cap exceeded (3001/3000 characters).`);
-  assert.equal(f.read(name), full); assert.equal(f.git('rev-parse', 'HEAD'), head);
-  assert.deepEqual(getState(f.stores.get('master')), state);
-  const conflict = `${name}: new fact does not fit; file unchanged.`;
-  const deferred = await f.run(() => ({ operations: [], conflicts: [conflict] }));
-  assert.equal(deferred.ok, true, deferred.alert); assert.deepEqual(deferred.digest.conflicts, [conflict]);
-  assert.equal(f.read(name), full); assert.equal(f.git('rev-parse', 'HEAD'), head);
-  assert.equal(getState(f.stores.get('master')).cursor, state.cursor);
+  assert.ok(f.read(name).includes('é'.repeat(80)));
+  assert.equal(f.read(name).includes('é'.repeat(81)), false);
 });
 
 test('inbox lines are filed before removal and watch-outs become correction rules in the same commit', async (f) => {
@@ -1176,9 +1161,11 @@ for (const ending of ['\n', '\r\n']) test(`prompt lists every writable file budg
     const budgets = prompt.split('Current file sizes and remaining room (recomputed for each proposal):\n')[1].split('\nInput:')[0];
     for (const [name, text] of Object.entries(files)) {
       assert.ok(budgets.includes(`${name}: `), name);
-      if (name === `${ROOT}profile.md` || /\/(?:knowledge|entities|workspaces|archive)\//.test(name) || name.endsWith('/topic.md')) {
-        const cap = name === `${ROOT}profile.md` ? 4000 : 3000;
-        assert.ok(budgets.includes(`${name}: ${[...text].length}/${cap}, ${cap - [...text].length} left (characters)`), name);
+      if (name === `${ROOT}profile.md`) {
+        assert.ok(budgets.includes(`${name}: ${[...text].length}/4000, ${4000 - [...text].length} left (characters)`), name);
+      }
+      if (/\/(?:knowledge|entities|workspaces|archive)\//.test(name) || name.endsWith('/topic.md')) {
+        assert.ok(budgets.includes('nonempty lines; warn at 100; split at 300, no enforced cap'), name);
       }
     }
     assert.ok(budgets.includes(`${learnedPath()}: 1/30, 29 left (rules)`));
@@ -1189,7 +1176,7 @@ for (const ending of ['\n', '\r\n']) test(`prompt lists every writable file budg
       assert.ok(budgets.includes(`${ROOT}${name}: ${count} nonempty lines, no enforced cap`));
     }
     for (const name of ['preferences', 'decisions', 'self', 'health']) {
-      assert.ok(budgets.includes(`${ROOT}knowledge/${name}.md: 0/3000, 3000 left (characters)`));
+      assert.ok(budgets.includes(`${ROOT}knowledge/${name}.md: 0 nonempty lines; warn at 100; split at 300, no enforced cap`));
     }
     assert.match(prompt, /Stay within every file's cap/);
     assert.match(prompt, /Do not trim, compress or truncate a record to evade a cap/);
@@ -1397,17 +1384,11 @@ test('quiet no-change run does not claim a consolidation or move the cursor', as
   assert.equal(fs.existsSync(path.join(f.workspace, '.rbtv', 'runtime', 'ignite', 'dreamer-rejected')), false);
 });
 
-test('facts near the historical cap split at record boundaries and an oversized record is retained whole', async (f) => {
+test('facts at the line split stay at record boundaries and an indivisible record is retained whole', async (f) => {
   f.message();
   const name = `${ROOT}knowledge/facts.md`;
-  const records = [fact('Near cap fact 0.'), fact('Near cap fact 1.')];
-  let body = knowledge(records.join('\n'));
-  const target = 3000 - 28;
-  const gap = target - [...body].length;
-  assert.ok(gap > 0, gap);
-  records[1] = fact(`Near cap fact 1.${'n'.repeat(gap)}`);
-  body = knowledge(records.join('\n'));
-  assert.equal([...body].length, target);
+  const records = Array.from({ length: 300 }, (_, i) => fact(`Near cap fact ${i}.`));
+  const body = knowledge(records.join('\n'));
   f.write(name, body);
   const original = Buffer.from(body, 'utf8');
   const result = await f.run(() => proposal());
@@ -1416,14 +1397,14 @@ test('facts near the historical cap split at record boundaries and an oversized 
   const split = f.read(`${ROOT}knowledge/facts/part-1.md`);
   const combined = `${source}\n${split}`;
   for (const row of records) assert.ok(combined.includes(row), row);
-  assert.ok([...source].length <= 3000);
-  assert.ok([...split].length <= 3000);
-  assert.ok([...source].length <= 3000 - 64);
+  const count = (text) => text.replace(/\r\n/g, '\n').split('\n').filter((line) => line.trim()).length;
+  assert.ok(count(source) < 300, count(source));
+  assert.ok(count(split) < 300, count(split));
   assert.match(f.read(`${ROOT}_artifacts/index.md`), /knowledge\/facts\/part-1\.md/);
   const originals = path.join(f.workspace, '.rbtv', 'runtime', 'ignite', 'dreamer-originals');
   const kept = fs.readdirSync(originals).map((file) => fs.readFileSync(path.join(originals, file)));
   assert.ok(kept.some((bytes) => bytes.equals(original)));
-  const huge = `é`.repeat(3001);
+  const huge = `é`.repeat(300);
   const retained = retainIndivisible(f.workspace, name, huge);
   assert.ok(fs.readFileSync(retained, 'utf8').endsWith(huge));
   assert.equal(f.read(name).includes(huge.slice(0, 20)), false);
