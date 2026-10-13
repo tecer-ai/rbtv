@@ -9,6 +9,7 @@
 // connect and disconnect run before a home is opened. There is no create command.
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { randomUUID, createHash } = require('node:crypto');
 const { Store, checkTool } = require('./store.js');
@@ -824,6 +825,21 @@ function toolDestRel(value) {
   return null;
 }
 
+function checkToolsFromLegacyCopy(home) {
+  const database = path.join(home, DATABASE_NAME);
+  if (!fs.existsSync(database)) return [];
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-rm-'));
+  try {
+    for (const name of LEGACY_FILES) {
+      const from = path.join(home, name);
+      if (fs.existsSync(from)) fs.copyFileSync(from, path.join(scratch, name));
+    }
+    return readCheckTools(path.join(scratch, DATABASE_NAME));
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
 function readCheckTools(database) {
   if (!fs.existsSync(database)) return [];
   const { DatabaseSync } = require('node:sqlite');
@@ -930,6 +946,65 @@ function insertAfterImports(text, block) {
   return lines.join('\n');
 }
 
+const PATH_START = " \t\n\r\"'`()[]{}=<>:,;|";
+
+// An occurrence of capabilities/tools/<tool>/ is this agent's own tool when it starts a path, or follows this agent's home, ./, <home>/, or .rbtv/agents/<this slug>/. A URL, another agent's folder, or a longer path that merely ends the same way is left; when the rule cannot tell, the text is left and printed as not rewritten: <file>:<line>.
+function classifyOwnToolRef(text, at, home) {
+  const before = text.slice(0, at);
+  if (before.endsWith('rbtv/')) return 'already';
+  const slug = path.basename(path.resolve(home));
+  const prefixes = [path.resolve(home), home].map((item) => `${item.replaceAll('\\', '/').replace(/\/$/, '')}/`);
+  if (before.endsWith('./') || before.endsWith('<home>/') || prefixes.some((prefix) => before.endsWith(prefix)) || before.endsWith(`.rbtv/agents/${slug}/`)) return 'own';
+  if (at === 0 || PATH_START.includes(text[at - 1])) return 'own';
+  if (text[at - 1] !== '/') return 'unsure';
+  let tokenAt = at;
+  while (tokenAt > 0 && !' \t\n\r"\'`'.includes(text[tokenAt - 1])) tokenAt -= 1;
+  const token = text.slice(tokenAt, at);
+  if (token.includes('://')) return 'leave';
+  const agent = token.match(/(?:^|\/)\.rbtv\/agents\/([^/]+)\/$/) || token.match(/(?:^|\/)agents\/([^/]+)\/$/);
+  if (agent && agent[1] !== slug) return 'leave';
+  if (/^(?:\.\.\/)+$/.test(token)) return 'unsure';
+  return 'leave';
+}
+
+function rewriteOwnToolRefs(text, names, home) {
+  const needles = names.map((name) => `capabilities/tools/${name}/`);
+  let out = '';
+  let i = 0;
+  while (i < text.length) {
+    let at = -1;
+    let needle = null;
+    for (const item of needles) {
+      const found = text.indexOf(item, i);
+      if (found !== -1 && (at === -1 || found < at)) {
+        at = found;
+        needle = item;
+      }
+    }
+    if (at === -1) return out + text.slice(i);
+    out += text.slice(i, at);
+    if (classifyOwnToolRef(text, at, home) === 'own') out += 'rbtv/';
+    out += needle;
+    i = at + needle.length;
+  }
+  return out;
+}
+
+function unsureOwnToolRefs(text, names, home, rel) {
+  const lines = new Set();
+  for (const name of names) {
+    const needle = `capabilities/tools/${name}/`;
+    let from = 0;
+    while (from < text.length) {
+      const at = text.indexOf(needle, from);
+      if (at === -1) break;
+      if (classifyOwnToolRef(text, at, home) === 'unsure') lines.add(`not rewritten: ${rel}:${text.slice(0, at).split('\n').length}`);
+      from = at + needle.length;
+    }
+  }
+  return [...lines];
+}
+
 function rewriteInvocations(home, names) {
   const changes = [];
   const roots = ['prompt.md', 'AGENTS.md', 'CLAUDE.md', 'skills', 'rbtv', 'capabilities']
@@ -946,13 +1021,10 @@ function rewriteInvocations(home, names) {
     const buf = fs.readFileSync(file);
     if (buf.includes(0)) return;
     let text = buf.toString('utf8');
-    let next = text;
-    for (const name of names) {
-      const from = `capabilities/tools/${name}/`;
-      next = next.replace(new RegExp(`(?<!rbtv/)${from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'), `rbtv/${from}`);
-    }
+    let next = rewriteOwnToolRefs(text, names, home);
     next = next.replaceAll('<home>/capabilities/tools/', '<home>/rbtv/capabilities/tools/');
     const rel = path.relative(home, file).split(path.sep);
+    const relPath = rel.join('/');
     if (rel[0] === 'rbtv' && rel[1] === 'capabilities' && rel[2] === 'tools' && names.includes(rel[3]) && file.endsWith('.py')) {
       const oldParts = ['capabilities', 'tools', rel[3], ...rel.slice(4)];
       const homeIndex = oldParts.length - 1;
@@ -962,9 +1034,10 @@ function rewriteInvocations(home, names) {
         if (!next.includes('def _ignite_agent_home(')) next = insertAfterImports(next, AGENT_HOME_FN);
       }
     }
+    for (const notice of unsureOwnToolRefs(next, names, home, relPath)) changes.push(notice);
     if (next === text) return;
     fs.writeFileSync(file, next);
-    changes.push(`rewrote ${rel.join('/')}`);
+    changes.push(`rewrote ${relPath}`);
   };
   for (const root of roots) visit(root);
   return changes.sort();
@@ -1173,8 +1246,16 @@ function migrateAgentRuntime(home, options = {}) {
   let held;
   let interrupted = null;
   let changes = [];
+  let unplaced = false;
   try {
     held = acquireLock(lockPath);
+    if (marker && !legacy.length) {
+      assertToolsMovable(root);
+      assertCheckToolsPlaceable(root, readCheckTools(paths.database));
+    } else {
+      assertToolsMovable(root);
+      assertCheckToolsPlaceable(root, checkToolsFromLegacyCopy(root));
+    }
     fs.mkdirSync(path.dirname(migrationGuardPath(root)), { recursive: true });
     fs.writeFileSync(migrationGuardPath(root), `${process.pid}\n`, 'utf8');
     if (options.whileHeld) options.whileHeld();
@@ -1183,9 +1264,13 @@ function migrateAgentRuntime(home, options = {}) {
       : publishRuntime(root, paths, journalFile, completionFile, options.interruptAfter);
   } catch (error) {
     if (error.interrupted) interrupted = error;
-    else throw error;
+    else {
+      if (error.unplaced) unplaced = true;
+      throw error;
+    }
   } finally {
     try { fs.unlinkSync(migrationGuardPath(root)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (unplaced) removeEmptyDir(path.join(root, 'runtime'));
     releaseLock(held);
   }
   if (interrupted) throw interrupted;

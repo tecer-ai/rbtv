@@ -400,18 +400,24 @@ usage: ${MIGRATION_COMMAND}
 Copies the database, its sidecars, conversations/ and turns/ from the agent
 folder root into runtime/ignite/. Moves each own tool directory from
 capabilities/tools/<tool>/ to rbtv/capabilities/tools/<tool>/, with its record
-and page, and rewrites stored check-tool paths and explicit invocations. A
-check-tool path is rewritten only when that file is placed. If it cannot be
-placed, the command refuses before publishing and names the path. Tool state
-under state/ is not moved. Refuses when the waking service holds
+and page, and rewrites a stored check-tool path and a reference to this agent's own
+tool. That reference is an occurrence of capabilities/tools/<tool>/ that
+starts a path, or follows this agent's home, ./, <home>/, or
+.rbtv/agents/<this slug>/. A URL, another agent's folder, or a longer path
+that only ends the same way is left. An occurrence the rule cannot classify
+is left and printed as not rewritten: <file>:<line>. A check-tool path is
+rewritten only when that file is placed. If it cannot be placed, the command
+refuses before any write and names the path. Tool state under state/ is not
+moved. Refuses when the waking service holds
 .rbtv/runtime/ignite/daemon.lock, when the layout is ambiguous, or when an
 active run or outbox row has a path that cannot be moved. After a successful
 publish the old files are in runtime/ignite-premigration/.
 
 A later run finishes a stored check-tool that already says
 rbtv/capabilities/tools/ while the file is still at capabilities/tools/.
-It prints each directory it moved and each file it rewrote. A second run
-that finds nothing to move prints only the success line.
+It prints each directory it moved, each file it rewrote, and each line it
+could not classify. A second run that finds nothing to move prints the
+success line and repeats any not rewritten line still there.
 
 A new agent needs no migration. Its database is runtime/ignite/state.sqlite.
 
