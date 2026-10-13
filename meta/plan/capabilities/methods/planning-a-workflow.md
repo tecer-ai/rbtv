@@ -20,7 +20,7 @@ The saved files are the whole deliverable. Nothing registers a plan and no progr
 └── AGENTS.md
 ```
 
-`<plan>` is the plan folder's name, written with lower-case letters, digits and hyphens only, which is what an agent name accepts. `<agent>` is the agent's short job name and the stem of its report file. The agent's name, its folder name, the `name` in its `agent.json` and its cell in the workflow table are all `<plan>-<agent>`. The review agent of step 10 is the exception: its folder and its row are `plan-review`.
+`<plan>` is the plan's abbreviation: one word of 3 to 8 lower-case letters that you choose from the plan's name before writing the first agent folder. It tells this plan's agents from another plan's wherever an agent's name appears without its folder path, so it is never the word `plan`, which names the review agent in every plan, and never the plan folder's name when that name does not identify the plan. `<agent>` is the agent's short job name and the stem of its report file. The agent's name, its folder name, the `name` in its `agent.json` and its cell in the workflow table are all `<plan>-<agent>`. The review agent of step 10 is the exception: its folder and its row are `plan-review`.
 
 A plan carries `workflow.md`, `read-first.md` and one agent folder per agent. `decisions.md`, `doubts.md` and `status.md` are created in the plan folder when the first record is written to them.
 
@@ -75,7 +75,7 @@ Write every path in a task file as an absolute path. The agent's working folder 
 
 ## `workflow.md`
 
-Only the coordinating agent reads it. It holds these sections in this order:
+Only the coordinating agent reads it. Its first line is the heading `# <plan name> (<plan>)`: the plan's name in words, then its abbreviation. This heading is the one record of the abbreviation. Below it, the file holds these sections in this order:
 
 1. The workflow table, with exactly the columns `Agent | Needs | Status`.
 2. The checkpoint table, or one line stating that the plan has no checkpoint, and one line when it has no judge agent. Checkpoints and judges defines both.
@@ -120,7 +120,7 @@ Then run `cast --agent <plan-folder>/agents/<plan>-<agent> --dry-run` for each a
 3. Every `rbtv agent add` command exited 0, and `cast --agent <plan-folder>/agents/<plan>-<agent> --dry-run` exits 0 for every agent.
 4. Every Needs cell names a row of the table, no chain of Needs returns to its start, and every edge is a read-dependency or a write order the scheduling rules name.
 5. Every file that two or more agents change has a Needs order or an exclusion line.
-6. `workflow.md` holds its five sections in order, including the `Loose ends:` line, and no column or status text this page excludes.
+6. `workflow.md` starts with the heading that records the plan's abbreviation, every folder in `agents/` except `plan-review` starts with that abbreviation and a hyphen, and the file holds its five sections in order, including the `Loose ends:` line, and no column or status text this page excludes.
 7. `CLAUDE.md` and `AGENTS.md` exist with their two lines.
 8. The checkpoints and judge agents pass the checks at the end of Checkpoints and judges.
 9. `read-first.md` holds the craft bindings.
