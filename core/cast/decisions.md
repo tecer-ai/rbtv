@@ -85,3 +85,11 @@ Every headed launch gets a code of two letters in its row of the handle registry
 ## An agent folder outside `.rbtv/agents/` is listed by a field of its record
 
 `cast list`, `spark list` and `rbtv agent list` also show an agent folder elsewhere in the installation whose `agent.json` says `"listed": true`, and a name not found under `.rbtv/agents/` is looked up among those folders. Reason: owner decision, 2026-10-13. An agent a person opens may sit where its work is, and an installation holds many plan agents nobody opens by hand, so listing is chosen per agent; the choice is a field of the record, the one home of what an agent is, and not a second file beside it. A name two listed agent folders share is refused with both folders, since choosing one would open the wrong agent silently. An agent under `.rbtv/agents/` wins a name a listed agent folder also has, so marking a folder never changes which agent an existing name launches.
+
+## A supported model is named in the two tables and nowhere else
+
+No test, help text or document names a supported model. A test asks `example-models.js` for a model by the property its check depends on, help text takes its example from the supported table when it is printed, and a document writes `HARNESS MODEL`. `test_route.js` fails on a line that breaks this. The exceptions are the record of where each score and cost came from, and the Dreamer's default model in Ignite's `config.js`. Reason: replacing two models cost a change of 30 files, of which two were the tables; a model's name in a test also hid which property the test depended on.
+
+## The supported models are changed by hand, by a method page
+
+No command writes `supported-models.js` or the shipped `models.csv`; an agent follows [Changing the supported models](capabilities/methods/changing-the-supported-models.md). Reason: `cast` and `rbtv` act on an installation, and a change to what rbtv supports is a change to rbtv's source; a model's level, scores and removal are the owner's rulings, which a command could not settle.

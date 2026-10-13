@@ -599,7 +599,9 @@ def installed_agents(ctx) -> None:
             # Three supported models of one harness: the one the installation selects, and two it does not.
             by_harness = [[m for m in example_models(node) if m["harness"] == h and m["mode"] == "cli"]
                           for h in dict.fromkeys(m["harness"] for m in example_models(node))]
-            kept, unkept, third = next(group for group in by_harness if len(group) >= 3)[:3]
+            three = next((group for group in by_harness if len(group) >= 3), None)
+            assert three, "no harness has three supported cli models: this arm has lost its subject"
+            kept, unkept, third = three[:3]
             hn = kept["harness"]
             _w(pruned / ".rbtv/config/cast/models.csv", f"mode,harness,model\ncli,{hn},{kept['model']}\n")
             home_pruned = pruned / ".rbtv/agents/scout"

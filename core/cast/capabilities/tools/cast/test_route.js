@@ -747,7 +747,8 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
   };
   const general = rows.filter((r) => r.image !== 'Y');
   assert.deepStrictEqual(Object.fromEntries(general.map((r) => [name(r), `${r.level}/${r.reasoning}/${r.coding}`])), APPROVED);
-  assert.deepStrictEqual(rows.filter((r) => r.image === 'Y').map(name), ['api/gemini-3.1-flash-image'], 'one image model, so --caps image has one answer');
+  const imageRows = rows.filter((r) => r.image === 'Y');
+  assert.strictEqual(imageRows.length, 1, 'one image model, so --caps image has one answer');
   for (const level of LEVELS) assert.ok(general.some((r) => r.level === level), `no models.csv row is left at level ${level}`);
   // No superseded version, moving alias or sentinel cost is left behind.
   const text = fs.readFileSync(source, 'utf8');
@@ -764,9 +765,9 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
     assert.strictEqual(v._status, 0, JSON.stringify(v));
     assert.strictEqual(rows.find((r) => name(r) === `${v.harness}/${v.model}`).level, level);
     assert.ok(!v.explain.some((e) => e.action === 'override'), `${cls}: the shipped table promotes no row`);
-    assert.ok(!JSON.stringify(v.explain.filter((e) => e.stage === 'optimize')).includes('gemini-3.1-flash-image'), cls);
+    assert.ok(!JSON.stringify(v.explain.filter((e) => e.stage === 'optimize')).includes(imageRows[0].model), cls);
   }
-  assert.strictEqual(pair(shippedRoute(['--caps', 'image'])), 'api/gemini-3.1-flash-image/api');
+  assert.strictEqual(pair(shippedRoute(['--caps', 'image'])), `${name(imageRows[0])}/${imageRows[0].mode}`);
 
   // And loading it must be SILENT. Every exclusion route makes on its own is a stderr warning, so
   // an empty stderr is the proof that nothing was quietly left out of the model catalog. Run from
@@ -775,6 +776,38 @@ const FIXER_AGENT = { name: 'fixer', access: 'bounded', type: 'code', class: 'me
     { encoding: 'utf8', env: ENV, cwd: OUTSIDE });
   assert.strictEqual(quiet.stderr, '', `loading the shipped table must warn about nothing:\n${quiet.stderr}`);
   assert.strictEqual(JSON.parse(quiet.stdout).explain[0].source, source);
+
+  // And no other file of the repository names a supported model, by its short name or by the
+  // harness's id: a test asks example-models.js for one by a property, help text takes its example
+  // from the table and a document writes HARNESS MODEL. So a change to the supported models edits
+  // the two tables, the APPROVED list above and the record of sources, and nothing else.
+  const REPO = path.join(__dirname, '..', '..', '..', '..', '..');
+  const rel = (...parts) => parts.join('/');
+  const CAST = 'core/cast/capabilities';
+  const NAMED_ON_PURPOSE = [
+    rel(CAST, 'tools/cast/supported-models.js'), rel(CAST, 'tools/cast/models.csv'), // the two tables
+    rel(CAST, 'methods/changing-the-supported-models/score-and-cost-sources.md'), // where each cost and score came from
+    'core/ignite/capabilities/tools/ignite/config.js', // DREAMER_MODEL, the Dreamer's default
+  ];
+  const names = [...new Set(ROWS.flatMap((r) => [r.model, r.id]))];
+  const escaped = names.map((n) => n.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')).join('|');
+  const naming = new RegExp(`(^|[^A-Za-z0-9])(${escaped})(?![A-Za-z0-9])`);
+  const TEXT = /\.(js|cjs|mjs|py|md|json|csv|sh|ps1|toml|ya?ml|txt)$/;
+  // `repository` is the checkout of another repository inside a connector component.
+  const SKIPPED = ['.git', 'node_modules', '__pycache__', 'repository'];
+  const named = [];
+  (function walk(dir) {
+    for (const entry of fs.readdirSync(path.join(REPO, dir), { withFileTypes: true })) {
+      const at = dir ? rel(dir, entry.name) : entry.name;
+      if (entry.isDirectory()) { if (!SKIPPED.includes(entry.name)) walk(at); continue; }
+      if (!TEXT.test(entry.name) || NAMED_ON_PURPOSE.includes(at)) continue;
+      let lines = fs.readFileSync(path.join(REPO, at), 'utf8');
+      // this arm is the one place of this file that names shipped models
+      if (path.join(REPO, at) === __filename) lines = lines.replace(/\/\/ --- the SHIPPED table[\s\S]*?\n}\n/, (arm) => arm.replace(/[^\n]/g, ''));
+      lines.split('\n').forEach((line, i) => { if (naming.test(line)) named.push(`${at}:${i + 1}: ${line.trim().slice(0, 100)}`); });
+    }
+  })('');
+  assert.deepStrictEqual(named, [], `these lines name a supported model; take the model from example-models.js (a test), from the table (help text) or write HARNESS MODEL (a document):\n${named.join('\n')}`);
 }
 
 // --- the installation's default ranking (lib/defaults.js, key `route`) --------------------------

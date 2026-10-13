@@ -299,7 +299,7 @@ for no remaining gain.
 
 A headless launch whose model fails to start can run another model in its place. The installation turns this on and says how to rank, with `fallback` in its defaults: `off` (cast's own value), `price` or `quality`, set by `cast models defaults --fallback VALUE`.
 
-A launch fails to start in two cases: the harness program cannot be started, or the harness exits with a failure, and without a signal, less than 15 seconds after cast started it. A harness that cannot reach its model ends in 2.4 to 3.2 seconds on `claude`, `codex` and `opencode` (measured 2026-10-07 with a model name no provider has). A provider that refuses a launch for a spending limit ended `opencode` with exit 1 in about 4 seconds (measured 2026-10-08 in an Ignite turn on `grok-4.7`, which then ran its first fallback); the same refusal on `claude` and `codex` is not measured. A failure after 15 seconds can follow work the agent already did, and a second run would repeat that work, so the launch ends with that failure and exit code. A job that stays alive without progress is not a failure to start: `cast monitor` reports it and nothing relaunches it.
+A launch fails to start in two cases: the harness program cannot be started, or the harness exits with a failure, and without a signal, less than 15 seconds after cast started it. A harness that cannot reach its model ends in 2.4 to 3.2 seconds on `claude`, `codex` and `opencode` (measured 2026-10-07 with a model name no provider has). A provider that refuses a launch for a spending limit ended `opencode` with exit 1 in about 4 seconds (measured 2026-10-08 in an Ignite turn on a model of the `xai` provider, which then ran its first fallback); the same refusal on `claude` and `codex` is not measured. A failure after 15 seconds can follow work the agent already did, and a second run would repeat that work, so the launch ends with that failure and exit code. A job that stays alive without progress is not a failure to start: `cast monitor` reports it and nothing relaunches it.
 
 The candidates are the other models of the failed model's level in the [model catalog](../../glossary/model-catalog.md): every selected `cli` model of that level whose login is present, models of the provider that just failed included. An image model is never a candidate. A model listed at two levels falls back inside the higher one. They are ranked as `cast route` ranks a level, overrides included: by `price`, cheapest first, a row with a blank cost left out; by `quality`, on the reasoning and coding scores added, because a launch does not say which kind of task it runs. The order does not depend on the failed model, so with three models at three prices a failure of the middle one tries the cheapest first and the dearest second.
 
@@ -352,8 +352,9 @@ used to be the one exception (the provider was uncredentialed and so invisible t
 the cache was wrong there too: it claimed `xhigh` for `grok-4.6`, which the binary does not list.
 xai is authenticated via opencode oauth as of 2026-08-13 and both grok ladders are now measured
 (`low,medium,high`). The `variants` keys are what opencode accepts, not what the provider does:
-they list `minimal` for `google/gemini-3.8-flash`, and Google refuses that level for the model
-(measured 2026-10-10), so the rung is left out of its ladder. Launch the lowest and the highest
+they list `minimal` for one model of the `google` provider, and Google refuses that level for it
+(measured 2026-10-10; the comment at the head of `supported-models.js` names the model), so the
+rung is left out of its ladder. Launch the lowest and the highest
 rung of a new model once before entering its ladder. A model with no variants at all (`zai-coding-plan/glm-4.7`) is inert: any
 effort number, no `--variant` argv.
 
@@ -501,8 +502,9 @@ model](../../glossary/supported-model.md) is a row of `capabilities/tools/cast/s
 [selected model](../../glossary/selected-model.md) is a supported model with a row in the model catalog
 in force. `cast route` joins the two on harness+model, and a row with no supported model is excluded
 with a loud stderr warning, because route must never name something cast cannot launch. To choose
-the models of an installation, or to make cast support a new model, follow [Personalizing the model
-catalog](documentation/personalizing-the-model-catalog.md).
+the models of an installation, follow [Personalizing the model
+catalog](documentation/personalizing-the-model-catalog.md). To add, replace, remove or edit a model
+cast supports, follow [Changing the supported models](../../methods/changing-the-supported-models.md).
 
 The launch check (`lib/model-catalog.js` `gate`, called from the one lookup every launch goes
 through, `lookupModel` in `lib/core.js`) refuses at exit 2 with the reason, `Nothing changed.` and
@@ -522,7 +524,7 @@ daemon's included. Cells are read by header name; a column the header does not c
 makes), or a blank `mode`, `harness` or `model` cell refuses with the file and the line: a skipped
 row would silently unselect a model. A file written while the model catalog had a `use` column is
 such a file: it is refused with `unknown column 'use'` until that column is deleted from it, as
-[Personalizing the model catalog](documentation/personalizing-the-model-catalog.md#7-a-file-that-still-has-a-use-column)
+[Personalizing the model catalog](documentation/personalizing-the-model-catalog.md#3-a-file-that-still-has-a-use-column)
 says. `cast route` answers the same failure as
 `{"error":"no_models"}`. cast replaces the file in one step (a temporary file, then a rename) and
 keeps the file's own line ending.
@@ -708,4 +710,8 @@ python3 -m pytest capabilities/tools/cast/api/tests/ -q
 `test_route.js` checks verdicts against a table the suite writes for itself. One arm reads the
 shipped `models.csv`: it checks its structure and pins the level and the two scores of every model,
 so a changed level or score in that file reddens the suite on purpose until the same change is
-made in that arm. A changed cost reddens nothing.
+made in that arm. A changed cost reddens nothing. The same arm reads every text file of the
+repository and fails on a line that names a supported model outside the two tables, the record of
+score and cost sources and the Dreamer's default in Ignite's `config.js`: a test asks
+`example-models.js` for a model by a property, help text takes its example from the table, and a
+document writes `HARNESS MODEL`.

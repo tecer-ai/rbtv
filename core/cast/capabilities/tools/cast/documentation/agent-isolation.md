@@ -60,7 +60,7 @@ With nothing passed and the repository root trusted, Codex loaded from the folde
 
 Codex's interactive forms (`codex` and `codex resume`) refuse `--ignore-user-config` with `error: unexpected argument`, so a `--headed` launch goes without it and reads `config.toml`. Every other value above is accepted by every form.
 
-What `config.toml` supplied that a launch needs, the launch passes itself: the model (`-m`), the effort (`-c model_reasoning_effort`), the approval policy (`-c approval_policy=never`) and the trust of the agent folder (the entry above). `cast resume` in an agent folder and an Ignite resumed turn pass the same four, and the resumed turn ran on the agent's model and effort. A Codex resume that is passed no model does not keep the session's model: it ran on the default model of `config.toml`, and on Codex's own default (`gpt-6.1-sol` in the measured run) with `config.toml` ignored.
+What `config.toml` supplied that a launch needs, the launch passes itself: the model (`-m`), the effort (`-c model_reasoning_effort`), the approval policy (`-c approval_policy=never`) and the trust of the agent folder (the entry above). `cast resume` in an agent folder and an Ignite resumed turn pass the same four, and the resumed turn ran on the agent's model and effort. A Codex resume that is passed no model does not keep the session's model: it ran on the default model of `config.toml`, and on Codex's own default model with `config.toml` ignored.
 
 The agent's own hooks run, and no parent hook does, because every Codex start carries `--dangerously-bypass-hook-trust` whether or not it launches an agent; [cast](../cast.md#agent-launches---agent---rogue) states that option and its cost.
 
