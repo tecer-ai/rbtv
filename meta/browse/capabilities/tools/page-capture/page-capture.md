@@ -29,8 +29,8 @@ Every extractor is optional, and the program skips one that is absent:
 | Extractor | Software | Install |
 |---|---|---|
 | `defuddle` | The `defuddle` command, on Node 20 or later | `npm install --global defuddle-cli` |
-| `trafilatura` | Python package | `pip install trafilatura` |
-| `bs4` | Python package | `pip install beautifulsoup4` |
-| PDF text copy | Python package | `pip install pypdf` |
+| `trafilatura` | Python package | `python -m pip install trafilatura` |
+| `bs4` | Python package | `python -m pip install beautifulsoup4` |
+| PDF text copy | Python package | `python -m pip install pypdf` |
 
 Run the checks with `python3 test_capture.py` from this folder; they use no network. After a change to an option, the help or the result, follow [Building a command-line interface](../../../../code/capabilities/methods/building-a-cli.md) and [Tool](../../../../../core/rbtv/capabilities/glossary/tool.md).

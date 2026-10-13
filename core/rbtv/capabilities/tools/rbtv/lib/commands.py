@@ -1221,10 +1221,17 @@ def _print_doctor(data: dict, *, color: bool) -> None:
         _prose("Runtime dependencies named by installed components (looked up "
                "on PATH and in the Python that runs rbtv; nothing was run)")
         for line in present.render_table(
-                ["Dependency", "State", "Named by"],
-                [[d["name"], d["state"], ", ".join(d["components"])]
+                ["Dependency", "Looked up", "State", "Named by"],
+                [[d["name"],
+                  f"command {d['command']}" if "command" in d
+                  else f"Python package {d['python_package']}"
+                  if "python_package" in d else "nothing",
+                  d["state"], ", ".join(d["components"])]
                  for d in dependencies]):
             print(line)
+        for d in dependencies:
+            if d["state"] != "present":
+                print(f"Install {d['name']}: {d['install']}")
     if audit:
         print()
         print("Optional cleanup audit")

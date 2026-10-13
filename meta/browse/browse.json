@@ -1,13 +1,44 @@
 {
   "description": "Work that needs a browser or a web page: reading, previewing, driving, measuring and sourced research; not design or document work, which office owns. One browse skill routes to the four methods, the page-capture tool reads and saves a page without a browser, and the research-check tool checks a research report's form.",
   "dependencies": [
-    "agent-browser",
-    "beautifulsoup4",
-    "defuddle-cli",
-    "node",
-    "playwright",
-    "pypdf",
-    "python3",
-    "trafilatura"
+    {
+      "name": "agent-browser",
+      "install": "npm install --global agent-browser",
+      "command": "agent-browser"
+    },
+    {
+      "name": "beautifulsoup4",
+      "install": "python -m pip install beautifulsoup4",
+      "python_package": "beautifulsoup4"
+    },
+    {
+      "name": "defuddle-cli",
+      "install": "npm install --global defuddle-cli",
+      "command": "defuddle"
+    },
+    {
+      "name": "node",
+      "install": "https://nodejs.org/en/download",
+      "command": "node"
+    },
+    {
+      "name": "playwright",
+      "install": "npm install --global playwright",
+      "command": "playwright"
+    },
+    {
+      "name": "pypdf",
+      "install": "python -m pip install pypdf",
+      "python_package": "pypdf"
+    },
+    {
+      "name": "python",
+      "install": "https://www.python.org/downloads/"
+    },
+    {
+      "name": "trafilatura",
+      "install": "python -m pip install trafilatura",
+      "python_package": "trafilatura"
+    }
   ]
 }

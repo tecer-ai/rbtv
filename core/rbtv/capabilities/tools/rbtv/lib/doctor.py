@@ -139,27 +139,32 @@ def _legacy_shortcuts(bindir: Path, booked: set[str],
     return sorted(out)
 
 
-def _dependency_state(name: str) -> str:
-    """`present` when `name` is a command on PATH or a package installed in
-    the Python that runs rbtv, else `absent`. A lookup: nothing is run."""
-    if shutil.which(name):
+def _dependency_state(dep: dict) -> str:
+    """`present` or `absent` for the entry's `command` on PATH or its
+    `python_package` in the Python that runs rbtv; `not checked` for an
+    entry that names neither. A lookup: nothing is run."""
+    if "command" in dep:
+        return "present" if shutil.which(dep["command"]) else "absent"
+    if "python_package" in dep:
+        try:
+            importlib.metadata.distribution(dep["python_package"])
+        except importlib.metadata.PackageNotFoundError:
+            return "absent"
         return "present"
-    try:
-        importlib.metadata.distribution(name)
-    except importlib.metadata.PackageNotFoundError:
-        return "absent"
-    return "present"
+    return "not checked"
 
 
 def _dependencies(catalog: dict, state: dict) -> list[dict]:
-    """Each runtime dependency an installed component's record names, with
-    the components that name it."""
+    """Each distinct dependency entry an installed component's record holds,
+    with its state and the components that hold it."""
     needed: dict[str, list[str]] = {}
     for cid in sorted(state.get("components") or {}):
-        for name in (catalog.get(cid) or {}).get("dependencies") or []:
-            needed.setdefault(name, []).append(cid)
-    return [{"name": name, "state": _dependency_state(name),
-             "components": needed[name]} for name in sorted(needed)]
+        for dep in (catalog.get(cid) or {}).get("dependencies") or []:
+            needed.setdefault(json.dumps(dep, sort_keys=True), []).append(cid)
+    rows = [{**json.loads(key), "components": cids} for key, cids in needed.items()]
+    for row in rows:
+        row["state"] = _dependency_state(row)
+    return sorted(rows, key=lambda r: (r["name"], r["install"]))
 
 
 def _prompt_frontmatter(target: Path, scope: str) -> list[dict]:

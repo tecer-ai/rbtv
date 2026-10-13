@@ -14,16 +14,52 @@
       "type": "string"
     },
     "dependencies": {
-      "description": "Outside software the component requires but does not include.",
+      "description": "Outside software the component requires but does not include, one entry per program or package.",
       "type": "array",
       "items": {
-        "type": "string"
+        "type": "object",
+        "required": [
+          "name",
+          "install"
+        ],
+        "additionalProperties": false,
+        "not": {
+          "required": [
+            "command",
+            "python_package"
+          ]
+        },
+        "properties": {
+          "name": {
+            "description": "The name its publisher gives the program or package.",
+            "type": "string",
+            "minLength": 1
+          },
+          "install": {
+            "description": "The command that installs it, the same on Linux and Windows, or the address of its install page when no package manager installs it. rbtv prints it and never runs it.",
+            "type": "string",
+            "minLength": 1
+          },
+          "command": {
+            "description": "The name the program has on PATH. rbtv doctor looks it up. Not with python_package.",
+            "type": "string",
+            "minLength": 1
+          },
+          "python_package": {
+            "description": "The name pip installs it under. rbtv doctor looks it up in the Python that runs rbtv. Not with command.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
       }
     },
     "repository": {
       "description": "Optional git checkout. discovery.py loads this object; the checkout is not required to exist.",
       "type": "object",
-      "required": ["url", "branch"],
+      "required": [
+        "url",
+        "branch"
+      ],
       "additionalProperties": false,
       "properties": {
         "url": {

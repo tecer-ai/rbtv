@@ -143,30 +143,9 @@ The `final-act` skill in `meta/final-act` closes a session: it checks every requ
 
    Output paths are resolved at runtime by the `rbtv-output-resolution` rule, which uses conversation context and installation CLAUDE.md conventions to propose paths.
 
-### Optional dependencies (per module)
+### Dependencies of each component
 
-**npm:**
-
-| Dependency | Install | Required by |
-|---|---|---|
-| `playwright-cli` | `npx playwright install` | browser-automation, design-extraction, playwright-cli skill |
-| `serve` | `npx -y serve` (auto) | browser-automation (local server for file:// bypass) |
-| `md-to-pdf` | `npm install -g md-to-pdf` | doc-export (PDF output) |
-| `defuddle` | `npm install -g defuddle` | web-search, web-searching skill |
-| `ast-grep` | bundled via `npx @ast-grep/cli` (no global install) | core, safe-move skill (code-reference matching; degrades gracefully when absent) |
-
-**Python:**
-
-| Dependency | Install | Required by |
-|---|---|---|
-| `python-docx` | `pip install python-docx` | doc-export (DOCX output) |
-| `pyyaml` | `pip install pyyaml` | doc-export (DOCX output) |
-
-**System:**
-
-| Dependency | Required by |
-|---|---|
-| `git` | commit workflow |
+Each component's record, `<module>/<component>/<component>.json`, lists the outside software the component requires, with the command that installs each one. `rbtv show <module>/<component>` prints that list. `rbtv doctor` reports which of the installed components' dependencies are present on this machine and prints the install command of each one it did not find. rbtv never runs an install command.
 
 **Runtime CDN (no install — loaded at render time):**
 
