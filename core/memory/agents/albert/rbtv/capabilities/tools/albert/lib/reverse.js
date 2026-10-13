@@ -57,6 +57,13 @@ function reverse(lib, home, installation, ref) {
   const found = findItem(home, ref);
   if (!found) return { ok: false, message: `item not found: ${ref}` };
   const item = found.item;
+  if (lib.kindOf(item.path, item.agent || 'albert') === 'inbox') {
+    const agent = item.agent || 'albert';
+    return {
+      ok: false,
+      message: `no mechanical inverse for ${ref}: reversing inbox consumption would put the consumed line back after it was filed; records unchanged. Capture that text again with memory remember --installation ${installation} --agent ${agent} TEXT`,
+    };
+  }
   const later = laterDependent(home, item);
   if (later.length && preserveUnrelated()) {
     return { ok: false, message: `dependency: ${later.join(', ')}; records unchanged` };

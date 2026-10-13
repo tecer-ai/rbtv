@@ -61,6 +61,7 @@ Exit 0 on publication or no-change. Exit 1 on refusal.
 ${structure}`,
     reverse: `usage: albert reverse --item RUN#N
 Prepares a new checked proposal for that item only. Applies a mechanical inverse when the file still equals the item's after text and no later item touched that path. Otherwise names the dependency and leaves every record.
+An inbox item has no mechanical inverse: reversing it would put the consumed line back after it was filed. The refusal names memory remember --installation ROOT --agent SLUG TEXT as the way to capture that text again.
 A reversal is a new committed item. An unrelated later edit on another path is kept.
 Exit 0 when reversed. Exit 1 when blocked, with records unchanged.`,
     report: `usage: albert report [--occasion ID]

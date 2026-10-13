@@ -402,7 +402,16 @@ store.appendReceipt(moved.box.home, {
   items: [{ n: 1, ref: 'later-pref#1', agent: 'albert', path: '.rbtv/memory/knowledge/preferences.md', before: null, after: prefs, sources: [], explanation: 'later' }],
 });
 const movedReverse = run(moved.box.home, ['reverse', '--item', 'migrated#1']);
-assert('migration reversal preserves a later unrelated edit', movedReverse.status === 0 && fs.readFileSync(path.join(moved.box.root, '.rbtv/memory/knowledge/preferences.md'), 'utf8') === prefs && fs.readFileSync(path.join(moved.box.root, '.rbtv/memory/knowledge/facts.md'), 'utf8').includes('old fact'), movedReverse.stderr);
+  assert('migration reversal preserves a later unrelated edit', movedReverse.status === 0 && fs.readFileSync(path.join(moved.box.root, '.rbtv/memory/knowledge/preferences.md'), 'utf8') === prefs && fs.readFileSync(path.join(moved.box.root, '.rbtv/memory/knowledge/facts.md'), 'utf8').includes('old fact'), movedReverse.stderr);
+
+const inboxBox = fixture('# Inbox\n');
+const inboxBefore = `# Inbox\n${line}\n`;
+store.appendReceipt(inboxBox.home, {
+  id: 'inbox-item', createdAt: 1, outcome: 'published', runId: 'inbox-item', commit: null, sources: [],
+  items: [{ n: 1, ref: 'inbox-item#1', agent: 'albert', path: '.rbtv/memory/inbox.md', before: inboxBefore, after: '# Inbox\n', sources: [line], explanation: 'filed' }],
+});
+const inboxReverse = run(inboxBox.home, ['reverse', '--item', 'inbox-item#1']);
+assert('reverse of inbox consumption refuses and leaves the file', inboxReverse.status !== 0 && /consumed line/.test(inboxReverse.stderr) && inboxReverse.stderr.includes(`memory remember --installation ${inboxBox.root} --agent albert TEXT`) && fs.readFileSync(path.join(inboxBox.root, '.rbtv/memory/inbox.md'), 'utf8') === '# Inbox\n', inboxReverse.stderr);
 
 function failureBlock(stderr, reason) {
   return stderr.split(/\n(?=failure )/).find((part) => part.includes(`reason: ${reason}`));
