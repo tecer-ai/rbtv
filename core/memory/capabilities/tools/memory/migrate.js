@@ -264,7 +264,8 @@ function rollback(installation, manifest, options) {
 
 function agentOf(manifest, rowId) { return (manifest.rows || []).find((row) => row.id === rowId)?.origin?.agent || ''; }
 
-const HELP = `usage: migrate.js dry-run|apply|rollback --installation PATH --manifest FILE [--albert-home PATH] [--resume] [--json]
+const HELP = `usage: memory migrate dry-run|apply|rollback --installation PATH --manifest FILE [--albert-home PATH] [--resume] [--json]
+(node migrate.js takes the same arguments)
 
 dry-run   check the whole manifest and print the plan; writes nothing.
 apply     publish the checked plan; an unchanged source is imported once; a changed source needs a row whose "earlier" names its earlier row.
@@ -290,7 +291,7 @@ function main(argv) {
     else { process.stderr.write(`unknown argument ${rest[i]}\n`); return 2; }
   }
   if (!['dry-run', 'apply', 'rollback'].includes(verb) || !options.installation || !options.manifest) {
-    process.stderr.write('usage: migrate.js dry-run|apply|rollback --installation PATH --manifest FILE\n');
+    process.stderr.write('usage: memory migrate dry-run|apply|rollback --installation PATH --manifest FILE\nmemory migrate -h\n');
     return 2;
   }
   const installation = path.resolve(options.installation);

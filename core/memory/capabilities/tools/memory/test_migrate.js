@@ -358,4 +358,14 @@ test('apply refuses to overwrite a post-cutover change', (w) => {
   assert.deepEqual(snapshot(w.inst), before);
 });
 
+test('memory migrate dry-run gives the same result as node migrate.js dry-run', (w) => {
+  w.save();
+  const direct = w.run('dry-run');
+  const viaMemory = spawnSync(process.execPath, [path.join(__dirname, 'memory.js'), 'migrate', 'dry-run', '--installation', w.inst, '--manifest', w.manifest], { encoding: 'utf8', env: { ...process.env, HOME: w.dir, RBTV_AGENT_HOME: '' } });
+  assert.equal(direct.status, 0, direct.toString());
+  assert.equal(viaMemory.status, direct.status);
+  assert.equal(viaMemory.stdout, direct.stdout);
+  assert.equal(spawnSync(process.execPath, [path.join(__dirname, 'memory.js'), 'migrate', '-h'], { encoding: 'utf8' }).stdout.includes('Manifest:'), true);
+});
+
 if (failed.length) { process.stderr.write(`${failed.length} failed\n`); process.exit(1); }

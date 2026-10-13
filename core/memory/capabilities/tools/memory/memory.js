@@ -41,6 +41,7 @@ const HELP = {
   evidence     Store attributable evidence as pending or as a remember line.
   rule         Publish one approved global learned rule.
   limit        Check always-loaded and on-demand limits.
+  migrate      Dry-run, apply or roll back a memory migration manifest.
 
 Proposal field names are taught by the consolidation tool's -h, not here.
 A refusal lists every failed requirement this command could check.
@@ -320,6 +321,10 @@ function run(argv) {
     const result = lib.checkLimits(kind, text);
     emit(result, `${result.hard ? 'refused' : 'checked'} ${kind}\n`);
     if (result.hard) process.exit(1);
+    return;
+  }
+  if (verb === 'migrate') {
+    process.exitCode = require('./migrate.js').main(rest);
     return;
   }
   fail(`unknown command: ${verb}\nmemory -h`);
