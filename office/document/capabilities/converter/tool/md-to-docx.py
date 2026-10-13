@@ -6,7 +6,7 @@ Usage:
     python md-to-docx.py input.md output.docx --style document-style.yaml [--workspace-root /path/to/root]
 
 Requires: python-docx, PyYAML
-    pip install python-docx pyyaml
+    python -m pip install python-docx pyyaml
 """
 
 import sys
@@ -17,7 +17,7 @@ from pathlib import Path
 try:
     import yaml
 except ImportError:
-    print("Error: PyYAML is required. Run: pip install pyyaml")
+    print("Error: PyYAML is required. Run: python -m pip install pyyaml")
     sys.exit(1)
 
 from docx import Document

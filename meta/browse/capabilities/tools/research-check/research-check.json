@@ -1,0 +1,5 @@
+{
+  "name": "research-check",
+  "description": "Checks a research report file against the required report form and lists each departure with its line and correction: the legend line, each source line with its scores, average and link status, the citations, the discarded-sources section and the prohibited terms.",
+  "entry": "research_check.py"
+}

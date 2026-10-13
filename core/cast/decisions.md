@@ -81,3 +81,7 @@ A headless launch and a headless resume are ended at the wall-clock deadline; a 
 ## A session a person opened is named by a random two-letter code
 
 Every headed launch gets a code of two letters in its row of the handle registry, drawn at random from the codes no row on record holds, and `spark resume CODE` opens that session again. Reason: a position in a list names another session as soon as a new one is opened, and a random code keeps naming the same one; two letters are quick to type and give 676 codes, more than a machine opens in the 7 days a row is kept. Only when every code is held does the oldest session give up its own.
+
+## An agent folder outside `.rbtv/agents/` is listed by a field of its record
+
+`cast list`, `spark list` and `rbtv agent list` also show an agent folder elsewhere in the installation whose `agent.json` says `"listed": true`, and a name not found under `.rbtv/agents/` is looked up among those folders. Reason: owner decision, 2026-10-13. An agent a person opens may sit where its work is, and an installation holds many plan agents nobody opens by hand, so listing is chosen per agent; the choice is a field of the record, the one home of what an agent is, and not a second file beside it. A name two listed agent folders share is refused with both folders, since choosing one would open the wrong agent silently. An agent under `.rbtv/agents/` wins a name a listed agent folder also has, so marking a folder never changes which agent an existing name launches.

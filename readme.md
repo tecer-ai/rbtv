@@ -17,7 +17,6 @@ Browse the source catalog with `rbtv list`, then inspect one module, component, 
 | `innovate` | The innovate module — taking a business idea from conception through validation to a brand book, and the individual innovation frameworks that do that work. |
 | `meta` | How agents behave, communicate, plan, and coordinate work across tasks. |
 | `office` | The office module — daily knowledge work: narrative and visual strategy, design extraction and style checking, and document/deck/email production. |
-| `web` | The web module — the system's components for reaching the open web: fetching a page, driving a browser, and whatever later joins them. |
 
 ## Requirements
 
@@ -50,7 +49,7 @@ The building-a-CLI method of the `coding` skill in `meta/code` covers both help 
 
 External connector components declare their repository and branch in the component record. Installation clones missing repositories and sets up their requirements without pulling existing checkouts. Use `rbtv update repositories` explicitly to update selected repositories. Local edits are preserved by refusing an unsafe update. See [component records](core/rbtv/capabilities/glossary/component-json.md) for the metadata contract.
 
-The `final-act` skill in `meta/final-act` closes a session: it checks every request of the conversation was finished, re-checks the files left for later agents, and routes to handoff (what a successor needs), loose ends (executed, filed or disclosed), compound (corrections as improvement entries), archivist (done tasks swept) and work history (the evidence-backed record of a session and its sub-agents, in one folder per agent with a linked timeline and manifest). Install it with `rbtv add final-act` in a configured installation.
+The `final-act` skill in `meta/final-act` closes a session: it checks every request of the conversation was finished, re-checks the files left for later agents, and routes to handoff (what a successor needs), loose ends (executed, filed or disclosed), compound (corrections as improvement entries), archivist (done tasks swept) and work history (the evidence-backed record of a session and its sub-agents, in one folder per agent with a linked timeline and manifest). Install it with `rbtv add final-act` in a configured installation. The `triage` command in the same component rules one backlog you name when you type it; install it with `rbtv add triage`.
 
 > **rbtv is `core/rbtv/capabilities/tools/rbtv/install.py`, run as `rbtv`.**
 >
@@ -84,7 +83,7 @@ The `final-act` skill in `meta/final-act` closes a session: it checks every requ
 > rbtv add meta/plan --target W                     # select the component
 > rbtv add --module office --target W                   # a whole module
 > rbtv remove meta/plan --target W                  # one component
-> rbtv remove web/browse web/capture --target W         # several components
+> rbtv remove office/design office/document --target W         # several components
 > rbtv configure --harness claude,codex --target W      # replace receiving tools
 > rbtv configure --guidance CLAUDE.md --target W        # replace maintained guidance
 > rbtv add guidance exclude vendor --target W           # skip a guidance folder
@@ -144,30 +143,9 @@ The `final-act` skill in `meta/final-act` closes a session: it checks every requ
 
    Output paths are resolved at runtime by the `rbtv-output-resolution` rule, which uses conversation context and installation CLAUDE.md conventions to propose paths.
 
-### Optional dependencies (per module)
+### Dependencies of each component
 
-**npm:**
-
-| Dependency | Install | Required by |
-|---|---|---|
-| `playwright-cli` | `npx playwright install` | browser-automation, design-extraction, playwright-cli skill |
-| `serve` | `npx -y serve` (auto) | browser-automation (local server for file:// bypass) |
-| `md-to-pdf` | `npm install -g md-to-pdf` | doc-export (PDF output) |
-| `defuddle` | `npm install -g defuddle` | web-search, web-searching skill |
-| `ast-grep` | bundled via `npx @ast-grep/cli` (no global install) | core, safe-move skill (code-reference matching; degrades gracefully when absent) |
-
-**Python:**
-
-| Dependency | Install | Required by |
-|---|---|---|
-| `python-docx` | `pip install python-docx` | doc-export (DOCX output) |
-| `pyyaml` | `pip install pyyaml` | doc-export (DOCX output) |
-
-**System:**
-
-| Dependency | Required by |
-|---|---|
-| `git` | commit workflow |
+Each component's record, `<module>/<component>/<component>.json`, lists the outside software the component requires, with the command that installs each one. `rbtv show <module>/<component>` prints that list. `rbtv doctor` reports which of the installed components' dependencies are present on this machine and prints the install command of each one it did not find. rbtv never runs an install command.
 
 **Runtime CDN (no install — loaded at render time):**
 

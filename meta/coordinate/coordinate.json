@@ -1,4 +1,9 @@
 {
   "description": "How an agent coordinates sub-agents through cast on long or context-heavy work: one coordinate skill covering swarms, panels, staged investigations, source digests and checker agents.",
-  "dependencies": ["python3"]
+  "dependencies": [
+    {
+      "name": "python",
+      "install": "https://www.python.org/downloads/"
+    }
+  ]
 }

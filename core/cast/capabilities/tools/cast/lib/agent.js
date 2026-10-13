@@ -14,7 +14,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const { installationRoot } = require('./installation');
+const { INSTALL_RECORD_REL, installationRoot } = require('./installation');
 
 // memory-core's library: the `memory` component sits beside cast under core/ in source.
 const MEMORY_LIB = path.join(__dirname, '..', '..', '..', '..', '..', 'memory', 'capabilities', 'tools', 'memory', 'lib', 'index.js');
@@ -77,6 +77,45 @@ function agentHomesIn(folder) {
   return fs.readdirSync(folder).sort().map((name) => path.join(folder, name)).filter(holdsAgentFile);
 }
 
+// The agent folders of the installation at `root` outside its `.rbtv/agents/` whose record says
+// `"listed": true`. A folder whose name starts with a dot, and `node_modules`, are not searched,
+// and neither is a folder that cannot be read. A `root` without the installer's record is not an
+// installation and gives none: `~/.rbtv/` sits in every home folder, which is never searched.
+function listedAgentHomes(root) {
+  if (!fs.existsSync(path.join(root, INSTALL_RECORD_REL))) return [];
+  const homes = [];
+  const search = (dir) => {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    if (entries.some((entry) => entry.name === AGENT_JSON)) {
+      try {
+        if (JSON.parse(fs.readFileSync(path.join(dir, AGENT_JSON), 'utf8')).listed === true) homes.push(dir);
+      } catch { /* an unreadable record lists nothing */ }
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') search(path.join(dir, entry.name));
+    }
+  };
+  search(root);
+  return homes;
+}
+
+// The installation the agents folder `folder` belongs to.
+function installationOf(folder) {
+  return path.dirname(path.dirname(folder));
+}
+
+// The nearest `.rbtv/agents/` folder from `from` upward, or null.
+function nearestAgentsFolder(from) {
+  return upward(from, (dir) => (isFolder(agentsFolder(dir)) ? agentsFolder(dir) : null));
+}
+
+// The listed agent folders named `name` in the installation `from` is in.
+function listedHomesNamed(name, from) {
+  const folder = nearestAgentsFolder(from);
+  return folder ? listedAgentHomes(installationOf(folder)).filter((home) => path.basename(home) === name) : [];
+}
+
 // The agents `--target FOLDER` names: the one place that reads that option, for cast, spark and
 // rbtv. FOLDER is one of three things, tried in this order:
 //   an installation (it holds `.rbtv/`)   the agents under its `.rbtv/agents/`
@@ -98,26 +137,40 @@ function targetAgents(target, from) {
 }
 
 // The agent folders a list shows: those `target` names, else those of the nearest `.rbtv/agents/`
-// folder from `from` upward ({folder: null, homes: []} when there is none).
+// folder from `from` upward and the listed agent folders of its installation
+// ({folder: null, homes: []} when there is none).
 function agentHomes(from, target = null) {
   if (target) return targetAgents(target, from);
-  const folder = upward(from, (dir) => (isFolder(agentsFolder(dir)) ? agentsFolder(dir) : null));
-  return { folder, homes: agentHomesIn(folder ?? '') };
+  const folder = nearestAgentsFolder(from);
+  if (!folder) return { folder, homes: [] };
+  return { folder, homes: [...agentHomesIn(folder), ...listedAgentHomes(installationOf(folder))] };
 }
 
 // The agent folder a value names, or null when neither agent file is there. A path is taken as
 // given; a name is looked up among `homes` (the agents of a --target) when given, else under
-// `.rbtv/agents/` from `from` upward.
+// `.rbtv/agents/` from `from` upward, and then among the listed agent folders, where a name two
+// of them share names neither (`sameNameRefusal` words that case).
 function findAgentHome(value, from, homes = null) {
   if (isPath(value)) {
     const home = path.resolve(from, value);
     return holdsAgentFile(home) ? home : null;
   }
   if (homes) return homes.find((home) => path.basename(home) === value) ?? null;
-  return upward(from, (dir) => {
+  const placed = upward(from, (dir) => {
     const home = agentHomeIn(dir, value);
     return holdsAgentFile(home) ? home : null;
   });
+  if (placed) return placed;
+  const listed = listedHomesNamed(value, from);
+  return listed.length === 1 ? listed[0] : null;
+}
+
+// Why the name `value` names no agent when several listed agent folders share it: the lines that
+// follow a refusal's first line, or null when fewer than two do.
+function sameNameRefusal(value, from) {
+  const homes = listedHomesNamed(value, from);
+  if (homes.length < 2) return null;
+  return `${homes.length} listed agent folders are named ${value}:\n${homes.map((home) => `  ${home}`).join('\n')}`;
 }
 
 // Why an agent folder without its prompt file cannot be launched. A folder that still holds the
@@ -190,7 +243,10 @@ function rbtvAgent(value, fail, target = null) {
     } else if (isPath(value)) {
       looked = `looked for ${path.join(path.resolve(value), AGENT_JSON)}\nNothing changed.\ncheck the path, or look up a name: cast list --agents`;
     } else {
-      looked = `looked for .rbtv/agents/${value}/agent.json from the current folder upward\nNothing changed.\nlook up a name: cast list --agents`;
+      const same = sameNameRefusal(value, process.cwd());
+      looked = same
+        ? `${same}\nNothing changed.\npass the path of one of them: cast --agent FOLDER`
+        : `looked for .rbtv/agents/${value}/agent.json from the current folder upward, and for a listed agent folder of that name\nNothing changed.\nlook up a name: cast list --agents`;
     }
     fail(`refused: no rbtv agent '${value}' was found\n${looked}`);
   }
@@ -277,6 +333,6 @@ function agentFilePrompt(flag, fail) {
 }
 
 module.exports = {
-  PROMPT_MD, TASK_MD, AGENT_JSON, agentBody, isPath, agentsFolder, agentHomeIn, holdsAgentFile, isAgentFolder, targetAgents, agentHomes, findAgentHome,
+  PROMPT_MD, TASK_MD, AGENT_JSON, agentBody, isPath, agentsFolder, agentHomeIn, holdsAgentFile, isAgentFolder, targetAgents, agentHomes, findAgentHome, sameNameRefusal,
   readAgent, rbtvAgent, withMemory, agentHasTask, agentTask, targetRefusal, takeAgentFlags, agentFilePrompt, promptMissing,
 };

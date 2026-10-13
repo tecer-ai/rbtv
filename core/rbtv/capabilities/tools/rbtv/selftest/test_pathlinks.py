@@ -425,10 +425,11 @@ def path_links(ctx) -> None:
 
     key = MagicMock()
     key.__enter__.return_value = key
-    values = {"Path": (r"C:\Windows", 1)}
+    values = {"Path": (r"C:\Windows", 1), "USERPROFILE": (str(Path.home()), 1)}
     fake_reg = SimpleNamespace(
         HKEY_CURRENT_USER=1, KEY_READ=2, KEY_WRITE=4, REG_EXPAND_SZ=2,
         CreateKeyEx=lambda *args: key,
+        OpenKey=lambda *args: key,
         QueryValueEx=lambda unused, name: values[name],
         SetValueEx=lambda unused, name, zero, kind, value:
             values.__setitem__(name, (value, kind)))
@@ -442,4 +443,19 @@ def path_links(ctx) -> None:
     check("L-windows-user-path — registry PATH is written once and notified",
           values["Path"][0].count(r"C:\Users\test\.rbtv\bin") == 1
           and notice.call_count == 1)
+
+    # A redirected home folder: the registry PATH is the account's, so nothing is written.
+    written = values["Path"]
+    values["USERPROFILE"] = (str(Path.home() / "the-real-profile"), 1)
+    refused = "no refusal"
+    with patch.dict(sys.modules, {"winreg": fake_reg}), patch.object(
+            pathlinks, "bin_dir", return_value=Path(r"C:\Temp\fake-home\.rbtv\bin")), \
+            patch("ctypes.windll", create=True):
+        try:
+            pathlinks._write_windows_user_path()
+        except OSError as exc:
+            refused = str(exc)
+    check("L-windows-user-path-redirected-home — a home folder that is not the account's "
+          "profile leaves the registry PATH unchanged and says so",
+          "user PATH was not changed" in refused and values["Path"] == written, refused)
     ctx.keep(locals())

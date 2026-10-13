@@ -17,7 +17,7 @@
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const { findAgentHome, isPath, readAgent, targetAgents } = require('../cast/lib/agent');
+const { findAgentHome, isPath, readAgent, sameNameRefusal, targetAgents } = require('../cast/lib/agent');
 const { agentInFull, agentLines, agentList, listLines } = require('../cast/lib/agent-list');
 const { HANDLE_TTL_MS } = require('../cast/lib/handles');
 const { MAX_SHOWN, openedSessions, sessionLines, sessionOf, sessionRow } = require('../cast/lib/headed');
@@ -46,16 +46,22 @@ const HELP = [
   'to an agent folder. The installation is the nearest folder above the',
   'current directory that holds .rbtv/. An argument with a slash or a',
   'backslash is a path. Any other argument is a name, except list and',
-  'resume.',
+  'resume. A name not found there is looked up among the listed agent',
+  'folders: the agent folders elsewhere in the installation whose',
+  'agent.json says "listed": true. A name two of them share is refused',
+  'with both folders; open one by its path.',
   '',
   'spark list shows the agents spark can open by name: the agents in the',
-  'nearest .rbtv/agents/ folder above the current directory. For each:',
+  'nearest .rbtv/agents/ folder above the current directory, and the',
+  'listed agent folders of that installation. A folder whose name starts',
+  'with a dot, and node_modules, are not searched for them. For each:',
   'name, harness, model, effort, Ignite (yes when the agent\'s ignite pack',
   'is on, which ignite connect does; such an agent also wakes from',
-  'Slack), and description. The description is shortened to fit the',
-  'line; with --full, or on a narrow terminal, each agent is a labeled',
-  'block with its whole description. spark list AGENT shows that one',
-  'agent in full:',
+  'Slack), Folder (from the installation; shown when a listed agent',
+  'folder is in the list), and description. The description is',
+  'shortened to fit the line; with --full, or on a narrow terminal, each',
+  'agent is a labeled block with its whole description. spark list AGENT',
+  'shows that one agent in full:',
   'its folder, its whole description, and the packs, skills, rules,',
   'commands, MCP servers and hooks installed in it, under the names',
   'rbtv show takes. Both open nothing. No agent found is success. Open',
@@ -168,9 +174,14 @@ function findAgent(value, target) {
         `\`spark list --target ${target}\`.`);
       return null;
     }
+    const same = isPath(value) ? null : sameNameRefusal(value, process.cwd());
+    if (same) {
+      refuse(`no rbtv agent \`${value}\` was found`, same, 'pass the folder of one of them.');
+      return null;
+    }
     const looked = isPath(value)
       ? `looked for ${path.join(path.resolve(value), 'agent.json')}.`
-      : `looked for .rbtv/agents/${value}/agent.json from the current folder upward.`;
+      : `looked for .rbtv/agents/${value}/agent.json from the current folder upward, and for a listed agent folder of that name.`;
     refuse(`no rbtv agent \`${value}\` was found`, looked, '`spark list`, or pass the folder.');
     return null;
   }

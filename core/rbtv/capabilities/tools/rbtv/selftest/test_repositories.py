@@ -294,6 +294,11 @@ def _repositories(ctx, check, base: Path, env: dict) -> None:
           code == 0 and absent_checkout.is_dir() and not (absent_checkout / ".venv").exists(),
           out[:300] + err[:200])
     import shutil
+    # Git stores its object files read-only, and Windows refuses to delete a
+    # read-only file: make the checkout's files writable before removing it.
+    for item in absent_checkout.rglob("*"):
+        if item.is_file():
+            item.chmod(0o600)
     shutil.rmtree(absent_checkout)
     code, out, err, exc = _run(
         cmd_update, ["update", "repositories"], absent_target, absent_catalog)

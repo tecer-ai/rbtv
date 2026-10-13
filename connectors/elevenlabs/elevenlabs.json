@@ -1,4 +1,14 @@
 {
   "description": "ElevenLabs speech transcription, synthesis and voice selection; file transfer and chat delivery belong to their channel or runtime.",
-  "dependencies": ["python", "requests"]
+  "dependencies": [
+    {
+      "name": "python",
+      "install": "https://www.python.org/downloads/"
+    },
+    {
+      "name": "requests",
+      "install": "python -m pip install requests",
+      "python_package": "requests"
+    }
+  ]
 }

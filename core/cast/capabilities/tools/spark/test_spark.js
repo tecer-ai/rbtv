@@ -171,6 +171,27 @@ function spark(args, { env = {}, cwd = root } = {}) {
   assert.ok(broken.stderr.includes('are unreadable'), broken.stderr);
 }
 
+// a listed agent folder is opened and shown by name; a name two of them share is refused with both
+{
+  const inst = mkFolder('listed');
+  fs.mkdirSync(path.join(inst, '.rbtv', 'agents'), { recursive: true });
+  fs.mkdirSync(path.join(inst, '.rbtv', 'config'), { recursive: true });
+  fs.writeFileSync(path.join(inst, '.rbtv', 'config', 'install.json'), '{}');
+  const values = { name: 'lia', harness: 'claude', model: 'sonnet-5-5', effort: 'medium', listed: true };
+  const lia = path.join(inst, 'plans', 'a', 'agents', 'lia');
+  writeAgent(lia, values);
+  const found = spark(['list', 'lia', '--json'], { cwd: inst, env: { PATH: os.tmpdir() } });
+  assert.strictEqual(found.status, 0, found.stderr);
+  assert.strictEqual(JSON.parse(found.stdout).home, lia);
+  const twin = path.join(inst, 'plans', 'b', 'agents', 'lia');
+  writeAgent(twin, values);
+  const two = spark(['lia', '--dry-run'], { cwd: inst });
+  assert.strictEqual(two.status, 1);
+  for (const said of ['no rbtv agent `lia` was found', '2 listed agent folders are named lia:', lia, twin, 'pass the folder of one of them']) {
+    assert.ok(two.stderr.includes(said), two.stderr);
+  }
+}
+
 // refusals: no agent by name or path, unreadable agent.json, an unknown option, no agent, no cast
 {
   const nosuch = spark(['nosuch', '--dry-run']);

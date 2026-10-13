@@ -16,6 +16,7 @@ from lib.commands import _HANDLERS
 from lib.constants import STATE_REL
 from lib.doctor import do_doctor, doctor_exit
 from lib.parser import build_parser
+from lib.schema import errors, load
 
 from .fixture import _component, _file_md, _w
 from .test_doctor_ownership import _snapshot
@@ -60,7 +61,12 @@ def rulings_ops(ctx) -> None:
     command.chmod(0o755)
     _w(first / "first.json", json.dumps({
         "description": "The first component",
-        "dependencies": ["rbtv-dep-here", "rbtv-dep-nowhere"]}))
+        "dependencies": [
+            {"name": "rbtv-dep-here", "install": "install here",
+             "command": "rbtv-dep-here"},
+            {"name": "rbtv-dep-nowhere", "install": "install nowhere",
+             "python_package": "rbtv-dep-nowhere"},
+            {"name": "rbtv-dep-unchecked", "install": "https://example.invalid/"}]}))
     catalog, _ = scan_all(mirror, source)
 
     root = tmp / "ws-rulings"
@@ -80,18 +86,30 @@ def rulings_ops(ctx) -> None:
         os.environ["PATH"] = saved_path
     check("RO-deps — doctor reports each dependency an installed component "
           "names as present or absent",
-          data["dependencies"] == [
-              {"name": "rbtv-dep-here", "state": "present", "components": ["modr/first"]},
-              {"name": "rbtv-dep-nowhere", "state": "absent", "components": ["modr/first"]}],
+          [(d["name"], d["state"], d["components"]) for d in data["dependencies"]] == [
+              ("rbtv-dep-here", "present", ["modr/first"]),
+              ("rbtv-dep-nowhere", "absent", ["modr/first"]),
+              ("rbtv-dep-unchecked", "not checked", ["modr/first"])],
           str(data["dependencies"]))
     check("RO-deps-exit — an absent dependency leaves doctor's exit code 0 "
           "and the installation unwritten",
           doctor_exit(data["checks"]) == 0 and code == 0 and _snapshot(root) == before)
     check("RO-deps-text — doctor prints the dependency rows and no longer "
           "says dependencies were not tested",
-          "rbtv-dep-here present modr/first" in text
-          and "rbtv-dep-nowhere absent modr/first" in text
+          "rbtv-dep-here command rbtv-dep-here present modr/first" in text
+          and "rbtv-dep-nowhere Python package rbtv-dep-nowhere absent modr/first" in text
+          and "Install rbtv-dep-here" not in text
+          and "Install rbtv-dep-nowhere: install nowhere" in text
+          and "Install rbtv-dep-unchecked: https://example.invalid/" in text
           and "Runtime dependencies and arbitrary" not in text, text)
+    entry = {"name": "x", "install": "install x"}
+    record = lambda dep: errors({"description": "d", "dependencies": [dep]},
+                                load("component-json"))
+    check("RO-deps-schema — a dependency is an entry with a name and an "
+          "install command, and at most one of command and python_package",
+          not record(entry) and not record({**entry, "command": "x"})
+          and record("x") and record({"name": "x"})
+          and record({**entry, "command": "x", "python_package": "x"}))
 
     # ---- R2: a component entry with both `units` and `selected` ----
     check("RO-keys-clean — doctor has no key warning for a record with one name per key",

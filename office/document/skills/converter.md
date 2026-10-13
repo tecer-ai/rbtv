@@ -17,7 +17,7 @@ rendered document. [md-to-docx.py](../capabilities/converter/tool/md-to-docx.py)
 
 This is the ONE rendering path for md/HTML → file in this module. `deck-production` prints its HTML
 decks to PDF through this same path rather than standing up a second Chromium — see *HTML input*
-below. If you only need to READ a page, this is not that; see `web/capture`.
+below. If you only need to READ a page, this is not that; see the `browse` skill.
 
 ## Inputs the caller resolves before invoking
 
@@ -76,7 +76,7 @@ Legal:
 ```
 python3 capabilities/converter/tool/md-to-docx.py {input} {output} --style capabilities/converter/legal/legal-docx-style.yaml
 ```
-Requires `python-docx`, `pyyaml` (declared in this component's [package.json](../package.json)). Pass
+Requires `python-docx`, `pyyaml` (listed with their install commands in this component's [record](../document.json)). Pass
 `--workspace-root` only when the style yaml's logo path is relative and must resolve against the
 workspace root rather than the yaml's own folder.
 

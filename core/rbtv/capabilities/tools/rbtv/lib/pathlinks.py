@@ -406,10 +406,32 @@ def _write_shell_path() -> None:
         write_file(rc, text)
 
 
+def _windows_account_profile() -> Path | None:
+    """The profile folder of the Windows account this process runs as, or None when Windows does not state it."""
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Volatile Environment", 0,
+                            winreg.KEY_READ) as key:
+            return Path(os.path.expandvars(winreg.QueryValueEx(key, "USERPROFILE")[0]))
+    except OSError:
+        return None
+
+
 def _write_windows_user_path() -> None:
     """Persist PATH for PowerShell, cmd.exe and Git Bash without setx truncation."""
     import ctypes
     import winreg
+
+    # The registry PATH belongs to the Windows account, not to the home folder:
+    # a run whose home folder is redirected would write that folder into the
+    # account's real PATH.
+    profile = _windows_account_profile()
+    home = Path.home()
+    if profile is not None and (os.path.normcase(os.path.normpath(home))
+                                != os.path.normcase(os.path.normpath(profile))):
+        raise OSError(f"the home folder {home} is not this Windows account's profile "
+                      f"{profile}; the account's user PATH was not changed")
 
     entry = str(bin_dir())
     with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, "Environment", 0,
