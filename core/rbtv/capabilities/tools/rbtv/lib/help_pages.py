@@ -23,6 +23,8 @@ Discover
                 holds every word.
   show NAME     Everything about one named entry: description, files, dependencies,
                 where it is installed.
+  structure [KIND]  Print the folder convention for one kind, or list the kinds.
+                    See: rbtv structure -h
 
 Change this installation
   configure         Initialize or change receiving tools and guidance settings.
@@ -55,6 +57,44 @@ With no command, this page is printed.
 Start: rbtv status
 More:  rbtv COMMAND -h
 Exit codes: 0 success; 1 refused or check failed; 2 invalid arguments.
+""",
+    "structure": """\
+rbtv — structure help
+
+usage: rbtv structure [-h] [--target TARGET] [--json] [--dry-run] [--details] [KIND]
+
+Print the maintained folder convention. With no KIND, list the kinds and the
+purpose of each. With a KIND, print that kind's documentation, read from its
+page when the command runs. The command writes nothing. --dry-run and
+--details change nothing further.
+
+KIND is agent, project, area, plan or para. agent, project, area and plan are
+sections of the structure page in the rbtv source. para is the PARA method
+page, and only when meta/para is installed in the target. Otherwise the
+command refuses and names `rbtv add meta/para`. Adapting instead means
+authoring a folder-instructions component under .rbtv/mirror/ and not adding
+meta/para.
+
+The target is --target, then RBTV_AGENT_HOME, then discovery from the current
+folder. The result names no second copy of a tree: the page is the text.
+
+positional arguments:
+  KIND                  agent, project, area, plan or para
+
+options:
+  -h, --help            show this help message and exit
+  --target TARGET       installation folder; overrides RBTV_AGENT_HOME and
+                        discovery from the current folder
+  --json                one JSON value on standard output, success or failure
+  --dry-run             accepted; this command writes nothing either way
+  --details             accepted; this command has no shortened list
+
+Examples:
+  rbtv structure
+  rbtv structure agent
+  rbtv add meta/para
+
+Exit codes: 0 success; 1 refused; 2 invalid arguments.
 """,
     "status": """\
 rbtv — status help

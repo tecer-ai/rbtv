@@ -77,6 +77,23 @@ def title(command: str) -> str:
     return f"rbtv — {command}"
 
 
+# Kinds `rbtv structure` lists when no kind is named. The trees live in the
+# structure page; this table is only the short purpose of each kind.
+STRUCTURE_KINDS = (
+    ("agent", "Standing agent folder, its source, runtime and work."),
+    ("project", "Bounded work with a defined end."),
+    ("area", "A continuing responsibility and its current reference."),
+    ("plan", "A plan folder a coordinator executes."),
+    ("para", "Optional PARA roots and their folder rules."),
+)
+
+
+def structure_kind_lines(*, width: int | None = None) -> list[str]:
+    """The kind list as a table, or labeled blocks when the terminal is narrow."""
+    return render_table(
+        ["Kind", "Purpose"], [list(row) for row in STRUCTURE_KINDS], width=width)
+
+
 # The folders of an installation's `.rbtv/`, in the order and words of the
 # first sentence of the glossary page `rbtv-folder.md`, each with the glossary
 # page that owns it. A reword of that sentence changes this table in the same

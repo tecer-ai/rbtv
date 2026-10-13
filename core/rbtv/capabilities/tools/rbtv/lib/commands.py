@@ -1588,6 +1588,69 @@ def cmd_agent(args, target: Path, catalog: dict, shadowed: list,
     return 0
 
 
+structure_page = REPO_ROOT / "core/rbtv/capabilities/methods/folder-structure.md"
+para_page = REPO_ROOT / "meta/para/capabilities/methods/para.md"
+PARA_COMPONENT = "meta/para"
+_STRUCTURE_KINDS = {row[0] for row in present.STRUCTURE_KINDS}
+
+
+def section_text(page: Path, heading: str) -> str:
+    """The `## heading` section of `page`, through the line before the next
+    level-2 heading. The page is the only copy of that text."""
+    lines = page.read_text(encoding="utf-8").splitlines()
+    marker = f"## {heading}"
+    start = next((i for i, line in enumerate(lines) if line == marker), None)
+    if start is None:
+        raise Refuse("structure-page", f"{page} has no section {marker!r}", str(page))
+    end = next((i for i in range(start + 1, len(lines))
+                if lines[i].startswith("## ")), len(lines))
+    return "\n".join(lines[start:end]).strip() + "\n"
+
+
+def cmd_structure(args, target: Path, catalog: dict, shadowed: list,
+                  *, ask=None) -> int:
+    """Print one kind's maintained documentation, or the short list of kinds."""
+    del catalog, shadowed, ask
+    kind = getattr(args, "kind", None) or ""
+    if not kind:
+        data = {"ok": True,
+                "kinds": [{"kind": name, "purpose": purpose}
+                          for name, purpose in present.STRUCTURE_KINDS]}
+        if getattr(args, "json", False):
+            print(json.dumps({**data, "target": str(target.resolve())}, indent=2))
+        else:
+            print(present.title("structure"))
+            print()
+            print("\n".join(present.structure_kind_lines()))
+        return 0
+    if kind not in _STRUCTURE_KINDS:
+        raise Refuse(
+            "usage",
+            f"kind {kind!r} is unknown. Accepted kinds: "
+            + ", ".join(name for name, _purpose in present.STRUCTURE_KINDS))
+    if kind == "para" and PARA_COMPONENT not in (read_state(target).get("components") or {}):
+        exc = Refuse(
+            "component-absent",
+            "PARA guidance is not installed in this target. "
+            "Adopt it with `rbtv add meta/para`, or adapt by authoring your own "
+            "folder-instructions component under .rbtv/mirror/ and do not add meta/para")
+        exc.next = f"rbtv add meta/para --target {_quote(target)}"
+        raise exc
+    page = para_page if kind == "para" else structure_page
+    if kind == "para":
+        text = page.read_text(encoding="utf-8")
+        if not text.endswith("\n"):
+            text += "\n"
+    else:
+        text = section_text(page, kind)
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": True, "target": str(target.resolve()),
+                          "kind": kind, "text": text}, indent=2))
+    else:
+        sys.stdout.write(text)
+    return 0
+
+
 def cmd_providers(args, target: Path) -> int:
     """The provider-account verbs. They read no source catalog."""
     handler = usage if args.providers_verb == "usage" else providers
@@ -1610,6 +1673,7 @@ _HANDLERS = {
     "doctor": cmd_doctor,
     "interactive": cmd_interactive,
     "selftest": cmd_selftest,
+    "structure": cmd_structure,
 }
 
 

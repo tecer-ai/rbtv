@@ -17,7 +17,7 @@ from lib.pathlinks import _forbid_local_bin, bin_dir
 
 from .context import Ctx
 from .fixture import _fixture
-from . import (test_agent_local, test_agents, test_cli, test_discovery, test_doctor_ownership, test_guidance, test_guidance_walk,
+from . import (test_agent_local, test_agents, test_cli, test_discovery, test_doctor_ownership, test_guidance, test_guidance_walk, test_structure,
                test_hub, test_install, test_interactive, test_layout, test_link_paths,
                test_ownership, test_parts, test_pathlinks, test_settings,
                test_surface, test_files, test_record_keys, test_ux_contract, test_packs,
@@ -99,6 +99,7 @@ ORDER = [
     test_ux_contract.result_screens,
     test_install.uninstall,
     test_repositories.repositories,
+    test_structure.structure,
 ]
 
 

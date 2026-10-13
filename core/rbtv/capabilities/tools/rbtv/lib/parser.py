@@ -152,6 +152,11 @@ def build_parser() -> argparse.ArgumentParser:
     tree_flags(s_status, on_verb=True)
     page(s_status, "status")
 
+    s_structure = sub.add_parser("structure")
+    s_structure.add_argument("kind", nargs="?", default=None, metavar="KIND")
+    tree_flags(s_structure, on_verb=True)
+    page(s_structure, "structure")
+
     s_add = sub.add_parser("add")
     selectors(s_add)
     s_add.add_argument("--pack", action=ListAction, default=[], metavar="PACK")

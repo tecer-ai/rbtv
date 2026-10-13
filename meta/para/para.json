@@ -1,0 +1,4 @@
+{
+  "description": "Optional PARA folder guidance for projects, areas, resources, archives and workbench; excludes task, wiki and context features. Index and instruction templates live in capabilities/templates/.",
+  "dependencies": []
+}
