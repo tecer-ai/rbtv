@@ -16,8 +16,8 @@
       "install": "playwright install chromium"
     },
     {
-      "name": "defuddle-cli",
-      "install": "npm install --global defuddle-cli",
+      "name": "defuddle",
+      "install": "npm install --global defuddle",
       "command": "defuddle"
     },
     {

@@ -50,6 +50,6 @@ Open the app the way its user will: start its server as the project documents an
 |---|---|
 | `agent-browser`: `No usable sandbox!` | Add `--args "--no-sandbox"` to the `open` command; the session keeps it for the commands that follow |
 | `playwright cli open`: `Chromium distribution 'chrome' is not found` | Open with `playwright cli open --browser chromium <url>`. Its help does not list `chromium`; the value selects the browser installed by `playwright install chromium` |
-| The command is not found | Report which program is missing on which machine, with its install command: `npm install --global agent-browser`, or `npm install --global playwright` followed by `playwright install chromium`. Run the install only when the user asked you to change the machine |
+| The command is not found | Report which program is missing on which machine, with the install command `rbtv doctor` prints for it. Run the install only when the user asked you to change the machine |
 
 Do not report that no browser is available before running both programs. When one is missing, do the work with the other where the table allows and say which you used.

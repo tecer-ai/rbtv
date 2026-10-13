@@ -24,13 +24,13 @@ The tool fetches once and runs every check and extractor on those bytes. It writ
 
 The program is one file, `capture.py`, on the Python 3 standard library. Its module docstring states the order of the extractors and of the content checks, with the false result each ordering prevents; read it before changing either. The thresholds are the constants near the top of the file (`_BODY_MIN_BYTES`, `_PROSE_MIN_CHARS`, `_DENSITY_MIN_RATIO`, `_PROSE_OK_CHARS`).
 
-Every extractor is optional, and the program skips one that is absent:
+Every extractor is optional, and the program skips one that is absent. The component record, `browse.json`, holds each one's install command, and `rbtv doctor` prints it for those that are missing.
 
-| Extractor | Software | Install |
-|---|---|---|
-| `defuddle` | The `defuddle` command, on Node 20 or later | `npm install --global defuddle-cli` |
-| `trafilatura` | Python package | `python -m pip install trafilatura` |
-| `bs4` | Python package | `python -m pip install beautifulsoup4` |
-| PDF text copy | Python package | `python -m pip install pypdf` |
+| Extractor | Software |
+|---|---|
+| `defuddle` | The `defuddle` command of the npm package `defuddle`, on Node 20 or later |
+| `trafilatura` | Python package `trafilatura` |
+| `bs4` | Python package `beautifulsoup4` |
+| PDF text copy | Python package `pypdf` |
 
 Run the checks with `python3 test_capture.py` from this folder; they use no network. After a change to an option, the help or the result, follow [Building a command-line interface](../../../../code/capabilities/methods/building-a-cli.md) and [Tool](../../../../../core/rbtv/capabilities/glossary/tool.md).
