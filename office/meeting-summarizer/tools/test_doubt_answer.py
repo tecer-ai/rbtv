@@ -223,3 +223,60 @@ def test_apply_answer_treats_nothing_to_commit_as_already_published(tmp_path, mo
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+def test_apply_answer_binds_term_raised_by_a_later_row(tmp_path, monkeypatch):
+    # An amended meeting has a second handoff row; its term must be found there,
+    # and the amendment must run in that later row's work scope.
+    state = tmp_path / "state"
+    checkout_root = tmp_path / "checkout"
+    config_root = tmp_path / "config"
+    _write_doubts_row(state, meeting_key="m1", terms=(("Quill", "quill-guess"),))
+    later = {
+        "meeting-key": "m1", "entity": "tecer", "work": str(state / "work" / "m1-later"),
+        "transcript": "./m1-transcript.md",
+        "marker": {
+            "summary": {"repo": "tecer-biz", "path": "meetings/2026-09-28-m1.md"},
+            "marker-syntax": "{{doubt|term=<term>|guess=<best-guess>}}",
+            "doubts": [{"term": "Bramble", "guess": "bramble-guess", "excerpt": "..."}],
+        },
+    }
+    (state / "work" / "m1-later").mkdir(parents=True)
+    per_meeting_job.append_jsonl(state / per_meeting_job.DOUBTS, later)
+
+    summary = checkout_root / "tecer-biz" / "meetings" / "2026-09-28-m1.md"
+    summary.parent.mkdir(parents=True, exist_ok=True)
+    summary.write_text("Text {{doubt|term=Bramble|guess=bramble-guess}}.\n", encoding="utf-8")
+    config_root.mkdir(parents=True, exist_ok=True)
+    (config_root / "summarize.json").write_text(json.dumps({
+        "artifact-kinds": {}, "skill-bindings": {"by-entity": {"tecer": "workflow.md"}},
+        "invocation": {"harness": "claude", "model": "sonnet", "effort": "low"},
+    }), encoding="utf-8")
+
+    seen_cwd = []
+
+    def fake_invoke_agent(prompt, cwd, log_dir, timeout, invocation):
+        seen_cwd.append(Path(cwd))
+        summary.write_text("Text Bramble.\n", encoding="utf-8")
+        return {"exit": 0, "text": "ok"}
+
+    import contextlib
+    monkeypatch.setattr(per_meeting_job, "invoke_agent", fake_invoke_agent)
+    monkeypatch.setattr(publish_job, "load_targets",
+                        lambda config_root: {"targets": {"tecer-biz": {
+                            "regime": "git", "remote": "origin", "branch": "main"}},
+                            "discriminator": {"format": "%Y-%m-%d"}})
+    monkeypatch.setattr(publish_job, "sync", lambda target, checkout: {"fetched": True})
+    monkeypatch.setattr(publish_job, "dirty_paths", lambda checkout: set())
+    monkeypatch.setattr(publish_job, "commit",
+                        lambda target, checkout, paths, message: {"committed": True, "head": "h"})
+    monkeypatch.setattr(publish_job, "head_unpublished", lambda target, checkout: None)
+    monkeypatch.setattr(publish_job, "checkout_lock",
+                        lambda checkout: contextlib.nullcontext())
+
+    result = doubt_answer.apply_answer(
+        meeting_key="m1", term="Bramble", answer_text="Bramble",
+        config_root=config_root, checkout_root=checkout_root, state=state)
+
+    assert result["landed"] is True
+    assert seen_cwd == [state / "work" / "m1-later"]

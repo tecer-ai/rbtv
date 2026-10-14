@@ -145,11 +145,17 @@ def apply_answer(*, meeting_key: str, term: str, answer_text: str, config_root: 
     Slack thread to batch by, so it calls this once per answered term.
     """
     config_root, checkout_root, state = Path(config_root), Path(checkout_root), Path(state)
-    row = next((r for r in per_meeting_job.read_jsonl(state / per_meeting_job.DOUBTS)
-               if r["meeting-key"] == meeting_key), None)
-    if row is None:
+    # A meeting gets one handoff row per summarizing run: an amended meeting
+    # (a further source arrived) has a later row whose doubts the earlier rows
+    # lack. Bind the term to the LATEST row that raised it, whose `work` scope
+    # is the one that wrote the summary now on disk.
+    rows = [r for r in per_meeting_job.read_jsonl(state / per_meeting_job.DOUBTS)
+            if r["meeting-key"] == meeting_key]
+    if not rows:
         return {"landed": False, "why": f"no doubts handoff row for meeting {meeting_key!r}"}
-    if not any(d["term"] == term for d in row["marker"]["doubts"]):
+    row = next((r for r in reversed(rows)
+                if any(d["term"] == term for d in r["marker"]["doubts"])), None)
+    if row is None:
         return {"landed": False,
                 "why": f"meeting {meeting_key!r} carries no open doubt for term {term!r}"}
 
