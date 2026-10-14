@@ -41,3 +41,7 @@ A kept loose end is filed in the project's tasks, loose-ends or issues file; whe
 ## A close with no part named proposes a set and runs it in a fixed order
 
 Loose ends always; handoff when work leaves unfinished; compound when corrections were received; work history and archivist on request; run as loose ends, handoff, compound, archivist, work history. Reason: one ask per close, and loose ends must decide what becomes a task before the handoff writes the state.
+
+## A work-history collection is git-ignored unless the user asks to commit it
+
+The destination gets a `.gitignore` that ignores everything in it before the first file is written; the boundary step asks whether the collection is committed, and only an explicit yes omits the file. Reason: the collection holds whole session transcripts, recovered outputs and patches, filtered but private; committing them is a choice the owner makes per collection, never a side effect of closing a session.

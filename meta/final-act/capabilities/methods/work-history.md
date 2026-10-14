@@ -24,7 +24,7 @@ Where no sub-agent can be launched, the collector does steps 3 and 4 itself, one
 
 Use the available interactive question tool to settle the scope with the user. Present a concrete proposed boundary with named alternatives, consequences, and a recommendation. Use answers already given; when the request explicitly settles a field, acknowledge it rather than asking again. If no interactive question tool exists, ask in chat. Do not infer agreement from silence.
 
-Settle these fields together: project/plan or root sessions; date range or collection cutoff and time zone; inclusion of descendants, forks, resumed sessions, and related continuations; excluded subjects; transcript/artifact depth; and destination. Offer the complete available visible record as the default depth, with the main session and its descendants included. A project name alone does not authorize copying every session from the same workspace. Ambiguous neighboring sessions stay outside the collection until the user expands the boundary.
+Settle these fields together: project/plan or root sessions; date range or collection cutoff and time zone; inclusion of descendants, forks, resumed sessions, and related continuations; excluded subjects; transcript/artifact depth; destination; and whether the collection is committed to version control. It is not committed unless the user says so in this step. Offer the complete available visible record as the default depth, with the main session and its descendants included. A project name alone does not authorize copying every session from the same workspace. Ambiguous neighboring sessions stay outside the collection until the user expands the boundary.
 
 Record the agreed scope, exclusions, cutoff, and any existing material in `timeline.md` before extraction. Do not move or overwrite owner-provided records. If collection is blocked on a required scope answer, stop dependent work and state what answer is missing. **Done when:** the user and collector share an explicit boundary and destination.
 
@@ -44,10 +44,13 @@ Collect user-visible messages, assignments, corrections, tool invocations/result
 
 Follow artifact paths recorded in the sessions. Copy sources rather than moving them. Preserve conflicting versions instead of overwriting one with another. Label each as a recorded full-write payload, recorded edit/patch, historical version recovered from version control, or current recovery snapshot. A tool-call payload proves an attempt; its result establishes success. A current file is not proof of what that file contained at the session's end. Preserve patches as patches unless a known base and ordered successful edits allow a deterministic reconstruction. Use `git show` for historical files without changing the working tree.
 
+Before the first file is written, put a `.gitignore` in the destination that ignores everything in it except itself (`*` and `!.gitignore`). Omit it only when the user said in step 1 that the collection is committed. The transcripts are filtered but still private working records.
+
 Use this layout, creating optional files/directories only when they hold recovered content:
 
 ```text
 <destination>/
+  .gitignore                   # unless the user asked for the collection to be committed
   timeline.md
   manifest.json
   timeline.csv                 # full event ledger when needed for a large record
