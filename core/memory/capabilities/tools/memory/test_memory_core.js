@@ -60,6 +60,25 @@ test('memory prepare prints the bundle text, identity and warnings; --json is un
   assert.deepEqual(Object.keys(json).sort(), ['bundle', 'identity', 'warnings']);
 });
 
+test('a folder without memory/ or _artifacts/ gets no agent alerts; an Ignite-shaped one still does', (dir) => {
+  const home = path.join(dir, 'agent');
+  install(dir, home);
+  const plain = path.join(dir, 'plan-agent');
+  fs.mkdirSync(plain, { recursive: true });
+  fs.writeFileSync(path.join(plain, 'prompt.md'), 'You are an agent.\n');
+  const run = (agentHome, ...extra) => spawnSync(process.execPath, [path.join(__dirname, 'memory.js'), 'prepare', '--installation', dir, '--agent-home', agentHome, '--cwd', dir, ...extra], { encoding: 'utf8' });
+  const quiet = run(plain);
+  assert.equal(quiet.status, 0, quiet.stderr);
+  assert.ok(quiet.stdout.includes('warnings 0') && !quiet.stdout.includes('Memory alert') && !quiet.stdout.includes('MISSING MEMORY'), quiet.stdout);
+  assert.ok(quiet.stdout.includes(`### ${path.join(dir, '.rbtv', 'memory', 'profile.md')}`));
+  const json = JSON.parse(run(plain, '--json').stdout);
+  assert.deepEqual(json.warnings, []);
+  assert.ok(json.bundle.some((row) => row.path.endsWith('profile.md')) && !json.bundle.some((row) => row.path.startsWith(plain)));
+  fs.rmSync(lib.agentBaselinePath(home));
+  const loud = JSON.parse(run(home, '--json').stdout);
+  assert.ok(loud.warnings.some((line) => line.includes('learned.md')), JSON.stringify(loud.warnings));
+});
+
 test('seventh watch-out is captured', (dir) => {
   const home = path.join(dir, 'agent');
   install(dir, home);
@@ -164,7 +183,7 @@ test('no foreign board for a workspace match', (dir) => {
   assert.ok(prepared.bundle.some((row) => row.path.endsWith('work.md')));
 });
 
-test('a new project agent without personal records is not master', (dir) => {
+test('a new project agent without agent memory is not master and raises no alert', (dir) => {
   const home = path.join(dir, 'project-agent');
   fs.mkdirSync(home, { recursive: true });
   fs.mkdirSync(path.join(dir, '.rbtv', 'memory', '_artifacts'), { recursive: true });
@@ -173,7 +192,7 @@ test('a new project agent without personal records is not master', (dir) => {
   fs.writeFileSync(path.join(dir, '.rbtv', 'memory', '_artifacts', 'index.md'), '# Memory\n\n| Open | When |\n|---|---|\n', 'utf8');
   const prepared = lib.prepareMemory({ installation: dir, agentHome: home });
   assert.equal(prepared.identity.master, false);
-  assert.ok(prepared.warnings.some((line) => line.includes('not master')));
+  assert.deepEqual(prepared.warnings, []);
   assert.equal(prepared.bundle.some((row) => row.path.includes(`${path.sep}master${path.sep}`)), false);
 });
 

@@ -22,7 +22,15 @@ function prepareMemory({ installation, agentHome = null, cwd = null }) {
   add(path.join(root, '.rbtv', 'memory', 'profile.md'), 'profile');
   add(path.join(root, '.rbtv', 'memory', '_artifacts', 'index.md'), 'index');
   add(path.join(root, '.rbtv', 'memory', 'inbox.md'), 'inbox');
-  if (agentHome) {
+  // A folder with neither memory/ nor _artifacts/ (a plan or draft agent) has no agent memory:
+  // its own sections are skipped quietly; only the shared records and global rules are delivered.
+  const hasAgentMemory = agentHome && ['memory', '_artifacts'].some((name) => fs.existsSync(path.join(path.resolve(agentHome), name)));
+  if (agentHome && !hasAgentMemory) {
+    for (const file of loadLearned(root, null)) {
+      if (!memory.some((row) => row.path === file.path)) memory.push({ ...file, source: 'working' });
+    }
+  }
+  if (hasAgentMemory) {
     const home = path.resolve(agentHome);
     const learned = agentBaselinePath(home);
     const board = boardPath(home);
