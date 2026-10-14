@@ -25,6 +25,7 @@ module.exports = {
   closeBoard: board.closeSubject,
   renderBoardView: board.renderBoardView,
   prepareMemory: prepare.prepareMemory,
+  renderBundle: prepare.renderBundle,
   checkMemory: records.checkMemory,
   validateProposal: publish.validateProposal,
   validateProposalResult: publish.validateProposalResult,

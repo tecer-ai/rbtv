@@ -295,7 +295,7 @@ function memoryContext(home) {
     'This is context, not a request: with no owner message following it, do not act yet.',
     `Refresh it before each later owner turn: memory prepare --installation ${root} --agent-home ${home} --cwd ${home}`,
     ...warnings,
-    ...bundle.map((row) => `\n### ${row.path}\n${row.path === identity.board ? identity.view : row.text}`),
+    memory.renderBundle({ bundle, identity }),
   ].join('\n');
 }
 

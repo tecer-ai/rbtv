@@ -392,12 +392,16 @@ function runResume(rawArgv) {
   const argv = own ? resumeArgv(harness, id, [...(noTuiEffort(harness, headed) ? [] : own.effortArgv), ...iso.argv], own.modelId, headed)
     : resumeArgv(harness, id, iso.argv, null, headed);
 
-  if (headed && memoryText !== null) argv.push(...promptArgv(harness, memoryText));
+  // opencode does not submit --prompt when it resumes a session with -s: its fresh memory goes in
+  // as a headless turn on the same session before the TUI opens. claude and codex take it on argv.
+  const prelude = headed && harness === 'opencode' && memoryText !== null
+    ? { argv: resumeArgv(harness, id, [...(own ? own.effortArgv : []), ...iso.argv], own && own.modelId, false), stdin: memoryText } : null;
+  if (headed && memoryText !== null && !prelude) argv.push(...promptArgv(harness, memoryText));
   const turnText = headed ? null : (memoryText ?? promptText);
 
   if (dryRun) {
     process.stdout.write(`${JSON.stringify({
-      argv, cwd: folder, stdin_preview: headed ? null : turnText.slice(0, 200), ...agentEnv, env_removed: envRemoved(iso),
+      argv, cwd: folder, stdin_preview: headed ? null : turnText.slice(0, 200), ...(prelude ? { prelude } : {}), ...agentEnv, env_removed: envRemoved(iso),
     })}\n`);
     process.exit(0);
   }
@@ -421,8 +425,11 @@ function runResume(rawArgv) {
     t0,
   }, !headed);
   if (headed) {
-    return ended('resume failed')(spawnHarness(argv[0], argv.slice(1), {
+    const open = () => ended('resume failed')(spawnHarness(argv[0], argv.slice(1), {
       cwd: folder, env: agentEnv, unset: iso.unset, capped: false, stdio: 'inherit' }));
+    if (!prelude) return open();
+    return runOpencodeChecked(prelude.argv, { cwd: folder, env: agentEnv, unset: iso.unset, stdinText: prelude.stdin, t0, model: 'resume',
+      bind: () => (id === 'last' ? opencodeTouched(folder, t0) : id) }, (out) => (out.error || out.code ? ended('memory turn failed')(out) : (process.stdout.write(out.note || ''), open())));
   }
   if (harness === 'opencode') {
     return runOpencodeChecked(argv, { cwd: folder, env: agentEnv, unset: iso.unset, stdinText: turnText, t0, model: 'resume',

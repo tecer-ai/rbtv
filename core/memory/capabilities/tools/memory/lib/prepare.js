@@ -58,4 +58,10 @@ function prepareMemory({ installation, agentHome = null, cwd = null }) {
   return { bundle: memory, identity, warnings };
 }
 
-module.exports = { prepareMemory };
+// The bundle as text, one section per record; the board's section is its rendered view. The one
+// rendering: the launcher's first message and `memory prepare` both print it.
+function renderBundle({ bundle, identity }) {
+  return bundle.map((row) => `\n### ${row.path}\n${row.path === identity.board ? identity.view : row.text}`).join('\n');
+}
+
+module.exports = { prepareMemory, renderBundle };

@@ -82,7 +82,8 @@ function dry(file, args, fx, cwd = fx.root) {
 }
 const launch = (fx, flags) => dry(CAST, ['--agent', fx.home, ...flags], fx);
 // The text the composed launch passes in: the prompt argument of a headed one, else stdin.
-const sent = (out) => out.stdin_preview ?? out.argv.join('\n');
+// An opencode headed resume sends it in a headless turn ahead of the TUI (`prelude`).
+const sent = (out) => (out.prelude ? out.prelude.stdin : out.stdin_preview ?? out.argv.join('\n'));
 
 // Records a headed launch of `harness` in `fx.home` in the handle registry and in the harness's
 // own store, as a real one leaves them, and returns the session id.
@@ -130,6 +131,18 @@ for (const harness of Object.keys(HARNESSES)) {
     assert.ok(text.includes(HEADER) && text.includes('OWN-BOARD-WATCH'));
   });
 
+  test(`headed resume puts the bundle on argv only where the harness submits it (${harness})`, (dir) => {
+    const out = dry(CAST, ['resume', harness, 'sess-1', fixture(dir, harness).home, '--headed'], fixture(dir, harness));
+    if (harness === 'opencode') {
+      assert.ok(!out.argv.includes('--prompt') && !out.argv.includes('run'), out.argv.join(' '));
+      assert.deepStrictEqual(out.prelude.argv.slice(0, 4), ['opencode', 'run', '-s', 'sess-1']);
+      assert.ok(out.prelude.stdin.startsWith(HEADER));
+    } else {
+      assert.ok(!out.prelude);
+      assert.ok(out.argv.join('\n').includes(HEADER));
+    }
+  });
+
   test(`headless resume of a session opened headed carries the bundle (${harness})`, (dir) => {
     const fx = fixture(dir, harness, { task: true });
     const id = openedHeaded(fx, harness);
@@ -156,6 +169,44 @@ for (const harness of Object.keys(HARNESSES)) {
     assert.strictEqual(outside.stdin_preview, 'next turn');
   });
 }
+
+// The real sequence, run against a stand-in opencode on PATH that logs each call and, on `run`,
+// leaves a final assistant message in the store as the real one does. Linux only: the stand-in is
+// a #!/usr/bin/env node script.
+function headedOpencodeResumeSequence(dir) {
+  const fx = fixture(dir, 'opencode', { task: true });
+  const bin = path.join(dir, 'bin');
+  const log = path.join(dir, 'calls.jsonl');
+  fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, 'opencode'), `#!/usr/bin/env node
+const fs = require('fs'); const path = require('path');
+const argv = process.argv.slice(2);
+const stdin = argv[0] === 'run' ? fs.readFileSync(0, 'utf8') : null;
+fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ argv, stdin }) + '\\n');
+if (argv[0] === 'run') {
+  const { DatabaseSync } = require('node:sqlite');
+  fs.mkdirSync(path.join(process.env.XDG_DATA_HOME, 'opencode'), { recursive: true });
+  const db = new DatabaseSync(path.join(process.env.XDG_DATA_HOME, 'opencode', 'opencode.db'));
+  db.exec('create table if not exists message (id text, session_id text, data text, time_created integer)');
+  db.exec('create table if not exists part (message_id text, data text, time_created integer)');
+  db.prepare('insert into message values (?, ?, ?, ?)').run('m1', argv[argv.indexOf('-s') + 1], '{"role":"assistant"}', Date.now());
+  db.prepare('insert into part values (?, ?, ?)').run('m1', '{"type":"text","text":"noted"}', Date.now());
+  process.stdout.write('noted\\n');
+}
+`, { mode: 0o755 });
+  const env = { ...fx.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` };
+  const res = spawnSync(process.execPath, [CAST, 'resume', 'opencode', 'sess-1', fx.home, '--headed'], { encoding: 'utf8', env, cwd: fx.root });
+  assert.strictEqual(res.status, 0, `exit ${res.status}: ${res.stderr}${res.stdout}`);
+  const calls = fs.readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.strictEqual(calls.length, 2, JSON.stringify(calls));
+  assert.deepStrictEqual(calls[0].argv.slice(0, 3), ['run', '-s', 'sess-1']);
+  for (const mark of [HEADER, 'SHARED-PROFILE', 'OWN-LEARNED']) assert.ok(calls[0].stdin.includes(mark), `turn missing ${mark}`);
+  assert.deepStrictEqual(calls[1].argv.slice(0, 2), ['-s', 'sess-1']);
+  assert.ok(!calls[1].argv.includes('--prompt') && !calls[1].argv.includes('run'), 'the TUI opens after the turn, with no prompt');
+}
+if (process.platform === 'win32') {
+  process.stdout.write('skip: the opencode headed-resume sequence is Linux-only: the stand-in opencode is a #!/usr/bin/env node script, which Windows cannot start\n');
+} else test('opencode headed resume runs the bundle as a headless turn, then opens the TUI', headedOpencodeResumeSequence);
 
 test('an agent folder outside .rbtv/agents/ gets its own memory', (dir) => {
   const fx = fixture(dir, 'claude', { where: 'outside' });

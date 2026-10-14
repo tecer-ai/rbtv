@@ -96,7 +96,7 @@ The view starts with "Board view" and is not the board. It is not saved.
 
 usage: memory prepare --installation ROOT [--agent-home PATH] [--cwd PATH]
 
-Returns the bundle, the resolved identity and warnings. It does not infer another agent from the working directory.
+Prints the resolved identity, the warnings and the bundle, one section per record (--json: the same as data). It does not infer another agent from the working directory.
 `,
   validate: `memory validate — whole-proposal check
 
@@ -236,7 +236,7 @@ function run(argv) {
       agentHome: option(rest, '--agent-home'),
       cwd: option(rest, '--cwd'),
     });
-    emit(result, `identity ${result.identity.agentHome || 'shared'}\nwarnings ${result.warnings.length}\n`);
+    emit(result, `identity ${result.identity.agentHome || 'shared'}\nwarnings ${result.warnings.length}\n${result.warnings.map((line) => `${line}\n`).join('')}${lib.renderBundle(result)}\n`);
     return;
   }
   if (verb === 'validate' || verb === 'publish') {

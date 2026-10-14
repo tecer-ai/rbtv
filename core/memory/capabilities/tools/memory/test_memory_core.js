@@ -48,6 +48,18 @@ function install(dir, home) {
   spawnSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=t', 'commit', '-qm', 'init'], { cwd: dir });
 }
 
+test('memory prepare prints the bundle text, identity and warnings; --json is unchanged', (dir) => {
+  const home = path.join(dir, 'agent');
+  install(dir, home);
+  fs.writeFileSync(path.join(dir, '.rbtv', 'memory', 'profile.md'), fs.readFileSync(path.join(dir, '.rbtv', 'memory', 'profile.md'), 'utf8').replace('One', 'PROFILE-RECORD-ONE'));
+  const run = (...extra) => spawnSync(process.execPath, [path.join(__dirname, 'memory.js'), 'prepare', '--installation', dir, '--agent-home', home, '--cwd', dir, ...extra], { encoding: 'utf8' });
+  const text = run();
+  assert.equal(text.status, 0, text.stderr);
+  for (const mark of [`identity ${home}`, 'warnings 0', 'PROFILE-RECORD-ONE', `### ${path.join(dir, '.rbtv', 'memory', 'profile.md')}`]) assert.ok(text.stdout.includes(mark), `missing ${mark}\n${text.stdout}`);
+  const json = JSON.parse(run('--json').stdout);
+  assert.deepEqual(Object.keys(json).sort(), ['bundle', 'identity', 'warnings']);
+});
+
 test('seventh watch-out is captured', (dir) => {
   const home = path.join(dir, 'agent');
   install(dir, home);
