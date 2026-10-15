@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 PAGE = Path(__file__).resolve().with_suffix(".md")
+TRIMMED = ("--message", "--caption")
 
 
 def installation_root():
@@ -21,6 +22,26 @@ def installation_root():
              "  fix: run whatsapp from inside an installation")
 
 
+def trim_outgoing(arguments):
+    """On a send, the message text and caption without trailing whitespace: a text file's final
+    newline otherwise reaches the recipient as a blank last line."""
+    if "send" not in arguments:
+        return list(arguments)
+    trimmed, pending = [], False
+    for argument in arguments:
+        if pending:
+            trimmed.append(argument.rstrip())
+            pending = False
+            continue
+        name, equals, value = argument.partition("=")
+        if name in TRIMMED and equals:
+            trimmed.append(f"{name}={value.rstrip()}")
+        else:
+            trimmed.append(argument)
+            pending = argument in TRIMMED
+    return trimmed
+
+
 def main():
     wacli = shutil.which("wacli")
     if wacli is None:
@@ -29,7 +50,7 @@ def main():
                  f"  fix: install it as {PAGE} says, then run: whatsapp doctor")
     os.environ.setdefault("WACLI_STORE_DIR", str(installation_root() / ".rbtv/runtime/whatsapp"))
     # Not os.execv: on Windows it detaches the child from the console.
-    sys.exit(subprocess.call([wacli, *sys.argv[1:]]))
+    sys.exit(subprocess.call([wacli, *trim_outgoing(sys.argv[1:])]))
 
 
 if __name__ == "__main__":
