@@ -45,3 +45,7 @@ A component shipped in the repository is named with a short verb, or with the na
 ## A component's records for a reader live in `output/`
 
 What a component produces for people to read and rule on is written in `.rbtv/output/<component>/` for the installation and in `output/<component>/` inside an agent folder for records about that agent alone; both are tracked, and an installation's instruction file may name another place for one method's output. Reason: owner decision, 2026-10-15, while placing the compound backlog of the `final-act` component. Config holds what the user chose, runtime holds what a component needs to run and is never tracked, memory has one writer and agents are agent folders; none of the five held a record awaiting the owner's ruling, so such records were landing in project folders that close. Per component, like config and runtime, because the component is what writes it; tracked because the owner reads it on more than one machine. The move of `runtime/` under the same root, as `_runtime/`, was deferred to its own change.
+
+## An agent's name people see can differ from its internal name
+
+`agent.json` may hold `external_name`, the name people see, such as the Slack sender name; the internal name stays the folder name everywhere else. Reason: owner decision, 2026-10-15. The main agent keeps the internal name `master` on every channel it is reached through, and is shown as the persona the owner gave it. Other agents take their persona's name as their name at creation.
