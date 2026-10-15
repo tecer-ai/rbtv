@@ -25,4 +25,4 @@ Subfolders under `workbench/` are independent git repositories. The installation
 
 A workspace may use both: `projects/{name}/` for notes and tasks, and `workbench/{repo-name}/` for the repository. Cross-link them in the project index.
 
-`resources/tools/` holds installed tooling that is also often a nested repository. Workbench entries are your active project repositories. Tooling that serves the workspace belongs under `resources/tools/`.
+Installed tooling that serves the workspace, often a nested repository, belongs under `resources/{name}/`. Workbench entries are your active project repositories.
