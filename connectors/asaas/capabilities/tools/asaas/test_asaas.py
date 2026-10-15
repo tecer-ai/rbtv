@@ -132,6 +132,14 @@ def ledger(home, rid):
         db.close()
 
 
+def js(text):
+    """stdout as JSON, or None: a check of a command's JSON fails by name instead of stopping the run."""
+    try:
+        return json.loads(text)
+    except ValueError:
+        return None
+
+
 def paying(seen):
     return [(x["method"], x["path"]) for x in seen if (x["method"], x["path"]) in PAYING]
 
@@ -456,14 +464,14 @@ def service_new_methods(server, home, work, R, line):
 
     R[("POST", "/v3/transfers")] = (400, {"errors": [{"code": "invalid_value", "description": "Saldo insuficiente"}]})
     code, out, err = run(work, server, "--json", "pay", "execute", "P-0002", stdin=json.dumps(pix))
-    check("pay execute says nothing was created when Asaas refuses the transfer", code == 1 and json.loads(out) == {
+    check("pay execute says nothing was created when Asaas refuses the transfer", code == 1 and js(out) == {
         "created": False, "reason": "Asaas answered HTTP 400 on POST /transfers: invalid_value: Saldo insuficiente"}, out + err)
     R[("POST", "/v3/transfers")] = (502, {"errors": [{"code": "bad_gateway", "description": "upstream"}]})
     code, out, err = run(work, server, "--json", "pay", "execute", "P-0002", stdin=json.dumps(pix))
     check("pay execute claims nothing when Asaas's answer leaves the outcome unknown", code == 1 and out == ""
           and "HTTP 502" in err, out + err)
     code, out, err = run(work, server, "--json", "pay", "execute", "P-0002", stdin=json.dumps({**pix, "state": "pending"}))
-    check("pay execute says nothing was created for a request it will not send", code == 1 and json.loads(out) == {
+    check("pay execute says nothing was created for a request it will not send", code == 1 and js(out) == {
         "created": False, "reason": "P-0002 is pending: only an approved request is sent"}, out + err)
 
     R[("GET", "/v3/pix/transactions/pq_1")] = (200, {"id": "pq_1", "status": "DONE", "transactionReceiptUrl": "https://r.example/q"})
