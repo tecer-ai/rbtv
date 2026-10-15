@@ -399,6 +399,12 @@ def installed_agents(ctx) -> None:
         check("A-configure — numeric effort changes only agent.json when harness stays",
               configured["launch"]["effort"] == "high" and files_before == files_after,
               str(configured))
+        avatared = configure_agent(ws, "scout", None, None, None, None, catalog, False, avatar=":owl:")
+        record = json.loads((home / "agent.json").read_text(encoding="utf-8"))
+        check("A-configure — --avatar is stored in agent.json and leaves the launch values",
+              record.get("avatar") == ":owl:" and avatared["launch"]["avatar"] == ":owl:"
+              and avatared["launch"]["effort"] == "high" and avatared["before"]["avatar"] is None,
+              str(avatared))
         switched = configure_agent(ws, "scout", "codex", "c1", "3", None, catalog, False)
     state = read_state(home)
     check("A-configure — a harness flip keeps every harness's files",

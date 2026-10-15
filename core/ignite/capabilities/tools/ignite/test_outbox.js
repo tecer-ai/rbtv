@@ -52,7 +52,7 @@ test('every post and upload is sent as the agent named in agent.json', async (st
   } });
   assert.equal(result.delivered, true);
   assert.equal(calls.length, 2);
-  for (const call of calls) assert.deepEqual(call.as, { name: 'sara', avatar: ':owl:' });
+  for (const call of calls) assert.deepEqual(call.as, { name: 'Sara', avatar: ':owl:' });
 });
 
 test('a conversation lost after loading the row is recovered before delivery', async (store) => {

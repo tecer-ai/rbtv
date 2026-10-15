@@ -391,23 +391,23 @@ def _agent_files(home: Path, state: dict, dry: bool) -> list[str]:
 
 def _launch(state: dict) -> dict:
     return {key: state[key] for key in ("harness", "model", "effort")} | {
-        "voice": state.get("voice")}
+        "voice": state.get("voice"), "avatar": state.get("avatar")}
 
 
 def configure_agent(root: Path, raw: str, harness: str | None,
                     model: str | None, effort: str | None, voice: str | None,
-                    catalog: dict, dry: bool) -> dict:
+                    catalog: dict, dry: bool, avatar: str | None = None) -> dict:
     """Change an agent's authored launch settings. The folder holds every
     harness's files, so a harness flip reapplies them only to bring a folder
     written for one harness up to all of them."""
-    if all(value is None for value in (harness, model, effort, voice)):
-        raise _refuse("usage", "at least one of --harness, --model, --effort, --voice is required",
+    if all(value is None for value in (harness, model, effort, voice, avatar)):
+        raise _refuse("usage", "at least one of --harness, --model, --effort, --voice, --avatar is required",
                       "rbtv agent configure -h")
     home = resolve_agent(root, raw)
     before = agent_state(home)
     after = dict(before)
     for key, value in (("harness", harness), ("model", model),
-                       ("effort", effort), ("voice", voice)):
+                       ("effort", effort), ("voice", voice), ("avatar", avatar)):
         if value is not None:
             after[key] = value
     launch = launch_values(after["harness"], after["model"],
@@ -431,6 +431,8 @@ def configure_agent(root: Path, raw: str, harness: str | None,
         saved = read_state(home) if changed_harness else after
         for key in ("harness", "model", "effort", "voice"):
             saved[key] = after.get(key)
+        if after.get("avatar") is not None:
+            saved["avatar"] = after["avatar"]
         write_state(home, saved)
     return {"ok": True, "agent": after["name"], "home": str(home),
             "launch": _launch(after), "before": _launch(before),

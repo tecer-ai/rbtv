@@ -842,11 +842,11 @@ rbtv — agent configure help
 
 usage: rbtv agent configure [-h] [--harness {claude,codex,opencode}]
                             [--model MODEL] [--effort EFFORT]
-                            [--voice VOICE] [--json] [--dry-run]
-                            [--details]
+                            [--voice VOICE] [--avatar AVATAR] [--json]
+                            [--dry-run] [--details]
                             AGENT
 
-Change harness, model, effort or voice. At least one option is required.
+Change harness, model, effort, voice or avatar. At least one option is required.
 Each supplied option replaces that value; an omitted value stays as it
 is. The result shows before and after.
 
@@ -854,13 +854,15 @@ is. The result shows before and after.
 selected (cast models add HARNESS MODEL selects one). --effort is a word
 that model accepts, or a number 1-5 stored as that model's word. Both are
 checked with cast models list, so cast must be on PATH. --voice is the
-voice the agent speaks with; cast does not check it.
+voice the agent speaks with; cast does not check it. --avatar is the
+picture Ignite shows beside the agent's Slack posts: a Slack emoji such as
+:owl:, or a public https image URL; anything else is stored and not shown.
 
 The agent's folder holds the files of every harness, so changing --harness
 changes the harness that launches the agent and keeps the files. A
 harness-native sub-agent that has no model and effort for the new harness
 is named in the result with the command that adds them.
-Changing model, effort or voice updates agent.json only.
+Changing model, effort, voice or avatar updates agent.json only.
 This verb takes no --target. It never changes files or packs.
 
 Harness values:
@@ -877,6 +879,7 @@ options:
   --model MODEL         a model name from cast models list
   --effort EFFORT       an effort word that model accepts, or 1-5
   --voice VOICE         voice the agent speaks with; any text
+  --avatar AVATAR       Slack picture: :emoji: or a public https image URL
   --json                one JSON value on standard output, success or
                         failure
   --dry-run             preview changes without writing or removing files
