@@ -165,7 +165,7 @@ The setting applies from the next turn in every conversation of that agent.
 
 ## Known behaviour
 
-Queued turns. One primary turn per agent. Agents do not wait on each other. A message saved while that agent is busy stays in its queue and is claimed when the turn ends. Owner input is claimed before an automatic continuation. Saving a message is not the same as starting the turn: the eyes reaction is added when the turn starts.
+Queued turns. One primary turn per agent. Agents do not wait on each other. A message saved while that agent is busy stays in its queue and is claimed when the turn ends. Owner input is claimed before an automatic continuation. Saving a message is not the same as starting the turn. Ignite marks each owner message with one reaction showing its state, each mark replacing the previous: `hourglass_flowing_sand` when queued, `eyes` when its turn launches, `heavy_check_mark` when its replies are delivered (or the turn had none), `heavy_multiplication_x` when the work goes on hold, the voice note cannot be transcribed or a reply gives up. A retryable failure returns the message to `hourglass_flowing_sand`. Scheduled and worker wakes get no mark, and a reaction error never stops a turn or a delivery.
 
 Steering between turns. There is no mid-turn interruption. An owner message that arrives during a turn is saved and processed on a later turn.
 

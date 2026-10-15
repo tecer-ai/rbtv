@@ -22,6 +22,7 @@ const { composeTurn, readTurnMemory } = require('./prompt.js');
 const { DEFAULT_HISTORY_WINDOW, historyPath, listAll, writeHistory } = require('./history.js');
 const { ignitePaths, resolveIgniteRuntime } = require('./config.js');
 const fallback = require('./fallback.js');
+const { setMark } = require('./marks.js');
 
 const AUDIO_EXT = new Set(['mp3', 'm4a', 'wav', 'ogg', 'webm', 'flac', 'aac', 'mpeg', 'mp4', 'mpga']);
 const DISPOSITIONS = new Set(['completed', 'continue', 'waiting_owner', 'waiting_workers', 'stopped']);
@@ -128,15 +129,6 @@ function validateAgent(raw, nonce) {
   return raw;
 }
 
-async function eyes(slack, channel, ts) {
-  if (!slack || !channel || !ts || typeof slack.addReaction !== 'function') return;
-  try {
-    await slack.addReaction(channel, ts);
-  } catch {
-    return undefined;
-  }
-}
-
 async function preprocess(claim, deps, dir) {
   const payload = claim.payload || {};
   if (claim.kind !== 'owner') return { text: inputText(claim), files: [], transcriptError: null, audioAttempted: false };
@@ -194,14 +186,20 @@ function waitClose(child) {
   });
 }
 
-function recover(store, deps) {
+// A failed run goes back to received while it will retry, and to failed once it is held.
+async function markAfterFail(deps, run, failure) {
+  if (run.kind !== 'owner') return;
+  const conv = deps.store.getConversation(run.conversation_key);
+  await setMark(deps.slack, conv?.channel, run.payload?.ts, failure.held ? 'failed' : 'received', { log: deps.log });
+}
+
+async function recover(store, deps) {
   if (store.liveRun()) return null;
   const active = store.getActiveRun();
   if (!active) return null;
-  return {
-    runId: active.id,
-    failure: store.failRun(active.id, 'previous invocation is no longer running', { scope: 'work', now: clock(deps) }),
-  };
+  const failure = store.failRun(active.id, 'previous invocation is no longer running', { scope: 'work', now: clock(deps) });
+  await markAfterFail(deps, active, failure);
+  return { runId: active.id, failure };
 }
 
 function commit(store, claim, fields) {
@@ -221,7 +219,7 @@ async function runOnce(slug, deps) {
   const store = deps.store;
   if (store.liveRun()) return { slug, refused: 'live', claimed: false };
 
-  const recovered = recover(store, deps);
+  const recovered = await recover(store, deps);
   const now = clock(deps);
   const claim = store.claimNext(now);
   if (!claim) return { slug, refused: false, claimed: false, recovered };
@@ -232,6 +230,7 @@ async function runOnce(slug, deps) {
     if (store.getActiveRun()?.id !== claim.runId) throw error;
     const scope = error.scope === 'agent' ? 'agent' : 'work';
     const failure = store.failRun(claim.runId, error.message, { scope, now: clock(deps) });
+    await markAfterFail(deps, claim, failure);
     return { slug, claimed: true, failed: true, runId: claim.runId, failure: { ...failure, scope }, recovered };
   }
 }
@@ -255,7 +254,6 @@ async function execute(slug, claim, deps) {
   const noLaunch = prepared.audioAttempted && !prepared.transcripts?.length && !claim.payload?.text && prepared.transcriptError;
   if (noLaunch) {
     logTranscriptionFailure(deps, prepared.transcriptError);
-    await eyes(deps.slack, conv.channel, claim.payload?.ts);
     const work = commit(store, claim, {
       output: TRANSCRIPTION_FAILURE_REPLY,
       disposition: 'completed',
@@ -263,6 +261,7 @@ async function execute(slug, claim, deps) {
       outbox: [{ id: `transcript:${claim.id}`, text: TRANSCRIPTION_FAILURE_REPLY, audio: false, files: [] }],
     });
     writeHistory(home, store, claim.conversation_key);
+    await setMark(deps.slack, conv.channel, claim.payload?.ts, 'failed', { log: deps.log });
     return { slug, claimed: true, launched: false, disposition: 'completed', work, runId: claim.runId };
   }
   if (prepared.transcriptError) {
@@ -357,7 +356,7 @@ async function execute(slug, claim, deps) {
   const exited = waitClose(child);
   const pidStart = child.pid ? procStart(child.pid) : null;
   if (child.pid && pidStart) store.attachProcess(claim.runId, { pid: child.pid, pidStart, setting });
-  if (claim.kind === 'owner') await eyes(deps.slack, conv.channel, claim.payload?.ts);
+  if (claim.kind === 'owner') await setMark(deps.slack, conv.channel, claim.payload?.ts, 'working', { log: deps.log });
 
   let exitCode;
   try {
@@ -378,6 +377,8 @@ async function execute(slug, claim, deps) {
     throw fail(error.message, 'work');
   }
   const output = fs.readFileSync(resultPath, 'utf8');
+  // The owner message the replies answer: outbox marks it replied once every reply is delivered.
+  const mark = claim.kind === 'owner' && claim.payload?.ts ? { channel: conv.channel, ts: claim.payload.ts } : null;
   const work = commit(store, claim, {
     output,
     disposition: agent.disposition,
@@ -388,12 +389,11 @@ async function execute(slug, claim, deps) {
     harness: launcher.sessionId ? launcher.harness : null,
     sessionId: launcher.sessionId || null,
     outbox: agent.replies.map((reply) => ({
-      text: reply.text,
-      audio: reply.audio === true,
-      files: reply.files || [],
+      payload: { text: reply.text, audio: reply.audio === true, files: reply.files || [], ...(mark && { mark }) },
     })),
   });
   writeHistory(home, store, claim.conversation_key);
+  if (mark && !agent.replies.length) await setMark(deps.slack, mark.channel, mark.ts, 'replied', { log: deps.log });
   const snapshot = store.db.prepare('SELECT launch_snapshot FROM runs WHERE id=?').get(claim.runId);
   return {
     slug,

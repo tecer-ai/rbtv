@@ -15,7 +15,8 @@
 // postMessage({ channel, threadTs?, text, clientMsgId?, as? }) → { channel, ts }  (standard Markdown)
 //   as = { name?, avatar? }: the agent shown as sender (chat:write.customize). avatar `:emoji:` is
 //   sent as icon_emoji, an http(s) URL as icon_url, anything else is not sent.
-// addReaction(channel, ts) → reactions.add name=eyes
+// addReaction(channel, ts, name) → reactions.add; removeReaction(channel, ts, name) → reactions.remove
+//   (both need reactions:write; the names in use are in marks.js)
 // threadHistory(channel, threadTs) → normalized messages, oldest first (conversations.replies)
 // createChannel(name) → { id, name }
 // joinChannel(id) → { id }   (already_in_channel is success)
@@ -193,9 +194,14 @@ class Slack {
     return { channel: data.channel || channel, ts: data.ts };
   }
 
-  async addReaction(channel, ts) {
-    if (!channel || !ts) throw new Error('addReaction requires channel and ts');
-    return this.api('reactions.add', { channel, timestamp: ts, name: 'eyes' });
+  async addReaction(channel, ts, name) {
+    if (!channel || !ts || !name) throw new Error('addReaction requires channel, ts and name');
+    return this.api('reactions.add', { channel, timestamp: ts, name });
+  }
+
+  async removeReaction(channel, ts, name) {
+    if (!channel || !ts || !name) throw new Error('removeReaction requires channel, ts and name');
+    return this.api('reactions.remove', { channel, timestamp: ts, name });
   }
 
   async threadHistory(channel, threadTs) {

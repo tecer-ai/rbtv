@@ -117,6 +117,83 @@ test('a conversation still missing after reload stops delivery', async (store) =
   assert.equal(store.db.prepare('SELECT state FROM outbox WHERE id=?').get('reply').state, 'failed');
 });
 
+function markSlack() {
+  const slack = {
+    reactions: [], error: null,
+    async postMessage(args) { return { channel: args.channel, ts: '9.1' }; },
+    async addReaction(channel, ts, name) {
+      if (slack.error) throw new Error(slack.error);
+      slack.reactions.push(`add ${name}`);
+    },
+    async removeReaction(channel, ts, name) {
+      if (slack.error) throw new Error(slack.error);
+      slack.reactions.push(`remove ${name}`);
+    },
+  };
+  return slack;
+}
+
+function markedRows(store, ids) {
+  const key = 'T1:C1:1.1';
+  store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
+  for (const id of ids) {
+    store.enqueueOutbox({ id, conversationKey: key, payload: { text: id, mark: { channel: 'C1', ts: '1.1' } } });
+  }
+}
+
+test('delivering every marked reply marks the owner message heavy_check_mark once', async (store) => {
+  markedRows(store, ['r1', 'r2']);
+  const slack = markSlack();
+  await deliverPending(store, { slack });
+  assert.deepEqual(slack.reactions, [
+    'add heavy_check_mark', 'remove hourglass_flowing_sand', 'remove eyes',
+  ]);
+});
+
+test('a marked reply that gives up marks heavy_multiplication_x and the other reply never marks replied', async (store) => {
+  markedRows(store, ['r1', 'r2']);
+  const slack = markSlack();
+  const post = slack.postMessage;
+  slack.postMessage = async (args) => {
+    if (args.text === 'r1') throw new Error('Slack chat.postMessage: channel_not_found');
+    return post(args);
+  };
+  await deliverPending(store, { slack });
+  assert.deepEqual(slack.reactions, [
+    'add heavy_multiplication_x', 'remove hourglass_flowing_sand', 'remove eyes',
+  ]);
+});
+
+test('a retryable delivery failure marks nothing', async (store) => {
+  markedRows(store, ['r1']);
+  const slack = markSlack();
+  slack.postMessage = async () => { throw new Error('slack down'); };
+  await deliverPending(store, { slack });
+  assert.deepEqual(slack.reactions, []);
+});
+
+test('rows without a mark, and hold notices, never react', async (store) => {
+  const key = 'T1:C1:1.1';
+  store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
+  store.enqueueOutbox({ id: 'plain', conversationKey: key, payload: { text: 'plain' } });
+  store.enqueueOutbox({ id: 'hold:x', conversationKey: key, payload: { text: 'hold' } });
+  const slack = markSlack();
+  const results = await deliverPending(store, { slack });
+  assert.deepEqual(results.map((r) => r.delivered), [true, true]);
+  assert.deepEqual(slack.reactions, []);
+});
+
+test('a reaction API error never fails a delivery', async (store) => {
+  markedRows(store, ['r1']);
+  const slack = markSlack();
+  slack.error = 'Slack reactions.add: ratelimited';
+  const logs = [];
+  const [result] = await deliverPending(store, { slack, log: (f) => logs.push(f) });
+  assert.equal(result.delivered, true);
+  assert.equal(store.db.prepare('SELECT state FROM outbox WHERE id=?').get('r1').state, 'delivered');
+  assert.equal(logs[0].event, 'mark-failed');
+});
+
 async function runAll() {
   for (const [name, fn] of pending) {
     const store = new Store(':memory:');

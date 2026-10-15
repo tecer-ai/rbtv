@@ -169,10 +169,14 @@ test('markdown-limit-before-any-network', async () => {
   assert.equal(calls.length, 1);
 });
 
-test('addReaction-eyes', async () => {
-  const { slack, calls } = harness({ 'reactions.add': { ok: true } });
-  await slack.addReaction('C1', '3.3');
-  assert.deepEqual(calls[0].body, { channel: 'C1', timestamp: '3.3', name: 'eyes' });
+test('addReaction-removeReaction-take-a-name', async () => {
+  const { slack, calls } = harness({ 'reactions.add': { ok: true }, 'reactions.remove': { ok: true } });
+  await slack.addReaction('C1', '3.3', 'heavy_check_mark');
+  await slack.removeReaction('C1', '3.3', 'eyes');
+  assert.deepEqual(calls[0].body, { channel: 'C1', timestamp: '3.3', name: 'heavy_check_mark' });
+  assert.deepEqual(calls[1].body, { channel: 'C1', timestamp: '3.3', name: 'eyes' });
+  assert.equal(calls[1].method, 'reactions.remove');
+  await assert.rejects(() => slack.addReaction('C1', '3.3'), /requires channel, ts and name/);
 });
 
 test('threadHistory', async () => {

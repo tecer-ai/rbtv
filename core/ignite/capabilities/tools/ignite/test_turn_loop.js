@@ -139,9 +139,21 @@ function fakeSlack() {
       slack.uploads.push(args);
       return { ts: '8.1', files: [args.file] };
     },
-    async addReaction(channel, ts) {
+    // A faithful Slack: adding a reaction twice and removing an absent one are errors.
+    marks: new Map(),
+    marksOf(channel, ts) { return [...(slack.marks.get(`${channel}:${ts}`) || [])]; },
+    async addReaction(channel, ts, name) {
       if (slack.reactionError) throw new Error(slack.reactionError);
-      slack.reactions.push({ channel, ts });
+      const set = slack.marks.get(`${channel}:${ts}`) || new Set();
+      slack.marks.set(`${channel}:${ts}`, set);
+      slack.reactions.push({ op: 'add', channel, ts, name });
+      if (set.has(name)) throw new Error('Slack reactions.add: already_reacted');
+      set.add(name);
+    },
+    async removeReaction(channel, ts, name) {
+      if (slack.reactionError) throw new Error(slack.reactionError);
+      slack.reactions.push({ op: 'remove', channel, ts, name });
+      if (!slack.marks.get(`${channel}:${ts}`)?.delete(name)) throw new Error('Slack reactions.remove: no_reaction');
     },
     async downloadFile() {
       return slack.downloads;
@@ -280,8 +292,8 @@ for (const disposition of ['completed', 'continue', 'waiting_owner', 'waiting_wo
     const kinds = pendingKinds(box.store);
     if (disposition === 'continue') assert.deepEqual(kinds, ['continue']);
     else assert.deepEqual(kinds, []);
-    if (disposition === 'completed') assert.equal(box.slack.reactions.length, 0);
-    else assert.equal(box.slack.reactions.length, 1);
+    if (disposition === 'completed') assert.deepEqual(box.slack.marksOf('C1', '1.1'), []);
+    else assert.deepEqual(box.slack.marksOf('C1', '1.1'), ['eyes']);
   });
 }
 
@@ -514,7 +526,7 @@ test('a turn that ran on a fallback tells the owner before the agent reply', asy
   assert.deepEqual(rows.map((row) => [row.id, row.conversation_key, row.payload]), [
     [`fallback:${result.runId}`, 'T1:C1:1.1', { text: `System message: the model ${nameOf(agentModel)} has failed (exit 1 after 4s), `
       + `the model ${nameOf(cheapFallback)} has failed (exit 1 after 4s), routing to ${nameOf(dearFallback)}`, audio: false, files: [] }],
-    [`reply:${result.runId}:0`, 'T1:C1:1.1', { text: 'reply-completed', audio: false, files: [] }],
+    [`reply:${result.runId}:0`, 'T1:C1:1.1', { text: 'reply-completed', audio: false, files: [], mark: { channel: 'C1', ts: '1.1' } }],
   ]);
   const delivered = await deliverPending(box.store, { slack: box.slack });
   assert.deepEqual(delivered.map((row) => row.delivered), [true, true]);
@@ -1225,6 +1237,118 @@ test('an owner-alert queue failure leaves a visible instruction and never blocks
   assert.equal(result.disposition, 'completed');
   assert.match(result.prompt, /Owner alert could not be queued; tell the owner/);
   assert.equal(box.logs[0].event, 'memory-alert-failed');
+});
+
+test('status marks: launch marks eyes, delivered replies mark heavy_check_mark', async (ctx) => {
+  const box = harness(ctx);
+  seed(box.store);
+  box.sync();
+  await runOnce('master', box.deps);
+  assert.deepEqual(box.slack.marksOf('C1', '1.1'), ['eyes']);
+  const [delivered] = await deliverPending(box.store, { slack: box.slack, audio: box.audio, home: box.home });
+  assert.equal(delivered.delivered, true);
+  assert.deepEqual(box.slack.marksOf('C1', '1.1'), ['heavy_check_mark']);
+});
+
+test('status marks: a turn with no replies marks heavy_check_mark at once', async (ctx) => {
+  const box = harness(ctx);
+  seed(box.store);
+  box.writeControl({ agent: agentOf('completed', { replies: [] }), sessionId: 'ses-keep' });
+  box.sync();
+  await runOnce('master', box.deps);
+  assert.deepEqual(box.slack.marksOf('C1', '1.1'), ['heavy_check_mark']);
+});
+
+test('status marks: replied waits for every reply; a reply that gives up marks heavy_multiplication_x', async (ctx) => {
+  const box = harness(ctx);
+  seed(box.store);
+  box.writeControl({
+    agent: agentOf('completed', { replies: [{ text: 'one' }, { text: 'two' }] }), sessionId: 'ses-keep',
+  });
+  box.sync();
+  await runOnce('master', box.deps);
+  const rows = box.store.pendingOutbox();
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows[0].payload.mark, { channel: 'C1', ts: '1.1' });
+  const post = box.slack.postMessage;
+  box.slack.postMessage = async (args) => {
+    if (args.text === 'two') throw new Error('slack down');
+    return post(args);
+  };
+  const deps = { slack: box.slack, audio: box.audio, home: box.home, now: () => 1e13 };
+  await deliverPending(box.store, deps);
+  assert.deepEqual(box.slack.marksOf('C1', '1.1'), ['eyes']);
+  box.slack.postMessage = async () => { throw new Error('Slack chat.postMessage: channel_not_found'); };
+  await deliverPending(box.store, { ...deps, now: () => 2e13 });
+  assert.deepEqual(box.slack.marksOf('C1', '1.1'), ['heavy_multiplication_x']);
+});
+
+test('status marks: a retryable failure goes back to hourglass_flowing_sand, a hold marks heavy_multiplication_x', async (ctx) => {
+  const box = harness(ctx);
+  seed(box.store);
+  box.writeControl({ ok: false, exitCode: 1, childExit: 1, error: 'session_identity_missing', stderr: 'boom' });
+  box.sync();
+  const first = await runOnce('master', box.deps);
+  assert.equal(first.failure.held, false);
+  assert.deepEqual(box.slack.marksOf('C1', '1.1'), ['hourglass_flowing_sand']);
+  box.setNow(box.now() + 5000);
+  await runOnce('master', box.deps);
+  assert.deepEqual(box.slack.marksOf('C1', '1.1'), ['hourglass_flowing_sand']);
+  box.setNow(box.now() + 30000);
+  const third = await runOnce('master', box.deps);
+  assert.equal(third.failure.held, true);
+  assert.deepEqual(box.slack.marksOf('C1', '1.1'), ['heavy_multiplication_x']);
+});
+
+test('status marks: recovery of a dead run goes back to hourglass_flowing_sand', async (ctx) => {
+  const box = harness(ctx);
+  seed(box.store);
+  box.sync();
+  assert.equal(box.store.claimNext(box.now()).kind, 'owner');
+  const result = await runOnce('master', box.deps);
+  assert.equal(result.recovered.failure.held, false);
+  assert.deepEqual(box.slack.reactions.slice(0, 2), [
+    { op: 'add', channel: 'C1', ts: '1.1', name: 'hourglass_flowing_sand' },
+    { op: 'remove', channel: 'C1', ts: '1.1', name: 'eyes' },
+  ]);
+});
+
+test('status marks: an untranscribable voice note marks heavy_multiplication_x', async (ctx) => {
+  const box = harness(ctx);
+  seed(box.store, { text: '', files: [{ name: 'note.m4a', mimetype: 'audio/mp4', filetype: 'm4a' }] });
+  box.slack.downloads = [{ name: 'note.m4a', path: '/tmp/note.m4a' }];
+  box.audio.fail = true;
+  box.sync();
+  const result = await runOnce('master', box.deps);
+  assert.equal(result.launched, false);
+  assert.deepEqual(box.slack.marksOf('C1', '1.1'), ['heavy_multiplication_x']);
+  await deliverPending(box.store, { slack: box.slack, audio: box.audio, home: box.home });
+  assert.deepEqual(box.slack.marksOf('C1', '1.1'), ['heavy_multiplication_x']);
+});
+
+test('status marks: scheduled wakes and unmarked rows get no marks', async (ctx) => {
+  const box = harness(ctx);
+  const key = 'T1:C1:1.1';
+  box.store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
+  box.store.enqueueScheduleWake({ id: 'wake-1', conversationKey: key, scheduleId: 'check-inbox' });
+  box.sync();
+  const result = await runOnce('master', box.deps);
+  assert.equal(result.kind, 'schedule');
+  await deliverPending(box.store, { slack: box.slack, audio: box.audio, home: box.home });
+  assert.deepEqual(box.slack.reactions, []);
+});
+
+test('status marks: a reaction API error never fails the turn or the delivery', async (ctx) => {
+  const box = harness(ctx);
+  seed(box.store);
+  box.slack.reactionError = 'reaction down';
+  box.sync();
+  const result = await runOnce('master', box.deps);
+  assert.equal(result.failed, undefined);
+  assert.equal(result.disposition, 'completed');
+  const [delivered] = await deliverPending(box.store, { slack: box.slack, audio: box.audio, home: box.home, log: (f) => box.logs.push(f) });
+  assert.equal(delivered.delivered, true);
+  assert.equal(box.logs.some((f) => f.event === 'mark-failed'), true);
 });
 
 async function runAll() {

@@ -58,9 +58,18 @@ function harness(history = []) {
     return stores.get(slug);
   }
   const slack = {
+    reactions: [],
+    reactionError: null,
     async threadHistory(channel, threadTs) {
       historyCalls.push({ channel, threadTs });
       return history;
+    },
+    async addReaction(channel, ts, name) {
+      if (slack.reactionError) throw new Error(slack.reactionError);
+      slack.reactions.push({ channel, ts, name });
+    },
+    async removeReaction(channel, ts, name) {
+      slack.reactions.push({ channel, ts, name, removed: true });
     },
   };
   return {
@@ -68,6 +77,7 @@ function harness(history = []) {
     stores,
     opened,
     historyCalls,
+    slack,
     ctx: { config: config(), openStore, slack },
     close() {
       for (const store of stores.values()) store.close();
@@ -425,6 +435,40 @@ test('ack-after-store-write', async () => {
   assert.equal(settled, true);
   assert.equal(result.queued, true);
   assert.equal(result.workId, 'w1');
+});
+
+test('an accepted owner message is marked hourglass_flowing_sand; a duplicate is not marked again', async () => {
+  const h = harness();
+  try {
+    const first = await handleEvent(event({ ts: '5.100000' }), h.ctx);
+    assert.equal(first.queued, true);
+    assert.deepEqual(h.slack.reactions.filter((r) => !r.removed), [
+      { channel: 'D1', ts: '5.100000', name: 'hourglass_flowing_sand' },
+    ]);
+    const before = h.slack.reactions.length;
+    const second = await handleEvent(event({ ts: '5.100000' }), h.ctx);
+    assert.equal(second.ignored, 'duplicate');
+    assert.equal(h.slack.reactions.length, before);
+  } finally { h.close(); }
+});
+
+test('a non-owner or bot message is never marked', async () => {
+  const h = harness();
+  try {
+    await handleEvent(event({ user: 'USOMEONE' }), h.ctx);
+    await handleEvent(event({ isBotOrSelf: true }), h.ctx);
+    assert.deepEqual(h.slack.reactions, []);
+  } finally { h.close(); }
+});
+
+test('a reaction API error does not stop the owner message from being queued', async () => {
+  const h = harness();
+  try {
+    h.slack.reactionError = 'ratelimited';
+    const result = await handleEvent(event({ ts: '6.100000' }), h.ctx);
+    assert.equal(result.queued, true);
+    assert.equal(queueCount(h.stores.get('master')), 1);
+  } finally { h.close(); }
 });
 
 (async () => {

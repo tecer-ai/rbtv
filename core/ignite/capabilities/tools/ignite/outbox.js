@@ -14,8 +14,11 @@
 //   Slack confirms channel and ts. Harness stdout is never read here.
 //   Transient failures retry MAX_ATTEMPTS times (the same few-then-stop bound as a turn), then
 //   stopOutbox plus one hold: notice. A permanent Slack error stops on the first failure.
+//   A row with payload.mark { channel, ts } answers that owner message: the message is marked
+//   replied when every row carrying its mark is delivered, and failed when one gives up (marks.js).
 
 const { MAX_ATTEMPTS } = require('./store.js');
+const { setMark } = require('./marks.js');
 const { readAgent } = require('../../../../cast/capabilities/tools/cast/lib/agent');
 
 const RETRY_MS = 5_000;
@@ -61,6 +64,25 @@ function targetOf(row, conv) {
   const asRoot = Boolean(row.as_root) || isBoard(conv);
   const threadTs = asRoot ? undefined : (conv.root_ts || undefined);
   return { channel, threadTs, asRoot };
+}
+
+function markOf(row) {
+  const mark = row.payload?.mark;
+  return mark?.channel && mark?.ts ? mark : null;
+}
+
+async function markDelivered(store, row, deps) {
+  const mark = markOf(row);
+  if (!mark) return;
+  let open = 1;
+  try {
+    open = store.db.prepare(`SELECT COUNT(*) AS n FROM outbox WHERE state!='delivered'
+      AND json_extract(payload, '$.mark.channel')=? AND json_extract(payload, '$.mark.ts')=?`)
+      .get(mark.channel, mark.ts).n;
+  } catch {
+    return; // A mark never breaks a delivery that Slack already confirmed.
+  }
+  if (!open) await setMark(deps.slack, mark.channel, mark.ts, 'replied', { log: deps.log });
 }
 
 function giveUp(store, row, message) {
@@ -123,6 +145,7 @@ async function deliverOne(store, row, deps, now) {
       ts: confirmed.ts,
       asRoot: target.asRoot,
     });
+    await markDelivered(store, row, deps);
     return { id: row.id, delivered: true, channel: saved.channel, ts: saved.ts, conversationKey: saved.conversationKey };
   } catch (error) {
     const message = error.message || String(error);
@@ -133,6 +156,8 @@ async function deliverOne(store, row, deps, now) {
     const failed = store.markDeliveryFailed(row.id, message, { retryAt: now + RETRY_MS });
     if (permanentError(message) || failed.attempts >= MAX_ATTEMPTS) {
       giveUp(store, row, message);
+      const mark = markOf(row);
+      if (mark) await setMark(deps.slack, mark.channel, mark.ts, 'failed', { log: deps.log });
       return { id: row.id, delivered: false, stopped: true, error: message };
     }
     return { id: row.id, delivered: false, error: message };

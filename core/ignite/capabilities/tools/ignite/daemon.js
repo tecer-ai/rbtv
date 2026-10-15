@@ -224,6 +224,7 @@ async function startLocked(opts, workspace, held) {
   const ctx = {
     config,
     slack,
+    log,
     openStore(slug) {
       const home = agentHome(config, slug);
       if (!fs.existsSync(home)) throw new Error(`agent home missing: ${slug}`);

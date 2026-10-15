@@ -1,6 +1,7 @@
 'use strict';
 
 const { conversationKey } = require('./store.js');
+const { setMark } = require('./marks.js');
 
 function slackMillis(ts) {
   const n = Number(ts);
@@ -111,6 +112,12 @@ async function handleEvent(event, ctx) {
   if (route.ignored) return route;
   if (typeof ctx?.openStore !== 'function') throw new Error('openStore required');
   const store = await ctx.openStore(route.agent);
+  const result = await accept(store, route, ctx);
+  if (result.queued) await setMark(ctx.slack, route.channel, route.ts, 'received', { log: ctx.log });
+  return result;
+}
+
+async function accept(store, route, ctx) {
   if (route.thread && route.routed) {
     const existing = await store.conversationByThread({
       workspace: route.team,
