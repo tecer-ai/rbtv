@@ -23,12 +23,13 @@
 //      Approve and Refuse, or Refuse alone when the resolution failed (payment-panel.js promptBlocks);
 //   3. sends each approved request not yet claimed: claims it (once only), runs `<provider> --json pay execute <id>`
 //      with the request on stdin, and records sent, with the provider's id, status and receipt; failed only when
-//      the tool answers {"created": false} (the bank refused it, or it was never called); otherwise (a timeout,
+//      the tool answers {"created": false} (the bank refused it, or it was never called) or the program could not be
+//      started; otherwise (a timeout,
 //      a crash, no operation id) uncertain, which keeps counting toward the limits. A request the owner approved
 //      while its recipient was unchecked (payments.js unchecked; a ledger of an earlier release can hold one) is
 //      never run: it fails;
-//   4. reads each sent operation with `<provider> --json pay status <id>` every 5 s, from 5 s after it was sent for
-//      10 minutes, until the tool calls it final; final and not ok fails the request;
+//   4. reads each sent operation with `<provider> --json pay status <id>` every 5 s for its first 10 minutes, then
+//      every 60 s, until the tool calls it final; final and not ok fails the request;
 //   5. reconciles each uncertain request with an operation id (its own, or the one the withdrawal validation
 //      approved) with `pay status` every 60 s: found, it becomes sent, or failed when final and not ok;
 //   6. updates each request message whose state changed: the buttons go once it is not pending;
@@ -54,7 +55,9 @@ function defaultRun({ env, cwd }) {
     const child = execFile(command, args, { env: env(), cwd, timeout: RUN_MS, maxBuffer: 1024 * 1024, windowsHide: true },
       (error, stdout, stderr) => {
         const code = error ? (typeof error.code === 'number' ? error.code : 1) : 0;
-        resolve({ code, stdout: String(stdout || ''), stderr: String(stderr || error?.message || '') });
+        // A spawn error means the program never ran, so it cannot have made an operation.
+        const notStarted = Boolean(error && typeof error.syscall === 'string' && error.syscall.startsWith('spawn'));
+        resolve({ code, stdout: String(stdout || ''), stderr: String(stderr || error?.message || ''), notStarted });
       });
     child.stdin.on('error', () => {});
     child.stdin.end(input);
@@ -196,6 +199,10 @@ function createPaymentRunner({ gate, slack, store, providers, run = null, env = 
     if (result.code === 0 && body?.provider_id) {
       gate.sent(row.id, { providerId: body.provider_id, providerStatus: body.status || null, receiptUrl: body.receipt_url || null });
       note({ action: 'sent', id: row.id, providerId: String(body.provider_id) });
+    } else if (result.notStarted) {
+      const reason = `Not sent: Ignite could not start ${row.provider}: ${reasonOf(result)}`.slice(0, 300);
+      const { row: after } = gate.failed(row.id, reason);
+      note({ action: 'send-not-started', id: row.id, state: after?.state || null, reason });
     } else if (body?.created === false) {
       const reason = body.reason ? String(body.reason).slice(0, 300) : reasonOf(result);
       const { row: after } = gate.failed(row.id, reason);
@@ -262,6 +269,11 @@ function createPaymentRunner({ gate, slack, store, providers, run = null, env = 
       return;
     }
     try {
+      if (!agentStore.getConversation(row.conversation_key)) {
+        gate.notified(row.id, row.state);
+        note({ action: 'notify-lost', id: row.id, state: row.state, reason: `conversation ${row.conversation_key} not found` });
+        return;
+      }
       const woke = agentStore.wake({ conversationKey: row.conversation_key, note: text });
       if (!woke.inserted) {
         agentStore.enqueueOutbox({
@@ -273,8 +285,9 @@ function createPaymentRunner({ gate, slack, store, providers, run = null, env = 
       gate.notified(row.id, row.state);
       note({ action: 'notify', id: row.id, state: row.state, woke: Boolean(woke.inserted) });
     } catch (error) {
-      gate.notified(row.id, row.state);
-      note({ action: 'notify-lost', id: row.id, state: row.state, reason: error.message });
+      // Not marked notified: the next pass tries again; a pending wake and a queued post are not duplicated.
+      note({ action: 'notify-retry', id: row.id, state: row.state, reason: error.message });
+      return;
     }
     kick(row.agent);
   }

@@ -1045,6 +1045,45 @@ test('a sent payment is still read after ten minutes, so a late failure frees it
   assert.deepEqual(gate.usage(), { day: 0, week: 0, month: 0 });
 });
 
+test('a provider program that cannot be started fails the payment and frees its amount', async () => {
+  const { gate, clock } = gateAt('2026-10-15T15:00:00Z');
+  gate.saveSettings({ mode: 'automatic', limits: { day: 100000 } });
+  const row = ask(gate);
+  gate.resolved(row.id, KENU);
+  // The real launcher, with a PATH that holds no asaas program: spawn fails, nothing can have been paid.
+  const runner = createPaymentRunner({ gate, slack: () => null, store: () => null, providers: ['asaas'], cwd: gate.workspace,
+    env: () => ({ PATH: scratch() }), now: () => clock.now });
+  await runner.step();
+  const after = gate.get(row.id);
+  assert.equal(after.state, 'failed');
+  assert.match(after.reason, /^Not sent: Ignite could not start asaas: .*ENOENT/);
+  assert.deepEqual(gate.usage(), { day: 0, week: 0, month: 0 });
+});
+
+test('an outcome the agent store could not take is told on a later pass, once', async () => {
+  const { gate, clock } = gateAt('2026-10-15T15:00:00Z');
+  gate.saveSettings({ mode: 'automatic', limits: { day: 100000 } });
+  const row = ask(gate);
+  const store = agentStore();
+  const wake = store.wake.bind(store);
+  let locked = true;
+  store.wake = (args) => { if (locked) throw new Error('database is locked'); return wake(args); };
+  const limited = { code: 1, stdout: '', stderr: 'asaas: Asaas rate limit (429)\n' };
+  const stand = tool({ resolve: Array(4).fill(limited) });
+  const runner = createPaymentRunner({ gate, slack: () => null, store: () => store, providers: ['asaas'], cwd: gate.workspace, now: () => clock.now, run: stand.run });
+  for (let i = 0; i < 3; i++) {
+    await runner.step();
+    clock.now += 30_000;
+  }
+  assert.deepEqual([gate.get(row.id).state, gate.get(row.id).notified], ['refused', null]);
+  assert.deepEqual(wakes(store), []);
+  locked = false;
+  await runner.step();
+  await runner.step();
+  assert.equal(gate.get(row.id).notified, 'refused');
+  assert.equal(wakes(store).length, 1);
+});
+
 test('a prompt posted before the check is redrawn once Ignite has checked the recipient or could not', () => {
   const { gate } = gateAt('2026-10-15T15:00:00Z');
   gate.saveSettings({ mode: 'case_by_case', limits: {} });
