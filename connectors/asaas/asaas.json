@@ -1,0 +1,4 @@
+{
+  "description": "Asaas bank account: its API documentation server for agents; the account's money operations are planned as a command-line tool.",
+  "dependencies": []
+}
