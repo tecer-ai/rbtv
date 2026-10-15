@@ -181,9 +181,9 @@ function createPaymentRunner({ gate, slack, store, providers, run = null, env = 
       gate.failed(row.id, `Ignite does not send through ${row.provider}: it has no withdrawal validation for it`);
       return;
     }
-    const why = row.decided_by === 'owner' ? unchecked(row) : null;
+    const why = unchecked(row);
     if (why) {
-      gate.failed(row.id, `Not sent, because the owner approved it before Ignite had checked it: ${why}`);
+      gate.failed(row.id, `Not sent, because it was approved before Ignite had checked it: ${why}`);
       note({ action: 'send-refused', id: row.id, reason: why });
       return;
     }

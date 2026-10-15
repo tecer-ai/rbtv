@@ -237,6 +237,7 @@ test('with a payments section the service answers each withdrawal validation wit
       webhookPort: 0, paymentMs: 30,
       paymentRun: async (command, args, input) => {
         runs.push({ command, args, id: JSON.parse(input).id });
+        if (args[2] === 'resolve') return { code: 0, stdout: '{"name":"KENU","key":"kenu@example.com","key_type":"EMAIL"}', stderr: '' };
         return { code: 0, stdout: '{"provider_id":"tr_7","status":"PENDING","receipt_url":null}', stderr: '' };
       },
     });
@@ -247,7 +248,10 @@ test('with a payments section the service answers each withdrawal validation wit
     assert.equal(row.state, 'approved');
     await waitFor(() => gate.get(row.id).state === 'sent');
     await new Promise((resolve) => setTimeout(resolve, 120));
-    assert.deepEqual(runs, [{ command: 'asaas', args: ['--json', 'pay', 'execute', 'P-0001'], id: 'P-0001' }]);
+    assert.deepEqual(runs, [
+      { command: 'asaas', args: ['--json', 'pay', 'resolve', 'P-0001'], id: 'P-0001' },
+      { command: 'asaas', args: ['--json', 'pay', 'execute', 'P-0001'], id: 'P-0001' },
+    ]);
     const answer = await fetch(`http://127.0.0.1:${runtime.webhookPort}/asaas/withdrawal-validation`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'asaas-access-token': 'daemon-test-token' },

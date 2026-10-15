@@ -374,6 +374,8 @@ test('a ledger the first release created gains the new columns when opened and k
   assert.deepEqual(columns.slice(0, 34), Object.keys(before[0]));
   assert.deepEqual(columns.slice(34), ADDED);
   const after = gate.db.prepare('SELECT * FROM payments ORDER BY seq').all();
+  // The pending prompt was posted with the agent's recipient and an Approve button: the upgrade redraws it.
+  before[1].prompt_shown = null;
   assert.deepEqual(after.map((row) => [row.id, row.state, row.decided_by, row.provider_id, row.answered_operation, row.prompt_ts, row.notified]), [
     ['P-0001', 'sent', 'owner', 'tr_1', 'tr_1', '9.1', 'sent'],
     ['P-0002', 'pending', null, null, null, '9.2', null],
@@ -386,7 +388,7 @@ test('a ledger the first release created gains the new columns when opened and k
   assert.equal(gate.db.prepare('SELECT COUNT(*) AS n FROM interactions').get().n, 0);
   // The re-review's probe: the service's first pass read a column the old ledger lacked.
   const work = gate.due();
-  assert.deepEqual([work.resolve.map((r) => r.id), work.toSend.map((r) => r.id)], [['P-0002'], ['P-0003']]);
+  assert.deepEqual([work.resolve.map((r) => r.id), work.toSend.map((r) => r.id), work.unshown.map((r) => r.id)], [['P-0002'], ['P-0003'], ['P-0002', 'P-0003']]);
   assert.deepEqual(gate.usage(), { day: 0, week: 4000, month: 4000 });
   gate.resolved('P-0002', KENU);
   assert.equal(gate.approve('P-0002').changed, true);
@@ -971,8 +973,45 @@ test('the runner never sends a request the owner approved before Ignite checked 
   assert.deepEqual(stand.runs.map((r) => r.args.slice(2)), [['resolve', 'P-0002']]);
   const unsent = gate.get('P-0003');
   assert.deepEqual([unsent.state, unsent.claimed_at, unsent.reason], ['failed', null,
-    'Not sent, because the owner approved it before Ignite had checked it: Ignite has not checked its recipient through asaas yet']);
+    'Not sent, because it was approved before Ignite had checked it: Ignite has not checked its recipient through asaas yet']);
   assert.deepEqual(gate.usage(), { day: 0, week: 1000, month: 1000 });
+});
+
+test('a request the rule approved is never sent before Ignite checks it; a check that differs or fails refuses it', async () => {
+  const { gate, clock } = gateAt('2026-10-15T15:00:00Z');
+  gate.saveSettings({ mode: 'automatic', limits: { day: 100000 } });
+  const other = ask(gate);
+  const failing = ask(gate);
+  assert.deepEqual([other.state, failing.state], ['approved', 'approved']);
+  assert.deepEqual(gate.due().toSend, []);
+  // The re-review's probe: the agent named one key, the provider resolves another.
+  const elsewhere = { code: 0, stdout: { ...RESOLVED_KENU.stdout, key: 'other@example.com' } };
+  const limited = { code: 1, stdout: '', stderr: 'asaas: Asaas rate limit (429)\n' };
+  const stand = tool({ resolve: [elsewhere, limited, limited, limited] });
+  const runner = createPaymentRunner({ gate, slack: () => null, store: () => null, providers: ['asaas'], cwd: gate.workspace, now: () => clock.now, run: stand.run });
+  for (let i = 0; i < 5; i++) {
+    await runner.step();
+    clock.now += 30_000;
+  }
+  assert.deepEqual(stand.runs.map((r) => r.args[2]), ['resolve', 'resolve', 'resolve', 'resolve']);
+  assert.deepEqual([gate.get(other.id).state, gate.get(other.id).decided_by], ['refused', 'rule']);
+  assert.match(gate.get(other.id).reason, /^Ignite's own check through asaas differs from the request: /);
+  assert.deepEqual([gate.get(failing.id).state, gate.get(failing.id).reason], ['refused',
+    'Not sent: Ignite could not check its recipient through asaas (asaas: Asaas rate limit (429))']);
+  assert.deepEqual(gate.usage(), { day: 0, week: 0, month: 0 });
+});
+
+test('a prompt posted before the check is redrawn once Ignite has checked the recipient or could not', () => {
+  const { gate } = gateAt('2026-10-15T15:00:00Z');
+  gate.saveSettings({ mode: 'case_by_case', limits: {} });
+  const checked = ask(gate);
+  const unreadable = ask(gate);
+  for (const [row, ts] of [[checked, '7.1'], [unreadable, '7.2']]) gate.promptPosted(row.id, { channel: 'C1', ts });
+  for (const row of [checked, unreadable]) gate.promptShown(row.id, 'pending');
+  assert.deepEqual(gate.due().unshown, []);
+  gate.resolved(checked.id, KENU);
+  gate.resolveFailed(unreadable.id, 'asaas: timed out');
+  assert.deepEqual(gate.due().unshown.map((r) => r.id), [checked.id, unreadable.id]);
 });
 
 test('the runner sends an approved request with its exact fields, follows it and reports the receipt', async () => {
@@ -981,17 +1020,24 @@ test('the runner sends an approved request with its exact fields, follows it and
   ask(gate);
   const store = agentStore();
   const stand = tool({
+    resolve: RESOLVED_KENU,
     execute: { code: 0, stdout: { provider_id: 'tr_1', status: 'PENDING', receipt_url: null } },
     status: { code: 0, stdout: { provider_id: 'tr_1', status: 'DONE', final: true, ok: true, receipt_url: 'https://r.example/1', reason: null } },
   });
   const runner = createPaymentRunner({ gate, slack: () => null, store: () => store, providers: ['asaas'], cwd: gate.workspace, now: () => clock.now, run: stand.run });
+  // The rule approved it at request time; nothing goes out before Ignite has checked the recipient.
+  await runner.step();
+  assert.deepEqual(stand.runs.map((r) => r.args), [['--json', 'pay', 'resolve', 'P-0001']]);
+  stand.runs.shift();
   await runner.step();
   assert.deepEqual(stand.runs[0].args, ['--json', 'pay', 'execute', 'P-0001']);
   assert.deepEqual(stand.runs[0].input, {
     id: 'P-0001', agent: 'sara', conversation: 'T1:C1:1.1', provider: 'asaas', method: 'pix',
     recipient: { name: 'KENU EXAMPLE SILVA', key: 'kenu@example.com', key_type: 'EMAIL', document: '***.123.456-**', bank: 'Nubank' },
     amount_cents: 1000, fee_cents: 0, note: 'Owed to Kenu', details: {}, state: 'approved', reason: 'within the limits',
-    decided_by: 'rule', decided_at: at('2026-10-15T15:00:00Z'), resolved: null, resolve_error: null,
+    decided_by: 'rule', decided_at: at('2026-10-15T15:00:00Z'),
+    resolved: { name: 'KENU EXAMPLE SILVA', key: 'kenu@example.com', key_type: 'EMAIL', document: '***.123.456-**', bank: 'Nubank', amount_cents: null, fee_cents: null },
+    resolve_error: null,
     provider_id: null, provider_status: null, receipt_url: null, created_at: at('2026-10-15T15:00:00Z'),
   });
   assert.equal(gate.get('P-0001').state, 'sent');
@@ -1014,8 +1060,9 @@ test('a send the bank refused fails and frees its amount; work that no longer wa
   const store = agentStore();
   store.stopWork(store.listWork()[0].id);
   const reason = 'Asaas answered HTTP 400 on POST /transfers: invalid_value: Saldo insuficiente';
-  const stand = tool({ execute: { code: 1, stdout: { created: false, reason }, stderr: `asaas: Asaas answered HTTP 400 on POST /transfers\n  why: invalid_value: Saldo insuficiente\n` } });
+  const stand = tool({ resolve: RESOLVED_KENU, execute: { code: 1, stdout: { created: false, reason }, stderr: `asaas: Asaas answered HTTP 400 on POST /transfers\n  why: invalid_value: Saldo insuficiente\n` } });
   const runner = createPaymentRunner({ gate, slack: () => null, store: () => store, providers: ['asaas'], cwd: gate.workspace, run: stand.run });
+  await runner.step();
   await runner.step();
   assert.equal(gate.get('P-0001').state, 'failed');
   assert.equal(gate.get('P-0001').reason, reason);
@@ -1037,6 +1084,7 @@ test('a send whose answer was lost stays uncertain and keeps its reservation unt
   });
   const runner = createPaymentRunner({ gate, slack: () => null, store: () => store, providers: ['asaas'], cwd: gate.workspace, now: () => clock.now, run: stand.run });
   await runner.step();
+  await runner.step();
   const lost = gate.get('P-0001');
   assert.equal(lost.state, 'uncertain');
   assert.equal(lost.reason, 'Ignite does not know whether asaas made it: asaas: could not reach Asaas (https://api.asaas.com/v3) why: timed out');
@@ -1046,14 +1094,14 @@ test('a send whose answer was lost stays uncertain and keeps its reservation unt
     + 'It counts toward the limits until Ignite reads it at asaas; this conversation hears the outcome. Do not ask again before checking the statement.']);
   clock.now += 60_000;
   await runner.step();
-  assert.deepEqual(stand.runs.map((r) => r.args[2]), ['execute', 'resolve']);
+  assert.deepEqual(stand.runs.map((r) => r.args.slice(2)), [['resolve', 'P-0001'], ['execute', 'P-0001'], ['resolve', 'P-0002']]);
   // Asaas asks about the operation the lost send made; Ignite approves it and learns its id.
   const body = { type: 'TRANSFER', transfer: { id: 'tr_9', value: 10, externalReference: 'P-0001', bankAccount: { pixAddressKey: 'kenu@example.com' } } };
   assert.deepEqual(validate(gate, 'asaas', ASAAS, { 'asaas-access-token': TOKEN }, body, TOKEN), { status: 'APPROVED', id: 'P-0001' });
   clock.now += 60_000;
   await runner.step();
-  assert.deepEqual(stand.runs[2].args, ['--json', 'pay', 'status', 'P-0001']);
-  assert.equal(stand.runs[2].input.provider_id, 'tr_9');
+  assert.deepEqual(stand.runs[3].args, ['--json', 'pay', 'status', 'P-0001']);
+  assert.equal(stand.runs[3].input.provider_id, 'tr_9');
   assert.equal(gate.get('P-0001').state, 'failed');
   assert.equal(gate.get('P-0001').reason, 'Saldo insuficiente');
   assert.deepEqual(gate.usage(), { day: 0, week: 0, month: 0 });
@@ -1098,8 +1146,8 @@ test('a provider with no withdrawal validation is never run', async () => {
   });
   await runner.step();
   assert.equal(runs.length, 0);
-  assert.equal(gate.get(other.id).state, 'failed');
-  assert.equal(gate.get(other.id).reason, 'Ignite does not send through otherbank: it has no withdrawal validation for it');
+  assert.equal(gate.get(other.id).state, 'refused');
+  assert.equal(gate.get(other.id).reason, 'Not sent: Ignite could not check its recipient through otherbank (Ignite does not send through otherbank: it has no withdrawal validation for it)');
 });
 
 // ───────────────────────────── the withdrawal validation

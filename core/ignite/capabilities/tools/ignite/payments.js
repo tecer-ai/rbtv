@@ -30,9 +30,10 @@
 //   fee fits every limit that is set, else pending. Automatic with no limit set (never saved so) waits.
 // get(id) / list({ agent?, state?, limit? }) / pending() / listUncertain() / lastSent(n)
 // resolved(id, { name, document, bank, key, keyType, amountCents, feeCents }) — the recipient as the service read it
-//   from the provider, for a pending request; a key, amount or fee that differs from the request refuses it
-//   (decided_by rule). resolveFailed(id, reason) — the service could not read it; the request stays pending and can
-//   only be refused or withdrawn. → { changed, row }
+//   from the provider, for a pending request or one the rule approved and not yet sent; a key, amount or fee that
+//   differs from the request refuses it (decided_by rule). resolveFailed(id, reason) — the service could not read it;
+//   a pending request stays pending and can only be refused or withdrawn, a rule-approved one is refused. Both
+//   redraw a posted prompt. Nothing is sent before its recipient is resolved (due().toSend). → { changed, row }
 // unchecked(row) → null once the service has resolved the request's recipient, else why the owner cannot approve it:
 //   not resolved yet, or the resolution failed. One rule for the gate, the panel's buttons and the runner.
 // approve(id, { interaction? }) / refuse(id, { interaction? }) — the owner's decision; only a pending request changes,
@@ -200,6 +201,12 @@ function cents(value, label, { min = 0, max = null } = {}) {
   return value;
 }
 
+// The service resolves a request waiting for the owner, or one the rule approved and has not sent yet.
+function resolvable(row) {
+  return (row.state === 'pending' || (row.state === 'approved' && row.decided_by === 'rule'))
+    && row.resolved_at == null && row.resolve_error == null && row.claimed_at == null;
+}
+
 function unchecked(row) {
   if (row.resolve_error != null) return `Ignite could not check its recipient through ${row.provider} (${row.resolve_error})`;
   if (row.resolved_at == null) return `Ignite has not checked its recipient through ${row.provider} yet`;
@@ -344,6 +351,8 @@ class Gate {
     if (missing().length) {
       this.transaction(() => {
         for (const [name, type] of missing()) this.db.exec(`ALTER TABLE payments ADD COLUMN ${name} ${type}`);
+        // A prompt posted before the upgrade shows the agent's recipient and an Approve button: redraw it.
+        this.db.exec("UPDATE payments SET prompt_shown=NULL WHERE state='pending' AND prompt_ts IS NOT NULL AND prompt_ts != '-'");
       });
     }
   }
@@ -517,19 +526,20 @@ class Gate {
   resolved(id, { name = null, document = null, bank = null, key = null, keyType = null, amountCents = null, feeCents = null } = {}) {
     return this.transaction(() => {
       const row = this._row(id);
-      if (!row || row.state !== 'pending' || row.resolved_at != null) return { changed: false, row };
+      if (!row || !resolvable(row)) return { changed: false, row };
       const at = this.now();
       const amount = Number.isSafeInteger(amountCents) ? amountCents : null;
       const fee = Number.isSafeInteger(feeCents) ? feeCents : null;
       this.db.prepare(`UPDATE payments SET resolved_at=?, resolved_name=?, resolved_key=?, resolved_key_type=?,
-        resolved_document=?, resolved_bank=?, resolved_amount_cents=?, resolved_fee_cents=?, updated_at=? WHERE id=?`)
+        resolved_document=?, resolved_bank=?, resolved_amount_cents=?, resolved_fee_cents=?, prompt_shown=NULL, updated_at=?
+        WHERE id=?`)
         .run(at, plain(name), plain(key, 2000), plain(keyType, 32), plain(document, 64), plain(bank), amount, fee, at, id);
       const differs = [];
       if (!key || canonicalKey(key) !== canonicalKey(row.recipient_key)) differs.push(`the recipient key is ${plain(key, 2000) || 'not named'}, not ${row.recipient_key}`);
       if (amount != null && amount !== row.amount_cents) differs.push(`the amount is ${this.money(amount)}, not ${this.money(row.amount_cents)}`);
       if (fee != null && fee !== row.fee_cents) differs.push(`the fee is ${this.money(fee)}, not ${this.money(row.fee_cents)}`);
       if (!differs.length) return { changed: true, row: this._row(id) };
-      return this._move(id, 'pending', 'refused', {
+      return this._move(id, row.state, 'refused', {
         decided_by: 'rule', decided_at: at,
         reason: `Ignite's own check through ${row.provider} differs from the request: ${differs.join('; ')}`.slice(0, 500),
       });
@@ -537,10 +547,21 @@ class Gate {
   }
 
   resolveFailed(id, reason) {
-    const result = this.db.prepare(`UPDATE payments SET resolve_error=?, updated_at=?
-      WHERE id=? AND state='pending' AND resolved_at IS NULL AND resolve_error IS NULL`)
-      .run(String(reason || 'failed').slice(0, 300), this.now(), id);
-    return { changed: result.changes === 1, row: this._row(id) };
+    return this.transaction(() => {
+      const error = String(reason || 'failed').slice(0, 300);
+      const result = this.db.prepare(`UPDATE payments SET resolve_error=?, prompt_shown=NULL, updated_at=?
+        WHERE id=? AND (state='pending' OR (state='approved' AND decided_by='rule'))
+        AND resolved_at IS NULL AND resolve_error IS NULL AND claimed_at IS NULL`)
+        .run(error, this.now(), id);
+      if (result.changes !== 1) return { changed: false, row: this._row(id) };
+      const row = this._row(id);
+      if (row.state !== 'approved') return { changed: true, row };
+      // Approved by the rule before the check: never sent unchecked, so refused with the reason.
+      return this._move(id, 'approved', 'refused', {
+        decided_by: 'rule', decided_at: this.now(),
+        reason: `Not sent: ${unchecked(row)}`.slice(0, 500),
+      });
+    });
   }
 
   approve(id, { interaction = null } = {}) {
@@ -713,12 +734,15 @@ class Gate {
   due({ now = this.now() } = {}) {
     const all = (sql, ...args) => this.db.prepare(sql).all(...args);
     return {
-      resolve: all("SELECT * FROM payments WHERE state='pending' AND resolved_at IS NULL AND resolve_error IS NULL ORDER BY seq"),
+      resolve: all(`SELECT * FROM payments WHERE (state='pending' OR (state='approved' AND decided_by='rule'))
+        AND resolved_at IS NULL AND resolve_error IS NULL AND claimed_at IS NULL ORDER BY seq`),
       prompts: all(`SELECT * FROM payments WHERE state='pending' AND prompt_ts IS NULL
         AND (resolved_at IS NOT NULL OR resolve_error IS NOT NULL) ORDER BY seq`),
       unshown: all(`SELECT * FROM payments WHERE prompt_ts IS NOT NULL AND prompt_ts != '-'
         AND COALESCE(prompt_shown, '') != state ORDER BY seq`),
-      toSend: all("SELECT * FROM payments WHERE state='approved' AND claimed_at IS NULL ORDER BY seq"),
+      // A rule approval waits for its check; an owner approval made before the check reaches send and fails there.
+      toSend: all(`SELECT * FROM payments WHERE state='approved' AND claimed_at IS NULL
+        AND (resolved_at IS NOT NULL OR decided_by != 'rule') ORDER BY seq`),
       toCheck: all(`SELECT * FROM payments WHERE state='sent' AND check_final=0 AND sent_at>=?
         AND COALESCE(checked_at, sent_at)<=? ORDER BY seq`, now - CHECK_FOR_MS, now - CHECK_EVERY_MS),
       toReconcile: all(`SELECT * FROM payments WHERE state='uncertain' AND COALESCE(provider_id, answered_operation) IS NOT NULL
