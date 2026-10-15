@@ -6,6 +6,7 @@
 //   <home>/prompt.md as systemPromptFile on the cast request. This file does not read CLAUDE.md.
 //   An input's check ({ found, failure? }, what timer-check.js stored on a timer wake) follows
 //   the input as one JSON line each, marked as a tool's data and never as the owner's words.
+//   An owner input's Slack ts follows its text as one line, so the agent can cite the message.
 // readTurnMemory(home, cwd, store?, now?) → board, memory sections and owner alerts
 
 const fs = require('node:fs');
@@ -113,7 +114,9 @@ function composeTurn({ board, memory = [], work, inputs, recent, stored, history
       const files = input.files?.length ? `\nattachments: ${input.files.join(', ')}` : '';
       const missing = input.missingFiles
         ? `\n${input.missingFiles} attached file(s) could not be downloaded; tell the owner.` : '';
-      return `[${input.role}] ${input.text}${files}${missing}${checkLines(input.check)}`;
+      // The Slack timestamp names the owner message that started the turn, the source an approval cites.
+      const ts = input.ts ? `\nSlack timestamp of this message: ${input.ts}` : '';
+      return `[${input.role}] ${input.text}${files}${missing}${ts}${checkLines(input.check)}`;
     }),
     'Recent messages of this conversation:',
     ...(recent.length ? linesOf(recent) : ['(none)']),

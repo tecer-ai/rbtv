@@ -319,6 +319,7 @@ async function execute(slug, claim, deps) {
     work: claim.work_id ? store.getWork(claim.work_id) : null,
     inputs: [{
       role: claim.kind, text: prepared.text, files: prepared.files, missingFiles: prepared.missingFiles,
+      ts: claim.kind === 'owner' ? claim.payload?.ts : undefined,
       check: claim.kind === 'schedule' ? claim.payload?.details : undefined,
     }],
     recent,

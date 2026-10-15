@@ -340,6 +340,16 @@ test('owner retry clears it', async (ctx) => {
   assert.equal(seen(box).length, 4);
 });
 
+test('an owner turn carries the Slack timestamp of the message that started it', async (ctx) => {
+  const box = harness(ctx);
+  // Literal guard: the timestamp an approval cites (waiting-sends --slack-ts) must reach the agent.
+  seed(box.store, { id: '1792071263.014499', text: 'pode mandar' });
+  box.sync();
+  await runOnce('master', box.deps);
+  const input = seen(box).at(-1).prompt.split('Triggering input:\n')[1].split('\nRecent messages')[0];
+  assert.equal(input, '[owner] pode mandar\nSlack timestamp of this message: 1792071263.014499');
+});
+
 test('request carries systemPromptFile', async (ctx) => {
   const box = harness(ctx);
   const home = fs.realpathSync(box.home);
