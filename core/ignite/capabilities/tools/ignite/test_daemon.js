@@ -202,7 +202,7 @@ function spawnDaemon(dir, pathEnv = harnessBin(dir, ['claude', 'ignite'])) {
   return { child, stderr: () => stderr, stdout: () => stdout };
 }
 
-test('with a payments section the service answers the withdrawal validation, routes /payments to the owner panel and sends approvals once', async () => {
+test('with a payments section the service answers the withdrawal validation within 2 s, routes /payments to the owner panel and sends approvals once', async () => {
   const { dir } = workspace();
   const cfg = JSON.parse(fs.readFileSync(configFile(dir), 'utf8'));
   fs.writeFileSync(configFile(dir), JSON.stringify({ ...cfg, payments: {} }));
@@ -225,8 +225,8 @@ test('with a payments section the service answers the withdrawal validation, rou
         return { code: 0, stdout: '{"provider_id":"tr_7","status":"PENDING","receipt_url":null}', stderr: '' };
       },
     });
-    assert.deepEqual(await socket.onInteraction('slash_commands', { command: '/payments', user_id: 'UOTHER', team_id: 'T1' }),
-      { response: { text: 'Only the owner can open /payments. Nothing changed.' } });
+    assert.deepEqual(socket.onInteraction.ack('slash_commands', { command: '/payments', user_id: 'UOTHER', team_id: 'T1' }),
+      { text: 'Only the owner can open /payments. Nothing changed.' });
     const row = gate.request({ agent: 'master', conversationKey: 'T1:D1:1.1', provider: 'asaas', method: 'pix',
       recipient: { name: 'KENU', key: 'kenu@example.com' }, amountCents: 100, note: 'test' });
     assert.equal(row.state, 'approved');
@@ -239,6 +239,21 @@ test('with a payments section the service answers the withdrawal validation, rou
       body: JSON.stringify({ type: 'TRANSFER', transfer: { id: 'tr_7', value: 1, externalReference: 'P-0001', bankAccount: { pixAddressKey: 'kenu@example.com' } } }),
     });
     assert.deepEqual(await answer.json(), { status: 'APPROVED' });
+    // Another process holds the ledger: the service's bounded wait answers in time, refusing.
+    const { DatabaseSync } = require('node:sqlite');
+    const holder = new DatabaseSync(path.join(dir, '.rbtv', 'runtime', 'ignite', 'payments.sqlite'));
+    holder.exec('PRAGMA busy_timeout=0; BEGIN IMMEDIATE');
+    const started = Date.now();
+    const busy = await fetch(`http://127.0.0.1:${runtime.webhookPort}/asaas/withdrawal-validation`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'asaas-access-token': 'daemon-test-token' },
+      body: JSON.stringify({ type: 'TRANSFER', transfer: { id: 'tr_7', value: 1, externalReference: 'P-0001', bankAccount: { pixAddressKey: 'kenu@example.com' } } }),
+    });
+    const waited = Date.now() - started;
+    holder.exec('ROLLBACK');
+    holder.close();
+    assert.deepEqual(await busy.json(), { status: 'REFUSED', refuseReason: 'the ledger is busy (database is locked): nothing was approved' });
+    assert.equal(waited < 2000, true, `answered in ${waited} ms`);
     const port = runtime.webhookPort;
     await runtime.stop('test');
     runtime = null;

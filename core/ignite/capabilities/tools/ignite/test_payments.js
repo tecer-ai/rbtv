@@ -2,18 +2,20 @@
 'use strict';
 
 // Suite for the payment gate: payments.js (settings, limits, ledger, PIN), payment-panel.js (the
-// owner's Slack panel and buttons), payment-runner.js (sending, reporting), payment-webhook.js (the
-// withdrawal validation) and the ignite payment verbs. Injected clock, stand-in Slack and stand-in
-// provider tool; the webhook listens on 127.0.0.1 with a free port. No network beyond the loopback.
+// owner's Slack panel and buttons), payment-runner.js (resolving, sending, reconciling, reporting),
+// payment-webhook.js (the withdrawal validation, with the asaas connector's adapter) and the ignite
+// payment verbs. Injected clock, stand-in Slack and stand-in provider tool; the webhook listens on
+// 127.0.0.1 with a free port. No network beyond the loopback.
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { Gate, periodStart, brl, parseAmount, publicRow, pinPath } = require('./payments.js');
+const { DatabaseSync } = require('node:sqlite');
+const { Gate, periodStart, formatMoney, parseAmount, canonicalAmount, pinPath, ledgerPath } = require('./payments.js');
 const { createPaymentPanel, promptBlocks, ACTION, VIEW } = require('./payment-panel.js');
 const { createPaymentRunner } = require('./payment-runner.js');
-const { createWebhook, validate } = require('./payment-webhook.js');
+const { createWebhook, validate, loadProvider } = require('./payment-webhook.js');
 const { Slack } = require('./slack.js');
 const { Store } = require('./store.js');
 const { main } = require('./cli.js');
@@ -24,15 +26,16 @@ function test(name, fn) { tests.push({ name, fn }); }
 const PIN = '482913';
 const TOKEN = 'whk-test-token';
 const KEY = 'T1:C1:1.1';
+const ASAAS = loadProvider('asaas');
 const at = (iso) => Date.parse(iso);
 
 function scratch() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-pay-'));
 }
 
-function gateAt(iso, workspace = scratch()) {
+function gateAt(iso, workspace = scratch(), options = {}) {
   const clock = { now: at(iso) };
-  const gate = new Gate({ workspace, now: () => clock.now });
+  const gate = new Gate({ workspace, now: () => clock.now, ...options });
   return { gate, clock, workspace };
 }
 
@@ -43,6 +46,9 @@ function ask(gate, fields = {}) {
     amountCents: 1000, note: 'Owed to Kenu', ...fields,
   });
 }
+
+// What asaas pay resolve reports for the request ask() makes: the same owner, read from the bank.
+const KENU = { name: 'KENU EXAMPLE SILVA', document: '***.123.456-**', bank: 'Nubank', key: 'kenu@example.com', keyType: 'EMAIL' };
 
 // A request the service is sending: approved by rule, claimed, recorded as sent with provider id tr_1.
 function sentRequest(gate, fields = {}) {
@@ -76,17 +82,24 @@ function panelFor(gate, { slack = fakeSlack(), kicks = [] } = {}) {
   return { panel, slack, kicks };
 }
 
+// One interaction as the socket runs it: the ACK's payload first, then the processing.
+async function interact(panel, type, payload) {
+  const acked = panel.ack(type, payload);
+  await panel.handle(type, payload);
+  return acked;
+}
+
 const slash = (user = 'UOWNER', team = 'T1') => ({ command: '/payments', user_id: user, team_id: team, trigger_id: 'trig-1', channel_id: 'C1' });
-function action(actionId, value, { user = 'UOWNER', team = 'T1', view = null } = {}) {
+function action(actionId, value, { user = 'UOWNER', team = 'T1', view = null, ts = '1.1' } = {}) {
   return {
     type: 'block_actions', user: { id: user, team_id: team }, team: { id: team }, trigger_id: 'trig-2',
-    ...(view ? { view } : { channel: { id: 'C1' } }), actions: [{ action_id: actionId, value }],
+    ...(view ? { view } : { channel: { id: 'C1' } }), actions: [{ action_id: actionId, value, action_ts: ts }],
   };
 }
-function submission(callbackId, values, { user = 'UOWNER', team = 'T1', metadata = '', id = 'V1', root = 'V1' } = {}) {
+function submission(callbackId, values, { user = 'UOWNER', team = 'T1', metadata = '', id = 'V1', root = 'V1', hash = 'h1' } = {}) {
   return {
     type: 'view_submission', user: { id: user, team_id: team }, team: { id: team },
-    view: { id, root_view_id: root, callback_id: callbackId, private_metadata: metadata, state: { values } },
+    view: { id, hash, root_view_id: root, callback_id: callbackId, private_metadata: metadata, state: { values } },
   };
 }
 const pinValue = (pin) => ({ payments_pin: { value: { type: 'plain_text_input', value: pin } } });
@@ -95,12 +108,15 @@ function settingsValues(mode, limits, pin) {
   for (const period of ['day', 'week', 'month']) values[`payments_${period}`] = { value: { type: 'plain_text_input', value: limits[period] ?? null } };
   return values;
 }
+const CHECKING = { response_action: 'update', view: { type: 'modal', callback_id: VIEW.done, title: { type: 'plain_text', text: 'Payments' },
+  close: { type: 'plain_text', text: 'Close' }, blocks: [{ type: 'section', text: { type: 'mrkdwn', text: 'Checking…' } }] } };
+const viewText = (view) => view.blocks.map((b) => b.text?.text || b.elements?.map((e) => e.text).join(' ') || '').join('\n');
 
 // ───────────────────────────── the gate's rules
 
 test('off refuses: the default mode, decided by rule', () => {
   const { gate } = gateAt('2026-10-15T15:00:00Z');
-  assert.deepEqual(gate.settings(), { mode: 'off', limits: { day: null, week: null, month: null } });
+  assert.deepEqual(gate.settings(), { mode: 'off', limits: { day: null, week: null, month: null }, revision: 0 });
   const row = ask(gate);
   assert.equal(row.id, 'P-0001');
   assert.equal(row.state, 'refused');
@@ -126,7 +142,7 @@ test('automatic with no limit is refused on save and the settings stay', () => {
   assert.equal(gate.settings().mode, 'case_by_case');
   assert.throws(() => gate.saveSettings({ mode: 'automatic', limits: { week: 0 } }), /week limit must be a whole number of cents, at least 1/);
   assert.deepEqual(gate.saveSettings({ mode: 'automatic', limits: { week: 15000 } }),
-    { mode: 'automatic', limits: { day: null, week: 15000, month: null } });
+    { mode: 'automatic', limits: { day: null, week: 15000, month: null }, revision: 2 });
 });
 
 test('over a limit waits, naming what is left of which limit (the specification example)', () => {
@@ -188,7 +204,22 @@ test('the monthly limit renews on the first at Sao Paulo midnight', () => {
   assert.equal(ask(gate, { amountCents: 1 }).reason, 'over the monthly limit (R$ 0,00 left of R$ 10,00)');
 });
 
-test('limits count approved and sent amounts with their fee, not pending, refused, cancelled or failed', () => {
+test('the time zone and the currency come from the config: periods in that zone, amounts in that currency', () => {
+  const { gate, clock } = gateAt('2026-10-15T02:00:00Z', scratch(), { timeZone: 'UTC', currency: 'USD' });
+  gate.saveSettings({ mode: 'automatic', limits: { day: 1000 } });
+  assert.equal(ask(gate, { amountCents: 1000 }).state, 'approved');
+  clock.now = at('2026-10-15T23:59:59Z');
+  assert.equal(ask(gate, { amountCents: 1 }).reason, 'over the daily limit (US$ 0,00 left of US$ 10,00)');
+  clock.now = at('2026-10-16T00:00:00Z');
+  assert.equal(new Date(gate.periodStart('day')).toISOString(), '2026-10-16T00:00:00.000Z');
+  assert.equal(ask(gate, { amountCents: 1000 }).state, 'approved');
+  assert.throws(() => new Gate({ workspace: scratch(), timeZone: 'Mars/Base' }),
+    /^Error: payments time zone must be an IANA time zone, such as America\/Sao_Paulo$/);
+  assert.throws(() => new Gate({ workspace: scratch(), currency: 'JPY' }),
+    /^Error: payments currency must be a currency with two decimals: amounts are kept in hundredths$/);
+});
+
+test('limits count approved, sent and uncertain amounts with their fee, not pending, refused, cancelled or failed', () => {
   const { gate } = gateAt('2026-10-15T15:00:00Z');
   gate.saveSettings({ mode: 'case_by_case', limits: {} });
   const waiting = ask(gate, { amountCents: 100 });
@@ -201,11 +232,28 @@ test('limits count approved and sent amounts with their fee, not pending, refuse
   const failing = ask(gate, { amountCents: 1600 });
   gate.approve(failing.id);
   gate.failed(failing.id, 'Asaas answered HTTP 400');
+  const unsure = ask(gate, { amountCents: 3200 });
+  gate.approve(unsure.id);
+  gate.claim(unsure.id);
+  gate.uncertain(unsure.id, 'the answer was lost');
   assert.equal(gate.get(waiting.id).state, 'pending');
-  assert.deepEqual(gate.usage(), { day: 899, week: 899, month: 899 });
-  gate.saveSettings({ mode: 'automatic', limits: { day: 1000 } });
-  assert.equal(ask(gate, { amountCents: 101 }).state, 'approved');
-  assert.equal(ask(gate, { amountCents: 1 }).reason, 'over the daily limit (R$ 0,00 left of R$ 10,00)');
+  assert.equal(gate.get(failing.id).state, 'failed');
+  assert.deepEqual(gate.usage(), { day: 4099, week: 4099, month: 4099 });
+  gate.saveSettings({ mode: 'automatic', limits: { day: 5000 } });
+  assert.equal(ask(gate, { amountCents: 901 }).state, 'approved');
+  assert.equal(ask(gate, { amountCents: 1 }).reason, 'over the daily limit (R$ 0,00 left of R$ 50,00)');
+});
+
+test('a bill counts its fee toward the limits', () => {
+  const { gate } = gateAt('2026-10-15T15:00:00Z');
+  const line = '23793381286001234107143000012345890460000002000';
+  gate.saveSettings({ mode: 'automatic', limits: { day: 2198 } });
+  const over = ask(gate, { method: 'bill', recipient: { name: 'ENEL', key: line }, amountCents: 2000, feeCents: 199 });
+  assert.equal(over.state, 'pending');
+  assert.equal(over.reason, 'over the daily limit (R$ 21,98 left of R$ 21,98)');
+  gate.saveSettings({ mode: 'automatic', limits: { day: 2199 } });
+  assert.equal(ask(gate, { method: 'bill', recipient: { name: 'ENEL', key: line }, amountCents: 2000, feeCents: 199 }).state, 'approved');
+  assert.deepEqual(gate.usage(), { day: 2199, week: 2199, month: 2199 });
 });
 
 test('only a pending request is approved or refused, once', () => {
@@ -221,14 +269,19 @@ test('only a pending request is approved or refused, once', () => {
   assert.equal(gate.claim(row.id), false);
 });
 
-test('amounts are shown and read as reais', () => {
-  assert.equal(brl(123456), 'R$ 1.234,56');
-  assert.equal(brl(5), 'R$ 0,05');
+test('amounts are shown in the currency and read back in one form at any size', () => {
+  assert.equal(formatMoney(123456), 'R$ 1.234,56');
+  assert.equal(formatMoney(5), 'R$ 0,05');
+  assert.equal(formatMoney(-1250), '-R$ 12,50');
   assert.equal(parseAmount('150'), 15000);
   assert.equal(parseAmount('150,5'), 15050);
   assert.equal(parseAmount('0.01'), 1);
   assert.equal(parseAmount('1.234,00'), null);
   assert.equal(parseAmount(''), null);
+  for (const [cents, form] of [[100000, '1000.00'], [1234567, '12345.67'], [5, '0.05'], [null, null]]) {
+    assert.equal(canonicalAmount(cents), form);
+    if (form != null) assert.equal(parseAmount(form), cents);
+  }
 });
 
 // ───────────────────────────── the PIN
@@ -280,48 +333,41 @@ test('anyone but the owner is refused on every action and nothing changes', asyn
   gate.saveSettings({ mode: 'case_by_case', limits: {} });
   const row = ask(gate);
   const { panel, slack } = panelFor(gate);
-  assert.deepEqual(await panel.handle('slash_commands', slash('UOTHER')),
-    { response: { text: 'Only the owner can open /payments. Nothing changed.' } });
-  assert.deepEqual(await panel.handle('slash_commands', slash('UOWNER', 'T2')),
-    { response: { text: 'Only the owner can open /payments. Nothing changed.' } });
+  assert.deepEqual(await interact(panel, 'slash_commands', slash('UOTHER')), { text: 'Only the owner can open /payments. Nothing changed.' });
+  assert.deepEqual(await interact(panel, 'slash_commands', slash('UOWNER', 'T2')), { text: 'Only the owner can open /payments. Nothing changed.' });
   for (const id of [ACTION.approve, ACTION.refuse, ACTION.settings]) {
-    const result = await panel.handle('interactive', action(id, row.id, { user: 'UOTHER' }));
-    await result.after();
+    assert.equal(await interact(panel, 'interactive', action(id, row.id, { user: 'UOTHER' })), null);
   }
   assert.deepEqual(slack.calls.map((c) => c.method), ['postEphemeral', 'postEphemeral', 'postEphemeral']);
   assert.deepEqual(slack.calls[0].args[0], { channel: 'C1', user: 'UOTHER', text: 'Only the owner can approve or refuse payments. Nothing changed.' });
-  const approve = await panel.handle('interactive', submission(VIEW.approve, pinValue(PIN), { user: 'UOTHER', metadata: row.id }));
-  assert.deepEqual(approve, { response: { response_action: 'errors', errors: { payments_pin: 'Only the owner can do this. Nothing changed.' } } });
-  const settings = await panel.handle('interactive', submission(VIEW.settings, settingsValues('automatic', { day: '500' }, PIN), { user: 'UOTHER' }));
-  assert.equal(settings.response.errors.payments_pin, 'Only the owner can do this. Nothing changed.');
-  const sameUserOtherTeam = await panel.handle('interactive', submission(VIEW.approve, pinValue(PIN), { team: 'T2', metadata: row.id }));
-  assert.equal(sameUserOtherTeam.response.response_action, 'errors');
+  const refusal = { response_action: 'errors', errors: { payments_pin: 'Only the owner can do this. Nothing changed.' } };
+  assert.deepEqual(await interact(panel, 'interactive', submission(VIEW.approve, pinValue(PIN), { user: 'UOTHER', metadata: row.id })), refusal);
+  assert.deepEqual(await interact(panel, 'interactive', submission(VIEW.settings, settingsValues('automatic', { day: '500' }, PIN), { user: 'UOTHER' })), refusal);
+  assert.deepEqual(await interact(panel, 'interactive', submission(VIEW.approve, pinValue(PIN), { team: 'T2', metadata: row.id })), refusal);
   assert.equal(gate.get(row.id).state, 'pending');
   assert.equal(gate.settings().mode, 'case_by_case');
-  assert.equal(slack.calls.some((c) => c.method !== 'postEphemeral'), false);
+  assert.equal(slack.calls.length, 3);
 });
 
 test('/payments asks for a PIN on first use, then opens the panel', async () => {
   const { gate } = gateAt('2026-10-15T15:00:00Z');
   const { panel, slack } = panelFor(gate);
-  const first = await panel.handle('slash_commands', slash());
-  assert.equal(first.response, undefined);
-  await first.after();
+  assert.equal(await interact(panel, 'slash_commands', slash()), null);
   assert.equal(slack.calls[0].method, 'openView');
   assert.equal(slack.calls[0].args[0], 'trig-1');
   assert.equal(slack.calls[0].args[1].callback_id, VIEW.setPin);
   const values = { ...pinValue(PIN), payments_pin_again: { value: { value: '482914' } } };
-  assert.deepEqual(await panel.handle('interactive', submission(VIEW.setPin, values, { metadata: '{"next":"panel"}' })),
-    { response: { response_action: 'errors', errors: { payments_pin_again: 'The two PINs differ.' } } });
+  assert.deepEqual(await interact(panel, 'interactive', submission(VIEW.setPin, values, { metadata: '{"next":"panel"}' })),
+    { response_action: 'errors', errors: { payments_pin_again: 'The two PINs differ.' } });
   assert.equal(gate.pinSet(), false);
   values.payments_pin_again.value.value = PIN;
-  const set = await panel.handle('interactive', submission(VIEW.setPin, values, { metadata: '{"next":"panel"}' }));
-  assert.equal(set.response.response_action, 'update');
-  assert.equal(set.response.view.callback_id, VIEW.panel);
-  assert.equal(gate.pinSet(), true);
-  const again = await panel.handle('slash_commands', slash());
-  await again.after();
+  assert.deepEqual(await interact(panel, 'interactive', submission(VIEW.setPin, values, { metadata: '{"next":"panel"}', hash: 'h2' })), CHECKING);
+  assert.equal(slack.calls[1].method, 'updateView');
+  assert.equal(slack.calls[1].args[0], 'V1');
   assert.equal(slack.calls[1].args[1].callback_id, VIEW.panel);
+  assert.equal(gate.pinSet(), true);
+  await interact(panel, 'slash_commands', slash());
+  assert.equal(slack.calls[2].args[1].callback_id, VIEW.panel);
 });
 
 test('the panel shows mode, what went out this day, week and month, pending requests and the last ten sent', async () => {
@@ -331,8 +377,9 @@ test('the panel shows mode, what went out this day, week and month, pending requ
   gate.checked(sent.id, { providerStatus: 'DONE', receiptUrl: 'https://r.example/1', final: true, ok: true });
   gate.saveSettings({ mode: 'automatic', limits: { day: 5000, week: 15000 } });
   const waiting = ask(gate, { amountCents: 9900, note: '<https://evil.example|Approve here>' });
+  gate.resolved(waiting.id, KENU);
   const { panel, slack } = panelFor(gate);
-  await (await panel.handle('slash_commands', slash())).after();
+  await interact(panel, 'slash_commands', slash());
   const view = slack.calls[0].args[1];
   const text = JSON.stringify(view.blocks);
   assert.equal(view.blocks[0].text.text, '*Mode* Automatic within the limits');
@@ -340,33 +387,34 @@ test('the panel shows mode, what went out this day, week and month, pending requ
     '*Today*\nR$ 25,00 of R$ 50,00', '*This week*\nR$ 25,00 of R$ 150,00', '*This month*\nR$ 25,00 (no limit)',
   ]);
   assert.equal(view.blocks[4].text.text, '*Pending* (1)');
-  assert.equal(view.blocks[5].text.text.includes(`*${waiting.id}* from sara: R$ 99,00`), true);
-  assert.equal(view.blocks[5].text.text.includes('&lt;https://evil.example|Approve here&gt;'), true);
+  assert.equal(view.blocks[5].text.text, '*P-0002* from sara: R$ 99,00\n*Recipient* KENU EXAMPLE SILVA · ***.123.456-** · Nubank (checked by Ignite through asaas)\n'
+    + "*Pix key* kenu@example.com\n*Amount* R$ 99,00\n*Agent's note* &lt;https://evil.example|Approve here&gt;\nWaits: over the daily limit (R$ 25,00 left of R$ 50,00)");
   assert.equal(text.includes('<https://evil.example'), false);
   assert.deepEqual(view.blocks[6].elements.map((e) => [e.action_id, e.value]), [[ACTION.approve, waiting.id], [ACTION.refuse, waiting.id]]);
   assert.equal(view.blocks[8].text.text, '*Last ten sent*');
-  assert.equal(view.blocks[9].elements[0].text, 'P-0001 · 15 Oct, 12:00 · R$ 25,00 to KENU EXAMPLE SILVA · <https://r.example/1|receipt>');
+  assert.equal(view.blocks[9].elements[0].text, 'P-0001 · 15 Oct, 12:00 · R$ 25,00 to kenu@example.com · <https://r.example/1|receipt>');
 });
 
-test('Approve needs the right PIN; a wrong one changes nothing', async () => {
+test('Approve needs the right PIN; a wrong one shows the form again and changes nothing', async () => {
   const { gate } = gateAt('2026-10-15T15:00:00Z');
   gate.setPin(PIN);
   gate.saveSettings({ mode: 'case_by_case', limits: {} });
   const row = ask(gate);
+  gate.resolved(row.id, KENU);
   const { panel, slack, kicks } = panelFor(gate);
-  await (await panel.handle('interactive', action(ACTION.approve, row.id))).after();
+  await interact(panel, 'interactive', action(ACTION.approve, row.id));
   assert.equal(slack.calls[0].method, 'openView');
   assert.equal(slack.calls[0].args[1].callback_id, VIEW.approve);
   assert.equal(slack.calls[0].args[1].private_metadata, row.id);
-  const wrong = await panel.handle('interactive', submission(VIEW.approve, pinValue('111111'), { metadata: row.id }));
-  assert.deepEqual(wrong, { response: { response_action: 'errors', errors: {
-    payments_pin: 'Wrong PIN: 4 tries left before PIN forms lock for 15 minutes. Nothing changed.' } } });
+  assert.deepEqual(await interact(panel, 'interactive', submission(VIEW.approve, pinValue('111111'), { metadata: row.id })), CHECKING);
+  const again = slack.calls[1].args[1];
+  assert.equal(slack.calls[1].method, 'updateView');
+  assert.equal(again.callback_id, VIEW.approve);
+  assert.equal(again.blocks[1].elements[0].text, 'Wrong PIN: 4 tries left before PIN forms lock for 15 minutes. Nothing changed.');
   assert.equal(gate.get(row.id).state, 'pending');
-  const right = await panel.handle('interactive', submission(VIEW.approve, pinValue(PIN), { metadata: row.id }));
-  assert.equal(right.response.response_action, 'update');
-  assert.equal(right.response.view.blocks[0].text.text,
+  assert.deepEqual(await interact(panel, 'interactive', submission(VIEW.approve, pinValue(PIN), { metadata: row.id, hash: 'h2' })), CHECKING);
+  assert.equal(slack.calls[2].args[1].blocks[0].text.text,
     "Approved P-0001: R$ 10,00 to KENU EXAMPLE SILVA. Ignite is sending it now; the result arrives in sara's thread.");
-  await right.after();
   assert.equal(kicks.length, 1);
   const approved = gate.get(row.id);
   assert.equal(approved.state, 'approved');
@@ -379,36 +427,112 @@ test('after five wrong PINs, approvals and settings are locked for 15 minutes', 
   gate.setPin(PIN);
   gate.saveSettings({ mode: 'case_by_case', limits: {} });
   const row = ask(gate);
-  const { panel } = panelFor(gate);
-  const approve = (pin) => panel.handle('interactive', submission(VIEW.approve, pinValue(pin), { metadata: row.id }));
+  const { panel, slack } = panelFor(gate);
+  let n = 0;
+  const approve = async (pin) => {
+    n += 1;
+    await interact(panel, 'interactive', submission(VIEW.approve, pinValue(pin), { metadata: row.id, hash: `h${n}` }));
+    return viewText(slack.calls.at(-1).args[1]);
+  };
   for (let i = 0; i < 4; i++) await approve('111111');
   const locked = 'Locked after five wrong PINs until 12:15. Nothing changed.';
-  assert.equal((await approve('111111')).response.errors.payments_pin, locked);
-  assert.equal((await approve(PIN)).response.errors.payments_pin, locked);
-  const settings = await panel.handle('interactive', submission(VIEW.settings, settingsValues('automatic', { day: '50' }, PIN)));
-  assert.equal(settings.response.errors.payments_pin, locked);
+  assert.equal((await approve('111111')).includes(locked), true);
+  assert.equal((await approve(PIN)).includes(locked), true);
+  await interact(panel, 'interactive', submission(VIEW.settings, settingsValues('automatic', { day: '50' }, PIN), { metadata: '{"revision":1}', hash: 'hs' }));
+  assert.equal(viewText(slack.calls.at(-1).args[1]).includes(locked), true);
   assert.equal(gate.get(row.id).state, 'pending');
   assert.equal(gate.settings().mode, 'case_by_case');
   clock.now = at('2026-10-15T15:15:00Z');
-  assert.equal((await approve(PIN)).response.response_action, 'update');
+  assert.equal((await approve(PIN)).startsWith('Approved P-0001'), true);
   assert.equal(gate.get(row.id).state, 'approved');
 });
 
-test('settings: automatic with no limit is refused; saving needs the PIN', async () => {
+test('settings: field problems answer in the form at once; saving needs the PIN', async () => {
   const { gate } = gateAt('2026-10-15T15:00:00Z');
   gate.setPin(PIN);
-  const { panel } = panelFor(gate);
-  const submit = (mode, limits, pin) => panel.handle('interactive', submission(VIEW.settings, settingsValues(mode, limits, pin), { id: 'V2', root: 'V1' }));
-  assert.deepEqual((await submit('automatic', {}, PIN)).response.errors,
-    { payments_mode: 'Automatic needs at least one limit: set a daily, weekly or monthly limit.' });
-  assert.deepEqual((await submit('automatic', { week: 'abc' }, PIN)).response.errors,
-    { payments_week: 'Write an amount in reais, like 150 or 150,00.' });
-  assert.equal((await submit('automatic', { week: '150' }, '111111')).response.errors.payments_pin,
-    'Wrong PIN: 4 tries left before PIN forms lock for 15 minutes. Nothing changed.');
+  const { panel, slack } = panelFor(gate);
+  const submit = (mode, limits, pin, hash) => interact(panel, 'interactive',
+    submission(VIEW.settings, settingsValues(mode, limits, pin), { id: 'V2', root: 'V1', metadata: '{"revision":0}', hash }));
+  assert.deepEqual(await submit('automatic', {}, PIN, 'a'),
+    { response_action: 'errors', errors: { payments_mode: 'Automatic needs at least one limit: set a daily, weekly or monthly limit.' } });
+  assert.deepEqual(await submit('automatic', { week: 'abc' }, PIN, 'b'),
+    { response_action: 'errors', errors: { payments_week: 'Write an amount like 1500.00.' } });
+  assert.equal(slack.calls.length, 0);
+  assert.deepEqual(await submit('automatic', { week: '150' }, '111111', 'c'), CHECKING);
+  const again = slack.calls[0].args[1];
+  assert.equal(again.blocks[0].elements[0].text, 'Wrong PIN: 4 tries left before PIN forms lock for 15 minutes. Nothing changed.');
+  assert.equal(again.blocks[1].element.initial_option.value, 'automatic');
+  assert.equal(again.blocks[3].element.initial_value, '150.00');
+  assert.equal(again.private_metadata, '{"revision":0}');
   assert.equal(gate.settings().mode, 'off');
-  const saved = await submit('automatic', { week: '150,00' }, PIN);
-  assert.equal(saved.response.view.blocks[0].text.text, 'Saved: Automatic within the limits; limits this week R$ 150,00.');
-  assert.deepEqual(gate.settings(), { mode: 'automatic', limits: { day: null, week: 15000, month: null } });
+  await submit('automatic', { week: '150,00' }, PIN, 'd');
+  assert.equal(slack.calls[1].args[0], 'V2');
+  assert.equal(slack.calls[1].args[1].blocks[0].text.text, 'Saved: Automatic within the limits; limits this week R$ 150,00.');
+  assert.equal(slack.calls[2].args[0], 'V1');
+  assert.equal(slack.calls[2].args[1].callback_id, VIEW.panel);
+  assert.deepEqual(gate.settings(), { mode: 'automatic', limits: { day: null, week: 15000, month: null }, revision: 1 });
+});
+
+test('limits round-trip through the settings form at any size, and blank stays no limit', async () => {
+  const { gate } = gateAt('2026-10-15T15:00:00Z');
+  gate.setPin(PIN);
+  gate.saveSettings({ mode: 'automatic', limits: { day: 100000, week: 1234567, month: null } });
+  const { panel, slack } = panelFor(gate);
+  await interact(panel, 'interactive', action(ACTION.settings, 'settings'));
+  const form = slack.calls[0].args[1];
+  const shown = Object.fromEntries(form.blocks.filter((b) => /^payments_(day|week|month)$/.test(b.block_id))
+    .map((b) => [b.block_id, b.element.initial_value ?? null]));
+  assert.deepEqual(shown, { payments_day: '1000.00', payments_week: '12345.67', payments_month: null });
+  const unchanged = settingsValues('automatic', { day: shown.payments_day, week: shown.payments_week, month: shown.payments_month }, PIN);
+  assert.deepEqual(await interact(panel, 'interactive', submission(VIEW.settings, unchanged, { metadata: form.private_metadata })), CHECKING);
+  assert.equal(slack.calls[1].args[1].blocks[0].text.text, 'Saved: Automatic within the limits; limits today R$ 1.000,00, this week R$ 12.345,67.');
+  assert.deepEqual(gate.settings(), { mode: 'automatic', limits: { day: 100000, week: 1234567, month: null }, revision: 2 });
+});
+
+test('a settings form carries its revision: a submission from before the last save changes nothing', async () => {
+  const { gate } = gateAt('2026-10-15T15:00:00Z');
+  gate.setPin(PIN);
+  gate.saveSettings({ mode: 'automatic', limits: { day: 10000 } });
+  const { panel, slack } = panelFor(gate);
+  await interact(panel, 'interactive', action(ACTION.settings, 'settings', { ts: '2.1' }));
+  await interact(panel, 'interactive', action(ACTION.settings, 'settings', { ts: '2.2' }));
+  const older = slack.calls[0].args[1].private_metadata;
+  assert.equal(older, '{"revision":1}');
+  await interact(panel, 'interactive', submission(VIEW.settings, settingsValues('automatic', { day: '10.00' }, PIN),
+    { metadata: slack.calls[1].args[1].private_metadata, hash: 'lower' }));
+  assert.deepEqual(gate.settings(), { mode: 'automatic', limits: { day: 1000, week: null, month: null }, revision: 2 });
+  assert.deepEqual(await interact(panel, 'interactive', submission(VIEW.settings, settingsValues('automatic', { day: '100.00' }, PIN),
+    { metadata: older, hash: 'old' })), CHECKING);
+  assert.equal(slack.calls.at(-1).args[1].blocks[0].text.text,
+    'The settings changed after this form was opened. Nothing changed: open Change settings again to see them.');
+  assert.deepEqual(gate.settings(), { mode: 'automatic', limits: { day: 1000, week: null, month: null }, revision: 2 });
+  assert.throws(() => gate.saveSettings({ mode: 'off', limits: {}, revision: 1 }),
+    /^Error: the settings changed after this form was opened \(revision 1, now 2\); nothing changed$/);
+});
+
+test('each owner interaction is recorded once: a replay changes nothing, a wrong PIN counts once, and only its key is kept', async () => {
+  const { gate } = gateAt('2026-10-15T15:00:00Z');
+  gate.setPin(PIN);
+  gate.saveSettings({ mode: 'case_by_case', limits: {} });
+  const one = ask(gate);
+  const two = ask(gate);
+  const { panel, slack } = panelFor(gate);
+  const wrong = submission(VIEW.approve, pinValue('111111'), { metadata: one.id, hash: 'wrong' });
+  for (let i = 0; i < 5; i++) await interact(panel, 'interactive', wrong);
+  assert.equal(slack.calls.at(-1).args[1].blocks[0].text.text, 'P-0001 is pending. This form was already submitted: nothing changed.');
+  assert.deepEqual(gate.checkPin('000000'), { ok: false, left: 3 });
+  const right = submission(VIEW.approve, pinValue(PIN), { metadata: one.id, hash: 'right' });
+  await interact(panel, 'interactive', right);
+  assert.equal(gate.get(one.id).state, 'approved');
+  const refuse = action(ACTION.refuse, two.id, { ts: '5.5' });
+  await interact(panel, 'interactive', refuse);
+  assert.equal(gate.get(two.id).state, 'refused');
+  await interact(panel, 'interactive', refuse);
+  assert.deepEqual(slack.calls.at(-1).args[0], { channel: 'C1', user: 'UOWNER', text: 'P-0002: this click was already handled. Nothing changed.' });
+  const kept = gate.db.prepare('SELECT key FROM interactions ORDER BY key').all().map((r) => r.key);
+  assert.deepEqual(kept, ['action:5.5:payments_refuse:P-0002', 'view:V1:right', 'view:V1:wrong']);
+  assert.equal(fs.readFileSync(ledgerPath(gate.workspace)).includes(PIN), false);
+  assert.equal(fs.readFileSync(`${ledgerPath(gate.workspace)}-wal`).includes(PIN), false);
 });
 
 test('Refuse on a thread message refuses at once and needs no PIN', async () => {
@@ -417,12 +541,12 @@ test('Refuse on a thread message refuses at once and needs no PIN', async () => 
   gate.saveSettings({ mode: 'case_by_case', limits: {} });
   const row = ask(gate);
   const { panel, slack, kicks } = panelFor(gate);
-  await (await panel.handle('interactive', action(ACTION.refuse, row.id))).after();
+  await interact(panel, 'interactive', action(ACTION.refuse, row.id));
   assert.equal(gate.get(row.id).state, 'refused');
   assert.equal(gate.get(row.id).decided_by, 'owner');
   assert.equal(kicks.length, 1);
   assert.deepEqual(slack.calls, []);
-  await (await panel.handle('interactive', action(ACTION.approve, row.id))).after();
+  await interact(panel, 'interactive', action(ACTION.approve, row.id, { ts: '1.2' }));
   assert.equal(slack.calls[0].args[1].blocks[0].text.text, 'P-0001 is refused: nothing to approve.');
 });
 
@@ -430,12 +554,14 @@ test('the thread message has Approve and Refuse while pending, and its outcome a
   const { gate } = gateAt('2026-10-15T15:00:00Z');
   gate.saveSettings({ mode: 'case_by_case', limits: {} });
   const row = ask(gate, { amountCents: 9900 });
-  const blocks = promptBlocks(row);
-  assert.equal(blocks[0].text.text, '*Payment request P-0001* from sara\n*Recipient* KENU EXAMPLE SILVA · ***.123.456-** · Nubank\n*Pix key* kenu@example.com\n*Amount* R$ 99,00\n*Note* Owed to Kenu');
+  gate.resolved(row.id, KENU);
+  const blocks = promptBlocks(gate, gate.get(row.id));
+  assert.equal(blocks[0].text.text, '*Payment request P-0001* from sara\n*Recipient* KENU EXAMPLE SILVA · ***.123.456-** · Nubank (checked by Ignite through asaas)\n'
+    + "*Pix key* kenu@example.com\n*Amount* R$ 99,00\n*Agent's note* Owed to Kenu");
   assert.equal(blocks[1].elements[0].text, 'Waits for you: case by case: every payment waits for the owner');
   assert.deepEqual(blocks[2].elements.map((e) => e.action_id), [ACTION.approve, ACTION.refuse]);
   gate.refuse(row.id);
-  const after = promptBlocks(gate.get(row.id));
+  const after = promptBlocks(gate, gate.get(row.id));
   assert.equal(after.length, 2);
   assert.equal(after[1].elements[0].text, 'Refused by you.');
 });
@@ -459,13 +585,13 @@ test('an approval is sent exactly once: double click, replayed interaction, over
   });
   const runner = runnerOf();
   const other = runnerOf();
-  const { panel } = panelFor(gate);
+  const { panel, slack: fake } = panelFor(gate);
   // The owner clicks Approve twice: two PIN forms. Both are submitted.
-  const first = await panel.handle('interactive', submission(VIEW.approve, pinValue(PIN), { metadata: row.id }));
-  const second = await panel.handle('interactive', submission(VIEW.approve, pinValue(PIN), { metadata: row.id }));
-  assert.equal(first.response.view.blocks[0].text.text.startsWith('Approved P-0001'), true);
-  assert.equal(second.response.view.blocks[0].text.text, 'P-0001 is approved: nothing to approve.');
-  // Slack redelivers the same envelope over the socket.
+  await interact(panel, 'interactive', submission(VIEW.approve, pinValue(PIN), { metadata: row.id, id: 'V1', hash: 'a' }));
+  await interact(panel, 'interactive', submission(VIEW.approve, pinValue(PIN), { metadata: row.id, id: 'V2', hash: 'b' }));
+  assert.equal(fake.calls[0].args[1].blocks[0].text.text.startsWith('Approved P-0001'), true);
+  assert.equal(fake.calls[1].args[1].blocks[0].text.text, 'P-0001 is approved: nothing to approve.');
+  // Slack redelivers the same envelope over the socket: acked each time, processed as a replay.
   const ws = [];
   class FakeWS {
     constructor() { this.sent = []; this.listeners = {}; ws.push(this); }
@@ -479,15 +605,16 @@ test('an approval is sent exactly once: double click, replayed interaction, over
     fetch: async (url) => ({ ok: true, status: 200, json: async () => (String(url).endsWith('auth.test')
       ? { ok: true, team_id: 'T1', user_id: 'UBOT', bot_id: 'BBOT' } : { ok: true, url: 'wss://example.test/1' }) }),
   });
-  await slack.connect(async () => {}, (type, payload) => panel.handle(type, payload));
+  await slack.connect(async () => {}, panel);
   const envelope = { type: 'interactive', envelope_id: 'env-9', accepts_response_payload: true,
-    payload: submission(VIEW.approve, pinValue(PIN), { metadata: row.id }) };
+    payload: submission(VIEW.approve, pinValue(PIN), { metadata: row.id, id: 'V3', hash: 'c' }) };
   ws[0].emit(envelope);
   await slack.pending;
   ws[0].emit(envelope);
   await slack.pending;
-  assert.equal(ws[0].sent.length, 2);
-  assert.equal(ws[0].sent[1].payload.view.blocks[0].text.text, 'P-0001 is approved: nothing to approve.');
+  assert.deepEqual(ws[0].sent, [{ envelope_id: 'env-9', payload: CHECKING }, { envelope_id: 'env-9', payload: CHECKING }]);
+  assert.deepEqual(fake.calls.filter((c) => c.args[0] === 'V3').map((c) => c.args[1].blocks[0].text.text),
+    ['P-0001 is approved: nothing to approve.', 'P-0001 is approved. This form was already submitted: nothing changed.']);
   await Promise.all([runner.step(), other.step(), runner.step()]);
   await runner.step();
   await other.step();
@@ -511,18 +638,36 @@ function agentStore() {
   return store;
 }
 
-test('the runner posts a pending request in its thread, then shows its outcome and wakes the conversation', async () => {
+const wakes = (store) => store.db.prepare("SELECT payload FROM queue WHERE kind='wake' ORDER BY rowid").all().map((r) => JSON.parse(r.payload).note);
+
+// A stand-in for the asaas tool: answers each verb from a table and records each run.
+function tool(answers) {
+  const runs = [];
+  const run = async (command, args, input) => {
+    runs.push({ command, args, input: JSON.parse(input) });
+    const answer = answers[args[2]];
+    const next = Array.isArray(answer) ? answer.shift() : answer;
+    if (!next) throw new Error(`no stand-in answer for ${args[2]}`);
+    return { stderr: '', ...next, stdout: typeof next.stdout === 'object' ? `${JSON.stringify(next.stdout)}\n` : (next.stdout || '') };
+  };
+  return { runs, run };
+}
+const RESOLVED_KENU = { code: 0, stdout: { name: 'KENU EXAMPLE SILVA', document: '***.123.456-**', bank: 'Nubank', key: 'kenu@example.com', key_type: 'EMAIL', amount_cents: null, fee_cents: null } };
+
+test('the runner resolves a pending request, posts it in its thread, then shows its outcome and wakes the conversation', async () => {
   const { gate } = gateAt('2026-10-15T15:00:00Z');
   gate.saveSettings({ mode: 'case_by_case', limits: {} });
   const row = ask(gate);
   const store = agentStore();
   const slack = fakeSlack();
   const kicked = [];
+  const stand = tool({ resolve: RESOLVED_KENU });
   const runner = createPaymentRunner({
     gate, slack: () => slack.client, store: () => store, providers: ['asaas'], cwd: gate.workspace,
-    run: async () => { throw new Error('not sent'); }, kick: (slug) => kicked.push(slug),
+    run: stand.run, kick: (slug) => kicked.push(slug),
   });
   await runner.step();
+  assert.deepEqual(stand.runs.map((r) => r.args), [['--json', 'pay', 'resolve', 'P-0001']]);
   assert.equal(slack.calls.length, 1);
   const post = slack.calls[0].args[0];
   assert.equal(post.channel, 'C1');
@@ -536,67 +681,180 @@ test('the runner posts a pending request in its thread, then shows its outcome a
   assert.equal(slack.calls[1].method, 'updateMessage');
   assert.equal(slack.calls[1].args[0].ts, '9.1');
   assert.equal(slack.calls[1].args[0].blocks.some((b) => b.type === 'actions'), false);
-  const wake = store.db.prepare("SELECT payload FROM queue WHERE kind='wake'").get();
-  assert.deepEqual(JSON.parse(wake.payload), {
-    note: 'Payment P-0001 was refused by the owner: R$ 10,00 to KENU EXAMPLE SILVA (Pix key kenu@example.com). Nothing was sent.',
-  });
+  assert.deepEqual(wakes(store), ['Payment P-0001 was refused by the owner: R$ 10,00 to KENU EXAMPLE SILVA (Pix key kenu@example.com). Nothing was sent.']);
   assert.deepEqual(kicked, ['sara']);
   await runner.step();
-  assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM queue WHERE kind='wake'").get().n, 1);
+  assert.equal(wakes(store).length, 1);
+});
+
+test('the service resolves the recipient itself: the thread and the panel show what it resolved, the agent\'s words only as a note', async () => {
+  const { gate } = gateAt('2026-10-15T15:00:00Z');
+  gate.setPin(PIN);
+  gate.saveSettings({ mode: 'case_by_case', limits: {} });
+  ask(gate, { recipient: { name: 'KENU EXAMPLE SILVA', key: 'evil@example.com', keyType: 'EMAIL', document: '***.123.456-**', bank: 'Nubank' } });
+  const store = agentStore();
+  const slack = fakeSlack();
+  const stand = tool({ resolve: { code: 0, stdout: { name: 'EVIL CORP LTDA', document: '**.999.999/0001-**', bank: 'Banco Y', key: 'evil@example.com', key_type: 'EMAIL', amount_cents: null, fee_cents: null } } });
+  const runner = createPaymentRunner({ gate, slack: () => slack.client, store: () => store, providers: ['asaas'], cwd: gate.workspace, run: stand.run });
+  await runner.step();
+  assert.deepEqual(stand.runs[0].input.recipient, { name: 'KENU EXAMPLE SILVA', key: 'evil@example.com', key_type: 'EMAIL', document: '***.123.456-**', bank: 'Nubank' });
+  const shown = '*Recipient* EVIL CORP LTDA · **.999.999/0001-** · Banco Y (checked by Ignite through asaas)\n*Pix key* evil@example.com\n*Amount* R$ 10,00\n'
+    + "_The agent's own description, not checked:_ KENU EXAMPLE SILVA · ***.123.456-** · Nubank\n*Agent's note* Owed to Kenu";
+  const post = slack.calls[0].args[0];
+  assert.equal(post.text, 'Payment request P-0001 from sara: R$ 10,00 to EVIL CORP LTDA (pending)');
+  assert.equal(post.blocks[0].text.text, `*Payment request P-0001* from sara\n${shown}`);
+  const { panel, slack: owner } = panelFor(gate);
+  await interact(panel, 'slash_commands', slash());
+  assert.equal(owner.calls[0].args[1].blocks[5].text.text, `*P-0001* from sara: R$ 10,00\n${shown}\nWaits: case by case: every payment waits for the owner`);
+  await interact(panel, 'interactive', action(ACTION.approve, 'P-0001'));
+  assert.equal(owner.calls[1].args[1].blocks[0].text.text, `*P-0001* from sara: R$ 10,00\n${shown}\nWaits: case by case: every payment waits for the owner`);
+});
+
+test('a resolution that differs from the request refuses it and wakes the agent; one that keeps failing posts it unchecked', async () => {
+  const { gate, clock } = gateAt('2026-10-15T15:00:00Z');
+  gate.saveSettings({ mode: 'case_by_case', limits: {} });
+  const line = '23793381286001234107143000012345890460000002000';
+  ask(gate, { method: 'bill', recipient: { name: 'ENEL', key: line }, amountCents: 2000, feeCents: 199 });
+  ask(gate);
+  const store = agentStore();
+  const slack = fakeSlack();
+  const limited = { code: 1, stdout: '', stderr: 'asaas: Asaas rate limit (429)\n  why: too many lookups\n' };
+  const stand = tool({ resolve: [
+    { code: 0, stdout: { name: 'ENEL DISTRIBUICAO', document: null, bank: '237', key: line, key_type: null, amount_cents: 50000, fee_cents: 199 } },
+    limited, limited, limited,
+  ] });
+  const runner = createPaymentRunner({ gate, slack: () => slack.client, store: () => store, providers: ['asaas'], cwd: gate.workspace, run: stand.run, now: () => clock.now });
+  await runner.step();
+  const bill = gate.get('P-0001');
+  assert.equal(bill.state, 'refused');
+  assert.equal(bill.decided_by, 'rule');
+  assert.equal(bill.reason, "Ignite's own check through asaas differs from the request: the amount is R$ 500,00, not R$ 20,00");
+  assert.deepEqual(wakes(store), [`Payment P-0001 was refused: R$ 21,99 to ENEL DISTRIBUICAO (bill line ${line}). Ignite's own check through asaas differs from the request: the amount is R$ 500,00, not R$ 20,00. Nothing was sent.`]);
+  assert.deepEqual(slack.calls, []);
+  clock.now += 30_000;
+  await runner.step();
+  clock.now += 30_000;
+  await runner.step();
+  assert.equal(gate.get('P-0002').resolve_error, 'asaas: Asaas rate limit (429) why: too many lookups');
+  assert.equal(slack.calls.length, 1);
+  assert.equal(slack.calls[0].args[0].blocks[0].text.text, '*Payment request P-0002* from sara\n*Recipient* not checked: Ignite could not read it through asaas '
+    + "(asaas: Asaas rate limit (429) why: too many lookups)\n*Pix key* kenu@example.com\n*Amount* R$ 10,00\n_The agent's own description, not checked:_ KENU EXAMPLE SILVA · ***.123.456-** · Nubank\n*Agent's note* Owed to Kenu");
+  assert.equal(stand.runs.length, 4);
 });
 
 test('the runner sends an approved request with its exact fields, follows it and reports the receipt', async () => {
   const { gate, clock } = gateAt('2026-10-15T15:00:00Z');
   gate.saveSettings({ mode: 'automatic', limits: { day: 5000 } });
-  const row = ask(gate);
+  ask(gate);
   const store = agentStore();
-  const runs = [];
-  const answers = [
-    { code: 0, stdout: '{"provider_id":"tr_1","status":"PENDING","receipt_url":null}\n', stderr: '' },
-    { code: 0, stdout: '{"status":"DONE","final":true,"ok":true,"receipt_url":"https://r.example/1","reason":null}\n', stderr: '' },
-  ];
-  const runner = createPaymentRunner({
-    gate, slack: () => null, store: () => store, providers: ['asaas'], cwd: gate.workspace, now: () => clock.now,
-    run: async (command, args, input) => { runs.push({ command, args, input: JSON.parse(input) }); return answers.shift(); },
+  const stand = tool({
+    execute: { code: 0, stdout: { provider_id: 'tr_1', status: 'PENDING', receipt_url: null } },
+    status: { code: 0, stdout: { provider_id: 'tr_1', status: 'DONE', final: true, ok: true, receipt_url: 'https://r.example/1', reason: null } },
   });
+  const runner = createPaymentRunner({ gate, slack: () => null, store: () => store, providers: ['asaas'], cwd: gate.workspace, now: () => clock.now, run: stand.run });
   await runner.step();
-  assert.deepEqual(runs[0].args, ['--json', 'pay', 'execute', 'P-0001']);
-  assert.deepEqual(runs[0].input, { ...publicRow(gate.get(row.id)), state: 'approved', provider_id: null, provider_status: null });
-  assert.equal(gate.get(row.id).state, 'sent');
-  assert.equal(gate.get(row.id).provider_id, 'tr_1');
+  assert.deepEqual(stand.runs[0].args, ['--json', 'pay', 'execute', 'P-0001']);
+  assert.deepEqual(stand.runs[0].input, {
+    id: 'P-0001', agent: 'sara', conversation: 'T1:C1:1.1', provider: 'asaas', method: 'pix',
+    recipient: { name: 'KENU EXAMPLE SILVA', key: 'kenu@example.com', key_type: 'EMAIL', document: '***.123.456-**', bank: 'Nubank' },
+    amount_cents: 1000, fee_cents: 0, note: 'Owed to Kenu', details: {}, state: 'approved', reason: 'within the limits',
+    decided_by: 'rule', decided_at: at('2026-10-15T15:00:00Z'), resolved: null, resolve_error: null,
+    provider_id: null, provider_status: null, receipt_url: null, created_at: at('2026-10-15T15:00:00Z'),
+  });
+  assert.equal(gate.get('P-0001').state, 'sent');
+  assert.equal(gate.get('P-0001').provider_id, 'tr_1');
   clock.now += 4999;
   await runner.step();
-  assert.equal(runs.length, 1);
+  assert.equal(stand.runs.length, 1);
   clock.now += 1;
   await runner.step();
-  assert.deepEqual(runs[1].args, ['--json', 'pay', 'status', 'P-0001']);
-  assert.equal(runs[1].input.provider_id, 'tr_1');
-  assert.equal(gate.get(row.id).receipt_url, 'https://r.example/1');
-  const wake = store.db.prepare("SELECT payload FROM queue WHERE kind='wake'").get();
-  assert.equal(JSON.parse(wake.payload).note,
-    'Payment P-0001 sent: R$ 10,00 to KENU EXAMPLE SILVA (Pix key kenu@example.com). asaas id tr_1, status DONE, receipt https://r.example/1.');
+  assert.deepEqual(stand.runs[1].args, ['--json', 'pay', 'status', 'P-0001']);
+  assert.equal(stand.runs[1].input.provider_id, 'tr_1');
+  assert.equal(gate.get('P-0001').receipt_url, 'https://r.example/1');
+  assert.deepEqual(wakes(store), ['Payment P-0001 sent: R$ 10,00 to KENU EXAMPLE SILVA (Pix key kenu@example.com). asaas id tr_1, status DONE, receipt https://r.example/1.']);
 });
 
-test('a failed send fails the request; work that no longer waits gets a system message in its thread', async () => {
+test('a send the bank refused fails and frees its amount; work that no longer waits gets a system message in its thread', async () => {
   const { gate } = gateAt('2026-10-15T15:00:00Z');
   gate.saveSettings({ mode: 'automatic', limits: { day: 5000 } });
-  const row = ask(gate);
+  ask(gate);
   const store = agentStore();
   store.stopWork(store.listWork()[0].id);
-  const runner = createPaymentRunner({
-    gate, slack: () => null, store: () => store, providers: ['asaas'], cwd: gate.workspace,
-    run: async () => ({ code: 1, stdout: '', stderr: 'asaas: Asaas answered HTTP 400 on POST /transfers\n  why: invalid_value: Saldo insuficiente\n' }),
-  });
+  const reason = 'Asaas answered HTTP 400 on POST /transfers: invalid_value: Saldo insuficiente';
+  const stand = tool({ execute: { code: 1, stdout: { created: false, reason }, stderr: `asaas: Asaas answered HTTP 400 on POST /transfers\n  why: invalid_value: Saldo insuficiente\n` } });
+  const runner = createPaymentRunner({ gate, slack: () => null, store: () => store, providers: ['asaas'], cwd: gate.workspace, run: stand.run });
   await runner.step();
-  assert.equal(gate.get(row.id).state, 'failed');
-  assert.equal(gate.get(row.id).reason, 'asaas: Asaas answered HTTP 400 on POST /transfers why: invalid_value: Saldo insuficiente');
+  assert.equal(gate.get('P-0001').state, 'failed');
+  assert.equal(gate.get('P-0001').reason, reason);
+  assert.deepEqual(gate.usage(), { day: 0, week: 0, month: 0 });
   const post = store.db.prepare("SELECT id, payload FROM outbox WHERE id LIKE 'post:payment:%'").get();
   assert.equal(post.id, 'post:payment:P-0001:failed');
-  assert.equal(JSON.parse(post.payload).text,
-    'System message: Payment P-0001 failed: R$ 10,00 to KENU EXAMPLE SILVA (Pix key kenu@example.com). asaas: Asaas answered HTTP 400 on POST /transfers why: invalid_value: Saldo insuficiente');
+  assert.equal(JSON.parse(post.payload).text, `System message: Payment P-0001 failed: R$ 10,00 to KENU EXAMPLE SILVA (Pix key kenu@example.com). ${reason}`);
 });
 
-test('a provider with no withdrawal validation is never run, and a send cut off by a stop fails', async () => {
+test('a send whose answer was lost stays uncertain and keeps its reservation until pay status proves the outcome', async () => {
+  const { gate, clock } = gateAt('2026-10-15T15:00:00Z');
+  gate.saveSettings({ mode: 'automatic', limits: { day: 1000 } });
+  ask(gate);
+  const store = agentStore();
+  const stand = tool({
+    execute: { code: 1, stdout: '', stderr: 'asaas: could not reach Asaas (https://api.asaas.com/v3)\n  why: timed out\n' },
+    resolve: RESOLVED_KENU,
+    status: { code: 0, stdout: { provider_id: 'tr_9', status: 'FAILED', final: true, ok: false, receipt_url: null, reason: 'Saldo insuficiente' } },
+  });
+  const runner = createPaymentRunner({ gate, slack: () => null, store: () => store, providers: ['asaas'], cwd: gate.workspace, now: () => clock.now, run: stand.run });
+  await runner.step();
+  const lost = gate.get('P-0001');
+  assert.equal(lost.state, 'uncertain');
+  assert.equal(lost.reason, 'Ignite does not know whether asaas made it: asaas: could not reach Asaas (https://api.asaas.com/v3) why: timed out');
+  assert.deepEqual(gate.usage(), { day: 1000, week: 1000, month: 1000 });
+  assert.equal(ask(gate).reason, 'over the daily limit (R$ 0,00 left of R$ 10,00)');
+  assert.deepEqual(wakes(store), ['Payment P-0001 may have been paid: R$ 10,00 to KENU EXAMPLE SILVA (Pix key kenu@example.com). Ignite does not know whether asaas made it: asaas: could not reach Asaas (https://api.asaas.com/v3) why: timed out. '
+    + 'It counts toward the limits until Ignite reads it at asaas; this conversation hears the outcome. Do not ask again before checking the statement.']);
+  clock.now += 60_000;
+  await runner.step();
+  assert.deepEqual(stand.runs.map((r) => r.args[2]), ['execute', 'resolve']);
+  // Asaas asks about the operation the lost send made; Ignite approves it and learns its id.
+  const body = { type: 'TRANSFER', transfer: { id: 'tr_9', value: 10, externalReference: 'P-0001', bankAccount: { pixAddressKey: 'kenu@example.com' } } };
+  assert.deepEqual(validate(gate, 'asaas', ASAAS, { 'asaas-access-token': TOKEN }, body, TOKEN), { status: 'APPROVED', id: 'P-0001' });
+  clock.now += 60_000;
+  await runner.step();
+  assert.deepEqual(stand.runs[2].args, ['--json', 'pay', 'status', 'P-0001']);
+  assert.equal(stand.runs[2].input.provider_id, 'tr_9');
+  assert.equal(gate.get('P-0001').state, 'failed');
+  assert.equal(gate.get('P-0001').reason, 'Saldo insuficiente');
+  assert.deepEqual(gate.usage(), { day: 0, week: 0, month: 0 });
+});
+
+test('a restart after a claim, a provider id or a withdrawal approval keeps a request uncertain; a found operation becomes sent', async () => {
+  const { gate, clock } = gateAt('2026-10-15T15:00:00Z');
+  gate.saveSettings({ mode: 'automatic', limits: { day: 100000 } });
+  const cut = ask(gate);
+  assert.equal(gate.claim(cut.id), true);
+  assert.deepEqual(gate.interrupted(), [cut.id]);
+  assert.equal(gate.get(cut.id).state, 'uncertain');
+  assert.equal(gate.get(cut.id).reason, 'interrupted: Ignite stopped while sending it, so it may have been paid; it counts toward the limits until Ignite reads it at the provider');
+  const withId = ask(gate);
+  gate.claim(withId.id);
+  gate.sent(withId.id, { providerId: 'tr_2' });
+  assert.equal(gate.failed(withId.id, 'lost').row.state, 'uncertain');
+  const answered = ask(gate, { amountCents: 2000 });
+  gate.claim(answered.id);
+  const body = { type: 'TRANSFER', transfer: { id: 'tr_3', value: 20, externalReference: answered.id, bankAccount: { pixAddressKey: 'kenu@example.com' } } };
+  assert.equal(validate(gate, 'asaas', ASAAS, { 'asaas-access-token': TOKEN }, body, TOKEN).status, 'APPROVED');
+  assert.equal(gate.failed(answered.id, 'the tool crashed').row.state, 'uncertain');
+  assert.deepEqual(gate.usage(), { day: 4000, week: 4000, month: 4000 });
+  const stand = tool({ status: { code: 0, stdout: { provider_id: 'tr_2', status: 'DONE', final: true, ok: true, receipt_url: 'https://r.example/2', reason: null } } });
+  const runner = createPaymentRunner({ gate, slack: () => null, store: () => null, providers: ['asaas'], cwd: gate.workspace, now: () => clock.now, run: stand.run });
+  clock.now += 60_000;
+  await runner.step();
+  assert.deepEqual(stand.runs.map((r) => [r.args[3], r.input.provider_id]), [['P-0002', 'tr_2'], ['P-0003', 'tr_3']]);
+  const found = gate.get(withId.id);
+  assert.deepEqual([found.state, found.provider_id, found.provider_status, found.receipt_url, found.reason], ['sent', 'tr_2', 'DONE', 'https://r.example/2', 'within the limits']);
+  assert.equal(gate.get(cut.id).state, 'uncertain');
+});
+
+test('a provider with no withdrawal validation is never run', async () => {
   const { gate } = gateAt('2026-10-15T15:00:00Z');
   gate.saveSettings({ mode: 'automatic', limits: { day: 5000 } });
   const other = ask(gate, { provider: 'otherbank' });
@@ -607,11 +865,8 @@ test('a provider with no withdrawal validation is never run, and a send cut off 
   });
   await runner.step();
   assert.equal(runs.length, 0);
+  assert.equal(gate.get(other.id).state, 'failed');
   assert.equal(gate.get(other.id).reason, 'Ignite does not send through otherbank: it has no withdrawal validation for it');
-  const cut = ask(gate);
-  assert.equal(gate.claim(cut.id), true);
-  assert.deepEqual(gate.failInterrupted(), [cut.id]);
-  assert.equal(gate.get(cut.id).reason, 'interrupted: Ignite stopped while sending it; check the statement before asking again');
 });
 
 // ───────────────────────────── the withdrawal validation
@@ -636,10 +891,27 @@ async function post(port, body, headers = { 'asaas-access-token': TOKEN }, route
 
 async function listening(gate, token = () => TOKEN) {
   const logs = [];
-  const hook = createWebhook({ gate, token, port: 0, log: (f) => logs.push(f) });
+  const hook = createWebhook({ gate, providers: { asaas: ASAAS }, token, port: 0, log: (f) => logs.push(f) });
   const port = await hook.listen();
   return { hook, port, logs };
 }
+
+test('Asaas lives in its connector: Ignite loads its adapter by name, and its core names no Asaas field', () => {
+  assert.deepEqual([ASAAS.path, ASAAS.header, ASAAS.tokenEnv], ['/asaas/withdrawal-validation', 'asaas-access-token', 'ASAAS_WEBHOOK_TOKEN']);
+  assert.deepEqual(ASAAS.read(transfer()), { method: 'pix', reference: 'P-0001', operationId: 'tr_1', amountCents: 1000, recipientKey: 'kenu@example.com' });
+  assert.throws(() => loadProvider('../asaas'), /^Error: payment provider \.\.\/asaas is not a provider name$/);
+  assert.throws(() => loadProvider('nobank'), /^Error: payment provider nobank has no withdrawal validation at /);
+  for (const file of ['payments.js', 'payment-webhook.js', 'payment-panel.js', 'payment-runner.js', 'config.js', 'daemon.js']) {
+    const source = fs.readFileSync(path.join(__dirname, file), 'utf8');
+    for (const word of ['asaas-access-token', 'ASAAS_WEBHOOK_TOKEN', '/asaas/withdrawal-validation', 'pixAddressKey', 'identificationField', 'externalReference']) {
+      assert.equal(source.includes(word), false, `${file} names ${word}`);
+    }
+  }
+  const panel = fs.readFileSync(path.join(__dirname, 'payment-panel.js'), 'utf8');
+  assert.equal(panel.includes('\\d{4,12}'), false, 'the panel keeps its own PIN pattern');
+  assert.equal(panel.includes("'off', 'automatic', 'case_by_case'"), false, 'the panel keeps its own mode list');
+  assert.equal(panel.includes('needs at least one limit'), false, 'the panel keeps its own no-ceiling rule');
+});
 
 test('the webhook approves the request Ignite sent, from the ledger, within 2 seconds', async () => {
   const { gate } = gateAt('2026-10-15T15:00:00Z');
@@ -650,15 +922,40 @@ test('the webhook approves the request Ignite sent, from the ledger, within 2 se
     assert.equal(answer.status, 200);
     assert.deepEqual(answer.body, { status: 'APPROVED' });
     assert.equal(answer.ms < 2000, true);
-    assert.equal(gate.get('P-0001').answered_operation, 'tr_1');
+    const row = gate.get('P-0001');
+    assert.deepEqual([row.answered_operation, row.answered_cents, row.answered_recipient], ['tr_1', 1000, 'kenu@example.com']);
     assert.deepEqual(logs.at(-1), { event: 'payment-webhook', provider: 'asaas', id: 'P-0001', status: 'APPROVED', reason: null });
-    assert.deepEqual((await post(port, transfer())).body, { status: 'APPROVED' });
   } finally {
     await hook.close();
   }
 });
 
-test('the webhook refuses a wrong amount, a wrong recipient, an unknown or reused reference and a bad token', async () => {
+test('a retry of the approved operation is approved again only with the same id, amount and recipient', async () => {
+  const { gate } = gateAt('2026-10-15T15:00:00Z');
+  sentRequest(gate);
+  const { hook, port } = await listening(gate);
+  const refused = { status: 'REFUSED', refuseReason: 'P-0001 was already approved for operation tr_1; this call differs from it' };
+  try {
+    assert.deepEqual((await post(port, transfer())).body, { status: 'APPROVED' });
+    assert.deepEqual((await post(port, transfer())).body, { status: 'APPROVED' });
+    assert.deepEqual((await post(port, transfer({ value: 10.01 }))).body, refused);
+    assert.deepEqual((await post(port, transfer({ key: 'other@example.com' }))).body, refused);
+    assert.deepEqual((await post(port, transfer({ id: 'tr_2' }))).body, refused);
+    gate.checked('P-0001', { providerStatus: 'FAILED', final: true, ok: false, reason: 'Chave inexistente' });
+    assert.equal(gate.get('P-0001').state, 'failed');
+    assert.deepEqual((await post(port, transfer())).body, { status: 'APPROVED' });
+    assert.deepEqual((await post(port, transfer({ value: 99 }))).body, refused);
+    assert.deepEqual((await post(port, transfer({ key: 'other@example.com', id: 'tr_7' }))).body, refused);
+  } finally {
+    await hook.close();
+  }
+  gate.saveSettings({ mode: 'case_by_case', limits: {} });
+  const withdrawn = ask(gate);
+  gate.cancel(withdrawn.id, 'sara');
+  assert.equal(validate(gate, 'asaas', ASAAS, { 'asaas-access-token': TOKEN }, transfer({ reference: withdrawn.id }), TOKEN).refuseReason, 'P-0002 is cancelled');
+});
+
+test('the webhook refuses a wrong amount, a wrong recipient, an unknown reference and a bad token', async () => {
   const { gate } = gateAt('2026-10-15T15:00:00Z');
   sentRequest(gate);
   const { hook, port } = await listening(gate);
@@ -670,8 +967,6 @@ test('the webhook refuses a wrong amount, a wrong recipient, an unknown or reuse
     assert.deepEqual((await post(port, transfer(), { 'asaas-access-token': 'wrong' })).body, refused('bad token'));
     assert.deepEqual((await post(port, transfer(), {})).body, refused('bad token'));
     assert.deepEqual((await post(port, transfer({ id: 'tr_9' }))).body, refused('P-0001 was sent as operation tr_1, not tr_9'));
-    assert.deepEqual((await post(port, transfer())).body, { status: 'APPROVED' });
-    assert.deepEqual((await post(port, transfer({ id: 'tr_2' }))).body, refused('P-0001 was already used by another operation'));
     assert.equal((await post(port, {}, {}, '/other')).status, 404);
     assert.equal((await post(port, null, {}, '/asaas/withdrawal-validation', 'GET')).status, 405);
   } finally {
@@ -685,12 +980,32 @@ test('the webhook refuses a wrong amount, a wrong recipient, an unknown or reuse
   }
 });
 
+test('the webhook answers within 2 seconds while another connection holds the ledger, refusing with the reason', async () => {
+  const { gate, workspace } = gateAt('2026-10-15T15:00:00Z', scratch(), { busyMs: 500 });
+  sentRequest(gate);
+  const holder = new DatabaseSync(ledgerPath(workspace));
+  holder.exec('PRAGMA busy_timeout=0; BEGIN IMMEDIATE');
+  const { hook, port } = await listening(gate);
+  try {
+    const answer = await post(port, transfer());
+    assert.equal(answer.ms < 2000, true, `answered in ${answer.ms} ms`);
+    assert.deepEqual(answer.body, { status: 'REFUSED', refuseReason: 'the ledger is busy (database is locked): nothing was approved' });
+    holder.exec('ROLLBACK');
+    assert.deepEqual((await post(port, transfer())).body, { status: 'APPROVED' });
+  } finally {
+    holder.close();
+    await hook.close();
+  }
+});
+
 test('a direct API call that skipped the gate is refused, even naming a real request', () => {
   const { gate } = gateAt('2026-10-15T15:00:00Z');
   const headers = { 'asaas-access-token': TOKEN };
-  const check = (body) => validate(gate, 'asaas', headers, body, TOKEN);
-  assert.deepEqual(check(transfer({ reference: null })),
-    { status: 'REFUSED', refuseReason: 'no externalReference: the operation did not pass the payment gate', id: null });
+  const check = (body) => validate(gate, 'asaas', ASAAS, headers, body, TOKEN);
+  assert.deepEqual(check(transfer({ reference: null, id: null })),
+    { status: 'REFUSED', refuseReason: 'the operation names no request and has no id: it did not pass the payment gate', id: null });
+  assert.deepEqual(check(transfer({ reference: null, id: 'tr_5' })),
+    { status: 'REFUSED', refuseReason: 'no request names operation tr_5: it did not pass the payment gate, or Ignite has not recorded its id yet', id: null });
   gate.saveSettings({ mode: 'case_by_case', limits: {} });
   ask(gate);
   assert.equal(check(transfer({ reference: 'P-0001' })).refuseReason, 'P-0001 is pending');
@@ -699,7 +1014,7 @@ test('a direct API call that skipped the gate is refused, even naming a real req
   gate.saveSettings({ mode: 'off', limits: {} });
   ask(gate);
   assert.equal(check(transfer({ reference: 'P-0002' })).refuseReason, 'P-0002 is refused');
-  for (const type of ['PIX_QR_CODE', 'MOBILE_PHONE_RECHARGE', 'PIX_REFUND']) {
+  for (const type of ['PIX_REFUND', 'PAYMENT_SPLIT']) {
     assert.equal(check({ type }).refuseReason, `${type} is not paid through the payment gate`);
   }
 });
@@ -710,9 +1025,34 @@ test('a bill is matched by its line and amount', () => {
   sentRequest(gate, { method: 'bill', recipient: { name: 'ENEL', key: line }, amountCents: 2000, feeCents: 199 });
   const bill = (value, identificationField) => ({ type: 'BILL', bill: { id: 'tr_1', value, identificationField, externalReference: 'P-0001' } });
   const headers = { 'asaas-access-token': TOKEN };
-  assert.equal(validate(gate, 'asaas', headers, bill(21.99, line), TOKEN).refuseReason, 'P-0001 approved R$ 20,00, the operation is R$ 21,99');
-  assert.equal(validate(gate, 'asaas', headers, bill(20, line.replace(/1/g, '7')), TOKEN).refuseReason, 'P-0001 approved another recipient');
-  assert.deepEqual(validate(gate, 'asaas', headers, bill(20, `${line.slice(0, 5)}.${line.slice(5)}`), TOKEN), { status: 'APPROVED', id: 'P-0001' });
+  assert.equal(validate(gate, 'asaas', ASAAS, headers, bill(21.99, line), TOKEN).refuseReason, 'P-0001 approved R$ 20,00, the operation is R$ 21,99');
+  assert.equal(validate(gate, 'asaas', ASAAS, headers, bill(20, line.replace(/1/g, '7')), TOKEN).refuseReason, 'P-0001 approved another recipient');
+  assert.deepEqual(validate(gate, 'asaas', ASAAS, headers, bill(20, `${line.slice(0, 5)}.${line.slice(5)}`), TOKEN), { status: 'APPROVED', id: 'P-0001' });
+});
+
+test('a QR payment and a top-up are matched by the operation id Ignite recorded, and refused until it is recorded', () => {
+  const { gate } = gateAt('2026-10-15T15:00:00Z');
+  gate.saveSettings({ mode: 'automatic', limits: { month: 1_000_000 } });
+  const headers = { 'asaas-access-token': TOKEN };
+  const check = (body) => validate(gate, 'asaas', ASAAS, headers, body, TOKEN);
+  const payload = '00020126580014br.gov.bcb.pix0136a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d520400005303986540535.005802BR5907PADARIA6009SAO PAULO62070503***6304ABCD';
+  const qr = ask(gate, { method: 'qr', recipient: { name: 'PADARIA', key: payload, keyType: 'QR' }, amountCents: 3500 });
+  gate.claim(qr.id);
+  const qrBody = (id, value) => ({ type: 'PIX_QR_CODE', pixQrCode: { id, value, status: 'AWAITING_REQUEST', externalAccount: { name: 'PADARIA', addressKey: 'padaria@example.com' } } });
+  assert.deepEqual(check(qrBody('pq_1', 35)), { status: 'REFUSED',
+    refuseReason: 'no request names operation pq_1: it did not pass the payment gate, or Ignite has not recorded its id yet', id: null });
+  gate.sent(qr.id, { providerId: 'pq_1', providerStatus: 'AWAITING_REQUEST' });
+  assert.equal(check(qrBody('pq_1', 36)).refuseReason, 'P-0001 approved R$ 35,00, the operation is R$ 36,00');
+  assert.deepEqual(check(qrBody('pq_1', 35)), { status: 'APPROVED', id: 'P-0001' });
+  const top = ask(gate, { method: 'recharge', recipient: { key: '11912345678', keyType: 'PHONE' }, amountCents: 2000, note: null });
+  gate.claim(top.id);
+  gate.sent(top.id, { providerId: 'rc_1' });
+  const recharge = (phoneNumber) => ({ type: 'MOBILE_PHONE_RECHARGE', mobilePhoneRecharge: { id: 'rc_1', value: 20, phoneNumber, status: 'PENDING', operatorName: 'Claro' } });
+  assert.equal(check(recharge('11999999999')).refuseReason, 'P-0002 approved another recipient');
+  assert.deepEqual(check(recharge('11912345678')), { status: 'APPROVED', id: 'P-0002' });
+  assert.equal(check(qrBody('pq_1', 35)).status, 'APPROVED');
+  assert.equal(check({ type: 'PIX_QR_CODE', pixQrCode: { id: 'pq_2', value: 35 } }).refuseReason,
+    'no request names operation pq_2: it did not pass the payment gate, or Ignite has not recorded its id yet');
 });
 
 // ───────────────────────────── the ignite payment verbs
@@ -760,6 +1100,8 @@ test('ignite payment request records the request and prints the answer as fixed 
   assert.equal(row.conversation, KEY);
   assert.deepEqual(row.recipient, { name: 'KENU', key: 'kenu@example.com', key_type: 'EMAIL', document: null, bank: null });
   assert.equal(row.amount_cents, 9900);
+  assert.equal(row.resolved, null);
+  assert.equal(row.resolve_error, null);
 });
 
 test('outside a turn, in an unknown conversation or with no payments section, nothing is recorded', () => {
@@ -805,7 +1147,7 @@ test("an agent reads and withdraws only its own pending requests", () => {
   assert.equal(cli(workspace, ['payment', 'list']).out, 'P-0001  pending       R$ 99,00  KENU  (case by case: every payment waits for the owner)\n');
   assert.deepEqual(cli(workspace, ['payment', 'cancel', 'P-0001']), { code: 0, out: 'cancelled P-0001\n' });
   assert.equal(cli(workspace, ['payment', 'cancel', 'P-0001']).err, 'P-0001 is cancelled: only a pending request can be withdrawn');
-  assert.equal(cli(workspace, ['payment', 'list', '--state', 'nope']).err, 'unknown state: nope\nchoose from pending, approved, sent, refused, cancelled, failed\nNothing changed.\nignite payment -h');
+  assert.equal(cli(workspace, ['payment', 'list', '--state', 'nope']).err, 'unknown state: nope\nchoose from pending, approved, sent, uncertain, refused, cancelled, failed\nNothing changed.\nignite payment -h');
 });
 
 (async () => {

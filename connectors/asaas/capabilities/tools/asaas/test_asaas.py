@@ -206,8 +206,8 @@ def main():
     Stub.seen.clear()
     code, out, err = run(work, server, "pix", "decode", "00020126PAYLOAD")
     check("decode posts the payload", Stub.seen and Stub.seen[0]["body"] == {"payload": "00020126PAYLOAD"}, Stub.seen)
-    check("decode prints amount and payable, and that pay does not pay QR codes", code == 0 and "R$ 99,00" in out
-          and "Payable   yes at Asaas; asaas pay does not pay QR codes in this version" in out.splitlines(), out)
+    check("decode prints amount and payable, and the command that pays it", code == 0 and "R$ 99,00" in out
+          and "Payable   yes: asaas pay qr pays it through Ignite's payment gate" in out.splitlines(), out)
 
     code, out, err = run(work, server, "transfer")
     check("an unknown command exits 2", code == 2, err)
@@ -246,7 +246,7 @@ def pay_commands(server, home, work, R, turn, line):
     check("a bill line that is not 47 or 48 digits exits 2", code == 2 and not Stub.seen, err)
     code, out, err = run(work, server, "pay", "pix", "00020126580014br.gov.bcb.pix0136a1b2", "35", "--note", "Bread", extra=turn)
     check("a QR code given as a key is refused as a QR code, before any call", code == 1 and not Stub.seen
-          and "asaas: this is a Pix QR code (copy and paste), not a Pix key" in err and "fix: ask the owner to pay it" in err, err)
+          and "asaas: this is a Pix QR code (copy and paste), not a Pix key" in err and "fix: asaas pay qr PAYLOAD --note TEXT" in err, err)
 
     code, out, err = run(work, server, "pay", "pix", "kenu@example.com", "99", "--note", "Owed to Kenu", extra=turn)
     check("off: the gate refuses and pay exits 1", code == 1 and out.splitlines() == [
@@ -295,9 +295,10 @@ def pay_commands(server, home, work, R, turn, line):
     code, out, err = run(work, server, "pay", "bill", line[:5] + "." + line[5:], "--note", "Electricity", extra=turn)
     sim = [x for x in Stub.seen if x["path"] == "/v3/bill/simulate"]
     row = ledger(home, "P-0006")
-    check("pay bill simulates first and asks the gate for the amount plus the fee",
+    check("pay bill shows the simulated value and fee first, and asks the gate for the amount plus the fee",
           code == 0 and sim and sim[-1]["body"] == {"identificationField": line}
-          and out.splitlines()[:2] == ["Recipient   ENEL DISTRIBUICAO · **.123.456/0001-** · 237", "Amount      R$ 20,00 + fee R$ 1,99"]
+          and out.splitlines()[:3] == ["Simulated   bill R$ 20,00, fee R$ 1,99, due 2026-10-20: R$ 21,99 counts toward the limits",
+                                       "Recipient   ENEL DISTRIBUICAO · **.123.456/0001-** · 237", "Amount      R$ 20,00 + fee R$ 1,99"]
           and row.get("amount_cents") == 2000 and row.get("fee_cents") == 199 and row.get("recipient_key") == line and row.get("method") == "bill", out + err)
 
 
@@ -322,6 +323,57 @@ def pay_commands(server, home, work, R, turn, line):
     R[("DELETE", "/v3/transfers/tr_5/cancel")] = (200, {"id": "tr_5", "status": "CANCELLED"})
     code, out, err = run(work, server, "cancel", "P-0005", extra=turn)
     check("cancel of a sent payment cancels it at Asaas", code == 0 and out.splitlines()[0] == "Cancelled   P-0005 at Asaas (tr_5): CANCELLED", out + err)
+    qr_and_recharge(server, home, work, R, turn)
+
+
+QR = "00020126580014br.gov.bcb.pix0136a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d520400005303986540535.005802BR5907PADARIA6009SAO PAULO62070503***6304ABCD"
+QR_DECODED = {"value": 35.0, "totalValue": 35.0, "canBePaid": True, "canBePaidWithDifferentValue": False,
+              "receiver": {"name": "PADARIA PAO BOM", "cpfCnpj": "**.222.333/0001-**", "ispbName": "Banco Z"}}
+
+
+def qr_and_recharge(server, home, work, R, turn):
+    gate_do(home, "gate.saveSettings({ mode: 'case_by_case', limits: {} });")
+    R[("POST", "/v3/pix/qrCodes/decode")] = (200, QR_DECODED)
+    code, out, err = run(work, server, "pay", "qr", QR, "--note", "Bread", extra=turn)
+    row = ledger(home, "P-0007")
+    check("pay qr decodes the QR code and asks the gate for its amount and receiver", code == 0 and out.splitlines()[:4] == [
+        "Recipient   PADARIA PAO BOM · **.222.333/0001-** · Banco Z",
+        "Amount      R$ 35,00",
+        "State       pending: case by case: every payment waits for the owner",
+        "Request     P-0007, sent to the owner for approval"]
+          and row.get("method") == "qr" and row.get("recipient_key") == QR and row.get("recipient_key_type") == "QR"
+          and row.get("amount_cents") == 3500, out + err + str(row))
+    code, out, err = run(work, server, "pay", "qr", QR, "--amount", "40", "--note", "Bread", extra=turn)
+    check("pay qr refuses an amount the QR code does not allow, and records nothing", code == 1
+          and err.splitlines()[0] == "asaas: this QR code charges R$ 35,00, not R$ 40,00" and not ledger(home, "P-0008"), out + err)
+    R[("POST", "/v3/pix/qrCodes/decode")] = (200, {**QR_DECODED, "value": 0, "totalValue": None})
+    code, out, err = run(work, server, "pay", "qr", QR, "--note", "Bread", extra=turn)
+    check("a QR code with no amount needs --amount", code == 1 and err.splitlines() == [
+        "asaas: this QR code carries no amount", "  why: the payer chooses it", "  fix: asaas pay qr PAYLOAD --amount 35,00 --note TEXT"], err)
+    code, out, err = run(work, server, "--json", "pay", "qr", QR, "--amount", "12,50", "--note", "Bread", extra=turn)
+    check("a QR code with no amount is paid the --amount given", code == 0 and json.loads(out)["amount_cents"] == 1250
+          and json.loads(out)["method"] == "qr", out + err)
+    R[("POST", "/v3/pix/qrCodes/decode")] = (200, {**QR_DECODED, "canBePaid": False, "cannotBePaidReason": "QR Code expirado"})
+    code, out, err = run(work, server, "pay", "qr", QR, "--note", "Bread", extra=turn)
+    check("a QR code Asaas cannot pay is refused with Asaas's reason", code == 1
+          and err.splitlines()[:2] == ["asaas: Asaas cannot pay this QR code", "  why: QR Code expirado"], err)
+    R[("POST", "/v3/pix/qrCodes/decode")] = (200, QR_DECODED)
+    before = len(Stub.seen)
+    code, out, err = run(work, server, "pay", "qr", "kenu@example.com", "--note", "Bread", extra=turn)
+    check("pay qr refuses text that is not a QR code, before any call", code == 2 and "starts with 000201" in err and len(Stub.seen) == before, err)
+    code, out, err = run(work, server, "--json", "pay", "recharge", "+55 (11) 91234-5678", "20", extra=turn)
+    row = ledger(home, "P-0009")
+    check("pay recharge asks the gate for the phone, as 11 digits, and the amount", code == 0 and json.loads(out)["state"] == "pending"
+          and row.get("method") == "recharge" and row.get("recipient_key") == "11912345678" and row.get("recipient_key_type") == "PHONE"
+          and row.get("amount_cents") == 2000 and row.get("note") is None and len(Stub.seen) == before, out + err + str(row))
+    code, out, err = run(work, server, "pay", "recharge", "1234", "20", extra=turn)
+    check("pay recharge refuses a number that is not a mobile number, naming the quoting", code == 2 and err.splitlines()[-1] ==
+          'asaas pay recharge: error: argument phone: a mobile number has 11 digits with its area code, like 11912345678 or "11 91234-5678" (quoted when it has spaces; +55 optional)', err)
+    gate_do(home, "gate.approve('P-0007'); gate.claim('P-0007'); gate.sent('P-0007', { providerId: 'pq_7' });")
+    code, out, err = run(work, server, "cancel", "P-0007", extra=turn)
+    check("cancel refuses a sent QR payment, naming who can cancel it", code == 1 and err.splitlines() == [
+        "asaas: P-0007 is a qr payment Asaas already has", "  why: this tool cancels Pix key transfers and bills only",
+        "  fix: ask the owner to cancel it in the Asaas app while Asaas allows it"] and len(Stub.seen) == before, err)
 
 
 def service_commands(server, home, work, R, turn, line):
@@ -353,11 +405,75 @@ def service_commands(server, home, work, R, turn, line):
     R[("GET", "/v3/transfers/tr_2")] = (200, {"id": "tr_2", "status": "DONE", "transactionReceiptUrl": "https://r.example/2"})
     code, out, err = run(work, server, "--json", "pay", "status", "P-0002", stdin=json.dumps({**request, "state": "sent", "provider_id": "tr_2"}))
     check("pay status reads the operation and calls DONE final", code == 0 and json.loads(out) == {
-        "status": "DONE", "final": True, "ok": True, "receipt_url": "https://r.example/2", "reason": None}, out + err)
+        "provider_id": "tr_2", "status": "DONE", "final": True, "ok": True, "receipt_url": "https://r.example/2", "reason": None}, out + err)
     R[("GET", "/v3/transfers/tr_2")] = (200, {"id": "tr_2", "status": "FAILED", "failReason": "Chave inexistente"})
     code, out, err = run(work, server, "--json", "pay", "status", "P-0002", stdin=json.dumps({**request, "state": "sent", "provider_id": "tr_2"}))
     check("pay status calls FAILED final and not ok, with Asaas's reason", code == 0 and json.loads(out) == {
-        "status": "FAILED", "final": True, "ok": False, "receipt_url": None, "reason": "Chave inexistente"}, out + err)
+        "provider_id": "tr_2", "status": "FAILED", "final": True, "ok": False, "receipt_url": None, "reason": "Chave inexistente"}, out + err)
+    service_new_methods(server, home, work, R, line)
+
+
+def service_new_methods(server, home, work, R, line):
+    base = {"provider": "asaas", "state": "approved", "fee_cents": 0, "details": {}}
+    pix = {**base, "id": "P-0002", "method": "pix", "amount_cents": 7000, "note": "Lunch",
+           "recipient": {"name": "SOMEONE ELSE", "key": "kenu@example.com", "key_type": "EMAIL"}}
+    qr = {**base, "id": "P-0007", "method": "qr", "amount_cents": 3500, "note": "Bread", "recipient": {"name": "PADARIA", "key": QR, "key_type": "QR"}}
+    bill = {**base, "id": "P-0006", "method": "bill", "amount_cents": 2000, "fee_cents": 199, "note": "Electricity",
+            "recipient": {"name": "ENEL", "key": line, "key_type": None}}
+    top = {**base, "id": "P-0009", "method": "recharge", "amount_cents": 2000, "note": None, "recipient": {"key": "11912345678", "key_type": "PHONE"}}
+
+    Stub.seen.clear()
+    resolved = {}
+    for req in (pix, qr, bill, top):
+        code, out, err = run(work, server, "--json", "pay", "resolve", req["id"], stdin=json.dumps({**req, "state": "pending"}))
+        resolved[req["method"]] = json.loads(out) if code == 0 else out + err
+    check("pay resolve reads a Pix key's owner from Asaas, not from the request", resolved["pix"] == {
+        "name": "KENU EXAMPLE SILVA", "document": "***.123.456-**", "bank": "Nubank", "key": "kenu@example.com", "key_type": "EMAIL",
+        "amount_cents": None, "fee_cents": None}, resolved["pix"])
+    check("pay resolve decodes a QR code, with the amount it fixes", resolved["qr"] == {
+        "name": "PADARIA PAO BOM", "document": "**.222.333/0001-**", "bank": "Banco Z", "key": QR, "key_type": "QR",
+        "amount_cents": 3500, "fee_cents": None}, resolved["qr"])
+    check("pay resolve simulates a bill, with its amount and fee", resolved["bill"] == {
+        "name": "ENEL DISTRIBUICAO", "document": "**.123.456/0001-**", "bank": "237", "key": line, "key_type": None,
+        "amount_cents": 2000, "fee_cents": 199}, resolved["bill"])
+    check("pay resolve gives a top-up's phone with no call", resolved["recharge"] == {
+        "name": None, "document": None, "bank": None, "key": "11912345678", "key_type": "PHONE", "amount_cents": None, "fee_cents": None},
+          resolved["recharge"])
+    check("pay resolve calls only lookup, decode and simulate", [(x["method"], x["path"]) for x in Stub.seen] == [
+        ("GET", "/v3/pix/addressKeys/external"), ("POST", "/v3/pix/qrCodes/decode"), ("POST", "/v3/bill/simulate")], Stub.seen)
+
+    R[("POST", "/v3/pix/qrCodes/pay")] = (200, {"id": "pq_1", "status": "AWAITING_REQUEST", "transactionReceiptUrl": None})
+    R[("POST", "/v3/mobilePhoneRecharges")] = (200, {"id": "rc_1", "value": 20, "phoneNumber": "11912345678", "status": "PENDING"})
+    Stub.seen.clear()
+    code, out, err = run(work, server, "--json", "pay", "execute", "P-0007", stdin=json.dumps(qr))
+    check("pay execute pays a QR code with its payload and amount", code == 0 and Stub.seen and Stub.seen[0]["path"] == "/v3/pix/qrCodes/pay"
+          and Stub.seen[0]["body"] == {"qrCode": {"payload": QR}, "value": 35.0, "description": "Bread"}
+          and json.loads(out) == {"provider_id": "pq_1", "status": "AWAITING_REQUEST", "receipt_url": None}, out + err + str(Stub.seen))
+    Stub.seen.clear()
+    code, out, err = run(work, server, "--json", "pay", "execute", "P-0009", stdin=json.dumps(top))
+    check("pay execute tops up the phone with the amount", code == 0 and Stub.seen and Stub.seen[0]["path"] == "/v3/mobilePhoneRecharges"
+          and Stub.seen[0]["body"] == {"value": 20.0, "phoneNumber": "11912345678"} and json.loads(out)["provider_id"] == "rc_1", out + err)
+
+    R[("POST", "/v3/transfers")] = (400, {"errors": [{"code": "invalid_value", "description": "Saldo insuficiente"}]})
+    code, out, err = run(work, server, "--json", "pay", "execute", "P-0002", stdin=json.dumps(pix))
+    check("pay execute says nothing was created when Asaas refuses the transfer", code == 1 and json.loads(out) == {
+        "created": False, "reason": "Asaas answered HTTP 400 on POST /transfers: invalid_value: Saldo insuficiente"}, out + err)
+    R[("POST", "/v3/transfers")] = (502, {"errors": [{"code": "bad_gateway", "description": "upstream"}]})
+    code, out, err = run(work, server, "--json", "pay", "execute", "P-0002", stdin=json.dumps(pix))
+    check("pay execute claims nothing when Asaas's answer leaves the outcome unknown", code == 1 and out == ""
+          and "HTTP 502" in err, out + err)
+    code, out, err = run(work, server, "--json", "pay", "execute", "P-0002", stdin=json.dumps({**pix, "state": "pending"}))
+    check("pay execute says nothing was created for a request it will not send", code == 1 and json.loads(out) == {
+        "created": False, "reason": "P-0002 is pending: only an approved request is sent"}, out + err)
+
+    R[("GET", "/v3/pix/transactions/pq_1")] = (200, {"id": "pq_1", "status": "DONE", "transactionReceiptUrl": "https://r.example/q"})
+    code, out, err = run(work, server, "--json", "pay", "status", "P-0007", stdin=json.dumps({**qr, "state": "sent", "provider_id": "pq_1"}))
+    check("pay status reads a QR payment as a Pix transaction", code == 0 and json.loads(out) == {
+        "provider_id": "pq_1", "status": "DONE", "final": True, "ok": True, "receipt_url": "https://r.example/q", "reason": None}, out + err)
+    R[("GET", "/v3/mobilePhoneRecharges/rc_1")] = (200, {"id": "rc_1", "status": "CANCELLED"})
+    code, out, err = run(work, server, "--json", "pay", "status", "P-0009", stdin=json.dumps({**top, "state": "uncertain", "provider_id": "rc_1"}))
+    check("pay status reads a top-up and calls CANCELLED final and not ok", code == 0 and json.loads(out) == {
+        "provider_id": "rc_1", "status": "CANCELLED", "final": True, "ok": False, "receipt_url": None, "reason": None}, out + err)
 
 
 if __name__ == "__main__":

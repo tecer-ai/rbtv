@@ -167,22 +167,24 @@ The setting applies from the next turn in every conversation of that agent.
 
 ## Payments
 
-The [payment gate](../../../glossary/payment-gate.md)'s service side runs when `config.json` has a `payments` section: `"payments": {}` takes the defaults, port 8787 and the token variable `ASAAS_WEBHOOK_TOKEN`. Add it, then restart the service. Without it, `ignite payment` refuses and `/payments` answers that payments are not set up.
+The [payment gate](../../../glossary/payment-gate.md)'s service side runs when `config.json` has a `payments` section: `"payments": {}` takes the defaults, port 8787, the provider `asaas`, the time zone `America/Sao_Paulo` and the currency `BRL` (keys `webhookPort`, `providers`, `timeZone`, `currency`). Add it, then restart the service; the service reads it at start. Without it, `ignite payment` refuses and `/payments` answers that payments are not set up. A provider whose connector has no withdrawal validation adapter is logged at start as `{ event: 'error', what: 'payment-provider' }`, and Ignite sends nothing through it.
 
 **Owner setup.** Acts only the owner can do:
 
 1. **Slack app** (api.slack.com, the app Ignite runs as): under Slash Commands, create `/payments` (no request URL is needed over Socket Mode); turn Interactivity on (no URL either); reinstall the app if Slack asks.
-2. **Token.** Put `ASAAS_WEBHOOK_TOKEN=<long random value>` in `<installation>/.rbtv/config/env/.env` (or the variable `payments.webhookTokenEnv` names), and the same value in the bank's webhook settings. The service reads it on every call.
+2. **Token.** Put the provider's token variable, `ASAAS_WEBHOOK_TOKEN=<long random value>` for asaas (its adapter names it), in `<installation>/.rbtv/config/env/.env`, and the same value in the bank's webhook settings. The service reads it on every call.
 3. **Bank.** Asaas: User menu > Integrations > Security mechanisms: the withdrawal validation webhook at the public address that reaches `http://127.0.0.1:<port>/asaas/withdrawal-validation`, with the token; the IP whitelist with the server's address; "Evento crítico em requisições de saque" off. The public address (a reverse proxy passing only that path) is installation setup, not part of Ignite.
 4. **PIN and settings.** Run `/payments` in Slack: it asks for a PIN of 4 to 12 digits on first use, then shows the panel. The mode is off until the owner saves settings.
 
-**Inspect.** The ledger is `<installation>/.rbtv/runtime/ignite/payments.sqlite`, table `payments`; the settings and the PIN lockout are its table `gate`. An agent reads its own requests with `ignite payment list` and `ignite payment show <id>`. Read the ledger, never edit it: a row's state decides what the withdrawal validation approves.
+**Inspect.** The ledger is `<installation>/.rbtv/runtime/ignite/payments.sqlite`, table `payments`; the settings (with their revision) and the PIN lockout are its table `gate`; the keys of the owner's handled Slack interactions are its table `interactions`. An agent reads its own requests with `ignite payment list` and `ignite payment show <id>`. Read the ledger, never edit it: a row's state decides what the withdrawal validation approves.
 
 **Forgotten PIN.** Delete `<installation>/.rbtv/config/ignite/payments-pin.json` on the server; the next `/payments` asks for a new one. Five wrong PINs in a row lock every PIN form for 15 minutes; waiting is the only unlock.
 
-**A send cut off by a stop.** A request the service had started sending when it stopped becomes `failed` at the next start, logged as `{ event: 'payments', action: 'interrupted' }`: Ignite cannot know whether the bank received it. Check `asaas statement` before the agent asks again; the withdrawal validation refuses the old operation, since a failed request is never approved.
+**An uncertain request.** A send whose answer was lost (the tool timed out or crashed), a send a stop cut off (logged at the next start as `{ event: 'payments', action: 'interrupted' }`), and any request with an operation id or a withdrawal approval that would otherwise fail become `uncertain`: the money may have left, so the request keeps counting toward the limits and `/payments` lists it. The runner reads it with `pay status` every minute once it has an operation id (its own, or the one the withdrawal validation approved) and makes it `sent`, or `failed` when the bank ended it so. One with no operation id stays uncertain, counted in its own day, week and month; check `asaas statement` before the agent asks again.
 
-**The listener.** `{ event: 'payment-webhook', action: 'listening', port }` at start; `{ event: 'error', what: 'payment-webhook' }` when the port is taken; then no call reaches Ignite and Asaas cancels each operation after three failed calls. Each answer is logged with the request id, `APPROVED` or `REFUSED`, and the reason.
+**The listener.** `{ event: 'payment-webhook', action: 'listening', port }` at start; `{ event: 'error', what: 'payment-webhook' }` when the port is taken; then no call reaches Ignite and Asaas cancels each operation after three failed calls. Each answer is logged with the request id, `APPROVED` or `REFUSED`, and the reason. A ledger another process holds past the service's 500 ms wait is answered `REFUSED` with `the ledger is busy`, and Asaas cancels that operation.
+
+**Slack.** Ignite acknowledges every Socket Mode envelope as it arrives and processes it after. A submitted PIN or settings form shows "Checking…" and then its outcome; a form left on "Checking…" means the outcome update did not reach Slack: reopen `/payments`, which shows the ledger's state. An owner message whose processing fails after its acknowledgement is logged as `event failed after its ack` and is not delivered again by Slack.
 
 ## Known behaviour
 

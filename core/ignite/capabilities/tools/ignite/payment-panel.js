@@ -5,30 +5,36 @@
 // is checked against slack.ownerUserId and slack.team, and anyone else is refused with nothing changed.
 //
 // API
-// createPaymentPanel({ gate, slack, config, log?, kick? }) → { handle(type, payload) }
+// createPaymentPanel({ gate, slack, config, log?, kick? }) → { ack(type, payload), handle(type, payload) }
 //   gate() → the Gate, or null when the config has no payments section; slack() → the Slack client;
 //   config() → Ignite's config; kick() asks the payment runner for a pass (an approval is sent at once).
-//   handle is slack.js connect's onInteraction: → { response?, after? } or null for an envelope that
-//   is not the panel's. response is the ACK's payload (a slash command's reply, a modal's errors or
-//   its next view); after() makes the Slack calls once the ACK is sent.
-//   /payments opens the panel, or the PIN form on first use. Approve opens a PIN form for that
-//   request (on top of the panel, or alone from a thread message); Refuse refuses at once. Change
-//   settings opens the settings form, saved only with the PIN. A wrong PIN is a form error; five in
-//   a row lock every PIN form for 15 minutes (payments.js checkPin).
-// promptBlocks(row) → the blocks of a request's message in its agent's thread: its details, then
-//   Approve and Refuse while it is pending, else its outcome.
+//   ack and handle are slack.js connect's interactions. ack answers at once and touches neither the ledger nor
+//   Slack: a slash command's refusal, a form's field errors (not the owner, the PIN's form, an amount, the mode
+//   rules of payments.js), or, for a form that passes them, a "Checking" view in its place. handle then does the
+//   work and shows it with Slack calls: /payments opens the panel, or the PIN form on first use; Approve opens a
+//   PIN form for that request (on top of the panel, or alone from a thread message); Refuse refuses at once;
+//   Change settings opens the settings form, which carries the settings revision it shows. A submitted form's
+//   checking view becomes its outcome, or the form again with the reason: a wrong PIN, or settings changed
+//   since the form opened. Each approve, refuse and settings interaction is recorded by its key, so a replay
+//   changes nothing. Five wrong PINs in a row lock every PIN form for 15 minutes (payments.js checkPin).
+// promptBlocks(gate, row) → the blocks of a request's message in its agent's thread: the recipient as Ignite
+//   resolved it through the provider, then Approve and Refuse while it is pending, else its outcome.
+//   promptText(gate, row) → that message's text. The agent's own description shows only as a labelled note.
+// interactionKey(payload) → the key an interaction is recorded by: a form's view id and hash, a button's action
+//   time; null when the payload has neither.
 // ACTION, VIEW — the action ids and the view callback ids.
 
-const { brl, parseAmount, PERIODS, ZONE } = require('./payments.js');
+const { parseAmount, canonicalAmount, settingsProblem, PIN_RE, PERIODS } = require('./payments.js');
 
 const ACTION = Object.freeze({ approve: 'payments_approve', refuse: 'payments_refuse', settings: 'payments_settings' });
 const VIEW = Object.freeze({
   panel: 'payments_panel', setPin: 'payments_set_pin', approve: 'payments_approve',
   settings: 'payments_settings', done: 'payments_done',
 });
+const FORMS = Object.freeze([VIEW.setPin, VIEW.approve, VIEW.settings]);
 const PIN_BLOCK = 'payments_pin';
-const PIN_RE = /^\d{4,12}$/;
 const PENDING_SHOWN = 15;
+const NOT_SET_UP = "Payments are not set up here: Ignite's config has no payments section.";
 const MODE_TEXT = {
   off: 'Off: every payment is refused',
   automatic: 'Automatic within the limits',
@@ -36,10 +42,17 @@ const MODE_TEXT = {
 };
 const PERIOD_TEXT = { day: 'Today', week: 'This week', month: 'This month' };
 const LIMIT_LABEL = { day: 'Daily limit', week: 'Weekly limit (weeks start Monday)', month: 'Monthly limit' };
-const TIME = new Intl.DateTimeFormat('en-GB', { timeZone: ZONE, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
-const DAY_TIME = new Intl.DateTimeFormat('en-GB', {
-  timeZone: ZONE, day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-});
+
+const FORMATS = new Map();
+function clock(zone, withDay) {
+  const key = `${zone}|${withDay}`;
+  if (!FORMATS.has(key)) {
+    FORMATS.set(key, new Intl.DateTimeFormat('en-GB', {
+      timeZone: zone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23', ...(withDay ? { day: 'numeric', month: 'short' } : {}),
+    }));
+  }
+  return FORMATS.get(key);
+}
 
 const plain = (text) => ({ type: 'plain_text', text: String(text).slice(0, 150) });
 const section = (text) => ({ type: 'section', text: { type: 'mrkdwn', text: String(text).slice(0, 3000) } });
@@ -57,24 +70,46 @@ function receiptLink(url) {
 function keyLabel(method) {
   if (method === 'pix') return 'Pix key';
   if (method === 'bill') return 'Bill line';
+  if (method === 'qr') return 'QR code';
+  if (method === 'recharge') return 'Phone';
   return 'Recipient key';
 }
 
-function details(row) {
-  const who = [row.recipient_name, row.recipient_document, row.recipient_bank].filter(Boolean).map(esc).join(' · ');
-  const lines = [
-    `*Recipient* ${who || 'not named'}`,
-    `*${keyLabel(row.method)}* ${esc(row.recipient_key)}`,
-    `*Amount* ${brl(row.amount_cents)}${row.fee_cents ? ` + fee ${brl(row.fee_cents)}` : ''}`,
-  ];
-  if (row.note) lines.push(`*Note* ${esc(row.note)}`);
+function who(name, document, bank) {
+  return [name, document, bank].filter(Boolean).map(esc).join(' · ');
+}
+
+// What a request is paid to, as the owner may read it: Ignite's resolution, else the key the money goes to.
+function label(row) {
+  return row.resolved_name || row.recipient_key;
+}
+
+function details(gate, row) {
+  const lines = [];
+  const checked = row.resolved_at != null;
+  if (checked) {
+    lines.push(`*Recipient* ${who(row.resolved_name, row.resolved_document, row.resolved_bank) || 'not named by the bank'} (checked by Ignite through ${esc(row.provider)})`);
+    lines.push(`*${keyLabel(row.method)}* ${esc(row.resolved_key || row.recipient_key)}`);
+  } else {
+    lines.push(row.resolve_error
+      ? `*Recipient* not checked: Ignite could not read it through ${esc(row.provider)} (${esc(row.resolve_error)})`
+      : '*Recipient* not checked by Ignite yet');
+    lines.push(`*${keyLabel(row.method)}* ${esc(row.recipient_key)}`);
+  }
+  lines.push(`*Amount* ${gate.money(row.amount_cents)}${row.fee_cents ? ` + fee ${gate.money(row.fee_cents)}` : ''}`);
+  const told = who(row.recipient_name, row.recipient_document, row.recipient_bank);
+  if (told && (!checked || told !== who(row.resolved_name, row.resolved_document, row.resolved_bank))) {
+    lines.push(`_The agent's own description, not checked:_ ${told}`);
+  }
+  if (row.note) lines.push(`*Agent's note* ${esc(row.note)}`);
   return lines.join('\n');
 }
 
-function outcome(row) {
+function outcome(gate, row) {
   if (row.state === 'pending') return `Waits for you: ${esc(row.reason)}`;
   if (row.state === 'approved') return row.decided_by === 'owner' ? 'Approved by you; Ignite is sending it.' : 'Approved by rule; Ignite is sending it.';
   if (row.state === 'sent') return `Sent: ${esc(row.provider)} id ${esc(row.provider_id)}${row.provider_status ? `, ${esc(row.provider_status)}` : ''} · ${receiptLink(row.receipt_url)}`;
+  if (row.state === 'uncertain') return `Uncertain: ${esc(row.reason)}`;
   if (row.state === 'refused') return row.decided_by === 'owner' ? 'Refused by you.' : `Refused: ${esc(row.reason)}`;
   if (row.state === 'cancelled') return 'Withdrawn by the agent.';
   return `Failed: ${esc(row.reason)}`;
@@ -91,19 +126,19 @@ function buttons(id) {
   };
 }
 
-function promptBlocks(row) {
-  const blocks = [section(`*Payment request ${row.id}* from ${esc(row.agent)}\n${details(row)}`)];
+function promptBlocks(gate, row) {
+  const blocks = [section(`*Payment request ${row.id}* from ${esc(row.agent)}\n${details(gate, row)}`)];
   if (row.state === 'pending') {
     blocks.push(context(`Waits for you: ${esc(row.reason)}`));
     blocks.push(buttons(row.id));
   } else {
-    blocks.push(context(outcome(row)));
+    blocks.push(context(outcome(gate, row)));
   }
   return blocks;
 }
 
-function promptText(row) {
-  return `Payment request ${row.id} from ${row.agent}: ${brl(row.amount_cents)} to ${row.recipient_name || row.recipient_key} (${row.state})`;
+function promptText(gate, row) {
+  return `Payment request ${row.id} from ${row.agent}: ${gate.money(row.amount_cents)} to ${label(row)} (${row.state})`;
 }
 
 function modal(callbackId, title, blocks, { submit = null, close = 'Close', metadata = '' } = {}) {
@@ -138,14 +173,10 @@ function pinInput(label = 'PIN') {
   return textInput(PIN_BLOCK, label, { hint: 'Slack shows what you type: enter it where no one can see.' });
 }
 
-function plainAmount(cents) {
-  return cents == null ? null : brl(cents).replace('R$ ', '');
-}
-
 function panelView(gate) {
   const { mode, limits } = gate.settings();
   const used = gate.usage();
-  const usage = PERIODS.map((p) => `*${PERIOD_TEXT[p]}*\n${brl(used[p])} ${limits[p] == null ? '(no limit)' : `of ${brl(limits[p])}`}`);
+  const usage = PERIODS.map((p) => `*${PERIOD_TEXT[p]}*\n${gate.money(used[p])} ${limits[p] == null ? '(no limit)' : `of ${gate.money(limits[p])}`}`);
   const blocks = [
     section(`*Mode* ${MODE_TEXT[mode]}`),
     { type: 'section', fields: usage.map((text) => ({ type: 'mrkdwn', text })) },
@@ -156,16 +187,24 @@ function panelView(gate) {
   blocks.push(section(`*Pending* (${pending.length})`));
   if (!pending.length) blocks.push(context('No request waits for you.'));
   for (const row of pending.slice(0, PENDING_SHOWN)) {
-    blocks.push(section(`*${row.id}* from ${esc(row.agent)}: ${brl(row.amount_cents + row.fee_cents)}\n${details(row)}\nWaits: ${esc(row.reason)}`));
+    blocks.push(section(`*${row.id}* from ${esc(row.agent)}: ${gate.money(row.amount_cents + row.fee_cents)}\n${details(gate, row)}\nWaits: ${esc(row.reason)}`));
     blocks.push(buttons(row.id));
   }
   if (pending.length > PENDING_SHOWN) blocks.push(context(`${pending.length - PENDING_SHOWN} more wait; act on these first.`));
+  const uncertain = gate.listUncertain();
+  if (uncertain.length) {
+    blocks.push({ type: 'divider' });
+    blocks.push(section(`*Uncertain* (${uncertain.length}): counted in the usage above until Ignite reads them at the bank`));
+    for (const row of uncertain) {
+      blocks.push(context(`${row.id} from ${esc(row.agent)} · ${gate.money(row.amount_cents + row.fee_cents)} to ${esc(label(row))} · ${esc(row.reason)}`));
+    }
+  }
   blocks.push({ type: 'divider' });
   const sent = gate.lastSent(10);
   blocks.push(section('*Last ten sent*'));
   if (!sent.length) blocks.push(context('Nothing sent yet.'));
   for (const row of sent) {
-    blocks.push(context(`${row.id} · ${DAY_TIME.format(new Date(row.sent_at))} · ${brl(row.amount_cents + row.fee_cents)} to ${esc(row.recipient_name || row.recipient_key)} · ${receiptLink(row.receipt_url)}`));
+    blocks.push(context(`${row.id} · ${clock(gate.timeZone, true).format(new Date(row.sent_at))} · ${gate.money(row.amount_cents + row.fee_cents)} to ${esc(label(row))} · ${receiptLink(row.receipt_url)}`));
   }
   return modal(VIEW.panel, 'Payments', blocks);
 }
@@ -178,32 +217,40 @@ function setPinView(next) {
   ], { submit: 'Save PIN', close: 'Cancel', metadata: JSON.stringify(next) });
 }
 
-function approveView(row) {
+function approveView(gate, row, error = null) {
   return modal(VIEW.approve, 'Approve payment', [
-    section(`*${row.id}* from ${esc(row.agent)}: ${brl(row.amount_cents + row.fee_cents)}\n${details(row)}\nWaits: ${esc(row.reason)}`),
+    section(`*${row.id}* from ${esc(row.agent)}: ${gate.money(row.amount_cents + row.fee_cents)}\n${details(gate, row)}\nWaits: ${esc(row.reason)}`),
+    ...(error ? [context(error)] : []),
     pinInput(),
   ], { submit: 'Approve', close: 'Cancel', metadata: row.id });
 }
 
-function settingsView(gate) {
-  const { mode, limits } = gate.settings();
+// The settings form: the saved settings, or the values a refused submission carried, with the revision it shows.
+function settingsView(gate, { mode = null, limits = null, revision = null, error = null } = {}) {
+  const saved = gate.settings();
+  const shown = { mode: mode ?? saved.mode, limits: limits ?? saved.limits, revision: revision ?? saved.revision };
   const options = Object.keys(MODE_TEXT).map((value) => ({ text: plain(MODE_TEXT[value]), value }));
   return modal(VIEW.settings, 'Payment settings', [
+    ...(error ? [context(error)] : []),
     {
       type: 'input',
       block_id: 'payments_mode',
       label: plain('Mode'),
-      element: { type: 'radio_buttons', action_id: 'value', options, initial_option: options.find((o) => o.value === mode) },
+      element: { type: 'radio_buttons', action_id: 'value', options, initial_option: options.find((o) => o.value === shown.mode) },
     },
-    ...PERIODS.map((p) => textInput(`payments_${p}`, `${LIMIT_LABEL[p]}, R$`, {
-      optional: true, initial: plainAmount(limits[p]), hint: 'Blank for no limit. Automatic needs at least one.',
+    ...PERIODS.map((p) => textInput(`payments_${p}`, `${LIMIT_LABEL[p]}, ${gate.currency}`, {
+      optional: true, initial: canonicalAmount(shown.limits[p]), hint: 'Like 1500.00. Blank for no limit; automatic needs at least one.',
     })),
     pinInput(),
-  ], { submit: 'Save', close: 'Cancel' });
+  ], { submit: 'Save', close: 'Cancel', metadata: JSON.stringify({ revision: shown.revision }) });
 }
 
 function doneView(text) {
   return modal(VIEW.done, 'Payments', [section(text)]);
+}
+
+function checkingView() {
+  return modal(VIEW.done, 'Payments', [section('Checking…')]);
 }
 
 function valueOf(view, blockId) {
@@ -213,14 +260,66 @@ function valueOf(view, blockId) {
   return typeof entry.value === 'string' ? entry.value.trim() : null;
 }
 
-function pinError(check) {
+function sentence(text) {
+  return `${text[0].toUpperCase()}${text.slice(1)}.`;
+}
+
+function readLimits(view) {
+  const limits = {};
+  const bad = {};
+  for (const period of PERIODS) {
+    const raw = valueOf(view, `payments_${period}`);
+    if (!raw) { limits[period] = null; continue; }
+    const cents = parseAmount(raw);
+    if (cents == null || cents < 1) bad[`payments_${period}`] = 'Write an amount like 1500.00.';
+    else limits[period] = cents;
+  }
+  return { limits, bad: Object.keys(bad).length ? bad : null };
+}
+
+// A submitted form's problems that need neither the ledger nor the PIN's hash; null when there are none.
+function formProblems(view) {
+  if (view.callback_id === VIEW.setPin) {
+    const pin = valueOf(view, PIN_BLOCK) || '';
+    if (!PIN_RE.test(pin)) return { [PIN_BLOCK]: 'Use 4 to 12 digits.' };
+    if (pin !== valueOf(view, 'payments_pin_again')) return { payments_pin_again: 'The two PINs differ.' };
+    return null;
+  }
+  if (view.callback_id === VIEW.settings) {
+    const { limits, bad } = readLimits(view);
+    if (bad) return bad;
+    const problem = settingsProblem(valueOf(view, 'payments_mode'), limits);
+    return problem ? { [`payments_${problem.field}`]: sentence(problem.message) } : null;
+  }
+  return null;
+}
+
+function revisionOf(view) {
+  try {
+    const revision = JSON.parse(view.private_metadata || '{}').revision;
+    return Number.isSafeInteger(revision) ? revision : -1;
+  } catch {
+    return -1;
+  }
+}
+
+function interactionKey(payload) {
+  if (payload?.type === 'view_submission') {
+    const view = payload.view || {};
+    return view.id && view.hash ? `view:${view.id}:${view.hash}` : null;
+  }
+  const act = payload?.actions?.[0];
+  if (act?.action_ts) return `action:${act.action_ts}:${act.action_id}:${act.value ?? ''}`;
+  return payload?.trigger_id ? `trigger:${payload.trigger_id}` : null;
+}
+
+function pinError(gate, check) {
   if (check.unset) return 'Set a PIN first: open /payments.';
-  if (check.locked) return `Locked after five wrong PINs until ${TIME.format(new Date(check.until))}. Nothing changed.`;
+  if (check.locked) return `Locked after five wrong PINs until ${clock(gate.timeZone, false).format(new Date(check.until))}. Nothing changed.`;
   return `Wrong PIN: ${check.left} ${check.left === 1 ? 'try' : 'tries'} left before PIN forms lock for 15 minutes. Nothing changed.`;
 }
 
-const errors = (fields) => ({ response: { response_action: 'errors', errors: fields } });
-const update = (view, after) => ({ response: { response_action: 'update', view }, ...(after ? { after } : {}) });
+const errors = (fields) => ({ response_action: 'errors', errors: fields });
 
 function createPaymentPanel({ gate, slack, config, log = () => {}, kick = () => {} } = {}) {
   function isOwner(payload) {
@@ -234,136 +333,174 @@ function createPaymentPanel({ gate, slack, config, log = () => {}, kick = () => 
     try { log({ event: 'payments', ...fields }); } catch { /* the panel never fails on a log */ }
   }
 
-  function slash(payload) {
-    if (payload.command !== '/payments') return null;
-    if (!isOwner(payload)) {
-      note({ action: 'refused', who: payload.user_id || null, what: '/payments' });
-      return { response: { text: 'Only the owner can open /payments. Nothing changed.' } };
+  function ack(type, payload = {}) {
+    if (type === 'slash_commands') {
+      if (payload.command !== '/payments') return null;
+      if (!isOwner(payload)) return { text: 'Only the owner can open /payments. Nothing changed.' };
+      return gate() ? null : { text: NOT_SET_UP };
     }
-    const g = gate();
-    if (!g) return { response: { text: "Payments are not set up here: Ignite's config has no payments section." } };
-    const view = g.pinSet() ? panelView(g) : setPinView({ next: 'panel' });
-    return { after: () => slack().openView(payload.trigger_id, view) };
+    if (type !== 'interactive' || payload.type !== 'view_submission') return null;
+    const view = payload.view || {};
+    if (!FORMS.includes(view.callback_id)) return null;
+    if (!isOwner(payload)) return errors({ [PIN_BLOCK]: 'Only the owner can do this. Nothing changed.' });
+    if (!gate()) return errors({ [PIN_BLOCK]: NOT_SET_UP });
+    const problems = formProblems(view);
+    return problems ? errors(problems) : { response_action: 'update', view: checkingView() };
   }
 
-  function action(payload) {
+  async function slash(payload) {
+    if (payload.command !== '/payments') return;
+    if (!isOwner(payload)) {
+      note({ action: 'refused', who: payload.user_id || null, what: '/payments' });
+      return;
+    }
+    const g = gate();
+    if (!g) return;
+    await slack().openView(payload.trigger_id, g.pinSet() ? panelView(g) : setPinView({ next: 'panel' }));
+  }
+
+  async function action(payload) {
     const act = payload.actions?.[0];
-    if (!act || !Object.values(ACTION).includes(act.action_id)) return null;
+    if (!act || !Object.values(ACTION).includes(act.action_id)) return;
     const inModal = Boolean(payload.view?.id);
-    const show = (view) => () => (inModal ? slack().pushView(payload.trigger_id, view) : slack().openView(payload.trigger_id, view));
-    const tell = (text) => async () => {
+    const show = (view) => (inModal ? slack().pushView(payload.trigger_id, view) : slack().openView(payload.trigger_id, view));
+    const tell = async (text) => {
       if (payload.channel?.id) await slack().postEphemeral({ channel: payload.channel.id, user: payload.user?.id, text });
     };
     if (!isOwner(payload)) {
       note({ action: 'refused', who: payload.user?.id || null, what: act.action_id, id: act.value || null });
-      return { after: tell('Only the owner can approve or refuse payments. Nothing changed.') };
+      await tell('Only the owner can approve or refuse payments. Nothing changed.');
+      return;
     }
     const g = gate();
-    if (!g) return { after: tell("Payments are not set up here: Ignite's config has no payments section.") };
+    if (!g) {
+      await tell(NOT_SET_UP);
+      return;
+    }
     if (act.action_id === ACTION.settings) {
-      return { after: show(g.pinSet() ? settingsView(g) : setPinView({ next: 'settings' })) };
+      await show(g.pinSet() ? settingsView(g) : setPinView({ next: 'settings' }));
+      return;
     }
     const row = g.get(act.value);
-    if (!row) return { after: show(doneView(`Unknown request ${esc(act.value)}. Nothing changed.`)) };
-    if (act.action_id === ACTION.approve) {
-      if (row.state !== 'pending') return { after: show(doneView(`${row.id} is ${row.state}: nothing to approve.`)) };
-      return { after: show(g.pinSet() ? approveView(row) : setPinView({ next: 'approve', id: row.id })) };
+    if (!row) {
+      await show(doneView(`Unknown request ${esc(act.value)}. Nothing changed.`));
+      return;
     }
-    const result = g.refuse(row.id);
+    if (act.action_id === ACTION.approve) {
+      if (row.state !== 'pending') await show(doneView(`${row.id} is ${row.state}: nothing to approve.`));
+      else await show(g.pinSet() ? approveView(g, row) : setPinView({ next: 'approve', id: row.id }));
+      return;
+    }
+    const result = g.refuse(row.id, { interaction: interactionKey(payload) });
     if (result.changed) note({ action: 'refuse', id: row.id });
-    return {
-      after: async () => {
-        kick();
-        if (inModal) await slack().updateView(payload.view.id, panelView(g));
-        else if (!result.changed) await tell(`${row.id} is ${result.row.state}: nothing changed.`)();
-      },
-    };
+    kick();
+    if (inModal) await slack().updateView(payload.view.id, panelView(g));
+    else if (!result.changed) {
+      await tell(result.replay ? `${row.id}: this click was already handled. Nothing changed.` : `${row.id} is ${result.row.state}: nothing changed.`);
+    }
   }
 
   function refreshRoot(g, view) {
     const root = view?.root_view_id;
-    return root && root !== view.id ? () => slack().updateView(root, panelView(g)) : null;
+    return root && root !== view.id ? slack().updateView(root, panelView(g)) : null;
   }
 
-  function submit(payload) {
+  // A form that passed ack: its checking view becomes the outcome.
+  async function submit(payload) {
     const view = payload.view || {};
-    if (![VIEW.setPin, VIEW.approve, VIEW.settings].includes(view.callback_id)) return null;
+    if (!FORMS.includes(view.callback_id)) return;
     if (!isOwner(payload)) {
       note({ action: 'refused', who: payload.user?.id || null, what: view.callback_id });
-      return errors({ [PIN_BLOCK]: 'Only the owner can do this. Nothing changed.' });
+      return;
     }
     const g = gate();
-    if (!g) return errors({ [PIN_BLOCK]: "Payments are not set up here: Ignite's config has no payments section." });
+    if (!g || formProblems(view)) return;
+    const put = (next) => slack().updateView(view.id, next);
     const pin = valueOf(view, PIN_BLOCK) || '';
-
-    if (view.callback_id === VIEW.setPin) {
-      if (g.pinSet()) return errors({ [PIN_BLOCK]: 'The PIN is already set. Nothing changed.' });
-      if (!PIN_RE.test(pin)) return errors({ [PIN_BLOCK]: 'Use 4 to 12 digits.' });
-      if (pin !== valueOf(view, 'payments_pin_again')) return errors({ payments_pin_again: 'The two PINs differ.' });
-      g.setPin(pin);
-      note({ action: 'pin-set' });
-      let next = {};
-      try { next = JSON.parse(view.private_metadata || '{}'); } catch { /* the panel */ }
-      const row = next.id ? g.get(next.id) : null;
-      if (next.next === 'approve' && row?.state === 'pending') return update(approveView(row));
-      if (next.next === 'settings') return update(settingsView(g));
-      return update(panelView(g));
+    const interaction = interactionKey(payload);
+    try {
+      if (view.callback_id === VIEW.setPin) await submitPin(g, view, pin, put);
+      else if (view.callback_id === VIEW.approve) await submitApprove(g, view, pin, interaction, put);
+      else await submitSettings(g, view, pin, interaction, put);
+    } catch (error) {
+      note({ action: 'failed', what: view.callback_id, message: error.message });
+      await put(doneView(`Ignite could not do this: ${esc(error.message)}. Nothing changed; try again.`));
     }
+  }
 
-    if (view.callback_id === VIEW.approve) {
-      const row = g.get(view.private_metadata);
-      if (!row || row.state !== 'pending') {
-        return update(doneView(row ? `${row.id} is ${row.state}: nothing to approve.` : 'Unknown request. Nothing changed.'), refreshRoot(g, view));
-      }
-      const check = g.checkPin(pin);
-      if (!check.ok) {
-        note({ action: 'pin-refused', id: row.id, locked: Boolean(check.locked) });
-        return errors({ [PIN_BLOCK]: pinError(check) });
-      }
-      const result = g.approve(row.id);
-      if (!result.changed) return update(doneView(`${row.id} is ${result.row.state}: nothing to approve.`), refreshRoot(g, view));
-      note({ action: 'approve', id: row.id });
-      const root = refreshRoot(g, view);
-      return update(
-        doneView(`Approved ${row.id}: ${brl(row.amount_cents + row.fee_cents)} to ${esc(row.recipient_name || row.recipient_key)}. Ignite is sending it now; the result arrives in ${esc(row.agent)}'s thread.`),
-        async () => { kick(); if (root) await root(); },
-      );
+  async function submitPin(g, view, pin, put) {
+    if (g.pinSet()) {
+      await put(doneView('The PIN is already set. Nothing changed.'));
+      return;
     }
+    g.setPin(pin);
+    note({ action: 'pin-set' });
+    let next = {};
+    try { next = JSON.parse(view.private_metadata || '{}'); } catch { /* the panel */ }
+    const row = next.id ? g.get(next.id) : null;
+    if (next.next === 'approve' && row?.state === 'pending') await put(approveView(g, row));
+    else if (next.next === 'settings') await put(settingsView(g));
+    else await put(panelView(g));
+  }
 
+  async function submitApprove(g, view, pin, interaction, put) {
+    const result = g.approveWithPin(view.private_metadata, pin, { interaction });
+    const row = result.row;
+    if (result.replay) {
+      await put(doneView(`${row ? `${row.id} is ${row.state}. ` : ''}This form was already submitted: nothing changed.`));
+      return;
+    }
+    if (result.pin) {
+      note({ action: 'pin-refused', id: row.id, locked: Boolean(result.pin.locked) });
+      await put(approveView(g, row, pinError(g, result.pin)));
+      return;
+    }
+    if (!result.changed) {
+      await put(doneView(row ? `${row.id} is ${row.state}: nothing to approve.` : 'Unknown request. Nothing changed.'));
+      await refreshRoot(g, view);
+      return;
+    }
+    note({ action: 'approve', id: row.id });
+    await put(doneView(`Approved ${row.id}: ${g.money(row.amount_cents + row.fee_cents)} to ${esc(label(row))}. Ignite is sending it now; the result arrives in ${esc(row.agent)}'s thread.`));
+    kick();
+    await refreshRoot(g, view);
+  }
+
+  async function submitSettings(g, view, pin, interaction, put) {
     const mode = valueOf(view, 'payments_mode');
-    const limits = {};
-    const bad = {};
-    for (const period of PERIODS) {
-      const raw = valueOf(view, `payments_${period}`);
-      if (!raw) { limits[period] = null; continue; }
-      const cents = parseAmount(raw);
-      if (cents == null || cents < 1) bad[`payments_${period}`] = 'Write an amount in reais, like 150 or 150,00.';
-      else limits[period] = cents;
+    const { limits } = readLimits(view);
+    const revision = revisionOf(view);
+    const result = g.saveSettingsWithPin({ mode, limits, revision }, pin, { interaction });
+    if (result.replay) {
+      await put(doneView('This form was already submitted: nothing changed.'));
+      return;
     }
-    if (Object.keys(bad).length) return errors(bad);
-    if (!['off', 'automatic', 'case_by_case'].includes(mode)) return errors({ payments_mode: 'Choose a mode.' });
-    if (mode === 'automatic' && PERIODS.every((p) => limits[p] == null)) {
-      return errors({ payments_mode: 'Automatic needs at least one limit: set a daily, weekly or monthly limit.' });
+    if (result.stale) {
+      note({ action: 'settings-stale', revision });
+      await put(doneView('The settings changed after this form was opened. Nothing changed: open Change settings again to see them.'));
+      await refreshRoot(g, view);
+      return;
     }
-    const check = g.checkPin(pin);
-    if (!check.ok) {
-      note({ action: 'pin-refused', what: 'settings', locked: Boolean(check.locked) });
-      return errors({ [PIN_BLOCK]: pinError(check) });
+    if (result.pin) {
+      note({ action: 'pin-refused', what: 'settings', locked: Boolean(result.pin.locked) });
+      await put(settingsView(g, { mode, limits, revision, error: pinError(g, result.pin) }));
+      return;
     }
-    const saved = g.saveSettings({ mode, limits });
-    note({ action: 'settings', mode: saved.mode, limits: saved.limits });
-    const set = PERIODS.filter((p) => saved.limits[p] != null).map((p) => `${PERIOD_TEXT[p].toLowerCase()} ${brl(saved.limits[p])}`);
-    return update(doneView(`Saved: ${MODE_TEXT[saved.mode]}${set.length ? `; limits ${set.join(', ')}` : '; no limit'}.`), refreshRoot(g, view));
+    const saved = result.saved;
+    note({ action: 'settings', mode: saved.mode, limits: saved.limits, revision: saved.revision });
+    const set = PERIODS.filter((p) => saved.limits[p] != null).map((p) => `${PERIOD_TEXT[p].toLowerCase()} ${g.money(saved.limits[p])}`);
+    await put(doneView(`Saved: ${MODE_TEXT[saved.mode]}${set.length ? `; limits ${set.join(', ')}` : '; no limit'}.`));
+    await refreshRoot(g, view);
   }
 
   async function handle(type, payload = {}) {
     if (type === 'slash_commands') return slash(payload);
     if (type === 'interactive' && payload.type === 'block_actions') return action(payload);
     if (type === 'interactive' && payload.type === 'view_submission') return submit(payload);
-    return null;
+    return undefined;
   }
 
-  return { handle };
+  return { ack, handle };
 }
 
-module.exports = { createPaymentPanel, promptBlocks, promptText, ACTION, VIEW, PIN_BLOCK };
+module.exports = { createPaymentPanel, promptBlocks, promptText, interactionKey, ACTION, VIEW, PIN_BLOCK };

@@ -10,13 +10,14 @@
 //   throws unless botUserId and botId are both set. mentionsBot: <@botUserId> outside `code`
 //   and ```fences```. isBotOrSelf: user === botUserId, OR bot_id === botId (a different bot_id
 //   is not self), OR subtype message_changed / message_deleted / channel_join / group_join.
-// connect(onEvent, onInteraction?): Socket Mode via app token. An events_api envelope is ACKed only
-//   after onEvent resolves; no ACK if it rejects. Backoff 1s→60s, reset only on hello. disconnect
-//   envelopes close and reconnect. A slash_commands or interactive envelope (block_actions,
-//   view_submission, ...) is ACKed within ackMs (config, 2500 by default; Slack waits 3 s):
-//   onInteraction(type, payload) → { response?, after? } may answer first, and its response is the
-//   ACK's payload when the envelope accepts one; after() runs once the ACK is sent. A handler slower
-//   than ackMs, or one that throws, gets a bare ACK. Every other envelope with an id is ACKed at once.
+// connect(onEvent, interactions?): Socket Mode via app token. Every envelope with an id is ACKed the
+//   moment it arrives, before and apart from its processing, which then runs on its own after the socket
+//   has handled what else arrived: an events_api message or app_mention goes to onEvent, a slash_commands
+//   or interactive envelope (block_actions, view_submission, ...) to interactions. interactions is
+//   { ack?(type, payload), handle(type, payload) } or a handle function. ack runs first and synchronously and
+//   returns the ACK's payload (a slash command's reply, a modal's errors or its next view) or null; it must
+//   not wait on anything, and one that throws gives a bare ACK. A failing onEvent or handle is logged; the
+//   ACK has already gone. Backoff 1s→60s, reset only on hello. disconnect envelopes close and reconnect.
 //   A payload is never logged: it may hold a PIN.
 // postMessage({ channel, threadTs?, text, clientMsgId?, as? }) → { channel, ts }  (standard Markdown)
 //   as = { name?, avatar? }: the agent shown as sender (chat:write.customize). avatar `:emoji:` is
@@ -161,8 +162,7 @@ class Slack {
     this.identity = null;
     this.pending = Promise.resolve();
     this.onEvent = null;
-    this.onInteraction = null;
-    this.ackMs = config.ackMs ?? 2500;
+    this.interactions = null;
   }
 
   async api(method, body = {}, token = this.config.botToken, { signal } = {}) {
@@ -398,13 +398,14 @@ class Slack {
     return { viewId: data.view?.id || viewId };
   }
 
-  async connect(onEvent, onInteraction = null) {
+  async connect(onEvent, interactions = null) {
     if (typeof onEvent !== 'function') throw new Error('connect requires onEvent');
     if (!this.config.appToken) throw new Error('connect requires appToken');
     if (!this.WebSocket) throw new Error('WebSocket is unavailable');
     this.stopped = false;
     this.onEvent = onEvent;
-    this.onInteraction = typeof onInteraction === 'function' ? onInteraction : null;
+    if (typeof interactions === 'function') this.interactions = { handle: interactions };
+    else this.interactions = typeof interactions?.handle === 'function' ? interactions : null;
     await this.auth();
     await this.openSocket();
   }
@@ -424,26 +425,39 @@ class Slack {
     socket.addEventListener('error', (error) => this.log('warn', error?.message || 'socket error'));
   }
 
-  async handleFrame(raw, socket) {
+  // Acks at once, then hands the envelope to its processing on a later turn of the event loop.
+  handleFrame(raw, socket) {
     let envelope;
-    try { envelope = JSON.parse(String(raw)); } catch { return; }
+    try { envelope = JSON.parse(String(raw)); } catch { return Promise.resolve(); }
     if (envelope.type === 'disconnect') {
       socket.close();
-      return;
+      return Promise.resolve();
     }
     if (envelope.type === 'hello') {
       this.retryMs = 1000;
+      return Promise.resolve();
+    }
+    const interactive = envelope.type === 'slash_commands' || envelope.type === 'interactive';
+    const payload = envelope.payload || {};
+    let response = null;
+    if (interactive && typeof this.interactions?.ack === 'function') {
+      try { response = this.interactions.ack(envelope.type, payload) || null; } catch (error) {
+        this.log('error', `interaction ack failed: ${error.message}`);
+      }
+    }
+    this.ack(envelope, socket, response);
+    return new Promise((resolve) => setImmediate(resolve)).then(() => this.process(envelope.type, interactive, payload));
+  }
+
+  async process(type, interactive, payload) {
+    if (interactive) {
+      if (!this.interactions) return;
+      try { await this.interactions.handle(type, payload); } catch (error) { this.log('error', `interaction failed: ${error.message}`); }
       return;
     }
-    if (envelope.type === 'slash_commands' || envelope.type === 'interactive') {
-      await this.answerInteraction(envelope, socket);
-      return;
-    }
-    const event = envelope.payload?.event;
-    const deliver = envelope.type === 'events_api' && event &&
-      (event.type === 'message' || event.type === 'app_mention');
-    if (deliver) await this.onEvent(normalize(event, this.identity));
-    this.ack(envelope, socket);
+    const event = payload.event;
+    if (type !== 'events_api' || !event || (event.type !== 'message' && event.type !== 'app_mention')) return;
+    try { await this.onEvent(normalize(event, this.identity)); } catch (error) { this.log('error', `event failed after its ack: ${error.message}`); }
   }
 
   ack(envelope, socket, payload) {
@@ -451,32 +465,6 @@ class Slack {
     const body = { envelope_id: envelope.envelope_id };
     if (payload && envelope.accepts_response_payload !== false) body.payload = payload;
     socket.send(JSON.stringify(body));
-  }
-
-  // The ACK goes out within ackMs whatever the handler does; its slow work runs after the ACK.
-  async answerInteraction(envelope, socket) {
-    const handled = this.onInteraction
-      ? Promise.resolve().then(() => this.onInteraction(envelope.type, envelope.payload || {}))
-        .catch((error) => { this.log('error', `interaction failed: ${error.message}`); return null; })
-      : Promise.resolve(null);
-    let timer;
-    const late = Symbol('late');
-    const budget = new Promise((resolve) => {
-      timer = setTimeout(() => resolve(late), this.ackMs);
-      timer.unref?.();
-    });
-    const first = await Promise.race([handled, budget]);
-    clearTimeout(timer);
-    if (first === late) {
-      this.ack(envelope, socket);
-      this.log('warn', `interaction answered after ${this.ackMs} ms: acknowledged without a response`);
-    } else {
-      this.ack(envelope, socket, first?.response);
-    }
-    const result = first === late ? await handled : first;
-    if (typeof result?.after === 'function') {
-      try { await result.after(); } catch (error) { this.log('error', `interaction follow-up failed: ${error.message}`); }
-    }
   }
 
   reconnect() {

@@ -19,7 +19,7 @@ const { writeBoard, closeSubject, boardPath, preflightBoard, refreshBoard, refre
 const { workspaceFromHome, remember } = require('./memory.js');
 const { PAGES, helpPage } = require('./help.js');
 const live = require('./live-status.js');
-const { Gate, STATES, publicRow, brl } = require('./payments.js');
+const { Gate, STATES, publicRow, formatMoney } = require('./payments.js');
 
 const COMMANDS = ['schedule', 'schedules-due', 'work', 'wake', 'post', 'status', 'payment', 'board', 'remember', 'runtime'];
 const REPORTS = new Set(['always', 'when-useful']);
@@ -706,13 +706,13 @@ function paymentRequest(raw) {
   };
 }
 
-function paymentLines(row) {
+function paymentLines(row, money) {
   const r = row.recipient;
   return [
     `${row.id}  ${row.state}${row.reason ? `: ${row.reason}` : ''}`,
     `Recipient  ${[r.name, r.document, r.bank].filter(Boolean).join(' · ') || '-'}`,
     `Key        ${r.key}${r.key_type ? ` (${r.key_type})` : ''}`,
-    `Amount     ${brl(row.amount_cents)}${row.fee_cents ? ` + fee ${brl(row.fee_cents)}` : ''}`,
+    `Amount     ${money(row.amount_cents)}${row.fee_cents ? ` + fee ${money(row.fee_cents)}` : ''}`,
     `Note       ${row.note || '-'}`,
     `Provider   ${row.provider} ${row.method}, id ${row.provider_id || '-'}${row.provider_status ? ` (${row.provider_status})` : ''}, receipt ${row.receipt_url || '-'}`,
   ].join('\n');
@@ -722,7 +722,9 @@ function cmdPayment(rest, ctx, flags, deps, { opts, positionals }) {
   if (!ctx.config || !paymentsConfig(ctx.config)) {
     fail("payments are not set up in this installation: Ignite's config has no payments section\nNothing changed.");
   }
-  const gate = new Gate({ workspace: ctx.config.workspace, now: deps.now });
+  const settings = paymentsConfig(ctx.config);
+  const gate = new Gate({ workspace: ctx.config.workspace, now: deps.now, timeZone: settings.timeZone, currency: settings.currency });
+  const money = (cents) => formatMoney(cents, settings.currency);
   try {
     const action = rest[0];
     if (action === 'request') {
@@ -736,7 +738,7 @@ function cmdPayment(rest, ctx, flags, deps, { opts, positionals }) {
     if (action === 'list') {
       const rows = gate.list({ agent: ctx.slug, state: opts.state || null, limit: 20 }).map(publicRow);
       emit(deps, flags, { payments: rows }, rows.length
-        ? `${rows.map((row) => `${row.id}  ${row.state.padEnd(9)} ${brl(row.amount_cents + row.fee_cents).padStart(12)}  ${row.recipient.name || row.recipient.key}${row.reason ? `  (${row.reason})` : ''}`).join('\n')}\n`
+        ? `${rows.map((row) => `${row.id}  ${row.state.padEnd(9)} ${money(row.amount_cents + row.fee_cents).padStart(12)}  ${row.recipient.name || row.recipient.key}${row.reason ? `  (${row.reason})` : ''}`).join('\n')}\n`
         : 'no payment requests\n');
       return 0;
     }
@@ -745,7 +747,7 @@ function cmdPayment(rest, ctx, flags, deps, { opts, positionals }) {
       const row = gate.get(id);
       if (!row || row.agent !== ctx.slug) fail(`unknown payment request: ${id}\nNothing changed.\nignite payment list`);
       const out = publicRow(row);
-      emit(deps, flags, out, `${paymentLines(out)}\n`);
+      emit(deps, flags, out, `${paymentLines(out, money)}\n`);
       return 0;
     }
     const { row } = gate.cancel(id, ctx.slug);

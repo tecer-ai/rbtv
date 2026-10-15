@@ -2,62 +2,48 @@
 
 // The withdrawal validation: before money leaves the account, the bank asks Ignite whether the
 // operation is one the payment gate approved. The waking service answers from the ledger alone, never
-// from a model and never over the network, so it answers in milliseconds.
+// from a model and never over the network. Bank-neutral: each bank's half (where it calls, the token's
+// header and variable, how its body reads) is a provider adapter in that bank's connector.
 //
 // API
-// PROVIDERS — the providers Ignite sends through, each with its webhook path and the reading of its
-//   validation body. asaas: POST /asaas/withdrawal-validation, token in the asaas-access-token header.
-//   Asaas accepts our request id as externalReference on transfers (Pix key) and bill payments only, so
-//   TRANSFER and BILL are matched; any other type (PIX_QR_CODE, MOBILE_PHONE_RECHARGE, PIX_REFUND,
-//   PAYMENT_SPLIT) carries no request id and is refused.
-// readAsaas(body) → { method, reference, operationId, amountCents, recipientKey } | { refuse: reason }
-// validate(gate, provider, headers, body, token) → { status: 'APPROVED' } | { status: 'REFUSED', refuseReason }
-//   REFUSED unless the token is configured and the header equals it, the body is the provider's
-//   validation of a gated method, and gate.answer approves it (payments.js: the request the reference
-//   names, sent by Ignite, not answered for another operation, same amount, same recipient).
-// createWebhook({ gate, token, port, host?, log? }) → { listen() → Promise<port>, close() → Promise }
-//   An HTTP listener on host (127.0.0.1) and port; token() → the configured token or null. A request
-//   to a path no provider owns gets 404, another method 405, a body over 64 KB or not read within
-//   1.5 s is refused. Each answer is logged as { event: 'payment-webhook', id, status, reason }.
+// loadProvider(name, { root? }) → the provider's adapter { path, header, tokenEnv, read(body) }, required from
+//   <root>/connectors/<name>/capabilities/tools/<name>/lib/withdrawal-validation.js, root being this repository.
+//   read(body) → { method, reference, operationId, amountCents, recipientKey } | { refuse: reason }. Throws for a
+//   name that is not a slug, an absent file, or an adapter of another shape.
+// validate(gate, provider, adapter, headers, body, token) → { status: 'APPROVED', id } | { status: 'REFUSED', refuseReason, id }
+//   REFUSED unless the token is configured and the adapter's header equals it, the adapter reads the body as an
+//   operation, and gate.answer approves it (payments.js). A ledger still busy after the gate's bounded wait is
+//   REFUSED with that reason, so the answer never waits on another process.
+// createWebhook({ gate, providers, token, port, host?, log? }) → { listen() → Promise<port>, close() → Promise }
+//   providers: { name: adapter }; token(name) → that provider's configured token or null. An HTTP listener on
+//   host (127.0.0.1) and port. A path no provider owns gets 404, another method 405; a body over 64 KB or not read
+//   within 1 s is refused. Each answer is logged as { event: 'payment-webhook', provider, id, status, reason }.
 
 const http = require('node:http');
+const path = require('node:path');
 const crypto = require('node:crypto');
 
 const MAX_BODY = 64 * 1024;
-const READ_MS = 1_500;
+const READ_MS = 1_000;
+const REPO = path.resolve(__dirname, '..', '..', '..', '..', '..');
+const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-function cents(value) {
-  return typeof value === 'number' && Number.isFinite(value) ? Math.round(value * 100) : null;
-}
-
-function readAsaas(body) {
-  const type = body?.type;
-  if (type === 'TRANSFER') {
-    const op = body.transfer || {};
-    return {
-      method: 'pix',
-      reference: op.externalReference || null,
-      operationId: op.id == null ? null : String(op.id),
-      amountCents: cents(op.value),
-      recipientKey: op.bankAccount?.pixAddressKey || null,
-    };
+function loadProvider(name, { root = REPO } = {}) {
+  if (typeof name !== 'string' || !SLUG.test(name)) throw new Error(`payment provider ${name} is not a provider name`);
+  const file = path.join(root, 'connectors', name, 'capabilities', 'tools', name, 'lib', 'withdrawal-validation.js');
+  let adapter;
+  try {
+    adapter = require(file);
+  } catch (error) {
+    throw new Error(`payment provider ${name} has no withdrawal validation at ${file}: ${error.message}`);
   }
-  if (type === 'BILL') {
-    const op = body.bill || {};
-    return {
-      method: 'bill',
-      reference: op.externalReference || null,
-      operationId: op.id == null ? null : String(op.id),
-      amountCents: cents(op.value),
-      recipientKey: op.identificationField || null,
-    };
-  }
-  return { refuse: `${type || 'an operation with no type'} is not paid through the payment gate` };
+  const ok = adapter && typeof adapter.path === 'string' && adapter.path.startsWith('/')
+    && typeof adapter.header === 'string' && adapter.header === adapter.header.toLowerCase()
+    && typeof adapter.tokenEnv === 'string' && ENV_NAME.test(adapter.tokenEnv) && typeof adapter.read === 'function';
+  if (!ok) throw new Error(`payment provider ${name}: ${file} must export path, header (lowercase), tokenEnv and read(body)`);
+  return adapter;
 }
-
-const PROVIDERS = Object.freeze({
-  asaas: { path: '/asaas/withdrawal-validation', header: 'asaas-access-token', read: readAsaas },
-});
 
 function sameToken(given, wanted) {
   const a = Buffer.from(String(given ?? ''), 'utf8');
@@ -65,21 +51,30 @@ function sameToken(given, wanted) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-function validate(gate, provider, headers, body, token) {
-  const spec = PROVIDERS[provider];
+function busy(error) {
+  return error?.errcode === 5 || error?.errcode === 6 || /database is (locked|busy)/i.test(String(error?.message));
+}
+
+function validate(gate, provider, adapter, headers, body, token) {
   const refused = (refuseReason, id = null) => ({ status: 'REFUSED', refuseReason, id });
-  if (!spec) return refused(`unknown provider ${provider}`);
+  if (!adapter) return refused(`unknown provider ${provider}`);
   if (!token) return refused('the webhook token is not configured in Ignite');
-  if (!sameToken(headers?.[spec.header], token)) return refused('bad token');
-  const op = spec.read(body);
+  if (!sameToken(headers?.[adapter.header], token)) return refused('bad token');
+  const op = adapter.read(body);
   if (op.refuse) return refused(op.refuse);
-  const answer = gate.answer({ provider, ...op });
+  let answer;
+  try {
+    answer = gate.answer({ provider, ...op });
+  } catch (error) {
+    if (busy(error)) return refused(`the ledger is busy (${error.message}): nothing was approved`);
+    return refused(`Ignite could not check it: ${error.message}`);
+  }
   if (answer.status === 'APPROVED') return { status: 'APPROVED', id: answer.id };
   return refused(answer.reason, answer.id);
 }
 
-function createWebhook({ gate, token, port, host = '127.0.0.1', log = () => {} } = {}) {
-  const routes = new Map(Object.entries(PROVIDERS).map(([name, spec]) => [spec.path, name]));
+function createWebhook({ gate, providers = {}, token, port, host = '127.0.0.1', log = () => {} } = {}) {
+  const routes = new Map(Object.entries(providers).map(([name, adapter]) => [adapter.path, name]));
   let server = null;
 
   function note(fields) {
@@ -126,7 +121,7 @@ function createWebhook({ gate, token, port, host = '127.0.0.1', log = () => {} }
         return;
       }
       try {
-        finish(validate(gate, provider, req.headers, body, token()));
+        finish(validate(gate, provider, providers[provider], req.headers, body, token(provider)));
       } catch (error) {
         finish({ status: 'REFUSED', refuseReason: `Ignite could not check it: ${error.message}` });
       }
@@ -158,4 +153,4 @@ function createWebhook({ gate, token, port, host = '127.0.0.1', log = () => {} }
   return { listen, close };
 }
 
-module.exports = { PROVIDERS, readAsaas, validate, createWebhook };
+module.exports = { loadProvider, validate, createWebhook };

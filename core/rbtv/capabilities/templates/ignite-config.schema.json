@@ -115,7 +115,7 @@
       }
     },
     "payments": {
-      "description": "Turns the payment gate's service side on: the owner's /payments panel and buttons, sending approved payments, and the withdrawal validation listener on 127.0.0.1. Absent: payment requests are refused. Settings, limits and the PIN are not here; the owner sets them in /payments.",
+      "description": "Turns the payment gate's service side on: the owner's /payments panel and buttons, resolving and sending payments, and the withdrawal validation listener on 127.0.0.1. Absent: payment requests are refused. Settings, limits and the PIN are not here; the owner sets them in /payments. The service reads this section at start.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -125,11 +125,20 @@
           "minimum": 1,
           "maximum": 65535
         },
-        "webhookTokenEnv": {
-          "description": "Name of the environment variable holding the token the bank sends with each withdrawal validation (Asaas: the asaas-access-token header). ASAAS_WEBHOOK_TOKEN when absent.",
+        "providers": {
+          "description": "The payment providers Ignite sends through, by name. Each is a connector whose capabilities/tools/<name>/lib/withdrawal-validation.js Ignite loads: the bank's webhook path, token header and token variable, and how its body reads. [\"asaas\"] when absent.",
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" }
+        },
+        "timeZone": {
+          "description": "The IANA time zone whose calendar day, week (from Monday) and month the limits count in. America/Sao_Paulo when absent.",
           "type": "string",
-          "minLength": 1,
-          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          "minLength": 1
+        },
+        "currency": {
+          "description": "The ISO 4217 code of the account's currency, with two decimals; amounts show with its symbol. BRL when absent.",
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
         }
       }
     }

@@ -5,53 +5,83 @@
 // and sends only what the gate approved; the gate never calls a bank.
 //
 // API
-// new Gate({ workspace, now? }) — opens <installation>/.rbtv/runtime/ignite/payments.sqlite (the
-//   ledger) and reads the PIN from <installation>/.rbtv/config/ignite/payments-pin.json.
+// new Gate({ workspace, now?, timeZone?, currency?, busyMs? }) — opens <installation>/.rbtv/runtime/ignite/payments.sqlite
+//   (the ledger) and reads the PIN from <installation>/.rbtv/config/ignite/payments-pin.json. timeZone (an IANA zone,
+//   America/Sao_Paulo) sets the day, week and month; currency (an ISO 4217 code with two decimals, BRL) how amounts
+//   read; busyMs (5000) bounds each wait for a ledger another process is writing, after which the call throws.
 // close()
-// MODES off | automatic | case_by_case. STATES pending | approved | sent | refused | cancelled | failed
-// settings() → { mode, limits: { day, week, month } }, amounts in cents, null for no limit; off until saved
-// saveSettings({ mode, limits }) — throws on a bad mode or amount, and on automatic with no limit set
-// periodStart(period, at) — the start of the day, week (Monday) or month of `at` in America/Sao_Paulo
-// usage(at?) → { day, week, month }: cents approved or sent since each period started
+// MODES off | automatic | case_by_case.
+// STATES pending | approved | sent | uncertain | refused | cancelled | failed. uncertain: the send may have paid (its
+//   answer was lost, or the service stopped mid-send); it counts toward the limits until the provider's status
+//   proves it sent or failed.
+// PIN_RE — a PIN is 4 to 12 digits. settingsProblem(mode, limits) → null, or { field: 'mode', message }: a mode not in
+//   MODES, or automatic with no limit set. The panel's form checks with these, so each rule has one home.
+// settings() → { mode, limits: { day, week, month }, revision }, amounts in cents, null for no limit; off until saved
+// saveSettings({ mode, limits, revision? }) — throws on a bad mode or amount, on automatic with no limit set, and on a
+//   revision that is not the current one; each save adds one to the revision
+// periodStart(period, at, zone?) — the start of the day, week (Monday) or month of `at` in zone (America/Sao_Paulo)
+// usage(at?) → { day, week, month }: cents (amount plus fee) approved, sent or uncertain since each period started
 // request({ agent, conversationKey, provider, method, recipient: { name, key, keyType, document, bank },
 //   amountCents, feeCents?, note, details? }) → the row. Decided at once, in one transaction:
 //   off → refused; case_by_case → pending; automatic → approved (decided_by rule) when the amount plus
 //   fee fits every limit that is set, else pending. Automatic with no limit set (never saved so) waits.
-// get(id) / list({ agent?, state?, limit? }) / pending() / lastSent(n)
-// approve(id) / refuse(id) — the owner's decision; only a pending request changes. → { changed, row }
+// get(id) / list({ agent?, state?, limit? }) / pending() / listUncertain() / lastSent(n)
+// resolved(id, { name, document, bank, key, keyType, amountCents, feeCents }) — the recipient as the service read it
+//   from the provider, for a pending request; a key, amount or fee that differs from the request refuses it
+//   (decided_by rule). resolveFailed(id, reason) — the service could not read it. → { changed, row }
+// approve(id, { interaction? }) / refuse(id, { interaction? }) — the owner's decision; only a pending request changes.
+//   → { changed, row, replay? }
+// approveWithPin(id, pin, { interaction? }) → { replay } | { unknown } | { row } (not pending) | { pin: check, row } |
+//   { changed, row }. saveSettingsWithPin({ mode, limits, revision }, pin, { interaction? }) → { replay } | { stale } |
+//   { pin: check } | { saved }. Each runs in one transaction. interaction is the key of the owner's Slack
+//   interaction: recorded once, so a replayed one changes nothing, a wrong PIN included. Only the key is kept.
 // cancel(id, agent) — the requesting agent withdraws its own pending request. → { changed, row }
 // claim(id) — marks an approved request as being sent; true once only, so it is sent at most once
-// sent(id, { providerId, providerStatus?, receiptUrl? }) / failed(id, reason) — the send's outcome
+// sent(id, { providerId, providerStatus?, receiptUrl? }) — the provider took it
+// failed(id, reason) — the send did not happen; a request with a provider id or a withdrawal approval becomes
+//   uncertain instead. uncertain(id, reason) — the send's outcome is unknown.
 // checked(id, { providerStatus, receiptUrl, final, ok, reason? }) — a later read of a sent operation;
 //   final and not ok fails the request
-// failInterrupted() — a request claimed but never recorded (the service stopped mid-send) fails
-// answer({ provider, method, reference, operationId, amountCents, recipientKey }) → { status, reason? }
-//   The withdrawal validation: APPROVED only for a request of that provider and method that the
-//   service is sending or has sent, never answered for another operation, with the same amount and
-//   recipient, and the operation id the service recorded when it has one. The first APPROVED marks the request answered:
-//   the same operation asked again gets the same answer, any other operation is REFUSED.
-// due({ now }) → { prompts, unshown, toSend, toCheck, toNotify }: the service's work lists
-// promptPosted(id, { channel, ts }) — ts '-' when no thread can show it / promptShown(id, shown) / notified(id, outcome)
+// reconciled(id, { found, providerId?, providerStatus?, receiptUrl?, final?, ok?, reason? }) — a read of an uncertain
+//   request's operation: found, final and not ok fails it; found otherwise makes it sent; not found leaves it.
+// interrupted() — each request claimed but never recorded (the service stopped mid-send) becomes uncertain → ids
+// answer({ provider, method, reference, operationId, amountCents, recipientKey }) → { status, reason?, id }
+//   The withdrawal validation, bank-neutral. The request is the one reference names or, with no reference, the
+//   one whose recorded provider id is operationId. APPROVED only for a request of that provider and method that
+//   the service claimed and is sending, has sent or is uncertain of; with the operation id the service recorded
+//   when it has one, the same amount, and the same recipient (a request found by its recorded operation id may
+//   pass with no recipient named). The first APPROVED records the operation, amount and recipient: a call
+//   repeating exactly those is APPROVED again whatever the state now; any other call naming it is REFUSED.
+// due({ now }) → { resolve, prompts, unshown, toSend, toCheck, toReconcile, toNotify }: the service's work lists
+// promptPosted(id, { channel, ts }) — ts '-' when no thread can show it / promptShown(id, shown) / notified(id, state)
 // PIN: pinSet() / setPin(pin) / checkPin(pin) → { ok } | { ok: false, locked, until } | { ok: false, left }
 //   scrypt with a random salt; the PIN itself is never stored or logged. Five wrong PINs in a row lock
 //   every PIN check for 15 minutes; a right PIN resets the count.
-// brl(cents) → "R$ 1.234,56"; parseAmount(text) → cents or null ("99", "99,5", "99.50")
+// gate.money(cents) / formatMoney(cents, currency) → "R$ 1.234,56": the currency's symbol, Brazilian notation.
+// parseAmount(text) → cents or null ("99", "99.5", "99,50"); canonicalAmount(cents) → "1234.56", the one form a
+//   saved amount is written back in, which parseAmount reads at any size.
+// publicRow(row) — a request as the ignite payment verbs and the provider's tool read it.
 
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { runtimeFolder } = require('./memory-write.js');
+const { timeZoneProblem, currencyProblem } = require('./config.js');
 
 const MODES = Object.freeze(['off', 'automatic', 'case_by_case']);
-const STATES = Object.freeze(['pending', 'approved', 'sent', 'refused', 'cancelled', 'failed']);
+const STATES = Object.freeze(['pending', 'approved', 'sent', 'uncertain', 'refused', 'cancelled', 'failed']);
+// The states that hold money: they count toward the limits, and the withdrawal validation may approve them.
+const HOLDING = Object.freeze(['approved', 'sent', 'uncertain']);
 const PERIODS = Object.freeze(['day', 'week', 'month']);
 const PERIOD_WORD = { day: 'daily', week: 'weekly', month: 'monthly' };
-const ZONE = 'America/Sao_Paulo';
+const DEFAULT_ZONE = 'America/Sao_Paulo';
+const DEFAULT_CURRENCY = 'BRL';
 const MAX_FAILURES = 5;
 const LOCK_MS = 15 * 60_000;
 const CHECK_EVERY_MS = 5_000;
 const CHECK_FOR_MS = 10 * 60_000;
+const RECONCILE_EVERY_MS = 60_000;
 const SCRYPT = { N: 16384, r: 8, p: 1, keylen: 64 };
 const PIN_RE = /^\d{4,12}$/;
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -64,12 +94,11 @@ function pinPath(workspace) {
   return path.join(workspace, '.rbtv', 'config', 'ignite', 'payments-pin.json');
 }
 
-function brl(cents) {
+const MONEY = new Map();
+function formatMoney(cents, currency = DEFAULT_CURRENCY) {
   if (cents == null) return '-';
-  const sign = cents < 0 ? '-' : '';
-  const abs = Math.abs(Math.round(cents));
-  const whole = String(Math.floor(abs / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-  return `${sign}R$ ${whole},${String(abs % 100).padStart(2, '0')}`;
+  if (!MONEY.has(currency)) MONEY.set(currency, new Intl.NumberFormat('pt-BR', { style: 'currency', currency }));
+  return MONEY.get(currency).format(Math.round(cents) / 100).replace(/\s/g, ' ');
 }
 
 function parseAmount(text) {
@@ -78,15 +107,31 @@ function parseAmount(text) {
   return Number(match[1]) * 100 + Number((match[2] || '0').padEnd(2, '0'));
 }
 
-// The wall-clock parts of `at` in America/Sao_Paulo.
-const PARTS = new Intl.DateTimeFormat('en-US', {
-  timeZone: ZONE, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
-  hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'short',
-});
+function canonicalAmount(cents) {
+  if (cents == null) return null;
+  return `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`;
+}
+
+function settingsProblem(mode, limits = {}) {
+  if (!MODES.includes(mode)) return { field: 'mode', message: `mode must be one of ${MODES.join(', ')}` };
+  if (mode === 'automatic' && PERIODS.every((p) => limits[p] == null)) {
+    return { field: 'mode', message: 'automatic needs at least one limit: set a daily, weekly or monthly limit' };
+  }
+  return null;
+}
+
+// The wall-clock parts of `at` in a time zone.
+const PARTS = new Map();
 const WEEKDAYS = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
 
-function zoned(at) {
-  const parts = Object.fromEntries(PARTS.formatToParts(new Date(at)).map((p) => [p.type, p.value]));
+function zoned(at, zone) {
+  if (!PARTS.has(zone)) {
+    PARTS.set(zone, new Intl.DateTimeFormat('en-US', {
+      timeZone: zone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'short',
+    }));
+  }
+  const parts = Object.fromEntries(PARTS.get(zone).formatToParts(new Date(at)).map((p) => [p.type, p.value]));
   return {
     year: Number(parts.year), month: Number(parts.month), day: Number(parts.day),
     hour: Number(parts.hour), minute: Number(parts.minute), second: Number(parts.second),
@@ -94,26 +139,26 @@ function zoned(at) {
   };
 }
 
-// The instant the Sao Paulo wall clock reads year-month-day 00:00:00.
-function zoneMidnight(year, month, day) {
+// The instant the zone's wall clock reads year-month-day 00:00:00.
+function zoneMidnight(year, month, day, zone) {
   const wall = Date.UTC(year, month - 1, day);
   let guess = wall;
   for (let i = 0; i < 3; i++) {
-    const z = zoned(guess);
+    const z = zoned(guess, zone);
     const shown = Date.UTC(z.year, z.month - 1, z.day, z.hour, z.minute, z.second);
     guess += wall - shown;
   }
   return guess;
 }
 
-function periodStart(period, at) {
-  const z = zoned(at);
-  if (period === 'day') return zoneMidnight(z.year, z.month, z.day);
+function periodStart(period, at, zone = DEFAULT_ZONE) {
+  const z = zoned(at, zone);
+  if (period === 'day') return zoneMidnight(z.year, z.month, z.day, zone);
   if (period === 'week') {
     const monday = new Date(Date.UTC(z.year, z.month - 1, z.day - z.weekday));
-    return zoneMidnight(monday.getUTCFullYear(), monday.getUTCMonth() + 1, monday.getUTCDate());
+    return zoneMidnight(monday.getUTCFullYear(), monday.getUTCMonth() + 1, monday.getUTCDate(), zone);
   }
-  if (period === 'month') return zoneMidnight(z.year, z.month, 1);
+  if (period === 'month') return zoneMidnight(z.year, z.month, 1, zone);
   throw new Error(`unknown period: ${period}`);
 }
 
@@ -139,8 +184,14 @@ function cents(value, label, { min = 0 } = {}) {
   return value;
 }
 
+// Text a provider's tool returned, kept as given (one line, bounded); not refused like an agent's input.
+function plain(value, max = 500) {
+  if (value == null || value === '') return null;
+  return String(value).replace(/[\r\n\0]+/g, ' ').trim().slice(0, max) || null;
+}
+
 // The form a recipient key is compared in: digits only for a key with no letter or @ (CPF, CNPJ,
-// phone, bill line), otherwise trimmed and lowercase (email, random key).
+// phone, bill line), otherwise trimmed and lowercase (email, random key, QR code payload).
 function canonicalKey(key) {
   const value = String(key ?? '').trim();
   if (!value) return '';
@@ -171,6 +222,16 @@ function publicRow(row) {
     reason: row.reason,
     decided_by: row.decided_by,
     decided_at: row.decided_at,
+    resolved: row.resolved_at == null ? null : {
+      name: row.resolved_name,
+      key: row.resolved_key,
+      key_type: row.resolved_key_type,
+      document: row.resolved_document,
+      bank: row.resolved_bank,
+      amount_cents: row.resolved_amount_cents,
+      fee_cents: row.resolved_fee_cents,
+    },
+    resolve_error: row.resolve_error,
     provider_id: row.provider_id,
     provider_status: row.provider_status,
     receipt_url: row.receipt_url,
@@ -179,16 +240,20 @@ function publicRow(row) {
 }
 
 class Gate {
-  constructor({ workspace, now = Date.now, dbPath = null, pinFile = null } = {}) {
+  constructor({ workspace, now = Date.now, dbPath = null, pinFile = null, timeZone = DEFAULT_ZONE, currency = DEFAULT_CURRENCY, busyMs = 5000 } = {}) {
     if (!workspace) throw new Error('installation path required');
+    if (timeZoneProblem(timeZone)) throw new Error(`payments time zone ${timeZoneProblem(timeZone)}`);
+    if (currencyProblem(currency)) throw new Error(`payments currency ${currencyProblem(currency)}`);
     this.workspace = workspace;
     this.now = now;
+    this.timeZone = timeZone;
+    this.currency = currency;
     this.pinFile = pinFile || pinPath(workspace);
     const file = dbPath || ledgerPath(workspace);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     this.db = new DatabaseSync(file);
     this._inTx = false;
-    this.db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL;');
+    this.db.exec(`PRAGMA busy_timeout=${Math.max(0, Math.floor(busyMs))}; PRAGMA journal_mode=WAL;`);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS payments (
         seq INTEGER PRIMARY KEY,
@@ -210,6 +275,15 @@ class Gate {
         reason TEXT,
         decided_by TEXT,
         decided_at INTEGER,
+        resolved_at INTEGER,
+        resolved_name TEXT,
+        resolved_key TEXT,
+        resolved_key_type TEXT,
+        resolved_document TEXT,
+        resolved_bank TEXT,
+        resolved_amount_cents INTEGER,
+        resolved_fee_cents INTEGER,
+        resolve_error TEXT,
         claimed_at INTEGER,
         provider_id TEXT,
         provider_status TEXT,
@@ -219,6 +293,8 @@ class Gate {
         check_final INTEGER NOT NULL DEFAULT 0,
         answered_at INTEGER,
         answered_operation TEXT,
+        answered_cents INTEGER,
+        answered_recipient TEXT,
         prompt_channel TEXT,
         prompt_ts TEXT,
         prompt_shown TEXT,
@@ -227,15 +303,22 @@ class Gate {
         updated_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS payments_state ON payments(state, decided_at);
+      CREATE INDEX IF NOT EXISTS payments_operation ON payments(provider, provider_id);
       CREATE TABLE IF NOT EXISTS gate (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,
         updated_at INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS interactions (
+        key TEXT PRIMARY KEY,
+        at INTEGER NOT NULL
+      );
     `);
   }
 
   close() { this.db.close(); }
+
+  money(amount) { return formatMoney(amount, this.currency); }
 
   transaction(fn) {
     if (this._inTx) return fn();
@@ -264,37 +347,47 @@ class Gate {
       .run(key, JSON.stringify(value), this.now());
   }
 
+  // True the first time an interaction key is seen; the key alone is kept, never the payload it came in.
+  _newInteraction(key) {
+    return this.db.prepare('INSERT OR IGNORE INTO interactions(key, at) VALUES (?, ?)').run(String(key), this.now()).changes === 1;
+  }
+
   settings() {
     const saved = this._value('settings');
     return {
       mode: MODES.includes(saved?.mode) ? saved.mode : 'off',
       limits: Object.fromEntries(PERIODS.map((p) => [p, Number.isSafeInteger(saved?.limits?.[p]) ? saved.limits[p] : null])),
+      revision: Number.isSafeInteger(saved?.revision) ? saved.revision : 0,
     };
   }
 
-  saveSettings({ mode, limits = {} } = {}) {
-    if (!MODES.includes(mode)) refuse(`mode must be one of ${MODES.join(', ')}`);
+  saveSettings({ mode, limits = {}, revision = null } = {}) {
     const clean = {};
     for (const period of PERIODS) {
       const value = limits[period];
       clean[period] = value == null ? null : cents(value, `${period} limit`, { min: 1 });
     }
-    if (mode === 'automatic' && PERIODS.every((p) => clean[p] == null)) {
-      refuse('automatic needs at least one limit: set a daily, weekly or monthly limit');
-    }
-    this.transaction(() => this._setValue('settings', { mode, limits: clean }));
-    return this.settings();
+    const problem = settingsProblem(mode, clean);
+    if (problem) refuse(problem.message);
+    return this.transaction(() => {
+      const current = this.settings().revision;
+      if (revision != null && revision !== current) {
+        refuse(`the settings changed after this form was opened (revision ${revision}, now ${current}); nothing changed`);
+      }
+      this._setValue('settings', { mode, limits: clean, revision: current + 1 });
+      return this.settings();
+    });
   }
 
   periodStart(period, at = this.now()) {
-    return periodStart(period, at);
+    return periodStart(period, at, this.timeZone);
   }
 
   usage(at = this.now()) {
     const out = {};
     for (const period of PERIODS) {
       out[period] = this.db.prepare(`SELECT COALESCE(SUM(amount_cents + fee_cents), 0) AS used FROM payments
-        WHERE state IN ('approved', 'sent') AND decided_at >= ?`).get(periodStart(period, at)).used;
+        WHERE state IN ('approved', 'sent', 'uncertain') AND decided_at >= ?`).get(periodStart(period, at, this.timeZone)).used;
     }
     return out;
   }
@@ -311,7 +404,7 @@ class Gate {
       if (limit == null) continue;
       if (used[period] + total > limit) {
         const left = Math.max(0, limit - used[period]);
-        return { state: 'pending', reason: `over the ${PERIOD_WORD[period]} limit (${brl(left)} left of ${brl(limit)})` };
+        return { state: 'pending', reason: `over the ${PERIOD_WORD[period]} limit (${this.money(left)} left of ${this.money(limit)})` };
       }
     }
     return { state: 'approved', reason: 'within the limits', by: 'rule' };
@@ -326,7 +419,7 @@ class Gate {
     const method = text(input.method, 'method', { required: true, max: 32 });
     if (!SLUG.test(method)) refuse('method must be a slug');
     const recipient = input.recipient && typeof input.recipient === 'object' ? input.recipient : {};
-    const key = text(recipient.key, 'recipient key', { required: true });
+    const key = text(recipient.key, 'recipient key', { required: true, max: 2000 });
     const amount = cents(input.amountCents, 'amount', { min: 1 });
     const fee = cents(input.feeCents ?? 0, 'fee');
     const note = text(input.note, 'note', { max: 500 });
@@ -371,6 +464,10 @@ class Gate {
     return this.db.prepare("SELECT * FROM payments WHERE state='pending' ORDER BY seq").all();
   }
 
+  listUncertain() {
+    return this.db.prepare("SELECT * FROM payments WHERE state='uncertain' ORDER BY seq").all();
+  }
+
   lastSent(n = 10) {
     return this.db.prepare("SELECT * FROM payments WHERE state='sent' ORDER BY sent_at DESC, seq DESC LIMIT ?").all(n);
   }
@@ -385,12 +482,69 @@ class Gate {
     });
   }
 
-  approve(id) {
-    return this._move(id, 'pending', 'approved', { decided_by: 'owner', decided_at: this.now(), reason: 'approved by the owner' });
+  resolved(id, { name = null, document = null, bank = null, key = null, keyType = null, amountCents = null, feeCents = null } = {}) {
+    return this.transaction(() => {
+      const row = this._row(id);
+      if (!row || row.state !== 'pending' || row.resolved_at != null) return { changed: false, row };
+      const at = this.now();
+      const amount = Number.isSafeInteger(amountCents) ? amountCents : null;
+      const fee = Number.isSafeInteger(feeCents) ? feeCents : null;
+      this.db.prepare(`UPDATE payments SET resolved_at=?, resolved_name=?, resolved_key=?, resolved_key_type=?,
+        resolved_document=?, resolved_bank=?, resolved_amount_cents=?, resolved_fee_cents=?, updated_at=? WHERE id=?`)
+        .run(at, plain(name), plain(key, 2000), plain(keyType, 32), plain(document, 64), plain(bank), amount, fee, at, id);
+      const differs = [];
+      if (!key || canonicalKey(key) !== canonicalKey(row.recipient_key)) differs.push(`the recipient key is ${plain(key, 2000) || 'not named'}, not ${row.recipient_key}`);
+      if (amount != null && amount !== row.amount_cents) differs.push(`the amount is ${this.money(amount)}, not ${this.money(row.amount_cents)}`);
+      if (fee != null && fee !== row.fee_cents) differs.push(`the fee is ${this.money(fee)}, not ${this.money(row.fee_cents)}`);
+      if (!differs.length) return { changed: true, row: this._row(id) };
+      return this._move(id, 'pending', 'refused', {
+        decided_by: 'rule', decided_at: at,
+        reason: `Ignite's own check through ${row.provider} differs from the request: ${differs.join('; ')}`.slice(0, 500),
+      });
+    });
   }
 
-  refuse(id) {
-    return this._move(id, 'pending', 'refused', { decided_by: 'owner', decided_at: this.now(), reason: 'refused by the owner' });
+  resolveFailed(id, reason) {
+    const result = this.db.prepare(`UPDATE payments SET resolve_error=?, updated_at=?
+      WHERE id=? AND state='pending' AND resolved_at IS NULL AND resolve_error IS NULL`)
+      .run(String(reason || 'failed').slice(0, 300), this.now(), id);
+    return { changed: result.changes === 1, row: this._row(id) };
+  }
+
+  approve(id, { interaction = null } = {}) {
+    return this.transaction(() => {
+      if (interaction && !this._newInteraction(interaction)) return { changed: false, replay: true, row: this._row(id) };
+      return this._move(id, 'pending', 'approved', { decided_by: 'owner', decided_at: this.now(), reason: 'approved by the owner' });
+    });
+  }
+
+  refuse(id, { interaction = null } = {}) {
+    return this.transaction(() => {
+      if (interaction && !this._newInteraction(interaction)) return { changed: false, replay: true, row: this._row(id) };
+      return this._move(id, 'pending', 'refused', { decided_by: 'owner', decided_at: this.now(), reason: 'refused by the owner' });
+    });
+  }
+
+  approveWithPin(id, pin, { interaction = null } = {}) {
+    return this.transaction(() => {
+      if (interaction && !this._newInteraction(interaction)) return { replay: true, row: this._row(id) };
+      const row = this._row(id);
+      if (!row) return { unknown: true, row: null };
+      if (row.state !== 'pending') return { changed: false, row };
+      const check = this.checkPin(pin);
+      if (!check.ok) return { pin: check, row };
+      return this.approve(id);
+    });
+  }
+
+  saveSettingsWithPin({ mode, limits, revision }, pin, { interaction = null } = {}) {
+    return this.transaction(() => {
+      if (interaction && !this._newInteraction(interaction)) return { replay: true };
+      if (revision !== this.settings().revision) return { stale: true };
+      const check = this.checkPin(pin);
+      if (!check.ok) return { pin: check };
+      return { saved: this.saveSettings({ mode, limits, revision }) };
+    });
   }
 
   cancel(id, agent) {
@@ -418,8 +572,16 @@ class Gate {
     return this.transaction(() => {
       const row = this._row(id);
       if (!row || !['approved', 'sent'].includes(row.state)) return { changed: false, row };
-      return this._move(id, row.state, 'failed', { reason: String(reason || 'failed').slice(0, 500) });
+      const why = String(reason || 'failed').slice(0, 500);
+      // A provider id or a withdrawal approval means the money may have left: only the provider's status proves not.
+      if (row.provider_id || row.answered_at != null) return this._move(id, row.state, 'uncertain', { reason: why });
+      return this._move(id, row.state, 'failed', { reason: why });
     });
+  }
+
+  uncertain(id, reason) {
+    return this._move(id, 'approved', 'uncertain', { reason: String(reason || 'the send\'s outcome is unknown').slice(0, 500) },
+      'AND claimed_at IS NOT NULL');
   }
 
   checked(id, { providerStatus = null, receiptUrl = null, final = false, ok = true, reason = null } = {}) {
@@ -436,38 +598,77 @@ class Gate {
     });
   }
 
-  failInterrupted() {
+  reconciled(id, { found = false, providerId = null, providerStatus = null, receiptUrl = null, final = false, ok = true, reason = null } = {}) {
+    return this.transaction(() => {
+      const row = this._row(id);
+      if (!row || row.state !== 'uncertain') return { changed: false, row };
+      const at = this.now();
+      if (!found) {
+        this.db.prepare('UPDATE payments SET checked_at=?, updated_at=? WHERE id=?').run(at, at, id);
+        return { changed: false, row: this._row(id) };
+      }
+      const operation = String(providerId || row.provider_id || row.answered_operation);
+      if (final && !ok) {
+        return this._move(id, 'uncertain', 'failed', {
+          provider_id: operation, provider_status: providerStatus, checked_at: at, check_final: 1,
+          reason: reason || `the provider ended it as ${providerStatus}`,
+        });
+      }
+      return this._move(id, 'uncertain', 'sent', {
+        provider_id: operation, provider_status: providerStatus, receipt_url: receiptUrl || row.receipt_url,
+        sent_at: at, checked_at: at, check_final: final ? 1 : 0,
+        reason: row.decided_by === 'owner' ? 'approved by the owner' : 'within the limits',
+      });
+    });
+  }
+
+  interrupted() {
     const rows = this.db.prepare("SELECT id FROM payments WHERE state='approved' AND claimed_at IS NOT NULL").all();
     for (const { id } of rows) {
-      this._move(id, 'approved', 'failed', {
-        reason: 'interrupted: Ignite stopped while sending it; check the statement before asking again',
+      this._move(id, 'approved', 'uncertain', {
+        reason: 'interrupted: Ignite stopped while sending it, so it may have been paid; it counts toward the limits until Ignite reads it at the provider',
       });
     }
     return rows.map((row) => row.id);
   }
 
   answer({ provider, method, reference, operationId, amountCents, recipientKey } = {}) {
-    if (!reference) return { status: 'REFUSED', reason: 'no externalReference: the operation did not pass the payment gate' };
+    const operation = operationId == null || operationId === '' ? null : String(operationId);
+    if (!reference && !operation) {
+      return { status: 'REFUSED', reason: 'the operation names no request and has no id: it did not pass the payment gate', id: null };
+    }
     return this.transaction(() => {
-      const row = this._row(String(reference));
+      const row = reference
+        ? this._row(String(reference))
+        : this.db.prepare('SELECT * FROM payments WHERE provider=? AND provider_id=?').get(provider, operation) || null;
       const no = (reason) => ({ status: 'REFUSED', reason, id: row?.id || null });
-      if (!row || row.provider !== provider) return no(`unknown request ${reference}`);
+      if (!row || row.provider !== provider) {
+        return no(reference ? `unknown request ${reference}`
+          : `no request names operation ${operation}: it did not pass the payment gate, or Ignite has not recorded its id yet`);
+      }
       if (row.method !== method) return no(`${row.id} is a ${row.method} payment, not ${method}`);
+      const recipient = recipientKey ? canonicalKey(recipientKey) : null;
       if (row.answered_at != null) {
-        if (operationId && row.answered_operation === String(operationId)) return { status: 'APPROVED', id: row.id, again: true };
-        return no(`${row.id} was already used by another operation`);
+        const same = operation != null && operation === row.answered_operation
+          && amountCents === row.answered_cents && recipient === row.answered_recipient;
+        return same ? { status: 'APPROVED', id: row.id, again: true }
+          : no(`${row.id} was already approved for operation ${row.answered_operation}; this call differs from it`);
       }
-      if (!['approved', 'sent'].includes(row.state)) return no(`${row.id} is ${row.state}`);
+      if (!HOLDING.includes(row.state)) return no(`${row.id} is ${row.state}`);
       if (row.claimed_at == null) return no(`${row.id} is approved but Ignite has not sent it`);
-      if (row.provider_id && String(operationId) !== row.provider_id) {
-        return no(`${row.id} was sent as operation ${row.provider_id}, not ${operationId}`);
+      if (row.provider_id && operation !== row.provider_id) {
+        return no(`${row.id} was sent as operation ${row.provider_id}, not ${operation}`);
       }
-      if (amountCents !== row.amount_cents) return no(`${row.id} approved ${brl(row.amount_cents)}, the operation is ${brl(amountCents)}`);
-      if (!recipientKey || canonicalKey(recipientKey) !== canonicalKey(row.recipient_key)) {
+      if (amountCents !== row.amount_cents) {
+        return no(`${row.id} approved ${this.money(row.amount_cents)}, the operation is ${this.money(amountCents)}`);
+      }
+      if (recipient == null) {
+        if (!row.provider_id) return no(`the operation names no recipient, and ${row.id} has no operation id to match it by`);
+      } else if (recipient !== canonicalKey(row.recipient_key)) {
         return no(`${row.id} approved another recipient`);
       }
-      this.db.prepare('UPDATE payments SET answered_at=?, answered_operation=?, updated_at=? WHERE id=?')
-        .run(this.now(), operationId == null ? null : String(operationId), this.now(), row.id);
+      this.db.prepare(`UPDATE payments SET answered_at=?, answered_operation=?, answered_cents=?, answered_recipient=?,
+        updated_at=? WHERE id=?`).run(this.now(), operation, amountCents, recipient, this.now(), row.id);
       return { status: 'APPROVED', id: row.id };
     });
   }
@@ -475,14 +676,18 @@ class Gate {
   due({ now = this.now() } = {}) {
     const all = (sql, ...args) => this.db.prepare(sql).all(...args);
     return {
-      prompts: all("SELECT * FROM payments WHERE state='pending' AND prompt_ts IS NULL ORDER BY seq"),
+      resolve: all("SELECT * FROM payments WHERE state='pending' AND resolved_at IS NULL AND resolve_error IS NULL ORDER BY seq"),
+      prompts: all(`SELECT * FROM payments WHERE state='pending' AND prompt_ts IS NULL
+        AND (resolved_at IS NOT NULL OR resolve_error IS NOT NULL) ORDER BY seq`),
       unshown: all(`SELECT * FROM payments WHERE prompt_ts IS NOT NULL AND prompt_ts != '-'
         AND COALESCE(prompt_shown, '') != state ORDER BY seq`),
       toSend: all("SELECT * FROM payments WHERE state='approved' AND claimed_at IS NULL ORDER BY seq"),
       toCheck: all(`SELECT * FROM payments WHERE state='sent' AND check_final=0 AND sent_at>=?
         AND COALESCE(checked_at, sent_at)<=? ORDER BY seq`, now - CHECK_FOR_MS, now - CHECK_EVERY_MS),
-      toNotify: all(`SELECT * FROM payments WHERE notified IS NULL AND (
-          (state='refused' AND decided_by='owner') OR state='failed'
+      toReconcile: all(`SELECT * FROM payments WHERE state='uncertain' AND COALESCE(provider_id, answered_operation) IS NOT NULL
+        AND COALESCE(checked_at, 0)<=? ORDER BY seq`, now - RECONCILE_EVERY_MS),
+      toNotify: all(`SELECT * FROM payments WHERE COALESCE(notified, '') != state AND (
+          (state='refused' AND (decided_by='owner' OR resolved_at IS NOT NULL)) OR state IN ('failed', 'uncertain')
           OR (state='sent' AND (check_final=1 OR sent_at<?))
         ) ORDER BY seq`, now - CHECK_FOR_MS),
     };
@@ -497,8 +702,8 @@ class Gate {
     this.db.prepare('UPDATE payments SET prompt_shown=?, updated_at=? WHERE id=?').run(shown, this.now(), id);
   }
 
-  notified(id, outcome) {
-    this.db.prepare('UPDATE payments SET notified=?, updated_at=? WHERE id=?').run(outcome, this.now(), id);
+  notified(id, state) {
+    this.db.prepare('UPDATE payments SET notified=?, updated_at=? WHERE id=?').run(state, this.now(), id);
   }
 
   pinSet() {
@@ -549,6 +754,7 @@ class Gate {
 }
 
 module.exports = {
-  Gate, MODES, STATES, PERIODS, ZONE, MAX_FAILURES, LOCK_MS, CHECK_EVERY_MS, CHECK_FOR_MS,
-  ledgerPath, pinPath, periodStart, brl, parseAmount, canonicalKey, publicRow,
+  Gate, MODES, STATES, PERIODS, PIN_RE, DEFAULT_ZONE, DEFAULT_CURRENCY, MAX_FAILURES, LOCK_MS, CHECK_EVERY_MS,
+  CHECK_FOR_MS, RECONCILE_EVERY_MS, ledgerPath, pinPath, periodStart, formatMoney, parseAmount, canonicalAmount,
+  settingsProblem, canonicalKey, publicRow,
 };

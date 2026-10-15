@@ -2,12 +2,16 @@
 """asaas — an Asaas bank account from one command, for agents.
 
 Reads: balance, statement, Pix key lookup and Pix QR code decode.
-Pays only through Ignite's payment gate: `pay pix` and `pay bill` resolve the
-recipient, record a request with `ignite payment request`, and print the gate's
-answer. They never call a paying endpoint. Only `pay execute`, which Ignite's
-waking service runs with an approved request on stdin, calls one (POST
-/transfers, POST /bill), with the request id as externalReference; Asaas then
-asks Ignite's withdrawal validation, which approves only that request.
+Pays only through Ignite's payment gate: `pay pix`, `pay qr`, `pay bill` and
+`pay recharge` resolve the recipient, record a request with `ignite payment
+request`, and print the gate's answer. They never call a paying endpoint. The
+waking service runs the rest with the request on stdin: `pay resolve` reads the
+recipient again before the owner sees it, and `pay execute` alone calls a paying
+endpoint (POST /transfers, /bill, /pix/qrCodes/pay, /mobilePhoneRecharges). A
+transfer and a bill carry the request id as externalReference; a QR payment and
+a top-up take none, so Ignite records the operation id `pay execute` prints.
+Asaas then asks Ignite's withdrawal validation, which approves only that request
+(its half for Asaas is lib/withdrawal-validation.js, which Ignite loads).
 
 Key: $ASAAS_API_KEY from the process environment first, then the line
 ASAAS_API_KEY=... of the installation's .rbtv/config/env/.env, read literally:
@@ -39,9 +43,12 @@ IGNITE_ENV = "ASAAS_IGNITE"            # test hook: path of Ignite's cli.js, run
 GATE_WAIT_ENV = "ASAAS_GATE_WAIT"      # seconds `pay` waits for Ignite to send an approved payment (default 30)
 PROVIDER = "asaas"
 NOTE_MAX = 140
+QR_MAX = 2000
 UNKNOWN_FIX = f"{PROG} payments lists this agent's request ids; an id it does not list is another agent's or does not exist"
 TRANSFER_FINAL = {"DONE": True, "CANCELLED": False, "FAILED": False}
 BILL_FINAL = {"PAID": True, "CANCELLED": False, "FAILED": False, "REFUNDED": False}
+QR_FINAL = {"DONE": True, "REFUSED": False, "ERROR": False, "CANCELLED": False}
+RECHARGE_FINAL = {"CONFIRMED": True, "CANCELLED": False, "REFUNDED": False, "FAILED": False}
 
 EXIT_OK, EXIT_FAILED, EXIT_USAGE = 0, 1, 2
 
@@ -51,9 +58,11 @@ DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
 
 
 class Refusal(Exception):
-    def __init__(self, what, why, fix):
+    """created: False when no operation can exist (Asaas answered an error, or no paying call was made);
+    None when it is unknown (no answer, a server error)."""
+    def __init__(self, what, why, fix, created=None):
         super().__init__(what)
-        self.what, self.why, self.fix = what, why, fix
+        self.what, self.why, self.fix, self.created = what, why, fix, created
 
 
 def fail(err):
@@ -90,7 +99,7 @@ def api_key():
     where = f"{path}" if path else "no rbtv installation above this folder"
     raise Refusal("no Asaas API key",
                   f"${KEY_ENV} is unset and {where} holds no {KEY_ENV} line",
-                  f"add a line {KEY_ENV}=<key> to .rbtv/config/env/.env of the installation")
+                  f"add a line {KEY_ENV}=<key> to .rbtv/config/env/.env of the installation", created=False)
 
 
 # ───────────────────────────────────────────────────────────── HTTP
@@ -109,13 +118,15 @@ def call(method, path, query=None, body=None):
     except urllib.error.HTTPError as e:
         raw = e.read().decode("utf-8", "replace")
         detail = asaas_errors(raw) or raw.strip()[:300] or "no body"
+        answered = False if e.code < 500 else None
         if e.code == 401:
             raise Refusal("Asaas refused the key (401)", detail,
-                          f"check {KEY_ENV}: a production key starts $aact_prod_, and an unused key is disabled after 3 months")
+                          f"check {KEY_ENV}: a production key starts $aact_prod_, and an unused key is disabled after 3 months",
+                          created=answered)
         if e.code == 429:
-            raise Refusal("Asaas rate limit (429)", detail, "wait and run the same command again later")
+            raise Refusal("Asaas rate limit (429)", detail, "wait and run the same command again later", created=answered)
         raise Refusal(f"Asaas answered HTTP {e.code} on {method} {path}", detail,
-                      "correct the input named above, or run again if Asaas was unavailable")
+                      "correct the input named above, or run again if Asaas was unavailable", created=answered)
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         raise Refusal(f"could not reach Asaas ({API})", str(getattr(e, "reason", e)),
                       "check the network and run the same command again")
@@ -205,15 +216,21 @@ def pix_key_type(key, given):
                   f"{PROG} pix lookup KEY --type {'|'.join(PIX_KEY_TYPES)}")
 
 
-def cmd_pix_lookup(args):
-    ktype = pix_key_type(args.key, args.type)
-    key = re.sub(r"\D", "", args.key) if ktype in ("CPF", "CNPJ") else args.key.strip()
-    data = call("GET", "/pix/addressKeys/external", {"type": ktype, "key": key})
+def pix_owner(key, given_type):
+    """The Pix key's owner as Asaas names it: name, masked document, bank, and the key in Asaas's form."""
+    ktype = pix_key_type(key, given_type)
+    query_key = re.sub(r"\D", "", key) if ktype in ("CPF", "CNPJ") else key.strip()
+    data = call("GET", "/pix/addressKeys/external", {"type": ktype, "key": query_key})
     owner = data.get("owner") or {}
     inst = data.get("financialInstitution") or {}
-    payload = {"key": data.get("key", key), "type": data.get("type", ktype),
-               "owner_name": owner.get("name"), "owner_document": owner.get("cpfCnpj"),
-               "bank": inst.get("name") or data.get("ispbName")}
+    return {"name": owner.get("name"), "key": data.get("key") or query_key, "key_type": data.get("type") or ktype,
+            "document": owner.get("cpfCnpj"), "bank": inst.get("name") or data.get("ispbName")}
+
+
+def cmd_pix_lookup(args):
+    owner = pix_owner(args.key, args.type)
+    payload = {"key": owner["key"], "type": owner["key_type"], "owner_name": owner["name"],
+               "owner_document": owner["document"], "bank": owner["bank"]}
     out(args, payload, [f"Owner     {payload['owner_name']}",
                         f"Document  {payload['owner_document']}",
                         f"Bank      {payload['bank']}",
@@ -227,9 +244,11 @@ def cmd_pix_decode(args):
                "receiver_name": receiver.get("name"), "receiver_document": receiver.get("cpfCnpj"),
                "can_be_paid": data.get("canBePaid"), "cannot_be_paid_reason": data.get("cannotBePaidReason"),
                "can_change_value": data.get("canBePaidWithDifferentValue")}
+    payable = ("yes: asaas pay qr pays it through Ignite's payment gate" if payload["can_be_paid"]
+               else f"no: {payload['cannot_be_paid_reason']}")
     lines = [f"Receiver  {payload['receiver_name']}  {payload['receiver_document'] or ''}".rstrip(),
              f"Amount    {brl(payload['total_value'] if payload['total_value'] is not None else payload['value'])}",
-             f"Payable   {'yes at Asaas; asaas pay does not pay QR codes in this version' if payload['can_be_paid'] else 'no: ' + str(payload['cannot_be_paid_reason'])}"]
+             f"Payable   {payable}"]
     out(args, payload, lines)
 
 
@@ -254,6 +273,23 @@ def bill_line(text):
     if len(digits) not in (47, 48):
         raise argparse.ArgumentTypeError("the bill's digitable line (linha digitável) has 47 or 48 digits; "
                                          "a 44-digit barcode number (código de barras) is not accepted: copy the digitable line printed above it")
+    return digits
+
+
+def qr_payload(text):
+    value = str(text).strip()
+    if not value.startswith("000201") or len(value) > QR_MAX or "\n" in value:
+        raise argparse.ArgumentTypeError("a Pix QR code's copy-and-paste text is one line that starts with 000201")
+    return value
+
+
+def phone_number(text):
+    digits = re.sub(r"\D", "", str(text))
+    if len(digits) == 13 and digits.startswith("55"):
+        digits = digits[2:]
+    if len(digits) != 11:
+        raise argparse.ArgumentTypeError("a mobile number has 11 digits with its area code, like 11912345678 or \"11 91234-5678\" "
+                                         "(quoted when it has spaces; +55 optional)")
     return digits
 
 
@@ -312,7 +348,7 @@ def request_line(row):
     rid, state = row.get("id"), row.get("state")
     if state == "pending":
         return f"{rid}, sent to the owner for approval"
-    if state == "approved":
+    if state in ("approved", "uncertain"):
         return f"{rid}, the outcome arrives in this conversation"
     if state == "sent":
         receipt = row.get("receipt_url")
@@ -332,6 +368,9 @@ def report(args, row):
                      f"{PROG} payment {row.get('id')} shows it meanwhile")
     elif row.get("state") == "approved":
         lines.append(f"Next        {PROG} payment {row.get('id')} shows when it is sent")
+    elif row.get("state") == "uncertain":
+        lines.append(f"Next        do not ask again: Ignite reads it at Asaas and wakes this conversation with the outcome; "
+                     f"{PROG} statement shows whether it left")
     out(args, row, lines)
     return EXIT_FAILED if row.get("state") in ("refused", "failed", "cancelled") else EXIT_OK
 
@@ -339,64 +378,157 @@ def report(args, row):
 def cmd_pay_pix(args):
     in_turn()
     if args.key.strip().startswith("000201"):
-        raise Refusal("this is a Pix QR code (copy and paste), not a Pix key",
-                      "QR codes are not paid in this version: Asaas takes no request id on a QR payment, so Ignite's check could not match it",
-                      "ask the owner to pay it")
-    ktype = pix_key_type(args.key, args.type)
-    key = re.sub(r"\D", "", args.key) if ktype in ("CPF", "CNPJ") else args.key.strip()
-    data = call("GET", "/pix/addressKeys/external", {"type": ktype, "key": key})
-    owner = data.get("owner") or {}
-    inst = data.get("financialInstitution") or {}
-    recipient = {"name": owner.get("name"), "key": data.get("key") or key, "key_type": data.get("type") or ktype,
-                 "document": owner.get("cpfCnpj"), "bank": inst.get("name") or data.get("ispbName")}
+        raise Refusal("this is a Pix QR code (copy and paste), not a Pix key", "a QR code is paid as a QR code",
+                      f"{PROG} pay qr PAYLOAD --note TEXT")
+    recipient = pix_owner(args.key, args.type)
     return report(args, ask_gate({"method": "pix", "recipient": recipient, "amount_cents": args.amount,
                                   "fee_cents": 0, "note": args.note, "details": {}}))
 
 
-def cmd_pay_bill(args):
+def qr_decode(payload):
+    """The QR code as Asaas reads it: its receiver, and the amount in cents it fixes (None when the payer chooses)."""
+    data = call("POST", "/pix/qrCodes/decode", body={"payload": payload})
+    if not data.get("canBePaid"):
+        raise Refusal("Asaas cannot pay this QR code", str(data.get("cannotBePaidReason") or "it gave no reason"),
+                      "ask the owner to pay it", created=False)
+    receiver = data.get("receiver") or {}
+    value = data.get("totalValue") if data.get("totalValue") is not None else data.get("value")
+    fixed = round(value * 100) if isinstance(value, (int, float)) and value > 0 else None
+    recipient = {"name": receiver.get("name"), "key": payload, "key_type": "QR",
+                 "document": receiver.get("cpfCnpj"), "bank": receiver.get("ispbName")}
+    return recipient, fixed, bool(data.get("canBePaidWithDifferentValue"))
+
+
+def cmd_pay_qr(args):
     in_turn()
-    sim = call("POST", "/bill/simulate", body={"identificationField": args.line})
+    recipient, fixed, changeable = qr_decode(args.payload)
+    amount = args.amount
+    if fixed is None and amount is None:
+        raise Refusal("this QR code carries no amount", "the payer chooses it",
+                      f"{PROG} pay qr PAYLOAD --amount 35,00 --note TEXT")
+    if fixed is not None and amount is not None and amount != fixed and not changeable:
+        raise Refusal(f"this QR code charges {brl_cents(fixed)}, not {brl_cents(amount)}", "its amount cannot be changed",
+                      f"{PROG} pay qr PAYLOAD --note TEXT   (without --amount)")
+    return report(args, ask_gate({"method": "qr", "recipient": recipient, "amount_cents": amount or fixed,
+                                  "fee_cents": 0, "note": args.note, "details": {}}))
+
+
+def bill_simulation(line):
+    """The bill as Asaas simulates it: its recipient, value and fee in cents, and its details."""
+    sim = call("POST", "/bill/simulate", body={"identificationField": line})
     info = sim.get("bankSlipInfo") or {}
     value = info.get("value")
     if not isinstance(value, (int, float)) or value <= 0:
         raise Refusal("this bill has no amount to pay", "Asaas's simulation returned no value for it",
-                      "pay a bill that carries its amount; a bill with an open amount is not supported")
-    recipient = {"name": info.get("beneficiaryName") or info.get("companyName"), "key": args.line, "key_type": None,
+                      "pay a bill that carries its amount; a bill with an open amount is not supported", created=False)
+    recipient = {"name": info.get("beneficiaryName") or info.get("companyName"), "key": line, "key_type": None,
                  "document": info.get("beneficiaryCpfCnpj"), "bank": info.get("bank")}
     details = {"due_date": info.get("dueDate"), "company": info.get("companyName"),
                "minimum_schedule_date": sim.get("minimumScheduleDate")}
-    return report(args, ask_gate({"method": "bill", "recipient": recipient, "amount_cents": round(value * 100),
-                                  "fee_cents": round((sim.get("fee") or 0) * 100), "note": args.note, "details": details}))
+    return recipient, round(value * 100), round((sim.get("fee") or 0) * 100), details
+
+
+def cmd_pay_bill(args):
+    in_turn()
+    recipient, value, fee, details = bill_simulation(args.line)
+    if not args.json:
+        due = f", due {details['due_date']}" if details.get("due_date") else ""
+        print(f"Simulated   bill {brl_cents(value)}, fee {brl_cents(fee)}{due}: {brl_cents(value + fee)} counts toward the limits",
+              flush=True)
+    return report(args, ask_gate({"method": "bill", "recipient": recipient, "amount_cents": value,
+                                  "fee_cents": fee, "note": args.note, "details": details}))
+
+
+def cmd_pay_recharge(args):
+    in_turn()
+    recipient = {"name": None, "key": args.phone, "key_type": "PHONE", "document": None, "bank": None}
+    return report(args, ask_gate({"method": "recharge", "recipient": recipient, "amount_cents": args.amount,
+                                  "fee_cents": 0, "note": None, "details": {}}))
 
 
 def stdin_request(rid):
     try:
         req = json.loads(sys.stdin.read())
     except json.JSONDecodeError as e:
-        raise Refusal("no request on stdin", str(e), "Ignite's waking service runs this command; an agent pays with asaas pay pix or asaas pay bill")
+        raise Refusal("no request on stdin", str(e), "Ignite's waking service runs this command; an agent pays with asaas pay")
     if not isinstance(req, dict) or req.get("id") != rid or req.get("provider") != PROVIDER:
         raise Refusal(f"stdin is not the request {rid}", "the id or the provider differs", "Ignite's waking service runs this command")
     return req
 
 
-def cmd_pay_execute(args):
+def cmd_pay_resolve(args):
     req = stdin_request(args.id)
-    if req.get("state") != "approved":
-        raise Refusal(f"{args.id} is {req.get('state')}", "only an approved request is sent", "Ignite's waking service sends approved requests")
+    r = req.get("recipient") or {}
+    method = req.get("method")
+    amount = fee = None
+    if method == "pix":
+        recipient = pix_owner(r.get("key") or "", r.get("key_type"))
+    elif method == "qr":
+        recipient, fixed, changeable = qr_decode(r.get("key") or "")
+        amount = None if changeable else fixed
+    elif method == "bill":
+        recipient, amount, fee, _ = bill_simulation(r.get("key") or "")
+    elif method == "recharge":
+        try:
+            phone = phone_number(r.get("key") or "")
+        except argparse.ArgumentTypeError as e:
+            raise Refusal("the request's phone is not a mobile number", str(e), "tell the owner")
+        recipient = {"name": None, "key": phone, "key_type": "PHONE", "document": None, "bank": None}
+    else:
+        raise Refusal(f"asaas cannot resolve a {method} request", "this version pays pix, qr, bill and recharge", "tell the owner")
+    payload = {**recipient, "amount_cents": amount, "fee_cents": fee}
+    out(args, payload, [f"Recipient {' · '.join(x for x in (recipient['name'], recipient['document'], recipient['bank']) if x) or '-'}",
+                        f"Key       {recipient['key']}",
+                        f"Amount    {brl_cents(amount)}" + (f" + fee {brl_cents(fee)}" if fee else "")])
+
+
+def not_created(args, err):
+    """A send that cannot have created an operation: the service records the request failed, not uncertain."""
+    if args.json:
+        print(json.dumps({"created": False, "reason": f"{err.what}: {err.why}"}, ensure_ascii=False, sort_keys=True))
+    return fail(err)
+
+
+def cmd_pay_execute(args):
+    try:
+        req = stdin_request(args.id)
+        if req.get("state") != "approved":
+            raise Refusal(f"{args.id} is {req.get('state')}", "only an approved request is sent", "Ignite's waking service sends approved requests")
+        if req.get("method") not in ("pix", "qr", "bill", "recharge"):
+            raise Refusal(f"asaas cannot send a {req.get('method')} request", "this version sends pix, qr, bill and recharge", "tell the owner")
+    except Refusal as err:
+        return not_created(args, err)
     r = req.get("recipient") or {}
     value = round(req["amount_cents"] / 100, 2)
-    if req.get("method") == "pix":
-        data = call("POST", "/transfers", body={"value": value, "pixAddressKey": r.get("key"), "pixAddressKeyType": r.get("key_type"),
-                                                "description": req.get("note"), "externalReference": req["id"]})
-    elif req.get("method") == "bill":
-        data = call("POST", "/bill", body={"identificationField": r.get("key"), "description": req.get("note"),
-                                           "externalReference": req["id"]})
-    else:
-        raise Refusal(f"asaas cannot send a {req.get('method')} request", "this version sends pix and bill", "tell the owner")
+    method = req["method"]
+    try:
+        if method == "pix":
+            data = call("POST", "/transfers", body={"value": value, "pixAddressKey": r.get("key"), "pixAddressKeyType": r.get("key_type"),
+                                                    "description": req.get("note"), "externalReference": req["id"]})
+        elif method == "bill":
+            data = call("POST", "/bill", body={"identificationField": r.get("key"), "description": req.get("note"),
+                                               "externalReference": req["id"]})
+        elif method == "qr":
+            data = call("POST", "/pix/qrCodes/pay", body={"qrCode": {"payload": r.get("key")}, "value": value,
+                                                          "description": req.get("note")})
+        else:
+            data = call("POST", "/mobilePhoneRecharges", body={"value": value, "phoneNumber": r.get("key")})
+    except Refusal as err:
+        if err.created is False:
+            return not_created(args, err)
+        raise
     if not data.get("id"):
         raise Refusal("Asaas returned no operation id", json.dumps(data)[:200], "check the statement before asking again")
     payload = {"provider_id": str(data.get("id")), "status": data.get("status"), "receipt_url": data.get("transactionReceiptUrl")}
     out(args, payload, [f"Sent      {req['id']} as Asaas {payload['provider_id']} ({payload['status']})"])
+
+
+STATUS_READ = {
+    "pix": ("/transfers/{}", TRANSFER_FINAL, lambda d: d.get("failReason")),
+    "bill": ("/bill/{}", BILL_FINAL, lambda d: "; ".join(d.get("failReasons") or []) or None),
+    "qr": ("/pix/transactions/{}", QR_FINAL, lambda d: d.get("refusalReason")),
+    "recharge": ("/mobilePhoneRecharges/{}", RECHARGE_FINAL, lambda d: None),
+}
 
 
 def cmd_pay_status(args):
@@ -404,15 +536,13 @@ def cmd_pay_status(args):
     pid = req.get("provider_id")
     if not pid:
         raise Refusal(f"{args.id} has no Asaas id", "it was not sent", "ignite payment show " + args.id)
-    if req.get("method") == "pix":
-        data, finals = call("GET", f"/transfers/{pid}"), TRANSFER_FINAL
-        reason = data.get("failReason")
-    else:
-        data, finals = call("GET", f"/bill/{pid}"), BILL_FINAL
-        reason = "; ".join(data.get("failReasons") or []) or None
+    if req.get("method") not in STATUS_READ:
+        raise Refusal(f"asaas cannot read a {req.get('method')} request", "this version pays pix, qr, bill and recharge", "tell the owner")
+    path, finals, why = STATUS_READ[req["method"]]
+    data = call("GET", path.format(urllib.parse.quote(str(pid), safe="")))
     status = data.get("status")
-    payload = {"status": status, "final": status in finals, "ok": finals.get(status, True),
-               "receipt_url": data.get("transactionReceiptUrl"), "reason": reason}
+    payload = {"provider_id": str(pid), "status": status, "final": status in finals, "ok": finals.get(status, True),
+               "receipt_url": data.get("transactionReceiptUrl"), "reason": why(data)}
     out(args, payload, [f"Status    {status}", f"Receipt   {payload['receipt_url'] or '-'}"])
 
 
@@ -428,7 +558,7 @@ def cmd_payment(args):
     row = gate("show", args.id, fix=UNKNOWN_FIX)
     r = row.get("recipient") or {}
     lines = [f"Request     {row['id']}  {row['method']}",
-             f"Recipient   {' · '.join(x for x in (r.get('name'), r.get('document'), r.get('bank')) if x) or '-'}",
+             f"Recipient   {' · '.join(x for x in (r.get('name'), r.get('document'), r.get('bank')) if x) or r.get('key') or '-'}",
              f"Key         {r.get('key')}",
              f"Amount      {brl_cents(row['amount_cents'])}" + (f" + fee {brl_cents(row['fee_cents'])}" if row.get("fee_cents") else ""),
              f"Note        {row.get('note') or '-'}",
@@ -444,13 +574,16 @@ def cmd_cancel(args):
         row = gate("cancel", args.id)
         out(args, row, [f"Cancelled   {row['id']}: withdrawn before the owner decided"])
         return
-    if row.get("state") == "sent" and row.get("provider_id"):
+    if row.get("state") == "sent" and row.get("provider_id") and row.get("method") in ("pix", "bill"):
         pid = row["provider_id"]
         data = call("DELETE", f"/transfers/{pid}/cancel") if row.get("method") == "pix" else call("POST", f"/bill/{pid}/cancel", body={})
         payload = {"id": row["id"], "provider_id": pid, "status": data.get("status")}
         out(args, payload, [f"Cancelled   {row['id']} at Asaas ({pid}): {data.get('status')}",
                             "The gate counts it until Ignite reads the operation as cancelled."])
         return
+    if row.get("state") == "sent":
+        raise Refusal(f"{args.id} is a {row.get('method')} payment Asaas already has", "this tool cancels Pix key transfers and bills only",
+                      "ask the owner to cancel it in the Asaas app while Asaas allows it")
     raise Refusal(f"{args.id} is {row.get('state')}: nothing to cancel",
                   "a pending request is withdrawn, a sent one is cancelled at Asaas while it can be",
                   f"{PROG} payment {args.id}")
@@ -491,8 +624,8 @@ def parser():
     pay = sub.add_parser("pay", help="pay through Ignite's payment gate (inside an Ignite turn)", description=(
         "Resolves the recipient, asks Ignite's payment gate, and prints its answer: pending (waits for the owner; "
         "end the turn waiting_workers and Ignite wakes this conversation with the outcome), sent (approved by the "
-        "owner's limits and sent by Ignite), or refused. Never calls a paying endpoint itself. "
-        "Pix QR codes and mobile top-ups are not paid in this version."))
+        "owner's limits and sent by Ignite), or refused. Never calls a paying endpoint itself: Ignite's waking "
+        "service sends what the gate approved."))
     paysub = pay.add_subparsers(dest="pay_command", required=True, metavar="COMMAND")
     s = paysub.add_parser("pix", help="Pix to a key: looks up its owner, then asks the gate")
     s.add_argument("key", help="email, +55 phone, CPF, CNPJ or random key")
@@ -500,14 +633,31 @@ def parser():
     s.add_argument("--note", type=note_text, required=True, help=f"what it is for, up to {NOTE_MAX} characters; the recipient sees it")
     s.add_argument("--type", choices=PIX_KEY_TYPES, help="needed only when 11 digits could be a CPF or a phone")
     s.set_defaults(fn=cmd_pay_pix)
-    s = paysub.add_parser("bill", help="a boleto or utility bill: simulates it (amount and fee), then asks the gate")
+    s = paysub.add_parser("qr", help="a Pix QR code (copy and paste text): decodes it (receiver, amount), then asks the gate")
+    s.add_argument("payload", type=qr_payload, help="the QR code's copy-and-paste text, starting 000201")
+    s.add_argument("--amount", type=amount_cents, help="reais, like 35 or 35,90: needed when the QR code carries no amount")
+    s.add_argument("--note", type=note_text, required=True, help=f"what it is for, up to {NOTE_MAX} characters")
+    s.set_defaults(fn=cmd_pay_qr)
+    s = paysub.add_parser("bill", help="a boleto or utility bill: simulates it (amount and fee, shown first), then asks the gate")
     s.add_argument("line", type=bill_line, help="the bill's digitable line (linha digitável), 47 or 48 digits")
     s.add_argument("--note", type=note_text, required=True, help=f"what it is for, up to {NOTE_MAX} characters")
     s.set_defaults(fn=cmd_pay_bill)
+    s = paysub.add_parser("recharge", help="a mobile top-up: asks the gate to credit a phone")
+    s.add_argument("phone", type=phone_number, help="the mobile number with its area code, like 11912345678 or \"11 91234-5678\" (quoted when it has spaces; +55 optional)")
+    s.add_argument("amount", type=amount_cents, help="reais, like 20 or 20,00; the operator's top-up values apply")
+    s.set_defaults(fn=cmd_pay_recharge)
+    s = paysub.add_parser("resolve", help="Ignite's waking service only: read the request's recipient on stdin from Asaas",
+                          description="Ignite's waking service only. Reads the request ID as JSON on stdin and prints its "
+                                      "recipient as Asaas names it (Pix key lookup, QR code decode, bill simulation), with the "
+                                      "amount and fee Asaas fixes, before the owner is asked. Moves no money.")
+    s.add_argument("id", help="the request id, such as P-0007")
+    s.set_defaults(fn=cmd_pay_resolve)
     s = paysub.add_parser("execute", help="Ignite's waking service only: send the approved request on stdin",
                           description="Ignite's waking service only. Reads the approved request ID as JSON on stdin "
-                                      "(ignite payment show ID --json) and sends it to Asaas with ID as externalReference. "
-                                      "Prints the Asaas id and status. An agent pays with pay pix or pay bill.")
+                                      "(ignite payment show ID --json) and sends it to Asaas: a transfer or a bill with ID as "
+                                      "externalReference, a QR payment or a top-up without one. Prints the Asaas id and status; "
+                                      'with --json, {"created": false, "reason"} when Asaas refused it or no call was made. '
+                                      "An agent pays with pay pix, qr, bill or recharge.")
     s.add_argument("id", help="the request id, such as P-0007")
     s.set_defaults(fn=cmd_pay_execute)
     s = paysub.add_parser("status", help="Ignite's waking service only: read the sent request on stdin from Asaas",
@@ -518,7 +668,7 @@ def parser():
     s.set_defaults(fn=cmd_pay_status)
 
     s = sub.add_parser("payments", help="this agent's payment requests, newest first")
-    s.add_argument("--state", choices=("pending", "approved", "sent", "refused", "cancelled", "failed"), help="keep one state")
+    s.add_argument("--state", choices=("pending", "approved", "sent", "uncertain", "refused", "cancelled", "failed"), help="keep one state")
     s.set_defaults(fn=cmd_payments)
     s = sub.add_parser("payment", help="one payment request: state, Asaas id, receipt link")
     s.add_argument("id", help="the request id, such as P-0007")

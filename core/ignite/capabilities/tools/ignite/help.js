@@ -330,8 +330,9 @@ Example: ignite status thinking
 The payment gate decides, outside any model, whether a payment may leave the owner's account: by the
 owner's settings (off, automatic within daily, weekly and monthly limits, or case by case) or by the
 owner's Approve with a PIN in Slack. A payment tool (for example asaas) resolves the recipient, asks
-the gate with request, and prints the answer; the waking service sends what the gate approved and
-wakes this conversation with the outcome. No verb approves, refuses or changes settings.
+the gate with request, and prints the answer; the waking service checks the recipient again through
+the provider before the owner sees a waiting request, sends what the gate approved, and wakes this
+conversation with the outcome. No verb approves, refuses or changes settings.
 
 Commands
   request  Record a payment request and get the gate's answer: pending, approved or refused.
@@ -352,23 +353,29 @@ asaas pay. --request - reads the JSON from stdin.
 
 --provider  The payment tool that sends it once approved, for example asaas.
 --request   One JSON object:
-  method        the provider's payment kind, for example pix or bill
-  recipient     {name, key, key_type, document, bank}; key (the Pix key, the bill line) is required
+  method        the provider's payment kind, for example pix, qr, bill or recharge
+  recipient     {name, key, key_type, document, bank}; key (the Pix key, the QR code, the bill line,
+                the phone) is required. The owner is shown the recipient as the waking service
+                resolves it through the provider; name, document and bank given here only as a
+                labelled note
   amount_cents  whole cents, at least 1
   fee_cents     whole cents the provider charges, 0 when absent; limits count amount plus fee
   note          what the payment is for
   details       an object the provider keeps with the request
 
 The gate answers at once: off refuses; case by case waits for the owner; automatic approves when the
-amount fits every limit the owner set for the day, the week (from Monday) and the month, in
-America/Sao_Paulo time, and otherwise waits for the owner. A waiting request is posted in this
-conversation's thread with Approve and Refuse for the owner.
+amount plus fee fits every limit the owner set for the day, the week (from Monday) and the month, in
+the payments time zone (config payments.timeZone, America/Sao_Paulo by default), and otherwise waits
+for the owner. A waiting request is posted in this conversation's thread with Approve and Refuse for
+the owner, once the waking service has resolved its recipient; a key, amount or fee that differs from
+that resolution refuses it, and this conversation is woken with the reason.
 
 Success: exit 0 for every answer, "<id> <state>: <reason>", for example
   P-0007 pending: over the weekly limit (R$ 80,00 left of R$ 150,00)
 --json: the request {id, agent, conversation, provider, method, recipient, amount_cents, fee_cents,
-note, details, state, reason, decided_by, decided_at, provider_id, provider_status, receipt_url,
-created_at}. state is pending, approved or refused here.
+note, details, state, reason, decided_by, decided_at, resolved, resolve_error, provider_id,
+provider_status, receipt_url, created_at}. state is pending, approved or refused here; resolved is
+the recipient the waking service read through the provider, null until it has.
 Refusal: exit 1, reason on stderr, nothing recorded: outside a turn, an unknown conversation, a
 config with no payments section, invalid JSON or fields.
 ${REFUSED_WORDS}
@@ -383,7 +390,9 @@ usage: ignite payment show <id> [--json]
 
 <id> is a request id this agent received, such as P-0007. States: pending (waits for the owner),
 approved (Ignite is sending it), sent (the provider has it: provider id, status, receipt),
-refused, cancelled (withdrawn by the agent) or failed (the reason says why).
+uncertain (the send may have paid but its answer was lost; it counts toward the limits until
+Ignite reads it at the provider), refused, cancelled (withdrawn by the agent) or failed (the reason
+says why).
 
 ${HOME}
 Success: exit 0, labeled lines; --json the request, as payment request -h describes.
@@ -395,7 +404,7 @@ Example: ignite payment show P-0007
 
   'payment list': `ignite payment list — this agent's payment requests
 
-usage: ignite payment list [--state pending|approved|sent|refused|cancelled|failed] [--json]
+usage: ignite payment list [--state pending|approved|sent|uncertain|refused|cancelled|failed] [--json]
 
 The 20 newest requests of this agent, one line each: id, state, amount with fee, recipient, reason.
 --state keeps one state. An empty list prints "no payment requests" and exits 0.
@@ -412,8 +421,8 @@ Example: ignite payment list --state pending
 usage: ignite payment cancel <id> [--json]
 
 Withdraws one of this agent's requests while it is pending; its thread message shows it withdrawn.
-An approved, sent, refused or failed request cannot be withdrawn here: a sent payment is cancelled
-with its provider's tool (asaas cancel).
+An approved, sent, uncertain, refused or failed request cannot be withdrawn here: a sent payment is
+cancelled with its provider's tool (asaas cancel).
 
 ${HOME}
 Success: exit 0, "cancelled <id>"; --json the request.

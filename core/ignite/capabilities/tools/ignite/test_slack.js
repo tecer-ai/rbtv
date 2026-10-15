@@ -64,7 +64,7 @@ test('isBotOrSelf-edit-delete-join', () => {
   assert.equal(share.isBotOrSelf, false);
 });
 
-function harness(routes, { run, ackMs, log } = {}) {
+function harness(routes, { run, log } = {}) {
   const calls = [];
   const timers = [];
   class FakeWS {
@@ -122,7 +122,6 @@ function harness(routes, { run, ackMs, log } = {}) {
       if (timer) timer.cancelled = true;
     },
     log: log || (() => {}),
-    ...(ackMs != null ? { ackMs } : {}),
   });
   return { slack, calls, timers, FakeWS };
 }
@@ -381,7 +380,7 @@ test('canvasEdit', async () => {
   assert.equal(calls[0].headers.authorization, 'Bearer xoxb-test');
 });
 
-test('socket-ack-after-onEvent', async () => {
+test('socket acks an event before onEvent runs', async () => {
   const { slack, FakeWS } = harness({
     'auth.test': authOk,
     'apps.connections.open': { ok: true, url: 'wss://example.test/socket' },
@@ -396,88 +395,86 @@ test('socket-ack-after-onEvent', async () => {
     type: 'events_api', envelope_id: 'env-1',
     payload: { event: { type: 'message', channel: 'C1', ts: '5.5', user: 'UOWNER', text: '<@UBOT>' } },
   });
-  await slack.pending;
-  assert.equal(during, 0);
   assert.deepEqual(FakeWS.latest.sent, [{ envelope_id: 'env-1' }]);
+  await slack.pending;
+  assert.equal(during, 1);
 });
 
-test('socket-no-ack-on-onEvent-failure', async () => {
+test('socket acks an event whose onEvent fails, and logs the failure', async () => {
+  const logs = [];
   const { slack, FakeWS } = harness({
     'auth.test': authOk,
     'apps.connections.open': { ok: true, url: 'wss://example.test/socket' },
-  });
+  }, { log: (level, message) => logs.push(`${level} ${message}`) });
   await slack.connect(async () => { throw new Error('store down'); });
   FakeWS.latest.emit({
     type: 'events_api', envelope_id: 'env-2',
     payload: { event: { type: 'message', channel: 'C1', ts: '5.5', user: 'UOWNER', text: 'hi' } },
   });
   await slack.pending;
-  assert.deepEqual(FakeWS.latest.sent, []);
+  assert.deepEqual(FakeWS.latest.sent, [{ envelope_id: 'env-2' }]);
+  assert.deepEqual(logs, ['error event failed after its ack: store down']);
 });
 
 const socketRoutes = { 'auth.test': authOk, 'apps.connections.open': { ok: true, url: 'wss://example.test/socket' } };
 
-test('socket acks a slash command at once, with the handler response as its payload', async () => {
+test('socket acks a slash command at once, with the payload ack returns, before handle runs', async () => {
   const { slack, FakeWS } = harness(socketRoutes);
   const seen = [];
-  await slack.connect(async () => { throw new Error('not an event'); }, async (type, payload) => {
-    seen.push([type, payload.command]);
-    return { response: { text: 'Only the owner can open /payments. Nothing changed.' } };
+  await slack.connect(async () => { throw new Error('not an event'); }, {
+    ack: (type, payload) => { seen.push(['ack', type, payload.command]); return { text: 'Only the owner can open /payments. Nothing changed.' }; },
+    handle: async (type, payload) => { seen.push(['handle', type, payload.command, FakeWS.latest.sent.length]); },
   });
   FakeWS.latest.emit({ type: 'slash_commands', envelope_id: 'env-s', accepts_response_payload: true, payload: { command: '/payments', user_id: 'UOTHER' } });
-  await slack.pending;
-  assert.deepEqual(seen, [['slash_commands', '/payments']]);
   assert.deepEqual(FakeWS.latest.sent, [{ envelope_id: 'env-s', payload: { text: 'Only the owner can open /payments. Nothing changed.' } }]);
+  assert.deepEqual(seen, [['ack', 'slash_commands', '/payments']]);
+  await slack.pending;
+  assert.deepEqual(seen, [['ack', 'slash_commands', '/payments'], ['handle', 'slash_commands', '/payments', 1]]);
 });
 
-test('socket acks block_actions before the handler makes its Slack calls', async () => {
+test('socket acks block_actions bare before a handle function makes its Slack calls', async () => {
   const { slack, FakeWS } = harness(socketRoutes);
-  const sentWhenAfterRan = [];
-  await slack.connect(async () => {}, async () => ({ after: async () => { sentWhenAfterRan.push(FakeWS.latest.sent.length); } }));
+  const sentWhenHandled = [];
+  await slack.connect(async () => {}, async () => { sentWhenHandled.push(FakeWS.latest.sent.length); });
   FakeWS.latest.emit({ type: 'interactive', envelope_id: 'env-b', payload: { type: 'block_actions', actions: [{ action_id: 'payments_refuse' }] } });
   await slack.pending;
   assert.deepEqual(FakeWS.latest.sent, [{ envelope_id: 'env-b' }]);
-  assert.deepEqual(sentWhenAfterRan, [1]);
+  assert.deepEqual(sentWhenHandled, [1]);
 });
 
-test('socket acks a view_submission with the response_action the handler returns', async () => {
+test('socket acks a view_submission with the response_action ack returns', async () => {
   const { slack, FakeWS } = harness(socketRoutes);
-  const errors = { response_action: 'errors', errors: { payments_pin: 'Wrong PIN' } };
-  await slack.connect(async () => {}, async () => ({ response: errors }));
+  const errors = { response_action: 'errors', errors: { payments_pin: 'Use 4 to 12 digits.' } };
+  await slack.connect(async () => {}, { ack: () => errors, handle: async () => {} });
   FakeWS.latest.emit({ type: 'interactive', envelope_id: 'env-v', accepts_response_payload: true, payload: { type: 'view_submission' } });
-  await slack.pending;
   assert.deepEqual(FakeWS.latest.sent, [{ envelope_id: 'env-v', payload: errors }]);
 });
 
-test('socket acks a slow interaction bare within ackMs and still runs its follow-up', async () => {
-  const { slack, FakeWS } = harness(socketRoutes, { ackMs: 20 });
-  let followed = false;
+test('processing that never ends delays neither its ack nor the next envelope\'s', async () => {
+  const { slack, FakeWS } = harness(socketRoutes);
   let release;
-  const slow = new Promise((resolve) => { release = resolve; });
-  await slack.connect(async () => {}, async () => {
-    await slow;
-    return { response: { text: 'late' }, after: async () => { followed = true; } };
-  });
-  const started = Date.now();
-  FakeWS.latest.emit({ type: 'slash_commands', envelope_id: 'env-slow', accepts_response_payload: true, payload: { command: '/payments' } });
-  while (!FakeWS.latest.sent.length && Date.now() - started < 1000) await new Promise((resolve) => setTimeout(resolve, 5));
-  assert.deepEqual(FakeWS.latest.sent, [{ envelope_id: 'env-slow' }]);
-  assert.equal(Date.now() - started < 500, true);
+  const stuck = new Promise((resolve) => { release = resolve; });
+  const handled = [];
+  await slack.connect(async () => stuck, async (type, payload) => { handled.push(payload.n); await stuck; });
+  FakeWS.latest.emit({ type: 'events_api', envelope_id: 'env-e', payload: { event: { type: 'message', channel: 'C1', ts: '1.1', user: 'UOWNER', text: 'x' } } });
+  FakeWS.latest.emit({ type: 'interactive', envelope_id: 'env-1', payload: { type: 'block_actions', n: 1 } });
+  FakeWS.latest.emit({ type: 'interactive', envelope_id: 'env-2', payload: { type: 'block_actions', n: 2 } });
+  assert.deepEqual(FakeWS.latest.sent, [{ envelope_id: 'env-e' }, { envelope_id: 'env-1' }, { envelope_id: 'env-2' }]);
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(handled, [1, 2]);
   release();
-  await slack.pending;
-  assert.equal(followed, true);
-  assert.equal(FakeWS.latest.sent.length, 1);
 });
 
-test('socket acks an interaction whose handler throws, and logs no payload', async () => {
+test('socket acks an interaction whose ack or processing throws, and logs no payload', async () => {
   const logs = [];
   const { slack, FakeWS } = harness(socketRoutes, { log: (level, message) => logs.push(`${level} ${message}`) });
-  await slack.connect(async () => {}, async () => { throw new Error('boom'); });
+  await slack.connect(async () => {}, { ack: () => { throw new Error('boom'); }, handle: async () => { throw new Error('bang'); } });
   FakeWS.latest.emit({ type: 'interactive', envelope_id: 'env-x', accepts_response_payload: true,
     payload: { type: 'view_submission', view: { state: { values: { payments_pin: { value: { value: '482913' } } } } } } });
   await slack.pending;
   assert.deepEqual(FakeWS.latest.sent, [{ envelope_id: 'env-x' }]);
-  assert.deepEqual(logs, ['error interaction failed: boom']);
+  assert.deepEqual(logs, ['error interaction ack failed: boom', 'error interaction failed: bang']);
 });
 
 test('socket acks every envelope type: no handler, a response not accepted, an unknown type', async () => {
@@ -493,7 +490,7 @@ test('socket acks every envelope type: no handler, a response not accepted, an u
   await slack.pending;
   assert.deepEqual(FakeWS.latest.sent, [{ envelope_id: 'env-1' }, { envelope_id: 'env-2' }, { envelope_id: 'env-3' }, { envelope_id: 'env-4' }]);
   const second = harness(socketRoutes);
-  await second.slack.connect(async () => {}, async () => ({ response: { text: 'kept back' } }));
+  await second.slack.connect(async () => {}, { ack: () => ({ text: 'kept back' }), handle: async () => {} });
   second.FakeWS.latest.emit({ type: 'interactive', envelope_id: 'env-5', accepts_response_payload: false, payload: { type: 'block_actions' } });
   await second.slack.pending;
   assert.deepEqual(second.FakeWS.latest.sent, [{ envelope_id: 'env-5' }]);

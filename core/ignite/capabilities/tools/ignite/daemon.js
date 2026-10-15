@@ -22,7 +22,7 @@ const deferred = require('./deferred-deploy.js');
 const { Gate } = require('./payments.js');
 const { createPaymentPanel } = require('./payment-panel.js');
 const { createPaymentRunner } = require('./payment-runner.js');
-const { createWebhook, PROVIDERS } = require('./payment-webhook.js');
+const { createWebhook, loadProvider } = require('./payment-webhook.js');
 
 const TICK_MS = 30_000;
 const SWEEP_MS = 1_000;
@@ -32,6 +32,9 @@ const STATUS_MS = 250;
 // ticker aborts its call in flight at stop, and every call ends within its CALL_MS (4 s), so the pass
 // ends first.
 const STATUS_STOP_MS = 5_000;
+// How long the service waits for a payment ledger another process is writing. Its SQLite calls block the
+// event loop, so the wait is short: the withdrawal validation answers within 2 s and the socket keeps acking.
+const PAYMENT_BUSY_MS = 500;
 // The live status budget and 429 pause, kept across a restart, beside the lock.
 const PACE_FILE = 'live-status-pace.json';
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -278,22 +281,33 @@ async function startLocked(opts, workspace, held) {
     };
   }
 
+  // The payment gate's service side, on when the config has a payments section: each provider's withdrawal
+  // validation adapter (loaded by name from its connector), the owner's panel and buttons, the runner that
+  // resolves, posts, sends and reports, and the withdrawal validation listener.
+  const payments = paymentsConfig(config);
+  const adapters = {};
+  for (const name of payments?.providers || []) {
+    try {
+      adapters[name] = loadProvider(name);
+    } catch (error) {
+      log({ event: 'error', what: 'payment-provider', provider: name, message: error.message });
+    }
+  }
+
   // A check tool or a payment provider's tool is given the service's environment without its Slack
-  // tokens and the payment webhook's token.
+  // tokens and the payment webhook tokens.
   function toolEnv() {
     const env = { ...process.env };
     for (const name of ['appTokenEnv', 'botTokenEnv', 'ownerTokenEnv']) delete env[config.slack[name]];
-    const payments = paymentsConfig(config);
-    if (payments) delete env[payments.webhookTokenEnv];
+    for (const adapter of Object.values(adapters)) delete env[adapter.tokenEnv];
     return env;
   }
 
   const checks = createChecks({ log, now: clock, env: toolEnv });
 
-  // The payment gate's service side, on when the config has a payments section: the owner's panel and
-  // buttons, the runner that posts, sends and reports, and the withdrawal validation listener.
-  const payments = paymentsConfig(config);
-  const gate = payments ? new Gate({ workspace }) : null;
+  const gate = payments
+    ? new Gate({ workspace, timeZone: payments.timeZone, currency: payments.currency, busyMs: PAYMENT_BUSY_MS })
+    : null;
   const panel = createPaymentPanel({
     gate: () => gate,
     slack: () => slack,
@@ -305,7 +319,7 @@ async function startLocked(opts, workspace, held) {
     gate,
     slack: () => slack,
     store: (slug) => getStore(slug),
-    providers: Object.keys(PROVIDERS),
+    providers: Object.keys(adapters),
     run: opts.paymentRun,
     env: toolEnv,
     cwd: workspace,
@@ -314,7 +328,8 @@ async function startLocked(opts, workspace, held) {
   }) : null;
   const webhook = gate ? createWebhook({
     gate,
-    token: () => envValue(workspace, paymentsConfig(config)?.webhookTokenEnv || payments.webhookTokenEnv),
+    providers: adapters,
+    token: (name) => envValue(workspace, adapters[name].tokenEnv),
     port: opts.webhookPort ?? payments.webhookPort,
     log,
   }) : null;
@@ -557,7 +572,7 @@ async function startLocked(opts, workspace, held) {
     for (const slug of agentSlugs(workspace)) getStore(slug);
     timers.push(setInterval(() => { if (!stopping) ticker.step(); }, opts.statusMs ?? STATUS_MS));
     if (gate) {
-      const interrupted = gate.failInterrupted();
+      const interrupted = gate.interrupted();
       if (interrupted.length) log({ event: 'payments', action: 'interrupted', ids: interrupted });
       try {
         const port = await webhook.listen();
@@ -568,7 +583,7 @@ async function startLocked(opts, workspace, held) {
       }
       timers.push(setInterval(paymentStep, opts.paymentMs ?? SWEEP_MS));
     }
-    if (socket) await socket.connect(onEvent, (type, payload) => panel.handle(type, payload));
+    if (socket) await socket.connect(onEvent, panel);
     await tick();
     timers.push(setInterval(() => { tick().catch((error) => log({ event: 'tick', message: error.message })); }, opts.tickMs ?? TICK_MS));
     timers.push(setInterval(() => {

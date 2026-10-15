@@ -206,17 +206,22 @@ test('a payments section turns the gate on, with its defaults; no section leaves
   writeConfig(dir);
   assert.equal(paymentsConfig(loadConfig(dir)), null);
   writeConfig(dir, { payments: {} });
-  assert.deepEqual(paymentsConfig(loadConfig(dir)), { webhookPort: 8787, webhookTokenEnv: 'ASAAS_WEBHOOK_TOKEN' });
-  writeConfig(dir, { payments: { webhookPort: 9000, webhookTokenEnv: 'PAY_HOOK' } });
-  assert.deepEqual(paymentsConfig(loadConfig(dir)), { webhookPort: 9000, webhookTokenEnv: 'PAY_HOOK' });
+  assert.deepEqual(paymentsConfig(loadConfig(dir)), { webhookPort: 8787, providers: ['asaas'], timeZone: 'America/Sao_Paulo', currency: 'BRL' });
+  writeConfig(dir, { payments: { webhookPort: 9000, providers: ['otherbank'], timeZone: 'Europe/Lisbon', currency: 'EUR' } });
+  assert.deepEqual(paymentsConfig(loadConfig(dir)), { webhookPort: 9000, providers: ['otherbank'], timeZone: 'Europe/Lisbon', currency: 'EUR' });
 });
 
-test('a payments section refuses an unknown field, a bad port and a bad variable name', (dir) => {
+test('a payments section refuses an unknown field, a bad port, provider, time zone or currency', (dir) => {
   for (const [payments, message] of [
-    [{ mode: 'automatic' }, /unknown payments field: mode/],
-    [{ webhookPort: 0 }, /payments.webhookPort must be a port number from 1 to 65535/],
-    [{ webhookPort: '8787' }, /payments.webhookPort must be a port number from 1 to 65535/],
-    [{ webhookTokenEnv: 'not a name' }, /payments.webhookTokenEnv must be an environment variable name/],
+    [{ mode: 'automatic' }, /^Error: unknown payments field: mode/],
+    [{ webhookTokenEnv: 'PAY_HOOK' }, /^Error: unknown payments field: webhookTokenEnv/],
+    [{ webhookPort: 0 }, /^Error: payments.webhookPort must be a port number from 1 to 65535$/],
+    [{ webhookPort: '8787' }, /^Error: payments.webhookPort must be a port number from 1 to 65535$/],
+    [{ providers: 'asaas' }, /^Error: payments.providers must be a list of provider names, such as \["asaas"\]$/],
+    [{ providers: ['../asaas'] }, /^Error: payments.providers must be a list of provider names, such as \["asaas"\]$/],
+    [{ timeZone: 'Mars/Base' }, /^Error: payments.timeZone must be an IANA time zone, such as America\/Sao_Paulo$/],
+    [{ currency: 'real' }, /^Error: payments.currency must be an ISO 4217 currency code, such as BRL$/],
+    [{ currency: 'JPY' }, /^Error: payments.currency must be a currency with two decimals: amounts are kept in hundredths$/],
     ['on', /payments must be an object/],
   ]) {
     writeConfig(dir, { payments });
