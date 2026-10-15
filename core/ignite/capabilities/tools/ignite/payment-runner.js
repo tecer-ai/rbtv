@@ -19,11 +19,14 @@
 //   1. resolves each pending request: `<provider> --json pay resolve <id>` with the request (payments.js
 //      publicRow) on stdin gives the recipient as the bank names it, recorded with gate.resolved (a key, amount
 //      or fee that differs refuses the request); after 3 failed tries 30 s apart, gate.resolveFailed;
-//   2. posts each resolved pending request without a message to its conversation's thread, with Approve and Refuse;
+//   2. posts each pending request resolved or failed and without a message to its conversation's thread, with
+//      Approve and Refuse, or Refuse alone when the resolution failed (payment-panel.js promptBlocks);
 //   3. sends each approved request not yet claimed: claims it (once only), runs `<provider> --json pay execute <id>`
 //      with the request on stdin, and records sent, with the provider's id, status and receipt; failed only when
 //      the tool answers {"created": false} (the bank refused it, or it was never called); otherwise (a timeout,
-//      a crash, no operation id) uncertain, which keeps counting toward the limits;
+//      a crash, no operation id) uncertain, which keeps counting toward the limits. A request the owner approved
+//      while its recipient was unchecked (payments.js unchecked; a ledger of an earlier release can hold one) is
+//      never run: it fails;
 //   4. reads each sent operation with `<provider> --json pay status <id>` every 5 s, from 5 s after it was sent for
 //      10 minutes, until the tool calls it final; final and not ok fails the request;
 //   5. reconciles each uncertain request with an operation id (its own, or the one the withdrawal validation
@@ -37,7 +40,7 @@
 // outcomeText(gate, row) → the note an outcome wakes the conversation with.
 
 const { execFile } = require('node:child_process');
-const { publicRow } = require('./payments.js');
+const { publicRow, unchecked } = require('./payments.js');
 const { promptBlocks, promptText } = require('./payment-panel.js');
 
 const RUN_MS = 60_000;
@@ -176,6 +179,12 @@ function createPaymentRunner({ gate, slack, store, providers, run = null, env = 
   async function send(row) {
     if (!allowed.has(row.provider)) {
       gate.failed(row.id, `Ignite does not send through ${row.provider}: it has no withdrawal validation for it`);
+      return;
+    }
+    const why = row.decided_by === 'owner' ? unchecked(row) : null;
+    if (why) {
+      gate.failed(row.id, `Not sent, because the owner approved it before Ignite had checked it: ${why}`);
+      note({ action: 'send-refused', id: row.id, reason: why });
       return;
     }
     if (!gate.claim(row.id)) return;

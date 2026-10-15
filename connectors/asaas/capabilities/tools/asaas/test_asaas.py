@@ -377,7 +377,8 @@ def qr_and_recharge(server, home, work, R, turn):
     code, out, err = run(work, server, "pay", "recharge", "1234", "20", extra=turn)
     check("pay recharge refuses a number that is not a mobile number, naming the quoting", code == 2 and err.splitlines()[-1] ==
           'asaas pay recharge: error: argument phone: a mobile number has 11 digits with its area code, like 11912345678 or "11 91234-5678" (quoted when it has spaces; +55 optional)', err)
-    gate_do(home, "gate.approve('P-0007'); gate.claim('P-0007'); gate.sent('P-0007', { providerId: 'pq_7' });")
+    gate_do(home, "gate.resolved('P-0007', { key: gate.get('P-0007').recipient_key }); gate.approve('P-0007');"
+                  " gate.claim('P-0007'); gate.sent('P-0007', { providerId: 'pq_7' });")
     code, out, err = run(work, server, "cancel", "P-0007", extra=turn)
     check("cancel refuses a sent QR payment, naming who can cancel it", code == 1 and err.splitlines() == [
         "asaas: P-0007 is a qr payment Asaas already has", "  why: this tool cancels Pix key transfers and bills only",

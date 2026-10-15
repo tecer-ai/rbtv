@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// Suite for the payment gate: payments.js (settings, limits, ledger, PIN), payment-panel.js (the
+// Suite for the payment gate: payments.js (settings, limits, ledger and its upgrade, PIN), payment-panel.js (the
 // owner's Slack panel and buttons), payment-runner.js (resolving, sending, reconciling, reporting),
 // payment-webhook.js (the withdrawal validation, with the asaas connector's adapter) and the ignite
 // payment verbs. Injected clock, stand-in Slack and stand-in provider tool; the webhook listens on
@@ -62,10 +62,14 @@ function sentRequest(gate, fields = {}) {
 
 const config = { slack: { team: 'T1', ownerUserId: 'UOWNER' }, payments: {} };
 
-function fakeSlack() {
+// fail: { method: [n, ...] } — the nth call of that method (from 1) throws, as a Slack call that failed.
+function fakeSlack({ fail = {} } = {}) {
   const calls = [];
+  const counts = {};
   const record = (method) => async (...args) => {
     calls.push({ method, args });
+    counts[method] = (counts[method] || 0) + 1;
+    if ((fail[method] || []).includes(counts[method])) throw new Error(`Slack ${method} failed: not_found`);
     if (method === 'postBlocks') return { channel: args[0].channel, ts: `9.${calls.length}` };
     if (method === 'openView' || method === 'pushView' || method === 'updateView') return { viewId: 'V-new' };
     return { ok: true };
@@ -228,11 +232,14 @@ test('limits count approved, sent and uncertain amounts with their fee, not pend
   gate.refuse(refused.id);
   gate.cancel(cancelled.id, 'sara');
   const approved = ask(gate, { amountCents: 800, feeCents: 99 });
+  gate.resolved(approved.id, KENU);
   gate.approve(approved.id);
   const failing = ask(gate, { amountCents: 1600 });
+  gate.resolved(failing.id, KENU);
   gate.approve(failing.id);
   gate.failed(failing.id, 'Asaas answered HTTP 400');
   const unsure = ask(gate, { amountCents: 3200 });
+  gate.resolved(unsure.id, KENU);
   gate.approve(unsure.id);
   gate.claim(unsure.id);
   gate.uncertain(unsure.id, 'the answer was lost');
@@ -260,6 +267,7 @@ test('only a pending request is approved or refused, once', () => {
   const { gate } = gateAt('2026-10-15T15:00:00Z');
   gate.saveSettings({ mode: 'case_by_case', limits: {} });
   const row = ask(gate);
+  gate.resolved(row.id, KENU);
   assert.equal(gate.approve(row.id).changed, true);
   assert.equal(gate.approve(row.id).changed, false);
   assert.equal(gate.refuse(row.id).changed, false);
@@ -282,6 +290,131 @@ test('amounts are shown in the currency and read back in one form at any size', 
     assert.equal(canonicalAmount(cents), form);
     if (form != null) assert.equal(parseAmount(form), cents);
   }
+});
+
+// The ledger as the payment gate's first release created it (rbtv 4c7d95c6): no resolution, retry or interaction
+// columns and no interactions table.
+const FIRST_LEDGER = `
+      CREATE TABLE IF NOT EXISTS payments (
+        seq INTEGER PRIMARY KEY,
+        id TEXT NOT NULL UNIQUE,
+        agent TEXT NOT NULL,
+        conversation_key TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        method TEXT NOT NULL,
+        recipient_name TEXT,
+        recipient_key TEXT NOT NULL,
+        recipient_key_type TEXT,
+        recipient_document TEXT,
+        recipient_bank TEXT,
+        amount_cents INTEGER NOT NULL,
+        fee_cents INTEGER NOT NULL DEFAULT 0,
+        note TEXT,
+        details TEXT NOT NULL DEFAULT '{}',
+        state TEXT NOT NULL,
+        reason TEXT,
+        decided_by TEXT,
+        decided_at INTEGER,
+        claimed_at INTEGER,
+        provider_id TEXT,
+        provider_status TEXT,
+        receipt_url TEXT,
+        sent_at INTEGER,
+        checked_at INTEGER,
+        check_final INTEGER NOT NULL DEFAULT 0,
+        answered_at INTEGER,
+        answered_operation TEXT,
+        prompt_channel TEXT,
+        prompt_ts TEXT,
+        prompt_shown TEXT,
+        notified TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS payments_state ON payments(state, decided_at);
+      CREATE TABLE IF NOT EXISTS gate (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+`;
+const ADDED = ['resolved_at', 'resolved_name', 'resolved_key', 'resolved_key_type', 'resolved_document', 'resolved_bank',
+  'resolved_amount_cents', 'resolved_fee_cents', 'resolve_error', 'answered_cents', 'answered_recipient'];
+
+// A first-release ledger with its history: P-0001 sent and answered, P-0002 pending and posted, P-0003 approved by
+// the owner and not sent yet (that release approved before any check), and the settings and PIN lockout it saved.
+function firstLedger(workspace) {
+  const file = ledgerPath(workspace);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const old = new DatabaseSync(file);
+  old.exec('PRAGMA journal_mode=WAL;');
+  old.exec(FIRST_LEDGER);
+  const t = at('2026-10-14T12:00:00Z');
+  const insert = old.prepare(`INSERT INTO payments (seq, id, agent, conversation_key, provider, method, recipient_name,
+    recipient_key, recipient_key_type, amount_cents, note, state, reason, decided_by, decided_at, claimed_at, provider_id,
+    provider_status, receipt_url, sent_at, check_final, answered_at, answered_operation, prompt_channel, prompt_ts,
+    prompt_shown, notified, created_at, updated_at) VALUES (?, ?, 'sara', '${KEY}', 'asaas', 'pix', 'KENU', 'kenu@example.com',
+    'EMAIL', ?, 'Owed to Kenu', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'C1', ?, ?, ?, ?, ?)`);
+  insert.run(1, 'P-0001', 1000, 'sent', 'approved by the owner', 'owner', t, t, 'tr_1', 'DONE', 'https://r.example/1', t, 1, t + 5000, 'tr_1', '9.1', 'sent', 'sent', t, t + 5000);
+  insert.run(2, 'P-0002', 2000, 'pending', 'case by case: every payment waits for the owner', null, null, null, null, null, null, null, 0, null, null, '9.2', 'pending', null, t, t);
+  insert.run(3, 'P-0003', 3000, 'approved', 'approved by the owner', 'owner', t, null, null, null, null, null, 0, null, null, '9.3', 'pending', null, t, t);
+  const value = old.prepare('INSERT INTO gate(key, value, updated_at) VALUES (?, ?, ?)');
+  value.run('settings', '{"mode":"case_by_case","limits":{"day":null,"week":15000,"month":null}}', t);
+  value.run('pin', '{"failures":2,"lockedUntil":0}', t);
+  const rows = old.prepare('SELECT * FROM payments ORDER BY seq').all().map((row) => ({ ...row }));
+  old.close();
+  return rows;
+}
+
+test('a ledger the first release created gains the new columns when opened and keeps every request and its history', () => {
+  const workspace = scratch();
+  const before = firstLedger(workspace);
+  const { gate } = gateAt('2026-10-15T15:00:00Z', workspace);
+  const columns = gate.db.prepare('PRAGMA table_info(payments)').all().map((c) => c.name);
+  assert.deepEqual(columns.slice(0, 34), Object.keys(before[0]));
+  assert.deepEqual(columns.slice(34), ADDED);
+  const after = gate.db.prepare('SELECT * FROM payments ORDER BY seq').all();
+  assert.deepEqual(after.map((row) => [row.id, row.state, row.decided_by, row.provider_id, row.answered_operation, row.prompt_ts, row.notified]), [
+    ['P-0001', 'sent', 'owner', 'tr_1', 'tr_1', '9.1', 'sent'],
+    ['P-0002', 'pending', null, null, null, '9.2', null],
+    ['P-0003', 'approved', 'owner', null, null, '9.3', null],
+  ]);
+  assert.deepEqual(after.map((row) => Object.fromEntries(Object.keys(before[0]).map((name) => [name, row[name]]))), before);
+  assert.deepEqual(after.map((row) => ADDED.filter((name) => row[name] !== null)), [[], [], []]);
+  assert.deepEqual(gate.settings(), { mode: 'case_by_case', limits: { day: null, week: 15000, month: null }, revision: 0 });
+  assert.equal(gate.db.prepare("SELECT value FROM gate WHERE key='pin'").get().value, '{"failures":2,"lockedUntil":0}');
+  assert.equal(gate.db.prepare('SELECT COUNT(*) AS n FROM interactions').get().n, 0);
+  // The re-review's probe: the service's first pass read a column the old ledger lacked.
+  const work = gate.due();
+  assert.deepEqual([work.resolve.map((r) => r.id), work.toSend.map((r) => r.id)], [['P-0002'], ['P-0003']]);
+  assert.deepEqual(gate.usage(), { day: 0, week: 4000, month: 4000 });
+  gate.resolved('P-0002', KENU);
+  assert.equal(gate.approve('P-0002').changed, true);
+  gate.close();
+  const again = new Gate({ workspace });
+  assert.equal(again.db.prepare('PRAGMA table_info(payments)').all().length, 45);
+  assert.deepEqual(again.list({ limit: 5 }).map((row) => [row.id, row.state]), [['P-0003', 'approved'], ['P-0002', 'approved'], ['P-0001', 'sent']]);
+  again.close();
+});
+
+test('a limit is accepted, shown and read back up to 999999999.99, and refused above it', async () => {
+  const { gate } = gateAt('2026-10-15T15:00:00Z');
+  gate.setPin(PIN);
+  assert.throws(() => gate.saveSettings({ mode: 'automatic', limits: { day: 100_000_000_000 } }), /^Error: day limit must be at most 999999999\.99$/);
+  assert.equal(gate.settings().revision, 0);
+  gate.saveSettings({ mode: 'automatic', limits: { day: 99_999_999_999, week: 1 } });
+  const { panel, slack } = panelFor(gate);
+  await interact(panel, 'interactive', action(ACTION.settings, 'settings'));
+  const form = slack.calls[0].args[1];
+  assert.deepEqual(form.blocks.filter((b) => /^payments_(day|week|month)$/.test(b.block_id)).map((b) => [b.block_id, b.element.initial_value ?? null, b.element.max_length]),
+    [['payments_day', '999999999.99', 12], ['payments_week', '0.01', 12], ['payments_month', null, 12]]);
+  const unchanged = settingsValues('automatic', { day: '999999999.99', week: '0.01' }, PIN);
+  assert.deepEqual(await interact(panel, 'interactive', submission(VIEW.settings, unchanged, { metadata: form.private_metadata })), CHECKING);
+  assert.equal(slack.calls[1].args[1].blocks[0].text.text, 'Saved: Automatic within the limits; limits today R$ 999.999.999,99, this week R$ 0,01.');
+  assert.deepEqual(gate.settings(), { mode: 'automatic', limits: { day: 99_999_999_999, week: 1, month: null }, revision: 2 });
+  assert.deepEqual(await interact(panel, 'interactive', submission(VIEW.settings, settingsValues('automatic', { day: '1000000000.00' }, PIN), { metadata: '{"revision":2}', hash: 'over' })),
+    { response_action: 'errors', errors: { payments_day: 'Write an amount like 1500.00.' } });
+  assert.deepEqual([parseAmount('999999999.99'), parseAmount('1000000000'), canonicalAmount(99_999_999_999)], [99_999_999_999, null, '999999999.99']);
 });
 
 // ───────────────────────────── the PIN
@@ -427,6 +560,7 @@ test('after five wrong PINs, approvals and settings are locked for 15 minutes', 
   gate.setPin(PIN);
   gate.saveSettings({ mode: 'case_by_case', limits: {} });
   const row = ask(gate);
+  gate.resolved(row.id, KENU);
   const { panel, slack } = panelFor(gate);
   let n = 0;
   const approve = async (pin) => {
@@ -516,6 +650,7 @@ test('each owner interaction is recorded once: a replay changes nothing, a wrong
   gate.saveSettings({ mode: 'case_by_case', limits: {} });
   const one = ask(gate);
   const two = ask(gate);
+  gate.resolved(one.id, KENU);
   const { panel, slack } = panelFor(gate);
   const wrong = submission(VIEW.approve, pinValue('111111'), { metadata: one.id, hash: 'wrong' });
   for (let i = 0; i < 5; i++) await interact(panel, 'interactive', wrong);
@@ -566,6 +701,37 @@ test('the thread message has Approve and Refuse while pending, and its outcome a
   assert.equal(after[1].elements[0].text, 'Refused by you.');
 });
 
+test('an approval or refusal the ledger holds is shown as done when a Slack view update fails, never as nothing changed', async () => {
+  const { gate } = gateAt('2026-10-15T15:00:00Z');
+  gate.setPin(PIN);
+  gate.saveSettings({ mode: 'case_by_case', limits: {} });
+  for (let i = 0; i < 3; i++) gate.resolved(ask(gate).id, KENU);
+  // views.update calls: 1 the first approval's outcome (fails), 2 its fallback, 3 the second approval's outcome,
+  // 4 the panel under it (fails), 5 the panel after a refusal (fails), 6 its fallback, 7 a saved setting (fails), 8 its fallback.
+  const slack = fakeSlack({ fail: { updateView: [1, 4, 5, 7] } });
+  const { panel, kicks } = panelFor(gate, { slack });
+  const shown = () => slack.calls.filter((c) => c.method === 'updateView').map((c) => [c.args[0], viewText(c.args[1])]);
+  // The re-review's probe: a valid approval whose first update fails and whose second succeeds.
+  await interact(panel, 'interactive', submission(VIEW.approve, pinValue(PIN), { metadata: 'P-0001', hash: 'a' }));
+  assert.equal(gate.get('P-0001').state, 'approved');
+  assert.deepEqual(gate.due().toSend.map((r) => r.id), ['P-0001']);
+  assert.equal(kicks.length, 1);
+  await interact(panel, 'interactive', submission(VIEW.approve, pinValue(PIN), { metadata: 'P-0002', id: 'V2', root: 'V1', hash: 'b' }));
+  await interact(panel, 'interactive', action(ACTION.refuse, 'P-0003', { view: { id: 'V1' }, ts: '7.1' }));
+  assert.equal(gate.get('P-0003').state, 'refused');
+  await interact(panel, 'interactive', submission(VIEW.settings, settingsValues('automatic', { day: '50' }, PIN), { metadata: '{"revision":1}', id: 'V3', root: 'V3', hash: 'c' }));
+  assert.deepEqual(gate.settings().limits.day, 5000);
+  const approved = (id, to) => `Approved ${id}: R$ 10,00 to ${to}. Ignite is sending it now; the result arrives in sara's thread.`;
+  assert.deepEqual(shown().filter((_, i) => [1, 2, 5, 7].includes(i)), [
+    ['V1', `${approved('P-0001', 'KENU EXAMPLE SILVA')} The panel could not refresh; reopen /payments to see it.`],
+    ['V2', approved('P-0002', 'KENU EXAMPLE SILVA')],
+    ['V1', 'Refused P-0003. The panel could not refresh; reopen /payments to see it.'],
+    ['V3', 'Saved: Automatic within the limits; limits today R$ 50,00. The panel could not refresh; reopen /payments to see it.'],
+  ]);
+  assert.equal(shown().length, 8);
+  assert.equal(JSON.stringify(slack.calls).includes('Nothing changed'), false);
+});
+
 // ───────────────────────────── exactly once
 
 test('an approval is sent exactly once: double click, replayed interaction, overlapping passes', async () => {
@@ -573,6 +739,7 @@ test('an approval is sent exactly once: double click, replayed interaction, over
   gate.setPin(PIN);
   gate.saveSettings({ mode: 'case_by_case', limits: {} });
   const row = ask(gate);
+  gate.resolved(row.id, KENU);
   const runs = [];
   // Two runners on the same ledger stand for two passes that overlap: only the claim keeps them apart.
   const runnerOf = () => createPaymentRunner({
@@ -740,6 +907,72 @@ test('a resolution that differs from the request refuses it and wakes the agent;
   assert.equal(slack.calls[0].args[0].blocks[0].text.text, '*Payment request P-0002* from sara\n*Recipient* not checked: Ignite could not read it through asaas '
     + "(asaas: Asaas rate limit (429) why: too many lookups)\n*Pix key* kenu@example.com\n*Amount* R$ 10,00\n_The agent's own description, not checked:_ KENU EXAMPLE SILVA · ***.123.456-** · Nubank\n*Agent's note* Owed to Kenu");
   assert.equal(stand.runs.length, 4);
+});
+
+test('the owner approves only a request Ignite has checked: no Approve before, a refused approval, a failed check that stays pending, and nothing sent', async () => {
+  const { gate, clock } = gateAt('2026-10-15T15:00:00Z');
+  gate.setPin(PIN);
+  gate.saveSettings({ mode: 'case_by_case', limits: {} });
+  ask(gate);
+  const { panel, slack: owner } = panelFor(gate);
+  const last = () => viewText(owner.calls.at(-1).args[1]);
+  // The re-review's probe: /payments opened before the service resolved the request, then a valid PIN submitted.
+  await interact(panel, 'slash_commands', slash());
+  const before = owner.calls[0].args[1].blocks;
+  assert.equal(before[5].text.text, '*P-0001* from sara: R$ 10,00\n*Recipient* not checked by Ignite yet\n*Pix key* kenu@example.com\n*Amount* R$ 10,00\n'
+    + "_The agent's own description, not checked:_ KENU EXAMPLE SILVA · ***.123.456-** · Nubank\n*Agent's note* Owed to Kenu\nWaits: case by case: every payment waits for the owner");
+  assert.equal(before[6].elements[0].text, 'Approve appears once Ignite has checked the recipient.');
+  assert.deepEqual(before[7].elements.map((e) => e.action_id), [ACTION.refuse]);
+  await interact(panel, 'interactive', submission(VIEW.approve, pinValue(PIN), { metadata: 'P-0001', hash: 'a' }));
+  assert.equal(last(), 'P-0001 cannot be approved: Ignite has not checked its recipient through asaas yet. Nothing changed.');
+  await interact(panel, 'interactive', action(ACTION.approve, 'P-0001', { ts: '3.1' }));
+  assert.deepEqual([owner.calls.at(-1).method, last()], ['openView', 'P-0001 cannot be approved: Ignite has not checked its recipient through asaas yet. Nothing changed.']);
+  assert.deepEqual(gate.approve('P-0001'), { changed: false, unchecked: 'Ignite has not checked its recipient through asaas yet', row: gate.get('P-0001') });
+  assert.equal(gate.get('P-0001').state, 'pending');
+  // The service's check fails three times: the request stays pending, shows the failure, and offers Refuse only.
+  const store = agentStore();
+  const thread = fakeSlack();
+  const limited = { code: 1, stdout: '', stderr: 'asaas: Asaas rate limit (429)\n  why: too many lookups\n' };
+  const stand = tool({ resolve: [limited, limited, limited] });
+  const runner = createPaymentRunner({ gate, slack: () => thread.client, store: () => store, providers: ['asaas'], cwd: gate.workspace, run: stand.run, now: () => clock.now });
+  for (let i = 0; i < 5; i++) {
+    await runner.step();
+    clock.now += 30_000;
+  }
+  assert.deepEqual(stand.runs.map((r) => r.args[2]), ['resolve', 'resolve', 'resolve']);
+  assert.deepEqual([gate.get('P-0001').state, gate.get('P-0001').resolve_error], ['pending', 'asaas: Asaas rate limit (429) why: too many lookups']);
+  const posted = thread.calls[0].args[0].blocks;
+  assert.equal(posted[0].text.text, '*Payment request P-0001* from sara\n*Recipient* not checked: Ignite could not read it through asaas (asaas: Asaas rate limit (429) why: too many lookups)\n'
+    + "*Pix key* kenu@example.com\n*Amount* R$ 10,00\n_The agent's own description, not checked:_ KENU EXAMPLE SILVA · ***.123.456-** · Nubank\n*Agent's note* Owed to Kenu");
+  assert.deepEqual(posted.slice(1).map((b) => b.elements.map((e) => e.text?.text ?? e.text)), [
+    ['Waits for you: case by case: every payment waits for the owner'],
+    ['It cannot be approved: Ignite could not check its recipient. Refuse it; the agent can ask again.'],
+    ['Refuse'],
+  ]);
+  await interact(panel, 'interactive', submission(VIEW.approve, pinValue(PIN), { metadata: 'P-0001', hash: 'b' }));
+  assert.equal(last(), 'P-0001 cannot be approved: Ignite could not check its recipient through asaas (asaas: Asaas rate limit (429) why: too many lookups). Nothing changed.');
+  await interact(panel, 'slash_commands', slash());
+  assert.deepEqual(owner.calls.at(-1).args[1].blocks.filter((b) => b.block_id === 'payment:P-0001').map((b) => b.elements.map((e) => e.action_id)), [[ACTION.refuse]]);
+  await runner.step();
+  assert.equal(stand.runs.length, 3);
+  assert.equal(gate.get('P-0001').state, 'pending');
+  assert.deepEqual(wakes(store), []);
+  // Neither refused approval spent a PIN try.
+  assert.deepEqual(gate.checkPin('000000'), { ok: false, left: 4 });
+});
+
+test('the runner never sends a request the owner approved before Ignite checked it', async () => {
+  const workspace = scratch();
+  firstLedger(workspace);
+  const { gate } = gateAt('2026-10-15T15:00:00Z', workspace);
+  const stand = tool({ resolve: RESOLVED_KENU });
+  const runner = createPaymentRunner({ gate, slack: () => null, store: () => null, providers: ['asaas'], cwd: gate.workspace, run: stand.run });
+  await runner.step();
+  assert.deepEqual(stand.runs.map((r) => r.args.slice(2)), [['resolve', 'P-0002']]);
+  const unsent = gate.get('P-0003');
+  assert.deepEqual([unsent.state, unsent.claimed_at, unsent.reason], ['failed', null,
+    'Not sent, because the owner approved it before Ignite had checked it: Ignite has not checked its recipient through asaas yet']);
+  assert.deepEqual(gate.usage(), { day: 0, week: 1000, month: 1000 });
 });
 
 test('the runner sends an approved request with its exact fields, follows it and reports the receipt', async () => {
@@ -980,18 +1213,25 @@ test('the webhook refuses a wrong amount, a wrong recipient, an unknown referenc
   }
 });
 
-test('the webhook answers within 2 seconds while another connection holds the ledger, refusing with the reason', async () => {
-  const { gate, workspace } = gateAt('2026-10-15T15:00:00Z', scratch(), { busyMs: 500 });
+test('six calls at once each answer within 1 second while another connection holds the ledger, and are approved once it is free', async () => {
+  // The webhook's own connection, as startWebhook opens it: its busy wait is 0, so no call blocks another.
+  const { gate, workspace } = gateAt('2026-10-15T15:00:00Z', scratch(), { busyMs: 0 });
   sentRequest(gate);
   const holder = new DatabaseSync(ledgerPath(workspace));
-  holder.exec('PRAGMA busy_timeout=0; BEGIN IMMEDIATE');
   const { hook, port } = await listening(gate);
+  const six = () => Promise.all(Array.from({ length: 6 }, () => post(port, transfer())));
   try {
-    const answer = await post(port, transfer());
-    assert.equal(answer.ms < 2000, true, `answered in ${answer.ms} ms`);
-    assert.deepEqual(answer.body, { status: 'REFUSED', refuseReason: 'the ledger is busy (database is locked): nothing was approved' });
-    holder.exec('ROLLBACK');
-    assert.deepEqual((await post(port, transfer())).body, { status: 'APPROVED' });
+    // The re-review's probe: another connection holds BEGIN IMMEDIATE and six valid calls arrive at once.
+    holder.exec('PRAGMA busy_timeout=0; BEGIN IMMEDIATE');
+    const held = await six();
+    assert.deepEqual(held.map((a) => a.body), Array(6).fill({ status: 'REFUSED', refuseReason: 'the ledger is busy (database is locked): nothing was approved' }));
+    for (const answer of held) assert.equal(answer.ms < 1000, true, `answered in ${answer.ms} ms`);
+    // A lock held for a moment: each call waits for it without blocking the others, and is approved.
+    const calls = six();
+    setTimeout(() => holder.exec('ROLLBACK'), 150);
+    const freed = await calls;
+    assert.deepEqual(freed.map((a) => a.body), Array(6).fill({ status: 'APPROVED' }));
+    for (const answer of freed) assert.equal(answer.ms >= 140 && answer.ms < 1000, true, `answered in ${answer.ms} ms`);
   } finally {
     holder.close();
     await hook.close();
@@ -1009,6 +1249,7 @@ test('a direct API call that skipped the gate is refused, even naming a real req
   gate.saveSettings({ mode: 'case_by_case', limits: {} });
   ask(gate);
   assert.equal(check(transfer({ reference: 'P-0001' })).refuseReason, 'P-0001 is pending');
+  gate.resolved('P-0001', KENU);
   gate.approve('P-0001');
   assert.equal(check(transfer({ reference: 'P-0001' })).refuseReason, 'P-0001 is approved but Ignite has not sent it');
   gate.saveSettings({ mode: 'off', limits: {} });

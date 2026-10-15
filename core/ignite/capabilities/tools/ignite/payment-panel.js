@@ -13,18 +13,22 @@
 //   rules of payments.js), or, for a form that passes them, a "Checking" view in its place. handle then does the
 //   work and shows it with Slack calls: /payments opens the panel, or the PIN form on first use; Approve opens a
 //   PIN form for that request (on top of the panel, or alone from a thread message); Refuse refuses at once;
-//   Change settings opens the settings form, which carries the settings revision it shows. A submitted form's
-//   checking view becomes its outcome, or the form again with the reason: a wrong PIN, or settings changed
-//   since the form opened. Each approve, refuse and settings interaction is recorded by its key, so a replay
-//   changes nothing. Five wrong PINs in a row lock every PIN form for 15 minutes (payments.js checkPin).
+//   Change settings opens the settings form, which carries the settings revision it shows. Approve is offered,
+//   and accepted, only for a request whose recipient Ignite has checked (payments.js unchecked); an unchecked one
+//   shows Refuse alone and why. A submitted form's checking view becomes its outcome, or the form again with the
+//   reason: a wrong PIN, or settings changed since the form opened. The ledger changes first; a Slack call that
+//   fails after it shows the outcome as text, saying the panel could not refresh, never that nothing changed.
+//   Each approve, refuse and settings interaction is recorded by its key, so a replay changes nothing. Five wrong
+//   PINs in a row lock every PIN form for 15 minutes (payments.js checkPin).
 // promptBlocks(gate, row) → the blocks of a request's message in its agent's thread: the recipient as Ignite
-//   resolved it through the provider, then Approve and Refuse while it is pending, else its outcome.
+//   resolved it through the provider, then Approve and Refuse while it is pending (Refuse alone while it is
+//   unchecked), else its outcome.
 //   promptText(gate, row) → that message's text. The agent's own description shows only as a labelled note.
 // interactionKey(payload) → the key an interaction is recorded by: a form's view id and hash, a button's action
 //   time; null when the payload has neither.
 // ACTION, VIEW — the action ids and the view callback ids.
 
-const { parseAmount, canonicalAmount, settingsProblem, PIN_RE, PERIODS } = require('./payments.js');
+const { parseAmount, canonicalAmount, settingsProblem, unchecked, PIN_RE, PERIODS, MAX_LIMIT_CENTS } = require('./payments.js');
 
 const ACTION = Object.freeze({ approve: 'payments_approve', refuse: 'payments_refuse', settings: 'payments_settings' });
 const VIEW = Object.freeze({
@@ -34,6 +38,7 @@ const VIEW = Object.freeze({
 const FORMS = Object.freeze([VIEW.setPin, VIEW.approve, VIEW.settings]);
 const PIN_BLOCK = 'payments_pin';
 const PENDING_SHOWN = 15;
+const LIMIT_CHARS = canonicalAmount(MAX_LIMIT_CENTS).length;
 const NOT_SET_UP = "Payments are not set up here: Ignite's config has no payments section.";
 const MODE_TEXT = {
   off: 'Off: every payment is refused',
@@ -115,22 +120,32 @@ function outcome(gate, row) {
   return `Failed: ${esc(row.reason)}`;
 }
 
-function buttons(id) {
+// A pending request's buttons: Approve only once Ignite has checked its recipient.
+function buttons(row) {
   return {
     type: 'actions',
-    block_id: `payment:${id}`,
+    block_id: `payment:${row.id}`,
     elements: [
-      { type: 'button', action_id: ACTION.approve, text: plain('Approve'), style: 'primary', value: id },
-      { type: 'button', action_id: ACTION.refuse, text: plain('Refuse'), style: 'danger', value: id },
+      ...(unchecked(row) ? [] : [{ type: 'button', action_id: ACTION.approve, text: plain('Approve'), style: 'primary', value: row.id }]),
+      { type: 'button', action_id: ACTION.refuse, text: plain('Refuse'), style: 'danger', value: row.id },
     ],
   };
+}
+
+// What a pending request says in place of Approve while its recipient is unchecked; null once it is checked.
+function uncheckedLine(row) {
+  if (!unchecked(row)) return null;
+  return row.resolve_error != null
+    ? 'It cannot be approved: Ignite could not check its recipient. Refuse it; the agent can ask again.'
+    : 'Approve appears once Ignite has checked the recipient.';
 }
 
 function promptBlocks(gate, row) {
   const blocks = [section(`*Payment request ${row.id}* from ${esc(row.agent)}\n${details(gate, row)}`)];
   if (row.state === 'pending') {
     blocks.push(context(`Waits for you: ${esc(row.reason)}`));
-    blocks.push(buttons(row.id));
+    if (uncheckedLine(row)) blocks.push(context(uncheckedLine(row)));
+    blocks.push(buttons(row));
   } else {
     blocks.push(context(outcome(gate, row)));
   }
@@ -188,7 +203,8 @@ function panelView(gate) {
   if (!pending.length) blocks.push(context('No request waits for you.'));
   for (const row of pending.slice(0, PENDING_SHOWN)) {
     blocks.push(section(`*${row.id}* from ${esc(row.agent)}: ${gate.money(row.amount_cents + row.fee_cents)}\n${details(gate, row)}\nWaits: ${esc(row.reason)}`));
-    blocks.push(buttons(row.id));
+    if (uncheckedLine(row)) blocks.push(context(uncheckedLine(row)));
+    blocks.push(buttons(row));
   }
   if (pending.length > PENDING_SHOWN) blocks.push(context(`${pending.length - PENDING_SHOWN} more wait; act on these first.`));
   const uncertain = gate.listUncertain();
@@ -239,7 +255,7 @@ function settingsView(gate, { mode = null, limits = null, revision = null, error
       element: { type: 'radio_buttons', action_id: 'value', options, initial_option: options.find((o) => o.value === shown.mode) },
     },
     ...PERIODS.map((p) => textInput(`payments_${p}`, `${LIMIT_LABEL[p]}, ${gate.currency}`, {
-      optional: true, initial: canonicalAmount(shown.limits[p]), hint: 'Like 1500.00. Blank for no limit; automatic needs at least one.',
+      optional: true, initial: canonicalAmount(shown.limits[p]), max: LIMIT_CHARS, hint: 'Like 1500.00. Blank for no limit; automatic needs at least one.',
     })),
     pinInput(),
   ], { submit: 'Save', close: 'Cancel', metadata: JSON.stringify({ revision: shown.revision }) });
@@ -387,25 +403,45 @@ function createPaymentPanel({ gate, slack, config, log = () => {}, kick = () => 
       return;
     }
     if (act.action_id === ACTION.approve) {
+      const why = row.state === 'pending' ? unchecked(row) : null;
       if (row.state !== 'pending') await show(doneView(`${row.id} is ${row.state}: nothing to approve.`));
+      else if (why) await show(doneView(`${row.id} cannot be approved: ${esc(why)}. Nothing changed.`));
       else await show(g.pinSet() ? approveView(g, row) : setPinView({ next: 'approve', id: row.id }));
       return;
     }
     const result = g.refuse(row.id, { interaction: interactionKey(payload) });
     if (result.changed) note({ action: 'refuse', id: row.id });
     kick();
-    if (inModal) await slack().updateView(payload.view.id, panelView(g));
-    else if (!result.changed) {
-      await tell(result.replay ? `${row.id}: this click was already handled. Nothing changed.` : `${row.id} is ${result.row.state}: nothing changed.`);
+    const told = result.replay ? `${row.id}: this click was already handled. Nothing changed.` : `${row.id} is ${result.row.state}: nothing changed.`;
+    if (inModal) await showOutcome(payload.view.id, { text: result.changed ? `Refused ${row.id}.` : told, view: () => panelView(g) });
+    else if (!result.changed) await tell(told);
+  }
+
+  // The panel under a form, refreshed after the form's outcome is shown; a failure is logged and the outcome stays.
+  async function refreshRoot(g, view) {
+    const root = view?.root_view_id;
+    if (!root || root === view.id) return;
+    try { await slack().updateView(root, panelView(g)); } catch (error) { note({ action: 'refresh-failed', message: error.message }); }
+  }
+
+  // Shows an outcome the ledger already holds, in place of viewId: its view, or its text alone when the view cannot
+  // be built or shown, saying that the panel could not refresh.
+  async function showOutcome(viewId, { text, view = null }) {
+    try {
+      await slack().updateView(viewId, view ? view() : doneView(text));
+      return;
+    } catch (error) {
+      note({ action: 'show-failed', message: error.message });
+    }
+    try {
+      await slack().updateView(viewId, doneView(`${text} The panel could not refresh; reopen /payments to see it.`));
+    } catch (error) {
+      note({ action: 'show-failed', message: error.message });
     }
   }
 
-  function refreshRoot(g, view) {
-    const root = view?.root_view_id;
-    return root && root !== view.id ? slack().updateView(root, panelView(g)) : null;
-  }
-
-  // A form that passed ack: its checking view becomes the outcome.
+  // A form that passed ack: the ledger decides at once, and its checking view becomes the outcome. Only a failure
+  // of the ledger itself, which changed nothing, says so.
   async function submit(payload) {
     const view = payload.view || {};
     if (!FORMS.includes(view.callback_id)) return;
@@ -415,82 +451,82 @@ function createPaymentPanel({ gate, slack, config, log = () => {}, kick = () => 
     }
     const g = gate();
     if (!g || formProblems(view)) return;
-    const put = (next) => slack().updateView(view.id, next);
     const pin = valueOf(view, PIN_BLOCK) || '';
     const interaction = interactionKey(payload);
+    let outcome;
     try {
-      if (view.callback_id === VIEW.setPin) await submitPin(g, view, pin, put);
-      else if (view.callback_id === VIEW.approve) await submitApprove(g, view, pin, interaction, put);
-      else await submitSettings(g, view, pin, interaction, put);
+      if (view.callback_id === VIEW.setPin) outcome = submitPin(g, view, pin);
+      else if (view.callback_id === VIEW.approve) outcome = submitApprove(g, view, pin, interaction);
+      else outcome = submitSettings(g, view, pin, interaction);
     } catch (error) {
       note({ action: 'failed', what: view.callback_id, message: error.message });
-      await put(doneView(`Ignite could not do this: ${esc(error.message)}. Nothing changed; try again.`));
-    }
-  }
-
-  async function submitPin(g, view, pin, put) {
-    if (g.pinSet()) {
-      await put(doneView('The PIN is already set. Nothing changed.'));
+      await slack().updateView(view.id, doneView(`Ignite could not do this: ${esc(error.message)}. Nothing changed; try again.`));
       return;
     }
+    if (outcome.kick) kick();
+    await showOutcome(view.id, outcome);
+    if (outcome.refresh) await refreshRoot(g, view);
+  }
+
+  // Each form's decision → { text, view?, kick?, refresh? }: the outcome as a sentence, the view that shows it
+  // (built only when shown), whether the payment runner should pass now, and whether the panel under it refreshes.
+  function submitPin(g, view, pin) {
+    if (g.pinSet()) return { text: 'The PIN is already set. Nothing changed.' };
     g.setPin(pin);
     note({ action: 'pin-set' });
-    let next = {};
-    try { next = JSON.parse(view.private_metadata || '{}'); } catch { /* the panel */ }
-    const row = next.id ? g.get(next.id) : null;
-    if (next.next === 'approve' && row?.state === 'pending') await put(approveView(g, row));
-    else if (next.next === 'settings') await put(settingsView(g));
-    else await put(panelView(g));
+    return {
+      text: 'PIN saved.',
+      view: () => {
+        let next = {};
+        try { next = JSON.parse(view.private_metadata || '{}'); } catch { /* the panel */ }
+        const row = next.id ? g.get(next.id) : null;
+        if (next.next === 'approve' && row?.state === 'pending' && !unchecked(row)) return approveView(g, row);
+        if (next.next === 'settings') return settingsView(g);
+        return panelView(g);
+      },
+    };
   }
 
-  async function submitApprove(g, view, pin, interaction, put) {
+  function submitApprove(g, view, pin, interaction) {
     const result = g.approveWithPin(view.private_metadata, pin, { interaction });
     const row = result.row;
-    if (result.replay) {
-      await put(doneView(`${row ? `${row.id} is ${row.state}. ` : ''}This form was already submitted: nothing changed.`));
-      return;
-    }
+    if (result.replay) return { text: `${row ? `${row.id} is ${row.state}. ` : ''}This form was already submitted: nothing changed.` };
+    if (result.unchecked) return { text: `${row.id} cannot be approved: ${esc(result.unchecked)}. Nothing changed.`, refresh: true };
     if (result.pin) {
       note({ action: 'pin-refused', id: row.id, locked: Boolean(result.pin.locked) });
-      await put(approveView(g, row, pinError(g, result.pin)));
-      return;
+      const error = pinError(g, result.pin);
+      return { text: error, view: () => approveView(g, row, error) };
     }
     if (!result.changed) {
-      await put(doneView(row ? `${row.id} is ${row.state}: nothing to approve.` : 'Unknown request. Nothing changed.'));
-      await refreshRoot(g, view);
-      return;
+      return { text: row ? `${row.id} is ${row.state}: nothing to approve.` : 'Unknown request. Nothing changed.', refresh: true };
     }
     note({ action: 'approve', id: row.id });
-    await put(doneView(`Approved ${row.id}: ${g.money(row.amount_cents + row.fee_cents)} to ${esc(label(row))}. Ignite is sending it now; the result arrives in ${esc(row.agent)}'s thread.`));
-    kick();
-    await refreshRoot(g, view);
+    return {
+      text: `Approved ${row.id}: ${g.money(row.amount_cents + row.fee_cents)} to ${esc(label(row))}. Ignite is sending it now; the result arrives in ${esc(row.agent)}'s thread.`,
+      kick: true,
+      refresh: true,
+    };
   }
 
-  async function submitSettings(g, view, pin, interaction, put) {
+  function submitSettings(g, view, pin, interaction) {
     const mode = valueOf(view, 'payments_mode');
     const { limits } = readLimits(view);
     const revision = revisionOf(view);
     const result = g.saveSettingsWithPin({ mode, limits, revision }, pin, { interaction });
-    if (result.replay) {
-      await put(doneView('This form was already submitted: nothing changed.'));
-      return;
-    }
+    if (result.replay) return { text: 'This form was already submitted: nothing changed.' };
     if (result.stale) {
       note({ action: 'settings-stale', revision });
-      await put(doneView('The settings changed after this form was opened. Nothing changed: open Change settings again to see them.'));
-      await refreshRoot(g, view);
-      return;
+      return { text: 'The settings changed after this form was opened. Nothing changed: open Change settings again to see them.', refresh: true };
     }
     if (result.pin) {
       note({ action: 'pin-refused', what: 'settings', locked: Boolean(result.pin.locked) });
-      await put(settingsView(g, { mode, limits, revision, error: pinError(g, result.pin) }));
-      return;
+      const error = pinError(g, result.pin);
+      return { text: error, view: () => settingsView(g, { mode, limits, revision, error }) };
     }
     const saved = result.saved;
     note({ action: 'settings', mode: saved.mode, limits: saved.limits, revision: saved.revision });
     const set = PERIODS.filter((p) => saved.limits[p] != null).map((p) => `${PERIOD_TEXT[p].toLowerCase()} ${g.money(saved.limits[p])}`);
-    await put(doneView(`Saved: ${MODE_TEXT[saved.mode]}${set.length ? `; limits ${set.join(', ')}` : '; no limit'}.`));
-    await refreshRoot(g, view);
+    return { text: `Saved: ${MODE_TEXT[saved.mode]}${set.length ? `; limits ${set.join(', ')}` : '; no limit'}.`, refresh: true };
   }
 
   async function handle(type, payload = {}) {

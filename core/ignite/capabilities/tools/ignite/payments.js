@@ -8,7 +8,9 @@
 // new Gate({ workspace, now?, timeZone?, currency?, busyMs? }) — opens <installation>/.rbtv/runtime/ignite/payments.sqlite
 //   (the ledger) and reads the PIN from <installation>/.rbtv/config/ignite/payments-pin.json. timeZone (an IANA zone,
 //   America/Sao_Paulo) sets the day, week and month; currency (an ISO 4217 code with two decimals, BRL) how amounts
-//   read; busyMs (5000) bounds each wait for a ledger another process is writing, after which the call throws.
+//   read; busyMs (5000) bounds each wait for a ledger another process is writing, after which the call throws. A ledger
+//   an earlier release created gains the columns added since in one transaction, every request and its history kept;
+//   a current ledger opens without taking the write lock.
 // close()
 // MODES off | automatic | case_by_case.
 // STATES pending | approved | sent | uncertain | refused | cancelled | failed. uncertain: the send may have paid (its
@@ -17,8 +19,9 @@
 // PIN_RE — a PIN is 4 to 12 digits. settingsProblem(mode, limits) → null, or { field: 'mode', message }: a mode not in
 //   MODES, or automatic with no limit set. The panel's form checks with these, so each rule has one home.
 // settings() → { mode, limits: { day, week, month }, revision }, amounts in cents, null for no limit; off until saved
-// saveSettings({ mode, limits, revision? }) — throws on a bad mode or amount, on automatic with no limit set, and on a
-//   revision that is not the current one; each save adds one to the revision
+// saveSettings({ mode, limits, revision? }) — throws on a bad mode, on a limit outside 1 to MAX_LIMIT_CENTS, on automatic
+//   with no limit set, and on a revision that is not the current one; each save adds one to the revision
+// MAX_LIMIT_CENTS — the largest limit, 99999999999 (999999999.99): the most canonicalAmount writes and parseAmount reads.
 // periodStart(period, at, zone?) — the start of the day, week (Monday) or month of `at` in zone (America/Sao_Paulo)
 // usage(at?) → { day, week, month }: cents (amount plus fee) approved, sent or uncertain since each period started
 // request({ agent, conversationKey, provider, method, recipient: { name, key, keyType, document, bank },
@@ -28,11 +31,15 @@
 // get(id) / list({ agent?, state?, limit? }) / pending() / listUncertain() / lastSent(n)
 // resolved(id, { name, document, bank, key, keyType, amountCents, feeCents }) — the recipient as the service read it
 //   from the provider, for a pending request; a key, amount or fee that differs from the request refuses it
-//   (decided_by rule). resolveFailed(id, reason) — the service could not read it. → { changed, row }
-// approve(id, { interaction? }) / refuse(id, { interaction? }) — the owner's decision; only a pending request changes.
-//   → { changed, row, replay? }
-// approveWithPin(id, pin, { interaction? }) → { replay } | { unknown } | { row } (not pending) | { pin: check, row } |
-//   { changed, row }. saveSettingsWithPin({ mode, limits, revision }, pin, { interaction? }) → { replay } | { stale } |
+//   (decided_by rule). resolveFailed(id, reason) — the service could not read it; the request stays pending and can
+//   only be refused or withdrawn. → { changed, row }
+// unchecked(row) → null once the service has resolved the request's recipient, else why the owner cannot approve it:
+//   not resolved yet, or the resolution failed. One rule for the gate, the panel's buttons and the runner.
+// approve(id, { interaction? }) / refuse(id, { interaction? }) — the owner's decision; only a pending request changes,
+//   and approve changes only one that unchecked passes. → { changed, row, replay?, unchecked? }
+// approveWithPin(id, pin, { interaction? }) → { replay } | { unknown } | { row } (not pending) | { unchecked, row }
+//   (checked before the PIN, so it spends no try) | { pin: check, row } | { changed, row }.
+//   saveSettingsWithPin({ mode, limits, revision }, pin, { interaction? }) → { replay } | { stale } |
 //   { pin: check } | { saved }. Each runs in one transaction. interaction is the key of the owner's Slack
 //   interaction: recorded once, so a replayed one changes nothing, a wrong PIN included. Only the key is kept.
 // cancel(id, agent) — the requesting agent withdraws its own pending request. → { changed, row }
@@ -58,8 +65,8 @@
 //   scrypt with a random salt; the PIN itself is never stored or logged. Five wrong PINs in a row lock
 //   every PIN check for 15 minutes; a right PIN resets the count.
 // gate.money(cents) / formatMoney(cents, currency) → "R$ 1.234,56": the currency's symbol, Brazilian notation.
-// parseAmount(text) → cents or null ("99", "99.5", "99,50"); canonicalAmount(cents) → "1234.56", the one form a
-//   saved amount is written back in, which parseAmount reads at any size.
+// parseAmount(text) → cents or null ("99", "99.5", "99,50"; nine digits of whole units at most); canonicalAmount(cents)
+//   → "1234.56", the one form a saved amount is written back in, which parseAmount reads for every limit.
 // publicRow(row) — a request as the ignite payment verbs and the provider's tool read it.
 
 const fs = require('node:fs');
@@ -85,6 +92,13 @@ const RECONCILE_EVERY_MS = 60_000;
 const SCRYPT = { N: 16384, r: 8, p: 1, keylen: 64 };
 const PIN_RE = /^\d{4,12}$/;
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const MAX_LIMIT_CENTS = 99_999_999_999;
+// The columns added after the ledger's first release; an older ledger gains them when it is opened.
+const ADDED_COLUMNS = Object.freeze([
+  ['resolved_at', 'INTEGER'], ['resolved_name', 'TEXT'], ['resolved_key', 'TEXT'], ['resolved_key_type', 'TEXT'],
+  ['resolved_document', 'TEXT'], ['resolved_bank', 'TEXT'], ['resolved_amount_cents', 'INTEGER'],
+  ['resolved_fee_cents', 'INTEGER'], ['resolve_error', 'TEXT'], ['answered_cents', 'INTEGER'], ['answered_recipient', 'TEXT'],
+]);
 
 function ledgerPath(workspace) {
   return path.join(runtimeFolder(workspace), 'payments.sqlite');
@@ -101,6 +115,7 @@ function formatMoney(cents, currency = DEFAULT_CURRENCY) {
   return MONEY.get(currency).format(Math.round(cents) / 100).replace(/\s/g, ' ');
 }
 
+// Nine digits of whole units at most: MAX_LIMIT_CENTS.
 function parseAmount(text) {
   const match = String(text ?? '').trim().match(/^(\d{1,9})(?:[.,](\d{1,2}))?$/);
   if (!match) return null;
@@ -179,9 +194,16 @@ function text(value, label, { required = false, max = 500 } = {}) {
   return value.trim();
 }
 
-function cents(value, label, { min = 0 } = {}) {
+function cents(value, label, { min = 0, max = null } = {}) {
   if (!Number.isSafeInteger(value) || value < min) refuse(`${label} must be a whole number of cents, at least ${min}`);
+  if (max != null && value > max) refuse(`${label} must be at most ${canonicalAmount(max)}`);
   return value;
+}
+
+function unchecked(row) {
+  if (row.resolve_error != null) return `Ignite could not check its recipient through ${row.provider} (${row.resolve_error})`;
+  if (row.resolved_at == null) return `Ignite has not checked its recipient through ${row.provider} yet`;
+  return null;
 }
 
 // Text a provider's tool returned, kept as given (one line, bounded); not refused like an agent's input.
@@ -314,6 +336,16 @@ class Gate {
         at INTEGER NOT NULL
       );
     `);
+    // Read first, so that a current ledger needs no write lock to open.
+    const missing = () => {
+      const columns = this.db.prepare('PRAGMA table_info(payments)').all().map((column) => column.name);
+      return ADDED_COLUMNS.filter(([name]) => !columns.includes(name));
+    };
+    if (missing().length) {
+      this.transaction(() => {
+        for (const [name, type] of missing()) this.db.exec(`ALTER TABLE payments ADD COLUMN ${name} ${type}`);
+      });
+    }
   }
 
   close() { this.db.close(); }
@@ -365,7 +397,7 @@ class Gate {
     const clean = {};
     for (const period of PERIODS) {
       const value = limits[period];
-      clean[period] = value == null ? null : cents(value, `${period} limit`, { min: 1 });
+      clean[period] = value == null ? null : cents(value, `${period} limit`, { min: 1, max: MAX_LIMIT_CENTS });
     }
     const problem = settingsProblem(mode, clean);
     if (problem) refuse(problem.message);
@@ -514,6 +546,9 @@ class Gate {
   approve(id, { interaction = null } = {}) {
     return this.transaction(() => {
       if (interaction && !this._newInteraction(interaction)) return { changed: false, replay: true, row: this._row(id) };
+      const row = this._row(id);
+      const why = row?.state === 'pending' ? unchecked(row) : null;
+      if (why) return { changed: false, unchecked: why, row };
       return this._move(id, 'pending', 'approved', { decided_by: 'owner', decided_at: this.now(), reason: 'approved by the owner' });
     });
   }
@@ -531,6 +566,8 @@ class Gate {
       const row = this._row(id);
       if (!row) return { unknown: true, row: null };
       if (row.state !== 'pending') return { changed: false, row };
+      const why = unchecked(row);
+      if (why) return { changed: false, unchecked: why, row };
       const check = this.checkPin(pin);
       if (!check.ok) return { pin: check, row };
       return this.approve(id);
@@ -754,7 +791,7 @@ class Gate {
 }
 
 module.exports = {
-  Gate, MODES, STATES, PERIODS, PIN_RE, DEFAULT_ZONE, DEFAULT_CURRENCY, MAX_FAILURES, LOCK_MS, CHECK_EVERY_MS,
-  CHECK_FOR_MS, RECONCILE_EVERY_MS, ledgerPath, pinPath, periodStart, formatMoney, parseAmount, canonicalAmount,
-  settingsProblem, canonicalKey, publicRow,
+  Gate, MODES, STATES, PERIODS, PIN_RE, MAX_LIMIT_CENTS, DEFAULT_ZONE, DEFAULT_CURRENCY, MAX_FAILURES, LOCK_MS,
+  CHECK_EVERY_MS, CHECK_FOR_MS, RECONCILE_EVERY_MS, ledgerPath, pinPath, periodStart, formatMoney, parseAmount,
+  canonicalAmount, settingsProblem, unchecked, canonicalKey, publicRow,
 };

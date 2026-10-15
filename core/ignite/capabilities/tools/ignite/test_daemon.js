@@ -202,7 +202,22 @@ function spawnDaemon(dir, pathEnv = harnessBin(dir, ['claude', 'ignite'])) {
   return { child, stderr: () => stderr, stdout: () => stdout };
 }
 
-test('with a payments section the service answers the withdrawal validation within 2 s, routes /payments to the owner panel and sends approvals once', async () => {
+// Six withdrawal validation calls at once from their own process, which prints each one's answer and time in ms.
+const SIX_CALLS = `
+const body = JSON.stringify({ type: 'TRANSFER', transfer: { id: 'tr_7', value: 1, externalReference: 'P-0001', bankAccount: { pixAddressKey: 'kenu@example.com' } } });
+Promise.all(Array.from({ length: 6 }, async () => {
+  const started = Date.now();
+  try {
+    const res = await fetch('http://127.0.0.1:' + process.argv[1] + '/asaas/withdrawal-validation', { method: 'POST', body,
+      headers: { 'content-type': 'application/json', 'asaas-access-token': 'daemon-test-token' }, signal: AbortSignal.timeout(5000) });
+    return { ms: Date.now() - started, body: await res.json() };
+  } catch (error) {
+    return { ms: Date.now() - started, body: { error: error.message } };
+  }
+})).then((answers) => process.stdout.write(JSON.stringify(answers)));
+`;
+
+test('with a payments section the service answers each withdrawal validation within 1 s from its own thread, routes /payments to the owner panel and sends approvals once', async () => {
   const { dir } = workspace();
   const cfg = JSON.parse(fs.readFileSync(configFile(dir), 'utf8'));
   fs.writeFileSync(configFile(dir), JSON.stringify({ ...cfg, payments: {} }));
@@ -239,21 +254,18 @@ test('with a payments section the service answers the withdrawal validation with
       body: JSON.stringify({ type: 'TRANSFER', transfer: { id: 'tr_7', value: 1, externalReference: 'P-0001', bankAccount: { pixAddressKey: 'kenu@example.com' } } }),
     });
     assert.deepEqual(await answer.json(), { status: 'APPROVED' });
-    // Another process holds the ledger: the service's bounded wait answers in time, refusing.
+    // The re-review's probe: another process holds the ledger and six calls arrive at once from a separate process.
+    // spawnSync also blocks the service's main thread for the whole run: each answer comes from the listener's own
+    // thread, within 1 s of its call.
     const { DatabaseSync } = require('node:sqlite');
     const holder = new DatabaseSync(path.join(dir, '.rbtv', 'runtime', 'ignite', 'payments.sqlite'));
     holder.exec('PRAGMA busy_timeout=0; BEGIN IMMEDIATE');
-    const started = Date.now();
-    const busy = await fetch(`http://127.0.0.1:${runtime.webhookPort}/asaas/withdrawal-validation`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'asaas-access-token': 'daemon-test-token' },
-      body: JSON.stringify({ type: 'TRANSFER', transfer: { id: 'tr_7', value: 1, externalReference: 'P-0001', bankAccount: { pixAddressKey: 'kenu@example.com' } } }),
-    });
-    const waited = Date.now() - started;
+    const client = spawnSync(process.execPath, ['-e', SIX_CALLS, String(runtime.webhookPort)], { encoding: 'utf8', timeout: 15_000 });
     holder.exec('ROLLBACK');
     holder.close();
-    assert.deepEqual(await busy.json(), { status: 'REFUSED', refuseReason: 'the ledger is busy (database is locked): nothing was approved' });
-    assert.equal(waited < 2000, true, `answered in ${waited} ms`);
+    const answers = JSON.parse(client.stdout || '[]');
+    assert.deepEqual(answers.map((a) => a.body), Array(6).fill({ status: 'REFUSED', refuseReason: 'the ledger is busy (database is locked): nothing was approved' }));
+    for (const answer of answers) assert.equal(answer.ms < 1000, true, `answered in ${answer.ms} ms`);
     const port = runtime.webhookPort;
     await runtime.stop('test');
     runtime = null;

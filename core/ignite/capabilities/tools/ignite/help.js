@@ -367,8 +367,9 @@ The gate answers at once: off refuses; case by case waits for the owner; automat
 amount plus fee fits every limit the owner set for the day, the week (from Monday) and the month, in
 the payments time zone (config payments.timeZone, America/Sao_Paulo by default), and otherwise waits
 for the owner. A waiting request is posted in this conversation's thread with Approve and Refuse for
-the owner, once the waking service has resolved its recipient; a key, amount or fee that differs from
-that resolution refuses it, and this conversation is woken with the reason.
+the owner, once the waking service has resolved its recipient, or with Refuse alone when it could not;
+a key, amount or fee that differs from that resolution refuses it, and this conversation is woken with
+the reason.
 
 Success: exit 0 for every answer, "<id> <state>: <reason>", for example
   P-0007 pending: over the weekly limit (R$ 80,00 left of R$ 150,00)

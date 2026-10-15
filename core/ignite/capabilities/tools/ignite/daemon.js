@@ -4,7 +4,7 @@
 const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
-const { loadConfig, agentHome, storePath, slackToken, envValue, paymentsConfig } = require('./config.js');
+const { loadConfig, agentHome, storePath, slackToken, paymentsConfig } = require('./config.js');
 const { agentsFolder, holdsAgentFile, readAgent } = require('../../../../cast/capabilities/tools/cast/lib/agent');
 const { procStart } = require('../../../../cast/capabilities/tools/cast/lib/handles');
 const { Store } = require('./store.js');
@@ -22,7 +22,7 @@ const deferred = require('./deferred-deploy.js');
 const { Gate } = require('./payments.js');
 const { createPaymentPanel } = require('./payment-panel.js');
 const { createPaymentRunner } = require('./payment-runner.js');
-const { createWebhook, loadProvider } = require('./payment-webhook.js');
+const { startWebhook, loadProvider } = require('./payment-webhook.js');
 
 const TICK_MS = 30_000;
 const SWEEP_MS = 1_000;
@@ -32,8 +32,9 @@ const STATUS_MS = 250;
 // ticker aborts its call in flight at stop, and every call ends within its CALL_MS (4 s), so the pass
 // ends first.
 const STATUS_STOP_MS = 5_000;
-// How long the service waits for a payment ledger another process is writing. Its SQLite calls block the
-// event loop, so the wait is short: the withdrawal validation answers within 2 s and the socket keeps acking.
+// How long the service's main thread waits for a payment ledger another process is writing. Its SQLite calls
+// block the event loop, so the wait is short and the socket keeps acking. The withdrawal validation does not wait
+// on this thread: it has a worker thread and a ledger connection of its own (payment-webhook.js startWebhook).
 const PAYMENT_BUSY_MS = 500;
 // The live status budget and 429 pause, kept across a restart, beside the lock.
 const PACE_FILE = 'live-status-pace.json';
@@ -283,7 +284,8 @@ async function startLocked(opts, workspace, held) {
 
   // The payment gate's service side, on when the config has a payments section: each provider's withdrawal
   // validation adapter (loaded by name from its connector), the owner's panel and buttons, the runner that
-  // resolves, posts, sends and reports, and the withdrawal validation listener.
+  // resolves, posts, sends and reports, and the withdrawal validation listener in its own worker thread. The
+  // gate opens first, so a ledger of an earlier release is upgraded before the listener reads it.
   const payments = paymentsConfig(config);
   const adapters = {};
   for (const name of payments?.providers || []) {
@@ -326,10 +328,11 @@ async function startLocked(opts, workspace, held) {
     log,
     kick: (slug) => kick(slug),
   }) : null;
-  const webhook = gate ? createWebhook({
-    gate,
-    providers: adapters,
-    token: (name) => envValue(workspace, adapters[name].tokenEnv),
+  const webhook = gate ? startWebhook({
+    workspace,
+    timeZone: payments.timeZone,
+    currency: payments.currency,
+    providers: Object.keys(adapters),
     port: opts.webhookPort ?? payments.webhookPort,
     log,
   }) : null;
