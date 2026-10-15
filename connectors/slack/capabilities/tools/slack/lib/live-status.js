@@ -58,7 +58,7 @@ const EMOJI = Object.freeze({
     failed: 'x',
   }),
   agent: Object.freeze({
-    working: Object.freeze(['clock12', 'clock130', 'clock3', 'clock430', 'clock6', 'clock730', 'clock9', 'clock1030']),
+    working: Object.freeze(['clock12', 'clock2', 'clock4', 'clock6', 'clock8', 'clock10']),
     gathering: Object.freeze(['mag', 'mag_right']),
     thinking: Object.freeze(['brain', 'thought_balloon']),
     making: Object.freeze(['hammer', 'hammer_and_wrench']),

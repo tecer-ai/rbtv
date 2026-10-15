@@ -24,7 +24,7 @@ function clock(start = 1_000_000) {
   return { now: () => t, advance(ms) { t += ms; } };
 }
 
-const FRAMES = new Set(['clock12', 'clock130', 'clock3', 'clock430', 'clock6', 'clock730', 'clock9', 'clock1030',
+const FRAMES = new Set(['clock12', 'clock2', 'clock4', 'clock6', 'clock8', 'clock10',
   'mag', 'mag_right', 'brain', 'thought_balloon', 'hammer', 'hammer_and_wrench', 'busts_in_silhouette',
   'bust_in_silhouette', 'zzz', 'sleeping']);
 const TASKS = new Set(['white_check_mark', 'warning', 'question', 'black_square_for_stop']);
@@ -210,8 +210,8 @@ test('each state change makes its calls in order, remove before add', async () =
     'add hourglass_flowing_sand',
     'remove hourglass_flowing_sand', 'add large_green_circle',
     'add clock12',
-    'remove clock12', 'add clock130',
-    'remove clock130', 'add brain',
+    'remove clock12', 'add clock2',
+    'remove clock2', 'add brain',
     'remove brain', 'add thought_balloon',
     'remove thought_balloon', 'add white_check_mark',
   ]);
@@ -222,7 +222,7 @@ test('each state change makes its calls in order, remove before add', async () =
 
 test('every agent state has its frames and every task state its emoji', async () => {
   const frames = {
-    working: ['clock12', 'clock130', 'clock3', 'clock430', 'clock6', 'clock730', 'clock9', 'clock1030'],
+    working: ['clock12', 'clock2', 'clock4', 'clock6', 'clock8', 'clock10'],
     gathering: ['mag', 'mag_right'],
     thinking: ['brain', 'thought_balloon'],
     making: ['hammer', 'hammer_and_wrench'],
@@ -331,9 +331,9 @@ test('a refused add waits with the remove paired to it; a failed turn removes th
 test('restore: a message starts from the reactions it records and finishes what a stopped service left', async () => {
   const t = clock();
   const before = fakeSlack(t);
-  before.on.set('C1:1.1', ['large_green_circle', 'clock3']);
+  before.on.set('C1:1.1', ['large_green_circle', 'clock4']);
   before.on.set('C1:2.2', ['large_green_circle', 'mag']);
-  before.on.set('C1:3.3', ['large_green_circle', 'clock130']);
+  before.on.set('C1:3.3', ['large_green_circle', 'clock2']);
   before.on.set('C1:4.4', ['large_green_circle', 'sleeping']);
   const slack = fakeSlack(t, before);
   const records = [];
@@ -341,13 +341,13 @@ test('restore: a message starts from the reactions it records and finishes what 
   const at = t.now() - 5000;
   // Done was recorded, but the stopped service never showed it: the old frame goes, the task comes.
   const done = { channel: 'C1', ts: '1.1' };
-  show.restore(done, { system: 'running', task: 'done' }, { order: ['large_green_circle', 'clock3'], unsure: [], lastAddAt: at });
+  show.restore(done, { system: 'running', task: 'done' }, { order: ['large_green_circle', 'clock4'], unsure: [], lastAddAt: at });
   // Waiting was recorded while an earlier state's frame still shows.
   const waiting = { channel: 'C1', ts: '2.2' };
   show.restore(waiting, { system: 'running', agent: 'waiting' }, { order: ['large_green_circle', 'mag'], unsure: [], lastAddAt: at });
   // The service stopped while Slack had not answered an add: that name is removed before the frame.
   const cut = { channel: 'C1', ts: '3.3' };
-  show.restore(cut, { system: 'running', agent: 'working' }, { order: ['large_green_circle'], unsure: ['clock130'], lastAddAt: at });
+  show.restore(cut, { system: 'running', agent: 'working' }, { order: ['large_green_circle'], unsure: ['clock2'], lastAddAt: at });
   // A message that shows its state makes no call, and its agent continues from the frame shown.
   const still = { channel: 'C1', ts: '4.4' };
   show.restore(still, { system: 'running', agent: 'waiting' }, { order: ['large_green_circle', 'sleeping'], unsure: [], lastAddAt: at });
@@ -355,9 +355,9 @@ test('restore: a message starts from the reactions it records and finishes what 
   assert.equal(slack.calls.length, 0);
   for (const m of [done, waiting, cut, still]) assert.deepEqual(await show.apply(m), { settled: true });
   assert.deepEqual(slack.calls, [
-    'remove clock3', 'add white_check_mark',
+    'remove clock4', 'add white_check_mark',
     'remove mag', 'add zzz',
-    'remove clock130', 'add clock12',
+    'remove clock2', 'add clock12',
   ]);
   assert.deepEqual(['1.1', '2.2', '3.3', '4.4'].map((ts) => slack.of('C1', ts)), [
     ['large_green_circle', 'white_check_mark'],
@@ -367,7 +367,7 @@ test('restore: a message starts from the reactions it records and finishes what 
   ]);
   // Each call is recorded before it is made (its name unsure) and after Slack answers.
   assert.deepEqual(records.filter(([ts]) => ts === '1.1').map(([, shown]) => [shown.order, shown.unsure]), [
-    [['large_green_circle'], ['clock3']],
+    [['large_green_circle'], ['clock4']],
     [['large_green_circle'], []],
     [['large_green_circle'], ['white_check_mark']],
     [['large_green_circle', 'white_check_mark'], []],
@@ -482,8 +482,8 @@ test('an HTTP 5xx pauses the calls briefly and leaves its name unsure', async ()
   slack.fail = null;
   t.advance(5000);
   assert.deepEqual(await show.apply(m), { settled: true });
-  assert.deepEqual(slack.calls.slice(2), ['remove clock12', 'remove clock12', 'add clock130']);
-  assert.deepEqual(slack.of('C1', '1.1'), ['large_green_circle', 'clock130']);
+  assert.deepEqual(slack.calls.slice(2), ['remove clock12', 'remove clock12', 'add clock2']);
+  assert.deepEqual(slack.of('C1', '1.1'), ['large_green_circle', 'clock2']);
 });
 
 test('an error inside apply waits before the next try instead of retrying at once', async () => {
@@ -669,11 +669,11 @@ test('ticker: a restart finishes what the stopped service left: a recorded state
   slack.hang = (op, name, key) => op === 'add' && key === 'C3:1.1';
   await runCut(first, t, 2000);
   assert.deepEqual(['C1', 'C2', 'C3'].map((channel) => slack.of(channel, '1.1')), [
-    ['large_green_circle', 'clock130'],
+    ['large_green_circle', 'clock2'],
     ['large_green_circle', 'mag'],
-    ['large_green_circle', 'clock130'],
+    ['large_green_circle', 'clock2'],
   ]);
-  assert.deepEqual(recorded(boxes[2]).unsure, ['clock130']);
+  assert.deepEqual(recorded(boxes[2]).unsure, ['clock2']);
   // The service is gone. Meanwhile C1's reply is delivered (done) and C2's turn ends waiting.
   endTurn(boxes[0], claims[0], 'completed', { replies: 1 });
   live.delivered(boxes[0].store, { channel: 'C1', ts: '1.1', task: 'done' });
@@ -684,8 +684,8 @@ test('ticker: a restart finishes what the stopped service left: a recorded state
   // C1 and C3 added a frame less than a second before the stop: the gap they record holds them back.
   assert.deepEqual(restarted.calls, [
     'remove mag', 'add zzz',
-    'remove clock130', 'add white_check_mark',
-    'remove clock130', 'add clock12',
+    'remove clock2', 'add white_check_mark',
+    'remove clock2', 'add clock12',
   ]);
   assert.deepEqual(['C1', 'C2', 'C3'].map((channel) => restarted.of(channel, '1.1')), [
     ['large_green_circle', 'white_check_mark'],
@@ -769,12 +769,12 @@ test('ticker: a row made before the shown column is an unknown display: every li
       assert.equal(store.getLiveStatus('C1', '1.1').shown, null);
       // The service that made the row showed the green circle and a working frame.
       const slack = fakeSlack(t);
-      slack.on.set('C1:1.1', ['large_green_circle', 'clock130']);
+      slack.on.set('C1:1.1', ['large_green_circle', 'clock2']);
       await run(tickerFor([{ store }], t, slack), t, 3000);
       assert.deepEqual(slack.of('C1', '1.1'), ['large_green_circle', 'white_check_mark']);
       assert.deepEqual(slack.calls, [
-        'remove clock12', 'remove clock130', 'remove clock3', 'remove clock430', 'remove clock6', 'remove clock730',
-        'remove clock9', 'remove clock1030', 'remove mag', 'remove mag_right', 'remove brain', 'remove thought_balloon',
+        'remove clock12', 'remove clock2', 'remove clock4', 'remove clock6', 'remove clock8', 'remove clock10',
+        'remove mag', 'remove mag_right', 'remove brain', 'remove thought_balloon',
         'remove hammer', 'remove hammer_and_wrench', 'remove busts_in_silhouette', 'remove bust_in_silhouette',
         'remove zzz', 'remove sleeping', 'remove white_check_mark', 'remove warning', 'remove question',
         'remove black_square_for_stop', 'remove hourglass_flowing_sand', 'remove large_green_circle', 'remove repeat',
