@@ -4,7 +4,7 @@
 const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
-const { loadConfig, agentHome, storePath, slackToken } = require('./config.js');
+const { loadConfig, agentHome, storePath, slackToken, envValue, paymentsConfig } = require('./config.js');
 const { agentsFolder, holdsAgentFile, readAgent } = require('../../../../cast/capabilities/tools/cast/lib/agent');
 const { procStart } = require('../../../../cast/capabilities/tools/cast/lib/handles');
 const { Store } = require('./store.js');
@@ -19,6 +19,10 @@ const { createChecks } = require('./timer-check.js');
 const { runtimeFolder } = require('./memory-write.js');
 const cli = require('./cli.js');
 const deferred = require('./deferred-deploy.js');
+const { Gate } = require('./payments.js');
+const { createPaymentPanel } = require('./payment-panel.js');
+const { createPaymentRunner } = require('./payment-runner.js');
+const { createWebhook, PROVIDERS } = require('./payment-webhook.js');
 
 const TICK_MS = 30_000;
 const SWEEP_MS = 1_000;
@@ -274,16 +278,51 @@ async function startLocked(opts, workspace, held) {
     };
   }
 
-  // A check tool is given the service's environment without its Slack tokens.
-  const checks = createChecks({
+  // A check tool or a payment provider's tool is given the service's environment without its Slack
+  // tokens and the payment webhook's token.
+  function toolEnv() {
+    const env = { ...process.env };
+    for (const name of ['appTokenEnv', 'botTokenEnv', 'ownerTokenEnv']) delete env[config.slack[name]];
+    const payments = paymentsConfig(config);
+    if (payments) delete env[payments.webhookTokenEnv];
+    return env;
+  }
+
+  const checks = createChecks({ log, now: clock, env: toolEnv });
+
+  // The payment gate's service side, on when the config has a payments section: the owner's panel and
+  // buttons, the runner that posts, sends and reports, and the withdrawal validation listener.
+  const payments = paymentsConfig(config);
+  const gate = payments ? new Gate({ workspace }) : null;
+  const panel = createPaymentPanel({
+    gate: () => gate,
+    slack: () => slack,
+    config: () => config,
     log,
-    now: clock,
-    env() {
-      const env = { ...process.env };
-      for (const name of ['appTokenEnv', 'botTokenEnv', 'ownerTokenEnv']) delete env[config.slack[name]];
-      return env;
-    },
+    kick: () => { paymentStep(); },
   });
+  const runner = gate ? createPaymentRunner({
+    gate,
+    slack: () => slack,
+    store: (slug) => getStore(slug),
+    providers: Object.keys(PROVIDERS),
+    run: opts.paymentRun,
+    env: toolEnv,
+    cwd: workspace,
+    log,
+    kick: (slug) => kick(slug),
+  }) : null;
+  const webhook = gate ? createWebhook({
+    gate,
+    token: () => envValue(workspace, paymentsConfig(config)?.webhookTokenEnv || payments.webhookTokenEnv),
+    port: opts.webhookPort ?? payments.webhookPort,
+    log,
+  }) : null;
+
+  function paymentStep() {
+    if (stopping || !runner) return;
+    runner.step().catch((error) => log({ event: 'payments', action: 'pass-failed', message: error.message }));
+  }
 
   // Starts the due timer's check and returns at once: the tick never waits for a check tool.
   function startCheck(slug, scheduleId) {
@@ -448,6 +487,17 @@ async function startLocked(opts, workspace, held) {
     return Promise.race([ticker.stop(), new Promise((resolve) => setTimeout(resolve, STATUS_STOP_MS).unref())]);
   }
 
+  // The payment pass in flight ends before the ledger closes; the listener stops answering at once.
+  let paymentsDone = Promise.resolve();
+  let listening = null;
+  function stopPayments() {
+    paymentsDone = Promise.all([
+      webhook ? webhook.close() : null,
+      runner ? runner.stop() : null,
+    ]).then(() => { try { gate?.close(); } catch (error) { log({ event: 'payments', message: error.message }); } });
+    return paymentsDone;
+  }
+
   async function drain() {
     if (stopping) return;
     for (const slug of agentSlugs(workspace)) {
@@ -467,6 +517,7 @@ async function startLocked(opts, workspace, held) {
     stopping = true;
     for (const timer of timers) clearInterval(timer);
     checks.stop();
+    stopPayments();
     const left = [];
     for (const slug of inflight) {
       const run = stores.get(slug)?.getActiveRun();
@@ -475,7 +526,7 @@ async function startLocked(opts, workspace, held) {
     }
     log({ event: 'stop', reason, left });
     try { socket?.stop(); } catch (error) { log({ event: 'socket-stop', message: error.message }); }
-    statusDone = stopStatus().then(() => {
+    statusDone = Promise.all([stopStatus(), paymentsDone]).then(() => {
       releaseLock(held);
       for (const slug of [...stores.keys()]) {
         if (!inflight.has(slug)) closeStore(slug);
@@ -505,7 +556,19 @@ async function startLocked(opts, workspace, held) {
     // Live status runs from the start: the first scheduling pass below may run whole turns.
     for (const slug of agentSlugs(workspace)) getStore(slug);
     timers.push(setInterval(() => { if (!stopping) ticker.step(); }, opts.statusMs ?? STATUS_MS));
-    if (socket) await socket.connect(onEvent);
+    if (gate) {
+      const interrupted = gate.failInterrupted();
+      if (interrupted.length) log({ event: 'payments', action: 'interrupted', ids: interrupted });
+      try {
+        const port = await webhook.listen();
+        listening = port;
+        log({ event: 'payment-webhook', action: 'listening', host: '127.0.0.1', port });
+      } catch (error) {
+        log({ event: 'error', what: 'payment-webhook', message: `the withdrawal validation cannot listen: ${error.message}` });
+      }
+      timers.push(setInterval(paymentStep, opts.paymentMs ?? SWEEP_MS));
+    }
+    if (socket) await socket.connect(onEvent, (type, payload) => panel.handle(type, payload));
     await tick();
     timers.push(setInterval(() => { tick().catch((error) => log({ event: 'tick', message: error.message })); }, opts.tickMs ?? TICK_MS));
     timers.push(setInterval(() => {
@@ -514,10 +577,10 @@ async function startLocked(opts, workspace, held) {
     }, opts.sweepMs ?? SWEEP_MS));
     timers.push(setInterval(() => { drain().catch((error) => log({ event: 'outbox', message: error.message })); }, opts.drainMs ?? SWEEP_MS));
     log({ event: 'ready', pid: process.pid, installation: workspace });
-    return { stop, config, onEvent };
+    return { stop, config, onEvent, webhookPort: listening };
   } catch (error) {
     for (const timer of timers) clearInterval(timer);
-    await stopStatus();
+    await Promise.all([stopStatus(), stopPayments()]);
     releaseLock(held);
     throw error;
   }

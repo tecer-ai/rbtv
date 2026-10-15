@@ -14,15 +14,19 @@
 // MIGRATION_COMMAND            — ignite runtime migrate
 // envValue(workspace, name)    — a variable's value: the OS environment first, then <installation>/.rbtv/config/env/.env; null when unset
 // slackToken(config, key)      — the token the config names under slack.<key>Env ('app' | 'bot' | 'owner'); throws when unset
+// paymentsConfig(config)       — { webhookPort, webhookTokenEnv } with their defaults (8787, ASAAS_WEBHOOK_TOKEN) when the
+//                                config has a payments section, which turns the payment gate's service side on; else null
 
 const fs = require('node:fs');
 const path = require('node:path');
 const { agentHomeIn } = require('../../../../cast/capabilities/tools/cast/lib/agent');
 
-const TOP_KEYS = ['slack', 'tools', 'dmAgent', 'routes'];
+const TOP_KEYS = ['slack', 'tools', 'dmAgent', 'routes', 'payments'];
 const LEGACY_CONFIG_KEY = 'dreamer';
 const SLACK_KEYS = ['team', 'botUserId', 'ownerUserId', 'appTokenEnv', 'botTokenEnv', 'ownerTokenEnv', 'stoolsWorkspace'];
 const TOOL_KEYS = ['cast', 'stools', 'audio'];
+const PAYMENT_KEYS = ['webhookPort', 'webhookTokenEnv'];
+const PAYMENT_DEFAULTS = Object.freeze({ webhookPort: 8787, webhookTokenEnv: 'ASAAS_WEBHOOK_TOKEN' });
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -101,7 +105,23 @@ function validate(raw) {
     if (!channelId.trim()) throw new Error('routes channel id required');
     reqSlug(slug, `routes.${channelId}`);
   }
+  if (raw.payments !== undefined) {
+    rejectUnknown(raw.payments, PAYMENT_KEYS, 'payments');
+    const port = raw.payments.webhookPort;
+    if (port !== undefined && (!Number.isInteger(port) || port < 1 || port > 65535)) {
+      throw new Error('payments.webhookPort must be a port number from 1 to 65535');
+    }
+    const name = raw.payments.webhookTokenEnv;
+    if (name !== undefined && (typeof name !== 'string' || !ENV_NAME.test(name))) {
+      throw new Error('payments.webhookTokenEnv must be an environment variable name');
+    }
+  }
   return raw;
+}
+
+function paymentsConfig(config) {
+  if (!config?.payments) return null;
+  return { ...PAYMENT_DEFAULTS, ...config.payments };
 }
 
 function loadConfig(workspace) {
@@ -229,7 +249,7 @@ function slackToken(config, key) {
 }
 
 module.exports = {
-  configPath, findWorkspace, loadConfig, updateConfig, agentHome, storePath, envValue, slackToken,
+  configPath, findWorkspace, loadConfig, updateConfig, agentHome, storePath, envValue, slackToken, paymentsConfig,
   ignitePaths, resolveIgniteRuntime, legacyLayout,
   migrationGuardPath, migrationInvocation, MIGRATION_COMMAND, MARKER_NAME, DATABASE_NAME,
   LEGACY_FILES, LEGACY_DIRS,

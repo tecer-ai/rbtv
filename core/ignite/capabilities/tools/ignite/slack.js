@@ -10,8 +10,14 @@
 //   throws unless botUserId and botId are both set. mentionsBot: <@botUserId> outside `code`
 //   and ```fences```. isBotOrSelf: user === botUserId, OR bot_id === botId (a different bot_id
 //   is not self), OR subtype message_changed / message_deleted / channel_join / group_join.
-// connect(onEvent): Socket Mode via app token. ACK only after onEvent resolves; no ACK if it
-//   rejects. Backoff 1s→60s, reset only on hello. disconnect envelopes close and reconnect.
+// connect(onEvent, onInteraction?): Socket Mode via app token. An events_api envelope is ACKed only
+//   after onEvent resolves; no ACK if it rejects. Backoff 1s→60s, reset only on hello. disconnect
+//   envelopes close and reconnect. A slash_commands or interactive envelope (block_actions,
+//   view_submission, ...) is ACKed within ackMs (config, 2500 by default; Slack waits 3 s):
+//   onInteraction(type, payload) → { response?, after? } may answer first, and its response is the
+//   ACK's payload when the envelope accepts one; after() runs once the ACK is sent. A handler slower
+//   than ackMs, or one that throws, gets a bare ACK. Every other envelope with an id is ACKed at once.
+//   A payload is never logged: it may hold a PIN.
 // postMessage({ channel, threadTs?, text, clientMsgId?, as? }) → { channel, ts }  (standard Markdown)
 //   as = { name?, avatar? }: the agent shown as sender (chat:write.customize). avatar `:emoji:` is
 //   sent as icon_emoji, an http(s) URL as icon_url, anything else is not sent.
@@ -31,6 +37,11 @@
 // downloadFile({ channel, ts, threadTs?, dir }) → [{ id?, path, name }]  via slack download
 // canvasCreate({ channel, markdown, title? }) → { canvasId }   bot token, conversations.canvases.create
 // canvasEdit({ canvasId, markdown, operation? }) → { canvasId }   bot token, canvases.edit
+// postBlocks({ channel, threadTs?, text, blocks }) → { channel, ts }   chat.postMessage with Block Kit blocks
+// updateMessage({ channel, ts, text, blocks }) → chat.update
+// postEphemeral({ channel, user, text }) → chat.postEphemeral, seen by that user only
+// openView(triggerId, view) / pushView(triggerId, view) → { viewId }   views.open / views.push
+// updateView(viewId, view) → { viewId }   views.update
 // stop()
 
 const fs = require('node:fs/promises');
@@ -150,6 +161,8 @@ class Slack {
     this.identity = null;
     this.pending = Promise.resolve();
     this.onEvent = null;
+    this.onInteraction = null;
+    this.ackMs = config.ackMs ?? 2500;
   }
 
   async api(method, body = {}, token = this.config.botToken, { signal } = {}) {
@@ -349,12 +362,49 @@ class Slack {
     return { canvasId };
   }
 
-  async connect(onEvent) {
+  async postBlocks({ channel, threadTs, text, blocks } = {}) {
+    if (!channel || !Array.isArray(blocks)) throw new Error('postBlocks requires channel and blocks');
+    const data = await this.api('chat.postMessage', {
+      channel, text, blocks, ...(threadTs ? { thread_ts: threadTs } : {}),
+    });
+    return { channel: data.channel || channel, ts: data.ts };
+  }
+
+  async updateMessage({ channel, ts, text, blocks } = {}) {
+    if (!channel || !ts) throw new Error('updateMessage requires channel and ts');
+    return this.api('chat.update', { channel, ts, text, blocks });
+  }
+
+  async postEphemeral({ channel, user, text } = {}) {
+    if (!channel || !user || !text) throw new Error('postEphemeral requires channel, user and text');
+    return this.api('chat.postEphemeral', { channel, user, text });
+  }
+
+  async openView(triggerId, view) {
+    if (!triggerId || !view) throw new Error('openView requires a trigger id and a view');
+    const data = await this.api('views.open', { trigger_id: triggerId, view });
+    return { viewId: data.view?.id || null };
+  }
+
+  async pushView(triggerId, view) {
+    if (!triggerId || !view) throw new Error('pushView requires a trigger id and a view');
+    const data = await this.api('views.push', { trigger_id: triggerId, view });
+    return { viewId: data.view?.id || null };
+  }
+
+  async updateView(viewId, view) {
+    if (!viewId || !view) throw new Error('updateView requires a view id and a view');
+    const data = await this.api('views.update', { view_id: viewId, view });
+    return { viewId: data.view?.id || viewId };
+  }
+
+  async connect(onEvent, onInteraction = null) {
     if (typeof onEvent !== 'function') throw new Error('connect requires onEvent');
     if (!this.config.appToken) throw new Error('connect requires appToken');
     if (!this.WebSocket) throw new Error('WebSocket is unavailable');
     this.stopped = false;
     this.onEvent = onEvent;
+    this.onInteraction = typeof onInteraction === 'function' ? onInteraction : null;
     await this.auth();
     await this.openSocket();
   }
@@ -385,12 +435,47 @@ class Slack {
       this.retryMs = 1000;
       return;
     }
+    if (envelope.type === 'slash_commands' || envelope.type === 'interactive') {
+      await this.answerInteraction(envelope, socket);
+      return;
+    }
     const event = envelope.payload?.event;
     const deliver = envelope.type === 'events_api' && event &&
       (event.type === 'message' || event.type === 'app_mention');
     if (deliver) await this.onEvent(normalize(event, this.identity));
-    if (envelope.envelope_id && socket === this.socket && !socket.closed) {
-      socket.send(JSON.stringify({ envelope_id: envelope.envelope_id }));
+    this.ack(envelope, socket);
+  }
+
+  ack(envelope, socket, payload) {
+    if (!envelope.envelope_id || socket !== this.socket || socket.closed) return;
+    const body = { envelope_id: envelope.envelope_id };
+    if (payload && envelope.accepts_response_payload !== false) body.payload = payload;
+    socket.send(JSON.stringify(body));
+  }
+
+  // The ACK goes out within ackMs whatever the handler does; its slow work runs after the ACK.
+  async answerInteraction(envelope, socket) {
+    const handled = this.onInteraction
+      ? Promise.resolve().then(() => this.onInteraction(envelope.type, envelope.payload || {}))
+        .catch((error) => { this.log('error', `interaction failed: ${error.message}`); return null; })
+      : Promise.resolve(null);
+    let timer;
+    const late = Symbol('late');
+    const budget = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(late), this.ackMs);
+      timer.unref?.();
+    });
+    const first = await Promise.race([handled, budget]);
+    clearTimeout(timer);
+    if (first === late) {
+      this.ack(envelope, socket);
+      this.log('warn', `interaction answered after ${this.ackMs} ms: acknowledged without a response`);
+    } else {
+      this.ack(envelope, socket, first?.response);
+    }
+    const result = first === late ? await handled : first;
+    if (typeof result?.after === 'function') {
+      try { await result.after(); } catch (error) { this.log('error', `interaction follow-up failed: ${error.message}`); }
     }
   }
 

@@ -13,14 +13,15 @@ const os = require('node:os');
 const path = require('node:path');
 const { randomUUID, createHash } = require('node:crypto');
 const { Store, checkTool } = require('./store.js');
-const { loadConfig, updateConfig, agentHome, configPath, findWorkspace, ignitePaths, resolveIgniteRuntime, legacyLayout, migrationGuardPath, MIGRATION_COMMAND, MARKER_NAME, DATABASE_NAME, LEGACY_FILES, LEGACY_DIRS } = require('./config.js');
+const { loadConfig, updateConfig, agentHome, configPath, findWorkspace, paymentsConfig, ignitePaths, resolveIgniteRuntime, legacyLayout, migrationGuardPath, MIGRATION_COMMAND, MARKER_NAME, DATABASE_NAME, LEGACY_FILES, LEGACY_DIRS } = require('./config.js');
 const { cadenceSpec, nextOccurrence, FIXED_TZ } = require('./schedule.js');
 const { writeBoard, closeSubject, boardPath, preflightBoard, refreshBoard, refreshBoardAfterCommit } = require('./board.js');
 const { workspaceFromHome, remember } = require('./memory.js');
 const { PAGES, helpPage } = require('./help.js');
 const live = require('./live-status.js');
+const { Gate, STATES, publicRow, brl } = require('./payments.js');
 
-const COMMANDS = ['schedule', 'schedules-due', 'work', 'wake', 'post', 'status', 'board', 'remember', 'runtime'];
+const COMMANDS = ['schedule', 'schedules-due', 'work', 'wake', 'post', 'status', 'payment', 'board', 'remember', 'runtime'];
 const REPORTS = new Set(['always', 'when-useful']);
 
 // What each verb takes beside --json, --agent, --installation and -h: its options, and the most
@@ -38,6 +39,10 @@ const VERBS = {
   wake: { options: ['conversation', 'note', 'work'], words: 0 },
   post: { options: ['text', 'text-file', 'file', 'audio', 'thread'], words: 0 },
   status: { options: ['task', 'message'], words: 1 },
+  'payment request': { options: ['provider', 'request'], words: 0 },
+  'payment show': { options: [], words: 1 },
+  'payment list': { options: ['state'], words: 0 },
+  'payment cancel': { options: [], words: 1 },
   'board write': { options: ['file', 'revision'], words: 0 },
   'board close': { options: [], words: 3 },
   remember: { options: [], words: Infinity },
@@ -66,6 +71,8 @@ Timers, work, messages and memory
   post           Queue a Slack message in this agent's channel.
   status         Show the owner what kind of work this turn is doing, or
                  set an earlier owner message's task state.
+  payment        Ask the payment gate to pay, and read or withdraw this
+                 agent's payment requests.
   board          Write or close a subject on the board.
   remember       Append one owner fact to the installation memory inbox.
   runtime        Move this agent's database, conversations and turns into
@@ -79,7 +86,7 @@ Home: RBTV_AGENT_HOME, or --agent NAME --installation PATH.
   The installation defaults to the directory walk that finds
   .rbtv/config/ignite/config.json.
   manage's four change verbs, and schedule, work, wake, post, status,
-  board and remember, use that agent. Help needs neither value.
+  payment, board and remember, use that agent. Help needs neither value.
   Inside a turn the waking program also sets IGNITE_CONVERSATION.
   A home that is not an existing folder is refused, and nothing is created.
 
@@ -664,6 +671,92 @@ function cmdStatus(ctx, flags, deps, { opts, positionals }) {
   return 0;
 }
 
+// The words of payment are checked before the home is opened: a refused one changes nothing. No verb
+// approves, refuses or changes the gate's settings: those are the owner's, in Slack.
+function checkPayment(tail, parsed, deps) {
+  const again = '\nNothing changed.\nignite payment -h';
+  if (!parsed) fail(`${tail[0] ? `unknown payment verb: ${tail[0]}` : 'payment requires request, show, list or cancel'}${again}`);
+  const action = tail[0];
+  if (action === 'request') {
+    if (!parsed.opts.provider) fail(`payment request requires --provider <name>${again}`);
+    if (!parsed.opts.request) fail(`payment request requires --request <JSON>, or --request - to read it from stdin${again}`);
+    if (!(deps.env || process.env).IGNITE_CONVERSATION) fail(`ignite payment request runs inside a turn: IGNITE_CONVERSATION is not set${again}`);
+  }
+  if ((action === 'show' || action === 'cancel') && !parsed.positionals[0]) fail(`payment ${action} requires a request id, such as P-0007${again}`);
+  if (action === 'list' && parsed.opts.state != null && !STATES.includes(parsed.opts.state)) {
+    fail(`unknown state: ${parsed.opts.state}\nchoose from ${STATES.join(', ')}${again}`);
+  }
+}
+
+function paymentRequest(raw) {
+  let value;
+  try { value = JSON.parse(raw); } catch (error) { fail(`--request is not JSON: ${error.message}\nNothing changed.`); }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail('--request must be a JSON object\nNothing changed.');
+  const recipient = value.recipient && typeof value.recipient === 'object' ? value.recipient : {};
+  return {
+    method: value.method,
+    recipient: {
+      name: recipient.name, key: recipient.key, keyType: recipient.key_type,
+      document: recipient.document, bank: recipient.bank,
+    },
+    amountCents: value.amount_cents,
+    feeCents: value.fee_cents ?? 0,
+    note: value.note,
+    details: value.details,
+  };
+}
+
+function paymentLines(row) {
+  const r = row.recipient;
+  return [
+    `${row.id}  ${row.state}${row.reason ? `: ${row.reason}` : ''}`,
+    `Recipient  ${[r.name, r.document, r.bank].filter(Boolean).join(' · ') || '-'}`,
+    `Key        ${r.key}${r.key_type ? ` (${r.key_type})` : ''}`,
+    `Amount     ${brl(row.amount_cents)}${row.fee_cents ? ` + fee ${brl(row.fee_cents)}` : ''}`,
+    `Note       ${row.note || '-'}`,
+    `Provider   ${row.provider} ${row.method}, id ${row.provider_id || '-'}${row.provider_status ? ` (${row.provider_status})` : ''}, receipt ${row.receipt_url || '-'}`,
+  ].join('\n');
+}
+
+function cmdPayment(rest, ctx, flags, deps, { opts, positionals }) {
+  if (!ctx.config || !paymentsConfig(ctx.config)) {
+    fail("payments are not set up in this installation: Ignite's config has no payments section\nNothing changed.");
+  }
+  const gate = new Gate({ workspace: ctx.config.workspace, now: deps.now });
+  try {
+    const action = rest[0];
+    if (action === 'request') {
+      const key = (deps.env || process.env).IGNITE_CONVERSATION;
+      if (!ctx.store.getConversation(key)) fail(`unknown conversation: ${key}\nNothing changed.`);
+      const raw = opts.request === '-' ? (deps.stdin ?? fs.readFileSync(0, 'utf8')) : opts.request;
+      const row = publicRow(gate.request({ agent: ctx.slug, conversationKey: key, provider: opts.provider, ...paymentRequest(raw) }));
+      emit(deps, flags, row, `${row.id} ${row.state}: ${row.reason}\n`);
+      return 0;
+    }
+    if (action === 'list') {
+      const rows = gate.list({ agent: ctx.slug, state: opts.state || null, limit: 20 }).map(publicRow);
+      emit(deps, flags, { payments: rows }, rows.length
+        ? `${rows.map((row) => `${row.id}  ${row.state.padEnd(9)} ${brl(row.amount_cents + row.fee_cents).padStart(12)}  ${row.recipient.name || row.recipient.key}${row.reason ? `  (${row.reason})` : ''}`).join('\n')}\n`
+        : 'no payment requests\n');
+      return 0;
+    }
+    const id = positionals[0];
+    if (action === 'show') {
+      const row = gate.get(id);
+      if (!row || row.agent !== ctx.slug) fail(`unknown payment request: ${id}\nNothing changed.\nignite payment list`);
+      const out = publicRow(row);
+      emit(deps, flags, out, `${paymentLines(out)}\n`);
+      return 0;
+    }
+    const { row } = gate.cancel(id, ctx.slug);
+    const out = publicRow(row);
+    emit(deps, flags, out, `cancelled ${out.id}\n`);
+    return 0;
+  } finally {
+    gate.close();
+  }
+}
+
 function dispatch(command, rest, ctx, flags, deps, parsed) {
   if (command === 'schedule') return cmdSchedule(rest, ctx, flags, deps, parsed);
   if (command === 'schedules-due') return cmdDue(ctx, flags, deps, parsed);
@@ -671,6 +764,7 @@ function dispatch(command, rest, ctx, flags, deps, parsed) {
   if (command === 'wake') return cmdWake(ctx, flags, deps, parsed);
   if (command === 'post') return cmdPost(ctx, flags, deps, parsed);
   if (command === 'status') return cmdStatus(ctx, flags, deps, parsed);
+  if (command === 'payment') return cmdPayment(rest, ctx, flags, deps, parsed);
   fail(`unknown command: ${command}`);
 }
 
@@ -734,11 +828,12 @@ function main(argv, deps = {}) {
   if (command === 'albert') return cmdAlbert(tail, flags, deps);
   if (command === 'runtime') return cmdRuntime(tail, flags, deps);
   if (command === 'deploy') return require('./deploy.js').run(tail, flags, deps, () => resolveInstallation(flags, deps));
-  if (!COMMANDS.includes(command)) fail(`unknown command: ${command}\nchoose from connect, disconnect, manage, turn,\nschedule, schedules-due, work, wake, post, status, board, remember, runtime, deploy\nNothing changed.\nignite -h`);
+  if (!COMMANDS.includes(command)) fail(`unknown command: ${command}\nchoose from connect, disconnect, manage, turn,\nschedule, schedules-due, work, wake, post, status, payment, board, remember, runtime, deploy\nNothing changed.\nignite -h`);
   // The words are checked before the home is opened: a refused option creates no database.
   const verb = VERBS[`${command} ${tail[0]}`] ? `${command} ${tail[0]}` : command;
   const parsed = VERBS[verb] && parseOpts(verb === command ? tail : tail.slice(1), verb);
   if (command === 'status') checkStatus(parsed, deps);
+  if (command === 'payment') checkPayment(tail, parsed, deps);
   const ctx = openContext(flags, deps, command === 'schedule' && ['add', 'change', 'cancel'].includes(tail[0]));
   try {
     return dispatch(command, tail, ctx, flags, deps, parsed);

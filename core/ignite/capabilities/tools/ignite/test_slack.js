@@ -64,7 +64,7 @@ test('isBotOrSelf-edit-delete-join', () => {
   assert.equal(share.isBotOrSelf, false);
 });
 
-function harness(routes, { run } = {}) {
+function harness(routes, { run, ackMs, log } = {}) {
   const calls = [];
   const timers = [];
   class FakeWS {
@@ -121,7 +121,8 @@ function harness(routes, { run } = {}) {
       const timer = timers.find((item) => item.id === id);
       if (timer) timer.cancelled = true;
     },
-    log() {},
+    log: log || (() => {}),
+    ...(ackMs != null ? { ackMs } : {}),
   });
   return { slack, calls, timers, FakeWS };
 }
@@ -412,6 +413,112 @@ test('socket-no-ack-on-onEvent-failure', async () => {
   });
   await slack.pending;
   assert.deepEqual(FakeWS.latest.sent, []);
+});
+
+const socketRoutes = { 'auth.test': authOk, 'apps.connections.open': { ok: true, url: 'wss://example.test/socket' } };
+
+test('socket acks a slash command at once, with the handler response as its payload', async () => {
+  const { slack, FakeWS } = harness(socketRoutes);
+  const seen = [];
+  await slack.connect(async () => { throw new Error('not an event'); }, async (type, payload) => {
+    seen.push([type, payload.command]);
+    return { response: { text: 'Only the owner can open /payments. Nothing changed.' } };
+  });
+  FakeWS.latest.emit({ type: 'slash_commands', envelope_id: 'env-s', accepts_response_payload: true, payload: { command: '/payments', user_id: 'UOTHER' } });
+  await slack.pending;
+  assert.deepEqual(seen, [['slash_commands', '/payments']]);
+  assert.deepEqual(FakeWS.latest.sent, [{ envelope_id: 'env-s', payload: { text: 'Only the owner can open /payments. Nothing changed.' } }]);
+});
+
+test('socket acks block_actions before the handler makes its Slack calls', async () => {
+  const { slack, FakeWS } = harness(socketRoutes);
+  const sentWhenAfterRan = [];
+  await slack.connect(async () => {}, async () => ({ after: async () => { sentWhenAfterRan.push(FakeWS.latest.sent.length); } }));
+  FakeWS.latest.emit({ type: 'interactive', envelope_id: 'env-b', payload: { type: 'block_actions', actions: [{ action_id: 'payments_refuse' }] } });
+  await slack.pending;
+  assert.deepEqual(FakeWS.latest.sent, [{ envelope_id: 'env-b' }]);
+  assert.deepEqual(sentWhenAfterRan, [1]);
+});
+
+test('socket acks a view_submission with the response_action the handler returns', async () => {
+  const { slack, FakeWS } = harness(socketRoutes);
+  const errors = { response_action: 'errors', errors: { payments_pin: 'Wrong PIN' } };
+  await slack.connect(async () => {}, async () => ({ response: errors }));
+  FakeWS.latest.emit({ type: 'interactive', envelope_id: 'env-v', accepts_response_payload: true, payload: { type: 'view_submission' } });
+  await slack.pending;
+  assert.deepEqual(FakeWS.latest.sent, [{ envelope_id: 'env-v', payload: errors }]);
+});
+
+test('socket acks a slow interaction bare within ackMs and still runs its follow-up', async () => {
+  const { slack, FakeWS } = harness(socketRoutes, { ackMs: 20 });
+  let followed = false;
+  let release;
+  const slow = new Promise((resolve) => { release = resolve; });
+  await slack.connect(async () => {}, async () => {
+    await slow;
+    return { response: { text: 'late' }, after: async () => { followed = true; } };
+  });
+  const started = Date.now();
+  FakeWS.latest.emit({ type: 'slash_commands', envelope_id: 'env-slow', accepts_response_payload: true, payload: { command: '/payments' } });
+  while (!FakeWS.latest.sent.length && Date.now() - started < 1000) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.deepEqual(FakeWS.latest.sent, [{ envelope_id: 'env-slow' }]);
+  assert.equal(Date.now() - started < 500, true);
+  release();
+  await slack.pending;
+  assert.equal(followed, true);
+  assert.equal(FakeWS.latest.sent.length, 1);
+});
+
+test('socket acks an interaction whose handler throws, and logs no payload', async () => {
+  const logs = [];
+  const { slack, FakeWS } = harness(socketRoutes, { log: (level, message) => logs.push(`${level} ${message}`) });
+  await slack.connect(async () => {}, async () => { throw new Error('boom'); });
+  FakeWS.latest.emit({ type: 'interactive', envelope_id: 'env-x', accepts_response_payload: true,
+    payload: { type: 'view_submission', view: { state: { values: { payments_pin: { value: { value: '482913' } } } } } } });
+  await slack.pending;
+  assert.deepEqual(FakeWS.latest.sent, [{ envelope_id: 'env-x' }]);
+  assert.deepEqual(logs, ['error interaction failed: boom']);
+});
+
+test('socket acks every envelope type: no handler, a response not accepted, an unknown type', async () => {
+  const { slack, FakeWS } = harness(socketRoutes);
+  await slack.connect(async () => {});
+  FakeWS.latest.emit({ type: 'interactive', envelope_id: 'env-1', payload: { type: 'block_actions' } });
+  await slack.pending;
+  FakeWS.latest.emit({ type: 'slash_commands', envelope_id: 'env-2', payload: { command: '/payments' } });
+  await slack.pending;
+  FakeWS.latest.emit({ type: 'something_new', envelope_id: 'env-3', payload: {} });
+  await slack.pending;
+  FakeWS.latest.emit({ type: 'events_api', envelope_id: 'env-4', payload: { event: { type: 'reaction_added' } } });
+  await slack.pending;
+  assert.deepEqual(FakeWS.latest.sent, [{ envelope_id: 'env-1' }, { envelope_id: 'env-2' }, { envelope_id: 'env-3' }, { envelope_id: 'env-4' }]);
+  const second = harness(socketRoutes);
+  await second.slack.connect(async () => {}, async () => ({ response: { text: 'kept back' } }));
+  second.FakeWS.latest.emit({ type: 'interactive', envelope_id: 'env-5', accepts_response_payload: false, payload: { type: 'block_actions' } });
+  await second.slack.pending;
+  assert.deepEqual(second.FakeWS.latest.sent, [{ envelope_id: 'env-5' }]);
+});
+
+test('views and Block Kit messages go to their Slack methods', async () => {
+  const { slack, calls } = harness({
+    'views.open': { ok: true, view: { id: 'V1' } }, 'views.push': { ok: true, view: { id: 'V2' } },
+    'views.update': { ok: true, view: { id: 'V1' } }, 'chat.postMessage': { ok: true, channel: 'C1', ts: '7.7' },
+    'chat.update': { ok: true }, 'chat.postEphemeral': { ok: true },
+  });
+  const view = { type: 'modal', title: { type: 'plain_text', text: 'Payments' }, blocks: [] };
+  assert.deepEqual(await slack.openView('trig', view), { viewId: 'V1' });
+  assert.deepEqual(await slack.pushView('trig', view), { viewId: 'V2' });
+  assert.deepEqual(await slack.updateView('V1', view), { viewId: 'V1' });
+  const blocks = [{ type: 'section', text: { type: 'mrkdwn', text: 'x' } }];
+  assert.deepEqual(await slack.postBlocks({ channel: 'C1', threadTs: '1.1', text: 'x', blocks }), { channel: 'C1', ts: '7.7' });
+  await slack.updateMessage({ channel: 'C1', ts: '7.7', text: 'y', blocks });
+  await slack.postEphemeral({ channel: 'C1', user: 'UOTHER', text: 'no' });
+  assert.deepEqual(calls.map((c) => c.method), ['views.open', 'views.push', 'views.update', 'chat.postMessage', 'chat.update', 'chat.postEphemeral']);
+  assert.deepEqual(JSON.parse(calls[0].body.view), view);
+  assert.equal(calls[0].body.trigger_id, 'trig');
+  assert.equal(calls[3].body.thread_ts, '1.1');
+  assert.deepEqual(JSON.parse(calls[3].body.blocks), blocks);
+  assert.deepEqual(calls[5].body, { channel: 'C1', user: 'UOTHER', text: 'no' });
 });
 
 test('socket-disconnect-envelope', async () => {

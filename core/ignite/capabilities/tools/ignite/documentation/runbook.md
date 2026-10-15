@@ -44,7 +44,7 @@ systemctl --user status rbtv-ignite-agents.service
 journalctl --user -u rbtv-ignite-agents.service -f
 ```
 
-Log lines are JSON on stdout. `event` is `ready`, `turn`, `schedules-due`, `turn-left`, `stop`, `board`, `check`, or `memory-alert-failed`.
+Log lines are JSON on stdout. `event` is `ready`, `turn`, `schedules-due`, `turn-left`, `stop`, `board`, `check`, `memory-alert-failed`, `payments` (the payment gate's service side, with an `action`) or `payment-webhook` (each withdrawal validation answer).
 
 Stop and start:
 
@@ -164,6 +164,25 @@ ignite --agent <slug> --installation <installation> work retry <work-id>
 ```
 
 The setting applies from the next turn in every conversation of that agent.
+
+## Payments
+
+The [payment gate](../../../glossary/payment-gate.md)'s service side runs when `config.json` has a `payments` section: `"payments": {}` takes the defaults, port 8787 and the token variable `ASAAS_WEBHOOK_TOKEN`. Add it, then restart the service. Without it, `ignite payment` refuses and `/payments` answers that payments are not set up.
+
+**Owner setup.** Acts only the owner can do:
+
+1. **Slack app** (api.slack.com, the app Ignite runs as): under Slash Commands, create `/payments` (no request URL is needed over Socket Mode); turn Interactivity on (no URL either); reinstall the app if Slack asks.
+2. **Token.** Put `ASAAS_WEBHOOK_TOKEN=<long random value>` in `<installation>/.rbtv/config/env/.env` (or the variable `payments.webhookTokenEnv` names), and the same value in the bank's webhook settings. The service reads it on every call.
+3. **Bank.** Asaas: User menu > Integrations > Security mechanisms: the withdrawal validation webhook at the public address that reaches `http://127.0.0.1:<port>/asaas/withdrawal-validation`, with the token; the IP whitelist with the server's address; "Evento crítico em requisições de saque" off. The public address (a reverse proxy passing only that path) is installation setup, not part of Ignite.
+4. **PIN and settings.** Run `/payments` in Slack: it asks for a PIN of 4 to 12 digits on first use, then shows the panel. The mode is off until the owner saves settings.
+
+**Inspect.** The ledger is `<installation>/.rbtv/runtime/ignite/payments.sqlite`, table `payments`; the settings and the PIN lockout are its table `gate`. An agent reads its own requests with `ignite payment list` and `ignite payment show <id>`. Read the ledger, never edit it: a row's state decides what the withdrawal validation approves.
+
+**Forgotten PIN.** Delete `<installation>/.rbtv/config/ignite/payments-pin.json` on the server; the next `/payments` asks for a new one. Five wrong PINs in a row lock every PIN form for 15 minutes; waiting is the only unlock.
+
+**A send cut off by a stop.** A request the service had started sending when it stopped becomes `failed` at the next start, logged as `{ event: 'payments', action: 'interrupted' }`: Ignite cannot know whether the bank received it. Check `asaas statement` before the agent asks again; the withdrawal validation refuses the old operation, since a failed request is never approved.
+
+**The listener.** `{ event: 'payment-webhook', action: 'listening', port }` at start; `{ event: 'error', what: 'payment-webhook' }` when the port is taken; then no call reaches Ignite and Asaas cancels each operation after three failed calls. Each answer is logged with the request id, `APPROVED` or `REFUSED`, and the reason.
 
 ## Known behaviour
 

@@ -325,6 +325,105 @@ No Slack request in this command.
 Example: ignite status thinking
 `,
 
+  payment: `ignite payment — ask the payment gate to pay
+
+The payment gate decides, outside any model, whether a payment may leave the owner's account: by the
+owner's settings (off, automatic within daily, weekly and monthly limits, or case by case) or by the
+owner's Approve with a PIN in Slack. A payment tool (for example asaas) resolves the recipient, asks
+the gate with request, and prints the answer; the waking service sends what the gate approved and
+wakes this conversation with the outcome. No verb approves, refuses or changes settings.
+
+Commands
+  request  Record a payment request and get the gate's answer: pending, approved or refused.
+  show     Show one of this agent's requests: state, provider id, receipt.
+  list     List this agent's requests, newest first.
+  cancel   Withdraw one of this agent's pending requests.
+
+Next: ignite payment COMMAND -h
+`,
+
+  'payment request': `ignite payment request — ask the payment gate to pay
+
+usage: ignite payment request --provider <name> --request (<JSON> | -) [--json]
+
+Run inside a turn: the request belongs to this agent and to the conversation in IGNITE_CONVERSATION,
+which is woken with the outcome. A payment tool calls this; an agent pays with its tool, such as
+asaas pay. --request - reads the JSON from stdin.
+
+--provider  The payment tool that sends it once approved, for example asaas.
+--request   One JSON object:
+  method        the provider's payment kind, for example pix or bill
+  recipient     {name, key, key_type, document, bank}; key (the Pix key, the bill line) is required
+  amount_cents  whole cents, at least 1
+  fee_cents     whole cents the provider charges, 0 when absent; limits count amount plus fee
+  note          what the payment is for
+  details       an object the provider keeps with the request
+
+The gate answers at once: off refuses; case by case waits for the owner; automatic approves when the
+amount fits every limit the owner set for the day, the week (from Monday) and the month, in
+America/Sao_Paulo time, and otherwise waits for the owner. A waiting request is posted in this
+conversation's thread with Approve and Refuse for the owner.
+
+Success: exit 0 for every answer, "<id> <state>: <reason>", for example
+  P-0007 pending: over the weekly limit (R$ 80,00 left of R$ 150,00)
+--json: the request {id, agent, conversation, provider, method, recipient, amount_cents, fee_cents,
+note, details, state, reason, decided_by, decided_at, provider_id, provider_status, receipt_url,
+created_at}. state is pending, approved or refused here.
+Refusal: exit 1, reason on stderr, nothing recorded: outside a turn, an unknown conversation, a
+config with no payments section, invalid JSON or fields.
+${REFUSED_WORDS}
+
+Example: ignite payment request --provider asaas --request '{"method":"pix","recipient":{"name":"KENU","key":"kenu@example.com","key_type":"EMAIL"},"amount_cents":9900,"note":"Owed to Kenu"}'
+Next: ignite payment show <id>
+`,
+
+  'payment show': `ignite payment show — one payment request
+
+usage: ignite payment show <id> [--json]
+
+<id> is a request id this agent received, such as P-0007. States: pending (waits for the owner),
+approved (Ignite is sending it), sent (the provider has it: provider id, status, receipt),
+refused, cancelled (withdrawn by the agent) or failed (the reason says why).
+
+${HOME}
+Success: exit 0, labeled lines; --json the request, as payment request -h describes.
+Refusal: exit 1, "unknown payment request: <id>" for an id of another agent or none.
+${REFUSED_WORDS}
+
+Example: ignite payment show P-0007
+`,
+
+  'payment list': `ignite payment list — this agent's payment requests
+
+usage: ignite payment list [--state pending|approved|sent|refused|cancelled|failed] [--json]
+
+The 20 newest requests of this agent, one line each: id, state, amount with fee, recipient, reason.
+--state keeps one state. An empty list prints "no payment requests" and exits 0.
+
+${HOME}
+--json: {payments: [request, ...]}.
+${REFUSED_WORDS}
+
+Example: ignite payment list --state pending
+`,
+
+  'payment cancel': `ignite payment cancel — withdraw a pending request
+
+usage: ignite payment cancel <id> [--json]
+
+Withdraws one of this agent's requests while it is pending; its thread message shows it withdrawn.
+An approved, sent, refused or failed request cannot be withdrawn here: a sent payment is cancelled
+with its provider's tool (asaas cancel).
+
+${HOME}
+Success: exit 0, "cancelled <id>"; --json the request.
+Refusal: exit 1, "<id> is <state>: only a pending request can be withdrawn", or
+"unknown payment request: <id>". Nothing changes on a refusal.
+${REFUSED_WORDS}
+
+Example: ignite payment cancel P-0007
+`,
+
   board: `ignite board — checked short-term memory
 
 Write or close a subject on the agent's board, <home>/_artifacts/board.md. The board is checked

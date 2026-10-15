@@ -1,5 +1,5 @@
 {
   "name": "asaas",
-  "description": "Asaas bank account from one command: shows the balance and the statement, looks up who owns a Pix key, and decodes a Pix QR code; moves no money.",
+  "description": "Asaas bank account from one command: shows the balance and the statement, looks up who owns a Pix key, decodes a Pix QR code, and pays by Pix key or bill only through Ignite's payment gate.",
   "entry": "asaas.py"
 }

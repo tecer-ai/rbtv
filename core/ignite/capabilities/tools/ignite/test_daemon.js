@@ -171,7 +171,7 @@ function fakeSocket() {
     onEvent: null,
     stopped: false,
     acks: 0,
-    async connect(onEvent) { socket.onEvent = onEvent; },
+    async connect(onEvent, onInteraction) { socket.onEvent = onEvent; socket.onInteraction = onInteraction; },
     stop() { socket.stopped = true; },
     async inject(event) {
       const result = await socket.onEvent(event);
@@ -201,6 +201,57 @@ function spawnDaemon(dir, pathEnv = harnessBin(dir, ['claude', 'ignite'])) {
   child.stdout.setEncoding('utf8').on('data', (chunk) => { stdout += chunk; });
   return { child, stderr: () => stderr, stdout: () => stdout };
 }
+
+test('with a payments section the service answers the withdrawal validation, routes /payments to the owner panel and sends approvals once', async () => {
+  const { dir } = workspace();
+  const cfg = JSON.parse(fs.readFileSync(configFile(dir), 'utf8'));
+  fs.writeFileSync(configFile(dir), JSON.stringify({ ...cfg, payments: {} }));
+  const { Gate } = require('./payments.js');
+  const gate = new Gate({ workspace: dir });
+  gate.saveSettings({ mode: 'automatic', limits: { day: 5000 } });
+  const socket = fakeSocket();
+  const runs = [];
+  const prevPath = process.env.PATH;
+  const prevToken = process.env.ASAAS_WEBHOOK_TOKEN;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prevPath || ''}`;
+  process.env.ASAAS_WEBHOOK_TOKEN = 'daemon-test-token';
+  let runtime;
+  try {
+    runtime = await start({
+      workspace: dir, slack: fakeSlack(), socket, signals: false, tickMs: 60_000, sweepMs: 60_000, drainMs: 60_000,
+      webhookPort: 0, paymentMs: 30,
+      paymentRun: async (command, args, input) => {
+        runs.push({ command, args, id: JSON.parse(input).id });
+        return { code: 0, stdout: '{"provider_id":"tr_7","status":"PENDING","receipt_url":null}', stderr: '' };
+      },
+    });
+    assert.deepEqual(await socket.onInteraction('slash_commands', { command: '/payments', user_id: 'UOTHER', team_id: 'T1' }),
+      { response: { text: 'Only the owner can open /payments. Nothing changed.' } });
+    const row = gate.request({ agent: 'master', conversationKey: 'T1:D1:1.1', provider: 'asaas', method: 'pix',
+      recipient: { name: 'KENU', key: 'kenu@example.com' }, amountCents: 100, note: 'test' });
+    assert.equal(row.state, 'approved');
+    await waitFor(() => gate.get(row.id).state === 'sent');
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    assert.deepEqual(runs, [{ command: 'asaas', args: ['--json', 'pay', 'execute', 'P-0001'], id: 'P-0001' }]);
+    const answer = await fetch(`http://127.0.0.1:${runtime.webhookPort}/asaas/withdrawal-validation`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'asaas-access-token': 'daemon-test-token' },
+      body: JSON.stringify({ type: 'TRANSFER', transfer: { id: 'tr_7', value: 1, externalReference: 'P-0001', bankAccount: { pixAddressKey: 'kenu@example.com' } } }),
+    });
+    assert.deepEqual(await answer.json(), { status: 'APPROVED' });
+    const port = runtime.webhookPort;
+    await runtime.stop('test');
+    runtime = null;
+    await assert.rejects(fetch(`http://127.0.0.1:${port}/asaas/withdrawal-validation`, { method: 'POST', body: '{}' }));
+  } finally {
+    process.env.PATH = prevPath;
+    if (prevToken === undefined) delete process.env.ASAAS_WEBHOOK_TOKEN;
+    else process.env.ASAAS_WEBHOOK_TOKEN = prevToken;
+    if (runtime) await runtime.stop('test');
+    gate.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test('lock-refusal', async () => {
   const { dir } = workspace();

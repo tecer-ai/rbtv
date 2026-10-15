@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { configPath, loadConfig, updateConfig, agentHome, storePath, envValue, slackToken } = require('./config.js');
+const { configPath, loadConfig, updateConfig, agentHome, storePath, envValue, slackToken, paymentsConfig } = require('./config.js');
 
 const failures = [];
 
@@ -200,6 +200,28 @@ test('unset token names the variable and not a value', (dir) => {
     });
     assert.equal(slackToken(config, 'bot'), secret);
   }));
+});
+
+test('a payments section turns the gate on, with its defaults; no section leaves it off', (dir) => {
+  writeConfig(dir);
+  assert.equal(paymentsConfig(loadConfig(dir)), null);
+  writeConfig(dir, { payments: {} });
+  assert.deepEqual(paymentsConfig(loadConfig(dir)), { webhookPort: 8787, webhookTokenEnv: 'ASAAS_WEBHOOK_TOKEN' });
+  writeConfig(dir, { payments: { webhookPort: 9000, webhookTokenEnv: 'PAY_HOOK' } });
+  assert.deepEqual(paymentsConfig(loadConfig(dir)), { webhookPort: 9000, webhookTokenEnv: 'PAY_HOOK' });
+});
+
+test('a payments section refuses an unknown field, a bad port and a bad variable name', (dir) => {
+  for (const [payments, message] of [
+    [{ mode: 'automatic' }, /unknown payments field: mode/],
+    [{ webhookPort: 0 }, /payments.webhookPort must be a port number from 1 to 65535/],
+    [{ webhookPort: '8787' }, /payments.webhookPort must be a port number from 1 to 65535/],
+    [{ webhookTokenEnv: 'not a name' }, /payments.webhookTokenEnv must be an environment variable name/],
+    ['on', /payments must be an object/],
+  ]) {
+    writeConfig(dir, { payments });
+    assert.throws(() => loadConfig(dir), message);
+  }
 });
 
 if (failures.length) {
