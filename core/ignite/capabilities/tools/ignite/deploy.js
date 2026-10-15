@@ -1,8 +1,9 @@
 'use strict';
 
-// API — ignite deploy [COMMIT] [--deploy-folder PATH] [--dry-run]: resolves the commit, the
+// API — ignite deploy [COMMIT] [--deploy-folder PATH] [--dry-run] [--after-turn]: resolves the commit, the
 // installation and the deploy folder, runs deploy.sh once, confirms the service stays active at
-// that commit, and appends the result to the installation's deploy log.
+// that commit, and appends the result to the installation's deploy log. With --after-turn it only
+// records the request (deferred-deploy.js); the daemon runs it once no turn is running.
 // run(argv, flags, deps, resolveInstallation) → Promise of the exit code.
 // deps.env / deps.stdout / deps.stderr optional. deps.platform, deps.sourceDir (the folder whose
 // repository gives the default commit), deps.pollMs and deps.limitMs replace the real ones in tests.
@@ -24,7 +25,7 @@ const LOG_NAME = 'deploys.jsonl';
 const HELP = `ignite deploy — run the waking service from a commit
 
 usage: ignite deploy [COMMIT] [--deploy-folder PATH] [--installation PATH]
-                     [--dry-run] [--json]
+                     [--after-turn] [--dry-run] [--json]
 
 Runs deploy.sh (beside this program) once, then confirms the result. The
 script checks the deploy folder out at COMMIT, rewrites the systemd user unit
@@ -51,6 +52,19 @@ COMMIT
   the current folder to .rbtv/config/ignite/config.json. When the installed
   unit serves another installation, the command refuses until --installation
   names the one to serve.
+
+--after-turn
+  For an agent deploying from inside its own turn. Resolves and checks the
+  commit now, refusing in the turn when it is unknown, and records the
+  request in <installation>/.rbtv/runtime/ignite/deploy-request.json. The
+  daemon runs the deploy once no turn of any agent is running, as a
+  systemd-run job with the service's own PATH, so it outlives the restart.
+  When the deploy log line appears, the agent is woken in the conversation
+  that asked (IGNITE_CONVERSATION) with that line; when no wake can be queued
+  (the work is not waiting for workers), the line is posted to the
+  conversation instead. End the turn with disposition waiting_workers and a
+  worker of kind deploy. One request waits at a time: a second is refused.
+  Requires RBTV_AGENT_HOME and IGNITE_CONVERSATION, which a turn sets.
 
 --dry-run
   Prints the commit, the installation, the deploy folder, the exact script
@@ -92,10 +106,11 @@ function refuse(reason) {
 }
 
 function parse(argv) {
-  const opts = { dryRun: false, deployFolder: null, commit: null };
+  const opts = { dryRun: false, afterTurn: false, deployFolder: null, commit: null };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--dry-run') opts.dryRun = true;
+    else if (arg === '--after-turn') opts.afterTurn = true;
     else if (arg === '--deploy-folder') {
       const value = argv[i + 1];
       if (value == null || value.startsWith('--')) refuse('--deploy-folder requires a value');
@@ -219,6 +234,9 @@ async function run(argv, flags, deps = {}, resolveInstallation) {
     refuse(`ignite deploy runs on Linux only: the waking service is a systemd user service, and this system is ${platform}.`);
   }
   const env = deps.env || process.env;
+  if (opts.afterTurn && !(env.RBTV_AGENT_HOME && env.IGNITE_CONVERSATION)) {
+    refuse('--after-turn runs inside an agent\'s turn: RBTV_AGENT_HOME and IGNITE_CONVERSATION are not both set.\nOutside a turn, deploy directly: ignite deploy COMMIT');
+  }
   let installation;
   try { installation = resolveInstallation(); } catch (error) { refuse(error.message); }
   const unit = installedUnit(env);
@@ -263,6 +281,28 @@ async function run(argv, flags, deps = {}, resolveInstallation) {
       '',
       `The script checks the deploy folder out at the commit, rewrites the unit ${UNIT}`,
       'and restarts it for every agent of the installation. A turn in progress is left running.',
+      '',
+    ].join('\n'));
+    return 0;
+  }
+  if (opts.afterTurn) {
+    const queued = require('./deferred-deploy.js').request({
+      installation,
+      commit,
+      deployFolder: target.folder,
+      agent: path.basename(env.RBTV_AGENT_HOME),
+      conversation: env.IGNITE_CONVERSATION,
+    });
+    out(flags.json ? `${JSON.stringify({ ...plan, afterTurn: queued })}\n` : [
+      'ignite deploy — queued for after this turn',
+      '',
+      ...resolved,
+      `Commit there   ${before}`,
+      `Request        ${require('./deferred-deploy.js').requestFile(installation)}`,
+      '',
+      'The daemon deploys once no turn is running and wakes this conversation with the',
+      'deploy log line. End this turn with disposition waiting_workers and a worker',
+      `{ "ref": "deploy:${commit.slice(0, 12)}", "kind": "deploy" }.`,
       '',
     ].join('\n'));
     return 0;

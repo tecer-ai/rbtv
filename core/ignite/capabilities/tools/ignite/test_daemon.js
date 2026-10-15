@@ -904,6 +904,61 @@ test('the Friday timer is at 08:45 America/Sao_Paulo', () => {
   assert.equal(process.env.TZ, process.env.TZ);
 });
 
+// ignite deploy --after-turn, from the daemon's side: the deploy waits for the turn, starts once,
+// and its log line comes back as a wake in the conversation that asked (waiting_workers), or as a
+// post when that work no longer waits.
+for (const waits of [true, false]) {
+  test(`deploy-after-turn-${waits ? 'wakes' : 'posts'}`, async () => {
+    const deferred = require('./deferred-deploy.js');
+    const { dir } = workspace();
+    const cast = fakeCast(dir);
+    const control = JSON.parse(fs.readFileSync(cast.env.FAKE_CAST_CONTROL, 'utf8'));
+    control.agent = { ...control.agent, disposition: waits ? 'waiting_workers' : 'completed',
+      workers: waits ? [{ ref: 'deploy:c1e5b34574d6', kind: 'deploy' }] : [], replies: [{ text: 'deploying', audio: false, files: [] }] };
+    fs.writeFileSync(cast.env.FAKE_CAST_CONTROL, JSON.stringify(control));
+    const slack = fakeSlack();
+    const socket = fakeSocket();
+    const commit = 'c1e5b34574d62d9173a37ae5bbf266ba32932be3';
+    const starts = [];
+    const log = path.join(dir, '.rbtv', 'runtime', 'ignite', 'deploys.jsonl');
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prevPath || ''}`;
+    let runtime;
+    try {
+      runtime = await start({ workspace: dir, slack, socket, turnCommand: [process.execPath, cast.stub], castEnv: cast.env,
+        signals: false, tickMs: 50, sweepMs: 60_000, drainMs: 50,
+        deployStart(req) {
+          starts.push(req);
+          fs.appendFileSync(log, `${JSON.stringify({ time: new Date().toISOString(), commitAsked: req.commit, outcome: 'ok' })}\n`);
+          return { ok: true };
+        } });
+      await socket.inject({ team: 'T1', channel: 'D1', channelType: 'im', ts: '1.100000', threadTs: '1.100000',
+        user: 'UOWNER', text: 'deploy it', files: [], isBotOrSelf: false, mentionsBot: false });
+      await waitFor(() => slack.posts.some((row) => row.text === 'deploying'));
+      const key = fs.readFileSync(cast.seen, 'utf8').trim().split('\n').map((line) => JSON.parse(line))[0]
+        .prompt.match(/^HISTORY_FILE: .*conversations\/([^/]+)\/history\.md$/m)[1].replace(/-/g, ':');
+      fs.mkdirSync(path.dirname(log), { recursive: true });
+      control.agent = { ...control.agent, disposition: 'completed', workers: [], replies: [{ text: 'confirmed', audio: false, files: [] }] };
+      fs.writeFileSync(cast.env.FAKE_CAST_CONTROL, JSON.stringify(control));
+      deferred.request({ installation: dir, commit, deployFolder: '/deploy', agent: 'master', conversation: key });
+      if (waits) {
+        await waitFor(() => slack.posts.some((row) => row.text === 'confirmed'));
+        const prompts = fs.readFileSync(cast.seen, 'utf8').trim().split('\n').map((line) => JSON.parse(line).prompt);
+        assert.match(prompts.at(-1), new RegExp(`^\\[wake\\] Deploy of ${commit} \\(asked with ignite deploy --after-turn\\) finished: ok\\.`, 'm'));
+      } else {
+        await waitFor(() => slack.posts.some((row) => row.text.startsWith(`Deploy of ${commit}`)));
+        assert.equal(slack.posts.some((row) => row.text === 'confirmed'), false, 'no turn: the line is posted');
+      }
+      assert.equal(starts.length, 1);
+      assert.equal(fs.existsSync(deferred.requestFile(dir)), false);
+    } finally {
+      process.env.PATH = prevPath;
+      if (runtime) runtime.stop('test');
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+}
+
 async function runAll() {
   for (const [name, fn, why] of pending) {
     if (!fn) { console.log(`skip: ${name} is Linux-only: ${why}`); continue; }

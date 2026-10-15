@@ -2,6 +2,7 @@
 'use strict';
 
 const fs = require('node:fs');
+const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 const { loadConfig, agentHome, storePath, slackToken } = require('./config.js');
 const { agentsFolder, holdsAgentFile, readAgent } = require('../../../../cast/capabilities/tools/cast/lib/agent');
@@ -16,6 +17,7 @@ const { refreshBoard } = require('./board.js');
 const { createChecks } = require('./timer-check.js');
 const { runtimeFolder } = require('./memory-write.js');
 const cli = require('./cli.js');
+const deferred = require('./deferred-deploy.js');
 
 const TICK_MS = 30_000;
 const SWEEP_MS = 1_000;
@@ -364,6 +366,43 @@ async function startLocked(opts, workspace, held) {
         log({ event: 'schedules-due', slug, message: error.message });
       }
       await pump(slug);
+    }
+    if (!stopping) deployAfterTurn();
+  }
+
+  // An agent's ignite deploy --after-turn: started once no turn runs, reported to the conversation
+  // that asked, as a wake when its work waits for workers, otherwise as a post.
+  function deployAfterTurn() {
+    try {
+      deferred.step({
+        installation: workspace,
+        busy: () => inflight.size > 0 || agentSlugs(workspace).some((slug) => getStore(slug)?.liveRun()),
+        start(req) {
+          if (opts.deployStart) return opts.deployStart(req);
+          const ignite = resolveHarness('ignite', process.env.PATH || '');
+          if (!ignite) return { ok: false, error: 'ignite not on PATH' };
+          const [program, args] = deferred.startCommand(req, workspace, process.env, ignite);
+          const result = spawnSync(program, args, { encoding: 'utf8' });
+          if (result.error || result.status !== 0) {
+            return { ok: false, error: result.error?.message || `${program} exited ${result.status}: ${(result.stderr || '').trim()}` };
+          }
+          return { ok: true };
+        },
+        report(req, text) {
+          const store = getStore(req.agent);
+          if (!store) throw new Error(`agent folder missing: ${req.agent}`);
+          const woke = store.wake({ conversationKey: req.conversation, note: text });
+          if (!woke.inserted) {
+            store.enqueueOutbox({ id: `deploy:${req.commit}:${req.startedAt}`, conversationKey: req.conversation,
+              payload: { text, audio: false, files: [] } });
+          }
+          kick(req.agent);
+        },
+        now: clock(),
+        log,
+      });
+    } catch (error) {
+      log({ event: 'deploy-after-turn', message: error.message });
     }
   }
 

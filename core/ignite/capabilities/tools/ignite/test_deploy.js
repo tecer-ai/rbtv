@@ -364,6 +364,36 @@ linuxOnly('script-failure-fails', () => withScratch(async (s) => {
   assert.deepEqual([entry.commitBefore, entry.commitAfter, entry.outcome, entry.reason], [s.first, s.first, 'failed', 'deploy.sh exited 1.']);
 }));
 
+linuxOnly('after-turn-records-the-request-and-deploys-nothing', () => withScratch(async (s) => {
+  const folder = s.clone('deploy');
+  const installation = s.installation('installation');
+  const request = path.join(installation, '.rbtv', 'runtime', 'ignite', 'deploy-request.json');
+  const base = ['--deploy-folder', folder, '--installation', installation, '--after-turn'];
+  const outside = await deploy([s.second, ...base], { env: s.env, sourceDir: s.source });
+  assert.equal(outside.code, 1);
+  assert.match(outside.stderr, /^--after-turn runs inside an agent's turn/);
+  const turn = { ...s.env, RBTV_AGENT_HOME: path.join(installation, '.rbtv', 'agents', 'master'), IGNITE_CONVERSATION: 'T1:D1:1.1' };
+  // The id mistyped on 2026-10-15 (c1e5b345dc for c1e5b34574): refused in the turn, nothing recorded.
+  const unknown = await deploy([`${s.second.slice(0, 8)}dc`, ...base], { env: turn, sourceDir: s.source });
+  assert.equal(unknown.code, 1);
+  assert.match(unknown.stderr, /is not known in the deploy folder/);
+  assert.equal(fs.existsSync(request), false);
+  const queued = await deploy([s.second.slice(0, 8), ...base], { env: turn, sourceDir: s.source });
+  assert.equal(queued.code, 0, queued.stderr);
+  assert.match(queued.stdout, /^ignite deploy — queued for after this turn$/m);
+  assert.match(queued.stdout, new RegExp(`"ref": "deploy:${s.second.slice(0, 12)}", "kind": "deploy"`));
+  const stored = JSON.parse(fs.readFileSync(request, 'utf8'));
+  assert.deepEqual({ ...stored, requestedAt: 0 }, {
+    commit: s.second, deployFolder: folder, agent: 'master', conversation: 'T1:D1:1.1', requestedAt: 0, startedAt: null,
+  });
+  assert.equal(s.head(folder), s.first, 'nothing was deployed');
+  assert.equal(s.calls(), '', 'no systemctl call');
+  assert.equal(fs.existsSync(s.log(installation)), false);
+  const second = await deploy([s.second, ...base], { env: turn, sourceDir: s.source });
+  assert.equal(second.code, 1);
+  assert.match(second.stderr, /is already waiting/);
+}));
+
 (async () => {
   for (const [name, fn, why] of pending) {
     if (!fn) { console.log(`skip: ${name} is Linux-only: ${why}`); continue; }
