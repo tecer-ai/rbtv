@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Fixtures for every record format through every verb of session-sweep."""
 import contextlib
 import importlib.util
@@ -28,9 +27,12 @@ def run(argv):
     return code, fields, err.getvalue()
 
 
+CWD = "/work"
+
+
 def claude_line(kind, content, **extra):
     d = {"type": kind, "timestamp": "2026-10-15T01:00:00Z", "isSidechain": False,
-         "sessionId": "s1", "cwd": "/work", "message": {"role": kind, "content": content}}
+         "sessionId": "s1", "cwd": CWD, "message": {"role": kind, "content": content}}
     d.update(extra)
     return json.dumps(d)
 
@@ -52,7 +54,7 @@ def claude_record(folder: Path, marker="sweep-marker abc123") -> Path:
         claude_line("user", [{"type": "text", "text": "[Request interrupted by user]"}]),
     ]
     p = folder / ".claude" / "projects" / "-work" / "s1.jsonl"
-    p.parent.mkdir(parents=True)
+    p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return p
 
@@ -194,6 +196,17 @@ class SessionSweep(unittest.TestCase):
         code, f, err = run(["locate", "--marker", "nowhere-zzz"])
         self.assertEqual(code, 1)
         self.assertIn("no session record", err)
+        # a Windows working folder is decoded from its JSON escaping
+        global CWD
+        CWD = "C:\\Users\\henri\\vault"
+        try:
+            (self.home / ".claude" / "projects" / "-work" / "s1.jsonl").unlink()
+            claude_record(self.home, marker="sweep-marker win77")
+        finally:
+            CWD = "/work"
+        code, f, err = run(["locate", "--marker", "sweep-marker win77"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(f["cwd"], ["C:\\Users\\henri\\vault"])
         ignite = ignite_record(self.home)
         os.environ["RBTV_AGENT_HOME"] = str(self.home / "agent")
         os.environ["IGNITE_CONVERSATION"] = "T:C:1"

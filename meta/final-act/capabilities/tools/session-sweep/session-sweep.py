@@ -336,9 +336,9 @@ def file_has(path: Path, marker: str, *, cwd_key: str) -> str | None:
         with path.open(encoding="utf-8", errors="replace") as fh:
             for line in fh:
                 if not cwd and cwd_key in line:
-                    m = re.search(r'"cwd":\s*"([^"]*)"', line)
+                    m = re.search(r'"cwd":\s*("(?:[^"\\]|\\.)*")', line)
                     if m:
-                        cwd = m.group(1)
+                        cwd = json.loads(m.group(1))  # decoded: a Windows path keeps single backslashes
                 if marker in line:
                     hit = True
                     if cwd:
