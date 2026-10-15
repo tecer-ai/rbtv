@@ -743,12 +743,15 @@ class Gate {
       // A rule approval waits for its check; an owner approval made before the check reaches send and fails there.
       toSend: all(`SELECT * FROM payments WHERE state='approved' AND claimed_at IS NULL
         AND (resolved_at IS NOT NULL OR decided_by != 'rule') ORDER BY seq`),
-      toCheck: all(`SELECT * FROM payments WHERE state='sent' AND check_final=0 AND sent_at>=?
-        AND COALESCE(checked_at, sent_at)<=? ORDER BY seq`, now - CHECK_FOR_MS, now - CHECK_EVERY_MS),
+      // Every 5 s for the first 10 minutes, then once a minute until the provider gives a final status.
+      toCheck: all(`SELECT * FROM payments WHERE state='sent' AND check_final=0
+        AND COALESCE(checked_at, sent_at) <= CASE WHEN sent_at>=? THEN ? ELSE ? END ORDER BY seq`,
+      now - CHECK_FOR_MS, now - CHECK_EVERY_MS, now - RECONCILE_EVERY_MS),
       toReconcile: all(`SELECT * FROM payments WHERE state='uncertain' AND COALESCE(provider_id, answered_operation) IS NOT NULL
         AND COALESCE(checked_at, 0)<=? ORDER BY seq`, now - RECONCILE_EVERY_MS),
       toNotify: all(`SELECT * FROM payments WHERE COALESCE(notified, '') != state AND (
-          (state='refused' AND (decided_by='owner' OR resolved_at IS NOT NULL)) OR state IN ('failed', 'uncertain')
+          (state='refused' AND (decided_by='owner' OR resolved_at IS NOT NULL OR resolve_error IS NOT NULL))
+          OR state IN ('failed', 'uncertain')
           OR (state='sent' AND (check_final=1 OR sent_at<?))
         ) ORDER BY seq`, now - CHECK_FOR_MS),
     };

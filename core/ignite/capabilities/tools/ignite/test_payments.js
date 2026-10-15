@@ -745,7 +745,7 @@ test('an approval is sent exactly once: double click, replayed interaction, over
   const runs = [];
   // Two runners on the same ledger stand for two passes that overlap: only the claim keeps them apart.
   const runnerOf = () => createPaymentRunner({
-    gate, slack: () => null, store: () => null, providers: ['asaas'], cwd: gate.workspace,
+    gate, slack: () => null, store: () => null, providers: ['asaas'], cwd: gate.workspace, now: () => gate.now(),
     run: async (command, args, input) => {
       runs.push({ command, args, input: JSON.parse(input) });
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -998,6 +998,50 @@ test('a request the rule approved is never sent before Ignite checks it; a check
   assert.match(gate.get(other.id).reason, /^Ignite's own check through asaas differs from the request: /);
   assert.deepEqual([gate.get(failing.id).state, gate.get(failing.id).reason], ['refused',
     'Not sent: Ignite could not check its recipient through asaas (asaas: Asaas rate limit (429))']);
+  assert.deepEqual(gate.usage(), { day: 0, week: 0, month: 0 });
+});
+
+test('a rule approval whose check keeps failing is refused even across restarts, and the agent hears it', async () => {
+  const { gate, clock } = gateAt('2026-10-15T15:00:00Z');
+  gate.saveSettings({ mode: 'automatic', limits: { day: 100000 } });
+  const row = ask(gate);
+  const store = agentStore();
+  const limited = { code: 1, stdout: '', stderr: 'asaas: Asaas rate limit (429)\n' };
+  const stand = tool({ resolve: Array(6).fill(limited) });
+  // A new runner per pass stands for a restart between lookups: its in-memory try count starts again.
+  const restarted = () => createPaymentRunner({ gate, slack: () => null, store: () => store, providers: ['asaas'], cwd: gate.workspace, now: () => clock.now, run: stand.run });
+  // Lookups at 0, 3, 6 and 9 minutes leave it approved; the one at 12 minutes refuses it.
+  for (let i = 0; i < 4; i++) {
+    await restarted().step();
+    clock.now += 3 * 60_000;
+  }
+  assert.equal(gate.get(row.id).state, 'approved');
+  await restarted().step();
+  assert.equal(stand.runs.length, 5);
+  assert.deepEqual([gate.get(row.id).state, gate.get(row.id).reason], ['refused', 'Not sent: Ignite could not check its recipient through asaas (asaas: Asaas rate limit (429))']);
+  assert.deepEqual(gate.usage(), { day: 0, week: 0, month: 0 });
+  assert.equal(wakes(store).length, 1);
+  assert.match(wakes(store)[0], /^Payment P-0001 /);
+});
+
+test('a sent payment is still read after ten minutes, so a late failure frees its amount', async () => {
+  const { gate, clock } = gateAt('2026-10-15T15:00:00Z');
+  const row = sentRequest(gate);
+  const stand = tool({ status: [
+    { code: 0, stdout: { provider_id: 'tr_1', status: 'BANK_PROCESSING', final: false, ok: true, receipt_url: null, reason: null } },
+    { code: 0, stdout: { provider_id: 'tr_1', status: 'FAILED', final: true, ok: false, receipt_url: null, reason: 'Recusada pelo banco' } },
+  ] });
+  const runner = createPaymentRunner({ gate, slack: () => null, store: () => null, providers: ['asaas'], cwd: gate.workspace, now: () => clock.now, run: stand.run });
+  clock.now += 10 * 60_000 + 1;
+  await runner.step();
+  assert.equal(stand.runs.length, 1);
+  clock.now += 59_000;
+  await runner.step();
+  assert.equal(stand.runs.length, 1);
+  clock.now += 1_000;
+  await runner.step();
+  assert.equal(stand.runs.length, 2);
+  assert.deepEqual([gate.get(row.id).state, gate.get(row.id).reason], ['failed', 'Recusada pelo banco']);
   assert.deepEqual(gate.usage(), { day: 0, week: 0, month: 0 });
 });
 

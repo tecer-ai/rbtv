@@ -46,6 +46,8 @@ const { promptBlocks, promptText } = require('./payment-panel.js');
 const RUN_MS = 60_000;
 const RETRY_MS = 30_000;
 const RESOLVE_TRIES = 3;
+// A request still unchecked this long after it was made fails at its next failed lookup, even after a restart.
+const RESOLVE_FOR_MS = 10 * 60_000;
 
 function defaultRun({ env, cwd }) {
   return (command, args, input) => new Promise((resolve) => {
@@ -145,7 +147,7 @@ function createPaymentRunner({ gate, slack, store, providers, run = null, env = 
     const tries = (resolveTries.get(row.id) || 0) + 1;
     resolveTries.set(row.id, tries);
     const reason = reasonOf(result);
-    if (tries >= RESOLVE_TRIES) {
+    if (tries >= RESOLVE_TRIES || now() - row.created_at >= RESOLVE_FOR_MS) {
       gate.resolveFailed(row.id, reason);
       note({ action: 'resolve-failed', id: row.id, reason });
     } else {
