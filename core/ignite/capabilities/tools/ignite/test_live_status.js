@@ -32,25 +32,36 @@ const SYSTEMS = new Set(['hourglass_flowing_sand', 'large_green_circle', 'repeat
 
 // A faithful Slack: adding a reaction twice and removing an absent one are errors, an add goes to
 // the right end. After every call it checks that a message never holds two system emoji, two agent
-// frames, or an agent frame together with a task emoji.
+// frames, an agent frame together with a task emoji, or a system emoji right of another, and keeps
+// the names the message then holds (seen). hang(op, name, key) makes Slack apply a call and never answer,
+// as when the service stops mid-call; wait holds every add until it settles.
 function fakeSlack(t, carried = null) {
   const slack = {
     on: carried ? carried.on : new Map(),
     calls: [],
     adds: [],
+    seen: [],
     violations: [],
     fail: null,
+    hang: null,
+    wait: null,
     of(channel, ts) { return [...(slack.on.get(`${channel}:${ts}`) || [])]; },
     check(key) {
       const names = slack.on.get(key) || [];
       const frames = names.filter((n) => FRAMES.has(n)).length;
       const tasks = names.filter((n) => TASKS.has(n)).length;
       const systems = names.filter((n) => SYSTEMS.has(n)).length;
-      if (frames > 1 || tasks > 1 || systems > 1 || (frames && tasks)) slack.violations.push(`${key}: ${names.join(' ')}`);
+      const systemRight = names.findLastIndex((n) => SYSTEMS.has(n)) > names.findIndex((n) => !SYSTEMS.has(n))
+        && names.some((n) => !SYSTEMS.has(n));
+      if (frames > 1 || tasks > 1 || systems > 1 || (frames && tasks) || systemRight) {
+        slack.violations.push(`${key}: ${names.join(' ')}`);
+      }
+      slack.seen.push([...names]);
     },
     async addReaction(channel, ts, name) {
       const key = `${channel}:${ts}`;
       slack.calls.push(`add ${name}`);
+      if (slack.wait) await slack.wait;
       if (slack.fail) { const error = slack.fail('add', name); if (error) throw error; }
       const names = slack.on.get(key) || [];
       slack.on.set(key, names);
@@ -58,6 +69,7 @@ function fakeSlack(t, carried = null) {
       names.push(name);
       slack.adds.push({ key, name, at: t.now() });
       slack.check(key);
+      if (slack.hang?.('add', name, key)) await new Promise(() => {});
     },
     async removeReaction(channel, ts, name) {
       const key = `${channel}:${ts}`;
@@ -67,17 +79,19 @@ function fakeSlack(t, carried = null) {
       if (!names.includes(name)) throw new Error('Slack reactions.remove: no_reaction');
       names.splice(names.indexOf(name), 1);
       slack.check(key);
+      if (slack.hang?.('remove', name, key)) await new Promise(() => {});
     },
   };
   return slack;
 }
 
-function display(t, slack, log) {
+function display(t, slack, log, record) {
   return liveStatus({
     addReaction: (c, ts, n) => slack.addReaction(c, ts, n),
     removeReaction: (c, ts, n) => slack.removeReaction(c, ts, n),
     now: t.now,
     log,
+    record,
   });
 }
 
@@ -129,13 +143,40 @@ async function run(ticker, t, ms, every = 100) {
   }
 }
 
-function tickerFor(boxes, t, slack, logs = []) {
+// As run, for a ticker whose pass may never end (a call Slack never answers): each pass gets until
+// its calls have no more to do, not until it ends.
+async function runCut(ticker, t, ms, every = 100) {
+  for (let spent = 0; spent < ms; spent += every) {
+    t.advance(every);
+    ticker.step();
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
+function tickerFor(boxes, t, slack, logs = [], pace = undefined) {
   return createTicker({
     stores: () => boxes.map((box, i) => ({ slug: `a${i}`, store: box.store })),
     slack: () => slack,
     now: t.now,
     log: (f) => logs.push(f),
+    pace,
   });
+}
+
+// The pace a service keeps across a restart, held here in memory.
+function keptPace() {
+  let kept = null;
+  return { load: () => kept, save(state) { kept = JSON.parse(JSON.stringify(state)); } };
+}
+
+// The shown reactions a message's row records.
+function recorded(box, ts = '1.1', channel = box.message.channel) {
+  return JSON.parse(box.store.getLiveStatus(channel, ts).shown);
+}
+
+function layers(store, ts, channel = 'C1') {
+  const row = store.getLiveStatus(channel, ts);
+  return { system: row.system, agent: row.agent, task: row.task };
 }
 
 // ---- The Slack connector's display ----
@@ -224,7 +265,7 @@ test('every agent state has its frames and every task state its emoji', async ()
   }
 });
 
-test('a system change mid-turn and after delivery keeps the system on the left', async () => {
+test('a system change keeps the system on the left at every moment, mid-turn and after delivery', async () => {
   const t = clock();
   const slack = fakeSlack(t);
   const show = display(t, slack);
@@ -233,31 +274,34 @@ test('a system change mid-turn and after delivery keeps the system on the left',
   await show.apply(m);
   t.advance(1000);
   await show.apply(m);
-  assert.deepEqual(slack.of('C1', '1.1'), ['large_green_circle', 'clock12']);
-  // Mid-turn: the turn falls back to another model.
+  // Mid-turn: the turn falls back to another model. The frame goes first, then the system is
+  // replaced, and the frame comes back one add gap later.
   t.advance(5000);
   show.set(m, { system: 'fallback', agent: 'working' });
-  const first = await show.apply(m);
-  assert.equal(first.settled, false);
-  assert.deepEqual(slack.of('C1', '1.1'), ['clock12', 'repeat']);
+  assert.deepEqual(await show.apply(m), { settled: false, waitUntil: t.now() + 1000 });
   t.advance(1000);
-  assert.equal((await show.apply(m)).settled, true);
-  assert.deepEqual(slack.of('C1', '1.1'), ['repeat', 'clock12']);
+  assert.deepEqual(await show.apply(m), { settled: true });
   // After delivery: the task shows, then the system changes.
   t.advance(1200);
   show.set(m, { system: 'fallback', task: 'done' });
   await show.apply(m);
   t.advance(5000);
   show.set(m, { system: 'failed', task: 'done' });
-  await show.apply(m);
-  assert.deepEqual(slack.of('C1', '1.1'), ['white_check_mark', 'x']);
+  assert.deepEqual(await show.apply(m), { settled: false, waitUntil: t.now() + 1000 });
   t.advance(1000);
-  await show.apply(m);
-  assert.deepEqual(slack.of('C1', '1.1'), ['x', 'white_check_mark']);
-  assert.deepEqual(slack.calls.slice(-6), [
+  assert.deepEqual(await show.apply(m), { settled: true });
+  assert.deepEqual(slack.calls, [
+    'add large_green_circle', 'add clock12',
+    'remove clock12', 'remove large_green_circle', 'add repeat', 'add clock12',
     'remove clock12', 'add white_check_mark',
-    'remove repeat', 'add x',
-    'remove white_check_mark', 'add white_check_mark',
+    'remove white_check_mark', 'remove repeat', 'add x', 'add white_check_mark',
+  ]);
+  // What the message holds after every call: no system emoji is ever right of another emoji.
+  assert.deepEqual(slack.seen, [
+    ['large_green_circle'], ['large_green_circle', 'clock12'],
+    ['large_green_circle'], [], ['repeat'], ['repeat', 'clock12'],
+    ['repeat'], ['repeat', 'white_check_mark'],
+    ['repeat'], [], ['x'], ['x', 'white_check_mark'],
   ]);
   assert.deepEqual(slack.violations, []);
   assert.ok(smallestGap(slack) >= 1000);
@@ -284,47 +328,179 @@ test('a refused add waits with the remove paired to it; a failed turn removes th
   assert.deepEqual(slack.calls.slice(before), ['remove clock12', 'remove large_green_circle', 'add recycle']);
 });
 
-test('after a restart the agent frame is unknown: every frame of its state is removed, then one added', async () => {
+test('restore: a message starts from the reactions it records and finishes what a stopped service left', async () => {
   const t = clock();
   const before = fakeSlack(t);
-  before.on.set('C1:1.1', ['large_green_circle', 'sleeping']);
+  before.on.set('C1:1.1', ['large_green_circle', 'clock3']);
+  before.on.set('C1:2.2', ['large_green_circle', 'mag']);
+  before.on.set('C1:3.3', ['large_green_circle', 'clock130']);
+  before.on.set('C1:4.4', ['large_green_circle', 'sleeping']);
   const slack = fakeSlack(t, before);
-  const logs = [];
-  const show = display(t, slack, (f) => logs.push(f));
-  const m = { channel: 'C1', ts: '1.1' };
-  show.assume(m, { system: 'running', agent: 'waiting' });
-  assert.equal(show.settled(m), false);
+  const records = [];
+  const show = display(t, slack, undefined, (message, shown) => records.push([message.ts, shown]));
+  const at = t.now() - 5000;
+  // Done was recorded, but the stopped service never showed it: the old frame goes, the task comes.
+  const done = { channel: 'C1', ts: '1.1' };
+  show.restore(done, { system: 'running', task: 'done' }, { order: ['large_green_circle', 'clock3'], unsure: [], lastAddAt: at });
+  // Waiting was recorded while an earlier state's frame still shows.
+  const waiting = { channel: 'C1', ts: '2.2' };
+  show.restore(waiting, { system: 'running', agent: 'waiting' }, { order: ['large_green_circle', 'mag'], unsure: [], lastAddAt: at });
+  // The service stopped while Slack had not answered an add: that name is removed before the frame.
+  const cut = { channel: 'C1', ts: '3.3' };
+  show.restore(cut, { system: 'running', agent: 'working' }, { order: ['large_green_circle'], unsure: ['clock130'], lastAddAt: at });
+  // A message that shows its state makes no call, and its agent continues from the frame shown.
+  const still = { channel: 'C1', ts: '4.4' };
+  show.restore(still, { system: 'running', agent: 'waiting' }, { order: ['large_green_circle', 'sleeping'], unsure: [], lastAddAt: at });
+  assert.deepEqual([done, waiting, cut, still].map((m) => show.settled(m)), [false, false, false, true]);
   assert.equal(slack.calls.length, 0);
-  await show.apply(m);
-  assert.deepEqual(slack.calls, ['remove zzz', 'remove sleeping', 'add zzz']);
-  assert.deepEqual(slack.of('C1', '1.1'), ['large_green_circle', 'zzz']);
-  assert.deepEqual(logs, []);
-  // A settled message assumed after a restart makes no call.
-  const done = { channel: 'C1', ts: '2.2' };
-  show.assume(done, { system: 'running', task: 'done' });
-  assert.equal(show.settled(done), true);
+  for (const m of [done, waiting, cut, still]) assert.deepEqual(await show.apply(m), { settled: true });
+  assert.deepEqual(slack.calls, [
+    'remove clock3', 'add white_check_mark',
+    'remove mag', 'add zzz',
+    'remove clock130', 'add clock12',
+  ]);
+  assert.deepEqual(['1.1', '2.2', '3.3', '4.4'].map((ts) => slack.of('C1', ts)), [
+    ['large_green_circle', 'white_check_mark'],
+    ['large_green_circle', 'zzz'],
+    ['large_green_circle', 'clock12'],
+    ['large_green_circle', 'sleeping'],
+  ]);
+  // Each call is recorded before it is made (its name unsure) and after Slack answers.
+  assert.deepEqual(records.filter(([ts]) => ts === '1.1').map(([, shown]) => [shown.order, shown.unsure]), [
+    [['large_green_circle'], ['clock3']],
+    [['large_green_circle'], []],
+    [['large_green_circle'], ['white_check_mark']],
+    [['large_green_circle', 'white_check_mark'], []],
+  ]);
+  show.tick(still);
+  t.advance(1000);
+  await show.apply(still);
+  assert.deepEqual(slack.of('C1', '4.4'), ['large_green_circle', 'zzz']);
+  assert.deepEqual(slack.violations, []);
 });
 
-test('reaction errors: expected codes pass silently, others are logged, 429 stops with Retry-After', async () => {
+test('reaction errors: expected codes pass silently, others are logged and retried, 429 stops with Retry-After', async () => {
   const t = clock();
   const slack = fakeSlack(t);
   const logs = [];
   const show = display(t, slack, (f) => logs.push(f));
   const m = { channel: 'C1', ts: '1.1' };
+  // A refused add is not taken as shown: its name may be on the message, so it is removed before
+  // the add is tried again, after a wait.
   slack.fail = (op) => (op === 'add' ? new Error('Slack reactions.add: invalid_name') : null);
   show.set(m, { system: 'queued' });
-  assert.deepEqual(await show.apply(m), { settled: true });
+  assert.deepEqual(await show.apply(m), { settled: false, waitUntil: t.now() + 1000 });
   assert.deepEqual(logs.map((f) => [f.event, f.step, f.name]), [['reaction-failed', 'add', 'hourglass_flowing_sand']]);
+  slack.fail = null;
+  t.advance(1000);
+  assert.deepEqual(await show.apply(m), { settled: true });
+  assert.deepEqual(slack.calls, ['add hourglass_flowing_sand', 'remove hourglass_flowing_sand', 'add hourglass_flowing_sand']);
+  assert.deepEqual(slack.of('C1', '1.1'), ['hourglass_flowing_sand']);
+  // HTTP 429 stops with its Retry-After, or 30 s without one; nothing changed, so nothing is unsure.
   slack.fail = () => Object.assign(new Error('Slack reactions.add: HTTP 429'), { status: 429, retryAfter: 12 });
   t.advance(1000);
   show.set(m, { system: 'running' });
   assert.deepEqual(await show.apply(m), { settled: false, retryAfterMs: 12_000 });
+  assert.deepEqual(slack.of('C1', '1.1'), ['hourglass_flowing_sand']);
   slack.fail = () => new Error('Slack reactions.remove: ratelimited');
   assert.deepEqual(await show.apply(m), { settled: false, retryAfterMs: 30_000 });
   slack.fail = null;
   t.advance(1000);
   assert.deepEqual(await show.apply(m), { settled: true });
+  assert.deepEqual(slack.calls.slice(3), [
+    'remove hourglass_flowing_sand', 'remove hourglass_flowing_sand', 'remove hourglass_flowing_sand', 'add large_green_circle',
+  ]);
   assert.equal(logs.length, 1);
+  // A deleted message ends its calls.
+  const gone = { channel: 'C1', ts: '9.9' };
+  slack.fail = () => new Error('Slack reactions.add: message_not_found');
+  show.set(gone, { system: 'queued' });
+  assert.deepEqual(await show.apply(gone), { settled: true });
+  assert.deepEqual(await show.apply(gone), { settled: true });
+  assert.equal(slack.calls.filter((c) => c === 'add hourglass_flowing_sand').length, 3);
+  assert.equal(logs.length, 1);
+});
+
+test('a failed remove keeps its name: nothing replaces it until Slack acknowledges the removal', async () => {
+  const t = clock();
+  const slack = fakeSlack(t);
+  const logs = [];
+  const show = display(t, slack, (f) => logs.push(f));
+  const m = { channel: 'C1', ts: '1.1' };
+  show.set(m, { system: 'running', agent: 'working' });
+  await show.apply(m);
+  t.advance(1000);
+  await show.apply(m);
+  // Delivery while Slack fails the frame's removal: the task waits, the frame stays the only one.
+  slack.fail = (op) => (op === 'remove' ? new Error('fetch failed') : null);
+  t.advance(1200);
+  show.set(m, { system: 'running', task: 'done' });
+  assert.deepEqual(await show.apply(m), { settled: false, waitUntil: t.now() + 1000 });
+  assert.deepEqual(slack.of('C1', '1.1'), ['large_green_circle', 'clock12']);
+  const calls = slack.calls.length;
+  // No call while it waits; each failure in a row doubles the wait.
+  t.advance(500);
+  assert.deepEqual(await show.apply(m), { settled: false, waitUntil: t.now() + 500 });
+  assert.equal(slack.calls.length, calls);
+  t.advance(500);
+  assert.deepEqual(await show.apply(m), { settled: false, waitUntil: t.now() + 2000 });
+  slack.fail = null;
+  t.advance(2000);
+  assert.deepEqual(await show.apply(m), { settled: true });
+  assert.deepEqual(slack.calls.slice(calls - 1), ['remove clock12', 'remove clock12', 'remove clock12', 'add white_check_mark']);
+  assert.deepEqual(slack.of('C1', '1.1'), ['large_green_circle', 'white_check_mark']);
+  assert.deepEqual(logs.map((f) => [f.event, f.step, f.name, f.message]), [
+    ['reaction-failed', 'remove', 'clock12', 'fetch failed'],
+    ['reaction-failed', 'remove', 'clock12', 'fetch failed'],
+  ]);
+  // A failed tick removal: the next frame waits for it, so two frames never show.
+  t.advance(5000);
+  show.set(m, { system: 'running', agent: 'working' });
+  await show.apply(m);
+  t.advance(1200);
+  show.tick(m);
+  slack.fail = (op) => (op === 'remove' ? new Error('fetch failed') : null);
+  assert.equal((await show.apply(m)).settled, false);
+  assert.deepEqual(slack.of('C1', '1.1'), ['large_green_circle', 'clock12']);
+  assert.deepEqual(slack.violations, []);
+});
+
+test('an HTTP 5xx pauses the calls briefly and leaves its name unsure', async () => {
+  const t = clock();
+  const slack = fakeSlack(t);
+  const show = display(t, slack, () => {});
+  const m = { channel: 'C1', ts: '1.1' };
+  show.set(m, { system: 'running', agent: 'working' });
+  await show.apply(m);
+  t.advance(1000);
+  await show.apply(m);
+  t.advance(1200);
+  show.tick(m);
+  slack.fail = (op) => (op === 'remove' ? Object.assign(new Error('Slack reactions.remove: HTTP 503'), { status: 503 }) : null);
+  assert.deepEqual(await show.apply(m), { settled: false, retryAfterMs: 5_000 });
+  assert.deepEqual(slack.of('C1', '1.1'), ['large_green_circle', 'clock12']);
+  slack.fail = null;
+  t.advance(5000);
+  assert.deepEqual(await show.apply(m), { settled: true });
+  assert.deepEqual(slack.calls.slice(2), ['remove clock12', 'remove clock12', 'add clock130']);
+  assert.deepEqual(slack.of('C1', '1.1'), ['large_green_circle', 'clock130']);
+});
+
+test('an error inside apply waits before the next try instead of retrying at once', async () => {
+  const t = clock();
+  const slack = fakeSlack(t);
+  const logs = [];
+  const show = display(t, slack, (f) => logs.push(f), () => { throw new Error('disk full'); });
+  const m = { channel: 'C1', ts: '1.1' };
+  show.set(m, { system: 'queued' });
+  assert.deepEqual(await show.apply(m), { settled: false, waitUntil: t.now() + 1000 });
+  t.advance(250);
+  assert.deepEqual(await show.apply(m), { settled: false, waitUntil: t.now() + 750 });
+  t.advance(750);
+  assert.deepEqual(await show.apply(m), { settled: false, waitUntil: t.now() + 2000 });
+  // The record is made before the call: a call that cannot be recorded is never made.
+  assert.deepEqual(slack.calls, []);
+  assert.deepEqual(logs.map((f) => [f.event, f.message]), [['status-failed', 'disk full'], ['status-failed', 'disk full']]);
 });
 
 // ---- The service's ticker over Ignite's stored states ----
@@ -457,27 +633,144 @@ test('ticker: waiting_workers shows waiting, no task, ticking slowly until the w
   assert.deepEqual(slack.adds.map((a) => a.name), ['sleeping', 'zzz', 'sleeping']);
   assert.ok(smallestGap(slack) >= 10_000);
 
-  // The service restarts: a new ticker with no memory of what was shown resumes the slow tick.
+  // The service restarts: a new ticker starts from the frame the row records as shown, makes no
+  // call for it, and resumes the slow tick from there.
+  assert.deepEqual(recorded(box), { order: ['large_green_circle', 'sleeping'], unsure: [], lastAddAt: slack.adds.at(-1).at, gone: false });
   const restarted = fakeSlack(t, slack);
   const again = tickerFor([box], t, restarted);
-  again.baseline();
-  assert.deepEqual(restarted.calls, []);
   await run(again, t, 500);
-  assert.deepEqual(restarted.calls, ['remove zzz', 'remove sleeping', 'add zzz']);
-  assert.deepEqual(restarted.of('C1', '1.1'), ['large_green_circle', 'zzz']);
-  restarted.adds.length = 0;
+  assert.deepEqual(restarted.calls, []);
   await run(again, t, 21_000);
-  assert.deepEqual(restarted.adds.map((a) => a.name), ['sleeping', 'zzz']);
+  assert.deepEqual(restarted.calls, ['remove sleeping', 'add zzz', 'remove zzz', 'add sleeping']);
 
   // The worker's wake starts the next turn: working again.
   assert.equal(box.store.wake({ conversationKey: box.key, note: 'done' }).inserted, true);
   const wake = box.store.claimNext(Date.now() + 1000);
   assert.equal(wake.kind, 'wake');
   live.started(box.store, live.messageOf(box.store, wake), wake.runId);
-  await run(again, t, 600);
+  await run(again, t, 1100);
   assert.deepEqual(restarted.of('C1', '1.1'), ['large_green_circle', 'clock12']);
   assert.deepEqual(slack.violations, []);
   assert.deepEqual(restarted.violations, []);
+});
+
+test('ticker: a restart finishes what the stopped service left: a recorded state, a call cut off', async () => {
+  const t = clock();
+  // Each message shows its first frame, then its service stops.
+  const boxes = [agentStore('C1'), agentStore('C2'), agentStore('C3')];
+  const slack = fakeSlack(t);
+  const first = tickerFor(boxes, t, slack);
+  const claims = boxes.map((box) => startTurn(box));
+  await runCut(first, t, 2500);
+  for (const box of boxes) assert.deepEqual(slack.of(box.message.channel, '1.1'), ['large_green_circle', 'clock12']);
+  // C2 declares gathering and shows it. C1 and C3 tick (three share the budget: a frame every 4 s),
+  // and C3's next frame reaches Slack, which never answers.
+  boxes[1].store.setLiveStatus({ channel: 'C2', ts: '1.1', agent: 'gathering' });
+  slack.hang = (op, name, key) => op === 'add' && key === 'C3:1.1';
+  await runCut(first, t, 2000);
+  assert.deepEqual(['C1', 'C2', 'C3'].map((channel) => slack.of(channel, '1.1')), [
+    ['large_green_circle', 'clock130'],
+    ['large_green_circle', 'mag'],
+    ['large_green_circle', 'clock130'],
+  ]);
+  assert.deepEqual(recorded(boxes[2]).unsure, ['clock130']);
+  // The service is gone. Meanwhile C1's reply is delivered (done) and C2's turn ends waiting.
+  endTurn(boxes[0], claims[0], 'completed', { replies: 1 });
+  live.delivered(boxes[0].store, { channel: 'C1', ts: '1.1', task: 'done' });
+  endTurn(boxes[1], claims[1], 'waiting_workers', { replies: 0 });
+  const restarted = fakeSlack(t, slack);
+  const again = tickerFor(boxes, t, restarted);
+  await run(again, t, 1200);
+  // C1 and C3 added a frame less than a second before the stop: the gap they record holds them back.
+  assert.deepEqual(restarted.calls, [
+    'remove mag', 'add zzz',
+    'remove clock130', 'add white_check_mark',
+    'remove clock130', 'add clock12',
+  ]);
+  assert.deepEqual(['C1', 'C2', 'C3'].map((channel) => restarted.of(channel, '1.1')), [
+    ['large_green_circle', 'white_check_mark'],
+    ['large_green_circle', 'zzz'],
+    ['large_green_circle', 'clock12'],
+  ]);
+  assert.deepEqual(restarted.violations, []);
+});
+
+test('ticker: the 429 pause and the shared budget survive a restart', async () => {
+  const t = clock();
+  // The budget: 50 messages queued at once; the first service adds 45 of them, then stops.
+  const pace = keptPace();
+  const slack = fakeSlack(t);
+  const boxes = Array.from({ length: 50 }, (_, i) => agentStore(`C${i}`));
+  await run(tickerFor(boxes, t, slack, [], pace), t, 1000);
+  assert.equal(slack.adds.length, 45);
+  const restarted = fakeSlack(t, slack);
+  const again = tickerFor(boxes, t, restarted, [], pace);
+  await run(again, t, 57_000);
+  assert.deepEqual(restarted.calls, []);
+  await run(again, t, 3_000);
+  assert.equal(restarted.adds.length, 5);
+
+  // The pause: a 429 with Retry-After 30 s, then a restart 1 s later.
+  const paced = keptPace();
+  const box = agentStore();
+  const limited = fakeSlack(t);
+  limited.fail = () => Object.assign(new Error('Slack reactions.add: HTTP 429'), { status: 429, retryAfter: 30 });
+  await run(tickerFor([box], t, limited, [], paced), t, 1000);
+  assert.deepEqual(limited.calls, ['add hourglass_flowing_sand']);
+  const next = fakeSlack(t, limited);
+  const later = tickerFor([box], t, next, [], paced);
+  await run(later, t, 28_000);
+  assert.deepEqual(next.calls, []);
+  await run(later, t, 2_000);
+  assert.deepEqual(next.calls, ['add hourglass_flowing_sand']);
+});
+
+test('ticker: stop() lets the pass in flight finish its call and record it, and starts no other', async () => {
+  const t = clock();
+  const slack = fakeSlack(t);
+  const box = agentStore();
+  let release;
+  slack.wait = new Promise((resolve) => { release = resolve; });
+  const ticker = tickerFor([box], t, slack);
+  const pass = ticker.step();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(slack.calls, ['add hourglass_flowing_sand']);
+  let stopped = false;
+  const done = ticker.stop().then(() => { stopped = true; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(stopped, false);
+  release();
+  await done;
+  await pass;
+  assert.deepEqual(recorded(box), { order: ['hourglass_flowing_sand'], unsure: [], lastAddAt: t.now(), gone: false });
+  startTurn(box);
+  t.advance(2000);
+  await ticker.step();
+  assert.deepEqual(slack.calls, ['add hourglass_flowing_sand']);
+});
+
+test('ticker: waiting ends when its work no longer waits for workers: stopped or held', async () => {
+  const t = clock();
+  const slack = fakeSlack(t);
+  const boxes = [agentStore('C1'), agentStore('C2')];
+  const ticker = tickerFor(boxes, t, slack);
+  const claims = boxes.map((box) => startTurn(box));
+  await run(ticker, t, 3000);
+  boxes.forEach((box, i) => endTurn(box, claims[i], 'waiting_workers'));
+  await run(ticker, t, 1500);
+  assert.deepEqual(['C1', 'C2'].map((channel) => slack.of(channel, '1.1')), [['large_green_circle', 'zzz'], ['large_green_circle', 'zzz']]);
+  // The owner stops the first work; the second is held.
+  boxes[0].store.stopWork(claims[0].work_id);
+  boxes[1].store.db.prepare("UPDATE work SET state='held' WHERE id=?").run(claims[1].work_id);
+  await run(ticker, t, 1500);
+  for (const [i, channel] of ['C1', 'C2'].entries()) {
+    assert.deepEqual(layers(boxes[i].store, '1.1', channel), { system: 'running', agent: null, task: null });
+    assert.deepEqual(slack.of(channel, '1.1'), ['large_green_circle']);
+  }
+  const calls = slack.calls.length;
+  await run(ticker, t, 30_000);
+  assert.equal(slack.calls.length, calls);
+  assert.deepEqual(slack.violations, []);
 });
 
 test('ticker: continue keeps working, still, until the next turn runs', async () => {
@@ -521,6 +814,32 @@ test('ticker: reaction errors are logged and never throw', async () => {
   await none.step();
 });
 
+// ---- Ignite's states ----
+
+test('a turn\'s task also shows on the earlier messages of its work whose agent state its start cleared', () => {
+  const box = agentStore();
+  const first = startTurn(box);
+  endTurn(box, first, 'waiting_workers', { replies: 1 });
+  live.delivered(box.store, { channel: 'C1', ts: '1.1' });
+  assert.deepEqual(layers(box.store, '1.1'), { system: 'running', agent: 'waiting', task: null });
+  // The owner writes again in the thread: the same work, a new turn, which clears the waiting.
+  box.store.acceptOwnerInput({
+    key: box.key, agent: 'a', workspace: 'T1', channel: 'C1', rootTs: '1.1', activated: true,
+    message: { id: '2.2', role: 'owner', text: 'and?', team: 'T1', channel: 'C1', ts: '2.2' },
+    payload: { text: 'and?', ts: '2.2', threadTs: '1.1' },
+  });
+  const second = { conversationKey: box.key, channel: 'C1', ts: '2.2' };
+  live.received(box.store, second);
+  const claim = startTurn(box);
+  assert.equal(claim.work_id, first.work_id);
+  assert.deepEqual(layers(box.store, '1.1'), { system: 'running', agent: null, task: null });
+  box.store.finishRun(claim.runId, claim.nonce, { invocationNonce: claim.nonce, output: '{}', disposition: 'completed', summary: 's' });
+  live.ended(box.store, second, 'completed', 'done', 1);
+  live.delivered(box.store, { channel: 'C1', ts: '2.2', task: 'done' });
+  assert.deepEqual(layers(box.store, '2.2'), { system: 'running', agent: null, task: 'done' });
+  assert.deepEqual(layers(box.store, '1.1'), { system: 'running', agent: null, task: 'done' });
+});
+
 // ---- ignite status ----
 
 function turnHome() {
@@ -540,6 +859,13 @@ function turnHome() {
   live.delivered(store, { channel: 'C1', ts: '1.1', task: 'question' });
   const second = store.claimNext(Date.now() + 1000);
   live.started(store, live.messageOf(store, second), second.runId);
+  // A third message, queued while the second's turn runs.
+  store.acceptOwnerInput({
+    key: box.key, agent: 'a', workspace: 'T1', channel: 'C1', rootTs: '1.1', activated: true,
+    message: { id: '3.3', role: 'owner', text: 'also', team: 'T1', channel: 'C1', ts: '3.3' },
+    payload: { text: 'also', ts: '3.3', threadTs: '1.1' },
+  });
+  live.received(store, { conversationKey: box.key, channel: 'C1', ts: '3.3' });
   return { home, store, ...box };
 }
 
@@ -571,6 +897,10 @@ test('ignite status: refuses an unknown state, outside a turn and a missing --me
     assert.match(status(['thinking'], { ...env, IGNITE_CONVERSATION: 'T1:C9:9.9' }).err, /the running turn belongs to T1:C1:1.1/);
     assert.match(status(['--task', 'done', '--message', '2.2'], env).err, /this turn's own message takes its task state from RESULT_FILE/);
     assert.match(status(['--task', 'done', '--message', '7.7'], env).err, /no owner message 7.7 in conversation T1:C1:1.1/);
+    assert.equal(status(['--task', 'done', '--message', '3.3'], env).err,
+      'owner message 3.3 has no finished turn yet; only an earlier message whose turn has finished takes a task state\nNothing changed.\nignite status -h');
+    assert.match(status(['--task', 'done', '--message', '1.1'], { ...env, IGNITE_CONVERSATION: 'T1:C9:9.9' }).err,
+      /^the running turn belongs to T1:C1:1.1, not T1:C9:9.9\n/);
     assert.equal(box.store.liveStatuses().map((row) => row.rev).join(), before);
     assert.match(status(['-h'], env).out, /^ignite status — show the owner what this turn is doing/);
     // The words are refused before the agent home is opened: a missing home is never reached.
@@ -607,6 +937,9 @@ test('ignite status: declares the running turn\'s state and sets an earlier mess
     const nowhere = status(['making'], env);
     assert.equal(nowhere.code, 0);
     assert.equal(nowhere.out, 'nothing shown: this turn answers no owner message\n');
+    // With no turn running, no message takes a task state.
+    box.store.failRun(run.id, 'stopped by the test');
+    assert.match(status(['--task', 'done', '--message', '1.1'], env).err, /^no turn of this agent is running/);
   } finally {
     box.store.close();
     fs.rmSync(box.home, { recursive: true, force: true });
@@ -622,6 +955,14 @@ test('taskOf: the task state each disposition gives', () => {
   assert.equal(live.taskOf('waiting_workers', false), null);
 });
 
+// A test left waiting on a promise that never settles would end the process before the summary.
+let finished = false;
+process.on('exit', () => {
+  if (finished) return;
+  process.stdout.write('FAIL the suite ended before its last test finished\n');
+  process.exitCode = 1;
+});
+
 (async () => {
   let failed = 0;
   for (const { name, fn } of tests) {
@@ -634,5 +975,6 @@ test('taskOf: the task state each disposition gives', () => {
     }
   }
   process.stdout.write(`live-status: ${tests.length - failed} passed, ${failed} failed\n`);
+  finished = true;
   process.exit(failed ? 1 : 0);
 })();

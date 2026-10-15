@@ -51,6 +51,10 @@
 //   Every write takes the next rev, so a reader asks for the rows changed since the rev it last read.
 // getLiveStatus(channel, ts) / liveStatusOfRun(runId)
 // liveStatuses({ sinceRev, conversationKey }) — rows with rev above sinceRev, oldest change first
+// liveStatusesOfWork(workId) — the rows whose last turn (run_id) belongs to that work
+// setLiveShown(channel, ts, shown) — records what the message's reactions show (the Slack connector's
+//   record, stored as JSON in the row's shown); takes no rev, so a reader of changes never sees it
+// getRun(runId) — a run with its queue row's conversation_key, work_id and kind, or null
 // ownerTs(workId) — Slack ts of the latest owner message queued for that work, or null
 // transaction(fn)
 
@@ -218,6 +222,7 @@ class Store {
         agent TEXT,
         task TEXT,
         run_id TEXT,
+        shown TEXT,
         rev INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
         PRIMARY KEY (channel, ts)
@@ -918,6 +923,20 @@ class Store {
 
   liveStatusOfRun(runId) {
     return this.db.prepare('SELECT * FROM live_status WHERE run_id=?').get(runId) || null;
+  }
+
+  liveStatusesOfWork(workId) {
+    return this.db.prepare(`SELECT l.* FROM live_status l JOIN runs r ON r.id=l.run_id JOIN queue q ON q.id=r.queue_id
+      WHERE q.work_id=? ORDER BY l.rev`).all(workId);
+  }
+
+  setLiveShown(channel, ts, shown) {
+    this.db.prepare('UPDATE live_status SET shown=? WHERE channel=? AND ts=?').run(json(shown), channel, ts);
+  }
+
+  getRun(runId) {
+    return this.db.prepare(`SELECT r.*, q.conversation_key, q.work_id, q.kind
+      FROM runs r JOIN queue q ON q.id=r.queue_id WHERE r.id=?`).get(runId) || null;
   }
 
   liveStatuses({ sinceRev = 0, conversationKey: conversationKeyValue = null } = {}) {

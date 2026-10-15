@@ -307,12 +307,14 @@ A turn that answers no owner message (a scheduled wake) has nowhere to show it: 
 
 The task state of this turn's own message comes from RESULT_FILE: disposition completed, waiting_owner
 or stopped, and "caveats": true with completed. --task with --message sets the task state of an
-earlier owner message of this conversation, by its Slack timestamp, when its state changed since:
+earlier owner message of this conversation, by its Slack timestamp (the history gives it on each
+owner message), when its state changed since its turn finished:
   done      the work is done
   caveats   done, with problems worth a follow-up
   question  waits for the owner's answer
   stopped   the owner stopped it
---task refuses this turn's own message.
+--task refuses this turn's own message, a message of another conversation, and a message whose
+turn has not finished.
 
 Uses IGNITE_CONVERSATION and the agent home, which the waking service sets inside a turn; without
 IGNITE_CONVERSATION the command is refused.

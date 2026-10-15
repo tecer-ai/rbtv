@@ -180,6 +180,18 @@ test('turn start recalls a retained correction by its omission route and does no
   assert.equal(boardRevision(fs.readFileSync(boardPath(home), 'utf8')), revision);
 });
 
+test('each owner line of the recent and stored messages carries its Slack timestamp', () => {
+  const rows = [
+    { role: 'owner', text: 'first', ts: '1792071263.014499' },
+    { role: 'assistant', text: 'answer', ts: null },
+    { role: 'owner', text: 'used text', ts: null },
+  ];
+  const prompt = composeTurn({ board: 'B', inputs: [], recent: rows, stored: rows, historyPath: 'h', resultPath: 'r', nonce: 'n', rehydrate: true });
+  const lines = ['[owner] first', 'Slack timestamp of this message: 1792071263.014499', '[assistant] answer', '[owner] used text'];
+  assert.equal(prompt.split('Recent messages of this conversation:\n')[1].split('\nStored thread context')[0], lines.join('\n'));
+  assert.equal(prompt.split('do not assume a native transcript):\n')[1].split('\nContinue from')[0], lines.join('\n'));
+});
+
 test('a timer wake shows its check details as one line of data, and the failure when the check failed', () => {
   const turn = (inputs) => composeTurn({ board: 'B', inputs, recent: [], stored: [], historyPath: 'h', resultPath: 'r', nonce: 'n' })
     .split('Triggering input:\n')[1].split('\nRecent messages')[0];

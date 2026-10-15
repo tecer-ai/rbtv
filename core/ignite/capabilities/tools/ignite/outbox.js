@@ -16,7 +16,8 @@
 //   stopOutbox plus one hold: notice. A permanent Slack error stops on the first failure.
 //   A row with payload.mark { channel, ts, task? } answers that owner message: once every row carrying
 //   its mark is delivered, the message's live status shows that task in place of its agent state;
-//   when one gives up, its system state is failed (live-status.js).
+//   when one gives up, its system state is failed (live-status.js). Each is written in the
+//   transaction that records the delivery or the give-up.
 
 const { MAX_ATTEMPTS } = require('./store.js');
 const live = require('./live-status.js');
@@ -86,10 +87,12 @@ function showDelivered(store, row, deps) {
   if (!open) live.delivered(store, mark, deps.log);
 }
 
-function giveUp(store, row, message) {
+function giveUp(store, row, message, deps) {
   const conv = store.getConversation(row.conversation_key);
   store.transaction(() => {
     store.stopOutbox(row.id, message);
+    const mark = markOf(row);
+    if (mark) live.deliveryFailed(store, mark, deps.log);
     if (String(row.id).startsWith('hold:') || !conv) return;
     store.enqueueOutbox({
       id: `hold:delivery:${row.id}`,
@@ -141,12 +144,15 @@ async function deliverOne(store, row, deps, now) {
       if (!confirmed && uploaded?.ts) confirmed = { channel, ts: uploaded.ts };
     }
     if (!confirmed?.channel || !confirmed?.ts) throw new Error('Slack did not confirm delivery');
-    const saved = store.markDelivered(row.id, {
-      channel: confirmed.channel,
-      ts: confirmed.ts,
-      asRoot: target.asRoot,
+    const saved = store.transaction(() => {
+      const marked = store.markDelivered(row.id, {
+        channel: confirmed.channel,
+        ts: confirmed.ts,
+        asRoot: target.asRoot,
+      });
+      showDelivered(store, row, deps);
+      return marked;
     });
-    showDelivered(store, row, deps);
     return { id: row.id, delivered: true, channel: saved.channel, ts: saved.ts, conversationKey: saved.conversationKey };
   } catch (error) {
     const message = error.message || String(error);
@@ -156,9 +162,7 @@ async function deliverOne(store, row, deps, now) {
     }
     const failed = store.markDeliveryFailed(row.id, message, { retryAt: now + RETRY_MS });
     if (permanentError(message) || failed.attempts >= MAX_ATTEMPTS) {
-      giveUp(store, row, message);
-      const mark = markOf(row);
-      if (mark) live.deliveryFailed(store, mark, deps.log);
+      giveUp(store, row, message, deps);
       return { id: row.id, delivered: false, stopped: true, error: message };
     }
     return { id: row.id, delivered: false, error: message };

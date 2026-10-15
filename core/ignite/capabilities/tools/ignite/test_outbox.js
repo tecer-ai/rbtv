@@ -204,6 +204,43 @@ test('a live status write error never fails a delivery', async (store) => {
   assert.deepEqual(logs, [{ event: 'status-failed', message: 'disk full' }]);
 });
 
+test('the task and the give-up are written in the transaction that records the delivery', async (store) => {
+  markedRows(store, ['r1', 'r2']);
+  // What reaches the database, in order: each top-level transaction, and the writes in it.
+  const events = [];
+  const exec = store.db.exec.bind(store.db);
+  store.db.exec = (sql) => {
+    if (/^(BEGIN|COMMIT)/.test(sql)) events.push(sql.split(' ')[0]);
+    return exec(sql);
+  };
+  for (const name of ['rememberPost', 'markDelivered', 'stopOutbox', 'setLiveStatus']) {
+    const original = store[name].bind(store);
+    store[name] = (...args) => { events.push(name); return original(...args); };
+  }
+  const slack = markSlack();
+  const post = slack.postMessage;
+  slack.postMessage = async (args) => {
+    if (args.text === 'r2' && events.includes('setLiveStatus')) throw new Error('Slack chat.postMessage: channel_not_found');
+    return post(args);
+  };
+  await deliverPending(store, { slack });
+  // r1 alone is not the last reply: no task yet. r2 also delivered: the task, in r2's transaction.
+  // (a name is noted as its call starts: rememberPost opens its own transaction.)
+  assert.deepEqual(events, [
+    'rememberPost', 'BEGIN', 'COMMIT', 'BEGIN', 'markDelivered', 'COMMIT',
+    'rememberPost', 'BEGIN', 'COMMIT', 'BEGIN', 'markDelivered', 'setLiveStatus', 'COMMIT',
+  ]);
+  assert.deepEqual(shown(store), { system: 'running', agent: null, task: 'done' });
+  // A reply that gives up: its stop and the failed system state, in one transaction.
+  markedRows(store, ['r3']);
+  store.setLiveStatus({ channel: 'C1', ts: '1.1', task: null, agent: 'working' });
+  events.length = 0;
+  await deliverPending(store, { slack: { ...slack, async postMessage() { throw new Error('Slack chat.postMessage: channel_not_found'); } } });
+  assert.deepEqual(events.slice(events.indexOf('stopOutbox') - 1, events.indexOf('stopOutbox') + 3),
+    ['BEGIN', 'stopOutbox', 'setLiveStatus', 'COMMIT']);
+  assert.deepEqual(shown(store), { system: 'failed', agent: null, task: null });
+});
+
 async function runAll() {
   for (const [name, fn] of pending) {
     const store = new Store(':memory:');

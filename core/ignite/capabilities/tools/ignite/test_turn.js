@@ -6,7 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { validate, argvFor, parseSessionEvents, buildResult } = require('./turn.js');
+const { validate, argvFor, parseSessionEvents, buildResult, fellBackFile } = require('./turn.js');
 const { example } = require('../../../../cast/capabilities/tools/cast/example-models');
 
 // Each arm launches the supported model of the harness it exercises, picked by that property.
@@ -566,6 +566,9 @@ rejects(base({ systemPromptFile: path.join(cwd, 'missing.md') }), 'cannot read s
   assert.deepStrictEqual([written.harness, written.model, written.sessionId], [codexModel.harness, codexModel.model, '019fecad-4ff4-7761-a2eb-46d2b4172db3']);
   assert.deepStrictEqual([withoutEnd(written.failed), written.exhausted], [[claudeFailed], false]);
   assert.strictEqual(written.stdoutPath, `${resultFile}.fallback1.stdout`);
+  // The file Ignite's waking service watches to show the fallback is the one the first fallback writes.
+  assert.strictEqual(fellBackFile(resultFile), `${resultFile}.fallback1.stdout`);
+  assert.ok(fs.existsSync(fellBackFile(resultFile)));
   assert.ok(fs.existsSync(`${resultFile}.stderr`), 'the failed run keeps its own capture files');
   assert.deepStrictEqual(ran().map((r) => [r.model, r.prompt]), [[codexModel.id, 'the first fallback prompt']]);
   assert.ok(ran()[0].argv.includes(`model_reasoning_effort=${rung(codexModel, 2)}`), JSON.stringify(ran()[0].argv));

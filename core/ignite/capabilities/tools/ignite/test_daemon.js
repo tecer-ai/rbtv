@@ -130,6 +130,8 @@ const args = process.argv;
 const request = JSON.parse(fs.readFileSync(args[args.indexOf('--request') + 1], 'utf8'));
 const resultFile = args[args.indexOf('--result') + 1];
 const control = JSON.parse(fs.readFileSync(process.env.FAKE_CAST_CONTROL, 'utf8'));
+// holdUntil: the turn runs until that file exists.
+while (control.holdUntil && !fs.existsSync(control.holdUntil)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
 fs.appendFileSync(process.env.FAKE_CAST_SEEN, JSON.stringify({ prompt: request.prompt }) + '\\n');
 const prompt = request.prompt || '';
 const resultLine = prompt.split('\\n').find((line) => line.startsWith('RESULT_FILE: '));
@@ -785,14 +787,15 @@ test('daemon marks idle on ticks and answered on owner ingress even while held',
   }
 });
 
-test('the service shows each owner message\'s live status in Slack and takes stored ones as already shown', async () => {
+test('the service shows each owner message\'s live status in Slack and makes no call for one that shows its state', async () => {
   const { dir, home } = workspace();
   const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
-  // Held, so no turn runs: the message stays queued. An older message's status was shown before the restart.
+  // Held, so no turn runs: the message stays queued. An older message showed its state before the restart.
   store.db.prepare('INSERT INTO settings(key, value, updated_at) VALUES (?, ?, ?)')
     .run('agent_hold', JSON.stringify({ reason: 'test', at: Date.now() }), Date.now());
   store.upsertConversation({ key: 'T1:D1:1.000001', agent: 'master', workspace: 'T1', channel: 'D1', rootTs: '1.000001' });
   store.setLiveStatus({ conversationKey: 'T1:D1:1.000001', channel: 'D1', ts: '1.000001', system: 'running', task: 'done' });
+  store.setLiveShown('D1', '1.000001', { order: ['large_green_circle', 'white_check_mark'], unsure: [], lastAddAt: null, gone: false });
   store.close();
   const calls = [];
   const slack = {
@@ -816,6 +819,122 @@ test('the service shows each owner message\'s live status in Slack and takes sto
   } finally {
     process.env.PATH = prev;
     runtime?.stop('test');
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// An owner message accepted before the service starts, as ingress stores it.
+function queueOwner(home, ts) {
+  const live = require('./live-status.js');
+  const key = `T1:D1:${ts}`;
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
+  try {
+    store.acceptOwnerInput({
+      key, agent: 'master', workspace: 'T1', channel: 'D1', rootTs: ts, activated: true,
+      message: { id: key, role: 'owner', text: 'hello', team: 'T1', channel: 'D1', ts },
+      payload: { text: 'hello', ts, threadTs: ts },
+    });
+    live.received(store, { conversationKey: key, channel: 'D1', ts });
+  } finally {
+    store.close();
+  }
+}
+
+function reactionSlack(calls, answered = null) {
+  return {
+    ...fakeSlack(),
+    async addReaction(channel, ts, name) { calls.push(`add ${ts} ${name}`); if (answered) await answered; },
+    async removeReaction(channel, ts, name) { calls.push(`remove ${ts} ${name}`); },
+  };
+}
+
+test('live status runs from the start: a turn the first scheduling pass runs shows while it runs', async () => {
+  const { dir, home } = workspace();
+  queueOwner(home, '1.000001');
+  const cast = fakeCast(dir);
+  const release = path.join(dir, 'release');
+  const control = JSON.parse(fs.readFileSync(cast.env.FAKE_CAST_CONTROL, 'utf8'));
+  fs.writeFileSync(cast.env.FAKE_CAST_CONTROL, JSON.stringify({ ...control, holdUntil: release }));
+  const calls = [];
+  const prev = process.env.PATH;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prev || ''}`;
+  // start() returns only once that first pass, and so the whole turn, has ended.
+  const starting = start({ workspace: dir, slack: reactionSlack(calls), socket: fakeSocket(), signals: false,
+    turnCommand: [process.execPath, cast.stub], castEnv: cast.env,
+    tickMs: 60_000, sweepMs: 60_000, drainMs: 60_000, statusMs: 20 });
+  let runtime;
+  try {
+    await waitFor(() => calls.includes('add 1.000001 clock12'), 8000);
+    assert.equal(fs.readFileSync(cast.seen, 'utf8'), '', 'the turn is still running');
+    assert.deepEqual(calls.filter((call) => !call.includes('hourglass')), ['add 1.000001 large_green_circle', 'add 1.000001 clock12']);
+    fs.writeFileSync(release, '');
+    runtime = await starting;
+    await waitFor(() => calls.includes('add 1.000001 white_check_mark'), 8000);
+  } finally {
+    fs.writeFileSync(release, '');
+    runtime = runtime || await starting.catch(() => null);
+    process.env.PATH = prev;
+    await runtime?.stop('test');
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a start that fails stops the live status it started and releases the lock', async () => {
+  const { dir, home } = workspace();
+  const calls = [];
+  const socket = { async connect() { throw new Error('socket refused'); }, stop() {} };
+  const prev = process.env.PATH;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prev || ''}`;
+  try {
+    await assert.rejects(start({ workspace: dir, slack: reactionSlack(calls), socket, signals: false,
+      tickMs: 60_000, sweepMs: 60_000, drainMs: 60_000, statusMs: 20 }), /socket refused/);
+    // A ticker left running would show this message.
+    queueOwner(home, '1.000001');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.deepEqual(calls, []);
+    assert.equal(fs.existsSync(path.join(dir, '.rbtv', 'runtime', 'ignite', 'daemon.lock')), false);
+  } finally {
+    process.env.PATH = prev;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a stop releases the lock only once the live status call in flight is answered; the pace is kept', async () => {
+  const { dir, home } = workspace();
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
+  store.db.prepare('INSERT INTO settings(key, value, updated_at) VALUES (?, ?, ?)')
+    .run('agent_hold', JSON.stringify({ reason: 'test', at: Date.now() }), Date.now());
+  store.close();
+  const runtimeDir = path.join(dir, '.rbtv', 'runtime', 'ignite');
+  let answer;
+  const answered = new Promise((resolve) => { answer = resolve; });
+  const calls = [];
+  const socket = fakeSocket();
+  const prev = process.env.PATH;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prev || ''}`;
+  let runtime;
+  try {
+    runtime = await start({ workspace: dir, slack: reactionSlack(calls, answered), socket, signals: false,
+      tickMs: 60_000, sweepMs: 60_000, drainMs: 60_000, statusMs: 20 });
+    await socket.inject({ team: 'T1', channel: 'D1', channelType: 'im', ts: '2.000001', threadTs: '2.000001',
+      user: 'UOWNER', text: 'hello', files: [], isBotOrSelf: false });
+    await waitFor(() => calls.length === 1);
+    const closed = runtime.stop('test');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(fs.existsSync(path.join(runtimeDir, 'daemon.lock')), true, 'held while Slack has not answered');
+    answer();
+    await closed;
+    assert.equal(fs.existsSync(path.join(runtimeDir, 'daemon.lock')), false);
+    assert.deepEqual(calls, ['add 2.000001 hourglass_flowing_sand']);
+    const check = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
+    try { assert.deepEqual(JSON.parse(check.getLiveStatus('D1', '2.000001').shown).order, ['hourglass_flowing_sand']); }
+    finally { check.close(); }
+    const pace = JSON.parse(fs.readFileSync(path.join(runtimeDir, 'live-status-pace.json'), 'utf8'));
+    assert.deepEqual([pace.pausedUntil, pace.adds.length], [0, 1]);
+  } finally {
+    answer();
+    process.env.PATH = prev;
+    await runtime?.stop('test');
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });

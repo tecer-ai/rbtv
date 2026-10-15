@@ -60,7 +60,7 @@ const request = JSON.parse(fs.readFileSync(args[args.indexOf('--request') + 1], 
 const resultFile = args[args.indexOf('--result') + 1];
 const control = JSON.parse(fs.readFileSync(process.env.FAKE_CAST_CONTROL, 'utf8'));
 // touchFallback: what \`ignite turn\` does when it starts its first fallback.
-if (control.touchFallback) fs.writeFileSync(resultFile + '.fallback1.stdout', '');
+if (control.touchFallback) fs.writeFileSync(require(process.env.FAKE_CAST_TURN).fellBackFile(resultFile), '');
 fs.appendFileSync(process.env.FAKE_CAST_SEEN, JSON.stringify({
   harness: request.harness, model: request.model, effort: request.effort,
   cwd: request.cwd, agentHome: request.agentHome, session: request.session, prompt: request.prompt, env: request.env,
@@ -223,7 +223,7 @@ function harness(ctx, setting = {}) {
       slack,
       audio,
       turnCommand: [process.execPath, stubPath],
-      castEnv: { FAKE_CAST_CONTROL: controlPath, FAKE_CAST_SEEN: seenPath },
+      castEnv: { FAKE_CAST_CONTROL: controlPath, FAKE_CAST_SEEN: seenPath, FAKE_CAST_TURN: path.join(__dirname, 'turn.js') },
       now: () => now,
       log(fields) { box.logs.push(fields); },
     },
@@ -1121,6 +1121,21 @@ test('launch failure holds the agent', async (ctx) => {
   assert.match(outbox[0].payload.text, /cast exit 2/);
 });
 
+test('history.md and the prompt\'s history carry each owner message\'s Slack timestamp', async (ctx) => {
+  const box = harness(ctx);
+  seed(box.store, { id: '1792071263.014499', text: 'first', createdAt: 10 });
+  box.sync();
+  await runOnce('master', box.deps);
+  seed(box.store, { id: '1792071299.000100', text: 'second', createdAt: 20 });
+  box.sync();
+  await runOnce('master', box.deps);
+  const history = fs.readFileSync(historyPath(box.home, 'T1:C1:1.1'), 'utf8');
+  assert.match(history, /^## 10 owner \(Slack timestamp 1792071263\.014499\)\nfirst\n/m);
+  assert.match(history, /^## \d+ assistant\n/m);
+  const recent = seen(box).at(-1).prompt.split('Recent messages of this conversation:\n')[1];
+  assert.equal(recent.split('\n').slice(0, 2).join('\n'), '[owner] first\nSlack timestamp of this message: 1792071263.014499');
+});
+
 test('history folder name is Windows-valid', async (ctx) => {
   const home = path.join(ctx.dir, 'agent');
   const store = ctx.track(new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite')));
@@ -1314,7 +1329,7 @@ test('live status: a turn with no replies shows its task at once', async (ctx) =
   assert.deepEqual(liveOf(box.store), { system: 'running', agent: null, task: 'done' });
 });
 
-test('live status: completed with caveats shows caveats; caveats is refused with another disposition', async (ctx) => {
+test('live status: caveats true shows caveats on completed only; false, null or absent mean none on any disposition', async (ctx) => {
   const box = harness(ctx);
   seed(box.store);
   box.writeControl({ agent: agentOf('completed', { caveats: true }), sessionId: 'ses-keep' });
@@ -1323,19 +1338,33 @@ test('live status: completed with caveats shows caveats; caveats is refused with
   await deliverPending(box.store, { slack: box.slack, audio: box.audio, home: box.home });
   assert.deepEqual(liveOf(box.store), { system: 'running', agent: null, task: 'caveats' });
 
-  seed(box.store, { id: '2.2', createdAt: 200 });
+  const errorOf = (result) => box.store.db.prepare('SELECT error FROM runs WHERE id=?').get(result.runId).error;
+  let at = 200;
+  for (const [disposition, caveats, task] of [
+    ['waiting_owner', false, 'question'], ['stopped', null, 'stopped'], ['completed', false, 'done'], ['completed', null, 'done'],
+  ]) {
+    at += 100;
+    const ts = `${at}.1`;
+    seed(box.store, { id: ts, createdAt: at });
+    box.writeControl({ agent: agentOf(disposition, { caveats, replies: [] }), sessionId: 'ses-keep' });
+    box.sync();
+    const result = await runOnce('master', box.deps);
+    assert.equal(result.failed, undefined, `${disposition} ${caveats}`);
+    assert.deepEqual(liveOf(box.store, ts), { system: 'running', agent: null, task }, `${disposition} ${caveats}`);
+  }
+
+  seed(box.store, { id: '2.2', createdAt: 900 });
   box.writeControl({ agent: agentOf('waiting_owner', { caveats: true }), sessionId: 'ses-keep' });
   box.sync();
   const refused = await runOnce('master', box.deps);
   assert.equal(refused.failed, true);
-  assert.equal(box.store.db.prepare('SELECT error FROM runs WHERE id=?').get(refused.runId).error,
-    'caveats is valid only with disposition completed');
+  assert.equal(errorOf(refused), 'caveats true is valid only with disposition completed');
   assert.deepEqual(liveOf(box.store, '2.2'), { system: 'retrying', agent: null, task: null });
 
   box.writeControl({ agent: agentOf('completed', { caveats: 'yes' }), sessionId: 'ses-keep' });
   box.setNow(box.now() + 5000);
   const wrongType = await runOnce('master', box.deps);
-  assert.equal(box.store.db.prepare('SELECT error FROM runs WHERE id=?').get(wrongType.runId).error, 'caveats must be boolean');
+  assert.equal(errorOf(wrongType), 'caveats must be true, false or null');
 });
 
 test('live status: replies wait for each other; a reply that gives up shows system failed', async (ctx) => {
@@ -1451,7 +1480,7 @@ test('live status: continue keeps working; waiting_workers waits until the wake 
   assert.deepEqual(liveOf(box.store), { system: 'running', agent: null, task: 'done' });
 });
 
-test('live status: a new turn of the conversation ends an earlier message\'s agent state', async (ctx) => {
+test('live status: a new turn of the conversation ends an earlier message\'s agent state; its task shows there too', async (ctx) => {
   const box = harness(ctx);
   seed(box.store);
   box.writeControl({ agent: agentOf('waiting_workers', { replies: [], workers: [{ ref: 'w1', kind: 'cast' }] }), sessionId: 'ses-keep' });
@@ -1461,8 +1490,35 @@ test('live status: a new turn of the conversation ends an earlier message\'s age
   seed(box.store, { id: '2.2', createdAt: 200 });
   box.writeControl({ agent: agentOf('completed', { replies: [] }), sessionId: 'ses-keep' });
   await runOnce('master', box.deps);
-  assert.deepEqual(liveOf(box.store), { system: 'running', agent: null, task: null });
+  assert.deepEqual(liveOf(box.store), { system: 'running', agent: null, task: 'done' });
   assert.deepEqual(liveOf(box.store, '2.2'), { system: 'running', agent: null, task: 'done' });
+});
+
+test('live status: a turn\'s end and its failure are written in the transaction that ends the run', async (ctx) => {
+  const box = harness(ctx);
+  seed(box.store);
+  // What reaches the database, in order: each top-level transaction, and each live status write in it.
+  const events = [];
+  const exec = box.store.db.exec.bind(box.store.db);
+  box.store.db.exec = (sql) => {
+    if (/^(BEGIN|COMMIT)/.test(sql)) events.push(sql.split(' ')[0]);
+    return exec(sql);
+  };
+  for (const name of ['finishRun', 'failRun', 'setLiveStatus']) {
+    const original = box.store[name].bind(box.store);
+    box.store[name] = (...args) => { events.push(name); return original(...args); };
+  }
+  box.writeControl({ agent: agentOf('completed', { replies: [] }), sessionId: 'ses-keep' });
+  box.sync();
+  await runOnce('master', box.deps);
+  const end = events.slice(events.lastIndexOf('finishRun') - 1);
+  assert.deepEqual(end, ['BEGIN', 'finishRun', 'setLiveStatus', 'COMMIT']);
+  seed(box.store, { id: '2.2', createdAt: 200 });
+  box.writeControl({ ok: false, exitCode: 1, childExit: 1, error: 'session_identity_missing', stderr: 'boom' });
+  box.sync();
+  await runOnce('master', box.deps);
+  assert.deepEqual(events.slice(events.lastIndexOf('failRun') - 1), ['BEGIN', 'failRun', 'setLiveStatus', 'COMMIT']);
+  assert.deepEqual(liveOf(box.store, '2.2'), { system: 'retrying', agent: null, task: null });
 });
 
 test('live status: a turn shows fallback once ignite turn starts a fallback, and at the end when one ran', async (ctx) => {

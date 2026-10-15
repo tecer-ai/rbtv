@@ -5,7 +5,8 @@
 // historyPath(home, key) → runtime/ignite/conversations/<safe>/history.md under home.
 //   safe replaces : * ? " < > | \\ in the key with '-'. A raw-key folder is renamed on first access.
 // listAll(store, key) — store history for one conversation, oldest first
-// writeHistory(home, store, key) — regenerate that conversation's history.md from the store
+// writeHistory(home, store, key) — regenerate that conversation's history.md from the store. An owner
+//   message's heading carries its Slack timestamp, the one `ignite status --task --message` takes.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -43,7 +44,8 @@ function writeHistory(home, store, key) {
     lines.push(`(file holds the newest ${FULL_HISTORY_LIMIT} messages; the store has the rest)`, '');
   }
   for (const row of rows) {
-    lines.push(`## ${row.created_at} ${row.role}`, row.text || '', '');
+    const ts = row.role === 'owner' && row.ts ? ` (Slack timestamp ${row.ts})` : '';
+    lines.push(`## ${row.created_at} ${row.role}${ts}`, row.text || '', '');
   }
   const file = historyPath(home, key);
   fs.mkdirSync(path.dirname(file), { recursive: true });

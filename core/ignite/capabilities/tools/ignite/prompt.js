@@ -6,7 +6,8 @@
 //   <home>/prompt.md as systemPromptFile on the cast request. This file does not read CLAUDE.md.
 //   An input's check ({ found, failure? }, what timer-check.js stored on a timer wake) follows
 //   the input as one JSON line each, marked as a tool's data and never as the owner's words.
-//   An owner input's Slack ts follows its text as one line, so the agent can cite the message.
+//   An owner input's Slack ts follows its text as one line, so the agent can cite the message; so
+//   does each owner line of the recent and stored messages that has one.
 // readTurnMemory(home, cwd, store?, now?) → board, memory sections and owner alerts
 
 const fs = require('node:fs');
@@ -76,7 +77,7 @@ function readTurnMemory(home, cwd = home, store = null, now = Date.now()) {
 }
 
 function linesOf(rows) {
-  return rows.map((row) => `[${row.role}] ${row.text}`);
+  return rows.map((row) => `[${row.role}] ${row.text}${row.role === 'owner' && row.ts ? `\nSlack timestamp of this message: ${row.ts}` : ''}`);
 }
 
 function checkLines(check) {

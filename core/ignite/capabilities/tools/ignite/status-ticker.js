@@ -6,27 +6,34 @@
 // the reaction budget they share.
 //
 // API
-// createTicker({ stores, slack, now?, log? }) → { baseline(), step() }
+// createTicker({ stores, slack, now?, log?, pace? }) → { step(), stop() }
 //   stores() → [{ slug, store }], the agents' open stores. slack() → the Slack client, or null while
 //   there is none; a client without addReaction and removeReaction shows nothing.
-//   baseline() → takes every message stored now as already shown, as the service that stopped left
-//   it, and makes no call. The service calls it once at start, before any event or turn can change a
-//   state; a message's agent frame is then unknown, so its first pass removes every frame of its
-//   agent state before adding one.
+//   pace = { load() → { pausedUntil, adds }, save({ pausedUntil, adds }) }: where the shared budget
+//   (the time of each add in the last minute) and the pause after HTTP 429 are kept, so that a
+//   restarted service honours them. In memory when absent.
 //   step() → Promise, never rejects. One pass:
-//   - It reads the messages whose state changed since the last pass, or since the baseline; a store
-//     the baseline did not see is read whole, every state as new.
+//   - It reads the messages whose state changed since the last pass. A message read for the first
+//     time, every message at service start, starts from the reactions its row records as shown (the
+//     connector's record, saved before and after each call): its calls then finish whatever a
+//     stopped service left, the reactions of earlier states included.
+//   - A message waiting for workers whose work no longer waits (stopped, held, ended) stops waiting
+//     (live-status.js waitEnded).
 //   - A message ticks while its turn runs (its run is the store's active run), and while its agent
 //     state is waiting, which also ticks between turns and after a restart. Ticking stops when the
 //     turn ends or fails. A tick moves the agent emoji to its next frame.
 //   - Reaction adds share ADDS_PER_MINUTE across all agents. A frame lasts FRAME_MS for one ticking
 //     message (WAITING_FRAME_MS for waiting), stretched by the factor that keeps every ticking
-//     message's adds inside that budget.
-//   - After Slack's HTTP 429 no reaction call is made until its Retry-After has passed.
+//     message's adds inside that budget: one message alone ticks every 1.33 s.
+//   - After Slack's HTTP 429 no reaction call is made until its Retry-After has passed; after an
+//     HTTP 5xx, for the connector's short pause.
 //   - A pass still running when step() is called again makes the new call return at once.
+//   stop() → Promise: no pass starts after it, a pass in flight ends after its current call, and
+//   the promise settles when that pass has ended.
 //   Reaction errors are logged by the Slack connector's live status; a store or Slack failure is
 //   logged as { event: 'status-failed' } and never reaches a turn or a delivery.
 
+const live = require('./live-status.js');
 const { liveStatus } = require('../../../../../connectors/slack/capabilities/tools/slack/lib/live-status.js');
 
 const ADDS_PER_MINUTE = 45;
@@ -34,21 +41,52 @@ const FRAME_MS = 1_200;
 const WAITING_FRAME_MS = 10_000;
 const MINUTE = 60_000;
 
-function createTicker({ stores, slack, now = Date.now, log } = {}) {
+function memoryPace() {
+  let kept = null;
+  return { load: () => kept, save(state) { kept = state; } };
+}
+
+function shownOf(row) {
+  if (!row.shown) return null;
+  try { return JSON.parse(row.shown); } catch { return null; }
+}
+
+function createTicker({ stores, slack, now = Date.now, log, pace = memoryPace() } = {}) {
   let show = null;
   const lastRev = new Map();
   const activeRun = new Map();
+  // The store that holds each message's row, where its shown reactions are recorded.
+  const homes = new Map();
   // Messages with an agent state: the ones that may tick.
   const agents = new Map();
   // Messages whose reactions do not yet show their state, in the order their change arrived.
   const unsettled = new Map();
-  const adds = [];
-  let pausedUntil = 0;
-  let busy = false;
+  const kept = loadPace();
+  const adds = kept.adds;
+  let pausedUntil = kept.pausedUntil;
+  let running = null;
+  let halted = false;
 
   function note(fields) {
     if (typeof log !== 'function') return;
     try { log(fields); } catch { /* keep the service */ }
+  }
+
+  function loadPace() {
+    try {
+      const state = pace.load() || {};
+      return {
+        pausedUntil: Number.isFinite(state.pausedUntil) ? state.pausedUntil : 0,
+        adds: Array.isArray(state.adds) ? state.adds.filter(Number.isFinite) : [],
+      };
+    } catch (error) {
+      note({ event: 'status-failed', message: error.message });
+      return { pausedUntil: 0, adds: [] };
+    }
+  }
+
+  function savePace() {
+    try { pace.save({ pausedUntil, adds: [...adds] }); } catch (error) { note({ event: 'status-failed', message: error.message }); }
   }
 
   function display() {
@@ -60,6 +98,11 @@ function createTicker({ stores, slack, now = Date.now, log } = {}) {
       removeReaction: (channel, ts, name) => client.removeReaction(channel, ts, name),
       now,
       log,
+      record(message, shown) {
+        const store = homes.get(`${message.channel}:${message.ts}`);
+        if (!store) throw new Error(`no store holds the live status of ${message.channel} ${message.ts}`);
+        store.setLiveShown(message.channel, message.ts, shown);
+      },
     });
     return show;
   }
@@ -69,21 +112,26 @@ function createTicker({ stores, slack, now = Date.now, log } = {}) {
     while (adds.length && adds[0] <= at - MINUTE) adds.shift();
     if (adds.length >= ADDS_PER_MINUTE) return false;
     adds.push(at);
+    savePace();
     return true;
   }
 
-  function read(assume) {
+  function read() {
     for (const { slug, store } of stores()) {
       try {
         activeRun.set(store, store.getActiveRun()?.id || null);
+        for (const one of agents.values()) {
+          if (one.store === store && one.agent === 'waiting') live.waitEnded(store, one.message, log);
+        }
         let rev = lastRev.get(store) || 0;
         for (const row of store.liveStatuses({ sinceRev: rev })) {
           rev = Math.max(rev, row.rev);
           const key = `${row.channel}:${row.ts}`;
           const message = { channel: row.channel, ts: row.ts };
           const state = { system: row.system, agent: row.agent, task: row.task };
-          if (assume) show.assume(message, state);
-          else show.set(message, state);
+          if (homes.has(key)) show.set(message, state);
+          else show.restore(message, state, shownOf(row));
+          homes.set(key, store);
           if (!show.settled(message)) unsettled.set(key, message);
           if (row.agent && !row.task) {
             agents.set(key, { message, store, agent: row.agent, runId: row.run_id, nextTickAt: null });
@@ -102,11 +150,11 @@ function createTicker({ stores, slack, now = Date.now, log } = {}) {
   const frameMs = (one) => (one.agent === 'waiting' ? WAITING_FRAME_MS : FRAME_MS);
 
   function tick() {
-    const live = [...agents.entries()].filter(([, one]) => ticking(one));
-    const demand = live.reduce((sum, [, one]) => sum + MINUTE / frameMs(one), 0);
+    const due = [...agents.entries()].filter(([, one]) => ticking(one));
+    const demand = due.reduce((sum, [, one]) => sum + MINUTE / frameMs(one), 0);
     const stretch = Math.max(1, demand / ADDS_PER_MINUTE);
     const at = now();
-    for (const [key, one] of live) {
+    for (const [key, one] of due) {
       one.interval = frameMs(one) * stretch;
       if (one.nextTickAt == null) {
         one.nextTickAt = at + one.interval;
@@ -122,9 +170,11 @@ function createTicker({ stores, slack, now = Date.now, log } = {}) {
 
   async function settle() {
     for (const [key, message] of [...unsettled]) {
+      if (halted) return;
       const result = await show.apply(message, { mayAdd });
       if (result.retryAfterMs != null) {
         pausedUntil = now() + result.retryAfterMs;
+        savePace();
         note({ event: 'reactions-paused', ms: result.retryAfterMs });
         return;
       }
@@ -135,27 +185,30 @@ function createTicker({ stores, slack, now = Date.now, log } = {}) {
     }
   }
 
-  async function step() {
-    if (busy) return;
-    busy = true;
+  async function pass() {
     try {
       if (!display()) return;
-      read(false);
+      read();
       if (now() < pausedUntil) return;
       tick();
       await settle();
     } catch (error) {
       note({ event: 'status-failed', message: error.message });
-    } finally {
-      busy = false;
     }
   }
 
-  function baseline() {
-    if (display()) read(true);
+  function step() {
+    if (halted || running) return Promise.resolve();
+    running = pass().finally(() => { running = null; });
+    return running;
   }
 
-  return { baseline, step };
+  function stop() {
+    halted = true;
+    return running || Promise.resolve();
+  }
+
+  return { step, stop };
 }
 
 module.exports = { createTicker, ADDS_PER_MINUTE, FRAME_MS, WAITING_FRAME_MS };

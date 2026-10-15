@@ -12,10 +12,13 @@
 //   require CLAUDE.md.
 //   failRun enqueues the one blocker — this file does not.
 //   The live status of the owner message a turn answers (live-status.js): running and working at
-//   launch, fallback once `ignite turn` starts a fallback (its <result>.fallback1.stdout appears,
-//   checked every deps.fallbackCheckMs, else FALLBACK_CHECK_MS, and again at the end), retrying or
-//   failed on a failure, and at the end what the result's disposition gives. The replies carry the
-//   message and its task state in payload.mark, for outbox.js to show at delivery.
+//   launch, fallback once `ignite turn` starts a fallback (the file turn.js's fellBackFile names
+//   appears, checked every deps.fallbackCheckMs, else FALLBACK_CHECK_MS, and again at the end),
+//   retrying or failed on a failure, and at the end what the result's disposition gives, written in
+//   the transaction that ends the run. The replies carry the message and its task state in
+//   payload.mark, for outbox.js to show at delivery.
+//   The result's caveats: absent, false or null mean none; true is valid only with completed; any
+//   other value fails the turn.
 // DEFAULT_HISTORY_WINDOW — re-exported for callers
 
 const fs = require('node:fs');
@@ -28,6 +31,7 @@ const { DEFAULT_HISTORY_WINDOW, historyPath, listAll, writeHistory } = require('
 const { ignitePaths, resolveIgniteRuntime } = require('./config.js');
 const fallback = require('./fallback.js');
 const live = require('./live-status.js');
+const { fellBackFile } = require('./turn.js');
 
 const AUDIO_EXT = new Set(['mp3', 'm4a', 'wav', 'ogg', 'webm', 'flac', 'aac', 'mpeg', 'mp4', 'mpga']);
 const DISPOSITIONS = new Set(['completed', 'continue', 'waiting_owner', 'waiting_workers', 'stopped']);
@@ -115,9 +119,9 @@ function validateAgent(raw, nonce) {
   if (raw.disposition === 'continue' && !String(raw.nextStep || '').trim()) {
     throw fail('continue requires nextStep', 'work');
   }
-  if (raw.caveats != null) {
-    if (typeof raw.caveats !== 'boolean') throw fail('caveats must be boolean', 'work');
-    if (raw.disposition !== 'completed') throw fail('caveats is valid only with disposition completed', 'work');
+  if (raw.caveats != null && typeof raw.caveats !== 'boolean') throw fail('caveats must be true, false or null', 'work');
+  if (raw.caveats === true && raw.disposition !== 'completed') {
+    throw fail('caveats true is valid only with disposition completed', 'work');
   }
   if (!Array.isArray(raw.workers)) throw fail('workers must be an array', 'work');
   for (const worker of raw.workers) {
@@ -198,17 +202,21 @@ function waitClose(child) {
   });
 }
 
-// A failed run shows retrying while it will retry, and failed once it is held.
-function statusAfterFail(deps, run, failure) {
-  live.failed(deps.store, live.messageOf(deps.store, run, deps.log), failure.held, deps.log);
+// Fails the run; its message shows retrying while it will retry, and failed once it is held.
+function failWithStatus(deps, run, reason, scope) {
+  const store = deps.store;
+  return store.transaction(() => {
+    const failure = store.failRun(run.runId || run.id, reason, { scope, now: clock(deps) });
+    live.failed(store, live.messageOf(store, run, deps.log), failure.held, deps.log);
+    return failure;
+  });
 }
 
 async function recover(store, deps) {
   if (store.liveRun()) return null;
   const active = store.getActiveRun();
   if (!active) return null;
-  const failure = store.failRun(active.id, 'previous invocation is no longer running', { scope: 'work', now: clock(deps) });
-  statusAfterFail(deps, active, failure);
+  const failure = failWithStatus(deps, active, 'previous invocation is no longer running', 'work');
   return { runId: active.id, failure };
 }
 
@@ -239,8 +247,7 @@ async function runOnce(slug, deps) {
   } catch (error) {
     if (store.getActiveRun()?.id !== claim.runId) throw error;
     const scope = error.scope === 'agent' ? 'agent' : 'work';
-    const failure = store.failRun(claim.runId, error.message, { scope, now: clock(deps) });
-    statusAfterFail(deps, claim, failure);
+    const failure = failWithStatus(deps, claim, error.message, scope);
     return { slug, claimed: true, failed: true, runId: claim.runId, failure: { ...failure, scope }, recovered };
   }
 }
@@ -264,14 +271,17 @@ async function execute(slug, claim, deps) {
   const noLaunch = prepared.audioAttempted && !prepared.transcripts?.length && !claim.payload?.text && prepared.transcriptError;
   if (noLaunch) {
     logTranscriptionFailure(deps, prepared.transcriptError);
-    const work = commit(store, claim, {
-      output: TRANSCRIPTION_FAILURE_REPLY,
-      disposition: 'completed',
-      summary: 'transcription failed',
-      outbox: [{ id: `transcript:${claim.id}`, text: TRANSCRIPTION_FAILURE_REPLY, audio: false, files: [] }],
+    const work = store.transaction(() => {
+      const done = commit(store, claim, {
+        output: TRANSCRIPTION_FAILURE_REPLY,
+        disposition: 'completed',
+        summary: 'transcription failed',
+        outbox: [{ id: `transcript:${claim.id}`, text: TRANSCRIPTION_FAILURE_REPLY, audio: false, files: [] }],
+      });
+      live.failed(store, message, true, deps.log);
+      return done;
     });
     writeHistory(home, store, claim.conversation_key);
-    live.failed(store, message, true, deps.log);
     return { slug, claimed: true, launched: false, disposition: 'completed', work, runId: claim.runId };
   }
   if (prepared.transcriptError) {
@@ -368,9 +378,8 @@ async function execute(slug, claim, deps) {
   const exited = waitClose(child);
   const pidStart = child.pid ? procStart(child.pid) : null;
   if (child.pid && pidStart) store.attachProcess(claim.runId, { pid: child.pid, pidStart, setting });
-  // `ignite turn` writes <result>.fallback1.stdout when it starts the first fallback in place of the
-  // agent's model.
-  const fellBack = `${launcherPath}.fallback1.stdout`;
+  // The file `ignite turn` writes when it starts the first fallback in place of the agent's model.
+  const fellBack = fellBackFile(launcherPath);
   const watch = message && request.fallbacks ? setInterval(() => {
     if (!fs.existsSync(fellBack)) return;
     clearInterval(watch);
@@ -403,21 +412,24 @@ async function execute(slug, claim, deps) {
   // is delivered.
   const task = live.taskOf(agent.disposition, agent.caveats === true);
   const mark = message ? { channel: message.channel, ts: message.ts, ...(task && { task }) } : null;
-  const work = commit(store, claim, {
-    output,
-    disposition: agent.disposition,
-    summary: agent.summary,
-    nextStep: agent.nextStep || null,
-    workers: agent.workers,
-    outputs: agent.outputs,
-    harness: launcher.sessionId ? launcher.harness : null,
-    sessionId: launcher.sessionId || null,
-    outbox: agent.replies.map((reply) => ({
-      payload: { text: reply.text, audio: reply.audio === true, files: reply.files || [], ...(mark && { mark }) },
-    })),
+  const work = store.transaction(() => {
+    const done = commit(store, claim, {
+      output,
+      disposition: agent.disposition,
+      summary: agent.summary,
+      nextStep: agent.nextStep || null,
+      workers: agent.workers,
+      outputs: agent.outputs,
+      harness: launcher.sessionId ? launcher.harness : null,
+      sessionId: launcher.sessionId || null,
+      outbox: agent.replies.map((reply) => ({
+        payload: { text: reply.text, audio: reply.audio === true, files: reply.files || [], ...(mark && { mark }) },
+      })),
+    });
+    live.ended(store, message, agent.disposition, task, agent.replies.length, deps.log);
+    return done;
   });
   writeHistory(home, store, claim.conversation_key);
-  live.ended(store, message, agent.disposition, task, agent.replies.length, deps.log);
   const snapshot = store.db.prepare('SELECT launch_snapshot FROM runs WHERE id=?').get(claim.runId);
   return {
     slug,

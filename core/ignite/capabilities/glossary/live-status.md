@@ -13,12 +13,12 @@ Ignite owns the states and names no emoji. A communication connector shows them 
 | system | `failed` | Ignite, after a failure that ends the work (a hold, a reply that gives up, a voice note that cannot be transcribed) |
 | agent | `working` | Ignite, at the start of every turn |
 | agent | `gathering`, `thinking`, `making`, `orchestrating` | The agent, with `ignite status <state>` |
-| agent | `waiting` | Ignite, when a turn ends `waiting_workers`, until the next turn of that conversation starts |
+| agent | `waiting` | Ignite, when a turn ends `waiting_workers`, until the next turn of that conversation starts or its work stops waiting (stopped, held) |
 | task | `done` | A `completed` result, once its replies are delivered |
 | task | `caveats` | A `completed` result with `"caveats": true` |
 | task | `question` | A `waiting_owner` result |
 | task | `stopped` | A `stopped` result |
 
-The agent state moves: it ticks through its frames while the turn runs, and `waiting` ticks slowly between turns and across a service restart. The system and task states stay still. A turn that ends `continue` leaves the agent state `working` until the next turn runs. A failed turn removes the agent state. A continue or wake turn shows on the latest owner message of its work; a scheduled wake answers no owner message and shows nothing. `ignite status --task <state> --message <ts>` sets the task state of an earlier owner message of the same conversation.
+The agent state moves: it ticks through its frames while the turn runs, and `waiting` ticks slowly between turns and across a service restart. The system and task states stay still. A turn that ends `continue` leaves the agent state `working` until the next turn runs. A failed turn removes the agent state. A continue or wake turn shows on the latest owner message of its work; a scheduled wake answers no owner message and shows nothing. A turn's start removes the agent state of the conversation's other messages; when a turn of the same work later ends with a task state, those messages show that task too. `ignite status --task <state> --message <ts>` sets the task state of an earlier owner message of the same conversation whose turn has finished.
 
 The rule [live-status](../../rules/live-status.md) tells an Ignite agent when to declare its state. Ignite's [architecture](../tools/ignite/documentation/architecture.md) names the files that set and show each state.

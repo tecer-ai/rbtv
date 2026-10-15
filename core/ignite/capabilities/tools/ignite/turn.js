@@ -211,6 +211,17 @@ function capturePaths(resultFile) {
   return { stdoutPath: `${resultFile}.stdout`, stderrPath: `${resultFile}.stderr` };
 }
 
+// The result file of fallback n (counted from 1), whose run's capture files sit beside it.
+function fallbackFile(resultFile, n) {
+  return `${resultFile}.fallback${n}`;
+}
+
+// The file that exists once the first fallback has started: Ignite's waking service watches it to
+// show the live status fallback while the turn runs.
+function fellBackFile(resultFile) {
+  return capturePaths(fallbackFile(resultFile, 1)).stdoutPath;
+}
+
 function blankResult(error) {
   return {
     ok: false, harness: null, model: null, effort: null, sessionId: null,
@@ -373,7 +384,7 @@ async function runTurnAsync(args) {
     for (const next of v.fallbacks || []) {
       if (!failedToStart()) break;
       failed.push({ harness: result.harness, model: result.model, error: result.error, end: attemptEnd(outcome) });
-      outcome = await spawnTurn(next, `${resultFile}.fallback${failed.length}`);
+      outcome = await spawnTurn(next, fallbackFile(resultFile, failed.length));
       result = buildResult(next, outcome);
     }
     if (v.fallbacks) result = { ...result, failed, exhausted: failedToStart() };
@@ -403,5 +414,5 @@ function runTurn(args) {
 
 module.exports = {
   USAGE, requestPaths, validate, argvFor, stdinFor, noteLine, parseSessionEvents,
-  capturePaths, blankResult, buildResult, writeResult, runTurn, runTurnAsync,
+  capturePaths, fellBackFile, blankResult, buildResult, writeResult, runTurn, runTurnAsync,
 };

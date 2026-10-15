@@ -24,6 +24,10 @@ const TICK_MS = 30_000;
 const SWEEP_MS = 1_000;
 // How often the live status ticker runs a pass; its frames and budget are its own (status-ticker.js).
 const STATUS_MS = 250;
+// How long a stop waits for the live status pass in flight before it releases the lock anyway.
+const STATUS_STOP_MS = 5_000;
+// The live status budget and 429 pause, kept across a restart, beside the lock.
+const PACE_FILE = 'live-status-pace.json';
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 function log(fields) {
@@ -68,6 +72,20 @@ function acquireLock(lockPath) {
   const refused = new Error(`daemon already running: ${lockPath}`);
   refused.exitCode = 1;
   throw refused;
+}
+
+// The ticker's pace in one JSON file, replaced whole so that a stop never leaves half of it.
+function filePace(file) {
+  return {
+    load() {
+      try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+    },
+    save(state) {
+      const temp = `${file}.${process.pid}.tmp`;
+      fs.writeFileSync(temp, JSON.stringify(state));
+      fs.renameSync(temp, file);
+    },
+  };
 }
 
 function releaseLock(held) {
@@ -190,14 +208,16 @@ async function startLocked(opts, workspace, held) {
   const closed = new Promise((resolve) => { drained = resolve; });
   let socket = opts.socket || null;
   const timers = [];
+  // Settles once the live status pass in flight at a stop has ended; the lock is released then.
+  let statusDone = Promise.resolve();
   let stop = (reason) => {
     log({ event: 'stop', reason, left: [] });
     try { socket?.stop(); } catch (error) { log({ event: 'socket-stop', message: error.message }); }
     releaseLock(held);
   };
   if (opts.signals !== false) {
-    process.once('SIGTERM', () => { stop('SIGTERM'); process.exit(0); });
-    process.once('SIGINT', () => { stop('SIGINT'); process.exit(0); });
+    process.once('SIGTERM', () => { stop('SIGTERM'); statusDone.then(() => process.exit(0)); });
+    process.once('SIGINT', () => { stop('SIGINT'); statusDone.then(() => process.exit(0)); });
   }
 
   function clock() {
@@ -301,8 +321,10 @@ async function startLocked(opts, workspace, held) {
     } finally {
       inflight.delete(slug);
       if (stopping) {
-        closeStore(slug);
-        if (inflight.size === 0) drained();
+        statusDone.then(() => {
+          closeStore(slug);
+          if (inflight.size === 0) drained();
+        });
       }
     }
   }
@@ -414,7 +436,14 @@ async function startLocked(opts, workspace, held) {
     stores: () => [...stores.entries()].map(([slug, store]) => ({ slug, store })),
     slack: () => slack,
     log,
+    pace: filePace(path.join(path.dirname(held.lockPath), PACE_FILE)),
   });
+
+  // The pass in flight ends first, so its reaction calls and their records land before another
+  // service can start; a pass stuck on Slack is given up after STATUS_STOP_MS.
+  function stopStatus() {
+    return Promise.race([ticker.stop(), new Promise((resolve) => setTimeout(resolve, STATUS_STOP_MS).unref())]);
+  }
 
   async function drain() {
     if (stopping) return;
@@ -443,11 +472,13 @@ async function startLocked(opts, workspace, held) {
     }
     log({ event: 'stop', reason, left });
     try { socket?.stop(); } catch (error) { log({ event: 'socket-stop', message: error.message }); }
-    releaseLock(held);
-    for (const slug of [...stores.keys()]) {
-      if (!inflight.has(slug)) closeStore(slug);
-    }
-    if (inflight.size === 0) drained();
+    statusDone = stopStatus().then(() => {
+      releaseLock(held);
+      for (const slug of [...stores.keys()]) {
+        if (!inflight.has(slug)) closeStore(slug);
+      }
+      if (inflight.size === 0) drained();
+    });
     return closed;
   }
 
@@ -468,9 +499,9 @@ async function startLocked(opts, workspace, held) {
       ctx.slack = slack;
       socket = slack;
     }
-    // What the stopped service showed, read before any event or turn can change a state.
+    // Live status runs from the start: the first scheduling pass below may run whole turns.
     for (const slug of agentSlugs(workspace)) getStore(slug);
-    ticker.baseline();
+    timers.push(setInterval(() => { if (!stopping) ticker.step(); }, opts.statusMs ?? STATUS_MS));
     if (socket) await socket.connect(onEvent);
     await tick();
     timers.push(setInterval(() => { tick().catch((error) => log({ event: 'tick', message: error.message })); }, opts.tickMs ?? TICK_MS));
@@ -479,10 +510,11 @@ async function startLocked(opts, workspace, held) {
       for (const slug of agentSlugs(workspace)) kick(slug);
     }, opts.sweepMs ?? SWEEP_MS));
     timers.push(setInterval(() => { drain().catch((error) => log({ event: 'outbox', message: error.message })); }, opts.drainMs ?? SWEEP_MS));
-    timers.push(setInterval(() => { if (!stopping) ticker.step(); }, opts.statusMs ?? STATUS_MS));
     log({ event: 'ready', pid: process.pid, installation: workspace });
     return { stop, config, onEvent };
   } catch (error) {
+    for (const timer of timers) clearInterval(timer);
+    await stopStatus();
     releaseLock(held);
     throw error;
   }
