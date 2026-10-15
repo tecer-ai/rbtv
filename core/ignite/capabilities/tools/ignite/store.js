@@ -235,6 +235,8 @@ class Store {
       for (const added of ['subject', 'check_tool']) {
         if (!columns.includes(added)) this.db.exec(`ALTER TABLE schedules ADD COLUMN ${added} TEXT`);
       }
+      const live = this.db.prepare('PRAGMA table_info(live_status)').all().map((column) => column.name);
+      if (!live.includes('shown')) this.db.exec('ALTER TABLE live_status ADD COLUMN shown TEXT');
       // Older databases allowed one pending timer wake per agent; a wake is now identified by its queue id.
       this.db.exec('DROP INDEX IF EXISTS queue_one_pending_schedule');
     });

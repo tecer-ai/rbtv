@@ -753,6 +753,25 @@ test('pendingScheduleIds retains a running wake and drops completed wakes', (sto
   assert.deepEqual(store.pendingScheduleIds(), []);
 });
 
+test('a live_status table made before the shown column gains it when the store opens', (store, ctx) => {
+  store.close();
+  const { DatabaseSync } = require('node:sqlite');
+  const old = new DatabaseSync(ctx.db);
+  old.exec('DROP TABLE live_status');
+  old.exec(`CREATE TABLE live_status (channel TEXT NOT NULL, ts TEXT NOT NULL, conversation_key TEXT NOT NULL,
+    system TEXT, agent TEXT, task TEXT, run_id TEXT, rev INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+    PRIMARY KEY (channel, ts))`);
+  old.close();
+  const reopened = ctx.open();
+  try {
+    reopened.setLiveStatus({ conversationKey: 'T1:C1:1.1', channel: 'C1', ts: '1.1', system: 'queued' });
+    reopened.setLiveShown('C1', '1.1', { order: ['hourglass_flowing_sand'], unsure: [] });
+    assert.deepEqual(JSON.parse(reopened.getLiveStatus('C1', '1.1').shown), { order: ['hourglass_flowing_sand'], unsure: [] });
+  } finally {
+    reopened.close();
+  }
+});
+
 async function runAll() {
   for (const [name, fn] of pending) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-store-'));
