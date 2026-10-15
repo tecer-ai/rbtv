@@ -40,7 +40,7 @@ _MACHINE_DATA = ("state.sqlite*", "turns/", "conversations/*/session*")
 
 def _ignore_patterns() -> list[str]:
     """Harness outputs, settings.json, runtime, tmp and machine data.
-    Not `rbtv/`, `work/`, `memory/` or `_artifacts/`."""
+    Not `rbtv/`, `work/`, `output/`, `memory/` or `_artifacts/`."""
     folders = {
         path.partition("{name}")[0].rstrip("/") + "/"
         for paths in MATRIX.values()

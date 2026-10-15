@@ -104,6 +104,7 @@ RBTV_FOLDERS = (
     ("config", "configuration", "core/rbtv/capabilities/glossary/config.md"),
     ("agents", "agents found by name", "core/rbtv/capabilities/glossary/agent.md"),
     ("runtime", "operational data", "core/rbtv/capabilities/glossary/runtime.md"),
+    ("output", "component output", "core/rbtv/capabilities/glossary/output.md"),
     ("memory", "shared memory", "core/rbtv/capabilities/glossary/memory-folder.md"),
 )
 

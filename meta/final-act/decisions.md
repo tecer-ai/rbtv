@@ -30,9 +30,21 @@ The six checks a file left for a later agent must pass are in the skill's entry 
 
 No script and no work-log: done entries are deleted or moved verbatim to a file the user names, after the user saw the list; a seat with no user sweeps nothing. Reason: the sweep is usually a handful of lines, a script would have bound the method to one task-file convention, the work-log duplicated handoff and work history, and a sweep removes lines.
 
-## Compound documents what the user picks, and implements nothing
+## Compound collects three classes of scaffolding issue, sweeps the record by sub-agents, and implements nothing
 
-The agent lists the session's corrections, failures and patterns with a cause and a file each; the user chooses the rows and the lessons; each becomes one dated entry in a backlog file the user confirms. No always-on recurrence-check rule accompanies it. Reason: the view that produced a mistake is the wrong view to judge it alone, and an edit to a rule or page is the owner's to ask for.
+A compound entry is one of three classes: an instruction the agent did not follow, a skill, tool, rule or agent that failed, was worked around or was missing, or a dangerous action; a slip with no lesson for the scaffolding is not one, and a correction about the work itself goes to memory or the board. The collection starts with a mechanical sweep of the session's record (the `session-sweep` tool cuts it into moments; labeler sub-agents on the mechanical class label them), then the agent's recall, then at the full tier three checker waves against the instructions in force, the decisions and requests, and the disk. The candidates go through the shared triage; the owner rules; no page, rule or prompt is edited by this method. Reason: owner decisions, 2026-10-14 and 2026-10-15. The earlier method asked for every correction, failure and pattern and proposed mechanical slips (a wrong count in a message) while missing the real entries, which surfaced only when the owner named the three classes; the agent's recall also left unfiled incidents it had told the owner about in the same thread, which a grep of the record shows. An instruction deviation counts without an effect because the skipped memory refresh of 2026-10-13 had none either and the lesson (nothing triggers it) was the same. The tiers exist because a full collection and three waves at every close costs more than most closes are worth; the full tier finds the silent deviations the sweep cannot.
+
+## Compound entries go to the compound backlog of their scope, never to the project
+
+An entry about an agent's own prompt, tools or skills is written in that agent's `output/final-act/compound/compound.md`; an entry about the installation or about a shipped rbtv component is written in the installation's `.rbtv/output/final-act/compound/compound.md` with its scope, and a rbtv-scoped entry reaches the rbtv repository by a *move* ruling at triage. An installation's instruction file may name another backlog. When no user can answer, entries are written marked unruled. Reason: owner decisions, 2026-10-15. The earlier default (the project's loose-ends or tasks file) filed scaffolding issues in the tracker of the matter, so one day's findings landed in four places; a loose end is about what the session worked on and a compound entry about what it worked with, and each belongs where its fixer looks. The owner chose the split by scope at write time, with the triage move as the correction for a wrong split, over one intake with a scope column. Headless entries are written because a candidate table in a final message nobody reads is the loss the method exists to prevent; the backlog header already says nothing there is a task until ruled.
+
+## An agent whose conversation never closes runs compound on request, with the thread as the session
+
+Such an agent (one that answers a conversation thread, with no session close) receives the `final-act` skill and runs compound when the user asks; its session is the thread. Reason: owner decision, 2026-10-15; no other trigger (a board close, a daily briefing) was chosen for now.
+
+## The close verifies status claims with the sanity check
+
+When the requests table carries a status the session did not observe itself, or the close releases an outward action, the entry step runs the coordinate skill's sanity check on those rows before showing the table as fact. Reason: owner decision, 2026-10-15. Three of the sanity check's angles (history sweep, live state, docs consistency) are independent versions of what the requests and hygiene checks do by self-report; the method itself stays in coordinate because its trigger is any moment the user is about to act on an output, not only a close.
 
 ## Loose ends go to the backlog the project already uses
 
@@ -40,7 +52,7 @@ A kept loose end is filed in the project's tasks, loose-ends or issues file; whe
 
 ## A close with no part named proposes a set and runs it in a fixed order
 
-Loose ends always; handoff when work leaves unfinished; compound when corrections were received; work history and archivist on request; run as loose ends, handoff, compound, archivist, work history. Reason: one ask per close, and loose ends must decide what becomes a task before the handoff writes the state.
+Loose ends always; compound always at its default tier, the full tier proposed for a long session, one with sub-agents or one on shared surfaces; handoff when work leaves unfinished; work history and archivist on request; run as loose ends, handoff, compound, archivist, work history. Reason: one ask per close, and loose ends must decide what becomes a task before the handoff writes the state. Compound runs at every close since 2026-10-15 because its sweep finds what the agent did not notice, so "no correction received" is not evidence of nothing to compound.
 
 ## A work-history collection is git-ignored unless the user asks to commit it
 

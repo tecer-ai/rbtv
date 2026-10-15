@@ -747,7 +747,7 @@ list, once each file. rbtv/ under the agent folder is that agent's own
 source. It is installed for every harness on add, with no extra flag.
 A tool there is listed in the rbtv-tools rule and is not placed on PATH.
 A missing .gitignore ignores harness files, settings.json and runtime/.
-It does not ignore rbtv/, memory/, work/ or _artifacts/.
+It does not ignore rbtv/, memory/, work/, output/ or _artifacts/.
 
 --harness, --model and --effort are required, all three, when agent.json
 has none: always the case for an agent a component ships. They are checked

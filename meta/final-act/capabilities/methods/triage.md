@@ -18,6 +18,8 @@ Read each entry's full body, then classify it:
 | move | Real value that belongs in another home, because it must outlive this backlog or another owner's list is where it acts: carry its full context there and leave a pointer, not a copy |
 | owner-decision | A decision only the owner can make, on which something real waits. A question nobody needs answered is below the bar |
 
+When the loose-ends or the compound method sends you its list, also check each entry's tracker: an entry about the matter worked on belongs with the loose ends, an entry about the scaffolding worked with (a skill, tool, rule, agent or instruction) belongs in the compound backlog; one in the wrong list is a *move* to the other.
+
 Check staleness cheaply: look for the one fact that would kill the entry (the event it was gated on happened; later work already fixed it). Do not re-investigate the world to rule on an entry.
 
 For a big backlog, or an entry that drags in bulky context, do not read it all yourself: have sub-agents pre-assess in small scopes, as the `coordinate` skill says (its digest capability where present), writing to scratch files, and read their assessments. Every verdict is still yours.

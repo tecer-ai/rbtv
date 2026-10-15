@@ -15,7 +15,7 @@ A loose end is one of these four, and only these:
 | Partial completion | The job is closing with a known piece unfinished |
 | Surfaced blocker | A defect or blocker you hit and left unaddressed |
 
-In-scope work is never a loose end: what the job's own success criteria require is the job, finished regardless of size, or closed as a surfaced blocker when it genuinely cannot proceed. A speculative improvement nobody asked for is not a loose end. A loose end that is already a task is not listed again: its existing task is enriched instead.
+In-scope work is never a loose end: what the job's own success criteria require is the job, finished regardless of size, or closed as a surfaced blocker when it genuinely cannot proceed. A speculative improvement nobody asked for is not a loose end. A loose end that is already a task is not listed again: its existing task is enriched instead. An issue about the scaffolding you worked with (a skill, tool, rule, agent or instruction that failed, was missing or was not followed) is not a loose end either: it is a [compound](compound.md) entry, about what you worked *with*, where a loose end is about what you worked *on*.
 
 When sub-agents worked for you, every loose end their returns surfaced enters this list, and each goes through the two tests below yourself: filing everything a worker surfaced is not diligence.
 

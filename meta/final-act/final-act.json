@@ -1,4 +1,9 @@
 {
   "description": "Closing a session: the final-act skill checks every request was finished, cleans the files left for later agents, and routes to handoff, loose ends, compound, archivist and work history. A moment of judgment during the session belongs to reason.",
-  "dependencies": []
+  "dependencies": [
+    {
+      "name": "python",
+      "install": "https://www.python.org/downloads/"
+    }
+  ]
 }

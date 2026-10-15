@@ -17,6 +17,7 @@ The installation-level tree sits beside the agent tree. These names are rbtv-own
   config/install.json     required once the installation has a saved selection
   config/<component>/     settings, choices and keys that component stores
   runtime/<component>/    operational data for that component
+  output/<component>/     what that component produced for people to read and rule on
   memory/                 the installation's shared memory
   mirror/                 installation-specific components, including _skills/
   agents/                 agents found by name
@@ -27,6 +28,7 @@ The installation-level tree sits beside the agent tree. These names are rbtv-own
 | `config/install.json` | operational record of the selection | the installer | the installer | no |
 | `config/<component>/` | what the user chose or supplied | that component | that component | no |
 | `runtime/<component>/` | operational data | that component | that component | no; not disposable |
+| `output/<component>/` | records for a reader | that component's methods | the owner and agents | yes |
 | `memory/` | durable shared memory | the memory writer | agents allowed to read it | as memory's own rule states |
 | `mirror/` | authored installation-specific source | the user or an agent | the installer | the user's choice |
 | `agents/` | agent folders found by name | `rbtv agent add` | launch and list | authored source yes; see the agent section |
@@ -69,6 +71,7 @@ Required paths are the ones in Mandatory for rbtv. The rest are created when nee
   runtime/                  required; operational data, outside source
     ignite/                 optional; database, conversations and turn records
     <tool-or-concern>/      optional; durable runs, receipts, cursors, logs and caches
+  output/<component>/       optional; what a component produced about this agent for people to read and rule on
   memory/                   baseline; learned rules, topics and topic index
   _artifacts/board.md       baseline; retained board path
   tmp/                      optional; disposable working material only
@@ -84,6 +87,7 @@ Generated harness files stay at the paths each harness requires. The installer o
 | `settings.json` | machine-local choices | the agent for its own tools, hooks and MCP servers; owner choices are kept | the agent | no |
 | `rbtv/` | authored source | the agent | the installer | yes |
 | `runtime/` | operational data | the tool that owns the bucket | that tool | no; not disposable |
+| `output/<component>/` | records for a reader, about this agent | that component's methods | the owner and the agent | yes |
 | `memory/`, `_artifacts/board.md` | durable baseline records | the memory and board writers | the agent | yes |
 | `tmp/` | disposable material | the agent | the agent, for the current task | no |
 | `work/` | the work convention's root | the agent | the agent and later readers | yes |

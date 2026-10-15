@@ -1,0 +1,5 @@
+{
+  "name": "session-sweep",
+  "description": "Sweeps one session's record for the compound step: finds the record by a marker, cuts the user's messages, the signalled tool results and the sub-agent reports into chunks for labelers, renders the visible events as a numbered transcript for checkers, and checks that every chunk has a well-formed label file.",
+  "entry": "session-sweep.py"
+}
