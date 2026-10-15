@@ -289,6 +289,40 @@ No Slack request or interactive prompt in this command.
 Example: ignite post --thread T1:C1:123.456 --text "Check complete"
 `,
 
+  status: `ignite status — show the owner what this turn is doing
+
+usage: ignite status <state> [--json]
+       ignite status --task (done | caveats | question | stopped) --message <ts> [--json]
+
+Run inside a turn. The owner cannot see your terminal; the waking service shows each owner
+message's state in Slack. Ignite shows working when every turn starts. When you move to a
+different kind of work, declare it as <state>:
+  gathering      reading, searching, collecting what the work needs
+  thinking       analysing, comparing, deciding, planning
+  making         writing, building, editing files
+  orchestrating  launching and coordinating workers
+The state shows on the owner message this turn answers until you declare another or the turn ends.
+A turn that answers no owner message (a scheduled wake) has nowhere to show it: exit 0 and
+"nothing shown: this turn answers no owner message".
+
+The task state of this turn's own message comes from RESULT_FILE: disposition completed, waiting_owner
+or stopped, and "caveats": true with completed. --task with --message sets the task state of an
+earlier owner message of this conversation, by its Slack timestamp, when its state changed since:
+  done      the work is done
+  caveats   done, with problems worth a follow-up
+  question  waits for the owner's answer
+  stopped   the owner stopped it
+--task refuses this turn's own message.
+
+Uses IGNITE_CONVERSATION and the agent home, which the waking service sets inside a turn; without
+IGNITE_CONVERSATION the command is refused.
+Success: exit 0, "<state> shown on <ts>" or "task <state> shown on <ts>". --json: {state, message}
+or {task, message}. An unknown state is refused with the valid states.
+${REFUSED_WORDS}
+No Slack request in this command.
+Example: ignite status thinking
+`,
+
   board: `ignite board — checked short-term memory
 
 Write or close a subject on the agent's board, <home>/_artifacts/board.md. The board is checked

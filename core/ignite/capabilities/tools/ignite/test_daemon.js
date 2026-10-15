@@ -785,6 +785,41 @@ test('daemon marks idle on ticks and answered on owner ingress even while held',
   }
 });
 
+test('the service shows each owner message\'s live status in Slack and takes stored ones as already shown', async () => {
+  const { dir, home } = workspace();
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
+  // Held, so no turn runs: the message stays queued. An older message's status was shown before the restart.
+  store.db.prepare('INSERT INTO settings(key, value, updated_at) VALUES (?, ?, ?)')
+    .run('agent_hold', JSON.stringify({ reason: 'test', at: Date.now() }), Date.now());
+  store.upsertConversation({ key: 'T1:D1:1.000001', agent: 'master', workspace: 'T1', channel: 'D1', rootTs: '1.000001' });
+  store.setLiveStatus({ conversationKey: 'T1:D1:1.000001', channel: 'D1', ts: '1.000001', system: 'running', task: 'done' });
+  store.close();
+  const calls = [];
+  const slack = {
+    ...fakeSlack(),
+    async addReaction(channel, ts, name) { calls.push(`add ${ts} ${name}`); },
+    async removeReaction(channel, ts, name) { calls.push(`remove ${ts} ${name}`); },
+  };
+  const socket = fakeSocket();
+  const prev = process.env.PATH;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prev || ''}`;
+  let runtime;
+  try {
+    runtime = await start({ workspace: dir, slack, socket, signals: false,
+      tickMs: 60_000, sweepMs: 60_000, drainMs: 60_000, statusMs: 20 });
+    const input = { team: 'T1', channel: 'D1', channelType: 'im', ts: '2.000001', threadTs: '2.000001',
+      user: 'UOWNER', text: 'hello', files: [], isBotOrSelf: false };
+    assert.equal((await socket.inject(input)).queued, true);
+    for (let i = 0; i < 100 && !calls.length; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.deepEqual(calls, ['add 2.000001 hourglass_flowing_sand']);
+  } finally {
+    process.env.PATH = prev;
+    runtime?.stop('test');
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 linuxOnly('the nightly check wakes only on {"new":true,...}', 'the check tool is started as a program', async () => {
   const { dir, home } = workspace();
   const tool = path.join(home, 'nightly-check.js');

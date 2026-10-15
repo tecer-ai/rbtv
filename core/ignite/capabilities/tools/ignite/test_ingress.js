@@ -437,37 +437,48 @@ test('ack-after-store-write', async () => {
   assert.equal(result.workId, 'w1');
 });
 
-test('an accepted owner message is marked hourglass_flowing_sand; a duplicate is not marked again', async () => {
+test('an accepted owner message shows system queued; a duplicate writes nothing again', async () => {
   const h = harness();
   try {
     const first = await handleEvent(event({ ts: '5.100000' }), h.ctx);
     assert.equal(first.queued, true);
-    assert.deepEqual(h.slack.reactions.filter((r) => !r.removed), [
-      { channel: 'D1', ts: '5.100000', name: 'hourglass_flowing_sand' },
-    ]);
-    const before = h.slack.reactions.length;
+    const store = h.stores.get('master');
+    const row = store.getLiveStatus('D1', '5.100000');
+    assert.deepEqual({ system: row.system, agent: row.agent, task: row.task, key: row.conversation_key },
+      { system: 'queued', agent: null, task: null, key: 'T1:D1:5.100000' });
     const second = await handleEvent(event({ ts: '5.100000' }), h.ctx);
     assert.equal(second.ignored, 'duplicate');
-    assert.equal(h.slack.reactions.length, before);
-  } finally { h.close(); }
-});
-
-test('a non-owner or bot message is never marked', async () => {
-  const h = harness();
-  try {
-    await handleEvent(event({ user: 'USOMEONE' }), h.ctx);
-    await handleEvent(event({ isBotOrSelf: true }), h.ctx);
+    assert.equal(store.getLiveStatus('D1', '5.100000').rev, row.rev);
+    // Ingress makes no Slack reaction call: the waking service's ticker shows the state.
     assert.deepEqual(h.slack.reactions, []);
   } finally { h.close(); }
 });
 
-test('a reaction API error does not stop the owner message from being queued', async () => {
+test('a non-owner or bot message gets no live status', async () => {
   const h = harness();
   try {
-    h.slack.reactionError = 'ratelimited';
+    await handleEvent(event({ user: 'USOMEONE' }), h.ctx);
+    await handleEvent(event({ isBotOrSelf: true }), h.ctx);
+    assert.equal(h.stores.size, 0);
+    assert.deepEqual(h.slack.reactions, []);
+  } finally { h.close(); }
+});
+
+test('a live status write error does not stop the owner message from being queued', async () => {
+  const h = harness();
+  try {
+    const logs = [];
+    h.ctx.log = (fields) => logs.push(fields);
+    const openStore = h.ctx.openStore;
+    h.ctx.openStore = (slug) => {
+      const store = openStore(slug);
+      store.setLiveStatus = () => { throw new Error('disk full'); };
+      return store;
+    };
     const result = await handleEvent(event({ ts: '6.100000' }), h.ctx);
     assert.equal(result.queued, true);
     assert.equal(queueCount(h.stores.get('master')), 1);
+    assert.deepEqual(logs, [{ event: 'status-failed', message: 'disk full' }]);
   } finally { h.close(); }
 });
 

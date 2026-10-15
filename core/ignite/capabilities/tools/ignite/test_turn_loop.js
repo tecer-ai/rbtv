@@ -59,6 +59,8 @@ const args = process.argv;
 const request = JSON.parse(fs.readFileSync(args[args.indexOf('--request') + 1], 'utf8'));
 const resultFile = args[args.indexOf('--result') + 1];
 const control = JSON.parse(fs.readFileSync(process.env.FAKE_CAST_CONTROL, 'utf8'));
+// touchFallback: what \`ignite turn\` does when it starts its first fallback.
+if (control.touchFallback) fs.writeFileSync(resultFile + '.fallback1.stdout', '');
 fs.appendFileSync(process.env.FAKE_CAST_SEEN, JSON.stringify({
   harness: request.harness, model: request.model, effort: request.effort,
   cwd: request.cwd, agentHome: request.agentHome, session: request.session, prompt: request.prompt, env: request.env,
@@ -244,6 +246,12 @@ function seed(store, { key = 'T1:C1:1.1', id = '1.1', text = 'hello', files = []
   });
 }
 
+// The live status of an owner message, by its layers.
+function liveOf(store, ts = '1.1', channel = 'C1') {
+  const row = store.getLiveStatus(channel, ts);
+  return row && { system: row.system, agent: row.agent, task: row.task };
+}
+
 function pendingKinds(store) {
   return store.db.prepare("SELECT kind FROM queue WHERE state='pending' ORDER BY priority, id").all().map((row) => row.kind);
 }
@@ -271,7 +279,6 @@ async function exhaust(box) {
 for (const disposition of ['completed', 'continue', 'waiting_owner', 'waiting_workers', 'stopped']) {
   test(`disposition ${disposition}`, async (ctx) => {
     const box = harness(ctx);
-    if (disposition === 'completed') box.slack.reactionError = 'reaction down';
     seed(box.store, { text: `ask-${disposition}` });
     box.writeControl({ agent: agentOf(disposition), sessionId: 'ses-keep', stdout: 'HARNESS_STDOUT_SECRET' });
     box.sync();
@@ -292,8 +299,12 @@ for (const disposition of ['completed', 'continue', 'waiting_owner', 'waiting_wo
     const kinds = pendingKinds(box.store);
     if (disposition === 'continue') assert.deepEqual(kinds, ['continue']);
     else assert.deepEqual(kinds, []);
-    if (disposition === 'completed') assert.deepEqual(box.slack.marksOf('C1', '1.1'), []);
-    else assert.deepEqual(box.slack.marksOf('C1', '1.1'), ['eyes']);
+    // Before delivery the message keeps its agent state; waiting_workers shows waiting at once.
+    // The reply carries the task state the disposition gives, shown once it is delivered.
+    assert.deepEqual(liveOf(box.store), { system: 'running', agent: disposition === 'waiting_workers' ? 'waiting' : 'working', task: null });
+    const task = { completed: 'done', waiting_owner: 'question', stopped: 'stopped' }[disposition];
+    assert.deepEqual(outbox[0].payload.mark, { channel: 'C1', ts: '1.1', ...(task && { task }) });
+    assert.deepEqual(box.slack.reactions, []);
   });
 }
 
@@ -536,7 +547,7 @@ test('a turn that ran on a fallback tells the owner before the agent reply', asy
   assert.deepEqual(rows.map((row) => [row.id, row.conversation_key, row.payload]), [
     [`fallback:${result.runId}`, 'T1:C1:1.1', { text: `System message: the model ${nameOf(agentModel)} has failed (exit 1 after 4s), `
       + `the model ${nameOf(cheapFallback)} has failed (exit 1 after 4s), routing to ${nameOf(dearFallback)}`, audio: false, files: [] }],
-    [`reply:${result.runId}:0`, 'T1:C1:1.1', { text: 'reply-completed', audio: false, files: [], mark: { channel: 'C1', ts: '1.1' } }],
+    [`reply:${result.runId}:0`, 'T1:C1:1.1', { text: 'reply-completed', audio: false, files: [], mark: { channel: 'C1', ts: '1.1', task: 'done' } }],
   ]);
   const delivered = await deliverPending(box.store, { slack: box.slack });
   assert.deepEqual(delivered.map((row) => row.delivered), [true, true]);
@@ -1271,27 +1282,63 @@ test('an owner-alert queue failure leaves a visible instruction and never blocks
   assert.equal(box.logs[0].event, 'memory-alert-failed');
 });
 
-test('status marks: launch marks eyes, delivered replies mark heavy_check_mark', async (ctx) => {
+test('live status: a turn starts running and working, its delivered replies show the task', async (ctx) => {
   const box = harness(ctx);
   seed(box.store);
+  box.store.setLiveStatus({ conversationKey: 'T1:C1:1.1', channel: 'C1', ts: '1.1', system: 'queued' });
   box.sync();
-  await runOnce('master', box.deps);
-  assert.deepEqual(box.slack.marksOf('C1', '1.1'), ['eyes']);
+  const turn = runOnce('master', box.deps);
+  // Mid-turn: the default agent state is working and the row names the running turn.
+  let during = null;
+  for (let i = 0; i < 200 && !during; i++) {
+    const run = box.store.getActiveRun();
+    const row = box.store.getLiveStatus('C1', '1.1');
+    if (run && row.run_id === run.id) during = liveOf(box.store);
+    else await delay(5);
+  }
+  const result = await turn;
+  assert.deepEqual(during, { system: 'running', agent: 'working', task: null });
+  assert.equal(box.store.getLiveStatus('C1', '1.1').run_id, result.runId);
+  assert.deepEqual(liveOf(box.store), { system: 'running', agent: 'working', task: null });
   const [delivered] = await deliverPending(box.store, { slack: box.slack, audio: box.audio, home: box.home });
   assert.equal(delivered.delivered, true);
-  assert.deepEqual(box.slack.marksOf('C1', '1.1'), ['heavy_check_mark']);
+  assert.deepEqual(liveOf(box.store), { system: 'running', agent: null, task: 'done' });
 });
 
-test('status marks: a turn with no replies marks heavy_check_mark at once', async (ctx) => {
+test('live status: a turn with no replies shows its task at once', async (ctx) => {
   const box = harness(ctx);
   seed(box.store);
   box.writeControl({ agent: agentOf('completed', { replies: [] }), sessionId: 'ses-keep' });
   box.sync();
   await runOnce('master', box.deps);
-  assert.deepEqual(box.slack.marksOf('C1', '1.1'), ['heavy_check_mark']);
+  assert.deepEqual(liveOf(box.store), { system: 'running', agent: null, task: 'done' });
 });
 
-test('status marks: replied waits for every reply; a reply that gives up marks heavy_multiplication_x', async (ctx) => {
+test('live status: completed with caveats shows caveats; caveats is refused with another disposition', async (ctx) => {
+  const box = harness(ctx);
+  seed(box.store);
+  box.writeControl({ agent: agentOf('completed', { caveats: true }), sessionId: 'ses-keep' });
+  box.sync();
+  await runOnce('master', box.deps);
+  await deliverPending(box.store, { slack: box.slack, audio: box.audio, home: box.home });
+  assert.deepEqual(liveOf(box.store), { system: 'running', agent: null, task: 'caveats' });
+
+  seed(box.store, { id: '2.2', createdAt: 200 });
+  box.writeControl({ agent: agentOf('waiting_owner', { caveats: true }), sessionId: 'ses-keep' });
+  box.sync();
+  const refused = await runOnce('master', box.deps);
+  assert.equal(refused.failed, true);
+  assert.equal(box.store.db.prepare('SELECT error FROM runs WHERE id=?').get(refused.runId).error,
+    'caveats is valid only with disposition completed');
+  assert.deepEqual(liveOf(box.store, '2.2'), { system: 'retrying', agent: null, task: null });
+
+  box.writeControl({ agent: agentOf('completed', { caveats: 'yes' }), sessionId: 'ses-keep' });
+  box.setNow(box.now() + 5000);
+  const wrongType = await runOnce('master', box.deps);
+  assert.equal(box.store.db.prepare('SELECT error FROM runs WHERE id=?').get(wrongType.runId).error, 'caveats must be boolean');
+});
+
+test('live status: replies wait for each other; a reply that gives up shows system failed', async (ctx) => {
   const box = harness(ctx);
   seed(box.store);
   box.writeControl({
@@ -1301,7 +1348,7 @@ test('status marks: replied waits for every reply; a reply that gives up marks h
   await runOnce('master', box.deps);
   const rows = box.store.pendingOutbox();
   assert.equal(rows.length, 2);
-  assert.deepEqual(rows[0].payload.mark, { channel: 'C1', ts: '1.1' });
+  assert.deepEqual(rows[0].payload.mark, { channel: 'C1', ts: '1.1', task: 'done' });
   const post = box.slack.postMessage;
   box.slack.postMessage = async (args) => {
     if (args.text === 'two') throw new Error('slack down');
@@ -1309,43 +1356,42 @@ test('status marks: replied waits for every reply; a reply that gives up marks h
   };
   const deps = { slack: box.slack, audio: box.audio, home: box.home, now: () => 1e13 };
   await deliverPending(box.store, deps);
-  assert.deepEqual(box.slack.marksOf('C1', '1.1'), ['eyes']);
+  assert.deepEqual(liveOf(box.store), { system: 'running', agent: 'working', task: null });
   box.slack.postMessage = async () => { throw new Error('Slack chat.postMessage: channel_not_found'); };
   await deliverPending(box.store, { ...deps, now: () => 2e13 });
-  assert.deepEqual(box.slack.marksOf('C1', '1.1'), ['heavy_multiplication_x']);
+  assert.deepEqual(liveOf(box.store), { system: 'failed', agent: null, task: null });
 });
 
-test('status marks: a retryable failure goes back to hourglass_flowing_sand, a hold marks heavy_multiplication_x', async (ctx) => {
+test('live status: a retryable failure shows retrying without an agent, a hold shows failed', async (ctx) => {
   const box = harness(ctx);
   seed(box.store);
   box.writeControl({ ok: false, exitCode: 1, childExit: 1, error: 'session_identity_missing', stderr: 'boom' });
   box.sync();
   const first = await runOnce('master', box.deps);
   assert.equal(first.failure.held, false);
-  assert.deepEqual(box.slack.marksOf('C1', '1.1'), ['hourglass_flowing_sand']);
+  assert.deepEqual(liveOf(box.store), { system: 'retrying', agent: null, task: null });
   box.setNow(box.now() + 5000);
   await runOnce('master', box.deps);
-  assert.deepEqual(box.slack.marksOf('C1', '1.1'), ['hourglass_flowing_sand']);
+  assert.deepEqual(liveOf(box.store), { system: 'retrying', agent: null, task: null });
   box.setNow(box.now() + 30000);
   const third = await runOnce('master', box.deps);
   assert.equal(third.failure.held, true);
-  assert.deepEqual(box.slack.marksOf('C1', '1.1'), ['heavy_multiplication_x']);
+  assert.deepEqual(liveOf(box.store), { system: 'failed', agent: null, task: null });
 });
 
-test('status marks: recovery of a dead run goes back to hourglass_flowing_sand', async (ctx) => {
+test('live status: recovery of a dead run shows retrying', async (ctx) => {
   const box = harness(ctx);
   seed(box.store);
   box.sync();
-  assert.equal(box.store.claimNext(box.now()).kind, 'owner');
+  const claim = box.store.claimNext(box.now());
+  box.store.setLiveStatus({ conversationKey: 'T1:C1:1.1', channel: 'C1', ts: '1.1', system: 'running', agent: 'thinking', runId: claim.runId });
   const result = await runOnce('master', box.deps);
   assert.equal(result.recovered.failure.held, false);
-  assert.deepEqual(box.slack.reactions.slice(0, 2), [
-    { op: 'add', channel: 'C1', ts: '1.1', name: 'hourglass_flowing_sand' },
-    { op: 'remove', channel: 'C1', ts: '1.1', name: 'eyes' },
-  ]);
+  assert.equal(result.claimed, false);
+  assert.deepEqual(liveOf(box.store), { system: 'retrying', agent: null, task: null });
 });
 
-test('status marks: an untranscribable voice note marks heavy_multiplication_x', async (ctx) => {
+test('live status: an untranscribable voice note shows system failed', async (ctx) => {
   const box = harness(ctx);
   seed(box.store, { text: '', files: [{ name: 'note.m4a', mimetype: 'audio/mp4', filetype: 'm4a' }] });
   box.slack.downloads = [{ name: 'note.m4a', path: '/tmp/note.m4a' }];
@@ -1353,12 +1399,12 @@ test('status marks: an untranscribable voice note marks heavy_multiplication_x',
   box.sync();
   const result = await runOnce('master', box.deps);
   assert.equal(result.launched, false);
-  assert.deepEqual(box.slack.marksOf('C1', '1.1'), ['heavy_multiplication_x']);
+  assert.deepEqual(liveOf(box.store), { system: 'failed', agent: null, task: null });
   await deliverPending(box.store, { slack: box.slack, audio: box.audio, home: box.home });
-  assert.deepEqual(box.slack.marksOf('C1', '1.1'), ['heavy_multiplication_x']);
+  assert.deepEqual(liveOf(box.store), { system: 'failed', agent: null, task: null });
 });
 
-test('status marks: scheduled wakes and unmarked rows get no marks', async (ctx) => {
+test('live status: scheduled wakes and unmarked rows get none', async (ctx) => {
   const box = harness(ctx);
   const key = 'T1:C1:1.1';
   box.store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
@@ -1367,20 +1413,79 @@ test('status marks: scheduled wakes and unmarked rows get no marks', async (ctx)
   const result = await runOnce('master', box.deps);
   assert.equal(result.kind, 'schedule');
   await deliverPending(box.store, { slack: box.slack, audio: box.audio, home: box.home });
-  assert.deepEqual(box.slack.reactions, []);
+  assert.deepEqual(box.store.liveStatuses(), []);
 });
 
-test('status marks: a reaction API error never fails the turn or the delivery', async (ctx) => {
+test('live status: a status write error never fails the turn or the delivery', async (ctx) => {
   const box = harness(ctx);
   seed(box.store);
-  box.slack.reactionError = 'reaction down';
+  box.store.setLiveStatus = () => { throw new Error('disk full'); };
   box.sync();
   const result = await runOnce('master', box.deps);
   assert.equal(result.failed, undefined);
   assert.equal(result.disposition, 'completed');
   const [delivered] = await deliverPending(box.store, { slack: box.slack, audio: box.audio, home: box.home, log: (f) => box.logs.push(f) });
   assert.equal(delivered.delivered, true);
-  assert.equal(box.logs.some((f) => f.event === 'mark-failed'), true);
+  assert.equal(box.logs.some((f) => f.event === 'status-failed' && f.message === 'disk full'), true);
+});
+
+test('live status: continue keeps working; waiting_workers waits until the wake turn starts', async (ctx) => {
+  const box = harness(ctx);
+  seed(box.store);
+  box.writeControl({ agent: agentOf('continue', { replies: [] }), sessionId: 'ses-keep' });
+  box.sync();
+  await runOnce('master', box.deps);
+  assert.deepEqual(liveOf(box.store), { system: 'running', agent: 'working', task: null });
+  // The continue turn shows on the owner message of its work, and ends waiting for a worker.
+  box.writeControl({ agent: agentOf('waiting_workers', { replies: [], workers: [{ ref: 'w1', kind: 'cast' }] }), sessionId: 'ses-keep' });
+  const cont = await runOnce('master', box.deps);
+  assert.equal(cont.kind, 'continue');
+  assert.equal(box.store.getLiveStatus('C1', '1.1').run_id, cont.runId);
+  assert.deepEqual(liveOf(box.store), { system: 'running', agent: 'waiting', task: null });
+  // The wake turn starts working again on the same message, then its task shows.
+  assert.equal(box.store.wake({ conversationKey: 'T1:C1:1.1', note: 'w1 done' }).inserted, true);
+  box.writeControl({ agent: agentOf('completed', { replies: [] }), sessionId: 'ses-keep' });
+  const wake = await runOnce('master', box.deps);
+  assert.equal(wake.kind, 'wake');
+  assert.equal(box.store.getLiveStatus('C1', '1.1').run_id, wake.runId);
+  assert.deepEqual(liveOf(box.store), { system: 'running', agent: null, task: 'done' });
+});
+
+test('live status: a new turn of the conversation ends an earlier message\'s agent state', async (ctx) => {
+  const box = harness(ctx);
+  seed(box.store);
+  box.writeControl({ agent: agentOf('waiting_workers', { replies: [], workers: [{ ref: 'w1', kind: 'cast' }] }), sessionId: 'ses-keep' });
+  box.sync();
+  await runOnce('master', box.deps);
+  assert.deepEqual(liveOf(box.store), { system: 'running', agent: 'waiting', task: null });
+  seed(box.store, { id: '2.2', createdAt: 200 });
+  box.writeControl({ agent: agentOf('completed', { replies: [] }), sessionId: 'ses-keep' });
+  await runOnce('master', box.deps);
+  assert.deepEqual(liveOf(box.store), { system: 'running', agent: null, task: null });
+  assert.deepEqual(liveOf(box.store, '2.2'), { system: 'running', agent: null, task: 'done' });
+});
+
+test('live status: a turn shows fallback once ignite turn starts a fallback, and at the end when one ran', async (ctx) => {
+  const box = harness(ctx);
+  installationWithFallback(ctx, '{"fallback":"price"}');
+  seed(box.store);
+  // The stand-in starts its "fallback" and keeps running: the service sees it before the turn ends.
+  box.writeControl({ agent: agentOf('completed', { replies: [] }), sessionId: 'ses-keep', touchFallback: true, holdMs: 1500 });
+  box.sync();
+  const turn = runOnce('master', { ...box.deps, fallbackCheckMs: 20 });
+  let during = null;
+  for (let i = 0; i < 100 && !during; i++) {
+    await delay(10);
+    if (box.store.getActiveRun() && liveOf(box.store)?.system === 'fallback') during = liveOf(box.store);
+  }
+  await turn;
+  assert.deepEqual(during, { system: 'fallback', agent: 'working', task: null });
+
+  seed(box.store, { id: '2.2', createdAt: 200 });
+  box.writeControl({ agent: agentOf('completed', { replies: [] }), sessionId: 'codex-session-1', ranFallback: 1 });
+  box.sync();
+  await runOnce('master', box.deps);
+  assert.deepEqual(liveOf(box.store, '2.2'), { system: 'fallback', agent: null, task: 'done' });
 });
 
 async function runAll() {

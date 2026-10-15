@@ -119,38 +119,51 @@ test('a conversation still missing after reload stops delivery', async (store) =
 
 function markSlack() {
   const slack = {
-    reactions: [], error: null,
+    reactions: [],
     async postMessage(args) { return { channel: args.channel, ts: '9.1' }; },
-    async addReaction(channel, ts, name) {
-      if (slack.error) throw new Error(slack.error);
-      slack.reactions.push(`add ${name}`);
-    },
-    async removeReaction(channel, ts, name) {
-      if (slack.error) throw new Error(slack.error);
-      slack.reactions.push(`remove ${name}`);
-    },
+    async addReaction(channel, ts, name) { slack.reactions.push(`add ${name}`); },
+    async removeReaction(channel, ts, name) { slack.reactions.push(`remove ${name}`); },
   };
   return slack;
 }
 
-function markedRows(store, ids) {
+// Two reply rows answering owner message C1/1.1, whose turn is over: it still shows its agent state.
+function markedRows(store, ids, task = 'done') {
   const key = 'T1:C1:1.1';
   store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
+  store.setLiveStatus({ conversationKey: key, channel: 'C1', ts: '1.1', system: 'running', agent: 'working' });
   for (const id of ids) {
-    store.enqueueOutbox({ id, conversationKey: key, payload: { text: id, mark: { channel: 'C1', ts: '1.1' } } });
+    store.enqueueOutbox({ id, conversationKey: key, payload: { text: id, mark: { channel: 'C1', ts: '1.1', ...(task && { task }) } } });
   }
 }
 
-test('delivering every marked reply marks the owner message heavy_check_mark once', async (store) => {
+const shown = (store) => {
+  const row = store.getLiveStatus('C1', '1.1');
+  return { system: row.system, agent: row.agent, task: row.task };
+};
+
+test('delivering every marked reply shows its task in place of the agent state', async (store) => {
   markedRows(store, ['r1', 'r2']);
   const slack = markSlack();
+  const post = slack.postMessage;
+  let seenAfterFirst = null;
+  slack.postMessage = async (args) => {
+    if (args.text === 'r2') seenAfterFirst = shown(store);
+    return post(args);
+  };
   await deliverPending(store, { slack });
-  assert.deepEqual(slack.reactions, [
-    'add heavy_check_mark', 'remove hourglass_flowing_sand', 'remove eyes',
-  ]);
+  assert.deepEqual(seenAfterFirst, { system: 'running', agent: 'working', task: null });
+  assert.deepEqual(shown(store), { system: 'running', agent: null, task: 'done' });
+  assert.deepEqual(slack.reactions, []);
 });
 
-test('a marked reply that gives up marks heavy_multiplication_x and the other reply never marks replied', async (store) => {
+test('a mark with no task (continue, waiting_workers) changes nothing at delivery', async (store) => {
+  markedRows(store, ['r1'], null);
+  await deliverPending(store, { slack: markSlack() });
+  assert.deepEqual(shown(store), { system: 'running', agent: 'working', task: null });
+});
+
+test('a marked reply that gives up shows system failed and the other reply never shows the task', async (store) => {
   markedRows(store, ['r1', 'r2']);
   const slack = markSlack();
   const post = slack.postMessage;
@@ -159,20 +172,18 @@ test('a marked reply that gives up marks heavy_multiplication_x and the other re
     return post(args);
   };
   await deliverPending(store, { slack });
-  assert.deepEqual(slack.reactions, [
-    'add heavy_multiplication_x', 'remove hourglass_flowing_sand', 'remove eyes',
-  ]);
+  assert.deepEqual(shown(store), { system: 'failed', agent: null, task: null });
 });
 
-test('a retryable delivery failure marks nothing', async (store) => {
+test('a retryable delivery failure changes no live status', async (store) => {
   markedRows(store, ['r1']);
   const slack = markSlack();
   slack.postMessage = async () => { throw new Error('slack down'); };
   await deliverPending(store, { slack });
-  assert.deepEqual(slack.reactions, []);
+  assert.deepEqual(shown(store), { system: 'running', agent: 'working', task: null });
 });
 
-test('rows without a mark, and hold notices, never react', async (store) => {
+test('rows without a mark, and hold notices, change no live status', async (store) => {
   const key = 'T1:C1:1.1';
   store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
   store.enqueueOutbox({ id: 'plain', conversationKey: key, payload: { text: 'plain' } });
@@ -180,18 +191,17 @@ test('rows without a mark, and hold notices, never react', async (store) => {
   const slack = markSlack();
   const results = await deliverPending(store, { slack });
   assert.deepEqual(results.map((r) => r.delivered), [true, true]);
-  assert.deepEqual(slack.reactions, []);
+  assert.deepEqual(store.liveStatuses(), []);
 });
 
-test('a reaction API error never fails a delivery', async (store) => {
+test('a live status write error never fails a delivery', async (store) => {
   markedRows(store, ['r1']);
-  const slack = markSlack();
-  slack.error = 'Slack reactions.add: ratelimited';
+  store.setLiveStatus = () => { throw new Error('disk full'); };
   const logs = [];
-  const [result] = await deliverPending(store, { slack, log: (f) => logs.push(f) });
+  const [result] = await deliverPending(store, { slack: markSlack(), log: (f) => logs.push(f) });
   assert.equal(result.delivered, true);
   assert.equal(store.db.prepare('SELECT state FROM outbox WHERE id=?').get('r1').state, 'delivered');
-  assert.equal(logs[0].event, 'mark-failed');
+  assert.deepEqual(logs, [{ event: 'status-failed', message: 'disk full' }]);
 });
 
 async function runAll() {

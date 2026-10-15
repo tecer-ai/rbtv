@@ -11,6 +11,11 @@
 //   request includes systemPromptFile <home>/prompt.md (absolute). This file does not read or
 //   require CLAUDE.md.
 //   failRun enqueues the one blocker — this file does not.
+//   The live status of the owner message a turn answers (live-status.js): running and working at
+//   launch, fallback once `ignite turn` starts a fallback (its <result>.fallback1.stdout appears,
+//   checked every deps.fallbackCheckMs, else FALLBACK_CHECK_MS, and again at the end), retrying or
+//   failed on a failure, and at the end what the result's disposition gives. The replies carry the
+//   message and its task state in payload.mark, for outbox.js to show at delivery.
 // DEFAULT_HISTORY_WINDOW — re-exported for callers
 
 const fs = require('node:fs');
@@ -22,11 +27,12 @@ const { composeTurn, readTurnMemory } = require('./prompt.js');
 const { DEFAULT_HISTORY_WINDOW, historyPath, listAll, writeHistory } = require('./history.js');
 const { ignitePaths, resolveIgniteRuntime } = require('./config.js');
 const fallback = require('./fallback.js');
-const { setMark } = require('./marks.js');
+const live = require('./live-status.js');
 
 const AUDIO_EXT = new Set(['mp3', 'm4a', 'wav', 'ogg', 'webm', 'flac', 'aac', 'mpeg', 'mp4', 'mpga']);
 const DISPOSITIONS = new Set(['completed', 'continue', 'waiting_owner', 'waiting_workers', 'stopped']);
 const TRANSCRIPTION_FAILURE_REPLY = 'I could not transcribe that voice note; please send it as text.';
+const FALLBACK_CHECK_MS = 1_000;
 
 function clock(deps) {
   return deps.now ? deps.now() : Date.now();
@@ -109,6 +115,10 @@ function validateAgent(raw, nonce) {
   if (raw.disposition === 'continue' && !String(raw.nextStep || '').trim()) {
     throw fail('continue requires nextStep', 'work');
   }
+  if (raw.caveats != null) {
+    if (typeof raw.caveats !== 'boolean') throw fail('caveats must be boolean', 'work');
+    if (raw.disposition !== 'completed') throw fail('caveats is valid only with disposition completed', 'work');
+  }
   if (!Array.isArray(raw.workers)) throw fail('workers must be an array', 'work');
   for (const worker of raw.workers) {
     if (!worker || typeof worker.ref !== 'string' || typeof worker.kind !== 'string') {
@@ -188,11 +198,9 @@ function waitClose(child) {
   });
 }
 
-// A failed run goes back to received while it will retry, and to failed once it is held.
-async function markAfterFail(deps, run, failure) {
-  if (run.kind !== 'owner') return;
-  const conv = deps.store.getConversation(run.conversation_key);
-  await setMark(deps.slack, conv?.channel, run.payload?.ts, failure.held ? 'failed' : 'received', { log: deps.log });
+// A failed run shows retrying while it will retry, and failed once it is held.
+function statusAfterFail(deps, run, failure) {
+  live.failed(deps.store, live.messageOf(deps.store, run, deps.log), failure.held, deps.log);
 }
 
 async function recover(store, deps) {
@@ -200,7 +208,7 @@ async function recover(store, deps) {
   const active = store.getActiveRun();
   if (!active) return null;
   const failure = store.failRun(active.id, 'previous invocation is no longer running', { scope: 'work', now: clock(deps) });
-  await markAfterFail(deps, active, failure);
+  statusAfterFail(deps, active, failure);
   return { runId: active.id, failure };
 }
 
@@ -232,7 +240,7 @@ async function runOnce(slug, deps) {
     if (store.getActiveRun()?.id !== claim.runId) throw error;
     const scope = error.scope === 'agent' ? 'agent' : 'work';
     const failure = store.failRun(claim.runId, error.message, { scope, now: clock(deps) });
-    await markAfterFail(deps, claim, failure);
+    statusAfterFail(deps, claim, failure);
     return { slug, claimed: true, failed: true, runId: claim.runId, failure: { ...failure, scope }, recovered };
   }
 }
@@ -244,7 +252,7 @@ async function execute(slug, claim, deps) {
   const dir = path.join(ignitePaths(home).turns, claim.runId);
   fs.mkdirSync(dir, { recursive: true });
   const prepared = await preprocess(claim, deps, path.join(dir, 'files'));
-  const conv = store.getConversation(claim.conversation_key);
+  const message = live.messageOf(store, claim, deps.log);
   if (prepared.transcripts?.length) {
     store.recordMessage(claim.conversation_key, {
       id: `used:${claim.runId}`,
@@ -263,7 +271,7 @@ async function execute(slug, claim, deps) {
       outbox: [{ id: `transcript:${claim.id}`, text: TRANSCRIPTION_FAILURE_REPLY, audio: false, files: [] }],
     });
     writeHistory(home, store, claim.conversation_key);
-    await setMark(deps.slack, conv.channel, claim.payload?.ts, 'failed', { log: deps.log });
+    live.failed(store, message, true, deps.log);
     return { slug, claimed: true, launched: false, disposition: 'completed', work, runId: claim.runId };
   }
   if (prepared.transcriptError) {
@@ -348,6 +356,7 @@ async function execute(slug, claim, deps) {
   };
   fs.writeFileSync(requestPath, JSON.stringify(request));
 
+  live.started(store, message, claim.runId, deps.log);
   // Production always starts this tool's local `turn`; a test may replace that
   // program without changing the production command lookup contract.
   const turnCommand = deps.turnCommand || [process.execPath, path.join(__dirname, 'cli.js'), 'turn'];
@@ -359,15 +368,25 @@ async function execute(slug, claim, deps) {
   const exited = waitClose(child);
   const pidStart = child.pid ? procStart(child.pid) : null;
   if (child.pid && pidStart) store.attachProcess(claim.runId, { pid: child.pid, pidStart, setting });
-  if (claim.kind === 'owner') await setMark(deps.slack, conv.channel, claim.payload?.ts, 'working', { log: deps.log });
+  // `ignite turn` writes <result>.fallback1.stdout when it starts the first fallback in place of the
+  // agent's model.
+  const fellBack = `${launcherPath}.fallback1.stdout`;
+  const watch = message && request.fallbacks ? setInterval(() => {
+    if (!fs.existsSync(fellBack)) return;
+    clearInterval(watch);
+    live.fellBack(store, message, deps.log);
+  }, deps.fallbackCheckMs ?? FALLBACK_CHECK_MS) : null;
 
   let exitCode;
   try {
     exitCode = await exited;
   } catch (error) {
     throw fail(error.message, 'agent');
+  } finally {
+    if (watch) clearInterval(watch);
   }
   const launcher = readJson(launcherPath);
+  if (message && launcher?.failed?.length) live.fellBack(store, message, deps.log);
   fallback.report(launcher, plan, { store, claim, log: deps.log });
   const scope = launchScope(exitCode, launcher);
   if (scope) throw fail(concrete(exitCode, launcher, fallback.failureWords(launcher, plan)), scope);
@@ -380,8 +399,10 @@ async function execute(slug, claim, deps) {
     throw fail(error.message, 'work');
   }
   const output = fs.readFileSync(resultPath, 'utf8');
-  // The owner message the replies answer: outbox marks it replied once every reply is delivered.
-  const mark = claim.kind === 'owner' && claim.payload?.ts ? { channel: conv.channel, ts: claim.payload.ts } : null;
+  // The owner message the replies answer, and the task state outbox.js shows on it once every reply
+  // is delivered.
+  const task = live.taskOf(agent.disposition, agent.caveats === true);
+  const mark = message ? { channel: message.channel, ts: message.ts, ...(task && { task }) } : null;
   const work = commit(store, claim, {
     output,
     disposition: agent.disposition,
@@ -396,7 +417,7 @@ async function execute(slug, claim, deps) {
     })),
   });
   writeHistory(home, store, claim.conversation_key);
-  if (mark && !agent.replies.length) await setMark(deps.slack, mark.channel, mark.ts, 'replied', { log: deps.log });
+  live.ended(store, message, agent.disposition, task, agent.replies.length, deps.log);
   const snapshot = store.db.prepare('SELECT launch_snapshot FROM runs WHERE id=?').get(claim.runId);
   return {
     slug,

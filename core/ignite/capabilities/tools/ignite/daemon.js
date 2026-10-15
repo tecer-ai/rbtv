@@ -11,6 +11,7 @@ const { Store } = require('./store.js');
 const { handleEvent } = require('./ingress.js');
 const { runOnce } = require('./turn-loop.js');
 const { deliverPending } = require('./outbox.js');
+const { createTicker } = require('./status-ticker.js');
 const { Slack } = require('./slack.js');
 const { Audio } = require('./audio.js');
 const { refreshBoard } = require('./board.js');
@@ -21,6 +22,8 @@ const deferred = require('./deferred-deploy.js');
 
 const TICK_MS = 30_000;
 const SWEEP_MS = 1_000;
+// How often the live status ticker runs a pass; its frames and budget are its own (status-ticker.js).
+const STATUS_MS = 250;
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 function log(fields) {
@@ -406,6 +409,13 @@ async function startLocked(opts, workspace, held) {
     }
   }
 
+  // Live status pacing follows Slack's real rate limits, so it reads the real clock, not opts.now.
+  const ticker = createTicker({
+    stores: () => [...stores.entries()].map(([slug, store]) => ({ slug, store })),
+    slack: () => slack,
+    log,
+  });
+
   async function drain() {
     if (stopping) return;
     for (const slug of agentSlugs(workspace)) {
@@ -458,6 +468,9 @@ async function startLocked(opts, workspace, held) {
       ctx.slack = slack;
       socket = slack;
     }
+    // What the stopped service showed, read before any event or turn can change a state.
+    for (const slug of agentSlugs(workspace)) getStore(slug);
+    ticker.baseline();
     if (socket) await socket.connect(onEvent);
     await tick();
     timers.push(setInterval(() => { tick().catch((error) => log({ event: 'tick', message: error.message })); }, opts.tickMs ?? TICK_MS));
@@ -466,6 +479,7 @@ async function startLocked(opts, workspace, held) {
       for (const slug of agentSlugs(workspace)) kick(slug);
     }, opts.sweepMs ?? SWEEP_MS));
     timers.push(setInterval(() => { drain().catch((error) => log({ event: 'outbox', message: error.message })); }, opts.drainMs ?? SWEEP_MS));
+    timers.push(setInterval(() => { if (!stopping) ticker.step(); }, opts.statusMs ?? STATUS_MS));
     log({ event: 'ready', pid: process.pid, installation: workspace });
     return { stop, config, onEvent };
   } catch (error) {

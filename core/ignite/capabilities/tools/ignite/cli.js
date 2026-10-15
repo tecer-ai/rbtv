@@ -18,8 +18,9 @@ const { cadenceSpec, nextOccurrence, FIXED_TZ } = require('./schedule.js');
 const { writeBoard, closeSubject, boardPath, preflightBoard, refreshBoard, refreshBoardAfterCommit } = require('./board.js');
 const { workspaceFromHome, remember } = require('./memory.js');
 const { PAGES, helpPage } = require('./help.js');
+const live = require('./live-status.js');
 
-const COMMANDS = ['schedule', 'schedules-due', 'work', 'wake', 'post', 'board', 'remember', 'runtime'];
+const COMMANDS = ['schedule', 'schedules-due', 'work', 'wake', 'post', 'status', 'board', 'remember', 'runtime'];
 const REPORTS = new Set(['always', 'when-useful']);
 
 // What each verb takes beside --json, --agent, --installation and -h: its options, and the most
@@ -36,6 +37,7 @@ const VERBS = {
   'work stop': { options: [], words: 1 },
   wake: { options: ['conversation', 'note', 'work'], words: 0 },
   post: { options: ['text', 'text-file', 'file', 'audio', 'thread'], words: 0 },
+  status: { options: ['task', 'message'], words: 1 },
   'board write': { options: ['file', 'revision'], words: 0 },
   'board close': { options: [], words: 3 },
   remember: { options: [], words: Infinity },
@@ -62,6 +64,8 @@ Timers, work, messages and memory
   work           Show, retry, resume, or stop an assignment.
   wake           Enqueue a continuation when a worker finishes.
   post           Queue a Slack message in this agent's channel.
+  status         Show the owner what kind of work this turn is doing, or
+                 set an earlier owner message's task state.
   board          Write or close a subject on the board.
   remember       Append one owner fact to the installation memory inbox.
   runtime        Move this agent's database, conversations and turns into
@@ -74,8 +78,8 @@ Waking service
 Home: RBTV_AGENT_HOME, or --agent NAME --installation PATH.
   The installation defaults to the directory walk that finds
   .rbtv/config/ignite/config.json.
-  manage's four change verbs, and schedule, work, wake, post, board,
-  and remember, use that agent. Help needs neither value.
+  manage's four change verbs, and schedule, work, wake, post, status,
+  board and remember, use that agent. Help needs neither value.
   Inside a turn the waking program also sets IGNITE_CONVERSATION.
   A home that is not an existing folder is refused, and nothing is created.
 
@@ -626,12 +630,47 @@ function cmdRemember(rest, flags, deps) {
   }
 }
 
+// The words of status are checked before the home is opened: a refused one changes nothing.
+function checkStatus({ opts, positionals }, deps) {
+  const again = '\nNothing changed.\nignite status -h';
+  if (opts.task != null || opts.message != null) {
+    if (positionals.length) fail(`unexpected word '${positionals[0]}': status --task takes no state word${again}`);
+    if (opts.task == null) fail(`--message requires --task ${live.TASK.join('|')}${again}`);
+    if (opts.message == null) fail(`--task requires --message <ts>, the Slack timestamp of an earlier owner message${again}`);
+    if (!live.TASK.includes(opts.task)) fail(`unknown task state: ${opts.task}\nchoose from ${live.TASK.join(', ')}${again}`);
+  } else if (!positionals.length) {
+    fail(`status requires a state: ${live.DECLARED.join(', ')}${again}`);
+  } else if (!live.DECLARED.includes(positionals[0])) {
+    fail(`unknown state: ${positionals[0]}\nchoose from ${live.DECLARED.join(', ')}${again}`);
+  }
+  if (!(deps.env || process.env).IGNITE_CONVERSATION) {
+    fail(`ignite status runs inside a turn: IGNITE_CONVERSATION is not set${again}`);
+  }
+}
+
+function cmdStatus(ctx, flags, deps, { opts, positionals }) {
+  const key = (deps.env || process.env).IGNITE_CONVERSATION;
+  if (opts.task != null) {
+    const row = live.markTask(ctx.store, key, opts.message, opts.task);
+    emit(deps, flags, { task: row.task, message: row.ts }, `task ${row.task} shown on ${row.ts}\n`);
+    return 0;
+  }
+  const row = live.declare(ctx.store, key, positionals[0]);
+  if (!row) {
+    emit(deps, flags, { state: positionals[0], message: null }, 'nothing shown: this turn answers no owner message\n');
+    return 0;
+  }
+  emit(deps, flags, { state: row.agent, message: row.ts }, `${row.agent} shown on ${row.ts}\n`);
+  return 0;
+}
+
 function dispatch(command, rest, ctx, flags, deps, parsed) {
   if (command === 'schedule') return cmdSchedule(rest, ctx, flags, deps, parsed);
   if (command === 'schedules-due') return cmdDue(ctx, flags, deps, parsed);
   if (command === 'work') return cmdWork(rest, ctx, flags, deps, parsed);
   if (command === 'wake') return cmdWake(ctx, flags, deps, parsed);
   if (command === 'post') return cmdPost(ctx, flags, deps, parsed);
+  if (command === 'status') return cmdStatus(ctx, flags, deps, parsed);
   fail(`unknown command: ${command}`);
 }
 
@@ -695,10 +734,11 @@ function main(argv, deps = {}) {
   if (command === 'albert') return cmdAlbert(tail, flags, deps);
   if (command === 'runtime') return cmdRuntime(tail, flags, deps);
   if (command === 'deploy') return require('./deploy.js').run(tail, flags, deps, () => resolveInstallation(flags, deps));
-  if (!COMMANDS.includes(command)) fail(`unknown command: ${command}\nchoose from connect, disconnect, manage, turn,\nschedule, schedules-due, work, wake, post, board, remember, runtime, deploy\nNothing changed.\nignite -h`);
+  if (!COMMANDS.includes(command)) fail(`unknown command: ${command}\nchoose from connect, disconnect, manage, turn,\nschedule, schedules-due, work, wake, post, status, board, remember, runtime, deploy\nNothing changed.\nignite -h`);
   // The words are checked before the home is opened: a refused option creates no database.
   const verb = VERBS[`${command} ${tail[0]}`] ? `${command} ${tail[0]}` : command;
   const parsed = VERBS[verb] && parseOpts(verb === command ? tail : tail.slice(1), verb);
+  if (command === 'status') checkStatus(parsed, deps);
   const ctx = openContext(flags, deps, command === 'schedule' && ['add', 'change', 'cancel'].includes(tail[0]));
   try {
     return dispatch(command, tail, ctx, flags, deps, parsed);

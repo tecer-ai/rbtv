@@ -45,6 +45,13 @@
 //   answer plus advanced; a refused wake (agent_hold, refused) advances nothing, a duplicate advances
 // getSchedule(id) / listSchedules() / dueSchedules(now) / deleteSchedule(id) — rows carry check_tool, null for none
 // pendingScheduleIds() — ids of schedule wakes still pending or running, including spent one-shots
+// setLiveStatus({ conversationKey?, channel, ts, system?, agent?, task?, runId? }) — the live status of one
+//   owner message (live-status.js names the states). A field left out keeps its value, null clears it.
+//   conversationKey is needed only to insert: without it, a message with no row is skipped (null).
+//   Every write takes the next rev, so a reader asks for the rows changed since the rev it last read.
+// getLiveStatus(channel, ts) / liveStatusOfRun(runId)
+// liveStatuses({ sinceRev, conversationKey }) — rows with rev above sinceRev, oldest change first
+// ownerTs(workId) — Slack ts of the latest owner message queued for that work, or null
 // transaction(fn)
 
 const fs = require('node:fs');
@@ -203,6 +210,20 @@ class Store {
         value TEXT NOT NULL,
         updated_at INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS live_status (
+        channel TEXT NOT NULL,
+        ts TEXT NOT NULL,
+        conversation_key TEXT NOT NULL,
+        system TEXT,
+        agent TEXT,
+        task TEXT,
+        run_id TEXT,
+        rev INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (channel, ts)
+      );
+      CREATE INDEX IF NOT EXISTS live_status_rev ON live_status(rev);
+      CREATE INDEX IF NOT EXISTS live_status_conversation ON live_status(conversation_key);
     `);
     this.transaction(() => {
       const columns = this.db.prepare('PRAGMA table_info(schedules)').all().map((column) => column.name);
@@ -779,7 +800,7 @@ class Store {
     if (!row) throw new Error('unknown conversation');
     this.db.prepare(`INSERT INTO conversations(key, agent, workspace, channel, root_ts, activated, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)`).run(newKey, row.agent, row.workspace, row.channel, row.root_ts, row.activated, Date.now());
-    for (const table of ['messages', 'work', 'queue', 'outbox', 'conversation_sessions']) {
+    for (const table of ['messages', 'work', 'queue', 'outbox', 'conversation_sessions', 'live_status']) {
       this.db.prepare(`UPDATE ${table} SET conversation_key=? WHERE conversation_key=?`).run(newKey, oldKey);
     }
     // Schedules keep their creation reference for routing; it must still satisfy the foreign key.
@@ -870,6 +891,45 @@ class Store {
 
   deleteSchedule(id) {
     return this.db.prepare('DELETE FROM schedules WHERE id=?').run(id).changes === 1;
+  }
+
+  setLiveStatus({ conversationKey: conversationKeyValue = null, channel, ts, system, agent, task, runId }) {
+    if (!channel || !ts) throw new Error('live status channel and ts required');
+    return this.transaction(() => {
+      const row = this.getLiveStatus(channel, ts);
+      if (!row && !conversationKeyValue) return null;
+      const keep = (value, current) => (value === undefined ? current ?? null : value);
+      const rev = this.db.prepare('SELECT COALESCE(MAX(rev), 0) + 1 AS rev FROM live_status').get().rev;
+      this.db.prepare(`INSERT INTO live_status(channel, ts, conversation_key, system, agent, task, run_id, rev, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(channel, ts) DO UPDATE SET system=excluded.system, agent=excluded.agent, task=excluded.task,
+          run_id=excluded.run_id, rev=excluded.rev, updated_at=excluded.updated_at`).run(
+        channel, ts, row?.conversation_key ?? conversationKeyValue,
+        keep(system, row?.system), keep(agent, row?.agent), keep(task, row?.task), keep(runId, row?.run_id),
+        rev, Date.now(),
+      );
+      return this.getLiveStatus(channel, ts);
+    });
+  }
+
+  getLiveStatus(channel, ts) {
+    return this.db.prepare('SELECT * FROM live_status WHERE channel=? AND ts=?').get(channel, ts) || null;
+  }
+
+  liveStatusOfRun(runId) {
+    return this.db.prepare('SELECT * FROM live_status WHERE run_id=?').get(runId) || null;
+  }
+
+  liveStatuses({ sinceRev = 0, conversationKey: conversationKeyValue = null } = {}) {
+    return conversationKeyValue
+      ? this.db.prepare('SELECT * FROM live_status WHERE rev>? AND conversation_key=? ORDER BY rev').all(sinceRev, conversationKeyValue)
+      : this.db.prepare('SELECT * FROM live_status WHERE rev>? ORDER BY rev').all(sinceRev);
+  }
+
+  ownerTs(workId) {
+    const row = this.db.prepare(`SELECT payload FROM queue WHERE work_id=? AND kind='owner'
+      ORDER BY created_at DESC, id DESC LIMIT 1`).get(workId);
+    return row ? parse(row.payload)?.ts || null : null;
   }
 }
 

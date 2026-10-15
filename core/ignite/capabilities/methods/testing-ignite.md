@@ -16,6 +16,7 @@ When the list of changed files is missing, stop and ask for it. When a deploy or
 |---|---|
 | Any file under `core/ignite/` | The Ignite programs in the section 2 loop, including `test_timer_check.js`, `test_albert_evidence.js` and `test_runtime_migration.js`, and the memory, Albert and `test_memory_delivery.js` programs that section names |
 | `turn.js`, `store.js`, or a file under `core/cast/capabilities/tools/cast/lib/` (Ignite imports `agent`, `core`, `fallback`, `handles`, `launch`, `optional` and `win-exec` from there) | The Ignite programs in the section 2 loop, and also `test_cast.js`, `test_memory_delivery.js`, `test_route.js` and `test_spark.js` |
+| `connectors/slack/capabilities/tools/slack/lib/live-status.js` (Ignite's `status-ticker.js` imports it) | The Ignite programs in the section 2 loop |
 | A file the installer scans (a skill, rule, pack, agent, hook, component record or tool record, or the first line of a tool's program; [rbtv CLI](../../../rbtv/capabilities/glossary/rbtv-cli.md) owns the list) or rbtv's install code | The installer selftest, on Linux and on Windows |
 | Code the waking service runs, `deploy.sh` or the systemd unit | All of the above, then deploy and live checks when the caller put them in scope |
 
@@ -33,13 +34,13 @@ None of these programs sends when `IGNITE_SENDER_TOKEN` or a Slack token variabl
 
 ```
 cd core/ignite/capabilities/tools/ignite
-for t in audio board cli config daemon deploy ingress manage memory memory_write outbox prompt slack store turn turn_loop albert_evidence runtime_migration timer_check; do
+for t in audio board cli config daemon deploy ingress live_status manage memory memory_write outbox prompt slack store turn turn_loop albert_evidence runtime_migration timer_check; do
   node test_$t.js > "$OUT/test_$t.out" 2> "$OUT/test_$t.err"; echo "test_$t $?"
 done
 HOME="$EMPTY" USERPROFILE="$EMPTY" node test_connect.js > "$OUT/test_connect.out" 2> "$OUT/test_connect.err"; echo "test_connect $?"
 ```
 
-After retirement removes `test_dreamer.js`, run that same list without `dreamer`. The programs that must still exit 0 are: `test_config.js`, `test_cli.js`, `test_connect.js`, `test_daemon.js`, `test_turn_loop.js`, `test_outbox.js`, `test_timer_check.js`, `test_memory.js`, `test_memory_write.js`, `test_albert_evidence.js`, `test_audio.js`, `test_board.js`, `test_deploy.js`, `test_ingress.js`, `test_manage.js`, `test_prompt.js`, `test_slack.js`, `test_store.js`, `test_turn.js` and `test_runtime_migration.js`. `test_cli.js` and `test_connect.js` still end with `ok`. Do not run `test_dreamer.js` once that file is absent. The memory and Albert programs stay out of that loop. Run them from the repository root:
+After retirement removes `test_dreamer.js`, run that same list without `dreamer`. The programs that must still exit 0 are: `test_config.js`, `test_cli.js`, `test_connect.js`, `test_daemon.js`, `test_turn_loop.js`, `test_outbox.js`, `test_timer_check.js`, `test_memory.js`, `test_memory_write.js`, `test_albert_evidence.js`, `test_audio.js`, `test_board.js`, `test_deploy.js`, `test_ingress.js`, `test_live_status.js`, `test_manage.js`, `test_prompt.js`, `test_slack.js`, `test_store.js`, `test_turn.js` and `test_runtime_migration.js`. `test_cli.js` and `test_connect.js` still end with `ok`. Do not run `test_dreamer.js` once that file is absent. The memory and Albert programs stay out of that loop. Run them from the repository root:
 
 ```
 HOME="$EMPTY" USERPROFILE="$EMPTY" node core/memory/capabilities/tools/memory/test_memory_core.js > "$OUT/test_memory_core.out" 2> "$OUT/test_memory_core.err"; echo "test_memory_core $?"
@@ -66,7 +67,7 @@ The pass signal is exit 0 for every program, plus the line named here. Seconds i
 
 | Program | Pass signal besides exit 0 | Seconds |
 |---|---|---|
-| `test_audio.js`, `test_config.js`, `test_ingress.js`, `test_manage.js`, `test_memory.js`, `test_outbox.js`, `test_prompt.js`, `test_slack.js` | One line `PASS <name>` per test, no line starting `FAIL` | under 1 each |
+| `test_audio.js`, `test_config.js`, `test_ingress.js`, `test_live_status.js`, `test_manage.js`, `test_memory.js`, `test_outbox.js`, `test_prompt.js`, `test_slack.js` | One line `PASS <name>` per test, no line starting `FAIL` | under 1 each |
 | `test_board.js`, `test_store.js` | Same | 1 and 2 |
 | `test_memory_write.js`, `test_turn_loop.js` | Same | 5 each |
 | `test_connect.js`, `test_cli.js`, `test_deploy.js` | Same, and the last line is `ok` | 17, 51 and 3 |

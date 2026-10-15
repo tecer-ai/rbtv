@@ -1,7 +1,7 @@
 'use strict';
 
 const { conversationKey } = require('./store.js');
-const { setMark } = require('./marks.js');
+const live = require('./live-status.js');
 
 function slackMillis(ts) {
   const n = Number(ts);
@@ -113,7 +113,7 @@ async function handleEvent(event, ctx) {
   if (typeof ctx?.openStore !== 'function') throw new Error('openStore required');
   const store = await ctx.openStore(route.agent);
   const result = await accept(store, route, ctx);
-  if (result.queued) await setMark(ctx.slack, route.channel, route.ts, 'received', { log: ctx.log });
+  if (result.queued) live.received(store, { conversationKey: route.key, channel: route.channel, ts: route.ts }, ctx.log);
   return result;
 }
 

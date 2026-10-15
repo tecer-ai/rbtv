@@ -671,7 +671,7 @@ test('retired verbs are unknown', () => {
 
 test('dreamer is an unknown command', () => {
   assert.throws(() => run(['dreamer', 'run']), (error) => {
-    assert.match(error.message, /unknown command: dreamer\nchoose from connect, disconnect, manage, turn,\nschedule, schedules-due, work, wake, post, board, remember, runtime, deploy\nNothing changed\.\nignite -h/);
+    assert.match(error.message, /unknown command: dreamer\nchoose from connect, disconnect, manage, turn,\nschedule, schedules-due, work, wake, post, status, board, remember, runtime, deploy\nNothing changed\.\nignite -h/);
     return true;
   });
 });

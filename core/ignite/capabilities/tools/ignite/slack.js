@@ -16,7 +16,9 @@
 //   as = { name?, avatar? }: the agent shown as sender (chat:write.customize). avatar `:emoji:` is
 //   sent as icon_emoji, an http(s) URL as icon_url, anything else is not sent.
 // addReaction(channel, ts, name) → reactions.add; removeReaction(channel, ts, name) → reactions.remove
-//   (both need reactions:write; the names in use are in marks.js)
+//   (both need reactions:write; the names in use are in the Slack connector's lib/live-status.js)
+// api(method, body) throws on a failed call; an HTTP error carries status, and HTTP 429 also
+//   retryAfter, the Retry-After header in seconds (null when absent).
 // threadHistory(channel, threadTs) → normalized messages, oldest first (conversations.replies)
 // createChannel(name) → { id, name }
 // joinChannel(id) → { id }   (already_in_channel is success)
@@ -163,7 +165,15 @@ class Slack {
       },
       body: params.toString(),
     });
-    if (!response.ok) throw new Error(`Slack ${method}: HTTP ${response.status}`);
+    if (!response.ok) {
+      const error = new Error(`Slack ${method}: HTTP ${response.status}`);
+      error.status = response.status;
+      if (response.status === 429) {
+        const seconds = Number(response.headers?.get?.('retry-after'));
+        error.retryAfter = Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+      }
+      throw error;
+    }
     const data = await response.json();
     if (!data.ok) throw new Error(`Slack ${method}: ${data.error || 'unknown_error'}`);
     return data;

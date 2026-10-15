@@ -1,0 +1,24 @@
+# Live status
+
+Live status is the state Ignite shows the owner on each owner message, so that the work of an agent the owner cannot watch stays visible while it runs. It has three layers, and at most two show at once: the system state, plus the agent state during the work or the task state after it. The agent and task states never show together.
+
+Ignite owns the states and names no emoji. A communication connector shows them in its own medium; Slack shows them as reactions, through the mapping and order rules in `connectors/slack/capabilities/tools/slack/lib/live-status.js`. Ignite's waking service is the only place that shows them, because it alone sees every agent and so shares Slack's rate budget across them.
+
+| Layer | State | Set by |
+|---|---|---|
+| system | `queued` | Ignite, when it accepts the message and no turn has started |
+| system | `running` | Ignite, when the turn launches on the agent's own model |
+| system | `fallback` | Ignite, when the turn runs on a fallback model |
+| system | `retrying` | Ignite, after a failure that will be retried |
+| system | `failed` | Ignite, after a failure that ends the work (a hold, a reply that gives up, a voice note that cannot be transcribed) |
+| agent | `working` | Ignite, at the start of every turn |
+| agent | `gathering`, `thinking`, `making`, `orchestrating` | The agent, with `ignite status <state>` |
+| agent | `waiting` | Ignite, when a turn ends `waiting_workers`, until the next turn of that conversation starts |
+| task | `done` | A `completed` result, once its replies are delivered |
+| task | `caveats` | A `completed` result with `"caveats": true` |
+| task | `question` | A `waiting_owner` result |
+| task | `stopped` | A `stopped` result |
+
+The agent state moves: it ticks through its frames while the turn runs, and `waiting` ticks slowly between turns and across a service restart. The system and task states stay still. A turn that ends `continue` leaves the agent state `working` until the next turn runs. A failed turn removes the agent state. A continue or wake turn shows on the latest owner message of its work; a scheduled wake answers no owner message and shows nothing. `ignite status --task <state> --message <ts>` sets the task state of an earlier owner message of the same conversation.
+
+The rule [live-status](../../rules/live-status.md) tells an Ignite agent when to declare its state. Ignite's [architecture](../tools/ignite/documentation/architecture.md) names the files that set and show each state.

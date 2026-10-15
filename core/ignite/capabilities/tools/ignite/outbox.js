@@ -14,11 +14,12 @@
 //   Slack confirms channel and ts. Harness stdout is never read here.
 //   Transient failures retry MAX_ATTEMPTS times (the same few-then-stop bound as a turn), then
 //   stopOutbox plus one hold: notice. A permanent Slack error stops on the first failure.
-//   A row with payload.mark { channel, ts } answers that owner message: the message is marked
-//   replied when every row carrying its mark is delivered, and failed when one gives up (marks.js).
+//   A row with payload.mark { channel, ts, task? } answers that owner message: once every row carrying
+//   its mark is delivered, the message's live status shows that task in place of its agent state;
+//   when one gives up, its system state is failed (live-status.js).
 
 const { MAX_ATTEMPTS } = require('./store.js');
-const { setMark } = require('./marks.js');
+const live = require('./live-status.js');
 const { readAgent } = require('../../../../cast/capabilities/tools/cast/lib/agent');
 
 const RETRY_MS = 5_000;
@@ -71,7 +72,7 @@ function markOf(row) {
   return mark?.channel && mark?.ts ? mark : null;
 }
 
-async function markDelivered(store, row, deps) {
+function showDelivered(store, row, deps) {
   const mark = markOf(row);
   if (!mark) return;
   let open = 1;
@@ -80,9 +81,9 @@ async function markDelivered(store, row, deps) {
       AND json_extract(payload, '$.mark.channel')=? AND json_extract(payload, '$.mark.ts')=?`)
       .get(mark.channel, mark.ts).n;
   } catch {
-    return; // A mark never breaks a delivery that Slack already confirmed.
+    return; // A status never breaks a delivery that Slack already confirmed.
   }
-  if (!open) await setMark(deps.slack, mark.channel, mark.ts, 'replied', { log: deps.log });
+  if (!open) live.delivered(store, mark, deps.log);
 }
 
 function giveUp(store, row, message) {
@@ -145,7 +146,7 @@ async function deliverOne(store, row, deps, now) {
       ts: confirmed.ts,
       asRoot: target.asRoot,
     });
-    await markDelivered(store, row, deps);
+    showDelivered(store, row, deps);
     return { id: row.id, delivered: true, channel: saved.channel, ts: saved.ts, conversationKey: saved.conversationKey };
   } catch (error) {
     const message = error.message || String(error);
@@ -157,7 +158,7 @@ async function deliverOne(store, row, deps, now) {
     if (permanentError(message) || failed.attempts >= MAX_ATTEMPTS) {
       giveUp(store, row, message);
       const mark = markOf(row);
-      if (mark) await setMark(deps.slack, mark.channel, mark.ts, 'failed', { log: deps.log });
+      if (mark) live.deliveryFailed(store, mark, deps.log);
       return { id: row.id, delivered: false, stopped: true, error: message };
     }
     return { id: row.id, delivered: false, error: message };

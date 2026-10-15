@@ -19,7 +19,8 @@ const CONTRACT = [
   'Shape: {"nonce":"<NONCE>","disposition":"completed|continue|waiting_owner|waiting_workers|stopped",',
   '"summary":"…","nextStep":"…","workers":[{"ref":"…","kind":"…"}],"outputs":["<path>"],',
   '"replies":[{"text":"…","audio":false,"files":["<path>"]}]}',
-  'disposition continue requires a non-empty nextStep. Echo NONCE exactly.',
+  'disposition continue requires a non-empty nextStep. Optional with completed only: "caveats":true when done',
+  'with problems worth a follow-up. Echo NONCE exactly.',
 ].join(' ');
 
 function readBoard(home, store = null, now = Date.now(), alerts = []) {

@@ -171,12 +171,27 @@ test('markdown-limit-before-any-network', async () => {
 
 test('addReaction-removeReaction-take-a-name', async () => {
   const { slack, calls } = harness({ 'reactions.add': { ok: true }, 'reactions.remove': { ok: true } });
-  await slack.addReaction('C1', '3.3', 'heavy_check_mark');
-  await slack.removeReaction('C1', '3.3', 'eyes');
-  assert.deepEqual(calls[0].body, { channel: 'C1', timestamp: '3.3', name: 'heavy_check_mark' });
-  assert.deepEqual(calls[1].body, { channel: 'C1', timestamp: '3.3', name: 'eyes' });
+  await slack.addReaction('C1', '3.3', 'white_check_mark');
+  await slack.removeReaction('C1', '3.3', 'clock12');
+  assert.deepEqual(calls[0].body, { channel: 'C1', timestamp: '3.3', name: 'white_check_mark' });
+  assert.deepEqual(calls[1].body, { channel: 'C1', timestamp: '3.3', name: 'clock12' });
   assert.equal(calls[1].method, 'reactions.remove');
   await assert.rejects(() => slack.addReaction('C1', '3.3'), /requires channel, ts and name/);
+});
+
+test('an HTTP 429 carries its status and Retry-After in seconds', async () => {
+  const answers = [
+    { ok: false, status: 429, headers: new Headers({ 'retry-after': '30' }) },
+    { ok: false, status: 429, headers: new Headers() },
+    { ok: false, status: 500, headers: new Headers() },
+  ];
+  const slack = new Slack({ botToken: 'xoxb-test', fetch: async () => answers.shift() });
+  await assert.rejects(() => slack.addReaction('C1', '3.3', 'zzz'),
+    (error) => error.message === 'Slack reactions.add: HTTP 429' && error.status === 429 && error.retryAfter === 30);
+  await assert.rejects(() => slack.removeReaction('C1', '3.3', 'zzz'),
+    (error) => error.status === 429 && error.retryAfter === null);
+  await assert.rejects(() => slack.addReaction('C1', '3.3', 'zzz'),
+    (error) => error.status === 500 && !('retryAfter' in error));
 });
 
 test('threadHistory', async () => {

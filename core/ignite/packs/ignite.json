@@ -13,6 +13,7 @@
     "office/document#office",
     "connectors/google#google",
     "core/ignite#ignite-standing-instructions",
+    "core/ignite#live-status",
     "core/memory#memory",
     "core/memory#ongoing-agent-memory"
   ]
