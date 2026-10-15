@@ -1,4 +1,4 @@
 {
-  "description": "Asaas bank account: its API documentation server for agents; the account's money operations are planned as a command-line tool.",
+  "description": "Asaas bank account for agents: the asaas command reads balance, statement and Pix keys, and the Asaas documentation is available as an MCP server; payments are planned behind Ignite's payment gate.",
   "dependencies": []
 }

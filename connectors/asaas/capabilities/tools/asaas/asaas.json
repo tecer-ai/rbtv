@@ -1,0 +1,5 @@
+{
+  "name": "asaas",
+  "description": "Asaas bank account from one command: shows the balance and the statement, looks up who owns a Pix key, and decodes a Pix QR code; moves no money.",
+  "entry": "asaas.py"
+}
