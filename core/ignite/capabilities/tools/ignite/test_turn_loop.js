@@ -1018,6 +1018,28 @@ test('transcription failure replies plainly and logs its detail', async (ctx) =>
   assert.equal(history.includes('/configured/audio-keys.json'), false);
 });
 
+test('an accented audio name sent beside an image is matched by its Slack file id', async (ctx) => {
+  const box = harness(ctx);
+  seed(box.store, {
+    text: '',
+    files: [
+      { id: 'F0AUDIO', name: 'clipe_de_áudio.m4a', mimetype: 'audio/mp4', filetype: 'm4a' },
+      { id: 'F0IMAGE', name: 'shot.jpg', mimetype: 'image/jpeg', filetype: 'jpg' },
+    ],
+  });
+  // The downloader saves a sanitized name, so only the id ties the file to its Slack record.
+  box.slack.downloads = [
+    { id: 'F0AUDIO', name: 'clipe_de__udio.m4a', path: '/tmp/clipe_de__udio.m4a' },
+    { id: 'F0IMAGE', name: 'shot.jpg', path: '/tmp/_images/shot.jpg' },
+  ];
+  box.sync();
+  const result = await runOnce('master', box.deps);
+  assert.equal(result.launched, true);
+  assert.deepEqual(box.logs.filter((entry) => entry.event === 'transcription-failed'), []);
+  const [turn] = seen(box);
+  assert.match(turn.prompt, /heard words/);
+});
+
 test('an attachment that was not downloaded still delivers the message with a warning', async (ctx) => {
   const box = harness(ctx);
   seed(box.store, {

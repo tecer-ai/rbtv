@@ -309,6 +309,19 @@ test('downloadFile', async () => {
   assert.equal(path.basename(files[0].path), 'voice note.mp3');
 });
 
+test('downloadFile reports the Slack file id of each saved file', async () => {
+  const { slack } = harness({}, {
+    run: async () => ({ stdout: '[1/2] clipe_de__udio.m4a  (483,757 bytes)  id=F0AUDIO\n'
+      + '[2/2] [IMG] shot.jpg  (163,355 bytes)  id=F0IMAGE\n' }),
+  });
+  const dir = path.join(os.tmpdir(), 'ignite-dl');
+  const files = await slack.downloadFile({ channel: 'C1', ts: '4.4', dir });
+  assert.deepEqual(files, [
+    { id: 'F0AUDIO', name: 'clipe_de__udio.m4a', path: path.join(dir, 'clipe_de__udio.m4a') },
+    { id: 'F0IMAGE', name: 'shot.jpg', path: path.join(dir, '_images', 'shot.jpg') },
+  ]);
+});
+
 test('download-refuses-vault-path', async () => {
   const slack = new Slack({
     botToken: 'xoxb-test',

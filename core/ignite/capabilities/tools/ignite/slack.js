@@ -25,7 +25,7 @@
 // uploadFile({ channel, threadTs?, file, text?, as? }) → { ts, files }
 //   files.getUploadURLExternal + POST bytes + files.completeUploadExternal (returns message ts;
 //   slack upload does not).
-// downloadFile({ channel, ts, threadTs?, dir }) → [{ path, name }]  via slack download
+// downloadFile({ channel, ts, threadTs?, dir }) → [{ id?, path, name }]  via slack download
 // canvasCreate({ channel, markdown, title? }) → { canvasId }   bot token, conversations.canvases.create
 // canvasEdit({ canvasId, markdown, operation? }) → { canvasId }   bot token, canvases.edit
 // stop()
@@ -123,7 +123,9 @@ function downloadPaths(stdout, dir) {
     if (!match) continue;
     const name = match[1];
     const image = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.ico'].includes(path.extname(name).toLowerCase());
-    found.push({ name, path: image ? path.join(dir, '_images', name) : path.join(dir, name) });
+    // The saved name is sanitized; the Slack file id is what ties it back to the message's file.
+    const id = line.match(/\sid=(\S+)\s*$/)?.[1];
+    found.push({ ...(id ? { id } : {}), name, path: image ? path.join(dir, '_images', name) : path.join(dir, name) });
   }
   return found;
 }

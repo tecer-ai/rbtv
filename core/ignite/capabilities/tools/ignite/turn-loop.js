@@ -148,7 +148,9 @@ async function preprocess(claim, deps, dir) {
   const transcripts = [];
   const failures = [];
   for (const meta of audioMeta) {
-    const match = downloaded.find((item) => item.name === meta.name) || (downloaded.length === 1 ? downloaded[0] : null);
+    const match = (meta.id && downloaded.find((item) => item.id === meta.id))
+      || downloaded.find((item) => item.name === meta.name)
+      || (downloaded.length === 1 ? downloaded[0] : null);
     if (!match?.path) {
       failures.push(`${meta.name || 'audio'}: file was not downloaded`);
       continue;
