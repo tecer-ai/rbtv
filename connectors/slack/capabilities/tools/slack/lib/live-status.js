@@ -16,8 +16,9 @@
 //                          two are never shown together. A new agent state starts at its first frame.
 //   restore(message, state, shown)
 //                          a message not in memory (after a restart): the state to show and what it
-//                          shows, as record() last gave it (null: nothing was ever shown). The agent
-//                          continues from the frame shown. No call.
+//                          shows, as record() last gave it. null is an unknown display: the message may
+//                          hold any name this file shows, so every one is removed before the state is
+//                          shown. The agent continues from the frame shown. No call.
 //   tick(message)          moves the agent state to its next frame.
 //   settled(message)       true when the reactions show the state set.
 //   apply(message, { mayAdd? }) → Promise<{ settled, waitUntil?, retryAfterMs? }>, never rejects.
@@ -81,6 +82,8 @@ const BACKOFF_MAX_MS = 300_000;
 const EXPECTED = /already_reacted$|no_reaction$/;
 const GONE = /message_not_found$/;
 const SYSTEM_NAMES = new Set(Object.values(EMOJI.system));
+// Every name this file can show: what a message whose display is unknown may hold.
+const ALL_NAMES = Object.freeze([...SYSTEM_NAMES, ...Object.values(EMOJI.agent).flat(), ...Object.values(EMOJI.task)]);
 const isSystem = (name) => SYSTEM_NAMES.has(name);
 
 function rateLimit(error) {
@@ -301,7 +304,7 @@ function liveStatus({ addReaction, removeReaction, now = Date.now, log, record }
       const one = set(message, state);
       const names = (list) => (Array.isArray(list) ? list.filter((name) => typeof name === 'string') : []);
       one.order = names(shown?.order);
-      one.unsure = new Set(names(shown?.unsure));
+      one.unsure = new Set(shown == null ? ALL_NAMES : names(shown.unsure));
       one.lastAddAt = Number.isFinite(shown?.lastAddAt) ? shown.lastAddAt : -Infinity;
       one.gone = shown?.gone === true;
       const frames = (one.want.agent && EMOJI.agent[one.want.agent]) || [];

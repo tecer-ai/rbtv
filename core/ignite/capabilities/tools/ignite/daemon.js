@@ -24,7 +24,9 @@ const TICK_MS = 30_000;
 const SWEEP_MS = 1_000;
 // How often the live status ticker runs a pass; its frames and budget are its own (status-ticker.js).
 const STATUS_MS = 250;
-// How long a stop waits for the live status pass in flight before it releases the lock anyway.
+// How long a stop waits for the live status pass in flight before it releases the lock anyway. The
+// ticker aborts its call in flight at stop, and every call ends within its CALL_MS (4 s), so the pass
+// ends first.
 const STATUS_STOP_MS = 5_000;
 // The live status budget and 429 pause, kept across a restart, beside the lock.
 const PACE_FILE = 'live-status-pace.json';
@@ -439,8 +441,9 @@ async function startLocked(opts, workspace, held) {
     pace: filePace(path.join(path.dirname(held.lockPath), PACE_FILE)),
   });
 
-  // The pass in flight ends first, so its reaction calls and their records land before another
-  // service can start; a pass stuck on Slack is given up after STATUS_STOP_MS.
+  // The pass in flight ends first, its call aborted, so no reaction call of this service is live and
+  // its record is written before another service can start; a pass that does not end is given up
+  // after STATUS_STOP_MS.
   function stopStatus() {
     return Promise.race([ticker.stop(), new Promise((resolve) => setTimeout(resolve, STATUS_STOP_MS).unref())]);
   }

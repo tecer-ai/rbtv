@@ -15,10 +15,11 @@
 // postMessage({ channel, threadTs?, text, clientMsgId?, as? }) → { channel, ts }  (standard Markdown)
 //   as = { name?, avatar? }: the agent shown as sender (chat:write.customize). avatar `:emoji:` is
 //   sent as icon_emoji, an http(s) URL as icon_url, anything else is not sent.
-// addReaction(channel, ts, name) → reactions.add; removeReaction(channel, ts, name) → reactions.remove
-//   (both need reactions:write; the names in use are in the Slack connector's lib/live-status.js)
-// api(method, body) throws on a failed call; an HTTP error carries status, and HTTP 429 also
-//   retryAfter, the Retry-After header in seconds (null when absent).
+// addReaction(channel, ts, name, { signal }?) → reactions.add; removeReaction(channel, ts, name, { signal }?)
+//   → reactions.remove (both need reactions:write; the names in use are in the Slack connector's
+//   lib/live-status.js). signal, an AbortSignal, cancels the request.
+// api(method, body, token?, { signal }?) throws on a failed call; an HTTP error carries status, and HTTP 429
+//   also retryAfter, the Retry-After header in seconds (null when absent).
 // threadHistory(channel, threadTs) → normalized messages, oldest first (conversations.replies)
 // createChannel(name) → { id, name }
 // joinChannel(id) → { id }   (already_in_channel is success)
@@ -151,7 +152,7 @@ class Slack {
     this.onEvent = null;
   }
 
-  async api(method, body = {}, token = this.config.botToken) {
+  async api(method, body = {}, token = this.config.botToken, { signal } = {}) {
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(body)) {
       if (value == null) continue;
@@ -164,6 +165,7 @@ class Slack {
         'content-type': 'application/x-www-form-urlencoded',
       },
       body: params.toString(),
+      ...(signal ? { signal } : {}),
     });
     if (!response.ok) {
       const error = new Error(`Slack ${method}: HTTP ${response.status}`);
@@ -206,14 +208,14 @@ class Slack {
     return { channel: data.channel || channel, ts: data.ts };
   }
 
-  async addReaction(channel, ts, name) {
+  async addReaction(channel, ts, name, { signal } = {}) {
     if (!channel || !ts || !name) throw new Error('addReaction requires channel, ts and name');
-    return this.api('reactions.add', { channel, timestamp: ts, name });
+    return this.api('reactions.add', { channel, timestamp: ts, name }, undefined, { signal });
   }
 
-  async removeReaction(channel, ts, name) {
+  async removeReaction(channel, ts, name, { signal } = {}) {
     if (!channel || !ts || !name) throw new Error('removeReaction requires channel, ts and name');
-    return this.api('reactions.remove', { channel, timestamp: ts, name });
+    return this.api('reactions.remove', { channel, timestamp: ts, name }, undefined, { signal });
   }
 
   async threadHistory(channel, threadTs) {

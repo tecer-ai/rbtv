@@ -939,6 +939,71 @@ test('a stop releases the lock only once the live status call in flight is answe
   }
 });
 
+test('a stop aborts the live status call Slack has not answered before the lock is released; the next service removes its name first', async () => {
+  const { dir, home } = workspace();
+  const store = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
+  store.db.prepare('INSERT INTO settings(key, value, updated_at) VALUES (?, ?, ?)')
+    .run('agent_hold', JSON.stringify({ reason: 'test', at: Date.now() }), Date.now());
+  store.close();
+  const lock = path.join(dir, '.rbtv', 'runtime', 'ignite', 'daemon.lock');
+  // Slack answers this add later than a stop's 5 s drain. As with fetch, the add lands only if its
+  // request is still live when Slack answers; an abort rejects it at once.
+  const onMessage = [];
+  const calls = [];
+  let held = null;
+  const slow = {
+    ...fakeSlack(),
+    addReaction(channel, ts, name, { signal } = {}) {
+      calls.push(`add ${ts} ${name}`);
+      return new Promise((resolve, reject) => {
+        held = { signal, abortedWithLock: null, land() { if (!signal?.aborted) { onMessage.push(name); resolve(); } } };
+        signal?.addEventListener('abort', () => { held.abortedWithLock = fs.existsSync(lock); reject(signal.reason); });
+      });
+    },
+    async removeReaction(channel, ts, name) { calls.push(`remove ${ts} ${name}`); },
+  };
+  const socket = fakeSocket();
+  const prev = process.env.PATH;
+  process.env.PATH = `${harnessBin(dir, ['claude', 'ignite'])}${path.delimiter}${prev || ''}`;
+  const opts = { workspace: dir, signals: false, tickMs: 60_000, sweepMs: 60_000, drainMs: 60_000, statusMs: 20 };
+  let runtime;
+  try {
+    runtime = await start({ ...opts, slack: slow, socket });
+    await socket.inject({ team: 'T1', channel: 'D1', channelType: 'im', ts: '2.000001', threadTs: '2.000001',
+      user: 'UOWNER', text: 'hello', files: [], isBotOrSelf: false });
+    await waitFor(() => calls.length === 1);
+    const began = Date.now();
+    const stopping = runtime.stop('test');
+    await waitFor(() => !fs.existsSync(lock), 8000);
+    const waited = Date.now() - began;
+    // Slack's answer comes after the lock is released: the request was aborted, so nothing lands.
+    held.land();
+    assert.deepEqual(onMessage, []);
+    assert.equal(held.signal?.aborted, true);
+    assert.equal(held.abortedWithLock, true);
+    assert.ok(waited < 5000, `the stop held the lock ${waited} ms`);
+    await stopping;
+    runtime = null;
+    const check = new Store(path.join(home, 'runtime', 'ignite', 'state.sqlite'));
+    try {
+      const shown = JSON.parse(check.getLiveStatus('D1', '2.000001').shown);
+      assert.deepEqual([shown.order, shown.unsure], [[], ['hourglass_flowing_sand']]);
+    } finally {
+      check.close();
+    }
+    // The next owner of the lock removes the uncertain name before it shows the state.
+    const next = [];
+    runtime = await start({ ...opts, slack: reactionSlack(next), socket: fakeSocket() });
+    await waitFor(() => next.length === 2);
+    assert.deepEqual(next, ['remove 2.000001 hourglass_flowing_sand', 'add 2.000001 hourglass_flowing_sand']);
+  } finally {
+    held?.land();
+    process.env.PATH = prev;
+    await runtime?.stop('test');
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 linuxOnly('the nightly check wakes only on {"new":true,...}', 'the check tool is started as a program', async () => {
   const { dir, home } = workspace();
   const tool = path.join(home, 'nightly-check.js');

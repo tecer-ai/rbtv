@@ -6,9 +6,11 @@
 // the reaction budget they share.
 //
 // API
-// createTicker({ stores, slack, now?, log?, pace? }) → { step(), stop() }
+// createTicker({ stores, slack, now?, log?, pace?, callMs? }) → { step(), stop() }
 //   stores() → [{ slug, store }], the agents' open stores. slack() → the Slack client, or null while
-//   there is none; a client without addReaction and removeReaction shows nothing.
+//   there is none; a client without addReaction and removeReaction shows nothing. Each reaction call
+//   is given { signal } as its fourth argument: it is aborted after callMs (CALL_MS by default) and by
+//   stop(); a call cut off this way leaves its name unsure in the row's record.
 //   pace = { load() → { pausedUntil, adds }, save({ pausedUntil, adds }) }: where the shared budget
 //   (the time of each add in the last minute) and the pause after HTTP 429 are kept, so that a
 //   restarted service honours them. In memory when absent.
@@ -22,14 +24,15 @@
 //   - A message ticks while its turn runs (its run is the store's active run), and while its agent
 //     state is waiting, which also ticks between turns and after a restart. Ticking stops when the
 //     turn ends or fails. A tick moves the agent emoji to its next frame.
-//   - Reaction adds share ADDS_PER_MINUTE across all agents. A frame lasts FRAME_MS for one ticking
-//     message (WAITING_FRAME_MS for waiting), stretched by the factor that keeps every ticking
-//     message's adds inside that budget: one message alone ticks every 1.33 s.
+//   - Reaction adds share ADDS_PER_MINUTE across all agents, counted when each add is sent; an add
+//     the budget allowed but not yet sent is held apart until it is sent or given up. A frame lasts
+//     FRAME_MS for one ticking message (WAITING_FRAME_MS for waiting), stretched by the factor that
+//     keeps every ticking message's adds inside that budget: one message alone ticks every 1.33 s.
 //   - After Slack's HTTP 429 no reaction call is made until its Retry-After has passed; after an
 //     HTTP 5xx, for the connector's short pause.
 //   - A pass still running when step() is called again makes the new call return at once.
-//   stop() → Promise: no pass starts after it, a pass in flight ends after its current call, and
-//   the promise settles when that pass has ended.
+//   stop() → Promise: no pass and no reaction call starts after it, the call in flight is aborted,
+//   and the promise settles when the pass in flight has ended.
 //   Reaction errors are logged by the Slack connector's live status; a store or Slack failure is
 //   logged as { event: 'status-failed' } and never reaches a turn or a delivery.
 
@@ -40,6 +43,8 @@ const ADDS_PER_MINUTE = 45;
 const FRAME_MS = 1_200;
 const WAITING_FRAME_MS = 10_000;
 const MINUTE = 60_000;
+// The longest a reaction call may take: shorter than the 5 s a stopping service waits for its pass.
+const CALL_MS = 4_000;
 
 function memoryPace() {
   let kept = null;
@@ -51,7 +56,7 @@ function shownOf(row) {
   try { return JSON.parse(row.shown); } catch { return null; }
 }
 
-function createTicker({ stores, slack, now = Date.now, log, pace = memoryPace() } = {}) {
+function createTicker({ stores, slack, now = Date.now, log, pace = memoryPace(), callMs = CALL_MS } = {}) {
   let show = null;
   const lastRev = new Map();
   const activeRun = new Map();
@@ -62,10 +67,14 @@ function createTicker({ stores, slack, now = Date.now, log, pace = memoryPace() 
   // Messages whose reactions do not yet show their state, in the order their change arrived.
   const unsettled = new Map();
   const kept = loadPace();
+  // The time each add was sent in the last minute; reserved: adds allowed and not yet sent.
   const adds = kept.adds;
+  let reserved = 0;
   let pausedUntil = kept.pausedUntil;
   let running = null;
   let halted = false;
+  // The reaction call in flight, aborted by stop().
+  let inFlight = null;
 
   function note(fields) {
     if (typeof log !== 'function') return;
@@ -94,8 +103,8 @@ function createTicker({ stores, slack, now = Date.now, log, pace = memoryPace() 
     const client = typeof slack === 'function' ? slack() : null;
     if (!client || typeof client.addReaction !== 'function' || typeof client.removeReaction !== 'function') return null;
     show = liveStatus({
-      addReaction: (channel, ts, name) => client.addReaction(channel, ts, name),
-      removeReaction: (channel, ts, name) => client.removeReaction(channel, ts, name),
+      addReaction: (channel, ts, name) => react(client, 'addReaction', channel, ts, name),
+      removeReaction: (channel, ts, name) => react(client, 'removeReaction', channel, ts, name),
       now,
       log,
       record(message, shown) {
@@ -107,12 +116,32 @@ function createTicker({ stores, slack, now = Date.now, log, pace = memoryPace() 
     return show;
   }
 
+  // One reaction call. None starts after stop(); the one in flight is aborted by stop() or after
+  // callMs. An add is charged to the budget as it is sent.
+  async function react(client, method, channel, ts, name) {
+    if (halted) throw new Error('live status stopped: call not made');
+    if (method === 'addReaction') {
+      reserved = Math.max(0, reserved - 1);
+      adds.push(now());
+      savePace();
+    }
+    const call = new AbortController();
+    const timer = setTimeout(() => call.abort(new Error(`no answer from Slack in ${callMs} ms`)), callMs);
+    inFlight = call;
+    try {
+      return await client[method](channel, ts, name, { signal: call.signal });
+    } finally {
+      clearTimeout(timer);
+      inFlight = null;
+    }
+  }
+
+  // Reserves an add: the connector asks before the remove paired with it, and sends it after.
   function mayAdd() {
     const at = now();
     while (adds.length && adds[0] <= at - MINUTE) adds.shift();
-    if (adds.length >= ADDS_PER_MINUTE) return false;
-    adds.push(at);
-    savePace();
+    if (adds.length + reserved >= ADDS_PER_MINUTE) return false;
+    reserved += 1;
     return true;
   }
 
@@ -172,6 +201,8 @@ function createTicker({ stores, slack, now = Date.now, log, pace = memoryPace() 
     for (const [key, message] of [...unsettled]) {
       if (halted) return;
       const result = await show.apply(message, { mayAdd });
+      // An add reserved and not sent is given up when apply returns.
+      reserved = 0;
       if (result.retryAfterMs != null) {
         pausedUntil = now() + result.retryAfterMs;
         savePace();
@@ -205,10 +236,11 @@ function createTicker({ stores, slack, now = Date.now, log, pace = memoryPace() 
 
   function stop() {
     halted = true;
+    inFlight?.abort(new Error('the service stopped'));
     return running || Promise.resolve();
   }
 
   return { step, stop };
 }
 
-module.exports = { createTicker, ADDS_PER_MINUTE, FRAME_MS, WAITING_FRAME_MS };
+module.exports = { createTicker, ADDS_PER_MINUTE, FRAME_MS, WAITING_FRAME_MS, CALL_MS };

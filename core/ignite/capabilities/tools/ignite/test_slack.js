@@ -179,6 +179,19 @@ test('addReaction-removeReaction-take-a-name', async () => {
   await assert.rejects(() => slack.addReaction('C1', '3.3'), /requires channel, ts and name/);
 });
 
+test('a reaction call hands its signal to fetch, which cancels the request', async () => {
+  const signals = [];
+  const slack = new Slack({ botToken: 'xoxb-test', fetch: async (url, opts) => {
+    signals.push('signal' in opts ? opts.signal : 'none');
+    return { ok: true, json: async () => ({ ok: true }) };
+  } });
+  const call = new AbortController();
+  await slack.addReaction('C1', '3.3', 'zzz', { signal: call.signal });
+  await slack.removeReaction('C1', '3.3', 'zzz', { signal: call.signal });
+  await slack.addReaction('C1', '3.3', 'zzz');
+  assert.deepEqual(signals, [call.signal, call.signal, 'none']);
+});
+
 test('an HTTP 429 carries its status and Retry-After in seconds', async () => {
   const answers = [
     { ok: false, status: 429, headers: new Headers({ 'retry-after': '30' }) },

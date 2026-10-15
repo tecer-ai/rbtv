@@ -11,7 +11,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { Store } = require('./store.js');
 const live = require('./live-status.js');
-const { createTicker } = require('./status-ticker.js');
+const { createTicker, CALL_MS } = require('./status-ticker.js');
 const { main } = require('./cli.js');
 const { ignitePaths } = require('./config.js');
 const { liveStatus } = require('../../../../../connectors/slack/capabilities/tools/slack/lib/live-status.js');
@@ -747,6 +747,131 @@ test('ticker: stop() lets the pass in flight finish its call and record it, and 
   t.advance(2000);
   await ticker.step();
   assert.deepEqual(slack.calls, ['add hourglass_flowing_sand']);
+});
+
+test('ticker: a row made before the shown column is an unknown display: every live status name is removed, then its state shows', async () => {
+  const t = clock();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-live-'));
+  const file = path.join(dir, 'state.sqlite');
+  try {
+    new Store(file).close();
+    const { DatabaseSync } = require('node:sqlite');
+    const old = new DatabaseSync(file);
+    old.exec('DROP TABLE live_status');
+    old.exec(`CREATE TABLE live_status (channel TEXT NOT NULL, ts TEXT NOT NULL, conversation_key TEXT NOT NULL,
+      system TEXT, agent TEXT, task TEXT, run_id TEXT, rev INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+      PRIMARY KEY (channel, ts))`);
+    old.exec(`INSERT INTO live_status(channel, ts, conversation_key, system, agent, task, run_id, rev, updated_at)
+      VALUES ('C1', '1.1', 'T1:C1:1.1', 'running', NULL, 'done', NULL, 1, 1)`);
+    old.close();
+    const store = new Store(file);
+    try {
+      assert.equal(store.getLiveStatus('C1', '1.1').shown, null);
+      // The service that made the row showed the green circle and a working frame.
+      const slack = fakeSlack(t);
+      slack.on.set('C1:1.1', ['large_green_circle', 'clock130']);
+      await run(tickerFor([{ store }], t, slack), t, 3000);
+      assert.deepEqual(slack.of('C1', '1.1'), ['large_green_circle', 'white_check_mark']);
+      assert.deepEqual(slack.calls, [
+        'remove clock12', 'remove clock130', 'remove clock3', 'remove clock430', 'remove clock6', 'remove clock730',
+        'remove clock9', 'remove clock1030', 'remove mag', 'remove mag_right', 'remove brain', 'remove thought_balloon',
+        'remove hammer', 'remove hammer_and_wrench', 'remove busts_in_silhouette', 'remove bust_in_silhouette',
+        'remove zzz', 'remove sleeping', 'remove white_check_mark', 'remove warning', 'remove question',
+        'remove black_square_for_stop', 'remove hourglass_flowing_sand', 'remove large_green_circle', 'remove repeat',
+        'remove recycle', 'remove x', 'add large_green_circle', 'add white_check_mark',
+      ]);
+      const shown = JSON.parse(store.getLiveStatus('C1', '1.1').shown);
+      assert.deepEqual([shown.order, shown.unsure], [['large_green_circle', 'white_check_mark'], []]);
+      assert.deepEqual(slack.violations, []);
+      // A row made now records that it shows nothing yet: its message makes no removal.
+      const fresh = agentStore('C2');
+      assert.equal(fresh.store.getLiveStatus('C2', '1.1').shown, '{}');
+    } finally {
+      store.close();
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('ticker: a reaction call is aborted after 4 s and by stop(), its name left unsure; no call starts after stop()', async () => {
+  assert.equal(CALL_MS, 4000);
+  const t = clock();
+  const box = agentStore();
+  const slack = fakeSlack(t);
+  // Slack answers no add. As with fetch, an aborted request rejects with its signal's reason.
+  const signals = [];
+  slack.addReaction = (channel, ts, name, { signal } = {}) => {
+    slack.calls.push(`add ${name}`);
+    signals.push(signal);
+    return new Promise((resolve, reject) => signal?.addEventListener('abort', () => reject(signal.reason)));
+  };
+  const logs = [];
+  const failures = () => logs.filter((f) => f.event === 'reaction-failed').map((f) => f.message);
+  const ticker = createTicker({ stores: () => [{ slug: 'a0', store: box.store }], slack: () => slack, now: t.now,
+    log: (f) => logs.push(f), callMs: 20 });
+  // The pass ends once the add, unanswered for callMs, is aborted.
+  await ticker.step();
+  assert.deepEqual(slack.calls, ['add hourglass_flowing_sand']);
+  assert.equal(signals[0].aborted, true);
+  assert.deepEqual(failures(), ['no answer from Slack in 20 ms']);
+  assert.deepEqual(recorded(box).unsure, ['hourglass_flowing_sand']);
+  // After the 1 s backoff the unsure name is removed and added again; stop() aborts that add.
+  t.advance(1000);
+  const pass = ticker.step();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(slack.calls, ['add hourglass_flowing_sand', 'remove hourglass_flowing_sand', 'add hourglass_flowing_sand']);
+  await ticker.stop();
+  await pass;
+  assert.equal(signals[1].aborted, true);
+  assert.deepEqual(failures(), ['no answer from Slack in 20 ms', 'the service stopped']);
+  assert.deepEqual(recorded(box).unsure, ['hourglass_flowing_sand']);
+  t.advance(5000);
+  await ticker.step();
+  assert.equal(slack.calls.length, 3);
+
+  // A remove Slack answers after stop(): the add paired with it is never sent.
+  const other = agentStore('C2');
+  const second = fakeSlack(t);
+  const shows = tickerFor([other], t, second);
+  await run(shows, t, 500);
+  startTurn(other);
+  let answer;
+  let sent = null;
+  const answered = new Promise((resolve) => { answer = resolve; });
+  const remove = second.removeReaction;
+  second.removeReaction = async (channel, ts, name) => { sent = name; await answered; return remove(channel, ts, name); };
+  t.advance(1000);
+  const cut = shows.step();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(sent, 'hourglass_flowing_sand');
+  const stopped = shows.stop();
+  answer();
+  await stopped;
+  await cut;
+  assert.deepEqual(second.calls, ['add hourglass_flowing_sand', 'remove hourglass_flowing_sand']);
+  assert.deepEqual(second.of('C2', '1.1'), []);
+});
+
+test('ticker: an add is counted when it is sent: a slow remove before it never lets 46 adds into 60 s', async () => {
+  const t = clock();
+  const slack = fakeSlack(t);
+  const boxes = Array.from({ length: 50 }, (_, i) => agentStore(`C${i}`));
+  // C0 shows the hourglass a stopped service added; its turn starts, so the green circle replaces it.
+  slack.on.set('C0:1.1', ['hourglass_flowing_sand']);
+  boxes[0].store.setLiveShown('C0', '1.1', { order: ['hourglass_flowing_sand'], unsure: [] });
+  startTurn(boxes[0]);
+  // Slack takes 2 s to answer each of C0's removes.
+  const remove = slack.removeReaction;
+  slack.removeReaction = async (channel, ts, name) => {
+    if (channel === 'C0') t.advance(2000);
+    return remove(channel, ts, name);
+  };
+  await run(tickerFor(boxes, t, slack), t, 120_000);
+  assert.deepEqual(slack.calls.slice(0, 3), ['remove hourglass_flowing_sand', 'add large_green_circle', 'add hourglass_flowing_sand']);
+  const most = Math.max(...slack.adds.map((a) => slack.adds.filter((b) => b.at > a.at - 60_000 && b.at <= a.at).length));
+  assert.equal(most, 45);
+  assert.ok(slack.adds.length > 45, String(slack.adds.length));
 });
 
 test('ticker: waiting ends when its work no longer waits for workers: stopped or held', async () => {

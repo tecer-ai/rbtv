@@ -53,7 +53,9 @@
 // liveStatuses({ sinceRev, conversationKey }) — rows with rev above sinceRev, oldest change first
 // liveStatusesOfWork(workId) — the rows whose last turn (run_id) belongs to that work
 // setLiveShown(channel, ts, shown) — records what the message's reactions show (the Slack connector's
-//   record, stored as JSON in the row's shown); takes no rev, so a reader of changes never sees it
+//   record, stored as JSON in the row's shown); takes no rev, so a reader of changes never sees it. A row
+//   is inserted with shown {} (nothing shown yet); a NULL shown, as in a row made before the column, is
+//   an unknown display
 // getRun(runId) — a run with its queue row's conversation_key, work_id and kind, or null
 // ownerTs(workId) — Slack ts of the latest owner message queued for that work, or null
 // transaction(fn)
@@ -907,8 +909,8 @@ class Store {
       if (!row && !conversationKeyValue) return null;
       const keep = (value, current) => (value === undefined ? current ?? null : value);
       const rev = this.db.prepare('SELECT COALESCE(MAX(rev), 0) + 1 AS rev FROM live_status').get().rev;
-      this.db.prepare(`INSERT INTO live_status(channel, ts, conversation_key, system, agent, task, run_id, rev, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      this.db.prepare(`INSERT INTO live_status(channel, ts, conversation_key, system, agent, task, run_id, shown, rev, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
         ON CONFLICT(channel, ts) DO UPDATE SET system=excluded.system, agent=excluded.agent, task=excluded.task,
           run_id=excluded.run_id, rev=excluded.rev, updated_at=excluded.updated_at`).run(
         channel, ts, row?.conversation_key ?? conversationKeyValue,
