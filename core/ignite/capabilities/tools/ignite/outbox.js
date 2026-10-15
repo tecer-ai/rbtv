@@ -35,11 +35,12 @@ function voiceOf(store, home) {
 
 // The agent's name and avatar from its agent.json, shown as the sender of every post and upload.
 // The name is stored lowercase; the owner sees it with a capital first letter.
+// An external_name, when set, is shown instead: the agent keeps its internal name.
 function senderOf(home) {
   if (!home) return undefined;
   const agent = readAgent(home).agent;
   if (!agent) return undefined;
-  const name = agent.name.charAt(0).toUpperCase() + agent.name.slice(1);
+  const name = agent.externalName || agent.name.charAt(0).toUpperCase() + agent.name.slice(1);
   return { name, avatar: agent.avatar };
 }
 

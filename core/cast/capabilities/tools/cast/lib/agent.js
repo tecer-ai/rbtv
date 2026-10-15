@@ -181,8 +181,8 @@ function promptMissing(home) {
   return `${missing} This folder still has ${OLD_PROMPT_MD}, the old name of the prompt file. If another machine already renamed it, pull first; otherwise rename it with: git mv ${OLD_PROMPT_MD} ${PROMPT_MD} (inside ${home}), and change any .gitignore line that names ${OLD_PROMPT_MD}.`;
 }
 
-// The agent in `home`: its name, launch values, voice, Slack avatar (an `:emoji:` or an image URL;
-// null when unset), standing prompt, description, opening message
+// The agent in `home`: its name, the name people see (external_name; null when unset), launch values,
+// voice, Slack avatar (an `:emoji:` or an image URL; null when unset), standing prompt, description, opening message
 // (the first message of a headed launch given no task; null when the record has none) and whether
 // it is an Ignite agent (its `ignite` pack is on, which `ignite connect` does), or the problem
 // that stops a launch.
@@ -211,6 +211,7 @@ function readAgent(home) {
     model: values.model,
     effort: values.effort,
     name: text(values.name) ? values.name : path.basename(home),
+    externalName: text(values.external_name) ? values.external_name.trim() : null,
     voice: values.voice ?? null,
     avatar: text(values.avatar) ? values.avatar.trim() : null,
     description: typeof values.description === 'string' ? values.description : '',

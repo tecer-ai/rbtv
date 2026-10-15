@@ -244,6 +244,7 @@ def build_parser() -> argparse.ArgumentParser:
     s_ag_configure.add_argument("--effort")
     s_ag_configure.add_argument("--voice")
     s_ag_configure.add_argument("--avatar")
+    s_ag_configure.add_argument("--external-name")
     page(s_ag_configure, "agent configure")
     s_ag_update = agent_sub.add_parser("update")
     s_ag_update.add_argument("agent", metavar="AGENT")

@@ -55,6 +55,26 @@ test('every post and upload is sent as the agent named in agent.json', async (st
   for (const call of calls) assert.deepEqual(call.as, { name: 'Sara', avatar: ':owl:' });
 });
 
+test('an external_name is shown instead of the internal name', async (store) => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-as-'));
+  fs.writeFileSync(path.join(home, 'agent.json'), JSON.stringify({
+    name: 'master', external_name: 'Brigid', harness: 'claude', model: 'opus-5-5', effort: 'medium', avatar: ':owl:',
+  }));
+  fs.writeFileSync(path.join(home, 'prompt.md'), 'prompt');
+  const key = 'T1:C1:1.1';
+  store.upsertConversation({ key, agent: 'master', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
+  store.enqueueOutbox({ id: 'r1', conversationKey: key, payload: { text: 'hello' } });
+  const calls = [];
+  await deliverPending(store, { home, slack: {
+    async postMessage(args) { calls.push(args); return { channel: args.channel, ts: '9.1' }; },
+  } });
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].as, { name: 'Brigid', avatar: ':owl:' });
+});
+
 test('a conversation lost after loading the row is recovered before delivery', async (store) => {
   const key = 'schedule:wake';
   const bound = 'T1:C1:9.1';

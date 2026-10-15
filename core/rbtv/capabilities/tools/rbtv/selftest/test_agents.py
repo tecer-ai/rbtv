@@ -405,6 +405,12 @@ def installed_agents(ctx) -> None:
               record.get("avatar") == ":owl:" and avatared["launch"]["avatar"] == ":owl:"
               and avatared["launch"]["effort"] == "high" and avatared["before"]["avatar"] is None,
               str(avatared))
+        named = configure_agent(ws, "scout", None, None, None, None, catalog, False, external_name="Brigid")
+        record = json.loads((home / "agent.json").read_text(encoding="utf-8"))
+        check("A-configure — --external-name is stored in agent.json and the internal name stays",
+              record.get("external_name") == "Brigid" and record.get("name") == "scout"
+              and record.get("avatar") == ":owl:" and named["before"]["external_name"] is None,
+              str(named))
         switched = configure_agent(ws, "scout", "codex", "c1", "3", None, catalog, False)
     state = read_state(home)
     check("A-configure — a harness flip keeps every harness's files",

@@ -1490,7 +1490,8 @@ def _print_agent_configure(data: dict, target: Path, why: str | None,
             ("Model", f"{before['model']} -> {after['model']}"),
             ("Effort", f"{before['effort']} -> {after['effort']}"),
             ("Voice", f"{before['voice'] or 'not set'} -> {after['voice'] or 'not set'}"),
-            ("Avatar", f"{before['avatar'] or 'not set'} -> {after['avatar'] or 'not set'}")]
+            ("Avatar", f"{before['avatar'] or 'not set'} -> {after['avatar'] or 'not set'}"),
+            ("External name", f"{before['external_name'] or 'not set'} -> {after['external_name'] or 'not set'}")]
     if data["harness_changed"]:
         rows.append(("Installed files", f"{len(data['files'])}, unchanged"))
     if not dry:
@@ -1533,7 +1534,7 @@ def _agent_repeat(args, scope: str | None = None) -> str:
         words += [f"--{key} {value}" for key, value in
                   (("harness", args.harness), ("model", args.model),
                    ("effort", args.effort), ("voice", args.voice),
-                   ("avatar", args.avatar)) if value is not None]
+                   ("avatar", args.avatar), ("external-name", args.external_name)) if value is not None]
     elif args.agent_verb == "update":
         words.append(scope or args.scope)
     else:
@@ -1580,7 +1581,8 @@ def cmd_agent(args, target: Path, catalog: dict, shadowed: list,
         data = update_agent(target, args.agent, args.scope, catalog, dry)
     elif verb == "configure":
         data = configure_agent(target, args.agent, args.harness, args.model,
-                               args.effort, args.voice, catalog, dry, avatar=args.avatar)
+                               args.effort, args.voice, catalog, dry, avatar=args.avatar,
+                               external_name=args.external_name)
     else:
         data = remove_agent(target, args.agent, list(args.name), set(args.pack),
                             bool(args.all), bool(args.yes), catalog, dry)
