@@ -3,6 +3,7 @@
 // API
 // deliverPending(store, deps) → [{ id, delivered, stopped?, channel?, ts?, error? }]
 //   deps.slack.postMessage / uploadFile, deps.audio.speak when payload.audio.
+//   Every post and upload carries the agent's name and avatar from agent.json (deps.home).
 //   payload.imUser is posted as the channel (Slack accepts a user id; slack.js has no open-DM call).
 //   A board conversation (root ts "board") is posted as a new root and markDelivered rekeys it.
 //   Pending rows are reloaded before delivery so later replies follow the newly bound thread.
@@ -30,6 +31,13 @@ const PERMANENT = new Set([
 function voiceOf(store, home) {
   if (!home) return null;
   return readAgent(home).agent?.voice || null;
+}
+
+// The agent's name and avatar from its agent.json, shown as the sender of every post and upload.
+function senderOf(home) {
+  if (!home) return undefined;
+  const agent = readAgent(home).agent;
+  return agent ? { name: agent.name, avatar: agent.avatar } : undefined;
 }
 
 function isBoard(conv) {
@@ -79,6 +87,7 @@ async function deliverOne(store, row, deps, now) {
   const { channel, threadTs } = target;
   const text = typeof row.payload?.text === 'string' ? row.payload.text : '';
   const files = Array.isArray(row.payload?.files) ? row.payload.files.slice() : [];
+  const as = senderOf(deps.home);
   try {
     if (row.payload?.audio) {
       if (typeof deps.audio?.speak !== 'function') throw new Error('audio.speak required');
@@ -94,13 +103,14 @@ async function deliverOne(store, row, deps, now) {
         threadTs,
         text,
         clientMsgId: row.client_msg_id,
+        as,
       });
       if (!posted?.channel || !posted?.ts) throw new Error('Slack did not confirm delivery');
       store.rememberPost(row.id, posted);
       confirmed = posted;
     }
     for (const file of files) {
-      const uploaded = await deps.slack.uploadFile({ channel, threadTs, file });
+      const uploaded = await deps.slack.uploadFile({ channel, threadTs, file, as });
       if (!confirmed && uploaded?.ts) confirmed = { channel, ts: uploaded.ts };
     }
     if (!confirmed?.channel || !confirmed?.ts) throw new Error('Slack did not confirm delivery');

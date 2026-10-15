@@ -142,6 +142,23 @@ test('postMessage', async () => {
   assert.equal(calls[0].body.blocks, undefined);
 });
 
+test('postMessage-as-agent', async () => {
+  const { slack, calls } = harness({ 'chat.postMessage': { ok: true, ts: '9.9', channel: 'C1' } });
+  await slack.postMessage({ channel: 'C1', text: 'hi', as: { name: 'sara', avatar: ':owl:' } });
+  await slack.postMessage({ channel: 'C1', text: 'hi', as: { name: 'gaming', avatar: 'https://img.test/g.png' } });
+  await slack.postMessage({ channel: 'C1', text: 'hi', as: { name: 'albert', avatar: 'avatar.png' } });
+  await slack.postMessage({ channel: 'C1', text: 'hi' });
+  assert.equal(calls[0].body.username, 'sara');
+  assert.equal(calls[0].body.icon_emoji, ':owl:');
+  assert.equal(calls[0].body.icon_url, undefined);
+  assert.equal(calls[1].body.icon_url, 'https://img.test/g.png');
+  assert.equal(calls[1].body.icon_emoji, undefined);
+  assert.equal(calls[2].body.username, 'albert');
+  assert.equal(calls[2].body.icon_url, undefined);
+  assert.equal(calls[2].body.icon_emoji, undefined);
+  assert.equal(calls[3].body.username, undefined);
+});
+
 test('markdown-limit-before-any-network', async () => {
   const { slack, calls } = harness({ 'chat.postMessage': { ok: true, ts: '1' } });
   await assert.rejects(() => slack.postMessage({ channel: 'C1', text: 'x'.repeat(12001) }), /12,000/);
@@ -252,6 +269,20 @@ test('uploadFile', async () => {
   assert.equal(done.body.initial_comment, undefined);
   assert.deepEqual(JSON.parse(done.body.blocks), [{ type: 'markdown', text: 'note' }]);
   assert.equal(JSON.parse(done.body.files)[0].id, 'F9');
+});
+
+test('uploadFile-as-agent', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ignite-up-'));
+  const file = path.join(dir, 'note.txt');
+  await fs.writeFile(file, 'hello');
+  const { slack, calls } = harness({
+    'files.getUploadURLExternal': { ok: true, upload_url: 'https://upload.test/put', file_id: 'F9' },
+    'files.completeUploadExternal': { ok: true, files: [{ id: 'F9', name: 'note.txt' }] },
+  });
+  await slack.uploadFile({ channel: 'C1', file, as: { name: 'sara', avatar: ':owl:' } });
+  const done = calls.find((call) => call.method === 'files.completeUploadExternal');
+  assert.equal(done.body.username, 'sara');
+  assert.equal(done.body.icon_emoji, ':owl:');
 });
 
 test('downloadFile', async () => {

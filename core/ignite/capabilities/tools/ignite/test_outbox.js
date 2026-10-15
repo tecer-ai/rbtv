@@ -31,6 +31,30 @@ test('pending rows follow the new thread even when the old conversation remains'
   assert.equal(store.getSchedule('check').conversation_key, key);
 });
 
+test('every post and upload is sent as the agent named in agent.json', async (store) => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ignite-as-'));
+  fs.writeFileSync(path.join(home, 'agent.json'), JSON.stringify({
+    name: 'sara', harness: 'claude', model: 'opus-5-5', effort: 'medium', avatar: ':owl:',
+  }));
+  fs.writeFileSync(path.join(home, 'prompt.md'), 'prompt');
+  const file = path.join(home, 'out.txt');
+  fs.writeFileSync(file, 'x');
+  const key = 'T1:C1:1.1';
+  store.upsertConversation({ key, agent: 'sara', workspace: 'T1', channel: 'C1', rootTs: '1.1' });
+  store.enqueueOutbox({ id: 'r1', conversationKey: key, payload: { text: 'hello', files: [file] } });
+  const calls = [];
+  const [result] = await deliverPending(store, { home, slack: {
+    async postMessage(args) { calls.push(args); return { channel: args.channel, ts: '9.1' }; },
+    async uploadFile(args) { calls.push(args); return { ts: '9.2' }; },
+  } });
+  assert.equal(result.delivered, true);
+  assert.equal(calls.length, 2);
+  for (const call of calls) assert.deepEqual(call.as, { name: 'sara', avatar: ':owl:' });
+});
+
 test('a conversation lost after loading the row is recovered before delivery', async (store) => {
   const key = 'schedule:wake';
   const bound = 'T1:C1:9.1';

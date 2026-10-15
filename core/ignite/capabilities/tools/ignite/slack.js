@@ -12,14 +12,16 @@
 //   is not self), OR subtype message_changed / message_deleted / channel_join / group_join.
 // connect(onEvent): Socket Mode via app token. ACK only after onEvent resolves; no ACK if it
 //   rejects. Backoff 1s→60s, reset only on hello. disconnect envelopes close and reconnect.
-// postMessage({ channel, threadTs?, text, clientMsgId? }) → { channel, ts }  (standard Markdown)
+// postMessage({ channel, threadTs?, text, clientMsgId?, as? }) → { channel, ts }  (standard Markdown)
+//   as = { name?, avatar? }: the agent shown as sender (chat:write.customize). avatar `:emoji:` is
+//   sent as icon_emoji, an http(s) URL as icon_url, anything else is not sent.
 // addReaction(channel, ts) → reactions.add name=eyes
 // threadHistory(channel, threadTs) → normalized messages, oldest first (conversations.replies)
 // createChannel(name) → { id, name }
 // joinChannel(id) → { id }   (already_in_channel is success)
 // inviteUser(id, userId) → { id }   (already_in_channel is success)
 // archiveChannel(id)   (already_archived is success)
-// uploadFile({ channel, threadTs?, file, text? }) → { ts, files }
+// uploadFile({ channel, threadTs?, file, text?, as? }) → { ts, files }
 //   files.getUploadURLExternal + POST bytes + files.completeUploadExternal (returns message ts;
 //   slack upload does not).
 // downloadFile({ channel, ts, threadTs?, dir }) → [{ path, name }]  via slack download
@@ -34,6 +36,15 @@ const { promisify } = require('node:util');
 
 const SELF_SUBTYPES = new Set(['message_changed', 'message_deleted', 'channel_join', 'group_join']);
 const API = 'https://slack.com/api';
+
+function sender(as) {
+  const out = {};
+  if (typeof as?.name === 'string' && as.name.trim()) out.username = as.name.trim();
+  const avatar = typeof as?.avatar === 'string' ? as.avatar.trim() : '';
+  if (/^:[^:\s]+:$/.test(avatar)) out.icon_emoji = avatar;
+  else if (/^https?:\/\/\S+$/i.test(avatar)) out.icon_url = avatar;
+  return out;
+}
 
 function markdown(text) {
   if (typeof text !== 'string' || !text.trim()) throw new Error('Slack message is empty');
@@ -170,13 +181,14 @@ class Slack {
     return normalize(event, this.identity);
   }
 
-  async postMessage({ channel, threadTs, text, clientMsgId } = {}) {
+  async postMessage({ channel, threadTs, text, clientMsgId, as } = {}) {
     if (!channel) throw new Error('postMessage requires channel');
     const data = await this.api('chat.postMessage', {
       channel,
       markdown_text: markdown(text),
       ...(threadTs ? { thread_ts: threadTs } : {}),
       ...(clientMsgId ? { client_msg_id: clientMsgId } : {}),
+      ...sender(as),
     });
     return { channel: data.channel || channel, ts: data.ts };
   }
@@ -268,7 +280,7 @@ class Slack {
     return downloadPaths(stdout, dir);
   }
 
-  async uploadFile({ channel, threadTs, file, text } = {}) {
+  async uploadFile({ channel, threadTs, file, text, as } = {}) {
     if (!channel || !file) throw new Error('uploadFile requires channel and file');
     const comment = text ? { blocks: [{ type: 'markdown', text: markdown(text) }] } : {};
     const stat = await fs.stat(file);
@@ -288,6 +300,7 @@ class Slack {
       channel_id: channel,
       ...(threadTs ? { thread_ts: threadTs } : {}),
       ...comment,
+      ...sender(as),
     });
     const uploaded = (done.files || [])[0] || {};
     return {
