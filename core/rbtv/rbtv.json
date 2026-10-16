@@ -1,4 +1,10 @@
 {
   "description": "Builds and manages rbtv itself: the `rbtv` CLI, which installs and manages the skills, rules, commands, tools and other files rbtv provides and the provider accounts a machine uses, and the `framework` skill with its glossary, principles and capabilities for building any file of rbtv.",
-  "dependencies": []
+  "dependencies": [
+    {
+      "name": "node",
+      "install": "https://nodejs.org/en/download",
+      "command": "node"
+    }
+  ]
 }
