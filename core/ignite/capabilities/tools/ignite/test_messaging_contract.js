@@ -21,7 +21,7 @@
 // of its content (CRLF read as LF) and the test fails when the file changed. The inbound fixtures are
 // checked against the contract's inbound event table. `--write-fixture` rewrites both lists from the
 // live occurrences, keeping what is known and putting "?" on each new entry for the author to fill in;
-// on a changed file it records the new hash and resets that file's binding, call: and reads entries to
+// on a changed file, or one with no recorded hash, it records the new hash and resets that file's binding, call: and reads entries to
 // "?", so the test fails until the author restates by hand what the bound name reaches.
 
 const assert = require('node:assert/strict');
@@ -143,7 +143,7 @@ if (process.argv.includes('--write-fixture')) {
     const hashes = {};
     for (const file of boundFiles(uses, field)) {
       hashes[file] = hashOf(files.find((f) => f.file === file).abs);
-      if (old.files[file] === undefined || old.files[file] === hashes[file]) continue;
+      if (old.files[file] === hashes[file]) continue;
       for (const e of uses) if (e.file === file && binds(e, field) && e[field] !== '?') { console.log(`reset ${file}: ${e.line} (${e.nth}): ${JSON.stringify(e[field])} -> "?"`); e[field] = '?'; }
     }
     fs.writeFileSync(fixtureOf(word), `${JSON.stringify({ files: hashes, uses }, null, 2)}\n`);
