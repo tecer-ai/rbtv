@@ -44,9 +44,9 @@ class Stub(http.server.BaseHTTPRequestHandler):
                           "token": self.headers.get("access_token"),
                           "agent": self.headers.get("User-Agent")})
         status, payload = Stub.routes.get((method, url.path), (599, {"errors": [{"code": "undeclared", "description": url.path}]}))
-        data = json.dumps(payload).encode("utf-8")
+        ctype, data = payload if isinstance(payload, tuple) else ("application/json", json.dumps(payload).encode("utf-8"))
         self.send_response(status)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -217,6 +217,8 @@ def main():
     check("decode prints amount and payable, and the command that pays it", code == 0 and "R$ 99,00" in out
           and "Payable   yes: asaas pay qr pays it through Ignite's payment gate" in out.splitlines(), out)
 
+    receipt_checks(server, work, R)
+
     code, out, err = run(work, server, "transfer")
     check("an unknown command exits 2", code == 2, err)
 
@@ -225,6 +227,30 @@ def main():
     server.shutdown()
     print(f"\n{len(FAILS)} failed" if FAILS else "\nall passed")
     return 1 if FAILS else 0
+
+
+def receipt_checks(server, work, R):
+    site = {"ASAAS_RECEIPT_URL": f"http://127.0.0.1:{server.server_port}"}
+    link = f"http://127.0.0.1:{server.server_port}/comprovantes/h/ABC"
+    pdf = b"%PDF-1.4 receipt"
+    R[("GET", "/comprovantes/h/ABC")] = (200, ("text/html", b'<a href="/transactionReceipt/pdf/42">PDF</a>'))
+    R[("GET", "/transactionReceipt/pdf/42")] = (200, ("application/pdf", pdf))
+    code, out, err = run(work, server, "--json", "receipt", link, extra=site)
+    saved = work / "receipt-42.pdf"
+    check("receipt follows the page's PDF link and saves the PDF", code == 0 and saved.read_bytes() == pdf
+          and json.loads(out)["bytes"] == len(pdf), out + err)
+    code, out, err = run(work, server, "receipt", link, extra=site)
+    check("receipt never writes over a file", code == 1 and "already exists" in err and saved.read_bytes() == pdf, out + err)
+    code, out, err = run(work, server, "receipt", "https://evil.example/comprovantes/h/ABC", "--out", "x.pdf", extra=site)
+    check("receipt refuses a link outside Asaas, with no file", code == 1 and "receipt link starts with" in err
+          and not (work / "x.pdf").exists(), out + err)
+    R[("GET", "/transactionReceipt/pdf/42")] = (200, ("text/html", b"<html>login</html>"))
+    code, out, err = run(work, server, "receipt", link, "--out", "y.pdf", extra=site)
+    check("receipt refuses what is not a PDF, with no file", code == 1 and "did not return a PDF" in err
+          and not (work / "y.pdf").exists(), out + err)
+    R[("GET", "/comprovantes/h/ABC")] = (200, ("text/html", b"<html>no link</html>"))
+    code, out, err = run(work, server, "receipt", link, "--out", "z.pdf", extra=site)
+    check("receipt names the page change when the PDF link is gone", code == 1 and "no PDF link" in err, out + err)
 
 
 def pay_checks(server, home, work, R):

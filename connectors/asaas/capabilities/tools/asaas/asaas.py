@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """asaas — an Asaas bank account from one command, for agents.
 
-Reads: balance, statement, Pix key lookup and Pix QR code decode.
+Reads: balance, statement, Pix key lookup and Pix QR code decode, and saves a
+payment receipt as PDF.
 Pays only through Ignite's payment gate: `pay pix`, `pay qr`, `pay bill` and
 `pay recharge` resolve the recipient, record a request with `ignite payment
 request`, and print the gate's answer. They never call a paying endpoint. The
@@ -39,6 +40,11 @@ USER_AGENT = "rbtv-asaas"              # required for accounts created after 202
 INSTALL_RECORD_REL = Path(".rbtv") / "config" / "install.json"
 ENV_FILE_REL = Path(".rbtv") / "config" / "env" / ".env"
 TIMEOUT = 20
+RECEIPT_URL_ENV = "ASAAS_RECEIPT_URL"  # test hook: points receipt downloads at a stub server
+RECEIPT_SITE = os.environ.get(RECEIPT_URL_ENV, "https://www.asaas.com").rstrip("/")
+# The receipt page's own download link; Asaas documents no receipt-PDF endpoint.
+RECEIPT_PDF_RE = re.compile(r'href="(/transactionReceipt/pdf/[0-9]+)"')
+REQUEST_ID_RE = re.compile(r"P-\d+\Z")
 IGNITE_ENV = "ASAAS_IGNITE"            # test hook: path of Ignite's cli.js, run with node, in place of `ignite`
 GATE_WAIT_ENV = "ASAAS_GATE_WAIT"      # seconds `pay` waits for Ignite to send an approved payment (default 30)
 PROVIDER = "asaas"
@@ -568,6 +574,48 @@ def cmd_payment(args):
     out(args, row, lines)
 
 
+def fetch(url):
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+            return resp.read()
+    except urllib.error.HTTPError as e:
+        raise Refusal(f"Asaas answered HTTP {e.code} for the receipt", url, "check the link, or run again if Asaas was unavailable")
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        raise Refusal(f"could not reach Asaas ({RECEIPT_SITE})", str(getattr(e, "reason", e)), "check the network and run the same command again")
+
+
+def cmd_receipt(args):
+    ref = args.ref
+    if REQUEST_ID_RE.match(ref):
+        row = gate("show", ref, fix=UNKNOWN_FIX)
+        link = row.get("receipt_url")
+        if not link:
+            raise Refusal(f"{ref} has no receipt yet", f"it is {row.get('state')}; Asaas gives a receipt once the payment is done",
+                          f"{PROG} payment {ref} shows when it has one")
+        name = ref
+    elif ref.startswith(RECEIPT_SITE + "/"):
+        link, name = ref, None
+    else:
+        raise Refusal(f"{ref} is neither a request id nor an Asaas receipt link",
+                      f"a receipt link starts with {RECEIPT_SITE}/", f"pass a request id such as P-0007, or the receipt link")
+    page = fetch(link).decode("utf-8", "replace")
+    m = RECEIPT_PDF_RE.search(page)
+    if not m:
+        raise Refusal("the receipt page has no PDF link", "Asaas may have changed its receipt page", f"open the link in a browser: {link}")
+    pdf = fetch(RECEIPT_SITE + m.group(1))
+    if not pdf.startswith(b"%PDF-"):
+        raise Refusal("Asaas did not return a PDF", f"{RECEIPT_SITE + m.group(1)} answered {len(pdf)} bytes of something else",
+                      f"open the link in a browser: {link}")
+    path = Path(args.out or f"{name or 'receipt-' + m.group(1).rsplit('/', 1)[1]}.pdf")
+    if path.exists():
+        raise Refusal(f"{path} already exists", "the receipt is never written over a file", "pass --out with another path")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(pdf)
+    out(args, {"path": str(path.resolve()), "bytes": len(pdf), "receipt_url": link},
+        [f"Saved     {path.resolve()} ({len(pdf) // 1024} KB)", f"Receipt   {link}"])
+
+
 def cmd_cancel(args):
     row = gate("show", args.id, fix=UNKNOWN_FIX)
     if row.get("state") == "pending":
@@ -676,9 +724,13 @@ def parser():
     s = sub.add_parser("cancel", help="withdraw a pending request, or cancel a sent payment at Asaas while it can be")
     s.add_argument("id", help="the request id, such as P-0007")
     s.set_defaults(fn=cmd_cancel)
+    s = sub.add_parser("receipt", help="save a payment's receipt as PDF, from this agent's request id or an Asaas receipt link")
+    s.add_argument("ref", help="a request id such as P-0007, or a receipt link (https://www.asaas.com/...)")
+    s.add_argument("--out", help="the PDF file to write (default: <request id>.pdf in this folder); never overwritten")
+    s.set_defaults(fn=cmd_receipt)
 
     leaves = [sub.choices["balance"], sub.choices["statement"], psub.choices["lookup"], psub.choices["decode"],
-              *paysub.choices.values(), sub.choices["payments"], sub.choices["payment"], sub.choices["cancel"]]
+              *paysub.choices.values(), sub.choices["payments"], sub.choices["payment"], sub.choices["cancel"], sub.choices["receipt"]]
     for sp in leaves:
         sp.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     return p
